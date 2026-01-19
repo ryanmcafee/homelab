@@ -29,7 +29,7 @@
         msg: "IPMI interface {{ ipmi_host }} is {{ 'reachable' if ipmi_reachable is success else 'not reachable' }}"
 
   roles:
-    - role: proxmox-ipmi
+    - role: proxmox_ipmi
 
   post_tasks:
     - name: Display fan sensor status

@@ -18,7 +18,7 @@
         msg: "Configuring network bridge {{ proxmox_network_bridge }} with VLAN {{ homelab_vlan }}"
 
   roles:
-    - role: proxmox-networking
+    - role: proxmox_networking
 
   post_tasks:
     - name: Display network bridge configuration

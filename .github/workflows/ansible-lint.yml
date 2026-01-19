@@ -27,6 +27,11 @@ jobs:
         run: |
           pip install ansible-lint ansible-core
 
+      - name: Install Ansible collections
+        run: |
+          cd ansible
+          ansible-galaxy collection install -r requirements.yml
+
       - name: Run ansible-lint
         run: |
           cd ansible

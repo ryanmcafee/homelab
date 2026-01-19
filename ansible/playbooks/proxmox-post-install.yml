@@ -15,7 +15,7 @@
         cache_valid_time: "{{ apt_cache_valid_time | default(3600) }}"
 
   roles:
-    - role: proxmox-base
+    - role: proxmox_base
 
   tasks:
     - name: Check if post-install script has already been run
@@ -37,11 +37,7 @@
         creates: /etc/apt/sources.list.d/pve-no-subscription.list
       when: not post_install_marker.stat.exists
       register: post_install_result
-
-    - name: Display post-install script output
-      ansible.builtin.debug:
-        var: post_install_result.stdout_lines
-      when: post_install_result is changed
+      notify: Display post-install script output
 
     - name: Clean up post-install script
       ansible.builtin.file:
@@ -68,3 +64,8 @@
       ansible.builtin.reboot:
         reboot_timeout: 300
       when: post_install_result is changed or (apt_upgrade | default(false) | bool)
+
+  handlers:
+    - name: Display post-install script output
+      ansible.builtin.debug:
+        var: post_install_result.stdout_lines

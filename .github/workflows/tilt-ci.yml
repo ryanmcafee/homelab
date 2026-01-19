@@ -273,8 +273,8 @@ jobs:
 
       - name: Validate values files
         run: |
-          # Validate all values files are valid YAML
-          find charts/ localdev/ -name "*.yaml" -type f | while read file; do
+          # Validate all values files are valid YAML (exclude Helm templates)
+          find charts/ localdev/ -name "*.yaml" -type f | grep -v "/templates/" | while read file; do
             echo "Validating: $file"
             python3 -c "import yaml; yaml.safe_load(open('$file'))" || exit 1
           done

@@ -79,4 +79,4 @@ zfs_pool_type: mirror
 zfs_pool_devices: "{{ vm_storage_drives }}"
 zfs_pool_ashift: 12  # 4K sectors
 zfs_pool_compression: lz4
-zfs_pool_atime: off
+zfs_pool_atime: false

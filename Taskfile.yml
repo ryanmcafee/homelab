@@ -124,12 +124,16 @@ tasks:
   chart:template:apps:
     desc: Template applications chart
     cmds:
-      - helm template applications charts/applications -f charts/applications/values-localdev.yaml
+      - >
+        helm template applications charts/applications
+        -f charts/applications/values-localdev.yaml
 
   chart:diff:
     desc: Show diff of what would change in Kind cluster
     cmds:
-      - helm diff upgrade gitops charts/gitops -f charts/gitops/values-localdev.yaml -n argocd
+      - >
+        helm diff upgrade gitops charts/gitops
+        -f charts/gitops/values-localdev.yaml -n argocd
 
   # ==========================================================================
   # Ansible
@@ -238,7 +242,9 @@ tasks:
   k8s:argocd-password:
     desc: Retrieve ArgoCD admin password
     cmds:
-      - kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d
+      - >
+        kubectl -n argocd get secret argocd-initial-admin-secret
+        -o jsonpath='{.data.password}' | base64 -d
 
   # ==========================================================================
   # CI/CD Testing
