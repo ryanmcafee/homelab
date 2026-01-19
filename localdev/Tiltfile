@@ -77,13 +77,16 @@ if mode == "argocd":
     )
 
     # Configure ArgoCD server with port forwarding
-    k8s_resource(
-        workload="argocd-server",
-        new_name="argocd-ui",
-        port_forwards=["8080:8080"],
-        labels=["argocd"],
-        resource_deps=["argocd-install"],
-    )
+    # Note: Commented out because k8s_resource fails during Tiltfile load
+    # The argocd-server workload doesn't exist until after helm install completes
+    # Port forwarding can be done manually: kubectl port-forward -n argocd svc/argocd-server 8080:443
+    # k8s_resource(
+    #     workload="argocd-server",
+    #     new_name="argocd-ui",
+    #     port_forwards=["8080:8080"],
+    #     labels=["argocd"],
+    #     resource_deps=["argocd-install"],
+    # )
 
     # Deploy the gitops Application (App of Apps pattern)
     # This creates the root ArgoCD Application that manages all other apps
@@ -155,7 +158,7 @@ if mode == "direct":
     # Traefik Ingress Controller (NodePort mode for Kind)
     helm_resource(
         "traefik",
-        chart="traefik/traefik",
+        chart="traefik",
         namespace="traefik",
         flags=[
             "--create-namespace",
@@ -174,7 +177,7 @@ if mode == "direct":
     # cert-manager for TLS certificate management
     helm_resource(
         "cert-manager",
-        chart="cert-manager/cert-manager",
+        chart="cert-manager",
         namespace="cert-manager",
         flags=[
             "--create-namespace",
@@ -191,7 +194,7 @@ if mode == "direct":
     # Disabled by default, enable with: tilt enable kube-prometheus-stack
     helm_resource(
         "kube-prometheus-stack",
-        chart="prometheus-community/kube-prometheus-stack",
+        chart="kube-prometheus-stack",
         namespace="monitoring",
         flags=[
             "--create-namespace",
