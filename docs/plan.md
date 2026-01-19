@@ -2,9 +2,9 @@
 
 ## Project Overview
 
-Built with care, designed for presence. "One more story?" Always yes. This homelab was built so the answer is always yes.
+Watering plants together. Teaching small hands to be gentle. Ordinary lessons on ordinary days. This homelab needs no watering, no tending, so I can tend to what actually grows—so the answer is always yes.
 
-A GitOps-driven, family-first homelab monorepo using CNCF best practices. Single entrypoint setup, zero ongoing maintenance, designed to run forever.
+A GitOps-driven, family-first homelab monorepo using CNCF best practices. Single entrypoint setup, minimal ongoing maintenance, designed to build once, run forever.
 
 ## Task Tracking Strategy
 
@@ -145,7 +145,7 @@ Each phase will:
 
 | Resource | Specification |
 |----------|---------------|
-| Data Drives | 8x 20TB HDDs (managed by TrueNAS, RAIDZ2 recommended) |
+| Data Drives | 8x 20TB HDDs (managed by TrueNAS, RAIDZ3 recommended) |
 | Special vDev | 2x 1TB NVMe (ZFS RAID-1 mirror for metadata + small blocks) |
 | HBA Card | Broadcom 9400-8i Mixed Mode (passed through for NVMe support) |
 
@@ -1419,7 +1419,7 @@ resource "proxmox_virtual_environment_vm" "truenas" {
       community.general.truenas_pool:
         name: tank
         vdevs:
-          - type: raidz2
+          - type: RAIDZ3
             disks: "{{ truenas_data_disks }}"  # 8x20TB
         special_vdevs:
           - type: mirror
@@ -1443,7 +1443,7 @@ resource "proxmox_virtual_environment_vm" "truenas" {
 
 **Tasks:**
 1. Create Ansible playbook for TrueNAS configuration
-2. Create ZFS pool (tank) with RAIDZ2 and special vdev
+2. Create ZFS pool (tank) with RAIDZ3 and special vdev
 3. Create Kubernetes NFS dataset
 4. Configure NFS export for 172.16.100.0/24
 5. Verify NFS mount from Proxmox host
@@ -1451,7 +1451,7 @@ resource "proxmox_virtual_environment_vm" "truenas" {
 **Checkpoint:** ZFS pool created, NFS exports accessible
 
 **Acceptance criteria:**
-- [ ] ZFS pool 'tank' created with RAIDZ2 (8x20TB)
+- [ ] ZFS pool 'tank' created with RAIDZ3 (8x20TB)
 - [ ] Special vdev configured (2x1TB NVMe mirror)
 - [ ] NFS share created and accessible
 - [ ] Can mount NFS share from Proxmox host
@@ -1864,7 +1864,7 @@ resource "kubectl_manifest" "gitops_app" {
 **Phase 3 Overall Acceptance criteria:**
 - [ ] All subphases (3.0-3.6) completed with checkpoints saved
 - [ ] TrueNAS VM running with HBA passthrough
-- [ ] ZFS pools created (tank with RAIDZ2 + special vdev)
+- [ ] ZFS pools created (tank with RAIDZ3 + special vdev)
 - [ ] NFS shares exported for Kubernetes
 - [ ] Talos cluster healthy (2 CP + 3 workers)
 - [ ] kubectl access working
@@ -2951,9 +2951,7 @@ stern: "1.28.x"       # Log streaming
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Built with care, designed for presence.
-# "One more story?" Always yes.
-# This homelab was built so the answer is always yes.
+# This homelab needs no watering, no tending, so I can tend to what actually grows.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(dirname "$SCRIPT_DIR")"
@@ -3020,8 +3018,8 @@ phase_3_verify() {
 
 main() {
     echo ""
-    echo "Built with care, designed for presence."
-    echo "\"One more story?\" Always yes."
+    echo "This homelab needs no watering, no tending,"
+    echo "so I can tend to what actually grows."
     echo ""
 
     check_prerequisites

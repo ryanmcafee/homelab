@@ -1,6 +1,8 @@
 # Homelab Architecture Documentation
 
-**Built with care, designed for presence.** "One more story?" Always yes.
+**This homelab needs no watering, no tending, so I can tend to what actually grows.**
+
+_Watering plants together. Teaching small hands to be gentle. Ordinary lessons on ordinary days._
 
 This document provides a comprehensive overview of the homelab architecture, design patterns, and technical implementation details.
 
@@ -152,7 +154,7 @@ Every infrastructure change flows through Git:
 │                      TrueNAS Scale 24.04.x                       │
 │                                                                  │
 │  ┌──────────────────────────────────────────────────────────┐  │
-│  │  ZFS Pool (RAIDZ2)                                        │  │
+│  │  ZFS Pool (RAIDZ3)                                        │  │
 │  │  - Data: 8x 20TB HDDs                                     │  │
 │  │  - Special vDev: 2x 1TB NVMe (metadata + small blocks)   │  │
 │  │  - Total Usable: ~120TB                                   │  │
@@ -163,7 +165,7 @@ Every infrastructure change flows through Git:
 ```
 
 **Key Features**:
-- RAIDZ2 for dual-disk fault tolerance
+- RAIDZ3 for dual-disk fault tolerance
 - Special vDev for metadata acceleration
 - NFS shares for Kubernetes persistent volumes
 - Snapshots and replication for backups
@@ -498,7 +500,7 @@ See [networking.md](./networking.md) for complete details.
 │                      TrueNAS ZFS Pool                            │
 │                                                                  │
 │  ┌──────────────────────────────────────────────────────────┐  │
-│  │  Data vDev (RAIDZ2)                                       │  │
+│  │  Data vDev (RAIDZ3)                                       │  │
 │  │  ┌────┐ ┌────┐ ┌────┐ ┌────┐ ┌────┐ ┌────┐ ┌────┐ ┌────┐ │  │
 │  │  │20TB│ │20TB│ │20TB│ │20TB│ │20TB│ │20TB│ │20TB│ │20TB│ │  │
 │  │  └────┘ └────┘ └────┘ └────┘ └────┘ └────┘ └────┘ └────┘ │  │

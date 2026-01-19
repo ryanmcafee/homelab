@@ -21,8 +21,8 @@ print("""
 ║                                                                          ║
 ║                        Homelab Development Environment                   ║
 ║                                                                          ║
-║  Built with care, designed for presence.                                ║
-║  "One more story?" Always yes.                                          ║
+║  This homelab needs no watering, no tending,                            ║
+║  so I can tend to what actually grows.                                  ║
 ║                                                                          ║
 ╚══════════════════════════════════════════════════════════════════════════╝
 """)
