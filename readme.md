@@ -14,7 +14,7 @@ _Watering plants together. Teaching small hands to be gentle. Ordinary lessons o
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
 A GitOps-driven, family-first homelab monorepo using CNCF best practices.<br>
-Single entrypoint setup, zero ongoing maintenance, designed to run forever.
+Single entrypoint setup, minimal ongoing maintenance, designed to run forever.
 
 [Quick Start](#quick-start) • [Architecture](#architecture) • [Applications](#applications) • [Documentation](#documentation)
 

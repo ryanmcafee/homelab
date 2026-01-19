@@ -35,7 +35,7 @@ TrueNAS provides network-attached storage (NAS) for the homelab:
 │  │  ZFS Pool: tank                                        │ │
 │  │                                                        │ │
 │  │  ┌──────────────────────────────────────────────────┐ │ │
-│  │  │  Data vDev (RAIDZ2)                              │ │ │
+│  │  │  Data vDev (RAIDZ3)                              │ │ │
 │  │  │  - 8x 20TB HDDs                                  │ │ │
 │  │  │  - Usable: ~120TB                                │ │ │
 │  │  │  - 2-disk fault tolerance                        │ │ │
@@ -380,7 +380,7 @@ zpool status tank
 # Example output:
 #   NAME        STATE     READ WRITE CKSUM
 #   tank        DEGRADED     0     0     0
-#     raidz2-0  DEGRADED     0     0     0
+#     RAIDZ3-0  DEGRADED     0     0     0
 #       da0     ONLINE       0     0     0
 #       da1     FAULTED      0     0     0  <-- Failed drive
 #       da2     ONLINE       0     0     0
@@ -428,9 +428,9 @@ zpool status tank
 # 1. Identify new drives
 camcontrol devlist
 
-# 2. Add new RAIDZ2 vDev to pool
+# 2. Add new RAIDZ3 vDev to pool
 # Example: Add 8x new 20TB drives
-zpool add tank raidz2 da9 da10 da11 da12 da13 da14 da15 da16
+zpool add tank RAIDZ3 da9 da10 da11 da12 da13 da14 da15 da16
 
 # 3. Verify
 zpool status tank
@@ -440,7 +440,7 @@ zpool list tank
 ```
 
 **Important**:
-- New vDev should match existing vDev type (RAIDZ2)
+- New vDev should match existing vDev type (RAIDZ3)
 - Data will NOT rebalance automatically (new writes go to both vDevs)
 - Cannot remove vDev once added
 
@@ -649,7 +649,7 @@ zpool import tank
 
 ```bash
 # 1. Recreate pool
-zpool create tank raidz2 da0 da1 da2 da3 da4 da5 da6 da7
+zpool create tank RAIDZ3 da0 da1 da2 da3 da4 da5 da6 da7
 zpool add tank special mirror da8 da9
 
 # 2. Restore from backup

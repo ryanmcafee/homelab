@@ -44,7 +44,7 @@ This document provides comprehensive hardware configuration instructions for the
 │  │  ├─ NVMe 3: 1TB (VM storage pool - ZFS mirror)           │  │
 │  │  ├─ NVMe 4: 1TB (TrueNAS special vDev - mirror)          │  │
 │  │  ├─ NVMe 5: 1TB (TrueNAS special vDev - mirror)          │  │
-│  │  ├─ HDD 1-8: 20TB (TrueNAS data pool - RAIDZ2)           │  │
+│  │  ├─ HDD 1-8: 20TB (TrueNAS data pool - RAIDZ3)           │  │
 │  │  └─ HDD 9-16: (Available for expansion)                  │  │
 │  └──────────────────────────────────────────────────────────┘  │
 │                                                                  │
@@ -78,7 +78,7 @@ See [Google Sheets Parts List](https://docs.google.com/spreadsheets/d/19JLS5aV62
 | NVMe SSD 1 | 250 GB | M.2 NVMe | Proxmox OS |
 | NVMe SSD 2-3 | 1 TB each | M.2 NVMe | Proxmox VM storage (ZFS mirror) |
 | NVMe SSD 4-5 | 1 TB each | U.2 NVMe | TrueNAS special vDev (ZFS mirror) |
-| HDD 1-8 | 20 TB each | SATA/SAS | TrueNAS data pool (RAIDZ2) |
+| HDD 1-8 | 20 TB each | SATA/SAS | TrueNAS data pool (RAIDZ3) |
 
 **Total Raw Storage**: 250 GB + 2 TB + 2 TB + 160 TB = ~164 TB
 **Usable Storage**: ~122 TB (after RAID overhead)
@@ -597,7 +597,7 @@ ipmitool -I lanplus -H 172.16.100.26 -U ADMIN -P <password> sensor thresh FAN4 l
 ┌─────────────────────────────────────────────────────────────┐
 │                     Front Drive Bays                         │
 │                                                              │
-│  Row 1 (HDDs - TrueNAS Data Pool RAIDZ2):                  │
+│  Row 1 (HDDs - TrueNAS Data Pool RAIDZ3):                  │
 │  ┌──────┐ ┌──────┐ ┌──────┐ ┌──────┐ ┌──────┐ ┌──────┐   │
 │  │ 20TB │ │ 20TB │ │ 20TB │ │ 20TB │ │ 20TB │ │ 20TB │   │
 │  │ HDD1 │ │ HDD2 │ │ HDD3 │ │ HDD4 │ │ HDD5 │ │ HDD6 │   │
@@ -624,7 +624,7 @@ ipmitool -I lanplus -H 172.16.100.26 -U ADMIN -P <password> sensor thresh FAN4 l
 | NVMe 1 | 250 GB | Onboard | Proxmox OS |
 | NVMe 2-3 | 1 TB | HBA 1 | Proxmox VM storage (ZFS mirror) |
 | NVMe 4-5 | 1 TB | HBA 2 | TrueNAS special vDev (ZFS mirror) |
-| HDD 1-8 | 20 TB | HBA 2 | TrueNAS data pool (RAIDZ2) |
+| HDD 1-8 | 20 TB | HBA 2 | TrueNAS data pool (RAIDZ3) |
 
 ---
 

@@ -121,12 +121,12 @@ For 8x 20TB HDDs + 2x 1TB NVMe (via HBA passthrough):
 # In TrueNAS:
 # 1. Go to Storage > Pools > Create Pool
 # 2. Name: tank
-# 3. Data VDEVs: RAIDZ2 with 8x 20TB HDDs
+# 3. Data VDEVs: RAIDZ3 with 8x 20TB HDDs
 # 4. Metadata (Special) VDEV: Mirror with 2x 1TB NVMe
 # 5. Create
 
 # Or via CLI:
-zpool create -f tank raidz2 \
+zpool create -f tank RAIDZ3 \
   /dev/sda /dev/sdb /dev/sdc /dev/sdd \
   /dev/sde /dev/sdf /dev/sdg /dev/sdh \
   special mirror /dev/nvme0n1 /dev/nvme1n1
