@@ -1,5 +1,5 @@
 name: YAML Lint
-# Uses .yamllint configuration for rules
+# Uses .yamllint configuration - ignores Helm template directories
 
 on:
   pull_request:
