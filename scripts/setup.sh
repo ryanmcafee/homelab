@@ -52,13 +52,69 @@ confirm() {
     esac
 }
 
+# Function to install mise if not present
+install_mise() {
+    if command -v mise &> /dev/null; then
+        print_success "mise is already installed ($(mise --version))"
+        return 0
+    fi
+
+    print_step "mise not found - installing..."
+
+    # Install mise using official installer
+    if curl https://mise.run | sh; then
+        print_success "mise installed successfully"
+
+        # Activate mise for current session
+        export PATH="$HOME/.local/bin:$PATH"
+        eval "$(mise activate bash)"
+
+        print_warning "mise activated for this session"
+        echo "To make this permanent, add the following to your ~/.bashrc or ~/.zshrc:"
+        echo '  eval "$(~/.local/bin/mise activate bash)"'
+        echo ""
+    else
+        print_error "Failed to install mise"
+        return 1
+    fi
+}
+
+# Function to install all tools via mise
+install_tools() {
+    print_step "Installing all dependencies via mise..."
+    cd "$PROJECT_ROOT"
+
+    if mise install -y; then
+        print_success "All tools installed via mise"
+    else
+        print_error "mise installation failed"
+        echo "Run 'mise doctor' for diagnostics"
+        return 1
+    fi
+}
+
+# Step 0: Ensure mise is installed and install all tools
+print_step "Checking for mise..."
+if ! install_mise; then
+    print_error "mise installation failed"
+    exit 1
+fi
+echo ""
+
+print_step "Installing tools via mise..."
+if ! install_tools; then
+    print_error "Tool installation failed"
+    exit 1
+fi
+echo ""
+
 # Step 1: Validate prerequisites
 print_step "Validating prerequisites..."
 if ! "$SCRIPT_DIR/validate-prerequisites.sh"; then
     print_error "Prerequisites validation failed"
     echo ""
-    echo "Please install missing prerequisites and try again."
-    echo "Run: task install-tools"
+    echo "Please check that all tools are installed correctly."
+    echo "Run: mise doctor"
     exit 1
 fi
 print_success "Prerequisites validated"

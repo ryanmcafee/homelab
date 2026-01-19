@@ -6,12 +6,56 @@ A GitOps-driven, family-first homelab monorepo using CNCF best practices. Single
 
 ## Quick Start
 
-```bash
-# Local development (no hardware required)
-task localdev:up
+### Prerequisites
 
-# Production deployment
+This project uses [mise](https://mise.jdx.dev/) to manage all tool dependencies across Mac, Linux, and Windows.
+
+**Mac/Linux:**
+```bash
+# Install mise
+curl https://mise.run | sh
+
+# Activate mise (add to ~/.bashrc or ~/.zshrc for persistence)
+eval "$(~/.local/bin/mise activate bash)"
+```
+
+**Windows (PowerShell):**
+```powershell
+# Install mise
+Invoke-Expression "& { $(Invoke-RestMethod https://mise.run) }"
+
+# Activate mise (add to $PROFILE for persistence)
+mise activate pwsh | Out-String | Invoke-Expression
+```
+
+### Quick Setup
+
+**Mac/Linux:**
+```bash
+# Automated setup (installs mise and all tools)
 ./scripts/setup.sh
+
+# Or for local development only
+task localdev:up
+```
+
+**Windows:**
+```powershell
+# Automated setup (installs mise and all tools)
+.\scripts\setup.ps1
+
+# Or for local development only
+task localdev:up
+```
+
+### Manual Installation
+
+If you prefer to install tools manually:
+
+```bash
+mise install -y          # Install all tools from mise.toml
+mise run validate        # Verify installations
+mise doctor              # Troubleshoot issues
 ```
 
 ## Objectives
@@ -124,6 +168,48 @@ homelab/
 ├── localdev/                # Kind + Tilt local dev
 ├── docs/                    # Documentation
 └── scripts/                 # Automation scripts
+```
+
+## Managed Dependencies
+
+All CLI tools are managed via mise (defined in `mise.toml`):
+
+- **Infrastructure as Code**: Terraform 1.7.5, Terragrunt 0.55.1
+- **Kubernetes Tools**: kubectl 1.30.0, Helm, Kind 0.22.0, Talos 1.7.6, Tilt 0.33.11
+- **Configuration Management**: Ansible, ansible-lint (via pipx)
+- **Task Runner**: Task (go-task)
+- **Utilities**: jq, direnv, yamllint
+
+External prerequisites (install separately):
+- **Docker Desktop**: Required for local Kind development
+- **Git, curl, wget**: System packages
+
+## Tool Management
+
+All tools are managed via mise and defined in `mise.toml`. Versions are pinned for consistency across environments.
+
+```bash
+# List installed tools and versions
+mise ls
+task mise:list
+
+# Check for outdated tools
+mise ls --outdated
+task mise:outdated
+
+# Upgrade all tools
+mise upgrade
+task mise:upgrade
+
+# Switch to a specific version
+mise use terraform@1.8.0
+
+# Remove unused versions
+mise prune
+
+# Troubleshoot issues
+mise doctor
+task mise:doctor
 ```
 
 ## Local Development

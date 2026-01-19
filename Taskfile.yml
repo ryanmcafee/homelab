@@ -1,13 +1,5 @@
 version: '3'
 
-vars:
-  TERRAGRUNT_VERSION: "0.55.1"
-  TERRAFORM_VERSION: "1.7.5"
-  TALOS_VERSION: "1.7.6"
-  KUBECTL_VERSION: "1.30.0"
-  KIND_VERSION: "0.22.0"
-  TILT_VERSION: "0.33.11"
-
 env:
   TF_PLUGIN_CACHE_DIR: "{{.HOME}}/.terraform.d/plugin-cache"
 
@@ -28,80 +20,29 @@ tasks:
       - ./scripts/validate-prerequisites.sh
 
   install-tools:
-    desc: Install required CLI tools
+    desc: Install required CLI tools via mise
     cmds:
-      - task: install-terragrunt
-      - task: install-terraform
-      - task: install-kubectl
-      - task: install-kind
-      - task: install-tilt
-      - task: install-talosctl
-      - task: install-ansible
+      - mise install -y
 
-  install-terragrunt:
-    desc: Install Terragrunt
+  mise:doctor:
+    desc: Run mise diagnostics
     cmds:
-      - |
-        wget https://github.com/gruntwork-io/terragrunt/releases/download/v{{.TERRAGRUNT_VERSION}}/terragrunt_linux_amd64
-        chmod +x terragrunt_linux_amd64
-        sudo mv terragrunt_linux_amd64 /usr/local/bin/terragrunt
-    status:
-      - which terragrunt
+      - mise doctor
 
-  install-terraform:
-    desc: Install Terraform
+  mise:upgrade:
+    desc: Upgrade all mise-managed tools to latest versions
     cmds:
-      - |
-        wget https://releases.hashicorp.com/terraform/{{.TERRAFORM_VERSION}}/terraform_{{.TERRAFORM_VERSION}}_linux_amd64.zip
-        unzip terraform_{{.TERRAFORM_VERSION}}_linux_amd64.zip
-        sudo mv terraform /usr/local/bin/
-        rm terraform_{{.TERRAFORM_VERSION}}_linux_amd64.zip
-    status:
-      - which terraform
+      - mise upgrade
 
-  install-kubectl:
-    desc: Install kubectl
+  mise:outdated:
+    desc: Check for outdated tools
     cmds:
-      - |
-        curl -LO "https://dl.k8s.io/release/v{{.KUBECTL_VERSION}}/bin/linux/amd64/kubectl"
-        chmod +x kubectl
-        sudo mv kubectl /usr/local/bin/
-    status:
-      - which kubectl
+      - mise ls --outdated
 
-  install-kind:
-    desc: Install Kind
+  mise:list:
+    desc: List installed tools and their versions
     cmds:
-      - |
-        wget https://github.com/kubernetes-sigs/kind/releases/download/v{{.KIND_VERSION}}/kind-linux-amd64
-        chmod +x kind-linux-amd64
-        sudo mv kind-linux-amd64 /usr/local/bin/kind
-    status:
-      - which kind
-
-  install-tilt:
-    desc: Install Tilt
-    cmds:
-      - curl -fsSL https://raw.githubusercontent.com/tilt-dev/tilt/master/scripts/install.sh | bash
-    status:
-      - which tilt
-
-  install-talosctl:
-    desc: Install talosctl
-    cmds:
-      - |
-        wget https://github.com/siderolabs/talos/releases/download/v{{.TALOS_VERSION}}/talosctl-linux-amd64
-        chmod +x talosctl-linux-amd64
-        sudo mv talosctl-linux-amd64 /usr/local/bin/talosctl
-    status:
-      - which talosctl
-
-  install-ansible:
-    desc: Install Ansible
-    cmds:
-      - pip install ansible ansible-lint
-    status:
-      - which ansible
+      - mise ls --current
 
   # ==========================================================================
   # Local Development (Kind + Tilt)

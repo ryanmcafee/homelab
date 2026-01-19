@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Validate prerequisites for homelab setup
+# Validate prerequisites using mise
 
 set -euo pipefail
 
@@ -9,129 +9,96 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
-# Track overall status
-MISSING_PREREQS=0
-
 echo "=================================="
 echo "Homelab Prerequisites Validation"
 echo "=================================="
 echo ""
 
-# Function to check if command exists
-check_command() {
-    local cmd=$1
-    local name=${2:-$cmd}
-    local required=${3:-true}
-
-    if command -v "$cmd" &> /dev/null; then
-        local version=$($cmd --version 2>&1 | head -n1 || echo "unknown")
-        echo -e "${GREEN}✓${NC} $name: $version"
-        return 0
-    else
-        if [ "$required" = true ]; then
-            echo -e "${RED}✗${NC} $name: NOT FOUND (required)"
-            MISSING_PREREQS=$((MISSING_PREREQS + 1))
-        else
-            echo -e "${YELLOW}⚠${NC} $name: NOT FOUND (optional)"
-        fi
-        return 1
-    fi
-}
-
-# Function to check environment variable
-check_env_var() {
-    local var=$1
-    local name=${2:-$var}
-    local required=${3:-false}
-
-    if [ -n "${!var:-}" ]; then
-        echo -e "${GREEN}✓${NC} $name: SET"
-        return 0
-    else
-        if [ "$required" = true ]; then
-            echo -e "${RED}✗${NC} $name: NOT SET (required)"
-            MISSING_PREREQS=$((MISSING_PREREQS + 1))
-        else
-            echo -e "${YELLOW}⚠${NC} $name: NOT SET (optional)"
-        fi
-        return 1
-    fi
-}
-
-echo "Core Tools:"
-check_command "git" "Git"
-check_command "curl" "curl"
-check_command "wget" "wget"
-check_command "jq" "jq" false
-
-echo ""
-echo "Infrastructure Tools:"
-check_command "terraform" "Terraform" false
-check_command "terragrunt" "Terragrunt" false
-check_command "ansible" "Ansible" false
-check_command "ansible-playbook" "Ansible Playbook" false
-
-echo ""
-echo "Kubernetes Tools:"
-check_command "kubectl" "kubectl" false
-check_command "kind" "Kind" false
-check_command "tilt" "Tilt" false
-check_command "helm" "Helm" false
-check_command "talosctl" "talosctl" false
-
-echo ""
-echo "Development Tools:"
-check_command "docker" "Docker" false
-check_command "task" "Task (go-task)" false
-check_command "direnv" "direnv" false
-
-echo ""
-echo "Secrets Management:"
-check_command "op" "1Password CLI" false
-
-echo ""
-echo "Environment Variables:"
-check_env_var "TF_VAR_proxmox_api_url" "Proxmox API URL" false
-check_env_var "TF_VAR_proxmox_api_token_id" "Proxmox API Token ID" false
-check_env_var "TF_VAR_proxmox_api_token_secret" "Proxmox API Token Secret" false
-check_env_var "OP_CONNECT_HOST" "1Password Connect Host" false
-check_env_var "OP_CONNECT_TOKEN" "1Password Connect Token" false
-
-echo ""
-echo "File System Checks:"
-if [ -f ".envrc" ]; then
-    echo -e "${GREEN}✓${NC} .envrc: EXISTS"
-else
-    echo -e "${YELLOW}⚠${NC} .envrc: NOT FOUND (copy from .envrc.example)"
+# Check if mise is installed
+if ! command -v mise &> /dev/null; then
+    echo -e "${RED}✗${NC} mise is not installed"
+    echo ""
+    echo "mise is required to manage all dependencies."
+    echo "Run ./scripts/setup.sh to install mise and all dependencies"
+    exit 1
 fi
 
-if [ -d ".git" ]; then
-    echo -e "${GREEN}✓${NC} Git repository: INITIALIZED"
+echo -e "${GREEN}✓${NC} mise is installed ($(mise --version))"
+echo ""
+
+# Check mise doctor output
+echo "Running mise doctor..."
+echo ""
+if mise doctor; then
+    echo ""
+    echo -e "${GREEN}✓${NC} mise doctor passed"
 else
-    echo -e "${RED}✗${NC} Git repository: NOT INITIALIZED"
-    MISSING_PREREQS=$((MISSING_PREREQS + 1))
+    echo ""
+    echo -e "${YELLOW}⚠${NC} mise doctor found some issues (may be non-critical)"
 fi
 
 echo ""
 echo "=================================="
+echo "Validating individual tools..."
+echo "=================================="
+echo ""
 
-if [ $MISSING_PREREQS -eq 0 ]; then
-    echo -e "${GREEN}All required prerequisites are satisfied!${NC}"
+# Run mise validation task
+if mise run validate; then
     echo ""
-    echo "Next steps:"
-    echo "  1. Review and update .envrc with your configuration"
-    echo "  2. Run 'direnv allow' to load environment variables"
-    echo "  3. For local development: task localdev:up"
-    echo "  4. For production setup: ./scripts/setup.sh"
-    exit 0
+    echo -e "${GREEN}✓${NC} All tools validated successfully"
 else
-    echo -e "${RED}Missing $MISSING_PREREQS required prerequisite(s)${NC}"
     echo ""
-    echo "Install missing tools:"
-    echo "  task install-tools"
+    echo -e "${RED}✗${NC} Tool validation failed"
     echo ""
-    echo "Or install individually, e.g.:"
-    echo "  task install-terragrunt"
-    echo "  task install-kubectl"
+    echo "Run 'mise install -y' to install missing tools"
     exit 1
 fi
+
+# Check for .envrc if using production
+echo ""
+echo "=================================="
+echo "Environment Configuration"
+echo "=================================="
+echo ""
+
+if [ -f ".envrc" ]; then
+    echo -e "${GREEN}✓${NC} .envrc file exists"
+
+    if [ -n "${TF_VAR_proxmox_api_url:-}" ]; then
+        echo -e "${GREEN}✓${NC} Environment variables loaded"
+    else
+        echo -e "${YELLOW}⚠${NC} .envrc exists but not loaded"
+        echo "  Run 'direnv allow' to load environment variables"
+    fi
+else
+    echo -e "${YELLOW}⚠${NC} .envrc file not found"
+    echo "  Copy .envrc.example to .envrc and configure for dev/prod"
+    echo "  Required for Proxmox deployments"
+fi
+
+# Check for Docker (external prerequisite)
+echo ""
+echo "=================================="
+echo "External Prerequisites"
+echo "=================================="
+echo ""
+
+if command -v docker &> /dev/null; then
+    echo -e "${GREEN}✓${NC} Docker is installed ($(docker --version))"
+else
+    echo -e "${YELLOW}⚠${NC} Docker is not installed"
+    echo "  Docker is required for local development (Kind)"
+    echo "  Install Docker Desktop: https://www.docker.com/products/docker-desktop"
+fi
+
+echo ""
+echo "=================================="
+echo -e "${GREEN}Prerequisites validation complete!${NC}"
+echo "=================================="
+echo ""
+
+echo "Next steps:"
+echo "  For local development: task localdev:up"
+echo "  For production setup: ./scripts/setup.sh"
+echo ""
