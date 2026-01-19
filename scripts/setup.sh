@@ -91,6 +91,27 @@ install_tools() {
         echo "Run 'mise doctor' for diagnostics"
         return 1
     fi
+
+    # Create Terraform plugin cache directory
+    print_step "Setting up Terraform plugin cache..."
+    mkdir -p "$PROJECT_ROOT/.terraform.d/plugin-cache"
+    print_success "Terraform plugin cache directory created"
+
+    # Fix ansible symlinks (workaround for pipx backend limitation)
+    print_step "Setting up ansible binaries..."
+    local ansible_bin_dir=$(find "$HOME/.local/share/mise/installs/pipx-ansible" -maxdepth 2 -type d -name bin 2>/dev/null | head -1)
+    if [ -n "$ansible_bin_dir" ] && [ -d "$ansible_bin_dir/../ansible/bin" ]; then
+        cd "$ansible_bin_dir"
+        for binary in ansible ansible-playbook ansible-galaxy ansible-vault ansible-config ansible-console ansible-doc ansible-inventory ansible-pull ansible-test; do
+            if [ ! -e "$binary" ]; then
+                ln -sf "../ansible/bin/$binary" "$binary"
+            fi
+        done
+        cd "$PROJECT_ROOT"
+        print_success "Ansible binaries configured"
+    else
+        print_warning "Could not configure ansible binaries (may already be configured)"
+    fi
 }
 
 # Step 0: Ensure mise is installed and install all tools
