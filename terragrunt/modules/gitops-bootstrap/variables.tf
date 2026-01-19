@@ -23,7 +23,7 @@ variable "argocd_namespace" {
 variable "argocd_version" {
   description = "ArgoCD Helm chart version"
   type        = string
-  default     = "5.51.0"  # ArgoCD v2.9.x
+  default     = "5.51.0" # ArgoCD v2.9.x
 }
 
 variable "argocd_helm_values" {
@@ -118,4 +118,32 @@ variable "wait_for_argocd" {
   description = "Wait for ArgoCD to be ready before completing"
   type        = bool
   default     = true
+}
+
+# 1Password Configuration
+variable "onepassword_credentials_json" {
+  description = "1Password Connect credentials JSON content"
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
+variable "onepassword_connect_host" {
+  description = "1Password Connect server host"
+  type        = string
+  default     = ""
+}
+
+variable "onepassword_connect_token" {
+  description = "1Password Connect API token"
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
+variable "onepassword_service_account_token" {
+  description = "1Password CLI service account token"
+  type        = string
+  default     = ""
+  sensitive   = true
 }

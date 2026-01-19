@@ -102,6 +102,61 @@ stringData:
   token: onepassworditem://proxmox-credentials/credential
 ```
 
+#### Bootstrap Process
+
+The 1Password Operator requires initial credentials to connect to the 1Password Connect server. This creates a "bootstrap secret" problem - we need secrets to manage secrets.
+
+**Solution**: The `gitops-bootstrap` Terraform module provisions the credentials Secret during cluster initialization:
+
+1. **Obtain Credentials**:
+   - Set up 1Password Connect server (separate infrastructure)
+   - Download `1password-credentials.json` from 1Password web UI
+   - Generate Connect API token
+   - Generate Service Account token (for CLI)
+
+2. **Store Credentials Securely**:
+   ```bash
+   # Store credentials file
+   mkdir -p ~/.op
+   cp ~/Downloads/1password-credentials.json ~/.op/
+   chmod 600 ~/.op/1password-credentials.json
+   ```
+
+3. **Configure Environment Variables**:
+   ```bash
+   # Add to .envrc
+   export TF_VAR_onepassword_credentials_json="$(cat ~/.op/1password-credentials.json)"
+   export OP_CONNECT_HOST="https://1password-connect.ryanmcafee.com"
+   export OP_CONNECT_TOKEN="<your-connect-token>"
+   export OP_SERVICE_ACCOUNT_TOKEN="<your-service-account-token>"
+
+   # Load variables
+   direnv allow
+   ```
+
+4. **Deploy Bootstrap**:
+   ```bash
+   task tf:apply ENV=prod COMPONENT=gitops-bootstrap
+   ```
+
+5. **Verify Deployment**:
+   ```bash
+   # Check namespace
+   kubectl get namespace onepassword-operator
+
+   # Check secret
+   kubectl get secret onepassword-credentials -n onepassword-operator
+
+   # Verify operator pods (after ArgoCD sync)
+   kubectl get pods -n onepassword-operator
+   ```
+
+**Secret Rotation**: To rotate 1Password credentials:
+1. Generate new credentials in 1Password web UI
+2. Update environment variables in `.envrc`
+3. Run `task tf:apply ENV=prod COMPONENT=gitops-bootstrap`
+4. Restart operator: `kubectl rollout restart deployment -n onepassword-operator`
+
 ## 1Password Vault Structure
 
 Recommended structure for the homelab vault:

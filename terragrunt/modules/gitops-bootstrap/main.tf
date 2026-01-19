@@ -22,6 +22,46 @@ resource "kubernetes_namespace" "argocd" {
   }
 }
 
+# Create 1Password Operator namespace (if credentials provided)
+resource "kubernetes_namespace" "onepassword_operator" {
+  count = var.onepassword_credentials_json != "" ? 1 : 0
+
+  metadata {
+    name = "onepassword-operator"
+    labels = {
+      "app.kubernetes.io/name"       = "onepassword-operator"
+      "app.kubernetes.io/managed-by" = "terraform"
+      "app.kubernetes.io/part-of"    = "gitops-bootstrap"
+    }
+  }
+}
+
+# Create 1Password credentials secret
+resource "kubernetes_secret" "onepassword_credentials" {
+  count = var.onepassword_credentials_json != "" ? 1 : 0
+
+  metadata {
+    name      = "onepassword-credentials"
+    namespace = kubernetes_namespace.onepassword_operator[0].metadata[0].name
+    labels = {
+      "app.kubernetes.io/name"       = "onepassword-credentials"
+      "app.kubernetes.io/managed-by" = "terraform"
+      "app.kubernetes.io/part-of"    = "gitops-bootstrap"
+    }
+  }
+
+  data = {
+    "1password-credentials.json" = var.onepassword_credentials_json
+    "OP_CONNECT_HOST"            = var.onepassword_connect_host
+    "OP_CONNECT_TOKEN"           = var.onepassword_connect_token
+    "OP_SERVICE_ACCOUNT_TOKEN"   = var.onepassword_service_account_token
+  }
+
+  type = "Opaque"
+
+  depends_on = [kubernetes_namespace.onepassword_operator]
+}
+
 # Install ArgoCD via Helm
 resource "helm_release" "argocd" {
   name       = "argocd"
@@ -32,11 +72,11 @@ resource "helm_release" "argocd" {
 
   values = [
     templatefile("${path.module}/templates/argocd-values.yaml.tpl", {
-      admin_enabled         = var.admin_enabled
+      admin_enabled          = var.admin_enabled
       server_ingress_enabled = var.server_ingress_enabled
-      server_host           = var.server_host
-      dex_enabled           = var.dex_enabled
-      notifications_enabled = var.notifications_enabled
+      server_host            = var.server_host
+      dex_enabled            = var.dex_enabled
+      notifications_enabled  = var.notifications_enabled
     })
   ]
 
@@ -64,11 +104,11 @@ resource "kubernetes_config_map" "gitops_metadata" {
 
   data = merge(
     {
-      cluster_name     = var.cluster_name
-      environment      = var.environment
-      base_fqdn        = var.base_fqdn
-      repo_url         = var.repo_url
-      target_revision  = var.target_revision
+      cluster_name    = var.cluster_name
+      environment     = var.environment
+      base_fqdn       = var.base_fqdn
+      repo_url        = var.repo_url
+      target_revision = var.target_revision
     },
     var.custom_metadata
   )

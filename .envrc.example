@@ -5,6 +5,13 @@
 # ============================================================================
 # 1Password Configuration
 # ============================================================================
+# 1Password Connect credentials (for bootstrap)
+# Option 1: Read from file (recommended)
+export TF_VAR_onepassword_credentials_json="$(cat ~/.op/1password-credentials.json)"
+
+# Option 2: Direct content (not recommended - use file instead)
+# export TF_VAR_onepassword_credentials_json='{"credentials": {...}}'
+
 # 1Password Connect Server (for CI/CD and automation)
 export OP_CONNECT_HOST="https://1password-connect.ryanmcafee.com"
 export OP_CONNECT_TOKEN="<your-connect-token>"

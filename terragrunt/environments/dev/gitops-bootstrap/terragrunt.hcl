@@ -89,4 +89,10 @@ inputs = {
   self_heal_enabled  = true
 
   wait_for_argocd = true
+
+  # 1Password credentials (read from environment variables)
+  onepassword_credentials_json      = get_env("TF_VAR_onepassword_credentials_json", "")
+  onepassword_connect_host          = get_env("OP_CONNECT_HOST", "")
+  onepassword_connect_token         = get_env("OP_CONNECT_TOKEN", "")
+  onepassword_service_account_token = get_env("OP_SERVICE_ACCOUNT_TOKEN", "")
 }
