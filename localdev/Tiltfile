@@ -21,9 +21,8 @@ load('ext://helm_resource', 'helm_resource', 'helm_repo')
 # Configuration
 # ============================================================================
 
-config.define_string("mode", args=True)
-cfg = config.parse()
-mode = cfg.get("mode", "direct")  # "direct" or "argocd"
+# Use environment variable for mode selection (more reliable in CI)
+mode = os.getenv("TILT_MODE", "direct")  # "direct" or "argocd"
 
 print("=" * 60)
 print("Homelab Local Development")
@@ -216,13 +215,15 @@ if mode == "direct":
     )
 
     # Port forward Grafana for easy access
-    k8s_resource(
-        workload="kube-prometheus-stack-grafana",
-        new_name="grafana",
-        port_forwards=["3000:80"],
-        labels=["addons"],
-        auto_init=False,
-    )
+    # Note: Commented out because k8s_resource fails when auto_init=False
+    # Uncomment this after enabling kube-prometheus-stack above
+    # k8s_resource(
+    #     workload="kube-prometheus-stack-grafana",
+    #     new_name="grafana",
+    #     port_forwards=["3000:80"],
+    #     labels=["addons"],
+    #     auto_init=False,
+    # )
 
     # ========================================================================
     # Example Applications (can be extended)

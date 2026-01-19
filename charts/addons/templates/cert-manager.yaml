@@ -1,4 +1,4 @@
-{{- if .Values."cert-manager".enabled }}
+{{- if index .Values "cert-manager" "enabled" }}
 ---
 apiVersion: argoproj.io/v1alpha1
 kind: Application

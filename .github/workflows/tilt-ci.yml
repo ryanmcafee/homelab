@@ -143,9 +143,11 @@ jobs:
 
       - name: Run Tilt CI (ArgoCD Mode)
         working-directory: localdev
+        env:
+          TILT_MODE: argocd
         run: |
           # Run Tilt in ArgoCD mode
-          tilt ci --timeout 10m -- --mode=argocd
+          tilt ci --timeout 10m
 
       - name: Wait for ArgoCD to be ready
         run: |
