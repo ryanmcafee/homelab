@@ -51,7 +51,7 @@ export KUBECONFIG="${HOME}/.kube/homelab-${TF_VAR_environment}.yaml"
 # Ansible Configuration
 # ============================================================================
 export ANSIBLE_INVENTORY="ansible/inventory/hosts.yml"
-export ANSIBLE_VAULT_PASSWORD_FILE=".vault_password"
+export ANSIBLE_VAULT_PASSWORD_FILE="${HOME}/.ansible_vault_password"
 
 # ============================================================================
 # Local Development

@@ -156,7 +156,22 @@ fi
 print_success "Environment checked"
 echo ""
 
-# Step 3: Determine deployment target
+# Step 3: Setup Ansible vault password
+print_step "Checking Ansible vault password..."
+VAULT_PASSWORD_FILE="${HOME}/.ansible_vault_password"
+
+if [ -f "$VAULT_PASSWORD_FILE" ]; then
+    print_success "Ansible vault password file exists"
+else
+    print_step "Creating Ansible vault password file..."
+    openssl rand -base64 32 > "$VAULT_PASSWORD_FILE"
+    chmod 600 "$VAULT_PASSWORD_FILE"
+    print_success "Created Ansible vault password at $VAULT_PASSWORD_FILE"
+    print_warning "Save this password for your records if you plan to create encrypted vault files"
+fi
+echo ""
+
+# Step 4: Determine deployment target
 echo "Select deployment target:"
 echo "  1) localdev  - Local Kind cluster (no hardware required)"
 echo "  2) dev       - Development environment (Proxmox)"
@@ -187,7 +202,7 @@ case $choice in
 esac
 echo ""
 
-# Step 4: Execute deployment based on environment
+# Step 5: Execute deployment based on environment
 case $ENVIRONMENT in
     localdev)
         print_step "Creating Kind cluster..."
