@@ -1,0 +1,26 @@
+---
+# Ansible Lint configuration
+
+# Use basic profile (less strict than production profile)
+profile: basic
+
+# Skip certain rules that are overly strict for this project
+skip_list:
+  - var-naming[no-role-prefix]  # Allow register vars without role prefix
+  - name[template]               # Allow Jinja in task names
+  - risky-shell-pipe            # Allow shell pipes (will fix critical ones manually)
+
+# Configure rules
+warn_list:
+  - no-handler                   # Warn instead of error for handler usage
+  - command-instead-of-module    # Warn for command/shell usage
+  - no-changed-when             # Warn for missing changed_when
+
+# Exclude certain paths
+exclude_paths:
+  - .github/
+  - files/
+  - templates/
+
+# Enable progressive mode (only fail on new violations)
+# progressive: true
