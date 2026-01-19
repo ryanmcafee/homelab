@@ -6,6 +6,53 @@ Built with care, designed for presence. "One more story?" Always yes. This homel
 
 A GitOps-driven, family-first homelab monorepo using CNCF best practices. Single entrypoint setup, zero ongoing maintenance, designed to run forever.
 
+## Task Tracking Strategy
+
+This plan leverages `bd` (task tracking) for managing long-running implementation tasks with context preservation.
+
+### Task Organization Principles
+
+1. **Hierarchical Task Structure**: Tasks follow a phase.subphase.task naming convention (e.g., `0.1.2` for Phase 0, Subphase 1, Task 2)
+2. **Context Preservation**: After each significant milestone, save progress and context to enable resumption
+3. **Parallel Execution**: Tasks marked with `[PARALLEL]` can be executed simultaneously using sub-agents
+4. **Progress Checkpoints**: Each phase has explicit checkpoints where state is saved
+5. **Atomic Units**: Tasks are broken down to 2-4 hour units of work for manageable progress tracking
+
+### Sub-Agent Opportunities
+
+Tasks marked with these tags indicate sub-agent usage:
+- `[EXPLORE]` - Use Explore agent for codebase/research tasks
+- `[PARALLEL]` - Multiple tasks can run simultaneously
+- `[BACKGROUND]` - Long-running tasks suitable for background execution
+- `[VALIDATION]` - Testing/verification tasks
+
+### Dependency Graph
+
+```
+Phase 0 (Repository Foundation)
+  ├─→ Phase 0.5 (Local Dev Environment) [PARALLEL with Phase 1+]
+  └─→ Phase 1 (Proxmox Installation)
+       └─→ Phase 2 (Proxmox Configuration)
+            └─→ Phase 3 (Infrastructure Provisioning)
+                 ├─→ Phase 3.0-3.2 (Storage Layer)
+                 ├─→ Phase 3.3-3.5 (Compute Layer) [Depends on 3.0-3.2]
+                 └─→ Phase 3.6 (GitOps Bootstrap) [Depends on 3.3-3.5]
+                      └─→ Phase 4 (Core Addons)
+                           └─→ Phase 5 (UniFi SDN)
+                                └─→ Phase 6 (User Applications)
+                                     └─→ Phase 7 (Documentation) [PARALLEL with all phases]
+```
+
+### Progress Tracking
+
+Each phase will:
+1. Create a tracking task in `bd` with phase number and description
+2. Update task status at each checkpoint
+3. Save context including: configuration files created, decisions made, blockers encountered
+4. Mark completion only when all acceptance criteria are met
+
+---
+
 ## Objectives
 
 - Build a homelab using Terragrunt (Terraform), Ansible Playbooks, TrueNAS Scale (NAS Storage VM), and Talos OS Kubernetes
@@ -303,37 +350,96 @@ homelab/
 
 **Objective:** Set up repository structure, CI/CD, secrets management, and automation tooling.
 
+**Task ID:** `phase-0-foundation`
+
+#### Subphase 0.1: Directory Structure [PARALLEL]
+**Task ID:** `0.1-directory-structure`
+
 **Tasks:**
-1. Initialize repository with directory structure above
-2. Set up 1Password Connect for secrets management
-   - Configure 1Password Connect Server
-   - Set up 1Password Operator credentials
-   - Document secret references
-3. Set up GitHub Actions workflows
-   - Ansible linting (ansible-lint)
-   - Terragrunt format/validate/plan
-   - YAML linting
-   - Security scanning (trivy, checkov)
-4. Configure Renovate
-   - Helm chart updates
-   - Container image updates
-   - Terraform provider updates
-   - Ansible collection updates
-   - Auto-merge for patch versions
-5. Create Taskfile.yml for common operations
-6. Write setup.sh single entrypoint script
+1. Create base directory structure from plan
+2. Initialize .gitignore with appropriate entries
+3. Create placeholder README.md
+
+**Checkpoint:** Directory structure created, committed to git
 
 **Files to create:**
-- `.github/workflows/*.yml`
+- All directories from structure section
+- `.gitignore`
+- `README.md` (placeholder)
+
+#### Subphase 0.2: GitHub Actions Setup [PARALLEL]
+**Task ID:** `0.2-github-actions`
+
+**Tasks:**
+1. Create ansible-lint workflow
+2. Create terragrunt-plan workflow
+3. Create terragrunt-apply workflow
+4. Create yaml-lint workflow
+5. Create security scanning workflow (trivy, checkov)
+6. Create CODEOWNERS file
+
+**Checkpoint:** All workflows validate and pass
+
+**Files to create:**
+- `.github/workflows/ansible-lint.yml`
+- `.github/workflows/terragrunt-plan.yml`
+- `.github/workflows/terragrunt-apply.yml`
+- `.github/workflows/yaml-lint.yml`
+- `.github/workflows/security-scan.yml`
+- `.github/CODEOWNERS`
+
+#### Subphase 0.3: 1Password Integration [REQUIRES: Manual 1Password Setup]
+**Task ID:** `0.3-1password`
+
+**Tasks:**
+1. Document 1Password Connect Server setup steps
+2. Create .envrc.example with required 1Password variables
+3. Document secret references in docs/
+
+**Checkpoint:** 1Password integration documented
+
+**Files to create:**
+- `.envrc.example`
+- `docs/secrets-management.md`
+
+#### Subphase 0.4: Renovate Configuration [PARALLEL]
+**Task ID:** `0.4-renovate`
+
+**Tasks:**
+1. Create renovate.json5 with Helm chart tracking
+2. Add container image update rules
+3. Add Terraform provider update rules
+4. Add Ansible collection update rules
+5. Configure auto-merge for patch versions
+6. Test renovate config validation
+
+**Checkpoint:** Renovate config validates successfully
+
+**Files to create:**
 - `.github/renovate.json5`
+
+#### Subphase 0.5: Automation Tooling [PARALLEL]
+**Task ID:** `0.5-automation`
+
+**Tasks:**
+1. Create Taskfile.yml with common tasks
+2. Create scripts/setup.sh entrypoint
+3. Create scripts/validate-prerequisites.sh
+4. Make scripts executable
+
+**Checkpoint:** Taskfile and scripts created, tested
+
+**Files to create:**
 - `Taskfile.yml`
 - `scripts/setup.sh`
+- `scripts/validate-prerequisites.sh`
 
 **Acceptance criteria:**
 - [ ] All linting passes on empty structure
-- [ ] 1Password Connect configured and tested
+- [ ] 1Password Connect documented
 - [ ] Renovate config validates
 - [ ] setup.sh runs without errors (even if no-op)
+- [ ] Taskfile tasks execute successfully
 
 ---
 
@@ -341,11 +447,75 @@ homelab/
 
 **Objective:** Enable rapid local testing of GitOps configurations without requiring physical infrastructure.
 
+**Task ID:** `phase-0.5-localdev`
+
+**[PARALLEL with Phase 1+]** - This can be developed independently while infrastructure work progresses
+
 **Why Local Dev First?**
 - Iterate on Helm charts and ArgoCD applications in seconds, not minutes
 - Test changes before committing to real infrastructure
 - Develop without physical access to homelab hardware
 - CI validation of chart changes via Tilt in GitHub Actions
+
+#### Subphase 0.5.1: Kind Cluster Configuration
+**Task ID:** `0.5.1-kind-config`
+
+**Tasks:**
+1. Create localdev/kind-config.yaml
+2. Configure control-plane with ingress-ready label
+3. Add worker nodes with appropriate labels
+4. Configure port mappings (Traefik, ArgoCD)
+5. Test Kind cluster creation
+
+**Checkpoint:** Kind cluster successfully creates and accepts workloads
+
+#### Subphase 0.5.2: Tiltfile Development [PARALLEL]
+**Task ID:** `0.5.2-tiltfile`
+
+**Tasks:**
+1. Create localdev/Tiltfile with mode selection (direct/argocd)
+2. Add local-path-provisioner setup
+3. Configure ArgoCD installation for argocd mode
+4. Create helm_resource definitions for direct mode
+5. Add development helper resources
+
+**Checkpoint:** Tiltfile executes without errors in both modes
+
+#### Subphase 0.5.3: Local Values Overrides [PARALLEL]
+**Task ID:** `0.5.3-local-values`
+
+**Tasks:**
+1. Create charts/addons/values-localdev.yaml
+2. Create charts/applications/values-localdev.yaml
+3. Create localdev/values/argocd-values.yaml
+4. Disable production-only components (metallb, external-dns)
+5. Configure reduced resource requests
+
+**Checkpoint:** All value files valid YAML, charts render successfully
+
+#### Subphase 0.5.4: Taskfile Integration [PARALLEL]
+**Task ID:** `0.5.4-taskfile-tasks`
+
+**Tasks:**
+1. Add localdev:up task
+2. Add localdev:down task
+3. Add localdev:reset task
+4. Add localdev:logs task
+5. Add chart development tasks (lint, template, diff)
+
+**Checkpoint:** All Taskfile commands execute successfully
+
+#### Subphase 0.5.5: CI Validation [VALIDATION]
+**Task ID:** `0.5.5-tilt-ci`
+
+**Tasks:**
+1. Create .github/workflows/tilt-ci.yml
+2. Configure Kind cluster creation in CI
+3. Add Tilt installation step
+4. Run Tilt CI with timeout
+5. Test workflow on pull request
+
+**Checkpoint:** CI workflow passes successfully
 
 #### Local Dev Architecture
 
@@ -921,12 +1091,19 @@ jobs:
 - `Tiltfile` (root, includes localdev/)
 
 **Acceptance criteria:**
+- [ ] All subphases (0.5.1-0.5.5) completed with checkpoints saved
 - [ ] `task localdev:up` creates Kind cluster and starts Tilt
 - [ ] Chart changes auto-deploy within seconds
 - [ ] ArgoCD UI accessible at localhost:8080
 - [ ] Applications deploy with local storage class
 - [ ] `task localdev:down` cleanly removes all resources
 - [ ] CI validates chart changes in GitHub Actions
+
+**Context to preserve:**
+- Kind cluster configuration decisions
+- Tiltfile mode selection rationale
+- Resource limit tuning for local environment
+- Any issues encountered with specific charts locally
 
 ---
 
@@ -1102,7 +1279,17 @@ pvesm add zfspool vm-storage -pool vm-storage
 
 **Objective:** Deploy TrueNAS, Talos Linux cluster, and bootstrap ArgoCD using Terragrunt.
 
-#### Phase 3a: Proxmox Backup Policy
+**Task ID:** `phase-3-infrastructure`
+
+**Dependencies:** Phase 2 (Proxmox Configuration) must be complete
+
+---
+
+#### Phase 3.0: Proxmox Backup Policy
+
+**Task ID:** `3.0-backup-policy`
+
+**Objective:** Configure automated VM backup scheduling in Proxmox
 
 ```hcl
 # terragrunt/modules/proxmox-backup-policy/main.tf
@@ -1125,7 +1312,26 @@ resource "proxmox_virtual_environment_backup_schedule" "daily" {
 }
 ```
 
-#### Phase 3b: TrueNAS Scale VM
+**Tasks:**
+1. Create terragrunt/modules/proxmox-backup-policy module
+2. Configure backup schedule (2 AM daily)
+3. Set retention policy (7 daily, 4 weekly)
+4. Test backup execution
+
+**Checkpoint:** Backup policy deployed, first backup successful
+
+**Acceptance criteria:**
+- [ ] Terraform module created and validates
+- [ ] Backup schedule active in Proxmox
+- [ ] Test backup completes successfully
+
+---
+
+#### Phase 3.1: TrueNAS Scale VM Provisioning
+
+**Task ID:** `3.1-truenas-vm`
+
+**Objective:** Provision TrueNAS VM with HBA passthrough for storage
 
 ```hcl
 # terragrunt/modules/truenas/main.tf
@@ -1172,7 +1378,36 @@ resource "proxmox_virtual_environment_vm" "truenas" {
 }
 ```
 
-**TrueNAS Configuration Management (Ansible):**
+**Tasks:**
+1. Create terragrunt/modules/truenas module
+2. Configure HBA passthrough (Broadcom 9400-8i)
+3. Set VM resources (4 cores, 32GB RAM)
+4. Configure network (VLAN 100)
+5. Deploy VM and verify boot
+
+**Checkpoint:** TrueNAS VM running, accessible via web UI
+
+**Acceptance criteria:**
+- [ ] Terraform module created and validates
+- [ ] HBA passthrough configured correctly
+- [ ] TrueNAS VM boots successfully
+- [ ] Web UI accessible
+- [ ] All 8x20TB HDDs and 2x1TB NVMe visible
+
+**Context to preserve:**
+- HBA PCI ID used for passthrough
+- Any BIOS/firmware configuration changes needed
+- VM resource allocation decisions
+
+---
+
+#### Phase 3.2: TrueNAS Storage Configuration
+
+**Task ID:** `3.2-truenas-storage`
+
+**Objective:** Configure ZFS pools and NFS exports in TrueNAS
+
+**[BACKGROUND]** - This task may take several hours for initial pool creation
 ```yaml
 # ansible/playbooks/truenas-configure.yml
 # Post-provision TrueNAS configuration
@@ -1206,7 +1441,36 @@ resource "proxmox_virtual_environment_vm" "truenas" {
         maproot_group: wheel
 ```
 
-#### Phase 3c: Talos Linux Cluster
+**Tasks:**
+1. Create Ansible playbook for TrueNAS configuration
+2. Create ZFS pool (tank) with RAIDZ2 and special vdev
+3. Create Kubernetes NFS dataset
+4. Configure NFS export for 172.16.100.0/24
+5. Verify NFS mount from Proxmox host
+
+**Checkpoint:** ZFS pool created, NFS exports accessible
+
+**Acceptance criteria:**
+- [ ] ZFS pool 'tank' created with RAIDZ2 (8x20TB)
+- [ ] Special vdev configured (2x1TB NVMe mirror)
+- [ ] NFS share created and accessible
+- [ ] Can mount NFS share from Proxmox host
+
+**Context to preserve:**
+- ZFS pool layout decisions
+- Dataset naming conventions
+- NFS export permissions configured
+- Performance considerations for special vdev
+
+---
+
+#### Phase 3.3: Talos Image Preparation
+
+**Task ID:** `3.3-talos-image`
+
+**Objective:** Create custom Talos image with required system extensions
+
+**[EXPLORE]** - Research Talos Image Factory schematic options
 
 **Reference Implementation:** https://blog.stonegarden.dev/articles/2024/08/talos-proxmox-tofu/
 
@@ -1223,6 +1487,37 @@ customization:
       - siderolabs/nvidia-container-toolkit  # For GPU passthrough
       - siderolabs/nfs-utils                 # For NFS CSI
 ```
+
+**Tasks:**
+1. Create talos/image/schematic.yaml
+2. Add required system extensions (qemu, intel-ucode, nvidia, nfs)
+3. Generate schematic ID via Talos Image Factory API
+4. Create Proxmox download task for custom image
+5. Verify image downloads to Proxmox
+
+**Checkpoint:** Custom Talos image available in Proxmox
+
+**Acceptance criteria:**
+- [ ] Schematic YAML created and valid
+- [ ] Image Factory schematic ID generated
+- [ ] Custom Talos image downloaded to Proxmox
+- [ ] Image includes all required extensions
+
+**Context to preserve:**
+- Talos version used
+- Schematic ID generated
+- Extension versions included
+- Any compatibility issues discovered
+
+---
+
+#### Phase 3.4: Talos Cluster Provisioning
+
+**Task ID:** `3.4-talos-cluster`
+
+**Objective:** Provision Talos VMs in Proxmox (2 control-plane + 3 workers)
+
+**Dependencies:** Phase 3.3 (Talos Image) must be complete
 
 ```hcl
 # terragrunt/modules/talos-cluster/main.tf
@@ -1333,6 +1628,41 @@ resource "talos_machine_configuration_apply" "this" {
 }
 ```
 
+**Tasks:**
+1. Create terragrunt/modules/talos-cluster module
+2. Define node configuration (2 CP + 3 workers)
+3. Configure GPU passthrough for worker-1
+4. Set up network configuration (VLAN 100, static IPs)
+5. Deploy VMs via Terragrunt
+6. Verify all VMs boot successfully
+
+**Checkpoint:** All Talos VMs running, reachable via network
+
+**Acceptance criteria:**
+- [ ] Terraform module created and validates
+- [ ] All 5 VMs created in Proxmox
+- [ ] GPU passthrough configured on worker-1
+- [ ] All VMs accessible via SSH/talosctl
+- [ ] Network connectivity verified
+
+**Context to preserve:**
+- IP address assignments for all nodes
+- GPU PCI ID used for passthrough
+- VM resource allocations
+- Any boot issues encountered
+
+---
+
+#### Phase 3.5: Talos Cluster Bootstrap
+
+**Task ID:** `3.5-talos-bootstrap`
+
+**Objective:** Bootstrap Talos cluster and configure Kubernetes
+
+**Dependencies:** Phase 3.4 (Talos Cluster Provisioning) must be complete
+
+**[BACKGROUND]** - Cluster bootstrap may take 10-15 minutes
+
 ```yaml
 # talos/machine-config/controlplane.yaml.tpl
 
@@ -1385,7 +1715,43 @@ machine:
     feature.node.kubernetes.io/pci-10de.present: "true"
 ```
 
-#### Phase 3d: ArgoCD Bootstrap (GitOps Bridge)
+**Tasks:**
+1. Create talos/machine-config templates (controlplane.yaml.tpl, worker.yaml.tpl)
+2. Create talos/patches for GPU passthrough and NFS CSI
+3. Generate Talos machine configurations
+4. Apply configurations to all nodes
+5. Bootstrap cluster with `talosctl bootstrap`
+6. Retrieve kubeconfig and verify cluster access
+7. Apply Cilium CNI inline manifests
+8. Verify all nodes Ready
+
+**Checkpoint:** Talos cluster bootstrapped, kubectl access working
+
+**Acceptance criteria:**
+- [ ] Machine configs created for all node types
+- [ ] Configurations applied successfully to all nodes
+- [ ] Cluster bootstrap completes without errors
+- [ ] All nodes show as Ready
+- [ ] Cilium CNI operational
+- [ ] kubectl access working
+- [ ] GPU visible on worker-1 (nvidia.com/gpu)
+
+**Context to preserve:**
+- Talos secrets/certificates generated
+- Cluster endpoint IP/FQDN
+- Cilium configuration decisions
+- Any bootstrap issues encountered
+- Kubeconfig location
+
+---
+
+#### Phase 3.6: ArgoCD Bootstrap (GitOps Bridge)
+
+**Task ID:** `3.6-argocd-bootstrap`
+
+**Objective:** Deploy ArgoCD and configure GitOps Bridge pattern
+
+**Dependencies:** Phase 3.5 (Talos Bootstrap) must be complete
 
 ```hcl
 # terragrunt/modules/gitops-bootstrap/main.tf
@@ -1461,13 +1827,42 @@ resource "kubectl_manifest" "gitops_app" {
 }
 ```
 
+**Tasks:**
+1. Create terragrunt/modules/gitops-bootstrap module
+2. Deploy ArgoCD via Helm
+3. Create gitops-metadata Kubernetes secret
+4. Deploy bootstrap Application pointing to charts/gitops
+5. Wait for ArgoCD to sync
+6. Verify ArgoCD UI accessible
+7. Retrieve admin password
+
+**Checkpoint:** ArgoCD deployed and syncing, GitOps active
+
+**Acceptance criteria:**
+- [ ] ArgoCD Helm release deployed successfully
+- [ ] GitOps Bridge metadata secret created
+- [ ] Bootstrap Application syncing
+- [ ] ArgoCD UI accessible (https://argocd.ryanmcafee.com)
+- [ ] Can log in to ArgoCD
+- [ ] gitops Application appears in UI
+
+**Context to preserve:**
+- ArgoCD version deployed
+- Repository URL configured
+- GitOps Bridge metadata values
+- Admin credentials location
+- Any sync issues encountered
+
+---
+
 **Files to create:**
 - `terragrunt/terragrunt.hcl`
 - `terragrunt/modules/**`
 - `terragrunt/environments/**`
 - `talos/**`
 
-**Acceptance criteria:**
+**Phase 3 Overall Acceptance criteria:**
+- [ ] All subphases (3.0-3.6) completed with checkpoints saved
 - [ ] TrueNAS VM running with HBA passthrough
 - [ ] ZFS pools created (tank with RAIDZ2 + special vdev)
 - [ ] NFS shares exported for Kubernetes
@@ -1477,11 +1872,41 @@ resource "kubectl_manifest" "gitops_app" {
 - [ ] GitOps Bridge metadata available
 - [ ] Terragrunt state stored securely
 
+**Context to preserve for Phase 3:**
+- All infrastructure resource IDs (VMs, networks, storage)
+- IP addresses assigned
+- PCI device IDs used for passthrough
+- Talos cluster configuration
+- ArgoCD bootstrap decisions
+- Any issues that required workarounds
+
 ---
 
 ### Phase 4: Core Addons (ArgoCD Managed)
 
 **Objective:** Deploy core cluster services via ArgoCD App of Apps pattern.
+
+**Task ID:** `phase-4-addons`
+
+**Dependencies:** Phase 3.6 (ArgoCD Bootstrap) must be complete
+
+**[PARALLEL]** - Many addons can be developed simultaneously
+
+#### Subphase 4.1: GitOps Chart Structure [PARALLEL]
+**Task ID:** `4.1-gitops-charts`
+
+**Tasks:**
+1. Create charts/gitops umbrella chart
+2. Create charts/addons for infrastructure components
+3. Create charts/applications for user apps
+4. Set up sync waves (addons=1, applications=2)
+5. Create environment-specific values files
+6. Test chart rendering locally
+
+**Checkpoint:** Chart structure created, renders without errors
+
+#### Subphase 4.2: Infrastructure Addons Deployment
+**Task ID:** `4.2-infra-addons`
 
 **Charts Structure:**
 
@@ -1891,15 +2316,37 @@ spec:
 - `charts/gitops/**`
 - `charts/addons/**`
 
+**Tasks:**
+1. Deploy MetalLB with FRR (sync-wave: 1)
+2. Deploy 1Password Operator (sync-wave: 2)
+3. Deploy Democratic-CSI for NFS storage (sync-wave: 2)
+4. Deploy Cert-Manager (sync-wave: 3)
+5. Deploy External-DNS (sync-wave: 4)
+6. Deploy kube-prometheus-stack (sync-wave: 5)
+7. Deploy Traefik ingress controller (sync-wave: 6)
+8. Verify all addons healthy
+
+**Checkpoint:** All infrastructure addons deployed and operational
+
 **Acceptance criteria:**
+- [ ] All subphases (4.1-4.2) completed with checkpoints saved
 - [ ] MetalLB assigning LoadBalancer IPs
-- [ ] BGP routes visible in UniFi controller
+- [ ] BGP routes visible in UniFi controller (see Phase 5)
 - [ ] 1Password Operator syncing secrets
 - [ ] Cert-Manager issuing certificates
 - [ ] External-DNS creating DNS records
 - [ ] Prometheus/Grafana collecting metrics
 - [ ] Democratic-CSI provisioning NFS volumes
 - [ ] Traefik routing ingress traffic
+- [ ] All addons show as Synced in ArgoCD
+
+**Context to preserve:**
+- Sync wave decisions and ordering
+- Resource sizing for cluster scale
+- Storage class configurations
+- Certificate issuer setup (staging vs prod)
+- Any addon compatibility issues
+- Performance metrics during rollout
 
 ---
 
@@ -1907,11 +2354,19 @@ spec:
 
 **Objective:** Configure UniFi gateway for BGP peering with MetalLB.
 
+**Task ID:** `phase-5-unifi-bgp`
+
+**Dependencies:** Phase 4.2 (MetalLB deployed) must be complete
+
+**[REQUIRES: Manual UniFi Configuration]**
+
 **Tasks:**
 1. Enable BGP on UniFi gateway (requires UniFi OS 3.x+)
-2. Configure BGP peer settings
-3. Set up route filtering/policies
-4. Verify route advertisement
+2. Configure BGP peer settings for both control-plane nodes
+3. Set router-id on UniFi gateway
+4. Verify BGP session establishment
+5. Create test LoadBalancer service
+6. Verify route advertisement and reachability
 
 **UniFi BGP Configuration:**
 ```json
@@ -1954,11 +2409,21 @@ spec:
 └─────────────────────────────────────────────────────────────┘
 ```
 
+**Checkpoint:** BGP peering established, routes advertised
+
 **Acceptance criteria:**
-- [ ] BGP sessions established
+- [ ] BGP enabled on UniFi gateway
+- [ ] BGP sessions established with both control-plane nodes
 - [ ] Service IPs reachable from all VLANs
 - [ ] No NAT required for service access
-- [ ] Failover works (kill a node, routes update)
+- [ ] Failover tested (kill a node, routes update automatically)
+- [ ] Routes visible in UniFi routing table
+
+**Context to preserve:**
+- BGP ASN numbers used (64512 for K8s, 64513 for UniFi)
+- UniFi OS version and BGP capabilities
+- Any BGP session establishment issues
+- Failover behavior observations
 
 ---
 
@@ -1966,7 +2431,29 @@ spec:
 
 **Objective:** Deploy end-user applications using TrueCharts Helm charts.
 
+**Task ID:** `phase-6-applications`
+
+**Dependencies:** Phase 4 (Core Addons) must be complete
+
+**[PARALLEL]** - Applications can be developed and deployed independently
+
 **TrueCharts Repository:** https://github.com/truecharts/charts
+
+#### Subphase 6.1: Media Applications [PARALLEL]
+**Task ID:** `6.1-media-apps`
+
+**Applications:**
+- Plex (with GPU transcoding)
+- Sonarr
+- Radarr
+- Prowlarr
+
+#### Subphase 6.2: Home Automation [PARALLEL]
+**Task ID:** `6.2-home-automation`
+
+**Applications:**
+- Home Assistant
+- Mosquitto MQTT Broker
 
 ```yaml
 # charts/applications/templates/plex.yaml
@@ -2283,13 +2770,34 @@ spec:
 **Files to create:**
 - `charts/applications/**`
 
+**Tasks:**
+1. Create Plex ArgoCD Application with GPU nodeSelector
+2. Create Sonarr, Radarr, Prowlarr Applications
+3. Configure NFS mounts to TrueNAS media dataset
+4. Create Home Assistant Application with hostNetwork
+5. Create Mosquitto MQTT Application
+6. Configure ingress for all web UIs
+7. Test GPU transcoding in Plex
+8. Verify all applications functional
+
+**Checkpoint:** All user applications deployed and operational
+
 **Acceptance criteria:**
+- [ ] All subphases (6.1-6.2) completed with checkpoints saved
 - [ ] Plex accessible with GPU transcoding working
-- [ ] Sonarr, Radarr, Prowlarr accessible
+- [ ] Sonarr, Radarr, Prowlarr accessible and communicating
 - [ ] Home Assistant running with device discovery
-- [ ] Mosquitto MQTT broker accessible
+- [ ] Mosquitto MQTT broker accessible on LoadBalancer IP
 - [ ] All apps using TrueNAS NFS storage
-- [ ] All apps accessible via ingress with TLS
+- [ ] All apps accessible via ingress with TLS certificates
+- [ ] DNS records created automatically by external-dns
+
+**Context to preserve:**
+- GPU scheduling decisions for Plex
+- NFS mount performance observations
+- TrueCharts chart versions used
+- Any application-specific configuration
+- Integration between *arr apps
 
 ---
 
@@ -2297,19 +2805,55 @@ spec:
 
 **Objective:** Complete documentation for maintenance-free operation.
 
+**Task ID:** `phase-7-documentation`
+
+**[PARALLEL with all phases]** - Documentation can be written as implementation progresses
+
+#### Subphase 7.1: Core Documentation [PARALLEL]
+**Task ID:** `7.1-core-docs`
+
 **Documents to create:**
 1. `README.md` - Project overview, quickstart
 2. `docs/architecture.md` - Full architecture explanation
 3. `docs/networking.md` - Network topology, BGP, VLANs
 4. `docs/hardware-setup.md` - Physical setup, IPMI, StorCLI
 5. `docs/disaster-recovery.md` - Backup/restore procedures
-6. `docs/runbooks/` - Common operations
+6. `docs/local-development.md` - Kind + Tilt workflow
+
+#### Subphase 7.2: Runbooks [PARALLEL]
+**Task ID:** `7.2-runbooks`
+
+**Runbooks to create:**
+1. `docs/runbooks/proxmox-recovery.md`
+2. `docs/runbooks/talos-upgrade.md`
+3. `docs/runbooks/truenas-maintenance.md`
+4. `docs/runbooks/argocd-troubleshooting.md`
+5. `docs/runbooks/application-restore.md`
+
+**Tasks:**
+1. Write core documentation as each phase completes
+2. Document all manual steps performed
+3. Create troubleshooting guides from issues encountered
+4. Write disaster recovery procedures
+5. Test all runbooks for accuracy
+6. Review documentation for completeness
+
+**Checkpoint:** Documentation complete and validated
 
 **Acceptance criteria:**
-- [ ] New user can deploy from README
-- [ ] Hardware setup fully documented
-- [ ] DR procedures tested
-- [ ] All components documented
+- [ ] All subphases (7.1-7.2) completed with checkpoints saved
+- [ ] New user can deploy from README without external help
+- [ ] Hardware setup fully documented with photos/diagrams
+- [ ] DR procedures tested and validated
+- [ ] All components documented with architecture diagrams
+- [ ] Runbooks tested by following them exactly
+- [ ] Documentation reflects actual implementation (not just plans)
+
+**Context to preserve:**
+- Decisions made during implementation
+- Deviations from original plan
+- Lessons learned
+- Common issues and solutions
 
 ---
 
@@ -2540,6 +3084,94 @@ When complete, this homelab should:
 - [ ] Implement conditional addon deployment based on environment
 - [ ] Test ArgoCD sync with localdev values
 - [ ] Validate TrueCharts compatibility with local storage
+
+---
+
+## Task Tracking Implementation Guide
+
+### Using `bd` for This Project
+
+When implementing this plan, use `bd` as follows:
+
+#### 1. Starting a Phase
+```bash
+# Create a new task for the phase
+bd create "phase-0-foundation" "Set up repository foundation"
+
+# Update task with initial context
+bd update "phase-0-foundation" --status "in-progress" \
+  --notes "Starting Phase 0 with 5 subphases"
+```
+
+#### 2. Working on Subphases
+```bash
+# Create subphase tasks
+bd create "0.1-directory-structure" "Create directory structure" \
+  --parent "phase-0-foundation"
+
+# Update as you complete work
+bd update "0.1-directory-structure" --status "completed" \
+  --notes "Created all directories, committed to git"
+```
+
+#### 3. Checkpoints
+At each checkpoint, save context:
+```bash
+bd update "3.4-talos-cluster" --checkpoint \
+  --notes "All 5 VMs created. IP assignments: cp-1=172.16.100.11, cp-2=172.16.100.12, worker-1=172.16.100.21 (GPU), worker-2=172.16.100.22, worker-3=172.16.100.23. GPU PCI ID: 0000:01:00.0"
+```
+
+#### 4. Parallel Work
+For parallel tasks, create multiple tasks and track them independently:
+```bash
+# Start multiple parallel tasks
+bd create "0.2-github-actions" "GitHub Actions setup"
+bd create "0.4-renovate" "Renovate configuration"
+bd create "0.5-automation" "Automation tooling"
+
+# Update each independently as work progresses
+```
+
+#### 5. Context Preservation
+When stopping work, preserve context:
+```bash
+bd update "3.5-talos-bootstrap" --status "blocked" \
+  --notes "Cluster bootstrap in progress. Cilium CNI not installing correctly. Error: ImagePullBackOff for cilium-agent. Investigating /talos/inline-manifests/cilium-install.yaml syntax. Next: Check Cilium version compatibility with Kubernetes 1.30.x"
+```
+
+#### 6. Resuming Work
+When resuming, review context:
+```bash
+bd show "3.5-talos-bootstrap"
+# Review notes, status, and previous decisions
+```
+
+### Task Hierarchy Example
+
+```
+phase-0-foundation (in-progress)
+├── 0.1-directory-structure (completed)
+├── 0.2-github-actions (completed)
+├── 0.3-1password (in-progress)
+├── 0.4-renovate (pending)
+└── 0.5-automation (pending)
+
+phase-0.5-localdev (in-progress, parallel with phase-1)
+├── 0.5.1-kind-config (completed)
+├── 0.5.2-tiltfile (in-progress)
+├── 0.5.3-local-values (pending)
+├── 0.5.4-taskfile-tasks (pending)
+└── 0.5.5-tilt-ci (pending)
+```
+
+### Key Principles
+
+1. **Checkpoint Early, Checkpoint Often**: Save context at every significant milestone
+2. **Be Specific**: Include IP addresses, version numbers, PCI IDs, exact error messages
+3. **Document Decisions**: Record why you chose a particular approach
+4. **Track Blockers**: Note what's blocking progress and what needs to happen next
+5. **Parallel Awareness**: Clearly mark which tasks can run in parallel
+6. **Recovery First**: Write checkpoints assuming you'll need to resume later
 
 ---
 
