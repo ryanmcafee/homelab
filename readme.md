@@ -30,22 +30,35 @@ mise activate pwsh | Out-String | Invoke-Expression
 
 ### Quick Setup
 
+**For Local Development (No Hardware Required):**
+```bash
+# Starts a local Kind cluster with all services
+task localdev:up
+```
+
+**For Hardware Deployment (Dev/Prod):**
+
+Prerequisites for hardware deployments:
+- Proxmox installed and accessible
+- SSH public key authentication configured for root user:
+  ```bash
+  # Copy your SSH public key to Proxmox host (replace with your Proxmox IP)
+  ssh-copy-id root@${PROXMOX_HOST}
+
+  # Test connection (should not prompt for password)
+  ssh root@${PROXMOX_HOST}
+  ```
+
+Then run the automated setup:
+
 **Mac/Linux:**
 ```bash
-# Automated setup (installs mise and all tools)
 ./scripts/setup.sh
-
-# Or for local development only
-task localdev:up
 ```
 
 **Windows:**
 ```powershell
-# Automated setup (installs mise and all tools)
 .\scripts\setup.ps1
-
-# Or for local development only
-task localdev:up
 ```
 
 ### Manual Installation

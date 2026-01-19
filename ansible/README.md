@@ -12,9 +12,24 @@ The Ansible automation handles the following tasks:
 
 ## Prerequisites
 
-1. **Proxmox installed** - Phase 1 must be completed (Proxmox accessible at 172.16.100.250)
-2. **SSH access** - Root SSH access to Proxmox host
-3. **Ansible installed** - On your control machine (laptop/workstation):
+1. **Proxmox installed** - Phase 1 must be completed (Proxmox accessible on your network)
+
+2. **SSH public key authentication configured** - Root SSH access to Proxmox host with public key authentication:
+
+   ```bash
+   # Generate SSH key if you don't have one
+   ssh-keygen -t ed25519 -C "your_email@example.com"
+
+   # Copy your public key to the Proxmox host (replace ${PROXMOX_HOST} with your Proxmox IP)
+   ssh-copy-id root@${PROXMOX_HOST}
+
+   # Test the connection (should not prompt for password)
+   ssh root@${PROXMOX_HOST}
+   ```
+
+   **Note**: You'll need the root password when running `ssh-copy-id`. After setup, Ansible will authenticate using your SSH key. The Proxmox host IP is configured in `inventory/hosts.yml` (default: 172.16.100.250).
+
+3. **Ansible installed** - Managed automatically via mise (see project root README), or install manually:
    ```bash
    # Ubuntu/Debian
    sudo apt install ansible
@@ -25,6 +40,7 @@ The Ansible automation handles the following tasks:
    # Or via pip
    pip install ansible
    ```
+
 4. **StorCLI package** - Download from Broadcom (see files/storcli_*.placeholder)
 
 ## Directory Structure
