@@ -1,0 +1,26 @@
+---
+# Main playbook for Proxmox homelab configuration
+# This is the entry point for all Ansible automation
+
+- name: Configure Proxmox Hypervisor
+  hosts: proxmox
+  gather_facts: true
+  become: true
+
+  tasks:
+    - name: Display host information
+      ansible.builtin.debug:
+        msg: "Configuring Proxmox host {{ inventory_hostname }} at {{ ansible_host }}"
+
+- name: Run Proxmox post-installation configuration
+  import_playbook: proxmox-post-install.yml
+
+- name: Configure IPMI fan thresholds
+  import_playbook: proxmox-ipmi-fans.yml
+
+- name: Install StorCLI and configure HBA
+  import_playbook: proxmox-storcli.yml
+  when: storcli_package_path is defined
+
+- name: Configure Proxmox networking
+  import_playbook: proxmox-networking.yml

@@ -1,0 +1,33 @@
+name: Ansible Lint
+
+on:
+  pull_request:
+    paths:
+      - 'ansible/**'
+      - '.github/workflows/ansible-lint.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - 'ansible/**'
+
+jobs:
+  ansible-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install ansible-lint
+        run: |
+          pip install ansible-lint ansible-core
+
+      - name: Run ansible-lint
+        run: |
+          cd ansible
+          ansible-lint

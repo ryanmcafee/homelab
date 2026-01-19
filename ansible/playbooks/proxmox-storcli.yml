@@ -1,0 +1,53 @@
+---
+# StorCLI installation and HBA firmware management
+# Broadcom 9400-8i Mixed Mode configuration for NVMe support
+# Reference: https://docs.broadcom.com/doc/12354774
+
+- name: Install StorCLI and Configure HBA
+  hosts: proxmox
+  gather_facts: true
+  become: true
+
+  pre_tasks:
+    - name: Verify StorCLI package exists
+      ansible.builtin.stat:
+        path: "{{ storcli_package_path }}"
+      delegate_to: localhost
+      become: false
+      register: storcli_package_stat
+
+    - name: Fail if StorCLI package not found
+      ansible.builtin.fail:
+        msg: |
+          StorCLI package not found at {{ storcli_package_path }}
+          Please download the package from Broadcom and place it in ansible/files/
+          Expected file: storcli_007.0327.0000.0000_all.deb
+      when: not storcli_package_stat.stat.exists
+
+  roles:
+    - role: proxmox-storcli
+
+  post_tasks:
+    - name: Display StorCLI version
+      ansible.builtin.command:
+        cmd: "{{ storcli_binary }} -v"
+      register: storcli_version
+      changed_when: false
+      failed_when: false
+
+    - name: Show StorCLI version
+      ansible.builtin.debug:
+        var: storcli_version.stdout_lines
+      when: storcli_version.rc == 0
+
+    - name: Display HBA controller information
+      ansible.builtin.command:
+        cmd: "{{ storcli_binary }} show"
+      register: storcli_info
+      changed_when: false
+      failed_when: false
+
+    - name: Show HBA controller info
+      ansible.builtin.debug:
+        var: storcli_info.stdout_lines
+      when: storcli_info.rc == 0

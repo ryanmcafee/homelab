@@ -1,0 +1,454 @@
+# Applications Chart - Default Production Values
+# User-facing applications and services
+#
+# This chart deploys media management and home automation applications:
+# - Plex (Media Server with GPU transcoding)
+# - Sonarr (TV Show Management)
+# - Radarr (Movie Management)
+# - Prowlarr (Indexer Manager)
+# - Home Assistant (Home Automation Hub)
+# - Mosquitto (MQTT Broker)
+#
+# Environment-specific values should be provided via:
+# - values-localdev.yaml (local Kind development)
+# - values-dev.yaml (development Talos cluster)
+# - values-prod.yaml (production Talos cluster)
+
+# ============================================================================
+# Global Configuration
+# ============================================================================
+
+global:
+  # Environment identifier
+  environment: prod
+
+  # Base domain for ingress resources
+  domain: ryanmcafee.com
+
+  # Default storage class for persistent volumes
+  storageClass: democratic-csi-nfs
+
+  # Default ingress class
+  ingressClassName: traefik
+
+  # Timezone for applications
+  timezone: America/New_York
+
+  # Media storage configuration
+  media:
+    # NFS mount point for media files
+    nfsServer: truenas.ryanmcafee.com
+    nfsPath: /mnt/tank/media
+
+# ============================================================================
+# Plex Media Server
+# Sync Wave: 1 (core media service)
+# ============================================================================
+
+plex:
+  enabled: true
+  namespace: media
+
+  # Chart source (using k8s-at-home charts)
+  chart:
+    name: plex
+    repo: https://bjw-s.github.io/helm-charts
+    version: 0.2.0
+
+  # Image configuration
+  image:
+    repository: plexinc.ghcr.io/plex
+    tag: latest
+    pullPolicy: IfNotPresent
+
+  # GPU configuration (NVIDIA Quadro P2200)
+  gpu:
+    enabled: true
+    vendor: nvidia
+    count: 1
+
+  # Node selector for GPU-enabled nodes
+  nodeSelector:
+    feature.node.kubernetes.io/pci-10de.present: "true"  # NVIDIA GPU
+
+  # Resource requests and limits
+  resources:
+    requests:
+      cpu: 1000m
+      memory: 2Gi
+    limits:
+      cpu: 4000m
+      memory: 8Gi
+      nvidia.com/gpu: 1
+
+  # Persistence configuration
+  persistence:
+    config:
+      enabled: true
+      storageClass: democratic-csi-nfs
+      size: 100Gi
+      accessMode: ReadWriteOnce
+
+    # Media storage via NFS
+    media:
+      enabled: true
+      type: nfs
+      server: truenas.ryanmcafee.com
+      path: /mnt/tank/media
+      mountPath: /media
+
+    # Transcode directory (ephemeral for performance)
+    transcode:
+      enabled: true
+      type: emptyDir
+      medium: Memory
+      sizeLimit: 10Gi
+
+  # Ingress configuration
+  ingress:
+    enabled: true
+    className: traefik
+    annotations:
+      cert-manager.io/cluster-issuer: letsencrypt
+      external-dns.alpha.kubernetes.io/hostname: plex.ryanmcafee.com
+    hosts:
+      - host: plex.ryanmcafee.com
+        paths:
+          - path: /
+            pathType: Prefix
+    tls:
+      - secretName: plex-tls
+        hosts:
+          - plex.ryanmcafee.com
+
+  # Environment variables
+  env:
+    TZ: America/New_York
+    PLEX_CLAIM: ""  # Provided via 1Password
+    ADVERTISE_IP: https://plex.ryanmcafee.com:443
+
+# ============================================================================
+# Sonarr - TV Show Management
+# Sync Wave: 2
+# ============================================================================
+
+sonarr:
+  enabled: true
+  namespace: media
+
+  # Chart source
+  chart:
+    name: sonarr
+    repo: https://bjw-s.github.io/helm-charts
+    version: 0.2.0
+
+  # Image configuration
+  image:
+    repository: lscr.io/linuxserver/sonarr
+    tag: latest
+    pullPolicy: IfNotPresent
+
+  # Resource requests and limits
+  resources:
+    requests:
+      cpu: 200m
+      memory: 512Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+
+  # Persistence configuration
+  persistence:
+    config:
+      enabled: true
+      storageClass: democratic-csi-nfs
+      size: 10Gi
+      accessMode: ReadWriteOnce
+
+    # Media storage via NFS
+    media:
+      enabled: true
+      type: nfs
+      server: truenas.ryanmcafee.com
+      path: /mnt/tank/media
+      mountPath: /media
+
+  # Ingress configuration
+  ingress:
+    enabled: true
+    className: traefik
+    annotations:
+      cert-manager.io/cluster-issuer: letsencrypt
+      external-dns.alpha.kubernetes.io/hostname: sonarr.ryanmcafee.com
+    hosts:
+      - host: sonarr.ryanmcafee.com
+        paths:
+          - path: /
+            pathType: Prefix
+    tls:
+      - secretName: sonarr-tls
+        hosts:
+          - sonarr.ryanmcafee.com
+
+  # Environment variables
+  env:
+    TZ: America/New_York
+    PUID: "1000"
+    PGID: "1000"
+
+# ============================================================================
+# Radarr - Movie Management
+# Sync Wave: 2
+# ============================================================================
+
+radarr:
+  enabled: true
+  namespace: media
+
+  # Chart source
+  chart:
+    name: radarr
+    repo: https://bjw-s.github.io/helm-charts
+    version: 0.2.0
+
+  # Image configuration
+  image:
+    repository: lscr.io/linuxserver/radarr
+    tag: latest
+    pullPolicy: IfNotPresent
+
+  # Resource requests and limits
+  resources:
+    requests:
+      cpu: 200m
+      memory: 512Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+
+  # Persistence configuration
+  persistence:
+    config:
+      enabled: true
+      storageClass: democratic-csi-nfs
+      size: 10Gi
+      accessMode: ReadWriteOnce
+
+    # Media storage via NFS
+    media:
+      enabled: true
+      type: nfs
+      server: truenas.ryanmcafee.com
+      path: /mnt/tank/media
+      mountPath: /media
+
+  # Ingress configuration
+  ingress:
+    enabled: true
+    className: traefik
+    annotations:
+      cert-manager.io/cluster-issuer: letsencrypt
+      external-dns.alpha.kubernetes.io/hostname: radarr.ryanmcafee.com
+    hosts:
+      - host: radarr.ryanmcafee.com
+        paths:
+          - path: /
+            pathType: Prefix
+    tls:
+      - secretName: radarr-tls
+        hosts:
+          - radarr.ryanmcafee.com
+
+  # Environment variables
+  env:
+    TZ: America/New_York
+    PUID: "1000"
+    PGID: "1000"
+
+# ============================================================================
+# Prowlarr - Indexer Manager
+# Sync Wave: 2
+# ============================================================================
+
+prowlarr:
+  enabled: true
+  namespace: media
+
+  # Chart source
+  chart:
+    name: prowlarr
+    repo: https://bjw-s.github.io/helm-charts
+    version: 0.2.0
+
+  # Image configuration
+  image:
+    repository: lscr.io/linuxserver/prowlarr
+    tag: latest
+    pullPolicy: IfNotPresent
+
+  # Resource requests and limits
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+  # Persistence configuration
+  persistence:
+    config:
+      enabled: true
+      storageClass: democratic-csi-nfs
+      size: 1Gi
+      accessMode: ReadWriteOnce
+
+  # Ingress configuration
+  ingress:
+    enabled: true
+    className: traefik
+    annotations:
+      cert-manager.io/cluster-issuer: letsencrypt
+      external-dns.alpha.kubernetes.io/hostname: prowlarr.ryanmcafee.com
+    hosts:
+      - host: prowlarr.ryanmcafee.com
+        paths:
+          - path: /
+            pathType: Prefix
+    tls:
+      - secretName: prowlarr-tls
+        hosts:
+          - prowlarr.ryanmcafee.com
+
+  # Environment variables
+  env:
+    TZ: America/New_York
+    PUID: "1000"
+    PGID: "1000"
+
+# ============================================================================
+# Home Assistant - Home Automation Hub
+# Sync Wave: 3
+# ============================================================================
+
+homeassistant:
+  enabled: true
+  namespace: home-automation
+
+  # Chart source
+  chart:
+    name: home-assistant
+    repo: https://bjw-s.github.io/helm-charts
+    version: 0.2.0
+
+  # Image configuration
+  image:
+    repository: ghcr.io/home-assistant/home-assistant
+    tag: latest
+    pullPolicy: IfNotPresent
+
+  # Host network for device discovery
+  hostNetwork: true
+  dnsPolicy: ClusterFirstWithHostNet
+
+  # Resource requests and limits
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: 2000m
+      memory: 2Gi
+
+  # Persistence configuration
+  persistence:
+    config:
+      enabled: true
+      storageClass: democratic-csi-nfs
+      size: 10Gi
+      accessMode: ReadWriteOnce
+
+  # Ingress configuration
+  ingress:
+    enabled: true
+    className: traefik
+    annotations:
+      cert-manager.io/cluster-issuer: letsencrypt
+      external-dns.alpha.kubernetes.io/hostname: homeassistant.ryanmcafee.com
+    hosts:
+      - host: homeassistant.ryanmcafee.com
+        paths:
+          - path: /
+            pathType: Prefix
+    tls:
+      - secretName: homeassistant-tls
+        hosts:
+          - homeassistant.ryanmcafee.com
+
+  # Environment variables
+  env:
+    TZ: America/New_York
+
+# ============================================================================
+# Mosquitto - MQTT Broker
+# Sync Wave: 3
+# ============================================================================
+
+mosquitto:
+  enabled: true
+  namespace: home-automation
+
+  # Chart source
+  chart:
+    name: mosquitto
+    repo: https://bjw-s.github.io/helm-charts
+    version: 0.2.0
+
+  # Image configuration
+  image:
+    repository: eclipse-mosquitto
+    tag: latest
+    pullPolicy: IfNotPresent
+
+  # Resource requests and limits
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+
+  # Persistence configuration
+  persistence:
+    config:
+      enabled: true
+      storageClass: democratic-csi-nfs
+      size: 1Gi
+      accessMode: ReadWriteOnce
+
+    data:
+      enabled: true
+      storageClass: democratic-csi-nfs
+      size: 1Gi
+      accessMode: ReadWriteOnce
+
+  # Service configuration
+  service:
+    type: LoadBalancer
+    ports:
+      mqtt:
+        port: 1883
+        protocol: TCP
+      websocket:
+        port: 9001
+        protocol: TCP
+
+  # Authentication configuration
+  auth:
+    enabled: true
+    # Username and password from 1Password
+
+  # Environment variables
+  env:
+    TZ: America/New_York

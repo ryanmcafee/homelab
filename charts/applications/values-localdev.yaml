@@ -1,0 +1,315 @@
+# Applications Chart - Local Development Overrides
+# Phase 0.5: Local Development Environment
+#
+# This file provides overrides for the applications Helm chart to support
+# local development with Kind cluster. It configures applications with:
+# - Reduced resource requests (Kind has limited resources)
+# - No GPU requirements (no NVIDIA hardware in Kind)
+# - Local storage class (local-path-provisioner)
+# - Simplified configurations without external dependencies
+#
+# Applications can be selectively enabled/disabled for testing
+
+# ============================================================================
+# Global Configuration
+# ============================================================================
+
+global:
+  # Environment identifier
+  environment: localdev
+
+  # Use local-path storage class
+  storageClass: local-path
+
+  # Domain for local development
+  domain: homelab.test
+
+  # Default ingress class
+  ingressClassName: traefik
+
+  # Timezone
+  timezone: America/New_York
+
+# ============================================================================
+# Plex Media Server
+# ============================================================================
+
+plex:
+  enabled: true
+
+  # No GPU in local development
+  resources:
+    requests:
+      cpu: 100m
+      memory: 512Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+      # GPU removed for local dev
+      # nvidia.com/gpu: 0
+
+  # Minimal storage for testing
+  persistence:
+    config:
+      enabled: true
+      storageClass: local-path
+      size: 1Gi
+    # Media storage disabled in local dev (too large)
+    media:
+      enabled: false
+
+  # Use NodePort for web UI access
+  service:
+    type: NodePort
+    port: 32400
+
+  # Disable transcoding (no GPU)
+  env:
+    PLEX_CLAIM: ""  # No claim token needed for local dev
+    ADVERTISE_IP: "http://localhost:32400/"
+
+# ============================================================================
+# Sonarr (TV Show Management)
+# ============================================================================
+
+sonarr:
+  enabled: true
+
+  # Reduced resources
+  resources:
+    requests:
+      cpu: 50m
+      memory: 256Mi
+    limits:
+      cpu: 200m
+      memory: 512Mi
+
+  # Minimal storage
+  persistence:
+    config:
+      enabled: true
+      storageClass: local-path
+      size: 1Gi
+    # Media storage disabled
+    media:
+      enabled: false
+
+  # Use NodePort
+  service:
+    type: NodePort
+    port: 8989
+
+# ============================================================================
+# Radarr (Movie Management)
+# ============================================================================
+
+radarr:
+  enabled: true
+
+  # Reduced resources
+  resources:
+    requests:
+      cpu: 50m
+      memory: 256Mi
+    limits:
+      cpu: 200m
+      memory: 512Mi
+
+  # Minimal storage
+  persistence:
+    config:
+      enabled: true
+      storageClass: local-path
+      size: 1Gi
+    # Media storage disabled
+    media:
+      enabled: false
+
+  # Use NodePort
+  service:
+    type: NodePort
+    port: 7878
+
+# ============================================================================
+# Prowlarr (Indexer Manager)
+# ============================================================================
+
+prowlarr:
+  enabled: true
+
+  # Reduced resources (lightweight application)
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+
+  # Minimal storage
+  persistence:
+    config:
+      enabled: true
+      storageClass: local-path
+      size: 512Mi
+
+  # Use NodePort
+  service:
+    type: NodePort
+    port: 9696
+
+# ============================================================================
+# Home Assistant
+# ============================================================================
+
+homeassistant:
+  # Disabled by default in local dev (requires host network for discovery)
+  enabled: false
+
+  # If enabled, use minimal resources
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+  # Minimal storage
+  persistence:
+    config:
+      enabled: true
+      storageClass: local-path
+      size: 1Gi
+
+  # Note: Home Assistant typically requires hostNetwork for device discovery
+  # This doesn't work well in Kind, so it's disabled by default
+  hostNetwork: false
+
+# ============================================================================
+# Mosquitto (MQTT Broker)
+# ============================================================================
+
+mosquitto:
+  enabled: true
+
+  # Minimal resources (very lightweight)
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+    limits:
+      cpu: 100m
+      memory: 128Mi
+
+  # Small storage for retained messages
+  persistence:
+    enabled: true
+    storageClass: local-path
+    size: 128Mi
+
+  # Use NodePort
+  service:
+    type: NodePort
+    port: 1883
+
+  # Allow anonymous connections for local testing
+  auth:
+    enabled: false
+
+# ============================================================================
+# qBittorrent (Download Client) - Optional
+# ============================================================================
+
+qbittorrent:
+  enabled: false  # Disabled by default, enable for testing
+
+  # Reduced resources
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+  # Minimal storage
+  persistence:
+    config:
+      enabled: true
+      storageClass: local-path
+      size: 512Mi
+    downloads:
+      enabled: true
+      storageClass: local-path
+      size: 5Gi
+
+  # Use NodePort
+  service:
+    type: NodePort
+    port: 8080
+
+# ============================================================================
+# Jellyfin (Alternative Media Server) - Optional
+# ============================================================================
+
+jellyfin:
+  enabled: false  # Disabled by default (alternative to Plex)
+
+  # No GPU
+  resources:
+    requests:
+      cpu: 100m
+      memory: 512Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+
+  # Minimal storage
+  persistence:
+    config:
+      enabled: true
+      storageClass: local-path
+      size: 1Gi
+    media:
+      enabled: false
+
+  # Use NodePort
+  service:
+    type: NodePort
+    port: 8096
+
+# ============================================================================
+# Additional Configuration Notes
+# ============================================================================
+
+# Resource Allocation Summary for Enabled Apps:
+# - Plex:      100m CPU,  512Mi RAM  (largest)
+# - Sonarr:     50m CPU,  256Mi RAM
+# - Radarr:     50m CPU,  256Mi RAM
+# - Prowlarr:   50m CPU,  128Mi RAM
+# - Mosquitto:  10m CPU,   32Mi RAM  (smallest)
+# ─────────────────────────────────────────────
+# Total:      ~260m CPU, ~1.2Gi RAM
+#
+# This should run comfortably on a development machine with Docker Desktop
+# configured for 4GB+ RAM allocation.
+
+# Storage Summary for Enabled Apps:
+# - Plex:      1Gi
+# - Sonarr:    1Gi
+# - Radarr:    1Gi
+# - Prowlarr: 512Mi
+# - Mosquitto: 128Mi
+# ─────────────────────────
+# Total:     ~3.6Gi
+#
+# Additional storage is used by monitoring stack (Prometheus + Grafana: ~6Gi)
+# Ensure your Docker Desktop has sufficient disk space allocated (20GB+ recommended)
+
+# Access URLs (when using NodePort):
+# All services accessible via localhost:<nodePort>
+# Specific ports are defined in service.port above
+#
+# For ingress-based access, services will be available at:
+# - https://<app>.homelab.test (requires /etc/hosts entry pointing to 127.0.0.1)

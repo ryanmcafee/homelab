@@ -1,0 +1,27 @@
+---
+# Global variables for all hosts
+
+# Network Configuration
+base_domain: ryanmcafee.com
+homelab_vlan: 100
+homelab_subnet: 172.16.100.0/24
+homelab_gateway: 172.16.100.1
+dns_servers:
+  - 172.16.100.1
+
+# NTP Configuration
+ntp_servers:
+  - 0.pool.ntp.org
+  - 1.pool.ntp.org
+  - 2.pool.ntp.org
+
+# Timezone
+timezone: America/New_York
+
+# Package Management
+apt_cache_valid_time: 3600
+apt_upgrade: false  # Set to true for security updates
+
+# Security
+disable_root_password: false
+ssh_permit_root_login: "yes"  # Required for Proxmox management

@@ -1,0 +1,45 @@
+{{- if index .Values "local-path-provisioner" "enabled" }}
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: local-path-provisioner
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: {{ index .Values "local-path-provisioner" "chart" "repo" }}
+    chart: {{ index .Values "local-path-provisioner" "chart" "name" }}
+    targetRevision: {{ index .Values "local-path-provisioner" "chart" "version" }}
+    helm:
+      releaseName: local-path-provisioner
+      values: |
+        storageClass:
+          name: {{ index .Values "local-path-provisioner" "storageClass" "name" }}
+          defaultClass: {{ index .Values "local-path-provisioner" "storageClass" "defaultClass" }}
+
+        resources:
+          {{- toYaml (index .Values "local-path-provisioner" "resources") | nindent 10 }}
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: {{ index .Values "local-path-provisioner" "namespace" }}
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+{{- end }}

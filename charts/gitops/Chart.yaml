@@ -1,0 +1,13 @@
+apiVersion: v2
+name: gitops
+description: GitOps umbrella chart implementing App of Apps pattern for homelab infrastructure
+type: application
+version: 1.0.0
+appVersion: "1.0"
+maintainers:
+  - name: Ryan McAfee
+keywords:
+  - argocd
+  - gitops
+  - homelab
+  - app-of-apps

@@ -1,0 +1,76 @@
+# GitOps Umbrella Chart - Production Environment Overrides
+# Production Talos cluster on Proxmox
+#
+# This is the production environment for the homelab, running all
+# family services with high availability and proper resource allocation.
+
+# ============================================================================
+# Global Configuration
+# ============================================================================
+
+global:
+  # Environment identifier
+  environment: prod
+
+  # Production domain
+  domain: ryanmcafee.com
+
+  # Repository URL
+  repoUrl: https://github.com/ryanmcafee/homelab.git
+
+  # Target production branch (use tags for stability)
+  targetRevision: main
+
+# ============================================================================
+# Addons Application
+# ============================================================================
+
+addons:
+  enabled: true
+
+  source:
+    # Use prod-specific values
+    valueFiles:
+      - values.yaml
+      - values-prod.yaml
+
+  syncPolicy:
+    automated:
+      # Conservative automated sync in production
+      prune: true
+      selfHeal: true
+
+    # Extended retry for production stability
+    retry:
+      limit: 10
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 10m
+
+# ============================================================================
+# Applications
+# ============================================================================
+
+applications:
+  enabled: true
+
+  source:
+    # Use prod-specific values
+    valueFiles:
+      - values.yaml
+      - values-prod.yaml
+
+  syncPolicy:
+    automated:
+      # Conservative automated sync in production
+      prune: true
+      selfHeal: true
+
+    # Extended retry for production stability
+    retry:
+      limit: 10
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 10m

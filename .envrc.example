@@ -1,0 +1,62 @@
+# Homelab Environment Variables
+# Copy this file to .envrc and fill in your values
+# Use direnv to automatically load these variables: https://direnv.net/
+
+# ============================================================================
+# 1Password Configuration
+# ============================================================================
+# 1Password Connect Server (for CI/CD and automation)
+export OP_CONNECT_HOST="https://1password-connect.ryanmcafee.com"
+export OP_CONNECT_TOKEN="<your-connect-token>"
+
+# 1Password CLI (for local development)
+export OP_SERVICE_ACCOUNT_TOKEN="<your-service-account-token>"
+
+# ============================================================================
+# Proxmox Configuration
+# ============================================================================
+export TF_VAR_proxmox_api_url="https://172.16.100.250:8006/api2/json"
+export TF_VAR_proxmox_api_token_id="root@pam!terraform"
+export TF_VAR_proxmox_api_token_secret="<from-1password>"
+export TF_VAR_proxmox_node="pve"
+
+# ============================================================================
+# TrueNAS Configuration
+# ============================================================================
+export TF_VAR_truenas_api_key="<from-1password>"
+export TF_VAR_truenas_host="172.16.100.10"
+
+# ============================================================================
+# Network Configuration
+# ============================================================================
+export TF_VAR_base_fqdn="ryanmcafee.com"
+export TF_VAR_cloudflare_api_token="<from-1password>"
+export TF_VAR_cloudflare_zone_id="<from-1password>"
+
+# ============================================================================
+# Kubernetes Configuration
+# ============================================================================
+export TF_VAR_cluster_name="homelab"
+export TF_VAR_environment="dev"  # localdev, dev, or prod
+export KUBECONFIG="${HOME}/.kube/homelab-${TF_VAR_environment}.yaml"
+
+# ============================================================================
+# Ansible Configuration
+# ============================================================================
+export ANSIBLE_INVENTORY="ansible/inventory/hosts.yml"
+export ANSIBLE_VAULT_PASSWORD_FILE=".vault_password"
+
+# ============================================================================
+# Local Development
+# ============================================================================
+# Tilt mode: "direct" or "argocd"
+export TILT_MODE="direct"
+
+# Enable debug logging
+# export TF_LOG=DEBUG
+# export ANSIBLE_DEBUG=1
+
+# ============================================================================
+# Optional: GitHub Actions (for local testing with act)
+# ============================================================================
+# export GITHUB_TOKEN="<your-github-pat>"

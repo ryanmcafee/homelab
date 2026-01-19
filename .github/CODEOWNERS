@@ -1,0 +1,24 @@
+# CODEOWNERS file for homelab repository
+# These owners will be automatically requested for review when someone opens a pull request
+
+# Global owners for all files
+* @ryanmcafee
+
+# Infrastructure as Code
+/terragrunt/ @ryanmcafee
+/ansible/ @ryanmcafee
+
+# GitOps and Helm Charts
+/charts/ @ryanmcafee
+
+# Documentation
+/docs/ @ryanmcafee
+*.md @ryanmcafee
+
+# GitHub Actions
+/.github/ @ryanmcafee
+
+# Critical configuration files
+/.gitignore @ryanmcafee
+/plan.md @ryanmcafee
+/Taskfile.yml @ryanmcafee

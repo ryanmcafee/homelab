@@ -1,0 +1,155 @@
+# Applications Chart - Development Environment Overrides
+# Development Talos cluster on Proxmox
+#
+# Reduced resources and test configurations for development.
+
+# ============================================================================
+# Global Configuration
+# ============================================================================
+
+global:
+  environment: dev
+  domain: dev.ryanmcafee.com
+  storageClass: democratic-csi-nfs
+  ingressClassName: traefik
+  timezone: America/New_York
+
+  # Dev media storage
+  media:
+    nfsServer: truenas-dev.ryanmcafee.com
+    nfsPath: /mnt/tank/media-dev
+
+# ============================================================================
+# Plex
+# ============================================================================
+
+plex:
+  enabled: true
+
+  # No GPU in dev environment
+  gpu:
+    enabled: false
+
+  # Reduced resources
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: 2000m
+      memory: 4Gi
+
+  # Smaller storage
+  persistence:
+    config:
+      size: 50Gi
+    media:
+      server: truenas-dev.ryanmcafee.com
+      path: /mnt/tank/media-dev
+
+  # Dev ingress
+  ingress:
+    annotations:
+      external-dns.alpha.kubernetes.io/hostname: plex.dev.ryanmcafee.com
+    hosts:
+      - host: plex.dev.ryanmcafee.com
+        paths:
+          - path: /
+            pathType: Prefix
+    tls:
+      - secretName: plex-dev-tls
+        hosts:
+          - plex.dev.ryanmcafee.com
+
+# ============================================================================
+# Sonarr
+# ============================================================================
+
+sonarr:
+  enabled: true
+
+  persistence:
+    config:
+      size: 5Gi
+    media:
+      server: truenas-dev.ryanmcafee.com
+      path: /mnt/tank/media-dev
+
+  ingress:
+    annotations:
+      external-dns.alpha.kubernetes.io/hostname: sonarr.dev.ryanmcafee.com
+    hosts:
+      - host: sonarr.dev.ryanmcafee.com
+        paths:
+          - path: /
+            pathType: Prefix
+    tls:
+      - secretName: sonarr-dev-tls
+        hosts:
+          - sonarr.dev.ryanmcafee.com
+
+# ============================================================================
+# Radarr
+# ============================================================================
+
+radarr:
+  enabled: true
+
+  persistence:
+    config:
+      size: 5Gi
+    media:
+      server: truenas-dev.ryanmcafee.com
+      path: /mnt/tank/media-dev
+
+  ingress:
+    annotations:
+      external-dns.alpha.kubernetes.io/hostname: radarr.dev.ryanmcafee.com
+    hosts:
+      - host: radarr.dev.ryanmcafee.com
+        paths:
+          - path: /
+            pathType: Prefix
+    tls:
+      - secretName: radarr-dev-tls
+        hosts:
+          - radarr.dev.ryanmcafee.com
+
+# ============================================================================
+# Prowlarr
+# ============================================================================
+
+prowlarr:
+  enabled: true
+
+  ingress:
+    annotations:
+      external-dns.alpha.kubernetes.io/hostname: prowlarr.dev.ryanmcafee.com
+    hosts:
+      - host: prowlarr.dev.ryanmcafee.com
+        paths:
+          - path: /
+            pathType: Prefix
+    tls:
+      - secretName: prowlarr-dev-tls
+        hosts:
+          - prowlarr.dev.ryanmcafee.com
+
+# ============================================================================
+# Home Assistant
+# ============================================================================
+
+homeassistant:
+  # Disable in dev (requires specific network configuration)
+  enabled: false
+
+# ============================================================================
+# Mosquitto
+# ============================================================================
+
+mosquitto:
+  enabled: true
+
+  ingress:
+    annotations:
+      external-dns.alpha.kubernetes.io/hostname: mqtt.dev.ryanmcafee.com

@@ -1,0 +1,139 @@
+---
+# StorCLI installation and HBA firmware management role
+# Manages Broadcom 9400-8i HBA controllers
+
+- name: Check if StorCLI is already installed
+  ansible.builtin.stat:
+    path: "{{ storcli_binary }}"
+  register: storcli_installed
+
+- name: Display StorCLI installation status
+  ansible.builtin.debug:
+    msg: "StorCLI is {{ 'already installed' if storcli_installed.stat.exists else 'not installed' }}"
+
+- name: Copy StorCLI package to target host
+  ansible.builtin.copy:
+    src: "{{ storcli_package_path }}"
+    dest: /tmp/storcli.deb
+    mode: '0644'
+  when: not storcli_installed.stat.exists
+
+- name: Install StorCLI package
+  ansible.builtin.apt:
+    deb: /tmp/storcli.deb
+    state: present
+  when: not storcli_installed.stat.exists
+  register: storcli_install_result
+
+- name: Clean up StorCLI package
+  ansible.builtin.file:
+    path: /tmp/storcli.deb
+    state: absent
+
+- name: Verify StorCLI installation
+  ansible.builtin.stat:
+    path: "{{ storcli_binary }}"
+  register: storcli_verify
+
+- name: Fail if StorCLI not installed
+  ansible.builtin.fail:
+    msg: "StorCLI installation failed - binary not found at {{ storcli_binary }}"
+  when: not storcli_verify.stat.exists
+
+- name: Create StorCLI symlink in /usr/local/bin
+  ansible.builtin.file:
+    src: "{{ storcli_binary }}"
+    dest: /usr/local/bin/storcli64
+    state: link
+    force: true
+
+- name: Get StorCLI version
+  ansible.builtin.command:
+    cmd: "{{ storcli_binary }} -v"
+  register: storcli_version_output
+  changed_when: false
+  failed_when: false
+
+- name: Check for HBA controllers
+  ansible.builtin.command:
+    cmd: "{{ storcli_binary }} show"
+  register: storcli_controllers
+  changed_when: false
+  failed_when: false
+
+- name: Display HBA controller status
+  ansible.builtin.debug:
+    msg: "Found {{ storcli_controllers.stdout_lines | length }} HBA controller(s)"
+  when: storcli_controllers.rc == 0
+
+- name: Get controller information for Card 1 (Proxmox dedicated)
+  ansible.builtin.command:
+    cmd: "{{ storcli_binary }} /c0 show all"
+  register: hba_card_1_info
+  changed_when: false
+  failed_when: false
+  when: hba_card_1_pci_id is defined
+
+- name: Get controller information for Card 2 (TrueNAS passthrough)
+  ansible.builtin.command:
+    cmd: "{{ storcli_binary }} /c1 show all"
+  register: hba_card_2_info
+  changed_when: false
+  failed_when: false
+  when: hba_card_2_pci_id is defined
+
+- name: Copy firmware file if firmware update is enabled
+  ansible.builtin.copy:
+    src: "{{ storcli_firmware_path }}"
+    dest: /tmp/hba_firmware.rom
+    mode: '0644'
+  when:
+    - storcli_firmware_update | default(false) | bool
+    - storcli_firmware_path | length > 0
+
+- name: Flash HBA firmware (Card 1)
+  ansible.builtin.command:
+    cmd: "{{ storcli_binary }} /c0 download file=/tmp/hba_firmware.rom"
+  register: firmware_flash_c0
+  when:
+    - storcli_firmware_update | default(false) | bool
+    - storcli_firmware_path | length > 0
+  changed_when: "'Firmware download successful' in firmware_flash_c0.stdout"
+  failed_when:
+    - firmware_flash_c0.rc != 0
+    - "'already running the same firmware' not in firmware_flash_c0.stdout"
+
+- name: Flash HBA firmware (Card 2)
+  ansible.builtin.command:
+    cmd: "{{ storcli_binary }} /c1 download file=/tmp/hba_firmware.rom"
+  register: firmware_flash_c1
+  when:
+    - storcli_firmware_update | default(false) | bool
+    - storcli_firmware_path | length > 0
+    - hba_card_2_pci_id is defined
+  changed_when: "'Firmware download successful' in firmware_flash_c1.stdout"
+  failed_when:
+    - firmware_flash_c1.rc != 0
+    - "'already running the same firmware' not in firmware_flash_c1.stdout"
+
+- name: Clean up firmware file
+  ansible.builtin.file:
+    path: /tmp/hba_firmware.rom
+    state: absent
+  when:
+    - storcli_firmware_update | default(false) | bool
+
+- name: Create StorCLI log directory
+  ansible.builtin.file:
+    path: /var/log/storcli
+    state: directory
+    mode: '0755'
+
+- name: Create cron job for HBA health monitoring
+  ansible.builtin.cron:
+    name: "StorCLI HBA Health Check"
+    minute: "*/30"
+    hour: "*"
+    job: "{{ storcli_binary }} /c0 show all > /var/log/storcli/health-check.log 2>&1"
+    user: root
+    state: present

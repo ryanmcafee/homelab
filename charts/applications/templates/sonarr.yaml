@@ -1,0 +1,79 @@
+{{- if .Values.sonarr.enabled }}
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: sonarr
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: {{ .Values.sonarr.chart.repo }}
+    chart: {{ .Values.sonarr.chart.name }}
+    targetRevision: {{ .Values.sonarr.chart.version }}
+    helm:
+      releaseName: sonarr
+      values: |
+        image:
+          repository: {{ .Values.sonarr.image.repository }}
+          tag: {{ .Values.sonarr.image.tag }}
+          pullPolicy: {{ .Values.sonarr.image.pullPolicy }}
+
+        env:
+          {{- range $key, $value := .Values.sonarr.env }}
+          {{ $key }}: {{ $value | quote }}
+          {{- end }}
+
+        resources:
+          {{- toYaml .Values.sonarr.resources | nindent 10 }}
+
+        persistence:
+          config:
+            enabled: {{ .Values.sonarr.persistence.config.enabled }}
+            storageClass: {{ .Values.sonarr.persistence.config.storageClass }}
+            size: {{ .Values.sonarr.persistence.config.size }}
+            accessMode: {{ .Values.sonarr.persistence.config.accessMode }}
+
+          {{- if .Values.sonarr.persistence.media.enabled }}
+          media:
+            enabled: true
+            type: {{ .Values.sonarr.persistence.media.type }}
+            server: {{ .Values.sonarr.persistence.media.server }}
+            path: {{ .Values.sonarr.persistence.media.path }}
+            mountPath: {{ .Values.sonarr.persistence.media.mountPath }}
+          {{- end }}
+
+        {{- if .Values.sonarr.ingress.enabled }}
+        ingress:
+          enabled: true
+          className: {{ .Values.sonarr.ingress.className }}
+          annotations:
+            {{- toYaml .Values.sonarr.ingress.annotations | nindent 12 }}
+          hosts:
+            {{- toYaml .Values.sonarr.ingress.hosts | nindent 12 }}
+          tls:
+            {{- toYaml .Values.sonarr.ingress.tls | nindent 12 }}
+        {{- end }}
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: {{ .Values.sonarr.namespace }}
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+{{- end }}

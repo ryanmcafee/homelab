@@ -1,0 +1,46 @@
+# Talos GPU Passthrough Configuration Patch
+# Apply this patch to worker nodes with NVIDIA GPU passthrough
+# This configuration enables NVIDIA GPU support for Kubernetes workloads (e.g., Plex transcoding)
+
+machine:
+  # Load NVIDIA kernel modules
+  kernel:
+    modules:
+      - name: nvidia
+      - name: nvidia_uvm
+      - name: nvidia_drm
+      - name: nvidia_modeset
+
+  # System extensions (must be included in the Talos image)
+  # Ensure siderolabs/nvidia-container-toolkit is in your schematic.yaml
+
+  # Node labels for GPU scheduling
+  nodeLabels:
+    # Standard NVIDIA GPU label
+    nvidia.com/gpu: "true"
+
+    # PCI vendor ID for NVIDIA (10de)
+    feature.node.kubernetes.io/pci-10de.present: "true"
+
+    # Specific GPU model (optional, adjust based on your GPU)
+    # nvidia.com/gpu.product: "Quadro-P2200"
+
+  # Sysctls for container runtime
+  sysctls:
+    # Enable memory swappiness for GPU workloads
+    vm.swappiness: "10"
+
+# Apply this patch to worker-1 (the node with GPU):
+# In terragrunt/environments/*/talos-cluster/terragrunt.hcl:
+#
+# gpu_config_patch = file("${get_repo_root()}/talos/patches/gpu-passthrough.yaml")
+#
+# And in worker_nodes configuration:
+# "worker-1" = {
+#   ip        = "172.16.100.21"
+#   host_node = "pve"
+#   cores     = 8
+#   memory    = 32768
+#   disk_size = 100
+#   gpu       = true  # This triggers GPU passthrough
+# }

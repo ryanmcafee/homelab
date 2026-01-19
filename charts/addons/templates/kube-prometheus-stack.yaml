@@ -1,0 +1,125 @@
+{{- if index .Values "kube-prometheus-stack" "enabled" }}
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: kube-prometheus-stack
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "5"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: {{ index .Values "kube-prometheus-stack" "chart" "repo" }}
+    chart: {{ index .Values "kube-prometheus-stack" "chart" "name" }}
+    targetRevision: {{ index .Values "kube-prometheus-stack" "chart" "version" }}
+    helm:
+      releaseName: kube-prometheus-stack
+      values: |
+        prometheus:
+          prometheusSpec:
+            retention: {{ index .Values "kube-prometheus-stack" "prometheus" "retention" }}
+            retentionSize: {{ index .Values "kube-prometheus-stack" "prometheus" "retentionSize" }}
+
+            resources:
+              {{- toYaml (index .Values "kube-prometheus-stack" "prometheus" "resources") | nindent 14 }}
+
+            storageSpec:
+              volumeClaimTemplate:
+                spec:
+                  storageClassName: {{ index .Values "kube-prometheus-stack" "prometheus" "storageClass" }}
+                  accessModes:
+                    - ReadWriteOnce
+                  resources:
+                    requests:
+                      storage: {{ index .Values "kube-prometheus-stack" "prometheus" "storageSize" }}
+
+            serviceMonitorSelectorNilUsesHelmValues: false
+            podMonitorSelectorNilUsesHelmValues: false
+            ruleSelectorNilUsesHelmValues: false
+
+        grafana:
+          enabled: {{ index .Values "kube-prometheus-stack" "grafana" "enabled" }}
+
+          adminPassword: {{ index .Values "kube-prometheus-stack" "grafana" "adminPassword" | quote }}
+
+          persistence:
+            enabled: {{ index .Values "kube-prometheus-stack" "grafana" "persistence" "enabled" }}
+            storageClassName: {{ index .Values "kube-prometheus-stack" "grafana" "persistence" "storageClass" }}
+            size: {{ index .Values "kube-prometheus-stack" "grafana" "persistence" "size" }}
+
+          {{- if (index .Values "kube-prometheus-stack" "grafana" "ingress" "enabled") }}
+          ingress:
+            enabled: true
+            ingressClassName: {{ index .Values "kube-prometheus-stack" "grafana" "ingress" "ingressClassName" }}
+            annotations:
+              cert-manager.io/cluster-issuer: letsencrypt
+              external-dns.alpha.kubernetes.io/hostname: {{ index (index .Values "kube-prometheus-stack" "grafana" "ingress" "hosts") 0 }}
+            hosts:
+              {{- range (index .Values "kube-prometheus-stack" "grafana" "ingress" "hosts") }}
+              - {{ . }}
+              {{- end }}
+            tls:
+              {{- toYaml (index .Values "kube-prometheus-stack" "grafana" "ingress" "tls") | nindent 14 }}
+          {{- end }}
+
+          resources:
+            {{- toYaml (index .Values "kube-prometheus-stack" "grafana" "resources") | nindent 12 }}
+
+        alertmanager:
+          enabled: {{ index .Values "kube-prometheus-stack" "alertmanager" "enabled" }}
+
+          {{- if (index .Values "kube-prometheus-stack" "alertmanager" "enabled") }}
+          alertmanagerSpec:
+            storage:
+              {{- toYaml (index .Values "kube-prometheus-stack" "alertmanager" "storage") | nindent 14 }}
+
+            resources:
+              {{- toYaml (index .Values "kube-prometheus-stack" "alertmanager" "resources") | nindent 14 }}
+          {{- end }}
+
+        nodeExporter:
+          enabled: {{ index .Values "kube-prometheus-stack" "nodeExporter" "enabled" }}
+          {{- if (index .Values "kube-prometheus-stack" "nodeExporter" "enabled") }}
+          resources:
+            {{- toYaml (index .Values "kube-prometheus-stack" "nodeExporter" "resources") | nindent 12 }}
+          {{- end }}
+
+        kubeStateMetrics:
+          enabled: {{ index .Values "kube-prometheus-stack" "kubeStateMetrics" "enabled" }}
+          {{- if (index .Values "kube-prometheus-stack" "kubeStateMetrics" "enabled") }}
+          resources:
+            {{- toYaml (index .Values "kube-prometheus-stack" "kubeStateMetrics" "resources") | nindent 12 }}
+          {{- end }}
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: {{ index .Values "kube-prometheus-stack" "namespace" }}
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+
+  # Ignore differences in dynamic fields
+  ignoreDifferences:
+    - group: admissionregistration.k8s.io
+      kind: ValidatingWebhookConfiguration
+      jsonPointers:
+        - /webhooks/0/clientConfig/caBundle
+    - group: admissionregistration.k8s.io
+      kind: MutatingWebhookConfiguration
+      jsonPointers:
+        - /webhooks/0/clientConfig/caBundle
+{{- end }}

@@ -1,0 +1,20 @@
+# IPMI Fan Threshold Service
+# Applies Noctua fan thresholds on boot to prevent cyclical spin-up
+# Reference: https://calvin.me/quick-how-to-decrease-ipmi-fan-threshold/
+
+[Unit]
+Description=IPMI Fan Threshold Configuration for Noctua Fans
+After=network.target
+Documentation=https://calvin.me/quick-how-to-decrease-ipmi-fan-threshold/
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/bash -c '\
+{% for fan in ipmi_fan_thresholds %}
+ipmitool sensor thresh {{ fan.fan }} lower {{ fan.lower_non_recoverable }} {{ fan.lower_critical }} {{ fan.lower_non_critical }} || true; \
+{% endfor %}
+logger -t ipmi-fan-threshold "Applied fan thresholds for Noctua fans"'
+
+[Install]
+WantedBy=multi-user.target

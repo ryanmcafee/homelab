@@ -1,0 +1,66 @@
+# Terraform / Terragrunt
+.terraform/
+.terragrunt-cache/
+*.tfstate
+*.tfstate.backup
+*.tfplan
+*.tfvars
+!terraform.tfvars.example
+.terraform.lock.hcl
+
+# Ansible
+*.retry
+.vault_password
+ansible/inventory/hosts.yml
+ansible/group_vars/all.yml
+
+# Local environment
+.env
+.envrc
+!.envrc.example
+.direnv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Secrets
+secrets/
+*.key
+*.pem
+*.crt
+!*.example
+
+# Tilt
+.tilt-cache/
+
+# Task
+.task/
+
+# Temporary files
+tmp/
+*.tmp
+*.log
+
+# Kubeconfig
+kubeconfig
+*.kubeconfig
+
+# 1Password
+.op/
+
+# Beads/bd
+.beads/db/
+.beads/*.db
+.beads/*.db-shm
+.beads/*.db-wal
+
+# Claude
+.claude/

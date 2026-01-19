@@ -1,0 +1,77 @@
+{{- if .Values.mosquitto.enabled }}
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: mosquitto
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: {{ .Values.mosquitto.chart.repo }}
+    chart: {{ .Values.mosquitto.chart.name }}
+    targetRevision: {{ .Values.mosquitto.chart.version }}
+    helm:
+      releaseName: mosquitto
+      values: |
+        image:
+          repository: {{ .Values.mosquitto.image.repository }}
+          tag: {{ .Values.mosquitto.image.tag }}
+          pullPolicy: {{ .Values.mosquitto.image.pullPolicy }}
+
+        env:
+          {{- range $key, $value := .Values.mosquitto.env }}
+          {{ $key }}: {{ $value | quote }}
+          {{- end }}
+
+        resources:
+          {{- toYaml .Values.mosquitto.resources | nindent 10 }}
+
+        persistence:
+          config:
+            enabled: {{ .Values.mosquitto.persistence.config.enabled }}
+            storageClass: {{ .Values.mosquitto.persistence.config.storageClass }}
+            size: {{ .Values.mosquitto.persistence.config.size }}
+            accessMode: {{ .Values.mosquitto.persistence.config.accessMode }}
+
+          {{- if .Values.mosquitto.persistence.data.enabled }}
+          data:
+            enabled: true
+            storageClass: {{ .Values.mosquitto.persistence.data.storageClass }}
+            size: {{ .Values.mosquitto.persistence.data.size }}
+            accessMode: {{ .Values.mosquitto.persistence.data.accessMode }}
+          {{- end }}
+
+        service:
+          type: {{ .Values.mosquitto.service.type }}
+          ports:
+            {{- toYaml .Values.mosquitto.service.ports | nindent 12 }}
+
+        {{- if .Values.mosquitto.auth.enabled }}
+        auth:
+          enabled: true
+          # Authentication credentials provided via 1Password
+        {{- end }}
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: {{ .Values.mosquitto.namespace }}
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+{{- end }}

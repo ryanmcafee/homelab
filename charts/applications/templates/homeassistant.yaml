@@ -1,0 +1,73 @@
+{{- if .Values.homeassistant.enabled }}
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: home-assistant
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: {{ .Values.homeassistant.chart.repo }}
+    chart: {{ .Values.homeassistant.chart.name }}
+    targetRevision: {{ .Values.homeassistant.chart.version }}
+    helm:
+      releaseName: home-assistant
+      values: |
+        image:
+          repository: {{ .Values.homeassistant.image.repository }}
+          tag: {{ .Values.homeassistant.image.tag }}
+          pullPolicy: {{ .Values.homeassistant.image.pullPolicy }}
+
+        env:
+          {{- range $key, $value := .Values.homeassistant.env }}
+          {{ $key }}: {{ $value | quote }}
+          {{- end }}
+
+        hostNetwork: {{ .Values.homeassistant.hostNetwork }}
+        dnsPolicy: {{ .Values.homeassistant.dnsPolicy }}
+
+        resources:
+          {{- toYaml .Values.homeassistant.resources | nindent 10 }}
+
+        persistence:
+          config:
+            enabled: {{ .Values.homeassistant.persistence.config.enabled }}
+            storageClass: {{ .Values.homeassistant.persistence.config.storageClass }}
+            size: {{ .Values.homeassistant.persistence.config.size }}
+            accessMode: {{ .Values.homeassistant.persistence.config.accessMode }}
+
+        {{- if .Values.homeassistant.ingress.enabled }}
+        ingress:
+          enabled: true
+          className: {{ .Values.homeassistant.ingress.className }}
+          annotations:
+            {{- toYaml .Values.homeassistant.ingress.annotations | nindent 12 }}
+          hosts:
+            {{- toYaml .Values.homeassistant.ingress.hosts | nindent 12 }}
+          tls:
+            {{- toYaml .Values.homeassistant.ingress.tls | nindent 12 }}
+        {{- end }}
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: {{ .Values.homeassistant.namespace }}
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+{{- end }}

@@ -1,0 +1,16 @@
+apiVersion: v2
+name: applications
+description: User-facing applications for homelab including media services and home automation
+type: application
+version: 1.0.0
+appVersion: "1.0"
+maintainers:
+  - name: Ryan McAfee
+keywords:
+  - applications
+  - media
+  - plex
+  - sonarr
+  - radarr
+  - homeassistant
+  - mqtt

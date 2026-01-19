@@ -1,0 +1,33 @@
+# Talos Image Factory Schematic
+# Defines custom system extensions to include in the Talos image
+# Reference: https://factory.talos.dev
+
+customization:
+  systemExtensions:
+    officialExtensions:
+      # QEMU Guest Agent - Better VM integration with Proxmox
+      - siderolabs/qemu-guest-agent
+
+      # Intel CPU microcode updates
+      - siderolabs/intel-ucode
+
+      # Intel integrated GPU firmware (for i915 graphics)
+      - siderolabs/i915-ucode
+
+      # NVIDIA Container Toolkit - Required for GPU passthrough
+      - siderolabs/nvidia-container-toolkit
+
+      # NFS utilities - Required for NFS CSI driver (TrueNAS storage)
+      - siderolabs/nfs-utils
+
+# To generate the image:
+# 1. Submit this schematic to Image Factory API
+# 2. Receive a schematic ID
+# 3. Download the custom image for your Talos version
+#
+# Example using curl:
+# curl -X POST https://factory.talos.dev/schematics \
+#   -H "Content-Type: application/json" \
+#   -d @schematic.yaml
+#
+# The talos-image module automates this process

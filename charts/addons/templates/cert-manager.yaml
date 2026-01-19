@@ -1,0 +1,99 @@
+{{- if .Values."cert-manager".enabled }}
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cert-manager
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: {{ index .Values "cert-manager" "chart" "repo" }}
+    chart: {{ index .Values "cert-manager" "chart" "name" }}
+    targetRevision: {{ index .Values "cert-manager" "chart" "version" }}
+    helm:
+      releaseName: cert-manager
+      values: |
+        installCRDs: {{ index .Values "cert-manager" "installCRDs" }}
+        global:
+          leaderElection:
+            namespace: {{ index .Values "cert-manager" "namespace" }}
+        resources:
+          {{- toYaml (index .Values "cert-manager" "resources") | nindent 10 }}
+        webhook:
+          resources:
+            {{- toYaml (index .Values "cert-manager" "webhook" "resources") | nindent 12 }}
+        cainjector:
+          resources:
+            {{- toYaml (index .Values "cert-manager" "cainjector" "resources") | nindent 12 }}
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: {{ index .Values "cert-manager" "namespace" }}
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+
+  # Ignore differences in webhook configurations
+  ignoreDifferences:
+    - group: admissionregistration.k8s.io
+      kind: ValidatingWebhookConfiguration
+      jsonPointers:
+        - /webhooks/0/clientConfig/caBundle
+    - group: admissionregistration.k8s.io
+      kind: MutatingWebhookConfiguration
+      jsonPointers:
+        - /webhooks/0/clientConfig/caBundle
+
+{{- if (index .Values "cert-manager" "letsencrypt" "enabled") }}
+---
+# Let's Encrypt ClusterIssuer
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cert-manager-issuers
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "4"
+data:
+  letsencrypt-issuer.yaml: |
+    apiVersion: cert-manager.io/v1
+    kind: ClusterIssuer
+    metadata:
+      name: letsencrypt
+    spec:
+      acme:
+        server: {{ index .Values "cert-manager" "letsencrypt" "server" }}
+        email: {{ index .Values "cert-manager" "letsencrypt" "email" }}
+        privateKeySecretRef:
+          name: letsencrypt-account-key
+        solvers:
+        {{- if (index .Values "cert-manager" "cloudflare" "enabled") }}
+        - dns01:
+            cloudflare:
+              email: {{ index .Values "cert-manager" "cloudflare" "email" }}
+              apiTokenSecretRef:
+                name: cloudflare-api-token
+                key: api-token
+        {{- else }}
+        - http01:
+            ingress:
+              class: traefik
+        {{- end }}
+{{- end }}
+{{- end }}

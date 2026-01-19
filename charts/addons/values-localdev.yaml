@@ -1,0 +1,261 @@
+# Addons Chart - Local Development Overrides
+# Phase 0.5: Local Development Environment
+#
+# This file provides overrides for the addons Helm chart to support
+# local development with Kind cluster. It disables production-only
+# components and configures lightweight alternatives.
+#
+# Key changes from production:
+# - No MetalLB (use NodePort instead)
+# - No external-dns (not needed for local .test domains)
+# - No 1Password operator (use local secrets)
+# - No democratic-csi (use local-path-provisioner)
+# - Reduced resource requests for all components
+# - Self-signed certificates instead of Let's Encrypt
+
+# ============================================================================
+# Global Configuration
+# ============================================================================
+
+global:
+  # Environment identifier
+  environment: localdev
+
+  # Use local-path storage class (provided by local-path-provisioner)
+  storageClass: local-path
+
+  # Domain for local development (use .test for local-only domains)
+  domain: homelab.test
+
+  # Disable external DNS management
+  externalDNS: false
+
+  # Disable external load balancing
+  loadBalancer: false
+
+# ============================================================================
+# MetalLB - Disabled for Local Dev
+# ============================================================================
+
+metallb:
+  enabled: false
+  # Not needed in Kind - we use NodePort for services instead
+
+# ============================================================================
+# external-dns - Disabled for Local Dev
+# ============================================================================
+
+external-dns:
+  enabled: false
+  # Not needed for local development
+  # Access services via NodePort or port-forward instead
+
+# ============================================================================
+# 1Password Operator - Disabled for Local Dev
+# ============================================================================
+
+1password-operator:
+  enabled: false
+  # Use Kubernetes Secrets directly in local dev
+  # No external secret management needed
+
+# ============================================================================
+# democratic-csi - Disabled for Local Dev
+# ============================================================================
+
+democratic-csi:
+  enabled: false
+  # Not needed - we use local-path-provisioner instead
+  # No NFS or iSCSI storage in local Kind cluster
+
+# ============================================================================
+# local-path-provisioner - Enabled for Local Dev
+# ============================================================================
+
+local-path-provisioner:
+  enabled: true
+  # This is deployed directly in Tiltfile, but we document it here
+  # for clarity about storage configuration
+
+# ============================================================================
+# Traefik Ingress Controller
+# ============================================================================
+
+traefik:
+  enabled: true
+
+  # Use NodePort instead of LoadBalancer
+  service:
+    type: NodePort
+
+  # Configure NodePort values to match Kind port mappings
+  ports:
+    web:
+      nodePort: 30080
+      # Accessible via http://localhost:9080 (mapped in kind-config.yaml)
+    websecure:
+      nodePort: 30443
+      # Accessible via https://localhost:9443 (mapped in kind-config.yaml)
+
+  # Disable global arguments that phone home
+  globalArguments:
+    - --global.checknewversion=false
+    - --global.sendanonymoususage=false
+
+  # Reduce resource requests for local development
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+
+  # Enable dashboard for debugging
+  ingressRoute:
+    dashboard:
+      enabled: true
+
+# ============================================================================
+# cert-manager
+# ============================================================================
+
+cert-manager:
+  enabled: true
+
+  # Install CRDs
+  installCRDs: true
+
+  # Reduce resource requests
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+    limits:
+      cpu: 100m
+      memory: 128Mi
+
+  webhook:
+    resources:
+      requests:
+        cpu: 10m
+        memory: 32Mi
+      limits:
+        cpu: 50m
+        memory: 64Mi
+
+  cainjector:
+    resources:
+      requests:
+        cpu: 10m
+        memory: 32Mi
+      limits:
+        cpu: 100m
+        memory: 128Mi
+
+  # Use self-signed certificates for local dev
+  # In production, this would be Let's Encrypt
+  selfSigned:
+    enabled: true
+
+# ============================================================================
+# kube-prometheus-stack (Monitoring)
+# ============================================================================
+
+kube-prometheus-stack:
+  enabled: true
+
+  # Prometheus configuration
+  prometheus:
+    prometheusSpec:
+      # Short retention for local dev (save disk space)
+      retention: 1d
+      retentionSize: "4GB"
+
+      # Reduce resource requests
+      resources:
+        requests:
+          cpu: 100m
+          memory: 256Mi
+        limits:
+          cpu: 500m
+          memory: 512Mi
+
+      # Use local-path storage
+      storageSpec:
+        volumeClaimTemplate:
+          spec:
+            storageClassName: local-path
+            accessModes: ["ReadWriteOnce"]
+            resources:
+              requests:
+                storage: 5Gi
+
+  # Grafana configuration
+  grafana:
+    enabled: true
+
+    # Simple admin password for local dev
+    adminPassword: admin
+
+    # Reduce resource requests
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        cpu: 200m
+        memory: 256Mi
+
+    # Use local-path storage for dashboards
+    persistence:
+      enabled: true
+      storageClassName: local-path
+      size: 1Gi
+
+  # Alertmanager - disabled for local dev
+  alertmanager:
+    enabled: false
+
+  # Node exporter - disabled (not useful in Kind)
+  nodeExporter:
+    enabled: false
+
+  # Kube-state-metrics with reduced resources
+  kubeStateMetrics:
+    resources:
+      requests:
+        cpu: 10m
+        memory: 32Mi
+      limits:
+        cpu: 100m
+        memory: 128Mi
+
+  # Disable default ServiceMonitor for resources we don't have
+  defaultRules:
+    create: true
+    rules:
+      kubeControllerManager: false  # Not accessible in Kind
+      kubeScheduler: false          # Not accessible in Kind
+      kubeProxy: false              # Not needed in Kind
+      etcd: false                   # Not accessible in Kind
+
+# ============================================================================
+# Additional Notes
+# ============================================================================
+
+# This configuration provides a minimal but functional addon stack for
+# local development. It includes:
+#
+# ✓ Traefik for ingress (NodePort mode)
+# ✓ cert-manager for TLS (self-signed certs)
+# ✓ Prometheus + Grafana for monitoring (lightweight)
+# ✓ local-path-provisioner for storage
+#
+# Excluded from local dev:
+# ✗ MetalLB (use NodePort instead)
+# ✗ external-dns (not needed for .test domains)
+# ✗ 1Password operator (use direct Secrets)
+# ✗ democratic-csi (use local-path instead)
+# ✗ Node exporter (not useful in containerized nodes)
+# ✗ Alertmanager (not needed for local testing)

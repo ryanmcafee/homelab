@@ -1,0 +1,29 @@
+# Talos NFS CSI Configuration Patch
+# Enables NFS client support for democratic-csi (TrueNAS storage)
+# Ensures NFS utilities are available and kernel modules are loaded
+
+machine:
+  # Load NFS kernel modules
+  kernel:
+    modules:
+      - name: nfs
+      - name: nfsv3
+      - name: nfsv4
+
+  # System extensions (must be included in the Talos image)
+  # Ensure siderolabs/nfs-utils is in your schematic.yaml
+
+  # Node labels for storage capabilities
+  nodeLabels:
+    # Indicates NFS client support
+    storage.kubernetes.io/nfs-client: "true"
+
+# Apply this patch to ALL nodes that will mount NFS volumes:
+# In terragrunt/environments/*/talos-cluster/terragrunt.hcl:
+#
+# common_config_patches = [
+#   file("${get_repo_root()}/talos/patches/csi-nfs.yaml"),
+#   # ... other patches
+# ]
+#
+# This ensures democratic-csi can mount NFS shares from TrueNAS

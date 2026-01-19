@@ -1,0 +1,46 @@
+---
+# Proxmox Networking Configuration
+# Configures network bridge with VLAN awareness for homelab
+
+- name: Configure Proxmox Network Bridge
+  hosts: proxmox
+  gather_facts: true
+  become: true
+
+  pre_tasks:
+    - name: Gather network facts
+      ansible.builtin.setup:
+        gather_subset:
+          - network
+
+    - name: Display current network configuration
+      ansible.builtin.debug:
+        msg: "Configuring network bridge {{ proxmox_network_bridge }} with VLAN {{ homelab_vlan }}"
+
+  roles:
+    - role: proxmox-networking
+
+  post_tasks:
+    - name: Display network bridge configuration
+      ansible.builtin.command:
+        cmd: ip addr show {{ proxmox_network_bridge }}
+      register: bridge_config
+      changed_when: false
+      failed_when: false
+
+    - name: Show bridge configuration
+      ansible.builtin.debug:
+        var: bridge_config.stdout_lines
+      when: bridge_config.rc == 0
+
+    - name: Test network connectivity
+      ansible.builtin.wait_for:
+        host: "{{ homelab_gateway }}"
+        port: 443
+        timeout: 5
+      register: gateway_test
+      failed_when: false
+
+    - name: Display gateway connectivity status
+      ansible.builtin.debug:
+        msg: "Gateway {{ homelab_gateway }} is {{ 'reachable' if gateway_test is success else 'not reachable' }}"

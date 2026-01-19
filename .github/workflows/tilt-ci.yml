@@ -1,0 +1,281 @@
+# Tilt CI Validation Workflow
+# Phase 0.5: Local Development Environment
+#
+# This workflow validates that:
+# 1. Kind cluster can be created successfully
+# 2. Tiltfile syntax is valid and executes without errors
+# 3. All Helm charts render correctly
+# 4. ArgoCD applications can be validated
+#
+# Triggered on:
+# - Pull requests that modify charts or Tiltfiles
+# - Manual workflow dispatch for testing
+
+name: Tilt CI
+
+on:
+  pull_request:
+    paths:
+      - 'charts/**'
+      - 'localdev/**'
+      - 'Tiltfile'
+      - '.github/workflows/tilt-ci.yml'
+  push:
+    branches:
+      - main
+      - develop
+    paths:
+      - 'charts/**'
+      - 'localdev/**'
+      - 'Tiltfile'
+  workflow_dispatch:
+
+# Concurrency: cancel in-progress runs for the same PR
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ============================================================================
+  # Job: Validate Tiltfile in Direct Mode
+  # ============================================================================
+  tilt-ci-direct:
+    name: Tilt CI (Direct Mode)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Go (required for Tilt)
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: Create Kind cluster
+        uses: helm/kind-action@v1
+        with:
+          config: localdev/kind-config.yaml
+          cluster_name: homelab-ci
+          wait: 300s
+
+      - name: Verify cluster
+        run: |
+          kubectl cluster-info
+          kubectl get nodes
+          kubectl get pods --all-namespaces
+
+      - name: Install Tilt
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/tilt-dev/tilt/master/scripts/install.sh | bash
+          tilt version
+
+      - name: Run Tilt CI (Direct Mode)
+        working-directory: localdev
+        run: |
+          # Run Tilt in CI mode with timeout
+          # CI mode runs all resources once and exits
+          tilt ci --timeout 10m
+
+      - name: Check resource status
+        if: always()
+        run: |
+          echo "=== Pods Status ==="
+          kubectl get pods --all-namespaces
+          echo ""
+          echo "=== Failed Pods Logs ==="
+          kubectl get pods --all-namespaces --field-selector=status.phase!=Running,status.phase!=Succeeded -o json | \
+            jq -r '.items[] | "\(.metadata.namespace)/\(.metadata.name)"' | \
+            while read pod; do
+              echo "--- Logs for $pod ---"
+              kubectl logs -n "$(echo $pod | cut -d/ -f1)" "$(echo $pod | cut -d/ -f2)" --tail=50 || true
+            done
+
+      - name: Verify Traefik deployment
+        run: |
+          kubectl wait --for=condition=available --timeout=120s deployment/traefik -n traefik
+          kubectl get svc -n traefik
+
+      - name: Verify cert-manager deployment
+        run: |
+          kubectl wait --for=condition=available --timeout=120s deployment/cert-manager -n cert-manager
+          kubectl get pods -n cert-manager
+
+  # ============================================================================
+  # Job: Validate Tiltfile in ArgoCD Mode
+  # ============================================================================
+  tilt-ci-argocd:
+    name: Tilt CI (ArgoCD Mode)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Go (required for Tilt)
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: Create Kind cluster
+        uses: helm/kind-action@v1
+        with:
+          config: localdev/kind-config.yaml
+          cluster_name: homelab-ci-argocd
+          wait: 300s
+
+      - name: Verify cluster
+        run: |
+          kubectl cluster-info
+          kubectl get nodes
+
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: 'latest'
+
+      - name: Install Tilt
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/tilt-dev/tilt/master/scripts/install.sh | bash
+          tilt version
+
+      - name: Run Tilt CI (ArgoCD Mode)
+        working-directory: localdev
+        run: |
+          # Run Tilt in ArgoCD mode
+          tilt ci --timeout 10m -- --mode=argocd
+
+      - name: Wait for ArgoCD to be ready
+        run: |
+          kubectl wait --for=condition=available --timeout=300s deployment/argocd-server -n argocd
+          kubectl get pods -n argocd
+
+      - name: Install ArgoCD CLI
+        run: |
+          curl -sSL -o /usr/local/bin/argocd https://github.com/argoproj/argo-cd/releases/latest/download/argocd-linux-amd64
+          chmod +x /usr/local/bin/argocd
+          argocd version --client
+
+      - name: Get ArgoCD admin password
+        id: argocd-password
+        run: |
+          PASSWORD=$(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d)
+          echo "::add-mask::$PASSWORD"
+          echo "password=$PASSWORD" >> $GITHUB_OUTPUT
+
+      - name: Port forward ArgoCD (background)
+        run: |
+          kubectl port-forward svc/argocd-server -n argocd 8080:443 > /dev/null 2>&1 &
+          sleep 5
+
+      - name: Login to ArgoCD
+        run: |
+          argocd login localhost:8080 \
+            --username admin \
+            --password '${{ steps.argocd-password.outputs.password }}' \
+            --insecure
+
+      - name: List ArgoCD applications
+        run: |
+          argocd app list
+
+      - name: Check ArgoCD application sync status
+        if: always()
+        run: |
+          echo "=== ArgoCD Applications ==="
+          kubectl get applications -n argocd -o wide
+          echo ""
+          echo "=== Application Details ==="
+          kubectl get applications -n argocd -o yaml
+
+  # ============================================================================
+  # Job: Helm Chart Validation
+  # ============================================================================
+  helm-lint:
+    name: Helm Chart Linting
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: 'latest'
+
+      - name: Lint Helm charts
+        run: |
+          # Lint each chart directory if it exists and has a Chart.yaml
+          for chart in charts/*/; do
+            if [ -f "${chart}Chart.yaml" ]; then
+              echo "Linting chart: $chart"
+              helm lint "$chart" || exit 1
+            fi
+          done
+
+      - name: Template charts with localdev values
+        run: |
+          # Template charts to ensure they render correctly with localdev values
+          for chart in charts/*/; do
+            if [ -f "${chart}Chart.yaml" ]; then
+              chart_name=$(basename "$chart")
+              echo "Templating chart: $chart_name"
+
+              # Check if localdev values exist
+              if [ -f "${chart}values-localdev.yaml" ]; then
+                helm template "$chart_name" "$chart" \
+                  --values "${chart}values-localdev.yaml" \
+                  --debug \
+                  > /tmp/"${chart_name}-localdev.yaml" || exit 1
+                echo "✓ Successfully templated $chart_name with localdev values"
+              fi
+            fi
+          done
+
+      - name: Upload templated manifests
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: helm-templates
+          path: /tmp/*.yaml
+          retention-days: 7
+
+  # ============================================================================
+  # Job: YAML Validation
+  # ============================================================================
+  yaml-lint:
+    name: YAML Linting
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install yamllint
+        run: |
+          pip install yamllint
+
+      - name: Lint YAML files
+        run: |
+          # Lint all YAML files in charts and localdev directories
+          yamllint -c .yamllint charts/ localdev/ || true
+
+      - name: Validate Kind config
+        run: |
+          # Basic YAML validation for Kind config
+          python3 -c "import yaml; yaml.safe_load(open('localdev/kind-config.yaml'))"
+          echo "✓ Kind config is valid YAML"
+
+      - name: Validate values files
+        run: |
+          # Validate all values files are valid YAML
+          find charts/ localdev/ -name "*.yaml" -type f | while read file; do
+            echo "Validating: $file"
+            python3 -c "import yaml; yaml.safe_load(open('$file'))" || exit 1
+          done
+          echo "✓ All values files are valid YAML"

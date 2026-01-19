@@ -1,0 +1,79 @@
+{{- if .Values.radarr.enabled }}
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: radarr
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: {{ .Values.radarr.chart.repo }}
+    chart: {{ .Values.radarr.chart.name }}
+    targetRevision: {{ .Values.radarr.chart.version }}
+    helm:
+      releaseName: radarr
+      values: |
+        image:
+          repository: {{ .Values.radarr.image.repository }}
+          tag: {{ .Values.radarr.image.tag }}
+          pullPolicy: {{ .Values.radarr.image.pullPolicy }}
+
+        env:
+          {{- range $key, $value := .Values.radarr.env }}
+          {{ $key }}: {{ $value | quote }}
+          {{- end }}
+
+        resources:
+          {{- toYaml .Values.radarr.resources | nindent 10 }}
+
+        persistence:
+          config:
+            enabled: {{ .Values.radarr.persistence.config.enabled }}
+            storageClass: {{ .Values.radarr.persistence.config.storageClass }}
+            size: {{ .Values.radarr.persistence.config.size }}
+            accessMode: {{ .Values.radarr.persistence.config.accessMode }}
+
+          {{- if .Values.radarr.persistence.media.enabled }}
+          media:
+            enabled: true
+            type: {{ .Values.radarr.persistence.media.type }}
+            server: {{ .Values.radarr.persistence.media.server }}
+            path: {{ .Values.radarr.persistence.media.path }}
+            mountPath: {{ .Values.radarr.persistence.media.mountPath }}
+          {{- end }}
+
+        {{- if .Values.radarr.ingress.enabled }}
+        ingress:
+          enabled: true
+          className: {{ .Values.radarr.ingress.className }}
+          annotations:
+            {{- toYaml .Values.radarr.ingress.annotations | nindent 12 }}
+          hosts:
+            {{- toYaml .Values.radarr.ingress.hosts | nindent 12 }}
+          tls:
+            {{- toYaml .Values.radarr.ingress.tls | nindent 12 }}
+        {{- end }}
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: {{ .Values.radarr.namespace }}
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+{{- end }}

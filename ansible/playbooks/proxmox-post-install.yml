@@ -1,0 +1,70 @@
+---
+# Proxmox post-installation playbook
+# Executes community post-install script and installs essential packages
+# Reference: https://github.com/community-scripts/ProxmoxVE
+
+- name: Proxmox Post-Installation Configuration
+  hosts: proxmox
+  gather_facts: true
+  become: true
+
+  pre_tasks:
+    - name: Update apt cache
+      ansible.builtin.apt:
+        update_cache: true
+        cache_valid_time: "{{ apt_cache_valid_time | default(3600) }}"
+
+  roles:
+    - role: proxmox-base
+
+  tasks:
+    - name: Check if post-install script has already been run
+      ansible.builtin.stat:
+        path: /etc/apt/sources.list.d/pve-no-subscription.list
+      register: post_install_marker
+
+    - name: Download Proxmox post-install script
+      ansible.builtin.get_url:
+        url: "{{ proxmox_post_install_script_url }}"
+        dest: /tmp/post-pve-install.sh
+        mode: '0755'
+      when: not post_install_marker.stat.exists
+
+    - name: Execute Proxmox post-install script
+      ansible.builtin.shell: |
+        bash /tmp/post-pve-install.sh
+      args:
+        creates: /etc/apt/sources.list.d/pve-no-subscription.list
+      when: not post_install_marker.stat.exists
+      register: post_install_result
+
+    - name: Display post-install script output
+      ansible.builtin.debug:
+        var: post_install_result.stdout_lines
+      when: post_install_result is changed
+
+    - name: Clean up post-install script
+      ansible.builtin.file:
+        path: /tmp/post-pve-install.sh
+        state: absent
+
+    - name: Update all packages (if enabled)
+      ansible.builtin.apt:
+        upgrade: dist
+        update_cache: true
+      when: apt_upgrade | default(false) | bool
+
+    - name: Install essential packages
+      ansible.builtin.apt:
+        name: "{{ proxmox_packages }}"
+        state: present
+        update_cache: true
+
+    - name: Configure timezone
+      community.general.timezone:
+        name: "{{ timezone | default('UTC') }}"
+
+    - name: Reboot if required
+      ansible.builtin.reboot:
+        reboot_timeout: 300
+      when: post_install_result is changed or (apt_upgrade | default(false) | bool)

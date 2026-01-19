@@ -1,0 +1,101 @@
+{{- if .Values.metallb.enabled }}
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: metallb
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: {{ .Values.metallb.chart.repo }}
+    chart: {{ .Values.metallb.chart.name }}
+    targetRevision: {{ .Values.metallb.chart.version }}
+    helm:
+      releaseName: metallb
+      values: |
+        speaker:
+          frr:
+            enabled: {{ .Values.metallb.bgp.enabled }}
+          resources:
+            {{- toYaml .Values.metallb.resources.speaker | nindent 12 }}
+        controller:
+          resources:
+            {{- toYaml .Values.metallb.resources.controller | nindent 12 }}
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: {{ .Values.metallb.namespace }}
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+
+  # Ignore differences in webhook configurations (managed by controller)
+  ignoreDifferences:
+    - group: admissionregistration.k8s.io
+      kind: ValidatingWebhookConfiguration
+      jsonPointers:
+        - /webhooks/0/clientConfig/caBundle
+
+---
+# MetalLB IPAddressPool
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: metallb-config
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+data:
+  ipaddresspool.yaml: |
+    apiVersion: metallb.io/v1beta1
+    kind: IPAddressPool
+    metadata:
+      name: default
+      namespace: {{ .Values.metallb.namespace }}
+    spec:
+      addresses:
+      {{- range .Values.metallb.addresses }}
+        - {{ . }}
+      {{- end }}
+      autoAssign: true
+
+  {{- if .Values.metallb.bgp.enabled }}
+  bgppeer.yaml: |
+    apiVersion: metallb.io/v1beta2
+    kind: BGPPeer
+    metadata:
+      name: unifi-gateway
+      namespace: {{ .Values.metallb.namespace }}
+    spec:
+      myASN: {{ .Values.metallb.bgp.asn }}
+      peerASN: {{ (index .Values.metallb.bgp.peers 0).asn }}
+      peerAddress: {{ (index .Values.metallb.bgp.peers 0).address }}
+      routerID: {{ (index .Values.metallb.bgp.peers 0).routerId }}
+
+  bgpadvertisement.yaml: |
+    apiVersion: metallb.io/v1beta1
+    kind: BGPAdvertisement
+    metadata:
+      name: default
+      namespace: {{ .Values.metallb.namespace }}
+    spec:
+      ipAddressPools:
+        - default
+  {{- end }}
+{{- end }}

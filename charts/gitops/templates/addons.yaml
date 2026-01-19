@@ -1,0 +1,64 @@
+{{- if .Values.addons.enabled }}
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: {{ .Values.addons.name }}
+  namespace: {{ .Values.addons.namespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "{{ .Values.addons.syncWave }}"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: {{ .Values.global.project }}
+
+  source:
+    repoURL: {{ .Values.global.repoUrl }}
+    targetRevision: {{ .Values.global.targetRevision }}
+    path: {{ .Values.addons.source.path }}
+    helm:
+      valueFiles:
+      {{- range .Values.addons.source.valueFiles }}
+        - {{ . }}
+      {{- end }}
+      {{- if .Values.global.environment }}
+        - values-{{ .Values.global.environment }}.yaml
+      {{- end }}
+
+  destination:
+    server: {{ .Values.addons.destination.server }}
+    namespace: {{ .Values.addons.destination.namespace }}
+
+  syncPolicy:
+    {{- if .Values.addons.syncPolicy.automated }}
+    automated:
+      prune: {{ .Values.addons.syncPolicy.automated.prune }}
+      selfHeal: {{ .Values.addons.syncPolicy.automated.selfHeal }}
+      {{- if hasKey .Values.addons.syncPolicy.automated "allowEmpty" }}
+      allowEmpty: {{ .Values.addons.syncPolicy.automated.allowEmpty }}
+      {{- end }}
+    {{- end }}
+    {{- if .Values.addons.syncPolicy.syncOptions }}
+    syncOptions:
+      {{- range .Values.addons.syncPolicy.syncOptions }}
+      - {{ . }}
+      {{- end }}
+    {{- end }}
+    {{- if .Values.addons.syncPolicy.retry }}
+    retry:
+      limit: {{ .Values.addons.syncPolicy.retry.limit }}
+      backoff:
+        duration: {{ .Values.addons.syncPolicy.retry.backoff.duration }}
+        {{- if .Values.addons.syncPolicy.retry.backoff.factor }}
+        factor: {{ .Values.addons.syncPolicy.retry.backoff.factor }}
+        {{- end }}
+        {{- if .Values.addons.syncPolicy.retry.backoff.maxDuration }}
+        maxDuration: {{ .Values.addons.syncPolicy.retry.backoff.maxDuration }}
+        {{- end }}
+    {{- end }}
+
+  {{- if .Values.ignoreDifferences }}
+  ignoreDifferences:
+    {{- toYaml .Values.ignoreDifferences | nindent 4 }}
+  {{- end }}
+{{- end }}

@@ -1,0 +1,49 @@
+# GitOps Umbrella Chart - Local Development Overrides
+# Phase 0.5: Local Development Environment
+#
+# This file provides overrides for local development with Kind cluster.
+# It points to the localdev-specific values for both addons and applications.
+
+# ============================================================================
+# Global Configuration
+# ============================================================================
+
+global:
+  # Environment identifier
+  environment: localdev
+
+  # Use .test TLD for local development (reserved for testing)
+  domain: homelab.test
+
+  # Repository URL - can be local path or GitHub URL
+  # ArgoCD will pull from this repository
+  repoUrl: https://github.com/ryanmcafee/homelab.git
+
+  # Target branch for local development
+  targetRevision: HEAD
+
+# ============================================================================
+# Addons Application
+# ============================================================================
+
+addons:
+  enabled: true
+
+  source:
+    # Use localdev-specific values
+    valueFiles:
+      - values.yaml
+      - values-localdev.yaml
+
+# ============================================================================
+# Applications
+# ============================================================================
+
+applications:
+  enabled: true
+
+  source:
+    # Use localdev-specific values
+    valueFiles:
+      - values.yaml
+      - values-localdev.yaml

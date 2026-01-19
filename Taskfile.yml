@@ -1,0 +1,339 @@
+version: '3'
+
+vars:
+  TERRAGRUNT_VERSION: "0.55.1"
+  TERRAFORM_VERSION: "1.7.5"
+  TALOS_VERSION: "1.7.6"
+  KUBECTL_VERSION: "1.30.0"
+  KIND_VERSION: "0.22.0"
+  TILT_VERSION: "0.33.11"
+
+env:
+  TF_PLUGIN_CACHE_DIR: "{{.HOME}}/.terraform.d/plugin-cache"
+
+tasks:
+  # ==========================================================================
+  # Setup and Prerequisites
+  # ==========================================================================
+
+  setup:
+    desc: Full homelab setup (validates prereqs, then runs setup script)
+    cmds:
+      - task: validate
+      - ./scripts/setup.sh
+
+  validate:
+    desc: Validate prerequisites are installed
+    cmds:
+      - ./scripts/validate-prerequisites.sh
+
+  install-tools:
+    desc: Install required CLI tools
+    cmds:
+      - task: install-terragrunt
+      - task: install-terraform
+      - task: install-kubectl
+      - task: install-kind
+      - task: install-tilt
+      - task: install-talosctl
+      - task: install-ansible
+
+  install-terragrunt:
+    desc: Install Terragrunt
+    cmds:
+      - |
+        wget https://github.com/gruntwork-io/terragrunt/releases/download/v{{.TERRAGRUNT_VERSION}}/terragrunt_linux_amd64
+        chmod +x terragrunt_linux_amd64
+        sudo mv terragrunt_linux_amd64 /usr/local/bin/terragrunt
+    status:
+      - which terragrunt
+
+  install-terraform:
+    desc: Install Terraform
+    cmds:
+      - |
+        wget https://releases.hashicorp.com/terraform/{{.TERRAFORM_VERSION}}/terraform_{{.TERRAFORM_VERSION}}_linux_amd64.zip
+        unzip terraform_{{.TERRAFORM_VERSION}}_linux_amd64.zip
+        sudo mv terraform /usr/local/bin/
+        rm terraform_{{.TERRAFORM_VERSION}}_linux_amd64.zip
+    status:
+      - which terraform
+
+  install-kubectl:
+    desc: Install kubectl
+    cmds:
+      - |
+        curl -LO "https://dl.k8s.io/release/v{{.KUBECTL_VERSION}}/bin/linux/amd64/kubectl"
+        chmod +x kubectl
+        sudo mv kubectl /usr/local/bin/
+    status:
+      - which kubectl
+
+  install-kind:
+    desc: Install Kind
+    cmds:
+      - |
+        wget https://github.com/kubernetes-sigs/kind/releases/download/v{{.KIND_VERSION}}/kind-linux-amd64
+        chmod +x kind-linux-amd64
+        sudo mv kind-linux-amd64 /usr/local/bin/kind
+    status:
+      - which kind
+
+  install-tilt:
+    desc: Install Tilt
+    cmds:
+      - curl -fsSL https://raw.githubusercontent.com/tilt-dev/tilt/master/scripts/install.sh | bash
+    status:
+      - which tilt
+
+  install-talosctl:
+    desc: Install talosctl
+    cmds:
+      - |
+        wget https://github.com/siderolabs/talos/releases/download/v{{.TALOS_VERSION}}/talosctl-linux-amd64
+        chmod +x talosctl-linux-amd64
+        sudo mv talosctl-linux-amd64 /usr/local/bin/talosctl
+    status:
+      - which talosctl
+
+  install-ansible:
+    desc: Install Ansible
+    cmds:
+      - pip install ansible ansible-lint
+    status:
+      - which ansible
+
+  # ==========================================================================
+  # Local Development (Kind + Tilt)
+  # ==========================================================================
+
+  localdev:up:
+    desc: Start local development environment
+    cmds:
+      - task: localdev:kind
+      - task: localdev:tilt
+
+  localdev:kind:
+    desc: Create Kind cluster for local development
+    dir: localdev
+    cmds:
+      - |
+        if ! kind get clusters | grep -q homelab-localdev; then
+          kind create cluster --config kind-config.yaml
+        else
+          echo "Cluster already exists"
+        fi
+      - kubectl cluster-info --context kind-homelab-localdev
+
+  localdev:tilt:
+    desc: Start Tilt for hot-reload development (direct mode)
+    dir: localdev
+    cmds:
+      - tilt up
+
+  localdev:tilt:argocd:
+    desc: Start Tilt in ArgoCD mode (realistic GitOps)
+    dir: localdev
+    cmds:
+      - tilt up -- --mode=argocd
+
+  localdev:down:
+    desc: Tear down local development environment
+    cmds:
+      - tilt down --file localdev/Tiltfile || true
+      - kind delete cluster --name homelab-localdev
+
+  localdev:reset:
+    desc: Reset local environment (full teardown + recreate)
+    cmds:
+      - task: localdev:down
+      - task: localdev:up
+
+  localdev:logs:
+    desc: Stream logs from all pods
+    cmds:
+      - stern --all-namespaces '.*'
+
+  localdev:shell:
+    desc: Open shell in a debug pod
+    cmds:
+      - kubectl run -it --rm debug --image=busybox --restart=Never -- sh
+
+  # ==========================================================================
+  # Helm Charts
+  # ==========================================================================
+
+  chart:lint:
+    desc: Lint all Helm charts
+    cmds:
+      - helm lint charts/gitops
+      - helm lint charts/addons
+      - helm lint charts/applications
+
+  chart:template:
+    desc: Template gitops chart for debugging
+    cmds:
+      - helm template gitops charts/gitops -f charts/gitops/values-localdev.yaml
+
+  chart:template:addons:
+    desc: Template addons chart
+    cmds:
+      - helm template addons charts/addons -f charts/addons/values-localdev.yaml
+
+  chart:template:apps:
+    desc: Template applications chart
+    cmds:
+      - helm template applications charts/applications -f charts/applications/values-localdev.yaml
+
+  chart:diff:
+    desc: Show diff of what would change in Kind cluster
+    cmds:
+      - helm diff upgrade gitops charts/gitops -f charts/gitops/values-localdev.yaml -n argocd
+
+  # ==========================================================================
+  # Ansible
+  # ==========================================================================
+
+  ansible:lint:
+    desc: Lint Ansible playbooks
+    dir: ansible
+    cmds:
+      - ansible-lint
+
+  ansible:syntax:
+    desc: Check Ansible playbook syntax
+    dir: ansible
+    cmds:
+      - ansible-playbook --syntax-check playbooks/site.yml
+
+  ansible:dry-run:
+    desc: Run Ansible playbooks in check mode
+    dir: ansible
+    cmds:
+      - ansible-playbook playbooks/site.yml --check --diff
+
+  ansible:apply:
+    desc: Apply Ansible playbooks to Proxmox
+    dir: ansible
+    cmds:
+      - ansible-playbook playbooks/site.yml
+
+  # ==========================================================================
+  # Terragrunt / Terraform
+  # ==========================================================================
+
+  tf:fmt:
+    desc: Format all Terraform/Terragrunt files
+    dir: terragrunt
+    cmds:
+      - terragrunt hclfmt
+
+  tf:validate:
+    desc: Validate Terraform configurations
+    dir: terragrunt
+    cmds:
+      - terragrunt run-all validate
+
+  tf:plan:
+    desc: Run Terragrunt plan for environment
+    dir: terragrunt/environments/{{.ENV}}
+    cmds:
+      - terragrunt run-all plan
+    vars:
+      ENV: '{{.ENV | default "dev"}}'
+
+  tf:apply:
+    desc: Run Terragrunt apply for environment
+    dir: terragrunt/environments/{{.ENV}}
+    cmds:
+      - terragrunt run-all apply
+    vars:
+      ENV: '{{.ENV | default "dev"}}'
+
+  tf:destroy:
+    desc: Destroy infrastructure (use with caution)
+    dir: terragrunt/environments/{{.ENV}}
+    cmds:
+      - terragrunt run-all destroy
+    vars:
+      ENV: '{{.ENV | default "dev"}}'
+    prompt: Are you sure you want to destroy the {{.ENV}} environment?
+
+  # ==========================================================================
+  # Talos
+  # ==========================================================================
+
+  talos:gen-config:
+    desc: Generate Talos machine configurations
+    dir: talos
+    cmds:
+      - talosctl gen config homelab https://172.16.100.11:6443
+
+  talos:apply:
+    desc: Apply Talos configuration to nodes
+    cmds:
+      - echo "Apply Talos configs (implement based on cluster state)"
+
+  talos:bootstrap:
+    desc: Bootstrap Talos cluster
+    cmds:
+      - talosctl bootstrap -n 172.16.100.11
+
+  talos:kubeconfig:
+    desc: Retrieve kubeconfig from Talos
+    cmds:
+      - talosctl kubeconfig -n 172.16.100.11
+
+  # ==========================================================================
+  # Kubernetes Operations
+  # ==========================================================================
+
+  k8s:status:
+    desc: Show cluster status
+    cmds:
+      - kubectl get nodes
+      - kubectl get pods -A
+
+  k8s:argocd-password:
+    desc: Retrieve ArgoCD admin password
+    cmds:
+      - kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d
+
+  # ==========================================================================
+  # CI/CD Testing
+  # ==========================================================================
+
+  ci:lint:
+    desc: Run all linting tasks (for CI)
+    cmds:
+      - task: ansible:lint
+      - task: chart:lint
+      - yamllint .
+
+  ci:test:
+    desc: Run all tests
+    cmds:
+      - task: ci:lint
+      - task: tf:validate
+      - task: localdev:up
+      - task: localdev:down
+
+  # ==========================================================================
+  # Utilities
+  # ==========================================================================
+
+  clean:
+    desc: Clean temporary files
+    cmds:
+      - rm -rf .terraform .terragrunt-cache .tilt-cache .task
+      - find . -name "*.retry" -delete
+
+  docs:
+    desc: Generate/update documentation
+    cmds:
+      - echo "Documentation tasks (implement as needed)"
+
+  default:
+    desc: Show available tasks
+    cmds:
+      - task --list

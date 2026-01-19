@@ -1,0 +1,75 @@
+# Kind Cluster Configuration for Local Development
+# Homelab Project - Phase 0.5: Local Development Environment
+#
+# Architecture:
+# - 1 control-plane node with ingress-ready label
+# - 2 worker nodes for application workloads
+# - Port mappings for Traefik and ArgoCD access
+# - Container registry mirror support for faster pulls
+
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: homelab-localdev
+
+nodes:
+  # Control Plane Node
+  # - Runs Kubernetes control plane components
+  # - Configured with ingress-ready label for Kind's ingress support
+  # - Port mappings allow access to services from host machine
+  - role: control-plane
+    kubeadmConfigPatches:
+      - |
+        kind: InitConfiguration
+        nodeRegistration:
+          kubeletExtraArgs:
+            node-labels: "ingress-ready=true"
+    extraPortMappings:
+      # Traefik HTTP/HTTPS (NodePort mode)
+      # Access via http://localhost:9080 and https://localhost:9443
+      - containerPort: 80
+        hostPort: 9080
+        protocol: TCP
+      - containerPort: 443
+        hostPort: 9443
+        protocol: TCP
+      # ArgoCD UI (NodePort 30080 -> localhost:8080)
+      # Access via http://localhost:8080
+      - containerPort: 30080
+        hostPort: 8080
+        protocol: TCP
+
+  # Worker Node 1
+  # - Labeled for application workloads
+  # - No special configuration needed
+  - role: worker
+    labels:
+      workload: applications
+
+  # Worker Node 2
+  # - Labeled for application workloads
+  # - Provides redundancy for testing pod distribution
+  - role: worker
+    labels:
+      workload: applications
+
+# Networking Configuration
+# - Uses default CNI (kindnet) for simplicity in local dev
+# - Pod and Service subnets match Kind defaults
+# - Compatible with Calico if needed in future
+networking:
+  # Use Kind's default CNI (kindnet) - simple and fast for local dev
+  disableDefaultCNI: false
+
+  # Standard pod network (matches Kind/Calico defaults)
+  podSubnet: "10.244.0.0/16"
+
+  # Standard service network (matches Kubernetes defaults)
+  serviceSubnet: "10.96.0.0/12"
+
+# Containerd Configuration
+# - Configure registry mirror for local registry if needed
+# - Useful for testing with locally built images
+containerdConfigPatches:
+  - |-
+    [plugins."io.containerd.grpc.v1.cri".registry.mirrors."localhost:5000"]
+      endpoint = ["http://kind-registry:5000"]

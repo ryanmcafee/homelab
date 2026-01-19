@@ -1,0 +1,67 @@
+{{- if index .Values "external-dns" "enabled" }}
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: external-dns
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "4"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: {{ index .Values "external-dns" "chart" "repo" }}
+    chart: {{ index .Values "external-dns" "chart" "name" }}
+    targetRevision: {{ index .Values "external-dns" "chart" "version" }}
+    helm:
+      releaseName: external-dns
+      values: |
+        provider:
+          name: {{ index .Values "external-dns" "provider" }}
+
+        {{- if eq (index .Values "external-dns" "provider") "cloudflare" }}
+        env:
+          - name: CF_API_TOKEN
+            valueFrom:
+              secretKeyRef:
+                name: cloudflare-api-token
+                key: api-token
+
+        cloudflare:
+          proxied: {{ index .Values "external-dns" "cloudflare" "proxied" }}
+        {{- end }}
+
+        domainFilters:
+          {{- range (index .Values "external-dns" "domainFilters") }}
+          - {{ . }}
+          {{- end }}
+
+        annotationFilter: {{ index .Values "external-dns" "annotationFilter" }}
+
+        policy: sync
+        registry: txt
+        txtOwnerId: {{ .Values.global.environment }}
+
+        resources:
+          {{- toYaml (index .Values "external-dns" "resources") | nindent 10 }}
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: {{ index .Values "external-dns" "namespace" }}
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+{{- end }}

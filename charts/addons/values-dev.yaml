@@ -1,0 +1,165 @@
+# Addons Chart - Development Environment Overrides
+# Development Talos cluster on Proxmox
+#
+# Reduced resources and relaxed policies for testing infrastructure
+# changes before promoting to production.
+
+# ============================================================================
+# Global Configuration
+# ============================================================================
+
+global:
+  environment: dev
+  domain: dev.ryanmcafee.com
+  storageClass: democratic-csi-nfs
+  externalDNS: true
+  loadBalancer: true
+
+# ============================================================================
+# MetalLB
+# ============================================================================
+
+metallb:
+  enabled: true
+
+  # Dev environment IP pool (smaller range)
+  addresses:
+    - 172.16.100.150-172.16.100.170
+
+  # Same BGP configuration as production
+  bgp:
+    enabled: true
+    asn: 64512
+    peers:
+      - address: 172.16.100.1
+        asn: 64513
+        routerId: 172.16.100.1
+
+# ============================================================================
+# Democratic-CSI
+# ============================================================================
+
+democratic-csi:
+  enabled: true
+
+  # Dev TrueNAS endpoint
+  truenas:
+    endpoint: https://truenas-dev.ryanmcafee.com
+    allowInsecure: false
+
+  # Dev NFS dataset
+  nfs:
+    shareHost: truenas-dev.ryanmcafee.com
+    shareAllow: 172.16.100.0/24
+    parent: tank/k8s-dev
+
+# ============================================================================
+# Local Path Provisioner
+# ============================================================================
+
+local-path-provisioner:
+  enabled: false  # Not needed in dev cluster
+
+# ============================================================================
+# 1Password Operator
+# ============================================================================
+
+1password-operator:
+  enabled: true
+
+  # Dev 1Password Connect instance
+  connect:
+    host: op-connect-dev.ryanmcafee.com
+
+# ============================================================================
+# Cert-Manager
+# ============================================================================
+
+cert-manager:
+  enabled: true
+
+  # Use Let's Encrypt staging for dev
+  letsencrypt:
+    enabled: true
+    email: admin@ryanmcafee.com
+    server: https://acme-staging-v02.api.letsencrypt.org/directory  # Staging
+
+  cloudflare:
+    enabled: true
+    email: admin@ryanmcafee.com
+
+# ============================================================================
+# External-DNS
+# ============================================================================
+
+external-dns:
+  enabled: true
+
+  # Dev domain filter
+  domainFilters:
+    - dev.ryanmcafee.com
+
+# ============================================================================
+# Kube-Prometheus-Stack
+# ============================================================================
+
+kube-prometheus-stack:
+  enabled: true
+
+  # Reduced retention for dev
+  prometheus:
+    retention: 7d
+    retentionSize: 10GB
+    storageSize: 20Gi
+
+    # Lower resource requests
+    resources:
+      requests:
+        cpu: 200m
+        memory: 1Gi
+      limits:
+        cpu: 1000m
+        memory: 2Gi
+
+  # Grafana with dev subdomain
+  grafana:
+    ingress:
+      hosts:
+        - grafana.dev.ryanmcafee.com
+      tls:
+        - secretName: grafana-dev-tls
+          hosts:
+            - grafana.dev.ryanmcafee.com
+
+    persistence:
+      size: 5Gi
+
+  # Smaller alertmanager storage
+  alertmanager:
+    storage:
+      volumeClaimTemplate:
+        spec:
+          resources:
+            requests:
+              storage: 5Gi
+
+# ============================================================================
+# Traefik
+# ============================================================================
+
+traefik:
+  enabled: true
+
+  # Single replica in dev (no HA needed)
+  deployment:
+    replicas: 1
+
+  # Disable autoscaling in dev
+  autoscaling:
+    enabled: false
+
+  # Dashboard with dev domain
+  ingressRoute:
+    dashboard:
+      enabled: true
+      matchRule: Host(`traefik.dev.ryanmcafee.com`)

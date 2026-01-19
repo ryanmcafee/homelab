@@ -1,0 +1,183 @@
+---
+# Proxmox networking configuration role
+# Configures network bridge with VLAN awareness
+
+- name: Gather network interface information
+  ansible.builtin.setup:
+    gather_subset:
+      - network
+
+- name: Check if network bridge exists
+  ansible.builtin.command:
+    cmd: ip link show {{ proxmox_network_bridge }}
+  register: bridge_exists
+  changed_when: false
+  failed_when: false
+
+- name: Display bridge status
+  ansible.builtin.debug:
+    msg: "Network bridge {{ proxmox_network_bridge }} {{ 'exists' if bridge_exists.rc == 0 else 'does not exist' }}"
+
+- name: Get current network configuration
+  ansible.builtin.slurp:
+    src: /etc/network/interfaces
+  register: network_config
+  failed_when: false
+
+- name: Decode network configuration
+  ansible.builtin.set_fact:
+    current_network_config: "{{ network_config.content | b64decode }}"
+  when: network_config is success
+
+- name: Check if VLAN-aware bridge is configured
+  ansible.builtin.set_fact:
+    vlan_aware_enabled: "{{ 'bridge-vlan-aware yes' in current_network_config }}"
+  when: current_network_config is defined
+
+- name: Display VLAN awareness status
+  ansible.builtin.debug:
+    msg: "VLAN awareness is {{ 'enabled' if vlan_aware_enabled | default(false) else 'not enabled' }}"
+
+- name: Ensure bridge-utils package is installed
+  ansible.builtin.apt:
+    name: bridge-utils
+    state: present
+    update_cache: true
+
+- name: Ensure VLAN package is installed
+  ansible.builtin.apt:
+    name: vlan
+    state: present
+
+- name: Load 8021q kernel module for VLAN support
+  community.general.modprobe:
+    name: 8021q
+    state: present
+
+- name: Ensure 8021q module loads on boot
+  ansible.builtin.lineinfile:
+    path: /etc/modules
+    line: "8021q"
+    state: present
+    create: true
+    mode: '0644'
+
+- name: Configure network bridge VLAN awareness (if not already configured)
+  ansible.builtin.blockinfile:
+    path: /etc/network/interfaces
+    marker: "# {mark} ANSIBLE MANAGED BLOCK - VLAN AWARENESS"
+    block: |
+      # Enable VLAN awareness on {{ proxmox_network_bridge }}
+      # This allows VMs to use VLAN tags without additional configuration
+      auto {{ proxmox_network_bridge }}
+      iface {{ proxmox_network_bridge }} inet manual
+          bridge-vlan-aware yes
+          bridge-ports none
+          bridge-stp off
+          bridge-fd 0
+          mtu {{ proxmox_mtu | default(1500) }}
+    state: present
+    backup: true
+  register: vlan_config
+  when: not (vlan_aware_enabled | default(false))
+
+- name: Verify bridge MTU configuration
+  ansible.builtin.command:
+    cmd: ip link show {{ proxmox_network_bridge }}
+  register: bridge_mtu_check
+  changed_when: false
+  failed_when: false
+
+- name: Set bridge MTU if needed
+  ansible.builtin.command:
+    cmd: ip link set {{ proxmox_network_bridge }} mtu {{ proxmox_mtu | default(1500) }}
+  when:
+    - bridge_exists.rc == 0
+    - "('mtu ' + (proxmox_mtu | default(1500) | string)) not in bridge_mtu_check.stdout"
+  register: mtu_set
+
+- name: Display MTU configuration
+  ansible.builtin.debug:
+    msg: "Bridge MTU set to {{ proxmox_mtu | default(1500) }}"
+  when: mtu_set is changed
+
+- name: Check VLAN {{ homelab_vlan }} interface
+  ansible.builtin.command:
+    cmd: ip link show {{ proxmox_network_bridge }}.{{ homelab_vlan }}
+  register: vlan_interface_check
+  changed_when: false
+  failed_when: false
+
+- name: Get routing table
+  ansible.builtin.command:
+    cmd: ip route show
+  register: routing_table
+  changed_when: false
+
+- name: Display current routing configuration
+  ansible.builtin.debug:
+    var: routing_table.stdout_lines
+
+- name: Ensure gateway is reachable
+  ansible.builtin.command:
+    cmd: ping -c 3 {{ homelab_gateway }}
+  register: gateway_ping
+  changed_when: false
+  failed_when: false
+
+- name: Display gateway reachability
+  ansible.builtin.debug:
+    msg: "Gateway {{ homelab_gateway }} is {{ 'reachable' if gateway_ping.rc == 0 else 'not reachable' }}"
+
+- name: Create network configuration backup
+  ansible.builtin.copy:
+    src: /etc/network/interfaces
+    dest: "/etc/network/interfaces.backup.{{ ansible_date_time.epoch }}"
+    remote_src: true
+    mode: '0644'
+
+- name: Warn if network restart is needed
+  ansible.builtin.debug:
+    msg: |
+      WARNING: Network configuration has been updated.
+      A network service restart may be required for changes to take effect.
+      This should be done manually to avoid connection loss:
+        systemctl restart networking
+      OR reboot the host if remote:
+        reboot
+  when: vlan_config is changed
+
+- name: Create network diagnostics script
+  ansible.builtin.copy:
+    dest: /usr/local/bin/proxmox-network-diag.sh
+    content: |
+      #!/bin/bash
+      # Proxmox Network Diagnostics Script
+
+      echo "=== Network Bridges ==="
+      brctl show
+
+      echo ""
+      echo "=== VLAN Configuration ==="
+      bridge vlan show
+
+      echo ""
+      echo "=== IP Addresses ==="
+      ip addr show
+
+      echo ""
+      echo "=== Routing Table ==="
+      ip route show
+
+      echo ""
+      echo "=== Gateway Connectivity ==="
+      ping -c 3 {{ homelab_gateway }}
+
+      echo ""
+      echo "=== DNS Resolution ==="
+      nslookup {{ base_domain }} || true
+    mode: '0755'
+
+- name: Display network diagnostics script location
+  ansible.builtin.debug:
+    msg: "Network diagnostics available at /usr/local/bin/proxmox-network-diag.sh"

@@ -1,0 +1,64 @@
+{{- if .Values.applications.enabled }}
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: {{ .Values.applications.name }}
+  namespace: {{ .Values.applications.namespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "{{ .Values.applications.syncWave }}"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: {{ .Values.global.project }}
+
+  source:
+    repoURL: {{ .Values.global.repoUrl }}
+    targetRevision: {{ .Values.global.targetRevision }}
+    path: {{ .Values.applications.source.path }}
+    helm:
+      valueFiles:
+      {{- range .Values.applications.source.valueFiles }}
+        - {{ . }}
+      {{- end }}
+      {{- if .Values.global.environment }}
+        - values-{{ .Values.global.environment }}.yaml
+      {{- end }}
+
+  destination:
+    server: {{ .Values.applications.destination.server }}
+    namespace: {{ .Values.applications.destination.namespace }}
+
+  syncPolicy:
+    {{- if .Values.applications.syncPolicy.automated }}
+    automated:
+      prune: {{ .Values.applications.syncPolicy.automated.prune }}
+      selfHeal: {{ .Values.applications.syncPolicy.automated.selfHeal }}
+      {{- if hasKey .Values.applications.syncPolicy.automated "allowEmpty" }}
+      allowEmpty: {{ .Values.applications.syncPolicy.automated.allowEmpty }}
+      {{- end }}
+    {{- end }}
+    {{- if .Values.applications.syncPolicy.syncOptions }}
+    syncOptions:
+      {{- range .Values.applications.syncPolicy.syncOptions }}
+      - {{ . }}
+      {{- end }}
+    {{- end }}
+    {{- if .Values.applications.syncPolicy.retry }}
+    retry:
+      limit: {{ .Values.applications.syncPolicy.retry.limit }}
+      backoff:
+        duration: {{ .Values.applications.syncPolicy.retry.backoff.duration }}
+        {{- if .Values.applications.syncPolicy.retry.backoff.factor }}
+        factor: {{ .Values.applications.syncPolicy.retry.backoff.factor }}
+        {{- end }}
+        {{- if .Values.applications.syncPolicy.retry.backoff.maxDuration }}
+        maxDuration: {{ .Values.applications.syncPolicy.retry.backoff.maxDuration }}
+        {{- end }}
+    {{- end }}
+
+  {{- if .Values.ignoreDifferences }}
+  ignoreDifferences:
+    {{- toYaml .Values.ignoreDifferences | nindent 4 }}
+  {{- end }}
+{{- end }}

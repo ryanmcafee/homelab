@@ -1,0 +1,45 @@
+---
+# IPMI Fan Threshold Configuration
+# Fixes Noctua fan cyclical spin-up issue on Supermicro motherboards
+# Reference: https://calvin.me/quick-how-to-decrease-ipmi-fan-threshold/
+
+- name: Configure IPMI Fan Thresholds for Noctua Fans
+  hosts: proxmox
+  gather_facts: true
+  become: true
+
+  pre_tasks:
+    - name: Verify IPMI credentials are configured
+      ansible.builtin.assert:
+        that:
+          - ipmi_host is defined
+          - ipmi_user is defined
+        fail_msg: "IPMI host and user must be defined in inventory"
+
+    - name: Check network connectivity to IPMI interface
+      ansible.builtin.wait_for:
+        host: "{{ ipmi_host }}"
+        port: 623
+        timeout: 10
+      register: ipmi_reachable
+      failed_when: false
+
+    - name: Display IPMI connectivity status
+      ansible.builtin.debug:
+        msg: "IPMI interface {{ ipmi_host }} is {{ 'reachable' if ipmi_reachable is success else 'not reachable' }}"
+
+  roles:
+    - role: proxmox-ipmi
+
+  post_tasks:
+    - name: Display fan sensor status
+      ansible.builtin.command:
+        cmd: ipmitool sensor list | grep -i fan
+      register: fan_status
+      changed_when: false
+      failed_when: false
+
+    - name: Show fan sensor readings
+      ansible.builtin.debug:
+        var: fan_status.stdout_lines
+      when: fan_status.rc == 0

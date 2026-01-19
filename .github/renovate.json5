@@ -1,0 +1,192 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended"
+  ],
+  "timezone": "America/New_York",
+  "schedule": [
+    "after 10pm every weekday",
+    "before 5am every weekday",
+    "every weekend"
+  ],
+  "labels": ["renovate", "dependencies"],
+  "assignees": ["ryanmcafee"],
+  "reviewers": ["ryanmcafee"],
+  "semanticCommits": "enabled",
+  "separateMajorMinor": true,
+  "separateMinorPatch": false,
+  "prConcurrentLimit": 5,
+  "prHourlyLimit": 2,
+  "rebaseWhen": "behind-base-branch",
+  "automerge": false,
+  "platformAutomerge": false,
+
+  // Package rules
+  "packageRules": [
+    // Auto-merge patch updates for stable packages
+    {
+      "matchUpdateTypes": ["patch"],
+      "matchCurrentVersion": "!/^0/",
+      "automerge": true,
+      "automergeType": "pr",
+      "platformAutomerge": true
+    },
+
+    // Group Kubernetes ecosystem updates
+    {
+      "groupName": "Kubernetes ecosystem",
+      "matchPackagePatterns": ["^k8s\\.io", "^kubernetes-"],
+      "matchDatasources": ["docker", "helm"]
+    },
+
+    // Group Helm chart updates
+    {
+      "groupName": "Helm charts",
+      "matchDatasources": ["helm"],
+      "schedule": ["every weekend"]
+    },
+
+    // Group ArgoCD updates
+    {
+      "groupName": "ArgoCD",
+      "matchPackageNames": ["argoproj/argo-cd", "argo-cd"],
+      "matchDatasources": ["docker", "helm"]
+    },
+
+    // Group monitoring stack
+    {
+      "groupName": "Monitoring stack",
+      "matchPackageNames": [
+        "kube-prometheus-stack",
+        "prometheus-operator",
+        "grafana",
+        "alertmanager"
+      ]
+    },
+
+    // Terraform provider updates
+    {
+      "groupName": "Terraform providers",
+      "matchDatasources": ["terraform-provider"],
+      "schedule": ["every weekend"]
+    },
+
+    // Ansible collection updates
+    {
+      "groupName": "Ansible collections",
+      "matchDatasources": ["ansible-galaxy"],
+      "schedule": ["every weekend"]
+    },
+
+    // Container image updates
+    {
+      "groupName": "Container images",
+      "matchDatasources": ["docker"],
+      "schedule": ["after 10pm every weekday"]
+    },
+
+    // GitHub Actions updates
+    {
+      "groupName": "GitHub Actions",
+      "matchManagers": ["github-actions"],
+      "automerge": true,
+      "automergeType": "pr",
+      "platformAutomerge": true
+    },
+
+    // Pin GitHub Actions to SHA for security
+    {
+      "matchManagers": ["github-actions"],
+      "pinDigests": true
+    }
+  ],
+
+  // Helm charts configuration
+  "helm-values": {
+    "fileMatch": [
+      "charts/.+/values\\.yaml$",
+      "charts/.+/values-.+\\.yaml$"
+    ]
+  },
+
+  // Terraform configuration
+  "terraform": {
+    "enabled": true,
+    "fileMatch": [
+      "\\.tf$",
+      "\\.hcl$"
+    ]
+  },
+
+  // Docker image configuration
+  "docker": {
+    "enabled": true,
+    "fileMatch": [
+      "values\\.yaml$",
+      "values-.+\\.yaml$"
+    ]
+  },
+
+  // Ansible configuration
+  "ansible": {
+    "enabled": true,
+    "fileMatch": [
+      "requirements\\.yml$",
+      "galaxy\\.yml$"
+    ]
+  },
+
+  // Regex managers for custom version detection
+  "regexManagers": [
+    // Detect Talos version in schematic.yaml
+    {
+      "fileMatch": ["talos/image/schematic\\.yaml$"],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>.*?) depName=(?<depName>.*?)\\s+version: (?<currentValue>.*)"
+      ],
+      "datasourceTemplate": "github-releases",
+      "depNameTemplate": "siderolabs/talos"
+    },
+
+    // Detect versions in GitHub Actions workflows
+    {
+      "fileMatch": ["\\.github/workflows/.+\\.yml$"],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>.*?) depName=(?<depName>.*?)\\s+.+_VERSION: ['\"]?(?<currentValue>[^'\"\\s]+)"
+      ]
+    },
+
+    // Detect versions in Taskfile
+    {
+      "fileMatch": ["Taskfile\\.yml$"],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>.*?) depName=(?<depName>.*?)\\s+version: ['\"]?(?<currentValue>[^'\"\\s]+)"
+      ]
+    }
+  ],
+
+  // Vulnerability alerts
+  "vulnerabilityAlerts": {
+    "enabled": true,
+    "labels": ["security", "vulnerability"],
+    "assignees": ["ryanmcafee"],
+    "automerge": false
+  },
+
+  // Customize PR title and body
+  "prBodyTemplate": "{{{header}}}{{{table}}}{{{notes}}}{{{changelogs}}}{{{configDescription}}}{{{controls}}}{{{footer}}}",
+  "prTitle": "{{{semanticPrefix}}}Update {{{depName}}} to {{{newVersion}}}",
+
+  // Ignore specific packages
+  "ignoreDeps": [],
+
+  // Post-upgrade tasks (e.g., run tests)
+  "postUpgradeTasks": {
+    "commands": [
+      "task chart:lint"
+    ],
+    "fileFilters": [
+      "charts/**"
+    ]
+  }
+}

@@ -1,0 +1,106 @@
+{{- if .Values.traefik.enabled }}
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: traefik
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "6"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: {{ .Values.traefik.chart.repo }}
+    chart: {{ .Values.traefik.chart.name }}
+    targetRevision: {{ .Values.traefik.chart.version }}
+    helm:
+      releaseName: traefik
+      values: |
+        deployment:
+          replicas: {{ .Values.traefik.deployment.replicas }}
+
+        service:
+          type: {{ .Values.traefik.service.type }}
+
+        ports:
+          web:
+            port: {{ .Values.traefik.ports.web.port }}
+            expose:
+              default: {{ .Values.traefik.ports.web.expose.default }}
+            {{- if .Values.traefik.ports.web.redirectTo }}
+            redirectTo:
+              port: {{ .Values.traefik.ports.web.redirectTo.port }}
+            {{- end }}
+          websecure:
+            port: {{ .Values.traefik.ports.websecure.port }}
+            expose:
+              default: {{ .Values.traefik.ports.websecure.expose.default }}
+            tls:
+              enabled: {{ .Values.traefik.ports.websecure.tls.enabled }}
+
+        globalArguments:
+          {{- range .Values.traefik.globalArguments }}
+          - {{ . }}
+          {{- end }}
+
+        additionalArguments:
+          {{- range .Values.traefik.additionalArguments }}
+          - {{ . }}
+          {{- end }}
+
+        env:
+          {{- toYaml .Values.traefik.env | nindent 10 }}
+
+        persistence:
+          enabled: {{ .Values.traefik.persistence.enabled }}
+          storageClass: {{ .Values.traefik.persistence.storageClass }}
+          size: {{ .Values.traefik.persistence.size }}
+
+        ingressRoute:
+          dashboard:
+            enabled: {{ .Values.traefik.ingressRoute.dashboard.enabled }}
+            {{- if .Values.traefik.ingressRoute.dashboard.enabled }}
+            matchRule: {{ .Values.traefik.ingressRoute.dashboard.matchRule }}
+            entryPoints:
+              {{- toYaml .Values.traefik.ingressRoute.dashboard.entryPoints | nindent 14 }}
+            {{- end }}
+
+        resources:
+          {{- toYaml .Values.traefik.resources | nindent 10 }}
+
+        {{- if .Values.traefik.autoscaling.enabled }}
+        autoscaling:
+          enabled: true
+          minReplicas: {{ .Values.traefik.autoscaling.minReplicas }}
+          maxReplicas: {{ .Values.traefik.autoscaling.maxReplicas }}
+          metrics:
+            {{- toYaml .Values.traefik.autoscaling.metrics | nindent 12 }}
+        {{- end }}
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: {{ .Values.traefik.namespace }}
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+
+  # Ignore differences in dynamic fields
+  ignoreDifferences:
+    - group: admissionregistration.k8s.io
+      kind: ValidatingWebhookConfiguration
+      jsonPointers:
+        - /webhooks/0/clientConfig/caBundle
+{{- end }}

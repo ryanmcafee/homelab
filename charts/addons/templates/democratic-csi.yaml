@@ -1,0 +1,94 @@
+{{- if index .Values "democratic-csi" "enabled" }}
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: democratic-csi
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: {{ index .Values "democratic-csi" "chart" "repo" }}
+    chart: {{ index .Values "democratic-csi" "chart" "name" }}
+    targetRevision: {{ index .Values "democratic-csi" "chart" "version" }}
+    helm:
+      releaseName: democratic-csi
+      values: |
+        csiDriver:
+          name: "org.democratic-csi.nfs"
+
+        driver:
+          config:
+            driver: {{ index .Values "democratic-csi" "driver" }}
+
+            httpConnection:
+              protocol: https
+              host: {{ index .Values "democratic-csi" "truenas" "endpoint" | trimPrefix "https://" | trimPrefix "http://" }}
+              port: 443
+              allowInsecure: {{ index .Values "democratic-csi" "truenas" "allowInsecure" }}
+              apiKey: {{ index .Values "democratic-csi" "truenas" "apiKey" | quote }}
+
+            zfs:
+              datasetParentName: {{ index .Values "democratic-csi" "nfs" "parent" }}
+              detachedSnapshotsDatasetParentName: {{ index .Values "democratic-csi" "nfs" "parent" }}/snapshots
+              datasetEnableQuotas: true
+              datasetEnableReservation: false
+              datasetPermissionsMode: "0777"
+              datasetPermissionsUser: 0
+              datasetPermissionsGroup: 0
+
+            nfs:
+              shareHost: {{ index .Values "democratic-csi" "nfs" "shareHost" }}
+              shareAlldirs: false
+              shareAllowedHosts:
+                - {{ index .Values "democratic-csi" "nfs" "shareAllow" }}
+              shareAllowedNetworks: []
+              shareMaprootUser: root
+              shareMaprootGroup: root
+
+        storageClasses:
+        {{- range (index .Values "democratic-csi" "storageClasses") }}
+          - name: {{ .name }}
+            defaultClass: {{ .defaultClass }}
+            reclaimPolicy: {{ .reclaimPolicy }}
+            volumeBindingMode: {{ .volumeBindingMode }}
+            allowVolumeExpansion: {{ .allowVolumeExpansion }}
+            parameters:
+              fsType: {{ .parameters.fsType }}
+            mountOptions:
+              - nfsvers=4
+              - noatime
+        {{- end }}
+
+        controller:
+          driver:
+            resources:
+              {{- toYaml (index .Values "democratic-csi" "resources" "controller") | nindent 14 }}
+
+        node:
+          driver:
+            resources:
+              {{- toYaml (index .Values "democratic-csi" "resources" "node") | nindent 14 }}
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: {{ index .Values "democratic-csi" "namespace" }}
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+{{- end }}

@@ -1,0 +1,72 @@
+---
+# Proxmox-specific variables
+
+# Proxmox Configuration
+proxmox_version: "8.x"
+proxmox_enterprise: false  # Use community repos
+
+# Post-Install Script Configuration
+proxmox_post_install_script_url: "https://raw.githubusercontent.com/community-scripts/ProxmoxVE/main/tools/pve/post-pve-install.sh"
+proxmox_post_install_script_checksum_url: "https://raw.githubusercontent.com/community-scripts/ProxmoxVE/main/tools/pve/post-pve-install.sh.sha256"
+
+# Required Packages
+proxmox_packages:
+  - rsync
+  - htop
+  - iotop
+  - vim
+  - curl
+  - wget
+  - git
+  - tmux
+  - net-tools
+  - ipmitool
+
+# StorCLI Configuration
+storcli_package_path: "{{ playbook_dir }}/../files/storcli_007.0327.0000.0000_all.deb"
+storcli_install_path: /opt/MegaRAID/storcli
+storcli_binary: "{{ storcli_install_path }}/storcli64"
+storcli_firmware_update: false  # Set to true to flash firmware
+storcli_firmware_path: ""       # Path to firmware ROM file if updating
+
+# IPMI Fan Configuration
+# Noctua fan thresholds for Supermicro motherboards
+# Reference: https://calvin.me/quick-how-to-decrease-ipmi-fan-threshold/
+ipmi_fan_thresholds:
+  - fan: FAN1
+    lower_critical: 200
+    lower_non_critical: 300
+    lower_non_recoverable: 400
+  - fan: FAN2
+    lower_critical: 200
+    lower_non_critical: 300
+    lower_non_recoverable: 400
+  - fan: FAN3
+    lower_critical: 200
+    lower_non_critical: 300
+    lower_non_recoverable: 400
+  - fan: FAN4
+    lower_critical: 200
+    lower_non_critical: 300
+    lower_non_recoverable: 400
+  - fan: FANA
+    lower_critical: 200
+    lower_non_critical: 300
+    lower_non_recoverable: 400
+  - fan: FANB
+    lower_critical: 200
+    lower_non_critical: 300
+    lower_non_recoverable: 400
+
+# Network Bridge Configuration
+proxmox_network_bridge: vmbr0
+proxmox_vlan_aware: true
+proxmox_mtu: 1500
+
+# ZFS Configuration
+zfs_pool_name: vm-storage
+zfs_pool_type: mirror
+zfs_pool_devices: "{{ vm_storage_drives }}"
+zfs_pool_ashift: 12  # 4K sectors
+zfs_pool_compression: lz4
+zfs_pool_atime: off

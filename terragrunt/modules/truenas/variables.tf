@@ -1,0 +1,154 @@
+variable "vm_name" {
+  description = "Name of the TrueNAS VM"
+  type        = string
+  default     = "truenas"
+}
+
+variable "node_name" {
+  description = "Proxmox node where TrueNAS will be deployed"
+  type        = string
+}
+
+variable "pool_id" {
+  description = "Proxmox resource pool ID"
+  type        = string
+  default     = null
+}
+
+variable "tags" {
+  description = "Additional tags for the VM"
+  type        = list(string)
+  default     = []
+}
+
+variable "started" {
+  description = "Start VM after creation"
+  type        = bool
+  default     = true
+}
+
+variable "on_boot" {
+  description = "Start VM on Proxmox boot"
+  type        = bool
+  default     = true
+}
+
+variable "vm_id" {
+  description = "Explicit VM ID (optional)"
+  type        = number
+  default     = null
+}
+
+# CPU Configuration
+variable "cpu_cores" {
+  description = "Number of CPU cores"
+  type        = number
+  default     = 4
+}
+
+# Memory Configuration (TrueNAS needs substantial RAM for ZFS ARC)
+variable "memory_mb" {
+  description = "Memory in MB (recommended: 32GB minimum for ZFS)"
+  type        = number
+  default     = 32768  # 32GB
+}
+
+# Disk Configuration
+variable "boot_disk_datastore" {
+  description = "Datastore for boot disk"
+  type        = string
+}
+
+variable "boot_disk_size" {
+  description = "Boot disk size in GB"
+  type        = number
+  default     = 32
+}
+
+# TrueNAS ISO
+variable "iso_storage" {
+  description = "Storage location for ISO files"
+  type        = string
+  default     = "local"
+}
+
+variable "truenas_iso_url" {
+  description = "URL to TrueNAS Scale ISO"
+  type        = string
+  default     = "https://download.truenas.com/TrueNAS-SCALE-Dragonfish/23.10.1/TrueNAS-SCALE-23.10.1.iso"
+}
+
+variable "truenas_iso_filename" {
+  description = "Filename for the TrueNAS ISO"
+  type        = string
+  default     = "truenas-scale-23.10.1.iso"
+}
+
+# HBA Passthrough Configuration
+variable "hba_passthrough_enabled" {
+  description = "Enable HBA passthrough for direct disk access"
+  type        = bool
+  default     = true
+}
+
+variable "hba_pci_id" {
+  description = "PCI ID of the HBA controller (e.g., '0000:03:00.0')"
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = var.hba_passthrough_enabled ? length(var.hba_pci_id) > 0 : true
+    error_message = "HBA PCI ID must be provided when passthrough is enabled"
+  }
+}
+
+# Network Configuration
+variable "network_bridge" {
+  description = "Primary network bridge"
+  type        = string
+  default     = "vmbr0"
+}
+
+variable "network_vlan_id" {
+  description = "VLAN ID for management network"
+  type        = number
+  default     = null
+}
+
+variable "storage_network_enabled" {
+  description = "Enable dedicated storage network interface"
+  type        = bool
+  default     = false
+}
+
+variable "storage_network_bridge" {
+  description = "Bridge for storage network"
+  type        = string
+  default     = "vmbr0"
+}
+
+variable "storage_network_vlan_id" {
+  description = "VLAN ID for storage network"
+  type        = number
+  default     = null
+}
+
+# Boot Configuration
+variable "boot_order" {
+  description = "Boot order for the VM"
+  type        = list(string)
+  default     = ["ide2", "virtio0"]  # CDROM first for installation
+}
+
+# Post-Installation Configuration
+variable "wait_for_api" {
+  description = "Wait for TrueNAS API to become available"
+  type        = bool
+  default     = false
+}
+
+variable "truenas_api_url" {
+  description = "TrueNAS API URL for health checks"
+  type        = string
+  default     = ""
+}

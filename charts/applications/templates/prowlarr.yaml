@@ -1,0 +1,70 @@
+{{- if .Values.prowlarr.enabled }}
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: prowlarr
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: {{ .Values.prowlarr.chart.repo }}
+    chart: {{ .Values.prowlarr.chart.name }}
+    targetRevision: {{ .Values.prowlarr.chart.version }}
+    helm:
+      releaseName: prowlarr
+      values: |
+        image:
+          repository: {{ .Values.prowlarr.image.repository }}
+          tag: {{ .Values.prowlarr.image.tag }}
+          pullPolicy: {{ .Values.prowlarr.image.pullPolicy }}
+
+        env:
+          {{- range $key, $value := .Values.prowlarr.env }}
+          {{ $key }}: {{ $value | quote }}
+          {{- end }}
+
+        resources:
+          {{- toYaml .Values.prowlarr.resources | nindent 10 }}
+
+        persistence:
+          config:
+            enabled: {{ .Values.prowlarr.persistence.config.enabled }}
+            storageClass: {{ .Values.prowlarr.persistence.config.storageClass }}
+            size: {{ .Values.prowlarr.persistence.config.size }}
+            accessMode: {{ .Values.prowlarr.persistence.config.accessMode }}
+
+        {{- if .Values.prowlarr.ingress.enabled }}
+        ingress:
+          enabled: true
+          className: {{ .Values.prowlarr.ingress.className }}
+          annotations:
+            {{- toYaml .Values.prowlarr.ingress.annotations | nindent 12 }}
+          hosts:
+            {{- toYaml .Values.prowlarr.ingress.hosts | nindent 12 }}
+          tls:
+            {{- toYaml .Values.prowlarr.ingress.tls | nindent 12 }}
+        {{- end }}
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: {{ .Values.prowlarr.namespace }}
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+{{- end }}

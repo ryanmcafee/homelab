@@ -1,0 +1,135 @@
+---
+# IPMI configuration role for Noctua fan thresholds
+# Fixes cyclical spin-up on Supermicro motherboards
+
+- name: Ensure ipmitool is installed
+  ansible.builtin.apt:
+    name: ipmitool
+    state: present
+    update_cache: true
+
+- name: Test local IPMI interface availability
+  ansible.builtin.command:
+    cmd: ipmitool sensor list
+  register: ipmi_local_test
+  changed_when: false
+  failed_when: false
+
+- name: Configure IPMI kernel modules if local interface available
+  ansible.builtin.lineinfile:
+    path: /etc/modules
+    line: "{{ item }}"
+    state: present
+    create: true
+    mode: '0644'
+  loop:
+    - ipmi_devintf
+    - ipmi_si
+  when: ipmi_local_test.rc == 0
+
+- name: Load IPMI kernel modules
+  community.general.modprobe:
+    name: "{{ item }}"
+    state: present
+  loop:
+    - ipmi_devintf
+    - ipmi_si
+  failed_when: false
+
+- name: Get current fan sensor information
+  ansible.builtin.command:
+    cmd: ipmitool sensor list | grep -i fan
+  register: current_fan_sensors
+  changed_when: false
+  failed_when: false
+
+- name: Display current fan sensors
+  ansible.builtin.debug:
+    var: current_fan_sensors.stdout_lines
+  when: current_fan_sensors.rc == 0
+
+- name: Configure fan thresholds for Noctua fans
+  ansible.builtin.command:
+    cmd: >
+      ipmitool sensor thresh {{ item.fan }}
+      lower {{ item.lower_non_recoverable }}
+      {{ item.lower_critical }}
+      {{ item.lower_non_critical }}
+  loop: "{{ ipmi_fan_thresholds }}"
+  register: fan_threshold_result
+  changed_when: true
+  failed_when: false
+  # Don't fail if a fan doesn't exist - different boards have different fan headers
+
+- name: Display fan threshold configuration results
+  ansible.builtin.debug:
+    msg: "Configured thresholds for {{ item.item.fan }}: {{ 'success' if item.rc == 0 else 'skipped (fan not found)' }}"
+  loop: "{{ fan_threshold_result.results }}"
+  loop_control:
+    label: "{{ item.item.fan }}"
+
+- name: Create IPMI fan threshold systemd service
+  ansible.builtin.template:
+    src: ipmi-fan-threshold.service.j2
+    dest: /etc/systemd/system/ipmi-fan-threshold.service
+    mode: '0644'
+  register: ipmi_service_template
+
+- name: Reload systemd daemon
+  ansible.builtin.systemd:
+    daemon_reload: true
+  when: ipmi_service_template is changed
+
+- name: Enable IPMI fan threshold service
+  ansible.builtin.systemd:
+    name: ipmi-fan-threshold.service
+    enabled: true
+    state: started
+
+- name: Create IPMI monitoring script
+  ansible.builtin.copy:
+    dest: /usr/local/bin/ipmi-fan-monitor.sh
+    content: |
+      #!/bin/bash
+      # IPMI Fan Monitoring Script
+      # Logs fan speeds and temperatures to syslog
+
+      DATE=$(date '+%Y-%m-%d %H:%M:%S')
+      FANS=$(ipmitool sensor list | grep -i fan | grep -v 'na')
+      TEMPS=$(ipmitool sensor list | grep -i temp | grep -v 'na')
+
+      logger -t ipmi-fan-monitor "Fan Status at $DATE"
+      echo "$FANS" | while read line; do
+          logger -t ipmi-fan-monitor "$line"
+      done
+
+      logger -t ipmi-fan-monitor "Temperature Status at $DATE"
+      echo "$TEMPS" | while read line; do
+          logger -t ipmi-fan-monitor "$line"
+      done
+    mode: '0755'
+
+- name: Create cron job for IPMI fan monitoring
+  ansible.builtin.cron:
+    name: "IPMI Fan Monitoring"
+    minute: "*/15"
+    hour: "*"
+    job: "/usr/local/bin/ipmi-fan-monitor.sh"
+    user: root
+    state: present
+
+- name: Verify fan thresholds were applied
+  ansible.builtin.command:
+    cmd: ipmitool sensor get {{ item.fan }}
+  loop: "{{ ipmi_fan_thresholds }}"
+  register: fan_threshold_verify
+  changed_when: false
+  failed_when: false
+
+- name: Display final fan threshold configuration
+  ansible.builtin.debug:
+    msg: "{{ item.stdout_lines }}"
+  loop: "{{ fan_threshold_verify.results }}"
+  loop_control:
+    label: "{{ item.item.fan }}"
+  when: item.rc == 0

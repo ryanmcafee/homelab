@@ -1,0 +1,304 @@
+# Homelab Local Development Environment - Tiltfile
+# Phase 0.5: Local Development Environment (Kind + Tilt)
+#
+# This Tiltfile supports two modes:
+# 1. direct:  Deploy Helm charts directly via Tilt (fastest iteration)
+# 2. argocd:  Deploy via ArgoCD (realistic GitOps simulation)
+#
+# Usage:
+#   tilt up                    # Start in direct mode (default)
+#   tilt up -- --mode=argocd   # Start in ArgoCD mode
+#   tilt down                  # Tear down all resources
+
+# ============================================================================
+# Configuration
+# ============================================================================
+
+config.define_string("mode", args=True)
+cfg = config.parse()
+mode = cfg.get("mode", "direct")  # "direct" or "argocd"
+
+print("=" * 60)
+print("Homelab Local Development")
+print("Mode: %s" % mode)
+print("=" * 60)
+
+# ============================================================================
+# Prerequisites - Storage
+# ============================================================================
+
+# Deploy local-path-provisioner for persistent storage
+# This provides a simple local storage class for development
+local_resource(
+    "local-path-provisioner",
+    cmd="""
+    kubectl apply -f https://raw.githubusercontent.com/rancher/local-path-provisioner/v0.0.26/deploy/local-path-storage.yaml
+    """,
+    deps=[],
+    labels=["infrastructure"],
+)
+
+# Set local-path as the default storage class
+local_resource(
+    "default-storage-class",
+    cmd="""
+    kubectl patch storageclass local-path -p '{"metadata": {"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}'
+    """,
+    resource_deps=["local-path-provisioner"],
+    labels=["infrastructure"],
+)
+
+# ============================================================================
+# ArgoCD Mode - GitOps Deployment
+# ============================================================================
+
+if mode == "argocd":
+    print("Deploying in ArgoCD mode - realistic GitOps simulation")
+
+    # Install ArgoCD using Helm
+    local_resource(
+        "argocd-install",
+        cmd="""
+        helm repo add argo https://argoproj.github.io/argo-helm 2>/dev/null || true
+        helm repo update argo
+        helm upgrade --install argocd argo/argo-cd \
+            --namespace argocd --create-namespace \
+            --values ../localdev/values/argocd-values.yaml \
+            --wait --timeout 5m
+        """,
+        resource_deps=["local-path-provisioner"],
+        labels=["argocd"],
+    )
+
+    # Configure ArgoCD server with port forwarding
+    k8s_resource(
+        workload="argocd-server",
+        new_name="argocd-ui",
+        port_forwards=["8080:8080"],
+        labels=["argocd"],
+        resource_deps=["argocd-install"],
+    )
+
+    # Deploy the gitops Application (App of Apps pattern)
+    # This creates the root ArgoCD Application that manages all other apps
+    local_resource(
+        "gitops-app",
+        cmd="""
+        kubectl apply -f - <<EOF
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: gitops
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: file://../charts  # Local path for development
+    targetRevision: HEAD
+    path: gitops
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-localdev.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+EOF
+        """,
+        resource_deps=["argocd-install"],
+        labels=["argocd"],
+    )
+
+    # Watch chart directories for changes
+    # When files change, trigger ArgoCD sync
+    watch_file("../charts/gitops")
+    watch_file("../charts/addons")
+    watch_file("../charts/applications")
+
+    # Helper to trigger ArgoCD sync on chart changes
+    local_resource(
+        "argocd-sync",
+        cmd="""
+        kubectl -n argocd patch app gitops --type merge -p '{"operation": {"initiatedBy": {"username": "tilt"}, "info": [{"name": "Reason", "value": "Chart files changed"}]}}'
+        """,
+        resource_deps=["gitops-app"],
+        labels=["argocd"],
+        auto_init=False,
+        trigger_mode=TRIGGER_MODE_MANUAL,
+    )
+
+# ============================================================================
+# Direct Mode - Direct Helm Deployment
+# ============================================================================
+
+if mode == "direct":
+    print("Deploying in direct mode - fast iteration for development")
+
+    # ========================================================================
+    # Core Addons
+    # ========================================================================
+
+    # Traefik Ingress Controller (NodePort mode for Kind)
+    helm_resource(
+        "traefik",
+        chart="traefik/traefik",
+        namespace="traefik",
+        flags=[
+            "--create-namespace",
+            "--repo=https://traefik.github.io/charts",
+            "--set=service.type=NodePort",
+            "--set=ports.web.nodePort=30080",
+            "--set=ports.websecure.nodePort=30443",
+            "--set=globalArguments={--global.checknewversion=false,--global.sendanonymoususage=false}",
+            "--set=resources.requests.cpu=50m",
+            "--set=resources.requests.memory=128Mi",
+        ],
+        resource_deps=["local-path-provisioner"],
+        labels=["addons"],
+    )
+
+    # cert-manager for TLS certificate management
+    helm_resource(
+        "cert-manager",
+        chart="cert-manager/cert-manager",
+        namespace="cert-manager",
+        flags=[
+            "--create-namespace",
+            "--repo=https://charts.jetstack.io",
+            "--set=installCRDs=true",
+            "--set=resources.requests.cpu=10m",
+            "--set=resources.requests.memory=32Mi",
+        ],
+        resource_deps=["local-path-provisioner"],
+        labels=["addons"],
+    )
+
+    # kube-prometheus-stack for monitoring (optional - resource heavy)
+    # Disabled by default, enable with: tilt enable kube-prometheus-stack
+    helm_resource(
+        "kube-prometheus-stack",
+        chart="prometheus-community/kube-prometheus-stack",
+        namespace="monitoring",
+        flags=[
+            "--create-namespace",
+            "--repo=https://prometheus-community.github.io/helm-charts",
+            "--set=prometheus.prometheusSpec.retention=1d",
+            "--set=prometheus.prometheusSpec.resources.requests.memory=256Mi",
+            "--set=prometheus.prometheusSpec.resources.requests.cpu=100m",
+            "--set=prometheus.prometheusSpec.storageSpec.volumeClaimTemplate.spec.storageClassName=local-path",
+            "--set=prometheus.prometheusSpec.storageSpec.volumeClaimTemplate.spec.resources.requests.storage=5Gi",
+            "--set=grafana.adminPassword=admin",
+            "--set=grafana.resources.requests.cpu=50m",
+            "--set=grafana.resources.requests.memory=128Mi",
+            "--set=alertmanager.enabled=false",
+            "--set=nodeExporter.enabled=false",  # Not needed in Kind
+            "--set=kubeStateMetrics.resources.requests.cpu=10m",
+            "--set=kubeStateMetrics.resources.requests.memory=32Mi",
+        ],
+        resource_deps=["local-path-provisioner"],
+        labels=["addons"],
+        auto_init=False,  # Don't start by default - enable manually if needed
+    )
+
+    # Port forward Grafana for easy access
+    k8s_resource(
+        workload="kube-prometheus-stack-grafana",
+        new_name="grafana",
+        port_forwards=["3000:80"],
+        labels=["addons"],
+        auto_init=False,
+    )
+
+    # ========================================================================
+    # Example Applications (can be extended)
+    # ========================================================================
+
+    # These would be actual application deployments
+    # For now, we show the pattern - actual charts need to be created first
+
+    # Uncomment when charts/applications exists:
+    # helm_resource(
+    #     "sonarr",
+    #     chart="../charts/applications",
+    #     namespace="media",
+    #     flags=[
+    #         "--create-namespace",
+    #         "--values=../charts/applications/values.yaml",
+    #         "--values=../charts/applications/values-localdev.yaml",
+    #         "--set=sonarr.enabled=true",
+    #     ],
+    #     deps=["../charts/applications"],
+    #     labels=["applications"],
+    # )
+
+    # Watch chart directories for hot reload
+    watch_file("../charts/addons")
+    watch_file("../charts/applications")
+    watch_file("values/")
+
+# ============================================================================
+# Development Helpers
+# ============================================================================
+
+# Display helpful information for developers
+local_resource(
+    "dev-info",
+    cmd="""
+    echo ""
+    echo "======================================"
+    echo "Homelab Local Development Environment"
+    echo "======================================"
+    echo ""
+    echo "Mode: """ + mode + """"
+    echo ""
+    echo "Available URLs:"
+    if [ \"""" + mode + """\" = "argocd" ]; then
+        echo "  ArgoCD UI:  http://localhost:8080"
+        echo "              Username: admin"
+        echo "              Password: kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d"
+    fi
+    echo "  Traefik:    http://localhost:9080"
+    echo "  Grafana:    http://localhost:3000 (if enabled)"
+    echo "              Username: admin"
+    echo "              Password: admin"
+    echo ""
+    echo "Quick Commands:"
+    echo "  kubectl get pods --all-namespaces    # View all pods"
+    echo "  tilt trigger argocd-sync             # Force ArgoCD sync (argocd mode)"
+    echo "  tilt enable kube-prometheus-stack    # Enable monitoring"
+    echo ""
+    echo "======================================"
+    """,
+    labels=["info"],
+    auto_init=True,
+    trigger_mode=TRIGGER_MODE_MANUAL,
+)
+
+# Cluster status check
+local_resource(
+    "cluster-status",
+    cmd="kubectl cluster-info",
+    labels=["info"],
+    auto_init=True,
+    trigger_mode=TRIGGER_MODE_MANUAL,
+)
+
+# Quick cleanup helper
+local_resource(
+    "cleanup-failed-pods",
+    cmd="""
+    kubectl get pods --all-namespaces --field-selector=status.phase=Failed -o json | \
+    kubectl delete -f - 2>/dev/null || echo "No failed pods to clean"
+    """,
+    labels=["utils"],
+    auto_init=False,
+    trigger_mode=TRIGGER_MODE_MANUAL,
+)

@@ -1,0 +1,16 @@
+apiVersion: v2
+name: addons
+description: Core cluster addons and infrastructure components for homelab
+type: application
+version: 1.0.0
+appVersion: "1.0"
+maintainers:
+  - name: Ryan McAfee
+keywords:
+  - infrastructure
+  - addons
+  - metallb
+  - traefik
+  - cert-manager
+  - prometheus
+  - storage

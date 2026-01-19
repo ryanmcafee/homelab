@@ -1,0 +1,77 @@
+================================================================================
+PLACEHOLDER FILE FOR BROADCOM STORCLI PACKAGE
+================================================================================
+
+This is a placeholder for the Broadcom StorCLI package that must be obtained
+from Broadcom's website due to licensing requirements.
+
+REQUIRED FILE:
+  storcli_007.0327.0000.0000_all.deb
+
+DOWNLOAD INSTRUCTIONS:
+================================================================================
+
+1. Visit the Broadcom Support Portal:
+   https://www.broadcom.com/support/download-search
+
+2. Search for "9400-8i" or "MegaRAID StorCLI"
+
+3. Download the following file:
+   - StorCLI (Unified tool for MegaRAID and Adaptec)
+   - Version: 007.0327.0000.0000 or later
+   - Package: storcli_007.0327.0000.0000_all.deb
+
+4. Verify the package integrity (checksum will be provided on download page)
+
+5. Place the downloaded file in this directory:
+   ansible/files/storcli_007.0327.0000.0000_all.deb
+
+6. Remove or rename this placeholder file
+
+ALTERNATIVE DOWNLOAD (if above link doesn't work):
+================================================================================
+
+The StorCLI package may also be available through:
+- Direct Broadcom customer portal (requires account)
+- LSI/Broadcom documentation and tools downloads
+- Proxmox community forums (user-shared links)
+
+VERIFICATION:
+================================================================================
+
+After downloading, verify the package:
+
+  $ dpkg -I storcli_007.0327.0000.0000_all.deb
+
+Expected output should show:
+  Package: storcli
+  Version: 007.0327.0000.0000
+  Architecture: all
+
+NOTES:
+================================================================================
+
+- This package is required for HBA firmware management and monitoring
+- The Broadcom 9400-8i HBA requires StorCLI for mixed mode configuration
+- Mixed mode enables both SAS/SATA HDD and NVMe support
+- Required cables: SFF-8643 to SFF-8639 (MPN 05-50065-00 or 05-50064-00)
+
+REFERENCE DOCUMENTATION:
+================================================================================
+
+Broadcom 9400-8i Documentation:
+  https://docs.broadcom.com/doc/12354774
+
+StorCLI User Guide:
+  https://docs.broadcom.com/docs/storcli-user-guide
+
+TROUBLESHOOTING:
+================================================================================
+
+If you cannot find the package:
+1. Ensure you have a Broadcom support account (free registration)
+2. Search for "MegaRAID StorCLI" instead of specific model numbers
+3. Check Proxmox forums for community-provided links
+4. Contact Broadcom support for direct download assistance
+
+================================================================================

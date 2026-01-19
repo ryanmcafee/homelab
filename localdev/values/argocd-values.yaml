@@ -1,0 +1,196 @@
+# ArgoCD Configuration for Local Development
+# Phase 0.5: Local Development Environment
+#
+# This configuration provides a lightweight ArgoCD installation
+# optimized for local development with Kind cluster.
+#
+# Features:
+# - Reduced resource requests for local dev
+# - NodePort service for easy access (localhost:8080)
+# - Disabled unnecessary components
+# - Self-signed certificates for local use
+# - Simple admin authentication
+
+# ============================================================================
+# Global Configuration
+# ============================================================================
+
+global:
+  # Use local-path storage class for ArgoCD data
+  storageClass: local-path
+
+# ============================================================================
+# API Server Configuration
+# ============================================================================
+
+server:
+  # Reduce resource requests for local development
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+
+  # Use NodePort for easy access from host machine
+  service:
+    type: NodePort
+    nodePortHttp: 30080
+
+  # Disable TLS for local development
+  extraArgs:
+    - --insecure
+
+  # Allow any Git repository (local development)
+  config:
+    repositories: |
+      - url: https://github.com
+        type: git
+      - url: file://../charts
+        type: git
+        name: local-charts
+
+# ============================================================================
+# Repo Server Configuration
+# ============================================================================
+
+repoServer:
+  # Reduce resource requests
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+
+  # Mount local charts directory for development
+  # This allows testing chart changes without pushing to Git
+  volumes:
+    - name: charts
+      hostPath:
+        path: /charts
+        type: Directory
+
+  volumeMounts:
+    - name: charts
+      mountPath: /charts
+
+# ============================================================================
+# Application Controller Configuration
+# ============================================================================
+
+controller:
+  # Reduce resource requests
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+  # Enable application status badge
+  metrics:
+    enabled: true
+    serviceMonitor:
+      enabled: false  # Disable ServiceMonitor for local dev
+
+# ============================================================================
+# Redis Configuration
+# ============================================================================
+
+redis:
+  # Reduce resource requests for Redis
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+
+# ============================================================================
+# Dex (SSO/OAuth) - Disabled for Local Dev
+# ============================================================================
+
+dex:
+  # Disable Dex for local development (use admin account)
+  enabled: false
+
+# ============================================================================
+# Notifications Controller - Disabled for Local Dev
+# ============================================================================
+
+notifications:
+  # Disable notifications for local development
+  enabled: false
+
+# ============================================================================
+# ApplicationSet Controller - Enabled with Reduced Resources
+# ============================================================================
+
+applicationSet:
+  # Keep ApplicationSet enabled but with reduced resources
+  enabled: true
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+
+# ============================================================================
+# Configuration Management Plugins
+# ============================================================================
+
+configs:
+  # Secret for admin password (use default, override via CLI if needed)
+  secret:
+    # Admin password will be auto-generated on install
+    # Retrieve with: kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d
+    createSecret: true
+
+  # ArgoCD CM configuration
+  cm:
+    # Set timeout for operations
+    timeout.reconciliation: 30s
+
+    # Enable local development features
+    exec.enabled: "true"
+
+    # Disable analytics
+    ga.trackingid: ""
+
+  # RBAC configuration (permissive for local dev)
+  rbac:
+    policy.default: role:admin
+
+# ============================================================================
+# High Availability - Disabled for Local Dev
+# ============================================================================
+
+# Run single replicas for all components (not HA)
+# This reduces resource usage significantly
+
+redis-ha:
+  enabled: false
+
+# ============================================================================
+# Ingress - Disabled (using NodePort)
+# ============================================================================
+
+ingress:
+  enabled: false
+
+# ============================================================================
+# Additional Configuration
+# ============================================================================
+
+# Disable service account token auto-mount for security
+automountServiceAccountToken: false
+
+# Create service account
+createAggregateRoles: true
