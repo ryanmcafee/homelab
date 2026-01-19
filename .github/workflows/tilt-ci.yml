@@ -28,6 +28,7 @@ on:
       - 'charts/**'
       - 'localdev/**'
       - 'Tiltfile'
+      - '.github/workflows/tilt-ci.yml'
   workflow_dispatch:
 
 # Concurrency: cancel in-progress runs for the same PR
