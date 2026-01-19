@@ -47,6 +47,13 @@
     state: link
     force: true
 
+- name: Create additional StorCLI symlink (storcli without version)
+  ansible.builtin.file:
+    src: "{{ storcli_binary }}"
+    dest: /usr/local/bin/storcli
+    state: link
+    force: true
+
 - name: Get StorCLI version
   ansible.builtin.command:
     cmd: "{{ storcli_binary }} -v"
@@ -82,46 +89,79 @@
   failed_when: false
   when: hba_card_2_pci_id is defined
 
-- name: Copy firmware file if firmware update is enabled
+- name: Check current firmware version
+  ansible.builtin.command:
+    cmd: "{{ storcli_binary }} /c0 show all"
+  register: current_firmware_c0
+  changed_when: false
+  failed_when: false
+
+- name: Display current firmware version
+  ansible.builtin.debug:
+    msg: "Card 0 current firmware: {{ current_firmware_c0.stdout | regex_search('Firmware Version = ([0-9.]+)', '\\1') }}"
+  when: current_firmware_c0.rc == 0
+
+- name: Copy firmware package if firmware update is enabled
   ansible.builtin.copy:
-    src: "{{ storcli_firmware_path }}"
-    dest: /tmp/hba_firmware.rom
+    src: "{{ storcli_firmware_package_dir }}/Firmware/HBA_9400-8i_{{ storcli_firmware_profile }}.bin"
+    dest: /tmp/hba_firmware.bin
     mode: '0644'
   when:
     - storcli_firmware_update | default(false) | bool
-    - storcli_firmware_path | length > 0
+    - storcli_firmware_profile is defined
 
-- name: Flash HBA firmware (Card 1)
+- name: Flash HBA firmware (Card 0)
   ansible.builtin.command:
-    cmd: "{{ storcli_binary }} /c0 download file=/tmp/hba_firmware.rom"
+    cmd: "{{ storcli_binary }} /c0 download file=/tmp/hba_firmware.bin"
   register: firmware_flash_c0
   when:
     - storcli_firmware_update | default(false) | bool
-    - storcli_firmware_path | length > 0
+    - storcli_firmware_profile is defined
   changed_when: "'Firmware download successful' in firmware_flash_c0.stdout"
   failed_when:
     - firmware_flash_c0.rc != 0
     - "'already running the same firmware' not in firmware_flash_c0.stdout"
 
-- name: Flash HBA firmware (Card 2)
+- name: Display firmware flash result (Card 0)
+  ansible.builtin.debug:
+    msg: "{{ firmware_flash_c0.stdout_lines }}"
+  when:
+    - storcli_firmware_update | default(false) | bool
+    - firmware_flash_c0 is defined
+
+- name: Flash HBA firmware (Card 1)
   ansible.builtin.command:
-    cmd: "{{ storcli_binary }} /c1 download file=/tmp/hba_firmware.rom"
+    cmd: "{{ storcli_binary }} /c1 download file=/tmp/hba_firmware.bin"
   register: firmware_flash_c1
   when:
     - storcli_firmware_update | default(false) | bool
-    - storcli_firmware_path | length > 0
+    - storcli_firmware_profile is defined
     - hba_card_2_pci_id is defined
   changed_when: "'Firmware download successful' in firmware_flash_c1.stdout"
   failed_when:
     - firmware_flash_c1.rc != 0
     - "'already running the same firmware' not in firmware_flash_c1.stdout"
 
+- name: Display firmware flash result (Card 1)
+  ansible.builtin.debug:
+    msg: "{{ firmware_flash_c1.stdout_lines }}"
+  when:
+    - storcli_firmware_update | default(false) | bool
+    - firmware_flash_c1 is defined
+
 - name: Clean up firmware file
   ansible.builtin.file:
-    path: /tmp/hba_firmware.rom
+    path: /tmp/hba_firmware.bin
     state: absent
   when:
     - storcli_firmware_update | default(false) | bool
+
+- name: Prompt for reboot if firmware was flashed
+  ansible.builtin.debug:
+    msg: "IMPORTANT: System reboot required to activate new firmware. Run: ansible-playbook playbooks/reboot.yml"
+  when:
+    - storcli_firmware_update | default(false) | bool
+    - (firmware_flash_c0.changed | default(false)) or (firmware_flash_c1.changed | default(false))
 
 - name: Create StorCLI log directory
   ansible.builtin.file:

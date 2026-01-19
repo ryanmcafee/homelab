@@ -23,11 +23,15 @@ proxmox_packages:
   - ipmitool
 
 # StorCLI Configuration
-storcli_package_path: "{{ playbook_dir }}/../files/storcli_007.0327.0000.0000_all.deb"
+storcli_package_path: "{{ playbook_dir }}/../files/storcli_007.2705.0000.0000_all.deb"
 storcli_install_path: /opt/MegaRAID/storcli
 storcli_binary: "{{ storcli_install_path }}/storcli64"
-storcli_firmware_update: false  # Set to true to flash firmware
-storcli_firmware_path: ""       # Path to firmware ROM file if updating
+# HBA Firmware Configuration (Phase 24)
+storcli_firmware_update: true  # Enabled by default - will be no-op if same version already installed
+storcli_firmware_package_dir: "{{ playbook_dir }}/../files/firmware/hba_9400-8i/9400_8i_Pkg_P24_SAS_SATA_NVMe_FW_BIOS_UEFI"
+storcli_firmware_profile: "Mixed_Profile"  # Supports SAS, SATA, and NVMe drives
+storcli_firmware_version: "24.00.00.00"
+storcli_bios_version: "09.47.00.00"
 
 # IPMI Fan Configuration
 # Noctua fan thresholds for Supermicro motherboards

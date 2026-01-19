@@ -133,3 +133,13 @@
   loop_control:
     label: "{{ item.item.fan }}"
   when: item.rc == 0
+
+- name: Remove legacy init.d fan threshold script
+  ansible.builtin.file:
+    path: /etc/init.d/set_fan_threshold.sh
+    state: absent
+  register: legacy_script_removed
+
+- name: Display legacy script cleanup status
+  ansible.builtin.debug:
+    msg: "Legacy init.d script {{ 'removed' if legacy_script_removed.changed else 'not found' }}"

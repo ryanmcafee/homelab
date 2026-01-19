@@ -41,7 +41,7 @@ The Ansible automation handles the following tasks:
    pip install ansible
    ```
 
-4. **StorCLI package** - Download from Broadcom (see files/storcli_*.placeholder)
+4. **StorCLI package** - Version 007.2705.0000.0000 included in repository (extracted from deployed host)
 
 ## Directory Structure
 
@@ -66,7 +66,9 @@ ansible/
 │   ├── proxmox-ipmi/                    # IPMI configuration
 │   └── proxmox-networking/              # Network configuration
 └── files/
-    └── storcli_*.deb                    # StorCLI package (must download)
+    ├── storcli_007.2705.0000.0000_all.deb  # StorCLI package
+    └── firmware/
+        └── hba_9400-8i/                 # HBA firmware packages
 ```
 
 ## Quick Start
@@ -78,18 +80,14 @@ cd ansible
 ansible-galaxy install -r requirements.yml
 ```
 
-### 2. Download StorCLI Package
-
-Follow instructions in `files/storcli_007.0327.0000.0000_all.deb.placeholder` to download the StorCLI package from Broadcom.
-
-### 3. Configure Inventory
+### 2. Configure Inventory
 
 Edit `inventory/hosts.yml` and update the following:
 - `ansible_host` - IP address of your Proxmox host
 - PCI IDs for HBA cards and GPU (if different)
 - Storage device paths (if different)
 
-### 4. Configure Variables
+### 3. Configure Variables
 
 Review and update variables in:
 - `inventory/group_vars/all.yml` - Global settings (timezone, domain, etc.)
@@ -97,10 +95,11 @@ Review and update variables in:
 
 **Important variables to review:**
 - `ipmi_fan_thresholds` - Fan threshold values (adjust for your fans)
-- `storcli_firmware_update` - Set to `true` to flash HBA firmware
+- `storcli_firmware_update` - Enable/disable HBA firmware flashing (enabled by default)
+- `storcli_firmware_profile` - Firmware profile: "Mixed_Profile" (SAS/SATA/NVMe) or "SAS_SATA_Profile"
 - `zfs_pool_*` - ZFS pool configuration
 
-### 5. Test Connectivity
+### 4. Test Connectivity
 
 ```bash
 ansible proxmox -m ping
@@ -114,7 +113,7 @@ pve01 | SUCCESS => {
 }
 ```
 
-### 6. Run Playbooks
+### 5. Run Playbooks
 
 #### Run all configuration (recommended)
 ```bash
@@ -136,7 +135,7 @@ ansible-playbook playbooks/proxmox-storcli.yml
 ansible-playbook playbooks/proxmox-networking.yml
 ```
 
-### 7. Verify Configuration
+### 6. Verify Configuration
 
 After running the playbooks, verify:
 
@@ -179,18 +178,24 @@ Executes the Proxmox community post-install script and installs essential packag
 
 ### proxmox-storcli.yml
 
-Installs Broadcom StorCLI for HBA management and optionally flashes firmware.
+Installs Broadcom StorCLI for HBA management and manages HBA firmware updates.
 
 **What it does:**
-- Installs StorCLI .deb package
-- Creates symlink in `/usr/local/bin`
+- Installs StorCLI .deb package (version 007.2705.0000.0000)
+- Creates symlinks in `/usr/local/bin` (`storcli` and `storcli64`)
+- Checks current firmware version
+- Optionally flashes HBA firmware (enabled by default)
 - Displays HBA controller information
-- Optionally flashes HBA firmware (if `storcli_firmware_update: true`)
 - Creates health monitoring cron job
 
-**Idempotency:** Safe to run multiple times
+**Idempotency:** Safe to run multiple times. Firmware flashing detects "already running same firmware" and skips update.
 
-**Firmware Update:** Set `storcli_firmware_update: true` and provide `storcli_firmware_path` to flash firmware
+**Firmware Update:**
+- Default: Enabled (`storcli_firmware_update: true`)
+- Firmware: P24 (24.00.00.00)
+- Profile: Mixed_Profile (supports SAS/SATA/NVMe drives)
+- Reboot required after firmware update to activate new firmware
+- See `docs/runbooks/hba-firmware-update.md` for detailed firmware procedures
 
 ### proxmox-ipmi-fans.yml
 
@@ -201,6 +206,7 @@ Configures IPMI fan thresholds to fix Noctua fan cyclical spin-up issue.
 - Configures fan thresholds for Noctua fans (lower RPM thresholds)
 - Creates systemd service to apply thresholds on boot
 - Creates monitoring script that logs fan speeds
+- Removes legacy init.d script (security cleanup - removes hardcoded credentials)
 
 **Idempotency:** Safe to run multiple times
 
@@ -220,6 +226,65 @@ Configures Proxmox network bridge with VLAN awareness.
 
 **Warning:** Network configuration changes may require a reboot
 
+## HBA Firmware Management
+
+### Overview
+The `proxmox-storcli` role includes comprehensive HBA firmware management capabilities for Broadcom 9400-8i controllers. Firmware flashing is enabled by default and is fully idempotent.
+
+### Current Configuration
+- **Firmware Version**: P24 (24.00.00.00) - Released July 25, 2022
+- **BIOS Version**: 09.47.00.00
+- **Profile**: Mixed_Profile (supports SAS, SATA, and NVMe drives)
+- **Controllers**: 2x Broadcom 9400-8i HBA (Card 0 and Card 1)
+
+### Firmware Profiles
+
+#### Mixed Profile (Default)
+**File**: `HBA_9400-8i_Mixed_Profile.bin`
+**Supports**: SAS, SATA, and NVMe drives
+**Use Case**: General purpose - recommended for most deployments
+
+#### SAS/SATA Profile
+**File**: `HBA_9400-8i_SAS_SATA_Profile.bin`
+**Supports**: SAS and SATA drives only
+**Use Case**: Systems without NVMe drives
+
+### Firmware Update Procedure
+
+1. **Verify Configuration** in `inventory/group_vars/proxmox.yml`:
+   ```yaml
+   storcli_firmware_update: true  # Enabled by default
+   storcli_firmware_profile: "Mixed_Profile"
+   ```
+
+2. **Run Playbook**:
+   ```bash
+   ansible-playbook playbooks/proxmox-storcli.yml
+   ```
+
+3. **Reboot System** (if firmware was updated):
+   ```bash
+   ansible-playbook playbooks/reboot.yml
+   # Or manually:
+   ssh root@172.16.100.250 "reboot"
+   ```
+
+4. **Verify Update**:
+   ```bash
+   ssh root@172.16.100.250 "storcli64 /c0 show all | grep -i firmware"
+   ```
+
+### Safety Features
+- **Idempotent**: Detects "already running same firmware" and skips unnecessary updates
+- **Error Handling**: Fails gracefully if firmware is already current
+- **Reboot Prompt**: Notifies when reboot is required
+- **Version Check**: Displays current firmware before attempting update
+
+### Additional Resources
+For detailed firmware update procedures, troubleshooting, and rollback instructions, see:
+- `docs/runbooks/hba-firmware-update.md` - Complete firmware management runbook
+- `docs/backport-notes-2026-01-19.md` - Implementation details and security notes
+
 ## Variables
 
 ### Global Variables (all.yml)
@@ -237,7 +302,11 @@ Configures Proxmox network bridge with VLAN awareness.
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `proxmox_enterprise` | false | Use enterprise repositories |
-| `storcli_firmware_update` | false | Flash HBA firmware |
+| `storcli_package_path` | [path] | Path to StorCLI .deb package |
+| `storcli_firmware_update` | true | Enable HBA firmware flashing |
+| `storcli_firmware_profile` | Mixed_Profile | Firmware profile (Mixed_Profile or SAS_SATA_Profile) |
+| `storcli_firmware_version` | 24.00.00.00 | Target firmware version (P24) |
+| `storcli_bios_version` | 09.47.00.00 | Target BIOS version |
 | `ipmi_fan_thresholds` | [list] | Fan threshold configuration |
 | `zfs_pool_name` | vm-storage | ZFS pool name |
 | `proxmox_mtu` | 1500 | Network MTU |
@@ -293,6 +362,32 @@ Network changes may require a reboot:
 ssh root@172.16.100.250 'reboot'
 ```
 
+### HBA Firmware Issues
+
+#### "Already running the same firmware"
+This is expected behavior when the target firmware is already installed. No action needed.
+
+#### Firmware flash fails with permission error
+Ensure StorCLI is installed and accessible:
+```bash
+ssh root@172.16.100.250 'which storcli64'
+ssh root@172.16.100.250 'storcli64 show'
+```
+
+#### Controller not detected
+Verify HBA is properly seated and detected:
+```bash
+ssh root@172.16.100.250 'lspci | grep -i sas'
+```
+
+#### Firmware version doesn't change after flash
+A reboot is required to activate new firmware:
+```bash
+ansible-playbook playbooks/reboot.yml
+```
+
+For detailed firmware troubleshooting, see `docs/runbooks/hba-firmware-update.md`
+
 ### Check Ansible Logs
 
 Ansible logs are stored in `/var/log/ansible/` on the Proxmox host:
@@ -341,10 +436,16 @@ This Ansible configuration implements **Phase 2: Proxmox Configuration** from `p
 
 ## References
 
+### External Documentation
 - [Proxmox Community Scripts](https://github.com/community-scripts/ProxmoxVE)
 - [Broadcom 9400-8i Documentation](https://docs.broadcom.com/doc/12354774)
 - [IPMI Fan Threshold Configuration](https://calvin.me/quick-how-to-decrease-ipmi-fan-threshold/)
 - [Ansible Documentation](https://docs.ansible.com/)
+
+### Project Documentation
+- `docs/runbooks/hba-firmware-update.md` - HBA firmware update procedures
+- `docs/backport-notes-2026-01-19.md` - StorCLI and firmware backport implementation notes
+- `docs/reference-configs/` - Reference configurations extracted from deployed host
 
 ## Support
 
