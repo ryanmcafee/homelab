@@ -24,8 +24,15 @@ generate "provider_proxmox" {
   if_exists = "overwrite_terragrunt"
   contents  = <<EOF
 provider "proxmox" {
-  endpoint = "${include.env.locals.proxmox_endpoint}"
-  insecure = ${include.env.locals.proxmox_insecure}
+  endpoint  = "${include.env.locals.proxmox_endpoint}"
+  api_token = "${include.env.locals.proxmox_api_token}"
+  insecure  = ${include.env.locals.proxmox_insecure}
+
+  ssh {
+    agent       = false
+    username    = "${include.env.locals.proxmox_ssh_user}"
+    private_key = file("${include.env.locals.proxmox_ssh_private_key}")
+  }
 }
 EOF
 }
@@ -44,9 +51,10 @@ inputs = {
   boot_disk_datastore = include.env.locals.vm_storage_pool
   boot_disk_size      = 32
 
-  # HBA Passthrough (Broadcom 9400-8i)
+  # HBA Passthrough using Proxmox PCI device mappings
+  # Pass through both storage controllers for direct disk access
   hba_passthrough_enabled = true
-  hba_pci_id              = include.env.locals.hba_pci_id
+  hba_devices             = include.env.locals.hba_devices
 
   # Network
   network_bridge  = "vmbr0"
@@ -54,8 +62,8 @@ inputs = {
 
   # TrueNAS ISO
   iso_storage          = include.env.locals.iso_storage_pool
-  truenas_iso_url      = "https://download.truenas.com/TrueNAS-SCALE-Dragonfish/23.10.1/TrueNAS-SCALE-23.10.1.iso"
-  truenas_iso_filename = "truenas-scale-23.10.1.iso"
+  truenas_iso_url      = "https://download.sys.truenas.net/TrueNAS-SCALE-Goldeye/25.10.1/TrueNAS-SCALE-25.10.1.iso"
+  truenas_iso_filename = "truenas-scale-25.10.1.iso"
 
   # Post-installation
   wait_for_api    = false

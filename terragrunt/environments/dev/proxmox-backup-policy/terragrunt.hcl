@@ -29,14 +29,14 @@ EOF
 inputs = {
   schedule_id = "dev-daily-backup"
   enabled     = true
-  schedule    = "0 3 * * *"  # 3 AM daily
+  schedule    = "03:00"  # 3 AM daily (systemd calendar event format)
   storage     = include.env.locals.vm_storage_pool
   mode        = "snapshot"
   compression = "zstd"
 
-  # Backup all VMs with 'homelab' tag
-  include_all_vms = false
-  tags            = ["homelab", "dev"]
+  # Backup all VMs (tags not supported by Proxmox backup API)
+  include_all_vms = true
+  tags            = []  # Tags not supported for backup job filtering
 
   # Retention policy (shorter for dev)
   keep_daily  = 3
@@ -44,4 +44,10 @@ inputs = {
 
   # Notifications
   notification_enabled = false
+
+  # Proxmox SSH connection
+  proxmox_host            = include.env.locals.proxmox_host
+  proxmox_ssh_user        = include.env.locals.proxmox_ssh_user
+  proxmox_ssh_private_key = include.env.locals.proxmox_ssh_private_key
+  proxmox_ssh_port        = include.env.locals.proxmox_ssh_port
 }

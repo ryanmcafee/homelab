@@ -5,7 +5,7 @@ output "pool_id" {
 
 output "storage_id" {
   description = "The storage ID in Proxmox"
-  value       = var.create_storage_config ? proxmox_virtual_environment_storage.zfs_storage[0].storage_id : null
+  value       = var.create_storage_config ? proxmox_virtual_environment_storage_zfspool.zfs_storage[0].id : null
 }
 
 output "zfs_pool_name" {

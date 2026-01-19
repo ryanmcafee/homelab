@@ -108,15 +108,21 @@ resource "proxmox_virtual_environment_vm" "talos" {
     dedicated = each.value.memory
   }
 
-  # Boot disk
+  # System disk for Talos (Talos will install to this)
   disk {
-    file_id      = var.talos_image_id
     datastore_id = var.datastore_id
     size         = each.value.disk_size
-    interface    = "virtio0"
+    interface    = "scsi0"
     iothread     = true
     ssd          = true
     discard      = "on"
+  }
+
+  # Boot from Talos ISO
+  cdrom {
+    enabled   = true
+    file_id   = var.talos_image_id
+    interface = "ide2"
   }
 
   # GPU passthrough (for workers with GPU enabled)
@@ -134,25 +140,10 @@ resource "proxmox_virtual_environment_vm" "talos" {
   # Network device
   network_device {
     bridge  = var.network_bridge
-    vlan_id = var.network_vlan_id
-    model   = "virtio"
   }
 
-  # Static IP configuration via Talos
-  initialization {
-    ip_config {
-      ipv4 {
-        address = "${each.value.ip}/24"
-        gateway = var.network_gateway
-      }
-    }
-    dns {
-      servers = var.dns_servers
-    }
-  }
-
-  # Boot order
-  boot_order = ["virtio0"]
+  # Boot order - boot from CDROM (Talos ISO)
+  boot_order = ["ide2", "scsi0"]
 
   # QEMU agent
   agent {
@@ -160,18 +151,22 @@ resource "proxmox_virtual_environment_vm" "talos" {
     timeout = "15m"
   }
 
-  # VGA
+  # VGA - virtio for better console output
   vga {
-    type = "std"
+    type   = "virtio"
+    memory = 16
   }
 
   # Machine type for better hardware support
   machine = "q35"
 
+  # SCSI controller for disk
+  scsi_hardware = "virtio-scsi-single"
+
   lifecycle {
     ignore_changes = [
-      initialization,
       disk,
+      cdrom,
     ]
   }
 }

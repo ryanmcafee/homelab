@@ -11,9 +11,9 @@ variable "enabled" {
 }
 
 variable "schedule" {
-  description = "Backup schedule in cron format (e.g., '0 2 * * *' for 2 AM daily)"
+  description = "Backup schedule in systemd calendar event format (e.g., '02:00' for 2 AM daily, 'hourly', 'daily', 'weekly', 'monthly')"
   type        = string
-  default     = "0 2 * * *"
+  default     = "02:00"
 }
 
 variable "storage" {
@@ -118,4 +118,27 @@ variable "notification_target" {
   description = "Notification target (email, webhook, etc.)"
   type        = string
   default     = null
+}
+
+variable "proxmox_host" {
+  description = "Proxmox host IP or hostname for SSH connection"
+  type        = string
+}
+
+variable "proxmox_ssh_user" {
+  description = "SSH user for connecting to Proxmox host"
+  type        = string
+  default     = "root"
+}
+
+variable "proxmox_ssh_private_key" {
+  description = "Path to SSH private key for Proxmox authentication"
+  type        = string
+  default     = "~/.ssh/id_ed25519"
+}
+
+variable "proxmox_ssh_port" {
+  description = "SSH port for Proxmox host"
+  type        = number
+  default     = 22
 }

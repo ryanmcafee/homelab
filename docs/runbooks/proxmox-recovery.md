@@ -313,7 +313,7 @@ apt dist-upgrade -y
 rm /etc/apt/sources.list.d/pve-enterprise.list
 
 # Add no-subscription repo
-echo "deb http://download.proxmox.com/debian/pve bookworm pve-no-subscription" > /etc/apt/sources.list.d/pve-no-subscription.list
+echo "deb http://download.proxmox.com/debian/pve trixie pve-no-subscription" > /etc/apt/sources.list.d/pve-no-subscription.list
 
 apt update
 ```

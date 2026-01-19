@@ -9,6 +9,22 @@ terraform {
   required_version = ">= 1.7.0"
 }
 
+# PCI Hardware Mappings for HBA passthrough
+resource "proxmox_virtual_environment_hardware_mapping_pci" "hba_mappings" {
+  for_each = var.hba_passthrough_enabled ? var.hba_devices : {}
+
+  name    = each.key
+  comment = each.value.description
+
+  map = [{
+    id           = each.value.device_id
+    node         = var.node_name
+    path         = each.value.pci_id
+    iommu_group  = each.value.iommu_group
+    subsystem_id = each.value.subsystem_id
+  }]
+}
+
 # Download TrueNAS Scale ISO
 resource "proxmox_virtual_environment_download_file" "truenas_iso" {
   content_type = "iso"
@@ -57,12 +73,12 @@ resource "proxmox_virtual_environment_vm" "truenas" {
   }
 
   # HBA Passthrough - Direct disk access for ZFS
-  # Broadcom 9400-8i Mixed Mode (supports both SATA and NVMe)
+  # Supports multiple HBA controllers using PCI device mappings
   dynamic "hostpci" {
-    for_each = var.hba_passthrough_enabled ? [1] : []
+    for_each = var.hba_passthrough_enabled ? keys(var.hba_devices) : []
     content {
-      device  = "hostpci0"
-      id      = var.hba_pci_id
+      device  = "hostpci${hostpci.key}"
+      mapping = proxmox_virtual_environment_hardware_mapping_pci.hba_mappings[hostpci.value].name
       pcie    = true
       rombar  = true
       xvga    = false
@@ -99,15 +115,14 @@ resource "proxmox_virtual_environment_vm" "truenas" {
   boot_order = var.boot_order
 
   # QEMU Guest Agent
+  # Disabled during bootstrap - TrueNAS needs manual installation first
   agent {
-    enabled = true
-    timeout = "15m"
-    trim    = true
+    enabled = false
   }
 
-  # VGA - Standard is sufficient for NAS
+  # VGA - virtio for better UEFI compatibility
   vga {
-    type   = "std"
+    type   = "virtio"
     memory = 16
   }
 
@@ -124,7 +139,7 @@ resource "proxmox_virtual_environment_vm" "truenas" {
     type         = "4m"
   }
 
-  # Lifecycle - Ignore disk changes after initial creation
+  # Lifecycle - Ignore changes after initial creation
   lifecycle {
     ignore_changes = [
       disk,

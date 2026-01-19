@@ -26,14 +26,29 @@ dependency "talos_image" {
   }
 }
 
+dependency "truenas" {
+  config_path = "../truenas"
+
+  mock_outputs = {
+    vm_id = 100
+  }
+}
+
 # Configure Proxmox provider
 generate "provider_proxmox" {
   path      = "provider_proxmox.tf"
   if_exists = "overwrite_terragrunt"
   contents  = <<EOF
 provider "proxmox" {
-  endpoint = "${include.env.locals.proxmox_endpoint}"
-  insecure = ${include.env.locals.proxmox_insecure}
+  endpoint  = "${include.env.locals.proxmox_endpoint}"
+  api_token = "${include.env.locals.proxmox_api_token}"
+  insecure  = ${include.env.locals.proxmox_insecure}
+
+  ssh {
+    agent       = false
+    username    = "${include.env.locals.proxmox_ssh_user}"
+    private_key = file("${include.env.locals.proxmox_ssh_private_key}")
+  }
 }
 EOF
 }
@@ -96,6 +111,11 @@ inputs = {
 
   # Bootstrap the cluster
   bootstrap_cluster = true
+
+  # SSH configuration for boot args
+  proxmox_host       = include.env.locals.proxmox_host
+  ssh_user           = include.env.locals.proxmox_ssh_user
+  ssh_private_key    = include.env.locals.proxmox_ssh_private_key
 
   tags = ["homelab", "dev", "talos", "kubernetes"]
 }

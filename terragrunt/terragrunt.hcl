@@ -38,19 +38,19 @@ generate "provider" {
       required_providers {
         proxmox = {
           source  = "bpg/proxmox"
-          version = "~> 0.50.0"
+          version = "~> 0.93.0"
         }
         talos = {
           source  = "siderolabs/talos"
-          version = "~> 0.4.0"
+          version = "~> 0.10.0"
         }
         kubernetes = {
           source  = "hashicorp/kubernetes"
-          version = "~> 2.25.0"
+          version = "~> 3.0.0"
         }
         helm = {
           source  = "hashicorp/helm"
-          version = "~> 2.12.0"
+          version = "~> 3.1.0"
         }
         kubectl = {
           source  = "gavinbunney/kubectl"

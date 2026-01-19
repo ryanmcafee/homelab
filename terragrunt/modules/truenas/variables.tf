@@ -91,15 +91,16 @@ variable "hba_passthrough_enabled" {
   default     = true
 }
 
-variable "hba_pci_id" {
-  description = "PCI ID of the HBA controller (e.g., '0000:03:00.0')"
-  type        = string
-  default     = ""
-
-  validation {
-    condition     = var.hba_passthrough_enabled ? length(var.hba_pci_id) > 0 : true
-    error_message = "HBA PCI ID must be provided when passthrough is enabled"
-  }
+variable "hba_devices" {
+  description = "Map of HBA devices to pass through with their PCI IDs and IOMMU groups"
+  type = map(object({
+    pci_id       = string
+    device_id    = string
+    subsystem_id = string
+    iommu_group  = number
+    description  = string
+  }))
+  default = {}
 }
 
 # Network Configuration

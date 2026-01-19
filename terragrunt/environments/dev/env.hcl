@@ -9,12 +9,17 @@ locals {
   environment = "dev"
 
   # Proxmox configuration
-  proxmox_endpoint = "https://172.16.100.250:8006"
-  proxmox_node     = "pve"
-  proxmox_insecure = true
+  proxmox_endpoint        = "https://172.16.100.250:8006"
+  proxmox_node            = "proxmox"
+  proxmox_insecure        = true
+  proxmox_api_token       = "root@pam!terraform=e9d6e1a1-ce2c-475e-84eb-f477827cee6b"
+  proxmox_host            = "172.16.100.250"
+  proxmox_ssh_user        = "root"
+  proxmox_ssh_private_key = "~/.ssh/id_ed25519"
+  proxmox_ssh_port        = 22
 
   # Storage configuration
-  vm_storage_pool  = "vm-storage"
+  vm_storage_pool  = "local-lvm"
   iso_storage_pool = "local"
 
   # Network configuration
@@ -38,16 +43,31 @@ locals {
   cluster_endpoint = "172.16.100.10"
 
   # Talos configuration
-  talos_version      = "v1.6.0"
-  kubernetes_version = "v1.29.0"
+  talos_version      = "v1.12.1"
+  kubernetes_version = "v1.32.0"
 
   # TrueNAS configuration
-  truenas_vm_id     = 100
+  truenas_vm_id     = 110
   truenas_ip        = "172.16.100.50"
   truenas_nfs_path  = "/mnt/tank/kubernetes"
 
-  # HBA passthrough (Broadcom 9400-8i)
-  hba_pci_id = "0000:03:00.0"
+  # HBA devices for TrueNAS direct disk access
+  hba_devices = {
+    "hba-nvme-ssds" = {
+      pci_id       = "0000:c2:00.0"
+      device_id    = "1000:00af"  # Broadcom LSI vendor:device ID
+      subsystem_id = "1000:3010"  # Broadcom HBA 9400-8i subsystem ID
+      iommu_group  = 12
+      description  = "Broadcom LSI SAS3408 - 2x 1TB NVMe SSDs"
+    }
+    "sata-20tb-drives" = {
+      pci_id       = "0000:49:00.0"
+      device_id    = "1022:7901"  # AMD vendor:device ID
+      subsystem_id = "15d9:7901"  # Supermicro subsystem ID
+      iommu_group  = 58
+      description  = "AMD FCH SATA Controller - 8x 20TB SATA drives"
+    }
+  }
 
   # GPU passthrough (NVIDIA Quadro P2200)
   gpu_pci_id = "0000:01:00.0"
@@ -63,14 +83,14 @@ locals {
   control_plane_nodes = {
     "cp-1" = {
       ip        = "172.16.100.11"
-      host_node = "pve"
+      host_node = "proxmox"
       cores     = 4
       memory    = 8192
       disk_size = 50
     }
     "cp-2" = {
       ip        = "172.16.100.12"
-      host_node = "pve"
+      host_node = "proxmox"
       cores     = 4
       memory    = 8192
       disk_size = 50
@@ -80,7 +100,7 @@ locals {
   worker_nodes = {
     "worker-1" = {
       ip        = "172.16.100.21"
-      host_node = "pve"
+      host_node = "proxmox"
       cores     = 4
       memory    = 16384
       disk_size = 100
@@ -88,7 +108,7 @@ locals {
     }
     "worker-2" = {
       ip        = "172.16.100.22"
-      host_node = "pve"
+      host_node = "proxmox"
       cores     = 4
       memory    = 16384
       disk_size = 100
@@ -96,7 +116,7 @@ locals {
     }
     "worker-3" = {
       ip        = "172.16.100.23"
-      host_node = "pve"
+      host_node = "proxmox"
       cores     = 4
       memory    = 16384
       disk_size = 100

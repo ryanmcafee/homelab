@@ -161,3 +161,20 @@ variable "bootstrap_cluster" {
   type        = bool
   default     = true
 }
+
+# SSH configuration for Proxmox host
+variable "proxmox_host" {
+  description = "Proxmox host IP or hostname"
+  type        = string
+}
+
+variable "ssh_user" {
+  description = "SSH user for Proxmox host"
+  type        = string
+  default     = "root"
+}
+
+variable "ssh_private_key" {
+  description = "Path to SSH private key for Proxmox host"
+  type        = string
+}

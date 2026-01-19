@@ -23,18 +23,12 @@ resource "proxmox_virtual_environment_pool" "zfs" {
 # zpool create -f vm-storage mirror /dev/nvme0n1 /dev/nvme1n1
 
 # Once the ZFS pool exists, it can be added to Proxmox storage configuration
-resource "proxmox_virtual_environment_storage" "zfs_storage" {
+resource "proxmox_virtual_environment_storage_zfspool" "zfs_storage" {
   count = var.create_storage_config ? 1 : 0
 
-  node_name = var.proxmox_node
-  storage_id = var.storage_id
-
-  type = "zfspool"
-
-  zfs {
-    pool_name = var.zfs_pool_name
-    thin_provisioning = var.thin_provisioning
-  }
-
-  content_types = var.content_types
+  id            = var.storage_id
+  zfs_pool      = var.zfs_pool_name
+  nodes         = [var.proxmox_node]
+  content       = var.content_types
+  thin_provision = var.thin_provisioning
 }

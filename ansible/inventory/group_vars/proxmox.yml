@@ -67,6 +67,12 @@ proxmox_network_bridge: vmbr0
 proxmox_vlan_aware: true
 proxmox_mtu: 1500
 
+# VLAN Package Configuration
+# Set to specific version if default conflicts (e.g., "1.9-3.2")
+# Leave undefined to try latest available version
+# vlan_package_version: "1.9-3.2"
+vlan_package_required: false  # Set to true to fail if vlan package can't be installed
+
 # ZFS Configuration
 zfs_pool_name: vm-storage
 zfs_pool_type: mirror

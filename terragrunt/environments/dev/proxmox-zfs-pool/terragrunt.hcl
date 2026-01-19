@@ -20,11 +20,9 @@ generate "provider_proxmox" {
   if_exists = "overwrite_terragrunt"
   contents  = <<EOF
 provider "proxmox" {
-  endpoint = "${include.env.locals.proxmox_endpoint}"
-  insecure = ${include.env.locals.proxmox_insecure}
-
-  # API token should be set via environment variables:
-  # PROXMOX_VE_API_TOKEN or PROXMOX_VE_USERNAME/PROXMOX_VE_PASSWORD
+  endpoint  = "${include.env.locals.proxmox_endpoint}"
+  api_token = "${include.env.locals.proxmox_api_token}"
+  insecure  = ${include.env.locals.proxmox_insecure}
 }
 EOF
 }

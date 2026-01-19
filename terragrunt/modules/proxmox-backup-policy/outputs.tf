@@ -1,16 +1,16 @@
 output "schedule_id" {
   description = "The ID of the backup schedule"
-  value       = proxmox_virtual_environment_backup_schedule.this.schedule_id
+  value       = var.schedule_id
 }
 
 output "schedule" {
   description = "The cron schedule for backups"
-  value       = proxmox_virtual_environment_backup_schedule.this.schedule
+  value       = var.schedule
 }
 
 output "storage" {
   description = "The storage location for backups"
-  value       = proxmox_virtual_environment_backup_schedule.this.storage
+  value       = var.storage
 }
 
 output "retention_policy" {
@@ -23,4 +23,15 @@ output "retention_policy" {
     keep_monthly = var.keep_monthly
     keep_yearly  = var.keep_yearly
   }
+}
+
+output "prune_backups" {
+  description = "The prune-backups parameter used for the backup schedule"
+  value       = local.prune_backups
+}
+
+output "pvesh_command" {
+  description = "The pvesh command that will be executed"
+  value       = "pvesh create /cluster/backup ${local.pvesh_params}"
+  sensitive   = false
 }

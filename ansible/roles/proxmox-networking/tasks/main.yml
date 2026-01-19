@@ -44,10 +44,61 @@
     state: present
     update_cache: true
 
-- name: Ensure VLAN package is installed
+- name: Get available VLAN package versions
+  ansible.builtin.shell:
+    cmd: apt-cache madison vlan | awk '{print $3}' | head -5
+  register: vlan_versions
+  changed_when: false
+  failed_when: false
+
+- name: Check if VLAN package is already installed
+  ansible.builtin.command:
+    cmd: dpkg -l vlan
+  register: vlan_installed_check
+  changed_when: false
+  failed_when: false
+
+- name: Try to install VLAN package
   ansible.builtin.apt:
-    name: vlan
+    name: "{{ 'vlan=' + vlan_package_version if vlan_package_version is defined else 'vlan' }}"
     state: present
+  register: vlan_install_result
+  failed_when: false
+  when: vlan_installed_check.rc != 0
+
+- name: Check if install would remove proxmox-ve
+  ansible.builtin.command:
+    cmd: apt-get install --simulate --assume-yes vlan
+  register: vlan_simulate
+  changed_when: false
+  failed_when: false
+  when:
+    - vlan_install_result is failed
+    - vlan_installed_check.rc != 0
+
+- name: Display VLAN package installation status
+  ansible.builtin.debug:
+    msg: >-
+      {% if vlan_installed_check.rc == 0 %}
+      VLAN package already installed.
+      {% elif vlan_install_result is success %}
+      VLAN package{{ ' version ' + vlan_package_version if vlan_package_version is defined else '' }} installed successfully.
+      {% elif 'proxmox-ve' in (vlan_simulate.stdout | default('')) %}
+      VLAN package installation skipped - would conflict with Proxmox packages.
+      This is expected on Proxmox 8.x - VLAN support is provided by the 8021q kernel module.
+      Available versions: {{ vlan_versions.stdout_lines | join(', ') }}
+      To try a specific version, set vlan_package_version in group_vars/proxmox.yml
+      {% else %}
+      VLAN package installation failed: {{ vlan_install_result.msg | default('unknown error') }}
+      {% endif %}
+
+- name: Fail if VLAN package is required but not installed
+  ansible.builtin.fail:
+    msg: "VLAN package installation is required but failed. Check available versions above."
+  when:
+    - vlan_package_required | default(false)
+    - vlan_installed_check.rc != 0
+    - vlan_install_result is failed
 
 - name: Load 8021q kernel module for VLAN support
   community.general.modprobe:

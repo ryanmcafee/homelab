@@ -27,7 +27,8 @@ locals {
 
   # Image URLs
   image_base_url = "${local.image_factory_url}/image/${data.external.schematic_id.result.id}/${var.talos_version}"
-  nocloud_image_url = "${local.image_base_url}/nocloud-amd64.raw.xz"
+  # Use ISO for better Proxmox compatibility
+  nocloud_image_url = "${local.image_base_url}/nocloud-amd64.iso"
 }
 
 # Generate schematic ID from Image Factory
@@ -49,10 +50,10 @@ resource "proxmox_virtual_environment_download_file" "talos_image" {
   datastore_id = var.datastore_id
   node_name    = var.node_name
   url          = local.nocloud_image_url
-  file_name    = "talos-${var.talos_version}-${substr(data.external.schematic_id.result.id, 0, 8)}.img"
+  file_name    = "talos-${var.talos_version}-${substr(data.external.schematic_id.result.id, 0, 8)}.iso"
 
   # Checksum verification (optional)
-  checksum            = var.verify_checksum ? data.external.image_checksum.result.checksum : null
+  checksum            = var.verify_checksum ? data.external.image_checksum[0].result.checksum : null
   checksum_algorithm  = var.verify_checksum ? "sha256" : null
 
   # Only download if not already present
