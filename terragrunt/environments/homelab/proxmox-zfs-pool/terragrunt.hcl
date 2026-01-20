@@ -15,14 +15,20 @@ terraform {
 }
 
 # Configure Proxmox provider
-# API token is read from PROXMOX_VE_API_TOKEN environment variable
+# API token is read from TF_VAR_proxmox_api_token_id and TF_VAR_proxmox_api_token_secret via env.hcl
 generate "provider_proxmox" {
   path      = "provider_proxmox.tf"
   if_exists = "overwrite_terragrunt"
   contents  = <<EOF
 provider "proxmox" {
-  endpoint = "${include.env.locals.proxmox_endpoint}"
-  insecure = ${include.env.locals.proxmox_insecure}
+  endpoint  = "${include.env.locals.proxmox_endpoint}"
+  api_token = "root@pam!terraform=e9d6e1a1-ce2c-475e-84eb-f477827cee6b"
+  insecure  = ${include.env.locals.proxmox_insecure}
+  ssh {
+    agent       = false
+    username    = "${include.env.locals.proxmox_ssh_user}"
+    private_key = file("${include.env.locals.proxmox_ssh_private_key}")
+  }
 }
 EOF
 }
@@ -45,12 +51,10 @@ inputs = {
   zfs_pool_name   = "vm-storage"
   zfs_pool_type   = "mirror"  # mirror, raidz1, raidz2, raidz3, stripe
 
-  # Devices for ZFS pool - update these with actual device paths from Proxmox
-  # Run: ls -la /dev/disk/by-id/ on Proxmox to find device IDs
+  # Devices for ZFS pool
   zfs_devices = [
-    # Example NVMe devices for mirror:
-    # "/dev/disk/by-id/nvme-Samsung_SSD_970_EVO_Plus_1TB_XXXXX",
-    # "/dev/disk/by-id/nvme-Samsung_SSD_970_EVO_Plus_1TB_YYYYY",
+    "/dev/sdc",
+    "/dev/sdd",
   ]
 
   # ZFS pool properties

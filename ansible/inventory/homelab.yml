@@ -11,6 +11,8 @@ all:
           ansible_user: root
           ansible_ssh_private_key_file: ~/.ssh/id_ed25519
           ansible_python_interpreter: /usr/bin/python3
+          ipmi_host: 172.16.10.36
+          ipmi_user: ADMIN
 
     # TrueNAS storage server
     truenas:

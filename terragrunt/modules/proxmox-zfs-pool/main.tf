@@ -16,9 +16,22 @@ resource "proxmox_virtual_environment_pool" "zfs" {
   pool_id = var.pool_name
 }
 
+# Validate that devices are specified when creating a ZFS pool
+resource "terraform_data" "validate_zfs_devices" {
+  count = var.create_zfs_pool ? 1 : 0
+
+  lifecycle {
+    precondition {
+      condition     = length(var.zfs_devices) >= 1
+      error_message = "At least one device must be specified in zfs_devices when create_zfs_pool is true."
+    }
+  }
+}
+
 # Check if ZFS pool already exists
 resource "null_resource" "check_zfs_pool" {
   count = var.create_zfs_pool ? 1 : 0
+  depends_on = [terraform_data.validate_zfs_devices]
 
   triggers = {
     pool_name = var.zfs_pool_name

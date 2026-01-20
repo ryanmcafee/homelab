@@ -10,8 +10,10 @@ locals {
   environment = "homelab"
 
   # Proxmox configuration
-  # API token should be set via environment variable: PROXMOX_VE_API_TOKEN
-  proxmox_endpoint        = "https://172.16.100.250:8006"
+  # API token is read from TF_VAR_proxmox_api_token_id and TF_VAR_proxmox_api_token_secret
+  proxmox_api_token_id     = get_env("TF_VAR_proxmox_api_token_id", "")
+  proxmox_api_token_secret = get_env("TF_VAR_proxmox_api_token_secret", "")
+  proxmox_endpoint         = "https://172.16.100.250:8006"
   proxmox_node            = "proxmox"
   proxmox_insecure        = true
   proxmox_host            = "172.16.100.250"

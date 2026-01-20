@@ -9,12 +9,18 @@
   become: true
 
   pre_tasks:
-    - name: Verify IPMI credentials are configured
-      ansible.builtin.assert:
-        that:
-          - ipmi_host is defined
-          - ipmi_user is defined
-        fail_msg: "IPMI host and user must be defined in inventory"
+    - name: Check if IPMI is configured
+      ansible.builtin.set_fact:
+        ipmi_configured: "{{ ipmi_host is defined and ipmi_user is defined }}"
+
+    - name: Skip IPMI configuration if not configured
+      ansible.builtin.debug:
+        msg: "IPMI not configured (ipmi_host and ipmi_user not defined in inventory). Skipping IPMI fan configuration."
+      when: not ipmi_configured
+
+    - name: End play if IPMI not configured
+      ansible.builtin.meta: end_play
+      when: not ipmi_configured
 
     - name: Check network connectivity to IPMI interface
       ansible.builtin.wait_for:

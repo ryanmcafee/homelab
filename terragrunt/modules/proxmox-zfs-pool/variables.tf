@@ -69,14 +69,9 @@ variable "zfs_pool_type" {
 }
 
 variable "zfs_devices" {
-  description = "List of devices to use for the ZFS pool (use /dev/disk/by-id/ paths)"
+  description = "List of devices to use for the ZFS pool (use /dev/disk/by-id/ paths). Required when create_zfs_pool is true."
   type        = list(string)
   default     = []
-
-  validation {
-    condition     = var.create_zfs_pool == false || length(var.zfs_devices) >= 1
-    error_message = "At least one device must be specified when create_zfs_pool is true"
-  }
 }
 
 variable "zfs_ashift" {

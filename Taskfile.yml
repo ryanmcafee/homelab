@@ -201,6 +201,14 @@ tasks:
     cmds:
       - terragrunt run-all validate
 
+  tf:init:
+    desc: Run Terragrunt init for environment
+    dir: terragrunt/environments/{{.ENV}}
+    cmds:
+      - terragrunt run-all init
+    vars:
+      ENV: '{{.ENV | default "homelab"}}'
+
   tf:plan:
     desc: Run Terragrunt plan for environment
     dir: terragrunt/environments/{{.ENV}}
@@ -213,7 +221,7 @@ tasks:
     desc: Run Terragrunt apply for environment
     dir: terragrunt/environments/{{.ENV}}
     cmds:
-      - terragrunt run-all apply
+      - terragrunt run-all apply --terragrunt-non-interactive --auto-approve
     vars:
       ENV: '{{.ENV | default "homelab"}}'
 
