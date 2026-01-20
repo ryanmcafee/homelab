@@ -1,0 +1,50 @@
+# Homelab Ansible Inventory
+# Defines hosts and groups for homelab infrastructure
+
+all:
+  children:
+    # Proxmox hypervisor
+    proxmox:
+      hosts:
+        proxmox-node:
+          ansible_host: 172.16.100.250
+          ansible_user: root
+          ansible_ssh_private_key_file: ~/.ssh/id_ed25519
+          ansible_python_interpreter: /usr/bin/python3
+
+    # TrueNAS storage server
+    truenas:
+      hosts:
+        truenas-server:
+          ansible_host: 172.16.100.50
+          ansible_user: root
+          ansible_ssh_private_key_file: ~/.ssh/id_ed25519
+          truenas_api_url: https://172.16.100.50
+          truenas_api_key: "{{ lookup('env', 'TRUENAS_API_KEY') | default('') }}"
+
+    # Talos Kubernetes cluster (for reference, not directly managed by Ansible)
+    talos:
+      hosts:
+        cp-1:
+          ansible_host: 172.16.100.11
+        cp-2:
+          ansible_host: 172.16.100.12
+        worker-1:
+          ansible_host: 172.16.100.21
+        worker-2:
+          ansible_host: 172.16.100.22
+        worker-3:
+          ansible_host: 172.16.100.23
+      vars:
+        ansible_connection: local  # Talos is managed via API, not SSH
+
+  vars:
+    # Common variables for all hosts
+    homelab_domain: ryanmcafee.com
+    homelab_vlan: 100
+    homelab_subnet: 172.16.100.0/24
+    homelab_gateway: 172.16.100.1
+    dns_servers:
+      - 1.1.1.1
+      - 8.8.8.8
+    timezone: America/New_York

@@ -1,5 +1,5 @@
-# Development - Talos Kubernetes Cluster
-# Provisions Talos Linux cluster (2 CP + 3 workers)
+# Homelab - Talos Kubernetes Cluster
+# Provisions Talos Linux cluster (2 control plane + 3 workers)
 
 include "root" {
   path = find_in_parent_folders()
@@ -35,14 +35,14 @@ dependency "truenas" {
 }
 
 # Configure Proxmox provider
+# API token is read from PROXMOX_VE_API_TOKEN environment variable
 generate "provider_proxmox" {
   path      = "provider_proxmox.tf"
   if_exists = "overwrite_terragrunt"
   contents  = <<EOF
 provider "proxmox" {
-  endpoint  = "${include.env.locals.proxmox_endpoint}"
-  api_token = "${include.env.locals.proxmox_api_token}"
-  insecure  = ${include.env.locals.proxmox_insecure}
+  endpoint = "${include.env.locals.proxmox_endpoint}"
+  insecure = ${include.env.locals.proxmox_insecure}
 
   ssh {
     agent       = false
@@ -75,7 +75,7 @@ inputs = {
   network_gateway = include.env.locals.gateway
   dns_servers     = include.env.locals.dns_servers
 
-  # GPU configuration (if any workers have GPU)
+  # GPU configuration for worker-1 (NVIDIA Quadro P2200)
   gpu_pci_id       = include.env.locals.gpu_pci_id
   gpu_config_patch = yamlencode({
     machine = {
@@ -113,9 +113,9 @@ inputs = {
   bootstrap_cluster = true
 
   # SSH configuration for boot args
-  proxmox_host       = include.env.locals.proxmox_host
-  ssh_user           = include.env.locals.proxmox_ssh_user
-  ssh_private_key    = include.env.locals.proxmox_ssh_private_key
+  proxmox_host    = include.env.locals.proxmox_host
+  ssh_user        = include.env.locals.proxmox_ssh_user
+  ssh_private_key = include.env.locals.proxmox_ssh_private_key
 
-  tags = ["homelab", "dev", "talos", "kubernetes"]
+  tags = ["homelab", "talos", "kubernetes"]
 }

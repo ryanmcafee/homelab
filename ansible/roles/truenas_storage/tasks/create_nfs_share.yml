@@ -1,0 +1,82 @@
+# TrueNAS Storage Role - Create NFS Share
+# Creates an NFS share for Kubernetes persistent volumes
+
+- name: Check if NFS share exists - {{ nfs_path }}
+  ansible.builtin.uri:
+    url: "{{ truenas_api_url }}/api/v2.0/sharing/nfs"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ truenas_api_key }}"
+    validate_certs: "{{ truenas_verify_ssl }}"
+  register: existing_nfs_shares
+
+- name: Set NFS share exists fact
+  ansible.builtin.set_fact:
+    nfs_share_exists: "{{ nfs_path in (existing_nfs_shares.json | map(attribute='path') | list) }}"
+
+- name: Enable NFS service
+  ansible.builtin.uri:
+    url: "{{ truenas_api_url }}/api/v2.0/service/id/nfs"
+    method: PUT
+    headers:
+      Authorization: "Bearer {{ truenas_api_key }}"
+      Content-Type: application/json
+    validate_certs: "{{ truenas_verify_ssl }}"
+    body_format: json
+    body:
+      enable: true
+    status_code: [200]
+
+- name: Start NFS service
+  ansible.builtin.uri:
+    url: "{{ truenas_api_url }}/api/v2.0/service/start"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ truenas_api_key }}"
+      Content-Type: application/json
+    validate_certs: "{{ truenas_verify_ssl }}"
+    body_format: json
+    body:
+      service: nfs
+    status_code: [200]
+
+- name: Create NFS share - {{ nfs_path }}
+  ansible.builtin.uri:
+    url: "{{ truenas_api_url }}/api/v2.0/sharing/nfs"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ truenas_api_key }}"
+      Content-Type: application/json
+    validate_certs: "{{ truenas_verify_ssl }}"
+    body_format: json
+    body:
+      path: "{{ nfs_path }}"
+      comment: "{{ nfs_comment | default('NFS Share') }}"
+      networks: "{{ nfs_networks | default(['172.16.100.0/24']) }}"
+      maproot_user: "{{ nfs_maproot_user | default('root') }}"
+      maproot_group: "{{ nfs_maproot_group | default('wheel') }}"
+      enabled: true
+    status_code: [200, 201]
+  register: nfs_share_create
+  when: not nfs_share_exists
+
+- name: Display NFS share status
+  ansible.builtin.debug:
+    msg: "NFS share '{{ nfs_path }}' {{ 'created' if not nfs_share_exists else 'already exists' }}"
+
+- name: Get NFS share details
+  ansible.builtin.uri:
+    url: "{{ truenas_api_url }}/api/v2.0/sharing/nfs"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ truenas_api_key }}"
+    validate_certs: "{{ truenas_verify_ssl }}"
+  register: nfs_shares_final
+
+- name: Display NFS mount info
+  ansible.builtin.debug:
+    msg: |
+      NFS Share Available:
+      Server: {{ ansible_host }}
+      Path: {{ nfs_path }}
+      Mount command: mount -t nfs {{ ansible_host }}:{{ nfs_path }} /mnt/k8s

@@ -1,0 +1,55 @@
+# TrueNAS Storage Role - Default Variables
+# These can be overridden in inventory or playbook vars
+
+# TrueNAS API Configuration
+truenas_api_url: "https://{{ ansible_host }}"
+truenas_api_key: ""
+truenas_verify_ssl: false
+
+# ZFS Pool Configuration
+truenas_pool_name: tank
+truenas_pool_type: raidz3  # mirror, raidz1, raidz2, raidz3, stripe
+
+# Kubernetes Dataset Configuration
+truenas_k8s_dataset: "{{ truenas_pool_name }}/k8s"
+truenas_k8s_quota: 500G
+truenas_k8s_compression: lz4
+
+# NFS Share Configuration for Kubernetes PVs
+truenas_nfs_share_path: "/mnt/{{ truenas_k8s_dataset }}"
+truenas_nfs_share_name: k8s
+truenas_nfs_allowed_networks:
+  - 172.16.100.0/24
+truenas_nfs_maproot_user: root
+truenas_nfs_maproot_group: wheel
+
+# Media Dataset Configuration
+truenas_media_dataset: "{{ truenas_pool_name }}/media"
+truenas_media_quota: 100T
+truenas_media_compression: lz4
+
+# Additional Datasets
+truenas_datasets:
+  - name: "{{ truenas_pool_name }}/backups"
+    quota: 50T
+    compression: lz4
+    comments: "Backup storage"
+  - name: "{{ truenas_pool_name }}/downloads"
+    quota: 10T
+    compression: lz4
+    comments: "Temporary download storage"
+
+# SMB/Samba Configuration (optional)
+truenas_smb_enabled: false
+truenas_smb_workgroup: WORKGROUP
+
+# iSCSI Configuration (optional)
+truenas_iscsi_enabled: false
+truenas_iscsi_portal_ip: "{{ ansible_host }}"
+
+# API Key for democratic-csi (generated during setup)
+truenas_csi_api_key_name: democratic-csi
+
+# Wait for API timeout (seconds)
+truenas_api_wait_timeout: 300
+truenas_api_retry_delay: 10

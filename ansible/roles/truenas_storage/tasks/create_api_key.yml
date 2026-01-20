@@ -1,0 +1,71 @@
+# TrueNAS Storage Role - Create API Key
+# Creates an API key for democratic-csi integration
+
+- name: Check existing API keys
+  ansible.builtin.uri:
+    url: "{{ truenas_api_url }}/api/v2.0/api_key"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ truenas_api_key }}"
+    validate_certs: "{{ truenas_verify_ssl }}"
+  register: existing_api_keys
+
+- name: Set API key exists fact
+  ansible.builtin.set_fact:
+    api_key_exists: "{{ api_key_name in (existing_api_keys.json | map(attribute='name') | list) }}"
+
+- name: Create API key for democratic-csi
+  ansible.builtin.uri:
+    url: "{{ truenas_api_url }}/api/v2.0/api_key"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ truenas_api_key }}"
+      Content-Type: application/json
+    validate_certs: "{{ truenas_verify_ssl }}"
+    body_format: json
+    body:
+      name: "{{ api_key_name }}"
+      allowlist: []  # Empty means full access, adjust for production
+    status_code: [200, 201]
+  register: new_api_key
+  when: not api_key_exists
+
+- name: Display new API key
+  ansible.builtin.debug:
+    msg: |
+      IMPORTANT: Save this API key securely!
+      API Key Name: {{ api_key_name }}
+      API Key Value: {{ new_api_key.json.key }}
+
+      Store this in 1Password for democratic-csi configuration.
+  when:
+    - not api_key_exists
+    - new_api_key is defined
+    - new_api_key.json is defined
+
+- name: Display existing API key notice
+  ansible.builtin.debug:
+    msg: "API key '{{ api_key_name }}' already exists. Retrieve it from TrueNAS UI or 1Password."
+  when: api_key_exists
+
+- name: Save API key to file (for automation)
+  ansible.builtin.copy:
+    content: |
+      # democratic-csi API Key
+      # Created: {{ ansible_date_time.iso8601 }}
+      # Name: {{ api_key_name }}
+      TRUENAS_CSI_API_KEY={{ new_api_key.json.key }}
+    dest: "/tmp/truenas-csi-api-key.txt"
+    mode: "0600"
+  delegate_to: localhost
+  when:
+    - not api_key_exists
+    - new_api_key is defined
+    - new_api_key.json is defined
+
+- name: Reminder to store API key
+  ansible.builtin.debug:
+    msg: "API key saved to /tmp/truenas-csi-api-key.txt - move to secure storage immediately"
+  when:
+    - not api_key_exists
+    - new_api_key is defined

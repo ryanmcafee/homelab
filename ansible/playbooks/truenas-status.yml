@@ -1,0 +1,97 @@
+# TrueNAS Status Check Playbook
+# Verifies TrueNAS configuration and displays current state
+#
+# Usage:
+#   task truenas:status
+#   # or
+#   ansible-playbook -i ansible/inventory/homelab.yml ansible/playbooks/truenas-status.yml
+
+- name: Check TrueNAS Status
+  hosts: truenas
+  gather_facts: false
+  become: false
+
+  tasks:
+    - name: Check TrueNAS API availability
+      ansible.builtin.uri:
+        url: "{{ truenas_api_url }}/api/v2.0/system/info"
+        method: GET
+        headers:
+          Authorization: "Bearer {{ truenas_api_key }}"
+        validate_certs: false
+        status_code: [200]
+      register: system_info
+      ignore_errors: true
+
+    - name: Display system info
+      ansible.builtin.debug:
+        msg: |
+          TrueNAS System Info:
+          - Version: {{ system_info.json.version | default('N/A') }}
+          - Hostname: {{ system_info.json.hostname | default('N/A') }}
+          - Uptime: {{ system_info.json.uptime_seconds | default(0) | int // 3600 }} hours
+      when: system_info.status == 200
+
+    - name: Get pool status
+      ansible.builtin.uri:
+        url: "{{ truenas_api_url }}/api/v2.0/pool"
+        method: GET
+        headers:
+          Authorization: "Bearer {{ truenas_api_key }}"
+        validate_certs: false
+      register: pools
+      when: system_info.status == 200
+
+    - name: Display pool status
+      ansible.builtin.debug:
+        msg: |
+          ZFS Pools:
+          {% for pool in pools.json %}
+          - {{ pool.name }}: {{ pool.status }} ({{ pool.healthy | ternary('Healthy', 'Degraded') }})
+          {% endfor %}
+      when: pools is defined and pools.json is defined
+
+    - name: Get NFS shares
+      ansible.builtin.uri:
+        url: "{{ truenas_api_url }}/api/v2.0/sharing/nfs"
+        method: GET
+        headers:
+          Authorization: "Bearer {{ truenas_api_key }}"
+        validate_certs: false
+      register: nfs_shares
+      when: system_info.status == 200
+
+    - name: Display NFS shares
+      ansible.builtin.debug:
+        msg: |
+          NFS Shares:
+          {% for share in nfs_shares.json %}
+          - {{ share.path }}: {{ share.enabled | ternary('Enabled', 'Disabled') }}
+          {% endfor %}
+      when: nfs_shares is defined and nfs_shares.json is defined
+
+    - name: Get service status
+      ansible.builtin.uri:
+        url: "{{ truenas_api_url }}/api/v2.0/service"
+        method: GET
+        headers:
+          Authorization: "Bearer {{ truenas_api_key }}"
+        validate_certs: false
+      register: services
+      when: system_info.status == 200
+
+    - name: Display relevant services
+      ansible.builtin.debug:
+        msg: |
+          Service Status:
+          {% for svc in services.json %}
+          {% if svc.service in ['nfs', 'iscsitarget', 'ssh', 'smartd'] %}
+          - {{ svc.service }}: {{ svc.state }}
+          {% endif %}
+          {% endfor %}
+      when: services is defined and services.json is defined
+
+    - name: API unavailable warning
+      ansible.builtin.debug:
+        msg: "TrueNAS API is not accessible. Check if VM is running and API key is valid."
+      when: system_info.status != 200

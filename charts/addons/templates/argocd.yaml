@@ -1,0 +1,69 @@
+{{- if .Values.argocd.enabled }}
+# ArgoCD Self-Management Application
+# This allows ArgoCD to manage itself after initial bootstrap by Terraform
+# Sync Wave: 0 (deploys before all other addons)
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: argocd
+  namespace: {{ .Values.argocd.namespace | default "argocd" }}
+  labels:
+    {{- include "addons.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+
+  source:
+    repoURL: {{ .Values.argocd.chart.repo }}
+    chart: {{ .Values.argocd.chart.name }}
+    targetRevision: {{ .Values.argocd.chart.version }}
+    helm:
+      releaseName: argocd
+      values: |
+        {{- toYaml .Values.argocd.values | nindent 8 }}
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: {{ .Values.argocd.namespace | default "argocd" }}
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      allowEmpty: false
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - PruneLast=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+
+  # Ignore differences in fields that change frequently
+  ignoreDifferences:
+    # Initial admin secret is generated and should not be overwritten
+    - group: ""
+      kind: Secret
+      name: argocd-initial-admin-secret
+      jsonPointers:
+        - /data
+    # Webhook secret is generated
+    - group: ""
+      kind: Secret
+      name: argocd-secret
+      jsonPointers:
+        - /data/webhook.github.secret
+        - /data/webhook.gitlab.secret
+        - /data/webhook.bitbucket.uuid
+    # Server deployment has auto-generated fields
+    - group: apps
+      kind: Deployment
+      jsonPointers:
+        - /spec/template/metadata/annotations
+{{- end }}

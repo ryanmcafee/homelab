@@ -1,5 +1,5 @@
-# Development - Talos Image Factory
-# Downloads custom Talos image with required extensions
+# Homelab - Talos Image Factory
+# Downloads custom Talos image with required system extensions
 
 include "root" {
   path = find_in_parent_folders()
@@ -15,6 +15,7 @@ terraform {
 }
 
 # Configure Proxmox provider
+# API token is read from PROXMOX_VE_API_TOKEN environment variable
 generate "provider_proxmox" {
   path      = "provider_proxmox.tf"
   if_exists = "overwrite_terragrunt"
@@ -22,6 +23,12 @@ generate "provider_proxmox" {
 provider "proxmox" {
   endpoint = "${include.env.locals.proxmox_endpoint}"
   insecure = ${include.env.locals.proxmox_insecure}
+
+  ssh {
+    agent       = false
+    username    = "${include.env.locals.proxmox_ssh_user}"
+    private_key = file("${include.env.locals.proxmox_ssh_private_key}")
+  }
 }
 EOF
 }
@@ -33,10 +40,10 @@ inputs = {
 
   # System extensions for homelab
   system_extensions = [
-    "siderolabs/qemu-guest-agent",     # Better VM integration
-    "siderolabs/intel-ucode",          # Intel CPU microcode
-    "siderolabs/i915-ucode",           # Intel GPU firmware
-    "siderolabs/nfs-utils",            # NFS client for CSI
+    "siderolabs/qemu-guest-agent", # Better VM integration with Proxmox
+    "siderolabs/intel-ucode",      # Intel CPU microcode updates
+    "siderolabs/i915-ucode",       # Intel GPU firmware
+    "siderolabs/nfs-utils",        # NFS client for democratic-csi
   ]
 
   # Checksum verification

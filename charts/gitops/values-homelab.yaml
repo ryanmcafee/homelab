@@ -1,0 +1,100 @@
+# GitOps Umbrella Chart - Homelab Environment Values
+
+# ============================================================================
+# Global Configuration
+# ============================================================================
+
+global:
+  # Environment identifier
+  environment: homelab
+
+  # Base domain for ingress resources
+  domain: ryanmcafee.com
+
+  # Git repository containing chart sources
+  repoUrl: https://github.com/ryanmcafee/homelab.git
+
+  # Target revision (branch/tag/commit)
+  targetRevision: main
+
+  # ArgoCD project to use for all applications
+  project: default
+
+# ============================================================================
+# Addons Application (Core Infrastructure)
+# ============================================================================
+
+addons:
+  enabled: true
+  name: addons
+  namespace: argocd
+  syncWave: "1"
+
+  source:
+    path: charts/addons
+    valueFiles:
+      - values.yaml
+      - values-homelab.yaml
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      allowEmpty: false
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+
+# ============================================================================
+# Applications (User Workloads)
+# ============================================================================
+
+applications:
+  enabled: true
+  name: applications
+  namespace: argocd
+  syncWave: "2"
+
+  source:
+    path: charts/applications
+    valueFiles:
+      - values.yaml
+      - values-homelab.yaml
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      allowEmpty: false
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+
+# ============================================================================
+# ArgoCD Application Options
+# ============================================================================
+
+ignoreDifferences: []
+
+healthChecks:
+  enabled: true

@@ -12,3 +12,13 @@ output "zfs_pool_name" {
   description = "The name of the ZFS pool"
   value       = var.zfs_pool_name
 }
+
+output "zfs_pool_type" {
+  description = "The type of ZFS pool (mirror, raidz1, etc.)"
+  value       = var.zfs_pool_type
+}
+
+output "zfs_pool_created" {
+  description = "Whether the ZFS pool was created by this module"
+  value       = var.create_zfs_pool
+}

@@ -1,4 +1,4 @@
-# Development - GitOps Bootstrap
+# Homelab - GitOps Bootstrap
 # Bootstraps ArgoCD with GitOps Bridge pattern
 
 include "root" {
@@ -64,26 +64,29 @@ inputs = {
 
   # ArgoCD configuration
   argocd_namespace = "argocd"
+  argocd_version   = "7.7.15"  # Keep in sync with addons chart
   admin_enabled    = true
 
-  # Ingress (disabled for dev, use port-forward)
-  server_ingress_enabled = false
+  # Ingress (enable for production access)
+  server_ingress_enabled = true
+  server_host            = "argocd.${include.env.locals.base_fqdn}"
 
   # GitOps Bridge metadata
+  # These values are passed to ArgoCD applications via ConfigMap
   custom_metadata = {
-    environment         = include.env.locals.environment
-    cluster_type        = "talos"
-    truenas_ip          = include.env.locals.truenas_ip
-    truenas_nfs_path    = include.env.locals.truenas_nfs_path
-    metallb_ip_range    = "${include.env.locals.metallb_ip_start}-${include.env.locals.metallb_ip_end}"
-    metallb_enabled     = tostring(include.env.locals.metallb_enabled)
-    bgp_asn_k8s         = tostring(include.env.locals.bgp_asn_k8s)
-    bgp_asn_unifi       = tostring(include.env.locals.bgp_asn_unifi)
-    bgp_peer_ip         = include.env.locals.bgp_peer_ip
-    cert_manager_email  = "admin@${include.env.locals.base_fqdn}"
+    environment        = include.env.locals.environment
+    cluster_type       = "talos"
+    truenas_ip         = include.env.locals.truenas_ip
+    truenas_nfs_path   = include.env.locals.truenas_nfs_path
+    metallb_ip_range   = "${include.env.locals.metallb_ip_start}-${include.env.locals.metallb_ip_end}"
+    metallb_enabled    = tostring(include.env.locals.metallb_enabled)
+    bgp_asn_k8s        = tostring(include.env.locals.bgp_asn_k8s)
+    bgp_asn_unifi      = tostring(include.env.locals.bgp_asn_unifi)
+    bgp_peer_ip        = include.env.locals.bgp_peer_ip
+    cert_manager_email = "admin@${include.env.locals.base_fqdn}"
   }
 
-  # Enable auto-sync
+  # Enable auto-sync for GitOps
   auto_sync_enabled  = true
   auto_prune_enabled = true
   self_heal_enabled  = true

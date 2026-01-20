@@ -1,18 +1,4 @@
-# Applications Chart - Default Production Values
-# User-facing applications and services
-#
-# This chart deploys media management and home automation applications:
-# - Plex (Media Server with GPU transcoding)
-# - Sonarr (TV Show Management)
-# - Radarr (Movie Management)
-# - Prowlarr (Indexer Manager)
-# - Home Assistant (Home Automation Hub)
-# - Mosquitto (MQTT Broker)
-#
-# Environment-specific values should be provided via:
-# - values-localdev.yaml (local Kind development)
-# - values-dev.yaml (development Talos cluster)
-# - values-prod.yaml (production Talos cluster)
+# Applications Chart - Homelab Environment Values
 
 # ============================================================================
 # Global Configuration
@@ -20,7 +6,7 @@
 
 global:
   # Environment identifier
-  environment: prod
+  environment: homelab
 
   # Base domain for ingress resources
   domain: ryanmcafee.com
@@ -36,7 +22,6 @@ global:
 
   # Media storage configuration
   media:
-    # NFS mount point for media files
     nfsServer: truenas.ryanmcafee.com
     nfsPath: /mnt/tank/media
 
@@ -50,13 +35,11 @@ plex:
   namespace: media
 
   # Official Plex helm chart
-  # https://github.com/plexinc/pms-docker/tree/master/charts/plex-media-server
   chart:
     name: plex-media-server
     repo: https://raw.githubusercontent.com/plexinc/pms-docker/gh-pages
     version: 1.4.0
 
-  # Image configuration
   image:
     registry: index.docker.io
     repository: plexinc/pms-docker
@@ -68,9 +51,8 @@ plex:
 
   # Node selector for GPU-enabled nodes
   nodeSelector:
-    feature.node.kubernetes.io/pci-10de.present: "true"  # NVIDIA GPU
+    feature.node.kubernetes.io/pci-10de.present: "true"
 
-  # Resource requests and limits
   resources:
     requests:
       cpu: 1000m
@@ -84,6 +66,7 @@ plex:
   pms:
     # Plex claim token from https://plex.tv/claim
     claimToken: ""  # Provided via 1Password
+    # Configure timezone
     configExistingClaim: ""
     storageClassName: democratic-csi-nfs
 
@@ -101,6 +84,7 @@ plex:
       storageClass: ""
       accessMode: ReadWriteOnce
       size: 20Gi
+      # Use emptyDir for better performance
       emptyDir:
         enabled: true
         medium: Memory
@@ -150,7 +134,6 @@ sonarr:
   namespace: media
 
   # TrueCharts helm chart
-  # https://github.com/trueforge-org/truecharts/tree/master/charts/stable/sonarr
   chart:
     name: sonarr
     repo: https://trueforge-org.github.io/truecharts
@@ -170,7 +153,6 @@ sonarr:
                 cpu: 1000m
                 memory: 1Gi
 
-  # Persistence configuration
   persistence:
     config:
       enabled: true
@@ -179,7 +161,6 @@ sonarr:
       accessModes:
         - ReadWriteOnce
 
-    # Media storage via NFS
     media:
       enabled: true
       type: nfs
@@ -187,7 +168,6 @@ sonarr:
       path: /mnt/tank/media
       mountPath: /media
 
-  # Ingress configuration
   ingress:
     main:
       enabled: true
@@ -220,7 +200,6 @@ radarr:
   namespace: media
 
   # TrueCharts helm chart
-  # https://github.com/trueforge-org/truecharts/tree/master/charts/stable/radarr
   chart:
     name: radarr
     repo: https://trueforge-org.github.io/truecharts
@@ -239,7 +218,6 @@ radarr:
                 cpu: 1000m
                 memory: 1Gi
 
-  # Persistence configuration
   persistence:
     config:
       enabled: true
@@ -248,7 +226,6 @@ radarr:
       accessModes:
         - ReadWriteOnce
 
-    # Media storage via NFS
     media:
       enabled: true
       type: nfs
@@ -256,7 +233,6 @@ radarr:
       path: /mnt/tank/media
       mountPath: /media
 
-  # Ingress configuration
   ingress:
     main:
       enabled: true
@@ -289,7 +265,6 @@ prowlarr:
   namespace: media
 
   # TrueCharts helm chart
-  # https://github.com/trueforge-org/truecharts/tree/master/charts/stable/prowlarr
   chart:
     name: prowlarr
     repo: https://trueforge-org.github.io/truecharts
@@ -308,7 +283,6 @@ prowlarr:
                 cpu: 500m
                 memory: 512Mi
 
-  # Persistence configuration
   persistence:
     config:
       enabled: true
@@ -317,7 +291,6 @@ prowlarr:
       accessModes:
         - ReadWriteOnce
 
-  # Ingress configuration
   ingress:
     main:
       enabled: true
@@ -350,7 +323,6 @@ homeassistant:
   namespace: home-automation
 
   # TrueCharts helm chart
-  # https://github.com/trueforge-org/truecharts/tree/master/charts/stable/home-assistant
   chart:
     name: home-assistant
     repo: https://trueforge-org.github.io/truecharts
@@ -373,7 +345,6 @@ homeassistant:
   podOptions:
     dnsPolicy: ClusterFirstWithHostNet
 
-  # Persistence configuration
   persistence:
     config:
       enabled: true
@@ -382,7 +353,6 @@ homeassistant:
       accessModes:
         - ReadWriteOnce
 
-  # Ingress configuration
   ingress:
     main:
       enabled: true
@@ -412,7 +382,6 @@ mosquitto:
   namespace: home-automation
 
   # TrueCharts helm chart
-  # https://github.com/trueforge-org/truecharts/tree/master/charts/stable/mosquitto
   chart:
     name: mosquitto
     repo: https://trueforge-org.github.io/truecharts
@@ -431,7 +400,6 @@ mosquitto:
                 cpu: 200m
                 memory: 256Mi
 
-  # Persistence configuration
   persistence:
     config:
       enabled: true
@@ -447,7 +415,6 @@ mosquitto:
       accessModes:
         - ReadWriteOnce
 
-  # Service configuration
   service:
     main:
       type: LoadBalancer
@@ -467,6 +434,5 @@ mosquitto:
   mosquitto:
     auth:
       enabled: true
-      # Username and password from 1Password
 
   TZ: America/New_York

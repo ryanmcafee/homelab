@@ -1,0 +1,66 @@
+# TrueNAS Storage Role - Create iSCSI Target
+# Creates iSCSI targets for block storage (optional)
+
+- name: Enable iSCSI service
+  ansible.builtin.uri:
+    url: "{{ truenas_api_url }}/api/v2.0/service/id/iscsitarget"
+    method: PUT
+    headers:
+      Authorization: "Bearer {{ truenas_api_key }}"
+      Content-Type: application/json
+    validate_certs: "{{ truenas_verify_ssl }}"
+    body_format: json
+    body:
+      enable: true
+    status_code: [200]
+  when: truenas_iscsi_enabled | default(false)
+
+- name: Start iSCSI service
+  ansible.builtin.uri:
+    url: "{{ truenas_api_url }}/api/v2.0/service/start"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ truenas_api_key }}"
+      Content-Type: application/json
+    validate_certs: "{{ truenas_verify_ssl }}"
+    body_format: json
+    body:
+      service: iscsitarget
+    status_code: [200]
+  when: truenas_iscsi_enabled | default(false)
+
+- name: Check existing iSCSI portals
+  ansible.builtin.uri:
+    url: "{{ truenas_api_url }}/api/v2.0/iscsi/portal"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ truenas_api_key }}"
+    validate_certs: "{{ truenas_verify_ssl }}"
+  register: existing_portals
+  when: truenas_iscsi_enabled | default(false)
+
+- name: Create iSCSI portal
+  ansible.builtin.uri:
+    url: "{{ truenas_api_url }}/api/v2.0/iscsi/portal"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ truenas_api_key }}"
+      Content-Type: application/json
+    validate_certs: "{{ truenas_verify_ssl }}"
+    body_format: json
+    body:
+      listen:
+        - ip: "{{ truenas_iscsi_portal_ip }}"
+          port: 3260
+      comment: "Kubernetes iSCSI Portal"
+    status_code: [200, 201]
+  when:
+    - truenas_iscsi_enabled | default(false)
+    - existing_portals.json | length == 0
+
+- name: Display iSCSI configuration
+  ansible.builtin.debug:
+    msg: |
+      iSCSI Service {{ 'enabled' if truenas_iscsi_enabled | default(false) else 'disabled' }}
+      Portal: {{ truenas_iscsi_portal_ip | default('N/A') }}:3260
+  when: truenas_iscsi_enabled | default(false)

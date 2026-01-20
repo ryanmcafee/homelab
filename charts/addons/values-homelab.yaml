@@ -1,18 +1,4 @@
-# Addons Chart - Default Production Values
-# Core cluster infrastructure and addon components
-#
-# This chart deploys essential cluster services in a specific order:
-# 1. MetalLB (LoadBalancer IPs)
-# 2. Democratic-CSI & 1Password Operator (Storage & Secrets)
-# 3. Cert-Manager (TLS Certificates)
-# 4. External-DNS (DNS Management)
-# 5. Kube-Prometheus-Stack (Monitoring)
-# 6. Traefik (Ingress Controller)
-#
-# Environment-specific values should be provided via:
-# - values-localdev.yaml (local Kind development)
-# - values-dev.yaml (development Talos cluster)
-# - values-prod.yaml (production Talos cluster)
+# Addons Chart - Homelab Environment Values
 
 # ============================================================================
 # Global Configuration
@@ -20,7 +6,7 @@
 
 global:
   # Environment identifier
-  environment: prod
+  environment: homelab
 
   # Base domain for ingress resources
   domain: ryanmcafee.com
@@ -36,13 +22,11 @@ global:
 
 # ============================================================================
 # ArgoCD - Self-Management (Bootstrap + Addon)
-# Sync Wave: 0 (first addon, manages itself after bootstrap)
+# Sync Wave: 0 (first addon, manages itself)
 # ============================================================================
 
 argocd:
-  # Disabled by default - enable in environment-specific values
-  # This allows ArgoCD to manage itself after initial bootstrap
-  enabled: false
+  enabled: true
   namespace: argocd
 
   # Chart source - must match bootstrap version
@@ -54,8 +38,21 @@ argocd:
   # ArgoCD server configuration
   values:
     server:
+      # Ingress for web UI
       ingress:
-        enabled: false
+        enabled: true
+        ingressClassName: traefik
+        hosts:
+          - argocd.ryanmcafee.com
+        tls:
+          - secretName: argocd-server-tls
+            hosts:
+              - argocd.ryanmcafee.com
+        annotations:
+          cert-manager.io/cluster-issuer: letsencrypt
+          external-dns.alpha.kubernetes.io/hostname: argocd.ryanmcafee.com
+
+      # Resource limits
       resources:
         requests:
           cpu: 100m
@@ -103,14 +100,13 @@ argocd:
 
 # ============================================================================
 # MetalLB - LoadBalancer IP Address Management
-# Sync Wave: 1 (must be first for LoadBalancer services)
+# Sync Wave: 1
 # ============================================================================
 
 metallb:
   enabled: true
   namespace: metallb-system
 
-  # Chart source
   chart:
     name: metallb
     repo: https://metallb.github.io/metallb
@@ -123,13 +119,12 @@ metallb:
   # BGP configuration for dynamic routing
   bgp:
     enabled: true
-    asn: 64512  # Kubernetes cluster ASN
+    asn: 64512
     peers:
-      - address: 172.16.100.1  # UniFi Gateway
+      - address: 172.16.100.1
         asn: 64513
         routerId: 172.16.100.1
 
-  # Resource limits
   resources:
     controller:
       requests:
@@ -148,35 +143,30 @@ metallb:
 
 # ============================================================================
 # Democratic-CSI - NFS Storage Provisioner
-# Sync Wave: 2 (needed before apps require storage)
+# Sync Wave: 2
 # ============================================================================
 
 democratic-csi:
   enabled: true
   namespace: democratic-csi
 
-  # Chart source
   chart:
     name: democratic-csi
     repo: https://democratic-csi.github.io/charts/
     version: 0.14.6
 
-  # TrueNAS configuration
   driver: freenas-nfs
 
-  # Connection details (from GitOps Bridge metadata)
   truenas:
     endpoint: https://truenas.ryanmcafee.com
     allowInsecure: false
     apiKey: ""  # Provided via 1Password operator
 
-  # NFS dataset configuration
   nfs:
     shareHost: truenas.ryanmcafee.com
     shareAllow: 172.16.100.0/24
     parent: tank/k8s
 
-  # Storage class configuration
   storageClasses:
     - name: democratic-csi-nfs
       defaultClass: true
@@ -186,7 +176,6 @@ democratic-csi:
       parameters:
         fsType: nfs
 
-  # Resource limits
   resources:
     controller:
       requests:
@@ -204,56 +193,30 @@ democratic-csi:
         memory: 256Mi
 
 # ============================================================================
-# Local Path Provisioner - Local Storage (localdev only)
-# Sync Wave: 1 (alternative to democratic-csi for local dev)
+# Local Path Provisioner - Disabled for homelab (using democratic-csi)
 # ============================================================================
 
 local-path-provisioner:
-  enabled: false  # Only enabled in localdev
-  namespace: local-path-storage
-
-  # Chart source
-  chart:
-    name: local-path-provisioner
-    repo: https://charts.containeroo.ch
-    version: 0.0.30
-
-  # Storage class configuration
-  storageClass:
-    name: local-path
-    defaultClass: true
-
-  # Resource limits
-  resources:
-    requests:
-      cpu: 10m
-      memory: 32Mi
-    limits:
-      cpu: 100m
-      memory: 128Mi
+  enabled: false
 
 # ============================================================================
 # 1Password Operator - Secret Management
-# Sync Wave: 2 (needed before apps require secrets)
+# Sync Wave: 2
 # ============================================================================
 
 1password-operator:
   enabled: true
   namespace: onepassword-operator
 
-  # Chart source
   chart:
     name: onepassword-connect-operator
     repo: https://1password.github.io/connect-helm-charts
     version: 1.15.1
 
-  # 1Password Connect configuration
   connect:
-    # Connect server credentials (from manual setup)
-    credentialsJson: ""  # Provided via Kubernetes secret
+    credentialsJson: ""
     host: op-connect.ryanmcafee.com
 
-  # Resource limits
   resources:
     operator:
       requests:
@@ -272,35 +235,31 @@ local-path-provisioner:
 
 # ============================================================================
 # Cert-Manager - TLS Certificate Management
-# Sync Wave: 3 (needed before ingress resources)
+# Sync Wave: 3
 # ============================================================================
 
 cert-manager:
   enabled: true
   namespace: cert-manager
 
-  # Chart source
   chart:
     name: cert-manager
     repo: https://charts.jetstack.io
     version: v1.16.2
 
-  # Install CRDs
   installCRDs: true
 
-  # Let's Encrypt configuration
+  # Production Let's Encrypt
   letsencrypt:
     enabled: true
     email: admin@ryanmcafee.com
-    server: https://acme-v02.api.letsencrypt.org/directory  # Production
+    server: https://acme-v02.api.letsencrypt.org/directory
 
-  # Cloudflare DNS-01 challenge
   cloudflare:
     enabled: true
     email: admin@ryanmcafee.com
-    apiToken: ""  # Provided via 1Password operator
+    apiToken: ""
 
-  # Resource limits
   resources:
     requests:
       cpu: 50m
@@ -329,35 +288,29 @@ cert-manager:
 
 # ============================================================================
 # External-DNS - Automatic DNS Record Management
-# Sync Wave: 4 (needed before public ingress)
+# Sync Wave: 4
 # ============================================================================
 
 external-dns:
   enabled: true
   namespace: external-dns
 
-  # Chart source
   chart:
     name: external-dns
     repo: https://kubernetes-sigs.github.io/external-dns/
     version: 1.15.0
 
-  # Provider configuration
   provider: cloudflare
 
-  # Cloudflare configuration
   cloudflare:
-    apiToken: ""  # Provided via 1Password operator
-    proxied: true  # Enable Cloudflare proxy
+    apiToken: ""
+    proxied: true
 
-  # Domain filter
   domainFilters:
     - ryanmcafee.com
 
-  # Only manage specific annotation
   annotationFilter: external-dns.alpha.kubernetes.io/hostname
 
-  # Resource limits
   resources:
     requests:
       cpu: 20m
@@ -368,30 +321,24 @@ external-dns:
 
 # ============================================================================
 # Kube-Prometheus-Stack - Monitoring and Alerting
-# Sync Wave: 5 (monitoring can come up after core services)
+# Sync Wave: 5
 # ============================================================================
 
 kube-prometheus-stack:
   enabled: true
   namespace: monitoring
 
-  # Chart source
   chart:
     name: kube-prometheus-stack
     repo: https://prometheus-community.github.io/helm-charts
     version: 67.6.1
 
-  # Prometheus configuration
   prometheus:
-    # Retention and storage
     retention: 30d
     retentionSize: 50GB
-
-    # Storage configuration
     storageClass: democratic-csi-nfs
     storageSize: 100Gi
 
-    # Resource limits
     resources:
       requests:
         cpu: 500m
@@ -400,24 +347,18 @@ kube-prometheus-stack:
         cpu: 2000m
         memory: 4Gi
 
-    # Service Monitor configuration
     serviceMonitors:
       enabled: true
 
-  # Grafana configuration
   grafana:
     enabled: true
+    adminPassword: ""
 
-    # Admin credentials (from 1Password)
-    adminPassword: ""  # Provided via 1Password operator
-
-    # Persistence
     persistence:
       enabled: true
       storageClass: democratic-csi-nfs
       size: 10Gi
 
-    # Ingress
     ingress:
       enabled: true
       ingressClassName: traefik
@@ -428,7 +369,6 @@ kube-prometheus-stack:
           hosts:
             - grafana.ryanmcafee.com
 
-    # Resource limits
     resources:
       requests:
         cpu: 100m
@@ -437,11 +377,8 @@ kube-prometheus-stack:
         cpu: 500m
         memory: 512Mi
 
-  # Alertmanager configuration
   alertmanager:
     enabled: true
-
-    # Storage configuration
     storage:
       volumeClaimTemplate:
         spec:
@@ -451,7 +388,6 @@ kube-prometheus-stack:
             requests:
               storage: 10Gi
 
-    # Resource limits
     resources:
       requests:
         cpu: 50m
@@ -460,7 +396,6 @@ kube-prometheus-stack:
         cpu: 200m
         memory: 256Mi
 
-  # Node exporter
   nodeExporter:
     enabled: true
     resources:
@@ -471,7 +406,6 @@ kube-prometheus-stack:
         cpu: 200m
         memory: 128Mi
 
-  # Kube-state-metrics
   kubeStateMetrics:
     enabled: true
     resources:
@@ -484,31 +418,26 @@ kube-prometheus-stack:
 
 # ============================================================================
 # Traefik - Ingress Controller
-# Sync Wave: 6 (last addon, requires MetalLB and cert-manager)
+# Sync Wave: 6
 # ============================================================================
 
 traefik:
   enabled: true
   namespace: traefik
 
-  # Chart source
   chart:
     name: traefik
     repo: https://traefik.github.io/charts
     version: 33.2.1
 
-  # Service configuration
   service:
     type: LoadBalancer
-    # MetalLB will assign an IP from the pool
 
-  # Ports configuration
   ports:
     web:
       port: 80
       expose:
         default: true
-      # Redirect HTTP to HTTPS
       redirectTo:
         port: websecure
     websecure:
@@ -517,22 +446,18 @@ traefik:
         default: true
       tls:
         enabled: true
-        # Use cert-manager for TLS
         certResolver: letsencrypt
 
-  # Global arguments
   globalArguments:
     - --global.checknewversion=false
     - --global.sendanonymoususage=false
 
-  # Additional arguments
   additionalArguments:
     - --certificatesresolvers.letsencrypt.acme.email=admin@ryanmcafee.com
     - --certificatesresolvers.letsencrypt.acme.storage=/data/acme.json
     - --certificatesresolvers.letsencrypt.acme.dnschallenge=true
     - --certificatesresolvers.letsencrypt.acme.dnschallenge.provider=cloudflare
 
-  # Environment variables for Cloudflare
   env:
     - name: CF_API_EMAIL
       value: admin@ryanmcafee.com
@@ -542,20 +467,17 @@ traefik:
           name: cloudflare-api-token
           key: token
 
-  # Persistence for ACME certificates
   persistence:
     enabled: true
     storageClass: democratic-csi-nfs
     size: 1Gi
 
-  # Dashboard
   ingressRoute:
     dashboard:
       enabled: true
       matchRule: Host(`traefik.ryanmcafee.com`)
       entryPoints: ["websecure"]
 
-  # Resource limits
   resources:
     requests:
       cpu: 100m
@@ -564,11 +486,9 @@ traefik:
       cpu: 500m
       memory: 512Mi
 
-  # Deployment configuration
   deployment:
-    replicas: 2  # High availability
+    replicas: 2
 
-  # Autoscaling
   autoscaling:
     enabled: true
     minReplicas: 2

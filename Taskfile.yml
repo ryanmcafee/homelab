@@ -164,6 +164,28 @@ tasks:
       - ansible-playbook playbooks/site.yml
 
   # ==========================================================================
+  # TrueNAS Configuration
+  # ==========================================================================
+
+  truenas:setup:
+    desc: Configure TrueNAS after VM installation
+    dir: ansible
+    cmds:
+      - ansible-playbook -i inventory/homelab.yml playbooks/truenas-setup.yml
+
+  truenas:status:
+    desc: Check TrueNAS configuration status
+    dir: ansible
+    cmds:
+      - ansible-playbook -i inventory/homelab.yml playbooks/truenas-status.yml
+
+  truenas:dry-run:
+    desc: Run TrueNAS setup in check mode
+    dir: ansible
+    cmds:
+      - ansible-playbook -i inventory/homelab.yml playbooks/truenas-setup.yml --check --diff
+
+  # ==========================================================================
   # Terragrunt / Terraform
   # ==========================================================================
 
@@ -185,7 +207,7 @@ tasks:
     cmds:
       - terragrunt run-all plan
     vars:
-      ENV: '{{.ENV | default "dev"}}'
+      ENV: '{{.ENV | default "homelab"}}'
 
   tf:apply:
     desc: Run Terragrunt apply for environment
@@ -193,7 +215,7 @@ tasks:
     cmds:
       - terragrunt run-all apply
     vars:
-      ENV: '{{.ENV | default "dev"}}'
+      ENV: '{{.ENV | default "homelab"}}'
 
   tf:destroy:
     desc: Destroy infrastructure (use with caution)
@@ -201,7 +223,7 @@ tasks:
     cmds:
       - terragrunt run-all destroy
     vars:
-      ENV: '{{.ENV | default "dev"}}'
+      ENV: '{{.ENV | default "homelab"}}'
     prompt: Are you sure you want to destroy the {{.ENV}} environment?
 
   # ==========================================================================
