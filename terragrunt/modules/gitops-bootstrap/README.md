@@ -55,7 +55,7 @@ module "gitops_bootstrap" {
   source = "../../modules/gitops-bootstrap"
 
   cluster_name = "homelab"
-  environment  = "dev"
+  environment  = "localdev"
   base_fqdn    = "ryanmcafee.com"
 
   # Git repository
@@ -80,7 +80,7 @@ module "gitops_bootstrap" {
   source = "../../modules/gitops-bootstrap"
 
   cluster_name = "homelab"
-  environment  = "prod"
+  environment  = "homelab"
   base_fqdn    = "ryanmcafee.com"
 
   repo_url = "https://github.com/username/homelab"
@@ -110,7 +110,7 @@ module "gitops_bootstrap" {
   source = "../../modules/gitops-bootstrap"
 
   cluster_name = "homelab"
-  environment  = "prod"
+  environment  = "homelab"
   base_fqdn    = "ryanmcafee.com"
 
   repo_url = "https://github.com/username/homelab"

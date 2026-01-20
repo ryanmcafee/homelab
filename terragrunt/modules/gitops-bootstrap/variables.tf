@@ -4,7 +4,7 @@ variable "cluster_name" {
 }
 
 variable "environment" {
-  description = "Environment name (localdev, dev, prod)"
+  description = "Environment name (localdev, homelab)"
   type        = string
 }
 

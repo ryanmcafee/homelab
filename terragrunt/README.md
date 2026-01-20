@@ -40,18 +40,14 @@ terragrunt/
     │   └── gitops-bootstrap/
     │       └── terragrunt.hcl
     │
-    ├── dev/                   # Development environment (Proxmox)
-    │   ├── env.hcl            # Dev environment variables
-    │   ├── proxmox-zfs-pool/
-    │   ├── proxmox-backup-policy/
-    │   ├── truenas/
-    │   ├── talos-image/
-    │   ├── talos-cluster/
-    │   └── gitops-bootstrap/
-    │
-    └── prod/                  # Production environment
-        ├── env.hcl            # Prod environment variables
-        └── ... (same structure as dev)
+    └── homelab/               # Homelab environment (Proxmox)
+        ├── env.hcl            # Homelab environment variables
+        ├── proxmox-zfs-pool/
+        ├── proxmox-backup-policy/
+        ├── truenas/
+        ├── talos-image/
+        ├── talos-cluster/
+        └── gitops-bootstrap/
 ```
 
 ## Quick Start
@@ -114,11 +110,11 @@ kubectl get secret argocd-initial-admin-secret -n argocd -o jsonpath='{.data.pas
 # Password: <from step 5>
 ```
 
-### Development Environment (Proxmox)
+### Homelab Environment (Proxmox)
 
 ```bash
 # 1. Create ZFS pool (one-time setup)
-cd terragrunt/environments/dev/proxmox-zfs-pool
+cd terragrunt/environments/homelab/proxmox-zfs-pool
 terragrunt apply
 
 # 2. Configure backup policy
@@ -154,10 +150,6 @@ terragrunt apply
 kubectl port-forward svc/argocd-server -n argocd 8080:443
 ```
 
-### Production Environment
-
-Same steps as dev, but use `terragrunt/environments/prod/` instead.
-
 ## Environment Variables
 
 Each environment is configured in `env.hcl`:
@@ -165,8 +157,7 @@ Each environment is configured in `env.hcl`:
 | Environment | Cluster Name | Base FQDN | GPU Enabled |
 |-------------|--------------|-----------|-------------|
 | localdev | homelab-local | local | No |
-| dev | homelab-dev | dev.ryanmcafee.com | No |
-| prod | homelab | ryanmcafee.com | Yes (worker-1) |
+| homelab | homelab | ryanmcafee.com | Yes (worker-1) |
 
 ## Deployment Order
 
@@ -187,11 +178,7 @@ Infrastructure components must be deployed in order due to dependencies:
 
 ```bash
 # Deploy all components in order
-cd terragrunt/environments/dev
-terragrunt run-all apply --terragrunt-non-interactive
-
-# Or for production
-cd terragrunt/environments/prod
+cd terragrunt/environments/homelab
 terragrunt run-all apply --terragrunt-non-interactive
 ```
 
@@ -201,11 +188,11 @@ terragrunt run-all apply --terragrunt-non-interactive
 
 ```bash
 # 1. Update version in env.hcl
-vim terragrunt/environments/prod/env.hcl
+vim terragrunt/environments/homelab/env.hcl
 # Change: talos_version = "v1.6.1"
 
 # 2. Regenerate image
-cd terragrunt/environments/prod/talos-image
+cd terragrunt/environments/homelab/talos-image
 terragrunt apply
 
 # 3. Upgrade cluster nodes
@@ -217,11 +204,11 @@ talosctl upgrade --nodes 172.16.100.11 --image ghcr.io/siderolabs/installer:v1.6
 
 ```bash
 # 1. Add worker to env.hcl
-vim terragrunt/environments/prod/env.hcl
+vim terragrunt/environments/homelab/env.hcl
 # Add worker-4 to worker_nodes map
 
 # 2. Apply changes
-cd terragrunt/environments/prod/talos-cluster
+cd terragrunt/environments/homelab/talos-cluster
 terragrunt apply
 ```
 
@@ -229,7 +216,7 @@ terragrunt apply
 
 ```bash
 # Backup Terraform state
-cd terragrunt/environments/prod
+cd terragrunt/environments/homelab
 tar czf homelab-state-$(date +%Y%m%d).tar.gz terraform.tfstate.d/
 
 # Restore state
@@ -240,11 +227,11 @@ tar xzf homelab-state-20240101.tar.gz
 
 ```bash
 # Destroy specific component
-cd terragrunt/environments/dev/talos-cluster
+cd terragrunt/environments/homelab/talos-cluster
 terragrunt destroy
 
 # Destroy all components (careful!)
-cd terragrunt/environments/dev
+cd terragrunt/environments/homelab
 terragrunt run-all destroy
 ```
 

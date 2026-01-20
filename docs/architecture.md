@@ -107,7 +107,7 @@ Every infrastructure change flows through Git:
 
 ### 6. Environment Parity
 
-- **Same Charts Everywhere**: localdev, dev, prod use identical Helm charts
+- **Same Charts Everywhere**: localdev, homelab use identical Helm charts
 - **Values-Based Differentiation**: Only values files differ per environment
 - **Local Development**: Full GitOps stack runs on laptop via Kind
 - **Consistent Behavior**: Reduces "works on my machine" issues
@@ -327,8 +327,8 @@ The GitOps Bridge pattern enables a smooth handoff from infrastructure provision
 │  GitOps Bridge ConfigMap        │
 │                                 │
 │  metadata:                      │
-│    cluster_name: homelab-prod   │
-│    environment: production      │
+│    cluster_name: homelab        │
+│    environment: homelab         │
 │    addons_repo: github.com/...  │
 │    apps_repo: github.com/...    │
 └──────┬──────────────────────────┘
@@ -781,24 +781,23 @@ See [disaster-recovery.md](./disaster-recovery.md) for complete procedures.
 
 ### Environment Comparison
 
-| Feature | localdev | dev | prod |
-|---------|----------|-----|------|
-| Platform | Kind (Docker) | Proxmox VMs | Proxmox VMs |
-| Nodes | 1 control-plane | 2 CP + 2 workers | 2 CP + 3 workers |
-| Storage | local-path | TrueNAS NFS | TrueNAS NFS |
-| Load Balancer | NodePort | MetalLB (BGP) | MetalLB (BGP) |
-| DNS | /etc/hosts | external-dns | external-dns |
-| Secrets | Fake secrets | 1Password | 1Password |
-| GPU | None | None | NVIDIA P2200 |
-| Monitoring | Optional | Full stack | Full stack |
+| Feature | localdev | homelab |
+|---------|----------|---------|
+| Platform | Kind (Docker) | Proxmox VMs |
+| Nodes | 1 control-plane | 2 CP + 3 workers |
+| Storage | local-path | TrueNAS NFS |
+| Load Balancer | NodePort | MetalLB (BGP) |
+| DNS | /etc/hosts | external-dns |
+| Secrets | Fake secrets | 1Password |
+| GPU | None | NVIDIA P2200 |
+| Monitoring | Optional | Full stack |
 
 ### Workflow
 
 1. **Develop Locally**: Make changes, test with Tilt (seconds to see changes)
 2. **Push to Git**: CI validates charts and configs
-3. **Deploy to Dev**: ArgoCD syncs to dev environment
-4. **Test in Dev**: Verify in near-production environment
-5. **Promote to Prod**: Update values or chart version, ArgoCD syncs
+3. **Deploy to Homelab**: ArgoCD syncs to homelab environment
+4. **Verify**: Confirm changes work in homelab environment
 
 ---
 

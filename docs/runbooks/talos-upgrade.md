@@ -268,7 +268,7 @@ kubectl get --raw /metrics | grep apiserver_requested_deprecated_apis
 
 ```bash
 # 1. Update Talos version in Terragrunt
-cd homelab/terragrunt/environments/prod/talos-cluster
+cd homelab/terragrunt/environments/homelab/talos-cluster
 
 # Edit terragrunt.hcl
 vim terragrunt.hcl

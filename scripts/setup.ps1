@@ -136,15 +136,13 @@ Write-Host ""
 if (-not $Environment) {
     Write-Host "Select deployment target:"
     Write-Host "  1) localdev  - Local Kind cluster (no hardware required)"
-    Write-Host "  2) dev       - Development environment (Proxmox)"
-    Write-Host "  3) prod      - Production environment (Proxmox)"
+    Write-Host "  2) homelab   - Homelab environment (Proxmox)"
     Write-Host ""
-    $choice = Read-Host "Enter choice [1-3]"
+    $choice = Read-Host "Enter choice [1-2]"
 
     switch ($choice) {
         "1" { $Environment = "localdev" }
-        "2" { $Environment = "dev" }
-        "3" { $Environment = "prod" }
+        "2" { $Environment = "homelab" }
         default {
             Write-ErrorMsg "Invalid choice"
             exit 1
@@ -191,7 +189,7 @@ switch ($Environment) {
         }
     }
 
-    { $_ -eq "dev" -or $_ -eq "prod" } {
+    "homelab" {
         Write-Step "Setting up $Environment environment..."
         Write-Host ""
 
@@ -278,7 +276,7 @@ switch ($Environment) {
         Write-Host "  task localdev:down    - Tear down environment"
         Write-Host "  task chart:lint       - Lint Helm charts"
     }
-    { $_ -eq "dev" -or $_ -eq "prod" } {
+    "homelab" {
         Write-Host "  1. Verify cluster health: kubectl get nodes"
         Write-Host "  2. Check ArgoCD applications: kubectl get applications -n argocd"
         Write-Host "  3. Monitor pod deployments: kubectl get pods -A"

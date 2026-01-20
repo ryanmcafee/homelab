@@ -7,16 +7,15 @@
 #
 # Environment-specific values should be provided via:
 # - values-localdev.yaml (local Kind development)
-# - values-dev.yaml (development Talos cluster)
-# - values-prod.yaml (production Talos cluster)
+# - values-homelab.yaml (homelab Talos cluster)
 
 # ============================================================================
 # Global Configuration
 # ============================================================================
 
 global:
-  # Environment identifier (localdev, dev, prod)
-  environment: prod
+  # Environment identifier (localdev, homelab)
+  environment: homelab
 
   # Base domain for ingress resources
   domain: ryanmcafee.com

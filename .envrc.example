@@ -44,7 +44,7 @@ export TF_VAR_cloudflare_zone_id="<from-1password>"
 # Kubernetes Configuration
 # ============================================================================
 export TF_VAR_cluster_name="homelab"
-export TF_VAR_environment="dev"  # localdev, dev, or prod
+export TF_VAR_environment="localdev"  # localdev or homelab
 export KUBECONFIG="${HOME}/.kube/homelab-${TF_VAR_environment}.yaml"
 
 # ============================================================================

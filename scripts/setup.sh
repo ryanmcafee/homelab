@@ -174,10 +174,9 @@ echo ""
 # Step 4: Determine deployment target
 echo "Select deployment target:"
 echo "  1) localdev  - Local Kind cluster (no hardware required)"
-echo "  2) dev       - Development environment (Proxmox)"
-echo "  3) prod      - Production environment (Proxmox)"
+echo "  2) homelab   - Homelab environment (Proxmox)"
 echo ""
-read -r -p "Enter choice [1-3]: " choice
+read -r -p "Enter choice [1-2]: " choice
 
 case $choice in
     1)
@@ -185,13 +184,9 @@ case $choice in
         print_step "Setting up local development environment..."
         ;;
     2)
-        ENVIRONMENT="dev"
-        print_step "Setting up development environment..."
-        ;;
-    3)
-        ENVIRONMENT="prod"
-        print_step "Setting up production environment..."
-        if ! confirm "Deploy to PRODUCTION?"; then
+        ENVIRONMENT="homelab"
+        print_step "Setting up homelab environment..."
+        if ! confirm "Deploy to homelab?"; then
             exit 1
         fi
         ;;
@@ -229,7 +224,7 @@ case $ENVIRONMENT in
         fi
         ;;
 
-    dev|prod)
+    homelab)
         print_step "Phase 1: Proxmox Installation"
         echo "This phase must be completed manually."
         echo "See plan.md Phase 1 for detailed instructions."
@@ -302,7 +297,7 @@ case $ENVIRONMENT in
         echo "  task localdev:down    - Tear down environment"
         echo "  task chart:lint       - Lint Helm charts"
         ;;
-    dev|prod)
+    homelab)
         echo "  1. Verify cluster health: kubectl get nodes"
         echo "  2. Check ArgoCD applications: kubectl get applications -n argocd"
         echo "  3. Monitor pod deployments: kubectl get pods -A"
