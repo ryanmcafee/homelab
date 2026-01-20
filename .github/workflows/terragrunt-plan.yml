@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        environment: [localdev, dev, prod]
+        environment: [localdev, homelab]
     steps:
       - name: Checkout code
         uses: actions/checkout@v4

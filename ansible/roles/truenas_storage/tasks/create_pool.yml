@@ -1,0 +1,54 @@
+# TrueNAS Storage Role - Create ZFS Pool
+# Creates ZFS pool from available disks (manual configuration required)
+
+- name: Get available disks
+  ansible.builtin.uri:
+    url: "{{ truenas_api_url }}/api/v2.0/disk"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ truenas_api_key }}"
+    validate_certs: "{{ truenas_verify_ssl }}"
+  register: available_disks
+
+- name: Display available disks
+  ansible.builtin.debug:
+    msg: "Available disks: {{ available_disks.json | map(attribute='name') | list }}"
+
+- name: Check if pool already exists
+  ansible.builtin.uri:
+    url: "{{ truenas_api_url }}/api/v2.0/pool"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ truenas_api_key }}"
+    validate_certs: "{{ truenas_verify_ssl }}"
+  register: existing_pools
+
+- name: Set pool exists fact
+  ansible.builtin.set_fact:
+    pool_exists: "{{ truenas_pool_name in (existing_pools.json | map(attribute='name') | list) }}"
+
+- name: Display pool status
+  ansible.builtin.debug:
+    msg: "Pool '{{ truenas_pool_name }}' already exists, skipping creation"
+  when: pool_exists
+
+# Note: Pool creation requires manual disk selection for safety
+# This task provides guidance but doesn't auto-create pools
+- name: Pool creation guidance
+  ansible.builtin.debug:
+    msg: |
+      To create pool '{{ truenas_pool_name }}' manually:
+      1. Open TrueNAS Web UI at {{ truenas_api_url }}
+      2. Navigate to Storage -> Pools -> Add
+      3. Select pool type: {{ truenas_pool_type }}
+      4. Select disks from HBA-passed devices
+      5. Name the pool: {{ truenas_pool_name }}
+      6. Re-run this playbook after pool creation
+  when: not pool_exists
+
+- name: Fail if pool doesn't exist and auto-create not enabled
+  ansible.builtin.fail:
+    msg: "Pool '{{ truenas_pool_name }}' does not exist. Please create it manually via TrueNAS UI."
+  when:
+    - not pool_exists
+    - not (truenas_auto_create_pool | default(false))

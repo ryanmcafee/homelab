@@ -14,6 +14,36 @@ NC='\033[0m' # No Color
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 
+# Default values
+AUTO_ACCEPT=false
+DEFAULT_ENVIRONMENT="homelab"
+
+# Parse command line arguments
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        -y|--yes)
+            AUTO_ACCEPT=true
+            shift
+            ;;
+        -e|--environment)
+            DEFAULT_ENVIRONMENT="$2"
+            shift 2
+            ;;
+        -h|--help)
+            echo "Usage: $0 [options]"
+            echo "Options:"
+            echo "  -y, --yes           Auto-accept all prompts"
+            echo "  -e, --environment   Set environment (localdev|homelab), default: homelab"
+            echo "  -h, --help          Show this help message"
+            exit 0
+            ;;
+        *)
+            echo "Unknown option: $1"
+            exit 1
+            ;;
+    esac
+done
+
 echo "======================================"
 echo "  Homelab Infrastructure Setup"
 echo "======================================"
@@ -41,6 +71,10 @@ print_error() {
 
 # Function to confirm action
 confirm() {
+    if $AUTO_ACCEPT; then
+        echo "${1:-Are you sure?} [y/N] y (auto-accepted)"
+        return 0
+    fi
     read -r -p "${1:-Are you sure?} [y/N] " response
     case "$response" in
         [yY][eE][sS]|[yY])
@@ -172,34 +206,35 @@ fi
 echo ""
 
 # Step 4: Determine deployment target
-echo "Select deployment target:"
-echo "  1) localdev  - Local Kind cluster (no hardware required)"
-echo "  2) dev       - Development environment (Proxmox)"
-echo "  3) prod      - Production environment (Proxmox)"
-echo ""
-read -r -p "Enter choice [1-3]: " choice
+if $AUTO_ACCEPT; then
+    ENVIRONMENT="$DEFAULT_ENVIRONMENT"
+    print_step "Using default environment: $ENVIRONMENT (auto-accepted)"
+else
+    echo "Select deployment target:"
+    echo "  1) localdev  - Local Kind cluster (no hardware required)"
+    echo "  2) homelab   - Homelab environment (Proxmox)"
+    echo ""
+    read -r -p "Enter choice [1-2] (default: 2 for homelab): " choice
+    choice="${choice:-2}"
 
-case $choice in
-    1)
-        ENVIRONMENT="localdev"
-        print_step "Setting up local development environment..."
-        ;;
-    2)
-        ENVIRONMENT="dev"
-        print_step "Setting up development environment..."
-        ;;
-    3)
-        ENVIRONMENT="prod"
-        print_step "Setting up production environment..."
-        if ! confirm "Deploy to PRODUCTION?"; then
+    case $choice in
+        1)
+            ENVIRONMENT="localdev"
+            print_step "Setting up local development environment..."
+            ;;
+        2)
+            ENVIRONMENT="homelab"
+            print_step "Setting up homelab environment..."
+            if ! confirm "Deploy to homelab?"; then
+                exit 1
+            fi
+            ;;
+        *)
+            print_error "Invalid choice"
             exit 1
-        fi
-        ;;
-    *)
-        print_error "Invalid choice"
-        exit 1
-        ;;
-esac
+            ;;
+    esac
+fi
 echo ""
 
 # Step 5: Execute deployment based on environment
@@ -229,7 +264,7 @@ case $ENVIRONMENT in
         fi
         ;;
 
-    dev|prod)
+    homelab)
         print_step "Phase 1: Proxmox Installation"
         echo "This phase must be completed manually."
         echo "See plan.md Phase 1 for detailed instructions."
@@ -256,7 +291,11 @@ case $ENVIRONMENT in
         print_step "Phase 3: Infrastructure Provisioning (Terragrunt)"
         if confirm "Run Terragrunt to provision infrastructure?"; then
             cd "$PROJECT_ROOT/terragrunt/environments/$ENVIRONMENT"
-            terragrunt run-all apply
+            if $AUTO_ACCEPT; then
+                terragrunt run-all apply --terragrunt-non-interactive
+            else
+                terragrunt run-all apply
+            fi
             print_success "Infrastructure provisioned via Terragrunt"
         else
             print_warning "Skipped Terragrunt provisioning"
@@ -302,7 +341,7 @@ case $ENVIRONMENT in
         echo "  task localdev:down    - Tear down environment"
         echo "  task chart:lint       - Lint Helm charts"
         ;;
-    dev|prod)
+    homelab)
         echo "  1. Verify cluster health: kubectl get nodes"
         echo "  2. Check ArgoCD applications: kubectl get applications -n argocd"
         echo "  3. Monitor pod deployments: kubectl get pods -A"

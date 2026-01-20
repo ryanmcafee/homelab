@@ -411,7 +411,7 @@ ansible-playbook -i inventory/hosts.yml playbooks/site.yml
 
 ```bash
 # Provision infrastructure
-cd terragrunt/environments/prod
+cd terragrunt/environments/homelab
 
 # Create ZFS pool
 cd proxmox-zfs-pool

@@ -1,0 +1,70 @@
+# TrueNAS Post-Installation Setup Playbook
+# Configures TrueNAS after VM installation via Terraform
+#
+# Prerequisites:
+# - TrueNAS VM is running and accessible
+# - Initial TrueNAS setup completed (admin password set)
+# - API key generated via TrueNAS UI or TRUENAS_API_KEY env var
+#
+# Usage:
+#   task truenas:setup
+#   # or
+#   ansible-playbook -i ansible/inventory/homelab.yml ansible/playbooks/truenas-setup.yml
+
+- name: Configure TrueNAS Storage
+  hosts: truenas
+  gather_facts: false
+  become: false
+
+  vars:
+    # Pool configuration
+    truenas_pool_name: tank
+    truenas_create_pool: false  # Pool must be created manually first
+
+    # Kubernetes storage
+    truenas_k8s_dataset: tank/k8s
+    truenas_k8s_quota: 500G
+
+    # Media storage
+    truenas_media_dataset: tank/media
+    truenas_media_quota: 100T
+
+    # NFS configuration
+    truenas_nfs_share_path: /mnt/tank/k8s
+    truenas_nfs_allowed_networks:
+      - 172.16.100.0/24
+
+  pre_tasks:
+    - name: Verify API key is provided
+      ansible.builtin.assert:
+        that:
+          - truenas_api_key | length > 0
+        fail_msg: |
+          TrueNAS API key not provided!
+          Set TRUENAS_API_KEY environment variable or update inventory.
+
+    - name: Display configuration
+      ansible.builtin.debug:
+        msg: |
+          TrueNAS Setup Configuration:
+          - API URL: {{ truenas_api_url }}
+          - Pool: {{ truenas_pool_name }}
+          - K8s Dataset: {{ truenas_k8s_dataset }}
+          - NFS Path: {{ truenas_nfs_share_path }}
+
+  roles:
+    - role: truenas_storage
+
+  post_tasks:
+    - name: Display completion summary
+      ansible.builtin.debug:
+        msg: |
+          TrueNAS Configuration Complete!
+
+          Next Steps:
+          1. Store the democratic-csi API key in 1Password
+          2. Update democratic-csi Helm values with API key
+          3. Deploy addons chart to create storage class
+
+          NFS Mount Test:
+            mount -t nfs {{ ansible_host }}:{{ truenas_nfs_share_path }} /mnt/test

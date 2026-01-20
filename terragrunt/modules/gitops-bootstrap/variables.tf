@@ -4,7 +4,7 @@ variable "cluster_name" {
 }
 
 variable "environment" {
-  description = "Environment name (localdev, dev, prod)"
+  description = "Environment name (localdev, homelab)"
   type        = string
 }
 
@@ -21,9 +21,9 @@ variable "argocd_namespace" {
 }
 
 variable "argocd_version" {
-  description = "ArgoCD Helm chart version"
+  description = "ArgoCD Helm chart version - keep in sync with charts/addons/values.yaml argocd.chart.version"
   type        = string
-  default     = "5.51.0" # ArgoCD v2.9.x
+  default     = "7.7.15" # ArgoCD v2.13.x - synced with addon chart version
 }
 
 variable "argocd_helm_values" {

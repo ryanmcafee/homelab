@@ -49,7 +49,7 @@ Single entrypoint setup, minimal ongoing maintenance, designed to run forever.
 ### 🏗️ Production-Ready Stack
 - **CNCF-neutral** open source technologies
 - **Industry-standard** tools (Terraform, ArgoCD, K8s)
-- **Multi-environment** support (localdev/dev/prod)
+- **Multi-environment** support (localdev/homelab)
 
 </td>
 <td width="50%">
@@ -158,7 +158,7 @@ mise doctor              # Troubleshoot issues
 - 🩹 Support auto-recovery and self-healing
 - 💾 Configure backup and recovery policies and procedures
 - 📊 Configure comprehensive monitoring and observability using kube-prometheus-stack
-- 🌍 Support multiple environments: localdev, dev, and production
+- 🌍 Support multiple environments: localdev and homelab
 
 </details>
 
@@ -261,7 +261,7 @@ homelab/
 ├── 🔧 ansible/                 # Proxmox configuration
 ├── 🏗️  terragrunt/              # Infrastructure as Code
 │   ├── modules/              # Reusable Terraform modules
-│   └── environments/         # localdev, dev, prod
+│   └── environments/         # localdev, homelab
 ├── 🐧 talos/                   # Talos Linux configuration
 ├── ⎈  charts/                  # Helm charts (GitOps)
 │   ├── gitops/               # App of Apps umbrella
@@ -401,7 +401,7 @@ ipmitool sensor thresh FAN1 lower 200 300 400
 | **🌉 GitOps Bridge** | Terraform bootstraps ArgoCD, then hands off control |
 | **📱 App of Apps** | ArgoCD manages applications hierarchically |
 | **📦 Monorepo** | Single source of truth for all infrastructure |
-| **⚖️ Environment Parity** | localdev/dev/prod use same charts with different values |
+| **⚖️ Environment Parity** | localdev/homelab use same charts with different values |
 
 ---
 

@@ -73,7 +73,7 @@ if [ -f ".envrc" ]; then
     fi
 else
     echo -e "${YELLOW}⚠${NC} .envrc file not found"
-    echo "  Copy .envrc.example to .envrc and configure for dev/prod"
+    echo "  Copy .envrc.example to .envrc and configure for homelab"
     echo "  Required for Proxmox deployments"
 fi
 

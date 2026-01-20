@@ -28,7 +28,7 @@ Local development enables:
 - **Risk-Free Testing**: Break things without affecting production
 - **Offline Development**: Work without VPN or hardware access
 - **CI Validation**: Automated testing in GitHub Actions
-- **Environment Parity**: Same Helm charts as dev/prod
+- **Environment Parity**: Same Helm charts as homelab
 
 ### Architecture
 

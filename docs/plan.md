@@ -68,7 +68,7 @@ Each phase will:
 - Configure backup and recovery policies and procedures
 - Configure comprehensive monitoring and observability using kube-prometheus-stack
 - Provide repeatable, dynamic orchestration for all homelab components
-- Support multiple environments: localdev, dev, and production
+- Support multiple environments: localdev and homelab
 - Enable rapid local development iteration using Kind and Tilt
 
 ## Architecture Overview
@@ -285,8 +285,7 @@ homelab/
 │   │   ├── Chart.yaml
 │   │   ├── values.yaml
 │   │   ├── values-localdev.yaml          # Local dev overrides
-│   │   ├── values-dev.yaml               # Dev environment
-│   │   ├── values-prod.yaml              # Production environment
+│   │   ├── values-homelab.yaml           # Homelab environment
 │   │   └── templates/
 │   │       ├── addons.yaml               # ArgoCD Application (sync-wave: 1)
 │   │       └── applications.yaml         # ArgoCD Application (sync-wave: 2)
@@ -295,8 +294,7 @@ homelab/
 │   │   ├── Chart.yaml
 │   │   ├── values.yaml
 │   │   ├── values-localdev.yaml          # Local: no MetalLB, no external-dns
-│   │   ├── values-dev.yaml
-│   │   ├── values-prod.yaml
+│   │   ├── values-homelab.yaml
 │   │   └── templates/
 │   │       ├── metallb.yaml
 │   │       ├── cert-manager.yaml
@@ -311,8 +309,7 @@ homelab/
 │       ├── Chart.yaml
 │       ├── values.yaml
 │       ├── values-localdev.yaml          # Local: reduced resources, no GPU
-│       ├── values-dev.yaml
-│       ├── values-prod.yaml
+│       ├── values-homelab.yaml
 │       └── templates/
 │           ├── plex.yaml                 # GPU-enabled (prod only)
 │           ├── sonarr.yaml
@@ -2993,7 +2990,7 @@ phase_1_ansible() {
 
 phase_2_infrastructure() {
     log_info "Phase 2: Deploying infrastructure with Terragrunt..."
-    cd "$ROOT_DIR/terragrunt/environments/${ENVIRONMENT:-prod}"
+    cd "$ROOT_DIR/terragrunt/environments/${ENVIRONMENT:-homelab}"
 
     # Deploy in order with dependencies
     terragrunt run-all apply --terragrunt-non-interactive
@@ -3049,7 +3046,7 @@ When complete, this homelab should:
 6. **Provide observability:** Metrics, logs, alerts configured
 7. **Secure by default:** Secrets via 1Password, RBAC configured
 8. **Document itself:** Comprehensive docs and runbooks
-9. **Support multi-environment:** localdev, dev, and prod separation
+9. **Support multi-environment:** localdev and homelab separation
 10. **Scale out:** Ready for additional Proxmox nodes
 11. **Fast local iteration:** Kind + Tilt enables sub-second feedback loops
 
@@ -3078,7 +3075,7 @@ When complete, this homelab should:
 - [ ] Test UniFi BGP configuration
 
 ### Charts & GitOps
-- [ ] Create environment-specific values files (localdev, dev, prod)
+- [ ] Create environment-specific values files (localdev, homelab)
 - [ ] Implement conditional addon deployment based on environment
 - [ ] Test ArgoCD sync with localdev values
 - [ ] Validate TrueCharts compatibility with local storage

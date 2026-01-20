@@ -148,6 +148,7 @@
   when:
     - storcli_firmware_update | default(false) | bool
     - firmware_flash_c1 is defined
+    - firmware_flash_c1 is not skipped
 
 - name: Clean up firmware file
   ansible.builtin.file:

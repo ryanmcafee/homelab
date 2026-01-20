@@ -548,7 +548,7 @@ kubectl drain talos-worker-1 --ignore-daemonsets --delete-emptydir-data
 kubectl delete node talos-worker-1
 
 # 3. Provision new node via Terragrunt
-cd terragrunt/environments/prod/talos-cluster
+cd terragrunt/environments/homelab/talos-cluster
 terragrunt apply
 ```
 
@@ -625,7 +625,7 @@ git clone https://github.com/username/homelab.git
 cd homelab
 
 # 2. Rebuild Talos cluster
-cd terragrunt/environments/prod/talos-cluster
+cd terragrunt/environments/homelab/talos-cluster
 terragrunt destroy  # Clean up old resources
 terragrunt apply
 
@@ -637,7 +637,7 @@ kubectl get nodes --watch
 
 # 5. ArgoCD auto-syncs from Git
 # Or manually bootstrap:
-cd terragrunt/environments/prod/gitops-bootstrap
+cd terragrunt/environments/homelab/gitops-bootstrap
 terragrunt apply
 
 # 6. Restore PV data from Velero
@@ -674,7 +674,7 @@ cd homelab/ansible
 ansible-playbook -i inventory/hosts.yml playbooks/site.yml
 
 # 3. Provision infrastructure
-cd terragrunt/environments/prod
+cd terragrunt/environments/homelab
 terragrunt run-all apply
 
 # 4. Restore TrueNAS configuration

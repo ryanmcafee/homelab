@@ -1,0 +1,49 @@
+# TrueNAS Storage Role - Create ZFS Dataset
+# Creates a ZFS dataset with specified properties
+
+- name: Check if dataset exists - {{ dataset_name }}
+  ansible.builtin.uri:
+    url: "{{ truenas_api_url }}/api/v2.0/pool/dataset/id/{{ dataset_name | replace('/', '%2F') }}"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ truenas_api_key }}"
+    validate_certs: "{{ truenas_verify_ssl }}"
+    status_code: [200, 404]
+  register: dataset_check
+
+- name: Create dataset - {{ dataset_name }}
+  ansible.builtin.uri:
+    url: "{{ truenas_api_url }}/api/v2.0/pool/dataset"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ truenas_api_key }}"
+      Content-Type: application/json
+    validate_certs: "{{ truenas_verify_ssl }}"
+    body_format: json
+    body:
+      name: "{{ dataset_name }}"
+      compression: "{{ dataset_compression | default('lz4') }}"
+      atime: "off"
+      comments: "{{ dataset_comments | default('') }}"
+    status_code: [200, 201]
+  register: dataset_create
+  when: dataset_check.status == 404
+
+- name: Set dataset quota - {{ dataset_name }}
+  ansible.builtin.uri:
+    url: "{{ truenas_api_url }}/api/v2.0/pool/dataset/id/{{ dataset_name | replace('/', '%2F') }}"
+    method: PUT
+    headers:
+      Authorization: "Bearer {{ truenas_api_key }}"
+      Content-Type: application/json
+    validate_certs: "{{ truenas_verify_ssl }}"
+    body_format: json
+    body:
+      refquota:
+        parsed: "{{ dataset_quota | default(0) }}"
+    status_code: [200]
+  when: dataset_quota is defined and dataset_quota | length > 0
+
+- name: Display dataset status - {{ dataset_name }}
+  ansible.builtin.debug:
+    msg: "Dataset '{{ dataset_name }}' {{ 'created' if dataset_check.status == 404 else 'already exists' }}"
