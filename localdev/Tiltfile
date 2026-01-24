@@ -1,4 +1,5 @@
 # Homelab Local Development Environment - Tiltfile
+# Last updated: 2026-01-23
 # Phase 0.5: Local Development Environment (Kind + Tilt)
 #
 # This Tiltfile supports two modes:
