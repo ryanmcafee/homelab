@@ -51,7 +51,7 @@ locals {
 
   # TrueNAS configuration
   truenas_vm_id    = 150
-  truenas_ip       = "172.16.100.50"
+  truenas_ip       = "172.16.100.150"
   truenas_nfs_path = "/mnt/tank/k8s"
 
   # HBA devices for TrueNAS direct disk access

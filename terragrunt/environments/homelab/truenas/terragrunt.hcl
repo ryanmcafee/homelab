@@ -59,7 +59,7 @@ inputs = {
 
   # Network
   network_bridge  = "vmbr0"
-  network_vlan_id = include.env.locals.vlan_id
+  network_vlan_id = null
 
   # TrueNAS ISO
   iso_storage          = include.env.locals.iso_storage_pool
