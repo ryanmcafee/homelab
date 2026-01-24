@@ -1,15 +1,3 @@
-output "talosconfig" {
-  description = "Talos configuration for CLI access"
-  value       = data.talos_client_configuration.this.talos_config
-  sensitive   = true
-}
-
-output "kubeconfig" {
-  description = "Kubernetes configuration for kubectl access"
-  value       = data.talos_cluster_kubeconfig.this.kubeconfig_raw
-  sensitive   = true
-}
-
 output "cluster_name" {
   description = "Name of the Kubernetes cluster"
   value       = var.cluster_name
@@ -32,15 +20,38 @@ output "worker_ips" {
 
 output "vm_ids" {
   description = "Map of node names to Proxmox VM IDs"
-  value       = { for k, v in proxmox_virtual_environment_vm.talos : k => v.id }
+  value = merge(
+    { for k, v in proxmox_virtual_environment_vm.controlplane : k => v.vm_id },
+    { for k, v in proxmox_virtual_environment_vm.worker : k => v.vm_id }
+  )
 }
 
-output "talosconfig_path" {
-  description = "Path to saved talosconfig file"
-  value       = local_sensitive_file.talosconfig.filename
+# Outputs for talos-cluster-config module
+output "client_configuration" {
+  description = "Talos client configuration for machine API access"
+  value       = talos_machine_secrets.this.client_configuration
+  sensitive   = true
 }
 
-output "kubeconfig_path" {
-  description = "Path to saved kubeconfig file"
-  value       = local_sensitive_file.kubeconfig.filename
+output "talos_config" {
+  description = "Full Talos client configuration YAML"
+  value       = data.talos_client_configuration.this.talos_config
+  sensitive   = true
+}
+
+output "controlplane_machine_configs" {
+  description = "Map of control plane node names to their machine configurations (base64 encoded to avoid interpolation issues)"
+  value       = { for k, v in data.talos_machine_configuration.controlplane : k => base64encode(v.machine_configuration) }
+  sensitive   = true
+}
+
+output "worker_machine_configs" {
+  description = "Map of worker node names to their machine configurations (base64 encoded to avoid interpolation issues)"
+  value       = { for k, v in data.talos_machine_configuration.worker : k => base64encode(v.machine_configuration) }
+  sensitive   = true
+}
+
+output "bootstrap_trigger" {
+  description = "Trigger value that changes when cluster needs re-bootstrapping (machine secrets ID)"
+  value       = talos_machine_secrets.this.id
 }

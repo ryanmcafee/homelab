@@ -12,7 +12,7 @@ terraform {
 }
 
 # Create ArgoCD namespace
-resource "kubernetes_namespace" "argocd" {
+resource "kubernetes_namespace_v1" "argocd" {
   metadata {
     name = var.argocd_namespace
     labels = {
@@ -23,7 +23,7 @@ resource "kubernetes_namespace" "argocd" {
 }
 
 # Create 1Password Operator namespace (if credentials provided)
-resource "kubernetes_namespace" "onepassword_operator" {
+resource "kubernetes_namespace_v1" "onepassword_operator" {
   count = var.onepassword_credentials_json != "" ? 1 : 0
 
   metadata {
@@ -37,12 +37,12 @@ resource "kubernetes_namespace" "onepassword_operator" {
 }
 
 # Create 1Password credentials secret
-resource "kubernetes_secret" "onepassword_credentials" {
+resource "kubernetes_secret_v1" "onepassword_credentials" {
   count = var.onepassword_credentials_json != "" ? 1 : 0
 
   metadata {
     name      = "onepassword-credentials"
-    namespace = kubernetes_namespace.onepassword_operator[0].metadata[0].name
+    namespace = kubernetes_namespace_v1.onepassword_operator[0].metadata[0].name
     labels = {
       "app.kubernetes.io/name"       = "onepassword-credentials"
       "app.kubernetes.io/managed-by" = "terraform"
@@ -59,7 +59,7 @@ resource "kubernetes_secret" "onepassword_credentials" {
 
   type = "Opaque"
 
-  depends_on = [kubernetes_namespace.onepassword_operator]
+  depends_on = [kubernetes_namespace_v1.onepassword_operator]
 }
 
 # Install ArgoCD via Helm
@@ -67,7 +67,7 @@ resource "helm_release" "argocd" {
   name       = "argocd"
   repository = "https://argoproj.github.io/argo-helm"
   chart      = "argo-cd"
-  namespace  = kubernetes_namespace.argocd.metadata[0].name
+  namespace  = kubernetes_namespace_v1.argocd.metadata[0].name
   version    = var.argocd_version
 
   values = [
@@ -81,22 +81,16 @@ resource "helm_release" "argocd" {
   ]
 
   # Merge with custom values
-  dynamic "set" {
-    for_each = var.argocd_helm_values
-    content {
-      name  = set.key
-      value = set.value
-    }
-  }
+  set = [for k, v in var.argocd_helm_values : { name = k, value = v }]
 
-  depends_on = [kubernetes_namespace.argocd]
+  depends_on = [kubernetes_namespace_v1.argocd]
 }
 
 # GitOps Bridge: Pass metadata from Terragrunt to ArgoCD
-resource "kubernetes_config_map" "gitops_metadata" {
+resource "kubernetes_config_map_v1" "gitops_metadata" {
   metadata {
     name      = "gitops-metadata"
-    namespace = kubernetes_namespace.argocd.metadata[0].name
+    namespace = kubernetes_namespace_v1.argocd.metadata[0].name
     labels = {
       "app.kubernetes.io/part-of" = "gitops-bridge"
     }
@@ -113,16 +107,16 @@ resource "kubernetes_config_map" "gitops_metadata" {
     var.custom_metadata
   )
 
-  depends_on = [kubernetes_namespace.argocd]
+  depends_on = [kubernetes_namespace_v1.argocd]
 }
 
 # GitOps Bridge: Store sensitive metadata
-resource "kubernetes_secret" "gitops_secrets" {
+resource "kubernetes_secret_v1" "gitops_secrets" {
   count = length(var.gitops_secrets) > 0 ? 1 : 0
 
   metadata {
     name      = "gitops-secrets"
-    namespace = kubernetes_namespace.argocd.metadata[0].name
+    namespace = kubernetes_namespace_v1.argocd.metadata[0].name
     labels = {
       "app.kubernetes.io/part-of" = "gitops-bridge"
     }
@@ -130,7 +124,7 @@ resource "kubernetes_secret" "gitops_secrets" {
 
   data = var.gitops_secrets
 
-  depends_on = [kubernetes_namespace.argocd]
+  depends_on = [kubernetes_namespace_v1.argocd]
 }
 
 # Bootstrap Application - points to charts/gitops (App of Apps pattern)
@@ -139,7 +133,7 @@ resource "kubectl_manifest" "bootstrap_app" {
 
   yaml_body = templatefile("${path.module}/templates/bootstrap-app.yaml.tpl", {
     app_name        = "gitops"
-    namespace       = kubernetes_namespace.argocd.metadata[0].name
+    namespace       = kubernetes_namespace_v1.argocd.metadata[0].name
     repo_url        = var.repo_url
     target_revision = var.target_revision
     path            = var.gitops_chart_path
@@ -159,24 +153,28 @@ resource "null_resource" "wait_for_argocd" {
   provisioner "local-exec" {
     command = <<-EOF
       kubectl wait --for=condition=available deployment/argocd-server \
-        -n ${kubernetes_namespace.argocd.metadata[0].name} \
+        -n ${kubernetes_namespace_v1.argocd.metadata[0].name} \
         --timeout=300s
       kubectl wait --for=condition=available deployment/argocd-repo-server \
-        -n ${kubernetes_namespace.argocd.metadata[0].name} \
+        -n ${kubernetes_namespace_v1.argocd.metadata[0].name} \
         --timeout=300s
-      kubectl wait --for=condition=available deployment/argocd-application-controller \
-        -n ${kubernetes_namespace.argocd.metadata[0].name} \
+      kubectl rollout status statefulset/argocd-application-controller \
+        -n ${kubernetes_namespace_v1.argocd.metadata[0].name} \
         --timeout=300s
     EOF
+
+    environment = {
+      KUBECONFIG = var.kubeconfig_path
+    }
   }
 }
 
 # Retrieve ArgoCD admin password
-data "kubernetes_secret" "argocd_admin" {
+data "kubernetes_secret_v1" "argocd_admin" {
   depends_on = [helm_release.argocd]
 
   metadata {
     name      = "argocd-initial-admin-secret"
-    namespace = kubernetes_namespace.argocd.metadata[0].name
+    namespace = kubernetes_namespace_v1.argocd.metadata[0].name
   }
 }

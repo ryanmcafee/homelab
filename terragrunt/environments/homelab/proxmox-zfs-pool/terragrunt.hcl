@@ -22,7 +22,7 @@ generate "provider_proxmox" {
   contents  = <<EOF
 provider "proxmox" {
   endpoint  = "${include.env.locals.proxmox_endpoint}"
-  api_token = "root@pam!terraform=e9d6e1a1-ce2c-475e-84eb-f477827cee6b"
+  api_token = "${include.env.locals.proxmox_api_token_id}=${include.env.locals.proxmox_api_token_secret}"
   insecure  = ${include.env.locals.proxmox_insecure}
   ssh {
     agent       = false
@@ -49,7 +49,7 @@ inputs = {
   # Use /dev/disk/by-id/ paths for stable device references
   create_zfs_pool = true
   zfs_pool_name   = "vm-storage"
-  zfs_pool_type   = "mirror"  # mirror, raidz1, raidz2, raidz3, stripe
+  zfs_pool_type   = "mirror" # mirror, raidz1, raidz2, raidz3, stripe
 
   # Devices for ZFS pool
   zfs_devices = [
@@ -58,10 +58,10 @@ inputs = {
   ]
 
   # ZFS pool properties
-  zfs_ashift      = 12      # 12 for 4K sector drives
-  zfs_compression = "lz4"   # Fast compression with minimal CPU impact
-  zfs_atime       = "off"   # Disable access time updates
-  zfs_recordsize  = "128k"  # Good default for VM storage
+  zfs_ashift      = 12     # 12 for 4K sector drives
+  zfs_compression = "lz4"  # Fast compression with minimal CPU impact
+  zfs_atime       = "off"  # Disable access time updates
+  zfs_recordsize  = "128k" # Good default for VM storage
 
   # Proxmox storage configuration
   create_storage_config = true

@@ -1,4 +1,5 @@
 # Homelab Local Development Environment - Tiltfile
+# Last updated: 2026-01-23
 # Phase 0.5: Local Development Environment (Kind + Tilt)
 #
 # This Tiltfile supports two modes:
@@ -24,9 +25,13 @@ load('ext://helm_resource', 'helm_resource', 'helm_repo')
 # Use environment variable for mode selection (more reliable in CI)
 mode = os.getenv("TILT_MODE", "direct")  # "direct" or "argocd"
 
+# Detect CI environment (GitHub Actions sets CI=true)
+is_ci = os.getenv("CI", "false").lower() == "true"
+
 print("=" * 60)
 print("Homelab Local Development")
 print("Mode: %s" % mode)
+print("CI: %s" % is_ci)
 print("=" * 60)
 
 # ============================================================================
@@ -61,6 +66,9 @@ local_resource(
 if mode == "argocd":
     print("Deploying in ArgoCD mode - realistic GitOps simulation")
 
+    # Select values file based on environment (CI uses different config without hostPath mounts)
+    argocd_values_file = "../localdev/values/argocd-values-ci.yaml" if is_ci else "../localdev/values/argocd-values.yaml"
+
     # Install ArgoCD using Helm
     local_resource(
         "argocd-install",
@@ -69,9 +77,9 @@ if mode == "argocd":
         helm repo update argo
         helm upgrade --install argocd argo/argo-cd \
             --namespace argocd --create-namespace \
-            --values ../localdev/values/argocd-values.yaml \
+            --values %s \
             --wait --timeout 5m
-        """,
+        """ % argocd_values_file,
         resource_deps=["local-path-provisioner"],
         labels=["argocd"],
     )
@@ -90,10 +98,12 @@ if mode == "argocd":
 
     # Deploy the gitops Application (App of Apps pattern)
     # This creates the root ArgoCD Application that manages all other apps
-    local_resource(
-        "gitops-app",
-        cmd="""
-        kubectl apply -f - <<EOF
+    # Note: This only works in local development where charts are mounted via hostPath
+    if not is_ci:
+        local_resource(
+            "gitops-app",
+            cmd="""
+            kubectl apply -f - <<EOF
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -121,28 +131,30 @@ spec:
     syncOptions:
       - CreateNamespace=true
 EOF
-        """,
-        resource_deps=["argocd-install"],
-        labels=["argocd"],
-    )
+            """,
+            resource_deps=["argocd-install"],
+            labels=["argocd"],
+        )
 
-    # Watch chart directories for changes
-    # When files change, trigger ArgoCD sync
-    watch_file("../charts/gitops")
-    watch_file("../charts/addons")
-    watch_file("../charts/applications")
+        # Watch chart directories for changes
+        # When files change, trigger ArgoCD sync
+        watch_file("../charts/gitops")
+        watch_file("../charts/addons")
+        watch_file("../charts/applications")
 
-    # Helper to trigger ArgoCD sync on chart changes
-    local_resource(
-        "argocd-sync",
-        cmd="""
-        kubectl -n argocd patch app gitops --type merge -p '{"operation": {"initiatedBy": {"username": "tilt"}, "info": [{"name": "Reason", "value": "Chart files changed"}]}}'
-        """,
-        resource_deps=["gitops-app"],
-        labels=["argocd"],
-        auto_init=False,
-        trigger_mode=TRIGGER_MODE_MANUAL,
-    )
+        # Helper to trigger ArgoCD sync on chart changes
+        local_resource(
+            "argocd-sync",
+            cmd="""
+            kubectl -n argocd patch app gitops --type merge -p '{"operation": {"initiatedBy": {"username": "tilt"}, "info": [{"name": "Reason", "value": "Chart files changed"}]}}'
+            """,
+            resource_deps=["gitops-app"],
+            labels=["argocd"],
+            auto_init=False,
+            trigger_mode=TRIGGER_MODE_MANUAL,
+        )
+    else:
+        print("CI mode: Skipping gitops-app (requires local chart mount)")
 
 # ============================================================================
 # Direct Mode - Direct Helm Deployment
@@ -166,7 +178,7 @@ if mode == "direct":
             "--set=service.type=NodePort",
             "--set=ports.web.nodePort=30080",
             "--set=ports.websecure.nodePort=30443",
-            "--set=globalArguments={--global.checknewversion=false,--global.sendanonymoususage=false}",
+            "--set=additionalArguments={--global.checknewversion=false,--global.sendanonymoususage=false}",
             "--set=resources.requests.cpu=50m",
             "--set=resources.requests.memory=128Mi",
         ],

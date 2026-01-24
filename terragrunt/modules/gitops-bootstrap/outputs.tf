@@ -1,6 +1,6 @@
 output "argocd_namespace" {
   description = "Namespace where ArgoCD is installed"
-  value       = kubernetes_namespace.argocd.metadata[0].name
+  value       = kubernetes_namespace_v1.argocd.metadata[0].name
 }
 
 output "argocd_server_url" {
@@ -10,7 +10,7 @@ output "argocd_server_url" {
 
 output "argocd_admin_password" {
   description = "ArgoCD admin password"
-  value       = try(data.kubernetes_secret.argocd_admin.data["password"], "")
+  value       = try(data.kubernetes_secret_v1.argocd_admin.data["password"], "")
   sensitive   = true
 }
 
@@ -21,12 +21,13 @@ output "argocd_admin_username" {
 
 output "gitops_metadata_configmap" {
   description = "Name of the GitOps metadata ConfigMap"
-  value       = kubernetes_config_map.gitops_metadata.metadata[0].name
+  value       = kubernetes_config_map_v1.gitops_metadata.metadata[0].name
 }
 
 output "gitops_secrets_secret" {
   description = "Name of the GitOps secrets Secret"
-  value       = length(var.gitops_secrets) > 0 ? kubernetes_secret.gitops_secrets[0].metadata[0].name : null
+  value       = length(var.gitops_secrets) > 0 ? kubernetes_secret_v1.gitops_secrets[0].metadata[0].name : null
+  sensitive   = true
 }
 
 output "bootstrap_app_name" {
@@ -46,5 +47,5 @@ output "target_revision" {
 
 output "port_forward_command" {
   description = "Command to port-forward to ArgoCD server"
-  value       = "kubectl port-forward svc/argocd-server -n ${kubernetes_namespace.argocd.metadata[0].name} 8080:443"
+  value       = "kubectl port-forward svc/argocd-server -n ${kubernetes_namespace_v1.argocd.metadata[0].name} 8080:443"
 }

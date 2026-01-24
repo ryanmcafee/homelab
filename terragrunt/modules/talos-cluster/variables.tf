@@ -52,14 +52,38 @@ variable "pool_id" {
   default     = null
 }
 
+variable "vm_id_base" {
+  description = "Base VM ID for control plane nodes. Control planes are assigned sequential IDs starting from this value (cp-1=base, cp-2=base+1, etc.)"
+  type        = number
+  default     = 101
+}
+
+variable "worker_vm_id_base" {
+  description = "Base VM ID for worker nodes. Workers are assigned sequential IDs starting from this value (worker-1=base, worker-2=base+1, etc.)"
+  type        = number
+  default     = 110
+}
+
 variable "talos_image_id" {
   description = "Talos image ID from Proxmox (from talos-image module)"
   type        = string
 }
 
+variable "installer_image" {
+  description = "Custom Talos installer image URL from Image Factory (required for system extensions)"
+  type        = string
+  default     = null
+}
+
 variable "datastore_id" {
   description = "Proxmox datastore for VM disks"
   type        = string
+}
+
+variable "snippets_datastore_id" {
+  description = "Proxmox datastore for cloud-init snippets (must support snippets content type)"
+  type        = string
+  default     = "local"
 }
 
 variable "started" {
@@ -72,6 +96,12 @@ variable "on_boot" {
   description = "Start VMs on Proxmox boot"
   type        = bool
   default     = true
+}
+
+variable "qemu_agent_timeout" {
+  description = "Timeout for QEMU guest agent during state refresh (reduce when VMs are offline)"
+  type        = string
+  default     = "20s"
 }
 
 variable "tags" {
@@ -111,6 +141,11 @@ variable "network_gateway" {
   type        = string
 }
 
+variable "network_cidr" {
+  description = "Network CIDR for etcd advertised subnets (e.g., '172.16.100.0/24')"
+  type        = string
+}
+
 variable "dns_servers" {
   description = "DNS servers for nodes"
   type        = list(string)
@@ -122,6 +157,29 @@ variable "gpu_pci_id" {
   description = "PCI ID of GPU for passthrough (e.g., '0000:01:00.0')"
   type        = string
   default     = ""
+}
+
+variable "gpu_device" {
+  description = "GPU device configuration for hardware mapping"
+  type = object({
+    device_id    = string  # Vendor:Device ID (e.g., "10de:1b80")
+    subsystem_id = string  # Subsystem ID (e.g., "10de:11bc")
+    iommu_group  = number  # IOMMU group number
+    description  = string  # Human-readable description
+  })
+  default = null
+}
+
+variable "gpu_mapping_name" {
+  description = "Name for the GPU hardware mapping in Proxmox"
+  type        = string
+  default     = "gpu-nvidia"
+}
+
+variable "proxmox_node" {
+  description = "Proxmox node name for hardware mappings"
+  type        = string
+  default     = "proxmox"
 }
 
 variable "gpu_config_patch" {
@@ -155,13 +213,6 @@ variable "worker_config_patches" {
   default     = []
 }
 
-# Cluster Bootstrapping
-variable "bootstrap_cluster" {
-  description = "Bootstrap the cluster after node creation"
-  type        = bool
-  default     = true
-}
-
 # SSH configuration for Proxmox host
 variable "proxmox_host" {
   description = "Proxmox host IP or hostname"
@@ -177,4 +228,17 @@ variable "ssh_user" {
 variable "ssh_private_key" {
   description = "Path to SSH private key for Proxmox host"
   type        = string
+}
+
+# Cilium CNI Configuration
+variable "cilium_inline_manifest" {
+  description = "Cilium manifest for inline installation (pre-rendered Helm template)"
+  type        = string
+  default     = ""
+}
+
+variable "install_cilium_inline" {
+  description = "Install Cilium via inline manifests during bootstrap"
+  type        = bool
+  default     = true
 }

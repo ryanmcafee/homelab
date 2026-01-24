@@ -19,14 +19,15 @@ dependency "zfs_pool" {
 }
 
 # Configure Proxmox provider
-# API token is read from PROXMOX_VE_API_TOKEN environment variable
+# API token is read from TF_VAR_proxmox_api_token_id and TF_VAR_proxmox_api_token_secret via env.hcl
 generate "provider_proxmox" {
   path      = "provider_proxmox.tf"
   if_exists = "overwrite_terragrunt"
   contents  = <<EOF
 provider "proxmox" {
-  endpoint = "${include.env.locals.proxmox_endpoint}"
-  insecure = ${include.env.locals.proxmox_insecure}
+  endpoint  = "${include.env.locals.proxmox_endpoint}"
+  api_token = "${include.env.locals.proxmox_api_token_id}=${include.env.locals.proxmox_api_token_secret}"
+  insecure  = ${include.env.locals.proxmox_insecure}
 
   ssh {
     agent       = false
@@ -64,6 +65,9 @@ inputs = {
   iso_storage          = include.env.locals.iso_storage_pool
   truenas_iso_url      = "https://download.sys.truenas.net/TrueNAS-SCALE-Goldeye/25.10.1/TrueNAS-SCALE-25.10.1.iso"
   truenas_iso_filename = "truenas-scale-25.10.1.iso"
+
+  # Boot order - Disk first, ISO second (for post-installation)
+  boot_order = ["virtio0", "ide2"]
 
   # Post-installation
   # TrueNAS configuration is handled by Ansible playbooks

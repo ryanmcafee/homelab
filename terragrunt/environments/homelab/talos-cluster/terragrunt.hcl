@@ -22,7 +22,9 @@ dependency "talos_image" {
   config_path = "../talos-image"
 
   mock_outputs = {
-    image_id = "local:iso/talos-mock.img"
+    image_id      = "local:iso/talos-mock.img"
+    schematic_id  = "mock-schematic-id"
+    talos_version = "v1.12.1"
   }
 }
 
@@ -35,14 +37,15 @@ dependency "truenas" {
 }
 
 # Configure Proxmox provider
-# API token is read from PROXMOX_VE_API_TOKEN environment variable
+# API token is read from TF_VAR_proxmox_api_token_id and TF_VAR_proxmox_api_token_secret via env.hcl
 generate "provider_proxmox" {
   path      = "provider_proxmox.tf"
   if_exists = "overwrite_terragrunt"
   contents  = <<EOF
 provider "proxmox" {
-  endpoint = "${include.env.locals.proxmox_endpoint}"
-  insecure = ${include.env.locals.proxmox_insecure}
+  endpoint  = "${include.env.locals.proxmox_endpoint}"
+  api_token = "${include.env.locals.proxmox_api_token_id}=${include.env.locals.proxmox_api_token_secret}"
+  insecure  = ${include.env.locals.proxmox_insecure}
 
   ssh {
     agent       = false
@@ -69,14 +72,21 @@ inputs = {
   talos_image_id = dependency.talos_image.outputs.image_id
   datastore_id   = include.env.locals.vm_storage_pool
 
+  # Image Factory installer with system extensions (qemu-guest-agent, nfs-utils, etc.)
+  installer_image = "factory.talos.dev/installer/${dependency.talos_image.outputs.schematic_id}:${dependency.talos_image.outputs.talos_version}"
+
   # Network configuration
   network_bridge  = "vmbr0"
   network_vlan_id = include.env.locals.vlan_id
   network_gateway = include.env.locals.gateway
+  network_cidr    = include.env.locals.subnet
   dns_servers     = include.env.locals.dns_servers
 
   # GPU configuration for worker-1 (NVIDIA Quadro P2200)
   gpu_pci_id       = include.env.locals.gpu_pci_id
+  gpu_device       = include.env.locals.gpu_device
+  gpu_mapping_name = "gpu-nvidia-p2200"
+  proxmox_node     = include.env.locals.proxmox_node
   gpu_config_patch = yamlencode({
     machine = {
       kernel = {
@@ -109,13 +119,14 @@ inputs = {
     })
   ]
 
-  # Bootstrap the cluster
-  bootstrap_cluster = true
-
   # SSH configuration for boot args
   proxmox_host    = include.env.locals.proxmox_host
   ssh_user        = include.env.locals.proxmox_ssh_user
   ssh_private_key = include.env.locals.proxmox_ssh_private_key
 
   tags = ["homelab", "talos", "kubernetes"]
+
+  # Cilium CNI inline installation
+  install_cilium_inline  = true
+  cilium_inline_manifest = file("${get_terragrunt_dir()}/../../../files/cilium-rendered.yaml")
 }

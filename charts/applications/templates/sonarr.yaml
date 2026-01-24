@@ -18,45 +18,28 @@ spec:
     helm:
       releaseName: sonarr
       values: |
-        image:
-          repository: {{ .Values.sonarr.image.repository }}
-          tag: {{ .Values.sonarr.image.tag }}
-          pullPolicy: {{ .Values.sonarr.image.pullPolicy }}
+        {{- if .Values.sonarr.workload }}
+        workload:
+          {{- toYaml .Values.sonarr.workload | nindent 10 }}
+        {{- end }}
 
-        env:
-          {{- range $key, $value := .Values.sonarr.env }}
-          {{ $key }}: {{ $value | quote }}
-          {{- end }}
-
-        resources:
-          {{- toYaml .Values.sonarr.resources | nindent 10 }}
-
+        {{- if .Values.sonarr.persistence }}
         persistence:
-          config:
-            enabled: {{ .Values.sonarr.persistence.config.enabled }}
-            storageClass: {{ .Values.sonarr.persistence.config.storageClass }}
-            size: {{ .Values.sonarr.persistence.config.size }}
-            accessMode: {{ .Values.sonarr.persistence.config.accessMode }}
+          {{- toYaml .Values.sonarr.persistence | nindent 10 }}
+        {{- end }}
 
-          {{- if .Values.sonarr.persistence.media.enabled }}
-          media:
-            enabled: true
-            type: {{ .Values.sonarr.persistence.media.type }}
-            server: {{ .Values.sonarr.persistence.media.server }}
-            path: {{ .Values.sonarr.persistence.media.path }}
-            mountPath: {{ .Values.sonarr.persistence.media.mountPath }}
-          {{- end }}
-
-        {{- if .Values.sonarr.ingress.enabled }}
+        {{- if .Values.sonarr.ingress }}
         ingress:
-          enabled: true
-          className: {{ .Values.sonarr.ingress.className }}
-          annotations:
-            {{- toYaml .Values.sonarr.ingress.annotations | nindent 12 }}
-          hosts:
-            {{- toYaml .Values.sonarr.ingress.hosts | nindent 12 }}
-          tls:
-            {{- toYaml .Values.sonarr.ingress.tls | nindent 12 }}
+          {{- toYaml .Values.sonarr.ingress | nindent 10 }}
+        {{- end }}
+
+        {{- if .Values.sonarr.TZ }}
+        TZ: {{ .Values.sonarr.TZ | quote }}
+        {{- end }}
+
+        {{- if .Values.sonarr.securityContext }}
+        securityContext:
+          {{- toYaml .Values.sonarr.securityContext | nindent 10 }}
         {{- end }}
 
   destination:

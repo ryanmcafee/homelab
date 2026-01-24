@@ -1,0 +1,41 @@
+{{- if index .Values "kubelet-csr-approver" "enabled" }}
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: kubelet-csr-approver
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: {{ index .Values "kubelet-csr-approver" "chart" "repo" }}
+    chart: {{ index .Values "kubelet-csr-approver" "chart" "name" }}
+    targetRevision: {{ index .Values "kubelet-csr-approver" "chart" "version" }}
+    helm:
+      releaseName: kubelet-csr-approver
+      values: |
+        resources:
+          {{- toYaml (index .Values "kubelet-csr-approver" "resources") | nindent 10 }}
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: {{ index .Values "kubelet-csr-approver" "namespace" }}
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+{{- end }}

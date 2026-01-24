@@ -1,0 +1,19 @@
+# GitGuardian Configuration
+# https://docs.gitguardian.com/ggshield-docs/reference/gitguardian-yaml
+
+# Paths to exclude from secret scanning
+paths-ignore:
+  # Terragrunt mock outputs contain intentional self-signed test certificates
+  # These are used for terragrunt plan/apply when the actual cluster doesn't exist
+  - 'terragrunt/environments/**/terragrunt.hcl'
+  # Rendered manifests may contain generated certificates from helm template
+  - 'terragrunt/files/**'
+  - '**/*-rendered.yaml'
+  - '**/*-rendered.yml'
+
+# Specific secrets to ignore (SHA256 hashes of the secrets)
+# These can be added if specific secrets need to be whitelisted
+# Use: ggshield secret scan --show-secrets to get the hash
+# matches:
+#   - name: "mock-certificate-hash"
+#     match: "sha256:..."

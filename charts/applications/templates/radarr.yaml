@@ -18,45 +18,28 @@ spec:
     helm:
       releaseName: radarr
       values: |
-        image:
-          repository: {{ .Values.radarr.image.repository }}
-          tag: {{ .Values.radarr.image.tag }}
-          pullPolicy: {{ .Values.radarr.image.pullPolicy }}
+        {{- if .Values.radarr.workload }}
+        workload:
+          {{- toYaml .Values.radarr.workload | nindent 10 }}
+        {{- end }}
 
-        env:
-          {{- range $key, $value := .Values.radarr.env }}
-          {{ $key }}: {{ $value | quote }}
-          {{- end }}
-
-        resources:
-          {{- toYaml .Values.radarr.resources | nindent 10 }}
-
+        {{- if .Values.radarr.persistence }}
         persistence:
-          config:
-            enabled: {{ .Values.radarr.persistence.config.enabled }}
-            storageClass: {{ .Values.radarr.persistence.config.storageClass }}
-            size: {{ .Values.radarr.persistence.config.size }}
-            accessMode: {{ .Values.radarr.persistence.config.accessMode }}
+          {{- toYaml .Values.radarr.persistence | nindent 10 }}
+        {{- end }}
 
-          {{- if .Values.radarr.persistence.media.enabled }}
-          media:
-            enabled: true
-            type: {{ .Values.radarr.persistence.media.type }}
-            server: {{ .Values.radarr.persistence.media.server }}
-            path: {{ .Values.radarr.persistence.media.path }}
-            mountPath: {{ .Values.radarr.persistence.media.mountPath }}
-          {{- end }}
-
-        {{- if .Values.radarr.ingress.enabled }}
+        {{- if .Values.radarr.ingress }}
         ingress:
-          enabled: true
-          className: {{ .Values.radarr.ingress.className }}
-          annotations:
-            {{- toYaml .Values.radarr.ingress.annotations | nindent 12 }}
-          hosts:
-            {{- toYaml .Values.radarr.ingress.hosts | nindent 12 }}
-          tls:
-            {{- toYaml .Values.radarr.ingress.tls | nindent 12 }}
+          {{- toYaml .Values.radarr.ingress | nindent 10 }}
+        {{- end }}
+
+        {{- if .Values.radarr.TZ }}
+        TZ: {{ .Values.radarr.TZ | quote }}
+        {{- end }}
+
+        {{- if .Values.radarr.securityContext }}
+        securityContext:
+          {{- toYaml .Values.radarr.securityContext | nindent 10 }}
         {{- end }}
 
   destination:

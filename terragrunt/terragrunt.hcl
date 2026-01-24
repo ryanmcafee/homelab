@@ -6,9 +6,9 @@ locals {
   environment_vars = try(read_terragrunt_config(find_in_parent_folders("env.hcl")), {})
 
   # Extract commonly used variables
-  env         = local.environment_vars.locals.environment
-  project     = "homelab"
-  base_fqdn   = "ryanmcafee.com"
+  env       = try(local.environment_vars.locals.environment, "")
+  project   = "homelab"
+  base_fqdn = "ryanmcafee.com"
 }
 
 # Configure Terragrunt to automatically store tfstate files in local backend
@@ -53,12 +53,16 @@ generate "provider" {
           version = "~> 3.1.0"
         }
         kubectl = {
-          source  = "gavinbunney/kubectl"
-          version = "~> 1.14.0"
+          source  = "alekc/kubectl"
+          version = "~> 2.0"
         }
         kind = {
           source  = "tehcyx/kind"
           version = "~> 0.4.0"
+        }
+        onepassword = {
+          source  = "1Password/onepassword"
+          version = "~> 2.1.0"
         }
       }
     }
@@ -67,7 +71,7 @@ generate "provider" {
 
 # Input variables that can be overridden by environment
 inputs = merge(
-  local.environment_vars.locals,
+  try(local.environment_vars.locals, {}),
   {
     project   = local.project
     base_fqdn = local.base_fqdn
