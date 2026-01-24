@@ -153,3 +153,20 @@ variable "truenas_api_url" {
   type        = string
   default     = ""
 }
+
+# DNS Configuration
+variable "dns_entries" {
+  description = "List of DNS entries to create for TrueNAS"
+  type = list(object({
+    fqdn = string
+    type = string
+    host = string
+  }))
+  default = []
+}
+
+variable "dns_ttl" {
+  description = "TTL for DNS records in seconds"
+  type        = number
+  default     = 300
+}

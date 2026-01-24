@@ -212,3 +212,19 @@ resource "onepassword_item" "talosconfig" {
     ignore_changes = [vault]
   }
 }
+
+# DNS Records for Kubernetes API
+resource "unifi_dns_record" "this" {
+  for_each = { for entry in var.dns_entries : entry.fqdn => entry }
+
+  name        = each.value.fqdn
+  record_type = each.value.type
+  value       = each.value.host
+  enabled     = true
+  ttl         = var.dns_ttl
+  port        = 0 # Required to avoid provider inconsistency bug
+
+  lifecycle {
+    ignore_changes = [port]
+  }
+}

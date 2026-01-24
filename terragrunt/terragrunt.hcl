@@ -64,6 +64,10 @@ generate "provider" {
           source  = "1Password/onepassword"
           version = "~> 2.1.0"
         }
+        unifi = {
+          source  = "ubiquiti-community/unifi"
+          version = "~> 0.41.0"
+        }
       }
     }
   EOF

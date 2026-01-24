@@ -22,3 +22,8 @@ output "iso_id" {
   description = "The ID of the downloaded TrueNAS ISO"
   value       = proxmox_virtual_environment_download_file.truenas_iso.id
 }
+
+output "dns_records" {
+  description = "Map of FQDN to DNS record ID"
+  value       = { for fqdn, record in unifi_dns_record.this : fqdn => record.id }
+}

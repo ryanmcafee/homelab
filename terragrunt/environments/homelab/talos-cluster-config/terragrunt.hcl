@@ -56,6 +56,21 @@ provider "onepassword" {
 EOF
 }
 
+# Configure UniFi provider for DNS records
+generate "provider_unifi" {
+  path      = "provider_unifi.tf"
+  if_exists = "overwrite_terragrunt"
+  contents  = <<EOF
+provider "unifi" {
+  api_url        = "${include.env.locals.unifi_api_url}"
+  username       = "${include.env.locals.unifi_username}"
+  password       = "${include.env.locals.unifi_password}"
+  allow_insecure = ${include.env.locals.unifi_insecure}
+  site           = "${include.env.locals.unifi_site}"
+}
+EOF
+}
+
 inputs = {
   # Pass through from talos-cluster module
   client_configuration         = dependency.talos_cluster.outputs.client_configuration
@@ -76,4 +91,10 @@ inputs = {
   # 1Password vault for storing kubeconfig/talosconfig
   # Set via environment variable TF_VAR_onepassword_vault_id or leave empty to skip
   onepassword_vault_id = get_env("TF_VAR_onepassword_vault_id", "")
+
+  # DNS records for Kubernetes API
+  dns_entries = [
+    { fqdn = "k8s.home.lab", type = "A", host = include.env.locals.cluster_endpoint },
+    { fqdn = "k8s.${include.env.locals.base_fqdn}", type = "A", host = include.env.locals.cluster_endpoint }
+  ]
 }

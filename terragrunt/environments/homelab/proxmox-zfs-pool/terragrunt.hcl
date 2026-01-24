@@ -14,6 +14,15 @@ terraform {
   source = "../../../modules//proxmox-zfs-pool"
 }
 
+dependency "proxmox_cluster" {
+  config_path = "../proxmox-cluster"
+
+  mock_outputs = {
+    dns_records = {}
+  }
+  mock_outputs_allowed_terraform_commands = ["validate", "plan"]
+}
+
 # Configure Proxmox provider
 # API token is read from TF_VAR_proxmox_api_token_id and TF_VAR_proxmox_api_token_secret via env.hcl
 generate "provider_proxmox" {
