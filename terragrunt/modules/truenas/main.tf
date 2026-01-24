@@ -106,7 +106,6 @@ resource "proxmox_virtual_environment_vm" "truenas" {
 
   # Attach TrueNAS ISO for initial installation
   cdrom {
-    enabled   = true
     file_id   = proxmox_virtual_environment_download_file.truenas_iso.id
     interface = "ide2"
   }

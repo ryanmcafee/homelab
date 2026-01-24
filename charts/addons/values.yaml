@@ -146,6 +146,30 @@ metallb:
         memory: 128Mi
 
 # ============================================================================
+# Kubelet CSR Approver - Automatic Kubelet Certificate Approval
+# Sync Wave: 1 (early infrastructure component)
+# ============================================================================
+
+kubelet-csr-approver:
+  enabled: true
+  namespace: kube-system
+
+  # Chart source
+  chart:
+    name: kubelet-csr-approver
+    repo: https://postfinance.github.io/kubelet-csr-approver
+    version: "1.2.2"
+
+  # Resource limits
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+    limits:
+      cpu: 100m
+      memory: 128Mi
+
+# ============================================================================
 # Democratic-CSI - NFS Storage Provisioner
 # Sync Wave: 2 (needed before apps require storage)
 # ============================================================================

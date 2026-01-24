@@ -18,62 +18,48 @@ spec:
     helm:
       releaseName: plex
       values: |
+        {{- if .Values.plex.image }}
         image:
-          repository: {{ .Values.plex.image.repository }}
-          tag: {{ .Values.plex.image.tag }}
-          pullPolicy: {{ .Values.plex.image.pullPolicy }}
+          {{- toYaml .Values.plex.image | nindent 10 }}
+        {{- end }}
 
-        env:
-          {{- range $key, $value := .Values.plex.env }}
-          {{ $key }}: {{ $value | quote }}
-          {{- end }}
+        {{- if .Values.plex.extraEnv }}
+        extraEnv:
+          {{- toYaml .Values.plex.extraEnv | nindent 10 }}
+        {{- end }}
+
+        {{- if .Values.plex.runtimeClassName }}
+        runtimeClassName: {{ .Values.plex.runtimeClassName }}
+        {{- end }}
 
         {{- if .Values.plex.nodeSelector }}
         nodeSelector:
           {{- toYaml .Values.plex.nodeSelector | nindent 10 }}
         {{- end }}
 
+        {{- if .Values.plex.resources }}
         resources:
           {{- toYaml .Values.plex.resources | nindent 10 }}
+        {{- end }}
 
-        persistence:
-          config:
-            enabled: {{ .Values.plex.persistence.config.enabled }}
-            storageClass: {{ .Values.plex.persistence.config.storageClass }}
-            size: {{ .Values.plex.persistence.config.size }}
-            accessMode: {{ .Values.plex.persistence.config.accessMode }}
+        {{- if .Values.plex.pms }}
+        pms:
+          {{- toYaml .Values.plex.pms | nindent 10 }}
+        {{- end }}
 
-          {{- if .Values.plex.persistence.media.enabled }}
-          media:
-            enabled: true
-            type: {{ .Values.plex.persistence.media.type }}
-            server: {{ .Values.plex.persistence.media.server }}
-            path: {{ .Values.plex.persistence.media.path }}
-            mountPath: {{ .Values.plex.persistence.media.mountPath }}
-          {{- end }}
+        {{- if .Values.plex.extraVolumes }}
+        extraVolumes:
+          {{- toYaml .Values.plex.extraVolumes | nindent 10 }}
+        {{- end }}
 
-          {{- if .Values.plex.persistence.transcode.enabled }}
-          transcode:
-            enabled: true
-            type: {{ .Values.plex.persistence.transcode.type }}
-            {{- if .Values.plex.persistence.transcode.medium }}
-            medium: {{ .Values.plex.persistence.transcode.medium }}
-            {{- end }}
-            {{- if .Values.plex.persistence.transcode.sizeLimit }}
-            sizeLimit: {{ .Values.plex.persistence.transcode.sizeLimit }}
-            {{- end }}
-          {{- end }}
+        {{- if .Values.plex.extraVolumeMounts }}
+        extraVolumeMounts:
+          {{- toYaml .Values.plex.extraVolumeMounts | nindent 10 }}
+        {{- end }}
 
-        {{- if .Values.plex.ingress.enabled }}
+        {{- if .Values.plex.ingress }}
         ingress:
-          enabled: true
-          className: {{ .Values.plex.ingress.className }}
-          annotations:
-            {{- toYaml .Values.plex.ingress.annotations | nindent 12 }}
-          hosts:
-            {{- toYaml .Values.plex.ingress.hosts | nindent 12 }}
-          tls:
-            {{- toYaml .Values.plex.ingress.tls | nindent 12 }}
+          {{- toYaml .Values.plex.ingress | nindent 10 }}
         {{- end }}
 
   destination:

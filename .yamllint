@@ -5,6 +5,7 @@ extends: default
 ignore: |
   charts/*/templates/
   charts/*/charts/
+  terragrunt/files/
 
 rules:
   line-length:

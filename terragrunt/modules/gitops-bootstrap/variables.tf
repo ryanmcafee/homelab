@@ -120,6 +120,12 @@ variable "wait_for_argocd" {
   default     = true
 }
 
+variable "kubeconfig_path" {
+  description = "Path to kubeconfig file for kubectl commands in local-exec"
+  type        = string
+  default     = ""
+}
+
 # 1Password Configuration
 variable "onepassword_credentials_json" {
   description = "1Password Connect credentials JSON content"

@@ -36,7 +36,10 @@ op = "latest"          # 1Password CLI for secrets management
 # Terraform plugin cache
 TF_PLUGIN_CACHE_DIR = "{{config_root}}/.terraform.d/plugin-cache"
 
-# mise will automatically activate direnv if installed
+# 1Password CLI Authentication (reads file contents directly)
+OP_SERVICE_ACCOUNT_TOKEN = "{{ read_file(path=env.HOME ~ '/.op/op_service_account_token') | trim }}"
+
+# Load remaining env vars from .envrc (non-shell substitution vars only)
 _.file = ".envrc"
 
 [tasks.validate]

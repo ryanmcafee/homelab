@@ -166,7 +166,7 @@ if mode == "direct":
             "--set=service.type=NodePort",
             "--set=ports.web.nodePort=30080",
             "--set=ports.websecure.nodePort=30443",
-            "--set=globalArguments={--global.checknewversion=false,--global.sendanonymoususage=false}",
+            "--set=additionalArguments={--global.checknewversion=false,--global.sendanonymoususage=false}",
             "--set=resources.requests.cpu=50m",
             "--set=resources.requests.memory=128Mi",
         ],

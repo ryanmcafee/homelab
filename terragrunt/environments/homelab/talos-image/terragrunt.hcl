@@ -15,14 +15,15 @@ terraform {
 }
 
 # Configure Proxmox provider
-# API token is read from PROXMOX_VE_API_TOKEN environment variable
+# API token is read from TF_VAR_proxmox_api_token_id and TF_VAR_proxmox_api_token_secret via env.hcl
 generate "provider_proxmox" {
   path      = "provider_proxmox.tf"
   if_exists = "overwrite_terragrunt"
   contents  = <<EOF
 provider "proxmox" {
-  endpoint = "${include.env.locals.proxmox_endpoint}"
-  insecure = ${include.env.locals.proxmox_insecure}
+  endpoint  = "${include.env.locals.proxmox_endpoint}"
+  api_token = "${include.env.locals.proxmox_api_token_id}=${include.env.locals.proxmox_api_token_secret}"
+  insecure  = ${include.env.locals.proxmox_insecure}
 
   ssh {
     agent       = false

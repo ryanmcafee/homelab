@@ -188,6 +188,9 @@ tasks:
   # ==========================================================================
   # Terragrunt / Terraform
   # ==========================================================================
+  # All tf:* commands use `op run` to inject secrets from 1Password at runtime.
+  # Secrets are only available for the duration of the command.
+  # Requires: OP_SERVICE_ACCOUNT_TOKEN set in environment (from ~/.op/op_service_account_token)
 
   tf:fmt:
     desc: Format all Terraform/Terragrunt files
@@ -199,40 +202,114 @@ tasks:
     desc: Validate Terraform configurations
     dir: terragrunt
     cmds:
-      - terragrunt run-all validate
+      - op run --env-file={{.ROOT_DIR}}/.env.op -- terragrunt run-all validate
 
   tf:init:
     desc: Run Terragrunt init for environment
     dir: terragrunt/environments/{{.ENV}}
     cmds:
-      - terragrunt run-all init
+      - op run --env-file={{.ROOT_DIR}}/.env.op -- terragrunt run-all init
     vars:
       ENV: '{{.ENV | default "homelab"}}'
+
+  tf:init:component:
+    desc: Run Terragrunt init for a specific component
+    dir: terragrunt/environments/{{.ENV}}/{{.COMPONENT}}
+    cmds:
+      - op run --env-file={{.ROOT_DIR}}/.env.op -- terragrunt init
+    vars:
+      ENV: '{{.ENV | default "homelab"}}'
+      COMPONENT: '{{.COMPONENT}}'
 
   tf:plan:
     desc: Run Terragrunt plan for environment
     dir: terragrunt/environments/{{.ENV}}
     cmds:
-      - terragrunt run-all plan
+      - op run --env-file={{.ROOT_DIR}}/.env.op -- terragrunt run-all plan {{.TF_ARGS}}
     vars:
       ENV: '{{.ENV | default "homelab"}}'
+      TF_ARGS: '{{.TF_ARGS | default ""}}'
+
+  tf:plan:component:
+    desc: Run Terragrunt plan for a specific component
+    dir: terragrunt/environments/{{.ENV}}/{{.COMPONENT}}
+    cmds:
+      - op run --env-file={{.ROOT_DIR}}/.env.op -- terragrunt plan
+    vars:
+      ENV: '{{.ENV | default "homelab"}}'
+      COMPONENT: '{{.COMPONENT}}'
 
   tf:apply:
     desc: Run Terragrunt apply for environment
     dir: terragrunt/environments/{{.ENV}}
     cmds:
-      - terragrunt run-all apply --terragrunt-non-interactive --auto-approve
+      - op run --env-file={{.ROOT_DIR}}/.env.op -- terragrunt run-all apply --terragrunt-non-interactive --auto-approve
     vars:
       ENV: '{{.ENV | default "homelab"}}'
+
+  tf:apply:component:
+    desc: Run Terragrunt apply for a specific component
+    dir: terragrunt/environments/{{.ENV}}/{{.COMPONENT}}
+    cmds:
+      - op run --env-file={{.ROOT_DIR}}/.env.op -- terragrunt apply --terragrunt-non-interactive --auto-approve
+    vars:
+      ENV: '{{.ENV | default "homelab"}}'
+      COMPONENT: '{{.COMPONENT}}'
 
   tf:destroy:
     desc: Destroy infrastructure (use with caution)
     dir: terragrunt/environments/{{.ENV}}
     cmds:
-      - terragrunt run-all destroy
+      - op run --env-file={{.ROOT_DIR}}/.env.op -- terragrunt run-all destroy --terragrunt-non-interactive --auto-approve
     vars:
       ENV: '{{.ENV | default "homelab"}}'
     prompt: Are you sure you want to destroy the {{.ENV}} environment?
+
+  tf:destroy:component:
+    desc: Destroy a specific component (use with caution)
+    dir: terragrunt/environments/{{.ENV}}/{{.COMPONENT}}
+    cmds:
+      - op run --env-file={{.ROOT_DIR}}/.env.op -- terragrunt destroy --terragrunt-non-interactive --auto-approve
+    vars:
+      ENV: '{{.ENV | default "homelab"}}'
+      COMPONENT: '{{.COMPONENT}}'
+    prompt: Are you sure you want to destroy {{.COMPONENT}} in {{.ENV}}?
+
+  tf:output:
+    desc: Show Terragrunt outputs for a component
+    dir: terragrunt/environments/{{.ENV}}/{{.COMPONENT}}
+    cmds:
+      - op run --env-file={{.ROOT_DIR}}/.env.op -- terragrunt output
+    vars:
+      ENV: '{{.ENV | default "homelab"}}'
+      COMPONENT: '{{.COMPONENT}}'
+
+  # ==========================================================================
+  # Cilium CNI
+  # ==========================================================================
+
+  cilium:render:
+    desc: Render Cilium Helm chart to YAML for inline installation
+    cmds:
+      - helm repo add cilium https://helm.cilium.io/ || true
+      - helm repo update cilium
+      - |
+        helm template cilium cilium/cilium --version 1.18.0 \
+          --namespace kube-system \
+          --set ipam.mode=kubernetes \
+          --set kubeProxyReplacement=true \
+          --set k8sServiceHost=localhost \
+          --set k8sServicePort=7445 \
+          --set securityContext.capabilities.ciliumAgent="{CHOWN,KILL,NET_ADMIN,NET_RAW,IPC_LOCK,SYS_ADMIN,SYS_RESOURCE,DAC_OVERRIDE,FOWNER,SETGID,SETUID}" \
+          --set securityContext.capabilities.cleanCiliumState="{NET_ADMIN,SYS_ADMIN,SYS_RESOURCE}" \
+          --set cgroup.autoMount.enabled=false \
+          --set cgroup.hostRoot=/sys/fs/cgroup \
+          --set l2announcements.enabled=true \
+          --set externalIPs.enabled=true \
+          --set hubble.relay.enabled=true \
+          --set hubble.ui.enabled=true \
+          > terragrunt/files/cilium-rendered.yaml
+      - echo "Cilium manifests rendered to terragrunt/files/cilium-rendered.yaml"
 
   # ==========================================================================
   # Talos

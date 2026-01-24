@@ -1,0 +1,21 @@
+# Gitleaks configuration
+# https://github.com/gitleaks/gitleaks
+
+title = "Homelab Gitleaks Configuration"
+
+[extend]
+useDefault = true
+
+# Global allowlist for paths that should be ignored
+[allowlist]
+description = "Allowlist for homelab project"
+paths = [
+    # Mock certificates in Terragrunt dependency mocks
+    # These are intentionally self-signed test certificates for testing when the cluster doesn't exist
+    '''terragrunt/environments/.*/gitops-bootstrap/terragrunt\.hcl''',
+    '''terragrunt/environments/.*/talos-cluster/terragrunt\.hcl''',
+    # Generated/rendered files that may contain secrets
+    # These files should not be committed to git
+    '''.*-rendered\.yaml''',
+    '''terragrunt/files/.*''',
+]

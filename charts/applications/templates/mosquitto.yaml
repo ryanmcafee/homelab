@@ -18,43 +18,28 @@ spec:
     helm:
       releaseName: mosquitto
       values: |
-        image:
-          repository: {{ .Values.mosquitto.image.repository }}
-          tag: {{ .Values.mosquitto.image.tag }}
-          pullPolicy: {{ .Values.mosquitto.image.pullPolicy }}
+        {{- if .Values.mosquitto.workload }}
+        workload:
+          {{- toYaml .Values.mosquitto.workload | nindent 10 }}
+        {{- end }}
 
-        env:
-          {{- range $key, $value := .Values.mosquitto.env }}
-          {{ $key }}: {{ $value | quote }}
-          {{- end }}
-
-        resources:
-          {{- toYaml .Values.mosquitto.resources | nindent 10 }}
-
+        {{- if .Values.mosquitto.persistence }}
         persistence:
-          config:
-            enabled: {{ .Values.mosquitto.persistence.config.enabled }}
-            storageClass: {{ .Values.mosquitto.persistence.config.storageClass }}
-            size: {{ .Values.mosquitto.persistence.config.size }}
-            accessMode: {{ .Values.mosquitto.persistence.config.accessMode }}
+          {{- toYaml .Values.mosquitto.persistence | nindent 10 }}
+        {{- end }}
 
-          {{- if .Values.mosquitto.persistence.data.enabled }}
-          data:
-            enabled: true
-            storageClass: {{ .Values.mosquitto.persistence.data.storageClass }}
-            size: {{ .Values.mosquitto.persistence.data.size }}
-            accessMode: {{ .Values.mosquitto.persistence.data.accessMode }}
-          {{- end }}
-
+        {{- if .Values.mosquitto.service }}
         service:
-          type: {{ .Values.mosquitto.service.type }}
-          ports:
-            {{- toYaml .Values.mosquitto.service.ports | nindent 12 }}
+          {{- toYaml .Values.mosquitto.service | nindent 10 }}
+        {{- end }}
 
-        {{- if .Values.mosquitto.auth.enabled }}
-        auth:
-          enabled: true
-          # Authentication credentials provided via 1Password
+        {{- if .Values.mosquitto.mosquitto }}
+        mosquitto:
+          {{- toYaml .Values.mosquitto.mosquitto | nindent 10 }}
+        {{- end }}
+
+        {{- if .Values.mosquitto.TZ }}
+        TZ: {{ .Values.mosquitto.TZ | quote }}
         {{- end }}
 
   destination:

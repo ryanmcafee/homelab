@@ -31,7 +31,7 @@ provider "kubernetes" {
 }
 
 provider "helm" {
-  kubernetes {
+  kubernetes = {
     host                   = "${dependency.kind_cluster.outputs.endpoint}"
     client_certificate     = base64decode("${dependency.kind_cluster.outputs.client_certificate}")
     client_key             = base64decode("${dependency.kind_cluster.outputs.client_key}")
@@ -67,10 +67,10 @@ inputs = {
 
   # Local dev metadata
   custom_metadata = {
-    environment      = "localdev"
-    cluster_type     = "kind"
-    storage_class    = "local-path"
-    metallb_enabled  = "false"
+    environment     = "localdev"
+    cluster_type    = "kind"
+    storage_class   = "local-path"
+    metallb_enabled = "false"
   }
 
   # Enable auto-sync

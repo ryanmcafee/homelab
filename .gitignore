@@ -19,6 +19,7 @@ ansible/group_vars/all.yml
 .env
 .envrc
 !.envrc.example
+!.env.op
 .direnv/
 
 # IDE
@@ -50,9 +51,16 @@ tmp/
 *.tmp
 *.log
 
+# Generated/rendered files (may contain secrets)
+*-rendered.yaml
+terragrunt/files/*.yaml
+
 # Kubeconfig
 kubeconfig
 *.kubeconfig
+
+# Talosconfig
+talosconfig
 
 # 1Password
 .op/
@@ -69,3 +77,6 @@ kubeconfig
 # mise
 .mise.local.toml
 .mise/
+
+# Terraform state lock files
+terragrunt/terraform.tfstate.d/**/.terraform.tfstate.lock.info
