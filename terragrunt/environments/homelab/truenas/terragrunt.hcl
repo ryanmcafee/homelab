@@ -38,6 +38,21 @@ provider "proxmox" {
 EOF
 }
 
+# Configure UniFi provider for DNS records
+generate "provider_unifi" {
+  path      = "provider_unifi.tf"
+  if_exists = "overwrite_terragrunt"
+  contents  = <<EOF
+provider "unifi" {
+  api_url        = "${include.env.locals.unifi_api_url}"
+  username       = "${include.env.locals.unifi_username}"
+  password       = "${include.env.locals.unifi_password}"
+  allow_insecure = ${include.env.locals.unifi_insecure}
+  site           = "${include.env.locals.unifi_site}"
+}
+EOF
+}
+
 inputs = {
   vm_name   = "truenas"
   vm_id     = include.env.locals.truenas_vm_id
@@ -75,4 +90,12 @@ inputs = {
   truenas_api_url = "https://${include.env.locals.truenas_ip}"
 
   tags = ["homelab", "storage", "truenas"]
+
+  # DNS records for TrueNAS
+  dns_entries = [
+    { fqdn = "truenas.home.lab", type = "A", host = include.env.locals.truenas_ip },
+    { fqdn = "truenas.${include.env.locals.base_fqdn}", type = "A", host = include.env.locals.truenas_ip },
+    { fqdn = "nas.home.lab", type = "A", host = include.env.locals.truenas_ip },
+    { fqdn = "nas.${include.env.locals.base_fqdn}", type = "A", host = include.env.locals.truenas_ip }
+  ]
 }

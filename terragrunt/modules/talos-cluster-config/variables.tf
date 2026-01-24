@@ -114,3 +114,20 @@ variable "cluster_endpoint" {
   type        = string
   default     = ""
 }
+
+# DNS Configuration
+variable "dns_entries" {
+  description = "List of DNS entries to create for Kubernetes API"
+  type = list(object({
+    fqdn = string
+    type = string
+    host = string
+  }))
+  default = []
+}
+
+variable "dns_ttl" {
+  description = "TTL for DNS records in seconds"
+  type        = number
+  default     = 300
+}

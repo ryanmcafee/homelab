@@ -94,6 +94,13 @@ locals {
   # Base FQDN
   base_fqdn = "ryanmcafee.com"
 
+  # UniFi configuration (credentials via environment variables)
+  unifi_api_url  = get_env("UNIFI_API", "")
+  unifi_username = get_env("UNIFI_USERNAME", "")
+  unifi_password = get_env("UNIFI_PASSWORD", "")
+  unifi_insecure = true
+  unifi_site     = get_env("UNIFI_SITE", "default")
+
   # Resource allocation
   # Control plane: 2 nodes x 8GB = 16GB total
   # Workers: 3 nodes x 32GB = 96GB total

@@ -38,3 +38,8 @@ output "cluster_ca_certificate" {
   value       = base64decode(yamldecode(talos_cluster_kubeconfig.this.kubeconfig_raw)["clusters"][0]["cluster"]["certificate-authority-data"])
   sensitive   = true
 }
+
+output "dns_records" {
+  description = "Map of FQDN to DNS record ID"
+  value       = { for fqdn, record in unifi_dns_record.this : fqdn => record.id }
+}
