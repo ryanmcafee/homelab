@@ -1,0 +1,131 @@
+# ArgoCD Configuration for CI Environment
+# This overrides argocd-values.yaml for GitHub Actions CI
+#
+# Key difference: No hostPath volume mounts (not available in CI)
+
+# ============================================================================
+# Global Configuration
+# ============================================================================
+
+global:
+  storageClass: local-path
+
+# ============================================================================
+# API Server Configuration
+# ============================================================================
+
+server:
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+
+  service:
+    type: NodePort
+    nodePortHttp: 30080
+
+  extraArgs:
+    - --insecure
+
+# ============================================================================
+# Repo Server Configuration
+# ============================================================================
+
+repoServer:
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+
+  # Note: No hostPath volumes - not available in CI
+  # The repo-server will use Git URLs for chart access
+
+# ============================================================================
+# Application Controller Configuration
+# ============================================================================
+
+controller:
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+  metrics:
+    enabled: true
+    serviceMonitor:
+      enabled: false
+
+# ============================================================================
+# Redis Configuration
+# ============================================================================
+
+redis:
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+
+# ============================================================================
+# Disabled Components for CI
+# ============================================================================
+
+dex:
+  enabled: false
+
+notifications:
+  enabled: false
+
+# ============================================================================
+# ApplicationSet Controller
+# ============================================================================
+
+applicationSet:
+  enabled: true
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+
+# ============================================================================
+# Configuration
+# ============================================================================
+
+configs:
+  secret:
+    createSecret: true
+
+  cm:
+    timeout.reconciliation: 30s
+    exec.enabled: "true"
+    ga.trackingid: ""
+
+  rbac:
+    policy.default: role:admin
+
+# ============================================================================
+# High Availability - Disabled
+# ============================================================================
+
+redis-ha:
+  enabled: false
+
+ingress:
+  enabled: false
+
+automountServiceAccountToken: false
+createAggregateRoles: true
