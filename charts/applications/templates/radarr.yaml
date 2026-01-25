@@ -46,12 +46,14 @@ spec:
     server: https://kubernetes.default.svc
     namespace: {{ .Values.radarr.namespace }}
 
-  # Ignore TrueCharts checksum annotations that change on each Helm template render
+  # Ignore TrueCharts dynamic fields and Kubernetes defaults
   ignoreDifferences:
     - group: apps
       kind: Deployment
       jqPathExpressions:
         - .spec.template.metadata.annotations | to_entries | map(select(.key | startswith("checksum/"))) | from_entries
+      jsonPointers:
+        - /spec/template/spec/hostUsers
 
   syncPolicy:
     automated:
