@@ -16,6 +16,7 @@ talosctl = "1.7.6"
 tilt = "0.33.11"
 argocd = "latest"
 argo = "latest"          # Argo Workflows CLI
+argo-rollouts = "latest"  # Argo Rollouts kubectl plugin
 
 # Configuration Management (Python via pipx)
 "pipx:ansible-core" = "latest"
@@ -64,6 +65,7 @@ talosctl version --client
 tilt version
 argocd version --client
 argo version --short
+kubectl argo rollouts version
 echo ""
 echo "Configuration Management:"
 ansible --version
