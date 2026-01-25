@@ -18,6 +18,19 @@ spec:
     helm:
       releaseName: kubelet-csr-approver
       values: |
+        {{- if index .Values "kubelet-csr-approver" "providerIpPrefixes" }}
+        providerIpPrefixes:
+          {{- toYaml (index .Values "kubelet-csr-approver" "providerIpPrefixes") | nindent 10 }}
+        {{- end }}
+        {{- if index .Values "kubelet-csr-approver" "providerRegex" }}
+        providerRegex: {{ index .Values "kubelet-csr-approver" "providerRegex" | quote }}
+        {{- end }}
+        {{- if index .Values "kubelet-csr-approver" "maxExpirationSeconds" }}
+        maxExpirationSeconds: {{ index .Values "kubelet-csr-approver" "maxExpirationSeconds" }}
+        {{- end }}
+        {{- if index .Values "kubelet-csr-approver" "bypassDnsResolution" }}
+        bypassDnsResolution: {{ index .Values "kubelet-csr-approver" "bypassDnsResolution" }}
+        {{- end }}
         resources:
           {{- toYaml (index .Values "kubelet-csr-approver" "resources") | nindent 10 }}
 

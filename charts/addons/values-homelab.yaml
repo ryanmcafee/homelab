@@ -99,6 +99,42 @@ argocd:
           memory: 128Mi
 
 # ============================================================================
+# Kubelet CSR Approver - Automatic Kubelet Certificate Approval
+# Sync Wave: 1 (early infrastructure component)
+# ============================================================================
+
+kubelet-csr-approver:
+  enabled: true
+  namespace: kube-system
+
+  chart:
+    name: kubelet-csr-approver
+    repo: https://postfinance.github.io/kubelet-csr-approver
+    version: "1.2.2"
+
+  # IP prefixes allowed for kubelet serving certificates
+  # Must include all node IPs in the cluster
+  providerIpPrefixes:
+    - "172.16.100.0/24"
+
+  # Regex pattern for valid node names (Talos generates names like talos-xxx-yyy)
+  providerRegex: "^talos-[a-z0-9]{3}-[a-z0-9]{3}$"
+
+  # Bypass DNS resolution check for SAN names (Talos node names aren't in DNS)
+  bypassDnsResolution: true
+
+  # Maximum certificate validity (365 days)
+  maxExpirationSeconds: 31536000
+
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+    limits:
+      cpu: 100m
+      memory: 128Mi
+
+# ============================================================================
 # MetalLB - LoadBalancer IP Address Management
 # Sync Wave: 1
 # ============================================================================
