@@ -51,7 +51,8 @@ resource "kubernetes_secret_v1" "onepassword_credentials" {
   }
 
   data = {
-    "1password-credentials.json" = var.onepassword_credentials_json
+    # Connect expects the credentials JSON to be base64 encoded for OP_SESSION env var
+    "1password-credentials.json" = base64encode(var.onepassword_credentials_json)
     "OP_CONNECT_HOST"            = var.onepassword_connect_host
     "OP_CONNECT_TOKEN"           = var.onepassword_connect_token
     "OP_SERVICE_ACCOUNT_TOKEN"   = var.onepassword_service_account_token
