@@ -158,12 +158,13 @@ democratic-csi:
   driver: freenas-nfs
 
   truenas:
-    endpoint: https://truenas.ryanmcafee.com
-    allowInsecure: false
+    # Use IP address instead of hostname since internal DNS is not resolvable from cluster
+    endpoint: https://172.16.100.150
+    allowInsecure: true  # Required when using IP (no valid TLS cert for IP)
     apiKey: ""  # Provided via 1Password operator
 
   nfs:
-    shareHost: truenas.ryanmcafee.com
+    shareHost: 172.16.100.150
     shareAllow: 172.16.100.0/24
     parent: storage/k8s
 
@@ -209,9 +210,9 @@ local-path-provisioner:
   namespace: onepassword-operator
 
   chart:
-    name: onepassword-connect-operator
+    name: connect
     repo: https://1password.github.io/connect-helm-charts
-    version: 1.15.1
+    version: 2.2.1
 
   connect:
     credentialsJson: ""
@@ -259,6 +260,7 @@ cert-manager:
     enabled: true
     email: admin@ryanmcafee.com
     apiToken: ""
+    onePasswordItemPath: vaults/homelab/items/cloudflare-api-token
 
   resources:
     requests:
@@ -305,6 +307,7 @@ external-dns:
   cloudflare:
     apiToken: ""
     proxied: true
+    onePasswordItemPath: vaults/homelab/items/cloudflare-api-token
 
   domainFilters:
     - ryanmcafee.com
@@ -500,3 +503,7 @@ traefik:
           target:
             type: Utilization
             averageUtilization: 80
+
+  cloudflare:
+    enabled: true
+    onePasswordItemPath: vaults/homelab/items/cloudflare-api-token

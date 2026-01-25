@@ -44,8 +44,9 @@ locals {
 }
 
 # Trigger resource that tracks when bootstrap should re-run
-# When the input changes (e.g., new machine secrets), this resource is replaced,
-# which in turn triggers the bootstrap resource to be replaced via lifecycle
+# IMPORTANT: Only trigger on machine_secrets changes (new cluster creation)
+# Config changes (DNS, patches, etc.) should NOT trigger re-bootstrap
+# as the cluster just needs configs re-applied, not a fresh bootstrap
 resource "terraform_data" "bootstrap_trigger" {
   count = var.bootstrap_cluster ? 1 : 0
   input = var.bootstrap_trigger
@@ -79,7 +80,6 @@ resource "talos_machine_bootstrap" "this" {
 
   depends_on = [
     talos_machine_configuration_apply.controlplane,
-    talos_machine_configuration_apply.worker
   ]
 
   client_configuration = var.client_configuration
