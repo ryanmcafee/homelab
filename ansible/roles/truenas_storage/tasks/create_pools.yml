@@ -1,0 +1,121 @@
+---
+# TrueNAS Storage Role - Create Storage Pools
+# Creates ZFS pools based on disk type (HDD/SSD)
+# Uses Basic Auth with admin password for initial setup
+
+- name: Get all available disks
+  ansible.builtin.uri:
+    url: "{{ api_url }}/api/v2.0/disk"
+    method: GET
+    url_username: "{{ api_user }}"
+    url_password: "{{ api_password }}"
+    force_basic_auth: true
+    validate_certs: "{{ truenas_verify_ssl | default(false) }}"
+  register: all_disks
+
+- name: Get existing pools
+  ansible.builtin.uri:
+    url: "{{ api_url }}/api/v2.0/pool"
+    method: GET
+    url_username: "{{ api_user }}"
+    url_password: "{{ api_password }}"
+    force_basic_auth: true
+    validate_certs: "{{ truenas_verify_ssl | default(false) }}"
+  register: existing_pools
+
+- name: Set existing pool names
+  ansible.builtin.set_fact:
+    existing_pool_names: "{{ existing_pools.json | map(attribute='name') | list }}"
+
+- name: Debug raw disk response
+  ansible.builtin.debug:
+    msg: "Raw disk data (first 2): {{ all_disks.json[:2] | to_nice_json }}"
+  when: all_disks.json | length > 0
+
+- name: Filter unused disks (not in any pool)
+  ansible.builtin.set_fact:
+    unused_disks: "{{ all_disks.json | selectattr('pool', 'none') | list }}"
+
+- name: Debug unused disks
+  ansible.builtin.debug:
+    msg: "Unused disks found: {{ unused_disks | length }}"
+
+- name: Categorize disks by type (HDD vs SSD), excluding boot disk
+  ansible.builtin.set_fact:
+    hdd_disks: "{{ unused_disks | selectattr('type', 'equalto', 'HDD') | rejectattr('name', 'match', '^vd.*') | map(attribute='name') | list }}"
+    ssd_disks: "{{ unused_disks | selectattr('type', 'equalto', 'SSD') | rejectattr('name', 'match', '^vd.*') | map(attribute='name') | list }}"
+
+- name: Display available disks
+  ansible.builtin.debug:
+    msg: |
+      Total disks: {{ all_disks.json | length }}
+      Unused disks: {{ unused_disks | length }}
+      Available HDDs (rotationrate > 0): {{ hdd_disks | join(', ') | default('None') }}
+      Available SSDs (rotationrate = 0): {{ ssd_disks | join(', ') | default('None') }}
+      Existing pools: {{ existing_pool_names | join(', ') | default('None') }}
+
+- name: Create storage pool (RAIDZ3 with HDDs)
+  ansible.builtin.uri:
+    url: "{{ api_url }}/api/v2.0/pool"
+    method: POST
+    url_username: "{{ api_user }}"
+    url_password: "{{ api_password }}"
+    force_basic_auth: true
+    validate_certs: "{{ truenas_verify_ssl | default(false) }}"
+    body_format: json
+    body:
+      name: storage
+      topology:
+        data:
+          - type: RAIDZ3
+            disks: "{{ hdd_disks }}"
+      allow_duplicate_serials: false
+    status_code: [200, 201]
+    timeout: 600
+  when:
+    - "'storage' not in existing_pool_names"
+    - hdd_disks | length >= 5
+  register: storage_pool_result
+
+- name: Create SSD pool (MIRROR with NVMe)
+  ansible.builtin.uri:
+    url: "{{ api_url }}/api/v2.0/pool"
+    method: POST
+    url_username: "{{ api_user }}"
+    url_password: "{{ api_password }}"
+    force_basic_auth: true
+    validate_certs: "{{ truenas_verify_ssl | default(false) }}"
+    body_format: json
+    body:
+      name: ssd
+      topology:
+        data:
+          - type: MIRROR
+            disks: "{{ ssd_disks[:2] }}"
+      allow_duplicate_serials: false
+    status_code: [200, 201]
+    timeout: 300
+  when:
+    - "'ssd' not in existing_pool_names"
+    - ssd_disks | length >= 2
+  register: ssd_pool_result
+
+- name: Wait for pool creation jobs
+  ansible.builtin.uri:
+    url: "{{ api_url }}/api/v2.0/core/get_jobs"
+    method: GET
+    url_username: "{{ api_user }}"
+    url_password: "{{ api_password }}"
+    force_basic_auth: true
+    validate_certs: "{{ truenas_verify_ssl | default(false) }}"
+  register: jobs
+  until: jobs.json | selectattr('method', 'equalto', 'pool.create') | selectattr('state', 'equalto', 'RUNNING') | list | length == 0
+  retries: 60
+  delay: 10
+
+- name: Display pool creation results
+  ansible.builtin.debug:
+    msg: |
+      Pool Creation Summary:
+      - storage: {{ 'Created' if storage_pool_result is changed else 'Already exists or skipped (need 5+ HDDs)' }}
+      - ssd: {{ 'Created' if ssd_pool_result is changed else 'Already exists or skipped (need 2+ SSDs)' }}

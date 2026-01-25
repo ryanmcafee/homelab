@@ -47,7 +47,7 @@ The ZFS pool must be created manually for safety:
    - **RAIDZ1** for 3+ drives (1 parity drive)
    - **RAIDZ2** for 4+ drives (2 parity drives)
 4. Select drives passed through via HBA
-5. Name the pool: `tank`
+5. Name the pool: `storage`
 6. Click **Create**
 
 ## Step 4: Run Ansible Setup
@@ -73,16 +73,16 @@ The Ansible playbook configures:
 
 | Dataset | Purpose | Quota |
 |---------|---------|-------|
-| `tank/k8s` | Kubernetes persistent volumes | 500GB |
-| `tank/media` | Media storage (Plex, etc.) | 100TB |
-| `tank/backups` | Backup storage | 50TB |
-| `tank/downloads` | Temporary downloads | 10TB |
+| `storage/k8s` | Kubernetes persistent volumes | 500GB |
+| `storage/media` | Media storage (Plex, etc.) | 100TB |
+| `storage/backups` | Backup storage | 50TB |
+| `storage/downloads` | Temporary downloads | 10TB |
 
 ### NFS Shares
 
 | Share | Path | Access |
 |-------|------|--------|
-| Kubernetes | `/mnt/tank/k8s` | 172.16.100.0/24 |
+| Kubernetes | `/mnt/storage/k8s` | 172.16.100.0/24 |
 
 ### Services
 
@@ -123,7 +123,7 @@ From a Talos node or workstation:
 mkdir -p /mnt/test
 
 # Mount NFS share
-mount -t nfs 172.16.100.50:/mnt/tank/k8s /mnt/test
+mount -t nfs 172.16.100.50:/mnt/storage/k8s /mnt/test
 
 # Verify write access
 touch /mnt/test/test-file

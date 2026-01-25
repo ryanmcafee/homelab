@@ -32,7 +32,7 @@ TrueNAS provides network-attached storage (NAS) for the homelab:
 │                    TrueNAS Scale VM                          │
 │                                                              │
 │  ┌────────────────────────────────────────────────────────┐ │
-│  │  ZFS Pool: tank                                        │ │
+│  │  ZFS Pool: storage                                        │ │
 │  │                                                        │ │
 │  │  ┌──────────────────────────────────────────────────┐ │ │
 │  │  │  Data vDev (RAIDZ3)                              │ │ │
@@ -49,9 +49,9 @@ TrueNAS provides network-attached storage (NAS) for the homelab:
 │  └────────────────────────────────────────────────────────┘ │
 │                                                              │
 │  NFS Shares:                                                 │
-│  - /mnt/tank/kubernetes (K8s PVCs)                           │
-│  - /mnt/tank/media (Plex libraries)                          │
-│  - /mnt/tank/backups (VM backups, etcd)                      │
+│  - /mnt/storage/kubernetes (K8s PVCs)                           │
+│  - /mnt/storage/media (Plex libraries)                          │
+│  - /mnt/storage/backups (VM backups, etcd)                      │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -80,7 +80,7 @@ TrueNAS provides network-attached storage (NAS) for the homelab:
 
 **Via Web UI**:
 1. Navigate to **Storage** → **Pools**
-2. Click **tank** → **Scrub Pool**
+2. Click **storage** → **Scrub Pool**
 3. Confirm scrub start
 
 **Via CLI**:
@@ -90,10 +90,10 @@ TrueNAS provides network-attached storage (NAS) for the homelab:
 ssh root@truenas.local
 
 # Start scrub
-zpool scrub tank
+zpool scrub storage
 
 # Check scrub status
-zpool status tank
+zpool status storage
 
 # Expected output:
 # scan: scrub in progress since Sun Jan 19 02:00:00 2026
@@ -108,14 +108,14 @@ zpool status tank
 crontab -e
 
 # Add scrub schedule (first Sunday, 2 AM)
-0 2 1-7 * 0 [ $(date +\%u) -eq 7 ] && /usr/sbin/zpool scrub tank
+0 2 1-7 * 0 [ $(date +\%u) -eq 7 ] && /usr/sbin/zpool scrub storage
 ```
 
 **What to Check After Scrub**:
 
 ```bash
 # Check for errors
-zpool status tank | grep -i error
+zpool status storage | grep -i error
 
 # No errors should show:
 # errors: No known data errors
@@ -141,7 +141,7 @@ zpool status tank | grep -i error
 1. Navigate to **Tasks** → **Periodic Snapshot Tasks**
 2. Click **Add**
 3. Configure:
-   - Dataset: `tank/kubernetes`
+   - Dataset: `storage/kubernetes`
    - Recursive: Yes
    - Lifetime: `7d` (7 days)
    - Schedule: Hourly
@@ -151,23 +151,23 @@ zpool status tank | grep -i error
 
 ```bash
 # Create snapshot
-zfs snapshot -r tank/kubernetes@manual-$(date +%Y%m%d-%H%M%S)
+zfs snapshot -r storage/kubernetes@manual-$(date +%Y%m%d-%H%M%S)
 
 # List snapshots
 zfs list -t snapshot
 
 # List snapshots for specific dataset
-zfs list -t snapshot tank/kubernetes
+zfs list -t snapshot storage/kubernetes
 ```
 
 **Cleanup Old Snapshots**:
 
 ```bash
 # List snapshots older than 7 days
-zfs list -t snapshot -o name,creation | grep "tank/kubernetes" | awk '$2 < systime() - 604800'
+zfs list -t snapshot -o name,creation | grep "storage/kubernetes" | awk '$2 < systime() - 604800'
 
 # Delete snapshots older than 7 days
-for snap in $(zfs list -H -t snapshot -o name tank/kubernetes | awk ''); do
+for snap in $(zfs list -H -t snapshot -o name storage/kubernetes | awk ''); do
     age=$(zfs get -H -o value creation "$snap")
     age_sec=$(date -d "$age" +%s)
     now_sec=$(date +%s)
@@ -194,12 +194,12 @@ TrueNAS automatically deletes snapshots based on retention policy set in UI.
 
 ```bash
 # Via CLI
-zpool list tank
-zfs list -o space tank
+zpool list storage
+zfs list -o space storage
 
 # Expected output:
 # NAME   SIZE   ALLOC   FREE   CKPOINT  EXPANDSZ   FRAG   CAP  DEDUP  HEALTH  ALTROOT
-# tank  140T   45.2T  94.8T         -         -    12%    32%  1.00x  ONLINE  -
+# storage  140T   45.2T  94.8T         -         -    12%    32%  1.00x  ONLINE  -
 
 # Alert threshold: 80% capacity
 ```
@@ -214,7 +214,7 @@ zfs list -o name,used,avail,refer,mountpoint
 zfs list -t snapshot -o name,used
 
 # Identify large files (top 20)
-find /mnt/tank -type f -exec du -h {} + | sort -rh | head -n 20
+find /mnt/storage -type f -exec du -h {} + | sort -rh | head -n 20
 ```
 
 **Automated Alerts** (via TrueNAS):
@@ -313,19 +313,19 @@ midclt call system.general.config_upload /path/to/truenas-config.tar
 
 ```bash
 # 1. List available snapshots
-zfs list -t snapshot tank/kubernetes
+zfs list -t snapshot storage/kubernetes
 
 # 2. Preview snapshot contents (read-only mount)
-zfs clone tank/kubernetes@20260119-020000 tank/preview
-ls /mnt/tank/preview
-zfs destroy tank/preview  # Cleanup after preview
+zfs clone storage/kubernetes@20260119-020000 storage/preview
+ls /mnt/storage/preview
+zfs destroy storage/preview  # Cleanup after preview
 
 # 3. Rollback to snapshot
 # WARNING: This destroys all changes after snapshot!
-zfs rollback tank/kubernetes@20260119-020000
+zfs rollback storage/kubernetes@20260119-020000
 
 # 4. Verify
-ls /mnt/tank/kubernetes
+ls /mnt/storage/kubernetes
 ```
 
 **Note**: Rollback destroys newer snapshots. Use `zfs rollback -r` to recursively destroy child snapshots.
@@ -347,12 +347,12 @@ camcontrol devlist
 zpool create backup /dev/da9
 
 # 2. Initial full send
-zfs snapshot -r tank/kubernetes@backup-full
-zfs send -R tank/kubernetes@backup-full | zfs receive backup/kubernetes
+zfs snapshot -r storage/kubernetes@backup-full
+zfs send -R storage/kubernetes@backup-full | zfs receive backup/kubernetes
 
 # 3. Incremental send (subsequent backups)
-zfs snapshot -r tank/kubernetes@backup-$(date +%Y%m%d)
-zfs send -R -i tank/kubernetes@backup-full tank/kubernetes@backup-$(date +%Y%m%d) | \
+zfs snapshot -r storage/kubernetes@backup-$(date +%Y%m%d)
+zfs send -R -i storage/kubernetes@backup-full storage/kubernetes@backup-$(date +%Y%m%d) | \
   zfs receive backup/kubernetes
 
 # 4. Verify
@@ -375,18 +375,18 @@ zfs list backup/kubernetes
 
 ```bash
 # 1. Identify failed drive
-zpool status tank
+zpool status storage
 
 # Example output:
 #   NAME        STATE     READ WRITE CKSUM
-#   tank        DEGRADED     0     0     0
+#   storage        DEGRADED     0     0     0
 #     RAIDZ3-0  DEGRADED     0     0     0
 #       da0     ONLINE       0     0     0
 #       da1     FAULTED      0     0     0  <-- Failed drive
 #       da2     ONLINE       0     0     0
 
 # 2. Take drive offline (if not already)
-zpool offline tank da1
+zpool offline storage da1
 
 # 3. Physically replace drive
 # - Shut down TrueNAS (or use hot-swap if available)
@@ -397,10 +397,10 @@ zpool offline tank da1
 camcontrol devlist
 
 # 5. Replace in ZFS pool
-zpool replace tank da1 da9  # da9 is new drive
+zpool replace storage da1 da9  # da9 is new drive
 
 # 6. Monitor resilver (rebuild)
-zpool status tank
+zpool status storage
 
 # Resilver progress:
 #   scan: resilver in progress since ...
@@ -408,7 +408,7 @@ zpool status tank
 #         3.1T resilvered, 59.62% done, 1h23m to go
 
 # 7. Verify after completion
-zpool status tank
+zpool status storage
 # All drives should show ONLINE
 ```
 
@@ -430,11 +430,11 @@ camcontrol devlist
 
 # 2. Add new RAIDZ3 vDev to pool
 # Example: Add 8x new 20TB drives
-zpool add tank RAIDZ3 da9 da10 da11 da12 da13 da14 da15 da16
+zpool add storage RAIDZ3 da9 da10 da11 da12 da13 da14 da15 da16
 
 # 3. Verify
-zpool status tank
-zpool list tank
+zpool status storage
+zpool list storage
 
 # New capacity should reflect added drives
 ```
@@ -460,30 +460,30 @@ ZFS does not automatically rebalance data across vDevs. To distribute data:
 
 ```bash
 # Option 1: Copy data to new location, delete old
-cp -a /mnt/tank/dataset /mnt/tank/dataset-new
-rm -rf /mnt/tank/dataset
-mv /mnt/tank/dataset-new /mnt/tank/dataset
+cp -a /mnt/storage/dataset /mnt/storage/dataset-new
+rm -rf /mnt/storage/dataset
+mv /mnt/storage/dataset-new /mnt/storage/dataset
 
 # Option 2: Use zfs send/receive
-zfs snapshot tank/dataset@rebalance
-zfs send tank/dataset@rebalance | zfs receive tank/dataset-new
+zfs snapshot storage/dataset@rebalance
+zfs send storage/dataset@rebalance | zfs receive storage/dataset-new
 # Swap datasets
-zfs rename tank/dataset tank/dataset-old
-zfs rename tank/dataset-new tank/dataset
-zfs destroy -r tank/dataset-old
+zfs rename storage/dataset storage/dataset-old
+zfs rename storage/dataset-new storage/dataset
+zfs destroy -r storage/dataset-old
 ```
 
 **Adjust Record Size**:
 
 ```bash
 # Check current recordsize
-zfs get recordsize tank/kubernetes
+zfs get recordsize storage/kubernetes
 
 # Set recordsize for large files (media)
-zfs set recordsize=1M tank/media
+zfs set recordsize=1M storage/media
 
 # Set recordsize for small files (databases)
-zfs set recordsize=16K tank/databases
+zfs set recordsize=16K storage/databases
 ```
 
 ---
@@ -505,20 +505,20 @@ ZFS pools can be expanded by:
 ```bash
 # 1. Replace drives ONE AT A TIME
 # Replace first drive
-zpool offline tank da0
+zpool offline storage da0
 # Physically swap drive
-zpool replace tank da0 da0  # New drive takes same device ID
+zpool replace storage da0 da0  # New drive takes same device ID
 
 # Wait for resilver to complete
-zpool status tank
+zpool status storage
 
 # 2. Repeat for all drives in vDev
 
 # 3. After ALL drives replaced, expand pool
-zpool online -e tank da0 da1 da2 da3 da4 da5 da6 da7
+zpool online -e storage da0 da1 da2 da3 da4 da5 da6 da7
 
 # 4. Verify new capacity
-zpool list tank
+zpool list storage
 ```
 
 **Duration**: 1-2 weeks (resilver after each drive replacement)
@@ -544,27 +544,27 @@ echo "17179869184" > /sys/module/zfs/parameters/zfs_arc_max
 
 ```bash
 # Enable/disable prefetch
-zfs set primarycache=all tank  # Enable (default)
-zfs set primarycache=metadata tank  # Disable for data
+zfs set primarycache=all storage  # Enable (default)
+zfs set primarycache=metadata storage  # Disable for data
 ```
 
 **Compression**:
 
 ```bash
 # Check compression
-zfs get compression tank
+zfs get compression storage
 
 # Set compression algorithm
-zfs set compression=lz4 tank  # Fast, recommended
-zfs set compression=zstd tank  # Better ratio, slower
-zfs set compression=off tank  # No compression
+zfs set compression=lz4 storage  # Fast, recommended
+zfs set compression=zstd storage  # Better ratio, slower
+zfs set compression=off storage  # No compression
 ```
 
 **Deduplication** (NOT recommended):
 
 ```bash
 # DO NOT enable unless you have massive RAM (2GB RAM per 1TB data)
-zfs get dedup tank
+zfs get dedup storage
 # dedup should be "off"
 ```
 
@@ -572,17 +572,17 @@ zfs get dedup tank
 
 ```bash
 # I/O statistics
-zpool iostat tank 5  # Update every 5 seconds
+zpool iostat storage 5  # Update every 5 seconds
 
 # Latency histogram
-zpool iostat -l tank
+zpool iostat -l storage
 
 # Check ARC hit ratio
 arc_summary | grep "Hit Rate"
 # Should be > 80%
 
 # Check fragmentation
-zpool list tank
+zpool list storage
 # FRAG should be < 30%
 ```
 
@@ -620,19 +620,19 @@ zpool status
 zpool import
 
 # 3. Force import pool
-zpool import -f tank
+zpool import -f storage
 
 # 4. If import fails, import read-only to recover data
-zpool import -f -o readonly=on tank
+zpool import -f -o readonly=on storage
 
 # 5. Copy critical data to backup
-rsync -av /mnt/tank/ /mnt/backup/
+rsync -av /mnt/storage/ /mnt/backup/
 
 # 6. Export pool
-zpool export tank
+zpool export storage
 
 # 7. Reimport normally
-zpool import tank
+zpool import storage
 ```
 
 ---
@@ -649,19 +649,19 @@ zpool import tank
 
 ```bash
 # 1. Recreate pool
-zpool create tank RAIDZ3 da0 da1 da2 da3 da4 da5 da6 da7
-zpool add tank special mirror da8 da9
+zpool create storage RAIDZ3 da0 da1 da2 da3 da4 da5 da6 da7
+zpool add storage special mirror da8 da9
 
 # 2. Restore from backup
 # Option A: ZFS replication
-zfs send -R backup/kubernetes | zfs receive tank/kubernetes
+zfs send -R backup/kubernetes | zfs receive storage/kubernetes
 
 # Option B: rclone from cloud
-rclone copy b2:homelab-backups/tank /mnt/tank/
+rclone copy b2:homelab-backups/storage /mnt/storage/
 
 # 3. Recreate NFS shares
 # Via TrueNAS UI or:
-midclt call sharing.nfs.create '{"path": "/mnt/tank/kubernetes", "networks": ["172.16.100.0/24"]}'
+midclt call sharing.nfs.create '{"path": "/mnt/storage/kubernetes", "networks": ["172.16.100.0/24"]}'
 
 # 4. Restart NFS
 service nfsd restart
@@ -681,16 +681,16 @@ service nfsd restart
 
 ```bash
 # Check I/O statistics
-zpool iostat tank 1 10
+zpool iostat storage 1 10
 
 # Check pool status
-zpool status tank
+zpool status storage
 
 # Check ARC hit rate
 arc_summary | grep "Hit Rate"
 
 # Check fragmentation
-zpool list tank
+zpool list storage
 ```
 
 **Resolution**:
@@ -698,7 +698,7 @@ zpool list tank
 ```bash
 # If fragmentation > 30%:
 # Run scrub
-zpool scrub tank
+zpool scrub storage
 
 # If ARC hit rate < 80%:
 # Increase ARC size (see Performance Tuning)
@@ -717,7 +717,7 @@ zpool scrub tank
 
 ```bash
 # Check capacity
-zpool list tank
+zpool list storage
 zfs list -o space
 
 # Find largest datasets
@@ -728,10 +728,10 @@ zfs list -o name,used,avail,refer | sort -k2 -h
 
 ```bash
 # Delete old snapshots
-zfs destroy tank/kubernetes@old-snapshot
+zfs destroy storage/kubernetes@old-snapshot
 
 # Delete unused data
-rm -rf /mnt/tank/unused/
+rm -rf /mnt/storage/unused/
 
 # Expand pool (add drives or replace with larger)
 ```
@@ -752,7 +752,7 @@ service nfsd status
 showmount -e localhost
 
 # Check permissions
-ls -ld /mnt/tank/kubernetes
+ls -ld /mnt/storage/kubernetes
 ```
 
 **Resolution**:
@@ -763,10 +763,10 @@ service nfsd restart
 
 # Recreate export
 midclt call sharing.nfs.query
-midclt call sharing.nfs.create '{"path": "/mnt/tank/kubernetes", "networks": ["172.16.100.0/24"]}'
+midclt call sharing.nfs.create '{"path": "/mnt/storage/kubernetes", "networks": ["172.16.100.0/24"]}'
 
 # Fix permissions
-chmod 755 /mnt/tank/kubernetes
+chmod 755 /mnt/storage/kubernetes
 ```
 
 ---
@@ -779,7 +779,7 @@ chmod 755 /mnt/tank/kubernetes
 
 ```bash
 # Check scrub status
-zpool status tank
+zpool status storage
 
 # Check I/O priority
 cat /sys/module/zfs/parameters/zfs_resilver_delay
@@ -840,22 +840,22 @@ echo 5000 > /sys/module/zfs/parameters/zfs_resilver_min_time_ms
 zpool list
 
 # Pool status
-zpool status tank
+zpool status storage
 
 # Pool I/O stats
-zpool iostat tank
+zpool iostat storage
 
 # Scrub pool
-zpool scrub tank
+zpool scrub storage
 
 # Import pool
-zpool import tank
+zpool import storage
 
 # Export pool
-zpool export tank
+zpool export storage
 
 # Upgrade pool
-zpool upgrade tank
+zpool upgrade storage
 ```
 
 ### ZFS Dataset Commands
@@ -865,37 +865,37 @@ zpool upgrade tank
 zfs list
 
 # Create dataset
-zfs create tank/newdataset
+zfs create storage/newdataset
 
 # Delete dataset
-zfs destroy tank/dataset
+zfs destroy storage/dataset
 
 # Snapshot
-zfs snapshot tank/dataset@snapshot-name
+zfs snapshot storage/dataset@snapshot-name
 
 # Rollback
-zfs rollback tank/dataset@snapshot-name
+zfs rollback storage/dataset@snapshot-name
 
 # Clone
-zfs clone tank/dataset@snapshot tank/clone
+zfs clone storage/dataset@snapshot storage/clone
 
 # Send/receive
-zfs send tank/dataset@snap | zfs receive backup/dataset
+zfs send storage/dataset@snap | zfs receive backup/dataset
 ```
 
 ### ZFS Properties
 
 ```bash
 # Get property
-zfs get all tank/dataset
+zfs get all storage/dataset
 
 # Set property
-zfs set compression=lz4 tank/dataset
-zfs set recordsize=1M tank/dataset
-zfs set atime=off tank/dataset
+zfs set compression=lz4 storage/dataset
+zfs set recordsize=1M storage/dataset
+zfs set atime=off storage/dataset
 
 # Inherit property
-zfs inherit compression tank/dataset
+zfs inherit compression storage/dataset
 ```
 
 ### TrueNAS CLI (midclt)
@@ -914,5 +914,5 @@ midclt call pool.dataset.query
 midclt call sharing.nfs.query
 
 # Create NFS share
-midclt call sharing.nfs.create '{"path": "/mnt/tank/share"}'
+midclt call sharing.nfs.create '{"path": "/mnt/storage/share"}'
 ```

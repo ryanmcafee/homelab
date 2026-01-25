@@ -88,7 +88,7 @@ module "gitops_bootstrap" {
   # Pass infrastructure metadata to ArgoCD
   custom_metadata = {
     truenas_ip       = "172.16.100.50"
-    truenas_nfs_path = "/mnt/tank/kubernetes"
+    truenas_nfs_path = "/mnt/storage/kubernetes"
     metallb_ip_range = "172.16.100.100-172.16.100.200"
     cluster_issuer   = "letsencrypt-prod"
     bgp_asn_k8s      = "64512"
@@ -200,7 +200,7 @@ spec:
       values: |
         nfs:
           server: {{ (lookup "v1" "ConfigMap" "argocd" "gitops-metadata").data.truenas_ip }}
-          path: /mnt/tank/kubernetes
+          path: /mnt/storage/kubernetes
 ```
 
 ## Variables

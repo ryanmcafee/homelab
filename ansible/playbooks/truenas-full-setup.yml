@@ -1,0 +1,264 @@
+---
+# TrueNAS Full Setup Playbook
+# Automates complete TrueNAS configuration from fresh installation
+# Run after Terraform/Packer creates the VM from template
+#
+# Authentication: Uses Basic Auth with admin password for initial setup
+# Pass truenas_admin_password via -e flag or environment variable
+#
+# Note: Cloned VMs start with DHCP. This playbook discovers the current IP
+# from Proxmox, configures static IP, then continues with remaining setup.
+
+- name: Configure TrueNAS Scale - Full Automation
+  hosts: truenas
+  gather_facts: false
+  become: false
+  connection: local
+  vars:
+    # Authentication - admin password required for initial setup
+    # Note: TrueNAS 25.x uses 'truenas_admin' as the default admin username
+    truenas_api_user: "truenas_admin"
+    truenas_admin_password: "{{ lookup('env', 'TRUENAS_ADMIN_PASSWORD') | default('changeme') }}"
+    truenas_verify_ssl: false
+
+    # Proxmox connection for IP discovery
+    proxmox_host: "172.16.100.250"
+    proxmox_user: "root"
+    truenas_vm_id: "150"
+
+    # These can be overridden via -e on command line
+    truenas_static_ip: "172.16.100.150/24"
+    truenas_gateway: "172.16.100.1"
+    truenas_dns_servers:
+      - "172.16.100.1"
+    truenas_hostname: "truenas.ryanmcafee.com"
+
+    # Storage pools configuration
+    storage_pools:
+      - name: storage
+        type: raidz3
+        disk_type: HDD
+        disk_count: 8
+        description: "Primary storage pool - 8x 20TB HDDs"
+      - name: ssd
+        type: mirror
+        disk_type: SSD
+        disk_count: 2
+        description: "Fast SSD pool - 2x 1TB NVMe"
+
+    # ACME/Let's Encrypt configuration
+    acme_email: "admin@ryanmcafee.com"
+    acme_dns_provider: cloudflare
+    cloudflare_api_token: "{{ lookup('env', 'CLOUDFLARE_API_TOKEN') | default('') }}"
+
+  tasks:
+    # =========================================================================
+    # Phase 1: Check if static IP is already configured, else discover via DHCP
+    # =========================================================================
+    - name: Extract static IP without CIDR
+      ansible.builtin.set_fact:
+        truenas_static_ip_address: "{{ truenas_static_ip | regex_replace('/.*', '') }}"
+
+    - name: Check if TrueNAS is already accessible at static IP
+      ansible.builtin.uri:
+        url: "https://{{ truenas_static_ip_address }}/api/v2.0/system/info"
+        method: GET
+        url_username: "{{ truenas_api_user }}"
+        url_password: "{{ truenas_admin_password }}"
+        force_basic_auth: true
+        validate_certs: "{{ truenas_verify_ssl }}"
+        status_code: [200]
+        timeout: 10
+      register: static_ip_check
+      ignore_errors: true
+      delegate_to: localhost
+
+    - name: Set current IP to static IP if already configured
+      ansible.builtin.set_fact:
+        truenas_current_ip: "{{ truenas_static_ip_address }}"
+        static_ip_already_configured: true
+      when: static_ip_check.status | default(0) == 200
+
+    - name: Display static IP is already configured
+      ansible.builtin.debug:
+        msg: "TrueNAS already accessible at static IP: {{ truenas_static_ip_address }} - skipping DHCP discovery"
+      when: static_ip_already_configured | default(false)
+
+    # Only run DHCP discovery if static IP is not already configured
+    - name: Get VM MAC address from Proxmox
+      ansible.builtin.shell:
+        cmd: >
+          ssh -o StrictHostKeyChecking=no {{ proxmox_user }}@{{ proxmox_host }}
+          "qm config {{ truenas_vm_id }} | grep '^net0:' | sed 's/.*virtio=//' | cut -d',' -f1"
+      register: vm_mac_result
+      changed_when: false
+      delegate_to: localhost
+      when: not (static_ip_already_configured | default(false))
+
+    - name: Set VM MAC address fact
+      ansible.builtin.set_fact:
+        vm_mac_address: "{{ vm_mac_result.stdout | lower }}"
+      when: not (static_ip_already_configured | default(false))
+
+    - name: Display VM MAC address
+      ansible.builtin.debug:
+        msg: "TrueNAS VM MAC address: {{ vm_mac_address }}"
+      when: not (static_ip_already_configured | default(false))
+
+    - name: Scan network and find VM IP by MAC address
+      ansible.builtin.shell:
+        cmd: |
+          ssh -o StrictHostKeyChecking=no {{ proxmox_user }}@{{ proxmox_host }} '
+            # Clear stale ARP entries for this MAC
+            arp -d 172.16.100.150 2>/dev/null || true
+            # Ping sweep DHCP range to populate ARP table
+            for i in $(seq 240 254); do
+              ping -c 1 -W 1 172.16.100.$i >/dev/null 2>&1 &
+            done
+            wait
+            # Also ping the expected static IP
+            ping -c 2 -W 1 172.16.100.150 >/dev/null 2>&1 || true
+            # Now find our MAC in ARP table
+            arp -a | grep -i "{{ vm_mac_address }}" | grep -oE "([0-9]{1,3}\.){3}[0-9]{1,3}" | head -1
+          '
+      register: vm_ip_result
+      until: vm_ip_result.stdout | length > 0
+      retries: 30
+      delay: 10
+      changed_when: false
+      delegate_to: localhost
+      when: not (static_ip_already_configured | default(false))
+
+    - name: Set discovered IP fact
+      ansible.builtin.set_fact:
+        truenas_current_ip: "{{ vm_ip_result.stdout_lines | first }}"
+      when: not (static_ip_already_configured | default(false))
+
+    - name: Display discovered IP
+      ansible.builtin.debug:
+        msg: "TrueNAS current IP (DHCP): {{ truenas_current_ip }}"
+      when: not (static_ip_already_configured | default(false))
+
+    # =========================================================================
+    # Phase 2: Connect to TrueNAS and verify API (skip if static IP already verified)
+    # =========================================================================
+    - name: Wait for TrueNAS API to be accessible
+      ansible.builtin.wait_for:
+        host: "{{ truenas_current_ip }}"
+        port: 443
+        timeout: 300
+        delay: 10
+      when: not (static_ip_already_configured | default(false))
+
+    - name: Verify TrueNAS API is responding
+      ansible.builtin.uri:
+        url: "https://{{ truenas_current_ip }}/api/v2.0/system/info"
+        method: GET
+        url_username: "{{ truenas_api_user }}"
+        url_password: "{{ truenas_admin_password }}"
+        force_basic_auth: true
+        validate_certs: "{{ truenas_verify_ssl }}"
+        status_code: [200]
+      register: api_check
+      retries: 30
+      delay: 10
+      until: api_check.status == 200
+      when: not (static_ip_already_configured | default(false))
+
+    - name: Display TrueNAS version
+      ansible.builtin.debug:
+        msg: "Connected to TrueNAS {{ api_check.json.version }} at {{ truenas_current_ip }}"
+      when: not (static_ip_already_configured | default(false))
+
+    # =========================================================================
+    # Phase 3: Configure static IP (skip if already configured)
+    # =========================================================================
+    - name: Include network configuration
+      ansible.builtin.include_tasks:
+        file: "{{ playbook_dir }}/../roles/truenas_storage/tasks/configure_network.yml"
+      vars:
+        api_url: "https://{{ truenas_current_ip }}"
+        api_user: "{{ truenas_api_user }}"
+        api_password: "{{ truenas_admin_password }}"
+        network_ip: "{{ truenas_static_ip }}"
+        network_gateway: "{{ truenas_gateway }}"
+        network_dns: "{{ truenas_dns_servers }}"
+        network_hostname: "{{ truenas_hostname }}"
+      when: not (static_ip_already_configured | default(false))
+
+    # =========================================================================
+    # Phase 4: Wait for static IP to be active, then continue setup
+    # =========================================================================
+    - name: Wait for TrueNAS to be accessible on static IP
+      ansible.builtin.wait_for:
+        host: "{{ truenas_static_ip | regex_replace('/.*', '') }}"
+        port: 443
+        timeout: 120
+        delay: 5
+      when: not (static_ip_already_configured | default(false))
+
+    - name: Set final API URL to static IP
+      ansible.builtin.set_fact:
+        truenas_final_ip: "{{ truenas_static_ip | regex_replace('/.*', '') }}"
+
+    - name: Verify API is responding on static IP
+      ansible.builtin.uri:
+        url: "https://{{ truenas_final_ip }}/api/v2.0/system/info"
+        method: GET
+        url_username: "{{ truenas_api_user }}"
+        url_password: "{{ truenas_admin_password }}"
+        force_basic_auth: true
+        validate_certs: "{{ truenas_verify_ssl }}"
+        status_code: [200]
+      register: api_check_static
+      retries: 10
+      delay: 5
+      until: api_check_static.status == 200
+      when: not (static_ip_already_configured | default(false))
+
+    - name: Display static IP confirmation
+      ansible.builtin.debug:
+        msg: "TrueNAS now accessible at static IP: {{ truenas_final_ip }}"
+
+    # =========================================================================
+    # Phase 5: Continue with remaining configuration (using static IP)
+    # =========================================================================
+    - name: Include automation user creation
+      ansible.builtin.include_tasks:
+        file: "{{ playbook_dir }}/../roles/truenas_storage/tasks/create_automation_user.yml"
+      vars:
+        api_url: "https://{{ truenas_final_ip }}"
+        api_user: "{{ truenas_api_user }}"
+        api_password: "{{ truenas_admin_password }}"
+
+    - name: Include storage pool creation
+      ansible.builtin.include_tasks:
+        file: "{{ playbook_dir }}/../roles/truenas_storage/tasks/create_pools.yml"
+      vars:
+        api_url: "https://{{ truenas_final_ip }}"
+        api_user: "{{ truenas_api_user }}"
+        api_password: "{{ truenas_admin_password }}"
+        pools: "{{ storage_pools }}"
+
+    - name: Include ACME certificate configuration
+      ansible.builtin.include_tasks:
+        file: "{{ playbook_dir }}/../roles/truenas_storage/tasks/configure_acme_certificate.yml"
+      vars:
+        api_url: "https://{{ truenas_final_ip }}"
+        api_user: "{{ truenas_api_user }}"
+        api_password: "{{ truenas_admin_password }}"
+        cloudflare_token: "{{ cloudflare_api_token }}"
+        certificate_domain: "{{ truenas_hostname }}"
+      when: cloudflare_api_token | length > 0
+
+    - name: Display completion summary
+      ansible.builtin.debug:
+        msg: |
+          TrueNAS Full Setup Complete!
+          ============================
+          Hostname: {{ truenas_hostname }}
+          IP: {{ truenas_static_ip }}
+          Pools: {{ storage_pools | map(attribute='name') | list | join(', ') }}
+          Certificate: {{ 'Let''s Encrypt for ' + truenas_hostname if cloudflare_api_token | length > 0 else 'Skipped (no Cloudflare token)' }}
+
+          Access TrueNAS at: https://{{ truenas_hostname }}

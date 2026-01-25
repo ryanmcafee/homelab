@@ -20,7 +20,7 @@ output "mac_addresses" {
 
 output "iso_id" {
   description = "The ID of the downloaded TrueNAS ISO"
-  value       = proxmox_virtual_environment_download_file.truenas_iso.id
+  value       = var.use_template ? null : proxmox_virtual_environment_download_file.truenas_iso[0].id
 }
 
 output "dns_records" {

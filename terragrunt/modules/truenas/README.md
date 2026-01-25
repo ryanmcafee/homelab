@@ -120,21 +120,21 @@ For 8x 20TB HDDs + 2x 1TB NVMe (via HBA passthrough):
 ```bash
 # In TrueNAS:
 # 1. Go to Storage > Pools > Create Pool
-# 2. Name: tank
+# 2. Name: storage
 # 3. Data VDEVs: RAIDZ3 with 8x 20TB HDDs
 # 4. Metadata (Special) VDEV: Mirror with 2x 1TB NVMe
 # 5. Create
 
 # Or via CLI:
-zpool create -f tank RAIDZ3 \
+zpool create -f storage RAIDZ3 \
   /dev/sda /dev/sdb /dev/sdc /dev/sdd \
   /dev/sde /dev/sdf /dev/sdg /dev/sdh \
   special mirror /dev/nvme0n1 /dev/nvme1n1
 
 # Set optimal properties
-zfs set compression=lz4 tank
-zfs set atime=off tank
-zfs set recordsize=128K tank
+zfs set compression=lz4 storage
+zfs set atime=off storage
+zfs set recordsize=128K storage
 ```
 
 ## Network Configuration

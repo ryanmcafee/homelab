@@ -1414,7 +1414,7 @@ resource "proxmox_virtual_environment_vm" "truenas" {
   tasks:
     - name: Create main storage pool
       community.general.truenas_pool:
-        name: tank
+        name: storage
         vdevs:
           - type: RAIDZ3
             disks: "{{ truenas_data_disks }}"  # 8x20TB
@@ -1424,14 +1424,14 @@ resource "proxmox_virtual_environment_vm" "truenas" {
 
     - name: Create Kubernetes NFS dataset
       community.general.truenas_dataset:
-        name: tank/kubernetes
+        name: storage/kubernetes
         compression: lz4
         atime: "off"
         share_type: nfs
 
     - name: Configure NFS export for Kubernetes
       community.general.truenas_nfs_share:
-        path: /mnt/tank/kubernetes
+        path: /mnt/storage/kubernetes
         networks:
           - "172.16.100.0/24"
         maproot_user: root
@@ -1440,7 +1440,7 @@ resource "proxmox_virtual_environment_vm" "truenas" {
 
 **Tasks:**
 1. Create Ansible playbook for TrueNAS configuration
-2. Create ZFS pool (tank) with RAIDZ3 and special vdev
+2. Create ZFS pool (storage) with RAIDZ3 and special vdev
 3. Create Kubernetes NFS dataset
 4. Configure NFS export for 172.16.100.0/24
 5. Verify NFS mount from Proxmox host
@@ -1448,7 +1448,7 @@ resource "proxmox_virtual_environment_vm" "truenas" {
 **Checkpoint:** ZFS pool created, NFS exports accessible
 
 **Acceptance criteria:**
-- [ ] ZFS pool 'tank' created with RAIDZ3 (8x20TB)
+- [ ] ZFS pool 'storage' created with RAIDZ3 (8x20TB)
 - [ ] Special vdev configured (2x1TB NVMe mirror)
 - [ ] NFS share created and accessible
 - [ ] Can mount NFS share from Proxmox host
@@ -1861,7 +1861,7 @@ resource "kubectl_manifest" "gitops_app" {
 **Phase 3 Overall Acceptance criteria:**
 - [ ] All subphases (3.0-3.6) completed with checkpoints saved
 - [ ] TrueNAS VM running with HBA passthrough
-- [ ] ZFS pools created (tank with RAIDZ3 + special vdev)
+- [ ] ZFS pools created (storage with RAIDZ3 + special vdev)
 - [ ] NFS shares exported for Kubernetes
 - [ ] Talos cluster healthy (2 CP + 3 workers)
 - [ ] kubectl access working
@@ -2500,7 +2500,7 @@ spec:
             enabled: true
             type: nfs
             server: 172.16.100.x
-            path: /mnt/tank/media
+            path: /mnt/storage/media
         # GPU Passthrough for transcoding
         resources:
           limits:
@@ -2558,7 +2558,7 @@ spec:
             enabled: true
             type: nfs
             server: 172.16.100.x
-            path: /mnt/tank/media
+            path: /mnt/storage/media
   destination:
     server: https://kubernetes.default.svc
     namespace: media
@@ -2610,7 +2610,7 @@ spec:
             enabled: true
             type: nfs
             server: 172.16.100.x
-            path: /mnt/tank/media
+            path: /mnt/storage/media
   destination:
     server: https://kubernetes.default.svc
     namespace: media

@@ -91,6 +91,21 @@ inputs = {
 
   tags = ["homelab", "storage", "truenas"]
 
+  # Template cloning (Phase 2 automation)
+  use_template    = true
+  template_vm_id  = 9000
+
+  # Network for Ansible configuration
+  truenas_static_ip = "172.16.100.150/24"
+  truenas_gateway   = include.env.locals.gateway
+  truenas_hostname  = "truenas.${include.env.locals.base_fqdn}"
+
+  # Ansible setup (runs after VM is up)
+  run_ansible_setup      = true
+  ansible_working_dir    = "${get_terragrunt_dir()}/../../../../ansible"
+  truenas_admin_password = get_env("TRUENAS_ADMIN_PASSWORD", "")
+  cloudflare_api_token   = get_env("CLOUDFLARE_API_TOKEN", "")
+
   # DNS records for TrueNAS
   dns_entries = [
     { fqdn = "truenas.home.lab", type = "A", host = include.env.locals.truenas_ip },

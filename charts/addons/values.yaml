@@ -197,7 +197,7 @@ democratic-csi:
   nfs:
     shareHost: truenas.ryanmcafee.com
     shareAllow: 172.16.100.0/24
-    parent: tank/k8s
+    parent: storage/k8s
 
   # Storage class configuration
   storageClasses:

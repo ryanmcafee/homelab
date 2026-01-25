@@ -170,3 +170,62 @@ variable "dns_ttl" {
   type        = number
   default     = 300
 }
+
+# Template Configuration
+variable "use_template" {
+  description = "Clone from template instead of ISO installation"
+  type        = bool
+  default     = false
+}
+
+variable "template_vm_id" {
+  description = "Template VM ID to clone from"
+  type        = number
+  default     = 9000
+}
+
+# Network Configuration (for Ansible)
+variable "truenas_static_ip" {
+  description = "Static IP for TrueNAS (CIDR notation)"
+  type        = string
+  default     = "172.16.100.150/24"
+}
+
+variable "truenas_gateway" {
+  description = "Gateway for TrueNAS network"
+  type        = string
+  default     = "172.16.100.1"
+}
+
+variable "truenas_hostname" {
+  description = "Hostname for TrueNAS"
+  type        = string
+  default     = "truenas.ryanmcafee.com"
+}
+
+# Ansible Configuration
+variable "run_ansible_setup" {
+  description = "Run Ansible playbook after VM creation"
+  type        = bool
+  default     = false
+}
+
+variable "ansible_working_dir" {
+  description = "Working directory for Ansible playbooks"
+  type        = string
+  default     = "../../../ansible"
+}
+
+variable "truenas_admin_password" {
+  description = "TrueNAS admin password for initial setup"
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
+variable "cloudflare_api_token" {
+  description = "Cloudflare API token for ACME DNS-01 challenge"
+  type        = string
+  sensitive   = true
+  default     = ""
+}

@@ -7,7 +7,7 @@ truenas_api_key: ""
 truenas_verify_ssl: false
 
 # ZFS Pool Configuration
-truenas_pool_name: tank
+truenas_pool_name: storage
 truenas_pool_type: raidz3  # mirror, raidz1, raidz2, raidz3, stripe
 
 # Kubernetes Dataset Configuration
@@ -53,3 +53,31 @@ truenas_csi_api_key_name: democratic-csi
 # Wait for API timeout (seconds)
 truenas_api_wait_timeout: 300
 truenas_api_retry_delay: 10
+
+# Network Configuration (for automation)
+truenas_static_ip: "172.16.100.150/24"
+truenas_gateway: "172.16.100.1"
+truenas_dns_servers:
+  - "172.16.100.1"
+truenas_hostname: "truenas.ryanmcafee.com"
+
+# Storage Pool Definitions
+truenas_storage_pools:
+  - name: storage
+    type: raidz3
+    disk_type: HDD
+    description: "Primary HDD storage pool"
+  - name: ssd
+    type: mirror
+    disk_type: SSD
+    description: "Fast NVMe SSD pool"
+
+# ACME/Let's Encrypt Configuration
+truenas_acme_enabled: true
+truenas_acme_email: "admin@ryanmcafee.com"
+truenas_acme_dns_provider: cloudflare
+truenas_acme_domain: "{{ truenas_hostname }}"
+
+# Automation User
+truenas_automation_user_enabled: true
+truenas_automation_api_key_name: automation
