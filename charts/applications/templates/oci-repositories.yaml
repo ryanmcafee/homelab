@@ -1,0 +1,87 @@
+# OCI Repository configurations for ArgoCD
+# These allow ArgoCD to pull helm charts from OCI registries
+{{- if .Values.sonarr.enabled }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: truecharts-sonarr-oci
+  namespace: argocd
+  labels:
+    argocd.argoproj.io/secret-type: repository
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+stringData:
+  name: truecharts-sonarr
+  type: helm
+  url: {{ .Values.sonarr.chart.repo }}
+  enableOCI: "true"
+{{- end }}
+{{- if .Values.radarr.enabled }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: truecharts-radarr-oci
+  namespace: argocd
+  labels:
+    argocd.argoproj.io/secret-type: repository
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+stringData:
+  name: truecharts-radarr
+  type: helm
+  url: {{ .Values.radarr.chart.repo }}
+  enableOCI: "true"
+{{- end }}
+{{- if .Values.prowlarr.enabled }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: truecharts-prowlarr-oci
+  namespace: argocd
+  labels:
+    argocd.argoproj.io/secret-type: repository
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+stringData:
+  name: truecharts-prowlarr
+  type: helm
+  url: {{ .Values.prowlarr.chart.repo }}
+  enableOCI: "true"
+{{- end }}
+{{- if .Values.homeassistant.enabled }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: truecharts-homeassistant-oci
+  namespace: argocd
+  labels:
+    argocd.argoproj.io/secret-type: repository
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+stringData:
+  name: truecharts-homeassistant
+  type: helm
+  url: {{ .Values.homeassistant.chart.repo }}
+  enableOCI: "true"
+{{- end }}
+{{- if .Values.mosquitto.enabled }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: truecharts-mosquitto-oci
+  namespace: argocd
+  labels:
+    argocd.argoproj.io/secret-type: repository
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+stringData:
+  name: truecharts-mosquitto
+  type: helm
+  url: {{ .Values.mosquitto.chart.repo }}
+  enableOCI: "true"
+{{- end }}
