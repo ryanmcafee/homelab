@@ -29,7 +29,7 @@ locals {
   vlan_id     = 100
   subnet      = "172.16.100.0/24"
   gateway     = "172.16.100.1"
-  dns_servers = ["1.1.1.1", "8.8.8.8"]
+  dns_servers = ["172.16.100.1"]
 
   # MetalLB configuration
   metallb_enabled  = true
@@ -89,7 +89,7 @@ locals {
 
   # Git repository
   repo_url        = "https://github.com/ryanmcafee/homelab"
-  target_revision = "main"
+  target_revision = "feature/automate-truenas-provisioning"
 
   # Base FQDN
   base_fqdn = "ryanmcafee.com"

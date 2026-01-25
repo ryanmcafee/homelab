@@ -10,7 +10,7 @@ locals {
   vlan_id     = 100
   subnet      = "172.16.100.0/24"
   gateway     = "172.16.100.1"
-  dns_servers = ["1.1.1.1", "8.8.8.8"]
+  dns_servers = ["172.16.100.1"]
 
   # MetalLB configuration
   metallb_ip_start = "172.16.100.100"

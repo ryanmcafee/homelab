@@ -149,7 +149,7 @@ variable "network_cidr" {
 variable "dns_servers" {
   description = "DNS servers for nodes"
   type        = list(string)
-  default     = ["1.1.1.1", "8.8.8.8"]
+  default     = ["172.16.100.1"]
 }
 
 # GPU Configuration

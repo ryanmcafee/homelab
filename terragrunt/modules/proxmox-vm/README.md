@@ -57,7 +57,7 @@ module "cloudinit_vm" {
     ipv4_address = "172.16.100.50/24"
     ipv4_gateway = "172.16.100.1"
   }]
-  cloud_init_dns_servers = ["1.1.1.1", "8.8.8.8"]
+  cloud_init_dns_servers = ["172.16.100.1"]
   cloud_init_ssh_keys    = [
     "ssh-rsa AAAAB3NzaC1yc2E... user@host"
   ]

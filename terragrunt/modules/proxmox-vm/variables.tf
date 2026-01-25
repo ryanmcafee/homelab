@@ -196,7 +196,7 @@ variable "cloud_init_ip_configs" {
 variable "cloud_init_dns_servers" {
   description = "DNS servers for cloud-init"
   type        = list(string)
-  default     = ["1.1.1.1", "8.8.8.8"]
+  default     = ["172.16.100.1"]
 }
 
 variable "cloud_init_dns_domain" {
