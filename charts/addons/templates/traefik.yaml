@@ -45,6 +45,12 @@ spec:
         service:
           type: {{ .Values.traefik.service.type }}
 
+        # Update Ingress status with LoadBalancer IP so ArgoCD sees them as healthy
+        providers:
+          kubernetesIngress:
+            publishedService:
+              enabled: true
+
         ports:
           web:
             port: {{ .Values.traefik.ports.web.port }}
