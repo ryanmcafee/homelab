@@ -66,10 +66,14 @@ spec:
           - {{ . }}
           {{- end }}
 
+        {{- if .Values.traefik.additionalArguments }}
         additionalArguments:
           {{- range .Values.traefik.additionalArguments }}
           - {{ . }}
           {{- end }}
+        {{- else }}
+        additionalArguments: []
+        {{- end }}
 
         env:
           {{- toYaml .Values.traefik.env | nindent 10 }}
