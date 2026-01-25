@@ -105,9 +105,9 @@ locals {
   unifi_site     = get_env("UNIFI_SITE", "default")
 
   # Resource allocation
-  # Control plane: 2 nodes x 8GB = 16GB total
-  # Workers: 3 nodes x 32GB = 96GB total
-  # Total cluster memory: 112GB
+  # Control plane: 3 nodes x 8GB = 24GB total
+  # Workers: 3 nodes x 50GB = 150GB total
+  # Total cluster memory: 174GB
 
   control_plane_nodes = {
     "cp-1" = {
@@ -138,7 +138,7 @@ locals {
       ip        = "172.16.100.21"
       host_node = "proxmox"
       cores     = 8
-      memory    = 32768 # 32GB
+      memory    = 51200 # 50GB
       disk_size = 100
       gpu       = true # NVIDIA Quadro P2200 for Plex transcoding
     }
@@ -146,7 +146,7 @@ locals {
       ip        = "172.16.100.22"
       host_node = "proxmox"
       cores     = 4
-      memory    = 32768 # 32GB
+      memory    = 51200 # 50GB
       disk_size = 100
       gpu       = false
     }
@@ -154,7 +154,7 @@ locals {
       ip        = "172.16.100.23"
       host_node = "proxmox"
       cores     = 4
-      memory    = 32768 # 32GB
+      memory    = 51200 # 50GB
       disk_size = 100
       gpu       = false
     }
