@@ -133,4 +133,8 @@ spec:
       kind: ValidatingWebhookConfiguration
       jsonPointers:
         - /webhooks/0/clientConfig/caBundle
+    - group: traefik.io
+      kind: IngressRoute
+      jqPathExpressions:
+        - .spec.routes[].services
 {{- end }}

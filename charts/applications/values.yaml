@@ -8,6 +8,7 @@
 # - Prowlarr (Indexer Manager)
 # - Home Assistant (Home Automation Hub)
 # - Mosquitto (MQTT Broker)
+# - DuckDNS Updater (Dynamic DNS)
 #
 # Environment-specific values should be provided via:
 # - values-localdev.yaml (local Kind development)
@@ -474,3 +475,19 @@ mosquitto:
       # Username and password from 1Password
 
   TZ: America/New_York
+
+# ============================================================================
+# DuckDNS - Dynamic DNS Updater
+# Sync Wave: 1 (early infrastructure)
+# ============================================================================
+
+duckdns:
+  enabled: false
+  namespace: duckdns
+
+  # DuckDNS subdomain (without .duckdns.org)
+  subdomain: ""
+
+  # 1Password vault path for DuckDNS token
+  # The secret should have a field named "token"
+  onePasswordItemPath: ""

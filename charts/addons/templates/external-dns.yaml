@@ -57,6 +57,13 @@ spec:
         registry: txt
         txtOwnerId: {{ .Values.global.environment }}
 
+        {{- if index .Values "external-dns" "defaultTarget" }}
+        # Use DDNS hostname as the target for all DNS records
+        # This ensures Cloudflare points to the dynamic public IP
+        extraArgs:
+          - --default-targets={{ index .Values "external-dns" "defaultTarget" }}
+        {{- end }}
+
         resources:
           {{- toYaml (index .Values "external-dns" "resources") | nindent 10 }}
 

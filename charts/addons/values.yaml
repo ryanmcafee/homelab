@@ -383,6 +383,11 @@ external-dns:
   # Only manage specific annotation
   annotationFilter: external-dns.alpha.kubernetes.io/hostname
 
+  # Default target for all DNS records (optional)
+  # Use this to point all records to a DDNS hostname for dynamic IP
+  # Example: mylab.duckdns.org
+  defaultTarget: ""
+
   # Resource limits
   resources:
     requests:

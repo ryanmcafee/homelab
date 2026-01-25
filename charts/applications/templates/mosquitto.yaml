@@ -56,6 +56,13 @@ spec:
     server: https://kubernetes.default.svc
     namespace: {{ .Values.mosquitto.namespace }}
 
+  # Ignore TrueCharts checksum annotations that change on each Helm template render
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      jqPathExpressions:
+        - .spec.template.metadata.annotations | to_entries | map(select(.key | startswith("checksum/"))) | from_entries
+
   syncPolicy:
     automated:
       prune: true
