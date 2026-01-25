@@ -1,4 +1,12 @@
 {{- if .Values.traefik.enabled }}
+---
+# Namespace for Traefik ingress controller
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Values.traefik.namespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "5"
 {{- if .Values.traefik.cloudflare.enabled }}
 ---
 # OnePasswordItem syncs the Cloudflare API token from 1Password vault
