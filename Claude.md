@@ -17,3 +17,7 @@ TrueCharts direct links:
 - Prowlarr: https://raw.githubusercontent.com/trueforge-org/truecharts/master/charts/stable/prowlarr/Chart.yaml
 - Home Assistant: https://raw.githubusercontent.com/trueforge-org/truecharts/master/charts/stable/home-assistant/Chart.yaml
 - Mosquitto: https://raw.githubusercontent.com/trueforge-org/truecharts/master/charts/stable/mosquitto/Chart.yaml
+
+# IMPORTANT
+
+ALWAYS fix pre-existing bugs when working on a task and a pre-existing bug is identified, that should also be fixed as part of your task.
