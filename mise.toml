@@ -14,6 +14,8 @@ helm = "latest"
 kind = "0.22.0"
 talosctl = "1.7.6"
 tilt = "0.33.11"
+argocd = "latest"
+argo = "latest"          # Argo Workflows CLI
 
 # Configuration Management (Python via pipx)
 "pipx:ansible-core" = "latest"
@@ -60,6 +62,8 @@ helm version
 kind version
 talosctl version --client
 tilt version
+argocd version --client
+argo version --short
 echo ""
 echo "Configuration Management:"
 ansible --version
