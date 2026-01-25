@@ -40,7 +40,7 @@ spec:
             valueFrom:
               secretKeyRef:
                 name: cloudflare-api-token
-                key: api-token
+                key: api_token
 
         cloudflare:
           proxied: {{ index .Values "external-dns" "cloudflare" "proxied" }}
@@ -72,7 +72,7 @@ spec:
       - CreateNamespace=true
       - ServerSideApply=true
     retry:
-      limit: 5
+      limit: 2
       backoff:
         duration: 5s
         factor: 2

@@ -56,7 +56,7 @@ spec:
       - CreateNamespace=true
       - ServerSideApply=true
     retry:
-      limit: 5
+      limit: 2
       backoff:
         duration: 5s
         factor: 2
@@ -102,7 +102,7 @@ data:
               email: {{ index .Values "cert-manager" "cloudflare" "email" }}
               apiTokenSecretRef:
                 name: cloudflare-api-token
-                key: api-token
+                key: api_token
         {{- else }}
         - http01:
             ingress:

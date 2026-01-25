@@ -68,8 +68,10 @@ spec:
 
         persistence:
           enabled: {{ .Values.traefik.persistence.enabled }}
+          {{- if .Values.traefik.persistence.enabled }}
           storageClass: {{ .Values.traefik.persistence.storageClass }}
           size: {{ .Values.traefik.persistence.size }}
+          {{- end }}
 
         ingressRoute:
           dashboard:
@@ -104,7 +106,7 @@ spec:
       - CreateNamespace=true
       - ServerSideApply=true
     retry:
-      limit: 5
+      limit: 2
       backoff:
         duration: 5s
         factor: 2

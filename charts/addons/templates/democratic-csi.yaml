@@ -54,7 +54,7 @@ spec:
               host: {{ index .Values "democratic-csi" "truenas" "endpoint" | trimPrefix "https://" | trimPrefix "http://" }}
               port: 443
               allowInsecure: {{ index .Values "democratic-csi" "truenas" "allowInsecure" }}
-              apiKey: {{ index .Values "democratic-csi" "truenas" "apiKey" | quote }}
+              apiKey: "${TRUENAS_API_KEY}"
 
             zfs:
               datasetParentName: {{ index .Values "democratic-csi" "nfs" "parent" }}
@@ -92,11 +92,23 @@ spec:
           driver:
             resources:
               {{- toYaml (index .Values "democratic-csi" "resources" "controller") | nindent 14 }}
+            extraEnv:
+              - name: TRUENAS_API_KEY
+                valueFrom:
+                  secretKeyRef:
+                    name: truenas-api-key
+                    key: api_key
 
         node:
           driver:
             resources:
               {{- toYaml (index .Values "democratic-csi" "resources" "node") | nindent 14 }}
+            extraEnv:
+              - name: TRUENAS_API_KEY
+                valueFrom:
+                  secretKeyRef:
+                    name: truenas-api-key
+                    key: api_key
 
   destination:
     server: https://kubernetes.default.svc
@@ -109,7 +121,7 @@ spec:
     syncOptions:
       - ServerSideApply=true
     retry:
-      limit: 5
+      limit: 2
       backoff:
         duration: 5s
         factor: 2
