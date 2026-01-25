@@ -259,6 +259,6 @@
           Hostname: {{ truenas_hostname }}
           IP: {{ truenas_static_ip }}
           Pools: {{ storage_pools | map(attribute='name') | list | join(', ') }}
-          Certificate: {{ 'Let''s Encrypt for ' + truenas_hostname if cloudflare_api_token | length > 0 else 'Skipped (no Cloudflare token)' }}
+          Certificate: {% if cloudflare_api_token | length > 0 %}Lets Encrypt for {{ truenas_hostname }}{% else %}Skipped (no Cloudflare token){% endif %}
 
           Access TrueNAS at: https://{{ truenas_hostname }}

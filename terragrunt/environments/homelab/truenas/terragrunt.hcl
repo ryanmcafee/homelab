@@ -92,8 +92,8 @@ inputs = {
   tags = ["homelab", "storage", "truenas"]
 
   # Template cloning (Phase 2 automation)
-  use_template    = true
-  template_vm_id  = 9000
+  use_template   = true
+  template_vm_id = 9000
 
   # Network for Ansible configuration
   truenas_static_ip = "172.16.100.150/24"
