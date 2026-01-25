@@ -13,5 +13,5 @@ metadata:
 stringData:
   name: truecharts
   type: helm
-  url: oci://oci.trueforge.org/truecharts
+  url: oci.trueforge.org/truecharts
   enableOCI: "true"
