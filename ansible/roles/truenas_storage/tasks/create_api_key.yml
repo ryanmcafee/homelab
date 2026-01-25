@@ -25,7 +25,7 @@
     body_format: json
     body:
       name: "{{ api_key_name }}"
-      allowlist: []  # Empty means full access, adjust for production
+      username: "{{ truenas_api_user | default('truenas_admin') }}"
     status_code: [200, 201]
   register: new_api_key
   when: not api_key_exists

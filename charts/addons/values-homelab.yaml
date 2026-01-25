@@ -191,7 +191,7 @@ democratic-csi:
     repo: https://democratic-csi.github.io/charts/
     version: 0.14.6
 
-  driver: freenas-nfs
+  driver: freenas-api-nfs
 
   truenas:
     # Use IP address instead of hostname since internal DNS is not resolvable from cluster
