@@ -12,8 +12,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: oci://oci.trueforge.org/truecharts
-    chart: sonarr
+    repoURL: {{ .Values.sonarr.chart.repo }}
     targetRevision: {{ .Values.sonarr.chart.version }}
     helm:
       releaseName: sonarr

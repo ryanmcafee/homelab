@@ -12,8 +12,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: oci://oci.trueforge.org/truecharts
-    chart: mosquitto
+    repoURL: {{ .Values.mosquitto.chart.repo }}
     targetRevision: {{ .Values.mosquitto.chart.version }}
     helm:
       releaseName: mosquitto
