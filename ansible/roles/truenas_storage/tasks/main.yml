@@ -51,6 +51,14 @@
     dataset_compression: "{{ truenas_k8s_compression }}"
     dataset_comments: "Kubernetes persistent volumes"
 
+- name: Include Kubernetes snapshots dataset creation
+  ansible.builtin.include_tasks: create_dataset.yml
+  vars:
+    dataset_name: "{{ truenas_k8s_snapshots_dataset }}"
+    dataset_quota: "{{ truenas_k8s_snapshots_quota }}"
+    dataset_compression: "{{ truenas_k8s_snapshots_compression }}"
+    dataset_comments: "Kubernetes snapshots for democratic-csi"
+
 - name: Include media dataset creation
   ansible.builtin.include_tasks: create_dataset.yml
   vars:
@@ -97,5 +105,6 @@
       TrueNAS Configuration Complete:
       - Pool: {{ truenas_pool_name }}
       - Kubernetes Dataset: {{ truenas_k8s_dataset }}
+      - Kubernetes Snapshots Dataset: {{ truenas_k8s_snapshots_dataset }}
       - NFS Share: {{ truenas_nfs_share_path }}
       - API Key Created: {{ truenas_csi_api_key_name }}

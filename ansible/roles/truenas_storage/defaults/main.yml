@@ -15,6 +15,11 @@ truenas_k8s_dataset: "{{ truenas_pool_name }}/k8s"
 truenas_k8s_quota: 500G
 truenas_k8s_compression: lz4
 
+# Kubernetes Snapshots Dataset (for democratic-csi detached snapshots)
+truenas_k8s_snapshots_dataset: "{{ truenas_pool_name }}/k8s-snapshots"
+truenas_k8s_snapshots_quota: 100G
+truenas_k8s_snapshots_compression: lz4
+
 # NFS Share Configuration for Kubernetes PVs
 truenas_nfs_share_path: "/mnt/{{ truenas_k8s_dataset }}"
 truenas_nfs_share_name: k8s
