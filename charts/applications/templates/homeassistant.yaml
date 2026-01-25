@@ -12,8 +12,8 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: {{ .Values.homeassistant.chart.repo }}
-    path: .
+    repoURL: oci://oci.trueforge.org/truecharts
+    chart: home-assistant
     targetRevision: {{ .Values.homeassistant.chart.version }}
     helm:
       releaseName: home-assistant

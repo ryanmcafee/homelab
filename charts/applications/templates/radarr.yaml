@@ -12,8 +12,8 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: {{ .Values.radarr.chart.repo }}
-    path: .
+    repoURL: oci://oci.trueforge.org/truecharts
+    chart: radarr
     targetRevision: {{ .Values.radarr.chart.version }}
     helm:
       releaseName: radarr

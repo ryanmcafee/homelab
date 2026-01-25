@@ -12,8 +12,8 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: {{ .Values.prowlarr.chart.repo }}
-    path: .
+    repoURL: oci://oci.trueforge.org/truecharts
+    chart: prowlarr
     targetRevision: {{ .Values.prowlarr.chart.version }}
     helm:
       releaseName: prowlarr
