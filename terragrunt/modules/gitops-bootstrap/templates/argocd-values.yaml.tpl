@@ -15,6 +15,10 @@ configs:
 server:
   ingress:
     enabled: ${server_ingress_enabled}
+    ingressClassName: traefik
+    annotations:
+      cert-manager.io/cluster-issuer: letsencrypt
+      external-dns.alpha.kubernetes.io/hostname: ${server_host}
     hosts:
       - ${server_host}
     tls:
