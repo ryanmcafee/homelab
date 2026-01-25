@@ -355,16 +355,18 @@ homeassistant:
     repo: https://trueforge-org.github.io/truecharts
     version: 28.19.14
 
+  # Use linuxserver.io image which includes psycopg2 for PostgreSQL
+  image:
+    repository: lscr.io/linuxserver/homeassistant
+    tag: latest
+    pullPolicy: IfNotPresent
+
   workload:
     main:
       podSpec:
         hostNetwork: true
         containers:
           main:
-            # Use linuxserver.io image which includes psycopg2 for PostgreSQL
-            image:
-              repository: lscr.io/linuxserver/homeassistant
-              tag: latest
             resources:
               requests:
                 cpu: 500m

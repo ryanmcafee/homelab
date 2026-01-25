@@ -29,6 +29,11 @@ spec:
     helm:
       releaseName: home-assistant
       values: |
+        {{- if .Values.homeassistant.image }}
+        image:
+          {{- toYaml .Values.homeassistant.image | nindent 10 }}
+        {{- end }}
+
         {{- if .Values.homeassistant.workload }}
         workload:
           {{- toYaml .Values.homeassistant.workload | nindent 10 }}
