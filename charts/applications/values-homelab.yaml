@@ -405,6 +405,7 @@ mosquitto:
       enabled: true
       storageClass: democratic-csi-nfs
       size: 1Gi
+      mountPath: /mosquitto/config
       accessModes:
         - ReadWriteOnce
 
@@ -412,6 +413,7 @@ mosquitto:
       enabled: true
       storageClass: democratic-csi-nfs
       size: 1Gi
+      mountPath: /mosquitto/data
       accessModes:
         - ReadWriteOnce
 
