@@ -72,7 +72,7 @@ talosctl -n 172.16.100.51 etcd snapshot /var/lib/etcd-backup-$(date +%Y%m%d-%H%M
 talosctl -n 172.16.100.51 cp /var/lib/etcd-backup-*.db ./
 
 # Upload to TrueNAS
-scp etcd-backup-*.db root@truenas:/mnt/tank/backups/kubernetes/etcd/
+scp etcd-backup-*.db root@truenas:/mnt/storage/backups/kubernetes/etcd/
 
 # Verify snapshot
 ls -lh etcd-backup-*.db
@@ -91,7 +91,7 @@ kubectl get all -n media -o yaml > media-backup-$(date +%Y%m%d).yaml
 kubectl get crd -o yaml > crd-backup-$(date +%Y%m%d).yaml
 
 # Upload backups
-scp *-backup-*.yaml root@truenas:/mnt/tank/backups/kubernetes/
+scp *-backup-*.yaml root@truenas:/mnt/storage/backups/kubernetes/
 ```
 
 ### Step 4: Check Cluster Health
@@ -319,7 +319,7 @@ talosctl -n 172.16.100.51 etcd members
 
 # 2. Restore from etcd backup
 # Download latest backup
-scp root@truenas:/mnt/tank/backups/kubernetes/etcd/etcd-backup-latest.db ./
+scp root@truenas:/mnt/storage/backups/kubernetes/etcd/etcd-backup-latest.db ./
 
 # 3. Stop all control plane nodes
 talosctl -n 172.16.100.51 shutdown

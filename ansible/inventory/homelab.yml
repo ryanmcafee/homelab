@@ -18,10 +18,10 @@ all:
     truenas:
       hosts:
         truenas-server:
-          ansible_host: 172.16.100.50
+          ansible_host: 172.16.100.150
           ansible_user: root
           ansible_ssh_private_key_file: ~/.ssh/id_ed25519
-          truenas_api_url: https://172.16.100.50
+          truenas_api_url: https://172.16.100.150
           truenas_api_key: "{{ lookup('env', 'TRUENAS_API_KEY') | default('') }}"
 
     # Talos Kubernetes cluster (for reference, not directly managed by Ansible)

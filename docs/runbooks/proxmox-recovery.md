@@ -55,7 +55,7 @@ tar -czf /root/proxmox-config-$(date +%Y%m%d).tar.gz \
   /etc/resolv.conf
 
 # Copy to TrueNAS
-scp /root/proxmox-config-*.tar.gz root@truenas:/mnt/tank/backups/proxmox/
+scp /root/proxmox-config-*.tar.gz root@truenas:/mnt/storage/backups/proxmox/
 
 # Or upload to cloud
 rclone copy /root/proxmox-config-*.tar.gz b2:homelab-backups/proxmox/
@@ -222,7 +222,7 @@ qm status 101
 
 ```bash
 # Download backup from TrueNAS
-scp root@truenas:/mnt/tank/backups/proxmox/proxmox-config-20260119.tar.gz /tmp/
+scp root@truenas:/mnt/storage/backups/proxmox/proxmox-config-20260119.tar.gz /tmp/
 
 # Extract configuration
 cd /
@@ -342,7 +342,7 @@ ansible-playbook -i inventory/hosts.yml playbooks/site.yml
 # Import VM backups from TrueNAS or external storage
 # Mount backup storage
 mkdir -p /mnt/restore
-mount -t nfs truenas:/mnt/tank/backups/proxmox /mnt/restore
+mount -t nfs truenas:/mnt/storage/backups/proxmox /mnt/restore
 
 # Restore each VM
 qmrestore /mnt/restore/dump/vzdump-qemu-101-*.vma.zst 101  # TrueNAS

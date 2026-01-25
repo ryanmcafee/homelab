@@ -167,8 +167,8 @@ tasks:
   # TrueNAS Configuration
   # ==========================================================================
 
-  truenas:setup:
-    desc: Configure TrueNAS after VM installation
+  truenas:configure:
+    desc: Configure TrueNAS after VM installation (legacy playbook)
     dir: ansible
     cmds:
       - ansible-playbook -i inventory/homelab.yml playbooks/truenas-setup.yml
@@ -184,6 +184,95 @@ tasks:
     dir: ansible
     cmds:
       - ansible-playbook -i inventory/homelab.yml playbooks/truenas-setup.yml --check --diff
+
+  # ==========================================================================
+  # TrueNAS Automation (Packer + Full Setup)
+  # ==========================================================================
+
+  truenas:setup:
+    desc: Full TrueNAS setup (deploy from template + configure + verify)
+    cmds:
+      - echo "=== Starting TrueNAS Automated Provisioning ==="
+      - task: truenas:check-template
+      - task: truenas:full-setup
+      - echo "=== Verifying TrueNAS Deployment ==="
+      - echo "Checking TrueNAS API accessibility..."
+      - op run --env-file={{.ROOT_DIR}}/.env.op -- sh -c 'curl -k -s --connect-timeout 10 -u "truenas_admin:$TRUENAS_ADMIN_PASSWORD" https://truenas.ryanmcafee.com/api/v2.0/system/info | jq -r ".version // \"API not accessible\""'
+
+  truenas:check-template:
+    desc: Verify TrueNAS template exists in Proxmox
+    cmds:
+      - |
+        if ! op run --env-file={{.ROOT_DIR}}/.env.op -- ssh root@172.16.100.250 "qm config 9000 | grep -q 'template: 1'" 2>/dev/null; then
+          echo "ERROR: TrueNAS template (VM 9000) not found!"
+          echo "Run 'task truenas:build-template' to create it manually."
+          exit 1
+        fi
+        echo "Template VM 9000 found."
+
+  truenas:build-template:
+    desc: Build TrueNAS Packer template (requires manual installation via VNC)
+    dir: packer/truenas
+    cmds:
+      - echo "=== Creating TrueNAS Template VM ==="
+      - echo "NOTE{{":"}} TrueNAS requires manual installation via Proxmox VNC console."
+      - mise exec -- op run --env-file={{.ROOT_DIR}}/.env.op -- packer init .
+      - mise exec -- op run --env-file={{.ROOT_DIR}}/.env.op -- sh -c 'PKR_VAR_proxmox_username="$TF_VAR_proxmox_api_token_id" PKR_VAR_proxmox_token="$TF_VAR_proxmox_api_token_secret" PKR_VAR_truenas_admin_password="$TRUENAS_ADMIN_PASSWORD" packer build .'
+      - echo ""
+      - echo "=== MANUAL STEP REQUIRED ==="
+      - echo "1. Open Proxmox console{{":"}} https://172.16.100.250:8006"
+      - echo "2. Select VM 9000 and open Console (VNC)"
+      - echo "3. Complete TrueNAS installation manually"
+      - echo "4. After installation, run{{":"}} task truenas:finalize-template"
+
+  truenas:finalize-template:
+    desc: Finalize TrueNAS template after manual installation
+    cmds:
+      - echo "Shutting down VM 9000..."
+      - op run --env-file={{.ROOT_DIR}}/.env.op -- ssh root@172.16.100.250 "qm shutdown 9000 --timeout 60 || true"
+      - sleep 10
+      - echo "Removing installation ISO..."
+      - op run --env-file={{.ROOT_DIR}}/.env.op -- ssh root@172.16.100.250 "qm set 9000 --delete ide2 2>/dev/null || true"
+      - echo "Setting boot order..."
+      - op run --env-file={{.ROOT_DIR}}/.env.op -- ssh root@172.16.100.250 "qm set 9000 --boot 'order=virtio0;net0'"
+      - echo "Converting to template..."
+      - op run --env-file={{.ROOT_DIR}}/.env.op -- ssh root@172.16.100.250 "qm template 9000"
+      - echo "Template finalized successfully!"
+
+  truenas:validate-template:
+    desc: Validate Packer template configuration
+    dir: packer/truenas
+    cmds:
+      - packer validate .
+
+  truenas:deploy:
+    desc: Deploy TrueNAS from template and configure via Ansible
+    cmds:
+      - task: tf:apply:component
+        vars:
+          COMPONENT: truenas
+
+  truenas:destroy:
+    desc: Destroy TrueNAS VM (use with caution)
+    cmds:
+      - task: tf:destroy:component
+        vars:
+          COMPONENT: truenas
+    prompt: Are you sure you want to destroy the TrueNAS VM?
+
+  truenas:full-setup:
+    desc: Complete TrueNAS workflow (deploy + configure)
+    cmds:
+      - echo "Starting TrueNAS full setup workflow..."
+      - task: truenas:deploy
+      - echo "TrueNAS deployment complete!"
+      - echo "Access TrueNAS at https://truenas.ryanmcafee.com"
+
+  truenas:ansible-only:
+    desc: Run Ansible setup only (for existing VM)
+    dir: ansible
+    cmds:
+      - op run --env-file={{.ROOT_DIR}}/.env.op -- ansible-playbook -i inventory/homelab.yml playbooks/truenas-full-setup.yml --vault-password-file=vault-password.sh
 
   # ==========================================================================
   # Terragrunt / Terraform

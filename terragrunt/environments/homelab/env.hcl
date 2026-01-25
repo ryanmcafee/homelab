@@ -52,7 +52,7 @@ locals {
   # TrueNAS configuration
   truenas_vm_id    = 150
   truenas_ip       = "172.16.100.150"
-  truenas_nfs_path = "/mnt/tank/k8s"
+  truenas_nfs_path = "/mnt/storage/k8s"
 
   # HBA devices for TrueNAS direct disk access
   # More complete mappings for NVMe SSDs and SATA drives
@@ -93,6 +93,9 @@ locals {
 
   # Base FQDN
   base_fqdn = "ryanmcafee.com"
+
+  # TrueNAS hostname for DNS and certificates
+  truenas_hostname = "truenas.${local.base_fqdn}"
 
   # UniFi configuration (credentials via environment variables)
   unifi_api_url  = get_env("UNIFI_API", "")

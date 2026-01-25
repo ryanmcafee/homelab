@@ -18,19 +18,19 @@
 
   vars:
     # Pool configuration
-    truenas_pool_name: tank
+    truenas_pool_name: storage
     truenas_create_pool: false  # Pool must be created manually first
 
     # Kubernetes storage
-    truenas_k8s_dataset: tank/k8s
+    truenas_k8s_dataset: storage/k8s
     truenas_k8s_quota: 500G
 
     # Media storage
-    truenas_media_dataset: tank/media
+    truenas_media_dataset: storage/media
     truenas_media_quota: 100T
 
     # NFS configuration
-    truenas_nfs_share_path: /mnt/tank/k8s
+    truenas_nfs_share_path: /mnt/storage/k8s
     truenas_nfs_allowed_networks:
       - 172.16.100.0/24
 

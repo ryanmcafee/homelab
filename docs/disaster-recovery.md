@@ -222,14 +222,14 @@ qmrestore /mnt/backups/dump/vzdump-qemu-100-2026_01_19-02_00_00.vma.zst 200
 tar -czf proxmox-config-$(date +%Y%m%d).tar.gz /etc/pve/
 
 # Upload to TrueNAS
-scp proxmox-config-*.tar.gz root@truenas:/mnt/tank/backups/proxmox/
+scp proxmox-config-*.tar.gz root@truenas:/mnt/storage/backups/proxmox/
 ```
 
 **Restore**:
 
 ```bash
 # Download from TrueNAS
-scp root@truenas:/mnt/tank/backups/proxmox/proxmox-config-20260119.tar.gz .
+scp root@truenas:/mnt/storage/backups/proxmox/proxmox-config-20260119.tar.gz .
 
 # Restore configuration
 tar -xzf proxmox-config-20260119.tar.gz -C /
@@ -245,7 +245,7 @@ systemctl restart pveproxy pvedaemon
 1. Navigate to **Storage** → **Snapshots**
 2. Click **Add** (periodic snapshot task)
 3. Configure:
-   - Dataset: `tank/kubernetes`
+   - Dataset: `storage/kubernetes`
    - Recursive: Yes
    - Lifetime: `7d` (7 days)
    - Schedule: Hourly
@@ -254,13 +254,13 @@ systemctl restart pveproxy pvedaemon
 
 ```bash
 # Create snapshot
-zfs snapshot -r tank/kubernetes@$(date +%Y%m%d-%H%M%S)
+zfs snapshot -r storage/kubernetes@$(date +%Y%m%d-%H%M%S)
 
 # List snapshots
 zfs list -t snapshot
 
 # Rollback to snapshot
-zfs rollback tank/kubernetes@20260119-020000
+zfs rollback storage/kubernetes@20260119-020000
 ```
 
 #### ZFS Replication
@@ -270,7 +270,7 @@ zfs rollback tank/kubernetes@20260119-020000
 1. Attach USB drive to TrueNAS
 2. Create pool: `zpool create backup /dev/sdX`
 3. Configure replication:
-   - Source: `tank/kubernetes`
+   - Source: `storage/kubernetes`
    - Destination: `backup/kubernetes`
    - Schedule: Daily at 3 AM
    - Retention: 30 days
@@ -279,10 +279,10 @@ zfs rollback tank/kubernetes@20260119-020000
 
 ```bash
 # Send snapshot to remote
-zfs send tank/kubernetes@latest | ssh remote zfs receive backup/kubernetes
+zfs send storage/kubernetes@latest | ssh remote zfs receive backup/kubernetes
 
 # Incremental send
-zfs send -i tank/kubernetes@previous tank/kubernetes@latest | \
+zfs send -i storage/kubernetes@previous storage/kubernetes@latest | \
   ssh remote zfs receive backup/kubernetes
 ```
 
@@ -320,7 +320,7 @@ talosctl -n <control-plane-ip> etcd snapshot /var/lib/etcd-backup.db
 talosctl -n <control-plane-ip> cp /var/lib/etcd-backup.db ./etcd-backup-$(date +%Y%m%d).db
 
 # Upload to TrueNAS
-scp etcd-backup-*.db root@truenas:/mnt/tank/backups/kubernetes/etcd/
+scp etcd-backup-*.db root@truenas:/mnt/storage/backups/kubernetes/etcd/
 ```
 
 **Automated Backup** (CronJob):
@@ -363,7 +363,7 @@ spec:
             - name: backup
               nfs:
                 server: truenas.local
-                path: /mnt/tank/backups/kubernetes/etcd
+                path: /mnt/storage/backups/kubernetes/etcd
           restartPolicy: OnFailure
 ```
 
@@ -493,7 +493,7 @@ kubectl -n media cp plex-xxx:/tmp/plex-backup.tar.gz ./plex-backup-$(date +%Y%m%
 kubectl -n media scale deployment plex --replicas=1
 
 # Upload to TrueNAS
-scp plex-backup-*.tar.gz root@truenas:/mnt/tank/backups/applications/plex/
+scp plex-backup-*.tar.gz root@truenas:/mnt/storage/backups/applications/plex/
 ```
 
 ---
@@ -597,7 +597,7 @@ showmount -e truenas.local
 
 # If dataset corrupted: restore from ZFS snapshot
 zfs list -t snapshot | grep kubernetes
-zfs rollback tank/kubernetes@20260119-020000
+zfs rollback storage/kubernetes@20260119-020000
 
 # If complete data loss: restore from Velero backup
 velero restore create --from-backup media-backup
@@ -681,7 +681,7 @@ terragrunt run-all apply
 # Upload config file via TrueNAS UI
 
 # 5. Restore data from cloud backups
-rclone copy b2:homelab-backups /mnt/tank/
+rclone copy b2:homelab-backups /mnt/storage/
 
 # 6. Bootstrap Kubernetes
 cd talos-cluster
@@ -848,7 +848,7 @@ zfs list -o space
 
 # Destroy old snapshots
 zfs list -t snapshot
-zfs destroy tank/kubernetes@old-snapshot
+zfs destroy storage/kubernetes@old-snapshot
 ```
 
 ### Restore Failures

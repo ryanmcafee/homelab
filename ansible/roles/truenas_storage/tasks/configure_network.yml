@@ -1,0 +1,130 @@
+---
+# TrueNAS Storage Role - Configure Network
+# Sets static IP, gateway, DNS, and hostname via TrueNAS API
+# Uses Basic Auth with admin password for initial setup
+
+- name: Get current network configuration
+  ansible.builtin.uri:
+    url: "{{ api_url }}/api/v2.0/network/configuration"
+    method: GET
+    url_username: "{{ api_user }}"
+    url_password: "{{ api_password }}"
+    force_basic_auth: true
+    validate_certs: "{{ truenas_verify_ssl | default(false) }}"
+  register: current_network
+
+- name: Configure hostname
+  ansible.builtin.uri:
+    url: "{{ api_url }}/api/v2.0/network/configuration"
+    method: PUT
+    url_username: "{{ api_user }}"
+    url_password: "{{ api_password }}"
+    force_basic_auth: true
+    validate_certs: "{{ truenas_verify_ssl | default(false) }}"
+    body_format: json
+    body:
+      hostname: "{{ network_hostname | regex_replace('\\..*', '') }}"
+      domain: "{{ network_hostname | regex_replace('^[^.]+\\.', '') }}"
+      nameserver1: "{{ network_dns[0] }}"
+      nameserver2: "{{ network_dns[1] | default('') }}"
+      ipv4gateway: "{{ network_gateway }}"
+    status_code: [200]
+
+- name: Get network interfaces
+  ansible.builtin.uri:
+    url: "{{ api_url }}/api/v2.0/interface"
+    method: GET
+    url_username: "{{ api_user }}"
+    url_password: "{{ api_password }}"
+    force_basic_auth: true
+    validate_certs: "{{ truenas_verify_ssl | default(false) }}"
+  register: interfaces
+
+- name: Find primary interface
+  ansible.builtin.set_fact:
+    primary_interface: "{{ interfaces.json | selectattr('state.link_state', 'equalto', 'LINK_STATE_UP') | first }}"
+
+- name: Display current interface configuration
+  ansible.builtin.debug:
+    msg: "Primary interface: {{ primary_interface.name }} (DHCP: {{ primary_interface.ipv4_dhcp | default(true) }})"
+
+- name: Configure static IP on primary interface
+  ansible.builtin.uri:
+    url: "{{ api_url }}/api/v2.0/interface/id/{{ primary_interface.id }}"
+    method: PUT
+    url_username: "{{ api_user }}"
+    url_password: "{{ api_password }}"
+    force_basic_auth: true
+    validate_certs: "{{ truenas_verify_ssl | default(false) }}"
+    body_format: json
+    body:
+      ipv4_dhcp: false
+      aliases:
+        - address: "{{ network_ip | regex_replace('/.*', '') }}"
+          netmask: "{{ network_ip | regex_replace('.*/', '') | int }}"
+    status_code: [200]
+  when: primary_interface.ipv4_dhcp | default(true)
+
+- name: Apply network changes
+  ansible.builtin.uri:
+    url: "{{ api_url }}/api/v2.0/interface/commit"
+    method: POST
+    url_username: "{{ api_user }}"
+    url_password: "{{ api_password }}"
+    force_basic_auth: true
+    validate_certs: "{{ truenas_verify_ssl | default(false) }}"
+    body_format: json
+    body:
+      checkin_timeout: 120
+    status_code: [200]
+    timeout: 10
+  ignore_errors: true
+  register: commit_result
+  when: primary_interface.ipv4_dhcp | default(true)
+
+- name: Wait for TrueNAS to come up on new IP
+  ansible.builtin.wait_for:
+    host: "{{ network_ip | regex_replace('/.*', '') }}"
+    port: 443
+    timeout: 120
+    delay: 5
+  delegate_to: localhost
+  when: primary_interface.ipv4_dhcp | default(true)
+
+- name: Wait for API to be ready on new IP
+  ansible.builtin.uri:
+    url: "https://{{ network_ip | regex_replace('/.*', '') }}/api/v2.0/system/info"
+    method: GET
+    url_username: "{{ api_user }}"
+    url_password: "{{ api_password }}"
+    force_basic_auth: true
+    validate_certs: "{{ truenas_verify_ssl | default(false) }}"
+    status_code: [200]
+    timeout: 30
+  delegate_to: localhost
+  retries: 12
+  delay: 5
+  until: api_ready.status == 200
+  register: api_ready
+  when: primary_interface.ipv4_dhcp | default(true)
+
+- name: Check in network changes (make permanent)
+  ansible.builtin.uri:
+    url: "https://{{ network_ip | regex_replace('/.*', '') }}/api/v2.0/interface/checkin"
+    method: GET
+    url_username: "{{ api_user }}"
+    url_password: "{{ api_password }}"
+    force_basic_auth: true
+    validate_certs: "{{ truenas_verify_ssl | default(false) }}"
+    status_code: [200]
+    timeout: 30
+  delegate_to: localhost
+  retries: 5
+  delay: 5
+  until: checkin_result.status == 200
+  register: checkin_result
+  when: primary_interface.ipv4_dhcp | default(true)
+
+- name: Display network configuration
+  ansible.builtin.debug:
+    msg: "Network configured: {{ network_hostname }} at {{ network_ip }}"

@@ -6,6 +6,7 @@
 # Infrastructure as Code
 terraform = "1.7.5"
 terragrunt = "0.55.1"
+packer = "latest"
 
 # Kubernetes Tools
 kubectl = "1.30.0"
@@ -15,7 +16,7 @@ talosctl = "1.7.6"
 tilt = "0.33.11"
 
 # Configuration Management (Python via pipx)
-"pipx:ansible" = "latest"
+"pipx:ansible-core" = "latest"
 "pipx:ansible-lint" = "latest"
 
 # Task Runner
@@ -50,6 +51,7 @@ echo ""
 echo "Infrastructure Tools:"
 terraform version
 terragrunt --version
+packer version
 echo ""
 echo "Kubernetes Tools:"
 kubectl version --client

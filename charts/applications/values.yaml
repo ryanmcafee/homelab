@@ -37,7 +37,7 @@ global:
   media:
     # NFS mount point for media files
     nfsServer: truenas.ryanmcafee.com
-    nfsPath: /mnt/tank/media
+    nfsPath: /mnt/storage/media
 
 # ============================================================================
 # Plex Media Server
@@ -110,7 +110,7 @@ plex:
     - name: media
       nfs:
         server: truenas.ryanmcafee.com
-        path: /mnt/tank/media
+        path: /mnt/storage/media
 
   extraVolumeMounts:
     - name: media
@@ -183,7 +183,7 @@ sonarr:
       enabled: true
       type: nfs
       server: truenas.ryanmcafee.com
-      path: /mnt/tank/media
+      path: /mnt/storage/media
       mountPath: /media
 
   # Ingress configuration
@@ -252,7 +252,7 @@ radarr:
       enabled: true
       type: nfs
       server: truenas.ryanmcafee.com
-      path: /mnt/tank/media
+      path: /mnt/storage/media
       mountPath: /media
 
   # Ingress configuration
