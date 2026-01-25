@@ -130,6 +130,7 @@ data "talos_machine_configuration" "controlplane" {
       yamlencode({
         machine = {
           network = {
+            nameservers = var.dns_servers
             interfaces = [{
               deviceSelector = {
                 hardwareAddr = local.node_mac_addresses[each.key]
@@ -199,6 +200,7 @@ data "talos_machine_configuration" "worker" {
       yamlencode({
         machine = {
           network = {
+            nameservers = var.dns_servers
             interfaces = [{
               deviceSelector = {
                 hardwareAddr = local.node_mac_addresses[each.key]
