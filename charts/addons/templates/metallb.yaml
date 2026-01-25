@@ -64,49 +64,47 @@ spec:
         - /webhooks/0/clientConfig/caBundle
 
 ---
-# MetalLB IPAddressPool
-apiVersion: v1
-kind: ConfigMap
+# MetalLB IPAddressPool - Direct CRD instead of ConfigMap
+apiVersion: metallb.io/v1beta1
+kind: IPAddressPool
 metadata:
-  name: metallb-config
-  namespace: argocd
+  name: default
+  namespace: {{ .Values.metallb.namespace }}
   annotations:
     argocd.argoproj.io/sync-wave: "2"
-data:
-  ipaddresspool.yaml: |
-    apiVersion: metallb.io/v1beta1
-    kind: IPAddressPool
-    metadata:
-      name: default
-      namespace: {{ .Values.metallb.namespace }}
-    spec:
-      addresses:
-      {{- range .Values.metallb.addresses }}
-        - {{ . }}
-      {{- end }}
-      autoAssign: true
-
-  {{- if .Values.metallb.bgp.enabled }}
-  bgppeer.yaml: |
-    apiVersion: metallb.io/v1beta2
-    kind: BGPPeer
-    metadata:
-      name: unifi-gateway
-      namespace: {{ .Values.metallb.namespace }}
-    spec:
-      myASN: {{ .Values.metallb.bgp.asn }}
-      peerASN: {{ (index .Values.metallb.bgp.peers 0).asn }}
-      peerAddress: {{ (index .Values.metallb.bgp.peers 0).address }}
-      routerID: {{ (index .Values.metallb.bgp.peers 0).routerId }}
-
-  bgpadvertisement.yaml: |
-    apiVersion: metallb.io/v1beta1
-    kind: BGPAdvertisement
-    metadata:
-      name: default
-      namespace: {{ .Values.metallb.namespace }}
-    spec:
-      ipAddressPools:
-        - default
+spec:
+  addresses:
+  {{- range .Values.metallb.addresses }}
+    - {{ . }}
   {{- end }}
+  autoAssign: true
+
+{{- if .Values.metallb.bgp.enabled }}
+---
+# BGP Peer configuration for UniFi gateway
+apiVersion: metallb.io/v1beta2
+kind: BGPPeer
+metadata:
+  name: unifi-gateway
+  namespace: {{ .Values.metallb.namespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  myASN: {{ .Values.metallb.bgp.asn }}
+  peerASN: {{ (index .Values.metallb.bgp.peers 0).asn }}
+  peerAddress: {{ (index .Values.metallb.bgp.peers 0).address }}
+  routerID: {{ (index .Values.metallb.bgp.peers 0).routerId }}
+---
+# BGP Advertisement for IP pool
+apiVersion: metallb.io/v1beta1
+kind: BGPAdvertisement
+metadata:
+  name: default
+  namespace: {{ .Values.metallb.namespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  ipAddressPools:
+    - default
+{{- end }}
 {{- end }}

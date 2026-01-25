@@ -44,6 +44,10 @@ spec:
 
         service:
           type: {{ .Values.traefik.service.type }}
+          {{- if .Values.traefik.service.annotations }}
+          annotations:
+            {{- toYaml .Values.traefik.service.annotations | nindent 12 }}
+          {{- end }}
 
         # Update Ingress status with LoadBalancer IP so ArgoCD sees them as healthy
         providers:
@@ -143,4 +147,35 @@ spec:
       kind: IngressRoute
       jqPathExpressions:
         - .spec.routes[].services
+---
+# Standard Ingress for Traefik dashboard (external-dns compatibility)
+# IngressRoute CRD is not watched by external-dns, so we need a standard Ingress
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: traefik-dashboard
+  namespace: {{ .Values.traefik.namespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "6"
+    cert-manager.io/cluster-issuer: letsencrypt
+    external-dns.alpha.kubernetes.io/hostname: traefik.{{ .Values.global.domain }}
+    # OAuth2-Proxy authentication middleware
+    traefik.ingress.kubernetes.io/router.middlewares: oauth2-proxy-oauth2-proxy-auth@kubernetescrd
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: traefik.{{ .Values.global.domain }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: traefik
+                port:
+                  number: 9000
+  tls:
+    - hosts:
+        - traefik.{{ .Values.global.domain }}
+      secretName: traefik-dashboard-tls
 {{- end }}

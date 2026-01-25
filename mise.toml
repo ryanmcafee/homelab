@@ -25,6 +25,7 @@ task = "latest"
 # Utilities
 jq = "latest"
 direnv = "latest"
+deno = "latest"
 "pipx:yamllint" = "latest"
 
 # Secrets Management

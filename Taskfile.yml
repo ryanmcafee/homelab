@@ -395,6 +395,7 @@ tasks:
           --set cgroup.hostRoot=/sys/fs/cgroup \
           --set l2announcements.enabled=true \
           --set externalIPs.enabled=true \
+          --set bgpControlPlane.enabled=true \
           --set hubble.relay.enabled=true \
           --set hubble.ui.enabled=true \
           > terragrunt/files/cilium-rendered.yaml

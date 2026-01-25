@@ -57,6 +57,8 @@ argocd:
         annotations:
           cert-manager.io/cluster-issuer: letsencrypt
           external-dns.alpha.kubernetes.io/hostname: argocd.ryanmcafee.com
+          # OAuth2-Proxy authentication middleware
+          traefik.ingress.kubernetes.io/router.middlewares: oauth2-proxy-oauth2-proxy-auth@kubernetescrd
 
       # Resource limits
       resources:
@@ -153,12 +155,43 @@ kubelet-csr-approver:
       memory: 128Mi
 
 # ============================================================================
-# MetalLB - LoadBalancer IP Address Management
+# Cilium - CNI (Visibility Only - actual install via Talos inline)
+# Sync Wave: 0
+# ============================================================================
+
+cilium:
+  enabled: true
+  chart:
+    version: "1.18.0"  # Must match Taskfile cilium:render version
+
+# ============================================================================
+# Cilium LB IPAM - LoadBalancer IP Management + BGP
+# Sync Wave: 1 (replaces MetalLB)
+# ============================================================================
+
+cilium-lb-ipam:
+  enabled: true
+
+  lbipam:
+    addresses:
+      - "172.16.100.100-172.16.100.200"
+
+  bgp:
+    enabled: true
+    localASN: 64512
+    peers:
+      - name: "unifi-gateway"
+        address: "172.16.100.1"
+        asn: 64513
+
+# ============================================================================
+# MetalLB - LoadBalancer IP Address Management (DEPRECATED)
 # Sync Wave: 1
+# NOTE: Replaced by Cilium LB IPAM - disable after successful migration
 # ============================================================================
 
 metallb:
-  enabled: true
+  enabled: false  # Disabled - migrated to Cilium LB IPAM
   namespace: metallb-system
 
   chart:
@@ -410,6 +443,38 @@ external-dns:
       memory: 128Mi
 
 # ============================================================================
+# External-DNS UniFi - Internal DNS Management (Split DNS)
+# Sync Wave: 4
+# ============================================================================
+
+external-dns-unifi:
+  enabled: true
+  namespace: external-dns-unifi
+
+  chart:
+    version: "1.15.0"
+
+  webhook:
+    version: "v0.3.0"
+
+  unifi:
+    host: "https://172.16.100.1"
+
+  # Uses existing UniFi credentials (needs api_key field added)
+  onePasswordItemPath: vaults/homelab/items/unifi
+
+  domainFilters:
+    - ryanmcafee.com
+
+  resources:
+    requests:
+      cpu: 20m
+      memory: 64Mi
+    limits:
+      cpu: 100m
+      memory: 128Mi
+
+# ============================================================================
 # Kube-Prometheus-Stack - Monitoring and Alerting
 # Sync Wave: 5
 # ============================================================================
@@ -452,6 +517,11 @@ kube-prometheus-stack:
     ingress:
       enabled: true
       ingressClassName: traefik
+      annotations:
+        cert-manager.io/cluster-issuer: letsencrypt
+        external-dns.alpha.kubernetes.io/hostname: grafana.ryanmcafee.com
+        # OAuth2-Proxy authentication middleware
+        traefik.ingress.kubernetes.io/router.middlewares: oauth2-proxy-oauth2-proxy-auth@kubernetescrd
       hosts:
         - grafana.ryanmcafee.com
       tls:
@@ -522,6 +592,11 @@ traefik:
 
   service:
     type: LoadBalancer
+    # Static IP for predictable port forwarding and DNS
+    annotations:
+      # Cilium LB IPAM annotation (replaces metallb.universe.tf/loadBalancerIPs)
+      io.cilium/lb-ipam-ips: "172.16.100.101"
+      port-forwarding.lylefranklin.com/enable: "true"
 
   ports:
     web:
@@ -583,3 +658,48 @@ traefik:
   cloudflare:
     enabled: true
     onePasswordItemPath: vaults/homelab/items/cloudflare
+
+# ============================================================================
+# UniFi Port Forwarding Controller - Automatic Port Forwards
+# Sync Wave: 6-7
+# ============================================================================
+
+unifi-port-forward:
+  enabled: true
+  namespace: port-forwarding
+  version: main
+  onePasswordItemPath: vaults/homelab/items/unifi
+
+# ============================================================================
+# OAuth2-Proxy - Zero-Trust Authentication
+# Sync Wave: 6-8
+# ============================================================================
+
+oauth2-proxy:
+  enabled: true
+  namespace: oauth2-proxy
+
+  chart:
+    version: "7.7.30"
+
+  # 1Password paths for secrets
+  googleOAuthPath: vaults/homelab/items/google-oauth
+  cookieSecretPath: vaults/homelab/items/oauth2-proxy-cookie
+
+  # Allowed email domains for authentication
+  emailDomains:
+    - "ryanmcafee.com"
+
+  # Cookie and whitelist domains
+  cookieDomains:
+    - ".ryanmcafee.com"
+  whitelistDomains:
+    - ".ryanmcafee.com"
+
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi

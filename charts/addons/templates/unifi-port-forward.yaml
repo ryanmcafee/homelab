@@ -1,0 +1,67 @@
+{{- if index .Values "unifi-port-forward" "enabled" }}
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ index .Values "unifi-port-forward" "namespace" }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "6"
+---
+# OnePasswordItem for UniFi credentials (url, username, password)
+apiVersion: onepassword.com/v1
+kind: OnePasswordItem
+metadata:
+  name: unifi-credentials
+  namespace: {{ index .Values "unifi-port-forward" "namespace" }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "6"
+spec:
+  itemPath: {{ index .Values "unifi-port-forward" "onePasswordItemPath" | quote }}
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: port-forwarding-controller
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "7"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/ljfranklin/port-forwarding-controller
+    path: helm
+    targetRevision: {{ index .Values "unifi-port-forward" "version" }}
+    helm:
+      releaseName: port-forwarding-controller
+      values: |
+        router:
+          type: unifi
+          urlSecretKeyRef:
+            name: unifi-credentials
+            key: url
+          usernameSecretKeyRef:
+            name: unifi-credentials
+            key: username
+          passwordSecretKeyRef:
+            name: unifi-credentials
+            key: password
+        resources:
+          requests:
+            cpu: 10m
+            memory: 32Mi
+          limits:
+            cpu: 100m
+            memory: 64Mi
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: {{ index .Values "unifi-port-forward" "namespace" }}
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+{{- end }}

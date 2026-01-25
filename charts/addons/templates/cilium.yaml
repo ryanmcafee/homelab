@@ -1,0 +1,82 @@
+{{- if .Values.cilium.enabled }}
+---
+# Cilium CNI - Visibility Only Application
+# NOTE: Actual Cilium installation is managed via Talos inline manifests
+# This ArgoCD Application provides visibility into the Cilium deployment
+# without managing it (no automated sync)
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cilium
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+    argocd.argoproj.io/compare-options: IgnoreExtraneous
+spec:
+  project: default
+  source:
+    repoURL: https://helm.cilium.io/
+    chart: cilium
+    targetRevision: {{ .Values.cilium.chart.version }}
+    helm:
+      releaseName: cilium
+      # Values must match inline bootstrap for accurate diff
+      values: |
+        ipam:
+          mode: kubernetes
+        kubeProxyReplacement: true
+        k8sServiceHost: localhost
+        k8sServicePort: 7445
+        securityContext:
+          capabilities:
+            ciliumAgent:
+              - CHOWN
+              - KILL
+              - NET_ADMIN
+              - NET_RAW
+              - IPC_LOCK
+              - SYS_ADMIN
+              - SYS_RESOURCE
+              - DAC_OVERRIDE
+              - FOWNER
+              - SETGID
+              - SETUID
+            cleanCiliumState:
+              - NET_ADMIN
+              - SYS_ADMIN
+              - SYS_RESOURCE
+        cgroup:
+          autoMount:
+            enabled: false
+          hostRoot: /sys/fs/cgroup
+        l2announcements:
+          enabled: true
+        externalIPs:
+          enabled: true
+        bgpControlPlane:
+          enabled: true
+        hubble:
+          relay:
+            enabled: true
+          ui:
+            enabled: true
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: kube-system
+
+  # NO automated sync - visibility only (actual install is via Talos inline)
+  syncPolicy:
+    syncOptions:
+      - ServerSideApply=true
+      - Validate=false
+      - RespectIgnoreDifferences=true
+
+  # Ignore all differences since we're just tracking, not managing
+  ignoreDifferences:
+    - group: "*"
+      kind: "*"
+      jsonPointers:
+        - /metadata/annotations
+        - /metadata/labels
+{{- end }}
