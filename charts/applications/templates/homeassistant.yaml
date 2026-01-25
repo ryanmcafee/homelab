@@ -13,7 +13,7 @@ spec:
   project: default
   source:
     repoURL: {{ .Values.homeassistant.chart.repo }}
-    chart: {{ .Values.homeassistant.chart.name }}
+    path: .
     targetRevision: {{ .Values.homeassistant.chart.version }}
     helm:
       releaseName: home-assistant

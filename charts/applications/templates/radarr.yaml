@@ -13,7 +13,7 @@ spec:
   project: default
   source:
     repoURL: {{ .Values.radarr.chart.repo }}
-    chart: {{ .Values.radarr.chart.name }}
+    path: .
     targetRevision: {{ .Values.radarr.chart.version }}
     helm:
       releaseName: radarr

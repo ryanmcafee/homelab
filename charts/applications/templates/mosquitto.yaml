@@ -13,7 +13,7 @@ spec:
   project: default
   source:
     repoURL: {{ .Values.mosquitto.chart.repo }}
-    chart: {{ .Values.mosquitto.chart.name }}
+    path: .
     targetRevision: {{ .Values.mosquitto.chart.version }}
     helm:
       releaseName: mosquitto

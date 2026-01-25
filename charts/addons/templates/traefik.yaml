@@ -66,6 +66,9 @@ spec:
         env:
           {{- toYaml .Values.traefik.env | nindent 10 }}
 
+        # Disable ACME certificate resolvers (using cert-manager instead for HA)
+        certificatesResolvers: {}
+
         persistence:
           enabled: {{ .Values.traefik.persistence.enabled }}
           {{- if .Values.traefik.persistence.enabled }}

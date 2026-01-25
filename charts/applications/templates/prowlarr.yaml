@@ -13,7 +13,7 @@ spec:
   project: default
   source:
     repoURL: {{ .Values.prowlarr.chart.repo }}
-    chart: {{ .Values.prowlarr.chart.name }}
+    path: .
     targetRevision: {{ .Values.prowlarr.chart.version }}
     helm:
       releaseName: prowlarr

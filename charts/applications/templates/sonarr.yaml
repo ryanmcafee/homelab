@@ -13,7 +13,7 @@ spec:
   project: default
   source:
     repoURL: {{ .Values.sonarr.chart.repo }}
-    chart: {{ .Values.sonarr.chart.name }}
+    path: .
     targetRevision: {{ .Values.sonarr.chart.version }}
     helm:
       releaseName: sonarr
