@@ -2,8 +2,9 @@
 # Core cluster infrastructure and addon components
 #
 # This chart deploys essential cluster services in a specific order:
+# 0. 1Password Operator (CRDs must exist before OnePasswordItem resources)
 # 1. MetalLB (LoadBalancer IPs)
-# 2. Democratic-CSI & 1Password Operator (Storage & Secrets)
+# 2. Democratic-CSI (Storage - uses OnePasswordItem for TrueNAS API key)
 # 3. Cert-Manager (TLS Certificates)
 # 4. External-DNS (DNS Management)
 # 5. Kube-Prometheus-Stack (Monitoring)
@@ -171,7 +172,7 @@ kubelet-csr-approver:
 
 # ============================================================================
 # Democratic-CSI - NFS Storage Provisioner
-# Sync Wave: 2 (needed before apps require storage)
+# Sync Wave: 2 (OnePasswordItem at wave 1, needs 1Password CRDs from wave 0)
 # ============================================================================
 
 democratic-csi:
@@ -259,7 +260,7 @@ local-path-provisioner:
 
 # ============================================================================
 # 1Password Operator - Secret Management
-# Sync Wave: 2 (needed before apps require secrets)
+# Sync Wave: 0 (FIRST - CRDs must exist before any OnePasswordItem resources)
 # ============================================================================
 
 1password-operator:
