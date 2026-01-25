@@ -455,7 +455,7 @@ external-dns-unifi:
     version: "1.15.0"
 
   webhook:
-    version: "v0.3.0"
+    version: "v0.8.1"
 
   unifi:
     host: "https://172.16.100.1"
