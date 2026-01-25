@@ -13,7 +13,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: ghcr.io/cloudnative-pg/charts
+    repoURL: {{ index .Values "cloudnative-pg" "chart" "repo" }}
     chart: {{ index .Values "cloudnative-pg" "chart" "name" }}
     targetRevision: {{ index .Values "cloudnative-pg" "chart" "version" }}
     helm:
