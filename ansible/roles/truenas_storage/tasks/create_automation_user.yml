@@ -1,0 +1,75 @@
+---
+# TrueNAS Storage Role - Create Automation User
+# Creates a dedicated automation API key for future use
+# Uses Basic Auth with admin password for initial setup
+
+- name: Check if automation API key exists
+  ansible.builtin.uri:
+    url: "{{ api_url }}/api/v2.0/api_key"
+    method: GET
+    url_username: "{{ api_user }}"
+    url_password: "{{ api_password }}"
+    force_basic_auth: true
+    validate_certs: "{{ truenas_verify_ssl | default(false) }}"
+  register: existing_api_keys
+
+- name: Set API key exists fact
+  ansible.builtin.set_fact:
+    automation_key_exists: "{{ 'automation' in (existing_api_keys.json | map(attribute='name') | list) }}"
+
+- name: Create automation API key
+  ansible.builtin.uri:
+    url: "{{ api_url }}/api/v2.0/api_key"
+    method: POST
+    url_username: "{{ api_user }}"
+    url_password: "{{ api_password }}"
+    force_basic_auth: true
+    validate_certs: "{{ truenas_verify_ssl | default(false) }}"
+    body_format: json
+    body:
+      name: automation
+      username: "{{ api_user }}"
+    status_code: [200, 201]
+  register: automation_api_key
+  when: not automation_key_exists
+
+- name: Store API key for later use
+  ansible.builtin.set_fact:
+    truenas_automation_api_key: "{{ automation_api_key.json.key }}"
+  when:
+    - not automation_key_exists
+    - automation_api_key is defined
+    - automation_api_key.json is defined
+
+- name: Display API key info
+  ansible.builtin.debug:
+    msg: |
+      Automation API Key Created!
+      ===========================
+      Name: automation
+      Key: {{ truenas_automation_api_key | default('Already exists') }}
+
+      Update 1Password with:
+      op item edit truenas api_key="{{ truenas_automation_api_key }}" --vault homelab
+  when: not automation_key_exists
+
+- name: Save API key to temp file for 1Password integration
+  ansible.builtin.copy:
+    content: "{{ truenas_automation_api_key }}"
+    dest: "/tmp/truenas-automation-api-key.txt"
+    mode: "0600"
+  delegate_to: localhost
+  when:
+    - not automation_key_exists
+    - truenas_automation_api_key is defined
+
+- name: Update 1Password with new API key
+  ansible.builtin.command:
+    cmd: >
+      op item edit truenas api_key="{{ truenas_automation_api_key }}" --vault homelab
+  delegate_to: localhost
+  when:
+    - not automation_key_exists
+    - truenas_automation_api_key is defined
+    - lookup('env', 'OP_SERVICE_ACCOUNT_TOKEN') | length > 0
+  ignore_errors: true

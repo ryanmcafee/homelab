@@ -25,8 +25,10 @@ resource "proxmox_virtual_environment_hardware_mapping_pci" "hba_mappings" {
   }]
 }
 
-# Download TrueNAS Scale ISO
+# Download TrueNAS Scale ISO (only when not using template)
 resource "proxmox_virtual_environment_download_file" "truenas_iso" {
+  count = var.use_template ? 0 : 1
+
   content_type = "iso"
   datastore_id = var.iso_storage
   node_name    = var.node_name
@@ -48,6 +50,15 @@ resource "proxmox_virtual_environment_vm" "truenas" {
   started = var.started
   on_boot = var.on_boot
   vm_id   = var.vm_id
+
+  # Clone from template (when use_template is true)
+  dynamic "clone" {
+    for_each = var.use_template ? [1] : []
+    content {
+      vm_id = var.template_vm_id
+      full  = true
+    }
+  }
 
   # CPU Configuration - TrueNAS benefits from host CPU type
   cpu {
@@ -104,10 +115,13 @@ resource "proxmox_virtual_environment_vm" "truenas" {
     }
   }
 
-  # Attach TrueNAS ISO for initial installation
-  cdrom {
-    file_id   = proxmox_virtual_environment_download_file.truenas_iso.id
-    interface = "ide2"
+  # Attach TrueNAS ISO for initial installation (only when not using template)
+  dynamic "cdrom" {
+    for_each = var.use_template ? [] : [1]
+    content {
+      file_id   = proxmox_virtual_environment_download_file.truenas_iso[0].id
+      interface = "ide2"
+    }
   }
 
   # Boot order - CDROM first for installation, then boot disk
@@ -186,5 +200,33 @@ resource "unifi_dns_record" "this" {
 
   lifecycle {
     ignore_changes = [port]
+  }
+}
+
+# Ansible Configuration Provisioner
+# Runs after TrueNAS is up to configure the system via Ansible
+resource "null_resource" "ansible_configuration" {
+  count = var.run_ansible_setup ? 1 : 0
+
+  depends_on = [
+    proxmox_virtual_environment_vm.truenas,
+    null_resource.wait_for_truenas
+  ]
+
+  provisioner "local-exec" {
+    working_dir = var.ansible_working_dir
+    environment = {
+      MISE_CONFIG_FILE        = "${var.ansible_working_dir}/../mise.toml"
+      TRUENAS_ADMIN_PASSWORD  = var.truenas_admin_password
+      CLOUDFLARE_API_TOKEN    = var.cloudflare_api_token
+    }
+    command = <<-EOF
+      env -u ANSIBLE_VAULT_PASSWORD_FILE mise exec -- ansible-playbook -i inventory/homelab.yml playbooks/truenas-full-setup.yml \
+        --vault-password-file=vault-password.sh \
+        -e "truenas_admin_password=${var.truenas_admin_password}" \
+        -e "truenas_static_ip=${var.truenas_static_ip}" \
+        -e "truenas_gateway=${var.truenas_gateway}" \
+        -e "truenas_hostname=${var.truenas_hostname}"
+    EOF
   }
 }

@@ -80,3 +80,7 @@ talosconfig
 
 # Terraform state lock files
 terragrunt/terraform.tfstate.d/**/.terraform.tfstate.lock.info
+
+# Packer
+*.iso
+*.iso.lock

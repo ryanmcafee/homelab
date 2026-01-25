@@ -1,0 +1,226 @@
+---
+# TrueNAS Storage Role - Configure ACME Certificate
+# Sets up Let's Encrypt certificate using Cloudflare DNS-01 challenge
+# Uses Basic Auth with admin password for initial setup
+# TrueNAS 25.x requires creating a CSR first, then ACME certificate
+
+- name: Get existing ACME DNS authenticators
+  ansible.builtin.uri:
+    url: "{{ api_url }}/api/v2.0/acme/dns/authenticator"
+    method: GET
+    url_username: "{{ api_user }}"
+    url_password: "{{ api_password }}"
+    force_basic_auth: true
+    validate_certs: "{{ truenas_verify_ssl | default(false) }}"
+  register: existing_authenticators
+
+- name: Check if Cloudflare authenticator exists
+  ansible.builtin.set_fact:
+    cloudflare_auth_exists: "{{ 'cloudflare' in (existing_authenticators.json | map(attribute='name') | list) }}"
+    cloudflare_auth_id: "{{ (existing_authenticators.json | selectattr('name', 'equalto', 'cloudflare') | first).id | default(0) }}"
+
+- name: Create Cloudflare DNS authenticator
+  ansible.builtin.uri:
+    url: "{{ api_url }}/api/v2.0/acme/dns/authenticator"
+    method: POST
+    url_username: "{{ api_user }}"
+    url_password: "{{ api_password }}"
+    force_basic_auth: true
+    validate_certs: "{{ truenas_verify_ssl | default(false) }}"
+    body_format: json
+    body:
+      name: cloudflare
+      attributes:
+        authenticator: cloudflare
+        api_token: "{{ cloudflare_token }}"
+    status_code: [200, 201]
+  register: new_authenticator
+  when: not cloudflare_auth_exists
+
+- name: Set authenticator ID
+  ansible.builtin.set_fact:
+    cloudflare_auth_id: "{{ new_authenticator.json.id | default(cloudflare_auth_id) }}"
+
+- name: Get existing certificates
+  ansible.builtin.uri:
+    url: "{{ api_url }}/api/v2.0/certificate"
+    method: GET
+    url_username: "{{ api_user }}"
+    url_password: "{{ api_password }}"
+    force_basic_auth: true
+    validate_certs: "{{ truenas_verify_ssl | default(false) }}"
+  register: existing_certs
+
+- name: Set certificate names (TrueNAS requires underscores, no dots)
+  ansible.builtin.set_fact:
+    cert_name: "acme_{{ certificate_domain | replace('.', '_') }}"
+    csr_name: "{{ certificate_domain | replace('.', '_') }}_csr"
+
+- name: Check if ACME certificate already exists
+  ansible.builtin.set_fact:
+    acme_cert_exists: "{{ cert_name in (existing_certs.json | map(attribute='name') | list) }}"
+    csr_exists: "{{ csr_name in (existing_certs.json | map(attribute='name') | list) }}"
+
+- name: Get existing CSR ID if it exists
+  ansible.builtin.set_fact:
+    existing_csr_id: "{{ (existing_certs.json | selectattr('name', 'equalto', csr_name) | first).id | default(0) }}"
+  when: csr_exists
+
+# Step 1: Create CSR (Certificate Signing Request) - required for ACME in TrueNAS 25.x
+- name: Create CSR for ACME certificate
+  ansible.builtin.uri:
+    url: "{{ api_url }}/api/v2.0/certificate"
+    method: POST
+    url_username: "{{ api_user }}"
+    url_password: "{{ api_password }}"
+    force_basic_auth: true
+    validate_certs: "{{ truenas_verify_ssl | default(false) }}"
+    body_format: json
+    body:
+      name: "{{ csr_name }}"
+      create_type: CERTIFICATE_CREATE_CSR
+      key_type: RSA
+      key_length: 2048
+      common: "{{ certificate_domain }}"
+      san:
+        - "{{ certificate_domain }}"
+      country: US
+      state: California
+      city: San Francisco
+      organization: Personal
+      organizational_unit: Home Lab
+      email: "admin@{{ certificate_domain | regex_replace('^[^.]+\\.', '') }}"
+    status_code: [200, 201]
+    timeout: 60
+  register: csr_job
+  when: not acme_cert_exists and not csr_exists
+
+- name: Wait for CSR creation job
+  ansible.builtin.uri:
+    url: "{{ api_url }}/api/v2.0/core/get_jobs?id={{ csr_job.json }}"
+    method: GET
+    url_username: "{{ api_user }}"
+    url_password: "{{ api_password }}"
+    force_basic_auth: true
+    validate_certs: "{{ truenas_verify_ssl | default(false) }}"
+  register: csr_job_status
+  until: csr_job_status.json[0].state in ['SUCCESS', 'FAILED']
+  retries: 12
+  delay: 5
+  when: csr_job is changed
+
+- name: Fail if CSR creation failed
+  ansible.builtin.fail:
+    msg: "CSR creation failed: {{ csr_job_status.json[0].error }}"
+  when: csr_job is changed and csr_job_status.json[0].state == 'FAILED'
+
+- name: Get CSR ID from job result
+  ansible.builtin.set_fact:
+    csr_id: "{{ csr_job_status.json[0].result.id }}"
+  when: csr_job is changed
+
+- name: Use existing CSR ID
+  ansible.builtin.set_fact:
+    csr_id: "{{ existing_csr_id }}"
+  when: not acme_cert_exists and csr_exists
+
+# Step 2: Create ACME certificate using the CSR
+- name: Create ACME certificate
+  ansible.builtin.uri:
+    url: "{{ api_url }}/api/v2.0/certificate"
+    method: POST
+    url_username: "{{ api_user }}"
+    url_password: "{{ api_password }}"
+    force_basic_auth: true
+    validate_certs: "{{ truenas_verify_ssl | default(false) }}"
+    body_format: json
+    body:
+      name: "{{ cert_name }}"
+      create_type: CERTIFICATE_CREATE_ACME
+      csr_id: "{{ csr_id | int }}"
+      acme_directory_uri: "https://acme-v02.api.letsencrypt.org/directory"
+      dns_mapping:
+        "{{ certificate_domain }}": "{{ cloudflare_auth_id | int }}"
+      tos: true
+      renew_days: 30
+    status_code: [200, 201]
+    timeout: 300
+  register: acme_cert_job
+  when: not acme_cert_exists
+
+- name: Wait for ACME certificate issuance
+  ansible.builtin.uri:
+    url: "{{ api_url }}/api/v2.0/core/get_jobs?id={{ acme_cert_job.json }}"
+    method: GET
+    url_username: "{{ api_user }}"
+    url_password: "{{ api_password }}"
+    force_basic_auth: true
+    validate_certs: "{{ truenas_verify_ssl | default(false) }}"
+  register: acme_job_status
+  until: acme_job_status.json[0].state in ['SUCCESS', 'FAILED']
+  retries: 60
+  delay: 10
+  when: acme_cert_job is changed
+
+- name: Fail if ACME certificate creation failed
+  ansible.builtin.fail:
+    msg: "ACME certificate creation failed: {{ acme_job_status.json[0].error }}"
+  when: acme_cert_job is changed and acme_job_status.json[0].state == 'FAILED'
+
+- name: Get certificate ID from job result
+  ansible.builtin.set_fact:
+    acme_cert_id: "{{ acme_job_status.json[0].result.id }}"
+  when: acme_cert_job is changed
+
+# Get certificate ID if it already existed
+- name: Get existing certificate ID
+  ansible.builtin.uri:
+    url: "{{ api_url }}/api/v2.0/certificate"
+    method: GET
+    url_username: "{{ api_user }}"
+    url_password: "{{ api_password }}"
+    force_basic_auth: true
+    validate_certs: "{{ truenas_verify_ssl | default(false) }}"
+  register: all_certs
+  when: acme_cert_exists
+
+- name: Set existing certificate ID
+  ansible.builtin.set_fact:
+    acme_cert_id: "{{ (all_certs.json | selectattr('name', 'equalto', cert_name) | first).id }}"
+  when: acme_cert_exists
+
+- name: Configure web UI to use ACME certificate
+  ansible.builtin.uri:
+    url: "{{ api_url }}/api/v2.0/system/general"
+    method: PUT
+    url_username: "{{ api_user }}"
+    url_password: "{{ api_password }}"
+    force_basic_auth: true
+    validate_certs: "{{ truenas_verify_ssl | default(false) }}"
+    body_format: json
+    body:
+      ui_certificate: "{{ acme_cert_id | int }}"
+    status_code: [200]
+
+- name: Restart web UI to apply certificate
+  ansible.builtin.uri:
+    url: "{{ api_url }}/api/v2.0/system/general/ui_restart"
+    method: POST
+    url_username: "{{ api_user }}"
+    url_password: "{{ api_password }}"
+    force_basic_auth: true
+    validate_certs: "{{ truenas_verify_ssl | default(false) }}"
+    status_code: [200]
+    timeout: 10
+  ignore_errors: true
+
+- name: Display certificate status
+  ansible.builtin.debug:
+    msg: |
+      ACME Certificate Configured!
+      ============================
+      Domain: {{ certificate_domain }}
+      Certificate Name: {{ cert_name }}
+      Certificate ID: {{ acme_cert_id }}
+      Issuer: Let's Encrypt
+      Auto-renew: 30 days before expiry
