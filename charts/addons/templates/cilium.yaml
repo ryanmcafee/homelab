@@ -79,4 +79,11 @@ spec:
       jsonPointers:
         - /metadata/annotations
         - /metadata/labels
+    # Ignore auto-generated TLS secrets managed by Cilium (cilium-ca, hubble-*-certs)
+    - group: ""
+      kind: Secret
+      jsonPointers:
+        - /data
+        - /metadata/annotations
+        - /metadata/labels
 {{- end }}

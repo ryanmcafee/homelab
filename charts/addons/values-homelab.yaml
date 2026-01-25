@@ -703,3 +703,19 @@ oauth2-proxy:
     limits:
       cpu: 200m
       memory: 128Mi
+
+# ============================================================================
+# NVIDIA GPU Operator - GPU Support for Kubernetes
+# Sync Wave: 0 (must deploy before Plex which requires RuntimeClass nvidia)
+# ============================================================================
+
+nvidia-gpu-operator:
+  enabled: true
+  namespace: gpu-operator
+
+  chart:
+    version: "v25.3.0"
+
+  # Note: Driver and toolkit are provided by Talos system extensions
+  # (siderolabs/nonfree-kmod-nvidia and siderolabs/nvidia-container-toolkit)
+  # GPU Operator only manages device plugin, monitoring, and feature discovery

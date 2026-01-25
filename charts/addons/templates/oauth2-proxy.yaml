@@ -49,6 +49,10 @@ spec:
       values: |
         replicaCount: 2
 
+        # Disable automatic env vars from proxyVarsAsSecrets to avoid duplicates
+        # We set these manually via extraEnv from 1Password secrets
+        proxyVarsAsSecrets: false
+
         config:
           configFile: |-
             provider = "google"
