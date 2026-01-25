@@ -36,7 +36,7 @@ resource "kubernetes_namespace_v1" "onepassword_operator" {
   }
 }
 
-# Create 1Password credentials secret
+# Create 1Password credentials secret (for Connect server)
 resource "kubernetes_secret_v1" "onepassword_credentials" {
   count = var.onepassword_credentials_json != "" ? 1 : 0
 
@@ -55,6 +55,29 @@ resource "kubernetes_secret_v1" "onepassword_credentials" {
     "OP_CONNECT_HOST"            = var.onepassword_connect_host
     "OP_CONNECT_TOKEN"           = var.onepassword_connect_token
     "OP_SERVICE_ACCOUNT_TOKEN"   = var.onepassword_service_account_token
+  }
+
+  type = "Opaque"
+
+  depends_on = [kubernetes_namespace_v1.onepassword_operator]
+}
+
+# Create 1Password operator token secret (for operator to authenticate with Connect)
+resource "kubernetes_secret_v1" "onepassword_token" {
+  count = var.onepassword_connect_token != "" ? 1 : 0
+
+  metadata {
+    name      = "onepassword-token"
+    namespace = kubernetes_namespace_v1.onepassword_operator[0].metadata[0].name
+    labels = {
+      "app.kubernetes.io/name"       = "onepassword-token"
+      "app.kubernetes.io/managed-by" = "terraform"
+      "app.kubernetes.io/part-of"    = "gitops-bootstrap"
+    }
+  }
+
+  data = {
+    "token" = var.onepassword_connect_token
   }
 
   type = "Opaque"

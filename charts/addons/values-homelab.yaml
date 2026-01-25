@@ -199,7 +199,7 @@ democratic-csi:
     allowInsecure: true  # Required when using IP (no valid TLS cert for IP)
     apiKey: ""  # Populated from 1Password secret
     # 1Password vault path for TrueNAS API key (creates secret: truenas-api-key)
-    onePasswordItemPath: vaults/homelab/truenas/api_key
+    onePasswordItemPath: vaults/homelab/items/truenas
 
   nfs:
     shareHost: 172.16.100.150
@@ -298,7 +298,7 @@ cert-manager:
     enabled: true
     email: admin@ryanmcafee.com
     apiToken: ""
-    onePasswordItemPath: vaults/homelab/items/cloudflare-api-token
+    onePasswordItemPath: vaults/homelab/items/cloudflare
 
   resources:
     requests:
@@ -345,7 +345,7 @@ external-dns:
   cloudflare:
     apiToken: ""
     proxied: true
-    onePasswordItemPath: vaults/homelab/items/cloudflare-api-token
+    onePasswordItemPath: vaults/homelab/items/cloudflare
 
   domainFilters:
     - ryanmcafee.com
@@ -533,4 +533,4 @@ traefik:
 
   cloudflare:
     enabled: true
-    onePasswordItemPath: vaults/homelab/items/cloudflare-api-token
+    onePasswordItemPath: vaults/homelab/items/cloudflare
