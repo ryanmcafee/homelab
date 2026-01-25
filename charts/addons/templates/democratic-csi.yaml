@@ -58,7 +58,7 @@ spec:
 
             zfs:
               datasetParentName: {{ index .Values "democratic-csi" "nfs" "parent" }}
-              detachedSnapshotsDatasetParentName: {{ index .Values "democratic-csi" "nfs" "parent" }}/snapshots
+              detachedSnapshotsDatasetParentName: {{ index .Values "democratic-csi" "nfs" "parent" }}-snapshots
               datasetEnableQuotas: true
               datasetEnableReservation: false
               datasetPermissionsMode: "0777"
