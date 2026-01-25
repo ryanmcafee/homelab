@@ -68,9 +68,9 @@ spec:
             nfs:
               shareHost: {{ index .Values "democratic-csi" "nfs" "shareHost" }}
               shareAlldirs: false
-              shareAllowedHosts:
+              shareAllowedHosts: []
+              shareAllowedNetworks:
                 - {{ index .Values "democratic-csi" "nfs" "shareAllow" }}
-              shareAllowedNetworks: []
               shareMaprootUser: root
               shareMaprootGroup: root
 
