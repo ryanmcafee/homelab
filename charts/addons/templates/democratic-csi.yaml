@@ -120,8 +120,9 @@ spec:
       selfHeal: true
     syncOptions:
       - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
     retry:
-      limit: 2
+      limit: 5
       backoff:
         duration: 5s
         factor: 2
