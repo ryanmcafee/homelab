@@ -1,4 +1,17 @@
 {{- if index .Values "cert-manager" "enabled" }}
+{{- if (index .Values "cert-manager" "cloudflare" "enabled") }}
+---
+# OnePasswordItem syncs the Cloudflare API token from 1Password vault
+apiVersion: onepassword.com/v1
+kind: OnePasswordItem
+metadata:
+  name: cloudflare-api-token
+  namespace: {{ index .Values "cert-manager" "namespace" }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  itemPath: {{ index .Values "cert-manager" "cloudflare" "onePasswordItemPath" | quote }}
+{{- end }}
 ---
 apiVersion: argoproj.io/v1alpha1
 kind: Application
