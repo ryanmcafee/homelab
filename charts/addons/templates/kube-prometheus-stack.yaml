@@ -1,5 +1,15 @@
 {{- if index .Values "kube-prometheus-stack" "enabled" }}
 ---
+# Namespace with privileged PodSecurity labels for node-exporter
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ index .Values "kube-prometheus-stack" "namespace" }}
+  labels:
+    pod-security.kubernetes.io/enforce: privileged
+    pod-security.kubernetes.io/audit: privileged
+    pod-security.kubernetes.io/warn: privileged
+---
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:

@@ -88,6 +88,15 @@
     nfs_maproot_user: "{{ truenas_nfs_maproot_user }}"
     nfs_maproot_group: "{{ truenas_nfs_maproot_group }}"
 
+- name: Include NFS share creation for Media
+  ansible.builtin.include_tasks: create_nfs_share.yml
+  vars:
+    nfs_path: "/mnt/{{ truenas_media_dataset }}"
+    nfs_comment: "Media storage for Plex/Sonarr/Radarr"
+    nfs_networks: "{{ truenas_nfs_allowed_networks }}"
+    nfs_maproot_user: "{{ truenas_nfs_maproot_user }}"
+    nfs_maproot_group: "{{ truenas_nfs_maproot_group }}"
+
 # API key for democratic-csi
 - name: Include API key creation for democratic-csi
   ansible.builtin.include_tasks: create_api_key.yml
@@ -106,5 +115,7 @@
       - Pool: {{ truenas_pool_name }}
       - Kubernetes Dataset: {{ truenas_k8s_dataset }}
       - Kubernetes Snapshots Dataset: {{ truenas_k8s_snapshots_dataset }}
-      - NFS Share: {{ truenas_nfs_share_path }}
+      - Media Dataset: {{ truenas_media_dataset }}
+      - NFS Share (K8s): {{ truenas_nfs_share_path }}
+      - NFS Share (Media): /mnt/{{ truenas_media_dataset }}
       - API Key Created: {{ truenas_csi_api_key_name }}

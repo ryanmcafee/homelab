@@ -424,6 +424,7 @@ mosquitto:
         main:
           port: 1883
           targetPort: 1883
+          protocol: tcp
     websockets:
       enabled: true
       type: LoadBalancer
@@ -432,6 +433,7 @@ mosquitto:
           enabled: true
           port: 9001
           targetPort: 9001
+          protocol: tcp
 
   # Authentication configuration
   mosquitto:
