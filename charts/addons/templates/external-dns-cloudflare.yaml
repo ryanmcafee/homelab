@@ -16,7 +16,7 @@ spec:
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: external-dns
+  name: external-dns-cloudflare
   namespace: argocd
   annotations:
     argocd.argoproj.io/sync-wave: "4"
@@ -29,8 +29,10 @@ spec:
     chart: {{ index .Values "external-dns" "chart" "name" }}
     targetRevision: {{ index .Values "external-dns" "chart" "version" }}
     helm:
-      releaseName: external-dns
+      releaseName: external-dns-cloudflare
       values: |
+        fullnameOverride: external-dns-cloudflare
+
         provider:
           name: {{ index .Values "external-dns" "provider" }}
 
@@ -55,7 +57,7 @@ spec:
 
         policy: sync
         registry: txt
-        txtOwnerId: {{ .Values.global.environment }}
+        txtOwnerId: {{ .Values.global.environment }}-cloudflare
 
         {{- if index .Values "external-dns" "defaultTarget" }}
         # Use DDNS hostname as the target for all DNS records
