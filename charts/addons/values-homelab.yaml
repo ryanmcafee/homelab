@@ -273,6 +273,32 @@ local-path-provisioner:
         memory: 512Mi
 
 # ============================================================================
+# CloudNativePG - PostgreSQL Operator
+# Sync Wave: 2 (must be before home-assistant which depends on CNPG CRDs)
+# ============================================================================
+
+cloudnative-pg:
+  enabled: true
+  namespace: cnpg-system
+
+  chart:
+    name: cloudnative-pg
+    version: 0.27.0
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+  monitoring:
+    podMonitorEnabled: true
+    grafanaDashboard:
+      create: false
+
+# ============================================================================
 # Cert-Manager - TLS Certificate Management
 # Sync Wave: 3
 # ============================================================================

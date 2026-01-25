@@ -6,7 +6,8 @@ metadata:
   name: home-assistant
   namespace: argocd
   annotations:
-    argocd.argoproj.io/sync-wave: "3"
+    # Sync wave 4 - requires CloudNativePG operator (addons sync wave 2) to be ready
+    argocd.argoproj.io/sync-wave: "4"
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
