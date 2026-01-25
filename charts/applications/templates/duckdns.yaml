@@ -1,5 +1,13 @@
 {{- if .Values.duckdns.enabled }}
 ---
+# Namespace for DuckDNS resources
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Values.duckdns.namespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+---
 # OnePasswordItem syncs the DuckDNS token from 1Password vault
 apiVersion: onepassword.com/v1
 kind: OnePasswordItem
