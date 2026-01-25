@@ -197,7 +197,9 @@ democratic-csi:
     # Use IP address instead of hostname since internal DNS is not resolvable from cluster
     endpoint: https://172.16.100.150
     allowInsecure: true  # Required when using IP (no valid TLS cert for IP)
-    apiKey: ""  # Provided via 1Password operator
+    apiKey: ""  # Populated from 1Password secret
+    # 1Password vault path for TrueNAS API key (creates secret: truenas-api-key)
+    onePasswordItemPath: vaults/homelab/truenas/api_key
 
   nfs:
     shareHost: 172.16.100.150
@@ -485,31 +487,20 @@ traefik:
         default: true
       tls:
         enabled: true
-        certResolver: letsencrypt
+        # TLS certificates managed by cert-manager for HA compatibility
 
   globalArguments:
     - --global.checknewversion=false
     - --global.sendanonymoususage=false
 
-  additionalArguments:
-    - --certificatesresolvers.letsencrypt.acme.email=admin@ryanmcafee.com
-    - --certificatesresolvers.letsencrypt.acme.storage=/data/acme.json
-    - --certificatesresolvers.letsencrypt.acme.dnschallenge=true
-    - --certificatesresolvers.letsencrypt.acme.dnschallenge.provider=cloudflare
+  # ACME removed - using cert-manager for TLS certificates (HA compatible)
+  additionalArguments: []
 
-  env:
-    - name: CF_API_EMAIL
-      value: admin@ryanmcafee.com
-    - name: CF_DNS_API_TOKEN
-      valueFrom:
-        secretKeyRef:
-          name: cloudflare-api-token
-          key: token
+  env: []
 
+  # Persistence disabled - ACME removed
   persistence:
-    enabled: true
-    storageClass: democratic-csi-nfs
-    size: 1Gi
+    enabled: false
 
   ingressRoute:
     dashboard:

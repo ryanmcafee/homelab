@@ -133,10 +133,10 @@ sonarr:
   enabled: true
   namespace: media
 
-  # TrueCharts helm chart
+  # TrueCharts helm chart (OCI registry)
   chart:
     name: sonarr
-    repo: https://trueforge-org.github.io/truecharts
+    repo: oci://oci.trueforge.org/truecharts
     version: 25.2.11
 
   # TrueCharts uses common library pattern
@@ -199,10 +199,10 @@ radarr:
   enabled: true
   namespace: media
 
-  # TrueCharts helm chart
+  # TrueCharts helm chart (OCI registry)
   chart:
     name: radarr
-    repo: https://trueforge-org.github.io/truecharts
+    repo: oci://oci.trueforge.org/truecharts
     version: 26.3.11
 
   workload:
@@ -264,10 +264,10 @@ prowlarr:
   enabled: true
   namespace: media
 
-  # TrueCharts helm chart
+  # TrueCharts helm chart (OCI registry)
   chart:
     name: prowlarr
-    repo: https://trueforge-org.github.io/truecharts
+    repo: oci://oci.trueforge.org/truecharts
     version: 21.3.12
 
   workload:
@@ -322,10 +322,10 @@ homeassistant:
   enabled: true
   namespace: home-automation
 
-  # TrueCharts helm chart
+  # TrueCharts helm chart (OCI registry)
   chart:
     name: home-assistant
-    repo: https://trueforge-org.github.io/truecharts
+    repo: oci://oci.trueforge.org/truecharts
     version: 28.19.14
 
   workload:
@@ -381,10 +381,10 @@ mosquitto:
   enabled: true
   namespace: home-automation
 
-  # TrueCharts helm chart
+  # TrueCharts helm chart (OCI registry)
   chart:
     name: mosquitto
-    repo: https://trueforge-org.github.io/truecharts
+    repo: oci://oci.trueforge.org/truecharts
     version: 17.13.9
 
   workload:

@@ -191,7 +191,9 @@ democratic-csi:
   truenas:
     endpoint: https://truenas.ryanmcafee.com
     allowInsecure: false
-    apiKey: ""  # Provided via 1Password operator
+    apiKey: ""  # Must be set manually or via 1Password
+    # 1Password vault path for TrueNAS API key (creates secret: truenas-api-key)
+    onePasswordItemPath: ""
 
   # NFS dataset configuration
   nfs:
@@ -266,7 +268,7 @@ local-path-provisioner:
 
   # Chart source
   chart:
-    name: onepassword-connect-operator
+    name: connect
     repo: https://1password.github.io/connect-helm-charts
     version: 1.15.1
 
@@ -540,36 +542,23 @@ traefik:
         default: true
       tls:
         enabled: true
-        # Use cert-manager for TLS
-        certResolver: letsencrypt
+        # TLS certificates managed by cert-manager, not Traefik ACME
+        # This allows for multiple replicas
 
   # Global arguments
   globalArguments:
     - --global.checknewversion=false
     - --global.sendanonymoususage=false
 
-  # Additional arguments
-  additionalArguments:
-    - --certificatesresolvers.letsencrypt.acme.email=admin@ryanmcafee.com
-    - --certificatesresolvers.letsencrypt.acme.storage=/data/acme.json
-    - --certificatesresolvers.letsencrypt.acme.dnschallenge=true
-    - --certificatesresolvers.letsencrypt.acme.dnschallenge.provider=cloudflare
+  # Additional arguments (ACME removed - using cert-manager for HA compatibility)
+  additionalArguments: []
 
-  # Environment variables for Cloudflare
-  env:
-    - name: CF_API_EMAIL
-      value: admin@ryanmcafee.com
-    - name: CF_DNS_API_TOKEN
-      valueFrom:
-        secretKeyRef:
-          name: cloudflare-api-token
-          key: token
+  # Environment variables
+  env: []
 
-  # Persistence for ACME certificates
+  # Persistence disabled (ACME removed - using cert-manager)
   persistence:
-    enabled: true
-    storageClass: democratic-csi-nfs
-    size: 1Gi
+    enabled: false
 
   # Dashboard
   ingressRoute:
