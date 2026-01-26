@@ -6,7 +6,7 @@ kind: Namespace
 metadata:
   name: {{ .Values.traefik.namespace }}
   annotations:
-    argocd.argoproj.io/sync-wave: "5"
+    argocd.argoproj.io/sync-wave: "-1"
 {{- if .Values.traefik.cloudflare.enabled }}
 ---
 # OnePasswordItem syncs the Cloudflare API token from 1Password vault
@@ -27,7 +27,7 @@ metadata:
   name: traefik
   namespace: argocd
   annotations:
-    argocd.argoproj.io/sync-wave: "6"
+    argocd.argoproj.io/sync-wave: "1"
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
