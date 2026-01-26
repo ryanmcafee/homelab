@@ -448,6 +448,7 @@ tasks:
       - |
         helm template kubelet-csr-approver kubelet-csr-approver/kubelet-csr-approver --version 1.2.2 \
           --namespace kube-system \
+          --skip-tests \
           --set providerIpPrefixes="{172.16.100.0/24}" \
           --set bypassDnsResolution=true \
           > terragrunt/files/kubelet-csr-approver-rendered.yaml
