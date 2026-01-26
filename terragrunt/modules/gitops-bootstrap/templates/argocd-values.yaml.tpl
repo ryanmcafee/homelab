@@ -11,6 +11,8 @@ configs:
     admin.enabled: ${admin_enabled}
     timeout.reconciliation: 60s
     application.instanceLabelKey: argocd.argoproj.io/instance
+    # Enable ksops plugin for SOPS decryption
+    kustomize.buildOptions: "--enable-alpha-plugins --enable-exec"
     # Enable App of Apps health status progression
     # This allows parent applications to track child application health
     resource.customizations.health.argoproj.io_Application: |
@@ -84,6 +86,9 @@ repoServer:
     - name: custom-tools
       mountPath: /usr/local/bin/ksops
       subPath: ksops
+    - name: custom-tools
+      mountPath: /usr/local/bin/kustomize
+      subPath: kustomize
     - name: sops-age
       mountPath: /.config/sops/age
 
@@ -94,8 +99,8 @@ repoServer:
       command: ["/bin/sh", "-c"]
       args:
         - echo "Installing KSOPS...";
-          mv /usr/local/bin/ksops /custom-tools/;
-          mv /usr/local/bin/kustomize /custom-tools/;
+          cp /usr/local/bin/ksops /custom-tools/ksops;
+          cp /usr/local/bin/kustomize /custom-tools/kustomize;
           echo "Done.";
       volumeMounts:
         - name: custom-tools
