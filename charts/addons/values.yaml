@@ -60,6 +60,8 @@ argocd:
     # Enable App of Apps health status progression
     configs:
       cm:
+        # Enable ksops plugin for SOPS decryption
+        kustomize.buildOptions: "--enable-alpha-plugins --enable-exec"
         resource.customizations.health.argoproj.io_Application: |
           hs = {}
           hs.status = "Progressing"
@@ -102,6 +104,41 @@ argocd:
         limits:
           cpu: 500m
           memory: 512Mi
+      # SOPS/ksops configuration for decrypting secrets
+      env:
+        - name: XDG_CONFIG_HOME
+          value: /.config
+        - name: SOPS_AGE_KEY_FILE
+          value: /.config/sops/age/keys.txt
+      # Mount age key and custom tools
+      volumes:
+        - name: custom-tools
+          emptyDir: {}
+        - name: sops-age
+          secret:
+            secretName: sops-age-key
+      volumeMounts:
+        - name: custom-tools
+          mountPath: /usr/local/bin/ksops
+          subPath: ksops
+        - name: custom-tools
+          mountPath: /usr/local/bin/kustomize
+          subPath: kustomize
+        - name: sops-age
+          mountPath: /.config/sops/age
+      # Init container to install ksops
+      initContainers:
+        - name: install-ksops
+          image: viaductoss/ksops:v4.3.2
+          command: ["/bin/sh", "-c"]
+          args:
+            - echo "Installing KSOPS...";
+              cp /usr/local/bin/ksops /custom-tools/ksops;
+              cp /usr/local/bin/kustomize /custom-tools/kustomize;
+              echo "Done.";
+          volumeMounts:
+            - name: custom-tools
+              mountPath: /custom-tools
 
     applicationSet:
       resources:
