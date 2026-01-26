@@ -7,11 +7,12 @@ metadata:
   annotations:
     argocd.argoproj.io/sync-wave: "6"
 ---
-# OnePasswordItem for UniFi credentials (url, username, password)
+# OnePasswordItem for UniFi credentials
+# Required 1Password item fields: ROUTER_URL, ROUTER_USERNAME, ROUTER_PASSWORD, ROUTER_RULE_PREFIX
 apiVersion: onepassword.com/v1
 kind: OnePasswordItem
 metadata:
-  name: unifi-credentials
+  name: port-forwarding-controller
   namespace: {{ index .Values "unifi-port-forward" "namespace" }}
   annotations:
     argocd.argoproj.io/sync-wave: "0"
@@ -37,16 +38,8 @@ spec:
       releaseName: port-forwarding-controller
       values: |
         router:
-          type: unifi
-          urlSecretKeyRef:
-            name: unifi-credentials
-            key: url
-          usernameSecretKeyRef:
-            name: unifi-credentials
-            key: username
-          passwordSecretKeyRef:
-            name: unifi-credentials
-            key: password
+          createSecret: false
+          rule_prefix: kube-
         resources:
           requests:
             cpu: 10m
