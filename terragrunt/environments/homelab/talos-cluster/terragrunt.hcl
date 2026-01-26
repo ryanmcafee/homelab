@@ -28,6 +28,16 @@ dependency "talos_image" {
   }
 }
 
+dependency "talos_image_gpu" {
+  config_path = "../talos-image-gpu"
+
+  mock_outputs = {
+    image_id      = "local:iso/talos-gpu-mock.img"
+    schematic_id  = "mock-gpu-schematic-id"
+    talos_version = "v1.12.2"
+  }
+}
+
 dependency "truenas" {
   config_path = "../truenas"
 
@@ -74,7 +84,12 @@ inputs = {
   datastore_id   = include.env.locals.vm_storage_pool
 
   # Image Factory installer with system extensions (qemu-guest-agent, nfs-utils, etc.)
+  # Base image for non-GPU nodes (includes nfs-utils for NFS mounts)
   installer_image = "factory.talos.dev/installer/${dependency.talos_image.outputs.schematic_id}:${dependency.talos_image.outputs.talos_version}"
+
+  # GPU image for nodes with gpu=true (includes nvidia-container-toolkit, excludes nfs-utils)
+  # NOTE: nvidia-container-toolkit conflicts with nfs-utils due to glibc symbol issues
+  gpu_installer_image = "factory.talos.dev/installer/${dependency.talos_image_gpu.outputs.schematic_id}:${dependency.talos_image_gpu.outputs.talos_version}"
 
   # Network configuration
   network_bridge  = "vmbr0"

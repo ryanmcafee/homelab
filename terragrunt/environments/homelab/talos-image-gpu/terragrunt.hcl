@@ -1,5 +1,7 @@
-# Homelab - Talos Image Factory
-# Downloads custom Talos image with required system extensions
+# Homelab - Talos GPU Image Factory
+# Downloads custom Talos image with NVIDIA GPU extensions
+# NOTE: This image is separate from base image due to nvidia-container-toolkit
+# incompatibility with nfs-utils/rpc-statd
 
 include "root" {
   path = find_in_parent_folders()
@@ -39,14 +41,15 @@ inputs = {
   node_name     = include.env.locals.proxmox_node
   datastore_id  = include.env.locals.iso_storage_pool
 
-  # Base system extensions for non-GPU nodes
-  # NOTE: NVIDIA extensions are in talos-image-gpu (separate image)
-  # nvidia-container-toolkit conflicts with nfs-utils (glibc symbol incompatibility)
+  # GPU-specific system extensions
+  # NOTE: nvidia-container-toolkit conflicts with nfs-utils (glibc incompatibility)
+  # GPU nodes don't need NFS client - storage is provided via network
   system_extensions = [
     "siderolabs/qemu-guest-agent",           # Better VM integration with Proxmox
     "siderolabs/intel-ucode",                # Intel CPU microcode updates
     "siderolabs/i915-ucode",                 # Intel GPU firmware
-    "siderolabs/nfs-utils",                  # NFS client for democratic-csi
+    "siderolabs/nonfree-kmod-nvidia",        # NVIDIA proprietary kernel driver
+    "siderolabs/nvidia-container-toolkit",   # NVIDIA container runtime for GPU workloads
   ]
 
   # Checksum verification

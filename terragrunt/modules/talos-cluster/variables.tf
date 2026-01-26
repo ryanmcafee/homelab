@@ -81,6 +81,12 @@ variable "installer_image" {
   default     = null
 }
 
+variable "gpu_installer_image" {
+  description = "Custom Talos installer image URL for GPU nodes (with nvidia-container-toolkit). Falls back to installer_image if not set."
+  type        = string
+  default     = null
+}
+
 variable "datastore_id" {
   description = "Proxmox datastore for VM disks"
   type        = string

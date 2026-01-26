@@ -320,11 +320,12 @@ data "talos_machine_configuration" "worker" {
       })
     ],
     # Custom installer image for system extensions (from Image Factory)
-    var.installer_image != null ? [
+    # GPU nodes use gpu_installer_image (with nvidia-container-toolkit), others use base installer_image
+    (try(each.value.gpu, false) ? var.gpu_installer_image : var.installer_image) != null ? [
       yamlencode({
         machine = {
           install = {
-            image = var.installer_image
+            image = try(each.value.gpu, false) ? coalesce(var.gpu_installer_image, var.installer_image) : var.installer_image
           }
         }
       })
