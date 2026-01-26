@@ -332,6 +332,8 @@ tasks:
     desc: Run Terragrunt apply for environment
     dir: terragrunt/environments/{{.ENV}}
     cmds:
+      - task: cilium:render
+      - task: kubelet-csr-approver:render
       - op run --env-file={{.ROOT_DIR}}/.env.op -- terragrunt run-all apply --terragrunt-non-interactive --auto-approve
     vars:
       ENV: '{{.ENV | default "homelab"}}'
@@ -381,7 +383,6 @@ tasks:
     desc: Render Cilium Helm chart to YAML for inline installation
     cmds:
       - helm repo add cilium https://helm.cilium.io/ || true
-      - helm repo update cilium
       - |
         helm template cilium cilium/cilium --version 1.18.0 \
           --namespace kube-system \
@@ -400,6 +401,19 @@ tasks:
           --set hubble.ui.enabled=true \
           > terragrunt/files/cilium-rendered.yaml
       - echo "Cilium manifests rendered to terragrunt/files/cilium-rendered.yaml"
+
+  kubelet-csr-approver:render:
+    desc: Render kubelet-csr-approver Helm chart to YAML for inline installation
+    cmds:
+      - helm repo add kubelet-csr-approver https://postfinance.github.io/kubelet-csr-approver || true
+      - helm repo update kubelet-csr-approver
+      - |
+        helm template kubelet-csr-approver kubelet-csr-approver/kubelet-csr-approver --version 1.2.2 \
+          --namespace kube-system \
+          --set providerIpPrefixes="{172.16.100.0/24}" \
+          --set bypassDnsResolution=true \
+          > terragrunt/files/kubelet-csr-approver-rendered.yaml
+      - echo "kubelet-csr-approver manifests rendered to terragrunt/files/kubelet-csr-approver-rendered.yaml"
 
   # ==========================================================================
   # Talos
@@ -425,6 +439,39 @@ tasks:
     desc: Retrieve kubeconfig from Talos
     cmds:
       - talosctl kubeconfig -n 172.16.100.11
+
+  talos:upgrade:image:
+    desc: Regenerate Talos image with updated extensions
+    dir: terragrunt/environments/homelab/talos-image
+    cmds:
+      - op run --env-file={{.ROOT_DIR}}/.env.op -- terragrunt apply --terragrunt-non-interactive --auto-approve
+
+  talos:recreate:node:
+    desc: Recreate a Talos node via terragrunt taint + apply
+    vars:
+      NODE: '{{.NODE | default "worker-1"}}'
+    cmds:
+      - deno run --allow-net --allow-run --allow-env --allow-read scripts/talos-node-recreate.ts --node={{.NODE}}
+
+  talos:recreate:gpu-node:
+    desc: Recreate GPU node (worker-1) with new image and verify GPU support
+    cmds:
+      - task: talos:recreate:node
+        vars:
+          NODE: worker-1
+      - deno run --allow-net --allow-run --allow-env scripts/verify-gpu-support.ts
+
+  gpu:verify:
+    desc: Verify GPU support is working
+    cmds:
+      - deno run --allow-net --allow-run --allow-env scripts/verify-gpu-support.ts
+
+  gpu:status:
+    desc: Show GPU node status and resources
+    cmds:
+      - kubectl get node worker-1 -o wide
+      - kubectl describe node worker-1 | grep -A5 "Allocatable:" | grep nvidia
+      - kubectl -n gpu-operator get pods
 
   # ==========================================================================
   # Kubernetes Operations

@@ -45,7 +45,7 @@ resource "proxmox_virtual_environment_vm" "truenas" {
   description = "TrueNAS Scale - Network Attached Storage"
   node_name   = var.node_name
   pool_id     = var.pool_id
-  tags        = distinct(concat(["truenas", "storage"], var.tags))
+  tags        = distinct(concat(["truenas", "storage", var.vm_name], var.tags))
 
   started = var.started
   on_boot = var.on_boot

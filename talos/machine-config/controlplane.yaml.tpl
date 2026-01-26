@@ -41,7 +41,7 @@ machine:
           - network: 0.0.0.0/0
             gateway: ${gateway}
         vip:
-          ip: ${cluster_endpoint}
+          ip: ${vip_endpoint}
 
   install:
     disk: /dev/vda

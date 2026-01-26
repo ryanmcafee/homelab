@@ -130,12 +130,13 @@ spec:
 
   # Ignore differences in dynamic fields
   ignoreDifferences:
+    # Use jqPathExpressions to handle multiple webhooks (more robust than jsonPointers)
     - group: admissionregistration.k8s.io
       kind: ValidatingWebhookConfiguration
-      jsonPointers:
-        - /webhooks/0/clientConfig/caBundle
+      jqPathExpressions:
+        - .webhooks[].clientConfig.caBundle
     - group: admissionregistration.k8s.io
       kind: MutatingWebhookConfiguration
-      jsonPointers:
-        - /webhooks/0/clientConfig/caBundle
+      jqPathExpressions:
+        - .webhooks[].clientConfig.caBundle
 {{- end }}

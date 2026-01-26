@@ -14,7 +14,7 @@ resource "proxmox_virtual_environment_vm" "this" {
   description = var.description
   node_name   = var.node_name
   pool_id     = var.pool_id
-  tags        = var.tags
+  tags        = distinct(concat([var.vm_name], var.tags))
 
   started     = var.started
   on_boot     = var.on_boot

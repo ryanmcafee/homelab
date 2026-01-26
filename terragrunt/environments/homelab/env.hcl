@@ -43,10 +43,11 @@ locals {
 
   # Cluster configuration
   cluster_name     = "homelab"
-  cluster_endpoint = "172.16.100.10"
+  cluster_endpoint = "172.16.100.11"
+  vip_endpoint = "172.16.100.10"
 
   # Talos configuration (using latest stable versions)
-  talos_version      = "v1.12.1"
+  talos_version      = "v1.12.2"
   kubernetes_version = "v1.32.0"
 
   # TrueNAS configuration

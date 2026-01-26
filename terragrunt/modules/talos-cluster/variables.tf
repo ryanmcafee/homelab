@@ -9,10 +9,16 @@ variable "cluster_endpoint" {
   type        = string
 }
 
+variable "vip_endpoint" {
+  description = "VIP endpoint for the cluster"
+  type        = string
+  default     = ""
+}
+
 variable "talos_version" {
   description = "Talos Linux version"
   type        = string
-  default     = "v1.6.0"
+  default     = "v1.11.2"
 }
 
 variable "kubernetes_version" {
@@ -239,6 +245,19 @@ variable "cilium_inline_manifest" {
 
 variable "install_cilium_inline" {
   description = "Install Cilium via inline manifests during bootstrap"
+  type        = bool
+  default     = true
+}
+
+# Kubelet CSR Approver Configuration
+variable "kubelet_csr_approver_inline_manifest" {
+  description = "Kubelet CSR Approver manifest for inline installation (pre-rendered Helm template)"
+  type        = string
+  default     = ""
+}
+
+variable "install_kubelet_csr_approver_inline" {
+  description = "Install kubelet-csr-approver via inline manifests during bootstrap"
   type        = bool
   default     = true
 }

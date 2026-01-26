@@ -24,7 +24,7 @@ dependency "talos_image" {
   mock_outputs = {
     image_id      = "local:iso/talos-mock.img"
     schematic_id  = "mock-schematic-id"
-    talos_version = "v1.12.1"
+    talos_version = "v1.12.2"
   }
 }
 
@@ -59,6 +59,7 @@ EOF
 inputs = {
   cluster_name     = include.env.locals.cluster_name
   cluster_endpoint = include.env.locals.cluster_endpoint
+  vip_endpoint     = include.env.locals.vip_endpoint
 
   talos_version      = include.env.locals.talos_version
   kubernetes_version = include.env.locals.kubernetes_version
@@ -114,6 +115,40 @@ inputs = {
           extraArgs = {
             "rotate-server-certificates" = "true"
           }
+          # Disable default seccomp profile to avoid startup delays
+          defaultRuntimeSeccompProfileEnabled = true
+          # Disable manifests directory which can cause delays
+          disableManifestsDirectory = true
+        }
+        features = {
+          # Enable disk quota support for local storage
+          diskQuotaSupport = true
+          # Enable KubePrism for HA API access during bootstrap
+          kubePrism = {
+            enabled = true
+            port    = 7445
+          }
+        }
+        # Registry mirrors to avoid rate limiting and improve pull speeds
+        registries = {
+          mirrors = {
+            "docker.io" = {
+              endpoints = [
+                "https://mirror.gcr.io",
+                "https://registry-1.docker.io"
+              ]
+            }
+            "ghcr.io" = {
+              endpoints = [
+                "https://ghcr.io"
+              ]
+            }
+            "registry.k8s.io" = {
+              endpoints = [
+                "https://registry.k8s.io"
+              ]
+            }
+          }
         }
       }
     })
@@ -129,4 +164,8 @@ inputs = {
   # Cilium CNI inline installation
   install_cilium_inline  = true
   cilium_inline_manifest = file("${get_terragrunt_dir()}/../../../files/cilium-rendered.yaml")
+
+  # Kubelet CSR Approver inline installation (auto-approves kubelet server certificates)
+  install_kubelet_csr_approver_inline  = true
+  kubelet_csr_approver_inline_manifest = file("${get_terragrunt_dir()}/../../../files/kubelet-csr-approver-rendered.yaml")
 }

@@ -110,8 +110,9 @@ data "talos_machine_configuration" "controlplane" {
       yamlencode({
         cluster = {
           network = {
+            # Cillium is installed via inline manifests during bootstrap and again via ArgoCD
             cni = {
-              name = "none"  # Cilium will be installed
+              name = "none"
             }
           }
           proxy = {
@@ -120,7 +121,7 @@ data "talos_machine_configuration" "controlplane" {
           allowSchedulingOnControlPlanes = var.allow_scheduling_on_control_planes
           # Explicitly set etcd advertised subnets to avoid stale IPs from DHCP/VIP
           etcd = {
-            advertisedSubnets = [var.network_cidr]
+            advertisedSubnets = [var.network_cidr, "!${var.vip_endpoint}/32"]
           }
         }
       }),
@@ -141,12 +142,13 @@ data "talos_machine_configuration" "controlplane" {
                 gateway = var.network_gateway
               }]
               vip = {
-                ip = var.cluster_endpoint
+                ip = var.vip_endpoint
               }
             }]
           }
           certSANs = concat(
             [var.cluster_endpoint],
+            [var.vip_endpoint],
             [for k, v in var.control_plane_nodes : v.ip]
           )
         }
@@ -162,14 +164,24 @@ data "talos_machine_configuration" "controlplane" {
         }
       })
     ] : [],
-    # Cilium inline manifest (only on first control plane to avoid duplication)
-    each.key == keys(var.control_plane_nodes)[0] && var.install_cilium_inline && var.cilium_inline_manifest != "" ? [
+    # Inline manifests (only on first control plane to avoid duplication)
+    # Includes Cilium CNI and kubelet-csr-approver for bootstrap
+    each.key == keys(var.control_plane_nodes)[0] && (
+      (var.install_cilium_inline && var.cilium_inline_manifest != "") ||
+      (var.install_kubelet_csr_approver_inline && var.kubelet_csr_approver_inline_manifest != "")
+    ) ? [
       yamlencode({
         cluster = {
-          inlineManifests = [{
-            name     = "cilium"
-            contents = var.cilium_inline_manifest
-          }]
+          inlineManifests = concat(
+            var.install_cilium_inline && var.cilium_inline_manifest != "" ? [{
+              name     = "cilium"
+              contents = var.cilium_inline_manifest
+            }] : [],
+            var.install_kubelet_csr_approver_inline && var.kubelet_csr_approver_inline_manifest != "" ? [{
+              name     = "kubelet-csr-approver"
+              contents = var.kubelet_csr_approver_inline_manifest
+            }] : []
+          )
         }
       })
     ] : []
@@ -270,7 +282,7 @@ resource "proxmox_virtual_environment_vm" "controlplane" {
   description = "Talos controlplane node"
   node_name   = each.value.host_node
   pool_id     = var.pool_id
-  tags        = concat(["talos", "kubernetes", "controlplane"], var.tags)
+  tags        = distinct(concat(["talos", "kubernetes", "controlplane", each.key], var.tags))
 
   started = var.started
   on_boot = var.on_boot
@@ -363,7 +375,7 @@ resource "proxmox_virtual_environment_vm" "worker" {
   description = "Talos worker node"
   node_name   = each.value.host_node
   pool_id     = var.pool_id
-  tags        = concat(["talos", "kubernetes", "worker"], var.tags)
+  tags        = distinct(concat(["talos", "kubernetes", "worker", each.key], var.tags))
 
   started = var.started
   on_boot = var.on_boot

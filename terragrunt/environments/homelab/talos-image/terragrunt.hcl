@@ -41,10 +41,11 @@ inputs = {
 
   # System extensions for homelab
   system_extensions = [
-    "siderolabs/qemu-guest-agent", # Better VM integration with Proxmox
-    "siderolabs/intel-ucode",      # Intel CPU microcode updates
-    "siderolabs/i915-ucode",       # Intel GPU firmware
-    "siderolabs/nfs-utils",        # NFS client for democratic-csi
+    "siderolabs/qemu-guest-agent",           # Better VM integration with Proxmox
+    "siderolabs/intel-ucode",                # Intel CPU microcode updates
+    "siderolabs/i915-ucode",                 # Intel GPU firmware
+    "siderolabs/nfs-utils",                  # NFS client for democratic-csi
+    "siderolabs/nonfree-kmod-nvidia",        # NVIDIA proprietary kernel driver
   ]
 
   # Checksum verification

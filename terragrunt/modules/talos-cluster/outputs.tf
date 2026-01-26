@@ -8,6 +8,11 @@ output "cluster_endpoint" {
   value       = "https://${var.cluster_endpoint}:6443"
 }
 
+output "vip_endpoint" {
+  description = "VIP endpoint for the cluster"
+  value       = var.vip_endpoint
+}
+
 output "control_plane_ips" {
   description = "IP addresses of control plane nodes"
   value       = [for k, v in var.control_plane_nodes : v.ip]

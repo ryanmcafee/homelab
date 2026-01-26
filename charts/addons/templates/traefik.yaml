@@ -143,14 +143,14 @@ spec:
   ignoreDifferences:
     - group: admissionregistration.k8s.io
       kind: ValidatingWebhookConfiguration
-      jsonPointers:
-        - /webhooks/0/clientConfig/caBundle
-    # Ignore all route-related drift on traefik-dashboard IngressRoute
+      jqPathExpressions:
+        - .webhooks[].clientConfig.caBundle
+    # Ignore traefik-dashboard IngressRoute spec entirely (dynamically managed by Traefik)
     - group: traefik.io
       kind: IngressRoute
       name: traefik-dashboard
-      jsonPointers:
-        - /spec/routes
+      jqPathExpressions:
+        - .spec
 ---
 # Standard Ingress for Traefik dashboard (external-dns compatibility)
 # IngressRoute CRD is not watched by external-dns, so we need a standard Ingress
