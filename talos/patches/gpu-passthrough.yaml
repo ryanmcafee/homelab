@@ -22,6 +22,10 @@ machine:
     # PCI vendor ID for NVIDIA (10de)
     feature.node.kubernetes.io/pci-10de.present: "true"
 
+    # Disable GPU operator validator - driver/toolkit are pre-installed via Talos extensions
+    # The validator has mount issues on Talos and is not needed when drivers are pre-installed
+    nvidia.com/gpu.deploy.operator-validator: "false"
+
     # Specific GPU model (optional, adjust based on your GPU)
     # nvidia.com/gpu.product: "Quadro-P2200"
 
