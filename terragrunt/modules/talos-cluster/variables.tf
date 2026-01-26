@@ -281,3 +281,22 @@ variable "image_cache_registries" {
   type        = list(string)
   default     = ["docker.io", "ghcr.io", "registry.k8s.io", "gcr.io", "quay.io"]
 }
+
+# Spegel P2P Image Cache Configuration
+variable "spegel_enabled" {
+  description = "Enable Spegel P2P image distribution support. Configures containerd to preserve unpacked layers (required for Spegel). See: https://spegel.dev/docs/getting-started/#talos"
+  type        = bool
+  default     = false
+}
+
+variable "spegel_inline_manifest" {
+  description = "Spegel manifest for inline installation (pre-rendered Helm template)"
+  type        = string
+  default     = ""
+}
+
+variable "install_spegel_inline" {
+  description = "Install Spegel via inline manifests during bootstrap"
+  type        = bool
+  default     = false
+}

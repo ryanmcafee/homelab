@@ -114,6 +114,27 @@ locals {
       }
     })
   ] : []
+
+  # Spegel P2P image cache configuration
+  # Talos discards unpacked layers by default, which breaks Spegel's ability to serve cached images.
+  # This patch configures containerd to preserve unpacked layers.
+  # See: https://spegel.dev/docs/getting-started/#talos
+  spegel_config_patch = var.spegel_enabled ? [
+    yamlencode({
+      machine = {
+        files = [
+          {
+            path    = "/etc/cri/conf.d/20-customization.part"
+            op      = "create"
+            content = <<-EOT
+              [plugins."io.containerd.cri.v1.images"]
+                discard_unpacked_layers = false
+            EOT
+          }
+        ]
+      }
+    })
+  ] : []
 }
 
 # PCI Hardware Mapping for GPU passthrough (required for non-root API tokens)
@@ -165,6 +186,8 @@ data "talos_machine_configuration" "controlplane" {
     # Image cache configuration (registry mirrors + CA certificate)
     local.image_cache_config_patch,
     local.image_cache_ca_patch,
+    # Spegel P2P image cache configuration
+    local.spegel_config_patch,
     [
       yamlencode({
         cluster = {
@@ -224,10 +247,11 @@ data "talos_machine_configuration" "controlplane" {
       })
     ] : [],
     # Inline manifests (only on first control plane to avoid duplication)
-    # Includes Cilium CNI and kubelet-csr-approver for bootstrap
+    # Includes Cilium CNI, kubelet-csr-approver, and Spegel for bootstrap
     each.key == keys(var.control_plane_nodes)[0] && (
       (var.install_cilium_inline && var.cilium_inline_manifest != "") ||
-      (var.install_kubelet_csr_approver_inline && var.kubelet_csr_approver_inline_manifest != "")
+      (var.install_kubelet_csr_approver_inline && var.kubelet_csr_approver_inline_manifest != "") ||
+      (var.install_spegel_inline && var.spegel_inline_manifest != "")
     ) ? [
       yamlencode({
         cluster = {
@@ -239,6 +263,10 @@ data "talos_machine_configuration" "controlplane" {
             var.install_kubelet_csr_approver_inline && var.kubelet_csr_approver_inline_manifest != "" ? [{
               name     = "kubelet-csr-approver"
               contents = var.kubelet_csr_approver_inline_manifest
+            }] : [],
+            var.install_spegel_inline && var.spegel_inline_manifest != "" ? [{
+              name     = "spegel"
+              contents = var.spegel_inline_manifest
             }] : []
           )
         }
@@ -268,6 +296,8 @@ data "talos_machine_configuration" "worker" {
     # Image cache configuration (registry mirrors + CA certificate)
     local.image_cache_config_patch,
     local.image_cache_ca_patch,
+    # Spegel P2P image cache configuration
+    local.spegel_config_patch,
     [
       # Network configuration baked into machine config for boot-time static IP
       # NOTE: hostname is set via meta-data, not in machine config (nocloud requirement)

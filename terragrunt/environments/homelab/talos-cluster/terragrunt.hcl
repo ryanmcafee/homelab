@@ -173,4 +173,11 @@ inputs = {
   image_cache_endpoint   = include.env.locals.image_cache_endpoint
   image_cache_ca_cert    = include.env.locals.image_cache_ca_cert
   image_cache_registries = include.env.locals.image_cache_registries
+
+  # Spegel P2P image cache configuration
+  spegel_enabled = include.env.locals.spegel_enabled
+
+  # Spegel inline installation (P2P image distribution)
+  install_spegel_inline  = include.env.locals.spegel_enabled
+  spegel_inline_manifest = include.env.locals.spegel_enabled ? file("${get_terragrunt_dir()}/../../../files/spegel-rendered.yaml") : ""
 }

@@ -64,6 +64,21 @@ locals {
   image_cache_ca_cert  = fileexists("${get_terragrunt_dir()}/../../../ansible/certs/image-cache-ca.crt") ? file("${get_terragrunt_dir()}/../../../ansible/certs/image-cache-ca.crt") : ""
   image_cache_registries = ["docker.io", "ghcr.io", "registry.k8s.io", "gcr.io", "quay.io"]
 
+  # Spegel P2P Image Cache Configuration
+  # Spegel provides stateless cluster-local OCI registry mirroring for P2P image distribution.
+  # See: https://spegel.dev/docs/getting-started/#talos
+  #
+  # When enabled, this configures Talos to preserve unpacked image layers (required for Spegel)
+  # and sets the containerd registry config path for Spegel's registry mirror.
+  #
+  # After enabling, deploy Spegel via Helm with these values:
+  #   spegel:
+  #     containerdRegistryConfigPath: /etc/cri/conf.d/hosts
+  #
+  # The spegel namespace requires privileged pod security:
+  #   kubectl label namespace spegel pod-security.kubernetes.io/enforce=privileged
+  spegel_enabled = true
+
   # TrueNAS configuration
   truenas_vm_id    = 150
   truenas_ip       = "172.16.100.150"

@@ -364,6 +364,7 @@ tasks:
     cmds:
       - task: cilium:render
       - task: kubelet-csr-approver:render
+      - task: spegel:render
       - op run --env-file={{.ROOT_DIR}}/.env.op -- terragrunt run-all apply --terragrunt-non-interactive --auto-approve
     vars:
       ENV: '{{.ENV | default "homelab"}}'
@@ -409,6 +410,13 @@ tasks:
   # Cilium CNI
   # ==========================================================================
 
+  render:
+    desc: Render all Helm charts to YAML for inline installation
+    cmds:
+      - task: cilium:render
+      - task: kubelet-csr-approver:render
+      - task: spegel:render
+
   cilium:render:
     desc: Render Cilium Helm chart to YAML for inline installation
     cmds:
@@ -444,6 +452,12 @@ tasks:
           --set bypassDnsResolution=true \
           > terragrunt/files/kubelet-csr-approver-rendered.yaml
       - echo "kubelet-csr-approver manifests rendered to terragrunt/files/kubelet-csr-approver-rendered.yaml"
+
+  spegel:render:
+    desc: Render Spegel Helm chart to YAML for inline installation (P2P image distribution)
+    cmds:
+      - helm template spegel oci://ghcr.io/spegel-org/helm-charts/spegel --version v0.0.27 --namespace spegel --set spegel.containerdRegistryConfigPath=/etc/cri/conf.d/hosts --set spegel.containerdContentPath=/var/lib/containerd/io.containerd.content.v1.content --set spegel.resolveTags=true --set service.registry.hostPort=30020 --set service.registry.nodePort=30021 > terragrunt/files/spegel-rendered.yaml
+      - echo "Spegel manifests rendered to terragrunt/files/spegel-rendered.yaml"
 
   # ==========================================================================
   # Talos
