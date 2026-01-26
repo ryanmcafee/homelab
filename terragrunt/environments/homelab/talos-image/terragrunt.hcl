@@ -41,6 +41,7 @@ inputs = {
 
   # System extensions for homelab
   system_extensions = [
+    "siderolabs/glibc",                      # glibc 2.42 - required for nfs-utils compatibility
     "siderolabs/qemu-guest-agent",           # Better VM integration with Proxmox
     "siderolabs/intel-ucode",                # Intel CPU microcode updates
     "siderolabs/i915-ucode",                 # Intel GPU firmware

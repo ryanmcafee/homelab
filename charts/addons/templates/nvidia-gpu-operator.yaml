@@ -32,6 +32,11 @@ spec:
         # Talos Linux configuration
         # Driver and toolkit are provided by Talos system extensions (nonfree-kmod-nvidia, nvidia-container-toolkit)
         # GPU Operator only manages device plugin and monitoring components
+
+        # Host paths for Talos - driver is installed at root level via system extensions
+        hostPaths:
+          driverInstallDir: "/"
+
         driver:
           enabled: false
         toolkit:
@@ -57,10 +62,8 @@ spec:
         nodeStatusExporter:
           enabled: true
 
-        # Validator - disabled for Talos (driver/toolkit managed by Talos extensions)
-        # The validator expects container-based driver installation which doesn't apply to Talos
-        validator:
-          enabled: false
+        # Validator configuration
+        # Uses hostPaths.driverInstallDir="/" to find pre-installed drivers at root level
 
         # Node Feature Discovery - detects GPU hardware
         nfd:
