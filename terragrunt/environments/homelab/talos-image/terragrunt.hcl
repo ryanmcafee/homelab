@@ -46,6 +46,7 @@ inputs = {
     "siderolabs/i915-ucode",                 # Intel GPU firmware
     "siderolabs/nfs-utils",                  # NFS client for democratic-csi
     "siderolabs/nonfree-kmod-nvidia",        # NVIDIA proprietary kernel driver
+    "siderolabs/nvidia-container-toolkit",   # NVIDIA container runtime for GPU workloads
   ]
 
   # Checksum verification

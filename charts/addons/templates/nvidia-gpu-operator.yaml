@@ -57,13 +57,18 @@ spec:
         nodeStatusExporter:
           enabled: true
 
-        # Validator ensures GPU stack is properly configured
+        # Validator - disabled for Talos (driver/toolkit managed by Talos extensions)
+        # The validator expects container-based driver installation which doesn't apply to Talos
         validator:
-          enabled: true
+          enabled: false
 
         # Node Feature Discovery - detects GPU hardware
         nfd:
           enabled: true
+
+        # Talos-specific: Tell operator that driver/toolkit are pre-installed
+        operator:
+          defaultRuntime: containerd
 
   destination:
     server: https://kubernetes.default.svc
