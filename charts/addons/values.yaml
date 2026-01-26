@@ -25,6 +25,10 @@ global:
   # Base domain for ingress resources
   domain: ryanmcafee.com
 
+  # Git repository for SOPS secrets
+  repoUrl: https://github.com/ryanmcafee/homelab.git
+  targetRevision: main
+
   # Default storage class for persistent volumes
   storageClass: democratic-csi-nfs
 
@@ -276,8 +280,16 @@ local-path-provisioner:
       memory: 128Mi
 
 # ============================================================================
+# SOPS Secrets - Encrypted secrets for GitOps
+# Sync Wave: -2 (FIRST - deploys 1Password credentials before operator)
+# ============================================================================
+
+sops-secrets:
+  enabled: true
+
+# ============================================================================
 # 1Password Operator - Secret Management
-# Sync Wave: 0 (FIRST - CRDs must exist before any OnePasswordItem resources)
+# Sync Wave: -1 (after SOPS secrets, before other OnePasswordItem resources)
 # ============================================================================
 
 1password-operator:

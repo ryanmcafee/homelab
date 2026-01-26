@@ -126,29 +126,10 @@ variable "kubeconfig_path" {
   default     = ""
 }
 
-# 1Password Configuration
-variable "onepassword_credentials_json" {
-  description = "1Password Connect credentials JSON content"
-  type        = string
-  default     = ""
-  sensitive   = true
-}
-
-variable "onepassword_connect_host" {
-  description = "1Password Connect server host"
-  type        = string
-  default     = ""
-}
-
-variable "onepassword_connect_token" {
-  description = "1Password Connect API token"
-  type        = string
-  default     = ""
-  sensitive   = true
-}
-
-variable "onepassword_service_account_token" {
-  description = "1Password CLI service account token"
+# SOPS Configuration
+# The age private key is stored in 1Password and retrieved during bootstrap
+variable "sops_age_private_key" {
+  description = "SOPS age private key for decrypting secrets (stored in 1Password: op://homelab/sops-age-key/private_key)"
   type        = string
   default     = ""
   sensitive   = true

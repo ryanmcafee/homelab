@@ -35,6 +35,13 @@ Thumbs.db
 
 # Secrets
 secrets/
+# Allow SOPS-encrypted secrets in charts/secrets
+!charts/secrets/
+# Ignore unencrypted secrets (only commit *.sops.yaml)
+charts/secrets/**/*.yaml
+!charts/secrets/**/*.sops.yaml
+!charts/secrets/**/kustomization.yaml
+!charts/secrets/**/secret-generator.yaml
 *.key
 *.pem
 *.crt

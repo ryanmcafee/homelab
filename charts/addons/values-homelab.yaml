@@ -20,6 +20,18 @@ global:
   # Enable external load balancing
   loadBalancer: true
 
+  # Git repository for SOPS secrets
+  repoUrl: https://github.com/ryanmcafee/homelab.git
+  targetRevision: feature/automate-truenas-provisioning
+
+# ============================================================================
+# SOPS Secrets - Encrypted secrets for GitOps
+# Sync Wave: -2 (FIRST - deploys 1Password credentials before operator)
+# ============================================================================
+
+sops-secrets:
+  enabled: true
+
 # ============================================================================
 # ArgoCD - Self-Management (Bootstrap + Addon)
 # Sync Wave: 0 (first addon, manages itself)

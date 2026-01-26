@@ -1,0 +1,14 @@
+# SOPS configuration for encrypting secrets
+# Age public key is used for encryption, private key for decryption
+# The age private key is stored in 1Password: op://homelab/sops-age-key/private_key
+
+creation_rules:
+  # Encrypt Kubernetes secrets
+  - path_regex: .*\.sops\.ya?ml$
+    encrypted_regex: ^(data|stringData)$
+    age: age1qqnete80x7t9tdp2xrp9nwl0n8hr6yjyaf0vtmdjq39qwcm4ra9qgcpf0w
+
+  # Encrypt any secrets in the secrets directory
+  - path_regex: secrets/.*\.ya?ml$
+    encrypted_regex: ^(data|stringData)$
+    age: age1qqnete80x7t9tdp2xrp9nwl0n8hr6yjyaf0vtmdjq39qwcm4ra9qgcpf0w

@@ -65,5 +65,41 @@ repoServer:
       cpu: 250m
       memory: 256Mi
 
+  # SOPS/ksops configuration for decrypting secrets
+  env:
+    - name: XDG_CONFIG_HOME
+      value: /.config
+    - name: SOPS_AGE_KEY_FILE
+      value: /.config/sops/age/keys.txt
+
+  # Mount age key and custom tools
+  volumes:
+    - name: custom-tools
+      emptyDir: {}
+    - name: sops-age
+      secret:
+        secretName: sops-age-key
+
+  volumeMounts:
+    - name: custom-tools
+      mountPath: /usr/local/bin/ksops
+      subPath: ksops
+    - name: sops-age
+      mountPath: /.config/sops/age
+
+  # Init container to install ksops
+  initContainers:
+    - name: install-ksops
+      image: viaductoss/ksops:v4.3.2
+      command: ["/bin/sh", "-c"]
+      args:
+        - echo "Installing KSOPS...";
+          mv /usr/local/bin/ksops /custom-tools/;
+          mv /usr/local/bin/kustomize /custom-tools/;
+          echo "Done.";
+      volumeMounts:
+        - name: custom-tools
+          mountPath: /custom-tools
+
 applicationSet:
   enabled: true

@@ -555,6 +555,72 @@ tasks:
       - task: localdev:down
 
   # ==========================================================================
+  # SOPS - Secret Management
+  # ==========================================================================
+
+  sops:bootstrap:
+    desc: Bootstrap SOPS encryption (generate age keys, store in 1Password)
+    cmds:
+      - deno run --allow-all scripts/sops-bootstrap.ts
+
+  sops:bootstrap:force:
+    desc: Bootstrap SOPS with new keys (overwrites existing)
+    cmds:
+      - deno run --allow-all scripts/sops-bootstrap.ts --force
+
+  sops:encrypt:
+    desc: Encrypt the 1Password credentials template
+    cmds:
+      - |
+        TEMPLATE="charts/secrets/onepassword/onepassword-credentials.template.yaml"
+        OUTPUT="charts/secrets/onepassword/onepassword-credentials.sops.yaml"
+        if [ ! -f "$TEMPLATE" ]; then
+          echo "ERROR: Template not found: $TEMPLATE"
+          echo "Run 'task sops:bootstrap' first to create the template"
+          exit 1
+        fi
+        sops --encrypt "$TEMPLATE" > "$OUTPUT"
+        rm "$TEMPLATE"
+        echo "Encrypted: $OUTPUT"
+        echo "Unencrypted template removed"
+
+  sops:decrypt:
+    desc: Decrypt and view 1Password credentials (to stdout)
+    cmds:
+      - sops --decrypt charts/secrets/onepassword/onepassword-credentials.sops.yaml
+
+  sops:edit:
+    desc: Edit encrypted 1Password credentials
+    cmds:
+      - sops charts/secrets/onepassword/onepassword-credentials.sops.yaml
+
+  sops:rotate:
+    desc: Rotate SOPS keys (regenerate and re-encrypt all secrets)
+    cmds:
+      - task: sops:bootstrap:force
+      - |
+        echo "Re-encrypting secrets with new key..."
+        for file in $(find charts/secrets -name "*.sops.yaml"); do
+          echo "Re-encrypting: $file"
+          sops updatekeys --yes "$file"
+        done
+        echo "Key rotation complete"
+
+  sops:verify:
+    desc: Verify SOPS can decrypt secrets
+    cmds:
+      - |
+        echo "Verifying SOPS decryption..."
+        if sops --decrypt charts/secrets/onepassword/onepassword-credentials.sops.yaml > /dev/null 2>&1; then
+          echo "OK: SOPS decryption successful"
+        else
+          echo "ERROR: SOPS decryption failed"
+          echo "Make sure SOPS_AGE_KEY environment variable is set"
+          echo "Get it from 1Password: op read 'op://homelab/sops-age-key/private_key'"
+          exit 1
+        fi
+
+  # ==========================================================================
   # Utilities
   # ==========================================================================
 
