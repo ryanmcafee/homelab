@@ -65,6 +65,22 @@ argocd:
             end
           end
           return hs
+        # Custom health check for Ingress - treat as Healthy even without loadBalancer address
+        # This prevents circular dependency during initial sync when Traefik isn't deployed yet
+        resource.customizations.health.networking.k8s.io_Ingress: |
+          hs = {}
+          hs.status = "Healthy"
+          hs.message = ""
+          if obj.status ~= nil then
+            if obj.status.loadBalancer ~= nil then
+              if obj.status.loadBalancer.ingress ~= nil then
+                hs.message = "Load balancer ingress configured"
+              else
+                hs.message = "Waiting for load balancer (non-blocking)"
+              end
+            end
+          end
+          return hs
 
     server:
       # HA configuration - 3 replicas spread across different hosts
