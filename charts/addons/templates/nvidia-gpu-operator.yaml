@@ -33,9 +33,10 @@ spec:
         # Driver and toolkit are provided by Talos system extensions (nonfree-kmod-nvidia, nvidia-container-toolkit)
         # GPU Operator only manages device plugin and monitoring components
 
-        # Host paths for Talos - driver is installed at root level via system extensions
+        # Host paths for Talos - use /usr as the base path (not / which causes mount issues)
         hostPaths:
-          driverInstallDir: "/"
+          driverInstallDir: "/usr"
+          rootFsPrefix: "/host"
 
         driver:
           enabled: false
@@ -62,8 +63,10 @@ spec:
         nodeStatusExporter:
           enabled: true
 
-        # Validator configuration
-        # Uses hostPaths.driverInstallDir="/" to find pre-installed drivers at root level
+        # Validator - disabled for Talos since driver/toolkit are pre-installed via system extensions
+        # The validator init containers fail with mount errors when trying to mount "/" to "/"
+        validator:
+          enabled: false
 
         # Node Feature Discovery - detects GPU hardware
         nfd:
