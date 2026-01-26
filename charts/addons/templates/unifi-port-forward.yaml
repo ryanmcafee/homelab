@@ -30,8 +30,8 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/ljfranklin/port-forwarding-controller
-    path: helm
+    repoURL: https://ryanmcafee.github.io/port-forwarding-controller
+    chart: port-forwarding
     targetRevision: {{ index .Values "unifi-port-forward" "version" }}
     helm:
       releaseName: port-forwarding-controller

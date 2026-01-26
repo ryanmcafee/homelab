@@ -688,7 +688,7 @@ traefik:
 unifi-port-forward:
   enabled: true
   namespace: port-forwarding
-  version: master
+  version: 1.0.0
   onePasswordItemPath: vaults/homelab/items/unifi
 
 # ============================================================================
