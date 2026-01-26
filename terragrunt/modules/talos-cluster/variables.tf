@@ -261,3 +261,23 @@ variable "install_kubelet_csr_approver_inline" {
   type        = bool
   default     = true
 }
+
+# Image Cache Configuration
+variable "image_cache_endpoint" {
+  description = "Image cache registry endpoint URL (e.g., 'https://192.168.1.100:5000'). When set, registry mirrors will use this cache as the primary endpoint."
+  type        = string
+  default     = ""
+}
+
+variable "image_cache_ca_cert" {
+  description = "CA certificate for the image cache registry (PEM format). Required when using self-signed certificates."
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
+variable "image_cache_registries" {
+  description = "List of registries to route through the image cache. Use '*' for all registries."
+  type        = list(string)
+  default     = ["docker.io", "ghcr.io", "registry.k8s.io", "gcr.io", "quay.io"]
+}

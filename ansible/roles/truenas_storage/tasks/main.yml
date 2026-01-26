@@ -103,6 +103,13 @@
   vars:
     api_key_name: "{{ truenas_csi_api_key_name }}"
 
+# Talos Image Cache (local registry mirror)
+- name: Include Talos image cache setup
+  ansible.builtin.include_tasks: setup_image_cache.yml
+  when: truenas_image_cache_enabled | default(false)
+  tags:
+    - image-cache
+
 # iSCSI tasks (optional)
 - name: Include iSCSI configuration
   ansible.builtin.include_tasks: create_iscsi_target.yml
@@ -119,3 +126,6 @@
       - NFS Share (K8s): {{ truenas_nfs_share_path }}
       - NFS Share (Media): /mnt/{{ truenas_media_dataset }}
       - API Key Created: {{ truenas_csi_api_key_name }}
+      {% if truenas_image_cache_enabled | default(false) %}
+      - Image Cache: https://{{ truenas_static_ip | regex_replace('/.*', '') }}:{{ truenas_image_cache_port }}
+      {% endif %}

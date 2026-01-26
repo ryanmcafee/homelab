@@ -50,6 +50,20 @@ locals {
   talos_version      = "v1.12.2"
   kubernetes_version = "v1.32.0"
 
+  # Image Cache Configuration
+  # Enables local caching of container images to prevent failures from flaky external registries
+  # See: https://docs.siderolabs.com/talos/v1.12/configure-your-talos-cluster/images-container-runtime/image-cache-registry-mirror
+  #
+  # The image cache is deployed on TrueNAS via the truenas_storage Ansible role.
+  # Run the Ansible playbook first to generate certificates and deploy the cache:
+  #   cd ansible && ansible-playbook playbooks/truenas-full-setup.yml --tags image-cache
+  #
+  # After running the playbook, the CA certificate will be available at:
+  #   ansible/certs/image-cache-ca.crt
+  image_cache_endpoint = "https://${local.truenas_ip}:5000"
+  image_cache_ca_cert  = fileexists("${get_terragrunt_dir()}/../../../ansible/certs/image-cache-ca.crt") ? file("${get_terragrunt_dir()}/../../../ansible/certs/image-cache-ca.crt") : ""
+  image_cache_registries = ["docker.io", "ghcr.io", "registry.k8s.io", "gcr.io", "quay.io"]
+
   # TrueNAS configuration
   truenas_vm_id    = 150
   truenas_ip       = "172.16.100.150"

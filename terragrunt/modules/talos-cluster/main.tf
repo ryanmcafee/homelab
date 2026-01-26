@@ -58,6 +58,62 @@ locals {
       index(local.ordered_node_keys, k) + 1
     ))
   }
+
+  # Image cache configuration - generates registry mirror config when image_cache_endpoint is set
+  image_cache_enabled = var.image_cache_endpoint != ""
+
+  # Generate registry mirrors configuration with image cache as primary endpoint
+  # Falls back to original registries if cache is unavailable
+  image_cache_mirrors = local.image_cache_enabled ? {
+    for registry in var.image_cache_registries : registry => {
+      endpoints = concat(
+        [var.image_cache_endpoint],
+        # Add original endpoints as fallback
+        registry == "docker.io" ? ["https://registry-1.docker.io"] :
+        registry == "ghcr.io" ? ["https://ghcr.io"] :
+        registry == "registry.k8s.io" ? ["https://registry.k8s.io"] :
+        registry == "gcr.io" ? ["https://gcr.io"] :
+        registry == "quay.io" ? ["https://quay.io"] :
+        []
+      )
+      overridePath = true
+    }
+  } : {}
+
+  # Image cache machine config patch (applied to all nodes when cache is enabled)
+  image_cache_config_patch = local.image_cache_enabled ? [
+    yamlencode({
+      machine = {
+        registries = {
+          mirrors = local.image_cache_mirrors
+        }
+      }
+    })
+  ] : []
+
+  # Trusted CA certificate patch for image cache (when self-signed cert is provided)
+  image_cache_ca_patch = var.image_cache_ca_cert != "" ? [
+    yamlencode({
+      machine = {
+        files = [
+          {
+            path        = "/etc/ssl/certs/image-cache-ca.crt"
+            permissions = 420  # 0644 in octal
+            content     = var.image_cache_ca_cert
+          }
+        ]
+        registries = {
+          config = {
+            "${var.image_cache_endpoint}" = {
+              tls = {
+                ca = var.image_cache_ca_cert
+              }
+            }
+          }
+        }
+      }
+    })
+  ] : []
 }
 
 # PCI Hardware Mapping for GPU passthrough (required for non-root API tokens)
@@ -106,6 +162,9 @@ data "talos_machine_configuration" "controlplane" {
   config_patches = concat(
     var.common_config_patches,
     var.controlplane_config_patches,
+    # Image cache configuration (registry mirrors + CA certificate)
+    local.image_cache_config_patch,
+    local.image_cache_ca_patch,
     [
       yamlencode({
         cluster = {
@@ -206,6 +265,9 @@ data "talos_machine_configuration" "worker" {
   config_patches = concat(
     var.common_config_patches,
     var.worker_config_patches,
+    # Image cache configuration (registry mirrors + CA certificate)
+    local.image_cache_config_patch,
+    local.image_cache_ca_patch,
     [
       # Network configuration baked into machine config for boot-time static IP
       # NOTE: hostname is set via meta-data, not in machine config (nocloud requirement)

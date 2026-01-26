@@ -151,15 +151,29 @@ tasks:
     cmds:
       - ansible-playbook --syntax-check playbooks/site.yml
 
+  ansible:init:
+    desc: Install Ansible Galaxy collections
+    dir: ansible
+    cmds:
+      - ansible-galaxy collection install -r requirements.yml --force
+    status:
+      - test -d ~/.ansible/collections/ansible_collections/community/crypto
+      - test -d ~/.ansible/collections/ansible_collections/community/general
+      - test -d ~/.ansible/collections/ansible_collections/ansible/posix
+
   ansible:dry-run:
     desc: Run Ansible playbooks in check mode
     dir: ansible
+    deps:
+      - ansible:init
     cmds:
       - ansible-playbook playbooks/site.yml --check --diff
 
   ansible:apply:
     desc: Apply Ansible playbooks to Proxmox
     dir: ansible
+    deps:
+      - ansible:init
     cmds:
       - ansible-playbook playbooks/site.yml
 
@@ -170,18 +184,24 @@ tasks:
   truenas:configure:
     desc: Configure TrueNAS after VM installation (legacy playbook)
     dir: ansible
+    deps:
+      - ansible:init
     cmds:
       - op run --env-file={{.ROOT_DIR}}/.env.op -- ansible-playbook -i inventory/homelab.yml playbooks/truenas-setup.yml --vault-password-file=vault-password.sh
 
   truenas:status:
     desc: Check TrueNAS configuration status
     dir: ansible
+    deps:
+      - ansible:init
     cmds:
       - ansible-playbook -i inventory/homelab.yml playbooks/truenas-status.yml
 
   truenas:dry-run:
     desc: Run TrueNAS setup in check mode
     dir: ansible
+    deps:
+      - ansible:init
     cmds:
       - ansible-playbook -i inventory/homelab.yml playbooks/truenas-setup.yml --check --diff
 
@@ -271,8 +291,18 @@ tasks:
   truenas:ansible-only:
     desc: Run Ansible setup only (for existing VM)
     dir: ansible
+    deps:
+      - ansible:init
     cmds:
       - op run --env-file={{.ROOT_DIR}}/.env.op -- ansible-playbook -i inventory/homelab.yml playbooks/truenas-full-setup.yml --vault-password-file=vault-password.sh
+
+  truenas:image-cache:
+    desc: Deploy Talos image cache on TrueNAS (local registry mirror)
+    dir: ansible
+    deps:
+      - ansible:init
+    cmds:
+      - op run --env-file={{.ROOT_DIR}}/.env.op -- ansible-playbook -i inventory/homelab.yml playbooks/truenas-setup.yml --vault-password-file=vault-password.sh --tags image-cache
 
   # ==========================================================================
   # Terragrunt / Terraform

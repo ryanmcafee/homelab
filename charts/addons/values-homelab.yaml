@@ -176,6 +176,10 @@ cilium-lb-ipam:
     addresses:
       - "172.16.100.100-172.16.100.200"
 
+  # Control Plane VIP - Only advertised by control-plane nodes
+  # This creates a dedicated IP pool with restricted node selector
+  controlPlaneVIP: "172.16.100.10"
+
   bgp:
     enabled: true
     localASN: 64512

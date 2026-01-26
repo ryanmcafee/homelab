@@ -1,0 +1,20 @@
+[Unit]
+Description=Talos Image Cache Server
+Documentation=https://docs.siderolabs.com/talos/v1.12/talos-guides/configuration/image-cache/
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/talosctl image cache-serve \
+  --addr=0.0.0.0:{{ truenas_image_cache_port }} \
+  --cache={{ truenas_image_cache_data_dir }} \
+  --ca={{ truenas_image_cache_tls_dir }}/ca.crt \
+  --cert={{ truenas_image_cache_tls_dir }}/server.crt \
+  --key={{ truenas_image_cache_tls_dir }}/server.key
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

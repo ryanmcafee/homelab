@@ -15,9 +15,29 @@ spec:
     - start: {{ index $parts "_0" }}
       stop: {{ index $parts "_1" }}
     {{- end }}
+{{- if (index .Values "cilium-lb-ipam" "controlPlaneVIP") }}
+---
+# CiliumLoadBalancerIPPool for Control Plane VIP
+# Separate pool to ensure VIP is only announced by control-plane nodes
+apiVersion: cilium.io/v2
+kind: CiliumLoadBalancerIPPool
+metadata:
+  name: control-plane-vip
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  blocks:
+    - start: {{ index .Values "cilium-lb-ipam" "controlPlaneVIP" }}
+      stop: {{ index .Values "cilium-lb-ipam" "controlPlaneVIP" }}
+  # Only allow services with this specific label to use the VIP pool
+  serviceSelector:
+    matchLabels:
+      cilium.io/pool: control-plane-vip
+{{- end }}
 ---
 # CiliumL2AnnouncementPolicy - L2 (ARP) announcements for LoadBalancer IPs
 # Provides connectivity without requiring BGP on the gateway
+# IMPORTANT: Restricted to control-plane nodes only
 apiVersion: cilium.io/v2alpha1
 kind: CiliumL2AnnouncementPolicy
 metadata:
@@ -28,9 +48,8 @@ spec:
   serviceSelector:
     matchLabels: {}
   nodeSelector:
-    matchExpressions:
-      - key: node-role.kubernetes.io/control-plane
-        operator: Exists
+    matchLabels:
+      node-role.kubernetes.io/control-plane: ""
   interfaces:
     - ^ens.*
   externalIPs: true

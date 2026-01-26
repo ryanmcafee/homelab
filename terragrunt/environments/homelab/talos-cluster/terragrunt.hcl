@@ -168,4 +168,9 @@ inputs = {
   # Kubelet CSR Approver inline installation (auto-approves kubelet server certificates)
   install_kubelet_csr_approver_inline  = true
   kubelet_csr_approver_inline_manifest = file("${get_terragrunt_dir()}/../../../files/kubelet-csr-approver-rendered.yaml")
+
+  # Image cache configuration (prevents failures from flaky external registries)
+  image_cache_endpoint   = include.env.locals.image_cache_endpoint
+  image_cache_ca_cert    = include.env.locals.image_cache_ca_cert
+  image_cache_registries = include.env.locals.image_cache_registries
 }
