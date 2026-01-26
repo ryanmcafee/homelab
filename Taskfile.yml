@@ -568,6 +568,16 @@ tasks:
     cmds:
       - deno run --allow-all scripts/sops-bootstrap.ts --force
 
+  sops:setup:
+    desc: Full automated SOPS setup - pulls credentials from 1Password, encrypts, and commits
+    cmds:
+      - deno run --allow-all scripts/sops-setup-onepassword.ts --commit
+
+  sops:setup:dry-run:
+    desc: Preview SOPS setup without making changes
+    cmds:
+      - deno run --allow-all scripts/sops-setup-onepassword.ts --dry-run
+
   sops:encrypt:
     desc: Encrypt the 1Password credentials template
     cmds:

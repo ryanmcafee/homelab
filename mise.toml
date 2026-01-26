@@ -32,6 +32,8 @@ deno = "latest"
 
 # Secrets Management
 op = "latest"          # 1Password CLI for secrets management
+age = "latest"         # Modern encryption tool for SOPS
+sops = "latest"        # Secrets OPerationS - encrypted secrets management
 
 # Optional Tools (uncomment if needed)
 # stern = "latest"       # Multi-pod log streaming
@@ -77,6 +79,8 @@ direnv --version
 echo ""
 echo "Secrets Management:"
 op --version
+age --version
+sops --version
 echo ""
 echo "✓ All tools validated successfully!"
 """

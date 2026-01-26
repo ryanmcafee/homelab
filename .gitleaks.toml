@@ -18,4 +18,8 @@ paths = [
     # These files should not be committed to git
     '''.*-rendered\.yaml''',
     '''terragrunt/files/.*''',
+    # SOPS-encrypted secrets - these are safely encrypted with age keys
+    # The encrypted content triggers false positives but is not actually exposed
+    '''.*\.sops\.ya?ml$''',
+    '''charts/secrets/.*''',
 ]
