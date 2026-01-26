@@ -16,7 +16,7 @@ metadata:
   name: cloudflare-api-token
   namespace: {{ .Values.traefik.namespace }}
   annotations:
-    argocd.argoproj.io/sync-wave: "5"
+    argocd.argoproj.io/sync-wave: "0"
 spec:
   itemPath: {{ .Values.traefik.cloudflare.onePasswordItemPath | quote }}
 {{- end }}

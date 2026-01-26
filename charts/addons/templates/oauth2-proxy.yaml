@@ -14,7 +14,7 @@ metadata:
   name: google-oauth-credentials
   namespace: {{ index .Values "oauth2-proxy" "namespace" }}
   annotations:
-    argocd.argoproj.io/sync-wave: "6"
+    argocd.argoproj.io/sync-wave: "0"
 spec:
   itemPath: {{ index .Values "oauth2-proxy" "googleOAuthPath" | quote }}
 ---
@@ -25,7 +25,7 @@ metadata:
   name: oauth2-proxy-cookie-secret
   namespace: {{ index .Values "oauth2-proxy" "namespace" }}
   annotations:
-    argocd.argoproj.io/sync-wave: "6"
+    argocd.argoproj.io/sync-wave: "0"
 spec:
   itemPath: {{ index .Values "oauth2-proxy" "cookieSecretPath" | quote }}
 ---

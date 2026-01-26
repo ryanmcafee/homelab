@@ -14,7 +14,7 @@ metadata:
   name: unifi-api-credentials
   namespace: {{ index .Values "external-dns-unifi" "namespace" }}
   annotations:
-    argocd.argoproj.io/sync-wave: "4"
+    argocd.argoproj.io/sync-wave: "0"
 spec:
   itemPath: {{ index .Values "external-dns-unifi" "onePasswordItemPath" | quote }}
 ---
