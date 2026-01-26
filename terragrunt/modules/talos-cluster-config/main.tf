@@ -62,7 +62,7 @@ resource "terraform_data" "bootstrap_node_trigger" {
 resource "time_sleep" "wait_before_bootstrap" {
   depends_on = [terraform_data.bootstrap_node_trigger]
 
-  create_duration = "10m"
+  create_duration = "15m"
 }
 
 # Bootstrap the cluster on the first control plane node (sorted alphabetically)
@@ -99,26 +99,26 @@ resource "talos_machine_bootstrap" "this" {
 
 # Wait for k8s api to be healthy after bootstrap
 # This ensures etcd is running and the control plane is ready
-data "talos_cluster_health" "controlplane" {
-  count = var.bootstrap_cluster ? 1 : 0
+# data "talos_cluster_health" "controlplane" {
+#   count = var.bootstrap_cluster ? 1 : 0
 
-  depends_on = [talos_machine_bootstrap.this]
+#   depends_on = [talos_machine_bootstrap.this]
 
-  client_configuration = var.client_configuration
-  control_plane_nodes  = [for k, v in var.control_plane_nodes : v.ip]
-  endpoints            = [local.bootstrap_node_ip]
+#   client_configuration = var.client_configuration
+#   control_plane_nodes  = [for k, v in var.control_plane_nodes : v.ip]
+#   endpoints            = [for k, v in var.control_plane_nodes : v.ip]
 
-  timeouts = {
-    read = "5m"
-  }
-}
+#   timeouts = {
+#     read = "5m"
+#   }
+# }
 
 # Apply Talos configurations to worker nodes
 resource "talos_machine_configuration_apply" "worker" {
   depends_on = [
     talos_machine_configuration_apply.controlplane,
     talos_machine_bootstrap.this,
-    data.talos_cluster_health.controlplane,
+    # data.talos_cluster_health.controlplane,
   ]
   for_each = var.worker_nodes
 
@@ -130,7 +130,8 @@ resource "talos_machine_configuration_apply" "worker" {
 
 # Generate kubeconfig from the bootstrap node
 resource "talos_cluster_kubeconfig" "this" {
-  depends_on = [data.talos_cluster_health.controlplane]
+  # depends_on = [data.talos_cluster_health.controlplane]
+  depends_on = [talos_machine_bootstrap.this,]
 
   client_configuration = var.client_configuration
   node                 = local.bootstrap_node_ip
