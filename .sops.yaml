@@ -6,9 +6,9 @@ creation_rules:
   # Encrypt Kubernetes secrets
   - path_regex: .*\.sops\.ya?ml$
     encrypted_regex: ^(data|stringData)$
-    age: age1qqnete80x7t9tdp2xrp9nwl0n8hr6yjyaf0vtmdjq39qwcm4ra9qgcpf0w
+    age: age1erylpvq5w8d3k6ztprhw8gzfs9q6zfwtvrcj90tu2qrusalqz95seq5v57
 
   # Encrypt any secrets in the secrets directory
   - path_regex: secrets/.*\.ya?ml$
     encrypted_regex: ^(data|stringData)$
-    age: age1qqnete80x7t9tdp2xrp9nwl0n8hr6yjyaf0vtmdjq39qwcm4ra9qgcpf0w
+    age: age1erylpvq5w8d3k6ztprhw8gzfs9q6zfwtvrcj90tu2qrusalqz95seq5v57
