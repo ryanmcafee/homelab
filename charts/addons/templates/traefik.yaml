@@ -70,6 +70,12 @@ spec:
               default: {{ .Values.traefik.ports.websecure.expose.default }}
             tls:
               enabled: {{ .Values.traefik.ports.websecure.tls.enabled }}
+          {{- if .Values.traefik.ports.traefik }}
+          traefik:
+            port: {{ .Values.traefik.ports.traefik.port }}
+            expose:
+              default: {{ .Values.traefik.ports.traefik.expose.default }}
+          {{- end }}
 
         globalArguments:
           {{- range .Values.traefik.globalArguments }}
