@@ -8,6 +8,7 @@
 # - Prowlarr (Indexer Manager)
 # - Home Assistant (Home Automation Hub)
 # - Mosquitto (MQTT Broker)
+# - DuckDNS Updater (Dynamic DNS)
 #
 # Environment-specific values should be provided via:
 # - values-localdev.yaml (local Kind development)
@@ -355,6 +356,12 @@ homeassistant:
     repo: https://trueforge-org.github.io/truecharts
     version: 28.19.14
 
+  # Use linuxserver.io image which includes psycopg2 for PostgreSQL
+  image:
+    repository: lscr.io/linuxserver/homeassistant
+    tag: latest
+    pullPolicy: IfNotPresent
+
   workload:
     main:
       podSpec:
@@ -453,14 +460,13 @@ mosquitto:
       ports:
         main:
           port: 1883
-          protocol: TCP
-    websocket:
+    websockets:
       enabled: true
       type: LoadBalancer
       ports:
-        websocket:
+        websockets:
+          enabled: true
           port: 9001
-          protocol: TCP
 
   # Authentication configuration
   mosquitto:
@@ -469,3 +475,140 @@ mosquitto:
       # Username and password from 1Password
 
   TZ: America/New_York
+
+# ============================================================================
+# DuckDNS - Dynamic DNS Updater
+# Sync Wave: 1 (early infrastructure)
+# ============================================================================
+
+duckdns:
+  enabled: false
+  namespace: duckdns
+
+  # DuckDNS subdomain (without .duckdns.org)
+  subdomain: ""
+
+  # 1Password vault path for DuckDNS token
+  # The secret should have a field named "token"
+  onePasswordItemPath: ""
+
+# ============================================================================
+# ArgoCD - Self-Management
+# Sync Wave: 5 (LAST - deploys after all applications to ensure stability)
+# ============================================================================
+
+argocd:
+  # Disabled by default - enable in environment-specific values
+  # This allows ArgoCD to manage itself after initial bootstrap
+  enabled: false
+  namespace: argocd
+
+  # Chart source - must match bootstrap version
+  chart:
+    name: argo-cd
+    repo: https://argoproj.github.io/argo-helm
+    version: "7.7.15"
+
+  # ArgoCD server configuration
+  values:
+    # Enable App of Apps health status progression
+    configs:
+      cm:
+        # Enable ksops plugin for SOPS decryption
+        kustomize.buildOptions: "--enable-alpha-plugins --enable-exec"
+        resource.customizations.health.argoproj.io_Application: |
+          hs = {}
+          hs.status = "Progressing"
+          hs.message = ""
+          if obj.status ~= nil then
+            if obj.status.health ~= nil then
+              hs.status = obj.status.health.status
+              if obj.status.health.message ~= nil then
+                hs.message = obj.status.health.message
+              end
+            end
+          end
+          return hs
+
+    server:
+      ingress:
+        enabled: false
+      resources:
+        requests:
+          cpu: 100m
+          memory: 256Mi
+        limits:
+          cpu: 500m
+          memory: 512Mi
+
+    controller:
+      resources:
+        requests:
+          cpu: 250m
+          memory: 512Mi
+        limits:
+          cpu: 1000m
+          memory: 1Gi
+
+    repoServer:
+      resources:
+        requests:
+          cpu: 100m
+          memory: 256Mi
+        limits:
+          cpu: 500m
+          memory: 512Mi
+      # SOPS/ksops configuration for decrypting secrets
+      env:
+        - name: XDG_CONFIG_HOME
+          value: /.config
+        - name: SOPS_AGE_KEY_FILE
+          value: /.config/sops/age/keys.txt
+      # Mount age key and custom tools
+      volumes:
+        - name: custom-tools
+          emptyDir: {}
+        - name: sops-age
+          secret:
+            secretName: sops-age-key
+      volumeMounts:
+        - name: custom-tools
+          mountPath: /usr/local/bin/ksops
+          subPath: ksops
+        - name: custom-tools
+          mountPath: /usr/local/bin/kustomize
+          subPath: kustomize
+        - name: sops-age
+          mountPath: /.config/sops/age
+      # Init container to install ksops
+      initContainers:
+        - name: install-ksops
+          image: viaductoss/ksops:v4.3.2
+          command: ["/bin/sh", "-c"]
+          args:
+            - echo "Installing KSOPS...";
+              cp /usr/local/bin/ksops /custom-tools/ksops;
+              cp /usr/local/bin/kustomize /custom-tools/kustomize;
+              echo "Done.";
+          volumeMounts:
+            - name: custom-tools
+              mountPath: /custom-tools
+
+    applicationSet:
+      resources:
+        requests:
+          cpu: 50m
+          memory: 128Mi
+        limits:
+          cpu: 200m
+          memory: 256Mi
+
+    notifications:
+      enabled: true
+      resources:
+        requests:
+          cpu: 50m
+          memory: 64Mi
+        limits:
+          cpu: 100m
+          memory: 128Mi

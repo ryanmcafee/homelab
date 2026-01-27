@@ -14,6 +14,10 @@ customization:
       # Intel integrated GPU firmware (for i915 graphics)
       - siderolabs/i915-ucode
 
+      # NVIDIA proprietary kernel driver - Required for GPU support
+      # This provides the actual nvidia kernel modules (nvidia, nvidia_uvm, nvidia_drm, nvidia_modeset)
+      - siderolabs/nonfree-kmod-nvidia
+
       # NVIDIA Container Toolkit - Required for GPU passthrough
       - siderolabs/nvidia-container-toolkit
 

@@ -37,7 +37,7 @@ Single entrypoint setup, minimal ongoing maintenance, designed to run forever.
 <td width="50%">
 
 ### 🔒 Enterprise-Grade Security
-- **1Password integration** for secrets
+- **1Password + SOPS** for secrets management
 - **GitOps** - single source of truth
 - **Immutable infrastructure** with Talos Linux
 
@@ -112,6 +112,7 @@ task localdev:up
 
 Prerequisites for hardware deployments:
 - Proxmox installed and accessible
+- 1Password CLI authenticated (`eval $(op signin)`)
 - SSH public key authentication configured for root user:
   ```bash
   # Copy your SSH public key to Proxmox host (replace with your Proxmox IP)
@@ -121,7 +122,14 @@ Prerequisites for hardware deployments:
   ssh root@${PROXMOX_HOST}
   ```
 
-Then run the automated setup:
+**Step 1: Install tools and bootstrap secrets**
+```bash
+mise install                           # Install all tools
+task sops:bootstrap                    # Generate age keys, store in 1Password
+task sops:setup                        # Pull 1Password credentials, encrypt, commit
+```
+
+**Step 2: Run the automated infrastructure setup**
 
 **Mac/Linux:**
 ```bash
@@ -131,6 +139,11 @@ Then run the automated setup:
 **Windows:**
 ```powershell
 .\scripts\setup.ps1
+```
+
+**Step 3: Bootstrap GitOps**
+```bash
+task tf:apply:component COMPONENT=gitops-bootstrap
 ```
 
 ### Manual Installation
@@ -205,7 +218,7 @@ mise doctor              # Troubleshoot issues
 | GitOps | ArgoCD 2.11.x |
 | IaC | Terragrunt 0.55.x / Terraform 1.7.x |
 | Configuration | Ansible 2.16.x |
-| Secrets | 1Password + 1Password Operator |
+| Secrets | 1Password + SOPS (age encryption) |
 | Load Balancer | MetalLB (BGP mode) |
 | Ingress | Traefik |
 | Observability | kube-prometheus-stack |
@@ -266,7 +279,8 @@ homelab/
 ├── ⎈  charts/                  # Helm charts (GitOps)
 │   ├── gitops/               # App of Apps umbrella
 │   ├── addons/               # Core cluster addons
-│   └── applications/         # User applications
+│   ├── applications/         # User applications
+│   └── secrets/              # SOPS-encrypted secrets
 ├── 💻 localdev/                # Kind + Tilt local dev
 ├── 📚 docs/                    # Documentation
 └── 🤖 scripts/                 # Automation scripts
@@ -282,6 +296,7 @@ All CLI tools are managed via mise (defined in `mise.toml`):
 - **Kubernetes Tools**: kubectl 1.30.0, Helm, Kind 0.22.0, Talos 1.7.6, Tilt 0.33.11
 - **Configuration Management**: Ansible, ansible-lint (via pipx)
 - **Task Runner**: Task (go-task)
+- **Secrets**: age, sops, op (1Password CLI)
 - **Utilities**: jq, direnv, yamllint
 
 External prerequisites (install separately):
@@ -317,6 +332,34 @@ mise prune
 mise doctor
 task mise:doctor
 ```
+
+---
+
+## 🔐 Secrets Management
+
+Secrets are managed using SOPS with age encryption, stored in Git, and decrypted at deploy time by ArgoCD.
+
+```bash
+# Bootstrap SOPS (one-time setup)
+task sops:bootstrap          # Generate age keys, store in 1Password
+
+# Setup 1Password credentials (automated)
+task sops:setup              # Pull from 1Password, encrypt, commit
+
+# Day-to-day operations
+task sops:edit               # Edit encrypted secrets
+task sops:decrypt            # View decrypted secrets
+task sops:verify             # Verify decryption works
+task sops:rotate             # Rotate encryption keys
+```
+
+**Architecture:**
+- Age private key stored in 1Password (`homelab/sops-age-key`)
+- Age public key configured in `.sops.yaml`
+- Encrypted secrets committed to Git (`charts/secrets/`)
+- ArgoCD decrypts via ksops plugin at deploy time
+
+See [charts/secrets/README.md](./charts/secrets/README.md) for detailed documentation.
 
 ---
 

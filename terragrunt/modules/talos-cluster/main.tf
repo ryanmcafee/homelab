@@ -58,6 +58,83 @@ locals {
       index(local.ordered_node_keys, k) + 1
     ))
   }
+
+  # Image cache configuration - generates registry mirror config when image_cache_endpoint is set
+  image_cache_enabled = var.image_cache_endpoint != ""
+
+  # Generate registry mirrors configuration with image cache as primary endpoint
+  # Falls back to original registries if cache is unavailable
+  image_cache_mirrors = local.image_cache_enabled ? {
+    for registry in var.image_cache_registries : registry => {
+      endpoints = concat(
+        [var.image_cache_endpoint],
+        # Add original endpoints as fallback
+        registry == "docker.io" ? ["https://registry-1.docker.io"] :
+        registry == "ghcr.io" ? ["https://ghcr.io"] :
+        registry == "registry.k8s.io" ? ["https://registry.k8s.io"] :
+        registry == "gcr.io" ? ["https://gcr.io"] :
+        registry == "quay.io" ? ["https://quay.io"] :
+        []
+      )
+      overridePath = true
+    }
+  } : {}
+
+  # Image cache machine config patch (applied to all nodes when cache is enabled)
+  image_cache_config_patch = local.image_cache_enabled ? [
+    yamlencode({
+      machine = {
+        registries = {
+          mirrors = local.image_cache_mirrors
+        }
+      }
+    })
+  ] : []
+
+  # Trusted CA certificate patch for image cache (when self-signed cert is provided)
+  image_cache_ca_patch = var.image_cache_ca_cert != "" ? [
+    yamlencode({
+      machine = {
+        files = [
+          {
+            path        = "/etc/ssl/certs/image-cache-ca.crt"
+            permissions = 420  # 0644 in octal
+            content     = var.image_cache_ca_cert
+          }
+        ]
+        registries = {
+          config = {
+            "${var.image_cache_endpoint}" = {
+              tls = {
+                ca = var.image_cache_ca_cert
+              }
+            }
+          }
+        }
+      }
+    })
+  ] : []
+
+  # Spegel P2P image cache configuration
+  # Talos discards unpacked layers by default, which breaks Spegel's ability to serve cached images.
+  # This patch configures containerd to preserve unpacked layers.
+  # See: https://spegel.dev/docs/getting-started/#talos
+  spegel_config_patch = var.spegel_enabled ? [
+    yamlencode({
+      machine = {
+        files = [
+          {
+            path    = "/etc/cri/conf.d/20-customization.part"
+            op      = "create"
+            content = <<-EOT
+              [plugins."io.containerd.cri.v1.images"]
+                discard_unpacked_layers = false
+            EOT
+          }
+        ]
+      }
+    })
+  ] : []
 }
 
 # PCI Hardware Mapping for GPU passthrough (required for non-root API tokens)
@@ -106,12 +183,18 @@ data "talos_machine_configuration" "controlplane" {
   config_patches = concat(
     var.common_config_patches,
     var.controlplane_config_patches,
+    # Image cache configuration (registry mirrors + CA certificate)
+    local.image_cache_config_patch,
+    local.image_cache_ca_patch,
+    # Spegel P2P image cache configuration
+    local.spegel_config_patch,
     [
       yamlencode({
         cluster = {
           network = {
+            # Cillium is installed via inline manifests during bootstrap and again via ArgoCD
             cni = {
-              name = "none"  # Cilium will be installed
+              name = "none"
             }
           }
           proxy = {
@@ -120,7 +203,7 @@ data "talos_machine_configuration" "controlplane" {
           allowSchedulingOnControlPlanes = var.allow_scheduling_on_control_planes
           # Explicitly set etcd advertised subnets to avoid stale IPs from DHCP/VIP
           etcd = {
-            advertisedSubnets = [var.network_cidr]
+            advertisedSubnets = [var.network_cidr, "!${var.vip_endpoint}/32"]
           }
         }
       }),
@@ -141,12 +224,13 @@ data "talos_machine_configuration" "controlplane" {
                 gateway = var.network_gateway
               }]
               vip = {
-                ip = var.cluster_endpoint
+                ip = var.vip_endpoint
               }
             }]
           }
           certSANs = concat(
             [var.cluster_endpoint],
+            [var.vip_endpoint],
             [for k, v in var.control_plane_nodes : v.ip]
           )
         }
@@ -162,14 +246,29 @@ data "talos_machine_configuration" "controlplane" {
         }
       })
     ] : [],
-    # Cilium inline manifest (only on first control plane to avoid duplication)
-    each.key == keys(var.control_plane_nodes)[0] && var.install_cilium_inline && var.cilium_inline_manifest != "" ? [
+    # Inline manifests (only on first control plane to avoid duplication)
+    # Includes Cilium CNI, kubelet-csr-approver, and Spegel for bootstrap
+    each.key == keys(var.control_plane_nodes)[0] && (
+      (var.install_cilium_inline && var.cilium_inline_manifest != "") ||
+      (var.install_kubelet_csr_approver_inline && var.kubelet_csr_approver_inline_manifest != "") ||
+      (var.install_spegel_inline && var.spegel_inline_manifest != "")
+    ) ? [
       yamlencode({
         cluster = {
-          inlineManifests = [{
-            name     = "cilium"
-            contents = var.cilium_inline_manifest
-          }]
+          inlineManifests = concat(
+            var.install_cilium_inline && var.cilium_inline_manifest != "" ? [{
+              name     = "cilium"
+              contents = var.cilium_inline_manifest
+            }] : [],
+            var.install_kubelet_csr_approver_inline && var.kubelet_csr_approver_inline_manifest != "" ? [{
+              name     = "kubelet-csr-approver"
+              contents = var.kubelet_csr_approver_inline_manifest
+            }] : [],
+            var.install_spegel_inline && var.spegel_inline_manifest != "" ? [{
+              name     = "spegel"
+              contents = var.spegel_inline_manifest
+            }] : []
+          )
         }
       })
     ] : []
@@ -194,6 +293,11 @@ data "talos_machine_configuration" "worker" {
   config_patches = concat(
     var.common_config_patches,
     var.worker_config_patches,
+    # Image cache configuration (registry mirrors + CA certificate)
+    local.image_cache_config_patch,
+    local.image_cache_ca_patch,
+    # Spegel P2P image cache configuration
+    local.spegel_config_patch,
     [
       # Network configuration baked into machine config for boot-time static IP
       # NOTE: hostname is set via meta-data, not in machine config (nocloud requirement)
@@ -216,11 +320,12 @@ data "talos_machine_configuration" "worker" {
       })
     ],
     # Custom installer image for system extensions (from Image Factory)
-    var.installer_image != null ? [
+    # GPU nodes use gpu_installer_image (with nvidia-container-toolkit), others use base installer_image
+    (try(each.value.gpu, false) ? var.gpu_installer_image : var.installer_image) != null ? [
       yamlencode({
         machine = {
           install = {
-            image = var.installer_image
+            image = try(each.value.gpu, false) ? coalesce(var.gpu_installer_image, var.installer_image) : var.installer_image
           }
         }
       })
@@ -270,7 +375,7 @@ resource "proxmox_virtual_environment_vm" "controlplane" {
   description = "Talos controlplane node"
   node_name   = each.value.host_node
   pool_id     = var.pool_id
-  tags        = concat(["talos", "kubernetes", "controlplane"], var.tags)
+  tags        = distinct(concat(["talos", "kubernetes", "controlplane", each.key], var.tags))
 
   started = var.started
   on_boot = var.on_boot
@@ -363,7 +468,7 @@ resource "proxmox_virtual_environment_vm" "worker" {
   description = "Talos worker node"
   node_name   = each.value.host_node
   pool_id     = var.pool_id
-  tags        = concat(["talos", "kubernetes", "worker"], var.tags)
+  tags        = distinct(concat(["talos", "kubernetes", "worker", each.key], var.tags))
 
   started = var.started
   on_boot = var.on_boot

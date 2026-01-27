@@ -15,15 +15,25 @@
   hosts: truenas
   gather_facts: false
   become: false
+  connection: local
 
   vars:
     # Pool configuration
     truenas_pool_name: storage
     truenas_create_pool: false  # Pool must be created manually first
 
+    # Disable tasks that require Basic Auth (we already have API key)
+    truenas_automation_user_enabled: false
+    truenas_create_pools: false
+    truenas_acme_enabled: false
+
     # Kubernetes storage
     truenas_k8s_dataset: storage/k8s
     truenas_k8s_quota: 500G
+
+    # Kubernetes snapshots (for democratic-csi)
+    truenas_k8s_snapshots_dataset: storage/k8s-snapshots
+    truenas_k8s_snapshots_quota: 100G
 
     # Media storage
     truenas_media_dataset: storage/media
@@ -50,6 +60,7 @@
           - API URL: {{ truenas_api_url }}
           - Pool: {{ truenas_pool_name }}
           - K8s Dataset: {{ truenas_k8s_dataset }}
+          - K8s Snapshots Dataset: {{ truenas_k8s_snapshots_dataset }}
           - NFS Path: {{ truenas_nfs_share_path }}
 
   roles:

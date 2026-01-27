@@ -6,12 +6,12 @@
 # components and configures lightweight alternatives.
 #
 # Key changes from production:
-# - No MetalLB (use NodePort instead)
 # - No external-dns (not needed for local .test domains)
 # - No 1Password operator (use local secrets)
 # - No democratic-csi (use local-path-provisioner)
 # - Reduced resource requests for all components
 # - Self-signed certificates instead of Let's Encrypt
+# - NodePort services (no LoadBalancer IPs needed)
 
 # ============================================================================
 # Global Configuration
@@ -32,14 +32,6 @@ global:
 
   # Disable external load balancing
   loadBalancer: false
-
-# ============================================================================
-# MetalLB - Disabled for Local Dev
-# ============================================================================
-
-metallb:
-  enabled: false
-  # Not needed in Kind - we use NodePort for services instead
 
 # ============================================================================
 # external-dns - Disabled for Local Dev
@@ -253,7 +245,6 @@ kube-prometheus-stack:
 # ✓ local-path-provisioner for storage
 #
 # Excluded from local dev:
-# ✗ MetalLB (use NodePort instead)
 # ✗ external-dns (not needed for .test domains)
 # ✗ 1Password operator (use direct Secrets)
 # ✗ democratic-csi (use local-path instead)

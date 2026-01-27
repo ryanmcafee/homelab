@@ -60,7 +60,7 @@ cluster:
   id: ${cluster_id}
   secret: ${cluster_secret}
   controlPlane:
-    endpoint: https://${cluster_endpoint}:6443
+    endpoint: https://${vip_endpoint}:6443
 
   clusterName: ${cluster_name}
 

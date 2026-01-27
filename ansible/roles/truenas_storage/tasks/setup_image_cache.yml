@@ -1,0 +1,277 @@
+# TrueNAS Talos Image Cache Setup
+# Sets up a local registry mirror for Talos container images
+# This prevents cluster bootstrap failures due to flaky external registries
+
+- name: Create image cache dataset
+  ansible.builtin.uri:
+    url: "{{ truenas_api_url }}/api/v2.0/pool/dataset"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ truenas_api_key }}"
+    body_format: json
+    body:
+      name: "{{ truenas_image_cache_dataset }}"
+      type: FILESYSTEM
+      compression: "{{ truenas_image_cache_compression | upper }}"
+      quota: "{{ truenas_image_cache_quota | human_to_bytes }}"
+      comments: "Talos container image cache for Kubernetes cluster"
+    validate_certs: "{{ truenas_verify_ssl }}"
+    status_code: [200, 422]  # 422 if already exists
+  register: dataset_result
+
+- name: Check if dataset already exists
+  ansible.builtin.debug:
+    msg: "Dataset {{ truenas_image_cache_dataset }} already exists"
+  when: dataset_result.status == 422
+
+- name: Create TLS directory on TrueNAS
+  ansible.builtin.uri:
+    url: "{{ truenas_api_url }}/api/v2.0/filesystem/mkdir"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ truenas_api_key }}"
+    body_format: json
+    body:
+      path: "{{ truenas_image_cache_tls_dir }}"
+    validate_certs: "{{ truenas_verify_ssl }}"
+    status_code: [200, 422]
+
+- name: Create cache data directory on TrueNAS
+  ansible.builtin.uri:
+    url: "{{ truenas_api_url }}/api/v2.0/filesystem/mkdir"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ truenas_api_key }}"
+    body_format: json
+    body:
+      path: "{{ truenas_image_cache_data_dir }}"
+    validate_certs: "{{ truenas_verify_ssl }}"
+    status_code: [200, 422]
+
+# Generate TLS certificates locally (on Ansible controller)
+- name: Create local temp directory for certificates
+  ansible.builtin.tempfile:
+    state: directory
+    prefix: talos_image_cache_
+  register: local_cert_dir
+  delegate_to: localhost
+
+- name: Generate CA private key
+  community.crypto.openssl_privatekey:
+    path: "{{ local_cert_dir.path }}/ca.key"
+    size: 4096
+  delegate_to: localhost
+
+- name: Generate CA CSR
+  community.crypto.openssl_csr:
+    path: "{{ local_cert_dir.path }}/ca.csr"
+    privatekey_path: "{{ local_cert_dir.path }}/ca.key"
+    common_name: "Talos Image Cache CA"
+    organization_name: "Homelab"
+    basic_constraints:
+      - CA:TRUE
+    basic_constraints_critical: true
+    key_usage:
+      - keyCertSign
+      - cRLSign
+    key_usage_critical: true
+  delegate_to: localhost
+
+- name: Generate CA certificate
+  community.crypto.x509_certificate:
+    path: "{{ local_cert_dir.path }}/ca.crt"
+    privatekey_path: "{{ local_cert_dir.path }}/ca.key"
+    csr_path: "{{ local_cert_dir.path }}/ca.csr"
+    provider: selfsigned
+    selfsigned_not_after: "+3650d"
+  delegate_to: localhost
+
+- name: Generate server private key
+  community.crypto.openssl_privatekey:
+    path: "{{ local_cert_dir.path }}/server.key"
+    size: 4096
+  delegate_to: localhost
+
+- name: Generate server CSR
+  community.crypto.openssl_csr:
+    path: "{{ local_cert_dir.path }}/server.csr"
+    privatekey_path: "{{ local_cert_dir.path }}/server.key"
+    common_name: "{{ truenas_image_cache_hostname }}"
+    organization_name: "Homelab"
+    subject_alt_name:
+      - "DNS:{{ truenas_image_cache_hostname }}"
+      - "DNS:{{ ansible_host }}"
+      - "IP:{{ truenas_static_ip | regex_replace('/.*', '') }}"
+      - "IP:127.0.0.1"
+  delegate_to: localhost
+
+- name: Generate server certificate signed by CA
+  community.crypto.x509_certificate:
+    path: "{{ local_cert_dir.path }}/server.crt"
+    csr_path: "{{ local_cert_dir.path }}/server.csr"
+    ownca_path: "{{ local_cert_dir.path }}/ca.crt"
+    ownca_privatekey_path: "{{ local_cert_dir.path }}/ca.key"
+    provider: ownca
+    ownca_not_after: "+3650d"  # 10 years
+  delegate_to: localhost
+
+# Upload certificates to TrueNAS via API (multipart)
+- name: Upload CA certificate to TrueNAS
+  ansible.builtin.shell: |
+    curl -k -X POST "{{ truenas_api_url }}/api/v2.0/filesystem/put" \
+      -H "Authorization: Bearer {{ truenas_api_key }}" \
+      -F "data={\"path\": \"{{ truenas_image_cache_tls_dir }}/ca.crt\", \"mode\": \"0644\"};type=application/json" \
+      -F "file=@{{ local_cert_dir.path }}/ca.crt"
+  delegate_to: localhost
+  no_log: true
+
+- name: Upload server certificate to TrueNAS
+  ansible.builtin.shell: |
+    curl -k -X POST "{{ truenas_api_url }}/api/v2.0/filesystem/put" \
+      -H "Authorization: Bearer {{ truenas_api_key }}" \
+      -F "data={\"path\": \"{{ truenas_image_cache_tls_dir }}/server.crt\", \"mode\": \"0644\"};type=application/json" \
+      -F "file=@{{ local_cert_dir.path }}/server.crt"
+  delegate_to: localhost
+  no_log: true
+
+- name: Upload server key to TrueNAS
+  ansible.builtin.shell: |
+    curl -k -X POST "{{ truenas_api_url }}/api/v2.0/filesystem/put" \
+      -H "Authorization: Bearer {{ truenas_api_key }}" \
+      -F "data={\"path\": \"{{ truenas_image_cache_tls_dir }}/server.key\", \"mode\": \"0600\"};type=application/json" \
+      -F "file=@{{ local_cert_dir.path }}/server.key"
+  delegate_to: localhost
+  no_log: true
+
+# Save CA certificate locally for Talos configuration
+- name: Ensure local certs directory exists
+  ansible.builtin.file:
+    path: "{{ playbook_dir }}/../certs"
+    state: directory
+    mode: "0755"
+  delegate_to: localhost
+
+- name: Save CA certificate for Talos configuration
+  ansible.builtin.copy:
+    src: "{{ local_cert_dir.path }}/ca.crt"
+    dest: "{{ playbook_dir }}/../certs/image-cache-ca.crt"
+    mode: "0644"
+  delegate_to: localhost
+
+# Note: Image cache pre-population is not performed automatically.
+# The Talos image cache server works as a pull-through cache and will
+# automatically fetch images on first access from upstream registries.
+# This is the recommended approach as it doesn't require SSH access.
+
+# Deploy image cache server as a TrueNAS Docker container
+- name: Check if Docker app already exists
+  ansible.builtin.uri:
+    url: "{{ truenas_api_url }}/api/v2.0/app?name=talos-image-cache"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ truenas_api_key }}"
+    validate_certs: "{{ truenas_verify_ssl }}"
+  register: existing_app
+  failed_when: false
+
+- name: Deploy talos-image-cache Docker container via TrueNAS Apps
+  ansible.builtin.uri:
+    url: "{{ truenas_api_url }}/api/v2.0/app"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ truenas_api_key }}"
+    body_format: json
+    body:
+      app_name: talos-image-cache
+      catalog_app: custom-app
+      train: stable
+      version: latest
+      values:
+        image:
+          repository: ghcr.io/siderolabs/image-cache
+          tag: "{{ truenas_talos_version }}"
+        workload:
+          main:
+            podSpec:
+              containers:
+                main:
+                  args:
+                    - "image"
+                    - "cache-serve"
+                    - "--addr=0.0.0.0:{{ truenas_image_cache_port }}"
+                    - "--cache=/cache"
+                    - "--ca=/tls/ca.crt"
+                    - "--cert=/tls/server.crt"
+                    - "--key=/tls/server.key"
+        persistence:
+          cache:
+            enabled: true
+            type: hostPath
+            hostPath: "{{ truenas_image_cache_data_dir }}"
+            mountPath: /cache
+            readOnly: true
+          tls:
+            enabled: true
+            type: hostPath
+            hostPath: "{{ truenas_image_cache_tls_dir }}"
+            mountPath: /tls
+            readOnly: true
+        service:
+          main:
+            enabled: true
+            type: LoadBalancer
+            ports:
+              main:
+                enabled: true
+                port: "{{ truenas_image_cache_port }}"
+                targetPort: "{{ truenas_image_cache_port }}"
+                protocol: TCP
+    validate_certs: "{{ truenas_verify_ssl }}"
+    status_code: [200, 201]
+  when: existing_app.json | length == 0
+  register: app_deploy_result
+  failed_when: false
+
+# Alternative: Use systemd service if TrueNAS Apps not available
+- name: Create systemd service for image cache (fallback)
+  when: app_deploy_result is defined and app_deploy_result.failed | default(false)
+  block:
+    - name: Create image cache systemd service file
+      ansible.builtin.uri:
+        url: "{{ truenas_api_url }}/api/v2.0/filesystem/put"
+        method: POST
+        headers:
+          Authorization: "Bearer {{ truenas_api_key }}"
+        body_format: json
+        body:
+          path: "/etc/systemd/system/talos-image-cache.service"
+          content: "{{ lookup('template', 'talos-image-cache.service.j2') | b64encode }}"
+          mode: "0644"
+        validate_certs: "{{ truenas_verify_ssl }}"
+
+    - name: Reload systemd and start service
+      ansible.builtin.uri:
+        url: "{{ truenas_api_url }}/api/v2.0/system/general/ui_restart"
+        method: POST
+        headers:
+          Authorization: "Bearer {{ truenas_api_key }}"
+        validate_certs: "{{ truenas_verify_ssl }}"
+
+# Clean up local temp directory
+- name: Clean up local temp directory
+  ansible.builtin.file:
+    path: "{{ local_cert_dir.path }}"
+    state: absent
+  delegate_to: localhost
+
+- name: Display image cache configuration
+  ansible.builtin.debug:
+    msg: |
+      Talos Image Cache configured:
+      - Endpoint: https://{{ truenas_static_ip | regex_replace('/.*', '') }}:{{ truenas_image_cache_port }}
+      - CA Certificate: {{ playbook_dir }}/../certs/image-cache-ca.crt
+      - Dataset: {{ truenas_image_cache_dataset }}
+
+      To use this cache, update your Talos configuration:
+        image_cache_endpoint = "https://{{ truenas_static_ip | regex_replace('/.*', '') }}:{{ truenas_image_cache_port }}"
+        image_cache_ca_cert  = file("path/to/certs/image-cache-ca.crt")

@@ -68,6 +68,10 @@ generate "provider" {
           source  = "ubiquiti-community/unifi"
           version = "~> 0.41.0"
         }
+        time = {
+          source  = "hashicorp/time"
+          version = ">= 0.9.0"
+        }
       }
     }
   EOF

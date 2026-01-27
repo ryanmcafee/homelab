@@ -15,6 +15,11 @@ truenas_k8s_dataset: "{{ truenas_pool_name }}/k8s"
 truenas_k8s_quota: 500G
 truenas_k8s_compression: lz4
 
+# Kubernetes Snapshots Dataset (for democratic-csi detached snapshots)
+truenas_k8s_snapshots_dataset: "{{ truenas_pool_name }}/k8s-snapshots"
+truenas_k8s_snapshots_quota: 100G
+truenas_k8s_snapshots_compression: lz4
+
 # NFS Share Configuration for Kubernetes PVs
 truenas_nfs_share_path: "/mnt/{{ truenas_k8s_dataset }}"
 truenas_nfs_share_name: k8s
@@ -81,3 +86,30 @@ truenas_acme_domain: "{{ truenas_hostname }}"
 # Automation User
 truenas_automation_user_enabled: true
 truenas_automation_api_key_name: automation
+
+# Talos Image Cache Configuration
+# Serves as a local registry mirror to prevent failures from flaky external registries
+# See: https://docs.siderolabs.com/talos/v1.12/talos-guides/configuration/image-cache/
+truenas_image_cache_enabled: true
+truenas_image_cache_dataset: "{{ truenas_pool_name }}/talos-image-cache"
+truenas_image_cache_quota: 50G
+truenas_image_cache_compression: lz4
+truenas_image_cache_port: 5000
+truenas_image_cache_hostname: "image-cache.{{ truenas_hostname | regex_replace('^[^.]+\\.', '') }}"
+
+# Talos version for image cache (should match cluster version)
+truenas_talos_version: "v1.12.2"
+truenas_kubernetes_version: "v1.32.0"
+
+# Registries to cache images from
+truenas_image_cache_registries:
+  - docker.io
+  - ghcr.io
+  - registry.k8s.io
+  - gcr.io
+  - quay.io
+
+# Image cache TLS configuration
+# Uses self-signed certificates by default, stored in the cache dataset
+truenas_image_cache_tls_dir: "/mnt/{{ truenas_image_cache_dataset }}/tls"
+truenas_image_cache_data_dir: "/mnt/{{ truenas_image_cache_dataset }}/cache"

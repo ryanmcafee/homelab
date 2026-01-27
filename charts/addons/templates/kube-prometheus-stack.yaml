@@ -1,12 +1,22 @@
 {{- if index .Values "kube-prometheus-stack" "enabled" }}
 ---
+# Namespace with privileged PodSecurity labels for node-exporter
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ index .Values "kube-prometheus-stack" "namespace" }}
+  labels:
+    pod-security.kubernetes.io/enforce: privileged
+    pod-security.kubernetes.io/audit: privileged
+    pod-security.kubernetes.io/warn: privileged
+---
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
   name: kube-prometheus-stack
   namespace: argocd
   annotations:
-    argocd.argoproj.io/sync-wave: "5"
+    argocd.argoproj.io/sync-wave: "7"
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
@@ -68,6 +78,10 @@ spec:
           resources:
             {{- toYaml (index .Values "kube-prometheus-stack" "grafana" "resources") | nindent 12 }}
 
+          # Use Recreate strategy to avoid Multi-Attach errors with RWO PVC
+          deploymentStrategy:
+            type: Recreate
+
         alertmanager:
           enabled: {{ index .Values "kube-prometheus-stack" "alertmanager" "enabled" }}
 
@@ -105,21 +119,20 @@ spec:
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+      - RespectIgnoreDifferences=true
     retry:
-      limit: 5
-      backoff:
-        duration: 5s
-        factor: 2
-        maxDuration: 3m
+      limit: 0
 
   # Ignore differences in dynamic fields
   ignoreDifferences:
+    # Use jqPathExpressions to handle multiple webhooks (more robust than jsonPointers)
     - group: admissionregistration.k8s.io
       kind: ValidatingWebhookConfiguration
-      jsonPointers:
-        - /webhooks/0/clientConfig/caBundle
+      jqPathExpressions:
+        - .webhooks[].clientConfig.caBundle
     - group: admissionregistration.k8s.io
       kind: MutatingWebhookConfiguration
-      jsonPointers:
-        - /webhooks/0/clientConfig/caBundle
+      jqPathExpressions:
+        - .webhooks[].clientConfig.caBundle
 {{- end }}

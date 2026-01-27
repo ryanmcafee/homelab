@@ -17,7 +17,7 @@ output "talosconfig_path" {
 # Extracted kubeconfig components for provider configuration
 output "cluster_endpoint" {
   description = "Kubernetes API server endpoint (VIP if configured)"
-  value       = var.cluster_endpoint != "" ? "https://${var.cluster_endpoint}:6443" : yamldecode(talos_cluster_kubeconfig.this.kubeconfig_raw)["clusters"][0]["cluster"]["server"]
+  value       = var.vip_endpoint != "" ? "https://${var.vip_endpoint}:6443" : yamldecode(talos_cluster_kubeconfig.this.kubeconfig_raw)["clusters"][0]["cluster"]["server"]
   sensitive   = true
 }
 

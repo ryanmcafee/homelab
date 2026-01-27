@@ -1,5 +1,29 @@
 {{- if index .Values "democratic-csi" "enabled" }}
 ---
+# Namespace with privileged PodSecurity for CSI driver requirements
+# (hostNetwork, hostIPC, SYS_ADMIN capabilities, privileged containers)
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ index .Values "democratic-csi" "namespace" }}
+  labels:
+    pod-security.kubernetes.io/enforce: privileged
+    pod-security.kubernetes.io/audit: privileged
+    pod-security.kubernetes.io/warn: privileged
+{{- if index .Values "democratic-csi" "truenas" "onePasswordItemPath" }}
+---
+# OnePasswordItem syncs TrueNAS API key from 1Password vault
+apiVersion: onepassword.com/v1
+kind: OnePasswordItem
+metadata:
+  name: truenas-api-key
+  namespace: {{ index .Values "democratic-csi" "namespace" }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  itemPath: {{ index .Values "democratic-csi" "truenas" "onePasswordItemPath" | quote }}
+{{- end }}
+---
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -30,11 +54,11 @@ spec:
               host: {{ index .Values "democratic-csi" "truenas" "endpoint" | trimPrefix "https://" | trimPrefix "http://" }}
               port: 443
               allowInsecure: {{ index .Values "democratic-csi" "truenas" "allowInsecure" }}
-              apiKey: {{ index .Values "democratic-csi" "truenas" "apiKey" | quote }}
+              apiKey: "${TRUENAS_API_KEY}"
 
             zfs:
               datasetParentName: {{ index .Values "democratic-csi" "nfs" "parent" }}
-              detachedSnapshotsDatasetParentName: {{ index .Values "democratic-csi" "nfs" "parent" }}/snapshots
+              detachedSnapshotsDatasetParentName: {{ index .Values "democratic-csi" "nfs" "parent" }}-snapshots
               datasetEnableQuotas: true
               datasetEnableReservation: false
               datasetPermissionsMode: "0777"
@@ -44,9 +68,9 @@ spec:
             nfs:
               shareHost: {{ index .Values "democratic-csi" "nfs" "shareHost" }}
               shareAlldirs: false
-              shareAllowedHosts:
+              shareAllowedHosts: []
+              shareAllowedNetworks:
                 - {{ index .Values "democratic-csi" "nfs" "shareAllow" }}
-              shareAllowedNetworks: []
               shareMaprootUser: root
               shareMaprootGroup: root
 
@@ -68,11 +92,23 @@ spec:
           driver:
             resources:
               {{- toYaml (index .Values "democratic-csi" "resources" "controller") | nindent 14 }}
+            extraEnv:
+              - name: TRUENAS_API_KEY
+                valueFrom:
+                  secretKeyRef:
+                    name: truenas-api-key
+                    key: api_key
 
         node:
           driver:
             resources:
               {{- toYaml (index .Values "democratic-csi" "resources" "node") | nindent 14 }}
+            extraEnv:
+              - name: TRUENAS_API_KEY
+                valueFrom:
+                  secretKeyRef:
+                    name: truenas-api-key
+                    key: api_key
 
   destination:
     server: https://kubernetes.default.svc
@@ -83,12 +119,8 @@ spec:
       prune: true
       selfHeal: true
     syncOptions:
-      - CreateNamespace=true
       - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
     retry:
-      limit: 5
-      backoff:
-        duration: 5s
-        factor: 2
-        maxDuration: 3m
+      limit: 0
 {{- end }}

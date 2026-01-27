@@ -1,0 +1,166 @@
+{{- if index .Values "nvidia-gpu-operator" "enabled" }}
+---
+# NVIDIA RuntimeClass - required for pods to use nvidia container runtime
+# This must exist BEFORE any pods request runtimeClassName: nvidia
+apiVersion: node.k8s.io/v1
+kind: RuntimeClass
+metadata:
+  name: nvidia
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+handler: nvidia
+---
+# Talos GPU Validation Bypass DaemonSet
+# Creates validation files that the GPU device plugin waits for
+# Required because validator is disabled on Talos (driver/toolkit are pre-installed via system extensions)
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: nvidia-validation-bypass
+  namespace: {{ index .Values "nvidia-gpu-operator" "namespace" }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+  labels:
+    app.kubernetes.io/name: nvidia-validation-bypass
+    app.kubernetes.io/component: validation
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: nvidia-validation-bypass
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: nvidia-validation-bypass
+    spec:
+      nodeSelector:
+        nvidia.com/gpu.present: "true"
+      tolerations:
+        - key: nvidia.com/gpu
+          operator: Exists
+          effect: NoSchedule
+      containers:
+        - name: validation-bypass
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - |
+              # Create validation ready files for Talos GPU nodes
+              # These files signal to GPU operator components that validation is complete
+              mkdir -p /run/nvidia/validations
+              touch /run/nvidia/validations/driver-ready
+              touch /run/nvidia/validations/toolkit-ready
+              touch /run/nvidia/validations/cuda-ready
+              touch /run/nvidia/validations/plugin-ready
+              echo "Validation files created for Talos GPU node"
+              # Keep running to maintain the validation files
+              exec sleep infinity
+          volumeMounts:
+            - name: run-nvidia
+              mountPath: /run/nvidia
+          resources:
+            requests:
+              cpu: 1m
+              memory: 8Mi
+            limits:
+              cpu: 10m
+              memory: 16Mi
+          securityContext:
+            runAsUser: 0
+            runAsGroup: 0
+      volumes:
+        - name: run-nvidia
+          hostPath:
+            path: /run/nvidia
+            type: DirectoryOrCreate
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: nvidia-gpu-operator
+  namespace: argocd
+  annotations:
+    # Sync wave 0 - must deploy before Plex (sync-wave: 1) which requires RuntimeClass nvidia
+    argocd.argoproj.io/sync-wave: "0"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://helm.ngc.nvidia.com/nvidia
+    chart: gpu-operator
+    targetRevision: {{ index .Values "nvidia-gpu-operator" "chart" "version" }}
+    helm:
+      releaseName: nvidia-gpu-operator
+      values: |
+        # Talos Linux configuration
+        # Driver and toolkit are provided by Talos system extensions (nonfree-kmod-nvidia, nvidia-container-toolkit)
+        # GPU Operator only manages device plugin and monitoring components
+        #
+        # IMPORTANT: GPU nodes must have label nvidia.com/gpu.deploy.operator-validator=false
+        # to disable the validator (which has mount issues on Talos). This is set in
+        # talos/patches/gpu-passthrough.yaml and a validation-bypass DaemonSet creates
+        # the required validation files.
+
+        driver:
+          enabled: false
+        toolkit:
+          enabled: false
+
+        # Device plugin advertises GPUs to Kubernetes scheduler
+        devicePlugin:
+          enabled: true
+
+        # DCGM Exporter for GPU metrics (Prometheus/Grafana)
+        dcgmExporter:
+          enabled: true
+
+        # GPU Feature Discovery - labels nodes with GPU properties
+        gfd:
+          enabled: true
+
+        # MIG Manager - disabled (not using Multi-Instance GPU)
+        migManager:
+          enabled: false
+
+        # Node status exporter
+        nodeStatusExporter:
+          enabled: true
+
+        # Node Feature Discovery - detects GPU hardware
+        nfd:
+          enabled: true
+
+        # Talos-specific: Tell operator that driver/toolkit are pre-installed
+        operator:
+          defaultRuntime: containerd
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: {{ index .Values "nvidia-gpu-operator" "namespace" }}
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+    retry:
+      limit: 0
+
+  # Ignore differences in dynamic fields
+  ignoreDifferences:
+    - group: "*"
+      kind: "*"
+      jsonPointers:
+        - /metadata/annotations
+        - /metadata/labels
+    # ClusterPolicy has many auto-filled defaults from the helm chart
+    # The GPU operator manages these fields, so ignore spec differences
+    - group: nvidia.com
+      kind: ClusterPolicy
+      jqPathExpressions:
+        - .spec
+{{- end }}

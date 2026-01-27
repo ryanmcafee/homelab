@@ -1,0 +1,59 @@
+{{- if index .Values "cloudnative-pg" "enabled" }}
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cloudnative-pg
+  namespace: argocd
+  annotations:
+    # Sync wave 2 - must be before home-assistant (wave 3) which depends on CNPG CRDs
+    argocd.argoproj.io/sync-wave: "2"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: {{ index .Values "cloudnative-pg" "chart" "repo" }}
+    chart: {{ index .Values "cloudnative-pg" "chart" "name" }}
+    targetRevision: {{ index .Values "cloudnative-pg" "chart" "version" }}
+    helm:
+      releaseName: cloudnative-pg
+      values: |
+        {{- if index .Values "cloudnative-pg" "resources" }}
+        resources:
+          {{- toYaml (index .Values "cloudnative-pg" "resources") | nindent 10 }}
+        {{- end }}
+
+        {{- if index .Values "cloudnative-pg" "monitoring" }}
+        monitoring:
+          {{- toYaml (index .Values "cloudnative-pg" "monitoring") | nindent 10 }}
+        {{- end }}
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: {{ index .Values "cloudnative-pg" "namespace" }}
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+      - RespectIgnoreDifferences=true
+    retry:
+      limit: 0
+
+  # Ignore differences in webhook configurations
+  ignoreDifferences:
+    - group: admissionregistration.k8s.io
+      kind: ValidatingWebhookConfiguration
+      jsonPointers:
+        - /webhooks/0/clientConfig/caBundle
+        - /webhooks/1/clientConfig/caBundle
+    - group: admissionregistration.k8s.io
+      kind: MutatingWebhookConfiguration
+      jsonPointers:
+        - /webhooks/0/clientConfig/caBundle
+{{- end }}

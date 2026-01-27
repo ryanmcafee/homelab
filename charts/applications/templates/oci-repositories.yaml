@@ -1,0 +1,17 @@
+# OCI Repository configuration for ArgoCD
+# Single repository secret for TrueCharts OCI registry
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: truecharts-oci
+  namespace: argocd
+  labels:
+    argocd.argoproj.io/secret-type: repository
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+stringData:
+  name: truecharts
+  type: helm
+  url: oci.trueforge.org/truecharts
+  enableOCI: "true"

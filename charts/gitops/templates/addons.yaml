@@ -47,6 +47,7 @@ spec:
     {{- if .Values.addons.syncPolicy.retry }}
     retry:
       limit: {{ .Values.addons.syncPolicy.retry.limit }}
+      {{- if .Values.addons.syncPolicy.retry.backoff }}
       backoff:
         duration: {{ .Values.addons.syncPolicy.retry.backoff.duration }}
         {{- if .Values.addons.syncPolicy.retry.backoff.factor }}
@@ -55,6 +56,7 @@ spec:
         {{- if .Values.addons.syncPolicy.retry.backoff.maxDuration }}
         maxDuration: {{ .Values.addons.syncPolicy.retry.backoff.maxDuration }}
         {{- end }}
+      {{- end }}
     {{- end }}
 
   {{- if .Values.ignoreDifferences }}

@@ -151,15 +151,29 @@ tasks:
     cmds:
       - ansible-playbook --syntax-check playbooks/site.yml
 
+  ansible:init:
+    desc: Install Ansible Galaxy collections
+    dir: ansible
+    cmds:
+      - ansible-galaxy collection install -r requirements.yml --force
+    status:
+      - test -d ~/.ansible/collections/ansible_collections/community/crypto
+      - test -d ~/.ansible/collections/ansible_collections/community/general
+      - test -d ~/.ansible/collections/ansible_collections/ansible/posix
+
   ansible:dry-run:
     desc: Run Ansible playbooks in check mode
     dir: ansible
+    deps:
+      - ansible:init
     cmds:
       - ansible-playbook playbooks/site.yml --check --diff
 
   ansible:apply:
     desc: Apply Ansible playbooks to Proxmox
     dir: ansible
+    deps:
+      - ansible:init
     cmds:
       - ansible-playbook playbooks/site.yml
 
@@ -170,18 +184,24 @@ tasks:
   truenas:configure:
     desc: Configure TrueNAS after VM installation (legacy playbook)
     dir: ansible
+    deps:
+      - ansible:init
     cmds:
-      - ansible-playbook -i inventory/homelab.yml playbooks/truenas-setup.yml
+      - op run --env-file={{.ROOT_DIR}}/.env.op -- ansible-playbook -i inventory/homelab.yml playbooks/truenas-setup.yml --vault-password-file=vault-password.sh
 
   truenas:status:
     desc: Check TrueNAS configuration status
     dir: ansible
+    deps:
+      - ansible:init
     cmds:
       - ansible-playbook -i inventory/homelab.yml playbooks/truenas-status.yml
 
   truenas:dry-run:
     desc: Run TrueNAS setup in check mode
     dir: ansible
+    deps:
+      - ansible:init
     cmds:
       - ansible-playbook -i inventory/homelab.yml playbooks/truenas-setup.yml --check --diff
 
@@ -271,8 +291,18 @@ tasks:
   truenas:ansible-only:
     desc: Run Ansible setup only (for existing VM)
     dir: ansible
+    deps:
+      - ansible:init
     cmds:
       - op run --env-file={{.ROOT_DIR}}/.env.op -- ansible-playbook -i inventory/homelab.yml playbooks/truenas-full-setup.yml --vault-password-file=vault-password.sh
+
+  truenas:image-cache:
+    desc: Deploy Talos image cache on TrueNAS (local registry mirror)
+    dir: ansible
+    deps:
+      - ansible:init
+    cmds:
+      - op run --env-file={{.ROOT_DIR}}/.env.op -- ansible-playbook -i inventory/homelab.yml playbooks/truenas-setup.yml --vault-password-file=vault-password.sh --tags image-cache
 
   # ==========================================================================
   # Terragrunt / Terraform
@@ -332,6 +362,9 @@ tasks:
     desc: Run Terragrunt apply for environment
     dir: terragrunt/environments/{{.ENV}}
     cmds:
+      - task: cilium:render
+      - task: kubelet-csr-approver:render
+      - task: spegel:render
       - op run --env-file={{.ROOT_DIR}}/.env.op -- terragrunt run-all apply --terragrunt-non-interactive --auto-approve
     vars:
       ENV: '{{.ENV | default "homelab"}}'
@@ -377,11 +410,17 @@ tasks:
   # Cilium CNI
   # ==========================================================================
 
+  render:
+    desc: Render all Helm charts to YAML for inline installation
+    cmds:
+      - task: cilium:render
+      - task: kubelet-csr-approver:render
+      - task: spegel:render
+
   cilium:render:
     desc: Render Cilium Helm chart to YAML for inline installation
     cmds:
       - helm repo add cilium https://helm.cilium.io/ || true
-      - helm repo update cilium
       - |
         helm template cilium cilium/cilium --version 1.18.0 \
           --namespace kube-system \
@@ -395,10 +434,31 @@ tasks:
           --set cgroup.hostRoot=/sys/fs/cgroup \
           --set l2announcements.enabled=true \
           --set externalIPs.enabled=true \
+          --set bgpControlPlane.enabled=true \
           --set hubble.relay.enabled=true \
           --set hubble.ui.enabled=true \
           > terragrunt/files/cilium-rendered.yaml
       - echo "Cilium manifests rendered to terragrunt/files/cilium-rendered.yaml"
+
+  kubelet-csr-approver:render:
+    desc: Render kubelet-csr-approver Helm chart to YAML for inline installation
+    cmds:
+      - helm repo add kubelet-csr-approver https://postfinance.github.io/kubelet-csr-approver || true
+      - helm repo update kubelet-csr-approver
+      - |
+        helm template kubelet-csr-approver kubelet-csr-approver/kubelet-csr-approver --version 1.2.2 \
+          --namespace kube-system \
+          --skip-tests \
+          --set providerIpPrefixes="{172.16.100.0/24}" \
+          --set bypassDnsResolution=true \
+          > terragrunt/files/kubelet-csr-approver-rendered.yaml
+      - echo "kubelet-csr-approver manifests rendered to terragrunt/files/kubelet-csr-approver-rendered.yaml"
+
+  spegel:render:
+    desc: Render Spegel Helm chart to YAML for inline installation (P2P image distribution)
+    cmds:
+      - helm template spegel oci://ghcr.io/spegel-org/helm-charts/spegel --version v0.0.27 --namespace spegel --set spegel.containerdRegistryConfigPath=/etc/cri/conf.d/hosts --set spegel.containerdContentPath=/var/lib/containerd/io.containerd.content.v1.content --set spegel.resolveTags=true --set service.registry.hostPort=30020 --set service.registry.nodePort=30021 > terragrunt/files/spegel-rendered.yaml
+      - echo "Spegel manifests rendered to terragrunt/files/spegel-rendered.yaml"
 
   # ==========================================================================
   # Talos
@@ -424,6 +484,39 @@ tasks:
     desc: Retrieve kubeconfig from Talos
     cmds:
       - talosctl kubeconfig -n 172.16.100.11
+
+  talos:upgrade:image:
+    desc: Regenerate Talos image with updated extensions
+    dir: terragrunt/environments/homelab/talos-image
+    cmds:
+      - op run --env-file={{.ROOT_DIR}}/.env.op -- terragrunt apply --terragrunt-non-interactive --auto-approve
+
+  talos:recreate:node:
+    desc: Recreate a Talos node via terragrunt taint + apply
+    vars:
+      NODE: '{{.NODE | default "worker-1"}}'
+    cmds:
+      - deno run --allow-net --allow-run --allow-env --allow-read scripts/talos-node-recreate.ts --node={{.NODE}}
+
+  talos:recreate:gpu-node:
+    desc: Recreate GPU node (worker-1) with new image and verify GPU support
+    cmds:
+      - task: talos:recreate:node
+        vars:
+          NODE: worker-1
+      - deno run --allow-net --allow-run --allow-env scripts/verify-gpu-support.ts
+
+  gpu:verify:
+    desc: Verify GPU support is working
+    cmds:
+      - deno run --allow-net --allow-run --allow-env scripts/verify-gpu-support.ts
+
+  gpu:status:
+    desc: Show GPU node status and resources
+    cmds:
+      - kubectl get node worker-1 -o wide
+      - kubectl describe node worker-1 | grep -A5 "Allocatable:" | grep nvidia
+      - kubectl -n gpu-operator get pods
 
   # ==========================================================================
   # Kubernetes Operations
@@ -460,6 +553,82 @@ tasks:
       - task: tf:validate
       - task: localdev:up
       - task: localdev:down
+
+  # ==========================================================================
+  # SOPS - Secret Management
+  # ==========================================================================
+
+  sops:bootstrap:
+    desc: Bootstrap SOPS encryption (generate age keys, store in 1Password)
+    cmds:
+      - deno run --allow-all scripts/sops-bootstrap.ts
+
+  sops:bootstrap:force:
+    desc: Bootstrap SOPS with new keys (overwrites existing)
+    cmds:
+      - deno run --allow-all scripts/sops-bootstrap.ts --force
+
+  sops:setup:
+    desc: Full automated SOPS setup - pulls credentials from 1Password, encrypts, and commits
+    cmds:
+      - deno run --allow-all scripts/sops-setup-onepassword.ts --commit
+
+  sops:setup:dry-run:
+    desc: Preview SOPS setup without making changes
+    cmds:
+      - deno run --allow-all scripts/sops-setup-onepassword.ts --dry-run
+
+  sops:encrypt:
+    desc: Encrypt the 1Password credentials template
+    cmds:
+      - |
+        TEMPLATE="charts/secrets/onepassword/onepassword-credentials.template.yaml"
+        OUTPUT="charts/secrets/onepassword/onepassword-credentials.sops.yaml"
+        if [ ! -f "$TEMPLATE" ]; then
+          echo "ERROR: Template not found: $TEMPLATE"
+          echo "Run 'task sops:bootstrap' first to create the template"
+          exit 1
+        fi
+        sops --encrypt "$TEMPLATE" > "$OUTPUT"
+        rm "$TEMPLATE"
+        echo "Encrypted: $OUTPUT"
+        echo "Unencrypted template removed"
+
+  sops:decrypt:
+    desc: Decrypt and view 1Password credentials (to stdout)
+    cmds:
+      - sops --decrypt charts/secrets/onepassword/onepassword-credentials.sops.yaml
+
+  sops:edit:
+    desc: Edit encrypted 1Password credentials
+    cmds:
+      - sops charts/secrets/onepassword/onepassword-credentials.sops.yaml
+
+  sops:rotate:
+    desc: Rotate SOPS keys (regenerate and re-encrypt all secrets)
+    cmds:
+      - task: sops:bootstrap:force
+      - |
+        echo "Re-encrypting secrets with new key..."
+        for file in $(find charts/secrets -name "*.sops.yaml"); do
+          echo "Re-encrypting: $file"
+          sops updatekeys --yes "$file"
+        done
+        echo "Key rotation complete"
+
+  sops:verify:
+    desc: Verify SOPS can decrypt secrets
+    cmds:
+      - |
+        echo "Verifying SOPS decryption..."
+        if sops --decrypt charts/secrets/onepassword/onepassword-credentials.sops.yaml > /dev/null 2>&1; then
+          echo "OK: SOPS decryption successful"
+        else
+          echo "ERROR: SOPS decryption failed"
+          echo "Make sure SOPS_AGE_KEY environment variable is set"
+          echo "Get it from 1Password: op read 'op://homelab/sops-age-key/private_key'"
+          exit 1
+        fi
 
   # ==========================================================================
   # Utilities

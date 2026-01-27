@@ -22,8 +22,8 @@
     body_format: json
     body:
       name: "{{ dataset_name }}"
-      compression: "{{ dataset_compression | default('lz4') }}"
-      atime: "off"
+      compression: "{{ dataset_compression | default('LZ4') | upper }}"
+      atime: "OFF"
       comments: "{{ dataset_comments | default('') }}"
     status_code: [200, 201]
   register: dataset_create
@@ -39,8 +39,7 @@
     validate_certs: "{{ truenas_verify_ssl }}"
     body_format: json
     body:
-      refquota:
-        parsed: "{{ dataset_quota | default(0) }}"
+      refquota: "{{ dataset_quota | human_to_bytes }}"
     status_code: [200]
   when: dataset_quota is defined and dataset_quota | length > 0
 

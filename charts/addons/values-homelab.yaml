@@ -20,13 +20,25 @@ global:
   # Enable external load balancing
   loadBalancer: true
 
+  # Git repository for SOPS secrets
+  repoUrl: https://github.com/ryanmcafee/homelab.git
+  targetRevision: feature/automate-truenas-provisioning
+
+# ============================================================================
+# SOPS Secrets - Encrypted secrets for GitOps
+# Sync Wave: -2 (FIRST - deploys 1Password credentials before operator)
+# ============================================================================
+
+sops-secrets:
+  enabled: true
+
 # ============================================================================
 # ArgoCD - Self-Management (Bootstrap + Addon)
-# Sync Wave: 0 (first addon, manages itself)
+# DISABLED - Moved to applications chart with sync-wave 5
 # ============================================================================
 
 argocd:
-  enabled: true
+  enabled: false
   namespace: argocd
 
   # Chart source - must match bootstrap version
@@ -37,20 +49,61 @@ argocd:
 
   # ArgoCD server configuration
   values:
+    # Enable App of Apps health status progression
+    configs:
+      cm:
+        resource.customizations.health.argoproj.io_Application: |
+          hs = {}
+          hs.status = "Progressing"
+          hs.message = ""
+          if obj.status ~= nil then
+            if obj.status.health ~= nil then
+              hs.status = obj.status.health.status
+              if obj.status.health.message ~= nil then
+                hs.message = obj.status.health.message
+              end
+            end
+          end
+          return hs
+        # Custom health check for Ingress - treat as Healthy even without loadBalancer address
+        # This prevents circular dependency during initial sync when Traefik isn't deployed yet
+        resource.customizations.health.networking.k8s.io_Ingress: |
+          hs = {}
+          hs.status = "Healthy"
+          hs.message = ""
+          if obj.status ~= nil then
+            if obj.status.loadBalancer ~= nil then
+              if obj.status.loadBalancer.ingress ~= nil then
+                hs.message = "Load balancer ingress configured"
+              else
+                hs.message = "Waiting for load balancer (non-blocking)"
+              end
+            end
+          end
+          return hs
+
     server:
+      # HA configuration - 3 replicas spread across different hosts
+      replicas: 3
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: argocd-server
+
       # Ingress for web UI
       ingress:
         enabled: true
         ingressClassName: traefik
-        hosts:
-          - argocd.ryanmcafee.com
-        tls:
-          - secretName: argocd-server-tls
-            hosts:
-              - argocd.ryanmcafee.com
+        hostname: argocd.ryanmcafee.com
+        tls: true
         annotations:
           cert-manager.io/cluster-issuer: letsencrypt
           external-dns.alpha.kubernetes.io/hostname: argocd.ryanmcafee.com
+          # OAuth2-Proxy authentication middleware
+          traefik.ingress.kubernetes.io/router.middlewares: oauth2-proxy-oauth2-proxy-auth@kubernetescrd
 
       # Resource limits
       resources:
@@ -71,6 +124,16 @@ argocd:
           memory: 1Gi
 
     repoServer:
+      # HA configuration - 2 replicas spread across different hosts
+      replicas: 2
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: argocd-repo-server
+
       resources:
         requests:
           cpu: 100m
@@ -80,6 +143,8 @@ argocd:
           memory: 512Mi
 
     applicationSet:
+      # HA configuration - 2 replicas
+      replicas: 2
       resources:
         requests:
           cpu: 50m
@@ -99,47 +164,74 @@ argocd:
           memory: 128Mi
 
 # ============================================================================
-# MetalLB - LoadBalancer IP Address Management
+# Kubelet CSR Approver - Automatic Kubelet Certificate Approval
+# Sync Wave: 1 (early infrastructure component)
+# ============================================================================
+
+kubelet-csr-approver:
+  enabled: true
+  namespace: kube-system
+
+  chart:
+    name: kubelet-csr-approver
+    repo: https://postfinance.github.io/kubelet-csr-approver
+    version: "1.2.2"
+
+  # IP prefixes allowed for kubelet serving certificates
+  # Must include all node IPs in the cluster
+  providerIpPrefixes:
+    - "172.16.100.0/24"
+
+  # Regex pattern for valid node names (Talos generates names like talos-xxx-yyy)
+  providerRegex: "^talos-[a-z0-9]{3}-[a-z0-9]{3}$"
+
+  # Bypass DNS resolution check for SAN names (Talos node names aren't in DNS)
+  bypassDnsResolution: true
+
+  # Maximum certificate validity (365 days)
+  maxExpirationSeconds: 31536000
+
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+    limits:
+      cpu: 100m
+      memory: 128Mi
+
+# ============================================================================
+# Cilium - CNI (Visibility Only - actual install via Talos inline)
+# Sync Wave: 0
+# ============================================================================
+
+cilium:
+  enabled: true
+  chart:
+    version: "1.18.0"  # Must match Taskfile cilium:render version
+
+# ============================================================================
+# Cilium LB IPAM - LoadBalancer IP Management + BGP
 # Sync Wave: 1
 # ============================================================================
 
-metallb:
+cilium-lb-ipam:
   enabled: true
-  namespace: metallb-system
 
-  chart:
-    name: metallb
-    repo: https://metallb.github.io/metallb
-    version: 0.14.9
+  lbipam:
+    addresses:
+      - "172.16.100.100-172.16.100.200"
 
-  # IP address pool configuration
-  addresses:
-    - 172.16.100.100-172.16.100.200
+  # Control Plane VIP - Only advertised by control-plane nodes
+  # This creates a dedicated IP pool with restricted node selector
+  controlPlaneVIP: "172.16.100.10"
 
-  # BGP configuration for dynamic routing
   bgp:
     enabled: true
-    asn: 64512
+    localASN: 64512
     peers:
-      - address: 172.16.100.1
+      - name: "unifi-gateway"
+        address: "172.16.100.1"
         asn: 64513
-        routerId: 172.16.100.1
-
-  resources:
-    controller:
-      requests:
-        cpu: 50m
-        memory: 64Mi
-      limits:
-        cpu: 200m
-        memory: 128Mi
-    speaker:
-      requests:
-        cpu: 50m
-        memory: 64Mi
-      limits:
-        cpu: 200m
-        memory: 128Mi
 
 # ============================================================================
 # Democratic-CSI - NFS Storage Provisioner
@@ -155,13 +247,15 @@ democratic-csi:
     repo: https://democratic-csi.github.io/charts/
     version: 0.14.6
 
-  driver: freenas-nfs
+  driver: freenas-api-nfs
 
   truenas:
     # Use IP address instead of hostname since internal DNS is not resolvable from cluster
     endpoint: https://172.16.100.150
     allowInsecure: true  # Required when using IP (no valid TLS cert for IP)
-    apiKey: ""  # Provided via 1Password operator
+    apiKey: ""  # Populated from 1Password secret
+    # 1Password vault path for TrueNAS API key (creates secret: truenas-api-key)
+    onePasswordItemPath: vaults/homelab/items/truenas
 
   nfs:
     shareHost: 172.16.100.150
@@ -235,6 +329,33 @@ local-path-provisioner:
         memory: 512Mi
 
 # ============================================================================
+# CloudNativePG - PostgreSQL Operator
+# Sync Wave: 2 (must be before home-assistant which depends on CNPG CRDs)
+# ============================================================================
+
+cloudnative-pg:
+  enabled: true
+  namespace: cnpg-system
+
+  chart:
+    name: cloudnative-pg
+    repo: https://cloudnative-pg.github.io/charts
+    version: 0.27.0
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+  monitoring:
+    podMonitorEnabled: true
+    grafanaDashboard:
+      create: false
+
+# ============================================================================
 # Cert-Manager - TLS Certificate Management
 # Sync Wave: 3
 # ============================================================================
@@ -260,7 +381,7 @@ cert-manager:
     enabled: true
     email: admin@ryanmcafee.com
     apiToken: ""
-    onePasswordItemPath: vaults/homelab/items/cloudflare-api-token
+    onePasswordItemPath: vaults/homelab/items/cloudflare
 
   resources:
     requests:
@@ -307,12 +428,48 @@ external-dns:
   cloudflare:
     apiToken: ""
     proxied: true
-    onePasswordItemPath: vaults/homelab/items/cloudflare-api-token
+    onePasswordItemPath: vaults/homelab/items/cloudflare
 
   domainFilters:
     - ryanmcafee.com
 
   annotationFilter: external-dns.alpha.kubernetes.io/hostname
+
+  # Default target for all DNS records - use DuckDNS for dynamic IP
+  # This creates CNAME records pointing to the DDNS hostname
+  defaultTarget: ryanmcafee.duckdns.org
+
+  resources:
+    requests:
+      cpu: 20m
+      memory: 64Mi
+    limits:
+      cpu: 100m
+      memory: 128Mi
+
+# ============================================================================
+# External-DNS UniFi - Internal DNS Management (Split DNS)
+# Sync Wave: 4
+# ============================================================================
+
+external-dns-unifi:
+  enabled: true
+  namespace: external-dns-unifi
+
+  chart:
+    version: "1.15.0"
+
+  webhook:
+    version: "v0.8.1"
+
+  unifi:
+    host: "https://172.16.100.1"
+
+  # Uses existing UniFi credentials (needs api_key field added)
+  onePasswordItemPath: vaults/homelab/items/unifi
+
+  domainFilters:
+    - ryanmcafee.com
 
   resources:
     requests:
@@ -334,7 +491,7 @@ kube-prometheus-stack:
   chart:
     name: kube-prometheus-stack
     repo: https://prometheus-community.github.io/helm-charts
-    version: 67.6.1
+    version: 69.8.2
 
   prometheus:
     retention: 30d
@@ -365,6 +522,11 @@ kube-prometheus-stack:
     ingress:
       enabled: true
       ingressClassName: traefik
+      annotations:
+        cert-manager.io/cluster-issuer: letsencrypt
+        external-dns.alpha.kubernetes.io/hostname: grafana.ryanmcafee.com
+        # OAuth2-Proxy authentication middleware
+        traefik.ingress.kubernetes.io/router.middlewares: oauth2-proxy-oauth2-proxy-auth@kubernetescrd
       hosts:
         - grafana.ryanmcafee.com
       tls:
@@ -435,6 +597,11 @@ traefik:
 
   service:
     type: LoadBalancer
+    # Static IP for predictable port forwarding and DNS
+    annotations:
+      # Cilium LB IPAM annotation for static IP assignment
+      io.cilium/lb-ipam-ips: "172.16.100.200"
+      port-forwarding.ryanmcafee.com/enable: "true"
 
   ports:
     web:
@@ -449,31 +616,24 @@ traefik:
         default: true
       tls:
         enabled: true
-        certResolver: letsencrypt
+        # TLS certificates managed by cert-manager for HA compatibility
+    traefik:
+      port: 9000
+      expose:
+        default: true
 
   globalArguments:
     - --global.checknewversion=false
     - --global.sendanonymoususage=false
 
-  additionalArguments:
-    - --certificatesresolvers.letsencrypt.acme.email=admin@ryanmcafee.com
-    - --certificatesresolvers.letsencrypt.acme.storage=/data/acme.json
-    - --certificatesresolvers.letsencrypt.acme.dnschallenge=true
-    - --certificatesresolvers.letsencrypt.acme.dnschallenge.provider=cloudflare
+  # ACME removed - using cert-manager for TLS certificates (HA compatible)
+  additionalArguments: []
 
-  env:
-    - name: CF_API_EMAIL
-      value: admin@ryanmcafee.com
-    - name: CF_DNS_API_TOKEN
-      valueFrom:
-        secretKeyRef:
-          name: cloudflare-api-token
-          key: token
+  env: []
 
+  # Persistence disabled - ACME removed
   persistence:
-    enabled: true
-    storageClass: democratic-csi-nfs
-    size: 1Gi
+    enabled: false
 
   ingressRoute:
     dashboard:
@@ -506,4 +666,65 @@ traefik:
 
   cloudflare:
     enabled: true
-    onePasswordItemPath: vaults/homelab/items/cloudflare-api-token
+    onePasswordItemPath: vaults/homelab/items/cloudflare
+
+# ============================================================================
+# UniFi Port Forwarding Controller - Automatic Port Forwards
+# Sync Wave: 6-7
+# ============================================================================
+
+unifi-port-forward:
+  enabled: true
+  namespace: port-forwarding
+  version: 1.1.x
+  onePasswordItemPath: vaults/homelab/items/unifi
+
+# ============================================================================
+# OAuth2-Proxy - Zero-Trust Authentication
+# Sync Wave: 6-8
+# ============================================================================
+
+oauth2-proxy:
+  enabled: true
+  namespace: oauth2-proxy
+
+  chart:
+    version: "7.7.30"
+
+  # 1Password paths for secrets
+  googleOAuthPath: vaults/homelab/items/google-oauth
+  cookieSecretPath: vaults/homelab/items/oauth2-proxy-cookie
+
+  # Allowed email domains for authentication
+  emailDomains:
+    - "ryanmcafee.com"
+
+  # Cookie and whitelist domains
+  cookieDomains:
+    - ".ryanmcafee.com"
+  whitelistDomains:
+    - ".ryanmcafee.com"
+
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+
+# ============================================================================
+# NVIDIA GPU Operator - GPU Support for Kubernetes
+# Sync Wave: 0 (must deploy before Plex which requires RuntimeClass nvidia)
+# ============================================================================
+
+nvidia-gpu-operator:
+  enabled: true
+  namespace: gpu-operator
+
+  chart:
+    version: "v25.3.0"
+
+  # Note: Driver and toolkit are provided by Talos system extensions
+  # (siderolabs/nonfree-kmod-nvidia and siderolabs/nvidia-container-toolkit)
+  # GPU Operator only manages device plugin, monitoring, and feature discovery

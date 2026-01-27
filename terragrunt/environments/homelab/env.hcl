@@ -29,7 +29,7 @@ locals {
   vlan_id     = 100
   subnet      = "172.16.100.0/24"
   gateway     = "172.16.100.1"
-  dns_servers = ["1.1.1.1", "8.8.8.8"]
+  dns_servers = ["172.16.100.1"]
 
   # MetalLB configuration
   metallb_enabled  = true
@@ -43,11 +43,41 @@ locals {
 
   # Cluster configuration
   cluster_name     = "homelab"
-  cluster_endpoint = "172.16.100.10"
+  cluster_endpoint = "172.16.100.11"
+  vip_endpoint     = "172.16.100.10"
 
   # Talos configuration (using latest stable versions)
-  talos_version      = "v1.12.1"
+  talos_version      = "v1.12.2"
   kubernetes_version = "v1.32.0"
+
+  # Image Cache Configuration
+  # Enables local caching of container images to prevent failures from flaky external registries
+  # See: https://docs.siderolabs.com/talos/v1.12/configure-your-talos-cluster/images-container-runtime/image-cache-registry-mirror
+  #
+  # The image cache is deployed on TrueNAS via the truenas_storage Ansible role.
+  # Run the Ansible playbook first to generate certificates and deploy the cache:
+  #   cd ansible && ansible-playbook playbooks/truenas-full-setup.yml --tags image-cache
+  #
+  # After running the playbook, the CA certificate will be available at:
+  #   ansible/certs/image-cache-ca.crt
+  image_cache_endpoint   = "https://${local.truenas_ip}:5000"
+  image_cache_ca_cert    = fileexists("${get_terragrunt_dir()}/../../../ansible/certs/image-cache-ca.crt") ? file("${get_terragrunt_dir()}/../../../ansible/certs/image-cache-ca.crt") : ""
+  image_cache_registries = ["docker.io", "ghcr.io", "registry.k8s.io", "gcr.io", "quay.io"]
+
+  # Spegel P2P Image Cache Configuration
+  # Spegel provides stateless cluster-local OCI registry mirroring for P2P image distribution.
+  # See: https://spegel.dev/docs/getting-started/#talos
+  #
+  # When enabled, this configures Talos to preserve unpacked image layers (required for Spegel)
+  # and sets the containerd registry config path for Spegel's registry mirror.
+  #
+  # After enabling, deploy Spegel via Helm with these values:
+  #   spegel:
+  #     containerdRegistryConfigPath: /etc/cri/conf.d/hosts
+  #
+  # The spegel namespace requires privileged pod security:
+  #   kubectl label namespace spegel pod-security.kubernetes.io/enforce=privileged
+  spegel_enabled = true
 
   # TrueNAS configuration
   truenas_vm_id    = 150
@@ -89,7 +119,7 @@ locals {
 
   # Git repository
   repo_url        = "https://github.com/ryanmcafee/homelab"
-  target_revision = "main"
+  target_revision = "feature/automate-truenas-provisioning"
 
   # Base FQDN
   base_fqdn = "ryanmcafee.com"
@@ -105,9 +135,9 @@ locals {
   unifi_site     = get_env("UNIFI_SITE", "default")
 
   # Resource allocation
-  # Control plane: 2 nodes x 8GB = 16GB total
-  # Workers: 3 nodes x 32GB = 96GB total
-  # Total cluster memory: 112GB
+  # Control plane: 3 nodes x 8GB = 24GB total
+  # Workers: 3 nodes x 50GB = 150GB total
+  # Total cluster memory: 174GB
 
   control_plane_nodes = {
     "cp-1" = {
@@ -138,7 +168,7 @@ locals {
       ip        = "172.16.100.21"
       host_node = "proxmox"
       cores     = 8
-      memory    = 32768 # 32GB
+      memory    = 51200 # 50GB
       disk_size = 100
       gpu       = true # NVIDIA Quadro P2200 for Plex transcoding
     }
@@ -146,7 +176,7 @@ locals {
       ip        = "172.16.100.22"
       host_node = "proxmox"
       cores     = 4
-      memory    = 32768 # 32GB
+      memory    = 51200 # 50GB
       disk_size = 100
       gpu       = false
     }
@@ -154,7 +184,7 @@ locals {
       ip        = "172.16.100.23"
       host_node = "proxmox"
       cores     = 4
-      memory    = 32768 # 32GB
+      memory    = 51200 # 50GB
       disk_size = 100
       gpu       = false
     }

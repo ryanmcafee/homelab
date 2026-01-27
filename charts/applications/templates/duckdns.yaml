@@ -1,0 +1,73 @@
+{{- if .Values.duckdns.enabled }}
+---
+# Namespace for DuckDNS resources
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Values.duckdns.namespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+---
+# OnePasswordItem syncs the DuckDNS token from 1Password vault
+apiVersion: onepassword.com/v1
+kind: OnePasswordItem
+metadata:
+  name: duckdns-token
+  namespace: {{ .Values.duckdns.namespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  itemPath: {{ .Values.duckdns.onePasswordItemPath | quote }}
+---
+# DuckDNS Updater CronJob
+# Updates the DuckDNS record with the cluster's public IP every 5 minutes
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: duckdns-updater
+  namespace: {{ .Values.duckdns.namespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  schedule: "*/5 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: duckdns-updater
+              image: curlimages/curl:8.5.0
+              imagePullPolicy: IfNotPresent
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  response=$(curl -s "https://www.duckdns.org/update?domains=${DUCKDNS_SUBDOMAIN}&token=${DUCKDNS_TOKEN}&ip=")
+                  echo "DuckDNS update response: $response"
+                  if [ "$response" = "OK" ]; then
+                    echo "Successfully updated DuckDNS record for ${DUCKDNS_SUBDOMAIN}.duckdns.org"
+                    exit 0
+                  else
+                    echo "Failed to update DuckDNS record"
+                    exit 1
+                  fi
+              env:
+                - name: DUCKDNS_SUBDOMAIN
+                  value: {{ .Values.duckdns.subdomain | quote }}
+                - name: DUCKDNS_TOKEN
+                  valueFrom:
+                    secretKeyRef:
+                      name: duckdns-token
+                      key: token
+              resources:
+                requests:
+                  cpu: 10m
+                  memory: 16Mi
+                limits:
+                  cpu: 50m
+                  memory: 32Mi
+{{- end }}

@@ -9,10 +9,16 @@ variable "cluster_endpoint" {
   type        = string
 }
 
+variable "vip_endpoint" {
+  description = "VIP endpoint for the cluster"
+  type        = string
+  default     = ""
+}
+
 variable "talos_version" {
   description = "Talos Linux version"
   type        = string
-  default     = "v1.6.0"
+  default     = "v1.11.2"
 }
 
 variable "kubernetes_version" {
@@ -71,6 +77,12 @@ variable "talos_image_id" {
 
 variable "installer_image" {
   description = "Custom Talos installer image URL from Image Factory (required for system extensions)"
+  type        = string
+  default     = null
+}
+
+variable "gpu_installer_image" {
+  description = "Custom Talos installer image URL for GPU nodes (with nvidia-container-toolkit). Falls back to installer_image if not set."
   type        = string
   default     = null
 }
@@ -149,7 +161,7 @@ variable "network_cidr" {
 variable "dns_servers" {
   description = "DNS servers for nodes"
   type        = list(string)
-  default     = ["1.1.1.1", "8.8.8.8"]
+  default     = ["172.16.100.1"]
 }
 
 # GPU Configuration
@@ -241,4 +253,56 @@ variable "install_cilium_inline" {
   description = "Install Cilium via inline manifests during bootstrap"
   type        = bool
   default     = true
+}
+
+# Kubelet CSR Approver Configuration
+variable "kubelet_csr_approver_inline_manifest" {
+  description = "Kubelet CSR Approver manifest for inline installation (pre-rendered Helm template)"
+  type        = string
+  default     = ""
+}
+
+variable "install_kubelet_csr_approver_inline" {
+  description = "Install kubelet-csr-approver via inline manifests during bootstrap"
+  type        = bool
+  default     = true
+}
+
+# Image Cache Configuration
+variable "image_cache_endpoint" {
+  description = "Image cache registry endpoint URL (e.g., 'https://192.168.1.100:5000'). When set, registry mirrors will use this cache as the primary endpoint."
+  type        = string
+  default     = ""
+}
+
+variable "image_cache_ca_cert" {
+  description = "CA certificate for the image cache registry (PEM format). Required when using self-signed certificates."
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
+variable "image_cache_registries" {
+  description = "List of registries to route through the image cache. Use '*' for all registries."
+  type        = list(string)
+  default     = ["docker.io", "ghcr.io", "registry.k8s.io", "gcr.io", "quay.io"]
+}
+
+# Spegel P2P Image Cache Configuration
+variable "spegel_enabled" {
+  description = "Enable Spegel P2P image distribution support. Configures containerd to preserve unpacked layers (required for Spegel). See: https://spegel.dev/docs/getting-started/#talos"
+  type        = bool
+  default     = false
+}
+
+variable "spegel_inline_manifest" {
+  description = "Spegel manifest for inline installation (pre-rendered Helm template)"
+  type        = string
+  default     = ""
+}
+
+variable "install_spegel_inline" {
+  description = "Install Spegel via inline manifests during bootstrap"
+  type        = bool
+  default     = false
 }

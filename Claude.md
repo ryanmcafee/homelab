@@ -10,6 +10,7 @@ When updating helm chart versions, check the Chart.yaml in these repositories:
 |-------|--------|
 | Plex | https://github.com/plexinc/pms-docker/blob/master/charts/plex-media-server/Chart.yaml |
 | TrueCharts (all) | https://github.com/trueforge-org/truecharts/tree/master/charts/stable/{chart-name}/Chart.yaml |
+| NVIDIA GPU Operator | https://github.com/NVIDIA/gpu-operator/blob/main/deployments/gpu-operator/Chart.yaml |
 
 TrueCharts direct links:
 - Sonarr: https://raw.githubusercontent.com/trueforge-org/truecharts/master/charts/stable/sonarr/Chart.yaml
@@ -17,3 +18,7 @@ TrueCharts direct links:
 - Prowlarr: https://raw.githubusercontent.com/trueforge-org/truecharts/master/charts/stable/prowlarr/Chart.yaml
 - Home Assistant: https://raw.githubusercontent.com/trueforge-org/truecharts/master/charts/stable/home-assistant/Chart.yaml
 - Mosquitto: https://raw.githubusercontent.com/trueforge-org/truecharts/master/charts/stable/mosquitto/Chart.yaml
+
+# IMPORTANT
+
+ALWAYS fix pre-existing bugs when working on a task and a pre-existing bug is identified, that should also be fixed as part of your task.

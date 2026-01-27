@@ -14,6 +14,8 @@ helm = "latest"
 kind = "0.22.0"
 talosctl = "1.7.6"
 tilt = "0.33.11"
+argocd = "latest"
+argo = "latest"          # Argo Workflows CLI
 
 # Configuration Management (Python via pipx)
 "pipx:ansible-core" = "latest"
@@ -25,10 +27,13 @@ task = "latest"
 # Utilities
 jq = "latest"
 direnv = "latest"
+deno = "latest"
 "pipx:yamllint" = "latest"
 
 # Secrets Management
 op = "latest"          # 1Password CLI for secrets management
+age = "latest"         # Modern encryption tool for SOPS
+sops = "latest"        # Secrets OPerationS - encrypted secrets management
 
 # Optional Tools (uncomment if needed)
 # stern = "latest"       # Multi-pod log streaming
@@ -59,6 +64,8 @@ helm version
 kind version
 talosctl version --client
 tilt version
+argocd version --client
+argo version --short
 echo ""
 echo "Configuration Management:"
 ansible --version
@@ -72,6 +79,8 @@ direnv --version
 echo ""
 echo "Secrets Management:"
 op --version
+age --version
+sops --version
 echo ""
 echo "✓ All tools validated successfully!"
 """

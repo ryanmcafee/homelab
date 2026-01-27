@@ -24,7 +24,17 @@ dependency "talos_image" {
   mock_outputs = {
     image_id      = "local:iso/talos-mock.img"
     schematic_id  = "mock-schematic-id"
-    talos_version = "v1.12.1"
+    talos_version = "v1.12.2"
+  }
+}
+
+dependency "talos_image_gpu" {
+  config_path = "../talos-image-gpu"
+
+  mock_outputs = {
+    image_id      = "local:iso/talos-gpu-mock.img"
+    schematic_id  = "mock-gpu-schematic-id"
+    talos_version = "v1.12.2"
   }
 }
 
@@ -59,6 +69,7 @@ EOF
 inputs = {
   cluster_name     = include.env.locals.cluster_name
   cluster_endpoint = include.env.locals.cluster_endpoint
+  vip_endpoint     = include.env.locals.vip_endpoint
 
   talos_version      = include.env.locals.talos_version
   kubernetes_version = include.env.locals.kubernetes_version
@@ -73,7 +84,12 @@ inputs = {
   datastore_id   = include.env.locals.vm_storage_pool
 
   # Image Factory installer with system extensions (qemu-guest-agent, nfs-utils, etc.)
+  # Base image for non-GPU nodes (includes nfs-utils for NFS mounts)
   installer_image = "factory.talos.dev/installer/${dependency.talos_image.outputs.schematic_id}:${dependency.talos_image.outputs.talos_version}"
+
+  # GPU image for nodes with gpu=true (includes nvidia-container-toolkit, excludes nfs-utils)
+  # NOTE: nvidia-container-toolkit conflicts with nfs-utils due to glibc symbol issues
+  gpu_installer_image = "factory.talos.dev/installer/${dependency.talos_image_gpu.outputs.schematic_id}:${dependency.talos_image_gpu.outputs.talos_version}"
 
   # Network configuration
   network_bridge  = "vmbr0"
@@ -114,6 +130,40 @@ inputs = {
           extraArgs = {
             "rotate-server-certificates" = "true"
           }
+          # Disable default seccomp profile to avoid startup delays
+          defaultRuntimeSeccompProfileEnabled = true
+          # Disable manifests directory which can cause delays
+          disableManifestsDirectory = true
+        }
+        features = {
+          # Enable disk quota support for local storage
+          diskQuotaSupport = true
+          # Enable KubePrism for HA API access during bootstrap
+          kubePrism = {
+            enabled = true
+            port    = 7445
+          }
+        }
+        # Registry mirrors to avoid rate limiting and improve pull speeds
+        registries = {
+          mirrors = {
+            "docker.io" = {
+              endpoints = [
+                "https://mirror.gcr.io",
+                "https://registry-1.docker.io"
+              ]
+            }
+            "ghcr.io" = {
+              endpoints = [
+                "https://ghcr.io"
+              ]
+            }
+            "registry.k8s.io" = {
+              endpoints = [
+                "https://registry.k8s.io"
+              ]
+            }
+          }
         }
       }
     })
@@ -129,4 +179,20 @@ inputs = {
   # Cilium CNI inline installation
   install_cilium_inline  = true
   cilium_inline_manifest = file("${get_terragrunt_dir()}/../../../files/cilium-rendered.yaml")
+
+  # Kubelet CSR Approver inline installation (auto-approves kubelet server certificates)
+  install_kubelet_csr_approver_inline  = true
+  kubelet_csr_approver_inline_manifest = file("${get_terragrunt_dir()}/../../../files/kubelet-csr-approver-rendered.yaml")
+
+  # Image cache configuration (prevents failures from flaky external registries)
+  image_cache_endpoint   = include.env.locals.image_cache_endpoint
+  image_cache_ca_cert    = include.env.locals.image_cache_ca_cert
+  image_cache_registries = include.env.locals.image_cache_registries
+
+  # Spegel P2P image cache configuration
+  spegel_enabled = include.env.locals.spegel_enabled
+
+  # Spegel inline installation (P2P image distribution)
+  install_spegel_inline  = include.env.locals.spegel_enabled
+  spegel_inline_manifest = include.env.locals.spegel_enabled ? file("${get_terragrunt_dir()}/../../../files/spegel-rendered.yaml") : ""
 }

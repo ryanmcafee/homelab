@@ -39,7 +39,9 @@ inputs = {
   node_name     = include.env.locals.proxmox_node
   datastore_id  = include.env.locals.iso_storage_pool
 
-  # System extensions for homelab
+  # Base system extensions for non-GPU nodes
+  # NOTE: NVIDIA extensions are in talos-image-gpu (separate image)
+  # nvidia-container-toolkit conflicts with nfs-utils (glibc symbol incompatibility)
   system_extensions = [
     "siderolabs/qemu-guest-agent", # Better VM integration with Proxmox
     "siderolabs/intel-ucode",      # Intel CPU microcode updates

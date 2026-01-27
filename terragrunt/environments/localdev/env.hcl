@@ -16,7 +16,7 @@ locals {
   vlan_id     = null
   subnet      = "10.244.0.0/16"
   gateway     = "10.244.0.1"
-  dns_servers = ["8.8.8.8", "1.1.1.1"]
+  dns_servers = ["8.8.8.8"]
 
   # No MetalLB in local dev (use NodePort or LoadBalancer with kind)
   metallb_enabled = false

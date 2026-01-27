@@ -15,7 +15,7 @@ global:
   repoUrl: https://github.com/ryanmcafee/homelab.git
 
   # Target revision (branch/tag/commit)
-  targetRevision: main
+  targetRevision: feature/automate-truenas-provisioning
 
   # ArgoCD project to use for all applications
   project: default
@@ -63,7 +63,7 @@ applications:
   enabled: true
   name: applications
   namespace: argocd
-  syncWave: "2"
+  syncWave: "10"
 
   source:
     path: charts/applications

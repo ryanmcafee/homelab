@@ -167,9 +167,7 @@ inputs = {
   # Kubeconfig path for kubectl commands in local-exec provisioner
   kubeconfig_path = dependency.talos_cluster_config.outputs.kubeconfig_path
 
-  # 1Password credentials (read from environment variables)
-  onepassword_credentials_json      = get_env("TF_VAR_onepassword_credentials_json", "")
-  onepassword_connect_host          = get_env("OP_CONNECT_HOST", "")
-  onepassword_connect_token         = get_env("OP_CONNECT_TOKEN", "")
-  onepassword_service_account_token = get_env("OP_SERVICE_ACCOUNT_TOKEN", "")
+  # SOPS age private key for decrypting secrets (stored in 1Password)
+  # Retrieve with: op read "op://homelab/sops-age-key/private_key"
+  sops_age_private_key = get_env("SOPS_AGE_KEY", "")
 }

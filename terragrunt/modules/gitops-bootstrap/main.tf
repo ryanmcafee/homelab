@@ -22,44 +22,28 @@ resource "kubernetes_namespace_v1" "argocd" {
   }
 }
 
-# Create 1Password Operator namespace (if credentials provided)
-resource "kubernetes_namespace_v1" "onepassword_operator" {
-  count = var.onepassword_credentials_json != "" ? 1 : 0
+# Create SOPS age key secret for ArgoCD to decrypt secrets
+# The age private key is stored in 1Password: op://homelab/sops-age-key/private_key
+resource "kubernetes_secret_v1" "sops_age_key" {
+  count = var.sops_age_private_key != "" ? 1 : 0
 
   metadata {
-    name = "onepassword-operator"
+    name      = "sops-age-key"
+    namespace = kubernetes_namespace_v1.argocd.metadata[0].name
     labels = {
-      "app.kubernetes.io/name"       = "onepassword-operator"
-      "app.kubernetes.io/managed-by" = "terraform"
-      "app.kubernetes.io/part-of"    = "gitops-bootstrap"
-    }
-  }
-}
-
-# Create 1Password credentials secret
-resource "kubernetes_secret_v1" "onepassword_credentials" {
-  count = var.onepassword_credentials_json != "" ? 1 : 0
-
-  metadata {
-    name      = "onepassword-credentials"
-    namespace = kubernetes_namespace_v1.onepassword_operator[0].metadata[0].name
-    labels = {
-      "app.kubernetes.io/name"       = "onepassword-credentials"
+      "app.kubernetes.io/name"       = "sops-age-key"
       "app.kubernetes.io/managed-by" = "terraform"
       "app.kubernetes.io/part-of"    = "gitops-bootstrap"
     }
   }
 
   data = {
-    "1password-credentials.json" = var.onepassword_credentials_json
-    "OP_CONNECT_HOST"            = var.onepassword_connect_host
-    "OP_CONNECT_TOKEN"           = var.onepassword_connect_token
-    "OP_SERVICE_ACCOUNT_TOKEN"   = var.onepassword_service_account_token
+    "keys.txt" = var.sops_age_private_key
   }
 
   type = "Opaque"
 
-  depends_on = [kubernetes_namespace_v1.onepassword_operator]
+  depends_on = [kubernetes_namespace_v1.argocd]
 }
 
 # Install ArgoCD via Helm

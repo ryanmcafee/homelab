@@ -1,0 +1,127 @@
+{{- if index .Values "cilium-lb-ipam" "enabled" }}
+---
+# CiliumLoadBalancerIPPool - IP address pool for LoadBalancer services
+# Defines the IP range available for LoadBalancer services
+apiVersion: cilium.io/v2
+kind: CiliumLoadBalancerIPPool
+metadata:
+  name: default
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  blocks:
+    {{- range (index .Values "cilium-lb-ipam" "lbipam" "addresses") }}
+    {{- $parts := split "-" . }}
+    - start: {{ index $parts "_0" }}
+      stop: {{ index $parts "_1" }}
+    {{- end }}
+{{- if (index .Values "cilium-lb-ipam" "controlPlaneVIP") }}
+---
+# CiliumLoadBalancerIPPool for Control Plane VIP
+# Separate pool to ensure VIP is only announced by control-plane nodes
+apiVersion: cilium.io/v2
+kind: CiliumLoadBalancerIPPool
+metadata:
+  name: control-plane-vip
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  blocks:
+    - start: {{ index .Values "cilium-lb-ipam" "controlPlaneVIP" }}
+      stop: {{ index .Values "cilium-lb-ipam" "controlPlaneVIP" }}
+  # Only allow services with this specific label to use the VIP pool
+  serviceSelector:
+    matchLabels:
+      cilium.io/pool: control-plane-vip
+{{- end }}
+---
+# CiliumL2AnnouncementPolicy - L2 (ARP) announcements for LoadBalancer IPs
+# Provides connectivity without requiring BGP on the gateway
+# IMPORTANT: Restricted to control-plane nodes only
+apiVersion: cilium.io/v2alpha1
+kind: CiliumL2AnnouncementPolicy
+metadata:
+  name: default
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  serviceSelector:
+    matchLabels: {}
+  nodeSelector:
+    matchLabels:
+      node-role.kubernetes.io/control-plane: ""
+  interfaces:
+    - ^ens.*
+  externalIPs: true
+  loadBalancerIPs: true
+
+{{- if (index .Values "cilium-lb-ipam" "bgp" "enabled") }}
+---
+# CiliumBGPPeerConfig - Shared peer configuration
+# Defines connection parameters for BGP peers
+apiVersion: cilium.io/v2
+kind: CiliumBGPPeerConfig
+metadata:
+  name: unifi-gateway-peer
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  timers:
+    holdTimeSeconds: 90
+    keepAliveTimeSeconds: 30
+    connectRetryTimeSeconds: 120
+  gracefulRestart:
+    enabled: true
+    restartTimeSeconds: 120
+  ebgpMultihop: 1
+---
+# CiliumBGPClusterConfig - BGP cluster-wide configuration
+# Cilium native BGP configuration for route advertisements
+apiVersion: cilium.io/v2
+kind: CiliumBGPClusterConfig
+metadata:
+  name: homelab-bgp
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  nodeSelector:
+    matchLabels:
+      node-role.kubernetes.io/control-plane: ""
+  bgpInstances:
+    - name: homelab
+      localASN: {{ (index .Values "cilium-lb-ipam" "bgp" "localASN") }}
+      peers:
+        {{- range (index .Values "cilium-lb-ipam" "bgp" "peers") }}
+        - name: {{ .name }}
+          peerAddress: {{ .address }}
+          peerASN: {{ .asn }}
+          peerConfigRef:
+            name: unifi-gateway-peer
+        {{- end }}
+---
+# CiliumBGPAdvertisement - Service advertisement configuration
+# Configures which services are advertised via BGP
+apiVersion: cilium.io/v2
+kind: CiliumBGPAdvertisement
+metadata:
+  name: loadbalancer-ips
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  advertisements:
+    - advertisementType: Service
+      service:
+        addresses:
+          - LoadBalancerIP
+      selector:
+        matchExpressions:
+          - key: somekey
+            operator: NotIn
+            values:
+              - never-match
+      attributes:
+        communities:
+          standard:
+            - "64512:100"
+{{- end }}
+{{- end }}

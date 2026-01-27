@@ -1,23 +1,39 @@
 {{- if .Values.homeassistant.enabled }}
 ---
+# Namespace with privileged PodSecurity for hostNetwork
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Values.homeassistant.namespace }}
+  labels:
+    pod-security.kubernetes.io/enforce: privileged
+    pod-security.kubernetes.io/audit: privileged
+    pod-security.kubernetes.io/warn: privileged
+---
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
   name: home-assistant
   namespace: argocd
   annotations:
-    argocd.argoproj.io/sync-wave: "3"
+    # Sync wave 4 - requires CloudNativePG operator (addons sync wave 2) to be ready
+    argocd.argoproj.io/sync-wave: "4"
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
   project: default
   source:
-    repoURL: {{ .Values.homeassistant.chart.repo }}
+    repoURL: oci.trueforge.org/truecharts
     chart: {{ .Values.homeassistant.chart.name }}
     targetRevision: {{ .Values.homeassistant.chart.version }}
     helm:
       releaseName: home-assistant
       values: |
+        {{- if .Values.homeassistant.image }}
+        image:
+          {{- toYaml .Values.homeassistant.image | nindent 10 }}
+        {{- end }}
+
         {{- if .Values.homeassistant.workload }}
         workload:
           {{- toYaml .Values.homeassistant.workload | nindent 10 }}
@@ -46,6 +62,15 @@ spec:
     server: https://kubernetes.default.svc
     namespace: {{ .Values.homeassistant.namespace }}
 
+  # Ignore TrueCharts dynamic fields and Kubernetes defaults
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      jqPathExpressions:
+        - .spec.template.metadata.annotations | to_entries | map(select(.key | startswith("checksum/"))) | from_entries
+      jsonPointers:
+        - /spec/template/spec/hostUsers
+
   syncPolicy:
     automated:
       prune: true
@@ -53,6 +78,8 @@ spec:
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+      - RespectIgnoreDifferences=true
     retry:
       limit: 5
       backoff:

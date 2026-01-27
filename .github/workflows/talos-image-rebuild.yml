@@ -1,0 +1,140 @@
+name: Talos Image Rebuild
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'talos/image/schematic.yaml'
+      - 'terragrunt/environments/homelab/talos-image/**'
+      - 'terragrunt/modules/talos-image/**'
+  workflow_dispatch:
+    inputs:
+      notify_only:
+        description: 'Only notify about changes (do not apply)'
+        required: false
+        default: 'false'
+        type: boolean
+
+env:
+  TERRAGRUNT_VERSION: '0.55.1'
+  TERRAFORM_VERSION: '1.7.5'
+
+jobs:
+  rebuild-image:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+          terraform_wrapper: false
+
+      - name: Setup Terragrunt
+        run: |
+          wget -q https://github.com/gruntwork-io/terragrunt/releases/download/v${{ env.TERRAGRUNT_VERSION }}/terragrunt_linux_amd64
+          chmod +x terragrunt_linux_amd64
+          sudo mv terragrunt_linux_amd64 /usr/local/bin/terragrunt
+
+      - name: Show schematic changes
+        run: |
+          echo "=== Current Talos Image Schematic ==="
+          cat talos/image/schematic.yaml
+
+          echo ""
+          echo "=== Terragrunt Extensions Config ==="
+          grep -A20 "system_extensions" terragrunt/environments/homelab/talos-image/terragrunt.hcl || true
+
+      - name: Terragrunt Plan
+        id: plan
+        run: |
+          cd terragrunt/environments/homelab/talos-image
+          terragrunt plan -no-color -out=tfplan 2>&1 | tee plan_output.txt
+          echo "plan_output<<EOF" >> $GITHUB_OUTPUT
+          head -100 plan_output.txt >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+        env:
+          TF_VAR_proxmox_api_url: ${{ secrets.PROXMOX_API_URL }}
+          TF_VAR_proxmox_api_token_id: ${{ secrets.PROXMOX_API_TOKEN_ID }}
+          TF_VAR_proxmox_api_token_secret: ${{ secrets.PROXMOX_API_TOKEN_SECRET }}
+
+      - name: Terragrunt Apply
+        if: ${{ github.event.inputs.notify_only != 'true' }}
+        run: |
+          cd terragrunt/environments/homelab/talos-image
+          terragrunt apply tfplan
+        env:
+          TF_VAR_proxmox_api_url: ${{ secrets.PROXMOX_API_URL }}
+          TF_VAR_proxmox_api_token_id: ${{ secrets.PROXMOX_API_TOKEN_ID }}
+          TF_VAR_proxmox_api_token_secret: ${{ secrets.PROXMOX_API_TOKEN_SECRET }}
+
+      - name: Create notification issue
+        if: ${{ success() && github.event.inputs.notify_only != 'true' }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const title = '🔄 Talos Image Rebuilt - Node Recreation Required';
+            const body = `
+            ## Talos Image Rebuilt
+
+            A new Talos image has been generated with updated system extensions.
+
+            ### Next Steps
+
+            To apply the new image to cluster nodes, run the following commands:
+
+            **For GPU node (worker-1):**
+            \`\`\`bash
+            task talos:recreate:gpu-node
+            \`\`\`
+
+            **For other nodes:**
+            \`\`\`bash
+            task talos:recreate:node NODE=<node-name>
+            \`\`\`
+
+            ### Changed Files
+
+            - \`talos/image/schematic.yaml\`
+            - \`terragrunt/environments/homelab/talos-image/terragrunt.hcl\`
+
+            ### Verification
+
+            After recreating nodes, verify GPU support:
+            \`\`\`bash
+            task gpu:verify
+            \`\`\`
+
+            ---
+            *This issue was automatically created by the Talos Image Rebuild workflow.*
+            `;
+
+            // Check if a similar issue already exists
+            const issues = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'talos-image-rebuild'
+            });
+
+            if (issues.data.length === 0) {
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: title,
+                body: body,
+                labels: ['talos-image-rebuild', 'infrastructure']
+              });
+            } else {
+              // Update existing issue
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issues.data[0].number,
+                body: `New image rebuild triggered at ${new Date().toISOString()}. Please recreate affected nodes.`
+              });
+            }

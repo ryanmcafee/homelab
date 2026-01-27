@@ -86,6 +86,7 @@ inputs = {
   # Cluster configuration
   cluster_name      = include.env.locals.cluster_name
   cluster_endpoint  = include.env.locals.cluster_endpoint
+  vip_endpoint      = include.env.locals.vip_endpoint
   bootstrap_cluster = true
 
   # 1Password vault for storing kubeconfig/talosconfig
@@ -94,7 +95,7 @@ inputs = {
 
   # DNS records for Kubernetes API
   dns_entries = [
-    { fqdn = "k8s.home.lab", type = "A", host = include.env.locals.cluster_endpoint },
-    { fqdn = "k8s.${include.env.locals.base_fqdn}", type = "A", host = include.env.locals.cluster_endpoint }
+    { fqdn = "k8s.home.lab", type = "A", host = include.env.locals.vip_endpoint },
+    { fqdn = "k8s.${include.env.locals.base_fqdn}", type = "A", host = include.env.locals.vip_endpoint }
   ]
 }

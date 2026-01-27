@@ -8,7 +8,7 @@ metadata:
   name: cloudflare-api-token
   namespace: {{ index .Values "external-dns" "namespace" }}
   annotations:
-    argocd.argoproj.io/sync-wave: "3"
+    argocd.argoproj.io/sync-wave: "0"
 spec:
   itemPath: {{ index .Values "external-dns" "cloudflare" "onePasswordItemPath" | quote }}
 {{- end }}
@@ -16,7 +16,7 @@ spec:
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: external-dns
+  name: external-dns-cloudflare
   namespace: argocd
   annotations:
     argocd.argoproj.io/sync-wave: "4"
@@ -29,8 +29,10 @@ spec:
     chart: {{ index .Values "external-dns" "chart" "name" }}
     targetRevision: {{ index .Values "external-dns" "chart" "version" }}
     helm:
-      releaseName: external-dns
+      releaseName: external-dns-cloudflare
       values: |
+        fullnameOverride: external-dns-cloudflare
+
         provider:
           name: {{ index .Values "external-dns" "provider" }}
 
@@ -40,7 +42,7 @@ spec:
             valueFrom:
               secretKeyRef:
                 name: cloudflare-api-token
-                key: api-token
+                key: api_token
 
         cloudflare:
           proxied: {{ index .Values "external-dns" "cloudflare" "proxied" }}
@@ -55,7 +57,14 @@ spec:
 
         policy: sync
         registry: txt
-        txtOwnerId: {{ .Values.global.environment }}
+        txtOwnerId: {{ .Values.global.environment }}-cloudflare
+
+        {{- if index .Values "external-dns" "defaultTarget" }}
+        # Use DDNS hostname as the target for all DNS records
+        # This ensures Cloudflare points to the dynamic public IP
+        extraArgs:
+          - --default-targets={{ index .Values "external-dns" "defaultTarget" }}
+        {{- end }}
 
         resources:
           {{- toYaml (index .Values "external-dns" "resources") | nindent 10 }}
@@ -71,10 +80,7 @@ spec:
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
     retry:
-      limit: 5
-      backoff:
-        duration: 5s
-        factor: 2
-        maxDuration: 3m
+      limit: 0
 {{- end }}

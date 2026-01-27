@@ -115,6 +115,12 @@ variable "cluster_endpoint" {
   default     = ""
 }
 
+variable "vip_endpoint" {
+  description = "Kubernetes API endpoint (VIP) to use in kubeconfig. If set, overrides the endpoint in the generated kubeconfig."
+  type        = string
+  default     = ""
+}
+
 # DNS Configuration
 variable "dns_entries" {
   description = "List of DNS entries to create for Kubernetes API"

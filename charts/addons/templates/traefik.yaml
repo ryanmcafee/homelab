@@ -13,13 +13,34 @@ spec:
   itemPath: {{ .Values.traefik.cloudflare.onePasswordItemPath | quote }}
 {{- end }}
 ---
+# Namespace for Traefik ingress controller
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Values.traefik.namespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+{{- if .Values.traefik.cloudflare.enabled }}
+---
+# OnePasswordItem syncs the Cloudflare API token from 1Password vault
+apiVersion: onepassword.com/v1
+kind: OnePasswordItem
+metadata:
+  name: cloudflare-api-token
+  namespace: {{ .Values.traefik.namespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  itemPath: {{ .Values.traefik.cloudflare.onePasswordItemPath | quote }}
+{{- end }}
+---
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
   name: traefik
   namespace: argocd
   annotations:
-    argocd.argoproj.io/sync-wave: "6"
+    argocd.argoproj.io/sync-wave: "1"
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
@@ -36,6 +57,16 @@ spec:
 
         service:
           type: {{ .Values.traefik.service.type }}
+          {{- if .Values.traefik.service.annotations }}
+          annotations:
+            {{- toYaml .Values.traefik.service.annotations | nindent 12 }}
+          {{- end }}
+
+        # Update Ingress status with LoadBalancer IP so ArgoCD sees them as healthy
+        providers:
+          kubernetesIngress:
+            publishedService:
+              enabled: true
 
         ports:
           web:
@@ -52,24 +83,39 @@ spec:
               default: {{ .Values.traefik.ports.websecure.expose.default }}
             tls:
               enabled: {{ .Values.traefik.ports.websecure.tls.enabled }}
+          {{- if .Values.traefik.ports.traefik }}
+          traefik:
+            port: {{ .Values.traefik.ports.traefik.port }}
+            expose:
+              default: {{ .Values.traefik.ports.traefik.expose.default }}
+          {{- end }}
 
         globalArguments:
           {{- range .Values.traefik.globalArguments }}
           - {{ . }}
           {{- end }}
 
+        {{- if .Values.traefik.additionalArguments }}
         additionalArguments:
           {{- range .Values.traefik.additionalArguments }}
           - {{ . }}
           {{- end }}
+        {{- else }}
+        additionalArguments: []
+        {{- end }}
 
         env:
           {{- toYaml .Values.traefik.env | nindent 10 }}
 
+        # Disable ACME certificate resolvers (using cert-manager instead for HA)
+        certificatesResolvers: {}
+
         persistence:
           enabled: {{ .Values.traefik.persistence.enabled }}
+          {{- if .Values.traefik.persistence.enabled }}
           storageClass: {{ .Values.traefik.persistence.storageClass }}
           size: {{ .Values.traefik.persistence.size }}
+          {{- end }}
 
         ingressRoute:
           dashboard:
@@ -103,17 +149,52 @@ spec:
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+      - RespectIgnoreDifferences=true
     retry:
-      limit: 5
-      backoff:
-        duration: 5s
-        factor: 2
-        maxDuration: 3m
+      limit: 0
 
   # Ignore differences in dynamic fields
   ignoreDifferences:
     - group: admissionregistration.k8s.io
       kind: ValidatingWebhookConfiguration
-      jsonPointers:
-        - /webhooks/0/clientConfig/caBundle
+      jqPathExpressions:
+        - .webhooks[].clientConfig.caBundle
+    # Ignore traefik-dashboard IngressRoute spec entirely (dynamically managed by Traefik)
+    - group: traefik.io
+      kind: IngressRoute
+      name: traefik-dashboard
+      jqPathExpressions:
+        - .spec
+---
+# Standard Ingress for Traefik dashboard (external-dns compatibility)
+# IngressRoute CRD is not watched by external-dns, so we need a standard Ingress
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: traefik-dashboard
+  namespace: {{ .Values.traefik.namespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+    cert-manager.io/cluster-issuer: letsencrypt
+    external-dns.alpha.kubernetes.io/hostname: traefik.{{ .Values.global.domain }}
+    # OAuth2-Proxy authentication middleware
+    traefik.ingress.kubernetes.io/router.middlewares: oauth2-proxy-oauth2-proxy-auth@kubernetescrd
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: traefik.{{ .Values.global.domain }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: traefik
+                port:
+                  name: traefik
+  tls:
+    - hosts:
+        - traefik.{{ .Values.global.domain }}
+      secretName: traefik-dashboard-tls
 {{- end }}

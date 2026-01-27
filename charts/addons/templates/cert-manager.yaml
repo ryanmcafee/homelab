@@ -8,7 +8,7 @@ metadata:
   name: cloudflare-api-token
   namespace: {{ index .Values "cert-manager" "namespace" }}
   annotations:
-    argocd.argoproj.io/sync-wave: "2"
+    argocd.argoproj.io/sync-wave: "0"
 spec:
   itemPath: {{ index .Values "cert-manager" "cloudflare" "onePasswordItemPath" | quote }}
 {{- end }}
@@ -19,7 +19,7 @@ metadata:
   name: cert-manager
   namespace: argocd
   annotations:
-    argocd.argoproj.io/sync-wave: "3"
+    argocd.argoproj.io/sync-wave: "1"
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
@@ -55,12 +55,10 @@ spec:
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+      - RespectIgnoreDifferences=true
     retry:
-      limit: 5
-      backoff:
-        duration: 5s
-        factor: 2
-        maxDuration: 3m
+      limit: 0
 
   # Ignore differences in webhook configurations
   ignoreDifferences:
@@ -75,38 +73,32 @@ spec:
 
 {{- if (index .Values "cert-manager" "letsencrypt" "enabled") }}
 ---
-# Let's Encrypt ClusterIssuer
-apiVersion: v1
-kind: ConfigMap
+# Let's Encrypt ClusterIssuer with Cloudflare DNS-01 challenge
+# Sync wave 2: After cert-manager (wave 1) is healthy, but before services needing TLS
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
 metadata:
-  name: cert-manager-issuers
-  namespace: argocd
+  name: letsencrypt
   annotations:
-    argocd.argoproj.io/sync-wave: "4"
-data:
-  letsencrypt-issuer.yaml: |
-    apiVersion: cert-manager.io/v1
-    kind: ClusterIssuer
-    metadata:
-      name: letsencrypt
-    spec:
-      acme:
-        server: {{ index .Values "cert-manager" "letsencrypt" "server" }}
-        email: {{ index .Values "cert-manager" "letsencrypt" "email" }}
-        privateKeySecretRef:
-          name: letsencrypt-account-key
-        solvers:
-        {{- if (index .Values "cert-manager" "cloudflare" "enabled") }}
-        - dns01:
-            cloudflare:
-              email: {{ index .Values "cert-manager" "cloudflare" "email" }}
-              apiTokenSecretRef:
-                name: cloudflare-api-token
-                key: api-token
-        {{- else }}
-        - http01:
-            ingress:
-              class: traefik
-        {{- end }}
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  acme:
+    server: {{ index .Values "cert-manager" "letsencrypt" "server" }}
+    email: {{ index .Values "cert-manager" "letsencrypt" "email" }}
+    privateKeySecretRef:
+      name: letsencrypt-account-key
+    solvers:
+    {{- if (index .Values "cert-manager" "cloudflare" "enabled") }}
+    - dns01:
+        cloudflare:
+          email: {{ index .Values "cert-manager" "cloudflare" "email" }}
+          apiTokenSecretRef:
+            name: cloudflare-api-token
+            key: api_token
+    {{- else }}
+    - http01:
+        ingress:
+          class: traefik
+    {{- end }}
 {{- end }}
 {{- end }}

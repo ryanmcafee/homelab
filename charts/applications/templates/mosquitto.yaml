@@ -12,7 +12,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: {{ .Values.mosquitto.chart.repo }}
+    repoURL: oci.trueforge.org/truecharts
     chart: {{ .Values.mosquitto.chart.name }}
     targetRevision: {{ .Values.mosquitto.chart.version }}
     helm:
@@ -46,6 +46,15 @@ spec:
     server: https://kubernetes.default.svc
     namespace: {{ .Values.mosquitto.namespace }}
 
+  # Ignore TrueCharts dynamic fields and Kubernetes defaults
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      jqPathExpressions:
+        - .spec.template.metadata.annotations | to_entries | map(select(.key | startswith("checksum/"))) | from_entries
+      jsonPointers:
+        - /spec/template/spec/hostUsers
+
   syncPolicy:
     automated:
       prune: true
@@ -53,6 +62,8 @@ spec:
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+      - RespectIgnoreDifferences=true
     retry:
       limit: 5
       backoff:
