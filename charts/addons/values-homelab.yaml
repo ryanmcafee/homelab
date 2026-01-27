@@ -601,7 +601,7 @@ traefik:
     annotations:
       # Cilium LB IPAM annotation for static IP assignment
       io.cilium/lb-ipam-ips: "172.16.100.200"
-      port-forwarding.lylefranklin.com/enable: "true"
+      port-forwarding.ryanmcafee.com/enable: "true"
 
   ports:
     web:
