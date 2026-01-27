@@ -27,7 +27,7 @@ metadata:
   namespace: argocd
   annotations:
     argocd.argoproj.io/sync-wave: "7"
-    addons.ryanmcafee.com/config-hash: {{ include "addons.configHash" (dict "values" $portForwardValues) }}
+    addons.ryanmcafee.com/config-hash: {{ include "addons.configHash" (dict "values" $portForwardValues) | quote }}
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
