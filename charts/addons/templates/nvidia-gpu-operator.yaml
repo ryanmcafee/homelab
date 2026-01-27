@@ -157,4 +157,10 @@ spec:
       jsonPointers:
         - /metadata/annotations
         - /metadata/labels
+    # ClusterPolicy has many auto-filled defaults from the helm chart
+    # The GPU operator manages these fields, so ignore spec differences
+    - group: nvidia.com
+      kind: ClusterPolicy
+      jqPathExpressions:
+        - .spec
 {{- end }}
