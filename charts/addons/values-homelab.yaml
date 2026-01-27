@@ -34,11 +34,11 @@ sops-secrets:
 
 # ============================================================================
 # ArgoCD - Self-Management (Bootstrap + Addon)
-# Sync Wave: 0 (first addon, manages itself)
+# DISABLED - Moved to applications chart with sync-wave 5
 # ============================================================================
 
 argocd:
-  enabled: true
+  enabled: false
   namespace: argocd
 
   # Chart source - must match bootstrap version
@@ -600,7 +600,7 @@ traefik:
     # Static IP for predictable port forwarding and DNS
     annotations:
       # Cilium LB IPAM annotation for static IP assignment
-      io.cilium/lb-ipam-ips: "172.16.100.101"
+      io.cilium/lb-ipam-ips: "172.16.100.200"
       port-forwarding.lylefranklin.com/enable: "true"
 
   ports:
