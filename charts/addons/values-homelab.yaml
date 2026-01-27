@@ -22,7 +22,7 @@ global:
 
   # Git repository for SOPS secrets
   repoUrl: https://github.com/ryanmcafee/homelab.git
-  targetRevision: feature/automate-truenas-provisioning
+  targetRevision: main
 
 # ============================================================================
 # SOPS Secrets - Encrypted secrets for GitOps

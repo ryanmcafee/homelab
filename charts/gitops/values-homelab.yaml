@@ -15,7 +15,7 @@ global:
   repoUrl: https://github.com/ryanmcafee/homelab.git
 
   # Target revision (branch/tag/commit)
-  targetRevision: feature/automate-truenas-provisioning
+  targetRevision: main
 
   # ArgoCD project to use for all applications
   project: default

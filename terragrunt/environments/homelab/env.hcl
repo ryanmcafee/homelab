@@ -119,7 +119,7 @@ locals {
 
   # Git repository
   repo_url        = "https://github.com/ryanmcafee/homelab"
-  target_revision = "feature/automate-truenas-provisioning"
+  target_revision = "main"
 
   # Base FQDN
   base_fqdn = "ryanmcafee.com"
