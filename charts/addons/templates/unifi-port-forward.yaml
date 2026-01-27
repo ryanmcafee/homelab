@@ -9,109 +9,15 @@ metadata:
   annotations:
     argocd.argoproj.io/sync-wave: "6"
 ---
-# OnePasswordItem for UniFi credentials (source secret with original field names)
 apiVersion: onepassword.com/v1
 kind: OnePasswordItem
 metadata:
   name: unifi-credentials
   namespace: {{ $namespace }}
   annotations:
-    argocd.argoproj.io/sync-wave: "0"
+    argocd.argoproj.io/sync-wave: "6"
 spec:
   itemPath: {{ index .Values "unifi-port-forward" "onePasswordItemPath" | quote }}
----
-# ServiceAccount for secret transformation job
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: secret-transformer
-  namespace: {{ $namespace }}
-  annotations:
-    argocd.argoproj.io/sync-wave: "1"
----
-# Role to read source secret and manage target secret
-apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
-metadata:
-  name: secret-transformer
-  namespace: {{ $namespace }}
-  annotations:
-    argocd.argoproj.io/sync-wave: "1"
-rules:
-  - apiGroups: [""]
-    resources: ["secrets"]
-    verbs: ["get", "create", "update", "patch"]
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  name: secret-transformer
-  namespace: {{ $namespace }}
-  annotations:
-    argocd.argoproj.io/sync-wave: "1"
-subjects:
-  - kind: ServiceAccount
-    name: secret-transformer
-    namespace: {{ $namespace }}
-roleRef:
-  kind: Role
-  name: secret-transformer
-  apiGroup: rbac.authorization.k8s.io
----
-# Job to transform 1Password secret keys to chart-expected format
-apiVersion: batch/v1
-kind: Job
-metadata:
-  name: transform-unifi-secret
-  namespace: {{ $namespace }}
-  annotations:
-    argocd.argoproj.io/sync-wave: "2"
-    argocd.argoproj.io/hook: Sync
-    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
-spec:
-  ttlSecondsAfterFinished: 300
-  template:
-    spec:
-      serviceAccountName: secret-transformer
-      restartPolicy: OnFailure
-      containers:
-        - name: transform
-          image: bitnami/kubectl:latest
-          command:
-            - /bin/sh
-            - -c
-            - |
-              set -e
-              echo "Waiting for source secret..."
-              until kubectl get secret unifi-credentials -n {{ $namespace }} 2>/dev/null; do
-                sleep 2
-              done
-              echo "Reading source secret..."
-              ROUTER_URL=$(kubectl get secret unifi-credentials -n {{ $namespace }} -o jsonpath='{.data.api_url}')
-              ROUTER_USERNAME=$(kubectl get secret unifi-credentials -n {{ $namespace }} -o jsonpath='{.data.username}')
-              ROUTER_PASSWORD=$(kubectl get secret unifi-credentials -n {{ $namespace }} -o jsonpath='{.data.password}')
-              ROUTER_API_KEY=$(kubectl get secret unifi-credentials -n {{ $namespace }} -o jsonpath='{.data.api_key}')
-              ROUTER_RULE_PREFIX=$(echo -n "{{ $rulePrefix }}" | base64)
-              ROUTER_SKIP_TLS=$(echo -n "true" | base64)
-              echo "Creating transformed secret..."
-              kubectl apply -f - <<EOF
-              apiVersion: v1
-              kind: Secret
-              metadata:
-                name: port-forwarding-controller
-                namespace: {{ $namespace }}
-                labels:
-                  app.kubernetes.io/instance: port-forwarding-controller
-              type: Opaque
-              data:
-                ROUTER_URL: ${ROUTER_URL}
-                ROUTER_USERNAME: ${ROUTER_USERNAME}
-                ROUTER_PASSWORD: ${ROUTER_PASSWORD}
-                ROUTER_API_KEY: ${ROUTER_API_KEY}
-                ROUTER_RULE_PREFIX: ${ROUTER_RULE_PREFIX}
-                ROUTER_SKIP_TLS_VERIFICATION: ${ROUTER_SKIP_TLS}
-              EOF
-              echo "Secret transformed successfully"
 ---
 {{- $portForwardValues := index .Values "unifi-port-forward" }}
 apiVersion: argoproj.io/v1alpha1
@@ -134,14 +40,14 @@ spec:
       releaseName: port-forwarding-controller
       values: |
         router:
-          existingSecret: port-forwarding-controller
+          existingSecret: unifi-credentials
           secretKeys:
-            url: ROUTER_URL
-            username: ROUTER_USERNAME
-            password: ROUTER_PASSWORD
-            apiKey: ROUTER_API_KEY
-            rulePrefix: ROUTER_RULE_PREFIX
-            skipTlsVerification: ROUTER_SKIP_TLS_VERIFICATION
+            url: api_url
+            username: username
+            password: password
+            apiKey: api_key
+          rule_prefix: {{ $rulePrefix }}
+          skipTlsVerification: true
         resources:
           requests:
             cpu: 10m
