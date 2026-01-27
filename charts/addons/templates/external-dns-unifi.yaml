@@ -75,7 +75,7 @@ spec:
           - --source=ingress
           - --source=service
           - --annotation-filter=external-dns.alpha.kubernetes.io/hostname
-          - --txt-owner-id=homelab-unifi-v2
+          - --txt-owner-id=homelab-unifi
 
         domainFilters:
           {{- range (index .Values "external-dns-unifi" "domainFilters") }}
