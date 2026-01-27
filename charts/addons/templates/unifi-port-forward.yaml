@@ -48,6 +48,7 @@ spec:
             apiKey: api_key
           rule_prefix: {{ $rulePrefix }}
           skipTlsVerification: true
+          deviceType: "udm"
         resources:
           requests:
             cpu: 10m
