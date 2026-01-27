@@ -63,7 +63,7 @@ applications:
   enabled: true
   name: applications
   namespace: argocd
-  syncWave: "2"
+  syncWave: "10"
 
   source:
     path: charts/applications

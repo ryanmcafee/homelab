@@ -156,7 +156,7 @@ metadata:
   name: traefik-dashboard
   namespace: {{ .Values.traefik.namespace }}
   annotations:
-    argocd.argoproj.io/sync-wave: "6"
+    argocd.argoproj.io/sync-wave: "8"
     cert-manager.io/cluster-issuer: letsencrypt
     external-dns.alpha.kubernetes.io/hostname: traefik.{{ .Values.global.domain }}
     # OAuth2-Proxy authentication middleware

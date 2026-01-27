@@ -5,7 +5,7 @@ kind: Namespace
 metadata:
   name: {{ index .Values "oauth2-proxy" "namespace" }}
   annotations:
-    argocd.argoproj.io/sync-wave: "6"
+    argocd.argoproj.io/sync-wave: "3"
 ---
 # OnePasswordItem for Google OAuth credentials
 apiVersion: onepassword.com/v1
@@ -14,7 +14,7 @@ metadata:
   name: google-oauth-credentials
   namespace: {{ index .Values "oauth2-proxy" "namespace" }}
   annotations:
-    argocd.argoproj.io/sync-wave: "0"
+    argocd.argoproj.io/sync-wave: "3"
 spec:
   itemPath: {{ index .Values "oauth2-proxy" "googleOAuthPath" | quote }}
 ---
@@ -25,7 +25,7 @@ metadata:
   name: oauth2-proxy-cookie-secret
   namespace: {{ index .Values "oauth2-proxy" "namespace" }}
   annotations:
-    argocd.argoproj.io/sync-wave: "0"
+    argocd.argoproj.io/sync-wave: "3"
 spec:
   itemPath: {{ index .Values "oauth2-proxy" "cookieSecretPath" | quote }}
 ---
@@ -35,7 +35,7 @@ metadata:
   name: oauth2-proxy
   namespace: argocd
   annotations:
-    argocd.argoproj.io/sync-wave: "7"
+    argocd.argoproj.io/sync-wave: "4"
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
@@ -123,7 +123,7 @@ metadata:
   name: oauth2-proxy-auth
   namespace: {{ index .Values "oauth2-proxy" "namespace" }}
   annotations:
-    argocd.argoproj.io/sync-wave: "8"
+    argocd.argoproj.io/sync-wave: "5"
 spec:
   forwardAuth:
     address: http://oauth2-proxy.{{ index .Values "oauth2-proxy" "namespace" }}.svc.cluster.local/oauth2/auth
