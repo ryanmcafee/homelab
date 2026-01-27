@@ -36,7 +36,7 @@ locals {
   # Cluster configuration
   cluster_name     = "homelab"
   cluster_endpoint = "172.16.100.11"
-  vip_endpoint = "172.16.100.10"
+  vip_endpoint     = "172.16.100.10"
 
   # Resource defaults
   default_cpu_cores = 2

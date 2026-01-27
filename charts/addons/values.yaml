@@ -543,6 +543,12 @@ traefik:
   enabled: true
   namespace: traefik
 
+  # Cloudflare integration for ACME DNS challenge (disabled by default)
+  # Use cert-manager instead for HA compatibility
+  cloudflare:
+    enabled: false
+    onePasswordItemPath: ""
+
   # Chart source
   chart:
     name: traefik
@@ -619,3 +625,74 @@ traefik:
           target:
             type: Utilization
             averageUtilization: 80
+
+# ============================================================================
+# UniFi Port Forward Controller - Automatic Port Forwarding
+# Sync Wave: 7 (after other services are deployed)
+# ============================================================================
+
+unifi-port-forward:
+  # Disabled by default - enable in environment-specific values
+  enabled: false
+  namespace: unifi-port-forward
+
+  # Chart version
+  version: "0.1.0"
+
+  # Port forwarding rule prefix
+  rulePrefix: "kube-"
+
+  # 1Password vault path for UniFi credentials
+  onePasswordItemPath: ""
+
+# ============================================================================
+# OAuth2 Proxy - SSO Authentication
+# Disabled by default - enable in environment-specific values
+# ============================================================================
+
+oauth2-proxy:
+  enabled: false
+  namespace: oauth2-proxy
+
+# ============================================================================
+# NVIDIA GPU Operator - GPU Support for Kubernetes
+# Disabled by default - enable in environment-specific values
+# ============================================================================
+
+nvidia-gpu-operator:
+  enabled: false
+  namespace: nvidia-gpu-operator
+
+# ============================================================================
+# External DNS UniFi - DNS Management via UniFi Controller
+# Disabled by default - enable in environment-specific values
+# ============================================================================
+
+external-dns-unifi:
+  enabled: false
+  namespace: external-dns
+
+# ============================================================================
+# CloudNative-PG - PostgreSQL Operator
+# Disabled by default - enable in environment-specific values
+# ============================================================================
+
+cloudnative-pg:
+  enabled: false
+  namespace: cloudnative-pg
+
+# ============================================================================
+# Cilium LB IPAM - LoadBalancer IP Address Management
+# Disabled by default - enable in environment-specific values
+# ============================================================================
+
+cilium-lb-ipam:
+  enabled: false
+
+# ============================================================================
+# Cilium CNI - Container Network Interface
+# Disabled by default - Cilium is deployed at cluster bootstrap
+# ============================================================================
+
+cilium:
+  enabled: false

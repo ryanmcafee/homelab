@@ -43,10 +43,10 @@ inputs = {
   # NOTE: NVIDIA extensions are in talos-image-gpu (separate image)
   # nvidia-container-toolkit conflicts with nfs-utils (glibc symbol incompatibility)
   system_extensions = [
-    "siderolabs/qemu-guest-agent",           # Better VM integration with Proxmox
-    "siderolabs/intel-ucode",                # Intel CPU microcode updates
-    "siderolabs/i915-ucode",                 # Intel GPU firmware
-    "siderolabs/nfs-utils",                  # NFS client for democratic-csi
+    "siderolabs/qemu-guest-agent", # Better VM integration with Proxmox
+    "siderolabs/intel-ucode",      # Intel CPU microcode updates
+    "siderolabs/i915-ucode",       # Intel GPU firmware
+    "siderolabs/nfs-utils",        # NFS client for democratic-csi
   ]
 
   # Checksum verification

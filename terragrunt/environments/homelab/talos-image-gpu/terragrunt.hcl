@@ -45,11 +45,11 @@ inputs = {
   # NOTE: nvidia-container-toolkit conflicts with nfs-utils (glibc incompatibility)
   # GPU nodes don't need NFS client - storage is provided via network
   system_extensions = [
-    "siderolabs/qemu-guest-agent",           # Better VM integration with Proxmox
-    "siderolabs/intel-ucode",                # Intel CPU microcode updates
-    "siderolabs/i915-ucode",                 # Intel GPU firmware
-    "siderolabs/nonfree-kmod-nvidia",        # NVIDIA proprietary kernel driver
-    "siderolabs/nvidia-container-toolkit",   # NVIDIA container runtime for GPU workloads
+    "siderolabs/qemu-guest-agent",         # Better VM integration with Proxmox
+    "siderolabs/intel-ucode",              # Intel CPU microcode updates
+    "siderolabs/i915-ucode",               # Intel GPU firmware
+    "siderolabs/nonfree-kmod-nvidia",      # NVIDIA proprietary kernel driver
+    "siderolabs/nvidia-container-toolkit", # NVIDIA container runtime for GPU workloads
   ]
 
   # Checksum verification

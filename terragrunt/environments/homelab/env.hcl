@@ -44,7 +44,7 @@ locals {
   # Cluster configuration
   cluster_name     = "homelab"
   cluster_endpoint = "172.16.100.11"
-  vip_endpoint = "172.16.100.10"
+  vip_endpoint     = "172.16.100.10"
 
   # Talos configuration (using latest stable versions)
   talos_version      = "v1.12.2"
@@ -60,8 +60,8 @@ locals {
   #
   # After running the playbook, the CA certificate will be available at:
   #   ansible/certs/image-cache-ca.crt
-  image_cache_endpoint = "https://${local.truenas_ip}:5000"
-  image_cache_ca_cert  = fileexists("${get_terragrunt_dir()}/../../../ansible/certs/image-cache-ca.crt") ? file("${get_terragrunt_dir()}/../../../ansible/certs/image-cache-ca.crt") : ""
+  image_cache_endpoint   = "https://${local.truenas_ip}:5000"
+  image_cache_ca_cert    = fileexists("${get_terragrunt_dir()}/../../../ansible/certs/image-cache-ca.crt") ? file("${get_terragrunt_dir()}/../../../ansible/certs/image-cache-ca.crt") : ""
   image_cache_registries = ["docker.io", "ghcr.io", "registry.k8s.io", "gcr.io", "quay.io"]
 
   # Spegel P2P Image Cache Configuration

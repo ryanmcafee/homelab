@@ -41,7 +41,7 @@ inputs = {
     for name, node in merge(
       include.env.locals.control_plane_nodes,
       include.env.locals.worker_nodes
-    ) : {
+      ) : {
       address     = node.ip
       remote_as   = include.env.locals.bgp_asn_k8s
       description = "K8s ${name}"
