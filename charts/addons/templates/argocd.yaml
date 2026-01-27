@@ -41,11 +41,7 @@ spec:
       - ApplyOutOfSyncOnly=true
       - RespectIgnoreDifferences=true
     retry:
-      limit: 5
-      backoff:
-        duration: 5s
-        factor: 2
-        maxDuration: 3m
+      limit: 0
 
   # Ignore differences in fields that change frequently
   ignoreDifferences:

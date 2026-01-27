@@ -75,13 +75,9 @@ addons:
       - CreateNamespace=true
       - ServerSideApply=true
 
-    # Retry configuration
+    # Retry disabled for debugging sync issues
     retry:
-      limit: 5
-      backoff:
-        duration: 5s
-        factor: 2
-        maxDuration: 3m
+      limit: 0
 
 # ============================================================================
 # Applications (User Workloads)

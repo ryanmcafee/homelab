@@ -114,11 +114,7 @@ spec:
       - ServerSideApply=true
       - ApplyOutOfSyncOnly=true
     retry:
-      limit: 5
-      backoff:
-        duration: 5s
-        factor: 2
-        maxDuration: 3m
+      limit: 0
 ---
 # Traefik ForwardAuth Middleware for OAuth2-Proxy
 apiVersion: traefik.io/v1alpha1
