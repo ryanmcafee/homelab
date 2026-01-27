@@ -100,6 +100,8 @@ spec:
               metadata:
                 name: port-forwarding-controller
                 namespace: {{ $namespace }}
+                labels:
+                  app.kubernetes.io/instance: port-forwarding-controller
               type: Opaque
               data:
                 ROUTER_URL: ${ROUTER_URL}
