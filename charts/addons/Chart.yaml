@@ -9,7 +9,6 @@ maintainers:
 keywords:
   - infrastructure
   - addons
-  - metallb
   - traefik
   - cert-manager
   - prometheus

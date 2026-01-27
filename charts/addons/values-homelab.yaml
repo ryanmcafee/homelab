@@ -211,7 +211,7 @@ cilium:
 
 # ============================================================================
 # Cilium LB IPAM - LoadBalancer IP Management + BGP
-# Sync Wave: 1 (replaces MetalLB)
+# Sync Wave: 1
 # ============================================================================
 
 cilium-lb-ipam:
@@ -232,50 +232,6 @@ cilium-lb-ipam:
       - name: "unifi-gateway"
         address: "172.16.100.1"
         asn: 64513
-
-# ============================================================================
-# MetalLB - LoadBalancer IP Address Management (DEPRECATED)
-# Sync Wave: 1
-# NOTE: Replaced by Cilium LB IPAM - disable after successful migration
-# ============================================================================
-
-metallb:
-  enabled: false  # Disabled - migrated to Cilium LB IPAM
-  namespace: metallb-system
-
-  chart:
-    name: metallb
-    repo: https://metallb.github.io/metallb
-    version: 0.14.9
-
-  # IP address pool configuration
-  addresses:
-    - 172.16.100.100-172.16.100.200
-
-  # BGP configuration for dynamic routing
-  bgp:
-    enabled: true
-    asn: 64512
-    peers:
-      - address: 172.16.100.1
-        asn: 64513
-        routerId: 172.16.100.1
-
-  resources:
-    controller:
-      requests:
-        cpu: 50m
-        memory: 64Mi
-      limits:
-        cpu: 200m
-        memory: 128Mi
-    speaker:
-      requests:
-        cpu: 50m
-        memory: 64Mi
-      limits:
-        cpu: 200m
-        memory: 128Mi
 
 # ============================================================================
 # Democratic-CSI - NFS Storage Provisioner
@@ -643,7 +599,7 @@ traefik:
     type: LoadBalancer
     # Static IP for predictable port forwarding and DNS
     annotations:
-      # Cilium LB IPAM annotation (replaces metallb.universe.tf/loadBalancerIPs)
+      # Cilium LB IPAM annotation for static IP assignment
       io.cilium/lb-ipam-ips: "172.16.100.101"
       port-forwarding.lylefranklin.com/enable: "true"
 

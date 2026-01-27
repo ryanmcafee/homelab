@@ -3,7 +3,7 @@
 #
 # This chart deploys essential cluster services in a specific order:
 # 0. 1Password Operator (CRDs must exist before OnePasswordItem resources)
-# 1. MetalLB (LoadBalancer IPs)
+# 1. Cilium LB IPAM (LoadBalancer IPs via Cilium)
 # 2. Democratic-CSI (Storage - uses OnePasswordItem for TrueNAS API key)
 # 3. Cert-Manager (TLS Certificates)
 # 4. External-DNS (DNS Management)
@@ -158,51 +158,6 @@ argocd:
         limits:
           cpu: 100m
           memory: 128Mi
-
-# ============================================================================
-# MetalLB - LoadBalancer IP Address Management
-# Sync Wave: 1 (must be first for LoadBalancer services)
-# ============================================================================
-
-metallb:
-  enabled: false  # Disabled - using Cilium LB IPAM
-  namespace: metallb-system
-
-  # Chart source
-  chart:
-    name: metallb
-    repo: https://metallb.github.io/metallb
-    version: 0.14.9
-
-  # IP address pool configuration
-  addresses:
-    - 172.16.100.100-172.16.100.200
-
-  # BGP configuration for dynamic routing
-  bgp:
-    enabled: true
-    asn: 64512  # Kubernetes cluster ASN
-    peers:
-      - address: 172.16.100.1  # UniFi Gateway
-        asn: 64513
-        routerId: 172.16.100.1
-
-  # Resource limits
-  resources:
-    controller:
-      requests:
-        cpu: 50m
-        memory: 64Mi
-      limits:
-        cpu: 200m
-        memory: 128Mi
-    speaker:
-      requests:
-        cpu: 50m
-        memory: 64Mi
-      limits:
-        cpu: 200m
-        memory: 128Mi
 
 # ============================================================================
 # Kubelet CSR Approver - Automatic Kubelet Certificate Approval
@@ -581,7 +536,7 @@ kube-prometheus-stack:
 
 # ============================================================================
 # Traefik - Ingress Controller
-# Sync Wave: 6 (last addon, requires MetalLB and cert-manager)
+# Sync Wave: 6 (last addon, requires Cilium LB IPAM and cert-manager)
 # ============================================================================
 
 traefik:
@@ -597,7 +552,7 @@ traefik:
   # Service configuration
   service:
     type: LoadBalancer
-    # MetalLB will assign an IP from the pool
+    # Cilium LB IPAM will assign an IP from the pool
 
   # Ports configuration
   ports:

@@ -1,6 +1,6 @@
 {{- if index .Values "cilium-lb-ipam" "enabled" }}
 ---
-# CiliumLoadBalancerIPPool - Replaces MetalLB IPAddressPool
+# CiliumLoadBalancerIPPool - IP address pool for LoadBalancer services
 # Defines the IP range available for LoadBalancer services
 apiVersion: cilium.io/v2
 kind: CiliumLoadBalancerIPPool
@@ -76,7 +76,7 @@ spec:
   ebgpMultihop: 1
 ---
 # CiliumBGPClusterConfig - BGP cluster-wide configuration
-# Replaces MetalLB BGPPeer with Cilium native BGP
+# Cilium native BGP configuration for route advertisements
 apiVersion: cilium.io/v2
 kind: CiliumBGPClusterConfig
 metadata:
@@ -100,7 +100,7 @@ spec:
         {{- end }}
 ---
 # CiliumBGPAdvertisement - Service advertisement configuration
-# Replaces MetalLB BGPAdvertisement
+# Configures which services are advertised via BGP
 apiVersion: cilium.io/v2
 kind: CiliumBGPAdvertisement
 metadata:
