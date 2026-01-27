@@ -39,6 +39,15 @@ locals {
   }) : local.kubeconfig_raw
 }
 
+# Trigger resource that tracks when bootstrap should re-run
+# IMPORTANT: Only trigger on machine_secrets changes (new cluster creation)
+# Config changes (DNS, patches, etc.) should NOT trigger re-bootstrap
+# as the cluster just needs configs re-applied, not a fresh bootstrap
+resource "terraform_data" "bootstrap_trigger" {
+  count = var.bootstrap_cluster ? 1 : 0
+  input = var.bootstrap_trigger
+}
+
 # Apply Talos configurations to control plane nodes
 resource "talos_machine_configuration_apply" "controlplane" {
   for_each = var.control_plane_nodes
