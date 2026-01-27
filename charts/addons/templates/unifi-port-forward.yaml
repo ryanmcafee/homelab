@@ -90,7 +90,9 @@ spec:
               ROUTER_URL=$(kubectl get secret unifi-credentials -n {{ $namespace }} -o jsonpath='{.data.api_url}')
               ROUTER_USERNAME=$(kubectl get secret unifi-credentials -n {{ $namespace }} -o jsonpath='{.data.username}')
               ROUTER_PASSWORD=$(kubectl get secret unifi-credentials -n {{ $namespace }} -o jsonpath='{.data.password}')
+              ROUTER_API_KEY=$(kubectl get secret unifi-credentials -n {{ $namespace }} -o jsonpath='{.data.api_key}')
               ROUTER_RULE_PREFIX=$(echo -n "{{ $rulePrefix }}" | base64)
+              ROUTER_SKIP_TLS=$(echo -n "true" | base64)
               echo "Creating transformed secret..."
               kubectl apply -f - <<EOF
               apiVersion: v1
@@ -103,7 +105,9 @@ spec:
                 ROUTER_URL: ${ROUTER_URL}
                 ROUTER_USERNAME: ${ROUTER_USERNAME}
                 ROUTER_PASSWORD: ${ROUTER_PASSWORD}
+                ROUTER_API_KEY: ${ROUTER_API_KEY}
                 ROUTER_RULE_PREFIX: ${ROUTER_RULE_PREFIX}
+                ROUTER_SKIP_TLS_VERIFICATION: ${ROUTER_SKIP_TLS}
               EOF
               echo "Secret transformed successfully"
 ---
@@ -128,9 +132,14 @@ spec:
       releaseName: port-forwarding-controller
       values: |
         router:
-          createSecret: true
-          rule_prefix: {{ $rulePrefix }}
-          skipTlsVerification: true
+          existingSecret: port-forwarding-controller
+          secretKeys:
+            url: ROUTER_URL
+            username: ROUTER_USERNAME
+            password: ROUTER_PASSWORD
+            apiKey: ROUTER_API_KEY
+            rulePrefix: ROUTER_RULE_PREFIX
+            skipTlsVerification: ROUTER_SKIP_TLS_VERIFICATION
         resources:
           requests:
             cpu: 10m
