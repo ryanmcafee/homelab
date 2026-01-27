@@ -486,6 +486,8 @@ argocd:
     # Enable App of Apps health status progression
     configs:
       cm:
+        # ArgoCD base URL - required for OAuth redirects and API calls
+        url: https://argocd.ryanmcafee.com
         # Enable ksops plugin for SOPS decryption
         kustomize.buildOptions: "--enable-alpha-plugins --enable-exec"
         resource.customizations.health.argoproj.io_Application: |
