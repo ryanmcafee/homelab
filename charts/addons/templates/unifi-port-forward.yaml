@@ -128,7 +128,7 @@ spec:
       releaseName: port-forwarding-controller
       values: |
         router:
-          createSecret: false
+          createSecret: true
           rule_prefix: {{ $rulePrefix }}
           skipTlsVerification: true
         resources:
