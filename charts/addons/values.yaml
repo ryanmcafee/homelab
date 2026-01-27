@@ -165,7 +165,7 @@ argocd:
 # ============================================================================
 
 metallb:
-  enabled: true
+  enabled: false  # Disabled - using Cilium LB IPAM
   namespace: metallb-system
 
   # Chart source
