@@ -74,12 +74,13 @@ spec:
 {{- if (index .Values "cert-manager" "letsencrypt" "enabled") }}
 ---
 # Let's Encrypt ClusterIssuer with Cloudflare DNS-01 challenge
+# Sync wave 2: After cert-manager (wave 1) is healthy, but before services needing TLS
 apiVersion: cert-manager.io/v1
 kind: ClusterIssuer
 metadata:
   name: letsencrypt
   annotations:
-    argocd.argoproj.io/sync-wave: "4"
+    argocd.argoproj.io/sync-wave: "2"
 spec:
   acme:
     server: {{ index .Values "cert-manager" "letsencrypt" "server" }}
