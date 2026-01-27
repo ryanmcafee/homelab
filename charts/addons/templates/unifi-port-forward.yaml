@@ -107,6 +107,7 @@ spec:
               EOF
               echo "Secret transformed successfully"
 ---
+{{- $portForwardValues := index .Values "unifi-port-forward" }}
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -114,6 +115,7 @@ metadata:
   namespace: argocd
   annotations:
     argocd.argoproj.io/sync-wave: "7"
+    addons.ryanmcafee.com/config-hash: {{ include "addons.configHash" (dict "values" $portForwardValues) }}
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
@@ -147,6 +149,11 @@ spec:
       - CreateNamespace=true
       - ServerSideApply=true
       - ApplyOutOfSyncOnly=true
+      - Replace=true
     retry:
-      limit: 0
+      limit: 3
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
 {{- end }}

@@ -47,3 +47,11 @@ Selector labels
 app.kubernetes.io/name: {{ include "addons.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
+
+{{/*
+Generate a config hash for an Application to force re-sync when values change.
+Usage: {{ include "addons.configHash" (dict "values" .Values.myApp) }}
+*/}}
+{{- define "addons.configHash" -}}
+{{- .values | toJson | sha256sum | trunc 8 }}
+{{- end }}
