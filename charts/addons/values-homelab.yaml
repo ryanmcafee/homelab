@@ -600,7 +600,7 @@ traefik:
     # Static IP for predictable port forwarding and DNS
     annotations:
       # Cilium LB IPAM annotation for static IP assignment
-      io.cilium/lb-ipam-ips: "172.16.100.200"
+      io.cilium/lb-ipam-ips: "172.16.100.201"
       port-forwarding.ryanmcafee.com/enable: "true"
 
   ports:
