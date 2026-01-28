@@ -175,8 +175,8 @@ sonarr:
       annotations:
         cert-manager.io/cluster-issuer: letsencrypt
         external-dns.alpha.kubernetes.io/hostname: sonarr.ryanmcafee.com
-        # OAuth2-Proxy authentication middleware (disabled for debugging)
-        # traefik.ingress.kubernetes.io/router.middlewares: oauth2-proxy-oauth2-proxy-auth@kubernetescrd
+        # OIDC authentication via Traefik plugin
+        traefik.ingress.kubernetes.io/router.middlewares: traefik-oidc-auth@kubernetescrd
       hosts:
         - host: sonarr.ryanmcafee.com
           paths:
@@ -242,8 +242,8 @@ radarr:
       annotations:
         cert-manager.io/cluster-issuer: letsencrypt
         external-dns.alpha.kubernetes.io/hostname: radarr.ryanmcafee.com
-        # OAuth2-Proxy authentication middleware (disabled for debugging)
-        # traefik.ingress.kubernetes.io/router.middlewares: oauth2-proxy-oauth2-proxy-auth@kubernetescrd
+        # OIDC authentication via Traefik plugin
+        traefik.ingress.kubernetes.io/router.middlewares: traefik-oidc-auth@kubernetescrd
       hosts:
         - host: radarr.ryanmcafee.com
           paths:
@@ -302,8 +302,8 @@ prowlarr:
       annotations:
         cert-manager.io/cluster-issuer: letsencrypt
         external-dns.alpha.kubernetes.io/hostname: prowlarr.ryanmcafee.com
-        # OAuth2-Proxy authentication middleware (disabled for debugging)
-        # traefik.ingress.kubernetes.io/router.middlewares: oauth2-proxy-oauth2-proxy-auth@kubernetescrd
+        # OIDC authentication via Traefik plugin
+        traefik.ingress.kubernetes.io/router.middlewares: traefik-oidc-auth@kubernetescrd
       hosts:
         - host: prowlarr.ryanmcafee.com
           paths:
@@ -366,8 +366,8 @@ homeassistant:
       annotations:
         cert-manager.io/cluster-issuer: letsencrypt
         external-dns.alpha.kubernetes.io/hostname: homeassistant.ryanmcafee.com
-        # OAuth2-Proxy authentication middleware (disabled for debugging)
-        # traefik.ingress.kubernetes.io/router.middlewares: oauth2-proxy-oauth2-proxy-auth@kubernetescrd
+        # OIDC authentication via Traefik plugin
+        traefik.ingress.kubernetes.io/router.middlewares: traefik-oidc-auth@kubernetescrd
       hosts:
         - host: homeassistant.ryanmcafee.com
           paths:
@@ -546,8 +546,8 @@ argocd:
           external-dns.alpha.kubernetes.io/hostname: argocd.ryanmcafee.com
           # Tell Traefik to use HTTP when connecting to backend (ArgoCD serves HTTP on 8080)
           traefik.ingress.kubernetes.io/service.serversscheme: http
-          # OAuth2-Proxy authentication middleware - temporarily disabled
-          # traefik.ingress.kubernetes.io/router.middlewares: oauth2-proxy-oauth2-proxy-auth@kubernetescrd
+          # OIDC authentication via Traefik plugin
+          traefik.ingress.kubernetes.io/router.middlewares: traefik-oidc-auth@kubernetescrd
 
       # Resource limits
       resources:

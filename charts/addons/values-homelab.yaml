@@ -102,7 +102,7 @@ argocd:
         annotations:
           cert-manager.io/cluster-issuer: letsencrypt
           external-dns.alpha.kubernetes.io/hostname: argocd.ryanmcafee.com
-          # OIDC authentication via Traefik plugin (replaces oauth2-proxy)
+          # OIDC authentication via Traefik plugin
           traefik.ingress.kubernetes.io/router.middlewares: traefik-oidc-auth@kubernetescrd
 
       # Resource limits
@@ -535,8 +535,8 @@ kube-prometheus-stack:
       annotations:
         cert-manager.io/cluster-issuer: letsencrypt
         external-dns.alpha.kubernetes.io/hostname: grafana.ryanmcafee.com
-        # OAuth2-Proxy authentication middleware (disabled for debugging)
-        # traefik.ingress.kubernetes.io/router.middlewares: oauth2-proxy-oauth2-proxy-auth@kubernetescrd
+        # OIDC authentication via Traefik plugin
+        traefik.ingress.kubernetes.io/router.middlewares: traefik-oidc-auth@kubernetescrd
       hosts:
         - grafana.ryanmcafee.com
       tls:
