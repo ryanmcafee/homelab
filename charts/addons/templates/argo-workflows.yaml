@@ -44,6 +44,9 @@ spec:
             {{- end }}
             hosts:
               {{- toYaml (index .Values "argo-workflows" "server" "ingress" "hosts") | nindent 14 }}
+            paths:
+              {{- toYaml (index .Values "argo-workflows" "server" "ingress" "paths") | nindent 14 }}
+            pathType: {{ index .Values "argo-workflows" "server" "ingress" "pathType" }}
             {{- if index .Values "argo-workflows" "server" "ingress" "tls" }}
             tls:
               {{- toYaml (index .Values "argo-workflows" "server" "ingress" "tls") | nindent 14 }}
@@ -186,11 +189,11 @@ spec:
                           echo "============================================"
                       env:
                         - name: NAME
-                          value: "{{`{{inputs.parameters.name}}`}}"
+                          value: '{{ "{{ \"{{inputs.parameters.name}}\" }}" }}'
                         - name: URL
-                          value: "{{`{{inputs.parameters.url}}`}}"
+                          value: '{{ "{{ \"{{inputs.parameters.url}}\" }}" }}'
                         - name: EXPECT_AUTH
-                          value: "{{`{{inputs.parameters.expect-auth}}`}}"
+                          value: '{{ "{{ \"{{inputs.parameters.expect-auth}}\" }}" }}'
                       resources:
                         requests:
                           cpu: 50m

@@ -102,8 +102,8 @@ argocd:
         annotations:
           cert-manager.io/cluster-issuer: letsencrypt
           external-dns.alpha.kubernetes.io/hostname: argocd.ryanmcafee.com
-          # OAuth2-Proxy authentication middleware
-          traefik.ingress.kubernetes.io/router.middlewares: oauth2-proxy-oauth2-proxy-auth@kubernetescrd
+          # OIDC authentication via Traefik plugin (replaces oauth2-proxy)
+          traefik.ingress.kubernetes.io/router.middlewares: traefik-oidc-auth@kubernetescrd
 
       # Resource limits
       resources:
@@ -383,6 +383,16 @@ cert-manager:
     apiToken: ""
     onePasswordItemPath: vaults/homelab/items/cloudflare
 
+  # DNS zones for certificate issuance
+  dnsZones:
+    - ryanmcafee.com
+
+  # Custom DNS resolvers for ACME DNS-01 challenge verification
+  dns01RecursiveNameservers:
+    - "1.1.1.1:53"
+    - "8.8.8.8:53"
+    - "8.8.4.4:53"
+
   resources:
     requests:
       cpu: 50m
@@ -626,6 +636,37 @@ traefik:
     - --global.checknewversion=false
     - --global.sendanonymoususage=false
 
+  # OIDC Plugin for authentication (replaces oauth2-proxy)
+  experimental:
+    plugins:
+      traefikoidc:
+        moduleName: github.com/lukaszraczylo/traefikoidc
+        version: v0.8.21
+
+  # OIDC middleware configuration
+  oidc:
+    enabled: true
+    providerURL: "https://accounts.google.com"
+    callbackURL: "https://auth.ryanmcafee.com/oauth2/callback"
+    logoutURL: "https://auth.ryanmcafee.com/oauth2/logout"
+    scopes:
+      - openid
+      - profile
+      - email
+    allowedDomains:
+      - ryanmcafee.com
+    sessionEncryptionKeyPath: vaults/homelab/items/oidc-session-key
+    googleOAuthPath: vaults/homelab/items/google-oauth
+
+  # Volume mounts for OIDC secrets
+  volumes:
+    - name: google-oauth-credentials
+      mountPath: /etc/traefik/oidc/google
+      type: secret
+    - name: oidc-session-key
+      mountPath: /etc/traefik/oidc/session
+      type: secret
+
   # ACME removed - using cert-manager for TLS certificates (HA compatible)
   additionalArguments: []
 
@@ -682,12 +723,12 @@ unifi-port-forward:
   onePasswordItemPath: vaults/homelab/items/unifi
 
 # ============================================================================
-# OAuth2-Proxy - Zero-Trust Authentication
+# OAuth2-Proxy - Zero-Trust Authentication (DISABLED - replaced by Traefik OIDC plugin)
 # Sync Wave: 6-8
 # ============================================================================
 
 oauth2-proxy:
-  enabled: true
+  enabled: false
   namespace: oauth2-proxy
 
   chart:
@@ -754,8 +795,13 @@ argo-workflows:
       annotations:
         cert-manager.io/cluster-issuer: letsencrypt
         external-dns.alpha.kubernetes.io/hostname: workflows.ryanmcafee.com
+        # OIDC authentication via Traefik plugin (replaces oauth2-proxy)
+        traefik.ingress.kubernetes.io/router.middlewares: traefik-oidc-auth@kubernetescrd
       hosts:
         - workflows.ryanmcafee.com
+      paths:
+        - /
+      pathType: Prefix
       tls:
         - secretName: argo-workflows-tls
           hosts:

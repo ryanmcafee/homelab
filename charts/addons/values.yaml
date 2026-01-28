@@ -342,10 +342,21 @@ cert-manager:
     server: https://acme-v02.api.letsencrypt.org/directory  # Production
 
   # Cloudflare DNS-01 challenge
+  # API token must have: Zone:Read, DNS:Edit permissions
   cloudflare:
     enabled: true
-    email: admin@ryanmcafee.com
+    email: ""  # Cloudflare account email
     apiToken: ""  # Provided via 1Password operator
+
+  # DNS zones for certificate issuance
+  dnsZones: []
+
+  # Custom DNS resolvers for ACME DNS-01 challenge verification
+  # Uses public DNS instead of cluster DNS to avoid propagation issues
+  dns01RecursiveNameservers:
+    - "1.1.1.1:53"
+    - "8.8.8.8:53"
+    - "8.8.4.4:53"
 
   # Resource limits
   resources:

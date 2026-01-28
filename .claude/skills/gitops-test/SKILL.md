@@ -1,33 +1,107 @@
 ---
 name: gitops-test
-description: Test ArgoCD/GitOps updates by temporarily pointing applications to a feature branch, syncing, verifying, and creating PRs
+description: Test ArgoCD/GitOps updates by temporarily pointing applications to a feature branch, syncing, verifying, and creating PRs. MUST be invoked automatically after ANY modification to charts/ files before committing.
 triggers:
+  # Explicit invocation
   - /gitops-test
   - test gitops changes
-  - test argocd sync
+  - validate helm changes
+  - validate chart changes
+
+  # ArgoCD issues
   - argocd not working
   - argocd not loading
   - argocd bug
   - fix argocd
   - argocd 500 error
   - argocd connection refused
+  - argocd sync failed
+  - gitops sync failed
+
+  # Ingress/routing issues
   - traefik ingress not working
   - ingress routing issue
-  - gitops sync failed
-  - helm chart changes
-  - charts/* modified
+  - ingress not accessible
+  - middleware not working
+
+  # Pre-commit validation (CRITICAL - invoke before offering to commit)
+  - ready to commit charts
+  - commit helm changes
+  - commit chart changes
+  - before committing
+
+  # Implementation patterns that modify charts
+  - implement.*traefik
+  - implement.*middleware
+  - implement.*ingress
+  - add.*middleware
+  - add.*plugin
+  - configure.*oidc
+  - configure.*authentication
+  - replace.*oauth2-proxy
+  - update traefik
+  - update helm values
+  - modify charts
+
+  # File change patterns
+  - charts/addons modified
+  - charts/applications modified
+  - values-homelab.yaml modified
+  - traefik.yaml modified
 proactive: true
+proactive_conditions:
+  # MUST invoke after ANY of these file patterns are modified
+  - file_modified: "charts/addons/templates/*.yaml"
+  - file_modified: "charts/addons/values*.yaml"
+  - file_modified: "charts/applications/templates/*.yaml"
+  - file_modified: "charts/applications/values*.yaml"
+  - file_modified: "charts/gitops/templates/*.yaml"
+  - file_modified: "charts/gitops/values*.yaml"
+  # MUST invoke before commit when charts/ files are staged
+  - before_action: "git commit"
+    when_staged: "charts/**"
 ---
 
 ## PROACTIVE USAGE REQUIREMENT
 
 **CRITICAL**: This skill MUST be invoked automatically (not just on explicit `/gitops-test` command) when:
 
-1. **After modifying any files in `charts/`** - Always validate changes before/after commit
-2. **When debugging ArgoCD accessibility issues** - Use tiered validation to diagnose
-3. **When ArgoCD applications show errors** - Run through validation tiers
-4. **After fixing Helm/ArgoCD configuration bugs** - Verify the fix works
-5. **Before creating PRs that touch GitOps configs** - Full validation required
+1. **IMMEDIATELY after modifying any files in `charts/`** - Run Tier 1-2 validation before proceeding
+2. **BEFORE offering to commit chart changes** - NEVER offer "would you like me to commit?" without running validation first
+3. **After implementing features that touch Helm templates** - traefik, middleware, ingress, authentication, etc.
+4. **When debugging ArgoCD accessibility issues** - Use tiered validation to diagnose
+5. **When ArgoCD applications show errors** - Run through validation tiers
+6. **After fixing Helm/ArgoCD configuration bugs** - Verify the fix works
+7. **Before creating PRs that touch GitOps configs** - Full validation required
+
+### Proactive Invocation Checklist
+
+Before saying "ready to commit" or "would you like me to commit?", the agent MUST:
+
+```
+□ Check if any charts/* files were modified in this session
+□ If yes → Run gitops-test Tier 1-2 validation
+□ Only after validation passes → Offer to commit
+```
+
+### Example Workflow (CORRECT)
+
+```
+User: "Replace oauth2-proxy with traefik OIDC plugin"
+Agent: [modifies charts/addons/templates/traefik.yaml]
+Agent: [modifies charts/addons/values-homelab.yaml]
+Agent: [INVOKES /gitops-test skill - Tier 1-2 validation]
+Agent: "Validation passed. Would you like me to commit these changes?"
+```
+
+### Example Workflow (INCORRECT - DO NOT DO THIS)
+
+```
+User: "Replace oauth2-proxy with traefik OIDC plugin"
+Agent: [modifies charts/addons/templates/traefik.yaml]
+Agent: [modifies charts/addons/values-homelab.yaml]
+Agent: "Would you like me to commit these changes?"  ← WRONG: No validation!
+```
 
 The agent MUST invoke this skill proactively when these conditions are met, without waiting for the user to explicitly request `/gitops-test`.
 
@@ -212,69 +286,126 @@ kubectl get crd onepassworditems.onepassword.com >/dev/null 2>&1 || echo "ERROR:
 
 **Goal**: Apply changes directly to cluster for immediate feedback, bypassing ArgoCD's git-based workflow.
 
-### 3.1 Direct Application CRD Apply
+### 3.1 Generic Render and Apply Pattern
 
-For testing ArgoCD Application changes:
-
-```bash
-# Apply Application CRD directly (ArgoCD will pick it up)
-helm template addons charts/addons \
-  -f charts/addons/values.yaml \
-  -f charts/addons/values-homelab.yaml \
-  -s templates/traefik.yaml | \
-  kubectl apply -f -
-
-# Watch ArgoCD react
-kubectl get application traefik -n argocd -w
-```
-
-### 3.2 Direct Workload Apply (Bypass ArgoCD Completely)
-
-For testing the actual Helm chart values without ArgoCD:
+Use this pattern for any chart/template:
 
 ```bash
-# Get the external chart info from your values
-CHART_REPO=$(yq '.traefik.chart.repo' charts/addons/values.yaml)
-CHART_NAME=$(yq '.traefik.chart.name' charts/addons/values.yaml)
-CHART_VERSION=$(yq '.traefik.chart.version' charts/addons/values.yaml)
+# Generic pattern: Render specific template and apply
+CHART="addons"          # or: gitops, applications
+TEMPLATE="traefik.yaml" # template filename in templates/
 
-# Add repo if needed
-helm repo add traefik https://traefik.github.io/charts
-helm repo update
+helm template "$CHART" "charts/$CHART" \
+  -f "charts/$CHART/values.yaml" \
+  -f "charts/$CHART/values-homelab.yaml" \
+  -s "templates/$TEMPLATE" \
+  > "/tmp/$TEMPLATE"
 
-# Template the actual workload (not the ArgoCD Application)
-helm template traefik traefik/traefik \
-  --version "$CHART_VERSION" \
-  --namespace traefik \
-  --values <(yq '.traefik.values' charts/addons/values.yaml) \
-  --values <(yq '.traefik.values' charts/addons/values-homelab.yaml) | \
-  kubectl apply -f -
+# Apply to cluster
+kubectl apply -f "/tmp/$TEMPLATE"
 ```
 
-### 3.3 Targeted Component Testing
+**Shorthand function (add to shell profile):**
+```bash
+# Usage: gitops-apply addons traefik.yaml
+gitops-apply() {
+  local chart="$1" template="$2"
+  helm template "$chart" "charts/$chart" \
+    -f "charts/$chart/values.yaml" \
+    -f "charts/$chart/values-homelab.yaml" \
+    -s "templates/$template" | kubectl apply -f -
+}
+```
+
+### 3.2 Validate and Assert Pattern
+
+After applying, always validate the result:
+
+```bash
+# Generic validation pattern
+CHART="addons"
+TEMPLATE="argo-workflows.yaml"
+APP_NAME="argo-workflows"  # ArgoCD Application name
+NAMESPACE="argo-workflows" # Target namespace
+
+# Step 1: Render and apply
+helm template "$CHART" "charts/$CHART" \
+  -f "charts/$CHART/values.yaml" \
+  -f "charts/$CHART/values-homelab.yaml" \
+  -s "templates/$TEMPLATE" | kubectl apply -f -
+
+# Step 2: Wait for ArgoCD to process (if Application CRD)
+sleep 5
+
+# Step 3: Assert sync status
+SYNC_STATUS=$(kubectl get application "$APP_NAME" -n argocd -o jsonpath='{.status.sync.status}')
+HEALTH_STATUS=$(kubectl get application "$APP_NAME" -n argocd -o jsonpath='{.status.health.status}')
+
+echo "Sync: $SYNC_STATUS | Health: $HEALTH_STATUS"
+
+# Step 4: Assert expected state
+if [[ "$HEALTH_STATUS" == "Healthy" ]] || [[ "$HEALTH_STATUS" == "Progressing" ]]; then
+  echo "✅ PASS: Application is healthy or progressing"
+else
+  echo "❌ FAIL: Application health is $HEALTH_STATUS"
+  kubectl get application "$APP_NAME" -n argocd -o json | jq '.status.conditions'
+  exit 1
+fi
+
+# Step 5: Check for sync errors
+SYNC_ERROR=$(kubectl get application "$APP_NAME" -n argocd -o json | jq -r '.status.conditions[]? | select(.type=="ComparisonError") | .message')
+if [[ -n "$SYNC_ERROR" ]]; then
+  echo "❌ FAIL: Sync error detected"
+  echo "$SYNC_ERROR"
+  exit 1
+fi
+```
+
+### 3.3 Resource-Specific Assertions
+
+```bash
+# Assert Certificate is ready
+kubectl wait --for=condition=Ready certificate/"$CERT_NAME" -n "$NAMESPACE" --timeout=120s
+
+# Assert Deployment is available
+kubectl wait --for=condition=Available deployment/"$DEPLOY_NAME" -n "$NAMESPACE" --timeout=120s
+
+# Assert Ingress has IP assigned
+INGRESS_IP=$(kubectl get ingress "$INGRESS_NAME" -n "$NAMESPACE" -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+if [[ -z "$INGRESS_IP" ]]; then
+  echo "❌ FAIL: Ingress has no IP"
+  exit 1
+fi
+echo "✅ Ingress IP: $INGRESS_IP"
+
+# Assert Pod is running
+kubectl wait --for=condition=Ready pod -l "app=$APP_LABEL" -n "$NAMESPACE" --timeout=120s
+```
+
+### 3.4 Targeted Component Testing
 
 **Test specific sync wave in isolation:**
 
 ```bash
 # Wave 0: cert-manager
-helm template addons charts/addons -f charts/addons/values.yaml -f charts/addons/values-homelab.yaml \
-  -s templates/cert-manager.yaml | kubectl apply -f -
+gitops-apply addons cert-manager.yaml
 
 # Wave 2: traefik (depends on cert-manager)
-helm template addons charts/addons -f charts/addons/values.yaml -f charts/addons/values-homelab.yaml \
-  -s templates/traefik.yaml | kubectl apply -f -
+gitops-apply addons traefik.yaml
 
-# Verify
-argocd app get cert-manager --refresh
-argocd app get traefik --refresh
+# Verify via kubectl (argocd CLI may not be configured)
+kubectl get application cert-manager -n argocd -o jsonpath='{.status.sync.status} {.status.health.status}'
+kubectl get application traefik -n argocd -o jsonpath='{.status.sync.status} {.status.health.status}'
 ```
 
-### 3.4 Rollback Direct Changes
+### 3.5 Rollback Direct Changes
 
 ```bash
-# Delete directly-applied resources before ArgoCD takes over
-helm template addons charts/addons -f charts/addons/values.yaml -f charts/addons/values-homelab.yaml \
-  -s templates/traefik.yaml | kubectl delete -f -
+# Delete directly-applied resources
+helm template "$CHART" "charts/$CHART" \
+  -f "charts/$CHART/values.yaml" \
+  -f "charts/$CHART/values-homelab.yaml" \
+  -s "templates/$TEMPLATE" | kubectl delete -f -
 
 # Or let ArgoCD self-heal (if enabled)
 argocd app sync addons --prune
@@ -445,28 +576,136 @@ argocd:
 
 | Tier | Time | Command | Catches |
 |------|------|---------|---------|
-| 1 | ~2s | `pre-commit run --all-files` | Syntax, schema, formatting |
-| 2 | ~5s | `helm template \| kubectl apply --dry-run=server` | CRD schema mismatches |
-| 3 | ~30s | `helm template -s templates/X.yaml \| kubectl apply` | Runtime issues |
-| 4 | ~5min | Full GitOps cycle | Integration issues |
-| 5 | ~10s | Puppeteer browser validation | Real browser accessibility |
+| 1 | ~2s | `task chart:lint` | Syntax, schema, formatting |
+| 2 | ~5s | `helm template $CHART charts/$CHART -f charts/$CHART/values.yaml -f charts/$CHART/values-homelab.yaml \| kubectl apply --dry-run=server -f -` | CRD schema mismatches |
+| 3 | ~30s | `helm template $CHART charts/$CHART -f charts/$CHART/values.yaml -f charts/$CHART/values-homelab.yaml -s templates/X.yaml > /tmp/X.yaml && kubectl apply -f /tmp/X.yaml` | Runtime issues |
+| 4 | ~5min | Full GitOps cycle (git push → ArgoCD sync) | Integration issues |
+| 5 | ~10s | Context-aware validation (component-specific checks) | Component-specific issues |
 
-### TIER 5: Browser Validation (Required for Ingress Changes)
+### Generic Render/Apply/Assert Commands
 
-**CRITICAL**: For any changes affecting ingress/routing, curl is NOT sufficient. Use Puppeteer MCP for real browser validation:
+```bash
+# Variables (set these for your use case)
+CHART="addons"                    # Chart directory name
+TEMPLATE="argo-workflows.yaml"    # Template to render
+APP_NAME="argo-workflows"         # ArgoCD Application name
+
+# Render to temp file
+helm template "$CHART" "charts/$CHART" \
+  -f "charts/$CHART/values.yaml" \
+  -f "charts/$CHART/values-homelab.yaml" \
+  -s "templates/$TEMPLATE" > "/tmp/$TEMPLATE"
+
+# Apply
+kubectl apply -f "/tmp/$TEMPLATE"
+
+# Assert health (wait up to 60s)
+kubectl get application "$APP_NAME" -n argocd -w --timeout=60s
+
+# Or one-liner status check
+kubectl get application "$APP_NAME" -n argocd -o jsonpath='Sync:{.status.sync.status} Health:{.status.health.status}'
+```
+
+### TIER 5: Context-Aware Validation
+
+**CRITICAL**: Validation MUST be specific to the component being tested. Do NOT default to checking ArgoCD - evaluate the actual changes made.
+
+#### Step 1: Identify the Component Under Test
+
+Before running Tier 5, determine what was modified:
+- What template was rendered/applied in Tier 3?
+- What ArgoCD Application was affected?
+- What namespace and resources were changed?
+
+#### Step 2: Run Component-Specific Validation
+
+**cert-manager changes:**
+```bash
+# Check certificate status
+kubectl get certificates -A -o wide
+
+# Verify specific certificate
+kubectl describe certificate <CERT_NAME> -n <NAMESPACE>
+
+# Check orders/challenges if pending
+kubectl get orders,challenges -A
+
+# Validate TLS on affected endpoint
+curl -w "TLS: %{ssl_verify_result}\n" -so /dev/null https://<ENDPOINT>
+```
+
+**traefik/ingress changes:**
+```bash
+# Check IngressRoute status
+kubectl get ingressroutes -A
+
+# Verify Traefik service has LoadBalancer IP
+kubectl get svc traefik -n traefik -o jsonpath='{.status.loadBalancer.ingress[0].ip}'
+
+# Browser validation for routing changes
+mcp__puppeteer__puppeteer_navigate(url: "https://<AFFECTED_ENDPOINT>/")
+mcp__puppeteer__puppeteer_screenshot(name: "<component>-verify", width: 1280, height: 800)
+```
+
+**external-dns changes:**
+```bash
+# Check DNSEndpoint resources
+kubectl get dnsendpoints -A
+
+# Verify DNS resolution
+dig <HOSTNAME> +short
+```
+
+**democratic-csi/storage changes:**
+```bash
+# Check PVCs are bound
+kubectl get pvc -A | grep -v Bound
+
+# Check CSI driver pods
+kubectl get pods -n democratic-csi
+```
+
+**kube-prometheus-stack changes:**
+```bash
+# Check Prometheus/Grafana pods
+kubectl get pods -n monitoring
+
+# Verify ServiceMonitors
+kubectl get servicemonitors -A
+```
+
+**Application deployments (plex, sonarr, etc.):**
+```bash
+# Check pod status
+kubectl get pods -n <NAMESPACE> -l app=<APP_NAME>
+
+# Check service endpoints
+kubectl get endpoints -n <NAMESPACE>
+
+# Browser validation
+mcp__puppeteer__puppeteer_navigate(url: "https://<APP_HOSTNAME>/")
+mcp__puppeteer__puppeteer_screenshot(name: "<app>-verify", width: 1280, height: 800)
+```
+
+#### Step 3: Browser Validation (When Applicable)
+
+Only use Puppeteer browser validation when:
+- Testing ingress/routing changes
+- Verifying TLS certificate presentation
+- Checking UI accessibility after deployment
 
 ```
-# Navigate to the endpoint
-mcp__puppeteer__puppeteer_navigate(url: "https://argocd.ryanmcafee.com/")
+# Navigate to the AFFECTED endpoint (not a default)
+mcp__puppeteer__puppeteer_navigate(url: "https://<ENDPOINT_UNDER_TEST>/")
 
-# Take screenshot to verify
-mcp__puppeteer__puppeteer_screenshot(name: "argocd-verify", width: 1280, height: 800)
+# Take screenshot as proof
+mcp__puppeteer__puppeteer_screenshot(name: "<component>-verify", width: 1280, height: 800)
 ```
 
-**Why browser validation matters:**
-- curl may succeed while browsers fail (protocol mismatches, redirects, TLS issues)
-- Screenshots provide visual proof of accessibility
-- Catches JavaScript-dependent rendering issues
+**Why context-aware validation matters:**
+- Validates the actual change, not an unrelated component
+- Catches component-specific issues (cert issuance, DNS propagation, storage binding)
+- Provides meaningful proof that the tested change works
 
 ### Emergency Cleanup
 
@@ -497,6 +736,53 @@ kubectl logs -n argocd -l app.kubernetes.io/name=argocd-application-controller -
 # Diff without syncing
 argocd app diff <app>
 ```
+
+### Certificate Debugging (cert-manager)
+
+When ingress TLS certificates fail to issue:
+
+```bash
+# Check certificate status
+kubectl get certificates -A
+
+# Check orders and challenges
+kubectl get orders -A
+kubectl get challenges -A
+
+# Describe failing challenge for details
+kubectl describe challenge -n <namespace>
+
+# Check cert-manager logs
+kubectl logs -n cert-manager -l app.kubernetes.io/name=cert-manager --tail=100 | rg -i "error|failed"
+
+# Verify cert-manager has DNS resolver args
+kubectl get pods -n cert-manager -l app.kubernetes.io/name=cert-manager \
+  -o jsonpath='{.items[0].spec.containers[0].args}' | jq -r '.[]' | rg dns01
+
+# Check for orphaned ACME challenge TXT records
+dig TXT _acme-challenge.<domain> +short
+```
+
+**Common cert-manager issues:**
+| Error | Cause | Solution |
+|-------|-------|----------|
+| `SERVFAIL looking up CAA` | DNS resolver issues | Configure `dns01RecursiveNameservers` in cert-manager |
+| `zone ID empty` in Cloudflare API | API token missing Zone:Read | Update token permissions or add explicit zoneID |
+| Challenge stuck in `pending` | DNS propagation delay | Wait or use public DNS resolvers (1.1.1.1, 8.8.8.8) |
+| `CleanUpError` | Failed to delete ACME TXT record | Check Cloudflare API token permissions |
+
+**DNS Resolver Configuration:**
+cert-manager uses cluster DNS by default which may have propagation delays. Configure public resolvers:
+
+```yaml
+# In charts/addons/values.yaml under cert-manager:
+dns01RecursiveNameservers:
+  - "1.1.1.1:53"
+  - "8.8.8.8:53"
+  - "8.8.4.4:53"
+```
+
+This adds `--dns01-recursive-nameservers` and `--dns01-recursive-nameservers-only` to the cert-manager controller.
 
 ---
 
