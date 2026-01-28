@@ -37,6 +37,12 @@ Each entry should include:
 - **Solution**: Removed the ignoreDifferences rule for traefik-dashboard IngressRoute, allowing helm chart TLS settings to sync
 - **Prevention**: Avoid blanket ignoreDifferences on `.spec` - use specific field paths instead
 
+### 2026-01-28 - Traefik dashboard 404 at /dashboard without trailing slash
+- **Issue**: https://traefik.ryanmcafee.com/dashboard returns 404, but /dashboard/ works
+- **Root Cause**: Traefik's internal dashboard API requires a trailing slash on the path
+- **Solution**: Added `dashboard-redirect-slash` Middleware and IngressRoute to redirect `/dashboard` to `/dashboard/`
+- **Prevention**: Expected Traefik behavior - dashboard paths need trailing slash or redirect middleware
+
 ### 2025-01-27 - Duplicate cloudflare-api-token OnePasswordItem in traefik
 - **Issue**: Traefik addon had duplicate OnePasswordItem definition for cloudflare-api-token
 - **Root Cause**: Copy-paste error when adding external-dns alongside traefik
