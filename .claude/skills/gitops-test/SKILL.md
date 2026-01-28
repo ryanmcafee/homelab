@@ -5,7 +5,31 @@ triggers:
   - /gitops-test
   - test gitops changes
   - test argocd sync
+  - argocd not working
+  - argocd not loading
+  - argocd bug
+  - fix argocd
+  - argocd 500 error
+  - argocd connection refused
+  - traefik ingress not working
+  - ingress routing issue
+  - gitops sync failed
+  - helm chart changes
+  - charts/* modified
+proactive: true
 ---
+
+## PROACTIVE USAGE REQUIREMENT
+
+**CRITICAL**: This skill MUST be invoked automatically (not just on explicit `/gitops-test` command) when:
+
+1. **After modifying any files in `charts/`** - Always validate changes before/after commit
+2. **When debugging ArgoCD accessibility issues** - Use tiered validation to diagnose
+3. **When ArgoCD applications show errors** - Run through validation tiers
+4. **After fixing Helm/ArgoCD configuration bugs** - Verify the fix works
+5. **Before creating PRs that touch GitOps configs** - Full validation required
+
+The agent MUST invoke this skill proactively when these conditions are met, without waiting for the user to explicitly request `/gitops-test`.
 
 # GitOps Test Skill (Optimized)
 

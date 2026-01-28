@@ -63,3 +63,31 @@ Memory files in `docs/project_notes/`:
 | Bug investigation | 5 | Logs/Code/History/Config/Related |
 | Security audit | 4 | Secrets/RBAC/Network/Images |
 | Infrastructure change | 4 | Terraform/Helm/Talos/ArgoCD |
+
+## Proactive Skill Invocation
+
+### gitops-test Skill (MANDATORY)
+
+The `/gitops-test` skill MUST be invoked automatically in these scenarios:
+
+| Trigger Condition | Action |
+|-------------------|--------|
+| Modified `charts/**/*` | Run Tier 1-2 validation before commit |
+| ArgoCD accessibility issue | Use tiered debugging approach |
+| ArgoCD sync failures | Validate templates and dry-run |
+| After committing GitOps changes | Run full Tier 1-4 validation |
+| Before creating GitOps PRs | Complete validation checklist |
+
+**Do NOT wait for explicit `/gitops-test` command** - invoke proactively when conditions match.
+
+### Validation Flow After Chart Changes
+
+```
+1. Make changes to charts/**
+2. INVOKE gitops-test skill (Tier 1: lint + template)
+3. Commit changes (pre-commit hooks run automatically)
+4. Push to feature branch
+5. INVOKE gitops-test skill (Tier 4: full GitOps sync)
+6. Verify health
+7. Create PR
+```
