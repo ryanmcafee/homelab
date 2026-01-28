@@ -383,6 +383,16 @@ cert-manager:
     apiToken: ""
     onePasswordItemPath: vaults/homelab/items/cloudflare
 
+  # DNS zones for certificate issuance
+  dnsZones:
+    - ryanmcafee.com
+
+  # Custom DNS resolvers for ACME DNS-01 challenge verification
+  dns01RecursiveNameservers:
+    - "1.1.1.1:53"
+    - "8.8.8.8:53"
+    - "8.8.4.4:53"
+
   resources:
     requests:
       cpu: 50m
@@ -754,8 +764,12 @@ argo-workflows:
       annotations:
         cert-manager.io/cluster-issuer: letsencrypt
         external-dns.alpha.kubernetes.io/hostname: workflows.ryanmcafee.com
+        traefik.ingress.kubernetes.io/router.middlewares: oauth2-proxy-oauth2-proxy-auth@kubernetescrd
       hosts:
         - workflows.ryanmcafee.com
+      paths:
+        - /
+      pathType: Prefix
       tls:
         - secretName: argo-workflows-tls
           hosts:

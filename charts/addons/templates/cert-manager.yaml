@@ -36,6 +36,11 @@ spec:
         global:
           leaderElection:
             namespace: {{ index .Values "cert-manager" "namespace" }}
+        {{- if index .Values "cert-manager" "dns01RecursiveNameservers" }}
+        extraArgs:
+          - --dns01-recursive-nameservers-only
+          - --dns01-recursive-nameservers={{ join "," (index .Values "cert-manager" "dns01RecursiveNameservers") }}
+        {{- end }}
         resources:
           {{- toYaml (index .Values "cert-manager" "resources") | nindent 10 }}
         webhook:
@@ -96,6 +101,12 @@ spec:
           apiTokenSecretRef:
             name: cloudflare-api-token
             key: api_token
+        cnameStrategy: Follow
+      selector:
+        dnsZones:
+          {{- range (index .Values "cert-manager" "dnsZones") }}
+          - {{ . }}
+          {{- end }}
     {{- else }}
     - http01:
         ingress:
