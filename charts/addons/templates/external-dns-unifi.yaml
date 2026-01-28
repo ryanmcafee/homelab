@@ -72,8 +72,10 @@ spec:
               initialDelaySeconds: 10
               timeoutSeconds: 5
 
+        sources:
+          - crd
+
         extraArgs:
-          - --source=crd
           - --txt-owner-id=homelab-unifi-crd
 
         domainFilters:
@@ -156,9 +158,11 @@ spec:
               initialDelaySeconds: 10
               timeoutSeconds: 5
 
+        sources:
+          - ingress
+          - service
+
         extraArgs:
-          - --source=ingress
-          - --source=service
           - --annotation-filter=external-dns.alpha.kubernetes.io/hostname
           - --txt-owner-id=homelab-unifi-ingress
 
