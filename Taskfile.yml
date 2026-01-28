@@ -643,7 +643,17 @@ tasks:
   docs:
     desc: Generate/update documentation
     cmds:
-      - echo "Documentation tasks (implement as needed)"
+      - task: docs:embedme
+
+  docs:embedme:
+    desc: Update embedded code snippets in markdown files
+    cmds:
+      - embedme CLAUDE.md AGENTS.md
+
+  docs:embedme:verify:
+    desc: Verify embedded snippets are up-to-date (CI)
+    cmds:
+      - embedme --verify CLAUDE.md AGENTS.md
 
   default:
     desc: Show available tasks
