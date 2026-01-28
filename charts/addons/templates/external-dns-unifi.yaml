@@ -18,6 +18,44 @@ metadata:
 spec:
   itemPath: {{ index .Values "external-dns-unifi" "onePasswordItemPath" | quote }}
 ---
+# Additional RBAC for CRD source (helm chart doesn't generate this correctly)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: external-dns-unifi-crd-dnsendpoints
+  annotations:
+    argocd.argoproj.io/sync-wave: "4"
+rules:
+  - apiGroups:
+      - externaldns.k8s.io
+    resources:
+      - dnsendpoints
+    verbs:
+      - get
+      - watch
+      - list
+  - apiGroups:
+      - externaldns.k8s.io
+    resources:
+      - dnsendpoints/status
+    verbs:
+      - update
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: external-dns-unifi-crd-dnsendpoints
+  annotations:
+    argocd.argoproj.io/sync-wave: "4"
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: external-dns-unifi-crd-dnsendpoints
+subjects:
+  - kind: ServiceAccount
+    name: external-dns-unifi-crd
+    namespace: {{ index .Values "external-dns-unifi" "namespace" }}
+---
 # Instance 1: CRD source for DNSEndpoint resources
 apiVersion: argoproj.io/v1alpha1
 kind: Application
