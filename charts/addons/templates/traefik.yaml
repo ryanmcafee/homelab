@@ -151,12 +151,6 @@ spec:
       kind: ValidatingWebhookConfiguration
       jqPathExpressions:
         - .webhooks[].clientConfig.caBundle
-    # Ignore traefik-dashboard IngressRoute spec entirely (dynamically managed by Traefik)
-    - group: traefik.io
-      kind: IngressRoute
-      name: traefik-dashboard
-      jqPathExpressions:
-        - .spec
 ---
 # DNSEndpoint for external-dns to create DNS record for Traefik dashboard
 # (Standard Ingress removed - was conflicting with IngressRoute from Traefik helm chart)
