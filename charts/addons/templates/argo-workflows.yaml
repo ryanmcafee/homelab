@@ -1,0 +1,80 @@
+{{- if index .Values "argo-workflows" "enabled" }}
+# Argo Workflows - Workflow Orchestration Engine
+# Sync Wave: 7 (after core infrastructure)
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ index .Values "argo-workflows" "namespace" }}
+  labels:
+    {{- include "addons.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: argo-workflows
+  namespace: argocd
+  labels:
+    {{- include "addons.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "7"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+
+  source:
+    repoURL: {{ index .Values "argo-workflows" "chart" "repo" }}
+    chart: {{ index .Values "argo-workflows" "chart" "name" }}
+    targetRevision: {{ index .Values "argo-workflows" "chart" "version" }}
+    helm:
+      releaseName: argo-workflows
+      values: |
+        server:
+          authMode: {{ index .Values "argo-workflows" "server" "authMode" }}
+          {{- if index .Values "argo-workflows" "server" "ingress" "enabled" }}
+          ingress:
+            enabled: true
+            ingressClassName: {{ index .Values "argo-workflows" "server" "ingress" "ingressClassName" }}
+            {{- if index .Values "argo-workflows" "server" "ingress" "annotations" }}
+            annotations:
+              {{- toYaml (index .Values "argo-workflows" "server" "ingress" "annotations") | nindent 14 }}
+            {{- end }}
+            hosts:
+              {{- toYaml (index .Values "argo-workflows" "server" "ingress" "hosts") | nindent 14 }}
+            {{- if index .Values "argo-workflows" "server" "ingress" "tls" }}
+            tls:
+              {{- toYaml (index .Values "argo-workflows" "server" "ingress" "tls") | nindent 14 }}
+            {{- end }}
+          {{- end }}
+          resources:
+            {{- toYaml (index .Values "argo-workflows" "server" "resources") | nindent 12 }}
+        controller:
+          resources:
+            {{- toYaml (index .Values "argo-workflows" "controller" "resources") | nindent 12 }}
+          workflowDefaults:
+            {{- toYaml (index .Values "argo-workflows" "controller" "workflowDefaults") | nindent 12 }}
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: {{ index .Values "argo-workflows" "namespace" }}
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      allowEmpty: false
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - PruneLast=true
+      - ApplyOutOfSyncOnly=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+{{- end }}

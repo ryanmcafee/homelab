@@ -730,3 +730,91 @@ nvidia-gpu-operator:
   # Note: Driver and toolkit are provided by Talos system extensions
   # (siderolabs/nonfree-kmod-nvidia and siderolabs/nvidia-container-toolkit)
   # GPU Operator only manages device plugin, monitoring, and feature discovery
+
+# ============================================================================
+# Argo Workflows - Workflow Orchestration
+# Sync Wave: 7 (after core infrastructure)
+# ============================================================================
+
+argo-workflows:
+  enabled: true
+  namespace: argo-workflows
+
+  chart:
+    name: argo-workflows
+    repo: https://argoproj.github.io/argo-helm
+    version: "0.45.2"
+
+  server:
+    authMode: server
+
+    ingress:
+      enabled: true
+      ingressClassName: traefik
+      annotations:
+        cert-manager.io/cluster-issuer: letsencrypt
+        external-dns.alpha.kubernetes.io/hostname: workflows.ryanmcafee.com
+      hosts:
+        - workflows.ryanmcafee.com
+      tls:
+        - secretName: argo-workflows-tls
+          hosts:
+            - workflows.ryanmcafee.com
+
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        cpu: 200m
+        memory: 256Mi
+
+  controller:
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+
+    workflowDefaults:
+      spec:
+        ttlStrategy:
+          secondsAfterCompletion: 86400
+          secondsAfterSuccess: 43200
+          secondsAfterFailure: 172800
+
+  # Ingress verification workflow configuration
+  ingressVerification:
+    enabled: true
+    schedule: "*/5 * * * *"
+    # List of ingresses to verify - all require authentication
+    ingresses:
+      - name: traefik
+        url: https://traefik.ryanmcafee.com/dashboard/
+        expectAuth: true
+      - name: argocd
+        url: https://argocd.ryanmcafee.com
+        expectAuth: true
+      - name: grafana
+        url: https://grafana.ryanmcafee.com
+        expectAuth: true
+      - name: plex
+        url: https://plex.ryanmcafee.com
+        expectAuth: true
+      - name: sonarr
+        url: https://sonarr.ryanmcafee.com
+        expectAuth: true
+      - name: radarr
+        url: https://radarr.ryanmcafee.com
+        expectAuth: true
+      - name: prowlarr
+        url: https://prowlarr.ryanmcafee.com
+        expectAuth: true
+      - name: homeassistant
+        url: https://homeassistant.ryanmcafee.com
+        expectAuth: true
+      - name: auth
+        url: https://auth.ryanmcafee.com
+        expectAuth: true

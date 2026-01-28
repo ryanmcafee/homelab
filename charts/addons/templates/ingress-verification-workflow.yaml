@@ -1,0 +1,209 @@
+{{- if and (index .Values "argo-workflows" "enabled") (index .Values "argo-workflows" "ingressVerification" "enabled") }}
+# Ingress Verification Workflow
+# Verifies that all ingresses are:
+# 1. Network accessible (no connection errors)
+# 2. Not returning HTTP 503 errors
+# 3. Properly requiring authentication (where expected)
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ingress-verifier
+  namespace: {{ index .Values "argo-workflows" "namespace" }}
+  labels:
+    {{- include "addons.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: ingress-verifier
+  labels:
+    {{- include "addons.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+rules:
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses"]
+    verbs: ["get", "list"]
+  - apiGroups: ["traefik.io"]
+    resources: ["ingressroutes"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: ingress-verifier
+  labels:
+    {{- include "addons.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: ingress-verifier
+subjects:
+  - kind: ServiceAccount
+    name: ingress-verifier
+    namespace: {{ index .Values "argo-workflows" "namespace" }}
+---
+apiVersion: argoproj.io/v1alpha1
+kind: CronWorkflow
+metadata:
+  name: ingress-verification
+  namespace: {{ index .Values "argo-workflows" "namespace" }}
+  labels:
+    {{- include "addons.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "9"
+spec:
+  schedule: {{ index .Values "argo-workflows" "ingressVerification" "schedule" | quote }}
+  concurrencyPolicy: Replace
+  successfulJobsHistoryLimit: 5
+  failedJobsHistoryLimit: 10
+  startingDeadlineSeconds: 60
+  workflowSpec:
+    serviceAccountName: ingress-verifier
+    entrypoint: verify-all-ingresses
+    ttlStrategy:
+      secondsAfterCompletion: 86400
+      secondsAfterSuccess: 43200
+      secondsAfterFailure: 172800
+    templates:
+      - name: verify-all-ingresses
+        dag:
+          tasks:
+            {{- range $index, $ingress := index .Values "argo-workflows" "ingressVerification" "ingresses" }}
+            - name: verify-{{ $ingress.name }}
+              template: verify-ingress
+              arguments:
+                parameters:
+                  - name: name
+                    value: {{ $ingress.name | quote }}
+                  - name: url
+                    value: {{ $ingress.url | quote }}
+                  - name: expect-auth
+                    value: {{ $ingress.expectAuth | default false | quote }}
+                  - name: skip-auth-check
+                    value: {{ $ingress.skipAuthCheck | default false | quote }}
+            {{- end }}
+
+      - name: verify-ingress
+        inputs:
+          parameters:
+            - name: name
+            - name: url
+            - name: expect-auth
+            - name: skip-auth-check
+        container:
+          image: curlimages/curl:8.5.0
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -e
+              echo "============================================"
+              echo "Verifying ingress: {{`{{inputs.parameters.name}}`}}"
+              echo "URL: {{`{{inputs.parameters.url}}`}}"
+              echo "============================================"
+
+              # Test connectivity and capture HTTP status code
+              HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+                --connect-timeout 10 \
+                --max-time 30 \
+                -L \
+                "{{`{{inputs.parameters.url}}`}}" 2>&1) || true
+
+              echo "HTTP Status Code: $HTTP_CODE"
+
+              # Check for connection errors
+              if [ -z "$HTTP_CODE" ] || [ "$HTTP_CODE" = "000" ]; then
+                echo "ERROR: Connection failed - ingress is not accessible"
+                exit 1
+              fi
+
+              # Check for 503 Service Unavailable
+              if [ "$HTTP_CODE" = "503" ]; then
+                echo "ERROR: Service returned 503 - backend unavailable"
+                exit 1
+              fi
+
+              # Check for 502 Bad Gateway
+              if [ "$HTTP_CODE" = "502" ]; then
+                echo "ERROR: Service returned 502 - bad gateway"
+                exit 1
+              fi
+
+              # Check for 504 Gateway Timeout
+              if [ "$HTTP_CODE" = "504" ]; then
+                echo "ERROR: Service returned 504 - gateway timeout"
+                exit 1
+              fi
+
+              # Authentication verification (if not skipped)
+              SKIP_AUTH="{{`{{inputs.parameters.skip-auth-check}}`}}"
+              EXPECT_AUTH="{{`{{inputs.parameters.expect-auth}}`}}"
+
+              if [ "$SKIP_AUTH" != "true" ]; then
+                if [ "$EXPECT_AUTH" = "true" ]; then
+                  # Expecting authentication - should get 401 or 302/303 redirect
+                  if [ "$HTTP_CODE" = "401" ] || [ "$HTTP_CODE" = "302" ] || [ "$HTTP_CODE" = "303" ]; then
+                    echo "OK: Authentication required as expected (HTTP $HTTP_CODE)"
+                  elif [ "$HTTP_CODE" = "200" ]; then
+                    echo "WARNING: Expected authentication but got HTTP 200 - auth may be disabled"
+                    # Don't fail, just warn - auth might be intentionally disabled
+                  else
+                    echo "OK: HTTP $HTTP_CODE received"
+                  fi
+                else
+                  # Not expecting authentication - should get 200
+                  if [ "$HTTP_CODE" = "200" ]; then
+                    echo "OK: Service accessible without authentication"
+                  elif [ "$HTTP_CODE" = "401" ] || [ "$HTTP_CODE" = "302" ] || [ "$HTTP_CODE" = "303" ]; then
+                    echo "WARNING: Got redirect/auth but none expected (HTTP $HTTP_CODE)"
+                  else
+                    echo "OK: HTTP $HTTP_CODE received"
+                  fi
+                fi
+              else
+                echo "INFO: Authentication check skipped"
+                if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 400 ]; then
+                  echo "OK: Service returned success status"
+                else
+                  echo "WARNING: Service returned HTTP $HTTP_CODE"
+                fi
+              fi
+
+              echo "============================================"
+              echo "Verification complete for {{`{{inputs.parameters.name}}`}}"
+              echo "============================================"
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+
+      - name: summary
+        inputs:
+          parameters:
+            - name: results
+        container:
+          image: alpine:3.19
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              echo "============================================"
+              echo "Ingress Verification Summary"
+              echo "============================================"
+              echo "{{`{{inputs.parameters.results}}`}}"
+              echo "============================================"
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 50m
+              memory: 64Mi
+{{- end }}

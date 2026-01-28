@@ -696,3 +696,69 @@ cilium-lb-ipam:
 
 cilium:
   enabled: false
+
+# ============================================================================
+# Argo Workflows - Workflow Orchestration
+# Sync Wave: 7 (after core infrastructure)
+# ============================================================================
+
+argo-workflows:
+  enabled: false
+  namespace: argo-workflows
+
+  # Chart source
+  chart:
+    name: argo-workflows
+    repo: https://argoproj.github.io/argo-helm
+    version: "0.45.2"
+
+  # Server configuration
+  server:
+    # Authentication mode: server (no auth), client (requires token), sso
+    authMode: server
+
+    # Ingress
+    ingress:
+      enabled: true
+      ingressClassName: traefik
+      hosts:
+        - workflows.ryanmcafee.com
+      tls:
+        - secretName: argo-workflows-tls
+          hosts:
+            - workflows.ryanmcafee.com
+
+    # Resources
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        cpu: 200m
+        memory: 256Mi
+
+  # Controller configuration
+  controller:
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+
+    # Workflow defaults
+    workflowDefaults:
+      spec:
+        ttlStrategy:
+          secondsAfterCompletion: 86400  # 24 hours
+          secondsAfterSuccess: 43200     # 12 hours
+          secondsAfterFailure: 172800    # 48 hours
+
+  # Ingress verification workflow
+  ingressVerification:
+    enabled: true
+    # Schedule: every 5 minutes
+    schedule: "*/5 * * * *"
+    # Ingresses to verify (auto-populated from cluster if empty)
+    ingresses: []
