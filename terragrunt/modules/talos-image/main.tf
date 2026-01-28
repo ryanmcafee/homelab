@@ -53,8 +53,8 @@ resource "proxmox_virtual_environment_download_file" "talos_image" {
   file_name    = "talos-${var.talos_version}-${substr(data.external.schematic_id.result.id, 0, 8)}.iso"
 
   # Checksum verification (optional)
-  checksum            = var.verify_checksum ? data.external.image_checksum[0].result.checksum : null
-  checksum_algorithm  = var.verify_checksum ? "sha256" : null
+  checksum           = var.verify_checksum ? data.external.image_checksum[0].result.checksum : null
+  checksum_algorithm = var.verify_checksum ? "sha256" : null
 
   # Only download if not already present
   overwrite = false

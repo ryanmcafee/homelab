@@ -65,7 +65,7 @@ resource "proxmox_virtual_environment_vm" "truenas" {
     cores   = var.cpu_cores
     sockets = 1
     type    = "host"
-    flags   = ["+aes"]  # Enable AES-NI for encryption
+    flags   = ["+aes"] # Enable AES-NI for encryption
   }
 
   # Memory - Large allocation for ZFS ARC cache
@@ -98,20 +98,20 @@ resource "proxmox_virtual_environment_vm" "truenas" {
 
   # Network Configuration
   network_device {
-    bridge      = var.network_bridge
-    vlan_id     = var.network_vlan_id
-    model       = "virtio"
-    firewall    = false
+    bridge   = var.network_bridge
+    vlan_id  = var.network_vlan_id
+    model    = "virtio"
+    firewall = false
   }
 
   # Additional network interface (optional, for NFS traffic separation)
   dynamic "network_device" {
     for_each = var.storage_network_enabled ? [1] : []
     content {
-      bridge      = var.storage_network_bridge
-      vlan_id     = var.storage_network_vlan_id
-      model       = "virtio"
-      firewall    = false
+      bridge   = var.storage_network_bridge
+      vlan_id  = var.storage_network_vlan_id
+      model    = "virtio"
+      firewall = false
     }
   }
 
@@ -216,9 +216,9 @@ resource "null_resource" "ansible_configuration" {
   provisioner "local-exec" {
     working_dir = var.ansible_working_dir
     environment = {
-      MISE_CONFIG_FILE        = "${var.ansible_working_dir}/../mise.toml"
-      TRUENAS_ADMIN_PASSWORD  = var.truenas_admin_password
-      CLOUDFLARE_API_TOKEN    = var.cloudflare_api_token
+      MISE_CONFIG_FILE       = "${var.ansible_working_dir}/../mise.toml"
+      TRUENAS_ADMIN_PASSWORD = var.truenas_admin_password
+      CLOUDFLARE_API_TOKEN   = var.cloudflare_api_token
     }
     command = <<-EOF
       env -u ANSIBLE_VAULT_PASSWORD_FILE mise exec -- ansible-playbook -i inventory/homelab.yml playbooks/truenas-full-setup.yml \

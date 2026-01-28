@@ -50,7 +50,7 @@ variable "cpu_cores" {
 variable "memory_mb" {
   description = "Memory in MB (recommended: 32GB minimum for ZFS)"
   type        = number
-  default     = 32768  # 32GB
+  default     = 32768 # 32GB
 }
 
 # Disk Configuration
@@ -138,7 +138,7 @@ variable "storage_network_vlan_id" {
 variable "boot_order" {
   description = "Boot order for the VM"
   type        = list(string)
-  default     = ["ide2", "virtio0"]  # CDROM first for installation
+  default     = ["ide2", "virtio0"] # CDROM first for installation
 }
 
 # Post-Installation Configuration

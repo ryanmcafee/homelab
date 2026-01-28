@@ -98,7 +98,7 @@ locals {
         files = [
           {
             path        = "/etc/ssl/certs/image-cache-ca.crt"
-            permissions = 420  # 0644 in octal
+            permissions = 420 # 0644 in octal
             content     = var.image_cache_ca_cert
           }
         ]
@@ -198,7 +198,7 @@ data "talos_machine_configuration" "controlplane" {
             }
           }
           proxy = {
-            disabled = true  # Cilium handles this
+            disabled = true # Cilium handles this
           }
           allowSchedulingOnControlPlanes = var.allow_scheduling_on_control_planes
           # Explicitly set etcd advertised subnets to avoid stale IPs from DHCP/VIP
@@ -252,7 +252,7 @@ data "talos_machine_configuration" "controlplane" {
       (var.install_cilium_inline && var.cilium_inline_manifest != "") ||
       (var.install_kubelet_csr_approver_inline && var.kubelet_csr_approver_inline_manifest != "") ||
       (var.install_spegel_inline && var.spegel_inline_manifest != "")
-    ) ? [
+      ) ? [
       yamlencode({
         cluster = {
           inlineManifests = concat(
@@ -346,7 +346,7 @@ resource "proxmox_virtual_environment_file" "machine_config" {
 
   source_raw {
     # Deliver the complete Talos machine config (with network settings) via user-data
-    data = each.value.machine_type == "controlplane" ? data.talos_machine_configuration.controlplane[each.key].machine_configuration : data.talos_machine_configuration.worker[each.key].machine_configuration
+    data      = each.value.machine_type == "controlplane" ? data.talos_machine_configuration.controlplane[each.key].machine_configuration : data.talos_machine_configuration.worker[each.key].machine_configuration
     file_name = "talos-${each.key}-config.yaml"
   }
 }
@@ -419,7 +419,7 @@ resource "proxmox_virtual_environment_vm" "controlplane" {
     datastore_id = var.datastore_id
     interface    = "ide3"
     # nocloud format is required for Talos compatibility
-    type         = "nocloud"
+    type = "nocloud"
 
     # Deliver the complete Talos machine config via user-data
     user_data_file_id = proxmox_virtual_environment_file.machine_config[each.key].id
@@ -525,7 +525,7 @@ resource "proxmox_virtual_environment_vm" "worker" {
     datastore_id = var.datastore_id
     interface    = "ide3"
     # nocloud format is required for Talos compatibility
-    type         = "nocloud"
+    type = "nocloud"
 
     # Deliver the complete Talos machine config via user-data
     user_data_file_id = proxmox_virtual_environment_file.machine_config[each.key].id

@@ -36,7 +36,7 @@ where <N> is the controller number (starting with zero (0)).
 
 If you need further help, please contact the Broadcom FAE associated with your Organization.
 
-Notes: 
+Notes:
 1) The SAS3.5 UEFI BSD & HII Configuration Utility does not require Legacy BIOS to be loaded on to the controller.
 2) The firmware in the controller should be fully operational for flashing the SAS3.5 UEFI BSD & HII Configuration Utility.
 3) The release supports ARM platforms.

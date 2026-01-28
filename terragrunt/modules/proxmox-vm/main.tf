@@ -16,9 +16,9 @@ resource "proxmox_virtual_environment_vm" "this" {
   pool_id     = var.pool_id
   tags        = distinct(concat([var.vm_name], var.tags))
 
-  started     = var.started
-  on_boot     = var.on_boot
-  vm_id       = var.vm_id
+  started = var.started
+  on_boot = var.on_boot
+  vm_id   = var.vm_id
 
   cpu {
     cores   = var.cpu_cores

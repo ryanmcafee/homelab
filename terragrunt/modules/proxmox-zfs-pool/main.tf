@@ -30,7 +30,7 @@ resource "terraform_data" "validate_zfs_devices" {
 
 # Check if ZFS pool already exists
 resource "null_resource" "check_zfs_pool" {
-  count = var.create_zfs_pool ? 1 : 0
+  count      = var.create_zfs_pool ? 1 : 0
   depends_on = [terraform_data.validate_zfs_devices]
 
   triggers = {
@@ -54,10 +54,10 @@ resource "null_resource" "create_zfs_pool" {
   depends_on = [null_resource.check_zfs_pool]
 
   triggers = {
-    pool_name   = var.zfs_pool_name
-    pool_type   = var.zfs_pool_type
-    devices     = join(",", var.zfs_devices)
-    ashift      = var.zfs_ashift
+    pool_name = var.zfs_pool_name
+    pool_type = var.zfs_pool_type
+    devices   = join(",", var.zfs_devices)
+    ashift    = var.zfs_ashift
   }
 
   provisioner "local-exec" {
