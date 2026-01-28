@@ -449,6 +449,24 @@ argocd:
 | 2 | ~5s | `helm template \| kubectl apply --dry-run=server` | CRD schema mismatches |
 | 3 | ~30s | `helm template -s templates/X.yaml \| kubectl apply` | Runtime issues |
 | 4 | ~5min | Full GitOps cycle | Integration issues |
+| 5 | ~10s | Puppeteer browser validation | Real browser accessibility |
+
+### TIER 5: Browser Validation (Required for Ingress Changes)
+
+**CRITICAL**: For any changes affecting ingress/routing, curl is NOT sufficient. Use Puppeteer MCP for real browser validation:
+
+```
+# Navigate to the endpoint
+mcp__puppeteer__puppeteer_navigate(url: "https://argocd.ryanmcafee.com/")
+
+# Take screenshot to verify
+mcp__puppeteer__puppeteer_screenshot(name: "argocd-verify", width: 1280, height: 800)
+```
+
+**Why browser validation matters:**
+- curl may succeed while browsers fail (protocol mismatches, redirects, TLS issues)
+- Screenshots provide visual proof of accessibility
+- Catches JavaScript-dependent rendering issues
 
 ### Emergency Cleanup
 
