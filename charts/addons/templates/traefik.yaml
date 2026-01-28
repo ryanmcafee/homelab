@@ -274,11 +274,11 @@ spec:
   plugin:
     traefikoidc:
       ProviderURL: {{ .Values.traefik.oidc.providerURL | quote }}
-      ClientID: file:///etc/traefik/oidc/google/client_id
-      ClientSecret: file:///etc/traefik/oidc/google/client_secret
+      ClientID: "urn:k8s:secret:google-oauth-credentials:client_id"
+      ClientSecret: "urn:k8s:secret:google-oauth-credentials:client_secret"
       CallbackURL: {{ .Values.traefik.oidc.callbackURL | quote }}
       LogoutURL: {{ .Values.traefik.oidc.logoutURL | quote }}
-      SessionEncryptionKey: file:///etc/traefik/oidc/session/session_key
+      SessionEncryptionKey: "urn:k8s:secret:oidc-session-key:oidc-session-key"
       Scopes:
         {{- toYaml .Values.traefik.oidc.scopes | nindent 8 }}
       AllowedUserDomains:
