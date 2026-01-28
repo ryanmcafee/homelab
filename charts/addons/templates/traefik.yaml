@@ -168,6 +168,42 @@ spec:
       targets:
         - {{ (index (.Values.traefik.service.annotations | default dict) "io.cilium/lb-ipam-ips") | default "172.16.100.200" | quote }}
 ---
+# Middleware to add trailing slash for dashboard
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: dashboard-redirect-slash
+  namespace: {{ .Values.traefik.namespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+spec:
+  redirectRegex:
+    regex: ^(https?://[^/]+/dashboard)$
+    replacement: ${1}/
+    permanent: true
+---
+# IngressRoute to catch /dashboard without trailing slash and redirect
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: traefik-dashboard-redirect
+  namespace: {{ .Values.traefik.namespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - kind: Rule
+      match: Host(`traefik.{{ .Values.global.domain }}`) && Path(`/dashboard`)
+      middlewares:
+        - name: dashboard-redirect-slash
+      services:
+        - kind: TraefikService
+          name: noop@internal
+  tls:
+    secretName: traefik-dashboard-tls
+---
 # Certificate for Traefik dashboard TLS (IngressRoute doesn't auto-create)
 apiVersion: cert-manager.io/v1
 kind: Certificate
