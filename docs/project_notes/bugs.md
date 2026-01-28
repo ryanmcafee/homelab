@@ -19,6 +19,12 @@ Each entry should include:
 - **Prevention**: Test oauth2-proxy separately before enabling on production ingresses
 - **Commit**: 18eacc9
 
+### 2026-01-28 - external-dns-unifi not creating DNS records for DNSEndpoint CRDs
+- **Issue**: DNSEndpoint resources (e.g., traefik-dashboard) not creating internal DNS records in UniFi
+- **Root Cause**: external-dns-unifi was configured with `--source=ingress` and `--source=service` but missing `--source=crd`. The `--annotation-filter` doesn't apply to CRD sources (they define DNS in spec, not annotations)
+- **Solution**: Split into two instances: `external-dns-unifi-crd` (CRD source only) and `external-dns-unifi-ingress` (ingress/service with annotation filter). Each has separate txt-owner-id to avoid conflicts
+- **Prevention**: For split-horizon DNS, use dedicated external-dns instances per source type when annotation filtering is needed
+
 ### 2025-01-27 - Duplicate cloudflare-api-token OnePasswordItem in traefik
 - **Issue**: Traefik addon had duplicate OnePasswordItem definition for cloudflare-api-token
 - **Root Cause**: Copy-paste error when adding external-dns alongside traefik
