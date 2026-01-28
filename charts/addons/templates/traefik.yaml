@@ -27,7 +27,8 @@ metadata:
   name: traefik
   namespace: argocd
   annotations:
-    argocd.argoproj.io/sync-wave: "1"
+    # Sync wave 2: After cert-manager (wave 0) and ClusterIssuer (wave 1) are ready
+    argocd.argoproj.io/sync-wave: "2"
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
