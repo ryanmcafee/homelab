@@ -78,12 +78,17 @@ talosconfig
 .beads/*.db-shm
 .beads/*.db-wal
 
-# Claude
-.claude/
+# Claude (ignore local settings, allow shared commands and skills)
+.claude/*
+!.claude/commands/
+!.claude/skills/
 
 # mise
 .mise.local.toml
 .mise/
+
+# Claude local config (contains PII like IP addresses)
+CLAUDE.local.md
 
 # Terraform state lock files
 terragrunt/terraform.tfstate.d/**/.terraform.tfstate.lock.info

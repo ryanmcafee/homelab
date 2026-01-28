@@ -1,0 +1,52 @@
+# Local Environment Configuration (CLAUDE.local.md)
+
+Copy this file to `CLAUDE.local.md` and customize for your environment.
+CLAUDE.local.md is gitignored and contains environment-specific PII.
+
+## Network Configuration
+
+### IP Addresses
+| Service | IP |
+|---------|-----|
+| Gateway | 192.168.x.1 |
+| Hypervisor | 192.168.x.x |
+| NAS | 192.168.x.150 |
+| Control Plane VIP | 192.168.x.x |
+| Control Plane 1 | 192.168.x.x |
+| Control Plane 2 | 192.168.x.x |
+| Worker 1 (GPU) | 192.168.x.x |
+| Worker 2 | 192.168.x.22 |
+| Worker 3 | 192.168.x.23 |
+| LoadBalancer Pool | 192.168.x.x-z |
+| Traefik Static IP | 192.168.x.x |
+
+### Hostnames
+| Service | Hostname |
+|---------|----------|
+| Domain | example.com |
+| Proxmox | proxmox.example.com |
+| TrueNAS | truenas.example.com |
+| ArgoCD | argocd.example.com |
+| Grafana | grafana.example.com |
+
+## Hardware
+
+### GPU Configuration
+- Model: NVIDIA Quadro P2200
+- Node: worker-1
+- PCI passthrough enabled
+
+### Storage
+- TrueNAS Pool: RAIDZ3
+- Raw Capacity: ~x TB
+
+## Credentials Paths
+
+### 1Password Vault Paths
+- `op://homelab/sops-age-key/private_key` - SOPS encryption key
+- `op://homelab/truenas-api-key/credential` - TrueNAS API key
+- `op://homelab/cloudflare-api-token/credential` - Cloudflare DNS token
+
+### Local Files
+- `~/.op/op_service_account_token` - 1Password service account
+- `~/.config/sops/age/keys.txt` - Local SOPS key (for development)

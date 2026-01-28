@@ -29,6 +29,7 @@ jq = "latest"
 direnv = "latest"
 deno = "latest"
 "pipx:yamllint" = "latest"
+"npm:embedme" = "latest"  # Living documentation - embeds code snippets into markdown
 
 # Secrets Management
 op = "latest"          # 1Password CLI for secrets management
