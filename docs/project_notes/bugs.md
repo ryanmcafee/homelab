@@ -12,6 +12,13 @@ Each entry should include:
 
 ## Entries
 
+### 2025-01-27 - Ingresses returning 401/503 with oauth2-proxy middleware
+- **Issue**: Multiple ingresses (Traefik, Grafana, Sonarr, Radarr, Prowlarr, Home Assistant) returning 401 authorization or 503 errors
+- **Root Cause**: OAuth2-proxy middleware configuration issue (investigation pending)
+- **Solution**: Disabled oauth2-proxy middleware annotations on all affected ingresses
+- **Prevention**: Test oauth2-proxy separately before enabling on production ingresses
+- **Commit**: 18eacc9
+
 ### 2025-01-27 - Duplicate cloudflare-api-token OnePasswordItem in traefik
 - **Issue**: Traefik addon had duplicate OnePasswordItem definition for cloudflare-api-token
 - **Root Cause**: Copy-paste error when adding external-dns alongside traefik
