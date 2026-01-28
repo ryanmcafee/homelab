@@ -525,8 +525,8 @@ kube-prometheus-stack:
       annotations:
         cert-manager.io/cluster-issuer: letsencrypt
         external-dns.alpha.kubernetes.io/hostname: grafana.ryanmcafee.com
-        # OAuth2-Proxy authentication middleware
-        traefik.ingress.kubernetes.io/router.middlewares: oauth2-proxy-oauth2-proxy-auth@kubernetescrd
+        # OAuth2-Proxy authentication middleware (disabled for debugging)
+        # traefik.ingress.kubernetes.io/router.middlewares: oauth2-proxy-oauth2-proxy-auth@kubernetescrd
       hosts:
         - grafana.ryanmcafee.com
       tls:
