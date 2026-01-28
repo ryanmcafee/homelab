@@ -640,6 +640,8 @@ traefik:
       enabled: true
       matchRule: Host(`traefik.ryanmcafee.com`)
       entryPoints: ["websecure"]
+      tls:
+        secretName: traefik-dashboard-tls
 
   resources:
     requests:
