@@ -5,7 +5,31 @@ triggers:
   - /gitops-test
   - test gitops changes
   - test argocd sync
+  - argocd not working
+  - argocd not loading
+  - argocd bug
+  - fix argocd
+  - argocd 500 error
+  - argocd connection refused
+  - traefik ingress not working
+  - ingress routing issue
+  - gitops sync failed
+  - helm chart changes
+  - charts/* modified
+proactive: true
 ---
+
+## PROACTIVE USAGE REQUIREMENT
+
+**CRITICAL**: This skill MUST be invoked automatically (not just on explicit `/gitops-test` command) when:
+
+1. **After modifying any files in `charts/`** - Always validate changes before/after commit
+2. **When debugging ArgoCD accessibility issues** - Use tiered validation to diagnose
+3. **When ArgoCD applications show errors** - Run through validation tiers
+4. **After fixing Helm/ArgoCD configuration bugs** - Verify the fix works
+5. **Before creating PRs that touch GitOps configs** - Full validation required
+
+The agent MUST invoke this skill proactively when these conditions are met, without waiting for the user to explicitly request `/gitops-test`.
 
 # GitOps Test Skill (Optimized)
 
@@ -425,6 +449,24 @@ argocd:
 | 2 | ~5s | `helm template \| kubectl apply --dry-run=server` | CRD schema mismatches |
 | 3 | ~30s | `helm template -s templates/X.yaml \| kubectl apply` | Runtime issues |
 | 4 | ~5min | Full GitOps cycle | Integration issues |
+| 5 | ~10s | Puppeteer browser validation | Real browser accessibility |
+
+### TIER 5: Browser Validation (Required for Ingress Changes)
+
+**CRITICAL**: For any changes affecting ingress/routing, curl is NOT sufficient. Use Puppeteer MCP for real browser validation:
+
+```
+# Navigate to the endpoint
+mcp__puppeteer__puppeteer_navigate(url: "https://argocd.ryanmcafee.com/")
+
+# Take screenshot to verify
+mcp__puppeteer__puppeteer_screenshot(name: "argocd-verify", width: 1280, height: 800)
+```
+
+**Why browser validation matters:**
+- curl may succeed while browsers fail (protocol mismatches, redirects, TLS issues)
+- Screenshots provide visual proof of accessibility
+- Catches JavaScript-dependent rendering issues
 
 ### Emergency Cleanup
 

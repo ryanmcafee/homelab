@@ -43,6 +43,13 @@ Each entry should include:
 - **Solution**: Added `dashboard-redirect-slash` Middleware and IngressRoute to redirect `/dashboard` to `/dashboard/`
 - **Prevention**: Expected Traefik behavior - dashboard paths need trailing slash or redirect middleware
 
+### 2026-01-28 - ArgoCD returning 500/Bad Gateway errors
+- **Issue**: https://argocd.ryanmcafee.com returning "Bad Gateway" error, unable to access ArgoCD web UI
+- **Root Cause**: TLS termination mismatch - Traefik ingress had `serversscheme: http` annotation but ingress backend port was 443. The argo-cd helm chart uses port 80 when `configs.params.server.insecure: "true"` but defaults to 443 otherwise
+- **Solution**: Added `configs.params.server.insecure: "true"` to ArgoCD values, which tells helm chart to use HTTP port 80 for ingress backend
+- **Prevention**: When using TLS termination at ingress (Traefik), always set `server.insecure: true` in ArgoCD config. Use Puppeteer browser validation, not just curl, to verify ingress accessibility
+- **PR**: #23
+
 ### 2025-01-27 - Duplicate cloudflare-api-token OnePasswordItem in traefik
 - **Issue**: Traefik addon had duplicate OnePasswordItem definition for cloudflare-api-token
 - **Root Cause**: Copy-paste error when adding external-dns alongside traefik

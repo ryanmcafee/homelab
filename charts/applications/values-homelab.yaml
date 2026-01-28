@@ -519,6 +519,10 @@ argocd:
             end
           end
           return hs
+      # Enable insecure mode - required for Traefik TLS termination
+      # Traefik terminates TLS and forwards HTTP to ArgoCD backend
+      params:
+        server.insecure: "true"
 
     server:
       # HA configuration - 3 replicas spread across different hosts
