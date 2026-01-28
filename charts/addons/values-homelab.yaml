@@ -655,8 +655,9 @@ traefik:
   oidc:
     enabled: true
     providerURL: "https://accounts.google.com"
-    callbackURL: "https://auth.ryanmcafee.com/oauth2/callback"
-    logoutURL: "https://auth.ryanmcafee.com/oauth2/logout"
+    # Use path format - plugin constructs full URL from request host
+    callbackURL: "/oauth2/callback"
+    logoutURL: "/oauth2/logout"
     scopes:
       - openid
       - profile
