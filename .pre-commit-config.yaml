@@ -1,0 +1,90 @@
+# Pre-commit hooks for homelab GitOps validation
+# See https://pre-commit.com for more information
+# Install: pre-commit install
+# Run manually: pre-commit run --all-files
+
+repos:
+  # Helm chart validation
+  - repo: local
+    hooks:
+      - id: helm-lint
+        name: Helm Lint
+        entry: helm lint charts/gitops charts/addons charts/applications
+        language: system
+        pass_filenames: false
+        files: ^charts/
+        types: [yaml]
+
+      - id: helm-template-addons
+        name: Helm Template Addons
+        entry: bash -c 'helm template addons charts/addons -f charts/addons/values.yaml -f charts/addons/values-homelab.yaml > /dev/null'
+        language: system
+        pass_filenames: false
+        files: ^charts/addons/
+
+      - id: helm-template-applications
+        name: Helm Template Applications
+        entry: bash -c 'helm template apps charts/applications -f charts/applications/values.yaml -f charts/applications/values-homelab.yaml > /dev/null'
+        language: system
+        pass_filenames: false
+        files: ^charts/applications/
+
+      - id: helm-template-gitops
+        name: Helm Template GitOps
+        entry: bash -c 'helm template gitops charts/gitops -f charts/gitops/values.yaml -f charts/gitops/values-homelab.yaml > /dev/null'
+        language: system
+        pass_filenames: false
+        files: ^charts/gitops/
+
+      - id: kubeconform-addons
+        name: Kubeconform Addons
+        entry: bash -c 'helm template addons charts/addons -f charts/addons/values.yaml -f charts/addons/values-homelab.yaml | kubeconform -summary -schema-location default -schema-location "https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json" -skip OnePasswordItem,CiliumLoadBalancerIPPool,CiliumBGPPeeringPolicy,CiliumBGPClusterConfig,CiliumBGPPeerConfig,CiliumBGPAdvertisement,CiliumL2AnnouncementPolicy,DNSEndpoint'
+        language: system
+        pass_filenames: false
+        files: ^charts/addons/
+
+      - id: kubeconform-applications
+        name: Kubeconform Applications
+        entry: bash -c 'helm template apps charts/applications -f charts/applications/values.yaml -f charts/applications/values-homelab.yaml | kubeconform -summary -schema-location default -schema-location "https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json" -skip OnePasswordItem'
+        language: system
+        pass_filenames: false
+        files: ^charts/applications/
+
+  # YAML validation (non-template files)
+  - repo: https://github.com/adrienverge/yamllint
+    rev: v1.35.1
+    hooks:
+      - id: yamllint
+        args: [-c, .yamllint]
+        exclude: ^charts/.*/templates/
+
+  # Terraform/Terragrunt formatting
+  - repo: https://github.com/antonbabenko/pre-commit-terraform
+    rev: v1.96.1
+    hooks:
+      - id: terraform_fmt
+      - id: terragrunt_fmt
+
+  # General file hygiene
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+        exclude: ^charts/.*/templates/
+      - id: end-of-file-fixer
+        exclude: ^charts/.*/templates/
+      - id: check-yaml
+        args: [--allow-multiple-documents]
+        exclude: ^charts/.*/templates/
+      - id: check-added-large-files
+        args: [--maxkb=1000]
+      - id: check-merge-conflict
+      - id: detect-private-key
+
+# Note: Secret detection (gitleaks) runs in CI via .github/workflows/security-scan.yml
+# Local gitleaks hook removed due to Go version compatibility issues
+
+# CI configuration
+ci:
+  autofix_commit_msg: "style: pre-commit auto-fixes"
+  autoupdate_commit_msg: "chore: pre-commit autoupdate"
