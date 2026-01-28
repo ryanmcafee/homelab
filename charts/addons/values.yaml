@@ -564,7 +564,7 @@ traefik:
   chart:
     name: traefik
     repo: https://traefik.github.io/charts
-    version: 33.2.1
+    version: 39.0.0
 
   # Service configuration
   service:
@@ -574,28 +574,31 @@ traefik:
   # Ports configuration
   ports:
     web:
-      port: 80
+      port: 8000
+      exposedPort: 80
       expose:
         default: true
-      # Redirect HTTP to HTTPS
-      redirectTo:
-        port: websecure
+      # Redirect HTTP to HTTPS (v39+ format)
+      http:
+        redirections:
+          entryPoint:
+            to: websecure
+            scheme: https
+            permanent: true
     websecure:
-      port: 443
+      port: 8443
+      exposedPort: 443
       expose:
         default: true
-      tls:
-        enabled: true
-        # TLS certificates managed by cert-manager, not Traefik ACME
-        # This allows for multiple replicas
+      asDefault: true
+      http:
+        tls:
+          enabled: true
 
-  # Global arguments
-  globalArguments:
+  # Global arguments moved to additionalArguments in v39+
+  additionalArguments:
     - --global.checknewversion=false
     - --global.sendanonymoususage=false
-
-  # Additional arguments (ACME removed - using cert-manager for HA compatibility)
-  additionalArguments: []
 
   # Environment variables
   env: []
