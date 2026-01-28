@@ -113,9 +113,7 @@ spec:
     namespace: {{ index .Values "kube-prometheus-stack" "namespace" }}
 
   syncPolicy:
-    automated:
-      prune: true
-      selfHeal: true
+    # Automatic sync disabled - manual sync only
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true

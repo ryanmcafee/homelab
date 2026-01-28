@@ -64,11 +64,11 @@ addons:
 
   # Sync policy
   syncPolicy:
-    # Automatically sync when changes detected
-    automated:
-      prune: true
-      selfHeal: true
-      allowEmpty: false
+    # Automatic sync disabled - manual sync only
+    # automated:
+    #   prune: true
+    #   selfHeal: true
+    #   allowEmpty: false
 
     # Sync options
     syncOptions:
@@ -114,11 +114,11 @@ applications:
 
   # Sync policy
   syncPolicy:
-    # Automatically sync when changes detected
-    automated:
-      prune: true
-      selfHeal: true
-      allowEmpty: false
+    # Automatic sync disabled - manual sync only
+    # automated:
+    #   prune: true
+    #   selfHeal: true
+    #   allowEmpty: false
 
     # Sync options
     syncOptions:
