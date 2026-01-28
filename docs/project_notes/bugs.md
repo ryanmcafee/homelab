@@ -25,6 +25,18 @@ Each entry should include:
 - **Solution**: Split into two instances: `external-dns-unifi-crd` (CRD source only) and `external-dns-unifi-ingress` (ingress/service with annotation filter). Each has separate txt-owner-id to avoid conflicts
 - **Prevention**: For split-horizon DNS, use dedicated external-dns instances per source type when annotation filtering is needed
 
+### 2026-01-28 - external-dns-unifi-crd missing RBAC for DNSEndpoint access
+- **Issue**: external-dns-unifi-crd pod in CrashLoopBackOff with "dnsendpoints.externaldns.k8s.io is forbidden" error
+- **Root Cause**: external-dns helm chart doesn't generate RBAC rules for `externaldns.k8s.io` API group even when `sources: [crd]` is configured
+- **Solution**: Added manual ClusterRole and ClusterRoleBinding for `externaldns.k8s.io` API group permissions
+- **Prevention**: When using CRD source with external-dns, verify RBAC includes `externaldns.k8s.io` API group
+
+### 2026-01-28 - Traefik dashboard using self-signed certificate instead of Let's Encrypt
+- **Issue**: Traefik dashboard at traefik.ryanmcafee.com showing self-signed certificate despite cert-manager Certificate existing
+- **Root Cause**: ArgoCD `ignoreDifferences` rule on IngressRoute `.spec` was preventing TLS configuration from being applied
+- **Solution**: Removed the ignoreDifferences rule for traefik-dashboard IngressRoute, allowing helm chart TLS settings to sync
+- **Prevention**: Avoid blanket ignoreDifferences on `.spec` - use specific field paths instead
+
 ### 2025-01-27 - Duplicate cloudflare-api-token OnePasswordItem in traefik
 - **Issue**: Traefik addon had duplicate OnePasswordItem definition for cloudflare-api-token
 - **Root Cause**: Copy-paste error when adding external-dns alongside traefik
