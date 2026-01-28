@@ -111,6 +111,10 @@ spec:
             matchRule: {{ .Values.traefik.ingressRoute.dashboard.matchRule }}
             entryPoints:
               {{- toYaml .Values.traefik.ingressRoute.dashboard.entryPoints | nindent 14 }}
+            {{- if .Values.traefik.ingressRoute.dashboard.tls }}
+            tls:
+              secretName: {{ .Values.traefik.ingressRoute.dashboard.tls.secretName }}
+            {{- end }}
             {{- end }}
 
         resources:
@@ -154,34 +158,35 @@ spec:
       jqPathExpressions:
         - .spec
 ---
-# Standard Ingress for Traefik dashboard (external-dns compatibility)
-# IngressRoute CRD is not watched by external-dns, so we need a standard Ingress
-apiVersion: networking.k8s.io/v1
-kind: Ingress
+# DNSEndpoint for external-dns to create DNS record for Traefik dashboard
+# (Standard Ingress removed - was conflicting with IngressRoute from Traefik helm chart)
+apiVersion: externaldns.k8s.io/v1alpha1
+kind: DNSEndpoint
 metadata:
   name: traefik-dashboard
   namespace: {{ .Values.traefik.namespace }}
   annotations:
     argocd.argoproj.io/sync-wave: "8"
-    cert-manager.io/cluster-issuer: letsencrypt
-    external-dns.alpha.kubernetes.io/hostname: traefik.{{ .Values.global.domain }}
-    # OAuth2-Proxy authentication middleware (disabled for debugging)
-    # traefik.ingress.kubernetes.io/router.middlewares: oauth2-proxy-oauth2-proxy-auth@kubernetescrd
 spec:
-  ingressClassName: traefik
-  rules:
-    - host: traefik.{{ .Values.global.domain }}
-      http:
-        paths:
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                name: traefik
-                port:
-                  name: traefik
-  tls:
-    - hosts:
-        - traefik.{{ .Values.global.domain }}
-      secretName: traefik-dashboard-tls
+  endpoints:
+    - dnsName: traefik.{{ .Values.global.domain }}
+      recordType: A
+      targets:
+        - {{ (index (.Values.traefik.service.annotations | default dict) "io.cilium/lb-ipam-ips") | default "172.16.100.200" | quote }}
+---
+# Certificate for Traefik dashboard TLS (IngressRoute doesn't auto-create)
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: traefik-dashboard-tls
+  namespace: {{ .Values.traefik.namespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+spec:
+  secretName: traefik-dashboard-tls
+  issuerRef:
+    name: letsencrypt
+    kind: ClusterIssuer
+  dnsNames:
+    - traefik.{{ .Values.global.domain }}
 {{- end }}
