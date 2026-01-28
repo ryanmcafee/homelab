@@ -1,33 +1,107 @@
 ---
 name: gitops-test
-description: Test ArgoCD/GitOps updates by temporarily pointing applications to a feature branch, syncing, verifying, and creating PRs
+description: Test ArgoCD/GitOps updates by temporarily pointing applications to a feature branch, syncing, verifying, and creating PRs. MUST be invoked automatically after ANY modification to charts/ files before committing.
 triggers:
+  # Explicit invocation
   - /gitops-test
   - test gitops changes
-  - test argocd sync
+  - validate helm changes
+  - validate chart changes
+
+  # ArgoCD issues
   - argocd not working
   - argocd not loading
   - argocd bug
   - fix argocd
   - argocd 500 error
   - argocd connection refused
+  - argocd sync failed
+  - gitops sync failed
+
+  # Ingress/routing issues
   - traefik ingress not working
   - ingress routing issue
-  - gitops sync failed
-  - helm chart changes
-  - charts/* modified
+  - ingress not accessible
+  - middleware not working
+
+  # Pre-commit validation (CRITICAL - invoke before offering to commit)
+  - ready to commit charts
+  - commit helm changes
+  - commit chart changes
+  - before committing
+
+  # Implementation patterns that modify charts
+  - implement.*traefik
+  - implement.*middleware
+  - implement.*ingress
+  - add.*middleware
+  - add.*plugin
+  - configure.*oidc
+  - configure.*authentication
+  - replace.*oauth2-proxy
+  - update traefik
+  - update helm values
+  - modify charts
+
+  # File change patterns
+  - charts/addons modified
+  - charts/applications modified
+  - values-homelab.yaml modified
+  - traefik.yaml modified
 proactive: true
+proactive_conditions:
+  # MUST invoke after ANY of these file patterns are modified
+  - file_modified: "charts/addons/templates/*.yaml"
+  - file_modified: "charts/addons/values*.yaml"
+  - file_modified: "charts/applications/templates/*.yaml"
+  - file_modified: "charts/applications/values*.yaml"
+  - file_modified: "charts/gitops/templates/*.yaml"
+  - file_modified: "charts/gitops/values*.yaml"
+  # MUST invoke before commit when charts/ files are staged
+  - before_action: "git commit"
+    when_staged: "charts/**"
 ---
 
 ## PROACTIVE USAGE REQUIREMENT
 
 **CRITICAL**: This skill MUST be invoked automatically (not just on explicit `/gitops-test` command) when:
 
-1. **After modifying any files in `charts/`** - Always validate changes before/after commit
-2. **When debugging ArgoCD accessibility issues** - Use tiered validation to diagnose
-3. **When ArgoCD applications show errors** - Run through validation tiers
-4. **After fixing Helm/ArgoCD configuration bugs** - Verify the fix works
-5. **Before creating PRs that touch GitOps configs** - Full validation required
+1. **IMMEDIATELY after modifying any files in `charts/`** - Run Tier 1-2 validation before proceeding
+2. **BEFORE offering to commit chart changes** - NEVER offer "would you like me to commit?" without running validation first
+3. **After implementing features that touch Helm templates** - traefik, middleware, ingress, authentication, etc.
+4. **When debugging ArgoCD accessibility issues** - Use tiered validation to diagnose
+5. **When ArgoCD applications show errors** - Run through validation tiers
+6. **After fixing Helm/ArgoCD configuration bugs** - Verify the fix works
+7. **Before creating PRs that touch GitOps configs** - Full validation required
+
+### Proactive Invocation Checklist
+
+Before saying "ready to commit" or "would you like me to commit?", the agent MUST:
+
+```
+□ Check if any charts/* files were modified in this session
+□ If yes → Run gitops-test Tier 1-2 validation
+□ Only after validation passes → Offer to commit
+```
+
+### Example Workflow (CORRECT)
+
+```
+User: "Replace oauth2-proxy with traefik OIDC plugin"
+Agent: [modifies charts/addons/templates/traefik.yaml]
+Agent: [modifies charts/addons/values-homelab.yaml]
+Agent: [INVOKES /gitops-test skill - Tier 1-2 validation]
+Agent: "Validation passed. Would you like me to commit these changes?"
+```
+
+### Example Workflow (INCORRECT - DO NOT DO THIS)
+
+```
+User: "Replace oauth2-proxy with traefik OIDC plugin"
+Agent: [modifies charts/addons/templates/traefik.yaml]
+Agent: [modifies charts/addons/values-homelab.yaml]
+Agent: "Would you like me to commit these changes?"  ← WRONG: No validation!
+```
 
 The agent MUST invoke this skill proactively when these conditions are met, without waiting for the user to explicitly request `/gitops-test`.
 
