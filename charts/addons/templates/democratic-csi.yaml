@@ -115,9 +115,7 @@ spec:
     namespace: {{ index .Values "democratic-csi" "namespace" }}
 
   syncPolicy:
-    automated:
-      prune: true
-      selfHeal: true
+    # Automatic sync disabled - manual sync only
     syncOptions:
       - ServerSideApply=true
       - ApplyOutOfSyncOnly=true

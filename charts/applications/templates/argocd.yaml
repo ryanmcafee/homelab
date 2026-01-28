@@ -30,10 +30,7 @@ spec:
     namespace: {{ .Values.argocd.namespace | default "argocd" }}
 
   syncPolicy:
-    automated:
-      prune: true
-      selfHeal: true
-      allowEmpty: false
+    # Automatic sync disabled - manual sync only
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true

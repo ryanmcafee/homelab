@@ -140,9 +140,7 @@ spec:
     namespace: {{ index .Values "nvidia-gpu-operator" "namespace" }}
 
   syncPolicy:
-    automated:
-      prune: true
-      selfHeal: true
+    # Automatic sync disabled - manual sync only
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
