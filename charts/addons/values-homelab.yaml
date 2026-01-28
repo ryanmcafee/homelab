@@ -603,7 +603,7 @@ traefik:
   chart:
     name: traefik
     repo: https://traefik.github.io/charts
-    version: 33.2.1
+    version: 39.0.0
 
   service:
     type: LoadBalancer
@@ -615,24 +615,32 @@ traefik:
 
   ports:
     web:
-      port: 80
+      port: 8000
+      exposedPort: 80
       expose:
         default: true
-      redirectTo:
-        port: websecure
+      http:
+        redirections:
+          entryPoint:
+            to: websecure
+            scheme: https
+            permanent: true
     websecure:
-      port: 443
+      port: 8443
+      exposedPort: 443
       expose:
         default: true
-      tls:
-        enabled: true
-        # TLS certificates managed by cert-manager for HA compatibility
+      asDefault: true
+      http:
+        tls:
+          enabled: true
     traefik:
       port: 9000
       expose:
         default: true
 
-  globalArguments:
+  # Global arguments moved to additionalArguments in v39+
+  additionalArguments:
     - --global.checknewversion=false
     - --global.sendanonymoususage=false
 
@@ -666,9 +674,6 @@ traefik:
     - name: oidc-session-key
       mountPath: /etc/traefik/oidc/session
       type: secret
-
-  # ACME removed - using cert-manager for TLS certificates (HA compatible)
-  additionalArguments: []
 
   env: []
 

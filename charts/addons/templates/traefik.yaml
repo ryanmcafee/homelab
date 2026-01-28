@@ -55,32 +55,44 @@ spec:
           kubernetesIngress:
             publishedService:
               enabled: true
+          # Enable cross-namespace references for middlewares
+          kubernetesCRD:
+            allowCrossNamespace: true
 
         ports:
           web:
             port: {{ .Values.traefik.ports.web.port }}
+            exposedPort: {{ .Values.traefik.ports.web.exposedPort | default 80 }}
             expose:
               default: {{ .Values.traefik.ports.web.expose.default }}
-            {{- if .Values.traefik.ports.web.redirectTo }}
-            redirectTo:
-              port: {{ .Values.traefik.ports.web.redirectTo.port }}
+            {{- if .Values.traefik.ports.web.http }}
+            http:
+              {{- if .Values.traefik.ports.web.http.redirections }}
+              redirections:
+                entryPoint:
+                  to: {{ .Values.traefik.ports.web.http.redirections.entryPoint.to }}
+                  scheme: {{ .Values.traefik.ports.web.http.redirections.entryPoint.scheme }}
+                  permanent: {{ .Values.traefik.ports.web.http.redirections.entryPoint.permanent }}
+              {{- end }}
             {{- end }}
           websecure:
             port: {{ .Values.traefik.ports.websecure.port }}
+            exposedPort: {{ .Values.traefik.ports.websecure.exposedPort | default 443 }}
             expose:
               default: {{ .Values.traefik.ports.websecure.expose.default }}
-            tls:
-              enabled: {{ .Values.traefik.ports.websecure.tls.enabled }}
+            {{- if .Values.traefik.ports.websecure.asDefault }}
+            asDefault: {{ .Values.traefik.ports.websecure.asDefault }}
+            {{- end }}
+            {{- if .Values.traefik.ports.websecure.http }}
+            http:
+              tls:
+                enabled: {{ .Values.traefik.ports.websecure.http.tls.enabled }}
+            {{- end }}
           {{- if .Values.traefik.ports.traefik }}
           traefik:
             port: {{ .Values.traefik.ports.traefik.port }}
             expose:
               default: {{ .Values.traefik.ports.traefik.expose.default }}
-          {{- end }}
-
-        globalArguments:
-          {{- range .Values.traefik.globalArguments }}
-          - {{ . }}
           {{- end }}
 
         {{- if .Values.traefik.additionalArguments }}
@@ -261,6 +273,51 @@ metadata:
 spec:
   itemPath: {{ .Values.traefik.oidc.sessionEncryptionKeyPath | quote }}
 ---
+# Redis for OIDC session storage (required for multi-replica Traefik)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: oidc-redis
+  namespace: {{ .Values.traefik.namespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "7"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: oidc-redis
+  template:
+    metadata:
+      labels:
+        app: oidc-redis
+    spec:
+      containers:
+        - name: redis
+          image: redis:7-alpine
+          ports:
+            - containerPort: 6379
+          resources:
+            requests:
+              memory: "64Mi"
+              cpu: "50m"
+            limits:
+              memory: "128Mi"
+              cpu: "100m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: oidc-redis
+  namespace: {{ .Values.traefik.namespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "7"
+spec:
+  selector:
+    app: oidc-redis
+  ports:
+    - port: 6379
+      targetPort: 6379
+---
 # OIDC Authentication Middleware (replaces oauth2-proxy)
 # This middleware handles Google OIDC authentication with automatic redirects
 apiVersion: traefik.io/v1alpha1
@@ -273,18 +330,26 @@ metadata:
 spec:
   plugin:
     traefikoidc:
-      ProviderURL: {{ .Values.traefik.oidc.providerURL | quote }}
-      ClientID: "urn:k8s:secret:google-oauth-credentials:client_id"
-      ClientSecret: "urn:k8s:secret:google-oauth-credentials:client_secret"
-      CallbackURL: {{ .Values.traefik.oidc.callbackURL | quote }}
-      LogoutURL: {{ .Values.traefik.oidc.logoutURL | quote }}
-      SessionEncryptionKey: "urn:k8s:secret:oidc-session-key:oidc-session-key"
-      Scopes:
+      providerURL: {{ .Values.traefik.oidc.providerURL | quote }}
+      clientID: "urn:k8s:secret:google-oauth-credentials:client_id"
+      clientSecret: "urn:k8s:secret:google-oauth-credentials:client_secret"
+      callbackURL: {{ .Values.traefik.oidc.callbackURL | quote }}
+      logoutURL: {{ .Values.traefik.oidc.logoutURL | quote }}
+      sessionEncryptionKey: "urn:k8s:secret:oidc-session-key:oidc-session-key"
+      scopes:
         {{- toYaml .Values.traefik.oidc.scopes | nindent 8 }}
-      AllowedUserDomains:
+      allowedUserDomains:
         {{- toYaml .Values.traefik.oidc.allowedDomains | nindent 8 }}
-      LogLevel: "info"
-      ForceHTTPS: true
+      # Cookie domain for cross-subdomain authentication
+      cookieDomain: ".{{ .Values.global.domain }}"
+      # Redis for shared session storage across Traefik replicas
+      redis:
+        enabled: true
+        address: "oidc-redis.{{ .Values.traefik.namespace }}.svc.cluster.local:6379"
+        keyPrefix: "traefikoidc:"
+        cacheMode: "hybrid"
+      logLevel: "debug"
+      forceHTTPS: true
 ---
 # Certificate for auth domain (OIDC callback endpoint)
 apiVersion: cert-manager.io/v1
@@ -318,7 +383,7 @@ spec:
         - {{ (index (.Values.traefik.service.annotations | default dict) "io.cilium/lb-ipam-ips") | default "172.16.100.200" | quote }}
 ---
 # IngressRoute for auth domain - handles OIDC callbacks
-# The oidc-auth middleware intercepts /oauth2/* paths for authentication
+# Middleware required to process OAuth callback and token exchange
 apiVersion: traefik.io/v1alpha1
 kind: IngressRoute
 metadata:
