@@ -37,7 +37,7 @@ source "proxmox-iso" "truenas" {
   iso_url          = "https://download.sys.truenas.net/TrueNAS-SCALE-Goldeye/${var.truenas_version}/TrueNAS-SCALE-${var.truenas_version}.iso"
   iso_checksum     = "none"
   iso_storage_pool = var.iso_storage
-  unmount_iso      = false  # Keep ISO for manual installation
+  unmount_iso      = false # Keep ISO for manual installation
 
   # Hardware configuration
   qemu_agent      = false

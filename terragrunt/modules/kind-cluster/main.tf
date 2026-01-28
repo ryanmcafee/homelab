@@ -21,10 +21,10 @@ resource "kind_cluster" "this" {
 
     # Networking configuration
     networking {
-      api_server_address = var.api_server_address
-      api_server_port    = var.api_server_port
-      pod_subnet         = var.pod_subnet
-      service_subnet     = var.service_subnet
+      api_server_address  = var.api_server_address
+      api_server_port     = var.api_server_port
+      pod_subnet          = var.pod_subnet
+      service_subnet      = var.service_subnet
       disable_default_cni = var.disable_default_cni
     }
 

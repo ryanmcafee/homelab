@@ -18,7 +18,7 @@ locals {
 
   # Transform kubeconfig to use the VIP endpoint if vip_endpoint is set
   # This ensures HA by routing through the VIP instead of a single node
-  kubeconfig_raw = talos_cluster_kubeconfig.this.kubeconfig_raw
+  kubeconfig_raw    = talos_cluster_kubeconfig.this.kubeconfig_raw
   kubeconfig_parsed = yamldecode(local.kubeconfig_raw)
 
   # Build the corrected kubeconfig with VIP endpoint
@@ -33,9 +33,9 @@ locals {
         })
       }
     ]
-    contexts       = local.kubeconfig_parsed.contexts
+    contexts        = local.kubeconfig_parsed.contexts
     current-context = local.kubeconfig_parsed["current-context"]
-    users          = local.kubeconfig_parsed.users
+    users           = local.kubeconfig_parsed.users
   }) : local.kubeconfig_raw
 }
 
@@ -140,7 +140,7 @@ resource "talos_machine_configuration_apply" "worker" {
 # Generate kubeconfig from the bootstrap node
 resource "talos_cluster_kubeconfig" "this" {
   # depends_on = [data.talos_cluster_health.controlplane]
-  depends_on = [talos_machine_bootstrap.this,]
+  depends_on = [talos_machine_bootstrap.this, ]
 
   client_configuration = var.client_configuration
   node                 = local.bootstrap_node_ip

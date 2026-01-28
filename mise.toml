@@ -26,10 +26,15 @@ task = "latest"
 
 # Utilities
 jq = "latest"
+yq = "latest"             # YAML processor for extracting chart values
 direnv = "latest"
 deno = "latest"
 "pipx:yamllint" = "latest"
+"pipx:pre-commit" = "latest"  # Git hooks framework
 "npm:embedme" = "latest"  # Living documentation - embeds code snippets into markdown
+
+# Kubernetes Validation
+kubeconform = "latest"    # Kubernetes manifest schema validation
 
 # Secrets Management
 op = "latest"          # 1Password CLI for secrets management
@@ -76,7 +81,10 @@ task --version
 echo ""
 echo "Utilities:"
 jq --version
+yq --version
 direnv --version
+kubeconform -v
+pre-commit --version
 echo ""
 echo "Secrets Management:"
 op --version

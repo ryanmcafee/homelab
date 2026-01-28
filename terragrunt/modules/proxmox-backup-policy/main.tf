@@ -27,7 +27,7 @@ locals {
 
   # Build notification parameters
   mailnotification = var.notification_enabled ? var.notification_mode : null
-  mailto          = var.notification_enabled && var.notification_target != null ? var.notification_target : null
+  mailto           = var.notification_enabled && var.notification_target != null ? var.notification_target : null
 
   # SSH connection string
   ssh_cmd = "ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i ${var.proxmox_ssh_private_key} -p ${var.proxmox_ssh_port} ${var.proxmox_ssh_user}@${var.proxmox_host}"
@@ -53,22 +53,22 @@ locals {
 # Create backup schedule via pvesh
 resource "null_resource" "backup_schedule" {
   triggers = {
-    schedule_id       = var.schedule_id
-    schedule          = var.schedule
-    storage           = var.storage
-    mode              = var.mode
-    compression       = var.compression
-    enabled           = var.enabled
-    prune_backups     = local.prune_backups
-    all_vms           = local.all_vms
-    vmid_list         = local.vmid_list
-    tags              = join(",", var.tags)
-    mailnotification  = local.mailnotification
-    mailto            = local.mailto
-    ssh_host          = var.proxmox_host
-    ssh_user          = var.proxmox_ssh_user
-    ssh_port          = var.proxmox_ssh_port
-    ssh_key           = var.proxmox_ssh_private_key
+    schedule_id      = var.schedule_id
+    schedule         = var.schedule
+    storage          = var.storage
+    mode             = var.mode
+    compression      = var.compression
+    enabled          = var.enabled
+    prune_backups    = local.prune_backups
+    all_vms          = local.all_vms
+    vmid_list        = local.vmid_list
+    tags             = join(",", var.tags)
+    mailnotification = local.mailnotification
+    mailto           = local.mailto
+    ssh_host         = var.proxmox_host
+    ssh_user         = var.proxmox_ssh_user
+    ssh_port         = var.proxmox_ssh_port
+    ssh_key          = var.proxmox_ssh_private_key
   }
 
   # Create or update backup schedule

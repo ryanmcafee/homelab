@@ -174,10 +174,10 @@ variable "gpu_pci_id" {
 variable "gpu_device" {
   description = "GPU device configuration for hardware mapping"
   type = object({
-    device_id    = string  # Vendor:Device ID (e.g., "10de:1b80")
-    subsystem_id = string  # Subsystem ID (e.g., "10de:11bc")
-    iommu_group  = number  # IOMMU group number
-    description  = string  # Human-readable description
+    device_id    = string # Vendor:Device ID (e.g., "10de:1b80")
+    subsystem_id = string # Subsystem ID (e.g., "10de:11bc")
+    iommu_group  = number # IOMMU group number
+    description  = string # Human-readable description
   })
   default = null
 }

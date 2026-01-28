@@ -1,7 +1,7 @@
-FAN1             | 980.000    | RPM        | ok    | na        | 140.000   | na        | na        | na        | na        
-FAN2             | na         |            | na    | na        | na        | na        | na        | na        | na        
-FAN3             | 980.000    | RPM        | ok    | na        | 140.000   | na        | na        | na        | na        
-FAN4             | 980.000    | RPM        | ok    | na        | 140.000   | na        | na        | na        | na        
-FAN5             | 2240.000   | RPM        | ok    | na        | 420.000   | na        | na        | na        | na        
-FANA             | na         |            | na    | na        | na        | na        | na        | na        | na        
-FANB             | na         |            | na    | na        | na        | na        | na        | na        | na        
+FAN1             | 980.000    | RPM        | ok    | na        | 140.000   | na        | na        | na        | na
+FAN2             | na         |            | na    | na        | na        | na        | na        | na        | na
+FAN3             | 980.000    | RPM        | ok    | na        | 140.000   | na        | na        | na        | na
+FAN4             | 980.000    | RPM        | ok    | na        | 140.000   | na        | na        | na        | na
+FAN5             | 2240.000   | RPM        | ok    | na        | 420.000   | na        | na        | na        | na
+FANA             | na         |            | na    | na        | na        | na        | na        | na        | na
+FANB             | na         |            | na    | na        | na        | na        | na        | na        | na
