@@ -11,6 +11,16 @@ triggers:
 
 Test ArgoCD/GitOps changes with minimal feedback loop using tiered validation.
 
+## Prerequisites
+
+Tools managed via `mise.toml` (run `mise install` if missing):
+- `helm` - Chart templating and linting
+- `kubectl` - Cluster operations
+- `argocd` - ArgoCD CLI
+- `kubeconform` - Kubernetes schema validation
+- `yq` - YAML processing
+- `pre-commit` - Git hooks (already installed via `pre-commit install`)
+
 ## Scope
 
 This skill monitors and tests changes to:
@@ -91,46 +101,44 @@ task chart:template:apps      # applications
 
 ### 1.3 Kubernetes Schema Validation (kubeconform)
 
-Install kubeconform if missing:
+Validate rendered manifests with CRD catalog:
 ```bash
-brew install kubeconform  # macOS
+# Validate addons with CRD schemas from datree catalog
+helm template addons charts/addons \
+  -f charts/addons/values.yaml \
+  -f charts/addons/values-homelab.yaml | \
+  kubeconform -summary \
+    -schema-location default \
+    -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' \
+    -skip OnePasswordItem,CiliumLoadBalancerIPPool,CiliumBGPPeeringPolicy,CiliumBGPClusterConfig,CiliumBGPPeerConfig,CiliumBGPAdvertisement,CiliumL2AnnouncementPolicy,DNSEndpoint
+
+# Validate applications
+helm template apps charts/applications \
+  -f charts/applications/values.yaml \
+  -f charts/applications/values-homelab.yaml | \
+  kubeconform -summary \
+    -schema-location default \
+    -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' \
+    -skip OnePasswordItem
 ```
 
-Validate rendered manifests:
-```bash
-# Validate with ArgoCD CRD schemas
-kubeconform -summary -output pretty \
-  -schema-location default \
-  -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' \
-  /tmp/addons-rendered.yaml
+**Note**: Pre-commit hooks automatically run kubeconform on chart changes.
 
-# Skip unknown CRDs (OnePasswordItem, etc.)
-kubeconform -summary -output pretty \
-  -skip OnePasswordItem,CiliumLoadBalancerIPPool,CiliumBGPPeeringPolicy \
-  /tmp/addons-rendered.yaml
-```
+### 1.4 Quick Validation (Pre-commit)
 
-### 1.4 Quick Validation Script
+The fastest way to run Tier 1 validation is via pre-commit hooks:
 
 ```bash
-#!/bin/bash
-# fast-validate.sh - Run all Tier 1 checks
+# Run all Helm and kubeconform checks
+pre-commit run --all-files
 
-set -e
-echo "=== TIER 1: Local Validation ==="
-
-echo "[1/3] Helm lint..."
-helm lint charts/gitops charts/addons charts/applications
-
-echo "[2/3] Helm template..."
-helm template addons charts/addons -f charts/addons/values.yaml -f charts/addons/values-homelab.yaml > /tmp/addons.yaml
-helm template apps charts/applications -f charts/applications/values.yaml -f charts/applications/values-homelab.yaml > /tmp/apps.yaml
-
-echo "[3/3] Schema validation..."
-kubeconform -summary -skip OnePasswordItem,CiliumLoadBalancerIPPool,CiliumBGPPeeringPolicy /tmp/addons.yaml /tmp/apps.yaml
-
-echo "✓ Tier 1 PASSED"
+# Run specific hooks
+pre-commit run helm-lint --all-files
+pre-commit run kubeconform-addons --all-files
+pre-commit run kubeconform-applications --all-files
 ```
+
+**Pre-commit runs automatically on `git commit`** - no manual validation needed for most workflows.
 
 ---
 
@@ -369,68 +377,41 @@ kubectl get applications -n argocd -o custom-columns='NAME:.metadata.name,REVISI
 
 ---
 
-## Optimization Recommendations
+## Current Tooling
 
-### Enable Webhooks (Eliminate 3-min Polling)
+### Pre-commit Hooks (Installed)
 
-Add to `charts/applications/values-homelab.yaml` under ArgoCD config:
+Pre-commit hooks are configured in `.pre-commit-config.yaml` and run automatically on commit:
 
+| Hook | Purpose |
+|------|---------|
+| `helm-lint` | Validate Helm chart syntax |
+| `helm-template-*` | Test chart rendering |
+| `kubeconform-*` | K8s schema validation with CRD catalog |
+| `yamllint` | YAML syntax (non-templates) |
+| `terraform_fmt` | Auto-format Terraform |
+| `trailing-whitespace` | Remove trailing whitespace |
+| `detect-private-key` | Block private keys |
+
+### Future Optimization: Enable Webhooks
+
+To eliminate ArgoCD's 3-minute polling delay, configure GitHub webhooks:
+
+1. Add to `charts/applications/values-homelab.yaml`:
 ```yaml
 argocd:
   values:
     configs:
       secret:
-        # GitHub webhook secret
         webhook.github.secret: <base64-encoded-secret>
 ```
 
-Then configure GitHub webhook at:
-- URL: `https://argocd.ryanmcafee.com/api/webhook`
-- Content type: `application/json`
-- Events: `push`, `pull_request`
+2. Configure GitHub webhook:
+   - URL: `https://argocd.ryanmcafee.com/api/webhook`
+   - Content type: `application/json`
+   - Events: `push`, `pull_request`
 
 **Time saved**: 0-180s per sync cycle.
-
-### Add Pre-commit Hooks
-
-Create `.pre-commit-config.yaml`:
-
-```yaml
-repos:
-  - repo: local
-    hooks:
-      - id: helm-lint
-        name: Helm Lint
-        entry: helm lint charts/gitops charts/addons charts/applications
-        language: system
-        pass_filenames: false
-        files: ^charts/
-
-      - id: helm-template
-        name: Helm Template
-        entry: bash -c 'helm template addons charts/addons -f charts/addons/values.yaml > /dev/null'
-        language: system
-        pass_filenames: false
-        files: ^charts/addons/
-```
-
-Install: `pre-commit install`
-
-### Add kubeconform to CI
-
-Add to `.github/workflows/tilt-ci.yml`:
-
-```yaml
-- name: Install kubeconform
-  run: |
-    curl -sL https://github.com/yannh/kubeconform/releases/download/v0.6.4/kubeconform-linux-amd64.tar.gz | tar xz
-    sudo mv kubeconform /usr/local/bin/
-
-- name: Validate Kubernetes manifests
-  run: |
-    helm template addons charts/addons -f charts/addons/values.yaml | \
-      kubeconform -summary -skip OnePasswordItem
-```
 
 ---
 
@@ -440,7 +421,7 @@ Add to `.github/workflows/tilt-ci.yml`:
 
 | Tier | Time | Command | Catches |
 |------|------|---------|---------|
-| 1 | ~2s | `task chart:lint` | Syntax, missing values |
+| 1 | ~2s | `pre-commit run --all-files` | Syntax, schema, formatting |
 | 2 | ~5s | `helm template \| kubectl apply --dry-run=server` | CRD schema mismatches |
 | 3 | ~30s | `helm template -s templates/X.yaml \| kubectl apply` | Runtime issues |
 | 4 | ~5min | Full GitOps cycle | Integration issues |
