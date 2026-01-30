@@ -77,6 +77,9 @@ spec:
               - apiGroups: ["traefik.io"]
                 resources: ["ingressroutes"]
                 verbs: ["get", "list"]
+              - apiGroups: ["argoproj.io"]
+                resources: ["workflowtaskresults"]
+                verbs: ["create", "patch"]
           - apiVersion: rbac.authorization.k8s.io/v1
             kind: ClusterRoleBinding
             metadata:
@@ -140,13 +143,19 @@ spec:
                           echo "URL: $URL"
                           echo "============================================"
 
-                          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+                          # Capture headers to detect OIDC redirects (don't follow redirects)
+                          RESPONSE=$(curl -s -D - -o /dev/null \
                             --connect-timeout 10 \
                             --max-time 30 \
-                            -L \
                             "$URL" 2>&1) || true
 
+                          HTTP_CODE=$(echo "$RESPONSE" | head -1 | grep -oE '[0-9]{3}' | head -1)
+                          LOCATION=$(echo "$RESPONSE" | grep -i "^location:" | sed 's/location: //i' | tr -d '\r')
+
                           echo "HTTP Status Code: $HTTP_CODE"
+                          if [ -n "$LOCATION" ]; then
+                            echo "Redirect Location: $LOCATION"
+                          fi
 
                           if [ -z "$HTTP_CODE" ] || [ "$HTTP_CODE" = "000" ]; then
                             echo "ERROR: Connection failed - ingress is not accessible"
@@ -169,8 +178,13 @@ spec:
                           fi
 
                           if [ "$EXPECT_AUTH" = "true" ]; then
-                            if [ "$HTTP_CODE" = "401" ] || [ "$HTTP_CODE" = "302" ] || [ "$HTTP_CODE" = "303" ]; then
-                              echo "OK: Authentication required as expected (HTTP $HTTP_CODE)"
+                            # Check for OIDC redirect to Google
+                            if echo "$LOCATION" | grep -qi "accounts.google.com"; then
+                              echo "OK: OIDC authentication redirect to Google detected (HTTP $HTTP_CODE)"
+                            elif [ "$HTTP_CODE" = "401" ]; then
+                              echo "OK: Authentication required as expected (HTTP 401)"
+                            elif [ "$HTTP_CODE" = "302" ] || [ "$HTTP_CODE" = "303" ]; then
+                              echo "OK: Authentication redirect detected (HTTP $HTTP_CODE)"
                             elif [ "$HTTP_CODE" = "200" ]; then
                               echo "WARNING: Expected authentication but got HTTP 200 - auth may be disabled"
                             else
@@ -189,11 +203,11 @@ spec:
                           echo "============================================"
                       env:
                         - name: NAME
-                          value: '{{ "{{ \"{{inputs.parameters.name}}\" }}" }}'
+                          value: '{{`{{inputs.parameters.name}}`}}'
                         - name: URL
-                          value: '{{ "{{ \"{{inputs.parameters.url}}\" }}" }}'
+                          value: '{{`{{inputs.parameters.url}}`}}'
                         - name: EXPECT_AUTH
-                          value: '{{ "{{ \"{{inputs.parameters.expect-auth}}\" }}" }}'
+                          value: '{{`{{inputs.parameters.expect-auth}}`}}'
                       resources:
                         requests:
                           cpu: 50m
