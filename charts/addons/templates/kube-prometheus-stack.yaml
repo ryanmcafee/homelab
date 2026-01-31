@@ -67,6 +67,8 @@ spec:
             annotations:
               cert-manager.io/cluster-issuer: letsencrypt
               external-dns.alpha.kubernetes.io/hostname: {{ index (index .Values "kube-prometheus-stack" "grafana" "ingress" "hosts") 0 }}
+              # OIDC authentication via Traefik plugin
+              traefik.ingress.kubernetes.io/router.middlewares: traefik-oidc-auth@kubernetescrd
             hosts:
               {{- range (index .Values "kube-prometheus-stack" "grafana" "ingress" "hosts") }}
               - {{ . }}
