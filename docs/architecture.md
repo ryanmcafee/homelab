@@ -1,9 +1,5 @@
 # Homelab Architecture Documentation
 
-**This homelab needs no watering, no tending, so I can tend to what actually grows.**
-
-_Watering plants together. Teaching small hands to be gentle. Ordinary lessons on ordinary days._
-
 This document provides a comprehensive overview of the homelab architecture, design patterns, and technical implementation details.
 
 ## Table of Contents
