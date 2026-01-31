@@ -28,10 +28,23 @@ truenas_nfs_allowed_networks:
 truenas_nfs_maproot_user: root
 truenas_nfs_maproot_group: wheel
 
-# Media Dataset Configuration
-truenas_media_dataset: "{{ truenas_pool_name }}/media"
-truenas_media_quota: 100T
-truenas_media_compression: lz4
+# Media Datasets Configuration (no quotas for flexible usage)
+truenas_media_datasets:
+  - name: "{{ truenas_pool_name }}/movies"
+    compression: lz4
+    comments: "Movie library storage"
+  - name: "{{ truenas_pool_name }}/tv"
+    compression: lz4
+    comments: "TV series library storage"
+  - name: "{{ truenas_pool_name }}/music"
+    compression: lz4
+    comments: "Music library storage"
+  - name: "{{ truenas_pool_name }}/pictures"
+    compression: lz4
+    comments: "Pictures and photos storage"
+  - name: "{{ truenas_pool_name }}/documents"
+    compression: lz4
+    comments: "Documents storage"
 
 # Additional Datasets
 truenas_datasets:
@@ -45,8 +58,13 @@ truenas_datasets:
     comments: "Temporary download storage"
 
 # SMB/Samba Configuration (optional)
-truenas_smb_enabled: false
+truenas_smb_enabled: true
 truenas_smb_workgroup: WORKGROUP
+
+# SMB Share Configuration for Media
+truenas_smb_guest_ok: true        # Allow guest access (no authentication)
+truenas_smb_browsable: true        # Show in network browser
+truenas_smb_readonly: false        # Read-only shares
 
 # iSCSI Configuration (optional)
 truenas_iscsi_enabled: false

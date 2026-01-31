@@ -1,0 +1,83 @@
+# TrueNAS Storage Role - Create SMB Share
+# Creates an SMB/Samba share for Windows/macOS access
+
+- name: Check if SMB share exists - {{ smb_name }}
+  ansible.builtin.uri:
+    url: "{{ truenas_api_url }}/api/v2.0/sharing/smb"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ truenas_api_key }}"
+    validate_certs: "{{ truenas_verify_ssl }}"
+  register: existing_smb_shares
+
+- name: Set SMB share exists fact
+  ansible.builtin.set_fact:
+    smb_share_exists: "{{ smb_name in (existing_smb_shares.json | map(attribute='name') | list) }}"
+
+- name: Enable SMB service
+  ansible.builtin.uri:
+    url: "{{ truenas_api_url }}/api/v2.0/service/id/cifs"
+    method: PUT
+    headers:
+      Authorization: "Bearer {{ truenas_api_key }}"
+      Content-Type: application/json
+    validate_certs: "{{ truenas_verify_ssl }}"
+    body_format: json
+    body:
+      enable: true
+    status_code: [200]
+
+- name: Start SMB service
+  ansible.builtin.uri:
+    url: "{{ truenas_api_url }}/api/v2.0/service/start"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ truenas_api_key }}"
+      Content-Type: application/json
+    validate_certs: "{{ truenas_verify_ssl }}"
+    body_format: json
+    body:
+      service: cifs
+    status_code: [200]
+
+- name: Create SMB share - {{ smb_name }}
+  ansible.builtin.uri:
+    url: "{{ truenas_api_url }}/api/v2.0/sharing/smb"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ truenas_api_key }}"
+      Content-Type: application/json
+    validate_certs: "{{ truenas_verify_ssl }}"
+    body_format: json
+    body:
+      path: "{{ smb_path }}"
+      name: "{{ smb_name }}"
+      comment: "{{ smb_comment | default('SMB Share') }}"
+      browsable: "{{ smb_browsable | default(true) }}"
+      enabled: true
+    status_code: [200, 201]
+  register: smb_share_create
+  when: not smb_share_exists
+
+- name: Display SMB share status
+  ansible.builtin.debug:
+    msg: "SMB share '{{ smb_name }}' ({{ smb_path }}) {{ 'created' if not smb_share_exists else 'already exists' }}"
+
+- name: Get SMB share details
+  ansible.builtin.uri:
+    url: "{{ truenas_api_url }}/api/v2.0/sharing/smb"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ truenas_api_key }}"
+    validate_certs: "{{ truenas_verify_ssl }}"
+  register: smb_shares_final
+
+- name: Display SMB mount info
+  ansible.builtin.debug:
+    msg: |
+      SMB Share Available:
+      Server: {{ ansible_host }}
+      Share: {{ smb_name }}
+      Path: {{ smb_path }}
+      Windows: \\{{ ansible_host }}\{{ smb_name }}
+      macOS/Linux: smb://{{ ansible_host }}/{{ smb_name }}

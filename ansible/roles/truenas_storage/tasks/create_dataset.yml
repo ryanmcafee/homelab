@@ -41,7 +41,7 @@
     body:
       refquota: "{{ dataset_quota | human_to_bytes }}"
     status_code: [200]
-  when: dataset_quota is defined and dataset_quota | length > 0
+  when: dataset_quota is defined and dataset_quota is string and dataset_quota | length > 0
 
 - name: Display dataset status - {{ dataset_name }}
   ansible.builtin.debug:
