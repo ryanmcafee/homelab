@@ -155,6 +155,13 @@ inputs = {
     bgp_asn_unifi      = tostring(include.env.locals.bgp_asn_unifi)
     bgp_peer_ip        = include.env.locals.bgp_peer_ip
     cert_manager_email = "admin@${include.env.locals.base_fqdn}"
+    # Media NFS paths
+    truenas_media_movies    = include.env.locals.truenas_media_paths.movies
+    truenas_media_tv        = include.env.locals.truenas_media_paths.tv
+    truenas_media_music     = include.env.locals.truenas_media_paths.music
+    truenas_media_pictures  = include.env.locals.truenas_media_paths.pictures
+    truenas_media_documents = include.env.locals.truenas_media_paths.documents
+    truenas_media_downloads = include.env.locals.truenas_media_paths.downloads
   }
 
   # Enable auto-sync for GitOps

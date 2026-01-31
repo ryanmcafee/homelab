@@ -20,10 +20,15 @@ global:
   # Timezone for applications
   timezone: America/New_York
 
-  # Media storage configuration
+  # Media storage configuration (multiple NFS paths)
   media:
     nfsServer: truenas.ryanmcafee.com
-    nfsPath: /mnt/storage/media
+    movies: /mnt/storage/movies
+    tv: /mnt/storage/tv
+    music: /mnt/storage/music
+    pictures: /mnt/storage/pictures
+    documents: /mnt/storage/documents
+    downloads: /mnt/storage/downloads
 
 # ============================================================================
 # Plex Media Server
@@ -92,14 +97,35 @@ plex:
 
   # Extra volumes for media storage via NFS
   extraVolumes:
-    - name: media
+    - name: movies
       nfs:
         server: truenas.ryanmcafee.com
-        path: /mnt/storage/media
+        path: /mnt/storage/movies
+    - name: tv
+      nfs:
+        server: truenas.ryanmcafee.com
+        path: /mnt/storage/tv
+    - name: music
+      nfs:
+        server: truenas.ryanmcafee.com
+        path: /mnt/storage/music
+    - name: pictures
+      nfs:
+        server: truenas.ryanmcafee.com
+        path: /mnt/storage/pictures
 
   extraVolumeMounts:
-    - name: media
-      mountPath: /media
+    - name: movies
+      mountPath: /media/movies
+      readOnly: false
+    - name: tv
+      mountPath: /media/tv
+      readOnly: false
+    - name: music
+      mountPath: /media/music
+      readOnly: false
+    - name: pictures
+      mountPath: /media/pictures
       readOnly: false
 
   # Ingress configuration
@@ -161,12 +187,21 @@ sonarr:
       accessModes:
         - ReadWriteOnce
 
-    media:
+    # TV storage via NFS
+    tv:
       enabled: true
       type: nfs
       server: truenas.ryanmcafee.com
-      path: /mnt/storage/media
-      mountPath: /media
+      path: /mnt/storage/tv
+      mountPath: /media/tv
+
+    # Downloads storage via NFS
+    downloads:
+      enabled: true
+      type: nfs
+      server: truenas.ryanmcafee.com
+      path: /mnt/storage/downloads
+      mountPath: /media/downloads
 
   ingress:
     main:
@@ -228,12 +263,21 @@ radarr:
       accessModes:
         - ReadWriteOnce
 
-    media:
+    # Movies storage via NFS
+    movies:
       enabled: true
       type: nfs
       server: truenas.ryanmcafee.com
-      path: /mnt/storage/media
-      mountPath: /media
+      path: /mnt/storage/movies
+      mountPath: /media/movies
+
+    # Downloads storage via NFS
+    downloads:
+      enabled: true
+      type: nfs
+      server: truenas.ryanmcafee.com
+      path: /mnt/storage/downloads
+      mountPath: /media/downloads
 
   ingress:
     main:
