@@ -131,19 +131,44 @@ task sops:setup                        # Pull 1Password credentials, encrypt, co
 
 **Step 2: Run the automated infrastructure setup**
 
-**Mac/Linux:**
 ```bash
-./scripts/setup.sh
+# Cross-platform setup via Go CLI (replaces legacy shell/PowerShell scripts)
+./bin/homelab bootstrap
 ```
 
-**Windows:**
-```powershell
-.\scripts\setup.ps1
+Or use the Taskfile wrapper:
+```bash
+task setup
 ```
 
 **Step 3: Bootstrap GitOps**
 ```bash
 task tf:apply:component COMPONENT=gitops-bootstrap
+```
+
+### Homelab CLI
+
+A cross-platform Go CLI tool replaces legacy shell/PowerShell/TypeScript scripts:
+
+```bash
+# Build from source
+go build -o bin/homelab ./cmd/homelab
+
+# Or cross-compile for all platforms
+./scripts/build-binaries.sh
+
+# Available commands
+homelab --help
+homelab bootstrap       # Full environment setup
+homelab validate        # Check prerequisites
+homelab sops bootstrap  # Setup SOPS encryption
+homelab sops setup      # Pull credentials from 1Password
+homelab talos recreate  # Recreate Talos nodes
+homelab verify gpu      # Verify GPU support
+homelab verify cilium   # Verify Cilium migration
+
+# All commands support --dry-run and --help
+homelab bootstrap --dry-run --yes
 ```
 
 ### Manual Installation

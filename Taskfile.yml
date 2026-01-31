@@ -12,12 +12,12 @@ tasks:
     desc: Full homelab setup (validates prereqs, then runs setup script)
     cmds:
       - task: validate
-      - ./scripts/setup.sh
+      - ./bin/homelab bootstrap
 
   validate:
     desc: Validate prerequisites are installed
     cmds:
-      - ./scripts/validate-prerequisites.sh
+      - ./bin/homelab validate
 
   install-tools:
     desc: Install required CLI tools via mise
@@ -496,7 +496,7 @@ tasks:
     vars:
       NODE: '{{.NODE | default "worker-1"}}'
     cmds:
-      - deno run --allow-net --allow-run --allow-env --allow-read scripts/talos-node-recreate.ts --node={{.NODE}}
+      - ./bin/homelab talos recreate --node={{.NODE}}
 
   talos:recreate:gpu-node:
     desc: Recreate GPU node (worker-1) with new image and verify GPU support
@@ -504,12 +504,12 @@ tasks:
       - task: talos:recreate:node
         vars:
           NODE: worker-1
-      - deno run --allow-net --allow-run --allow-env scripts/verify-gpu-support.ts
+      - ./bin/homelab verify gpu
 
   gpu:verify:
     desc: Verify GPU support is working
     cmds:
-      - deno run --allow-net --allow-run --allow-env scripts/verify-gpu-support.ts
+      - ./bin/homelab verify gpu
 
   gpu:status:
     desc: Show GPU node status and resources
@@ -561,22 +561,22 @@ tasks:
   sops:bootstrap:
     desc: Bootstrap SOPS encryption (generate age keys, store in 1Password)
     cmds:
-      - deno run --allow-all scripts/sops-bootstrap.ts
+      - ./bin/homelab sops bootstrap
 
   sops:bootstrap:force:
     desc: Bootstrap SOPS with new keys (overwrites existing)
     cmds:
-      - deno run --allow-all scripts/sops-bootstrap.ts --force
+      - ./bin/homelab sops bootstrap --force
 
   sops:setup:
     desc: Full automated SOPS setup - pulls credentials from 1Password, encrypts, and commits
     cmds:
-      - deno run --allow-all scripts/sops-setup-onepassword.ts --commit
+      - ./bin/homelab sops setup --commit
 
   sops:setup:dry-run:
     desc: Preview SOPS setup without making changes
     cmds:
-      - deno run --allow-all scripts/sops-setup-onepassword.ts --dry-run
+      - ./bin/homelab sops setup --dry-run
 
   sops:encrypt:
     desc: Encrypt the 1Password credentials template
