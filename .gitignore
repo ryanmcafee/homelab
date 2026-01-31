@@ -96,3 +96,8 @@ terragrunt/terraform.tfstate.d/**/.terraform.tfstate.lock.info
 # Packer
 *.iso
 *.iso.lock
+
+# Go binaries
+/bin/homelab*
+/cmd/homelab/homelab
+/cmd/homelab/homelab.exe
