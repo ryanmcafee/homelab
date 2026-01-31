@@ -9,10 +9,10 @@ terragrunt = "0.55.1"
 packer = "latest"
 
 # Kubernetes Tools
-kubectl = "1.30.0"
+kubectl = "1.33.0"
 helm = "latest"
 kind = "0.22.0"
-talosctl = "1.7.6"
+talosctl = "1.12.2"
 tilt = "0.33.11"
 argocd = "latest"
 argo = "latest"          # Argo Workflows CLI

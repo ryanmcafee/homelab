@@ -84,6 +84,16 @@ locals {
   truenas_ip       = "172.16.100.150"
   truenas_nfs_path = "/mnt/storage/k8s"
 
+  # Media NFS paths (granular storage)
+  truenas_media_paths = {
+    movies    = "/mnt/storage/movies"
+    tv        = "/mnt/storage/tv"
+    music     = "/mnt/storage/music"
+    pictures  = "/mnt/storage/pictures"
+    documents = "/mnt/storage/documents"
+    downloads = "/mnt/storage/downloads"
+  }
+
   # HBA devices for TrueNAS direct disk access
   # More complete mappings for NVMe SSDs and SATA drives
   hba_devices = {

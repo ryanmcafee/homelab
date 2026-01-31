@@ -1,19 +1,15 @@
 <div align="center">
 
-# 🏠 Homelab
+# Homelab
 
-**This homelab needs no watering, no tending, so I can tend to what actually grows.**
-
-_Watering plants together. Teaching small hands to be gentle. Ordinary lessons on ordinary days._
-
-[![Kubernetes](https://img.shields.io/badge/k8s-v1.30.x-326CE5?logo=kubernetes&logoColor=white)](https://kubernetes.io/)
-[![Talos](https://img.shields.io/badge/Talos-v1.7.x-FF6C2C?logo=talos&logoColor=white)](https://www.talos.dev/)
+[![Kubernetes](https://img.shields.io/badge/k8s-v1.33.x-326CE5?logo=kubernetes&logoColor=white)](https://kubernetes.io/)
+[![Talos](https://img.shields.io/badge/Talos-v1.12.x-FF6C2C?logo=talos&logoColor=white)](https://www.talos.dev/)
 [![ArgoCD](https://img.shields.io/badge/ArgoCD-v2.11.x-EF7B4D?logo=argo&logoColor=white)](https://argoproj.github.io/cd/)
 [![Proxmox](https://img.shields.io/badge/Proxmox-VE_9.x-E57000?logo=proxmox&logoColor=white)](https://www.proxmox.com/)
-[![Terraform](https://img.shields.io/badge/Terraform-1.7.x-7B42BC?logo=terraform&logoColor=white)](https://www.terraform.io/)
+[![Terragrunt](https://img.shields.io/badge/Terragrunt-0.55.x-7B42BC?logo=terraform&logoColor=white)](https://terragrunt.gruntwork.io/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-A GitOps-driven, family-first homelab monorepo using CNCF best practices.<br>
+A GitOps-driven homelab monorepo using CNCF best practices.<br>
 Single entrypoint setup, minimal ongoing maintenance, designed to run forever.
 
 [Quick Start](#quick-start) • [Architecture](#architecture) • [Applications](#applications) • [Documentation](#documentation)
@@ -22,13 +18,13 @@ Single entrypoint setup, minimal ongoing maintenance, designed to run forever.
 
 ---
 
-## ✨ Highlights
+## Highlights
 
 <table>
 <tr>
 <td width="50%">
 
-### 🚀 Zero-Touch Operations
+### Zero-Touch Operations
 - **Single command setup** - from bare metal to production
 - **Automated patching** via Renovate
 - **Self-healing** infrastructure with Kubernetes
@@ -36,7 +32,7 @@ Single entrypoint setup, minimal ongoing maintenance, designed to run forever.
 </td>
 <td width="50%">
 
-### 🔒 Enterprise-Grade Security
+### Enterprise-Grade Security
 - **1Password + SOPS** for secrets management
 - **GitOps** - single source of truth
 - **Immutable infrastructure** with Talos Linux
@@ -46,15 +42,15 @@ Single entrypoint setup, minimal ongoing maintenance, designed to run forever.
 <tr>
 <td width="50%">
 
-### 🏗️ Production-Ready Stack
+### Production-Ready Stack
 - **CNCF-neutral** open source technologies
-- **Industry-standard** tools (Terraform, ArgoCD, K8s)
+- **Industry-standard** tools (Terragrunt, ArgoCD, K8s)
 - **Multi-environment** support (localdev/homelab)
 
 </td>
 <td width="50%">
 
-### 👨‍👩‍👧‍👦 Family-First Design
+### Media & Home Automation
 - **Plex** with GPU transcoding
 - **Media automation** (Sonarr/Radarr)
 - **Home automation** (Home Assistant)
@@ -65,120 +61,79 @@ Single entrypoint setup, minimal ongoing maintenance, designed to run forever.
 
 ---
 
-## 📊 Project Stats
-
-```
-📦 Total Storage: 160+ TB raw (RAIDZ3)      🧠 Memory: 256 GB ECC
-⚡ CPU Cores: 24 vCPUs                       🎮 GPU: NVIDIA Quadro P2200 5GB
-🌐 Services: 12+ applications                🔒 Security: 1Password + GitOps
-🤖 Automation: Renovate + ArgoCD             📈 Uptime: Self-healing
-```
-
----
-
-## 🚀 Quick Start
+## Quick Start
 
 ### Prerequisites
 
-This project uses [mise](https://mise.jdx.dev/) to manage all tool dependencies across Mac, Linux, and Windows.
+#### Install mise
 
-**Mac/Linux:**
+This project uses [mise](https://mise.jdx.dev/) to manage all tool dependencies.
+
 ```bash
 # Install mise
 curl https://mise.run | sh
 
 # Activate mise (add to ~/.bashrc or ~/.zshrc for persistence)
 eval "$(~/.local/bin/mise activate bash)"
+
+# Install all tools
+mise install
 ```
 
-**Windows (PowerShell):**
-```powershell
-# Install mise
-Invoke-Expression "& { $(Invoke-RestMethod https://mise.run) }"
+#### Set up SSH keys
 
-# Activate mise (add to $PROFILE for persistence)
-mise activate pwsh | Out-String | Invoke-Expression
-```
-
-### Quick Setup
-
-**For Local Development (No Hardware Required):**
-```bash
-# Starts a local Kind cluster with all services
-task localdev:up
-```
-
-**For Hardware Deployment (Dev/Prod):**
-
-Prerequisites for hardware deployments:
-- Proxmox installed and accessible
-- 1Password CLI authenticated (`eval $(op signin)`)
-- SSH public key authentication configured for root user:
-  ```bash
-  # Copy your SSH public key to Proxmox host (replace with your Proxmox IP)
-  ssh-copy-id root@${PROXMOX_HOST}
-
-  # Test connection (should not prompt for password)
-  ssh root@${PROXMOX_HOST}
-  ```
-
-**Step 1: Install tools and bootstrap secrets**
-```bash
-mise install                           # Install all tools
-task sops:bootstrap                    # Generate age keys, store in 1Password
-task sops:setup                        # Pull 1Password credentials, encrypt, commit
-```
-
-**Step 2: Run the automated infrastructure setup**
+Configure SSH public key authentication for the Proxmox root user:
 
 ```bash
-# Cross-platform setup via Go CLI (replaces legacy shell/PowerShell scripts)
+# Copy your SSH public key to Proxmox host
+ssh-copy-id root@${PROXMOX_HOST}
+
+# Test connection (should not prompt for password)
+ssh root@${PROXMOX_HOST}
+```
+
+#### Set up 1Password
+
+Authenticate the 1Password CLI:
+
+```bash
+eval $(op signin)
+```
+
+#### Set up SOPS
+
+Bootstrap SOPS encryption with age keys stored in 1Password:
+
+```bash
+task sops:bootstrap    # Generate age keys, store in 1Password
+task sops:setup        # Pull credentials, encrypt, commit
+```
+
+### Build the CLI
+
+```bash
+go build -o bin/homelab ./cmd/homelab
+```
+
+### Bootstrap the Environment
+
+```bash
 ./bin/homelab bootstrap
 ```
 
-Or use the Taskfile wrapper:
-```bash
-task setup
-```
-
-**Step 3: Bootstrap GitOps**
-```bash
-task tf:apply:component COMPONENT=gitops-bootstrap
-```
-
-### Homelab CLI
-
-A cross-platform Go CLI tool replaces legacy shell/PowerShell/TypeScript scripts:
+Available CLI commands:
 
 ```bash
-# Build from source
-go build -o bin/homelab ./cmd/homelab
-
-# Or cross-compile for all platforms
-./scripts/build-binaries.sh
-
-# Available commands
 homelab --help
-homelab bootstrap       # Full environment setup
 homelab validate        # Check prerequisites
 homelab sops bootstrap  # Setup SOPS encryption
 homelab sops setup      # Pull credentials from 1Password
+homelab bootstrap       # Full environment setup
 homelab talos recreate  # Recreate Talos nodes
 homelab verify gpu      # Verify GPU support
-homelab verify cilium   # Verify Cilium migration
 
 # All commands support --dry-run and --help
 homelab bootstrap --dry-run --yes
-```
-
-### Manual Installation
-
-If you prefer to install tools manually:
-
-```bash
-mise install -y          # Install all tools from mise.toml
-mise run validate        # Verify installations
-mise doctor              # Troubleshoot issues
 ```
 
 ## Objectives
@@ -186,23 +141,23 @@ mise doctor              # Troubleshoot issues
 <details>
 <summary><b>Click to expand design principles</b></summary>
 
-- 🔧 Build a homelab using Terragrunt, Ansible, TrueNAS Scale, and Talos OS Kubernetes
-- ⚡ Minimize manual steps and ongoing maintenance
-- 📦 Use off-the-shelf open source technologies with preference for CNCF-neutral projects
-- 🏢 Build a technology stack interchangeable with modern enterprise environments
-- 🔄 Build around GitOps using the [GitOps Bridge pattern](https://github.com/gitops-bridge-dev/gitops-bridge)
-- 🤖 Support automated patching and remediation via Renovate
-- 📈 Support scale-out architecture (adding Proxmox cluster members in the future)
-- 🩹 Support auto-recovery and self-healing
-- 💾 Configure backup and recovery policies and procedures
-- 📊 Configure comprehensive monitoring and observability using kube-prometheus-stack
-- 🌍 Support multiple environments: localdev and homelab
+- Build a homelab using Terragrunt, Ansible, TrueNAS Scale, and Talos OS Kubernetes
+- Minimize manual steps and ongoing maintenance
+- Use off-the-shelf open source technologies with preference for CNCF-neutral projects
+- Build a technology stack interchangeable with modern enterprise environments
+- Build around GitOps using the [GitOps Bridge pattern](https://github.com/gitops-bridge-dev/gitops-bridge)
+- Support automated patching and remediation via Renovate
+- Support scale-out architecture (adding Proxmox cluster members in the future)
+- Support auto-recovery and self-healing
+- Configure backup and recovery policies and procedures
+- Configure comprehensive monitoring and observability using kube-prometheus-stack
+- Support multiple environments: localdev and homelab
 
 </details>
 
 ---
 
-## 🏗️ Architecture
+## Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -223,102 +178,40 @@ mise doctor              # Troubleshoot issues
                                       ▼
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                         Software Defined Networking                          │
-│                    UniFi ←──BGP Peering──→ MetalLB                          │
+│                    UniFi ←──BGP Peering──→ Cilium                          │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### 💡 Philosophy
+### Philosophy
 
-> **Terraform builds the runway; ArgoCD flies the plane; Renovate keeps the engines updated; BGP routes the traffic.**
+> **Terragrunt builds the runway; ArgoCD flies the plane; Renovate keeps the engines updated; BGP routes the traffic.**
 
 ---
 
-## 🛠️ Technology Stack
+## Technology Stack
 
 | Layer | Technology |
 |-------|------------|
 | Hypervisor | Proxmox VE 9.x |
 | Storage | TrueNAS Scale 24.04.x |
-| Kubernetes | Talos Linux 1.7.x / K8s 1.30.x |
+| Kubernetes | Talos Linux 1.12.x / K8s 1.33.x |
 | GitOps | ArgoCD 2.11.x |
-| IaC | Terragrunt 0.55.x / Terraform 1.7.x |
+| IaC | Terragrunt 0.55.x |
 | Configuration | Ansible 2.16.x |
 | Secrets | 1Password + SOPS (age encryption) |
-| Load Balancer | MetalLB (BGP mode) |
+| Load Balancer | Cilium (BGP mode) |
 | Ingress | Traefik |
 | Observability | kube-prometheus-stack |
 | Local Dev | Kind 0.22.x + Tilt 0.33.x |
 
 ---
 
-## 💻 Hardware Specifications
-
-> **Total Investment:** ~$6,000 | **RAM:** 256 GB | **Storage:** 160+ TB raw
-
-### 🖥️ Proxmox Host
-
-| Resource | Specification |
-|----------|---------------|
-| RAM | 256 GB |
-| vCPUs | 24 total |
-| GPU | HP NVIDIA Quadro P2200 5GB (passthrough for Plex) |
-| OS Drive | 250GB NVMe |
-| VM Storage | 2x 1TB NVMe (ZFS RAID-1 mirror) |
-| HBA Card 1 | Broadcom 9400-8i (Proxmox storage) |
-| HBA Card 2 | Broadcom 9400-8i Mixed Mode (TrueNAS passthrough) |
-
-### 💾 TrueNAS Storage (HBA Passthrough)
-
-| Resource | Specification |
-|----------|---------------|
-| Data Drives | 8x 20TB HDDs (RAIDZ3) |
-| Special vDev | 2x 1TB NVMe (ZFS RAID-1 mirror for metadata + small blocks) |
-
-**Parts List:** [Google Sheets](https://docs.google.com/spreadsheets/d/19JLS5aV629NgUacsKQQx_2HI5iXPV7Kn0e5kuBvYOVQ/edit?gid=0#gid=0)
-
-### 🌐 Network Configuration
-
-| Setting | Value |
-|---------|-------|
-| Base FQDN | ryanmcafee.com |
-| Homelab VLAN | 100 |
-| UniFi Controller | 172.16.100.1 |
-| Proxmox Endpoint | 172.16.100.250 |
-| IPMI Endpoint | 172.16.100.26 |
-| Kubernetes Subnet | 172.16.100.0/24 |
-| MetalLB Pool | 172.16.100.100-172.16.100.200 |
-| BGP ASN (K8s) | 64512 |
-| BGP ASN (UniFi) | 64513 |
-
----
-
-## 📁 Directory Structure
-
-```
-homelab/
-├── 🔧 ansible/                 # Proxmox configuration
-├── 🏗️  terragrunt/              # Infrastructure as Code
-│   ├── modules/              # Reusable Terraform modules
-│   └── environments/         # localdev, homelab
-├── 🐧 talos/                   # Talos Linux configuration
-├── ⎈  charts/                  # Helm charts (GitOps)
-│   ├── gitops/               # App of Apps umbrella
-│   ├── addons/               # Core cluster addons
-│   ├── applications/         # User applications
-│   └── secrets/              # SOPS-encrypted secrets
-├── 💻 localdev/                # Kind + Tilt local dev
-├── 📚 docs/                    # Documentation
-└── 🤖 scripts/                 # Automation scripts
-```
-
----
-
-## 📦 Managed Dependencies
+## Managed Dependencies
 
 All CLI tools are managed via mise (defined in `mise.toml`):
 
-- **Infrastructure as Code**: Terraform 1.7.5, Terragrunt 0.55.1
-- **Kubernetes Tools**: kubectl 1.30.0, Helm, Kind 0.22.0, Talos 1.7.6, Tilt 0.33.11
+- **Infrastructure as Code**: Terragrunt 0.55.1
+- **Kubernetes Tools**: kubectl 1.33.0, Helm, Kind 0.22.0, Talos 1.12.2, Tilt 0.33.11
 - **Configuration Management**: Ansible, ansible-lint (via pipx)
 - **Task Runner**: Task (go-task)
 - **Secrets**: age, sops, op (1Password CLI)
@@ -330,7 +223,7 @@ External prerequisites (install separately):
 
 ---
 
-## ⚙️ Tool Management
+## Tool Management
 
 All tools are managed via [mise](https://mise.jdx.dev/) and defined in `mise.toml`. Versions are pinned for consistency across environments.
 
@@ -348,7 +241,7 @@ mise upgrade
 task mise:upgrade
 
 # Switch to a specific version
-mise use terraform@1.8.0
+mise use terragrunt@0.55.1
 
 # Remove unused versions
 mise prune
@@ -360,7 +253,7 @@ task mise:doctor
 
 ---
 
-## 🔐 Secrets Management
+## Secrets Management
 
 Secrets are managed using SOPS with age encryption, stored in Git, and decrypted at deploy time by ArgoCD.
 
@@ -388,7 +281,7 @@ See [charts/secrets/README.md](./charts/secrets/README.md) for detailed document
 
 ---
 
-## 🔬 Local Development
+## Local Development
 
 Develop and test GitOps configurations without physical hardware:
 
@@ -410,19 +303,19 @@ task localdev:down
 
 ---
 
-## 📦 Applications
+## Applications
 
-### 🔌 Addons (Core Infrastructure)
+### Addons (Core Infrastructure)
 
 | Component | Purpose | Status |
 |-----------|---------|--------|
-| MetalLB | BGP load balancer | ⚡ Active |
-| Traefik | Ingress controller | ⚡ Active |
-| cert-manager | TLS certificates | ⚡ Active |
-| external-dns | Cloudflare DNS automation | ⚡ Active |
-| 1Password Operator | Secrets management | ⚡ Active |
-| kube-prometheus-stack | Observability & monitoring | ⚡ Active |
-| democratic-csi | TrueNAS storage provisioning | ⚡ Active |
+| Cilium | BGP Peering/CNI | Active |
+| Traefik | Ingress controller | Active |
+| cert-manager | TLS certificates | Active |
+| external-dns | Cloudflare DNS automation | Active |
+| 1Password Operator | Secrets management | Active |
+| kube-prometheus-stack | Observability & monitoring | Active |
+| democratic-csi | TrueNAS storage provisioning | Active |
 
 ### User Applications
 
@@ -436,7 +329,7 @@ task localdev:down
 
 ---
 
-## 🔧 Hardware Setup Notes
+## Hardware Setup Notes
 
 ### Broadcom HBA Firmware (Mixed Mode for NVMe)
 
@@ -462,43 +355,25 @@ ipmitool sensor thresh FAN1 lower 200 300 400
 
 ---
 
-## 🎨 Design Patterns
+## Design Patterns
 
 | Pattern | Implementation |
 |---------|----------------|
-| **🌉 GitOps Bridge** | Terraform bootstraps ArgoCD, then hands off control |
-| **📱 App of Apps** | ArgoCD manages applications hierarchically |
-| **📦 Monorepo** | Single source of truth for all infrastructure |
-| **⚖️ Environment Parity** | localdev/homelab use same charts with different values |
+| **GitOps Bridge** | Terragrunt bootstraps ArgoCD, then hands off control |
+| **App of Apps** | ArgoCD manages applications hierarchically |
+| **Monorepo** | Single source of truth for all infrastructure |
+| **Environment Parity** | localdev/homelab use same charts with different values |
 
 ---
 
-## 📚 Documentation
 
-See [plan.md](./plan.md) for the complete implementation plan including:
-- Detailed phase-by-phase implementation guide
-- Terraform/Terragrunt module specifications
-- Helm chart configurations
-- Ansible playbook details
-- Acceptance criteria for each phase
+## References
 
-## 🔗 References
-
-- 🌉 [GitOps Bridge Pattern](https://github.com/gitops-bridge-dev/gitops-bridge)
-- 🐧 [Talos on Proxmox with OpenTofu](https://blog.stonegarden.dev/articles/2024/08/talos-proxmox-tofu/)
-- ⎈ [TrueCharts Helm Repository](https://github.com/truecharts/charts)
-- 🐳 [Kind - Kubernetes in Docker](https://kind.sigs.k8s.io/)
-- 🚀 [Tilt - Local Kubernetes Development](https://tilt.dev/)
+- [GitOps Bridge Pattern](https://github.com/gitops-bridge-dev/gitops-bridge)
+- [Talos on Proxmox with OpenTofu](https://blog.stonegarden.dev/articles/2024/08/talos-proxmox-tofu/)
+- [TrueCharts Helm Repository](https://github.com/truecharts/charts)
+- [Kind - Kubernetes in Docker](https://kind.sigs.k8s.io/)
+- [Tilt - Local Kubernetes Development](https://tilt.dev/)
 
 ---
 
-<div align="center">
-
-### 💝 Built for what actually grows
-
-**This homelab needs no watering, no tending,**
-**so I can tend to what actually grows.**
-
-_Watering plants together. Teaching small hands to be gentle. Ordinary lessons on ordinary days._
-
-</div>
