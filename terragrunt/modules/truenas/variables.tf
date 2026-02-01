@@ -116,20 +116,20 @@ variable "network_vlan_id" {
   default     = null
 }
 
-variable "storage_network_enabled" {
-  description = "Enable dedicated storage network interface"
+variable "lan_network_enabled" {
+  description = "Enable dedicated LAN network interface"
   type        = bool
   default     = false
 }
 
-variable "storage_network_bridge" {
-  description = "Bridge for storage network"
+variable "lan_network_bridge" {
+  description = "Bridge for LAN network"
   type        = string
   default     = "vmbr0"
 }
 
-variable "storage_network_vlan_id" {
-  description = "VLAN ID for storage network"
+variable "lan_network_vlan_id" {
+  description = "VLAN ID for LAN network"
   type        = number
   default     = null
 }
@@ -227,5 +227,11 @@ variable "cloudflare_api_token" {
   description = "Cloudflare API token for ACME DNS-01 challenge"
   type        = string
   sensitive   = true
+  default     = ""
+}
+
+variable "truenas_lan_static_ip" {
+  description = "Static IP for TrueNAS LAN interface (CIDR notation)"
+  type        = string
   default     = ""
 }

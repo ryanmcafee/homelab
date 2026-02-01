@@ -104,12 +104,12 @@ resource "proxmox_virtual_environment_vm" "truenas" {
     firewall = false
   }
 
-  # Additional network interface (optional, for NFS traffic separation)
+  # Additional network interface (optional, for LAN/VLAN traffic)
   dynamic "network_device" {
-    for_each = var.storage_network_enabled ? [1] : []
+    for_each = var.lan_network_enabled ? [1] : []
     content {
-      bridge   = var.storage_network_bridge
-      vlan_id  = var.storage_network_vlan_id
+      bridge   = var.lan_network_bridge
+      vlan_id  = var.lan_network_vlan_id
       model    = "virtio"
       firewall = false
     }
@@ -226,7 +226,9 @@ resource "null_resource" "ansible_configuration" {
         -e "truenas_admin_password=${var.truenas_admin_password}" \
         -e "truenas_static_ip=${var.truenas_static_ip}" \
         -e "truenas_gateway=${var.truenas_gateway}" \
-        -e "truenas_hostname=${var.truenas_hostname}"
+        -e "truenas_hostname=${var.truenas_hostname}" \
+        -e "truenas_lan_network_enabled=${var.lan_network_enabled}" \
+        -e "truenas_lan_static_ip=${var.truenas_lan_static_ip}"
     EOF
   }
 }

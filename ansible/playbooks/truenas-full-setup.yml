@@ -33,6 +33,10 @@
       - "172.16.100.1"
     truenas_hostname: "truenas.ryanmcafee.com"
 
+    # LAN Network Configuration (VLAN 10)
+    truenas_lan_network_enabled: false
+    truenas_lan_static_ip: ""
+
     # Storage pools configuration
     storage_pools:
       - name: storage
@@ -221,6 +225,21 @@
         msg: "TrueNAS now accessible at static IP: {{ truenas_final_ip }}"
 
     # =========================================================================
+    # Phase 4b: Configure LAN network interface (if enabled)
+    # =========================================================================
+    - name: Include LAN network configuration
+      ansible.builtin.include_tasks:
+        file: "{{ playbook_dir }}/../roles/truenas_storage/tasks/configure_lan_network.yml"
+      vars:
+        api_url: "https://{{ truenas_final_ip }}"
+        api_user: "{{ truenas_api_user }}"
+        api_password: "{{ truenas_admin_password }}"
+        lan_ip: "{{ truenas_lan_static_ip }}"
+      when:
+        - truenas_lan_network_enabled | default(false) | bool
+        - truenas_lan_static_ip | default('') | length > 0
+
+    # =========================================================================
     # Phase 5: Continue with remaining configuration (using static IP)
     # =========================================================================
     - name: Include automation user creation
@@ -257,7 +276,10 @@
           TrueNAS Full Setup Complete!
           ============================
           Hostname: {{ truenas_hostname }}
-          IP: {{ truenas_static_ip }}
+          Primary IP: {{ truenas_static_ip }}
+          {% if truenas_lan_network_enabled | default(false) and truenas_lan_static_ip | default('') | length > 0 %}
+          LAN IP: {{ truenas_lan_static_ip }} (VLAN 10)
+          {% endif %}
           Pools: {{ storage_pools | map(attribute='name') | list | join(', ') }}
           Certificate: {% if cloudflare_api_token | length > 0 %}Lets Encrypt for {{ truenas_hostname }}{% else %}Skipped (no Cloudflare token){% endif %}
 
