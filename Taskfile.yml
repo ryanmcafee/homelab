@@ -203,7 +203,15 @@ tasks:
     deps:
       - ansible:init
     cmds:
-      - ansible-playbook -i inventory/homelab.yml playbooks/truenas-setup.yml --check --diff
+      - op run --env-file={{.ROOT_DIR}}/.env.op -- ansible-playbook -i inventory/homelab.yml playbooks/truenas-setup.yml --vault-password-file=vault-password.sh --check --diff
+
+  truenas:configure-lan:
+    desc: Configure TrueNAS LAN network interface (VLAN 10)
+    dir: ansible
+    deps:
+      - ansible:init
+    cmds:
+      - op run --env-file={{.ROOT_DIR}}/.env.op -- ansible-playbook -i inventory/homelab.yml playbooks/truenas-setup.yml --vault-password-file=vault-password.sh --tags lan-network
 
   # ==========================================================================
   # TrueNAS Automation (Packer + Full Setup)
@@ -341,8 +349,10 @@ tasks:
       COMPONENT: '{{.COMPONENT}}'
 
   tf:plan:
-    desc: Run Terragrunt plan for environment
+    desc: Run Terragrunt plan for environment (auto-syncs rendered files from 1Password)
     dir: terragrunt/environments/{{.ENV}}
+    deps:
+      - render:sync:silent
     cmds:
       - op run --env-file={{.ROOT_DIR}}/.env.op -- terragrunt run-all plan {{.TF_ARGS}}
     vars:
@@ -359,12 +369,11 @@ tasks:
       COMPONENT: '{{.COMPONENT}}'
 
   tf:apply:
-    desc: Run Terragrunt apply for environment
+    desc: Run Terragrunt apply for environment (auto-syncs rendered files from 1Password)
     dir: terragrunt/environments/{{.ENV}}
+    deps:
+      - render:sync:silent
     cmds:
-      - task: cilium:render
-      - task: kubelet-csr-approver:render
-      - task: spegel:render
       - op run --env-file={{.ROOT_DIR}}/.env.op -- terragrunt run-all apply --terragrunt-non-interactive --auto-approve
     vars:
       ENV: '{{.ENV | default "homelab"}}'
@@ -459,6 +468,35 @@ tasks:
     cmds:
       - helm template spegel oci://ghcr.io/spegel-org/helm-charts/spegel --version v0.0.27 --namespace spegel --set spegel.containerdRegistryConfigPath=/etc/cri/conf.d/hosts --set spegel.containerdContentPath=/var/lib/containerd/io.containerd.content.v1.content --set spegel.resolveTags=true --set service.registry.hostPort=30020 --set service.registry.nodePort=30021 > terragrunt/files/spegel-rendered.yaml
       - echo "Spegel manifests rendered to terragrunt/files/spegel-rendered.yaml"
+
+  render:push:
+    desc: Push rendered YAML files to 1Password (for sharing across machines)
+    cmds:
+      - ./bin/homelab render push --force
+
+  render:pull:
+    desc: Pull rendered YAML files from 1Password
+    cmds:
+      - ./bin/homelab render pull --force
+
+  render:status:
+    desc: Check status of rendered files (local vs 1Password)
+    cmds:
+      - ./bin/homelab render status
+
+  render:sync:
+    desc: Sync rendered files (pull from 1Password if missing, push if local-only)
+    cmds:
+      - ./bin/homelab render sync
+
+  render:sync:silent:
+    internal: true
+    cmds:
+      - ./bin/homelab render sync --quiet
+    status:
+      - test -f terragrunt/files/cilium-rendered.yaml
+      - test -f terragrunt/files/kubelet-csr-approver-rendered.yaml
+      - test -f terragrunt/files/spegel-rendered.yaml
 
   # ==========================================================================
   # Talos

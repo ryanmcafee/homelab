@@ -1,0 +1,103 @@
+---
+# TrueNAS Storage Role - Configure LAN Network Interface
+# Configures a secondary NIC with static IP for VLAN 10
+
+- name: Get all network interfaces
+  ansible.builtin.uri:
+    url: "{{ api_url }}/api/v2.0/interface"
+    method: GET
+    url_username: "{{ api_user }}"
+    url_password: "{{ api_password }}"
+    force_basic_auth: true
+    validate_certs: "{{ truenas_verify_ssl | default(false) }}"
+  register: all_interfaces
+
+- name: Find LAN interface (unconfigured physical interface)
+  ansible.builtin.set_fact:
+    lan_interface: >-
+      {{
+        all_interfaces.json
+        | selectattr('type', 'equalto', 'PHYSICAL')
+        | rejectattr('aliases', 'defined')
+        | list
+        | first
+        | default(
+          all_interfaces.json
+          | selectattr('type', 'equalto', 'PHYSICAL')
+          | selectattr('aliases', 'equalto', [])
+          | list
+          | first
+        )
+      }}
+
+- name: Display LAN interface to configure
+  ansible.builtin.debug:
+    msg: "LAN interface: {{ lan_interface.name }} (ID: {{ lan_interface.id }})"
+
+- name: Check if LAN interface already has target IP
+  ansible.builtin.set_fact:
+    lan_already_configured: >-
+      {{
+        (lan_interface.aliases | default([]))
+        | selectattr('address', 'defined')
+        | selectattr('address', 'equalto', lan_ip | regex_replace('/.*', ''))
+        | list | length > 0
+      }}
+
+- name: Configure static IP on LAN interface
+  ansible.builtin.uri:
+    url: "{{ api_url }}/api/v2.0/interface/id/{{ lan_interface.id }}"
+    method: PUT
+    url_username: "{{ api_user }}"
+    url_password: "{{ api_password }}"
+    force_basic_auth: true
+    validate_certs: "{{ truenas_verify_ssl | default(false) }}"
+    body_format: json
+    body:
+      ipv4_dhcp: false
+      aliases:
+        - address: "{{ lan_ip | regex_replace('/.*', '') }}"
+          netmask: "{{ lan_ip | regex_replace('.*/', '') | int }}"
+    status_code: [200]
+  when: not lan_already_configured
+
+- name: Commit interface changes
+  ansible.builtin.uri:
+    url: "{{ api_url }}/api/v2.0/interface/commit"
+    method: POST
+    url_username: "{{ api_user }}"
+    url_password: "{{ api_password }}"
+    force_basic_auth: true
+    validate_certs: "{{ truenas_verify_ssl | default(false) }}"
+    body_format: json
+    body:
+      checkin_timeout: 120
+    status_code: [200]
+    timeout: 10
+  ignore_errors: true
+  when: not lan_already_configured
+
+- name: Wait for network changes to apply
+  ansible.builtin.pause:
+    seconds: 5
+  when: not lan_already_configured
+
+- name: Check in network changes (make permanent)
+  ansible.builtin.uri:
+    url: "{{ api_url }}/api/v2.0/interface/checkin"
+    method: GET
+    url_username: "{{ api_user }}"
+    url_password: "{{ api_password }}"
+    force_basic_auth: true
+    validate_certs: "{{ truenas_verify_ssl | default(false) }}"
+    status_code: [200]
+    timeout: 30
+  retries: 5
+  delay: 5
+  until: checkin_result.status == 200
+  register: checkin_result
+  when: not lan_already_configured
+
+- name: Display LAN network configuration complete
+  ansible.builtin.debug:
+    msg: "LAN network configured: {{ lan_interface.name }} at {{ lan_ip }}"

@@ -37,6 +37,21 @@
   ansible.builtin.include_tasks: configure_acme_certificate.yml
   when: truenas_acme_enabled | default(false)
 
+# LAN Network Configuration (secondary NIC for VLAN 10)
+- name: Include LAN network configuration
+  ansible.builtin.include_tasks: configure_lan_network.yml
+  vars:
+    api_url: "{{ truenas_api_url }}"
+    api_user: "truenas_admin"
+    api_password: "{{ truenas_admin_password }}"
+    lan_ip: "{{ truenas_lan_static_ip }}"
+  when:
+    - truenas_lan_network_enabled | default(false) | bool
+    - truenas_lan_static_ip | default('') | length > 0
+    - truenas_admin_password | default('') | length > 0
+  tags:
+    - lan-network
+
 # Pool tasks
 - name: Include pool creation tasks
   ansible.builtin.include_tasks: create_pool.yml

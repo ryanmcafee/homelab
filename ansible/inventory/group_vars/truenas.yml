@@ -1,0 +1,10 @@
+---
+# TrueNAS Group Variables
+
+# LAN Network Configuration (VLAN 10)
+truenas_lan_network_enabled: true
+truenas_lan_static_ip: "172.16.10.150/24"
+
+# Admin password for Basic Auth (required by LAN config task)
+truenas_admin_password: "{{ lookup('env', 'TRUENAS_ADMIN_PASSWORD') | default('') }}"
+truenas_verify_ssl: false

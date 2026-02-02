@@ -132,6 +132,52 @@
   register: vlan_config
   when: not (vlan_aware_enabled | default(false))
 
+# Configure VLANs on physical uplink interface
+- name: Get current VLANs on uplink interface
+  ansible.builtin.command:
+    cmd: bridge vlan show dev {{ proxmox_uplink_interface }}
+  register: uplink_vlans
+  changed_when: false
+  failed_when: false
+  when: proxmox_uplink_interface is defined
+
+- name: Add trunk VLANs to physical uplink
+  ansible.builtin.command:
+    cmd: bridge vlan add dev {{ proxmox_uplink_interface }} vid {{ item }}
+  loop: "{{ proxmox_trunk_vlans | default([]) }}"
+  when:
+    - proxmox_uplink_interface is defined
+    - proxmox_trunk_vlans is defined
+    - ("vid " + (item | string)) not in (uplink_vlans.stdout | default(''))
+  register: vlan_add_result
+
+- name: Display VLAN trunk configuration
+  ansible.builtin.debug:
+    msg: "VLANs {{ proxmox_trunk_vlans | join(', ') }} configured on {{ proxmox_uplink_interface }}"
+  when:
+    - proxmox_uplink_interface is defined
+    - proxmox_trunk_vlans is defined
+
+# Persist VLAN trunk configuration across reboots
+- name: Configure persistent VLAN trunk on uplink
+  ansible.builtin.blockinfile:
+    path: /etc/network/interfaces
+    marker: "# {mark} ANSIBLE MANAGED BLOCK - VLAN TRUNK"
+    block: |
+      # Trunk VLANs on physical uplink {{ proxmox_uplink_interface }}
+      # Required for VM VLAN tags to reach the physical network
+      {% for vlan in proxmox_trunk_vlans | default([]) %}
+      post-up bridge vlan add dev {{ proxmox_uplink_interface }} vid {{ vlan }}
+      {% endfor %}
+    insertafter: "# END ANSIBLE MANAGED BLOCK - VLAN AWARENESS"
+    state: present
+    backup: true
+  when:
+    - proxmox_uplink_interface is defined
+    - proxmox_trunk_vlans is defined
+    - proxmox_trunk_vlans | length > 0
+  register: vlan_trunk_config
+
 - name: Verify bridge MTU configuration
   ansible.builtin.command:
     cmd: ip link show {{ proxmox_network_bridge }}
