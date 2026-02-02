@@ -58,7 +58,7 @@ tmp/
 *.tmp
 *.log
 
-# Generated/rendered files (may contain secrets)
+# Generated/rendered files (stored in 1Password for cross-machine consistency)
 *-rendered.yaml
 terragrunt/files/*.yaml
 

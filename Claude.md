@@ -207,8 +207,37 @@ Run `task --list` for full list. Most commonly used:
 | `task talos:recreate:node NODE=X` | Recreate Talos node |
 | `task gpu:verify` | Verify GPU support |
 | `task sops:setup` | Full SOPS setup |
-| `task render` | Render Cilium, CSR approver, Spegel |
+| `task render` | Render inline manifests (Cilium, CSR approver, Spegel) |
+| `task render:push` | Upload rendered files to 1Password |
+| `task render:pull` | Download rendered files from 1Password |
+| `task render:status` | Check status of rendered files (local vs 1Password) |
+| `task render:sync` | Sync files between local and 1Password |
 | `task docs:embedme` | Update embedded code snippets |
+
+### Rendered Manifest Workflow
+
+Rendered YAML files (Cilium, kubelet-csr-approver, Spegel) are stored in 1Password Documents for cross-machine consistency. This prevents config drift from Helm re-rendering (e.g., Cilium generates new TLS certs on each render).
+
+**Initial Setup (first time):**
+```bash
+task render           # Generate files locally
+task render:push      # Upload to 1Password
+```
+
+**New Machine Setup:**
+```bash
+task render:pull      # Download from 1Password
+# OR
+task tf:plan          # Auto-syncs before planning
+```
+
+**Intentional Cluster Update:**
+```bash
+task render           # Re-render with new config
+task render:push      # Push new versions to 1Password
+task tf:plan          # Preview changes
+task tf:apply         # Apply changes
+```
 
 ## ArgoCD Troubleshooting
 
