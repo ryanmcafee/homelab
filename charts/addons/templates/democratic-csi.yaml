@@ -111,14 +111,15 @@ spec:
       - ServerSideApply=true
       - ApplyOutOfSyncOnly=true
 ---
-# Config Application: deploys CRD-dependent resources after democratic-csi is healthy
+# Config Application: deploys OnePasswordItem for TrueNAS API key before democratic-csi
+# Must deploy after 1Password operator (wave -1) but before democratic-csi (wave 2)
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
   name: democratic-csi-config
   namespace: argocd
   annotations:
-    argocd.argoproj.io/sync-wave: "5"
+    argocd.argoproj.io/sync-wave: "1"
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:

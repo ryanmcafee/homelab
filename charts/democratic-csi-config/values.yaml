@@ -1,0 +1,6 @@
+# democratic-csi-config values
+
+truenas:
+  enabled: true
+  namespace: democratic-csi
+  onePasswordItemPath: ""

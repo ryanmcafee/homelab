@@ -1,0 +1,10 @@
+{{- if .Values.truenas.enabled }}
+---
+apiVersion: onepassword.com/v1
+kind: OnePasswordItem
+metadata:
+  name: truenas-api-key
+  namespace: {{ .Values.truenas.namespace }}
+spec:
+  itemPath: {{ .Values.truenas.onePasswordItemPath | quote }}
+{{- end }}

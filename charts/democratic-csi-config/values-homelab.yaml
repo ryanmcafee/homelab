@@ -1,0 +1,6 @@
+# democratic-csi-config homelab values
+
+truenas:
+  enabled: true
+  namespace: democratic-csi
+  onePasswordItemPath: "op://homelab/truenas-api-key/credential"
