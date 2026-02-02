@@ -104,12 +104,12 @@ spec:
     namespace: {{ index .Values "democratic-csi" "namespace" }}
 
   syncPolicy:
-    # Automatic sync disabled - manual sync only
+    automated:
+      prune: true
+      selfHeal: true
     syncOptions:
       - ServerSideApply=true
       - ApplyOutOfSyncOnly=true
-    retry:
-      limit: 0
 ---
 # Config Application: deploys CRD-dependent resources after democratic-csi is healthy
 apiVersion: argoproj.io/v1alpha1
@@ -135,13 +135,10 @@ spec:
     server: https://kubernetes.default.svc
     namespace: democratic-csi
   syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
-    retry:
-      limit: 5
-      backoff:
-        duration: 10s
-        factor: 2
-        maxDuration: 3m
 {{- end }}

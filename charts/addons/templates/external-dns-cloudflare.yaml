@@ -63,13 +63,13 @@ spec:
     namespace: {{ index .Values "external-dns" "namespace" }}
 
   syncPolicy:
-    # Automatic sync disabled - manual sync only
+    automated:
+      prune: true
+      selfHeal: true
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
       - ApplyOutOfSyncOnly=true
-    retry:
-      limit: 0
 {{- end }}
 ---
 # Config Application: deploys CRD-dependent resources (DNSEndpoint) after external-dns is healthy
@@ -96,13 +96,10 @@ spec:
     server: https://kubernetes.default.svc
     namespace: external-dns
   syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
-    retry:
-      limit: 5
-      backoff:
-        duration: 10s
-        factor: 2
-        maxDuration: 3m
 {{- end }}

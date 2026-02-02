@@ -222,16 +222,12 @@ spec:
     namespace: {{ index .Values "argo-workflows" "namespace" }}
 
   syncPolicy:
-    # Automatic sync disabled - manual sync only
+    automated:
+      prune: true
+      selfHeal: true
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
       - PruneLast=true
       - ApplyOutOfSyncOnly=true
-    retry:
-      limit: 5
-      backoff:
-        duration: 5s
-        factor: 2
-        maxDuration: 3m
 {{- end }}

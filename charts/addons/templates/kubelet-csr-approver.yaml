@@ -39,11 +39,11 @@ spec:
     namespace: {{ index .Values "kubelet-csr-approver" "namespace" }}
 
   syncPolicy:
-    # Automatic sync disabled - manual sync only
+    automated:
+      prune: true
+      selfHeal: true
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
       - ApplyOutOfSyncOnly=true
-    retry:
-      limit: 0
 {{- end }}

@@ -34,14 +34,14 @@ spec:
     namespace: {{ index .Values "cloudnative-pg" "namespace" }}
 
   syncPolicy:
-    # Automatic sync disabled - manual sync only
+    automated:
+      prune: true
+      selfHeal: true
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
       - ApplyOutOfSyncOnly=true
       - RespectIgnoreDifferences=true
-    retry:
-      limit: 0
 
   # Ignore differences in webhook configurations
   ignoreDifferences:

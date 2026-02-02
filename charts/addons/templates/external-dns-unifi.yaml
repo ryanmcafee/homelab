@@ -122,13 +122,13 @@ spec:
     namespace: {{ index .Values "external-dns-unifi" "namespace" }}
 
   syncPolicy:
-    # Automatic sync disabled - manual sync only
+    automated:
+      prune: true
+      selfHeal: true
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
       - ApplyOutOfSyncOnly=true
-    retry:
-      limit: 0
 ---
 # Instance 2: Ingress/Service sources with annotation filter
 apiVersion: argoproj.io/v1alpha1
@@ -208,11 +208,11 @@ spec:
     namespace: {{ index .Values "external-dns-unifi" "namespace" }}
 
   syncPolicy:
-    # Automatic sync disabled - manual sync only
+    automated:
+      prune: true
+      selfHeal: true
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
       - ApplyOutOfSyncOnly=true
-    retry:
-      limit: 0
 {{- end }}

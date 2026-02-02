@@ -85,12 +85,12 @@ spec:
     namespace: {{ index .Values "oauth2-proxy" "namespace" }}
 
   syncPolicy:
-    # Automatic sync disabled - manual sync only
+    automated:
+      prune: true
+      selfHeal: true
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
       - ApplyOutOfSyncOnly=true
-    retry:
-      limit: 0
 # NOTE: Traefik Middleware for ForwardAuth is now in addons-resources chart
 {{- end }}
