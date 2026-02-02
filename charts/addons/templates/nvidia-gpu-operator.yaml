@@ -1,5 +1,13 @@
 {{- if index .Values "nvidia-gpu-operator" "enabled" }}
 ---
+# Namespace for GPU operator components
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ index .Values "nvidia-gpu-operator" "namespace" }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+---
 # NVIDIA RuntimeClass - required for pods to use nvidia container runtime
 # This must exist BEFORE any pods request runtimeClassName: nvidia
 apiVersion: node.k8s.io/v1
