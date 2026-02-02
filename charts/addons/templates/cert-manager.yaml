@@ -63,14 +63,15 @@ spec:
       jsonPointers:
         - /webhooks/0/clientConfig/caBundle
 ---
-# Config Application: deploys CRD-dependent resources (ClusterIssuer, Certificates) after cert-manager is healthy
+# Config Application: deploys OnePasswordItem for Cloudflare API token before cert-manager
+# Note: Also contains ClusterIssuer which requires cert-manager CRDs - will retry until available
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
   name: cert-manager-config
   namespace: argocd
   annotations:
-    argocd.argoproj.io/sync-wave: "5"
+    argocd.argoproj.io/sync-wave: "-1"
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:

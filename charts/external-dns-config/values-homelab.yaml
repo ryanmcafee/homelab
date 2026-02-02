@@ -1,0 +1,11 @@
+# external-dns-config homelab values
+
+cloudflare:
+  enabled: true
+  namespace: external-dns
+  onePasswordItemPath: "op://homelab/cloudflare-api-token/credential"
+
+unifi:
+  enabled: true
+  namespace: external-dns-unifi
+  onePasswordItemPath: "op://homelab/unifi-admin/credential"

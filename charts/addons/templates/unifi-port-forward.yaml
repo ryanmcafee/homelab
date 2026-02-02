@@ -60,14 +60,14 @@ spec:
       - ApplyOutOfSyncOnly=true
       - Replace=true
 ---
-# Config Application: deploys CRD-dependent resources after port-forwarding-controller is healthy
+# Config Application: deploys OnePasswordItem for UniFi credentials before port-forwarding-controller
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
   name: port-forwarding-controller-config
   namespace: argocd
   annotations:
-    argocd.argoproj.io/sync-wave: "8"
+    argocd.argoproj.io/sync-wave: "6"
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:

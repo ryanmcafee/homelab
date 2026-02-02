@@ -1,0 +1,33 @@
+# traefik-config values
+
+global:
+  domain: example.com
+
+namespace: traefik
+
+# Cloudflare API token (for ACME DNS challenges if using Traefik's built-in ACME)
+cloudflare:
+  enabled: false
+  onePasswordItemPath: ""
+
+# Dashboard configuration
+dashboard:
+  enabled: true
+  host: traefik.example.com
+  staticIP: "172.16.100.200"
+
+# OIDC authentication
+oidc:
+  enabled: false
+  host: auth.example.com
+  providerURL: https://accounts.google.com
+  callbackURL: https://auth.example.com/oauth2/callback
+  logoutURL: https://auth.example.com/oauth2/logout
+  googleOAuthPath: ""
+  sessionKeyPath: ""
+  scopes:
+    - openid
+    - email
+    - profile
+  allowedDomains:
+    - example.com

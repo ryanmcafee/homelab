@@ -1,0 +1,20 @@
+{{- if .Values.cloudflare.enabled }}
+---
+apiVersion: onepassword.com/v1
+kind: OnePasswordItem
+metadata:
+  name: cloudflare-api-token
+  namespace: {{ .Values.cloudflare.namespace }}
+spec:
+  itemPath: {{ .Values.cloudflare.onePasswordItemPath | quote }}
+{{- end }}
+{{- if .Values.unifi.enabled }}
+---
+apiVersion: onepassword.com/v1
+kind: OnePasswordItem
+metadata:
+  name: unifi-api-credentials
+  namespace: {{ .Values.unifi.namespace }}
+spec:
+  itemPath: {{ .Values.unifi.onePasswordItemPath | quote }}
+{{- end }}

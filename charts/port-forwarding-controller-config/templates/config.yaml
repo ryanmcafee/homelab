@@ -1,0 +1,10 @@
+{{- if .Values.unifi.enabled }}
+---
+apiVersion: onepassword.com/v1
+kind: OnePasswordItem
+metadata:
+  name: unifi-credentials
+  namespace: {{ .Values.unifi.namespace }}
+spec:
+  itemPath: {{ .Values.unifi.onePasswordItemPath | quote }}
+{{- end }}

@@ -1,0 +1,6 @@
+# port-forwarding-controller-config values
+
+unifi:
+  enabled: true
+  namespace: port-forwarding
+  onePasswordItemPath: ""

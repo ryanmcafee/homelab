@@ -1,0 +1,17 @@
+# cert-manager-config homelab values
+
+global:
+  domain: ryanmcafee.com
+
+cloudflare:
+  enabled: true
+  onePasswordItemPath: "op://homelab/cloudflare-api-token/credential"
+
+letsencrypt:
+  enabled: true
+  server: https://acme-v02.api.letsencrypt.org/directory
+  email: admin@ryanmcafee.com
+  cloudflare:
+    email: admin@ryanmcafee.com
+  dnsZones:
+    - ryanmcafee.com
