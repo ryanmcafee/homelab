@@ -8,16 +8,7 @@ metadata:
   name: {{ $namespace }}
   annotations:
     argocd.argoproj.io/sync-wave: "6"
----
-apiVersion: onepassword.com/v1
-kind: OnePasswordItem
-metadata:
-  name: unifi-credentials
-  namespace: {{ $namespace }}
-  annotations:
-    argocd.argoproj.io/sync-wave: "6"
-spec:
-  itemPath: {{ index .Values "unifi-port-forward" "onePasswordItemPath" | quote }}
+# NOTE: OnePasswordItem is now in addons-resources chart
 ---
 {{- $portForwardValues := index .Values "unifi-port-forward" }}
 apiVersion: argoproj.io/v1alpha1

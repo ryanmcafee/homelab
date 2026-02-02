@@ -1,0 +1,33 @@
+{{- if and .Values.certManager.enabled .Values.certManager.letsencrypt.enabled }}
+---
+# Let's Encrypt ClusterIssuer with Cloudflare DNS-01 challenge
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt
+spec:
+  acme:
+    server: {{ .Values.certManager.letsencrypt.server }}
+    email: {{ .Values.certManager.letsencrypt.email }}
+    privateKeySecretRef:
+      name: letsencrypt-account-key
+    solvers:
+    {{- if .Values.certManager.cloudflare.enabled }}
+    - dns01:
+        cloudflare:
+          email: {{ .Values.certManager.cloudflare.email }}
+          apiTokenSecretRef:
+            name: cloudflare-api-token
+            key: api_token
+        cnameStrategy: Follow
+      selector:
+        dnsZones:
+          {{- range .Values.certManager.dnsZones }}
+          - {{ . }}
+          {{- end }}
+    {{- else }}
+    - http01:
+        ingress:
+          class: traefik
+    {{- end }}
+{{- end }}

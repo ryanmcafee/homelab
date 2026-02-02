@@ -1,17 +1,5 @@
 {{- if index .Values "cert-manager" "enabled" }}
-{{- if (index .Values "cert-manager" "cloudflare" "enabled") }}
----
-# OnePasswordItem syncs the Cloudflare API token from 1Password vault
-apiVersion: onepassword.com/v1
-kind: OnePasswordItem
-metadata:
-  name: cloudflare-api-token
-  namespace: {{ index .Values "cert-manager" "namespace" }}
-  annotations:
-    argocd.argoproj.io/sync-wave: "0"
-spec:
-  itemPath: {{ index .Values "cert-manager" "cloudflare" "onePasswordItemPath" | quote }}
-{{- end }}
+# NOTE: OnePasswordItem and ClusterIssuer are now in addons-resources chart
 ---
 apiVersion: argoproj.io/v1alpha1
 kind: Application
@@ -75,40 +63,4 @@ spec:
       jsonPointers:
         - /webhooks/0/clientConfig/caBundle
 
-{{- if (index .Values "cert-manager" "letsencrypt" "enabled") }}
----
-# Let's Encrypt ClusterIssuer with Cloudflare DNS-01 challenge
-# Sync wave 1: After cert-manager (wave 0) is healthy, but before services needing TLS (wave 2+)
-apiVersion: cert-manager.io/v1
-kind: ClusterIssuer
-metadata:
-  name: letsencrypt
-  annotations:
-    argocd.argoproj.io/sync-wave: "1"
-spec:
-  acme:
-    server: {{ index .Values "cert-manager" "letsencrypt" "server" }}
-    email: {{ index .Values "cert-manager" "letsencrypt" "email" }}
-    privateKeySecretRef:
-      name: letsencrypt-account-key
-    solvers:
-    {{- if (index .Values "cert-manager" "cloudflare" "enabled") }}
-    - dns01:
-        cloudflare:
-          email: {{ index .Values "cert-manager" "cloudflare" "email" }}
-          apiTokenSecretRef:
-            name: cloudflare-api-token
-            key: api_token
-        cnameStrategy: Follow
-      selector:
-        dnsZones:
-          {{- range (index .Values "cert-manager" "dnsZones") }}
-          - {{ . }}
-          {{- end }}
-    {{- else }}
-    - http01:
-        ingress:
-          class: traefik
-    {{- end }}
-{{- end }}
 {{- end }}

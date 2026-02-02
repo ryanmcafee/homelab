@@ -1,0 +1,78 @@
+# Addons Resources Values
+# This chart shares values with the addons chart.
+# Values are passed from the parent addons Application.
+
+global:
+  domain: ryanmcafee.com
+  environment: homelab
+
+# 1Password Items Configuration
+onepassword:
+  # Democratic-CSI TrueNAS API key
+  truenas:
+    enabled: true
+    namespace: democratic-csi
+    itemPath: "op://homelab/truenas-api-key/credential"
+
+  # Cloudflare API token (used by cert-manager, external-dns, traefik)
+  cloudflare:
+    enabled: true
+    itemPath: "op://homelab/cloudflare-api-token/credential"
+    namespaces:
+      - cert-manager
+      - external-dns
+      - traefik
+
+  # UniFi API credentials
+  unifi:
+    enabled: true
+    namespace: external-dns-unifi
+    itemPath: "op://homelab/unifi-admin/credential"
+
+  # Port forwarding UniFi credentials
+  portForwarding:
+    enabled: true
+    namespace: port-forwarding
+    itemPath: "op://homelab/unifi-admin/credential"
+
+  # Traefik OIDC credentials
+  oidc:
+    enabled: true
+    namespace: traefik
+    googleOAuthPath: "op://homelab/google-oauth/credential"
+    sessionKeyPath: "op://homelab/oidc-session-key/credential"
+
+# Cert-Manager Resources
+certManager:
+  enabled: true
+  namespace: cert-manager
+  letsencrypt:
+    enabled: true
+    server: https://acme-v02.api.letsencrypt.org/directory
+    email: admin@ryanmcafee.com
+  cloudflare:
+    enabled: true
+    email: admin@ryanmcafee.com
+  dnsZones:
+    - ryanmcafee.com
+
+# Traefik Dashboard Resources
+traefik:
+  enabled: true
+  namespace: traefik
+  dashboard:
+    enabled: true
+    host: traefik.ryanmcafee.com
+    staticIP: "172.16.100.200"
+  oidc:
+    enabled: true
+    host: auth.ryanmcafee.com
+    providerURL: https://accounts.google.com
+    callbackURL: https://auth.ryanmcafee.com/oauth2/callback
+    logoutURL: https://auth.ryanmcafee.com/oauth2/logout
+    scopes:
+      - openid
+      - email
+      - profile
+    allowedDomains:
+      - ryanmcafee.com

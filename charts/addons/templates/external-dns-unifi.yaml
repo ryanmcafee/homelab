@@ -6,17 +6,7 @@ metadata:
   name: {{ index .Values "external-dns-unifi" "namespace" }}
   annotations:
     argocd.argoproj.io/sync-wave: "4"
----
-# OnePasswordItem for UniFi API credentials (shared by both instances)
-apiVersion: onepassword.com/v1
-kind: OnePasswordItem
-metadata:
-  name: unifi-api-credentials
-  namespace: {{ index .Values "external-dns-unifi" "namespace" }}
-  annotations:
-    argocd.argoproj.io/sync-wave: "0"
-spec:
-  itemPath: {{ index .Values "external-dns-unifi" "onePasswordItemPath" | quote }}
+# NOTE: OnePasswordItem is now in addons-resources chart
 ---
 # Additional RBAC for CRD source (helm chart doesn't generate this correctly)
 apiVersion: rbac.authorization.k8s.io/v1

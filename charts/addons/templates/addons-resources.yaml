@@ -1,0 +1,49 @@
+{{- if .Values.global.environment }}
+---
+# Addons Resources Application
+# This application deploys CRD-dependent resources AFTER all CRD-installing
+# applications are healthy. This solves the chicken-and-egg problem where
+# ArgoCD can't parse CRD instances before the CRDs are installed.
+#
+# Dependencies (must be healthy before this syncs):
+# - Wave -1: 1Password operator (OnePasswordItem CRD)
+# - Wave 0: cert-manager (Certificate, ClusterIssuer CRDs)
+# - Wave 2: traefik (Middleware, IngressRoute CRDs)
+# - Wave 4: external-dns (DNSEndpoint CRD)
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: addons-resources
+  namespace: argocd
+  annotations:
+    # Wave 10: Deploy after all CRD-installing applications are healthy
+    argocd.argoproj.io/sync-wave: "10"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: {{ .Values.global.repoUrl }}
+    targetRevision: {{ .Values.global.targetRevision }}
+    path: charts/addons-resources
+    helm:
+      valueFiles:
+        - values.yaml
+        {{- if .Values.global.environment }}
+        - values-{{ .Values.global.environment }}.yaml
+        {{- end }}
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 3m
+{{- end }}
