@@ -695,6 +695,24 @@ cloudnative-pg:
   enabled: false
   namespace: cloudnative-pg
 
+  chart:
+    name: cloudnative-pg
+    repo: https://cloudnative-pg.github.io/charts
+    version: 0.23.0
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+  monitoring:
+    podMonitorEnabled: false
+    grafanaDashboard:
+      create: false
+
 # ============================================================================
 # Cilium LB IPAM - LoadBalancer IP Address Management
 # Disabled by default - enable in environment-specific values
