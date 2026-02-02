@@ -203,7 +203,15 @@ tasks:
     deps:
       - ansible:init
     cmds:
-      - ansible-playbook -i inventory/homelab.yml playbooks/truenas-setup.yml --check --diff
+      - op run --env-file={{.ROOT_DIR}}/.env.op -- ansible-playbook -i inventory/homelab.yml playbooks/truenas-setup.yml --vault-password-file=vault-password.sh --check --diff
+
+  truenas:configure-lan:
+    desc: Configure TrueNAS LAN network interface (VLAN 10)
+    dir: ansible
+    deps:
+      - ansible:init
+    cmds:
+      - op run --env-file={{.ROOT_DIR}}/.env.op -- ansible-playbook -i inventory/homelab.yml playbooks/truenas-setup.yml --vault-password-file=vault-password.sh --tags lan-network
 
   # ==========================================================================
   # TrueNAS Automation (Packer + Full Setup)

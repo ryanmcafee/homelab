@@ -67,6 +67,15 @@ proxmox_network_bridge: vmbr0
 proxmox_vlan_aware: true
 proxmox_mtu: 1500
 
+# Physical uplink interface (bridge member)
+proxmox_uplink_interface: nic1
+
+# VLANs to trunk on the physical uplink
+# These VLANs will be allowed to pass through to VMs
+proxmox_trunk_vlans:
+  - 10   # LAN/IoT VLAN (TrueNAS secondary NIC)
+  - 100  # Homelab VLAN (Kubernetes, VMs)
+
 # VLAN Package Configuration
 # Set to specific version if default conflicts (e.g., "1.9-3.2")
 # Leave undefined to try latest available version
