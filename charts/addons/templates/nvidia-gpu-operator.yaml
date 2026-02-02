@@ -6,7 +6,7 @@ kind: Namespace
 metadata:
   name: {{ index .Values "nvidia-gpu-operator" "namespace" }}
   annotations:
-    argocd.argoproj.io/sync-wave: "-1"
+    argocd.argoproj.io/sync-wave: "9"
 ---
 # NVIDIA RuntimeClass - required for pods to use nvidia container runtime
 # This must exist BEFORE any pods request runtimeClassName: nvidia
@@ -15,7 +15,7 @@ kind: RuntimeClass
 metadata:
   name: nvidia
   annotations:
-    argocd.argoproj.io/sync-wave: "0"
+    argocd.argoproj.io/sync-wave: "9"
 handler: nvidia
 ---
 # Talos GPU Validation Bypass DaemonSet
@@ -27,7 +27,7 @@ metadata:
   name: nvidia-validation-bypass
   namespace: {{ index .Values "nvidia-gpu-operator" "namespace" }}
   annotations:
-    argocd.argoproj.io/sync-wave: "0"
+    argocd.argoproj.io/sync-wave: "9"
   labels:
     app.kubernetes.io/name: nvidia-validation-bypass
     app.kubernetes.io/component: validation
@@ -88,8 +88,8 @@ metadata:
   name: nvidia-gpu-operator
   namespace: argocd
   annotations:
-    # Sync wave 0 - must deploy before Plex (sync-wave: 1) which requires RuntimeClass nvidia
-    argocd.argoproj.io/sync-wave: "0"
+    # Sync wave 9 - deploy late in the sync process
+    argocd.argoproj.io/sync-wave: "9"
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
