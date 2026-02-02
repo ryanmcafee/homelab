@@ -6,8 +6,8 @@ metadata:
   name: cloudnative-pg
   namespace: argocd
   annotations:
-    # Sync wave 2 - must be before home-assistant (wave 3) which depends on CNPG CRDs
-    argocd.argoproj.io/sync-wave: "2"
+    # Sync wave 8 - deploys after kube-prometheus-stack (wave 7) for monitoring integration
+    argocd.argoproj.io/sync-wave: "8"
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
