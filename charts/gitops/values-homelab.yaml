@@ -15,7 +15,8 @@ global:
   repoUrl: https://github.com/ryanmcafee/homelab.git
 
   # Target revision (branch/tag/commit)
-  targetRevision: main
+  # TODO: Change back to 'main' after testing
+  targetRevision: feature/fix-argocd-sync-waves
 
   # ArgoCD project to use for all applications
   project: default
