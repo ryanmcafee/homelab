@@ -71,4 +71,38 @@ spec:
     retry:
       limit: 0
 {{- end }}
+---
+# Config Application: deploys CRD-dependent resources (DNSEndpoint) after external-dns is healthy
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: external-dns-config
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "5"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: {{ .Values.global.repoUrl }}
+    targetRevision: {{ .Values.global.targetRevision }}
+    path: charts/external-dns-config
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-{{ .Values.global.environment }}.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: external-dns
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 3m
 {{- end }}

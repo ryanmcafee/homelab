@@ -216,4 +216,39 @@ spec:
     - port: 6379
       targetPort: 6379
 {{- end }}
+---
+# Config Application: deploys CRD-dependent resources (Middleware, IngressRoute, Certificate) after traefik is healthy
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: traefik-config
+  namespace: argocd
+  annotations:
+    # Wave 6: After traefik (wave 2) installs CRDs and cert-manager-config (wave 5) creates ClusterIssuer
+    argocd.argoproj.io/sync-wave: "6"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: {{ .Values.global.repoUrl }}
+    targetRevision: {{ .Values.global.targetRevision }}
+    path: charts/traefik-config
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-{{ .Values.global.environment }}.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: traefik
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 3m
 {{- end }}

@@ -63,4 +63,38 @@ spec:
         duration: 5s
         factor: 2
         maxDuration: 3m
+---
+# Config Application: deploys CRD-dependent resources after port-forwarding-controller is healthy
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: port-forwarding-controller-config
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: {{ .Values.global.repoUrl }}
+    targetRevision: {{ .Values.global.targetRevision }}
+    path: charts/port-forwarding-controller-config
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-{{ .Values.global.environment }}.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: port-forwarding
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 3m
 {{- end }}
