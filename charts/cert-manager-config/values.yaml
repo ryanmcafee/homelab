@@ -1,19 +1,7 @@
 # cert-manager-config values
-
-global:
-  domain: example.com
+# OnePasswordItem for Cloudflare API token
 
 # Cloudflare API token for DNS-01 challenges
 cloudflare:
   enabled: true
   onePasswordItemPath: ""
-
-# Let's Encrypt ClusterIssuer
-letsencrypt:
-  enabled: true
-  server: https://acme-v02.api.letsencrypt.org/directory
-  email: admin@example.com
-  cloudflare:
-    email: admin@example.com
-  dnsZones:
-    - example.com

@@ -1,5 +1,4 @@
 {{- if index .Values "cert-manager" "enabled" }}
-# NOTE: OnePasswordItem and ClusterIssuer are now in addons-resources chart
 ---
 apiVersion: argoproj.io/v1alpha1
 kind: Application
@@ -63,11 +62,42 @@ spec:
       jsonPointers:
         - /webhooks/0/clientConfig/caBundle
 ---
-# Config Application: deploys ClusterIssuer and OnePasswordItem after cert-manager installs CRDs
+# Config Application: deploys OnePasswordItem for Cloudflare API token before cert-manager
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
   name: cert-manager-config
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: {{ .Values.global.repoUrl }}
+    targetRevision: {{ .Values.global.targetRevision }}
+    path: charts/cert-manager-config
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-{{ .Values.global.environment }}.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: cert-manager
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+---
+# ClusterIssuer Application: deploys after cert-manager installs CRDs
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cert-manager-cluster-issuer
   namespace: argocd
   annotations:
     argocd.argoproj.io/sync-wave: "1"
@@ -78,7 +108,7 @@ spec:
   source:
     repoURL: {{ .Values.global.repoUrl }}
     targetRevision: {{ .Values.global.targetRevision }}
-    path: charts/cert-manager-config
+    path: charts/cert-manager-cluster-issuer
     helm:
       valueFiles:
         - values.yaml
