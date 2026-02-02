@@ -41,7 +41,7 @@ spec:
         app.kubernetes.io/name: nvidia-validation-bypass
     spec:
       nodeSelector:
-        nvidia.com/gpu.present: "true"
+        nvidia.com/gpu: "true"
       tolerations:
         - key: nvidia.com/gpu
           operator: Exists
