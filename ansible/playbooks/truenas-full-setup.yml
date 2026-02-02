@@ -34,8 +34,8 @@
     truenas_hostname: "truenas.ryanmcafee.com"
 
     # LAN Network Configuration (VLAN 10)
-    truenas_lan_network_enabled: false
-    truenas_lan_static_ip: ""
+    truenas_lan_network_enabled: true
+    truenas_lan_static_ip: "172.16.10.150/24"
 
     # Storage pools configuration
     storage_pools:
