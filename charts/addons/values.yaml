@@ -171,7 +171,7 @@ spegel:
   # Chart source (OCI registry)
   chart:
     name: spegel
-    repo: ghcr.io/spegel-org/helm-charts
+    repo: oci://ghcr.io/spegel-org/helm-charts
     version: "0.6.0"
 
   # Service configuration
