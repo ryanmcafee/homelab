@@ -2,4 +2,4 @@
 
 cloudflare:
   enabled: true
-  onePasswordItemPath: "op://homelab/cloudflare-api-token/credential"
+  onePasswordItemPath: "vaults/homelab/items/cloudflare"

@@ -3,9 +3,9 @@
 cloudflare:
   enabled: true
   namespace: external-dns
-  onePasswordItemPath: "op://homelab/cloudflare-api-token/credential"
+  onePasswordItemPath: "vaults/homelab/items/cloudflare"
 
 unifi:
   enabled: true
   namespace: external-dns-unifi
-  onePasswordItemPath: "op://homelab/unifi-admin/credential"
+  onePasswordItemPath: "vaults/homelab/items/unifi"

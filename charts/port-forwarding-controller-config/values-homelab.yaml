@@ -3,4 +3,4 @@
 unifi:
   enabled: true
   namespace: port-forwarding
-  onePasswordItemPath: "op://homelab/unifi-admin/credential"
+  onePasswordItemPath: "vaults/homelab/items/unifi"

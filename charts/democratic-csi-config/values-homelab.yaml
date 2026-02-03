@@ -3,4 +3,4 @@
 truenas:
   enabled: true
   namespace: democratic-csi
-  onePasswordItemPath: "op://homelab/truenas-api-key/credential"
+  onePasswordItemPath: "vaults/homelab/items/truenas"

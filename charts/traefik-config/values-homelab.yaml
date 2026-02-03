@@ -7,7 +7,7 @@ namespace: traefik
 
 cloudflare:
   enabled: true
-  onePasswordItemPath: "op://homelab/cloudflare-api-token/credential"
+  onePasswordItemPath: "vaults/homelab/items/cloudflare"
 
 dashboard:
   enabled: true
@@ -20,8 +20,8 @@ oidc:
   providerURL: https://accounts.google.com
   callbackURL: https://auth.ryanmcafee.com/oauth2/callback
   logoutURL: https://auth.ryanmcafee.com/oauth2/logout
-  googleOAuthPath: "op://homelab/google-oauth/credential"
-  sessionKeyPath: "op://homelab/oidc-session-key/credential"
+  googleOAuthPath: "vaults/homelab/items/google-oauth"
+  sessionKeyPath: "vaults/homelab/items/oidc-session-key"
   scopes:
     - openid
     - email
