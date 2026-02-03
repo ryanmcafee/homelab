@@ -602,10 +602,15 @@ transmission:
               TRANSMISSION_INCOMPLETE_DIR_ENABLED: "true"
               TRANSMISSION_RATIO_LIMIT: "0.25"
               TRANSMISSION_RATIO_LIMIT_ENABLED: "true"
-            # Mount VPN credentials from 1Password
-            envFrom:
-              - secretRef:
+              # RPC credentials from 1Password secret
+              TRANSMISSION_RPC_USERNAME:
+                secretKeyRef:
                   name: transmission-vpn-credentials
+                  key: TRANSMISSION_RPC_USERNAME
+              TRANSMISSION_RPC_PASSWORD:
+                secretKeyRef:
+                  name: transmission-vpn-credentials
+                  key: TRANSMISSION_RPC_PASSWORD
             resources:
               requests:
                 cpu: 100m
