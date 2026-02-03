@@ -585,7 +585,7 @@ transmission:
   chart:
     name: transmission
     repo: oci://oci.trueforge.org/truecharts/transmission
-    version: 24.3.11
+    version: 24.14.1
 
   # 1Password vault path for VPN and RPC credentials
   onePasswordItemPath: vaults/homelab/items/transmission-vpn
