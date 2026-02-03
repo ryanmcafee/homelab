@@ -596,21 +596,13 @@ transmission:
         containers:
           main:
             env:
-              TRANSMISSION_RPC_AUTHENTICATION_REQUIRED: "true"
+              # RPC auth disabled - protected by OIDC via Traefik ingress
+              TRANSMISSION_RPC_AUTHENTICATION_REQUIRED: "false"
               TRANSMISSION_DOWNLOAD_DIR: /downloads
               TRANSMISSION_INCOMPLETE_DIR: /downloads/incomplete
               TRANSMISSION_INCOMPLETE_DIR_ENABLED: "true"
               TRANSMISSION_RATIO_LIMIT: "0.25"
               TRANSMISSION_RATIO_LIMIT_ENABLED: "true"
-              # RPC credentials from 1Password secret
-              TRANSMISSION_RPC_USERNAME:
-                secretKeyRef:
-                  name: transmission-vpn-credentials
-                  key: TRANSMISSION_RPC_USERNAME
-              TRANSMISSION_RPC_PASSWORD:
-                secretKeyRef:
-                  name: transmission-vpn-credentials
-                  key: TRANSMISSION_RPC_PASSWORD
             resources:
               requests:
                 cpu: 100m
