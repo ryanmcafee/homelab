@@ -20,8 +20,11 @@ apiVersion: node.k8s.io/v1
 kind: RuntimeClass
 metadata:
   name: nvidia
+  labels:
+    app.kubernetes.io/managed-by: argocd
   annotations:
     argocd.argoproj.io/sync-wave: "10"
+    argocd.argoproj.io/sync-options: ServerSideApply=true,Prune=false
 handler: nvidia
 ---
 # Talos GPU Validation Bypass DaemonSet
@@ -144,6 +147,12 @@ spec:
         # Node Feature Discovery - detects GPU hardware
         nfd:
           enabled: true
+
+        # Validator - disabled on Talos (using validation-bypass DaemonSet instead)
+        # The validator has mount issues on Talos and is not needed since
+        # driver/toolkit are pre-installed via system extensions
+        validator:
+          enabled: false
 
         # Talos-specific: Tell operator that driver/toolkit are pre-installed
         operator:
