@@ -6,7 +6,8 @@ kind: Namespace
 metadata:
   name: {{ index .Values "nvidia-gpu-operator" "namespace" }}
   annotations:
-    argocd.argoproj.io/sync-wave: "9"
+    # Wave 10: After kube-prometheus-stack (wave 9)
+    argocd.argoproj.io/sync-wave: "10"
 ---
 # NVIDIA RuntimeClass - required for pods to use nvidia container runtime
 # This must exist BEFORE any pods request runtimeClassName: nvidia
@@ -15,7 +16,7 @@ kind: RuntimeClass
 metadata:
   name: nvidia
   annotations:
-    argocd.argoproj.io/sync-wave: "9"
+    argocd.argoproj.io/sync-wave: "10"
 handler: nvidia
 ---
 # Talos GPU Validation Bypass DaemonSet
@@ -27,7 +28,7 @@ metadata:
   name: nvidia-validation-bypass
   namespace: {{ index .Values "nvidia-gpu-operator" "namespace" }}
   annotations:
-    argocd.argoproj.io/sync-wave: "9"
+    argocd.argoproj.io/sync-wave: "10"
   labels:
     app.kubernetes.io/name: nvidia-validation-bypass
     app.kubernetes.io/component: validation
@@ -88,8 +89,8 @@ metadata:
   name: nvidia-gpu-operator
   namespace: argocd
   annotations:
-    # Sync wave 9 - deploy late in the sync process
-    argocd.argoproj.io/sync-wave: "9"
+    # Wave 10: After kube-prometheus-stack (wave 9) for DCGM metrics integration
+    argocd.argoproj.io/sync-wave: "10"
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
