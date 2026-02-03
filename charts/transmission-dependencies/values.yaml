@@ -1,0 +1,11 @@
+# transmission-dependencies values
+
+namespace: media
+
+# 1Password vault path for Transmission VPN credentials
+# The secret should have fields:
+#   - openvpn_username: VPN username
+#   - openvpn_password: VPN password
+#   - rpc_username: Transmission RPC username (optional)
+#   - rpc_password: Transmission RPC password (optional)
+onePasswordItemPath: ""

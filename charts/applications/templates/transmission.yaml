@@ -1,0 +1,118 @@
+{{- if .Values.transmission.enabled }}
+---
+# Dependencies Application: deploys OnePasswordItem for VPN credentials
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: transmission-dependencies
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "13"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: {{ .Values.global.repoUrl }}
+    targetRevision: {{ .Values.global.targetRevision }}
+    path: charts/transmission-dependencies
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-{{ .Values.global.environment }}.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: {{ .Values.transmission.namespace }}
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - SkipDryRunOnMissingResource=true
+---
+# Transmission Application: deploys the BitTorrent client with VPN
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: transmission
+  namespace: argocd
+  annotations:
+    # Wave 14: After transmission-dependencies (wave 13) creates the secret
+    argocd.argoproj.io/sync-wave: "14"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: oci.trueforge.org/truecharts
+    chart: {{ .Values.transmission.chart.name }}
+    targetRevision: {{ .Values.transmission.chart.version }}
+    helm:
+      releaseName: transmission
+      values: |
+        {{- if .Values.transmission.addons }}
+        addons:
+          {{- toYaml .Values.transmission.addons | nindent 10 }}
+        {{- end }}
+
+        {{- if .Values.transmission.workload }}
+        workload:
+          {{- toYaml .Values.transmission.workload | nindent 10 }}
+        {{- end }}
+
+        {{- if .Values.transmission.service }}
+        service:
+          {{- toYaml .Values.transmission.service | nindent 10 }}
+        {{- end }}
+
+        {{- if .Values.transmission.persistence }}
+        persistence:
+          {{- toYaml .Values.transmission.persistence | nindent 10 }}
+        {{- end }}
+
+        {{- if .Values.transmission.ingress }}
+        ingress:
+          {{- toYaml .Values.transmission.ingress | nindent 10 }}
+        {{- end }}
+
+        {{- if .Values.transmission.TZ }}
+        TZ: {{ .Values.transmission.TZ | quote }}
+        {{- end }}
+
+        {{- if .Values.transmission.securityContext }}
+        securityContext:
+          {{- toYaml .Values.transmission.securityContext | nindent 10 }}
+        {{- end }}
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: {{ .Values.transmission.namespace }}
+
+  # Ignore TrueCharts dynamic fields and Kubernetes defaults
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      jqPathExpressions:
+        - .spec.template.metadata.annotations | to_entries | map(select(.key | startswith("checksum/"))) | from_entries
+      jsonPointers:
+        - /spec/template/spec/hostUsers
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+      - RespectIgnoreDifferences=true
+      - SkipDryRunOnMissingResource=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+{{- end }}
