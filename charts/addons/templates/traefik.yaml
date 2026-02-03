@@ -15,8 +15,8 @@ metadata:
   name: traefik
   namespace: argocd
   annotations:
-    # Sync wave 2: After cert-manager (wave 0) and ClusterIssuer (wave 1) are ready
-    argocd.argoproj.io/sync-wave: "2"
+    # Sync wave 6: After traefik-config (wave 5) creates secrets and external-dns (wave 4) installs CRDs
+    argocd.argoproj.io/sync-wave: "6"
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
@@ -217,14 +217,16 @@ spec:
       targetPort: 6379
 {{- end }}
 ---
-# Config Application: deploys OnePasswordItems for secrets before traefik
+# Config Application: deploys secrets and CRD-dependent resources for traefik
+# Wave 5: After external-dns (wave 4) installs DNSEndpoint CRD
+# Note: Traefik pods may restart once secrets are created
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
   name: traefik-config
   namespace: argocd
   annotations:
-    argocd.argoproj.io/sync-wave: "1"
+    argocd.argoproj.io/sync-wave: "5"
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
@@ -247,4 +249,5 @@ spec:
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
+      - SkipDryRunOnMissingResource=true
 {{- end }}
