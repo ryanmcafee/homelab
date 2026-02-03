@@ -96,13 +96,7 @@ applications:
 # ArgoCD Application Options
 # ============================================================================
 
-ignoreDifferences:
-  # RuntimeClass gets modified by nvidia-gpu-operator after creation
-  - group: node.k8s.io
-    kind: RuntimeClass
-    jsonPointers:
-      - /metadata/ownerReferences
-      - /metadata/labels
+ignoreDifferences: []
 
 healthChecks:
   enabled: true
