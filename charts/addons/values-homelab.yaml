@@ -22,8 +22,7 @@ global:
 
   # Git repository for SOPS secrets
   repoUrl: https://github.com/ryanmcafee/homelab.git
-  # NOTE: Using feature branch until merged to main (config charts only exist on this branch)
-  targetRevision: feature/fix-argocd-sync-waves
+  targetRevision: main
 
 # ============================================================================
 # SOPS Secrets - Encrypted secrets for GitOps
