@@ -1,0 +1,73 @@
+{{- if .Values.nzbget.enabled }}
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: nzbget
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "13"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: oci.trueforge.org/truecharts
+    chart: {{ .Values.nzbget.chart.name }}
+    targetRevision: {{ .Values.nzbget.chart.version }}
+    helm:
+      releaseName: nzbget
+      values: |
+        {{- if .Values.nzbget.workload }}
+        workload:
+          {{- toYaml .Values.nzbget.workload | nindent 10 }}
+        {{- end }}
+
+        {{- if .Values.nzbget.persistence }}
+        persistence:
+          {{- toYaml .Values.nzbget.persistence | nindent 10 }}
+        {{- end }}
+
+        {{- if .Values.nzbget.ingress }}
+        ingress:
+          {{- toYaml .Values.nzbget.ingress | nindent 10 }}
+        {{- end }}
+
+        {{- if .Values.nzbget.TZ }}
+        TZ: {{ .Values.nzbget.TZ | quote }}
+        {{- end }}
+
+        {{- if .Values.nzbget.securityContext }}
+        securityContext:
+          {{- toYaml .Values.nzbget.securityContext | nindent 10 }}
+        {{- end }}
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: {{ .Values.nzbget.namespace }}
+
+  # Ignore TrueCharts dynamic fields and Kubernetes defaults
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      jqPathExpressions:
+        - .spec.template.metadata.annotations | to_entries | map(select(.key | startswith("checksum/"))) | from_entries
+      jsonPointers:
+        - /spec/template/spec/hostUsers
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+      - RespectIgnoreDifferences=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+{{- end }}

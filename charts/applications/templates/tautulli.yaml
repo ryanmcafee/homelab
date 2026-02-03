@@ -1,0 +1,73 @@
+{{- if .Values.tautulli.enabled }}
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: tautulli
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "13"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: oci.trueforge.org/truecharts
+    chart: {{ .Values.tautulli.chart.name }}
+    targetRevision: {{ .Values.tautulli.chart.version }}
+    helm:
+      releaseName: tautulli
+      values: |
+        {{- if .Values.tautulli.workload }}
+        workload:
+          {{- toYaml .Values.tautulli.workload | nindent 10 }}
+        {{- end }}
+
+        {{- if .Values.tautulli.persistence }}
+        persistence:
+          {{- toYaml .Values.tautulli.persistence | nindent 10 }}
+        {{- end }}
+
+        {{- if .Values.tautulli.ingress }}
+        ingress:
+          {{- toYaml .Values.tautulli.ingress | nindent 10 }}
+        {{- end }}
+
+        {{- if .Values.tautulli.TZ }}
+        TZ: {{ .Values.tautulli.TZ | quote }}
+        {{- end }}
+
+        {{- if .Values.tautulli.securityContext }}
+        securityContext:
+          {{- toYaml .Values.tautulli.securityContext | nindent 10 }}
+        {{- end }}
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: {{ .Values.tautulli.namespace }}
+
+  # Ignore TrueCharts dynamic fields and Kubernetes defaults
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      jqPathExpressions:
+        - .spec.template.metadata.annotations | to_entries | map(select(.key | startswith("checksum/"))) | from_entries
+      jsonPointers:
+        - /spec/template/spec/hostUsers
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+      - RespectIgnoreDifferences=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+{{- end }}

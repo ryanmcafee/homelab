@@ -33,6 +33,7 @@ global:
     pictures: /mnt/storage/pictures
     documents: /mnt/storage/documents
     downloads: /mnt/storage/downloads
+    books: /mnt/storage/books
 
 # ============================================================================
 # Plex Media Server
@@ -361,6 +362,326 @@ prowlarr:
         - secretName: prowlarr-tls
           hosts:
             - prowlarr.ryanmcafee.com
+
+  TZ: America/New_York
+  securityContext:
+    runAsUser: 1000
+    runAsGroup: 1000
+
+# ============================================================================
+# NZBGet - Usenet Downloader
+# Sync Wave: 13
+# ============================================================================
+
+nzbget:
+  enabled: true
+  namespace: media
+
+  # TrueCharts helm chart (OCI registry)
+  chart:
+    name: nzbget
+    repo: oci://oci.trueforge.org/truecharts/nzbget
+    version: 28.3.20
+
+  workload:
+    main:
+      podSpec:
+        containers:
+          main:
+            resources:
+              requests:
+                cpu: 100m
+                memory: 256Mi
+              limits:
+                cpu: 1000m
+                memory: 1Gi
+
+  persistence:
+    config:
+      enabled: true
+      storageClass: democratic-csi-nfs
+      size: 5Gi
+      accessModes:
+        - ReadWriteOnce
+
+    # Downloads storage via NFS
+    downloads:
+      enabled: true
+      type: nfs
+      server: truenas.ryanmcafee.com
+      path: /mnt/storage/downloads
+      mountPath: /downloads
+
+  ingress:
+    main:
+      enabled: true
+      ingressClassName: traefik
+      annotations:
+        cert-manager.io/cluster-issuer: letsencrypt
+        external-dns.alpha.kubernetes.io/hostname: nzbget.ryanmcafee.com
+        # OIDC authentication via Traefik plugin
+        traefik.ingress.kubernetes.io/router.middlewares: traefik-oidc-auth@kubernetescrd
+      hosts:
+        - host: nzbget.ryanmcafee.com
+          paths:
+            - path: /
+              pathType: Prefix
+      tls:
+        - secretName: nzbget-tls
+          hosts:
+            - nzbget.ryanmcafee.com
+
+  TZ: America/New_York
+  securityContext:
+    runAsUser: 1000
+    runAsGroup: 1000
+
+# ============================================================================
+# Tautulli - Plex Monitoring
+# Sync Wave: 13
+# ============================================================================
+
+tautulli:
+  enabled: true
+  namespace: media
+
+  # TrueCharts helm chart (OCI registry)
+  chart:
+    name: tautulli
+    repo: oci://oci.trueforge.org/truecharts/tautulli
+    version: 21.14.16
+
+  workload:
+    main:
+      podSpec:
+        containers:
+          main:
+            resources:
+              requests:
+                cpu: 100m
+                memory: 256Mi
+              limits:
+                cpu: 500m
+                memory: 512Mi
+
+  persistence:
+    config:
+      enabled: true
+      storageClass: democratic-csi-nfs
+      size: 5Gi
+      accessModes:
+        - ReadWriteOnce
+
+  ingress:
+    main:
+      enabled: true
+      ingressClassName: traefik
+      annotations:
+        cert-manager.io/cluster-issuer: letsencrypt
+        external-dns.alpha.kubernetes.io/hostname: tautulli.ryanmcafee.com
+        # OIDC authentication via Traefik plugin
+        traefik.ingress.kubernetes.io/router.middlewares: traefik-oidc-auth@kubernetescrd
+      hosts:
+        - host: tautulli.ryanmcafee.com
+          paths:
+            - path: /
+              pathType: Prefix
+      tls:
+        - secretName: tautulli-tls
+          hosts:
+            - tautulli.ryanmcafee.com
+
+  TZ: America/New_York
+  securityContext:
+    runAsUser: 1000
+    runAsGroup: 1000
+
+# ============================================================================
+# LazyLibrarian - Ebook Management
+# Sync Wave: 13
+# ============================================================================
+
+lazylibrarian:
+  enabled: true
+  namespace: media
+
+  # TrueCharts helm chart (OCI registry)
+  chart:
+    name: lazylibrarian
+    repo: oci://oci.trueforge.org/truecharts/lazylibrarian
+    version: 21.14.20
+
+  workload:
+    main:
+      podSpec:
+        containers:
+          main:
+            resources:
+              requests:
+                cpu: 100m
+                memory: 256Mi
+              limits:
+                cpu: 500m
+                memory: 512Mi
+
+  persistence:
+    config:
+      enabled: true
+      storageClass: democratic-csi-nfs
+      size: 5Gi
+      accessModes:
+        - ReadWriteOnce
+
+    # Books storage via NFS
+    books:
+      enabled: true
+      type: nfs
+      server: truenas.ryanmcafee.com
+      path: /mnt/storage/books
+      mountPath: /books
+
+    # Downloads storage via NFS
+    downloads:
+      enabled: true
+      type: nfs
+      server: truenas.ryanmcafee.com
+      path: /mnt/storage/downloads
+      mountPath: /downloads
+
+  ingress:
+    main:
+      enabled: true
+      ingressClassName: traefik
+      annotations:
+        cert-manager.io/cluster-issuer: letsencrypt
+        external-dns.alpha.kubernetes.io/hostname: lazylibrarian.ryanmcafee.com
+        # OIDC authentication via Traefik plugin
+        traefik.ingress.kubernetes.io/router.middlewares: traefik-oidc-auth@kubernetescrd
+      hosts:
+        - host: lazylibrarian.ryanmcafee.com
+          paths:
+            - path: /
+              pathType: Prefix
+      tls:
+        - secretName: lazylibrarian-tls
+          hosts:
+            - lazylibrarian.ryanmcafee.com
+
+  TZ: America/New_York
+  securityContext:
+    runAsUser: 1000
+    runAsGroup: 1000
+
+# ============================================================================
+# Transmission - BitTorrent Client with VPN
+# Sync Wave: 14 (after dependencies)
+# ============================================================================
+
+transmission:
+  enabled: true
+  namespace: media
+
+  # TrueCharts helm chart (OCI registry)
+  chart:
+    name: transmission
+    repo: oci://oci.trueforge.org/truecharts/transmission
+    version: 24.3.11
+
+  # 1Password vault path for VPN and RPC credentials
+  onePasswordItemPath: vaults/homelab/items/transmission-vpn
+
+  workload:
+    main:
+      podSpec:
+        containers:
+          main:
+            env:
+              TRANSMISSION_RPC_AUTHENTICATION_REQUIRED: "true"
+              TRANSMISSION_DOWNLOAD_DIR: /downloads
+              TRANSMISSION_INCOMPLETE_DIR: /downloads/incomplete
+              TRANSMISSION_INCOMPLETE_DIR_ENABLED: "true"
+              TRANSMISSION_RATIO_LIMIT: "0.25"
+              TRANSMISSION_RATIO_LIMIT_ENABLED: "true"
+            # Mount VPN credentials from 1Password
+            envFrom:
+              - secretRef:
+                  name: transmission-vpn-credentials
+            resources:
+              requests:
+                cpu: 100m
+                memory: 256Mi
+              limits:
+                cpu: 500m
+                memory: 512Mi
+
+  # Gluetun VPN addon
+  addons:
+    vpn:
+      enabled: true
+      type: gluetun
+      gluetun:
+        env:
+          VPN_SERVICE_PROVIDER: custom
+          VPN_TYPE: openvpn
+          DNS_KEEP_NAMESERVER: "on"
+          FIREWALL: "on"
+          # Allow Kubernetes cluster networking
+          FIREWALL_OUTBOUND_SUBNETS: "10.42.0.0/16,10.43.0.0/16"
+          FIREWALL_INPUT_PORTS: "9091,51413"
+        # Mount VPN credentials from 1Password
+        envFrom:
+          - secretRef:
+              name: transmission-vpn-credentials
+
+  # Service configuration
+  service:
+    main:
+      ports:
+        main:
+          port: 9091
+    torrent:
+      enabled: true
+      type: LoadBalancer
+      ports:
+        torrent:
+          enabled: true
+          port: 51413
+          protocol: tcp
+
+  persistence:
+    config:
+      enabled: true
+      storageClass: democratic-csi-nfs
+      size: 1Gi
+      accessModes:
+        - ReadWriteOnce
+
+    # Downloads storage via NFS
+    downloads:
+      enabled: true
+      type: nfs
+      server: truenas.ryanmcafee.com
+      path: /mnt/storage/downloads
+      mountPath: /downloads
+
+  ingress:
+    main:
+      enabled: true
+      ingressClassName: traefik
+      annotations:
+        cert-manager.io/cluster-issuer: letsencrypt
+        external-dns.alpha.kubernetes.io/hostname: transmission.ryanmcafee.com
+        # OIDC authentication via Traefik plugin
+        traefik.ingress.kubernetes.io/router.middlewares: traefik-oidc-auth@kubernetescrd
+      hosts:
+        - host: transmission.ryanmcafee.com
+          paths:
+            - path: /
+              pathType: Prefix
+      tls:
+        - secretName: transmission-tls
+          hosts:
+            - transmission.ryanmcafee.com
 
   TZ: America/New_York
   securityContext:
