@@ -42,11 +42,10 @@ addons:
     namespace: argocd
 
   syncPolicy:
-    # Automatic sync disabled - manual sync only
-    # automated:
-    #   prune: true
-    #   selfHeal: true
-    #   allowEmpty: false
+    automated:
+      prune: true
+      selfHeal: true
+      allowEmpty: false
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
