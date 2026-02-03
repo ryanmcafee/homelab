@@ -1,0 +1,7 @@
+# duckdns-dependencies values
+
+namespace: duckdns
+
+# 1Password vault path for DuckDNS token
+# The secret should have a field named "token"
+onePasswordItemPath: ""

@@ -1,0 +1,7 @@
+# cert-manager-config values
+# OnePasswordItem for Cloudflare API token
+
+# Cloudflare API token for DNS-01 challenges
+cloudflare:
+  enabled: true
+  onePasswordItemPath: ""

@@ -1,0 +1,25 @@
+# traefik-config homelab values
+# CRD-dependent resources that deploy AFTER Traefik
+
+global:
+  domain: ryanmcafee.com
+
+namespace: traefik
+
+dashboard:
+  enabled: true
+  host: traefik.ryanmcafee.com
+  staticIP: "172.16.100.200"
+
+oidc:
+  enabled: true
+  host: auth.ryanmcafee.com
+  providerURL: https://accounts.google.com
+  callbackURL: https://auth.ryanmcafee.com/oauth2/callback
+  logoutURL: https://auth.ryanmcafee.com/oauth2/logout
+  scopes:
+    - openid
+    - email
+    - profile
+  allowedDomains:
+    - ryanmcafee.com

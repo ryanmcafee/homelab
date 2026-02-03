@@ -7,17 +7,6 @@ metadata:
   annotations:
     argocd.argoproj.io/sync-wave: "4"
 ---
-# OnePasswordItem for UniFi API credentials (shared by both instances)
-apiVersion: onepassword.com/v1
-kind: OnePasswordItem
-metadata:
-  name: unifi-api-credentials
-  namespace: {{ index .Values "external-dns-unifi" "namespace" }}
-  annotations:
-    argocd.argoproj.io/sync-wave: "0"
-spec:
-  itemPath: {{ index .Values "external-dns-unifi" "onePasswordItemPath" | quote }}
----
 # Additional RBAC for CRD source (helm chart doesn't generate this correctly)
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
@@ -132,13 +121,13 @@ spec:
     namespace: {{ index .Values "external-dns-unifi" "namespace" }}
 
   syncPolicy:
-    # Automatic sync disabled - manual sync only
+    automated:
+      prune: true
+      selfHeal: true
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
       - ApplyOutOfSyncOnly=true
-    retry:
-      limit: 0
 ---
 # Instance 2: Ingress/Service sources with annotation filter
 apiVersion: argoproj.io/v1alpha1
@@ -218,11 +207,11 @@ spec:
     namespace: {{ index .Values "external-dns-unifi" "namespace" }}
 
   syncPolicy:
-    # Automatic sync disabled - manual sync only
+    automated:
+      prune: true
+      selfHeal: true
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
       - ApplyOutOfSyncOnly=true
-    retry:
-      limit: 0
 {{- end }}

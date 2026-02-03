@@ -1,0 +1,27 @@
+# traefik-config values
+# CRD-dependent resources that deploy AFTER Traefik
+
+global:
+  domain: example.com
+
+namespace: traefik
+
+# Dashboard configuration
+dashboard:
+  enabled: true
+  host: traefik.example.com
+  staticIP: "172.16.100.200"
+
+# OIDC authentication middleware
+oidc:
+  enabled: false
+  host: auth.example.com
+  providerURL: https://accounts.google.com
+  callbackURL: https://auth.example.com/oauth2/callback
+  logoutURL: https://auth.example.com/oauth2/logout
+  scopes:
+    - openid
+    - email
+    - profile
+  allowedDomains:
+    - example.com

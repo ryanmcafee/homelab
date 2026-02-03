@@ -1,0 +1,13 @@
+# external-dns-config values
+
+# Cloudflare provider secrets
+cloudflare:
+  enabled: true
+  namespace: external-dns
+  onePasswordItemPath: ""
+
+# UniFi provider secrets
+unifi:
+  enabled: false
+  namespace: external-dns-unifi
+  onePasswordItemPath: ""

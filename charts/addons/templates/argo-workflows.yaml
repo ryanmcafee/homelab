@@ -1,6 +1,6 @@
 {{- if index .Values "argo-workflows" "enabled" }}
 # Argo Workflows - Workflow Orchestration Engine
-# Sync Wave: 7 (after core infrastructure)
+# Sync Wave: 9 (after traefik-config for OIDC middleware)
 ---
 apiVersion: v1
 kind: Namespace
@@ -19,7 +19,8 @@ metadata:
   labels:
     {{- include "addons.labels" . | nindent 4 }}
   annotations:
-    argocd.argoproj.io/sync-wave: "7"
+    # Wave 9: After traefik-config (wave 8) so OIDC middleware is available
+    argocd.argoproj.io/sync-wave: "9"
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
@@ -59,179 +60,53 @@ spec:
             {{- toYaml (index .Values "argo-workflows" "controller" "resources") | nindent 12 }}
           workflowDefaults:
             {{- toYaml (index .Values "argo-workflows" "controller" "workflowDefaults") | nindent 12 }}
-        {{- if and (index .Values "argo-workflows" "ingressVerification") (index .Values "argo-workflows" "ingressVerification" "enabled") }}
-        extraObjects:
-          - apiVersion: v1
-            kind: ServiceAccount
-            metadata:
-              name: ingress-verifier
-              namespace: {{ index .Values "argo-workflows" "namespace" }}
-          - apiVersion: rbac.authorization.k8s.io/v1
-            kind: ClusterRole
-            metadata:
-              name: ingress-verifier
-            rules:
-              - apiGroups: ["networking.k8s.io"]
-                resources: ["ingresses"]
-                verbs: ["get", "list"]
-              - apiGroups: ["traefik.io"]
-                resources: ["ingressroutes"]
-                verbs: ["get", "list"]
-              - apiGroups: ["argoproj.io"]
-                resources: ["workflowtaskresults"]
-                verbs: ["create", "patch"]
-          - apiVersion: rbac.authorization.k8s.io/v1
-            kind: ClusterRoleBinding
-            metadata:
-              name: ingress-verifier
-            roleRef:
-              apiGroup: rbac.authorization.k8s.io
-              kind: ClusterRole
-              name: ingress-verifier
-            subjects:
-              - kind: ServiceAccount
-                name: ingress-verifier
-                namespace: {{ index .Values "argo-workflows" "namespace" }}
-          - apiVersion: argoproj.io/v1alpha1
-            kind: CronWorkflow
-            metadata:
-              name: ingress-verification
-              namespace: {{ index .Values "argo-workflows" "namespace" }}
-            spec:
-              schedule: {{ index .Values "argo-workflows" "ingressVerification" "schedule" | quote }}
-              concurrencyPolicy: Replace
-              successfulJobsHistoryLimit: 5
-              failedJobsHistoryLimit: 10
-              startingDeadlineSeconds: 60
-              workflowSpec:
-                serviceAccountName: ingress-verifier
-                entrypoint: verify-all-ingresses
-                ttlStrategy:
-                  secondsAfterCompletion: 86400
-                  secondsAfterSuccess: 43200
-                  secondsAfterFailure: 172800
-                templates:
-                  - name: verify-all-ingresses
-                    dag:
-                      tasks:
-                        {{- range $index, $ingress := index .Values "argo-workflows" "ingressVerification" "ingresses" }}
-                        - name: verify-{{ $ingress.name }}
-                          template: verify-ingress
-                          arguments:
-                            parameters:
-                              - name: name
-                                value: {{ $ingress.name | quote }}
-                              - name: url
-                                value: {{ $ingress.url | quote }}
-                              - name: expect-auth
-                                value: {{ $ingress.expectAuth | default false | quote }}
-                        {{- end }}
-                  - name: verify-ingress
-                    inputs:
-                      parameters:
-                        - name: name
-                        - name: url
-                        - name: expect-auth
-                    container:
-                      image: curlimages/curl:8.5.0
-                      command: ["/bin/sh", "-c"]
-                      args:
-                        - |
-                          set -e
-                          echo "============================================"
-                          echo "Verifying ingress: $NAME"
-                          echo "URL: $URL"
-                          echo "============================================"
-
-                          # Capture headers to detect OIDC redirects (don't follow redirects)
-                          RESPONSE=$(curl -s -D - -o /dev/null \
-                            --connect-timeout 10 \
-                            --max-time 30 \
-                            "$URL" 2>&1) || true
-
-                          HTTP_CODE=$(echo "$RESPONSE" | head -1 | grep -oE '[0-9]{3}' | head -1)
-                          LOCATION=$(echo "$RESPONSE" | grep -i "^location:" | sed 's/location: //i' | tr -d '\r')
-
-                          echo "HTTP Status Code: $HTTP_CODE"
-                          if [ -n "$LOCATION" ]; then
-                            echo "Redirect Location: $LOCATION"
-                          fi
-
-                          if [ -z "$HTTP_CODE" ] || [ "$HTTP_CODE" = "000" ]; then
-                            echo "ERROR: Connection failed - ingress is not accessible"
-                            exit 1
-                          fi
-
-                          if [ "$HTTP_CODE" = "503" ]; then
-                            echo "ERROR: Service returned 503 - backend unavailable"
-                            exit 1
-                          fi
-
-                          if [ "$HTTP_CODE" = "502" ]; then
-                            echo "ERROR: Service returned 502 - bad gateway"
-                            exit 1
-                          fi
-
-                          if [ "$HTTP_CODE" = "504" ]; then
-                            echo "ERROR: Service returned 504 - gateway timeout"
-                            exit 1
-                          fi
-
-                          if [ "$EXPECT_AUTH" = "true" ]; then
-                            # Check for OIDC redirect to Google
-                            if echo "$LOCATION" | grep -qi "accounts.google.com"; then
-                              echo "OK: OIDC authentication redirect to Google detected (HTTP $HTTP_CODE)"
-                            elif [ "$HTTP_CODE" = "401" ]; then
-                              echo "OK: Authentication required as expected (HTTP 401)"
-                            elif [ "$HTTP_CODE" = "302" ] || [ "$HTTP_CODE" = "303" ]; then
-                              echo "OK: Authentication redirect detected (HTTP $HTTP_CODE)"
-                            elif [ "$HTTP_CODE" = "200" ]; then
-                              echo "WARNING: Expected authentication but got HTTP 200 - auth may be disabled"
-                            else
-                              echo "OK: HTTP $HTTP_CODE received"
-                            fi
-                          else
-                            if [ "$HTTP_CODE" = "200" ]; then
-                              echo "OK: Service accessible"
-                            else
-                              echo "OK: HTTP $HTTP_CODE received"
-                            fi
-                          fi
-
-                          echo "============================================"
-                          echo "Verification complete for $NAME"
-                          echo "============================================"
-                      env:
-                        - name: NAME
-                          value: '{{`{{inputs.parameters.name}}`}}'
-                        - name: URL
-                          value: '{{`{{inputs.parameters.url}}`}}'
-                        - name: EXPECT_AUTH
-                          value: '{{`{{inputs.parameters.expect-auth}}`}}'
-                      resources:
-                        requests:
-                          cpu: 50m
-                          memory: 64Mi
-                        limits:
-                          cpu: 100m
-                          memory: 128Mi
-        {{- end }}
 
   destination:
     server: https://kubernetes.default.svc
     namespace: {{ index .Values "argo-workflows" "namespace" }}
 
   syncPolicy:
-    # Automatic sync disabled - manual sync only
+    automated:
+      prune: true
+      selfHeal: true
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
       - PruneLast=true
       - ApplyOutOfSyncOnly=true
-    retry:
-      limit: 5
-      backoff:
-        duration: 5s
-        factor: 2
-        maxDuration: 3m
+---
+# Argo Workflows Config - CronWorkflows and custom resources
+# Wave 10: After argo-workflows (wave 9) installs CRDs
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: argo-workflows-config
+  namespace: argocd
+  labels:
+    {{- include "addons.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: {{ .Values.global.repoUrl }}
+    targetRevision: {{ .Values.global.targetRevision }}
+    path: charts/argo-workflows-config
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-{{ .Values.global.environment }}.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: {{ index .Values "argo-workflows" "namespace" }}
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - SkipDryRunOnMissingResource=true
 {{- end }}

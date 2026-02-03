@@ -1,18 +1,6 @@
 {{- if index .Values "external-dns" "enabled" }}
 {{- if eq (index .Values "external-dns" "provider") "cloudflare" }}
 ---
-# OnePasswordItem syncs the Cloudflare API token from 1Password vault
-apiVersion: onepassword.com/v1
-kind: OnePasswordItem
-metadata:
-  name: cloudflare-api-token
-  namespace: {{ index .Values "external-dns" "namespace" }}
-  annotations:
-    argocd.argoproj.io/sync-wave: "0"
-spec:
-  itemPath: {{ index .Values "external-dns" "cloudflare" "onePasswordItemPath" | quote }}
-{{- end }}
----
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -74,11 +62,43 @@ spec:
     namespace: {{ index .Values "external-dns" "namespace" }}
 
   syncPolicy:
-    # Automatic sync disabled - manual sync only
+    automated:
+      prune: true
+      selfHeal: true
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
       - ApplyOutOfSyncOnly=true
-    retry:
-      limit: 0
+{{- end }}
+---
+# Config Application: deploys OnePasswordItems for API credentials before external-dns
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: external-dns-config
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: {{ .Values.global.repoUrl }}
+    targetRevision: {{ .Values.global.targetRevision }}
+    path: charts/external-dns-config
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-{{ .Values.global.environment }}.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: external-dns
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
 {{- end }}

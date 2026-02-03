@@ -1,0 +1,9 @@
+# Argo Workflows Config - Base Values
+# Environment-specific overrides in values-homelab.yaml
+
+namespace: argo-workflows
+
+ingressVerification:
+  enabled: false
+  schedule: "*/5 * * * *"
+  ingresses: []

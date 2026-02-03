@@ -1,0 +1,87 @@
+{{- if .Values.spegel.enabled }}
+---
+# OCI Repository configuration for ArgoCD to pull Spegel Helm chart
+apiVersion: v1
+kind: Secret
+metadata:
+  name: spegel-oci
+  namespace: argocd
+  labels:
+    argocd.argoproj.io/secret-type: repository
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+stringData:
+  name: spegel
+  type: helm
+  url: ghcr.io/spegel-org/helm-charts
+  enableOCI: "true"
+---
+# Spegel namespace needs privileged PodSecurity for hostPath and hostPort access
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Values.spegel.namespace }}
+  labels:
+    pod-security.kubernetes.io/enforce: privileged
+    pod-security.kubernetes.io/warn: privileged
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: spegel
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: {{ .Values.spegel.chart.repo }}
+    chart: {{ .Values.spegel.chart.name }}
+    targetRevision: {{ .Values.spegel.chart.version }}
+    helm:
+      releaseName: spegel
+      values: |
+        service:
+          registry:
+            hostPort: {{ .Values.spegel.service.registry.hostPort }}
+            nodePort: {{ .Values.spegel.service.registry.nodePort }}
+        {{- if .Values.spegel.serviceMonitor.enabled }}
+        serviceMonitor:
+          enabled: true
+          interval: {{ .Values.spegel.serviceMonitor.interval }}
+          scrapeTimeout: {{ .Values.spegel.serviceMonitor.scrapeTimeout }}
+        {{- end }}
+        {{- if .Values.spegel.grafanaDashboard.enabled }}
+        grafanaDashboard:
+          enabled: true
+        {{- end }}
+        spegel:
+          logLevel: {{ .Values.spegel.spegel.logLevel }}
+          registries:
+            {{- toYaml .Values.spegel.spegel.registries | nindent 12 }}
+          containerdRegistryConfigPath: {{ .Values.spegel.spegel.containerdRegistryConfigPath }}
+          containerdContentPath: {{ .Values.spegel.spegel.containerdContentPath }}
+          resolveTags: {{ .Values.spegel.spegel.resolveTags }}
+          resolveLatestTag: {{ .Values.spegel.spegel.resolveLatestTag }}
+          appendMirrors: {{ .Values.spegel.spegel.appendMirrors }}
+        {{- if .Values.spegel.resources }}
+        resources:
+          {{- toYaml .Values.spegel.resources | nindent 10 }}
+        {{- end }}
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: {{ .Values.spegel.namespace }}
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+{{- end }}

@@ -1,0 +1,17 @@
+# cert-manager-cluster-issuer values
+
+global:
+  domain: example.com
+
+# Cloudflare DNS-01 solver
+cloudflare:
+  enabled: true
+  email: admin@example.com
+
+# Let's Encrypt ClusterIssuer
+letsencrypt:
+  enabled: true
+  server: https://acme-v02.api.letsencrypt.org/directory
+  email: admin@example.com
+  dnsZones:
+    - example.com

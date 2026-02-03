@@ -90,11 +90,11 @@ argocd:
     controller:
       resources:
         requests:
-          cpu: 250m
-          memory: 512Mi
-        limits:
           cpu: 1000m
-          memory: 1Gi
+          memory: 2Gi
+        limits:
+          cpu: 2000m
+          memory: 4Gi
 
     repoServer:
       resources:
@@ -158,6 +158,68 @@ argocd:
         limits:
           cpu: 100m
           memory: 128Mi
+
+# ============================================================================
+# Spegel - P2P Container Image Distribution
+# Sync Wave: 0 (early infrastructure, helps with slow registry pulls)
+# ============================================================================
+
+spegel:
+  enabled: true
+  namespace: spegel
+
+  # Chart source (OCI registry)
+  chart:
+    name: spegel
+    repo: ghcr.io/spegel-org/helm-charts
+    version: "0.6.0"
+
+  # Service configuration
+  service:
+    registry:
+      hostPort: 30020
+      nodePort: 30021
+
+  # Spegel configuration
+  spegel:
+    logLevel: "INFO"
+    # Registries to mirror via P2P
+    registries:
+      - https://cgr.dev
+      - https://docker.io
+      - https://ghcr.io
+      - https://quay.io
+      - https://mcr.microsoft.com
+      - https://public.ecr.aws
+      - https://gcr.io
+      - https://registry.k8s.io
+      - https://k8s.gcr.io
+      - https://lscr.io
+    # Talos Linux containerd paths
+    containerdRegistryConfigPath: /etc/cri/conf.d/hosts
+    containerdContentPath: /var/lib/containerd/io.containerd.content.v1.content
+    resolveTags: true
+    resolveLatestTag: true
+    appendMirrors: false
+
+  # Prometheus ServiceMonitor
+  serviceMonitor:
+    enabled: false
+    interval: 60s
+    scrapeTimeout: 30s
+
+  # Grafana Dashboard
+  grafanaDashboard:
+    enabled: false
+
+  # Resource limits
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+    limits:
+      cpu: 100m
+      memory: 128Mi
 
 # ============================================================================
 # Kubelet CSR Approver - Automatic Kubelet Certificate Approval
@@ -695,6 +757,24 @@ cloudnative-pg:
   enabled: false
   namespace: cloudnative-pg
 
+  chart:
+    name: cloudnative-pg
+    repo: https://cloudnative-pg.github.io/charts
+    version: 0.23.0
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+  monitoring:
+    podMonitorEnabled: false
+    grafanaDashboard:
+      create: false
+
 # ============================================================================
 # Cilium LB IPAM - LoadBalancer IP Address Management
 # Disabled by default - enable in environment-specific values
@@ -770,8 +850,11 @@ argo-workflows:
           secondsAfterFailure: 172800    # 48 hours
 
   # Ingress verification workflow
+  # NOTE: Disabled - extraObjects in argo-workflows chart uses tpl() which
+  # causes double-templating issues. To re-enable, create a separate
+  # argo-workflows-config chart to deploy the CronWorkflow directly.
   ingressVerification:
-    enabled: true
+    enabled: false
     # Schedule: every 5 minutes
     schedule: "*/5 * * * *"
     # Ingresses to verify (auto-populated from cluster if empty)

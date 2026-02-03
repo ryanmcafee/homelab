@@ -10,19 +10,6 @@ metadata:
     pod-security.kubernetes.io/enforce: privileged
     pod-security.kubernetes.io/audit: privileged
     pod-security.kubernetes.io/warn: privileged
-{{- if index .Values "democratic-csi" "truenas" "onePasswordItemPath" }}
----
-# OnePasswordItem syncs TrueNAS API key from 1Password vault
-apiVersion: onepassword.com/v1
-kind: OnePasswordItem
-metadata:
-  name: truenas-api-key
-  namespace: {{ index .Values "democratic-csi" "namespace" }}
-  annotations:
-    argocd.argoproj.io/sync-wave: "0"
-spec:
-  itemPath: {{ index .Values "democratic-csi" "truenas" "onePasswordItemPath" | quote }}
-{{- end }}
 ---
 apiVersion: argoproj.io/v1alpha1
 kind: Application
@@ -115,10 +102,42 @@ spec:
     namespace: {{ index .Values "democratic-csi" "namespace" }}
 
   syncPolicy:
-    # Automatic sync disabled - manual sync only
+    automated:
+      prune: true
+      selfHeal: true
     syncOptions:
       - ServerSideApply=true
       - ApplyOutOfSyncOnly=true
-    retry:
-      limit: 0
+---
+# Config Application: deploys OnePasswordItem for TrueNAS API key before democratic-csi
+# Must deploy after 1Password operator (wave -1) but before democratic-csi (wave 2)
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: democratic-csi-config
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: {{ .Values.global.repoUrl }}
+    targetRevision: {{ .Values.global.targetRevision }}
+    path: charts/democratic-csi-config
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-{{ .Values.global.environment }}.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: democratic-csi
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
 {{- end }}

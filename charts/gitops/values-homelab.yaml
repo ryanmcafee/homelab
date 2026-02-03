@@ -15,7 +15,8 @@ global:
   repoUrl: https://github.com/ryanmcafee/homelab.git
 
   # Target revision (branch/tag/commit)
-  targetRevision: main
+  # TODO: Change back to 'main' after testing
+  targetRevision: feature/fix-argocd-sync-waves
 
   # ArgoCD project to use for all applications
   project: default
@@ -41,11 +42,10 @@ addons:
     namespace: argocd
 
   syncPolicy:
-    # Automatic sync disabled - manual sync only
-    # automated:
-    #   prune: true
-    #   selfHeal: true
-    #   allowEmpty: false
+    automated:
+      prune: true
+      selfHeal: true
+      allowEmpty: false
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
@@ -78,11 +78,10 @@ applications:
     namespace: argocd
 
   syncPolicy:
-    # Automatic sync disabled - manual sync only
-    # automated:
-    #   prune: true
-    #   selfHeal: true
-    #   allowEmpty: false
+    automated:
+      prune: true
+      selfHeal: true
+      allowEmpty: false
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true

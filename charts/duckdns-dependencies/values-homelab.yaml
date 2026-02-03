@@ -1,0 +1,5 @@
+# duckdns-dependencies homelab values
+
+namespace: duckdns
+
+onePasswordItemPath: vaults/homelab/items/duckdns

@@ -74,10 +74,17 @@ addons:
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
+      # Skip dry-run for CRD instances (OnePasswordItem, Certificate, etc.)
+      # whose CRDs are installed by child Applications in earlier sync waves
+      - SkipDryRunOnMissingResource=true
 
-    # Retry disabled for debugging sync issues
+    # Retry with backoff for initial cluster bootstrap
     retry:
-      limit: 0
+      limit: 5
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 3m
 
 # ============================================================================
 # Applications (User Workloads)

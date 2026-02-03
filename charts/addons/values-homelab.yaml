@@ -22,7 +22,8 @@ global:
 
   # Git repository for SOPS secrets
   repoUrl: https://github.com/ryanmcafee/homelab.git
-  targetRevision: main
+  # NOTE: Using feature branch until merged to main (config charts only exist on this branch)
+  targetRevision: feature/fix-argocd-sync-waves
 
 # ============================================================================
 # SOPS Secrets - Encrypted secrets for GitOps
@@ -838,8 +839,9 @@ argo-workflows:
           secondsAfterFailure: 172800
 
   # Ingress verification workflow configuration
+  # NOTE: Disabled due to tpl() double-templating issues in upstream chart
   ingressVerification:
-    enabled: true
+    enabled: false
     schedule: "*/5 * * * *"
     # List of ingresses to verify - all require authentication
     ingresses:

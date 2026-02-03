@@ -1,0 +1,73 @@
+{{- if .Values.oidc.enabled }}
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: oidc-auth
+  namespace: {{ .Values.namespace }}
+spec:
+  plugin:
+    traefikoidc:
+      providerURL: {{ .Values.oidc.providerURL | quote }}
+      clientID: "urn:k8s:secret:google-oauth-credentials:client_id"
+      clientSecret: "urn:k8s:secret:google-oauth-credentials:client_secret"
+      callbackURL: {{ .Values.oidc.callbackURL | quote }}
+      logoutURL: {{ .Values.oidc.logoutURL | quote }}
+      sessionEncryptionKey: "urn:k8s:secret:oidc-session-key:oidc-session-key"
+      scopes:
+        {{- toYaml .Values.oidc.scopes | nindent 8 }}
+      allowedUserDomains:
+        {{- toYaml .Values.oidc.allowedDomains | nindent 8 }}
+      cookieDomain: ".{{ .Values.global.domain }}"
+      redis:
+        enabled: true
+        address: "oidc-redis.{{ .Values.namespace }}.svc.cluster.local:6379"
+        keyPrefix: "traefikoidc:"
+        cacheMode: "hybrid"
+      logLevel: "debug"
+      forceHTTPS: true
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: auth-tls
+  namespace: {{ .Values.namespace }}
+spec:
+  secretName: auth-tls
+  issuerRef:
+    name: letsencrypt
+    kind: ClusterIssuer
+  dnsNames:
+    - {{ .Values.oidc.host }}
+---
+apiVersion: externaldns.k8s.io/v1alpha1
+kind: DNSEndpoint
+metadata:
+  name: auth-dns
+  namespace: {{ .Values.namespace }}
+spec:
+  endpoints:
+    - dnsName: {{ .Values.oidc.host }}
+      recordType: A
+      targets:
+        - {{ .Values.dashboard.staticIP | quote }}
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: auth-oidc
+  namespace: {{ .Values.namespace }}
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(`{{ .Values.oidc.host }}`)
+      kind: Rule
+      middlewares:
+        - name: oidc-auth
+      services:
+        - kind: TraefikService
+          name: noop@internal
+  tls:
+    secretName: auth-tls
+{{- end }}

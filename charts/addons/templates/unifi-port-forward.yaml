@@ -9,16 +9,6 @@ metadata:
   annotations:
     argocd.argoproj.io/sync-wave: "6"
 ---
-apiVersion: onepassword.com/v1
-kind: OnePasswordItem
-metadata:
-  name: unifi-credentials
-  namespace: {{ $namespace }}
-  annotations:
-    argocd.argoproj.io/sync-wave: "6"
-spec:
-  itemPath: {{ index .Values "unifi-port-forward" "onePasswordItemPath" | quote }}
----
 {{- $portForwardValues := index .Values "unifi-port-forward" }}
 apiVersion: argoproj.io/v1alpha1
 kind: Application
@@ -60,16 +50,43 @@ spec:
     server: https://kubernetes.default.svc
     namespace: {{ $namespace }}
   syncPolicy:
-    # Automatic sync disabled - manual sync only
+    automated:
+      prune: true
+      selfHeal: true
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
       - ApplyOutOfSyncOnly=true
       - Replace=true
-    retry:
-      limit: 3
-      backoff:
-        duration: 5s
-        factor: 2
-        maxDuration: 3m
+---
+# Config Application: deploys OnePasswordItem for UniFi credentials before port-forwarding-controller
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: port-forwarding-controller-config
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "6"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: {{ .Values.global.repoUrl }}
+    targetRevision: {{ .Values.global.targetRevision }}
+    path: charts/port-forwarding-controller-config
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-{{ .Values.global.environment }}.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: port-forwarding
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
 {{- end }}

@@ -1,0 +1,6 @@
+apiVersion: v2
+name: external-dns-config
+description: CRD-dependent configuration for external-dns (provider secrets)
+type: application
+version: 1.0.0
+appVersion: "1.0"

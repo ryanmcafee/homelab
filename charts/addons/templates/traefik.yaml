@@ -7,19 +7,39 @@ metadata:
   name: {{ .Values.traefik.namespace }}
   annotations:
     argocd.argoproj.io/sync-wave: "-1"
-{{- if .Values.traefik.cloudflare.enabled }}
 ---
-# OnePasswordItem syncs the Cloudflare API token from 1Password vault
-apiVersion: onepassword.com/v1
-kind: OnePasswordItem
+# Dependencies Application: deploys secrets and OnePasswordItems before traefik
+# Wave 5: After external-dns (wave 4) so OnePasswordItem CRDs are available
+apiVersion: argoproj.io/v1alpha1
+kind: Application
 metadata:
-  name: cloudflare-api-token
-  namespace: {{ .Values.traefik.namespace }}
+  name: traefik-dependencies
+  namespace: argocd
   annotations:
-    argocd.argoproj.io/sync-wave: "0"
+    argocd.argoproj.io/sync-wave: "5"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
 spec:
-  itemPath: {{ .Values.traefik.cloudflare.onePasswordItemPath | quote }}
-{{- end }}
+  project: default
+  source:
+    repoURL: {{ .Values.global.repoUrl }}
+    targetRevision: {{ .Values.global.targetRevision }}
+    path: charts/traefik-dependencies
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-{{ .Values.global.environment }}.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: traefik
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - SkipDryRunOnMissingResource=true
 ---
 apiVersion: argoproj.io/v1alpha1
 kind: Application
@@ -27,8 +47,8 @@ metadata:
   name: traefik
   namespace: argocd
   annotations:
-    # Sync wave 2: After cert-manager (wave 0) and ClusterIssuer (wave 1) are ready
-    argocd.argoproj.io/sync-wave: "2"
+    # Sync wave 6: After traefik-dependencies (wave 5) creates secrets
+    argocd.argoproj.io/sync-wave: "6"
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
@@ -164,14 +184,14 @@ spec:
     namespace: {{ .Values.traefik.namespace }}
 
   syncPolicy:
-    # Automatic sync disabled - manual sync only
+    automated:
+      prune: true
+      selfHeal: true
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
       - ApplyOutOfSyncOnly=true
       - RespectIgnoreDifferences=true
-    retry:
-      limit: 0
 
   # Ignore differences in dynamic fields
   ignoreDifferences:
@@ -179,99 +199,10 @@ spec:
       kind: ValidatingWebhookConfiguration
       jqPathExpressions:
         - .webhooks[].clientConfig.caBundle
----
-# DNSEndpoint for external-dns to create DNS record for Traefik dashboard
-# (Standard Ingress removed - was conflicting with IngressRoute from Traefik helm chart)
-apiVersion: externaldns.k8s.io/v1alpha1
-kind: DNSEndpoint
-metadata:
-  name: traefik-dashboard
-  namespace: {{ .Values.traefik.namespace }}
-  annotations:
-    argocd.argoproj.io/sync-wave: "8"
-spec:
-  endpoints:
-    - dnsName: traefik.{{ .Values.global.domain }}
-      recordType: A
-      targets:
-        - {{ (index (.Values.traefik.service.annotations | default dict) "io.cilium/lb-ipam-ips") | default "172.16.100.200" | quote }}
----
-# Middleware to add trailing slash for dashboard
-apiVersion: traefik.io/v1alpha1
-kind: Middleware
-metadata:
-  name: dashboard-redirect-slash
-  namespace: {{ .Values.traefik.namespace }}
-  annotations:
-    argocd.argoproj.io/sync-wave: "8"
-spec:
-  redirectRegex:
-    regex: ^(https?://[^/]+/dashboard)$
-    replacement: ${1}/
-    permanent: true
----
-# IngressRoute to catch /dashboard without trailing slash and redirect
-apiVersion: traefik.io/v1alpha1
-kind: IngressRoute
-metadata:
-  name: traefik-dashboard-redirect
-  namespace: {{ .Values.traefik.namespace }}
-  annotations:
-    argocd.argoproj.io/sync-wave: "8"
-spec:
-  entryPoints:
-    - websecure
-  routes:
-    - kind: Rule
-      match: Host(`traefik.{{ .Values.global.domain }}`) && Path(`/dashboard`)
-      middlewares:
-        - name: dashboard-redirect-slash
-      services:
-        - kind: TraefikService
-          name: noop@internal
-  tls:
-    secretName: traefik-dashboard-tls
----
-# Certificate for Traefik dashboard TLS (IngressRoute doesn't auto-create)
-apiVersion: cert-manager.io/v1
-kind: Certificate
-metadata:
-  name: traefik-dashboard-tls
-  namespace: {{ .Values.traefik.namespace }}
-  annotations:
-    argocd.argoproj.io/sync-wave: "8"
-spec:
-  secretName: traefik-dashboard-tls
-  issuerRef:
-    name: letsencrypt
-    kind: ClusterIssuer
-  dnsNames:
-    - traefik.{{ .Values.global.domain }}
 {{- if and .Values.traefik.oidc .Values.traefik.oidc.enabled }}
 ---
-# OnePasswordItem for Google OAuth credentials (for OIDC plugin)
-apiVersion: onepassword.com/v1
-kind: OnePasswordItem
-metadata:
-  name: google-oauth-credentials
-  namespace: {{ .Values.traefik.namespace }}
-  annotations:
-    argocd.argoproj.io/sync-wave: "2"
-spec:
-  itemPath: {{ .Values.traefik.oidc.googleOAuthPath | quote }}
----
-# OnePasswordItem for OIDC session encryption key
-apiVersion: onepassword.com/v1
-kind: OnePasswordItem
-metadata:
-  name: oidc-session-key
-  namespace: {{ .Values.traefik.namespace }}
-  annotations:
-    argocd.argoproj.io/sync-wave: "2"
-spec:
-  itemPath: {{ .Values.traefik.oidc.sessionEncryptionKeyPath | quote }}
----
 # Redis for OIDC session storage (required for multi-replica Traefik)
+# Wave 7: After traefik (wave 6) but before traefik-config (wave 8)
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -315,92 +246,38 @@ spec:
   ports:
     - port: 6379
       targetPort: 6379
----
-# OIDC Authentication Middleware (replaces oauth2-proxy)
-# This middleware handles Google OIDC authentication with automatic redirects
-apiVersion: traefik.io/v1alpha1
-kind: Middleware
-metadata:
-  name: oidc-auth
-  namespace: {{ .Values.traefik.namespace }}
-  annotations:
-    argocd.argoproj.io/sync-wave: "8"
-spec:
-  plugin:
-    traefikoidc:
-      providerURL: {{ .Values.traefik.oidc.providerURL | quote }}
-      clientID: "urn:k8s:secret:google-oauth-credentials:client_id"
-      clientSecret: "urn:k8s:secret:google-oauth-credentials:client_secret"
-      callbackURL: {{ .Values.traefik.oidc.callbackURL | quote }}
-      logoutURL: {{ .Values.traefik.oidc.logoutURL | quote }}
-      sessionEncryptionKey: "urn:k8s:secret:oidc-session-key:oidc-session-key"
-      scopes:
-        {{- toYaml .Values.traefik.oidc.scopes | nindent 8 }}
-      allowedUserDomains:
-        {{- toYaml .Values.traefik.oidc.allowedDomains | nindent 8 }}
-      # Cookie domain for cross-subdomain authentication
-      cookieDomain: ".{{ .Values.global.domain }}"
-      # Redis for shared session storage across Traefik replicas
-      redis:
-        enabled: true
-        address: "oidc-redis.{{ .Values.traefik.namespace }}.svc.cluster.local:6379"
-        keyPrefix: "traefikoidc:"
-        cacheMode: "hybrid"
-      logLevel: "debug"
-      forceHTTPS: true
----
-# Certificate for auth domain (OIDC callback endpoint)
-apiVersion: cert-manager.io/v1
-kind: Certificate
-metadata:
-  name: auth-tls
-  namespace: {{ .Values.traefik.namespace }}
-  annotations:
-    argocd.argoproj.io/sync-wave: "8"
-spec:
-  secretName: auth-tls
-  issuerRef:
-    name: letsencrypt
-    kind: ClusterIssuer
-  dnsNames:
-    - auth.{{ .Values.global.domain }}
----
-# DNSEndpoint for auth domain
-apiVersion: externaldns.k8s.io/v1alpha1
-kind: DNSEndpoint
-metadata:
-  name: auth-dns
-  namespace: {{ .Values.traefik.namespace }}
-  annotations:
-    argocd.argoproj.io/sync-wave: "8"
-spec:
-  endpoints:
-    - dnsName: auth.{{ .Values.global.domain }}
-      recordType: A
-      targets:
-        - {{ (index (.Values.traefik.service.annotations | default dict) "io.cilium/lb-ipam-ips") | default "172.16.100.200" | quote }}
----
-# IngressRoute for auth domain - handles OIDC callbacks
-# Middleware required to process OAuth callback and token exchange
-apiVersion: traefik.io/v1alpha1
-kind: IngressRoute
-metadata:
-  name: auth-oidc
-  namespace: {{ .Values.traefik.namespace }}
-  annotations:
-    argocd.argoproj.io/sync-wave: "8"
-spec:
-  entryPoints:
-    - websecure
-  routes:
-    - match: Host(`auth.{{ .Values.global.domain }}`)
-      kind: Rule
-      middlewares:
-        - name: oidc-auth
-      services:
-        - kind: TraefikService
-          name: noop@internal
-  tls:
-    secretName: auth-tls
 {{- end }}
+---
+# Config Application: deploys CRD-dependent resources (IngressRoute, Middleware, DNSEndpoint)
+# Wave 8: After traefik (wave 6) installs CRDs and oidc-redis (wave 7) is available
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: traefik-config
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: {{ .Values.global.repoUrl }}
+    targetRevision: {{ .Values.global.targetRevision }}
+    path: charts/traefik-config
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-{{ .Values.global.environment }}.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: traefik
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - SkipDryRunOnMissingResource=true
 {{- end }}

@@ -1,0 +1,6 @@
+# port-forwarding-controller-config homelab values
+
+unifi:
+  enabled: true
+  namespace: port-forwarding
+  onePasswordItemPath: "vaults/homelab/items/unifi"

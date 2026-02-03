@@ -1,0 +1,6 @@
+apiVersion: v2
+name: argo-workflows-config
+description: Argo Workflows configuration including ingress verification CronWorkflow
+type: application
+version: 0.1.0
+appVersion: "1.0.0"

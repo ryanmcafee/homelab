@@ -1,14 +1,18 @@
 {{- if index .Values "nvidia-gpu-operator" "enabled" }}
 ---
-# NVIDIA RuntimeClass - required for pods to use nvidia container runtime
-# This must exist BEFORE any pods request runtimeClassName: nvidia
-apiVersion: node.k8s.io/v1
-kind: RuntimeClass
+# Namespace for GPU operator components
+# Requires privileged PodSecurity for GPU device plugin and driver containers
+apiVersion: v1
+kind: Namespace
 metadata:
-  name: nvidia
+  name: {{ index .Values "nvidia-gpu-operator" "namespace" }}
+  labels:
+    pod-security.kubernetes.io/enforce: privileged
+    pod-security.kubernetes.io/audit: privileged
+    pod-security.kubernetes.io/warn: privileged
   annotations:
-    argocd.argoproj.io/sync-wave: "0"
-handler: nvidia
+    # Wave 10: After kube-prometheus-stack (wave 9)
+    argocd.argoproj.io/sync-wave: "10"
 ---
 # Talos GPU Validation Bypass DaemonSet
 # Creates validation files that the GPU device plugin waits for
@@ -19,7 +23,7 @@ metadata:
   name: nvidia-validation-bypass
   namespace: {{ index .Values "nvidia-gpu-operator" "namespace" }}
   annotations:
-    argocd.argoproj.io/sync-wave: "0"
+    argocd.argoproj.io/sync-wave: "10"
   labels:
     app.kubernetes.io/name: nvidia-validation-bypass
     app.kubernetes.io/component: validation
@@ -33,7 +37,7 @@ spec:
         app.kubernetes.io/name: nvidia-validation-bypass
     spec:
       nodeSelector:
-        nvidia.com/gpu.present: "true"
+        nvidia.com/gpu: "true"
       tolerations:
         - key: nvidia.com/gpu
           operator: Exists
@@ -80,8 +84,8 @@ metadata:
   name: nvidia-gpu-operator
   namespace: argocd
   annotations:
-    # Sync wave 0 - must deploy before Plex (sync-wave: 1) which requires RuntimeClass nvidia
-    argocd.argoproj.io/sync-wave: "0"
+    # Wave 10: After kube-prometheus-stack (wave 9) for DCGM metrics integration
+    argocd.argoproj.io/sync-wave: "10"
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
@@ -131,6 +135,12 @@ spec:
         nfd:
           enabled: true
 
+        # Validator - disabled on Talos (using validation-bypass DaemonSet instead)
+        # The validator has mount issues on Talos and is not needed since
+        # driver/toolkit are pre-installed via system extensions
+        validator:
+          enabled: false
+
         # Talos-specific: Tell operator that driver/toolkit are pre-installed
         operator:
           defaultRuntime: containerd
@@ -140,13 +150,13 @@ spec:
     namespace: {{ index .Values "nvidia-gpu-operator" "namespace" }}
 
   syncPolicy:
-    # Automatic sync disabled - manual sync only
+    automated:
+      prune: true
+      selfHeal: true
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
       - ApplyOutOfSyncOnly=true
-    retry:
-      limit: 0
 
   # Ignore differences in dynamic fields
   ignoreDifferences:

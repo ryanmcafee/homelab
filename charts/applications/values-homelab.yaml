@@ -11,6 +11,11 @@ global:
   # Base domain for ingress resources
   domain: ryanmcafee.com
 
+  # Git repository for local charts
+  repoUrl: https://github.com/ryanmcafee/homelab.git
+  # TODO: Change back to 'main' after testing
+  targetRevision: feature/fix-argocd-sync-waves
+
   # Default storage class for persistent volumes
   storageClass: democratic-csi-nfs
 

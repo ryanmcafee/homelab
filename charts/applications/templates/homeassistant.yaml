@@ -9,6 +9,8 @@ metadata:
     pod-security.kubernetes.io/enforce: privileged
     pod-security.kubernetes.io/audit: privileged
     pod-security.kubernetes.io/warn: privileged
+  annotations:
+    argocd.argoproj.io/sync-wave: "14"
 ---
 apiVersion: argoproj.io/v1alpha1
 kind: Application
@@ -16,8 +18,8 @@ metadata:
   name: home-assistant
   namespace: argocd
   annotations:
-    # Sync wave 4 - requires CloudNativePG operator (addons sync wave 2) to be ready
-    argocd.argoproj.io/sync-wave: "4"
+    # Sync wave 15: After namespace (wave 14) and mosquitto (wave 14)
+    argocd.argoproj.io/sync-wave: "15"
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
@@ -72,12 +74,15 @@ spec:
         - /spec/template/spec/hostUsers
 
   syncPolicy:
-    # Automatic sync disabled - manual sync only
+    automated:
+      prune: true
+      selfHeal: true
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
       - ApplyOutOfSyncOnly=true
       - RespectIgnoreDifferences=true
+      - SkipDryRunOnMissingResource=true
     retry:
       limit: 5
       backoff:

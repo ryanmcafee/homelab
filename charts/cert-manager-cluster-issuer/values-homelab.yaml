@@ -1,0 +1,15 @@
+# cert-manager-cluster-issuer homelab values
+
+global:
+  domain: ryanmcafee.com
+
+cloudflare:
+  enabled: true
+  email: admin@ryanmcafee.com
+
+letsencrypt:
+  enabled: true
+  server: https://acme-v02.api.letsencrypt.org/directory
+  email: admin@ryanmcafee.com
+  dnsZones:
+    - ryanmcafee.com

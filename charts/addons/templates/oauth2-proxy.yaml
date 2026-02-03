@@ -7,28 +7,6 @@ metadata:
   annotations:
     argocd.argoproj.io/sync-wave: "3"
 ---
-# OnePasswordItem for Google OAuth credentials
-apiVersion: onepassword.com/v1
-kind: OnePasswordItem
-metadata:
-  name: google-oauth-credentials
-  namespace: {{ index .Values "oauth2-proxy" "namespace" }}
-  annotations:
-    argocd.argoproj.io/sync-wave: "3"
-spec:
-  itemPath: {{ index .Values "oauth2-proxy" "googleOAuthPath" | quote }}
----
-# OnePasswordItem for OAuth2-Proxy cookie secret
-apiVersion: onepassword.com/v1
-kind: OnePasswordItem
-metadata:
-  name: oauth2-proxy-cookie-secret
-  namespace: {{ index .Values "oauth2-proxy" "namespace" }}
-  annotations:
-    argocd.argoproj.io/sync-wave: "3"
-spec:
-  itemPath: {{ index .Values "oauth2-proxy" "cookieSecretPath" | quote }}
----
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -106,29 +84,11 @@ spec:
     namespace: {{ index .Values "oauth2-proxy" "namespace" }}
 
   syncPolicy:
-    # Automatic sync disabled - manual sync only
+    automated:
+      prune: true
+      selfHeal: true
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
       - ApplyOutOfSyncOnly=true
-    retry:
-      limit: 0
----
-# Traefik ForwardAuth Middleware for OAuth2-Proxy
-apiVersion: traefik.io/v1alpha1
-kind: Middleware
-metadata:
-  name: oauth2-proxy-auth
-  namespace: {{ index .Values "oauth2-proxy" "namespace" }}
-  annotations:
-    argocd.argoproj.io/sync-wave: "5"
-spec:
-  forwardAuth:
-    address: http://oauth2-proxy.{{ index .Values "oauth2-proxy" "namespace" }}.svc.cluster.local/oauth2/auth
-    trustForwardHeader: true
-    authResponseHeaders:
-      - X-Auth-Request-User
-      - X-Auth-Request-Email
-      - X-Auth-Request-Access-Token
-      - Authorization
 {{- end }}

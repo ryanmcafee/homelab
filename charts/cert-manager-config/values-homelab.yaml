@@ -1,0 +1,5 @@
+# cert-manager-config homelab values
+
+cloudflare:
+  enabled: true
+  onePasswordItemPath: "vaults/homelab/items/cloudflare"
