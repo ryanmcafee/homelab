@@ -614,21 +614,21 @@ transmission:
                 cpu: 500m
                 memory: 512Mi
 
-  # Gluetun VPN addon
+  # Gluetun VPN addon (ProtonVPN WireGuard)
   addons:
     vpn:
       enabled: true
       type: gluetun
       gluetun:
         env:
-          VPN_SERVICE_PROVIDER: custom
-          VPN_TYPE: openvpn
+          VPN_SERVICE_PROVIDER: protonvpn
+          VPN_TYPE: wireguard
           DNS_KEEP_NAMESERVER: "on"
           FIREWALL: "on"
           # Allow Kubernetes cluster networking
           FIREWALL_OUTBOUND_SUBNETS: "10.42.0.0/16,10.43.0.0/16"
           FIREWALL_INPUT_PORTS: "9091,51413"
-        # Mount VPN credentials from 1Password
+        # Mount VPN credentials from 1Password (WIREGUARD_PRIVATE_KEY, SERVER_COUNTRIES)
         envFrom:
           - secretRef:
               name: transmission-vpn-credentials
