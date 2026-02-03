@@ -45,6 +45,9 @@ truenas_media_datasets:
   - name: "{{ truenas_pool_name }}/documents"
     compression: lz4
     comments: "Documents storage"
+  - name: "{{ truenas_pool_name }}/books"
+    compression: lz4
+    comments: "Books and ebook library storage"
 
 # Additional Datasets
 truenas_datasets:
