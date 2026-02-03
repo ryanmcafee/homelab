@@ -850,8 +850,11 @@ argo-workflows:
           secondsAfterFailure: 172800    # 48 hours
 
   # Ingress verification workflow
+  # NOTE: Disabled - extraObjects in argo-workflows chart uses tpl() which
+  # causes double-templating issues. To re-enable, create a separate
+  # argo-workflows-config chart to deploy the CronWorkflow directly.
   ingressVerification:
-    enabled: true
+    enabled: false
     # Schedule: every 5 minutes
     schedule: "*/5 * * * *"
     # Ingresses to verify (auto-populated from cluster if empty)

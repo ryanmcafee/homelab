@@ -839,8 +839,9 @@ argo-workflows:
           secondsAfterFailure: 172800
 
   # Ingress verification workflow configuration
+  # NOTE: Disabled due to tpl() double-templating issues in upstream chart
   ingressVerification:
-    enabled: true
+    enabled: false
     schedule: "*/5 * * * *"
     # List of ingresses to verify - all require authentication
     ingresses:

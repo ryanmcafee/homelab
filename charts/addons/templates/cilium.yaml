@@ -65,12 +65,15 @@ spec:
     server: https://kubernetes.default.svc
     namespace: kube-system
 
-  # NO automated sync - visibility only (actual install is via Talos inline)
   syncPolicy:
+    automated:
+      prune: false  # Don't prune - Talos manages some resources
+      selfHeal: true
     syncOptions:
       - ServerSideApply=true
       - Validate=false
       - RespectIgnoreDifferences=true
+      - ApplyOutOfSyncOnly=true
 
   # Ignore all differences since we're just tracking, not managing
   ignoreDifferences:
