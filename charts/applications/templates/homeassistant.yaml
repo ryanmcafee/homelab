@@ -17,7 +17,7 @@ metadata:
   namespace: argocd
   annotations:
     # Sync wave 4 - requires CloudNativePG operator (addons sync wave 2) to be ready
-    argocd.argoproj.io/sync-wave: "4"
+    argocd.argoproj.io/sync-wave: "15"
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:

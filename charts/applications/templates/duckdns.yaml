@@ -6,7 +6,7 @@ kind: Namespace
 metadata:
   name: {{ .Values.duckdns.namespace }}
   annotations:
-    argocd.argoproj.io/sync-wave: "0"
+    argocd.argoproj.io/sync-wave: "11"
 ---
 # Dependencies Application: deploys OnePasswordItem for DuckDNS token
 apiVersion: argoproj.io/v1alpha1
@@ -15,7 +15,7 @@ metadata:
   name: duckdns-dependencies
   namespace: argocd
   annotations:
-    argocd.argoproj.io/sync-wave: "1"
+    argocd.argoproj.io/sync-wave: "12"
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
@@ -48,7 +48,7 @@ metadata:
   namespace: argocd
   annotations:
     # Wave 2: After duckdns-dependencies (wave 1) creates the secret
-    argocd.argoproj.io/sync-wave: "2"
+    argocd.argoproj.io/sync-wave: "13"
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
