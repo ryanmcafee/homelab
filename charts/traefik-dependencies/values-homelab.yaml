@@ -1,0 +1,12 @@
+# traefik-dependencies homelab values
+
+namespace: traefik
+
+cloudflare:
+  enabled: true
+  onePasswordItemPath: "vaults/homelab/items/cloudflare"
+
+oidc:
+  enabled: true
+  googleOAuthPath: "vaults/homelab/items/google-oauth"
+  sessionKeyPath: "vaults/homelab/items/oidc-session-key"

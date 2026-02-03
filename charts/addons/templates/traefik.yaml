@@ -7,7 +7,39 @@ metadata:
   name: {{ .Values.traefik.namespace }}
   annotations:
     argocd.argoproj.io/sync-wave: "-1"
-# NOTE: OnePasswordItem and CRD-dependent resources are now in addons-resources chart
+---
+# Dependencies Application: deploys secrets and OnePasswordItems before traefik
+# Wave 5: After external-dns (wave 4) so OnePasswordItem CRDs are available
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: traefik-dependencies
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "5"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: {{ .Values.global.repoUrl }}
+    targetRevision: {{ .Values.global.targetRevision }}
+    path: charts/traefik-dependencies
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-{{ .Values.global.environment }}.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: traefik
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - SkipDryRunOnMissingResource=true
 ---
 apiVersion: argoproj.io/v1alpha1
 kind: Application
@@ -15,7 +47,7 @@ metadata:
   name: traefik
   namespace: argocd
   annotations:
-    # Sync wave 6: After traefik-config (wave 5) creates secrets and external-dns (wave 4) installs CRDs
+    # Sync wave 6: After traefik-dependencies (wave 5) creates secrets
     argocd.argoproj.io/sync-wave: "6"
   finalizers:
     - resources-finalizer.argocd.argoproj.io
@@ -167,11 +199,10 @@ spec:
       kind: ValidatingWebhookConfiguration
       jqPathExpressions:
         - .webhooks[].clientConfig.caBundle
-# NOTE: DNSEndpoint, Middleware, IngressRoute, Certificate, and OnePasswordItem
-# resources for the Traefik dashboard and OIDC are now in the addons-resources chart.
 {{- if and .Values.traefik.oidc .Values.traefik.oidc.enabled }}
 ---
 # Redis for OIDC session storage (required for multi-replica Traefik)
+# Wave 7: After traefik (wave 6) but before traefik-config (wave 8)
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -217,16 +248,15 @@ spec:
       targetPort: 6379
 {{- end }}
 ---
-# Config Application: deploys secrets and CRD-dependent resources for traefik
-# Wave 5: After external-dns (wave 4) installs DNSEndpoint CRD
-# Note: Traefik pods may restart once secrets are created
+# Config Application: deploys CRD-dependent resources (IngressRoute, Middleware, DNSEndpoint)
+# Wave 8: After traefik (wave 6) installs CRDs and oidc-redis (wave 7) is available
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
   name: traefik-config
   namespace: argocd
   annotations:
-    argocd.argoproj.io/sync-wave: "5"
+    argocd.argoproj.io/sync-wave: "8"
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:

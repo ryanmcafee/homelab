@@ -1,0 +1,14 @@
+# traefik-dependencies values
+
+namespace: traefik
+
+# Cloudflare API token (for ACME DNS challenges if using Traefik's built-in ACME)
+cloudflare:
+  enabled: false
+  onePasswordItemPath: ""
+
+# OIDC authentication secrets
+oidc:
+  enabled: false
+  googleOAuthPath: ""
+  sessionKeyPath: ""

@@ -1,14 +1,10 @@
 # traefik-config values
+# CRD-dependent resources that deploy AFTER Traefik
 
 global:
   domain: example.com
 
 namespace: traefik
-
-# Cloudflare API token (for ACME DNS challenges if using Traefik's built-in ACME)
-cloudflare:
-  enabled: false
-  onePasswordItemPath: ""
 
 # Dashboard configuration
 dashboard:
@@ -16,15 +12,13 @@ dashboard:
   host: traefik.example.com
   staticIP: "172.16.100.200"
 
-# OIDC authentication
+# OIDC authentication middleware
 oidc:
   enabled: false
   host: auth.example.com
   providerURL: https://accounts.google.com
   callbackURL: https://auth.example.com/oauth2/callback
   logoutURL: https://auth.example.com/oauth2/logout
-  googleOAuthPath: ""
-  sessionKeyPath: ""
   scopes:
     - openid
     - email
