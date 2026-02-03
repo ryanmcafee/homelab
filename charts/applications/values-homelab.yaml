@@ -611,31 +611,11 @@ transmission:
                 cpu: 500m
                 memory: 512Mi
 
-  # Gluetun VPN addon (ProtonVPN WireGuard)
+  # Gluetun VPN addon - disabled until TrueCharts common-2025 addon structure is figured out
+  # TODO: Re-enable with correct env structure for ProtonVPN WireGuard
   addons:
     gluetun:
-      enabled: true
-      envList:
-        - name: VPN_SERVICE_PROVIDER
-          value: protonvpn
-        - name: VPN_TYPE
-          value: wireguard
-        - name: WIREGUARD_PRIVATE_KEY
-          secretKeyRef:
-            name: transmission-vpn-credentials
-            key: WIREGUARD_PRIVATE_KEY
-        - name: SERVER_COUNTRIES
-          secretKeyRef:
-            name: transmission-vpn-credentials
-            key: SERVER_COUNTRIES
-        - name: DNS_KEEP_NAMESERVER
-          value: "on"
-        - name: FIREWALL
-          value: "on"
-        - name: FIREWALL_OUTBOUND_SUBNETS
-          value: "10.42.0.0/16,10.43.0.0/16"
-        - name: FIREWALL_INPUT_PORTS
-          value: "9091,51413"
+      enabled: false
 
   # Service configuration
   service:
