@@ -1,5 +1,21 @@
 {{- if .Values.spegel.enabled }}
 ---
+# OCI Repository configuration for ArgoCD to pull Spegel Helm chart
+apiVersion: v1
+kind: Secret
+metadata:
+  name: spegel-oci
+  namespace: argocd
+  labels:
+    argocd.argoproj.io/secret-type: repository
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+stringData:
+  name: spegel
+  type: helm
+  url: ghcr.io/spegel-org/helm-charts
+  enableOCI: "true"
+---
 # Spegel namespace needs privileged PodSecurity for hostPath and hostPort access
 apiVersion: v1
 kind: Namespace
