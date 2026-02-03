@@ -11,8 +11,6 @@ metadata:
     pod-security.kubernetes.io/audit: privileged
     pod-security.kubernetes.io/warn: privileged
 ---
-# NOTE: OnePasswordItem for TrueNAS API key is now in addons-resources chart
----
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:

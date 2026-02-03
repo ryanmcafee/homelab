@@ -6,7 +6,6 @@ metadata:
   name: {{ index .Values "oauth2-proxy" "namespace" }}
   annotations:
     argocd.argoproj.io/sync-wave: "3"
-# NOTE: OnePasswordItem resources are now in addons-resources chart
 ---
 apiVersion: argoproj.io/v1alpha1
 kind: Application
@@ -92,5 +91,4 @@ spec:
       - CreateNamespace=true
       - ServerSideApply=true
       - ApplyOutOfSyncOnly=true
-# NOTE: Traefik Middleware for ForwardAuth is now in addons-resources chart
 {{- end }}

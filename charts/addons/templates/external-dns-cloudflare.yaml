@@ -1,6 +1,5 @@
 {{- if index .Values "external-dns" "enabled" }}
 {{- if eq (index .Values "external-dns" "provider") "cloudflare" }}
-# NOTE: OnePasswordItem is now in addons-resources chart
 ---
 apiVersion: argoproj.io/v1alpha1
 kind: Application

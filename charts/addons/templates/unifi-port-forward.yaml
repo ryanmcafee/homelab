@@ -8,7 +8,6 @@ metadata:
   name: {{ $namespace }}
   annotations:
     argocd.argoproj.io/sync-wave: "6"
-# NOTE: OnePasswordItem is now in addons-resources chart
 ---
 {{- $portForwardValues := index .Values "unifi-port-forward" }}
 apiVersion: argoproj.io/v1alpha1

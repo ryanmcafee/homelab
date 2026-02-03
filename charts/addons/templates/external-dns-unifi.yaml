@@ -6,7 +6,6 @@ metadata:
   name: {{ index .Values "external-dns-unifi" "namespace" }}
   annotations:
     argocd.argoproj.io/sync-wave: "4"
-# NOTE: OnePasswordItem is now in addons-resources chart
 ---
 # Additional RBAC for CRD source (helm chart doesn't generate this correctly)
 apiVersion: rbac.authorization.k8s.io/v1
