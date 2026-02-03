@@ -160,6 +160,68 @@ argocd:
           memory: 128Mi
 
 # ============================================================================
+# Spegel - P2P Container Image Distribution
+# Sync Wave: 0 (early infrastructure, helps with slow registry pulls)
+# ============================================================================
+
+spegel:
+  enabled: true
+  namespace: spegel
+
+  # Chart source (OCI registry)
+  chart:
+    name: spegel
+    repo: oci://ghcr.io/spegel-org/helm-charts
+    version: "v0.0.27"
+
+  # Service configuration
+  service:
+    registry:
+      hostPort: 30020
+      nodePort: 30021
+
+  # Spegel configuration
+  spegel:
+    logLevel: "INFO"
+    # Registries to mirror via P2P
+    registries:
+      - https://cgr.dev
+      - https://docker.io
+      - https://ghcr.io
+      - https://quay.io
+      - https://mcr.microsoft.com
+      - https://public.ecr.aws
+      - https://gcr.io
+      - https://registry.k8s.io
+      - https://k8s.gcr.io
+      - https://lscr.io
+    # Talos Linux containerd paths
+    containerdRegistryConfigPath: /etc/cri/conf.d/hosts
+    containerdContentPath: /var/lib/containerd/io.containerd.content.v1.content
+    resolveTags: true
+    resolveLatestTag: true
+    appendMirrors: false
+
+  # Prometheus ServiceMonitor
+  serviceMonitor:
+    enabled: false
+    interval: 60s
+    scrapeTimeout: 30s
+
+  # Grafana Dashboard
+  grafanaDashboard:
+    enabled: false
+
+  # Resource limits
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+    limits:
+      cpu: 100m
+      memory: 128Mi
+
+# ============================================================================
 # Kubelet CSR Approver - Automatic Kubelet Certificate Approval
 # Sync Wave: 1 (early infrastructure component)
 # ============================================================================
