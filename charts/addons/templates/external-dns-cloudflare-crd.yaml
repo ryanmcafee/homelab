@@ -1,10 +1,49 @@
 {{- if index .Values "external-dns" "enabled" }}
 {{- if eq (index .Values "external-dns" "provider") "cloudflare" }}
 ---
+# Additional RBAC for CRD source (helm chart doesn't generate this correctly)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: external-dns-cloudflare-crd-dnsendpoints
+  annotations:
+    argocd.argoproj.io/sync-wave: "4"
+rules:
+  - apiGroups:
+      - externaldns.k8s.io
+    resources:
+      - dnsendpoints
+    verbs:
+      - get
+      - watch
+      - list
+  - apiGroups:
+      - externaldns.k8s.io
+    resources:
+      - dnsendpoints/status
+    verbs:
+      - update
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: external-dns-cloudflare-crd-dnsendpoints
+  annotations:
+    argocd.argoproj.io/sync-wave: "4"
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: external-dns-cloudflare-crd-dnsendpoints
+subjects:
+  - kind: ServiceAccount
+    name: external-dns-cloudflare-crd
+    namespace: {{ index .Values "external-dns" "namespace" }}
+---
+# CRD source instance for DNSEndpoint resources
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: external-dns-cloudflare
+  name: external-dns-cloudflare-crd
   namespace: argocd
   annotations:
     argocd.argoproj.io/sync-wave: "4"
@@ -17,14 +56,13 @@ spec:
     chart: {{ index .Values "external-dns" "chart" "name" }}
     targetRevision: {{ index .Values "external-dns" "chart" "version" }}
     helm:
-      releaseName: external-dns-cloudflare
+      releaseName: external-dns-cloudflare-crd
       values: |
-        fullnameOverride: external-dns-cloudflare
+        fullnameOverride: external-dns-cloudflare-crd
 
         provider:
-          name: {{ index .Values "external-dns" "provider" }}
+          name: cloudflare
 
-        {{- if eq (index .Values "external-dns" "provider") "cloudflare" }}
         env:
           - name: CF_API_TOKEN
             valueFrom:
@@ -34,29 +72,20 @@ spec:
 
         cloudflare:
           proxied: {{ index .Values "external-dns" "cloudflare" "proxied" }}
-        {{- end }}
 
-        {{- if index .Values "external-dns" "sources" }}
         sources:
-          {{- range (index .Values "external-dns" "sources") }}
-          - {{ . }}
-          {{- end }}
-        {{- end }}
+          - crd
 
         domainFilters:
           {{- range (index .Values "external-dns" "domainFilters") }}
           - {{ . }}
           {{- end }}
 
-        annotationFilter: {{ index .Values "external-dns" "annotationFilter" }}
-
         policy: sync
         registry: txt
-        txtOwnerId: {{ .Values.global.environment }}-cloudflare
+        txtOwnerId: {{ .Values.global.environment }}-cloudflare-crd
 
         {{- if index .Values "external-dns" "defaultTarget" }}
-        # Use DDNS hostname as the target for all DNS records
-        # This ensures Cloudflare points to the dynamic public IP
         extraArgs:
           - --default-targets={{ index .Values "external-dns" "defaultTarget" }}
         {{- end }}
@@ -77,35 +106,4 @@ spec:
       - ServerSideApply=true
       - ApplyOutOfSyncOnly=true
 {{- end }}
----
-# Config Application: deploys OnePasswordItems for API credentials before external-dns
-apiVersion: argoproj.io/v1alpha1
-kind: Application
-metadata:
-  name: external-dns-config
-  namespace: argocd
-  annotations:
-    argocd.argoproj.io/sync-wave: "3"
-  finalizers:
-    - resources-finalizer.argocd.argoproj.io
-spec:
-  project: default
-  source:
-    repoURL: {{ .Values.global.repoUrl }}
-    targetRevision: {{ .Values.global.targetRevision }}
-    path: charts/external-dns-config
-    helm:
-      valueFiles:
-        - values.yaml
-        - values-{{ .Values.global.environment }}.yaml
-  destination:
-    server: https://kubernetes.default.svc
-    namespace: external-dns
-  syncPolicy:
-    automated:
-      prune: true
-      selfHeal: true
-    syncOptions:
-      - CreateNamespace=true
-      - ServerSideApply=true
 {{- end }}

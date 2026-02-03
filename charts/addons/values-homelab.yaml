@@ -435,6 +435,15 @@ external-dns:
 
   provider: cloudflare
 
+  # Sources to watch for DNS records
+  # - service: watch Service resources with external-dns annotations
+  # - ingress: watch Ingress resources with external-dns annotations
+  # - crd: watch DNSEndpoint CRD resources (e.g., from traefik-config)
+  sources:
+    - service
+    - ingress
+    - crd
+
   cloudflare:
     apiToken: ""
     proxied: true
