@@ -629,20 +629,17 @@ transmission:
                 cpu: 500m
                 memory: 512Mi
 
-  # Gluetun VPN addon
+  # Gluetun VPN addon (disabled by default, enable in environment values)
   addons:
-    vpn:
-      enabled: true
-      type: gluetun
-      gluetun:
-        env:
-          VPN_SERVICE_PROVIDER: custom
-          VPN_TYPE: openvpn
-          DNS_KEEP_NAMESERVER: "on"
-          FIREWALL: "on"
-          # Allow Kubernetes cluster networking
-          FIREWALL_OUTBOUND_SUBNETS: "10.42.0.0/16,10.43.0.0/16"
-          FIREWALL_INPUT_PORTS: "9091,51413"
+    gluetun:
+      enabled: false
+      env:
+        VPN_SERVICE_PROVIDER: ""
+        VPN_TYPE: ""
+        DNS_KEEP_NAMESERVER: "on"
+        FIREWALL: "on"
+        FIREWALL_OUTBOUND_SUBNETS: "10.42.0.0/16,10.43.0.0/16"
+        FIREWALL_INPUT_PORTS: "9091,51413"
 
   # Service configuration
   service:
