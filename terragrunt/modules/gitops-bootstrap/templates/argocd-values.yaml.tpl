@@ -50,11 +50,11 @@ controller:
     enabled: true
   resources:
     limits:
+      cpu: 2000m
+      memory: 4Gi
+    requests:
       cpu: 1000m
       memory: 2Gi
-    requests:
-      cpu: 500m
-      memory: 1Gi
 
 repoServer:
   metrics:
