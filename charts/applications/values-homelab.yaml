@@ -13,8 +13,7 @@ global:
 
   # Git repository for local charts
   repoUrl: https://github.com/ryanmcafee/homelab.git
-  # TODO: Change back to 'main' after testing
-  targetRevision: feature/fix-argocd-sync-waves
+  targetRevision: main
 
   # Default storage class for persistent volumes
   storageClass: democratic-csi-nfs
