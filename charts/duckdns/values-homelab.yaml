@@ -1,0 +1,6 @@
+# duckdns homelab values
+
+namespace: duckdns
+
+# DuckDNS subdomain (without .duckdns.org)
+subdomain: ryanmcafee

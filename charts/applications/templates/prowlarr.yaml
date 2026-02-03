@@ -56,7 +56,9 @@ spec:
         - /spec/template/spec/hostUsers
 
   syncPolicy:
-    # Automatic sync disabled - manual sync only
+    automated:
+      prune: true
+      selfHeal: true
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true

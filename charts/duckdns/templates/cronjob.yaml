@@ -1,0 +1,47 @@
+{{- if .Values.subdomain }}
+---
+# DuckDNS Updater CronJob
+# Updates the DuckDNS record with the cluster's public IP
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: duckdns-updater
+  namespace: {{ .Values.namespace }}
+spec:
+  schedule: {{ .Values.schedule | quote }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: duckdns-updater
+              image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+              imagePullPolicy: {{ .Values.image.pullPolicy }}
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  response=$(curl -s "https://www.duckdns.org/update?domains=${DUCKDNS_SUBDOMAIN}&token=${DUCKDNS_TOKEN}&ip=")
+                  echo "DuckDNS update response: $response"
+                  if [ "$response" = "OK" ]; then
+                    echo "Successfully updated DuckDNS record for ${DUCKDNS_SUBDOMAIN}.duckdns.org"
+                    exit 0
+                  else
+                    echo "Failed to update DuckDNS record"
+                    exit 1
+                  fi
+              env:
+                - name: DUCKDNS_SUBDOMAIN
+                  value: {{ .Values.subdomain | quote }}
+                - name: DUCKDNS_TOKEN
+                  valueFrom:
+                    secretKeyRef:
+                      name: duckdns-token
+                      key: token
+              resources:
+                {{- toYaml .Values.resources | nindent 16 }}
+{{- end }}

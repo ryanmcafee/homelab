@@ -8,66 +8,67 @@ metadata:
   annotations:
     argocd.argoproj.io/sync-wave: "0"
 ---
-# OnePasswordItem syncs the DuckDNS token from 1Password vault
-apiVersion: onepassword.com/v1
-kind: OnePasswordItem
+# Dependencies Application: deploys OnePasswordItem for DuckDNS token
+apiVersion: argoproj.io/v1alpha1
+kind: Application
 metadata:
-  name: duckdns-token
-  namespace: {{ .Values.duckdns.namespace }}
+  name: duckdns-dependencies
+  namespace: argocd
   annotations:
     argocd.argoproj.io/sync-wave: "1"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
 spec:
-  itemPath: {{ .Values.duckdns.onePasswordItemPath | quote }}
+  project: default
+  source:
+    repoURL: {{ .Values.global.repoUrl }}
+    targetRevision: {{ .Values.global.targetRevision }}
+    path: charts/duckdns-dependencies
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-{{ .Values.global.environment }}.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: {{ .Values.duckdns.namespace }}
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - SkipDryRunOnMissingResource=true
 ---
-# DuckDNS Updater CronJob
-# Updates the DuckDNS record with the cluster's public IP every 5 minutes
-apiVersion: batch/v1
-kind: CronJob
+# DuckDNS Application: deploys the updater CronJob
+apiVersion: argoproj.io/v1alpha1
+kind: Application
 metadata:
-  name: duckdns-updater
-  namespace: {{ .Values.duckdns.namespace }}
+  name: duckdns
+  namespace: argocd
   annotations:
+    # Wave 2: After duckdns-dependencies (wave 1) creates the secret
     argocd.argoproj.io/sync-wave: "2"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
 spec:
-  schedule: "*/5 * * * *"
-  concurrencyPolicy: Forbid
-  successfulJobsHistoryLimit: 1
-  failedJobsHistoryLimit: 3
-  jobTemplate:
-    spec:
-      template:
-        spec:
-          restartPolicy: OnFailure
-          containers:
-            - name: duckdns-updater
-              image: curlimages/curl:8.5.0
-              imagePullPolicy: IfNotPresent
-              command:
-                - /bin/sh
-                - -c
-                - |
-                  response=$(curl -s "https://www.duckdns.org/update?domains=${DUCKDNS_SUBDOMAIN}&token=${DUCKDNS_TOKEN}&ip=")
-                  echo "DuckDNS update response: $response"
-                  if [ "$response" = "OK" ]; then
-                    echo "Successfully updated DuckDNS record for ${DUCKDNS_SUBDOMAIN}.duckdns.org"
-                    exit 0
-                  else
-                    echo "Failed to update DuckDNS record"
-                    exit 1
-                  fi
-              env:
-                - name: DUCKDNS_SUBDOMAIN
-                  value: {{ .Values.duckdns.subdomain | quote }}
-                - name: DUCKDNS_TOKEN
-                  valueFrom:
-                    secretKeyRef:
-                      name: duckdns-token
-                      key: token
-              resources:
-                requests:
-                  cpu: 10m
-                  memory: 16Mi
-                limits:
-                  cpu: 50m
-                  memory: 32Mi
+  project: default
+  source:
+    repoURL: {{ .Values.global.repoUrl }}
+    targetRevision: {{ .Values.global.targetRevision }}
+    path: charts/duckdns
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-{{ .Values.global.environment }}.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: {{ .Values.duckdns.namespace }}
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
 {{- end }}

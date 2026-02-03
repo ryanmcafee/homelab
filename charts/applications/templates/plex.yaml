@@ -67,7 +67,9 @@ spec:
     namespace: {{ .Values.plex.namespace }}
 
   syncPolicy:
-    # Automatic sync disabled - manual sync only
+    automated:
+      prune: true
+      selfHeal: true
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
