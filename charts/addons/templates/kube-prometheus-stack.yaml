@@ -16,7 +16,8 @@ metadata:
   name: kube-prometheus-stack
   namespace: argocd
   annotations:
-    argocd.argoproj.io/sync-wave: "7"
+    # Wave 9: After traefik-config (wave 8) so OIDC middleware is available for Grafana ingress
+    argocd.argoproj.io/sync-wave: "9"
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
