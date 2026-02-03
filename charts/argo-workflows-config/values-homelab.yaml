@@ -1,0 +1,36 @@
+# Argo Workflows Config - Homelab Values
+
+namespace: argo-workflows
+
+ingressVerification:
+  enabled: true
+  schedule: "*/5 * * * *"
+  # List of ingresses to verify - all require authentication
+  ingresses:
+    - name: traefik
+      url: https://traefik.ryanmcafee.com/dashboard/
+      expectAuth: true
+    - name: argocd
+      url: https://argocd.ryanmcafee.com
+      expectAuth: true
+    - name: grafana
+      url: https://grafana.ryanmcafee.com
+      expectAuth: true
+    - name: plex
+      url: https://plex.ryanmcafee.com
+      expectAuth: true
+    - name: sonarr
+      url: https://sonarr.ryanmcafee.com
+      expectAuth: true
+    - name: radarr
+      url: https://radarr.ryanmcafee.com
+      expectAuth: true
+    - name: prowlarr
+      url: https://prowlarr.ryanmcafee.com
+      expectAuth: true
+    - name: homeassistant
+      url: https://homeassistant.ryanmcafee.com
+      expectAuth: true
+    - name: auth
+      url: https://auth.ryanmcafee.com
+      expectAuth: true

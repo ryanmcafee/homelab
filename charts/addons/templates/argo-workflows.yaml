@@ -74,4 +74,39 @@ spec:
       - ServerSideApply=true
       - PruneLast=true
       - ApplyOutOfSyncOnly=true
+---
+# Argo Workflows Config - CronWorkflows and custom resources
+# Wave 10: After argo-workflows (wave 9) installs CRDs
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: argo-workflows-config
+  namespace: argocd
+  labels:
+    {{- include "addons.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: {{ .Values.global.repoUrl }}
+    targetRevision: {{ .Values.global.targetRevision }}
+    path: charts/argo-workflows-config
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-{{ .Values.global.environment }}.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: {{ index .Values "argo-workflows" "namespace" }}
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - SkipDryRunOnMissingResource=true
 {{- end }}
