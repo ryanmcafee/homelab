@@ -145,7 +145,12 @@ applications:
 # ============================================================================
 
 # Ignore differences in certain fields (reduces noise)
-ignoreDifferences: []
+ignoreDifferences:
+  # RuntimeClass gets ownerReferences added by nvidia-gpu-operator after creation
+  - group: node.k8s.io
+    kind: RuntimeClass
+    jsonPointers:
+      - /metadata/ownerReferences
 
 # Health check configuration
 healthChecks:
