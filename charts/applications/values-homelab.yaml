@@ -615,18 +615,27 @@ transmission:
   addons:
     gluetun:
       enabled: true
-      env:
-        VPN_SERVICE_PROVIDER: protonvpn
-        VPN_TYPE: wireguard
-        DNS_KEEP_NAMESERVER: "on"
-        FIREWALL: "on"
-        # Allow Kubernetes cluster networking
-        FIREWALL_OUTBOUND_SUBNETS: "10.42.0.0/16,10.43.0.0/16"
-        FIREWALL_INPUT_PORTS: "9091,51413"
-      # Mount VPN credentials from 1Password (WIREGUARD_PRIVATE_KEY, SERVER_COUNTRIES)
-      envFrom:
-        - secretRef:
+      envList:
+        - name: VPN_SERVICE_PROVIDER
+          value: protonvpn
+        - name: VPN_TYPE
+          value: wireguard
+        - name: WIREGUARD_PRIVATE_KEY
+          secretKeyRef:
             name: transmission-vpn-credentials
+            key: WIREGUARD_PRIVATE_KEY
+        - name: SERVER_COUNTRIES
+          secretKeyRef:
+            name: transmission-vpn-credentials
+            key: SERVER_COUNTRIES
+        - name: DNS_KEEP_NAMESERVER
+          value: "on"
+        - name: FIREWALL
+          value: "on"
+        - name: FIREWALL_OUTBOUND_SUBNETS
+          value: "10.42.0.0/16,10.43.0.0/16"
+        - name: FIREWALL_INPUT_PORTS
+          value: "9091,51413"
 
   # Service configuration
   service:
