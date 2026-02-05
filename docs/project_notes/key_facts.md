@@ -35,7 +35,7 @@ See `CLAUDE.local.md` for IP addresses and hostnames.
 
 **Storage:**
 - Provider: Democratic-CSI with NFS
-- Backend: TrueNAS RAIDZ3 (~160 TB raw)
+- Backend: TrueNAS RAIDZ3 (~220 TB raw)
 - Storage Classes: `nfs-client` (default)
 
 ## ArgoCD Sync Wave Order

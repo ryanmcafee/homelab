@@ -151,9 +151,9 @@ Every infrastructure change flows through Git:
 │                                                                  │
 │  ┌──────────────────────────────────────────────────────────┐  │
 │  │  ZFS Pool (RAIDZ3)                                        │  │
-│  │  - Data: 8x 20TB HDDs                                     │  │
+│  │  - Data: 11x 20TB HDDs                                    │  │
 │  │  - Special vDev: 2x 1TB NVMe (metadata + small blocks)   │  │
-│  │  - Total Usable: ~120TB                                   │  │
+│  │  - Total Usable: ~160TB                                   │  │
 │  └──────────────────────────────────────────────────────────┘  │
 │                                                                  │
 │  NFS Shares → democratic-csi → Kubernetes PVCs                  │
@@ -500,7 +500,10 @@ See [networking.md](./networking.md) for complete details.
 │  │  ┌────┐ ┌────┐ ┌────┐ ┌────┐ ┌────┐ ┌────┐ ┌────┐ ┌────┐ │  │
 │  │  │20TB│ │20TB│ │20TB│ │20TB│ │20TB│ │20TB│ │20TB│ │20TB│ │  │
 │  │  └────┘ └────┘ └────┘ └────┘ └────┘ └────┘ └────┘ └────┘ │  │
-│  │  Usable: ~120TB (2-disk fault tolerance)                  │  │
+│  │  ┌────┐ ┌────┐ ┌────┐                                     │  │
+│  │  │20TB│ │20TB│ │20TB│  (11 drives total)                  │  │
+│  │  └────┘ └────┘ └────┘                                     │  │
+│  │  Usable: ~160TB (3-disk fault tolerance)                  │  │
 │  └──────────────────────────────────────────────────────────┘  │
 │                                                                  │
 │  ┌──────────────────────────────────────────────────────────┐  │

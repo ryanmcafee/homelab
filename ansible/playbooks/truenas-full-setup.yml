@@ -42,8 +42,8 @@
       - name: storage
         type: raidz3
         disk_type: HDD
-        disk_count: 8
-        description: "Primary storage pool - 8x 20TB HDDs"
+        disk_count: 11
+        description: "Primary storage pool - 11x 20TB HDDs"
       - name: ssd
         type: mirror
         disk_type: SSD
