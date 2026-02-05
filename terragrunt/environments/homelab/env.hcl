@@ -95,7 +95,7 @@ locals {
   }
 
   # HBA devices for TrueNAS direct disk access
-  # More complete mappings for NVMe SSDs and SATA drives
+  # PCI passthrough for NVMe SSDs and SATA drives
   hba_devices = {
     "hba-nvme-ssds" = {
       pci_id       = "0000:c2:00.0"
@@ -109,7 +109,14 @@ locals {
       device_id    = "1022:7901" # AMD vendor:device ID
       subsystem_id = "15d9:7901" # Supermicro subsystem ID
       iommu_group  = 58
-      description  = "AMD FCH SATA Controller - 8x 20TB SATA drives"
+      description  = "AMD FCH SATA Controller #1 - 8x 20TB SATA drives"
+    }
+    "sata-20tb-drives-2" = {
+      pci_id       = "0000:48:00.0"
+      device_id    = "1022:7901" # AMD vendor:device ID
+      subsystem_id = "15d9:7901" # Supermicro subsystem ID
+      iommu_group  = 57
+      description  = "AMD FCH SATA Controller #2 - 3x 20TB SATA drives"
     }
   }
 
