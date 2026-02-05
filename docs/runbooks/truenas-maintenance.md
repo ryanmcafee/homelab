@@ -36,8 +36,8 @@ TrueNAS provides network-attached storage (NAS) for the homelab:
 │  │                                                        │ │
 │  │  ┌──────────────────────────────────────────────────┐ │ │
 │  │  │  Data vDev (RAIDZ3)                              │ │ │
-│  │  │  - 8x 20TB HDDs                                  │ │ │
-│  │  │  - Usable: ~120TB                                │ │ │
+│  │  │  - 11x 20TB HDDs                                 │ │ │
+│  │  │  - Usable: ~160TB                                │ │ │
 │  │  │  - 2-disk fault tolerance                        │ │ │
 │  │  └──────────────────────────────────────────────────┘ │ │
 │  │                                                        │ │

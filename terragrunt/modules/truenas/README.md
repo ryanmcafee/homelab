@@ -27,7 +27,7 @@ TrueNAS Scale is deployed as a VM with:
 - 4 CPU cores (host type)
 - 32GB RAM
 - 32GB NVMe boot disk
-- Broadcom 9400-8i HBA (8x 20TB HDDs + 2x 1TB NVMe)
+- Broadcom 9400-8i HBA (11x 20TB HDDs + 2x 1TB NVMe)
 
 ## HBA Passthrough
 
@@ -115,13 +115,13 @@ After the VM is created, you'll need to:
 
 ### Example ZFS Pool Configuration
 
-For 8x 20TB HDDs + 2x 1TB NVMe (via HBA passthrough):
+For 11x 20TB HDDs + 2x 1TB NVMe (via HBA passthrough):
 
 ```bash
 # In TrueNAS:
 # 1. Go to Storage > Pools > Create Pool
 # 2. Name: storage
-# 3. Data VDEVs: RAIDZ3 with 8x 20TB HDDs
+# 3. Data VDEVs: RAIDZ3 with 11x 20TB HDDs
 # 4. Metadata (Special) VDEV: Mirror with 2x 1TB NVMe
 # 5. Create
 
@@ -129,6 +129,7 @@ For 8x 20TB HDDs + 2x 1TB NVMe (via HBA passthrough):
 zpool create -f storage RAIDZ3 \
   /dev/sda /dev/sdb /dev/sdc /dev/sdd \
   /dev/sde /dev/sdf /dev/sdg /dev/sdh \
+  /dev/sdi /dev/sdj /dev/sdk \
   special mirror /dev/nvme0n1 /dev/nvme1n1
 
 # Set optimal properties
