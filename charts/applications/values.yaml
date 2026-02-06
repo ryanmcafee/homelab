@@ -89,10 +89,13 @@ plex:
       memory: 8Gi
       nvidia.com/gpu: 1
 
+  # Plex claim token from 1Password
+  claimSecret:
+    name: plex
+    key: plex-claim-token
+
   # Plex configuration
   pms:
-    # Plex claim token from https://plex.tv/claim
-    claimToken: ""  # Provided via 1Password
     configExistingClaim: ""
     storageClassName: democratic-csi-nfs
 
@@ -114,6 +117,12 @@ plex:
         enabled: true
         medium: Memory
         sizeLimit: 10Gi
+
+  # Service configuration
+  service:
+    type: LoadBalancer
+    port: 32400
+    externalTrafficPolicy: Local
 
   # Extra volumes for media storage via NFS
   extraVolumes:

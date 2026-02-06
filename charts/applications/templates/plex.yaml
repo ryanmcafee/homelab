@@ -1,5 +1,38 @@
 {{- if .Values.plex.enabled }}
 ---
+# Dependencies Application: deploys OnePasswordItem for Plex claim token
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: plex-config
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "11"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: {{ .Values.global.repoUrl }}
+    targetRevision: {{ .Values.global.targetRevision }}
+    path: charts/plex-config
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-{{ .Values.global.environment }}.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: {{ .Values.plex.namespace }}
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - SkipDryRunOnMissingResource=true
+---
+# Plex Application: deploys the media server
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -47,6 +80,11 @@ spec:
           {{- toYaml .Values.plex.pms | nindent 10 }}
         {{- end }}
 
+        {{- if .Values.plex.claimSecret }}
+        claimSecret:
+          {{- toYaml .Values.plex.claimSecret | nindent 10 }}
+        {{- end }}
+
         {{- if .Values.plex.extraVolumes }}
         extraVolumes:
           {{- toYaml .Values.plex.extraVolumes | nindent 10 }}
@@ -55,6 +93,11 @@ spec:
         {{- if .Values.plex.extraVolumeMounts }}
         extraVolumeMounts:
           {{- toYaml .Values.plex.extraVolumeMounts | nindent 10 }}
+        {{- end }}
+
+        {{- if .Values.plex.service }}
+        service:
+          {{- toYaml .Values.plex.service | nindent 10 }}
         {{- end }}
 
         {{- if .Values.plex.ingress }}

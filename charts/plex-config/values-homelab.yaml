@@ -1,0 +1,5 @@
+# plex-config homelab values
+
+namespace: media
+
+onePasswordItemPath: vaults/homelab/items/plex
