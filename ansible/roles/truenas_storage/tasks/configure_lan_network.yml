@@ -12,23 +12,35 @@
     validate_certs: "{{ truenas_verify_ssl | default(false) }}"
   register: all_interfaces
 
-- name: Find LAN interface (unconfigured physical interface)
+- name: Build list of physical interfaces
   ansible.builtin.set_fact:
-    lan_interface: >-
-      {{
-        all_interfaces.json
-        | selectattr('type', 'equalto', 'PHYSICAL')
-        | rejectattr('aliases', 'defined')
-        | list
-        | first
-        | default(
-          all_interfaces.json
-          | selectattr('type', 'equalto', 'PHYSICAL')
-          | selectattr('aliases', 'equalto', [])
-          | list
-          | first
-        )
-      }}
+    _physical_ifaces: "{{ all_interfaces.json | selectattr('type', 'equalto', 'PHYSICAL') | list }}"
+
+- name: Find interface already configured with target LAN IP
+  ansible.builtin.set_fact:
+    lan_interface: "{{ item }}"
+  loop: "{{ _physical_ifaces }}"
+  when: >-
+    (item.aliases | default([]))
+    | selectattr('address', 'defined')
+    | selectattr('address', 'equalto', lan_ip | regex_replace('/.*', ''))
+    | list | length > 0
+
+- name: Find unconfigured physical interface (fallback)
+  ansible.builtin.set_fact:
+    lan_interface: "{{ item }}"
+  loop: "{{ _physical_ifaces }}"
+  when:
+    - lan_interface is not defined
+    - (item.aliases | default([])) | length == 0
+
+- name: Fail if no suitable LAN interface found
+  ansible.builtin.fail:
+    msg: >-
+      No suitable LAN interface found. All physical interfaces already have
+      IP configurations that don't match the target LAN IP ({{ lan_ip }}).
+      Available physical interfaces: {{ _physical_ifaces | map(attribute='name') | list }}
+  when: lan_interface is not defined
 
 - name: Display LAN interface to configure
   ansible.builtin.debug:
