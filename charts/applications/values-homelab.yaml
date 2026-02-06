@@ -72,15 +72,14 @@ plex:
       memory: 8Gi
       nvidia.com/gpu: 1
 
-  # Plex claim token from 1Password
-  claimSecret:
-    name: plex
-    key: plex-claim-token
-
   # Plex configuration
   pms:
     configExistingClaim: ""
     storageClassName: democratic-csi-nfs
+    # Plex claim token from 1Password
+    claimSecret:
+      name: plex
+      key: plex-claim-token
 
   # Persistence configuration
   persistence:
