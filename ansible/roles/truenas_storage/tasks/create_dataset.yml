@@ -40,6 +40,7 @@
     body_format: json
     body:
       refquota: "{{ dataset_quota | human_to_bytes }}"
+      aclmode: PASSTHROUGH
     status_code: [200]
   when: dataset_quota is defined and dataset_quota is string and dataset_quota | length > 0
 
