@@ -80,11 +80,6 @@ spec:
           {{- toYaml .Values.plex.pms | nindent 10 }}
         {{- end }}
 
-        {{- if .Values.plex.claimSecret }}
-        claimSecret:
-          {{- toYaml .Values.plex.claimSecret | nindent 10 }}
-        {{- end }}
-
         {{- if .Values.plex.extraVolumes }}
         extraVolumes:
           {{- toYaml .Values.plex.extraVolumes | nindent 10 }}
