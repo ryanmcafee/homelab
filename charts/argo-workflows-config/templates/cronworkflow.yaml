@@ -7,15 +7,15 @@ metadata:
 spec:
   schedule: {{ .Values.ingressVerification.schedule | quote }}
   concurrencyPolicy: Replace
-  successfulJobsHistoryLimit: 5
-  failedJobsHistoryLimit: 10
+  successfulJobsHistoryLimit: 2
+  failedJobsHistoryLimit: 2
   startingDeadlineSeconds: 60
   workflowSpec:
     serviceAccountName: ingress-verifier
     entrypoint: verify-all-ingresses
     ttlStrategy:
-      secondsAfterCompletion: 86400
-      secondsAfterSuccess: 43200
+      secondsAfterCompletion: 172800
+      secondsAfterSuccess: 172800
       secondsAfterFailure: 172800
     templates:
       - name: verify-all-ingresses

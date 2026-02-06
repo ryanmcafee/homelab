@@ -4,7 +4,7 @@ namespace: argo-workflows
 
 ingressVerification:
   enabled: true
-  schedule: "*/5 * * * *"
+  schedule: "0 0 * * *"
   # List of ingresses to verify - all require authentication
   ingresses:
     - name: traefik
