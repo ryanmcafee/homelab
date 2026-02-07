@@ -60,6 +60,42 @@ truenas_datasets:
     compression: lz4
     comments: "Temporary download storage"
 
+# SSD Pool Configuration
+truenas_ssd_pool_name: ssd
+
+# SSD Kubernetes Dataset
+truenas_ssd_k8s_dataset: "{{ truenas_ssd_pool_name }}/k8s"
+truenas_ssd_k8s_quota: 500G
+truenas_ssd_k8s_compression: lz4
+
+# SSD Kubernetes Snapshots Dataset (for democratic-csi detached snapshots)
+truenas_ssd_k8s_snapshots_dataset: "{{ truenas_ssd_pool_name }}/k8s-snapshots"
+truenas_ssd_k8s_snapshots_quota: 100G
+truenas_ssd_k8s_snapshots_compression: lz4
+
+# User/Group Configuration
+truenas_groups:
+  - name: users
+    gid: 100
+    smb: true
+
+truenas_users:
+  - name: rmcafee
+    full_name: "Ryan McAfee"
+    group: users
+    shell: /usr/bin/bash
+    smb: true
+  - name: plex
+    full_name: "Plex Media Server"
+    group: users
+    shell: /usr/sbin/nologin
+    smb: false
+
+# Dataset Permissions
+truenas_dataset_owner_user: rmcafee
+truenas_dataset_owner_group: users
+truenas_dataset_permissions_mode: "770"
+
 # SMB/Samba Configuration (optional)
 truenas_smb_enabled: true
 truenas_smb_workgroup: WORKGROUP

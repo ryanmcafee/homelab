@@ -1,0 +1,37 @@
+# TrueNAS Storage Role - Create Group
+# Creates a TrueNAS group via the API
+
+- name: Check if group exists - {{ group.name }}
+  ansible.builtin.uri:
+    url: "{{ truenas_api_url }}/api/v2.0/group?group={{ group.name }}"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ truenas_api_key }}"
+    validate_certs: "{{ truenas_verify_ssl }}"
+    status_code: [200]
+  register: group_check
+
+- name: Set group exists fact
+  ansible.builtin.set_fact:
+    _group_exists: "{{ group.name in (group_check.json | map(attribute='group') | list) }}"
+
+- name: Create group - {{ group.name }}
+  ansible.builtin.uri:
+    url: "{{ truenas_api_url }}/api/v2.0/group"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ truenas_api_key }}"
+      Content-Type: application/json
+    validate_certs: "{{ truenas_verify_ssl }}"
+    body_format: json
+    body:
+      name: "{{ group.name }}"
+      gid: "{{ group.gid | default(omit) }}"
+      smb: "{{ group.smb | default(false) }}"
+    status_code: [200, 201]
+  register: group_create
+  when: not _group_exists
+
+- name: Display group status - {{ group.name }}
+  ansible.builtin.debug:
+    msg: "Group '{{ group.name }}' {{ 'created' if not _group_exists else 'already exists' }}"

@@ -75,7 +75,7 @@ plex:
   # Plex configuration
   pms:
     configExistingClaim: ""
-    storageClassName: democratic-csi-nfs
+    storageClassName: democratic-csi-ssd
     # Plex claim token from 1Password
     claimSecret:
       name: plex
@@ -85,7 +85,7 @@ plex:
   persistence:
     config:
       enabled: true
-      storageClass: democratic-csi-nfs
+      storageClass: democratic-csi-ssd
       size: 100Gi
       accessMode: ReadWriteOnce
 

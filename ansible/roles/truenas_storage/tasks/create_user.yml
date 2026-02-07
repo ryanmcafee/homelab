@@ -1,0 +1,65 @@
+# TrueNAS Storage Role - Create User
+# Creates a TrueNAS user via the API
+# Resolves group name to GID before creation
+
+- name: Check if user exists - {{ user.name }}
+  ansible.builtin.uri:
+    url: "{{ truenas_api_url }}/api/v2.0/user?username={{ user.name }}"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ truenas_api_key }}"
+    validate_certs: "{{ truenas_verify_ssl }}"
+    status_code: [200]
+  register: user_check
+
+- name: Set user exists fact
+  ansible.builtin.set_fact:
+    _user_exists: "{{ user.name in (user_check.json | map(attribute='username') | list) }}"
+
+- name: Resolve group name to GID - {{ user.group | default('none') }}
+  ansible.builtin.uri:
+    url: "{{ truenas_api_url }}/api/v2.0/group?group={{ user.group }}"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ truenas_api_key }}"
+    validate_certs: "{{ truenas_verify_ssl }}"
+    status_code: [200]
+  register: group_lookup
+  when:
+    - not _user_exists
+    - user.group is defined
+
+- name: Set resolved group ID fact
+  ansible.builtin.set_fact:
+    _resolved_gid: "{{ (group_lookup.json | selectattr('group', 'equalto', user.group) | first).gid }}"
+  when:
+    - not _user_exists
+    - user.group is defined
+    - group_lookup.json | selectattr('group', 'equalto', user.group) | list | length > 0
+
+- name: Create user - {{ user.name }}
+  ansible.builtin.uri:
+    url: "{{ truenas_api_url }}/api/v2.0/user"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ truenas_api_key }}"
+      Content-Type: application/json
+    validate_certs: "{{ truenas_verify_ssl }}"
+    body_format: json
+    body:
+      username: "{{ user.name }}"
+      full_name: "{{ user.full_name }}"
+      group_create: false
+      group: "{{ _resolved_gid | int }}"
+      shell: "{{ user.shell | default('/usr/sbin/nologin') }}"
+      smb: "{{ user.smb | default(false) }}"
+      password_disabled: true
+    status_code: [200, 201]
+  register: user_create
+  when:
+    - not _user_exists
+    - _resolved_gid is defined
+
+- name: Display user status - {{ user.name }}
+  ansible.builtin.debug:
+    msg: "User '{{ user.name }}' {{ 'created (gid: ' ~ _resolved_gid ~ ')' if not _user_exists and _resolved_gid is defined else 'already exists' if _user_exists else 'SKIPPED - group not found' }}"

@@ -1,0 +1,110 @@
+{{- if index .Values "democratic-csi-ssd" "enabled" }}
+---
+# Democratic-CSI SSD - ArgoCD Application
+# Deploys a separate democratic-CSI instance for SSD-backed NFS storage
+# Reuses the same namespace and truenas-api-key secret as the HDD instance
+#
+# DEPENDENCY: Requires democratic-csi (HDD) to be enabled. The democratic-csi-config
+# app (sync wave 1) creates the truenas-api-key secret in the democratic-csi namespace.
+# If the HDD instance is disabled, the secret won't exist and this app will fail.
+#
+# NOTE: Snapshots dataset is derived by appending "-snapshots" to the nfs.parent value.
+# e.g. parent "ssd/k8s" -> snapshots "ssd/k8s-snapshots". Keep Ansible dataset names in sync.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: democratic-csi-ssd
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: {{ index .Values "democratic-csi-ssd" "chart" "repo" }}
+    chart: {{ index .Values "democratic-csi-ssd" "chart" "name" }}
+    targetRevision: {{ index .Values "democratic-csi-ssd" "chart" "version" }}
+    helm:
+      releaseName: democratic-csi-ssd
+      values: |
+        csiDriver:
+          name: "org.democratic-csi.nfs-ssd"
+
+        driver:
+          config:
+            driver: {{ index .Values "democratic-csi-ssd" "driver" }}
+
+            httpConnection:
+              protocol: https
+              host: {{ index .Values "democratic-csi-ssd" "truenas" "endpoint" | trimPrefix "https://" | trimPrefix "http://" }}
+              port: 443
+              allowInsecure: {{ index .Values "democratic-csi-ssd" "truenas" "allowInsecure" }}
+              apiKey: "${TRUENAS_API_KEY}"
+
+            zfs:
+              datasetParentName: {{ index .Values "democratic-csi-ssd" "nfs" "parent" }}
+              detachedSnapshotsDatasetParentName: {{ index .Values "democratic-csi-ssd" "nfs" "parent" }}-snapshots
+              datasetEnableQuotas: true
+              datasetEnableReservation: false
+              datasetPermissionsMode: "0770"
+              datasetPermissionsUser: 0
+              datasetPermissionsGroup: 0
+
+            nfs:
+              shareHost: {{ index .Values "democratic-csi-ssd" "nfs" "shareHost" }}
+              shareAlldirs: false
+              shareAllowedHosts: []
+              shareAllowedNetworks:
+                - {{ index .Values "democratic-csi-ssd" "nfs" "shareAllow" }}
+              shareMaprootUser: root
+              shareMaprootGroup: root
+
+        storageClasses:
+        {{- range (index .Values "democratic-csi-ssd" "storageClasses") }}
+          - name: {{ .name }}
+            defaultClass: {{ .defaultClass }}
+            reclaimPolicy: {{ .reclaimPolicy }}
+            volumeBindingMode: {{ .volumeBindingMode }}
+            allowVolumeExpansion: {{ .allowVolumeExpansion }}
+            parameters:
+              fsType: {{ .parameters.fsType }}
+            mountOptions:
+              - nfsvers=4
+              - noatime
+        {{- end }}
+
+        controller:
+          driver:
+            resources:
+              {{- toYaml (index .Values "democratic-csi-ssd" "resources" "controller") | nindent 14 }}
+            extraEnv:
+              - name: TRUENAS_API_KEY
+                valueFrom:
+                  secretKeyRef:
+                    name: truenas-api-key
+                    key: api_key
+
+        node:
+          driver:
+            resources:
+              {{- toYaml (index .Values "democratic-csi-ssd" "resources" "node") | nindent 14 }}
+            extraEnv:
+              - name: TRUENAS_API_KEY
+                valueFrom:
+                  secretKeyRef:
+                    name: truenas-api-key
+                    key: api_key
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: {{ index .Values "democratic-csi-ssd" "namespace" }}
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+{{- end }}
