@@ -108,6 +108,9 @@ plex:
     type: LoadBalancer
     port: 32400
     externalTrafficPolicy: Local
+    annotations:
+      io.cilium/lb-ipam-ips: "172.16.100.205"
+      port-forwarding.ryanmcafee.com/enable: "true"
 
   # Extra volumes for media storage via NFS
   extraVolumes:
