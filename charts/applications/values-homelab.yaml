@@ -63,15 +63,6 @@ plex:
   nodeSelector:
     feature.node.kubernetes.io/pci-10de.present: "true"
 
-  resources:
-    requests:
-      cpu: 1000m
-      memory: 2Gi
-    limits:
-      cpu: 4000m
-      memory: 8Gi
-      nvidia.com/gpu: 1
-
   # Plex configuration
   pms:
     configExistingClaim: ""
@@ -80,6 +71,17 @@ plex:
     claimSecret:
       name: plex
       key: plex-claim-token
+    # NVIDIA GPU for hardware transcoding
+    gpu:
+      nvidia:
+        enabled: true
+    resources:
+      requests:
+        cpu: 1000m
+        memory: 2Gi
+      limits:
+        cpu: 4000m
+        memory: 8Gi
 
   # Persistence configuration
   persistence:
