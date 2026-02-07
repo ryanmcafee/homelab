@@ -1,8 +1,58 @@
 # Homelab Project - Claude AI Instructions
 
-Read AGENTS.md and apply the rules to all subagents.
+Read `AGENTS.md` and apply the rules to all subagents.
 When implementing plans, always analyze the plan first and look for opportunities to use sub agents.
 Before implementing a plan, ensure that 'bd' is used for task tracking to support saving progress and context for long running tasks.
+
+## Subagent Routing
+
+This project has 25 specialized subagents in `.claude/agents/`. **Always delegate to the appropriate subagent** instead of doing specialized work inline. See `AGENTS.md` for the full list and coordination rules.
+
+### When to use which subagent
+
+| Task | Subagent(s) | Notes |
+|------|-------------|-------|
+| **Kubernetes/ArgoCD** | `kubernetes-specialist` | Cluster design, workloads, sync issues, health checks |
+| **Terraform modules** | `terraform-engineer` | Module authoring, state management, plan/apply |
+| **Terragrunt orchestration** | `terragrunt-expert` | Multi-env configs, DRY patterns, dependencies |
+| **CI/CD & pipelines** | `deployment-engineer` | ArgoCD sync waves, deployment strategies |
+| **Helm chart changes** | `kubernetes-specialist` + `deployment-engineer` | Template + deploy concerns |
+| **Networking/BGP/Cilium** | `network-engineer` | Cilium config, BGP peering, LB IPAM, DNS |
+| **Storage/NFS/CSI** | `kubernetes-specialist` | Democratic-CSI, PVC, TrueNAS integration |
+| **PostgreSQL/CloudNativePG** | `postgres-pro` | Operator config, HA, backups, query tuning |
+| **Database general** | `database-administrator` | Multi-engine, migrations, replication |
+| **Secrets/SOPS/1Password** | `security-engineer` | Key management, vault paths, sync wave ordering |
+| **Security audits** | `security-engineer` + `code-reviewer` | DevSecOps, vulnerability scanning |
+| **Go code** | `golang-pro` | Concurrency, testing, microservices |
+| **TypeScript/Deno scripts** | `typescript-pro` | Deno runtime, scripting patterns |
+| **Code reviews** | `code-reviewer` | Quality, security, project rule enforcement |
+| **Architecture decisions** | `architect-reviewer` | Design patterns, scalability, trade-offs |
+| **Performance issues** | `performance-engineer` | Profiling, load testing, optimization |
+| **Debugging** | `debugger` | Root cause analysis, systematic debugging |
+| **Incident response** | `devops-incident-responder` | Triage, emergency procedures, postmortems |
+| **Reliability/SLOs** | `sre-engineer` | SLI/SLO, error budgets, toil reduction |
+| **Resilience testing** | `chaos-engineer` | Failure injection, game days |
+| **DevOps general** | `devops-engineer` | IaC, containers, monitoring, observability |
+| **Documentation** | `documentation-engineer` | API docs, doc systems |
+| **Git workflow** | `git-workflow-manager` | Branching, hooks, release automation |
+| **Refactoring** | `refactoring-specialist` | Code smells, safe restructuring |
+| **MCP servers** | `mcp-developer` | MCP protocol, tool/resource development |
+| **Build systems** | `build-engineer` | Build optimization, caching, bundling |
+| **Dependencies** | `dependency-manager` | Security scanning, version conflicts, licenses |
+| **Technical docs** | `technical-writer` | User guides, API references |
+
+### Parallel subagent patterns
+
+For multi-concern tasks, launch multiple subagents simultaneously:
+
+```
+Helm chart update:     kubernetes-specialist + deployment-engineer + code-reviewer
+Security audit:        security-engineer + code-reviewer + network-engineer
+New application:       kubernetes-specialist + deployment-engineer + typescript-pro + documentation-engineer
+Infrastructure change: terraform-engineer + terragrunt-expert + kubernetes-specialist + sre-engineer
+Bug investigation:     debugger + kubernetes-specialist + sre-engineer
+Performance issue:     performance-engineer + postgres-pro + network-engineer
+```
 
 ## Local Configuration
 

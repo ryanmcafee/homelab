@@ -305,6 +305,63 @@ democratic-csi:
         memory: 256Mi
 
 # ============================================================================
+# Democratic-CSI SSD - NFS Storage Provisioner (SSD-backed)
+# Sync Wave: 2 (same as HDD instance, reuses truenas-api-key secret)
+# ============================================================================
+
+democratic-csi-ssd:
+  enabled: false
+  namespace: democratic-csi
+
+  # Chart source (same chart as HDD instance)
+  chart:
+    name: democratic-csi
+    repo: https://democratic-csi.github.io/charts/
+    version: 0.14.6
+
+  # TrueNAS configuration
+  driver: freenas-nfs
+
+  # Connection details
+  truenas:
+    endpoint: https://truenas.ryanmcafee.com
+    allowInsecure: false
+    apiKey: ""
+
+  # NFS dataset configuration (SSD pool)
+  nfs:
+    shareHost: truenas.ryanmcafee.com
+    shareAllow: 172.16.100.0/24
+    parent: ssd/k8s
+
+  # Storage class configuration (NOT default)
+  storageClasses:
+    - name: democratic-csi-ssd
+      defaultClass: false
+      reclaimPolicy: Retain
+      volumeBindingMode: Immediate
+      allowVolumeExpansion: true
+      parameters:
+        fsType: nfs
+
+  # Resource limits
+  resources:
+    controller:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        cpu: 200m
+        memory: 256Mi
+    node:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        cpu: 200m
+        memory: 256Mi
+
+# ============================================================================
 # Local Path Provisioner - Local Storage (localdev only)
 # Sync Wave: 1 (alternative to democratic-csi for local dev)
 # ============================================================================

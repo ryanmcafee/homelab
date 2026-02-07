@@ -1,0 +1,55 @@
+# TrueNAS Storage Role - Set Dataset Permissions
+# Sets ownership and permissions on a dataset via the TrueNAS API
+# Note: /api/v2.0/filesystem/setperm is async - returns a job ID.
+# We poll the job until completion to avoid race conditions.
+
+- name: Set permissions on dataset - {{ dataset_path }}
+  ansible.builtin.uri:
+    url: "{{ truenas_api_url }}/api/v2.0/filesystem/setperm"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ truenas_api_key }}"
+      Content-Type: application/json
+    validate_certs: "{{ truenas_verify_ssl }}"
+    body_format: json
+    body:
+      path: "/mnt/{{ dataset_path }}"
+      uid: "{{ perm_uid | default(omit) }}"
+      user: "{{ perm_user | default(omit) }}"
+      gid: "{{ perm_gid | default(omit) }}"
+      group: "{{ perm_group | default(omit) }}"
+      mode: "{{ perm_mode | default('770') }}"
+      options:
+        recursive: "{{ perm_recursive | default(true) }}"
+        traverse: false
+    status_code: [200, 201]
+  register: perm_result
+
+- name: Wait for permission job to complete - {{ dataset_path }}
+  ansible.builtin.uri:
+    url: "{{ truenas_api_url }}/api/v2.0/core/get_jobs?id={{ perm_result.json }}"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ truenas_api_key }}"
+    validate_certs: "{{ truenas_verify_ssl }}"
+    status_code: [200]
+  register: job_status
+  until: >-
+    job_status.json | length > 0 and
+    job_status.json[0].state in ['SUCCESS', 'FAILED', 'ABORTED']
+  retries: 60
+  delay: 5
+  when: perm_result.json is defined and perm_result.json is number
+
+- name: Fail if permission job failed - {{ dataset_path }}
+  ansible.builtin.fail:
+    msg: "Permission job failed for '/mnt/{{ dataset_path }}': {{ job_status.json[0].error | default('unknown error') }}"
+  when:
+    - job_status is defined
+    - job_status.json is defined
+    - job_status.json | length > 0
+    - job_status.json[0].state != 'SUCCESS'
+
+- name: Display permission status - {{ dataset_path }}
+  ansible.builtin.debug:
+    msg: "Permissions set on '/mnt/{{ dataset_path }}' - user: {{ perm_user | default('unchanged') }}, group: {{ perm_group | default('unchanged') }}, mode: {{ perm_mode | default('770') }}"

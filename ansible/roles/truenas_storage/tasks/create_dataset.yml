@@ -38,9 +38,11 @@
       Content-Type: application/json
     validate_certs: "{{ truenas_verify_ssl }}"
     body_format: json
-    body:
-      refquota: "{{ dataset_quota | human_to_bytes }}"
-      aclmode: PASSTHROUGH
+    body: >-
+      {{
+        {'refquota': dataset_quota | human_to_bytes}
+        | combine({'aclmode': dataset_aclmode} if dataset_aclmode is defined else {})
+      }}
     status_code: [200]
   when: dataset_quota is defined and dataset_quota is string and dataset_quota | length > 0
 

@@ -45,10 +45,11 @@ spec:
 
             zfs:
               datasetParentName: {{ index .Values "democratic-csi" "nfs" "parent" }}
+              # Convention: snapshots dataset = parent + "-snapshots" (e.g. storage/k8s -> storage/k8s-snapshots)
               detachedSnapshotsDatasetParentName: {{ index .Values "democratic-csi" "nfs" "parent" }}-snapshots
               datasetEnableQuotas: true
               datasetEnableReservation: false
-              datasetPermissionsMode: "0777"
+              datasetPermissionsMode: "0770"
               datasetPermissionsUser: 0
               datasetPermissionsGroup: 0
 

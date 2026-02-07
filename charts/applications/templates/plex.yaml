@@ -104,10 +104,12 @@ spec:
     server: https://kubernetes.default.svc
     namespace: {{ .Values.plex.namespace }}
 
+  # NOTE: Auto-sync intentionally disabled for SSD storage migration.
+  # TODO: Re-enable automated sync after Plex PVC migration is complete:
+  #   automated:
+  #     prune: true
+  #     selfHeal: true
   syncPolicy:
-    automated:
-      prune: true
-      selfHeal: true
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
