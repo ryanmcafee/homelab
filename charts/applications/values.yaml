@@ -841,6 +841,58 @@ mosquitto:
   TZ: America/New_York
 
 # ============================================================================
+# FlareSolverr - Cloudflare Protection Bypass Proxy
+# Sync Wave: 12 (before Prowlarr at wave 13)
+# ============================================================================
+
+flaresolverr:
+  enabled: true
+  namespace: media
+
+  # TrueCharts helm chart
+  # https://github.com/trueforge-org/truecharts/tree/master/charts/stable/flaresolverr
+  chart:
+    name: flaresolverr
+    repo: https://trueforge-org.github.io/truecharts
+    version: 16.14.17
+
+  workload:
+    main:
+      podSpec:
+        containers:
+          main:
+            env:
+              BROWSER_TIMEOUT: 40000
+              HEADLESS: true
+              LOG_LEVEL: info
+              LOG_HTML: false
+              CAPTCHA_SOLVER: none
+            resources:
+              requests:
+                cpu: 100m
+                memory: 512Mi
+              limits:
+                cpu: 1000m
+                memory: 1Gi
+
+  # Persistence configuration
+  persistence:
+    config:
+      enabled: true
+      storageClass: democratic-csi-nfs
+      size: 1Gi
+      accessModes:
+        - ReadWriteOnce
+
+  TZ: America/New_York
+  securityContext:
+    container:
+      readOnlyRootFilesystem: false
+      runAsNonRoot: false
+      runAsUser: 0
+      runAsGroup: 0
+
+# ============================================================================
 # DuckDNS - Dynamic DNS Updater
 # Sync Wave: 1 (early infrastructure)
 # ============================================================================
