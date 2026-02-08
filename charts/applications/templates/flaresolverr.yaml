@@ -1,0 +1,73 @@
+{{- if .Values.flaresolverr.enabled }}
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: flaresolverr
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "12"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: oci.trueforge.org/truecharts
+    chart: {{ .Values.flaresolverr.chart.name }}
+    targetRevision: {{ .Values.flaresolverr.chart.version }}
+    helm:
+      releaseName: flaresolverr
+      values: |
+        {{- if .Values.flaresolverr.workload }}
+        workload:
+          {{- toYaml .Values.flaresolverr.workload | nindent 10 }}
+        {{- end }}
+
+        {{- if .Values.flaresolverr.persistence }}
+        persistence:
+          {{- toYaml .Values.flaresolverr.persistence | nindent 10 }}
+        {{- end }}
+
+        {{- if .Values.flaresolverr.ingress }}
+        ingress:
+          {{- toYaml .Values.flaresolverr.ingress | nindent 10 }}
+        {{- end }}
+
+        {{- if .Values.flaresolverr.TZ }}
+        TZ: {{ .Values.flaresolverr.TZ | quote }}
+        {{- end }}
+
+        {{- if .Values.flaresolverr.securityContext }}
+        securityContext:
+          {{- toYaml .Values.flaresolverr.securityContext | nindent 10 }}
+        {{- end }}
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: {{ .Values.flaresolverr.namespace }}
+
+  # Ignore TrueCharts dynamic fields and Kubernetes defaults
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      jqPathExpressions:
+        - .spec.template.metadata.annotations | to_entries | map(select(.key | startswith("checksum/"))) | from_entries
+      jsonPointers:
+        - /spec/template/spec/hostUsers
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+      - RespectIgnoreDifferences=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+{{- end }}
