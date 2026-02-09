@@ -706,7 +706,7 @@ transmission:
       runAsGroup: 0
       runAsNonRoot: false
     pod:
-      fsGroup: 568
+      fsGroup: 100
 
 # ============================================================================
 # Home Assistant - Home Automation Hub
