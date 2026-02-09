@@ -138,6 +138,8 @@
     nfs_path: "{{ truenas_nfs_share_path }}"
     nfs_comment: "Kubernetes NFS storage"
     nfs_networks: "{{ truenas_nfs_allowed_networks }}"
+    nfs_mapall_user: "{{ truenas_nfs_mapall_user }}"
+    nfs_mapall_group: "{{ truenas_nfs_mapall_group }}"
     nfs_maproot_user: "{{ truenas_nfs_maproot_user }}"
     nfs_maproot_group: "{{ truenas_nfs_maproot_group }}"
 
@@ -151,6 +153,8 @@
     nfs_path: "/mnt/{{ share.name }}"
     nfs_comment: "{{ share.comments }}"
     nfs_networks: "{{ truenas_nfs_allowed_networks }}"
+    nfs_mapall_user: "{{ truenas_nfs_mapall_user }}"
+    nfs_mapall_group: "{{ truenas_nfs_mapall_group }}"
     nfs_maproot_user: "{{ truenas_nfs_maproot_user }}"
     nfs_maproot_group: "{{ truenas_nfs_maproot_group }}"
 
@@ -161,6 +165,8 @@
     nfs_path: "/mnt/{{ truenas_ssd_k8s_dataset }}"
     nfs_comment: "SSD Kubernetes NFS storage (high performance)"
     nfs_networks: "{{ truenas_nfs_allowed_networks }}"
+    nfs_mapall_user: "{{ truenas_nfs_mapall_user }}"
+    nfs_mapall_group: "{{ truenas_nfs_mapall_group }}"
     nfs_maproot_user: "{{ truenas_nfs_maproot_user }}"
     nfs_maproot_group: "{{ truenas_nfs_maproot_group }}"
 
@@ -171,6 +177,8 @@
     nfs_path: "/mnt/{{ truenas_pool_name }}/downloads"
     nfs_comment: "Downloads storage for media automation"
     nfs_networks: "{{ truenas_nfs_allowed_networks }}"
+    nfs_mapall_user: "{{ truenas_nfs_mapall_user }}"
+    nfs_mapall_group: "{{ truenas_nfs_mapall_group }}"
     nfs_maproot_user: "{{ truenas_nfs_maproot_user }}"
     nfs_maproot_group: "{{ truenas_nfs_maproot_group }}"
 
@@ -238,6 +246,17 @@
 - name: Set permissions on media datasets
   ansible.builtin.include_tasks: set_dataset_permissions.yml
   loop: "{{ truenas_media_datasets | map(attribute='name') | list }}"
+  loop_control:
+    loop_var: dataset_path
+  vars:
+    perm_user: "{{ truenas_dataset_owner_user }}"
+    perm_group: "{{ truenas_dataset_owner_group }}"
+    perm_mode: "{{ truenas_dataset_permissions_mode }}"
+    perm_recursive: true
+
+- name: Set permissions on additional datasets
+  ansible.builtin.include_tasks: set_dataset_permissions.yml
+  loop: "{{ truenas_datasets | map(attribute='name') | list }}"
   loop_control:
     loop_var: dataset_path
   vars:

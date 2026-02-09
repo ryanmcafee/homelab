@@ -312,6 +312,16 @@ tasks:
     cmds:
       - op run --env-file={{.ROOT_DIR}}/.env.op -- ansible-playbook -i inventory/homelab.yml playbooks/truenas-setup.yml --vault-password-file=vault-password.sh --tags image-cache
 
+  truenas:fix-nfs-shares:
+    desc: Update existing NFS shares to use mapall (fixes PVC permissions)
+    cmds:
+      - op run --env-file={{.ROOT_DIR}}/.env.op -- deno run --allow-net --allow-env --allow-read scripts/truenas-nfs-mapall.ts --all
+
+  truenas:fix-nfs-shares:dry-run:
+    desc: Preview NFS share mapall updates (dry run)
+    cmds:
+      - op run --env-file={{.ROOT_DIR}}/.env.op -- deno run --allow-net --allow-env --allow-read scripts/truenas-nfs-mapall.ts --all --dry-run
+
   # ==========================================================================
   # Terragrunt / Terraform
   # ==========================================================================

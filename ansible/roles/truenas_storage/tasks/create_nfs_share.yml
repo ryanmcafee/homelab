@@ -1,5 +1,6 @@
-# TrueNAS Storage Role - Create NFS Share
-# Creates an NFS share for Kubernetes persistent volumes
+# TrueNAS Storage Role - Create/Update NFS Share
+# Creates or updates an NFS share for Kubernetes persistent volumes
+# Supports both mapall and maproot modes (mapall takes precedence)
 
 - name: Check if NFS share exists - {{ nfs_path }}
   ansible.builtin.uri:
@@ -10,9 +11,45 @@
     validate_certs: "{{ truenas_verify_ssl }}"
   register: existing_nfs_shares
 
-- name: Set NFS share exists fact
+- name: Set NFS share existence facts
   ansible.builtin.set_fact:
     nfs_share_exists: "{{ nfs_path in (existing_nfs_shares.json | map(attribute='path') | list) }}"
+    nfs_share_id: >-
+      {{ (existing_nfs_shares.json | selectattr('path', 'equalto', nfs_path) | map(attribute='id') | list | first)
+         if nfs_path in (existing_nfs_shares.json | map(attribute='path') | list)
+         else '' }}
+
+# Determine mapping mode: mapall takes precedence over maproot
+- name: Set NFS mapping mode
+  ansible.builtin.set_fact:
+    nfs_use_mapall: "{{ (nfs_mapall_user | default('')) | length > 0 }}"
+
+# Build the NFS share body dynamically based on mapping mode
+- name: Set NFS share body (mapall mode)
+  ansible.builtin.set_fact:
+    nfs_share_body:
+      path: "{{ nfs_path }}"
+      comment: "{{ nfs_comment | default('NFS Share') }}"
+      networks: "{{ nfs_networks | default(['172.16.100.0/24']) }}"
+      mapall_user: "{{ nfs_mapall_user }}"
+      mapall_group: "{{ nfs_mapall_group | default('users') }}"
+      maproot_user: ""
+      maproot_group: ""
+      enabled: true
+  when: nfs_use_mapall
+
+- name: Set NFS share body (maproot mode)
+  ansible.builtin.set_fact:
+    nfs_share_body:
+      path: "{{ nfs_path }}"
+      comment: "{{ nfs_comment | default('NFS Share') }}"
+      networks: "{{ nfs_networks | default(['172.16.100.0/24']) }}"
+      maproot_user: "{{ nfs_maproot_user | default('root') }}"
+      maproot_group: "{{ nfs_maproot_group | default('wheel') }}"
+      mapall_user: ""
+      mapall_group: ""
+      enabled: true
+  when: not nfs_use_mapall
 
 - name: Enable NFS service
   ansible.builtin.uri:
@@ -49,20 +86,31 @@
       Content-Type: application/json
     validate_certs: "{{ truenas_verify_ssl }}"
     body_format: json
-    body:
-      path: "{{ nfs_path }}"
-      comment: "{{ nfs_comment | default('NFS Share') }}"
-      networks: "{{ nfs_networks | default(['172.16.100.0/24']) }}"
-      maproot_user: "{{ nfs_maproot_user | default('root') }}"
-      maproot_group: "{{ nfs_maproot_group | default('wheel') }}"
-      enabled: true
+    body: "{{ nfs_share_body }}"
     status_code: [200, 201]
   register: nfs_share_create
   when: not nfs_share_exists
 
+- name: Update NFS share - {{ nfs_path }}
+  ansible.builtin.uri:
+    url: "{{ truenas_api_url }}/api/v2.0/sharing/nfs/id/{{ nfs_share_id }}"
+    method: PUT
+    headers:
+      Authorization: "Bearer {{ truenas_api_key }}"
+      Content-Type: application/json
+    validate_certs: "{{ truenas_verify_ssl }}"
+    body_format: json
+    body: "{{ nfs_share_body }}"
+    status_code: [200]
+  register: nfs_share_update
+  when: nfs_share_exists
+
 - name: Display NFS share status
   ansible.builtin.debug:
-    msg: "NFS share '{{ nfs_path }}' {{ 'created' if not nfs_share_exists else 'already exists' }}"
+    msg: >-
+      NFS share '{{ nfs_path }}'
+      {{ 'created' if not nfs_share_exists else 'updated' }}
+      (mode: {{ 'mapall=' ~ nfs_mapall_user if nfs_use_mapall else 'maproot=' ~ (nfs_maproot_user | default('root')) }})
 
 - name: Get NFS share details
   ansible.builtin.uri:

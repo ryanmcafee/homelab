@@ -457,8 +457,11 @@ nzbget:
 
   TZ: America/New_York
   securityContext:
-    runAsUser: 1000
-    runAsGroup: 1000
+    container:
+      runAsUser: 568
+      runAsGroup: 568
+    pod:
+      fsGroup: 568
 
 # ============================================================================
 # Tautulli - Plex Monitoring
