@@ -127,6 +127,30 @@ Each decision should include:
 - Requires Deno installation
 - Some learning curve for shell-to-TS conversion
 
+### ADR-006: Unified NFS Permission Model — apps:users (568:100) (2026-02-09)
+
+**Context:**
+- Containers run as UID 568 (apps) with GID 100 (users) per TrueCharts convention
+- Democratic-CSI provisions NFS shares with mapall for k8s PVC datasets
+- Media datasets (movies, tv, downloads, etc.) use direct NFS mounts, not CSI
+- Initial setup used `rmcafee:users` for media shares and `apps:users` for k8s — causing permission mismatches when containers accessed media NFS mounts
+
+**Decision:**
+- ALL NFS shares use `mapall_user: apps, mapall_group: users` (568:100)
+- ALL datasets owned by `apps:users` (568:100) with mode 770
+- Single permission model for both CSI-provisioned and direct NFS mounts
+- SMB access still works via group `users` (GID 100) shared between `rmcafee` and `apps`
+
+**Alternatives Considered:**
+- Keep `rmcafee:users` for media, `apps:users` for k8s → Split model, confusing, permission bugs
+- Use `maproot` instead of `mapall` → Only maps UID 0, non-root containers get denied
+
+**Consequences:**
+- All media apps (NZBGet, Sonarr, Radarr, etc.) can access NFS mounts consistently
+- SMB clients (desktop) still have access via group membership
+- Dataset ownership is `apps` not `rmcafee` — SMB writes will appear as `apps` user
+- Script `truenas-nfs-mapall.ts --all --fix-permissions` applies the full fix
+
 ## Tips
 
 - Number decisions sequentially (ADR-001, ADR-002, etc.)

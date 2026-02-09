@@ -21,7 +21,7 @@
       mode: "{{ perm_mode | default('770') }}"
       options:
         recursive: "{{ perm_recursive | default(true) }}"
-        traverse: false
+        traverse: true
     status_code: [200, 201]
   register: perm_result
 
