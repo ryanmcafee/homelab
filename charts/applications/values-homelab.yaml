@@ -698,12 +698,15 @@ transmission:
             - transmission.ryanmcafee.com
 
   TZ: America/New_York
+  # TrueCharts transmission uses s6 init which requires root at startup.
+  # s6 handles user switching internally. NFS mapall handles file ownership.
   securityContext:
     container:
-      runAsUser: 568
-      runAsGroup: 100
+      runAsUser: 0
+      runAsGroup: 0
+      runAsNonRoot: false
     pod:
-      fsGroup: 100
+      fsGroup: 568
 
 # ============================================================================
 # Home Assistant - Home Automation Hub
