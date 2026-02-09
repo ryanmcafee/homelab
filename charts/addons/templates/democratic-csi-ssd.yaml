@@ -57,7 +57,7 @@ spec:
               shareAllowedHosts: []
               shareAllowedNetworks:
                 - {{ index .Values "democratic-csi-ssd" "nfs" "shareAllow" }}
-              shareMapallUser: apps
+              shareMapallUser: rmcafee
               shareMapallGroup: users
 
         storageClasses:
