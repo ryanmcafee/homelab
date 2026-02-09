@@ -108,6 +108,14 @@
     dataset_compression: "{{ truenas_ssd_k8s_snapshots_compression }}"
     dataset_comments: "SSD Kubernetes snapshots for democratic-csi"
 
+# Delete legacy datasets (cleanup)
+- name: Include legacy dataset deletion
+  ansible.builtin.include_tasks: delete_dataset.yml
+  loop: "{{ truenas_datasets_to_delete | default([]) }}"
+  loop_control:
+    loop_var: delete_dataset_name
+  when: truenas_datasets_to_delete is defined and truenas_datasets_to_delete | length > 0
+
 # Create media datasets (granular structure)
 - name: Include media dataset creation
   ansible.builtin.include_tasks: create_dataset.yml

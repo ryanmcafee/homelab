@@ -65,6 +65,7 @@ Each entry should include:
   3. Updated Ansible defaults: `truenas_media_nfs_mapall_user` and `truenas_dataset_owner_user` changed from `rmcafee` to `apps`
   4. Fixed Ansible `set_dataset_permissions.yml` traverse flag from `false` to `true`
 - **Prevention**: Use a single permission model (apps:users 568:100) for all NFS shares. Always run with `--all` when fixing permissions. See ADR-006.
+- **Update (2026-02-09)**: ADR-006 partially reversed per ADR-007 — media datasets moved back to `rmcafee:users`, k8s datasets remain `apps:users`. Script now supports split k8s/media model with `--media-mapall-user` and `--media-perm-user` flags.
 
 ### Known Common Errors (from CLAUDE.md)
 

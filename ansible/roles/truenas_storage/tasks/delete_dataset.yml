@@ -1,0 +1,84 @@
+# TrueNAS Storage Role - Delete ZFS Dataset
+# Deletes a ZFS dataset and any associated NFS/SMB shares
+# Variable: delete_dataset_name (e.g. "storage/media")
+
+- name: Check if dataset exists - {{ delete_dataset_name }}
+  ansible.builtin.uri:
+    url: "{{ truenas_api_url }}/api/v2.0/pool/dataset/id/{{ delete_dataset_name | replace('/', '%2F') }}"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ truenas_api_key }}"
+    validate_certs: "{{ truenas_verify_ssl }}"
+    status_code: [200, 404]
+  register: delete_dataset_check
+
+- name: Find NFS shares referencing dataset - {{ delete_dataset_name }}
+  ansible.builtin.uri:
+    url: "{{ truenas_api_url }}/api/v2.0/sharing/nfs"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ truenas_api_key }}"
+    validate_certs: "{{ truenas_verify_ssl }}"
+    status_code: [200]
+  register: delete_nfs_shares
+  when: delete_dataset_check.status == 200
+
+- name: Delete NFS shares referencing dataset - {{ delete_dataset_name }}
+  ansible.builtin.uri:
+    url: "{{ truenas_api_url }}/api/v2.0/sharing/nfs/id/{{ item.id }}"
+    method: DELETE
+    headers:
+      Authorization: "Bearer {{ truenas_api_key }}"
+    validate_certs: "{{ truenas_verify_ssl }}"
+    status_code: [200, 204]
+  loop: "{{ delete_nfs_shares.json | default([]) | selectattr('path', 'match', '^/mnt/' + delete_dataset_name + '(/|$)') | list }}"
+  loop_control:
+    label: "{{ item.path }}"
+  when:
+    - delete_dataset_check.status == 200
+    - delete_nfs_shares.json is defined
+
+- name: Find SMB shares referencing dataset - {{ delete_dataset_name }}
+  ansible.builtin.uri:
+    url: "{{ truenas_api_url }}/api/v2.0/sharing/smb"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ truenas_api_key }}"
+    validate_certs: "{{ truenas_verify_ssl }}"
+    status_code: [200]
+  register: delete_smb_shares
+  when: delete_dataset_check.status == 200
+
+- name: Delete SMB shares referencing dataset - {{ delete_dataset_name }}
+  ansible.builtin.uri:
+    url: "{{ truenas_api_url }}/api/v2.0/sharing/smb/id/{{ item.id }}"
+    method: DELETE
+    headers:
+      Authorization: "Bearer {{ truenas_api_key }}"
+    validate_certs: "{{ truenas_verify_ssl }}"
+    status_code: [200, 204]
+  loop: "{{ delete_smb_shares.json | default([]) | selectattr('path', 'match', '^/mnt/' + delete_dataset_name + '(/|$)') | list }}"
+  loop_control:
+    label: "{{ item.path }}"
+  when:
+    - delete_dataset_check.status == 200
+    - delete_smb_shares.json is defined
+
+- name: Delete dataset - {{ delete_dataset_name }}
+  ansible.builtin.uri:
+    url: "{{ truenas_api_url }}/api/v2.0/pool/dataset/id/{{ delete_dataset_name | replace('/', '%2F') }}"
+    method: DELETE
+    headers:
+      Authorization: "Bearer {{ truenas_api_key }}"
+      Content-Type: application/json
+    validate_certs: "{{ truenas_verify_ssl }}"
+    body_format: json
+    body:
+      recursive: true
+      force: true
+    status_code: [200, 204]
+  when: delete_dataset_check.status == 200
+
+- name: Display dataset deletion status - {{ delete_dataset_name }}
+  ansible.builtin.debug:
+    msg: "Dataset '{{ delete_dataset_name }}' {{ 'deleted' if delete_dataset_check.status == 200 else 'not found (already deleted)' }}"

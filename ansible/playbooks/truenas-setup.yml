@@ -35,10 +35,6 @@
     truenas_k8s_snapshots_dataset: storage/k8s-snapshots
     truenas_k8s_snapshots_quota: 100G
 
-    # Media storage
-    truenas_media_dataset: storage/media
-    truenas_media_quota: 100T
-
     # NFS configuration
     truenas_nfs_share_path: /mnt/storage/k8s
     truenas_nfs_allowed_networks:
