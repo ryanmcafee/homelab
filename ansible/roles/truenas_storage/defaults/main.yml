@@ -27,8 +27,10 @@ truenas_nfs_allowed_networks:
   - 172.16.100.0/24
 truenas_nfs_maproot_user: ""
 truenas_nfs_maproot_group: ""
-truenas_nfs_mapall_user: rmcafee
-truenas_nfs_mapall_group: users
+truenas_k8s_nfs_mapall_user: apps
+truenas_k8s_nfs_mapall_group: users
+truenas_media_nfs_mapall_user: rmcafee
+truenas_media_nfs_mapall_group: users
 
 # Media Datasets Configuration (no quotas for flexible usage)
 truenas_media_datasets:
@@ -92,8 +94,16 @@ truenas_users:
     group: users
     shell: /usr/sbin/nologin
     smb: false
+  - name: apps
+    full_name: "Kubernetes Apps"
+    uid: 568
+    group: users
+    shell: /usr/sbin/nologin
+    smb: false
 
 # Dataset Permissions
+truenas_k8s_dataset_owner_user: apps
+truenas_k8s_dataset_owner_group: users
 truenas_dataset_owner_user: rmcafee
 truenas_dataset_owner_group: users
 truenas_dataset_permissions_mode: "770"

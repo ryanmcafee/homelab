@@ -241,8 +241,11 @@ sonarr:
 
   TZ: America/New_York
   securityContext:
-    runAsUser: 1000
-    runAsGroup: 1000
+    container:
+      runAsUser: 568
+      runAsGroup: 568
+    pod:
+      fsGroup: 568
 
 # ============================================================================
 # Radarr - Movie Management
@@ -317,8 +320,11 @@ radarr:
 
   TZ: America/New_York
   securityContext:
-    runAsUser: 1000
-    runAsGroup: 1000
+    container:
+      runAsUser: 568
+      runAsGroup: 568
+    pod:
+      fsGroup: 568
 
 # ============================================================================
 # Prowlarr - Indexer Manager
@@ -377,8 +383,11 @@ prowlarr:
 
   TZ: America/New_York
   securityContext:
-    runAsUser: 1000
-    runAsGroup: 1000
+    container:
+      runAsUser: 568
+      runAsGroup: 568
+    pod:
+      fsGroup: 568
 
 # ============================================================================
 # NZBGet - Usenet Downloader
@@ -508,8 +517,11 @@ tautulli:
 
   TZ: America/New_York
   securityContext:
-    runAsUser: 1000
-    runAsGroup: 1000
+    container:
+      runAsUser: 568
+      runAsGroup: 568
+    pod:
+      fsGroup: 568
 
 # ============================================================================
 # LazyLibrarian - Ebook Management
@@ -584,8 +596,11 @@ lazylibrarian:
 
   TZ: America/New_York
   securityContext:
-    runAsUser: 1000
-    runAsGroup: 1000
+    container:
+      runAsUser: 568
+      runAsGroup: 568
+    pod:
+      fsGroup: 568
 
 # ============================================================================
 # Transmission - BitTorrent Client with VPN
@@ -684,8 +699,11 @@ transmission:
 
   TZ: America/New_York
   securityContext:
-    runAsUser: 1000
-    runAsGroup: 1000
+    container:
+      runAsUser: 568
+      runAsGroup: 568
+    pod:
+      fsGroup: 568
 
 # ============================================================================
 # Home Assistant - Home Automation Hub
