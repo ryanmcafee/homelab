@@ -50,8 +50,8 @@ spec:
               datasetEnableQuotas: true
               datasetEnableReservation: false
               datasetPermissionsMode: "0770"
-              datasetPermissionsUser: 0
-              datasetPermissionsGroup: 0
+              datasetPermissionsUser: 3000
+              datasetPermissionsGroup: 100
 
             nfs:
               shareHost: {{ index .Values "democratic-csi" "nfs" "shareHost" }}
@@ -59,8 +59,8 @@ spec:
               shareAllowedHosts: []
               shareAllowedNetworks:
                 - {{ index .Values "democratic-csi" "nfs" "shareAllow" }}
-              shareMapallUser: root
-              shareMapallGroup: root
+              shareMapallUser: rmcafee
+              shareMapallGroup: users
 
         storageClasses:
         {{- range (index .Values "democratic-csi" "storageClasses") }}

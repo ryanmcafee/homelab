@@ -88,8 +88,8 @@ function parseArgs(args: string[]): {
     apiUrl:
       Deno.env.get("TRUENAS_API_URL") || "https://truenas.ryanmcafee.com",
     verifySsl: false,
-    mapallUser: "root",
-    mapallGroup: "root",
+    mapallUser: "rmcafee",
+    mapallGroup: "users",
   };
 
   for (let i = 0; i < args.length; i++) {
@@ -125,20 +125,21 @@ function parseArgs(args: string[]): {
   return opts;
 }
 
-// Democratic-CSI parent dataset paths
-const K8S_PVC_PREFIXES = ["/mnt/storage/k8s/", "/mnt/ssd/k8s/"];
+// Democratic-CSI dataset paths (parent shares + PVC shares)
+const K8S_PATHS = ["/mnt/storage/k8s", "/mnt/ssd/k8s"];
 
-function isK8sPvcShare(share: NfsShare): boolean {
-  return K8S_PVC_PREFIXES.some((prefix) => share.path.startsWith(prefix));
+function isK8sShare(share: NfsShare): boolean {
+  return K8S_PATHS.some(
+    (prefix) => share.path === prefix || share.path.startsWith(prefix + "/"),
+  );
 }
 
-function needsUpdate(share: NfsShare): boolean {
-  // Needs update if maproot is set and mapall is not
-  return (
-    (share.maproot_user !== "" || share.maproot_group !== "") &&
-    share.mapall_user === "" &&
-    share.mapall_group === ""
-  );
+function needsUpdate(share: NfsShare, targetUser: string, targetGroup: string): boolean {
+  const hasMaproot = !!(share.maproot_user || share.maproot_group);
+  const hasCorrectMapall =
+    share.mapall_user === targetUser && share.mapall_group === targetGroup;
+  // Needs update if maproot is set, or mapall doesn't match the target
+  return hasMaproot || !hasCorrectMapall;
 }
 
 async function fetchShares(
@@ -219,12 +220,12 @@ async function main(): Promise<void> {
   // Filter shares based on --all flag
   const targetShares = opts.all
     ? shares
-    : shares.filter((s) => isK8sPvcShare(s));
+    : shares.filter((s) => isK8sShare(s));
 
   if (!opts.all) {
     console.log(
       cyan(
-        `INFO: Filtering to k8s PVC shares (${targetShares.length} matches)`,
+        `INFO: Filtering to k8s shares (${targetShares.length} matches)`,
       ),
     );
     console.log(
@@ -233,8 +234,12 @@ async function main(): Promise<void> {
   }
 
   // Find shares that need updating
-  const sharesToUpdate = targetShares.filter((s) => needsUpdate(s));
-  const alreadyCorrect = targetShares.filter((s) => !needsUpdate(s));
+  const sharesToUpdate = targetShares.filter((s) =>
+    needsUpdate(s, opts.mapallUser, opts.mapallGroup),
+  );
+  const alreadyCorrect = targetShares.filter(
+    (s) => !needsUpdate(s, opts.mapallUser, opts.mapallGroup),
+  );
 
   if (alreadyCorrect.length > 0) {
     console.log(
@@ -262,10 +267,14 @@ async function main(): Promise<void> {
   for (const share of sharesToUpdate) {
     const label = `[${share.id}] ${share.path}`;
 
+    const currentMapping = share.maproot_user
+      ? `maproot(${share.maproot_user}:${share.maproot_group})`
+      : `mapall(${share.mapall_user ?? "null"}:${share.mapall_group ?? "null"})`;
+
     if (opts.dryRun) {
       console.log(
         yellow(
-          `DRY RUN: Would update ${label}: maproot(${share.maproot_user}:${share.maproot_group}) → mapall(${opts.mapallUser}:${opts.mapallGroup})`,
+          `DRY RUN: Would update ${label}: ${currentMapping} → mapall(${opts.mapallUser}:${opts.mapallGroup})`,
         ),
       );
       results.push({ id: share.id, path: share.path, status: "skipped", reason: "dry-run" });
@@ -282,7 +291,7 @@ async function main(): Promise<void> {
       );
       console.log(
         green(
-          `OK: Updated ${label}: maproot(${share.maproot_user}:${share.maproot_group}) → mapall(${opts.mapallUser}:${opts.mapallGroup})`,
+          `OK: Updated ${label}: ${currentMapping} → mapall(${opts.mapallUser}:${opts.mapallGroup})`,
         ),
       );
       results.push({ id: share.id, path: share.path, status: "updated" });
