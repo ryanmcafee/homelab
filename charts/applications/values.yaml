@@ -622,7 +622,7 @@ lazylibrarian:
 # ============================================================================
 
 homeassistant:
-  enabled: true
+  enabled: false
   namespace: home-automation
 
   # TrueCharts helm chart
