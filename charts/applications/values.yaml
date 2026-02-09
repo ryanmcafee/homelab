@@ -718,12 +718,9 @@ transmission:
             - transmission.ryanmcafee.com
 
   TZ: America/New_York
-  securityContext:
-    container:
-      runAsUser: 568
-      runAsGroup: 100
-    pod:
-      fsGroup: 100
+  # Note: No securityContext override — TrueCharts transmission uses s6 init
+  # which requires root (runAsUser: 0). s6 handles user switching internally.
+  # NFS mapall handles file ownership on the TrueNAS side.
 
 # ============================================================================
 # Home Assistant - Home Automation Hub
