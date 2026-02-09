@@ -67,12 +67,12 @@ ${bold("USAGE:")}
 ${bold("OPTIONS:")}
   --help              Show this help message
   --dry-run           Preview changes without applying them
-  --all               Update ALL NFS shares (not just k8s PVC ones)
+  --all               Update ALL NFS shares (not just k8s PVC ones); also includes media datasets for --fix-permissions
   --api-url <url>     TrueNAS API URL (default: env TRUENAS_API_URL or https://truenas.ryanmcafee.com)
   --verify-ssl        Enable SSL verification (default: disabled for self-signed certs)
   --mapall-user <u>   User to map all clients to (default: apps)
   --mapall-group <g>  Group to map all clients to (default: users)
-  --fix-permissions   Also fix dataset ownership for k8s datasets
+  --fix-permissions   Also fix dataset ownership (k8s only; combine with --all for media datasets too)
   --perm-uid <uid>    UID for dataset permissions (default: 568)
   --perm-gid <gid>    GID for dataset permissions (default: 100)
 
@@ -90,8 +90,11 @@ ${bold("EXAMPLES:")}
   # Fix k8s shares and dataset permissions
   deno run --allow-net --allow-env --allow-read scripts/truenas-nfs-mapall.ts --fix-permissions
 
+  # Fix ALL shares + ALL dataset permissions (k8s + media)
+  deno run --allow-net --allow-env --allow-read scripts/truenas-nfs-mapall.ts --all --fix-permissions
+
   # Use with 1Password injection
-  op run --env-file=.env.op -- deno run --allow-net --allow-env --allow-read scripts/truenas-nfs-mapall.ts --fix-permissions
+  op run --env-file=.env.op -- deno run --allow-net --allow-env --allow-read scripts/truenas-nfs-mapall.ts --all --fix-permissions
 `);
 }
 
@@ -167,6 +170,16 @@ function parseArgs(args: string[]): {
 const K8S_PATHS = ["/mnt/storage/k8s", "/mnt/ssd/k8s"];
 // Dataset names for permission fixing (without /mnt prefix)
 const K8S_DATASET_PARENTS = ["storage/k8s", "storage/k8s-snapshots", "ssd/k8s", "ssd/k8s-snapshots"];
+// Media and additional dataset parents for permission fixing
+const MEDIA_DATASET_PARENTS = [
+  "storage/movies",
+  "storage/tv",
+  "storage/music",
+  "storage/pictures",
+  "storage/documents",
+  "storage/books",
+  "storage/downloads",
+];
 
 function isK8sShare(share: NfsShare): boolean {
   return K8S_PATHS.some(
@@ -468,9 +481,20 @@ async function main(): Promise<void> {
     console.log(bold("--- Dataset Permission Fixes ---"));
     console.log(cyan(`INFO: Target ownership: uid=${opts.permUid} gid=${opts.permGid}`));
 
+    // Fix both k8s and media datasets when --all is used, otherwise only k8s
+    const datasetParents = opts.all
+      ? [...K8S_DATASET_PARENTS, ...MEDIA_DATASET_PARENTS]
+      : K8S_DATASET_PARENTS;
+
+    if (opts.all) {
+      console.log(cyan(`INFO: Fixing permissions for k8s + media datasets (${datasetParents.length} parents)`));
+    } else {
+      console.log(cyan(`INFO: Fixing permissions for k8s datasets only (use --all to include media datasets)`));
+    }
+
     const permResults: PermResult[] = [];
 
-    for (const parentDs of K8S_DATASET_PARENTS) {
+    for (const parentDs of datasetParents) {
       // Verify the dataset exists first
       let childCount = 0;
       try {

@@ -56,6 +56,16 @@ Each entry should include:
 - **Solution**: Removed duplicate OnePasswordItem from traefik template
 - **Prevention**: Review templates for duplicate resource definitions before committing
 
+### 2026-02-09 - NFS permission denied on media direct mounts (downloads, movies, tv, etc.)
+- **Issue**: NZBGet (and potentially other media apps) couldn't write to `/mnt/storage/downloads` via direct NFS mount
+- **Root Cause**: PRs #83-86 fixed k8s CSI-provisioned NFS shares to use `mapall=apps:users`, but direct media NFS shares (movies, tv, downloads, books, etc.) were still using `mapall=rmcafee:users`. Dataset ownership was `rmcafee`, not `apps` (UID 568). The `truenas-nfs-mapall.ts` script only targeted k8s paths by default.
+- **Solution**:
+  1. Extended `truenas-nfs-mapall.ts` to include media datasets in `--fix-permissions` when `--all` is used
+  2. Ran `truenas-nfs-mapall.ts --all --fix-permissions` to update all 7 media NFS shares to `mapall=apps:users` and set all 11 datasets to `uid=568 gid=100 mode=770`
+  3. Updated Ansible defaults: `truenas_media_nfs_mapall_user` and `truenas_dataset_owner_user` changed from `rmcafee` to `apps`
+  4. Fixed Ansible `set_dataset_permissions.yml` traverse flag from `false` to `true`
+- **Prevention**: Use a single permission model (apps:users 568:100) for all NFS shares. Always run with `--all` when fixing permissions. See ADR-006.
+
 ### Known Common Errors (from CLAUDE.md)
 
 These are documented errors with known solutions:
