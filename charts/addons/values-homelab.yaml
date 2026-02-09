@@ -586,6 +586,12 @@ kube-prometheus-stack:
     enabled: true
     adminPassword: ""
 
+    # Run as apps:users (568:100) to match NFS PVC permissions
+    securityContext:
+      runAsUser: 568
+      runAsGroup: 100
+      fsGroup: 100
+
     persistence:
       enabled: true
       storageClass: democratic-csi-nfs

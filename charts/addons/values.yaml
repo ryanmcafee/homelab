@@ -593,6 +593,12 @@ kube-prometheus-stack:
     # Admin credentials (from 1Password)
     adminPassword: ""  # Provided via 1Password operator
 
+    # Run as apps:users (568:100) to match NFS PVC permissions
+    securityContext:
+      runAsUser: 568
+      runAsGroup: 100
+      fsGroup: 100
+
     # Persistence
     persistence:
       enabled: true

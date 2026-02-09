@@ -81,6 +81,9 @@ spec:
           resources:
             {{- toYaml (index .Values "kube-prometheus-stack" "grafana" "resources") | nindent 12 }}
 
+          securityContext:
+            {{- toYaml (index .Values "kube-prometheus-stack" "grafana" "securityContext") | nindent 12 }}
+
           # Use Recreate strategy to avoid Multi-Attach errors with RWO PVC
           deploymentStrategy:
             type: Recreate
