@@ -707,6 +707,7 @@ transmission:
       runAsNonRoot: false
     pod:
       fsGroup: 100
+      runAsUser: 3000
 
 # ============================================================================
 # Home Assistant - Home Automation Hub
