@@ -332,6 +332,16 @@ tasks:
     cmds:
       - op run --env-file={{.ROOT_DIR}}/.env.op -- deno run --allow-net --allow-env --allow-read scripts/truenas-nfs-mapall.ts --fix-permissions --dry-run
 
+  truenas:pvc-cleanup:
+    desc: Clean up orphaned TrueNAS datasets not in use by Kubernetes PVCs
+    cmds:
+      - op run --env-file={{.ROOT_DIR}}/.env.op -- deno run --allow-net --allow-env --allow-read --allow-run scripts/truenas-pvc-cleanup.ts --delete
+
+  truenas:pvc-cleanup:dry-run:
+    desc: Preview orphaned TrueNAS dataset cleanup (no changes)
+    cmds:
+      - op run --env-file={{.ROOT_DIR}}/.env.op -- deno run --allow-net --allow-env --allow-read --allow-run scripts/truenas-pvc-cleanup.ts
+
   # ==========================================================================
   # Terragrunt / Terraform
   # ==========================================================================
