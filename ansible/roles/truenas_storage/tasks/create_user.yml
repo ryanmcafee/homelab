@@ -46,14 +46,20 @@
       Content-Type: application/json
     validate_certs: "{{ truenas_verify_ssl }}"
     body_format: json
-    body:
-      username: "{{ user.name }}"
-      full_name: "{{ user.full_name }}"
-      group_create: false
-      group: "{{ _resolved_gid | int }}"
-      shell: "{{ user.shell | default('/usr/sbin/nologin') }}"
-      smb: "{{ user.smb | default(false) }}"
-      password_disabled: true
+    body: >-
+      {{
+        {
+          'username': user.name,
+          'full_name': user.full_name,
+          'group_create': false,
+          'group': _resolved_gid | int,
+          'shell': user.shell | default('/usr/sbin/nologin'),
+          'smb': user.smb | default(false),
+          'password_disabled': true
+        } | combine(
+          {'uid': user.uid | int} if user.uid is defined else {}
+        )
+      }}
     status_code: [200, 201]
   register: user_create
   when:

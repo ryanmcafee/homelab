@@ -322,6 +322,16 @@ tasks:
     cmds:
       - op run --env-file={{.ROOT_DIR}}/.env.op -- deno run --allow-net --allow-env --allow-read scripts/truenas-nfs-mapall.ts --all --dry-run
 
+  truenas:fix-k8s-volumes:
+    desc: Fix existing k8s volume permissions and NFS shares to apps:users (568:100)
+    cmds:
+      - op run --env-file={{.ROOT_DIR}}/.env.op -- deno run --allow-net --allow-env --allow-read scripts/truenas-nfs-mapall.ts --fix-permissions
+
+  truenas:fix-k8s-volumes:dry-run:
+    desc: Preview k8s volume permission and NFS share fixes (dry run)
+    cmds:
+      - op run --env-file={{.ROOT_DIR}}/.env.op -- deno run --allow-net --allow-env --allow-read scripts/truenas-nfs-mapall.ts --fix-permissions --dry-run
+
   # ==========================================================================
   # Terragrunt / Terraform
   # ==========================================================================

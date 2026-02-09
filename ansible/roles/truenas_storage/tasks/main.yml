@@ -138,8 +138,8 @@
     nfs_path: "{{ truenas_nfs_share_path }}"
     nfs_comment: "Kubernetes NFS storage"
     nfs_networks: "{{ truenas_nfs_allowed_networks }}"
-    nfs_mapall_user: "{{ truenas_nfs_mapall_user }}"
-    nfs_mapall_group: "{{ truenas_nfs_mapall_group }}"
+    nfs_mapall_user: "{{ truenas_k8s_nfs_mapall_user }}"
+    nfs_mapall_group: "{{ truenas_k8s_nfs_mapall_group }}"
     nfs_maproot_user: "{{ truenas_nfs_maproot_user }}"
     nfs_maproot_group: "{{ truenas_nfs_maproot_group }}"
 
@@ -153,8 +153,8 @@
     nfs_path: "/mnt/{{ share.name }}"
     nfs_comment: "{{ share.comments }}"
     nfs_networks: "{{ truenas_nfs_allowed_networks }}"
-    nfs_mapall_user: "{{ truenas_nfs_mapall_user }}"
-    nfs_mapall_group: "{{ truenas_nfs_mapall_group }}"
+    nfs_mapall_user: "{{ truenas_media_nfs_mapall_user }}"
+    nfs_mapall_group: "{{ truenas_media_nfs_mapall_group }}"
     nfs_maproot_user: "{{ truenas_nfs_maproot_user }}"
     nfs_maproot_group: "{{ truenas_nfs_maproot_group }}"
 
@@ -165,8 +165,8 @@
     nfs_path: "/mnt/{{ truenas_ssd_k8s_dataset }}"
     nfs_comment: "SSD Kubernetes NFS storage (high performance)"
     nfs_networks: "{{ truenas_nfs_allowed_networks }}"
-    nfs_mapall_user: "{{ truenas_nfs_mapall_user }}"
-    nfs_mapall_group: "{{ truenas_nfs_mapall_group }}"
+    nfs_mapall_user: "{{ truenas_k8s_nfs_mapall_user }}"
+    nfs_mapall_group: "{{ truenas_k8s_nfs_mapall_group }}"
     nfs_maproot_user: "{{ truenas_nfs_maproot_user }}"
     nfs_maproot_group: "{{ truenas_nfs_maproot_group }}"
 
@@ -177,8 +177,8 @@
     nfs_path: "/mnt/{{ truenas_pool_name }}/downloads"
     nfs_comment: "Downloads storage for media automation"
     nfs_networks: "{{ truenas_nfs_allowed_networks }}"
-    nfs_mapall_user: "{{ truenas_nfs_mapall_user }}"
-    nfs_mapall_group: "{{ truenas_nfs_mapall_group }}"
+    nfs_mapall_user: "{{ truenas_media_nfs_mapall_user }}"
+    nfs_mapall_group: "{{ truenas_media_nfs_mapall_group }}"
     nfs_maproot_user: "{{ truenas_nfs_maproot_user }}"
     nfs_maproot_group: "{{ truenas_nfs_maproot_group }}"
 
@@ -238,8 +238,8 @@
   loop_control:
     loop_var: dataset_path
   vars:
-    perm_user: "{{ truenas_dataset_owner_user }}"
-    perm_group: "{{ truenas_dataset_owner_group }}"
+    perm_user: "{{ truenas_k8s_dataset_owner_user }}"
+    perm_group: "{{ truenas_k8s_dataset_owner_group }}"
     perm_mode: "{{ truenas_dataset_permissions_mode }}"
     perm_recursive: true
 
@@ -289,7 +289,8 @@
       {% endif %}
       - Groups: {{ truenas_groups | default([]) | map(attribute='name') | list | join(', ') }}
       - Users: {{ truenas_users | default([]) | map(attribute='name') | list | join(', ') }}
-      - Dataset Permissions: {{ truenas_dataset_owner_user }}:{{ truenas_dataset_owner_group }} ({{ truenas_dataset_permissions_mode }})
+      - K8s Dataset Permissions: {{ truenas_k8s_dataset_owner_user }}:{{ truenas_k8s_dataset_owner_group }} ({{ truenas_dataset_permissions_mode }})
+      - Media Dataset Permissions: {{ truenas_dataset_owner_user }}:{{ truenas_dataset_owner_group }} ({{ truenas_dataset_permissions_mode }})
       - API Key Created: {{ truenas_csi_api_key_name }}
       {% if truenas_image_cache_enabled | default(false) %}
       - Image Cache: https://{{ truenas_static_ip | regex_replace('/.*', '') }}:{{ truenas_image_cache_port }}
