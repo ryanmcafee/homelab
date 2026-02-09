@@ -282,7 +282,7 @@ async function setDatasetPermissions(
       mode: "770",
       options: {
         recursive: true,
-        traverse: false,
+        traverse: true,
       },
     }),
   });

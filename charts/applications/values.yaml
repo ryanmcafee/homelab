@@ -252,9 +252,9 @@ sonarr:
   securityContext:
     container:
       runAsUser: 568
-      runAsGroup: 568
+      runAsGroup: 100
     pod:
-      fsGroup: 568
+      fsGroup: 100
 
 # ============================================================================
 # Radarr - Movie Management
@@ -332,9 +332,9 @@ radarr:
   securityContext:
     container:
       runAsUser: 568
-      runAsGroup: 568
+      runAsGroup: 100
     pod:
-      fsGroup: 568
+      fsGroup: 100
 
 # ============================================================================
 # Prowlarr - Indexer Manager
@@ -396,9 +396,9 @@ prowlarr:
   securityContext:
     container:
       runAsUser: 568
-      runAsGroup: 568
+      runAsGroup: 100
     pod:
-      fsGroup: 568
+      fsGroup: 100
 
 # ============================================================================
 # NZBGet - Usenet Downloader
@@ -468,9 +468,9 @@ nzbget:
   securityContext:
     container:
       runAsUser: 568
-      runAsGroup: 568
+      runAsGroup: 100
     pod:
-      fsGroup: 568
+      fsGroup: 100
 
 # ============================================================================
 # Tautulli - Plex Monitoring
@@ -532,9 +532,9 @@ tautulli:
   securityContext:
     container:
       runAsUser: 568
-      runAsGroup: 568
+      runAsGroup: 100
     pod:
-      fsGroup: 568
+      fsGroup: 100
 
 # ============================================================================
 # LazyLibrarian - Ebook Management
@@ -612,9 +612,9 @@ lazylibrarian:
   securityContext:
     container:
       runAsUser: 568
-      runAsGroup: 568
+      runAsGroup: 100
     pod:
-      fsGroup: 568
+      fsGroup: 100
 
 # ============================================================================
 # Transmission - BitTorrent Client with VPN
@@ -721,9 +721,9 @@ transmission:
   securityContext:
     container:
       runAsUser: 568
-      runAsGroup: 568
+      runAsGroup: 100
     pod:
-      fsGroup: 568
+      fsGroup: 100
 
 # ============================================================================
 # Home Assistant - Home Automation Hub
