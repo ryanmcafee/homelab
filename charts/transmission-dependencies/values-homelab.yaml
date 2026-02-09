@@ -1,5 +1,0 @@
-# transmission-dependencies homelab values
-
-namespace: media
-
-onePasswordItemPath: vaults/homelab/items/transmission-vpn
