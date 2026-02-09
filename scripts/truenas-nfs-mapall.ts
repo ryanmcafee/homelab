@@ -231,8 +231,10 @@ async function listChildDatasets(
   apiKey: string,
   parentDataset: string,
 ): Promise<string[]> {
+  // Use /id/ endpoint which returns the dataset with nested children
+  const encodedId = encodeURIComponent(parentDataset);
   const resp = await fetch(
-    `${apiUrl}/api/v2.0/pool/dataset?id=${encodeURIComponent(parentDataset)}&recursive=true`,
+    `${apiUrl}/api/v2.0/pool/dataset/id/${encodedId}`,
     { headers: { Authorization: `Bearer ${apiKey}` } },
   );
 
@@ -245,7 +247,7 @@ async function listChildDatasets(
     );
   }
 
-  const datasets: Dataset[] = await resp.json();
+  const parent: Dataset = await resp.json();
   // Flatten all dataset IDs including the parent
   const result: string[] = [];
   function collect(ds: Dataset) {
@@ -256,9 +258,7 @@ async function listChildDatasets(
       }
     }
   }
-  for (const ds of datasets) {
-    collect(ds);
-  }
+  collect(parent);
   return result;
 }
 
@@ -471,48 +471,39 @@ async function main(): Promise<void> {
     const permResults: PermResult[] = [];
 
     for (const parentDs of K8S_DATASET_PARENTS) {
-      console.log(cyan(`INFO: Scanning datasets under ${parentDs}...`));
-
-      let datasets: string[];
+      // Verify the dataset exists first
+      let childCount = 0;
       try {
-        datasets = await listChildDatasets(opts.apiUrl, apiKey, parentDs);
-      } catch (err) {
-        console.error(red(`ERROR: ${(err as Error).message}`));
-        permResults.push({ dataset: parentDs, status: "error", reason: (err as Error).message });
-        continue;
-      }
-
-      if (datasets.length === 0) {
-        console.log(yellow(`WARN: No datasets found under ${parentDs} (may not exist yet)`));
+        const datasets = await listChildDatasets(opts.apiUrl, apiKey, parentDs);
+        childCount = datasets.length - 1; // subtract parent itself
+      } catch {
+        console.log(yellow(`WARN: Dataset ${parentDs} not found, skipping`));
         permResults.push({ dataset: parentDs, status: "skipped", reason: "not found" });
         continue;
       }
 
-      console.log(cyan(`INFO: Found ${datasets.length} dataset(s) under ${parentDs}`));
+      if (opts.dryRun) {
+        console.log(yellow(`DRY RUN: Would set ${parentDs} (${childCount} children) → uid=${opts.permUid} gid=${opts.permGid} mode=770 (recursive)`));
+        permResults.push({ dataset: parentDs, status: "skipped", reason: "dry-run" });
+        continue;
+      }
 
-      for (const ds of datasets) {
-        if (opts.dryRun) {
-          console.log(yellow(`DRY RUN: Would set ${ds} → uid=${opts.permUid} gid=${opts.permGid} mode=770 (recursive)`));
-          permResults.push({ dataset: ds, status: "skipped", reason: "dry-run" });
-          continue;
-        }
-
-        try {
-          const jobId = await setDatasetPermissions(
-            opts.apiUrl,
-            apiKey,
-            ds,
-            opts.permUid,
-            opts.permGid,
-          );
-          console.log(cyan(`INFO: Permission job ${jobId} started for ${ds}...`));
-          await waitForJob(opts.apiUrl, apiKey, jobId);
-          console.log(green(`OK: Permissions set on ${ds} → uid=${opts.permUid} gid=${opts.permGid}`));
-          permResults.push({ dataset: ds, status: "updated" });
-        } catch (err) {
-          console.error(red(`ERROR: Failed to set permissions on ${ds}: ${(err as Error).message}`));
-          permResults.push({ dataset: ds, status: "error", reason: (err as Error).message });
-        }
+      try {
+        // Set permissions recursively on the parent — this covers all child PVC datasets
+        const jobId = await setDatasetPermissions(
+          opts.apiUrl,
+          apiKey,
+          parentDs,
+          opts.permUid,
+          opts.permGid,
+        );
+        console.log(cyan(`INFO: Permission job ${jobId} started for ${parentDs} (${childCount} children, recursive)...`));
+        await waitForJob(opts.apiUrl, apiKey, jobId, 300000); // 5min timeout for large datasets
+        console.log(green(`OK: Permissions set on ${parentDs} → uid=${opts.permUid} gid=${opts.permGid}`));
+        permResults.push({ dataset: parentDs, status: "updated" });
+      } catch (err) {
+        console.error(red(`ERROR: Failed to set permissions on ${parentDs}: ${(err as Error).message}`));
+        permResults.push({ dataset: parentDs, status: "error", reason: (err as Error).message });
       }
     }
 
