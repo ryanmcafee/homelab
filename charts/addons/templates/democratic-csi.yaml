@@ -59,8 +59,8 @@ spec:
               shareAllowedHosts: []
               shareAllowedNetworks:
                 - {{ index .Values "democratic-csi" "nfs" "shareAllow" }}
-              shareMaprootUser: root
-              shareMaprootGroup: root
+              shareMapallUser: root
+              shareMapallGroup: root
 
         storageClasses:
         {{- range (index .Values "democratic-csi" "storageClasses") }}

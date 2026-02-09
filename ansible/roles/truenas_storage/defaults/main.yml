@@ -25,8 +25,10 @@ truenas_nfs_share_path: "/mnt/{{ truenas_k8s_dataset }}"
 truenas_nfs_share_name: k8s
 truenas_nfs_allowed_networks:
   - 172.16.100.0/24
-truenas_nfs_maproot_user: root
-truenas_nfs_maproot_group: wheel
+truenas_nfs_maproot_user: ""
+truenas_nfs_maproot_group: ""
+truenas_nfs_mapall_user: rmcafee
+truenas_nfs_mapall_group: users
 
 # Media Datasets Configuration (no quotas for flexible usage)
 truenas_media_datasets:
