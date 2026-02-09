@@ -8,10 +8,14 @@
  * This script switches them to mapall so all client UIDs are mapped,
  * fixing permission errors for containers running as non-root.
  *
- * Optionally fixes dataset permissions to match the target user/group.
+ * Supports split permission models:
+ * - K8s datasets: apps:users (568:100)
+ * - Media/personal datasets: rmcafee:users
+ *
+ * Optionally fixes dataset ownership to match the target user/group.
  */
 
-const VERSION = "2.0.0";
+const VERSION = "3.0.0";
 
 // Colors for terminal output
 const cyan = (s: string) => `\x1b[36m${s}\x1b[0m`;
@@ -61,20 +65,32 @@ ${bold("truenas-nfs-mapall")} v${VERSION}
 Update TrueNAS NFS shares from maproot to mapall mapping.
 Fixes permission errors for containers running as non-root UIDs.
 
+Supports split permission models: k8s shares use apps:users (568:100),
+media/personal shares use rmcafee:users. See --media-* flags.
+
 ${bold("USAGE:")}
   deno run --allow-net --allow-env --allow-read scripts/truenas-nfs-mapall.ts [OPTIONS]
 
 ${bold("OPTIONS:")}
-  --help              Show this help message
-  --dry-run           Preview changes without applying them
-  --all               Update ALL NFS shares (not just k8s PVC ones); also includes media datasets for --fix-permissions
-  --api-url <url>     TrueNAS API URL (default: env TRUENAS_API_URL or https://truenas.ryanmcafee.com)
-  --verify-ssl        Enable SSL verification (default: disabled for self-signed certs)
-  --mapall-user <u>   User to map all clients to (default: apps)
-  --mapall-group <g>  Group to map all clients to (default: users)
-  --fix-permissions   Also fix dataset ownership (k8s only; combine with --all for media datasets too)
-  --perm-uid <uid>    UID for dataset permissions (default: 568)
-  --perm-gid <gid>    GID for dataset permissions (default: 100)
+  --help                    Show this help message
+  --dry-run                 Preview changes without applying them
+  --all                     Update ALL NFS shares (not just k8s PVC ones); also includes media datasets for --fix-permissions
+  --api-url <url>           TrueNAS API URL (default: env TRUENAS_API_URL or https://truenas.ryanmcafee.com)
+  --verify-ssl              Enable SSL verification (default: disabled for self-signed certs)
+
+  ${bold("K8s share options:")}
+  --mapall-user <u>         User to map k8s NFS clients to (default: apps)
+  --mapall-group <g>        Group to map k8s NFS clients to (default: users)
+
+  ${bold("Media share options (used with --all):")}
+  --media-mapall-user <u>   User to map media NFS clients to (default: rmcafee)
+  --media-mapall-group <g>  Group to map media NFS clients to (default: users)
+
+  ${bold("Permission options:")}
+  --fix-permissions         Also fix dataset ownership (k8s only; combine with --all for media datasets too)
+  --perm-uid <uid>          UID for k8s dataset permissions (default: 568)
+  --perm-gid <gid>          GID for all dataset permissions (default: 100)
+  --media-perm-user <u>     Username for media dataset permissions (default: rmcafee)
 
 ${bold("ENVIRONMENT:")}
   TRUENAS_API_KEY     TrueNAS API key (required)
@@ -84,13 +100,13 @@ ${bold("EXAMPLES:")}
   # Preview changes for k8s PVC shares only
   deno run --allow-net --allow-env --allow-read scripts/truenas-nfs-mapall.ts --dry-run
 
-  # Update all NFS shares
+  # Update all NFS shares (k8s → apps:users, media → rmcafee:users)
   deno run --allow-net --allow-env --allow-read scripts/truenas-nfs-mapall.ts --all
 
   # Fix k8s shares and dataset permissions
   deno run --allow-net --allow-env --allow-read scripts/truenas-nfs-mapall.ts --fix-permissions
 
-  # Fix ALL shares + ALL dataset permissions (k8s + media)
+  # Fix ALL shares + ALL dataset permissions (split k8s/media model)
   deno run --allow-net --allow-env --allow-read scripts/truenas-nfs-mapall.ts --all --fix-permissions
 
   # Use with 1Password injection
@@ -106,9 +122,12 @@ function parseArgs(args: string[]): {
   verifySsl: boolean;
   mapallUser: string;
   mapallGroup: string;
+  mediaMapallUser: string;
+  mediaMapallGroup: string;
   fixPermissions: boolean;
   permUid: number;
   permGid: number;
+  mediaPermUser: string;
 } {
   const opts = {
     help: false,
@@ -119,9 +138,12 @@ function parseArgs(args: string[]): {
     verifySsl: false,
     mapallUser: "apps",
     mapallGroup: "users",
+    mediaMapallUser: "rmcafee",
+    mediaMapallGroup: "users",
     fixPermissions: false,
     permUid: 568,
     permGid: 100,
+    mediaPermUser: "rmcafee",
   };
 
   for (let i = 0; i < args.length; i++) {
@@ -148,6 +170,12 @@ function parseArgs(args: string[]): {
       case "--mapall-group":
         opts.mapallGroup = args[++i];
         break;
+      case "--media-mapall-user":
+        opts.mediaMapallUser = args[++i];
+        break;
+      case "--media-mapall-group":
+        opts.mediaMapallGroup = args[++i];
+        break;
       case "--fix-permissions":
         opts.fixPermissions = true;
         break;
@@ -156,6 +184,9 @@ function parseArgs(args: string[]): {
         break;
       case "--perm-gid":
         opts.permGid = parseInt(args[++i], 10);
+        break;
+      case "--media-perm-user":
+        opts.mediaPermUser = args[++i];
         break;
       default:
         console.error(red(`ERROR: Unknown argument: ${args[i]}`));
@@ -172,6 +203,7 @@ const K8S_PATHS = ["/mnt/storage/k8s", "/mnt/ssd/k8s"];
 const K8S_DATASET_PARENTS = ["storage/k8s", "storage/k8s-snapshots", "ssd/k8s", "ssd/k8s-snapshots"];
 // Media and additional dataset parents for permission fixing
 const MEDIA_DATASET_PARENTS = [
+  "storage/backups",
   "storage/movies",
   "storage/tv",
   "storage/music",
@@ -180,9 +212,26 @@ const MEDIA_DATASET_PARENTS = [
   "storage/books",
   "storage/downloads",
 ];
+// Media NFS share paths (for classifying shares)
+const MEDIA_PATHS = [
+  "/mnt/storage/backups",
+  "/mnt/storage/movies",
+  "/mnt/storage/tv",
+  "/mnt/storage/music",
+  "/mnt/storage/pictures",
+  "/mnt/storage/documents",
+  "/mnt/storage/books",
+  "/mnt/storage/downloads",
+];
 
 function isK8sShare(share: NfsShare): boolean {
   return K8S_PATHS.some(
+    (prefix) => share.path === prefix || share.path.startsWith(prefix + "/"),
+  );
+}
+
+function isMediaShare(share: NfsShare): boolean {
+  return MEDIA_PATHS.some(
     (prefix) => share.path === prefix || share.path.startsWith(prefix + "/"),
   );
 }
@@ -279,30 +328,37 @@ async function setDatasetPermissions(
   apiUrl: string,
   apiKey: string,
   datasetPath: string,
-  uid: number,
-  gid: number,
+  options: { uid?: number; user?: string; gid: number },
 ): Promise<number> {
+  // Build the permission body — use uid if provided, otherwise use user (string name)
+  const body: Record<string, unknown> = {
+    path: `/mnt/${datasetPath}`,
+    gid: options.gid,
+    mode: "770",
+    options: {
+      recursive: true,
+      traverse: true,
+    },
+  };
+
+  if (options.uid !== undefined) {
+    body.uid = options.uid;
+  } else if (options.user !== undefined) {
+    body.user = options.user;
+  }
+
   const resp = await fetch(`${apiUrl}/api/v2.0/filesystem/setperm`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${apiKey}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({
-      path: `/mnt/${datasetPath}`,
-      uid: uid,
-      gid: gid,
-      mode: "770",
-      options: {
-        recursive: true,
-        traverse: true,
-      },
-    }),
+    body: JSON.stringify(body),
   });
 
   if (!resp.ok) {
-    const body = await resp.text();
-    throw new Error(`Failed to set permissions on ${datasetPath}: ${resp.status} ${body}`);
+    const respBody = await resp.text();
+    throw new Error(`Failed to set permissions on ${datasetPath}: ${resp.status} ${respBody}`);
   }
 
   // Returns a job ID
@@ -363,6 +419,11 @@ async function main(): Promise<void> {
     console.log(yellow("DRY RUN: No changes will be made"));
   }
 
+  if (opts.all) {
+    console.log(cyan(`INFO: K8s NFS mapall: ${opts.mapallUser}:${opts.mapallGroup}`));
+    console.log(cyan(`INFO: Media NFS mapall: ${opts.mediaMapallUser}:${opts.mediaMapallGroup}`));
+  }
+
   // Fetch all NFS shares
   let shares: NfsShare[];
   try {
@@ -390,18 +451,33 @@ async function main(): Promise<void> {
     );
   }
 
-  // Find shares that need updating
-  const sharesToUpdate = targetShares.filter((s) =>
-    needsUpdate(s, opts.mapallUser, opts.mapallGroup),
-  );
-  const alreadyCorrect = targetShares.filter(
-    (s) => !needsUpdate(s, opts.mapallUser, opts.mapallGroup),
-  );
+  // Find shares that need updating — when --all, apply different targets per share type
+  const sharesToUpdate: { share: NfsShare; targetUser: string; targetGroup: string }[] = [];
+  const alreadyCorrect: NfsShare[] = [];
+
+  for (const share of targetShares) {
+    let targetUser: string;
+    let targetGroup: string;
+
+    if (opts.all && isMediaShare(share)) {
+      targetUser = opts.mediaMapallUser;
+      targetGroup = opts.mediaMapallGroup;
+    } else {
+      targetUser = opts.mapallUser;
+      targetGroup = opts.mapallGroup;
+    }
+
+    if (needsUpdate(share, targetUser, targetGroup)) {
+      sharesToUpdate.push({ share, targetUser, targetGroup });
+    } else {
+      alreadyCorrect.push(share);
+    }
+  }
 
   if (alreadyCorrect.length > 0) {
     console.log(
       cyan(
-        `INFO: ${alreadyCorrect.length} share(s) already using mapall=${opts.mapallUser}:${opts.mapallGroup} (skipped)`,
+        `INFO: ${alreadyCorrect.length} share(s) already correctly configured (skipped)`,
       ),
     );
   }
@@ -411,7 +487,7 @@ async function main(): Promise<void> {
   } else {
     console.log(
       cyan(
-        `INFO: ${sharesToUpdate.length} share(s) need updating to mapall=${opts.mapallUser}:${opts.mapallGroup}`,
+        `INFO: ${sharesToUpdate.length} share(s) need updating`,
       ),
     );
     console.log("");
@@ -419,7 +495,7 @@ async function main(): Promise<void> {
     // Process NFS share updates
     const results: UpdateResult[] = [];
 
-    for (const share of sharesToUpdate) {
+    for (const { share, targetUser, targetGroup } of sharesToUpdate) {
       const label = `[${share.id}] ${share.path}`;
 
       const currentMapping = share.maproot_user
@@ -429,7 +505,7 @@ async function main(): Promise<void> {
       if (opts.dryRun) {
         console.log(
           yellow(
-            `DRY RUN: Would update ${label}: ${currentMapping} → mapall(${opts.mapallUser}:${opts.mapallGroup})`,
+            `DRY RUN: Would update ${label}: ${currentMapping} → mapall(${targetUser}:${targetGroup})`,
           ),
         );
         results.push({ id: share.id, path: share.path, status: "skipped", reason: "dry-run" });
@@ -441,12 +517,12 @@ async function main(): Promise<void> {
           opts.apiUrl,
           apiKey,
           share.id,
-          opts.mapallUser,
-          opts.mapallGroup,
+          targetUser,
+          targetGroup,
         );
         console.log(
           green(
-            `OK: Updated ${label}: ${currentMapping} → mapall(${opts.mapallUser}:${opts.mapallGroup})`,
+            `OK: Updated ${label}: ${currentMapping} → mapall(${targetUser}:${targetGroup})`,
           ),
         );
         results.push({ id: share.id, path: share.path, status: "updated" });
@@ -479,27 +555,27 @@ async function main(): Promise<void> {
   if (opts.fixPermissions) {
     console.log("");
     console.log(bold("--- Dataset Permission Fixes ---"));
-    console.log(cyan(`INFO: Target ownership: uid=${opts.permUid} gid=${opts.permGid}`));
 
     // Fix both k8s and media datasets when --all is used, otherwise only k8s
-    const datasetParents = opts.all
-      ? [...K8S_DATASET_PARENTS, ...MEDIA_DATASET_PARENTS]
-      : K8S_DATASET_PARENTS;
+    const k8sDatasets = K8S_DATASET_PARENTS;
+    const mediaDatasets = opts.all ? MEDIA_DATASET_PARENTS : [];
 
     if (opts.all) {
-      console.log(cyan(`INFO: Fixing permissions for k8s + media datasets (${datasetParents.length} parents)`));
+      console.log(cyan(`INFO: K8s datasets (${k8sDatasets.length}): uid=${opts.permUid} gid=${opts.permGid}`));
+      console.log(cyan(`INFO: Media datasets (${mediaDatasets.length}): user=${opts.mediaPermUser} gid=${opts.permGid}`));
     } else {
-      console.log(cyan(`INFO: Fixing permissions for k8s datasets only (use --all to include media datasets)`));
+      console.log(cyan(`INFO: K8s datasets only (${k8sDatasets.length}): uid=${opts.permUid} gid=${opts.permGid}`));
+      console.log(cyan(`INFO: Use --all to include media datasets`));
     }
 
     const permResults: PermResult[] = [];
 
-    for (const parentDs of datasetParents) {
-      // Verify the dataset exists first
+    // Fix k8s datasets with UID
+    for (const parentDs of k8sDatasets) {
       let childCount = 0;
       try {
         const datasets = await listChildDatasets(opts.apiUrl, apiKey, parentDs);
-        childCount = datasets.length - 1; // subtract parent itself
+        childCount = datasets.length - 1;
       } catch {
         console.log(yellow(`WARN: Dataset ${parentDs} not found, skipping`));
         permResults.push({ dataset: parentDs, status: "skipped", reason: "not found" });
@@ -513,17 +589,50 @@ async function main(): Promise<void> {
       }
 
       try {
-        // Set permissions recursively on the parent — this covers all child PVC datasets
         const jobId = await setDatasetPermissions(
           opts.apiUrl,
           apiKey,
           parentDs,
-          opts.permUid,
-          opts.permGid,
+          { uid: opts.permUid, gid: opts.permGid },
         );
         console.log(cyan(`INFO: Permission job ${jobId} started for ${parentDs} (${childCount} children, recursive)...`));
-        await waitForJob(opts.apiUrl, apiKey, jobId, 300000); // 5min timeout for large datasets
+        await waitForJob(opts.apiUrl, apiKey, jobId, 300000);
         console.log(green(`OK: Permissions set on ${parentDs} → uid=${opts.permUid} gid=${opts.permGid}`));
+        permResults.push({ dataset: parentDs, status: "updated" });
+      } catch (err) {
+        console.error(red(`ERROR: Failed to set permissions on ${parentDs}: ${(err as Error).message}`));
+        permResults.push({ dataset: parentDs, status: "error", reason: (err as Error).message });
+      }
+    }
+
+    // Fix media datasets with username (not UID)
+    for (const parentDs of mediaDatasets) {
+      let childCount = 0;
+      try {
+        const datasets = await listChildDatasets(opts.apiUrl, apiKey, parentDs);
+        childCount = datasets.length - 1;
+      } catch {
+        console.log(yellow(`WARN: Dataset ${parentDs} not found, skipping`));
+        permResults.push({ dataset: parentDs, status: "skipped", reason: "not found" });
+        continue;
+      }
+
+      if (opts.dryRun) {
+        console.log(yellow(`DRY RUN: Would set ${parentDs} (${childCount} children) → user=${opts.mediaPermUser} gid=${opts.permGid} mode=770 (recursive)`));
+        permResults.push({ dataset: parentDs, status: "skipped", reason: "dry-run" });
+        continue;
+      }
+
+      try {
+        const jobId = await setDatasetPermissions(
+          opts.apiUrl,
+          apiKey,
+          parentDs,
+          { user: opts.mediaPermUser, gid: opts.permGid },
+        );
+        console.log(cyan(`INFO: Permission job ${jobId} started for ${parentDs} (${childCount} children, recursive)...`));
+        await waitForJob(opts.apiUrl, apiKey, jobId, 300000);
+        console.log(green(`OK: Permissions set on ${parentDs} → user=${opts.mediaPermUser} gid=${opts.permGid}`));
         permResults.push({ dataset: parentDs, status: "updated" });
       } catch (err) {
         console.error(red(`ERROR: Failed to set permissions on ${parentDs}: ${(err as Error).message}`));

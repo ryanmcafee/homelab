@@ -151,6 +151,29 @@ Each decision should include:
 - Dataset ownership is `apps` not `rmcafee` — SMB writes will appear as `apps` user
 - Script `truenas-nfs-mapall.ts --all --fix-permissions` applies the full fix
 
+### ADR-007: Split NFS Permission Model — apps:users for K8s, rmcafee:users for Media (2026-02-09)
+
+**Context:**
+- ADR-006 unified all datasets to apps:users (568:100)
+- Personal datasets (media, backups, documents) are better owned by rmcafee for SMB access
+- K8s workloads only need k8s datasets as apps:users
+
+**Decision:**
+- K8s datasets: apps:users (568:100) ownership + NFS mapall
+- Media/personal datasets: rmcafee:users ownership + NFS mapall
+- Mode 770 on all datasets (group users gets rwx)
+- truenas-nfs-mapall.ts updated with split k8s/media behavior
+
+**Alternatives Considered:**
+- Keep unified apps:users (ADR-006) -> SMB files appear as apps, not personal user
+- Use rmcafee for everything -> K8s pods would need reconfiguration
+
+**Consequences:**
+- SMB access shows files as rmcafee (natural for desktop browsing)
+- K8s pods still access media via group users (GID 100) with mode 770
+- NFS-created files from K8s pods will be owned by rmcafee (via mapall)
+- Two permission models to maintain (documented in script flags)
+
 ## Tips
 
 - Number decisions sequentially (ADR-001, ADR-002, etc.)

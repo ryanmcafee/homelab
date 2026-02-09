@@ -29,7 +29,7 @@ truenas_nfs_maproot_user: ""
 truenas_nfs_maproot_group: ""
 truenas_k8s_nfs_mapall_user: apps
 truenas_k8s_nfs_mapall_group: users
-truenas_media_nfs_mapall_user: apps
+truenas_media_nfs_mapall_user: rmcafee
 truenas_media_nfs_mapall_group: users
 
 # Media Datasets Configuration (no quotas for flexible usage)
@@ -63,6 +63,10 @@ truenas_datasets:
     quota: 10T
     compression: lz4
     comments: "Temporary download storage"
+
+# Datasets to delete (legacy cleanup)
+truenas_datasets_to_delete:
+  - "{{ truenas_pool_name }}/media"
 
 # SSD Pool Configuration
 truenas_ssd_pool_name: ssd
@@ -104,7 +108,7 @@ truenas_users:
 # Dataset Permissions
 truenas_k8s_dataset_owner_user: apps
 truenas_k8s_dataset_owner_group: users
-truenas_dataset_owner_user: apps
+truenas_dataset_owner_user: rmcafee
 truenas_dataset_owner_group: users
 truenas_dataset_permissions_mode: "770"
 
