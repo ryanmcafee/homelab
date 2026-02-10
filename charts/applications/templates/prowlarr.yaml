@@ -42,11 +42,6 @@ spec:
           {{- toYaml .Values.prowlarr.securityContext | nindent 10 }}
         {{- end }}
 
-        {{- if .Values.prowlarr.metrics }}
-        metrics:
-          {{- toYaml .Values.prowlarr.metrics | nindent 10 }}
-        {{- end }}
-
   destination:
     server: https://kubernetes.default.svc
     namespace: {{ .Values.prowlarr.namespace }}

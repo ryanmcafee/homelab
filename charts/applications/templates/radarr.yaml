@@ -42,11 +42,6 @@ spec:
           {{- toYaml .Values.radarr.securityContext | nindent 10 }}
         {{- end }}
 
-        {{- if .Values.radarr.metrics }}
-        metrics:
-          {{- toYaml .Values.radarr.metrics | nindent 10 }}
-        {{- end }}
-
   destination:
     server: https://kubernetes.default.svc
     namespace: {{ .Values.radarr.namespace }}
