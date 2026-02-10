@@ -69,6 +69,10 @@ spec:
           annotations:
             {{- toYaml .Values.traefik.service.annotations | nindent 12 }}
           {{- end }}
+          {{- if .Values.traefik.service.spec }}
+          spec:
+            {{- toYaml .Values.traefik.service.spec | nindent 12 }}
+          {{- end }}
 
         # Update Ingress status with LoadBalancer IP so ArgoCD sees them as healthy
         providers:
@@ -107,6 +111,10 @@ spec:
             http:
               tls:
                 enabled: {{ .Values.traefik.ports.websecure.http.tls.enabled }}
+            {{- end }}
+            {{- if .Values.traefik.ports.websecure.transport }}
+            transport:
+              {{- toYaml .Values.traefik.ports.websecure.transport | nindent 14 }}
             {{- end }}
           {{- if .Values.traefik.ports.traefik }}
           traefik:

@@ -694,6 +694,8 @@ traefik:
   # Service configuration
   service:
     type: LoadBalancer
+    spec:
+      externalTrafficPolicy: Local
     # Cilium LB IPAM will assign an IP from the pool
 
   # Ports configuration
@@ -719,6 +721,11 @@ traefik:
       http:
         tls:
           enabled: true
+      transport:
+        respondingTimeouts:
+          readTimeout: 0
+          writeTimeout: 0
+          idleTimeout: 600s
 
   # Global arguments moved to additionalArguments in v39+
   additionalArguments:
