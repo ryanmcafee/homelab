@@ -431,7 +431,7 @@ nzbget:
       type: nfs
       server: truenas.ryanmcafee.com
       path: /mnt/storage/downloads
-      mountPath: /downloads
+      mountPath: /media/downloads
 
   ingress:
     main:
