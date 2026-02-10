@@ -133,16 +133,16 @@ plex:
 
   extraVolumeMounts:
     - name: movies
-      mountPath: /media/movies
+      mountPath: /movies
       readOnly: false
     - name: tv
-      mountPath: /media/tv
+      mountPath: /tv
       readOnly: false
     - name: music
-      mountPath: /media/music
+      mountPath: /music
       readOnly: false
     - name: pictures
-      mountPath: /media/pictures
+      mountPath: /pictures
       readOnly: false
 
   # Ingress configuration
@@ -210,7 +210,7 @@ sonarr:
       type: nfs
       server: truenas.ryanmcafee.com
       path: /mnt/storage/tv
-      mountPath: /media/tv
+      mountPath: /tv
 
     # Downloads storage via NFS
     downloads:
@@ -218,7 +218,7 @@ sonarr:
       type: nfs
       server: truenas.ryanmcafee.com
       path: /mnt/storage/downloads
-      mountPath: /media/downloads
+      mountPath: /downloads
 
   ingress:
     main:
@@ -289,7 +289,7 @@ radarr:
       type: nfs
       server: truenas.ryanmcafee.com
       path: /mnt/storage/movies
-      mountPath: /media/movies
+      mountPath: /movies
 
     # Downloads storage via NFS
     downloads:
@@ -297,7 +297,7 @@ radarr:
       type: nfs
       server: truenas.ryanmcafee.com
       path: /mnt/storage/downloads
-      mountPath: /media/downloads
+      mountPath: /downloads
 
   ingress:
     main:
@@ -431,7 +431,7 @@ nzbget:
       type: nfs
       server: truenas.ryanmcafee.com
       path: /mnt/storage/downloads
-      mountPath: /media/downloads
+      mountPath: /downloads
 
   ingress:
     main:
