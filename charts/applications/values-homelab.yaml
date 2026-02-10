@@ -166,6 +166,9 @@ plex:
   extraEnv:
     TZ: America/New_York
     ADVERTISE_IP: https://plex.ryanmcafee.com:443
+    PLEX_UID: "568"
+    PLEX_GID: "100"
+    CHANGE_CONFIG_DIR_OWNERSHIP: "false"
 
 # ============================================================================
 # Sonarr - TV Show Management
