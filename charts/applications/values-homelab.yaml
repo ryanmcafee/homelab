@@ -77,7 +77,7 @@ plex:
         enabled: true
     resources:
       requests:
-        cpu: 1000m
+        cpu: 4000m
         memory: 16Gi
       limits:
         cpu: 4000m
