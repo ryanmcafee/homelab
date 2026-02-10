@@ -341,6 +341,61 @@ democratic-csi-ssd:
         memory: 256Mi
 
 # ============================================================================
+# Democratic-CSI iSCSI - Block Storage Provisioner (SSD-backed)
+# Sync Wave: 2 (same as NFS instances, reuses truenas-api-key secret)
+# ============================================================================
+
+democratic-csi-iscsi:
+  enabled: true
+  namespace: democratic-csi
+
+  chart:
+    name: democratic-csi
+    repo: https://democratic-csi.github.io/charts/
+    version: 0.14.6
+
+  driver: freenas-api-iscsi
+
+  truenas:
+    # Use IP address instead of hostname since internal DNS is not resolvable from cluster
+    endpoint: https://172.16.100.150
+    allowInsecure: true  # Required when using IP (no valid TLS cert for IP)
+    apiKey: ""  # Populated from 1Password secret
+    onePasswordItemPath: vaults/homelab/items/truenas
+
+  iscsi:
+    targetPortal: "172.16.100.150:3260"
+    datasetParent: ssd/iscsi
+    snapshotsParent: ssd/iscsi-snapshots
+    portalGroupId: 1
+    initiatorGroupId: 1
+
+  storageClasses:
+    - name: democratic-csi-iscsi
+      defaultClass: false
+      reclaimPolicy: Retain
+      volumeBindingMode: Immediate
+      allowVolumeExpansion: true
+      parameters:
+        fsType: ext4
+
+  resources:
+    controller:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        cpu: 200m
+        memory: 256Mi
+    node:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        cpu: 200m
+        memory: 256Mi
+
+# ============================================================================
 # Local Path Provisioner - Disabled for homelab (using democratic-csi)
 # ============================================================================
 

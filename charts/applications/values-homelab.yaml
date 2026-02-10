@@ -65,8 +65,8 @@ plex:
 
   # Plex configuration
   pms:
-    configExistingClaim: ""
-    storageClassName: democratic-csi-ssd
+    configExistingClaim: "plex-config-iscsi"
+    storageClassName: democratic-csi-iscsi
     # Plex claim token from 1Password
     claimSecret:
       name: plex

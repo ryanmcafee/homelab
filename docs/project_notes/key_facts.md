@@ -34,9 +34,12 @@ See `CLAUDE.local.md` for IP addresses and hostnames.
 - Proxmox VE virtualization
 
 **Storage:**
-- Provider: Democratic-CSI with NFS
-- Backend: TrueNAS RAIDZ3 (~220 TB raw)
-- Storage Classes: `nfs-client` (default)
+- Provider: Democratic-CSI with NFS and iSCSI
+- Backend: TrueNAS RAIDZ3 (~220 TB raw) + SSD mirror pool
+- Storage Classes:
+  - `democratic-csi-nfs` (default) - NFS on HDD pool
+  - `democratic-csi-ssd` - NFS on SSD pool
+  - `democratic-csi-iscsi` - iSCSI block storage on SSD pool (for SQLite workloads)
 
 ## ArgoCD Sync Wave Order
 

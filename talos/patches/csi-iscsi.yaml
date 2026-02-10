@@ -1,0 +1,27 @@
+# Talos iSCSI CSI Configuration Patch
+# Enables iSCSI initiator support for democratic-csi (TrueNAS block storage)
+# Ensures iscsi_tcp kernel module is loaded for iSCSI connections
+
+machine:
+  # Load iSCSI kernel modules
+  kernel:
+    modules:
+      - name: iscsi_tcp
+
+  # System extensions (must be included in the Talos image)
+  # Ensure siderolabs/iscsi-tools is in your schematic.yaml
+
+  # Node labels for storage capabilities
+  nodeLabels:
+    # Indicates iSCSI client support
+    storage.kubernetes.io/iscsi-client: "true"
+
+# Apply this patch to ALL nodes that will use iSCSI volumes:
+# In terragrunt/environments/*/talos-cluster/terragrunt.hcl:
+#
+# common_config_patches = [
+#   file("${get_repo_root()}/talos/patches/csi-iscsi.yaml"),
+#   # ... other patches
+# ]
+#
+# This ensures democratic-csi can connect to TrueNAS iSCSI targets

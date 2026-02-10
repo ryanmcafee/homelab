@@ -47,6 +47,7 @@ inputs = {
     "siderolabs/intel-ucode",      # Intel CPU microcode updates
     "siderolabs/i915-ucode",       # Intel GPU firmware
     "siderolabs/nfs-utils",        # NFS client for democratic-csi
+    "siderolabs/iscsi-tools",      # iSCSI client for democratic-csi block storage
   ]
 
   # Checksum verification

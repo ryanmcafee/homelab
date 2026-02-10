@@ -165,6 +165,16 @@ inputs = {
             }
           }
         }
+        # iSCSI kernel module for democratic-csi block storage
+        kernel = {
+          modules = [
+            { name = "iscsi_tcp" }
+          ]
+        }
+        # Node labels for storage capabilities
+        nodeLabels = {
+          "storage.kubernetes.io/iscsi-client" = "true"
+        }
       }
     })
   ]
