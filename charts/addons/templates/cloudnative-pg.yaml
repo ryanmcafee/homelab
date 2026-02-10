@@ -7,7 +7,7 @@ metadata:
   namespace: argocd
   annotations:
     # Sync wave 8 - deploys after kube-prometheus-stack (wave 7) for monitoring integration
-    argocd.argoproj.io/sync-wave: "8"
+    argocd.argoproj.io/sync-wave: "10"
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
