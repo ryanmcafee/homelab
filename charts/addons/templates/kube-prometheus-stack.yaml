@@ -51,6 +51,11 @@ spec:
             podMonitorSelectorNilUsesHelmValues: false
             ruleSelectorNilUsesHelmValues: false
 
+            {{- if (index .Values "kube-prometheus-stack" "prometheus" "affinity") }}
+            affinity:
+              {{- toYaml (index .Values "kube-prometheus-stack" "prometheus" "affinity") | nindent 14 }}
+            {{- end }}
+
         grafana:
           enabled: {{ index .Values "kube-prometheus-stack" "grafana" "enabled" }}
 
