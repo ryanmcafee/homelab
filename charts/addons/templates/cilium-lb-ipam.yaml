@@ -37,7 +37,8 @@ spec:
 ---
 # CiliumL2AnnouncementPolicy - L2 (ARP) announcements for LoadBalancer IPs
 # Provides connectivity without requiring BGP on the gateway
-# IMPORTANT: Restricted to control-plane nodes only
+# No nodeSelector: Cilium announces from all nodes. With externalTrafficPolicy=Local,
+# only nodes with active service endpoints will respond to ARP.
 apiVersion: cilium.io/v2alpha1
 kind: CiliumL2AnnouncementPolicy
 metadata:
@@ -47,9 +48,6 @@ metadata:
 spec:
   serviceSelector:
     matchLabels: {}
-  nodeSelector:
-    matchLabels:
-      node-role.kubernetes.io/control-plane: ""
   interfaces:
     - ^ens.*
   externalIPs: true
