@@ -1,0 +1,107 @@
+{{- if index .Values "democratic-csi-iscsi" "enabled" }}
+---
+# Democratic-CSI iSCSI - ArgoCD Application
+# Deploys a democratic-CSI instance for iSCSI block storage (SSD-backed)
+# Reuses the same namespace and truenas-api-key secret as the NFS instances
+#
+# DEPENDENCY: Requires democratic-csi (NFS) to be enabled. The democratic-csi-config
+# app (sync wave 1) creates the truenas-api-key secret in the democratic-csi namespace.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: democratic-csi-iscsi
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: {{ index .Values "democratic-csi-iscsi" "chart" "repo" }}
+    chart: {{ index .Values "democratic-csi-iscsi" "chart" "name" }}
+    targetRevision: {{ index .Values "democratic-csi-iscsi" "chart" "version" }}
+    helm:
+      releaseName: democratic-csi-iscsi
+      values: |
+        csiDriver:
+          name: "org.democratic-csi.iscsi"
+
+        driver:
+          config:
+            driver: {{ index .Values "democratic-csi-iscsi" "driver" }}
+
+            httpConnection:
+              protocol: https
+              host: {{ index .Values "democratic-csi-iscsi" "truenas" "endpoint" | trimPrefix "https://" | trimPrefix "http://" }}
+              port: 443
+              allowInsecure: {{ index .Values "democratic-csi-iscsi" "truenas" "allowInsecure" }}
+              apiKey: "${TRUENAS_API_KEY}"
+
+            zfs:
+              datasetParentName: {{ index .Values "democratic-csi-iscsi" "iscsi" "datasetParent" }}
+              detachedSnapshotsDatasetParentName: {{ index .Values "democratic-csi-iscsi" "iscsi" "snapshotsParent" }}
+              zvolCompression: lz4
+              zvolEnableReservation: false
+              zvolBlocksize: 16K
+
+            iscsi:
+              targetPortal: "{{ index .Values "democratic-csi-iscsi" "iscsi" "targetPortal" }}"
+              namePrefix: csi-
+              nameSuffix: "-homelab"
+              targetGroups:
+                - targetGroupPortalGroup: {{ index .Values "democratic-csi-iscsi" "iscsi" "portalGroupId" }}
+                  targetGroupInitiatorGroup: {{ index .Values "democratic-csi-iscsi" "iscsi" "initiatorGroupId" }}
+                  targetGroupAuthType: None
+              extentInsecureTpc: true
+              extentXenCompat: false
+              extentDisablePhysicalBlocksize: true
+              extentBlocksize: 512
+              extentRpm: "SSD"
+              extentAvailThreshold: 0
+
+        storageClasses:
+        {{- range (index .Values "democratic-csi-iscsi" "storageClasses") }}
+          - name: {{ .name }}
+            defaultClass: {{ .defaultClass }}
+            reclaimPolicy: {{ .reclaimPolicy }}
+            volumeBindingMode: {{ .volumeBindingMode }}
+            allowVolumeExpansion: {{ .allowVolumeExpansion }}
+            parameters:
+              fsType: {{ .parameters.fsType }}
+        {{- end }}
+
+        controller:
+          driver:
+            resources:
+              {{- toYaml (index .Values "democratic-csi-iscsi" "resources" "controller") | nindent 14 }}
+            extraEnv:
+              - name: TRUENAS_API_KEY
+                valueFrom:
+                  secretKeyRef:
+                    name: truenas-api-key
+                    key: api_key
+
+        node:
+          driver:
+            resources:
+              {{- toYaml (index .Values "democratic-csi-iscsi" "resources" "node") | nindent 14 }}
+            extraEnv:
+              - name: TRUENAS_API_KEY
+                valueFrom:
+                  secretKeyRef:
+                    name: truenas-api-key
+                    key: api_key
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: {{ index .Values "democratic-csi-iscsi" "namespace" }}
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+{{- end }}

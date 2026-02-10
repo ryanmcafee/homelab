@@ -67,6 +67,12 @@ Each entry should include:
 - **Prevention**: Use a single permission model (apps:users 568:100) for all NFS shares. Always run with `--all` when fixing permissions. See ADR-006.
 - **Update (2026-02-09)**: ADR-006 partially reversed per ADR-007 — media datasets moved back to `rmcafee:users`, k8s datasets remain `apps:users`. Script now supports split k8s/media model with `--media-mapall-user` and `--media-perm-user` flags.
 
+### 2026-02-09 - Plex SQLite database locking errors on NFS
+- **Issue**: Plex stores SQLite databases on NFS-backed PVC (`democratic-csi-ssd`). SQLite relies on POSIX file locking (`fcntl()`) which is unreliable over NFS, causing `Sqlite3: Sleeping for 200ms to retry busy DB` errors and restart loops
+- **Root Cause**: NFS does not reliably support POSIX file locking required by SQLite. This is a fundamental protocol limitation, not a configuration issue
+- **Solution**: Added iSCSI block storage via democratic-csi (`democratic-csi-iscsi` storage class). iSCSI provides a proper block device with reliable file locking. Migrated Plex config PVC from NFS to iSCSI
+- **Prevention**: Use iSCSI (block storage) instead of NFS for any application that relies on SQLite or POSIX file locking
+
 ### Known Common Errors (from CLAUDE.md)
 
 These are documented errors with known solutions:

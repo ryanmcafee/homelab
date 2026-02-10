@@ -174,6 +174,32 @@ Each decision should include:
 - NFS-created files from K8s pods will be owned by rmcafee (via mapall)
 - Two permission models to maintain (documented in script flags)
 
+### ADR-008: iSCSI Block Storage for SQLite Workloads (2026-02-09)
+
+**Context:**
+- Plex stores SQLite databases on NFS-backed PVC via democratic-csi
+- SQLite relies on POSIX file locking (`fcntl()`) which is unreliable over NFS
+- This caused `Sqlite3: Sleeping for 200ms to retry busy DB` errors and restart loops
+- Need block-level storage with proper file locking while keeping data on TrueNAS
+
+**Decision:**
+- Add iSCSI block storage driver via democratic-csi (`freenas-api-iscsi`)
+- Create `democratic-csi-iscsi` storage class backed by TrueNAS SSD pool
+- Use `siderolabs/iscsi-tools` Talos system extension (musl libc, no nvidia-container-toolkit conflict)
+- Migrate Plex config to iSCSI PVC; keep NFS for media library mounts
+
+**Alternatives Considered:**
+- local-path-provisioner -> Data lost on node failure, no TrueNAS backup
+- hostPath with local SSD -> Same node-binding issue, no HA
+- Fix NFS locking (NFSv4 + file delegation) -> Unreliable, SQLite officially unsupported on NFS
+
+**Consequences:**
+- Proper POSIX file locking for SQLite (no more busy DB errors)
+- Data survives node failure (stored on TrueNAS iSCSI zvol)
+- Requires `iscsi-tools` extension in Talos images and `iscsi_tcp` kernel module
+- iSCSI PVCs are ReadWriteOnce only (single-node mount)
+- TrueNAS iSCSI service must be enabled with portal + initiator groups
+
 ## Tips
 
 - Number decisions sequentially (ADR-001, ADR-002, etc.)

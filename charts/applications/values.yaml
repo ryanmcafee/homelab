@@ -92,7 +92,7 @@ plex:
   # Plex configuration
   pms:
     configExistingClaim: ""
-    storageClassName: democratic-csi-nfs
+    storageClassName: democratic-csi-iscsi
     # Plex claim token from 1Password
     claimSecret:
       name: plex

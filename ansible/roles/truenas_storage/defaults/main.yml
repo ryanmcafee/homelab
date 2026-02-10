@@ -122,7 +122,7 @@ truenas_smb_browsable: true        # Show in network browser
 truenas_smb_readonly: false        # Read-only shares
 
 # iSCSI Configuration (optional)
-truenas_iscsi_enabled: false
+truenas_iscsi_enabled: true
 truenas_iscsi_portal_ip: "{{ ansible_host }}"
 
 # API Key for democratic-csi (generated during setup)

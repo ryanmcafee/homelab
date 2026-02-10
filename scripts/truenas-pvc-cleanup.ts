@@ -27,11 +27,12 @@ const PVC_PATTERN = /^pvc-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-
 const CSI_DRIVERS: Record<string, string> = {
   "org.democratic-csi.nfs": "storage/k8s",
   "org.democratic-csi.nfs-ssd": "ssd/k8s",
+  "org.democratic-csi.iscsi": "ssd/iscsi",
 };
 
 // Dataset parents to scan
-const DATASET_PARENTS = ["storage/k8s", "ssd/k8s"];
-const SNAPSHOT_PARENTS = ["storage/k8s-snapshots", "ssd/k8s-snapshots"];
+const DATASET_PARENTS = ["storage/k8s", "ssd/k8s", "ssd/iscsi"];
+const SNAPSHOT_PARENTS = ["storage/k8s-snapshots", "ssd/k8s-snapshots", "ssd/iscsi-snapshots"];
 
 interface NfsShare {
   id: number;
