@@ -36,6 +36,46 @@ global:
     books: /mnt/storage/books
 
 # ============================================================================
+# Stable PVCs - Pre-created iSCSI PVCs for application configs
+# Sync Wave: 10 (before app deployments, after storage provisioners)
+# ============================================================================
+
+stablePVCs:
+  enabled: true
+  defaultStorageClassName: democratic-csi-iscsi-hdd
+  pvcs:
+    sonarr-config:
+      namespace: media
+      size: 10Gi
+    radarr-config:
+      namespace: media
+      size: 10Gi
+    prowlarr-config:
+      namespace: media
+      size: 1Gi
+    nzbget-config:
+      namespace: media
+      size: 5Gi
+    tautulli-config:
+      namespace: media
+      size: 5Gi
+    lazylibrarian-config:
+      namespace: media
+      size: 5Gi
+    flaresolverr-config:
+      namespace: media
+      size: 1Gi
+    mosquitto-config:
+      namespace: home-automation
+      size: 1Gi
+    mosquitto-data:
+      namespace: home-automation
+      size: 1Gi
+    homeassistant-config:
+      namespace: home-automation
+      size: 10Gi
+
+# ============================================================================
 # Plex Media Server
 # Sync Wave: 1 (core media service)
 # ============================================================================
@@ -210,10 +250,7 @@ sonarr:
   persistence:
     config:
       enabled: true
-      storageClass: democratic-csi-nfs
-      size: 10Gi
-      accessModes:
-        - ReadWriteOnce
+      existingClaim: "sonarr-config"
 
     # TV storage via NFS
     tv:
@@ -297,10 +334,7 @@ radarr:
   persistence:
     config:
       enabled: true
-      storageClass: democratic-csi-nfs
-      size: 10Gi
-      accessModes:
-        - ReadWriteOnce
+      existingClaim: "radarr-config"
 
     # Movies storage via NFS
     movies:
@@ -384,10 +418,7 @@ prowlarr:
   persistence:
     config:
       enabled: true
-      storageClass: democratic-csi-nfs
-      size: 1Gi
-      accessModes:
-        - ReadWriteOnce
+      existingClaim: "prowlarr-config"
 
   ingress:
     main:
@@ -447,10 +478,7 @@ nzbget:
   persistence:
     config:
       enabled: true
-      storageClass: democratic-csi-nfs
-      size: 5Gi
-      accessModes:
-        - ReadWriteOnce
+      existingClaim: "nzbget-config"
 
     # Downloads storage via NFS
     downloads:
@@ -518,10 +546,7 @@ tautulli:
   persistence:
     config:
       enabled: true
-      storageClass: democratic-csi-nfs
-      size: 5Gi
-      accessModes:
-        - ReadWriteOnce
+      existingClaim: "tautulli-config"
 
   ingress:
     main:
@@ -581,10 +606,7 @@ lazylibrarian:
   persistence:
     config:
       enabled: true
-      storageClass: democratic-csi-nfs
-      size: 5Gi
-      accessModes:
-        - ReadWriteOnce
+      existingClaim: "lazylibrarian-config"
 
     # Books storage via NFS
     books:
@@ -664,10 +686,7 @@ homeassistant:
   persistence:
     config:
       enabled: true
-      storageClass: democratic-csi-nfs
-      size: 10Gi
-      accessModes:
-        - ReadWriteOnce
+      existingClaim: "homeassistant-config"
 
   ingress:
     main:
@@ -721,19 +740,13 @@ mosquitto:
   persistence:
     config:
       enabled: true
-      storageClass: democratic-csi-nfs
-      size: 1Gi
+      existingClaim: "mosquitto-config"
       mountPath: /mosquitto/config
-      accessModes:
-        - ReadWriteOnce
 
     data:
       enabled: true
-      storageClass: democratic-csi-nfs
-      size: 1Gi
+      existingClaim: "mosquitto-data"
       mountPath: /mosquitto/data
-      accessModes:
-        - ReadWriteOnce
 
   service:
     main:
@@ -797,10 +810,7 @@ flaresolverr:
   persistence:
     config:
       enabled: true
-      storageClass: democratic-csi-nfs
-      size: 1Gi
-      accessModes:
-        - ReadWriteOnce
+      existingClaim: "flaresolverr-config"
 
   TZ: America/New_York
   securityContext:

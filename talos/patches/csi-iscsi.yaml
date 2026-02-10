@@ -11,6 +11,25 @@ machine:
   # System extensions (must be included in the Talos image)
   # Ensure siderolabs/iscsi-tools is in your schematic.yaml
 
+  # Expose iSCSI paths from iscsi-tools extension to kubelet mount namespace
+  # Without this, kubelet cannot see /etc/iscsi and hostPath volumes will fail
+  kubelet:
+    extraMounts:
+      - destination: /etc/iscsi
+        type: bind
+        source: /etc/iscsi
+        options:
+          - bind
+          - rshared
+          - rw
+      - destination: /var/lib/iscsi
+        type: bind
+        source: /var/lib/iscsi
+        options:
+          - bind
+          - rshared
+          - rw
+
   # Node labels for storage capabilities
   nodeLabels:
     # Indicates iSCSI client support

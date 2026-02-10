@@ -134,6 +134,21 @@ inputs = {
           defaultRuntimeSeccompProfileEnabled = true
           # Disable manifests directory which can cause delays
           disableManifestsDirectory = true
+          # Expose iSCSI paths from iscsi-tools extension to kubelet mount namespace
+          extraMounts = [
+            {
+              destination = "/etc/iscsi"
+              type        = "bind"
+              source      = "/etc/iscsi"
+              options     = ["bind", "rshared", "rw"]
+            },
+            {
+              destination = "/var/lib/iscsi"
+              type        = "bind"
+              source      = "/var/lib/iscsi"
+              options     = ["bind", "rshared", "rw"]
+            }
+          ]
         }
         features = {
           # Enable disk quota support for local storage

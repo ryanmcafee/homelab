@@ -24,6 +24,10 @@ customization:
       # NFS utilities - Required for NFS CSI driver (TrueNAS storage)
       - siderolabs/nfs-utils
 
+      # iSCSI tools - Required for iSCSI CSI driver (TrueNAS block storage)
+      # Provides iscsid, iscsiadm, and /etc/iscsi on the host
+      - siderolabs/iscsi-tools
+
 # To generate the image:
 # 1. Submit this schematic to Image Factory API
 # 2. Receive a schematic ID

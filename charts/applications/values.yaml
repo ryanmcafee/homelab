@@ -832,6 +832,16 @@ flaresolverr:
       runAsGroup: 0
 
 # ============================================================================
+# Stable PVCs - Pre-created iSCSI PVCs for application configs
+# Sync Wave: 10 (before app deployments, after storage provisioners)
+# ============================================================================
+
+stablePVCs:
+  enabled: false
+  defaultStorageClassName: democratic-csi-iscsi-hdd
+  pvcs: {}
+
+# ============================================================================
 # DuckDNS - Dynamic DNS Updater
 # Sync Wave: 1 (early infrastructure)
 # ============================================================================

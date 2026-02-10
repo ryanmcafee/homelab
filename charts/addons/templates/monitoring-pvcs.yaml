@@ -1,0 +1,19 @@
+{{- if and (index .Values "kube-prometheus-stack" "enabled")
+           (index .Values "kube-prometheus-stack" "grafana" "persistence" "existingClaim") }}
+---
+# Grafana PVC - Pre-created iSCSI PVC for Grafana config persistence
+# Wave 8: After storage provisioners (wave 2), before kube-prometheus-stack (wave 9)
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ index .Values "kube-prometheus-stack" "grafana" "persistence" "existingClaim" }}
+  namespace: {{ index .Values "kube-prometheus-stack" "namespace" }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+spec:
+  accessModes: ["ReadWriteOnce"]
+  storageClassName: {{ index .Values "kube-prometheus-stack" "grafana" "persistence" "storageClass" }}
+  resources:
+    requests:
+      storage: {{ index .Values "kube-prometheus-stack" "grafana" "persistence" "size" }}
+{{- end }}
