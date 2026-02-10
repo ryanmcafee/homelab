@@ -42,11 +42,6 @@ spec:
           {{- toYaml .Values.sonarr.securityContext | nindent 10 }}
         {{- end }}
 
-        {{- if .Values.sonarr.metrics }}
-        metrics:
-          {{- toYaml .Values.sonarr.metrics | nindent 10 }}
-        {{- end }}
-
   destination:
     server: https://kubernetes.default.svc
     namespace: {{ .Values.sonarr.namespace }}

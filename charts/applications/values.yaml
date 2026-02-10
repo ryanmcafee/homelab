@@ -207,15 +207,14 @@ sonarr:
               limits:
                 cpu: 1000m
                 memory: 1Gi
-  metrics:
-    main:
-      resources:
-        requests:
-          cpu: 50m
-          memory: 64Mi
-        limits:
-          cpu: 200m
-          memory: 256Mi
+          exportarr:
+            resources:
+              requests:
+                cpu: 50m
+                memory: 64Mi
+              limits:
+                cpu: 200m
+                memory: 256Mi
 
   # Persistence configuration
   persistence:
@@ -296,15 +295,14 @@ radarr:
               limits:
                 cpu: 1000m
                 memory: 1Gi
-  metrics:
-    main:
-      resources:
-        requests:
-          cpu: 50m
-          memory: 64Mi
-        limits:
-          cpu: 200m
-          memory: 256Mi
+          exportarr:
+            resources:
+              requests:
+                cpu: 50m
+                memory: 64Mi
+              limits:
+                cpu: 200m
+                memory: 256Mi
 
   # Persistence configuration
   persistence:
@@ -385,15 +383,14 @@ prowlarr:
               limits:
                 cpu: 500m
                 memory: 512Mi
-  metrics:
-    main:
-      resources:
-        requests:
-          cpu: 50m
-          memory: 64Mi
-        limits:
-          cpu: 200m
-          memory: 256Mi
+          exportarr:
+            resources:
+              requests:
+                cpu: 50m
+                memory: 64Mi
+              limits:
+                cpu: 200m
+                memory: 256Mi
 
   # Persistence configuration
   persistence:
