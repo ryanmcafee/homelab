@@ -686,6 +686,8 @@ traefik:
 
   service:
     type: LoadBalancer
+    spec:
+      externalTrafficPolicy: Local
     # Static IP for predictable port forwarding and DNS
     annotations:
       # Cilium LB IPAM annotation for static IP assignment
@@ -713,6 +715,11 @@ traefik:
       http:
         tls:
           enabled: true
+      transport:
+        respondingTimeouts:
+          readTimeout: 0
+          writeTimeout: 0
+          idleTimeout: 600s
     traefik:
       port: 9000
       expose:
