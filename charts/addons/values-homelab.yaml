@@ -579,6 +579,17 @@ kube-prometheus-stack:
         cpu: 2000m
         memory: 4Gi
 
+    # Avoid scheduling on GPU nodes — keep GPU resources for media workloads
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+            - matchExpressions:
+                - key: nvidia.com/gpu.present
+                  operator: NotIn
+                  values:
+                    - "true"
+
     serviceMonitors:
       enabled: true
 
