@@ -63,7 +63,11 @@ spec:
 
           persistence:
             enabled: {{ index .Values "kube-prometheus-stack" "grafana" "persistence" "enabled" }}
+            {{- if (index .Values "kube-prometheus-stack" "grafana" "persistence" "existingClaim") }}
+            existingClaim: {{ index .Values "kube-prometheus-stack" "grafana" "persistence" "existingClaim" }}
+            {{- else }}
             storageClassName: {{ index .Values "kube-prometheus-stack" "grafana" "persistence" "storageClass" }}
+            {{- end }}
             size: {{ index .Values "kube-prometheus-stack" "grafana" "persistence" "size" }}
 
           {{- if (index .Values "kube-prometheus-stack" "grafana" "ingress" "enabled") }}

@@ -396,6 +396,61 @@ democratic-csi-iscsi:
         memory: 256Mi
 
 # ============================================================================
+# Democratic-CSI iSCSI HDD - Block Storage Provisioner (HDD-backed)
+# Sync Wave: 2 (same as other instances, reuses truenas-api-key secret)
+# ============================================================================
+
+democratic-csi-iscsi-hdd:
+  enabled: true
+  namespace: democratic-csi
+
+  chart:
+    name: democratic-csi
+    repo: https://democratic-csi.github.io/charts/
+    version: 0.14.6
+
+  driver: freenas-api-iscsi
+
+  truenas:
+    # Use IP address instead of hostname since internal DNS is not resolvable from cluster
+    endpoint: https://172.16.100.150
+    allowInsecure: true  # Required when using IP (no valid TLS cert for IP)
+    apiKey: ""  # Populated from 1Password secret
+    onePasswordItemPath: vaults/homelab/items/truenas
+
+  iscsi:
+    targetPortal: "172.16.100.150:3260"
+    datasetParent: storage/k8s
+    snapshotsParent: storage/k8s-iscsi-snapshots
+    portalGroupId: 1
+    initiatorGroupId: 1
+
+  storageClasses:
+    - name: democratic-csi-iscsi-hdd
+      defaultClass: false
+      reclaimPolicy: Retain
+      volumeBindingMode: Immediate
+      allowVolumeExpansion: true
+      parameters:
+        fsType: ext4
+
+  resources:
+    controller:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        cpu: 200m
+        memory: 256Mi
+    node:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        cpu: 200m
+        memory: 256Mi
+
+# ============================================================================
 # Local Path Provisioner - Disabled for homelab (using democratic-csi)
 # ============================================================================
 
@@ -623,7 +678,7 @@ kube-prometheus-stack:
   prometheus:
     retention: 30d
     retentionSize: 50GB
-    storageClass: democratic-csi-nfs
+    storageClass: democratic-csi-iscsi-hdd
     storageSize: 100Gi
 
     resources:
@@ -660,7 +715,8 @@ kube-prometheus-stack:
 
     persistence:
       enabled: true
-      storageClass: democratic-csi-nfs
+      existingClaim: "grafana-config"
+      storageClass: democratic-csi-iscsi-hdd
       size: 10Gi
 
     ingress:
@@ -691,7 +747,7 @@ kube-prometheus-stack:
     storage:
       volumeClaimTemplate:
         spec:
-          storageClassName: democratic-csi-nfs
+          storageClassName: democratic-csi-iscsi-hdd
           accessModes: ["ReadWriteOnce"]
           resources:
             requests:

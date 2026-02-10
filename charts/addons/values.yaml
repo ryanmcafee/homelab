@@ -421,6 +421,65 @@ democratic-csi-iscsi:
         memory: 256Mi
 
 # ============================================================================
+# Democratic-CSI iSCSI HDD - Block Storage Provisioner (HDD-backed)
+# Sync Wave: 2 (same as other instances, reuses truenas-api-key secret)
+# ============================================================================
+
+democratic-csi-iscsi-hdd:
+  enabled: false  # Only enabled in homelab
+  namespace: democratic-csi
+
+  # Chart source (same chart as other instances)
+  chart:
+    name: democratic-csi
+    repo: https://democratic-csi.github.io/charts/
+    version: 0.14.6
+
+  # TrueNAS iSCSI driver
+  driver: freenas-api-iscsi
+
+  # Connection details
+  truenas:
+    endpoint: https://truenas.ryanmcafee.com
+    allowInsecure: false
+    apiKey: ""
+
+  # iSCSI configuration (HDD pool)
+  iscsi:
+    targetPortal: "truenas.ryanmcafee.com:3260"
+    datasetParent: storage/k8s
+    snapshotsParent: storage/k8s-iscsi-snapshots
+    portalGroupId: 1
+    initiatorGroupId: 1
+
+  # Storage class configuration (NOT default)
+  storageClasses:
+    - name: democratic-csi-iscsi-hdd
+      defaultClass: false
+      reclaimPolicy: Retain
+      volumeBindingMode: Immediate
+      allowVolumeExpansion: true
+      parameters:
+        fsType: ext4
+
+  # Resource limits
+  resources:
+    controller:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        cpu: 200m
+        memory: 256Mi
+    node:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        cpu: 200m
+        memory: 256Mi
+
+# ============================================================================
 # Local Path Provisioner - Local Storage (localdev only)
 # Sync Wave: 1 (alternative to democratic-csi for local dev)
 # ============================================================================
@@ -661,6 +720,7 @@ kube-prometheus-stack:
     # Persistence
     persistence:
       enabled: true
+      existingClaim: ""
       storageClass: democratic-csi-nfs
       size: 10Gi
 
