@@ -117,6 +117,7 @@ const MIGRATIONS: MigrateVolume[] = [
   { volumeHandle: "flaresolverr-config", oldNfsDatasetName: "csi-pvc-4e3e698e-5a65-4c66-9515-72e01baf8776-homelab", newZvolName: "csi-flaresolverr-config-homelab", pool: "storage/k8s", sizeBytes: giToBytes(1), namespace: "media", workloadName: "flaresolverr", workloadType: "deployment", rpm: "7200" },
   { volumeHandle: "mosquitto-config", oldNfsDatasetName: "csi-pvc-01298619-954c-44a5-844e-208efdaa616f-homelab", newZvolName: "csi-mosquitto-config-homelab", pool: "storage/k8s", sizeBytes: giToBytes(1), namespace: "home-automation", workloadName: "mosquitto", workloadType: "deployment", rpm: "7200" },
   { volumeHandle: "mosquitto-data", oldNfsDatasetName: "csi-pvc-79e9e8ff-41d9-4838-a8f8-e48ee6f0b1ef-homelab", newZvolName: "csi-mosquitto-data-homelab", pool: "storage/k8s", sizeBytes: giToBytes(1), namespace: "home-automation", workloadName: "mosquitto", workloadType: "deployment", rpm: "7200" },
+  { volumeHandle: "mosquitto-configinc", oldNfsDatasetName: "csi-pvc-4e7c3c1f-7f5f-4609-82b6-d3a6b49fac1c-homelab", newZvolName: "csi-mosquitto-configinc-homelab", pool: "storage/k8s", sizeBytes: giToBytes(1), namespace: "home-automation", workloadName: "mosquitto", workloadType: "deployment", rpm: "7200" },
   { volumeHandle: "homeassistant-config", oldNfsDatasetName: "csi-pvc-148d88bc-110f-4a6d-bf2f-1265d64f6aed-homelab", newZvolName: "csi-homeassistant-config-homelab", pool: "storage/k8s", sizeBytes: giToBytes(10), namespace: "home-automation", workloadName: "home-assistant", workloadType: "deployment", rpm: "7200" },
   { volumeHandle: "grafana-config", oldNfsDatasetName: "csi-pvc-51ce155b-9944-4761-bc64-d64404a0a398-homelab", newZvolName: "csi-grafana-config-homelab", pool: "storage/k8s", sizeBytes: giToBytes(10), namespace: "monitoring", workloadName: "kube-prometheus-stack-grafana", workloadType: "deployment", rpm: "7200" },
 ];
@@ -132,6 +133,7 @@ const NFS_CLEANUPS: NfsCleanup[] = [
   { pvcName: "kube-prometheus-stack-grafana", namespace: "monitoring", datasetPattern: "csi-pvc-268a6235" },
   { pvcName: "alertmanager-kube-prometheus-stack-alertmanager-db-alertmanager-kube-prometheus-stack-alertmanager-0", namespace: "monitoring", datasetPattern: "csi-pvc-47cfcbdd" },
   { pvcName: "prometheus-kube-prometheus-stack-prometheus-db-prometheus-kube-prometheus-stack-prometheus-0", namespace: "monitoring", datasetPattern: "csi-pvc-d04e6ba4" },
+  { pvcName: "mosquitto-configinc", namespace: "home-automation", datasetPattern: "csi-pvc-4e7c3c1f" },
 ];
 
 // All valid phase names

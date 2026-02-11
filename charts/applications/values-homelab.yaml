@@ -708,6 +708,11 @@ mosquitto:
       existingClaim: "mosquitto-data"
       mountPath: /mosquitto/data
 
+    configinc:
+      enabled: true
+      existingClaim: "mosquitto-configinc"
+      mountPath: /mosquitto/configinc
+
   service:
     main:
       type: LoadBalancer
