@@ -3,3 +3,20 @@
 namespace: media
 
 onePasswordItemPath: vaults/homelab/items/plex
+
+volumes:
+  - pvcName: plex-config-iscsi
+    pvName: plex-config-iscsi-pv
+    volumeHandle: plex-config-iscsi
+    storageClassName: democratic-csi-iscsi
+    size: 100Gi
+    csi:
+      driver: org.democratic-csi.iscsi
+      fsType: ext4
+      volumeAttributes:
+        node_attach_driver: iscsi
+        portal: "172.16.100.150:3260"
+        portals: ""
+        iqn: "iqn.2005-10.org.freenas.ctl:csi-plex-config-iscsi-homelab"
+        lun: "0"
+        interface: ""

@@ -1,0 +1,6 @@
+apiVersion: v2
+name: prometheus-config
+description: Pre-requisite persistent storage for Prometheus and Alertmanager (iSCSI)
+type: application
+version: 1.0.0
+appVersion: "1.0"

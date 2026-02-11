@@ -1,7 +1,37 @@
 {{- if .Values.homeassistant.enabled }}
 ---
-# NOTE: Namespace is created by stable-pvcs.yaml at wave 10 (when stablePVCs.enabled)
-# or by CreateNamespace syncOption as fallback
+# Home Assistant Config: deploys static PV+PVC for homeassistant persistent storage
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: homeassistant-config
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "14"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: {{ .Values.global.repoUrl }}
+    targetRevision: {{ .Values.global.targetRevision }}
+    path: charts/homeassistant-config
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-{{ .Values.global.environment }}.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: {{ .Values.homeassistant.namespace }}
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - SkipDryRunOnMissingResource=true
+---
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:

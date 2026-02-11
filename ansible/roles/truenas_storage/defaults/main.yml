@@ -128,6 +128,15 @@ truenas_iscsi_portal_ip: "{{ ansible_host }}"
 # API Key for democratic-csi (generated during setup)
 truenas_csi_api_key_name: democratic-csi
 
+# iSCSI Volume Provisioning (deterministic PV volumes)
+truenas_iscsi_volumes: []
+truenas_iscsi_volume_blocksize: "16K"
+truenas_iscsi_volume_compression: LZ4
+truenas_iscsi_extent_blocksize: 512
+truenas_iscsi_portal_id: 1
+truenas_iscsi_initiator_id: 1
+truenas_iscsi_default_lun_id: 0
+
 # Wait for API timeout (seconds)
 truenas_api_wait_timeout: 300
 truenas_api_retry_delay: 10

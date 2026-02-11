@@ -1,0 +1,17 @@
+namespace: monitoring
+volumes:
+  - pvcName: grafana-config
+    pvName: grafana-config-pv
+    volumeHandle: grafana-config
+    storageClassName: democratic-csi-iscsi-hdd
+    size: 10Gi
+    csi:
+      driver: org.democratic-csi.iscsi-hdd
+      fsType: ext4
+      volumeAttributes:
+        node_attach_driver: iscsi
+        portal: "172.16.100.150:3260"
+        portals: ""
+        iqn: "iqn.2005-10.org.freenas.ctl:csi-grafana-config-homelab"
+        lun: "0"
+        interface: ""

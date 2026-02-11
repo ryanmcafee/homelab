@@ -1,0 +1,6 @@
+apiVersion: v2
+name: nzbget-config
+description: Pre-requisite persistent storage for NZBGet
+type: application
+version: 1.0.0
+appVersion: "1.0"
