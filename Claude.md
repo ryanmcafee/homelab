@@ -8,6 +8,23 @@ Before implementing a plan, ensure that 'bd' is used for task tracking to suppor
 
 Always prefer mcp__serena allowed tools over other tools.
 
+### Serena Tool Routing
+
+| Task | Use Serena | Instead of |
+|------|-----------|------------|
+| Regex search with context | `search_for_pattern` | Grep |
+| File discovery (.gitignore aware) | `find_file` / `list_dir` | Glob |
+| Navigate Go/TS code | `find_symbol` / `get_symbols_overview` | Grep + Read |
+| Trace function usage | `find_referencing_symbols` | Grep |
+| Persist agent learnings | `write_memory` | N/A |
+| Reasoning checkpoints | `think_about_*` tools | N/A |
+
+### Memory System Coexistence
+
+- **Serena memories** (`.serena/memories/`): Agent-specific context, technical patterns, gotchas discovered during tasks
+- **Project notes** (`docs/project_notes/`): User-facing bug logs, ADRs, work logs, config facts
+- Use both - they serve different purposes
+
 ## Subagent Routing
 
 This project has 25 specialized subagents in `.claude/agents/`. **Always delegate to the appropriate subagent** instead of doing specialized work inline. See `AGENTS.md` for the full list and coordination rules.

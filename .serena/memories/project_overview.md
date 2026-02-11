@@ -1,35 +1,49 @@
 # Homelab Project Overview
 
 ## Purpose
-GitOps-driven homelab infrastructure managing a Talos Linux Kubernetes cluster on Proxmox VE. Uses ArgoCD App-of-Apps pattern for deployment orchestration, with multi-environment support (localdev via Kind+Tilt, homelab for production).
+GitOps-driven homelab infrastructure with ArgoCD App-of-Apps pattern on Talos Linux Kubernetes cluster running on Proxmox VE.
 
 ## Tech Stack
-- **Languages**: Go (CLI tooling), TypeScript (Deno scripts), Terraform/Terragrunt (IaC), Helm (Kubernetes charts)
-- **Go CLI**: `cmd/homelab/` - Cobra-based CLI with subcommands (bootstrap, render, sops, talos, validate, verify)
-- **Go Libraries**: `spf13/cobra` (CLI), `fatih/color` (terminal colors)
-- **Infrastructure**: Proxmox VE, Talos Linux, Cilium CNI, ArgoCD, 1Password+SOPS for secrets
-- **Task Runner**: Taskfile (not Make)
-- **Tool Management**: mise (manages terraform, kubectl, helm, deno, etc.)
-- **Scripting Runtime**: Deno (TypeScript only, no Bash/Python scripts)
+- **Kubernetes**: Talos Linux on Proxmox VE (production), Kind + Tilt (local dev)
+- **GitOps**: ArgoCD with App-of-Apps pattern (gitops -> addons -> applications)
+- **Infrastructure as Code**: Terraform + Terragrunt
+- **Helm Charts**: Infrastructure addons (18 templates) and user applications (9 templates)
+- **Secrets**: 1Password + SOPS (age encryption)
+- **Networking**: Cilium with BGP peering to UniFi router
+- **Storage**: Democratic-CSI with TrueNAS NFS
+- **Backend Code**: Go 1.19 (cobra CLI tool)
+- **Scripting**: TypeScript only (Deno runtime, no Bash/Python)
+- **Task Runner**: Taskfile
+- **Database**: CloudNativePG (PostgreSQL operator)
+- **Monitoring**: kube-prometheus-stack + Grafana
+- **Ingress**: Traefik with cert-manager
 
-## Architecture
-- ArgoCD App-of-Apps: `charts/gitops` → `charts/addons` (infra) → `charts/applications` (workloads)
-- Sync waves: -2 (SOPS secrets) → -1 (namespaces) → 0 (1Password) → 1-7+ (services)
-- Terragrunt modules: proxmox-vm, talos-cluster, talos-image, kind-cluster, gitops-bootstrap, truenas, unifi-gateway
-- Two environments: `terragrunt/environments/homelab/` and `terragrunt/environments/localdev/`
+## Project Structure
+```
+homelab/
+├── charts/           # Helm charts (gitops, addons, applications, secrets)
+├── scripts/          # TypeScript automation (Deno)
+├── terragrunt/       # Terraform modules + environments (homelab, localdev)
+├── localdev/         # Kind + Tilt configuration
+├── talos/            # Talos Linux config + image
+├── cmd/              # Go CLI tool (cobra)
+├── internal/         # Go internal packages
+├── bin/              # Compiled binaries
+├── docs/             # Architecture + runbooks + project notes
+├── config/           # Configuration files
+├── ansible/          # Ansible playbooks
+└── packer/           # Packer templates
+```
 
-## Key Directories
-```
-cmd/homelab/          - Go CLI (cobra commands)
-internal/             - Go internal packages (logger, config, template, utils)
-charts/addons/        - Infrastructure Helm chart (25 templates)
-charts/applications/  - Application Helm chart (15 templates)
-charts/gitops/        - App-of-Apps bootstrap
-charts/secrets/       - SOPS-encrypted secrets
-terragrunt/modules/   - 11 Terraform modules
-terragrunt/environments/ - homelab + localdev configs
-scripts/              - Deno TypeScript automation scripts
-talos/                - Talos Linux machine configs and patches
-localdev/             - Kind + Tilt local dev config
-docs/                 - Architecture docs and runbooks
-```
+## Environments
+| Feature | localdev | homelab |
+|---------|----------|---------|
+| Kubernetes | Kind | Talos Linux |
+| Storage | local-path-provisioner | Democratic-CSI NFS |
+| Load Balancer | disabled/NodePort | Cilium LB IPAM + BGP |
+| Secrets | Fake/disabled | 1Password + SOPS |
+| GPU | None | NVIDIA Quadro P2200 |
+
+## File Composition
+- ~93% configuration files (YAML, HCL, Terraform)
+- ~7% code (Go CLI tool + TypeScript scripts)

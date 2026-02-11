@@ -1,65 +1,65 @@
 # Suggested Commands
 
 ## Task Runner (Taskfile)
-All commands use `task` as the runner.
 
-### Development
+### Setup
+- `task setup` - Full homelab setup (validates prereqs, runs bootstrap)
+- `task validate` - Validate prerequisites are installed
+- `task install-tools` - Install required CLI tools via mise
+
+### Local Development
 - `task localdev:up` - Start Kind + Tilt local development
 - `task localdev:down` - Destroy local environment
-- `task localdev:reset` - Full teardown + recreate
 
 ### Helm Charts
 - `task chart:lint` - Lint all Helm charts
-- `task chart:template:addons` - Template addons chart (debug)
-- `task chart:template:apps` - Template applications chart (debug)
+- `task chart:template:addons` - Debug addons rendering
+- `task chart:template:applications` - Debug applications rendering
 
 ### Terraform/Terragrunt
-- `task tf:plan` - Plan all components (homelab env)
-- `task tf:plan:component COMPONENT=X` - Plan single component
-- `task tf:apply` - Apply all components
-- `task tf:apply:component COMPONENT=X` - Apply single component
-- `task tf:fmt` - Format HCL files
+- `task tf:apply:component COMPONENT=X` - Apply single Terraform component
+- `task tf:plan` - Plan Terraform changes (auto-syncs rendered files)
 
-### Rendered Manifests
-- `task render` - Render Cilium, CSR approver, Spegel to YAML
-- `task render:push` - Upload to 1Password
-- `task render:pull` - Download from 1Password
-- `task render:status` - Check local vs 1Password status
+### Rendered Manifests (Cilium, CSR approver, Spegel)
+- `task render` - Render inline manifests
+- `task render:push` - Upload rendered files to 1Password
+- `task render:pull` - Download rendered files from 1Password
+- `task render:status` - Check status of rendered files
+- `task render:sync` - Sync files between local and 1Password
 
-### Talos Cluster
-- `task talos:recreate:node NODE=X` - Recreate a Talos node
-- `task talos:recreate:gpu-node` - Recreate GPU worker + verify
+### Talos
+- `task talos:recreate:node NODE=X` - Recreate Talos node
+
+### GPU
 - `task gpu:verify` - Verify GPU support
 
-### SOPS Secrets
-- `task sops:setup` - Full SOPS setup (pull from 1Password, encrypt, commit)
-- `task sops:verify` - Verify SOPS decryption works
-- `task sops:decrypt` - View decrypted secrets
-
-### CI / Linting
-- `task ci:lint` - Run all linters (ansible, helm, yamllint)
-- `task ci:test` - Full CI test suite
-- `pre-commit run --all-files` - Run pre-commit hooks
-
-### Validation
-- `task validate` - Validate all prerequisites installed
-- `task install-tools` - Install CLI tools via mise
+### SOPS
+- `task sops:setup` - Full SOPS setup
 
 ### Documentation
-- `task docs:embedme` - Update embedded code snippets in markdown
+- `task docs:embedme` - Update embedded code snippets in CLAUDE.md
 
-### Go CLI
-- `./bin/homelab bootstrap` - Bootstrap setup
-- `./bin/homelab render push/pull/status/sync` - Rendered manifest management
-- `./bin/homelab sops bootstrap/setup` - SOPS key management
-- `./bin/homelab talos recreate --node=X` - Node recreation
-- `./bin/homelab verify gpu` - GPU verification
-- `./bin/homelab validate` - Prerequisites validation
+## Pre-commit Hooks
+- `pre-commit install` - Install hooks
+- `pre-commit run --all-files` - Run all hooks manually
 
-## System Utilities (Darwin/macOS)
-- `rg` (ripgrep) for searching, NOT grep
-- `fd` for finding files, NOT find
-- `bat` for viewing files, NOT cat
-- `eza` for listing files, NOT ls
-- `jq` / `yq` for JSON/YAML processing
-- `gh` for GitHub CLI operations
+Hooks include: helm-lint, helm-template, kubeconform, yamllint, terraform_fmt, terragrunt_fmt, trailing-whitespace, end-of-file-fixer
+
+## Go CLI
+- `go build -o bin/homelab ./cmd/homelab` - Build CLI
+- `./bin/homelab bootstrap` - Bootstrap homelab
+- `./bin/homelab validate` - Validate prerequisites
+
+## TypeScript Scripts (Deno)
+All scripts in `scripts/` use Deno with explicit permissions:
+```
+deno run --allow-net --allow-run --allow-env --allow-read scripts/<script>.ts
+```
+
+## CLI Tool Preferences (macOS/Darwin)
+- Use `rg` (ripgrep) instead of grep
+- Use `fd` instead of find
+- Use `bat` instead of cat
+- Use `eza` instead of ls
+- Use `jq` for JSON processing
+- Use `yq` for YAML processing
