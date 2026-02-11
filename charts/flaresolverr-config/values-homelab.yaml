@@ -1,0 +1,17 @@
+namespace: media
+volumes:
+  - pvcName: flaresolverr-config
+    pvName: flaresolverr-config-pv
+    volumeHandle: flaresolverr-config
+    storageClassName: democratic-csi-iscsi-hdd
+    size: 1Gi
+    csi:
+      driver: org.democratic-csi.iscsi-hdd
+      fsType: ext4
+      volumeAttributes:
+        node_attach_driver: iscsi
+        portal: "172.16.100.150:3260"
+        portals: ""
+        iqn: "iqn.2005-10.org.freenas.ctl:csi-flaresolverr-config-homelab"
+        lun: "0"
+        interface: ""

@@ -1,5 +1,37 @@
 {{- if .Values.nzbget.enabled }}
 ---
+# NZBGet Config: deploys static PV+PVC for nzbget persistent storage
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: nzbget-config
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "12"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: {{ .Values.global.repoUrl }}
+    targetRevision: {{ .Values.global.targetRevision }}
+    path: charts/nzbget-config
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-{{ .Values.global.environment }}.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: {{ .Values.nzbget.namespace }}
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - SkipDryRunOnMissingResource=true
+---
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:

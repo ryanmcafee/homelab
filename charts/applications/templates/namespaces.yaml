@@ -1,0 +1,21 @@
+---
+# Namespace: media
+# Created early so config charts and app deployments have a target namespace
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: media
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
+---
+# Namespace: home-automation (privileged for hostNetwork)
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: home-automation
+  labels:
+    pod-security.kubernetes.io/enforce: privileged
+    pod-security.kubernetes.io/audit: privileged
+    pod-security.kubernetes.io/warn: privileged
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"

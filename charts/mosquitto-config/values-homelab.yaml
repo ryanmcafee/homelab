@@ -1,0 +1,32 @@
+namespace: home-automation
+volumes:
+  - pvcName: mosquitto-config
+    pvName: mosquitto-config-pv
+    volumeHandle: mosquitto-config
+    storageClassName: democratic-csi-iscsi-hdd
+    size: 1Gi
+    csi:
+      driver: org.democratic-csi.iscsi-hdd
+      fsType: ext4
+      volumeAttributes:
+        node_attach_driver: iscsi
+        portal: "172.16.100.150:3260"
+        portals: ""
+        iqn: "iqn.2005-10.org.freenas.ctl:csi-mosquitto-config-homelab"
+        lun: "0"
+        interface: ""
+  - pvcName: mosquitto-data
+    pvName: mosquitto-data-pv
+    volumeHandle: mosquitto-data
+    storageClassName: democratic-csi-iscsi-hdd
+    size: 1Gi
+    csi:
+      driver: org.democratic-csi.iscsi-hdd
+      fsType: ext4
+      volumeAttributes:
+        node_attach_driver: iscsi
+        portal: "172.16.100.150:3260"
+        portals: ""
+        iqn: "iqn.2005-10.org.freenas.ctl:csi-mosquitto-data-homelab"
+        lun: "0"
+        interface: ""

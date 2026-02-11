@@ -342,6 +342,16 @@ tasks:
     cmds:
       - op run --env-file={{.ROOT_DIR}}/.env.op -- deno run --allow-net --allow-env --allow-read --allow-run scripts/truenas-pvc-cleanup.ts
 
+  truenas:iscsi-migrate:
+    desc: Migrate iSCSI volumes to deterministic PV naming
+    cmds:
+      - op run --env-file={{.ROOT_DIR}}/.env.op -- deno run --allow-net --allow-env --allow-read --allow-run scripts/truenas-iscsi-migrate.ts --execute
+
+  truenas:iscsi-migrate:dry-run:
+    desc: Preview iSCSI volume migration (no changes)
+    cmds:
+      - op run --env-file={{.ROOT_DIR}}/.env.op -- deno run --allow-net --allow-env --allow-read --allow-run scripts/truenas-iscsi-migrate.ts
+
   # ==========================================================================
   # Terragrunt / Terraform
   # ==========================================================================

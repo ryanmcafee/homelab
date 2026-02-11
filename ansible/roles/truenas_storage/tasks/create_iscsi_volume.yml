@@ -1,0 +1,144 @@
+# TrueNAS Storage Role - Create iSCSI Volume
+# Idempotent task for creating a single iSCSI volume (zvol -> extent -> target -> target-extent).
+# Used for deterministic PV volume provisioning.
+#
+# Required variables (set via loop_var iscsi_vol or directly):
+#   iscsi_volume_name: volume name (e.g., "csi-sonarr-config-homelab")
+#   iscsi_volume_pool: pool path (e.g., "storage/k8s" or "ssd/iscsi")
+#   iscsi_volume_size: volume size (e.g., "10G")
+#   iscsi_volume_rpm: disk RPM hint ("SSD" or "7200")
+
+- name: Check if zvol exists - {{ iscsi_volume_name }}
+  ansible.builtin.uri:
+    url: "{{ truenas_api_url }}/api/v2.0/pool/dataset/id/{{ (iscsi_volume_pool ~ '/' ~ iscsi_volume_name) | replace('/', '%2F') }}"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ truenas_api_key }}"
+    validate_certs: "{{ truenas_verify_ssl }}"
+    status_code: [200, 404]
+  register: zvol_check
+
+- name: Create zvol - {{ iscsi_volume_name }}
+  ansible.builtin.uri:
+    url: "{{ truenas_api_url }}/api/v2.0/pool/dataset"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ truenas_api_key }}"
+      Content-Type: application/json
+    validate_certs: "{{ truenas_verify_ssl }}"
+    body_format: json
+    body:
+      name: "{{ iscsi_volume_pool }}/{{ iscsi_volume_name }}"
+      type: VOLUME
+      volsize: "{{ iscsi_volume_size | human_to_bytes }}"
+      volblocksize: "{{ truenas_iscsi_volume_blocksize | default('16K') }}"
+    status_code: [200, 201]
+  when: zvol_check.status == 404
+
+- name: Check if extent exists - {{ iscsi_volume_name }}
+  ansible.builtin.uri:
+    url: "{{ truenas_api_url }}/api/v2.0/iscsi/extent"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ truenas_api_key }}"
+    validate_certs: "{{ truenas_verify_ssl }}"
+  register: existing_extents
+
+- name: Create extent - {{ iscsi_volume_name }}
+  ansible.builtin.uri:
+    url: "{{ truenas_api_url }}/api/v2.0/iscsi/extent"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ truenas_api_key }}"
+      Content-Type: application/json
+    validate_certs: "{{ truenas_verify_ssl }}"
+    body_format: json
+    body:
+      name: "{{ iscsi_volume_name }}"
+      type: DISK
+      disk: "zvol/{{ iscsi_volume_pool }}/{{ iscsi_volume_name }}"
+      blocksize: "{{ iscsi_extent_blocksize | default(truenas_iscsi_extent_blocksize) | default(512) }}"
+      rpm: "{{ iscsi_volume_rpm | default('SSD') }}"
+      enabled: true
+    status_code: [200, 201]
+  register: extent_create
+  when: existing_extents.json | selectattr('name', 'equalto', iscsi_volume_name) | list | length == 0
+
+- name: Get extent ID - {{ iscsi_volume_name }}
+  ansible.builtin.set_fact:
+    iscsi_extent_id: >-
+      {{ (extent_create.json.id | default(
+        (existing_extents.json | selectattr('name', 'equalto', iscsi_volume_name) | first).id
+      )) }}
+
+- name: Check if target exists - {{ iscsi_volume_name }}
+  ansible.builtin.uri:
+    url: "{{ truenas_api_url }}/api/v2.0/iscsi/target"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ truenas_api_key }}"
+    validate_certs: "{{ truenas_verify_ssl }}"
+  register: existing_targets
+
+- name: Create target - {{ iscsi_volume_name }}
+  ansible.builtin.uri:
+    url: "{{ truenas_api_url }}/api/v2.0/iscsi/target"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ truenas_api_key }}"
+      Content-Type: application/json
+    validate_certs: "{{ truenas_verify_ssl }}"
+    body_format: json
+    body:
+      name: "{{ iscsi_volume_name }}"
+      groups:
+        - portal: "{{ iscsi_portal_id | default(truenas_iscsi_portal_id) | default(1) }}"
+          initiator: "{{ iscsi_initiator_id | default(truenas_iscsi_initiator_id) | default(1) }}"
+          authmethod: NONE
+    status_code: [200, 201]
+  register: target_create
+  when: existing_targets.json | selectattr('name', 'equalto', iscsi_volume_name) | list | length == 0
+
+- name: Get target ID - {{ iscsi_volume_name }}
+  ansible.builtin.set_fact:
+    iscsi_target_id: >-
+      {{ (target_create.json.id | default(
+        (existing_targets.json | selectattr('name', 'equalto', iscsi_volume_name) | first).id
+      )) }}
+
+- name: Check if target-extent association exists - {{ iscsi_volume_name }}
+  ansible.builtin.uri:
+    url: "{{ truenas_api_url }}/api/v2.0/iscsi/targetextent"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ truenas_api_key }}"
+    validate_certs: "{{ truenas_verify_ssl }}"
+  register: existing_target_extents
+
+- name: Create target-extent association - {{ iscsi_volume_name }}
+  ansible.builtin.uri:
+    url: "{{ truenas_api_url }}/api/v2.0/iscsi/targetextent"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ truenas_api_key }}"
+      Content-Type: application/json
+    validate_certs: "{{ truenas_verify_ssl }}"
+    body_format: json
+    body:
+      target: "{{ iscsi_target_id | int }}"
+      extent: "{{ iscsi_extent_id | int }}"
+      lunid: "{{ iscsi_lun_id | default(truenas_iscsi_default_lun_id) | default(0) }}"
+    status_code: [200, 201]
+  when: >-
+    existing_target_extents.json
+    | selectattr('target', 'equalto', iscsi_target_id | int)
+    | selectattr('extent', 'equalto', iscsi_extent_id | int)
+    | list | length == 0
+
+- name: Display iSCSI volume status - {{ iscsi_volume_name }}
+  ansible.builtin.debug:
+    msg: >-
+      iSCSI volume '{{ iscsi_volume_name }}' on {{ iscsi_volume_pool }}:
+      zvol={{ 'created' if zvol_check.status == 404 else 'exists' }},
+      extent={{ iscsi_extent_id }},
+      target={{ iscsi_target_id }}

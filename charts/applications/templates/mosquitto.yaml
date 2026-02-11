@@ -1,5 +1,37 @@
 {{- if .Values.mosquitto.enabled }}
 ---
+# Mosquitto Config: deploys static PV+PVC for mosquitto persistent storage
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: mosquitto-config
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "13"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: {{ .Values.global.repoUrl }}
+    targetRevision: {{ .Values.global.targetRevision }}
+    path: charts/mosquitto-config
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-{{ .Values.global.environment }}.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: {{ .Values.mosquitto.namespace }}
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - SkipDryRunOnMissingResource=true
+---
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:

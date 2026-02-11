@@ -8,3 +8,6 @@ secretName: plex
 # 1Password vault path for Plex credentials
 # The secret should have a field named "plex-claim-token"
 onePasswordItemPath: ""
+
+# Persistent storage for Plex config (iSCSI block storage for SQLite)
+volumes: []

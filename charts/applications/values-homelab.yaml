@@ -36,46 +36,6 @@ global:
     books: /mnt/storage/books
 
 # ============================================================================
-# Stable PVCs - Pre-created iSCSI PVCs for application configs
-# Sync Wave: 10 (before app deployments, after storage provisioners)
-# ============================================================================
-
-stablePVCs:
-  enabled: true
-  defaultStorageClassName: democratic-csi-iscsi-hdd
-  pvcs:
-    sonarr-config:
-      namespace: media
-      size: 10Gi
-    radarr-config:
-      namespace: media
-      size: 10Gi
-    prowlarr-config:
-      namespace: media
-      size: 1Gi
-    nzbget-config:
-      namespace: media
-      size: 5Gi
-    tautulli-config:
-      namespace: media
-      size: 5Gi
-    lazylibrarian-config:
-      namespace: media
-      size: 5Gi
-    flaresolverr-config:
-      namespace: media
-      size: 1Gi
-    mosquitto-config:
-      namespace: home-automation
-      size: 1Gi
-    mosquitto-data:
-      namespace: home-automation
-      size: 1Gi
-    homeassistant-config:
-      namespace: home-automation
-      size: 10Gi
-
-# ============================================================================
 # Plex Media Server
 # Sync Wave: 1 (core media service)
 # ============================================================================

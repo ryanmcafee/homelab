@@ -235,6 +235,19 @@
   ansible.builtin.include_tasks: create_iscsi_target.yml
   when: truenas_iscsi_enabled | default(false)
 
+# iSCSI volume provisioning (deterministic PV volumes)
+- name: Include iSCSI volume creation
+  ansible.builtin.include_tasks: create_iscsi_volume.yml
+  loop: "{{ truenas_iscsi_volumes | default([]) }}"
+  loop_control:
+    loop_var: iscsi_vol
+  vars:
+    iscsi_volume_name: "{{ iscsi_vol.name }}"
+    iscsi_volume_pool: "{{ iscsi_vol.pool }}"
+    iscsi_volume_size: "{{ iscsi_vol.size }}"
+    iscsi_volume_rpm: "{{ iscsi_vol.rpm | default('SSD') }}"
+  when: truenas_iscsi_volumes is defined and truenas_iscsi_volumes | length > 0
+
 # Set permissions on all datasets
 - name: Set permissions on storage pool datasets
   ansible.builtin.include_tasks: set_dataset_permissions.yml
