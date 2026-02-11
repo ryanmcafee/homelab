@@ -1,31 +1,30 @@
 # Task Completion Checklist
 
-When completing a task, ensure:
+When completing a task, verify the following:
 
 ## Before Committing
-1. Run `task chart:lint` if Helm charts were modified
-2. Run `task tf:fmt` if Terraform/Terragrunt files were modified
-3. Run `pre-commit run --all-files` to catch formatting/validation issues
-4. Run `task docs:embedme` if CLAUDE.md or AGENTS.md were modified
-5. Verify YAML files pass yamllint (excluded for Helm templates)
+1. Run `pre-commit run --all-files` to validate all hooks pass
+2. For chart changes: `task chart:lint` and `task chart:template:addons` / `task chart:template:applications`
+3. For Terraform changes: `terraform fmt` and `terragrunt fmt`
+4. For Go changes: `go vet ./...` and `go test ./...`
+5. Ensure no secrets are staged for commit
 
-## Code Quality
-- Go code follows existing patterns in `cmd/` and `internal/`
-- TypeScript scripts use Deno runtime with explicit permissions
-- Helm templates follow the existing ArgoCD Application pattern
-- No hardcoded secrets or credentials
-- No legacy CLI tools used (grep, find, cat, ls)
+## Commit
+- Use semantic commit messages: `feat:`, `fix:`, `docs:`, `chore:`, etc.
+- Keep commit messages concise and focused on "why"
 
-## Git Commit
-- Use semantic commit messages: `feat:`, `fix:`, `docs:`, `chore:`, `style:`
-- Never skip pre-commit hooks (no `--no-verify`)
-- Create PRs via `gh pr create`
+## After Chart Changes
+- Invoke `/gitops-test` skill for validation (Tier 1-4)
+- Verify ArgoCD sync wave ordering is correct
+- Check for sync option requirements (ServerSideApply, etc.)
 
-## If Modifying Charts
-- Verify both `values.yaml` and `values-homelab.yaml` are consistent
-- Check sync wave ordering is correct
-- Test with `task chart:template:addons` or `task chart:template:apps`
+## After Terraform Changes
+- Run `task render` if Cilium/CSR approver/Spegel configs changed
+- Run `task render:push` to upload to 1Password
+- Run `task tf:plan` to preview changes
 
-## If Modifying Terraform
-- Run `task tf:plan:component COMPONENT=X` to verify
-- Check rendered manifests are up to date (`task render:status`)
+## Documentation
+- Run `task docs:embedme` if CLAUDE.md was modified
+- Update `docs/project_notes/issues.md` for significant work
+- Update `docs/project_notes/bugs.md` if a bug was fixed
+- Update `docs/project_notes/decisions.md` for architectural decisions

@@ -8,6 +8,22 @@ Use 'bd' for task tracking on long-running tasks.
 3. Use sub-agents for multi-file analysis, version audits, and troubleshooting
 4. Reference CLAUDE.local.md for environment-specific IP addresses and hostnames
 5. Check and update project memory files in `docs/project_notes/`
+6. Use Serena MCP tools proactively - search_for_pattern, memories, think tools
+
+## Serena Tool Guidelines
+
+**All agents** should:
+- Check `list_memories` at session start for relevant context
+- Use `search_for_pattern` for complex regex across config files
+- Call `think_about_collected_information` after multi-file exploration
+- Call `think_about_task_adherence` before making code changes
+- Call `think_about_whether_you_are_done` before completing tasks
+- Use `write_memory` to persist useful discoveries for future sessions
+
+**Code agents** (golang-pro, typescript-pro, refactoring-specialist, code-reviewer) should also:
+- Use `get_symbols_overview` before reading unfamiliar Go/TS files
+- Use `find_symbol` to locate functions by name
+- Use `find_referencing_symbols` to trace usage across codebase
 
 ## Project Memory System
 
