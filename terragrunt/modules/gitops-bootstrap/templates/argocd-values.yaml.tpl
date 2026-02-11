@@ -38,6 +38,8 @@ server:
     annotations:
       cert-manager.io/cluster-issuer: letsencrypt
       external-dns.alpha.kubernetes.io/hostname: ${server_host}
+      traefik.ingress.kubernetes.io/service.serversscheme: http
+      traefik.ingress.kubernetes.io/router.middlewares: traefik-oidc-auth@kubernetescrd
 
 dex:
   enabled: ${dex_enabled}
