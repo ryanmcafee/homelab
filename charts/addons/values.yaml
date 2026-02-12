@@ -27,7 +27,7 @@ global:
   domain: example.com
 
   # Git repository for SOPS secrets
-  repoUrl: https://github.com/example/homelab.git
+  repoUrl: https://github.com/ryanmcafee/homelab.git
   targetRevision: main
 
   # Default storage class for persistent volumes
