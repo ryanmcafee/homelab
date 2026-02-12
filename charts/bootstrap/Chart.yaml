@@ -1,0 +1,6 @@
+apiVersion: v2
+name: bootstrap
+description: Bootstrap chart for 1Password operator and SOPS secrets (deployed before CMP-dependent charts)
+type: application
+version: 1.0.0
+appVersion: "1.0"
