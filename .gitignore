@@ -101,3 +101,20 @@ terragrunt/terraform.tfstate.d/**/.terraform.tfstate.lock.info
 /bin/homelab*
 /cmd/homelab/homelab
 /cmd/homelab/homelab.exe
+
+# Configuration - environment-specific values contain PII
+configuration/environments/homelab.yaml
+configuration/environments/staging.yaml
+!configuration/environments/defaults.yaml
+!configuration/environments/localdev.yaml
+!configuration/environments/*.example
+
+# Generated outputs (produced by `homelab config export`)
+*.generated.yaml
+*.generated.tfvars
+*.generated.yml
+.env.generated
+configuration/resolved.json
+
+# PII audit (replaced by living schema docs)
+PII.md
