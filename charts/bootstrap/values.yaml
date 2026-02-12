@@ -5,7 +5,7 @@
 # 3. homelab-environment-config OnePasswordItem
 
 global:
-  repoUrl: https://github.com/example/homelab.git
+  repoUrl: https://github.com/ryanmcafee/homelab.git
   targetRevision: HEAD
 
 sops-secrets:
