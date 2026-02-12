@@ -48,7 +48,9 @@ func TestScanFileForPII(t *testing.T) {
 	}
 
 	dirtyResults := ScanFileForPII(dirtyFile, patterns)
-	if len(dirtyResults.Matches) != 3 {
-		t.Errorf("dirty file should have 3 matches, got %d", len(dirtyResults.Matches))
+	// 4 matches: line 1 matches "ryanmcafee.com", line 2 matches "172.16.100.",
+	// line 3 matches both "ryanmcafee.com" and "admin@ryanmcafee.com"
+	if len(dirtyResults.Matches) != 4 {
+		t.Errorf("dirty file should have 4 matches, got %d", len(dirtyResults.Matches))
 	}
 }
