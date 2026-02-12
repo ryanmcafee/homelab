@@ -16,6 +16,15 @@ spec:
     repoURL: {{ .Values.global.repoUrl }}
     targetRevision: {{ .Values.global.targetRevision }}
     path: {{ .Values.addons.source.path }}
+    {{- if .Values.addons.source.plugin }}
+    plugin:
+      name: {{ .Values.addons.source.plugin.name }}
+      env:
+      {{- range .Values.addons.source.plugin.env }}
+        - name: {{ .name }}
+          value: {{ .value | quote }}
+      {{- end }}
+    {{- else }}
     helm:
       valueFiles:
       {{- range .Values.addons.source.valueFiles }}
@@ -24,6 +33,7 @@ spec:
       {{- if .Values.global.environment }}
         - values-{{ .Values.global.environment }}.yaml
       {{- end }}
+    {{- end }}
 
   destination:
     server: {{ .Values.addons.destination.server }}

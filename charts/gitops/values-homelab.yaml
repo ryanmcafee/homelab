@@ -32,8 +32,13 @@ addons:
 
   source:
     path: charts/addons
-    valueFiles:
-      - values.yaml
+    plugin:
+      name: homelab-config-helm
+      env:
+        - name: ENVIRONMENT
+          value: homelab
+        - name: FORMAT
+          value: helm-addons
 
   destination:
     server: https://kubernetes.default.svc
@@ -67,8 +72,13 @@ applications:
 
   source:
     path: charts/applications
-    valueFiles:
-      - values.yaml
+    plugin:
+      name: homelab-config-helm
+      env:
+        - name: ENVIRONMENT
+          value: homelab
+        - name: FORMAT
+          value: helm-apps
 
   destination:
     server: https://kubernetes.default.svc
