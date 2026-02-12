@@ -44,7 +44,7 @@ addons:
   source:
     path: charts/addons
     plugin:
-      name: homelab-config-helm
+      name: homelab-config-helm-v1.0
       env:
         - name: ENVIRONMENT
           value: homelab
@@ -84,7 +84,7 @@ applications:
   source:
     path: charts/applications
     plugin:
-      name: homelab-config-helm
+      name: homelab-config-helm-v1.0
       env:
         - name: ENVIRONMENT
           value: homelab

@@ -83,6 +83,12 @@ repoServer:
     - name: sops-age
       secret:
         secretName: sops-age-key
+    - name: cmp-tmp
+      emptyDir: {}
+    - name: homelab-config
+      secret:
+        secretName: homelab-environment-config
+        optional: true
 
   volumeMounts:
     - name: custom-tools
@@ -107,6 +113,29 @@ repoServer:
       volumeMounts:
         - name: custom-tools
           mountPath: /custom-tools
+
+  # CMP sidecar for homelab config plugin
+  extraContainers:
+    - name: homelab-cmp
+      image: ghcr.io/ryanmcafee/homelab-cmp:latest
+      command: [/var/run/argocd/argocd-cmp-server]
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+      env:
+        - name: ARGOCD_EXEC_TIMEOUT
+          value: "90"
+      volumeMounts:
+        - mountPath: /var/run/argocd
+          name: var-files
+        - mountPath: /home/argocd/cmp-server/plugins
+          name: plugins
+        - mountPath: /tmp
+          name: cmp-tmp
+        - mountPath: /config/homelab.yaml
+          name: homelab-config
+          subPath: homelab.yaml
+          readOnly: true
 
 applicationSet:
   enabled: true
