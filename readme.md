@@ -131,6 +131,10 @@ homelab sops setup      # Pull credentials from 1Password
 homelab bootstrap       # Full environment setup
 homelab talos recreate  # Recreate Talos nodes
 homelab verify gpu      # Verify GPU support
+homelab config validate # Validate schemas + environment values
+homelab config eval     # Resolve and print config as JSON
+homelab config export   # Export all consumer formats
+homelab config guard    # Scan staged files for PII
 
 # All commands support --dry-run and --help
 homelab bootstrap --dry-run --yes
@@ -281,6 +285,44 @@ See [charts/secrets/README.md](./charts/secrets/README.md) for detailed document
 
 ---
 
+## Configuration System
+
+All environment-specific values (IPs, domains, hostnames, credentials paths) are centralized in `configuration/` and exported to consumer formats (Helm values, tfvars, dotenv, JSON) via a Go-based pipeline.
+
+```bash
+# Validate schemas and environment values
+task config:validate
+
+# Resolve and print all configuration as JSON
+task config:eval
+
+# Export all consumer formats (Helm, tfvars, dotenv, JSON)
+task config:export
+
+# Scan staged files for PII leakage
+task config:guard
+```
+
+**Key directories:**
+
+| Path | Purpose |
+|------|---------|
+| `configuration/schema/` | Key declarations (committed) |
+| `configuration/environments/` | Defaults + per-environment overrides |
+| `configuration/templates/` | Export format templates (Go text/template) |
+| `configuration/versions.yaml` | All chart/tool versions (committed) |
+
+**How it works:**
+1. **Schema** files declare all configuration keys with types and defaults
+2. **Environment** files provide values per environment (homelab, localdev)
+3. **Eval** resolves the hierarchy (schema defaults → shared defaults → environment)
+4. **Export** renders resolved values through templates into consumer formats
+5. **Guard** scans for PII patterns to prevent accidental commits of sensitive values
+
+A pre-commit hook runs `config guard` automatically, and a CI workflow validates schemas on every push.
+
+---
+
 ## Local Development
 
 Develop and test GitOps configurations without physical hardware:
@@ -363,6 +405,7 @@ ipmitool sensor thresh FAN1 lower 200 300 400
 | **App of Apps** | ArgoCD manages applications hierarchically |
 | **Monorepo** | Single source of truth for all infrastructure |
 | **Environment Parity** | localdev/homelab use same charts with different values |
+| **Centralized Config** | Single schema-driven pipeline exports to all consumer formats |
 
 ---
 
@@ -376,4 +419,3 @@ ipmitool sensor thresh FAN1 lower 200 300 400
 - [Tilt - Local Kubernetes Development](https://tilt.dev/)
 
 ---
-
