@@ -1,0 +1,5 @@
+charts:
+  argocd: "7.7.15"
+  cilium: "1.18.0"
+tools:
+  talos: "v1.12.2"

@@ -23,10 +23,10 @@ global:
   environment: homelab
 
   # Base domain for ingress resources
-  domain: ryanmcafee.com
+  domain: example.com
 
   # Git repository for local charts
-  repoUrl: https://github.com/ryanmcafee/homelab.git
+  repoUrl: https://github.com/example/homelab.git
   targetRevision: main
 
   # Default storage class for persistent volumes
@@ -36,11 +36,11 @@ global:
   ingressClassName: traefik
 
   # Timezone for applications
-  timezone: America/New_York
+  timezone: UTC
 
   # Media storage configuration (multiple NFS paths)
   media:
-    nfsServer: truenas.ryanmcafee.com
+    nfsServer: truenas.example.com
     movies: /mnt/storage/movies
     tv: /mnt/storage/tv
     music: /mnt/storage/music
@@ -127,19 +127,19 @@ plex:
   extraVolumes:
     - name: movies
       nfs:
-        server: truenas.ryanmcafee.com
+        server: truenas.example.com
         path: /mnt/storage/movies
     - name: tv
       nfs:
-        server: truenas.ryanmcafee.com
+        server: truenas.example.com
         path: /mnt/storage/tv
     - name: music
       nfs:
-        server: truenas.ryanmcafee.com
+        server: truenas.example.com
         path: /mnt/storage/music
     - name: pictures
       nfs:
-        server: truenas.ryanmcafee.com
+        server: truenas.example.com
         path: /mnt/storage/pictures
 
   extraVolumeMounts:
@@ -161,19 +161,19 @@ plex:
   ingress:
     enabled: true
     ingressClassName: traefik
-    url: "https://plex.ryanmcafee.com"
+    url: "https://plex.example.com"
     annotations:
       cert-manager.io/cluster-issuer: letsencrypt
-      external-dns.alpha.kubernetes.io/hostname: plex.ryanmcafee.com
+      external-dns.alpha.kubernetes.io/hostname: plex.example.com
     tls:
       - secretName: plex-tls
         hosts:
-          - plex.ryanmcafee.com
+          - plex.example.com
 
   # Environment variables
   extraEnv:
-    TZ: America/New_York
-    ADVERTISE_IP: https://plex.ryanmcafee.com:443
+    TZ: UTC
+    ADVERTISE_IP: https://plex.example.com:443
     PLEX_UID: "568"
     PLEX_GID: "100"
     CHANGE_CONFIG_DIR_OWNERSHIP: "false"
@@ -229,7 +229,7 @@ sonarr:
     tv:
       enabled: true
       type: nfs
-      server: truenas.ryanmcafee.com
+      server: truenas.example.com
       path: /mnt/storage/tv
       mountPath: /tv
 
@@ -237,7 +237,7 @@ sonarr:
     downloads:
       enabled: true
       type: nfs
-      server: truenas.ryanmcafee.com
+      server: truenas.example.com
       path: /mnt/storage/downloads
       mountPath: /downloads
 
@@ -248,18 +248,18 @@ sonarr:
       ingressClassName: traefik
       annotations:
         cert-manager.io/cluster-issuer: letsencrypt
-        external-dns.alpha.kubernetes.io/hostname: sonarr.ryanmcafee.com
+        external-dns.alpha.kubernetes.io/hostname: sonarr.example.com
       hosts:
-        - host: sonarr.ryanmcafee.com
+        - host: sonarr.example.com
           paths:
             - path: /
               pathType: Prefix
       tls:
         - secretName: sonarr-tls
           hosts:
-            - sonarr.ryanmcafee.com
+            - sonarr.example.com
 
-  TZ: America/New_York
+  TZ: UTC
   securityContext:
     container:
       runAsUser: 568
@@ -317,7 +317,7 @@ radarr:
     movies:
       enabled: true
       type: nfs
-      server: truenas.ryanmcafee.com
+      server: truenas.example.com
       path: /mnt/storage/movies
       mountPath: /movies
 
@@ -325,7 +325,7 @@ radarr:
     downloads:
       enabled: true
       type: nfs
-      server: truenas.ryanmcafee.com
+      server: truenas.example.com
       path: /mnt/storage/downloads
       mountPath: /downloads
 
@@ -336,18 +336,18 @@ radarr:
       ingressClassName: traefik
       annotations:
         cert-manager.io/cluster-issuer: letsencrypt
-        external-dns.alpha.kubernetes.io/hostname: radarr.ryanmcafee.com
+        external-dns.alpha.kubernetes.io/hostname: radarr.example.com
       hosts:
-        - host: radarr.ryanmcafee.com
+        - host: radarr.example.com
           paths:
             - path: /
               pathType: Prefix
       tls:
         - secretName: radarr-tls
           hosts:
-            - radarr.ryanmcafee.com
+            - radarr.example.com
 
-  TZ: America/New_York
+  TZ: UTC
   securityContext:
     container:
       runAsUser: 568
@@ -408,18 +408,18 @@ prowlarr:
       ingressClassName: traefik
       annotations:
         cert-manager.io/cluster-issuer: letsencrypt
-        external-dns.alpha.kubernetes.io/hostname: prowlarr.ryanmcafee.com
+        external-dns.alpha.kubernetes.io/hostname: prowlarr.example.com
       hosts:
-        - host: prowlarr.ryanmcafee.com
+        - host: prowlarr.example.com
           paths:
             - path: /
               pathType: Prefix
       tls:
         - secretName: prowlarr-tls
           hosts:
-            - prowlarr.ryanmcafee.com
+            - prowlarr.example.com
 
-  TZ: America/New_York
+  TZ: UTC
   securityContext:
     container:
       runAsUser: 568
@@ -469,7 +469,7 @@ nzbget:
     downloads:
       enabled: true
       type: nfs
-      server: truenas.ryanmcafee.com
+      server: truenas.example.com
       path: /mnt/storage/downloads
       mountPath: /downloads
 
@@ -480,18 +480,18 @@ nzbget:
       ingressClassName: traefik
       annotations:
         cert-manager.io/cluster-issuer: letsencrypt
-        external-dns.alpha.kubernetes.io/hostname: nzbget.ryanmcafee.com
+        external-dns.alpha.kubernetes.io/hostname: nzbget.example.com
       hosts:
-        - host: nzbget.ryanmcafee.com
+        - host: nzbget.example.com
           paths:
             - path: /
               pathType: Prefix
       tls:
         - secretName: nzbget-tls
           hosts:
-            - nzbget.ryanmcafee.com
+            - nzbget.example.com
 
-  TZ: America/New_York
+  TZ: UTC
   securityContext:
     container:
       runAsUser: 568
@@ -544,18 +544,18 @@ tautulli:
       ingressClassName: traefik
       annotations:
         cert-manager.io/cluster-issuer: letsencrypt
-        external-dns.alpha.kubernetes.io/hostname: tautulli.ryanmcafee.com
+        external-dns.alpha.kubernetes.io/hostname: tautulli.example.com
       hosts:
-        - host: tautulli.ryanmcafee.com
+        - host: tautulli.example.com
           paths:
             - path: /
               pathType: Prefix
       tls:
         - secretName: tautulli-tls
           hosts:
-            - tautulli.ryanmcafee.com
+            - tautulli.example.com
 
-  TZ: America/New_York
+  TZ: UTC
   securityContext:
     container:
       runAsUser: 568
@@ -605,7 +605,7 @@ lazylibrarian:
     books:
       enabled: true
       type: nfs
-      server: truenas.ryanmcafee.com
+      server: truenas.example.com
       path: /mnt/storage/books
       mountPath: /books
 
@@ -613,7 +613,7 @@ lazylibrarian:
     downloads:
       enabled: true
       type: nfs
-      server: truenas.ryanmcafee.com
+      server: truenas.example.com
       path: /mnt/storage/downloads
       mountPath: /downloads
 
@@ -624,18 +624,18 @@ lazylibrarian:
       ingressClassName: traefik
       annotations:
         cert-manager.io/cluster-issuer: letsencrypt
-        external-dns.alpha.kubernetes.io/hostname: lazylibrarian.ryanmcafee.com
+        external-dns.alpha.kubernetes.io/hostname: lazylibrarian.example.com
       hosts:
-        - host: lazylibrarian.ryanmcafee.com
+        - host: lazylibrarian.example.com
           paths:
             - path: /
               pathType: Prefix
       tls:
         - secretName: lazylibrarian-tls
           hosts:
-            - lazylibrarian.ryanmcafee.com
+            - lazylibrarian.example.com
 
-  TZ: America/New_York
+  TZ: UTC
   securityContext:
     container:
       runAsUser: 568
@@ -698,18 +698,18 @@ homeassistant:
       ingressClassName: traefik
       annotations:
         cert-manager.io/cluster-issuer: letsencrypt
-        external-dns.alpha.kubernetes.io/hostname: homeassistant.ryanmcafee.com
+        external-dns.alpha.kubernetes.io/hostname: homeassistant.example.com
       hosts:
-        - host: homeassistant.ryanmcafee.com
+        - host: homeassistant.example.com
           paths:
             - path: /
               pathType: Prefix
       tls:
         - secretName: homeassistant-tls
           hosts:
-            - homeassistant.ryanmcafee.com
+            - homeassistant.example.com
 
-  TZ: America/New_York
+  TZ: UTC
 
 # ============================================================================
 # Mosquitto - MQTT Broker
@@ -777,7 +777,7 @@ mosquitto:
       enabled: true
       # Username and password from 1Password
 
-  TZ: America/New_York
+  TZ: UTC
 
 # ============================================================================
 # FlareSolverr - Cloudflare Protection Bypass Proxy
@@ -823,7 +823,7 @@ flaresolverr:
       accessModes:
         - ReadWriteOnce
 
-  TZ: America/New_York
+  TZ: UTC
   securityContext:
     container:
       readOnlyRootFilesystem: false

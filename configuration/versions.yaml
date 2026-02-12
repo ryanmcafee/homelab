@@ -1,0 +1,39 @@
+# Centralized version registry — single source of truth for all chart and tool versions.
+# Update this file instead of editing individual values.yaml files.
+# Renovate/Dependabot PRs target this file only.
+
+charts:
+  argocd: "7.7.15"
+  cilium: "1.18.0"
+  cert-manager: "v1.16.2"
+  external-dns: "1.15.0"
+  kube-prometheus-stack: "69.8.2"
+  traefik: "39.0.0"
+  democratic-csi: "0.14.6"
+  kubelet-csr-approver: "1.2.2"
+  onepassword-connect: "2.2.1"
+  spegel: "0.6.0"
+  local-path-provisioner: "0.0.30"
+  cloudnative-pg: "0.27.0"
+  argo-workflows: "0.45.2"
+  plex-media-server: "1.4.0"
+  sonarr: "25.2.11"
+  radarr: "26.3.11"
+  prowlarr: "21.3.12"
+  nzbget: "28.3.20"
+  tautulli: "21.14.16"
+  lazylibrarian: "21.14.20"
+  home-assistant: "28.19.14"
+  mosquitto: "17.13.9"
+  flaresolverr: "16.14.17"
+  nvidia-gpu-operator: "v25.3.0"
+  oauth2-proxy: "7.7.30"
+  external-dns-webhook-unifi: "v0.8.1"
+  traefik-oidc: "v0.8.21"
+  unifi-port-forward: "1.1.x"
+
+tools:
+  talos: "v1.12.2"
+  kubernetes: "v1.32.0"
+  terraform: "1.9.8"
+  helm: "3.16.0"

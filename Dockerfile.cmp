@@ -1,0 +1,32 @@
+# Build stage — compile homelab CLI
+FROM golang:1.19-alpine AS builder
+
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=0 GOOS=linux go build -o /homelab ./cmd/homelab
+
+# Runtime stage — minimal image for CMP sidecar
+FROM alpine:3.20
+
+# Install helm
+RUN apk add --no-cache helm
+
+# Copy homelab CLI binary
+COPY --from=builder /homelab /usr/local/bin/homelab
+
+# Copy configuration schemas, defaults, versions, and templates
+# (the CMP needs these to run `homelab config export`)
+COPY configuration/schema/ /config-root/schema/
+COPY configuration/environments/defaults.yaml /config-root/environments/defaults.yaml
+COPY configuration/versions.yaml /config-root/versions.yaml
+COPY configuration/templates/ /config-root/templates/
+
+# Copy plugin configuration
+COPY cmp/plugin.yaml /home/argocd/cmp-server/config/plugin.yaml
+
+# Run as non-root user
+USER 999
+
+ENTRYPOINT ["/var/run/argocd/argocd-cmp-server"]

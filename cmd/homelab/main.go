@@ -32,6 +32,7 @@ func main() {
 	rootCmd.AddCommand(commands.NewTalosCmd())
 	rootCmd.AddCommand(commands.NewVerifyCmd())
 	rootCmd.AddCommand(commands.NewRenderCmd())
+	rootCmd.AddCommand(commands.NewConfigCmd())
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)

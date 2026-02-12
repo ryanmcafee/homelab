@@ -2,13 +2,14 @@
 # Core cluster infrastructure and addon components
 #
 # This chart deploys essential cluster services in a specific order:
-# 0. 1Password Operator (CRDs must exist before OnePasswordItem resources)
 # 1. Cilium LB IPAM (LoadBalancer IPs via Cilium)
 # 2. Democratic-CSI (Storage - uses OnePasswordItem for TrueNAS API key)
 # 3. Cert-Manager (TLS Certificates)
 # 4. External-DNS (DNS Management)
 # 5. Kube-Prometheus-Stack (Monitoring)
 # 6. Traefik (Ingress Controller)
+#
+# Note: SOPS secrets and 1Password Operator are deployed via the bootstrap chart
 #
 # Environment-specific values should be provided via:
 # - values-localdev.yaml (local Kind development)
@@ -23,10 +24,10 @@ global:
   environment: homelab
 
   # Base domain for ingress resources
-  domain: ryanmcafee.com
+  domain: example.com
 
   # Git repository for SOPS secrets
-  repoUrl: https://github.com/ryanmcafee/homelab.git
+  repoUrl: https://github.com/example/homelab.git
   targetRevision: main
 
   # Default storage class for persistent volumes
@@ -117,6 +118,12 @@ argocd:
         - name: sops-age
           secret:
             secretName: sops-age-key
+        - name: cmp-tmp
+          emptyDir: {}
+        - name: homelab-config
+          secret:
+            secretName: homelab-environment-config
+            optional: true
       volumeMounts:
         - name: custom-tools
           mountPath: /usr/local/bin/ksops
@@ -139,6 +146,28 @@ argocd:
           volumeMounts:
             - name: custom-tools
               mountPath: /custom-tools
+      # CMP sidecar for homelab config plugin
+      extraContainers:
+        - name: homelab-cmp
+          image: ghcr.io/example/homelab-cmp:latest
+          command: [/var/run/argocd/argocd-cmp-server]
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 999
+          env:
+            - name: ARGOCD_EXEC_TIMEOUT
+              value: "90"
+          volumeMounts:
+            - mountPath: /var/run/argocd
+              name: var-files
+            - mountPath: /home/argocd/cmp-server/plugins
+              name: plugins
+            - mountPath: /tmp
+              name: cmp-tmp
+            - mountPath: /config/homelab.yaml
+              name: homelab-config
+              subPath: homelab.yaml
+              readOnly: true
 
     applicationSet:
       resources:
@@ -265,7 +294,7 @@ democratic-csi:
 
   # Connection details (from GitOps Bridge metadata)
   truenas:
-    endpoint: https://truenas.ryanmcafee.com
+    endpoint: https://truenas.example.com
     allowInsecure: false
     apiKey: ""  # Must be set manually or via 1Password
     # 1Password vault path for TrueNAS API key (creates secret: truenas-api-key)
@@ -273,8 +302,8 @@ democratic-csi:
 
   # NFS dataset configuration
   nfs:
-    shareHost: truenas.ryanmcafee.com
-    shareAllow: 172.16.100.0/24
+    shareHost: truenas.example.com
+    shareAllow: 10.0.0.0/24
     parent: storage/k8s
 
   # Storage class configuration
@@ -324,14 +353,14 @@ democratic-csi-ssd:
 
   # Connection details
   truenas:
-    endpoint: https://truenas.ryanmcafee.com
+    endpoint: https://truenas.example.com
     allowInsecure: false
     apiKey: ""
 
   # NFS dataset configuration (SSD pool)
   nfs:
-    shareHost: truenas.ryanmcafee.com
-    shareAllow: 172.16.100.0/24
+    shareHost: truenas.example.com
+    shareAllow: 10.0.0.0/24
     parent: ssd/k8s
 
   # Storage class configuration (NOT default)
@@ -381,13 +410,13 @@ democratic-csi-iscsi:
 
   # Connection details
   truenas:
-    endpoint: https://truenas.ryanmcafee.com
+    endpoint: https://truenas.example.com
     allowInsecure: false
     apiKey: ""
 
   # iSCSI configuration
   iscsi:
-    targetPortal: "truenas.ryanmcafee.com:3260"
+    targetPortal: "truenas.example.com:3260"
     datasetParent: ssd/iscsi
     snapshotsParent: ssd/iscsi-snapshots
     portalGroupId: 1
@@ -440,13 +469,13 @@ democratic-csi-iscsi-hdd:
 
   # Connection details
   truenas:
-    endpoint: https://truenas.ryanmcafee.com
+    endpoint: https://truenas.example.com
     allowInsecure: false
     apiKey: ""
 
   # iSCSI configuration (HDD pool)
   iscsi:
-    targetPortal: "truenas.ryanmcafee.com:3260"
+    targetPortal: "truenas.example.com:3260"
     datasetParent: storage/k8s
     snapshotsParent: storage/k8s-iscsi-snapshots
     portalGroupId: 1
@@ -509,52 +538,6 @@ local-path-provisioner:
       memory: 128Mi
 
 # ============================================================================
-# SOPS Secrets - Encrypted secrets for GitOps
-# Sync Wave: -2 (FIRST - deploys 1Password credentials before operator)
-# ============================================================================
-
-sops-secrets:
-  enabled: true
-
-# ============================================================================
-# 1Password Operator - Secret Management
-# Sync Wave: -1 (after SOPS secrets, before other OnePasswordItem resources)
-# ============================================================================
-
-1password-operator:
-  enabled: true
-  namespace: onepassword-operator
-
-  # Chart source
-  chart:
-    name: connect
-    repo: https://1password.github.io/connect-helm-charts
-    version: 1.15.1
-
-  # 1Password Connect configuration
-  connect:
-    # Connect server credentials (from manual setup)
-    credentialsJson: ""  # Provided via Kubernetes secret
-    host: op-connect.ryanmcafee.com
-
-  # Resource limits
-  resources:
-    operator:
-      requests:
-        cpu: 50m
-        memory: 128Mi
-      limits:
-        cpu: 200m
-        memory: 256Mi
-    connect:
-      requests:
-        cpu: 100m
-        memory: 256Mi
-      limits:
-        cpu: 500m
-        memory: 512Mi
-
-# ============================================================================
 # Cert-Manager - TLS Certificate Management
 # Sync Wave: 3 (needed before ingress resources)
 # ============================================================================
@@ -575,7 +558,7 @@ cert-manager:
   # Let's Encrypt configuration
   letsencrypt:
     enabled: true
-    email: admin@ryanmcafee.com
+    email: admin@example.com
     server: https://acme-v02.api.letsencrypt.org/directory  # Production
 
   # Cloudflare DNS-01 challenge
@@ -647,7 +630,7 @@ external-dns:
 
   # Domain filter
   domainFilters:
-    - ryanmcafee.com
+    - example.com
 
   # Only manage specific annotation
   annotationFilter: external-dns.alpha.kubernetes.io/hostname
@@ -729,11 +712,11 @@ kube-prometheus-stack:
       enabled: true
       ingressClassName: traefik
       hosts:
-        - grafana.ryanmcafee.com
+        - grafana.example.com
       tls:
         - secretName: grafana-tls
           hosts:
-            - grafana.ryanmcafee.com
+            - grafana.example.com
 
     # Resource limits
     resources:
@@ -862,7 +845,7 @@ traefik:
   ingressRoute:
     dashboard:
       enabled: true
-      matchRule: Host(`traefik.ryanmcafee.com`)
+      matchRule: Host(`traefik.example.com`)
       entryPoints: ["websecure"]
 
   # Resource limits
@@ -901,8 +884,11 @@ unifi-port-forward:
   enabled: false
   namespace: unifi-port-forward
 
-  # Chart version
-  version: "0.1.0"
+  # Chart source
+  chart:
+    name: port-forwarding
+    repo: https://example.github.io/port-forwarding-controller
+    version: "0.1.0"
 
   # Port forwarding rule prefix
   rulePrefix: "kube-"
@@ -1005,11 +991,11 @@ argo-workflows:
       enabled: true
       ingressClassName: traefik
       hosts:
-        - workflows.ryanmcafee.com
+        - workflows.example.com
       tls:
         - secretName: argo-workflows-tls
           hosts:
-            - workflows.ryanmcafee.com
+            - workflows.example.com
 
     # Resources
     resources:

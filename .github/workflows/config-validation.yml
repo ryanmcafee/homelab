@@ -1,0 +1,34 @@
+name: Config Validation
+
+on:
+  pull_request:
+    paths:
+      - 'configuration/**'
+      - 'charts/**'
+      - 'terragrunt/**'
+  push:
+    branches:
+      - main
+    paths:
+      - 'configuration/**'
+      - 'charts/**'
+      - 'terragrunt/**'
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.19'
+
+      - name: Validate config (localdev)
+        run: go run ./cmd/homelab config validate --set localdev
+
+      - name: PII guard (CI mode)
+        run: go run ./cmd/homelab config guard --set localdev --ci
+
+      - name: Run config tests
+        run: go test ./internal/config/... -v

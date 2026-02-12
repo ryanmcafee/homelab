@@ -17,14 +17,14 @@ repos:
 
       - id: helm-template-addons
         name: Helm Template Addons
-        entry: bash -c 'helm template addons charts/addons -f charts/addons/values.yaml -f charts/addons/values-homelab.yaml > /dev/null'
+        entry: bash -c 'helm template addons charts/addons -f charts/addons/values.yaml -f charts/addons/values-homelab.generated.yaml > /dev/null'
         language: system
         pass_filenames: false
         files: ^charts/addons/
 
       - id: helm-template-applications
         name: Helm Template Applications
-        entry: bash -c 'helm template apps charts/applications -f charts/applications/values.yaml -f charts/applications/values-homelab.yaml > /dev/null'
+        entry: bash -c 'helm template apps charts/applications -f charts/applications/values.yaml -f charts/applications/values-homelab.generated.yaml > /dev/null'
         language: system
         pass_filenames: false
         files: ^charts/applications/
@@ -38,17 +38,30 @@ repos:
 
       - id: kubeconform-addons
         name: Kubeconform Addons
-        entry: bash -c 'helm template addons charts/addons -f charts/addons/values.yaml -f charts/addons/values-homelab.yaml | kubeconform -summary -schema-location default -schema-location "https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json" -skip OnePasswordItem,CiliumLoadBalancerIPPool,CiliumBGPPeeringPolicy,CiliumBGPClusterConfig,CiliumBGPPeerConfig,CiliumBGPAdvertisement,CiliumL2AnnouncementPolicy,DNSEndpoint'
+        entry: bash -c 'helm template addons charts/addons -f charts/addons/values.yaml -f charts/addons/values-homelab.generated.yaml | kubeconform -summary -schema-location default -schema-location "https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json" -skip OnePasswordItem,CiliumLoadBalancerIPPool,CiliumBGPPeeringPolicy,CiliumBGPClusterConfig,CiliumBGPPeerConfig,CiliumBGPAdvertisement,CiliumL2AnnouncementPolicy,DNSEndpoint'
         language: system
         pass_filenames: false
         files: ^charts/addons/
 
       - id: kubeconform-applications
         name: Kubeconform Applications
-        entry: bash -c 'helm template apps charts/applications -f charts/applications/values.yaml -f charts/applications/values-homelab.yaml | kubeconform -summary -schema-location default -schema-location "https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json" -skip OnePasswordItem'
+        entry: bash -c 'helm template apps charts/applications -f charts/applications/values.yaml -f charts/applications/values-homelab.generated.yaml | kubeconform -summary -schema-location default -schema-location "https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json" -skip OnePasswordItem'
         language: system
         pass_filenames: false
         files: ^charts/applications/
+
+      - id: config-guard
+        name: PII Guard
+        entry: go run ./cmd/homelab config guard --set homelab --
+        language: system
+        pass_filenames: true
+        types_or: [yaml, json, markdown]
+        files: ^configuration/
+        exclude: |
+          (?x)(
+            ^configuration/environments/homelab\.yaml$|
+            \.generated\.
+          )
 
   # YAML validation (non-template files)
   - repo: https://github.com/adrienverge/yamllint

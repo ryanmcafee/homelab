@@ -1,0 +1,39 @@
+# Bootstrap Chart - Default Values
+# Deploys prerequisites for the CMP sidecar:
+# 1. SOPS-encrypted secrets (1Password credentials)
+# 2. 1Password Connect operator
+# 3. homelab-environment-config OnePasswordItem
+
+global:
+  repoUrl: https://github.com/example/homelab.git
+  targetRevision: HEAD
+
+sops-secrets:
+  enabled: true
+
+1password-operator:
+  enabled: true
+  namespace: onepassword-operator
+  chart:
+    name: connect
+    repo: https://1password.github.io/connect-helm-charts
+    version: "1.16.1"
+  resources:
+    operator:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: 200m
+        memory: 128Mi
+    connect:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: 200m
+        memory: 256Mi
+
+homelab-environment-config:
+  enabled: true
+  itemPath: "vaults/homelab/items/homelab-environment-config"

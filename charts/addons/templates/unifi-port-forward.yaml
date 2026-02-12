@@ -17,15 +17,15 @@ metadata:
   namespace: argocd
   annotations:
     argocd.argoproj.io/sync-wave: "7"
-    addons.ryanmcafee.com/config-hash: {{ include "addons.configHash" (dict "values" $portForwardValues) | quote }}
+    addons.homelab.local/config-hash: {{ include "addons.configHash" (dict "values" $portForwardValues) | quote }}
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
   project: default
   source:
-    repoURL: https://ryanmcafee.github.io/port-forwarding-controller
-    chart: port-forwarding
-    targetRevision: {{ index .Values "unifi-port-forward" "version" }}
+    repoURL: {{ index .Values "unifi-port-forward" "chart" "repo" }}
+    chart: {{ index .Values "unifi-port-forward" "chart" "name" }}
+    targetRevision: {{ index .Values "unifi-port-forward" "chart" "version" }}
     helm:
       releaseName: port-forwarding-controller
       values: |

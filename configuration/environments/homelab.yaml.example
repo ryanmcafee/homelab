@@ -1,0 +1,26 @@
+# ConfigSet "homelab" — production values.
+# Copy to homelab.yaml and fill in real values.
+# homelab.yaml is GITIGNORED — never commit it.
+
+DOMAIN: your-domain.com
+GATEWAY_IP: "192.168.1.1"
+TRUENAS_IP: "192.168.1.100"
+PROXMOX_IP: "192.168.1.250"
+CP_VIP: "192.168.1.10"
+CP1_IP: "192.168.1.11"
+CP2_IP: "192.168.1.12"
+CP3_IP: "192.168.1.13"
+WORKER1_IP: "192.168.1.21"
+WORKER2_IP: "192.168.1.22"
+WORKER3_IP: "192.168.1.23"
+LB_POOL_START: "192.168.1.100"
+LB_POOL_END: "192.168.1.200"
+TRAEFIK_STATIC_IP: "192.168.1.200"
+PLEX_LB_IP: "192.168.1.103"
+NFS_SHARE_ALLOW: "192.168.1.0/24"
+BGP_PEER_IP: "192.168.1.1"
+NFS_MAPALL_USER: your-username
+ACME_EMAIL: admin@your-domain.com
+TRAEFIK_OIDC_ALLOWED_DOMAINS: your-domain.com
+DUCKDNS_SUBDOMAIN: your-subdomain
+EXTERNAL_DNS_DEFAULT_TARGET: your-subdomain.duckdns.org

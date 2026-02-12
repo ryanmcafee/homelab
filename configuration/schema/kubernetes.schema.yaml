@@ -1,0 +1,38 @@
+# Kubernetes cluster settings — CIDRs, storage classes, ingress, timezone
+keys:
+  K8S_POD_CIDR:
+    description: Kubernetes pod network CIDR
+    required: true
+    default: "10.244.0.0/16"
+    pattern: "^(?:\\d{1,3}\\.){3}\\d{1,3}/\\d{1,2}$"
+
+  K8S_SERVICE_CIDR:
+    description: Kubernetes service network CIDR
+    required: true
+    default: "10.96.0.0/12"
+    pattern: "^(?:\\d{1,3}\\.){3}\\d{1,3}/\\d{1,2}$"
+
+  STORAGE_CLASS_NFS:
+    description: StorageClass name for NFS volumes
+    required: true
+    default: "democratic-csi-nfs"
+
+  STORAGE_CLASS_ISCSI:
+    description: StorageClass name for iSCSI HDD volumes
+    required: true
+    default: "democratic-csi-iscsi-hdd"
+
+  STORAGE_CLASS_SSD:
+    description: StorageClass name for iSCSI SSD volumes
+    required: true
+    default: "democratic-csi-ssd"
+
+  INGRESS_CLASS:
+    description: Default IngressClass name
+    required: true
+    default: "traefik"
+
+  TIMEZONE:
+    description: Default timezone for all workloads
+    required: true
+    default: "America/New_York"

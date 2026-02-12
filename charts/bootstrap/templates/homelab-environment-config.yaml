@@ -1,0 +1,12 @@
+{{- if index .Values "homelab-environment-config" "enabled" }}
+---
+apiVersion: onepassword.com/v1
+kind: OnePasswordItem
+metadata:
+  name: homelab-environment-config
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  itemPath: {{ index .Values "homelab-environment-config" "itemPath" | quote }}
+{{- end }}

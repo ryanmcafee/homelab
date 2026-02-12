@@ -1,0 +1,5 @@
+DOMAIN: example.com
+BGP_K8S_ASN: "64512"
+K8S_POD_CIDR: "10.244.0.0/16"
+OPTIONAL_KEY: from-defaults
+NFS_BASE_PATH: /mnt/storage

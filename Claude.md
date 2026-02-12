@@ -80,6 +80,25 @@ Performance issue:     performance-engineer + postgres-pro + network-engineer
 For environment-specific settings (IP addresses, hostnames, credentials), see `CLAUDE.local.md`.
 Copy from `CLAUDE.local.md.example` and customize for your environment.
 
+## Configuration System
+
+All environment-specific values (IPs, domains, hostnames, usernames) are centralized in `configuration/`.
+
+| Command | Description |
+|---------|-------------|
+| `task config:validate` | Validate schemas + environment values |
+| `task config:eval` | Print resolved config as JSON |
+| `task config:export` | Export all consumer formats |
+| `task config:guard` | Scan staged files for PII |
+
+### Key Files
+- `configuration/schema/*.schema.yaml` — key declarations (committed)
+- `configuration/environments/defaults.yaml` — shared defaults (committed)
+- `configuration/environments/homelab.yaml` — production PII (GITIGNORED)
+- `configuration/environments/homelab.yaml.example` — template (committed)
+- `configuration/versions.yaml` — all chart/tool versions (committed)
+- `configuration/templates/*.tmpl` — export format templates (committed)
+
 ## Project Overview
 
 GitOps-driven homelab infrastructure with:
@@ -313,13 +332,17 @@ task tf:apply         # Apply changes
 ## ArgoCD Troubleshooting
 
 ### Sync Wave Order
-- Wave -2: SOPS secrets (1Password credentials)
-- Wave -1: Namespaces
-- Wave 0: 1Password Operator
-- Wave 1-2: CSR approver, Cilium LB IPAM, Democratic-CSI
-- Wave 3-4: cert-manager, external-dns
-- Wave 5-6: kube-prometheus-stack, Traefik
-- Wave 7+: Applications
+- Wave 0: Bootstrap (SOPS secrets, 1Password operator, config secret)
+- Wave 2: Addons (Core infrastructure — via CMP plugin in homelab)
+- Wave 3: Applications (User workloads — via CMP plugin in homelab)
+
+### CMP Architecture
+The homelab environment uses an ArgoCD Config Management Plugin (CMP) sidecar to generate environment-specific Helm values at runtime, eliminating PII from committed files.
+
+- **Bootstrap chart** deploys: SOPS secrets, 1Password operator, homelab-environment-config secret
+- **CMP sidecar** runs `homelab config export --stdout` piped into `helm template`
+- **Localdev** continues using native Helm with `values-localdev.yaml` (no CMP)
+- Design doc: `docs/plans/2026-02-11-argocd-cmp-pii-removal-design.md`
 
 ### Common Errors & Solutions
 | Error | Cause | Solution |

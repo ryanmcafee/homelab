@@ -1,0 +1,10 @@
+# Configuration pipeline registry
+# Schema files: configuration/schema/*.schema.yaml
+# Environment files: configuration/environments/*.yaml
+# Export templates: configuration/templates/*.tmpl
+# Versions: configuration/versions.yaml
+stores:
+  - type: yaml
+    path: environments/
+  - type: onepassword
+    prefix: op://homelab

@@ -200,6 +200,8 @@ Each decision should include:
 - iSCSI PVCs are ReadWriteOnce only (single-node mount)
 - TrueNAS iSCSI service must be enabled with portal + initiator groups
 
+- **2026-02-11: ArgoCD CMP for PII removal** — Moved config generation from commit-time to ArgoCD render-time using a Config Management Plugin sidecar. Bootstrap chart breaks chicken-and-egg with 1Password operator. All committed values files sanitized to safe defaults. See `docs/plans/2026-02-11-argocd-cmp-pii-removal-design.md`.
+
 ## Tips
 
 - Number decisions sequentially (ADR-001, ADR-002, etc.)
