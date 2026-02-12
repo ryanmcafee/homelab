@@ -80,6 +80,25 @@ Performance issue:     performance-engineer + postgres-pro + network-engineer
 For environment-specific settings (IP addresses, hostnames, credentials), see `CLAUDE.local.md`.
 Copy from `CLAUDE.local.md.example` and customize for your environment.
 
+## Configuration System
+
+All environment-specific values (IPs, domains, hostnames, usernames) are centralized in `configuration/`.
+
+| Command | Description |
+|---------|-------------|
+| `task config:validate` | Validate schemas + environment values |
+| `task config:eval` | Print resolved config as JSON |
+| `task config:export` | Export all consumer formats |
+| `task config:guard` | Scan staged files for PII |
+
+### Key Files
+- `configuration/schema/*.schema.yaml` — key declarations (committed)
+- `configuration/environments/defaults.yaml` — shared defaults (committed)
+- `configuration/environments/homelab.yaml` — production PII (GITIGNORED)
+- `configuration/environments/homelab.yaml.example` — template (committed)
+- `configuration/versions.yaml` — all chart/tool versions (committed)
+- `configuration/templates/*.tmpl` — export format templates (committed)
+
 ## Project Overview
 
 GitOps-driven homelab infrastructure with:
