@@ -34,7 +34,7 @@ addons:
     path: charts/addons
     valueFiles:
       - values.yaml
-      - values-homelab.yaml
+      - values-homelab.generated.yaml
 
   destination:
     server: https://kubernetes.default.svc
@@ -70,7 +70,7 @@ applications:
     path: charts/applications
     valueFiles:
       - values.yaml
-      - values-homelab.yaml
+      - values-homelab.generated.yaml
 
   destination:
     server: https://kubernetes.default.svc
