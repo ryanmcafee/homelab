@@ -23,10 +23,10 @@ global:
   environment: homelab
 
   # Base domain for ingress resources
-  domain: ryanmcafee.com
+  domain: example.com
 
   # Git repository for SOPS secrets
-  repoUrl: https://github.com/ryanmcafee/homelab.git
+  repoUrl: https://github.com/example/homelab.git
   targetRevision: main
 
   # Default storage class for persistent volumes
@@ -265,7 +265,7 @@ democratic-csi:
 
   # Connection details (from GitOps Bridge metadata)
   truenas:
-    endpoint: https://truenas.ryanmcafee.com
+    endpoint: https://truenas.example.com
     allowInsecure: false
     apiKey: ""  # Must be set manually or via 1Password
     # 1Password vault path for TrueNAS API key (creates secret: truenas-api-key)
@@ -273,8 +273,8 @@ democratic-csi:
 
   # NFS dataset configuration
   nfs:
-    shareHost: truenas.ryanmcafee.com
-    shareAllow: 172.16.100.0/24
+    shareHost: truenas.example.com
+    shareAllow: 10.0.0.0/24
     parent: storage/k8s
 
   # Storage class configuration
@@ -324,14 +324,14 @@ democratic-csi-ssd:
 
   # Connection details
   truenas:
-    endpoint: https://truenas.ryanmcafee.com
+    endpoint: https://truenas.example.com
     allowInsecure: false
     apiKey: ""
 
   # NFS dataset configuration (SSD pool)
   nfs:
-    shareHost: truenas.ryanmcafee.com
-    shareAllow: 172.16.100.0/24
+    shareHost: truenas.example.com
+    shareAllow: 10.0.0.0/24
     parent: ssd/k8s
 
   # Storage class configuration (NOT default)
@@ -381,13 +381,13 @@ democratic-csi-iscsi:
 
   # Connection details
   truenas:
-    endpoint: https://truenas.ryanmcafee.com
+    endpoint: https://truenas.example.com
     allowInsecure: false
     apiKey: ""
 
   # iSCSI configuration
   iscsi:
-    targetPortal: "truenas.ryanmcafee.com:3260"
+    targetPortal: "truenas.example.com:3260"
     datasetParent: ssd/iscsi
     snapshotsParent: ssd/iscsi-snapshots
     portalGroupId: 1
@@ -440,13 +440,13 @@ democratic-csi-iscsi-hdd:
 
   # Connection details
   truenas:
-    endpoint: https://truenas.ryanmcafee.com
+    endpoint: https://truenas.example.com
     allowInsecure: false
     apiKey: ""
 
   # iSCSI configuration (HDD pool)
   iscsi:
-    targetPortal: "truenas.ryanmcafee.com:3260"
+    targetPortal: "truenas.example.com:3260"
     datasetParent: storage/k8s
     snapshotsParent: storage/k8s-iscsi-snapshots
     portalGroupId: 1
@@ -535,7 +535,7 @@ sops-secrets:
   connect:
     # Connect server credentials (from manual setup)
     credentialsJson: ""  # Provided via Kubernetes secret
-    host: op-connect.ryanmcafee.com
+    host: op-connect.example.com
 
   # Resource limits
   resources:
@@ -575,7 +575,7 @@ cert-manager:
   # Let's Encrypt configuration
   letsencrypt:
     enabled: true
-    email: admin@ryanmcafee.com
+    email: admin@example.com
     server: https://acme-v02.api.letsencrypt.org/directory  # Production
 
   # Cloudflare DNS-01 challenge
@@ -647,7 +647,7 @@ external-dns:
 
   # Domain filter
   domainFilters:
-    - ryanmcafee.com
+    - example.com
 
   # Only manage specific annotation
   annotationFilter: external-dns.alpha.kubernetes.io/hostname
@@ -729,11 +729,11 @@ kube-prometheus-stack:
       enabled: true
       ingressClassName: traefik
       hosts:
-        - grafana.ryanmcafee.com
+        - grafana.example.com
       tls:
         - secretName: grafana-tls
           hosts:
-            - grafana.ryanmcafee.com
+            - grafana.example.com
 
     # Resource limits
     resources:
@@ -862,7 +862,7 @@ traefik:
   ingressRoute:
     dashboard:
       enabled: true
-      matchRule: Host(`traefik.ryanmcafee.com`)
+      matchRule: Host(`traefik.example.com`)
       entryPoints: ["websecure"]
 
   # Resource limits
@@ -1005,11 +1005,11 @@ argo-workflows:
       enabled: true
       ingressClassName: traefik
       hosts:
-        - workflows.ryanmcafee.com
+        - workflows.example.com
       tls:
         - secretName: argo-workflows-tls
           hosts:
-            - workflows.ryanmcafee.com
+            - workflows.example.com
 
     # Resources
     resources:
