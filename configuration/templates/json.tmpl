@@ -1,0 +1,29 @@
+{
+  "set": "{{ .Set }}",
+  "values": {
+{{- $first := true -}}
+{{- range $key, $val := .Values -}}
+{{- if not $first }},{{ end }}
+    "{{ $key }}": "{{ $val.Value }}"
+{{- $first = false -}}
+{{- end }}
+  },
+  "versions": {
+    "charts": {
+{{- $first = true -}}
+{{- range $name, $ver := .Versions.Charts -}}
+{{- if not $first }},{{ end }}
+      "{{ $name }}": "{{ $ver }}"
+{{- $first = false -}}
+{{- end }}
+    },
+    "tools": {
+{{- $first = true -}}
+{{- range $name, $ver := .Versions.Tools -}}
+{{- if not $first }},{{ end }}
+      "{{ $name }}": "{{ $ver }}"
+{{- $first = false -}}
+{{- end }}
+    }
+  }
+}
