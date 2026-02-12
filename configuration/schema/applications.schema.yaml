@@ -1,0 +1,159 @@
+# Application-specific configuration — media paths, PVCs, UIDs, ports
+keys:
+  MEDIA_APP_UID:
+    description: UID for media application processes
+    required: true
+    default: "568"
+
+  MEDIA_APP_GID:
+    description: GID for media application processes
+    required: true
+    default: "100"
+
+  MEDIA_MOVIES_PATH:
+    description: NFS path for movies library
+    required: true
+    const: "{{.NFS_BASE_PATH}}/movies"
+
+  MEDIA_TV_PATH:
+    description: NFS path for TV shows library
+    required: true
+    const: "{{.NFS_BASE_PATH}}/tv"
+
+  MEDIA_MUSIC_PATH:
+    description: NFS path for music library
+    required: true
+    const: "{{.NFS_BASE_PATH}}/music"
+
+  MEDIA_PICTURES_PATH:
+    description: NFS path for pictures library
+    required: true
+    const: "{{.NFS_BASE_PATH}}/pictures"
+
+  MEDIA_DOCUMENTS_PATH:
+    description: NFS path for documents
+    required: true
+    const: "{{.NFS_BASE_PATH}}/documents"
+
+  MEDIA_DOWNLOADS_PATH:
+    description: NFS path for downloads
+    required: true
+    const: "{{.NFS_BASE_PATH}}/downloads"
+
+  MEDIA_BOOKS_PATH:
+    description: NFS path for books library
+    required: true
+    const: "{{.NFS_BASE_PATH}}/books"
+
+  MOSQUITTO_MQTT_PORT:
+    description: Mosquitto MQTT listener port
+    required: true
+    default: "1883"
+
+  MOSQUITTO_WEBSOCKET_PORT:
+    description: Mosquitto WebSocket listener port
+    required: true
+    default: "9001"
+
+  # Computed application hostnames — derived from DOMAIN
+  PLEX_HOSTNAME:
+    description: Plex Media Server hostname
+    const: "plex.{{.DOMAIN}}"
+
+  SONARR_HOSTNAME:
+    description: Sonarr hostname
+    const: "sonarr.{{.DOMAIN}}"
+
+  RADARR_HOSTNAME:
+    description: Radarr hostname
+    const: "radarr.{{.DOMAIN}}"
+
+  PROWLARR_HOSTNAME:
+    description: Prowlarr hostname
+    const: "prowlarr.{{.DOMAIN}}"
+
+  NZBGET_HOSTNAME:
+    description: NZBGet hostname
+    const: "nzbget.{{.DOMAIN}}"
+
+  TAUTULLI_HOSTNAME:
+    description: Tautulli hostname
+    const: "tautulli.{{.DOMAIN}}"
+
+  LAZYLIBRARIAN_HOSTNAME:
+    description: LazyLibrarian hostname
+    const: "lazylibrarian.{{.DOMAIN}}"
+
+  HOMEASSISTANT_HOSTNAME:
+    description: Home Assistant hostname
+    const: "homeassistant.{{.DOMAIN}}"
+
+  ECOWITT_HOSTNAME:
+    description: Ecowitt exporter hostname
+    const: "ecowitt.{{.DOMAIN}}"
+
+  # PVC names — per-app persistent volume claims
+  PLEX_CONFIG_PVC:
+    description: PVC name for Plex config
+    required: true
+    default: "plex-config-iscsi"
+
+  SONARR_CONFIG_PVC:
+    description: PVC name for Sonarr config
+    required: true
+    default: "sonarr-config"
+
+  RADARR_CONFIG_PVC:
+    description: PVC name for Radarr config
+    required: true
+    default: "radarr-config"
+
+  PROWLARR_CONFIG_PVC:
+    description: PVC name for Prowlarr config
+    required: true
+    default: "prowlarr-config"
+
+  NZBGET_CONFIG_PVC:
+    description: PVC name for NZBGet config
+    required: true
+    default: "nzbget-config"
+
+  TAUTULLI_CONFIG_PVC:
+    description: PVC name for Tautulli config
+    required: true
+    default: "tautulli-config"
+
+  LAZYLIBRARIAN_CONFIG_PVC:
+    description: PVC name for LazyLibrarian config
+    required: true
+    default: "lazylibrarian-config"
+
+  HOMEASSISTANT_CONFIG_PVC:
+    description: PVC name for Home Assistant config
+    required: true
+    default: "homeassistant-config"
+
+  MOSQUITTO_CONFIG_PVC:
+    description: PVC name for Mosquitto config
+    required: true
+    default: "mosquitto-config"
+
+  MOSQUITTO_DATA_PVC:
+    description: PVC name for Mosquitto data
+    required: true
+    default: "mosquitto-data"
+
+  MOSQUITTO_CONFIGINC_PVC:
+    description: PVC name for Mosquitto config includes
+    required: true
+    default: "mosquitto-configinc"
+
+  FLARESOLVERR_CONFIG_PVC:
+    description: PVC name for FlareSolverr config
+    required: true
+    default: "flaresolverr-config"
+
+  GRAFANA_CONFIG_PVC:
+    description: PVC name for Grafana config
+    required: true
+    default: "grafana-config"
