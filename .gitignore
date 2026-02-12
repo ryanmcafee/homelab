@@ -116,9 +116,12 @@ configuration/environments/staging.yaml
 .env.generated
 configuration/resolved.json
 
-# Exception: Helm generated values must be committed (ArgoCD reads from Git)
-!charts/addons/values-homelab.generated.yaml
-!charts/applications/values-homelab.generated.yaml
+# Environment-specific Helm values (contain PII — generated at runtime by CMP)
+charts/addons/values-homelab.yaml
+charts/addons/values-homelab.generated.yaml
+charts/applications/values-homelab.yaml
+charts/applications/values-homelab.generated.yaml
+charts/*-config/values-homelab.yaml
 
 # PII audit (replaced by living schema docs)
 PII.md
