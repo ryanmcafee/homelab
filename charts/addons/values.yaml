@@ -2,13 +2,14 @@
 # Core cluster infrastructure and addon components
 #
 # This chart deploys essential cluster services in a specific order:
-# 0. 1Password Operator (CRDs must exist before OnePasswordItem resources)
 # 1. Cilium LB IPAM (LoadBalancer IPs via Cilium)
 # 2. Democratic-CSI (Storage - uses OnePasswordItem for TrueNAS API key)
 # 3. Cert-Manager (TLS Certificates)
 # 4. External-DNS (DNS Management)
 # 5. Kube-Prometheus-Stack (Monitoring)
 # 6. Traefik (Ingress Controller)
+#
+# Note: SOPS secrets and 1Password Operator are deployed via the bootstrap chart
 #
 # Environment-specific values should be provided via:
 # - values-localdev.yaml (local Kind development)
@@ -507,52 +508,6 @@ local-path-provisioner:
     limits:
       cpu: 100m
       memory: 128Mi
-
-# ============================================================================
-# SOPS Secrets - Encrypted secrets for GitOps
-# Sync Wave: -2 (FIRST - deploys 1Password credentials before operator)
-# ============================================================================
-
-sops-secrets:
-  enabled: true
-
-# ============================================================================
-# 1Password Operator - Secret Management
-# Sync Wave: -1 (after SOPS secrets, before other OnePasswordItem resources)
-# ============================================================================
-
-1password-operator:
-  enabled: true
-  namespace: onepassword-operator
-
-  # Chart source
-  chart:
-    name: connect
-    repo: https://1password.github.io/connect-helm-charts
-    version: 1.15.1
-
-  # 1Password Connect configuration
-  connect:
-    # Connect server credentials (from manual setup)
-    credentialsJson: ""  # Provided via Kubernetes secret
-    host: op-connect.example.com
-
-  # Resource limits
-  resources:
-    operator:
-      requests:
-        cpu: 50m
-        memory: 128Mi
-      limits:
-        cpu: 200m
-        memory: 256Mi
-    connect:
-      requests:
-        cpu: 100m
-        memory: 256Mi
-      limits:
-        cpu: 500m
-        memory: 512Mi
 
 # ============================================================================
 # Cert-Manager - TLS Certificate Management
