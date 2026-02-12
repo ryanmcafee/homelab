@@ -1,0 +1,8 @@
+{
+{{- $first := true -}}
+{{- range $key, $val := .Values -}}
+{{- if not $first }},{{ end }}
+  "{{ $key }}": "{{ $val.Value }}"
+{{- $first = false -}}
+{{- end }}
+}
