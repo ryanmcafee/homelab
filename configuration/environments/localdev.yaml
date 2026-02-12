@@ -1,0 +1,26 @@
+# ConfigSet "localdev" — Kind + Tilt local development.
+# Overrides defaults.yaml with safe local values.
+
+DOMAIN: homelab.local
+GATEWAY_IP: "127.0.0.1"
+TRUENAS_IP: "127.0.0.1"
+PROXMOX_IP: "127.0.0.1"
+CP_VIP: "127.0.0.1"
+CP1_IP: "127.0.0.1"
+CP2_IP: "127.0.0.1"
+CP3_IP: "127.0.0.1"
+WORKER1_IP: "127.0.0.1"
+WORKER2_IP: "127.0.0.1"
+WORKER3_IP: "127.0.0.1"
+LB_POOL_START: "127.0.0.100"
+LB_POOL_END: "127.0.0.200"
+TRAEFIK_STATIC_IP: "127.0.0.200"
+PLEX_LB_IP: "127.0.0.103"
+NFS_SHARE_ALLOW: "127.0.0.0/8"
+BGP_PEER_IP: "127.0.0.1"
+NFS_BASE_PATH: /tmp/storage
+NFS_MAPALL_USER: localdev
+ACME_EMAIL: test@homelab.local
+TRAEFIK_OIDC_ALLOWED_DOMAINS: homelab.local
+DUCKDNS_SUBDOMAIN: homelab-dev
+EXTERNAL_DNS_DEFAULT_TARGET: homelab-dev.duckdns.org

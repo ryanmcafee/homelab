@@ -1,0 +1,60 @@
+# Root ConfigSet — inherited by all environments.
+# Contains non-sensitive defaults only. Override per-environment in homelab.yaml or localdev.yaml.
+
+# Network
+DOMAIN: example.com
+BGP_K8S_ASN: "64512"
+BGP_ROUTER_ASN: "64513"
+
+# Kubernetes
+K8S_POD_CIDR: "10.244.0.0/16"
+K8S_SERVICE_CIDR: "10.96.0.0/12"
+STORAGE_CLASS_NFS: democratic-csi-nfs
+STORAGE_CLASS_ISCSI: democratic-csi-iscsi-hdd
+STORAGE_CLASS_SSD: democratic-csi-ssd
+INGRESS_CLASS: traefik
+TIMEZONE: "America/New_York"
+
+# Infrastructure
+NFS_BASE_PATH: /mnt/storage
+NFS_MAPALL_USER: ""
+ACME_EMAIL: ""
+TRUENAS_ZONE_PARENT: storage/k8s
+TRUENAS_ZONE_SSD_PARENT: ssd/k8s
+TRUENAS_ISCSI_PARENT: ssd/iscsi
+TRUENAS_ISCSI_HDD_PARENT: storage/k8s
+TRAEFIK_OIDC_PROVIDER_URL: "https://accounts.google.com"
+DUCKDNS_SUBDOMAIN: ""
+EXTERNAL_DNS_DEFAULT_TARGET: ""
+
+# Application defaults
+MEDIA_APP_UID: "568"
+MEDIA_APP_GID: "100"
+MOSQUITTO_MQTT_PORT: "1883"
+MOSQUITTO_WEBSOCKET_PORT: "9001"
+
+# 1Password paths (defaults — same across environments)
+DEMOCRATIC_CSI_1P_PATH: vaults/homelab/items/truenas
+CERT_MANAGER_1P_PATH: vaults/homelab/items/cloudflare
+EXTERNAL_DNS_1P_PATH: vaults/homelab/items/cloudflare
+EXTERNAL_DNS_UNIFI_1P_PATH: vaults/homelab/items/unifi
+TRAEFIK_OIDC_SESSION_KEY_PATH: vaults/homelab/items/oidc-session-key
+TRAEFIK_GOOGLE_OAUTH_PATH: vaults/homelab/items/google-oauth
+TRAEFIK_CLOUDFLARE_1P_PATH: vaults/homelab/items/cloudflare
+UNIFI_PORT_FORWARD_1P_PATH: vaults/homelab/items/unifi
+DUCKDNS_1P_PATH: vaults/homelab/items/duckdns
+
+# PVC names (defaults)
+PLEX_CONFIG_PVC: plex-config-iscsi
+SONARR_CONFIG_PVC: sonarr-config
+RADARR_CONFIG_PVC: radarr-config
+PROWLARR_CONFIG_PVC: prowlarr-config
+NZBGET_CONFIG_PVC: nzbget-config
+TAUTULLI_CONFIG_PVC: tautulli-config
+LAZYLIBRARIAN_CONFIG_PVC: lazylibrarian-config
+HOMEASSISTANT_CONFIG_PVC: homeassistant-config
+MOSQUITTO_CONFIG_PVC: mosquitto-config
+MOSQUITTO_DATA_PVC: mosquitto-data
+MOSQUITTO_CONFIGINC_PVC: mosquitto-configinc
+FLARESOLVERR_CONFIG_PVC: flaresolverr-config
+GRAFANA_CONFIG_PVC: grafana-config
