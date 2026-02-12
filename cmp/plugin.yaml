@@ -1,0 +1,24 @@
+apiVersion: argoproj.io/v1alpha1
+kind: ConfigManagementPlugin
+metadata:
+  name: homelab-config-helm
+spec:
+  version: v1.0
+  allowConcurrency: true
+  lockRepo: false
+  generate:
+    command: [sh, -c]
+    args:
+      - |
+        homelab config export \
+          --set "$ARGOCD_ENV_ENVIRONMENT" \
+          --format "$ARGOCD_ENV_FORMAT" \
+          --env-file /config/homelab.yaml \
+          --config-root /config-root \
+          --stdout > /tmp/generated-values.yaml
+
+        helm template "$ARGOCD_APP_NAME" . \
+          --namespace "$ARGOCD_APP_NAMESPACE" \
+          --include-crds \
+          -f values.yaml \
+          -f /tmp/generated-values.yaml
