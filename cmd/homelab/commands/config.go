@@ -14,6 +14,7 @@ import (
 var (
 	configRoot string // --config-root flag
 	configSet  string // --set flag
+	envFile    string // --env-file flag
 )
 
 func defaultConfigRoot() string {
@@ -34,6 +35,7 @@ func NewConfigCmd() *cobra.Command {
 
 	cmd.PersistentFlags().StringVar(&configRoot, "config-root", "", "Path to configuration/ directory (default: auto-detect)")
 	cmd.PersistentFlags().StringVar(&configSet, "set", "homelab", "Environment name (homelab, localdev)")
+	cmd.PersistentFlags().StringVar(&envFile, "env-file", "", "Override environment file path (default: auto-detect from config-root)")
 
 	cmd.AddCommand(newConfigValidateCmd())
 	cmd.AddCommand(newConfigEvalCmd())
@@ -68,7 +70,13 @@ func loadResolvedConfig() (*config.ResolvedConfig, error) {
 		return nil, fmt.Errorf("loading defaults: %w", err)
 	}
 
-	envPath := filepath.Join(root, "environments", configSet+".yaml")
+	// Use --env-file if provided, otherwise auto-detect
+	var envPath string
+	if envFile != "" {
+		envPath = envFile
+	} else {
+		envPath = filepath.Join(root, "environments", configSet+".yaml")
+	}
 	env, err := config.LoadEnvironment(envPath)
 	if err != nil {
 		return nil, fmt.Errorf("loading environment %s: %w", configSet, err)
