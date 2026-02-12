@@ -887,8 +887,8 @@ unifi-port-forward:
   # Chart source
   chart:
     name: port-forwarding
-    repo: https://example.github.io/port-forwarding-controller
-    version: "0.1.0"
+    repo: https://ryanmcafee.github.io/port-forwarding-controller
+    version: "1.1.1"
 
   # Port forwarding rule prefix
   rulePrefix: "kube-"
