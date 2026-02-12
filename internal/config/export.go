@@ -3,6 +3,7 @@ package config
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"text/template"
@@ -26,6 +27,16 @@ func Export(rc *ResolvedConfig, templatePath string) (string, error) {
 	}
 
 	return buf.String(), nil
+}
+
+// ExportToWriter renders a template and writes the result to an io.Writer.
+func ExportToWriter(rc *ResolvedConfig, templatePath string, w io.Writer) error {
+	result, err := Export(rc, templatePath)
+	if err != nil {
+		return err
+	}
+	_, err = io.WriteString(w, result)
+	return err
 }
 
 // ExportToFile renders a template and writes the result to a file, creating directories as needed.

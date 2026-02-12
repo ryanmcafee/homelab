@@ -1,6 +1,7 @@
 package config
 
 import (
+	"bytes"
 	"strings"
 	"testing"
 )
@@ -62,5 +63,30 @@ func TestExportToFile(t *testing.T) {
 	}
 	if !strings.Contains(data, "KEY=val") {
 		t.Errorf("output file missing KEY=val, got:\n%s", data)
+	}
+}
+
+func TestExportToWriter(t *testing.T) {
+	rc := &ResolvedConfig{
+		Values: map[string]ConfigValue{
+			"DOMAIN":  {Key: "DOMAIN", Value: "test.local", Source: "test"},
+			"IP_ADDR": {Key: "IP_ADDR", Value: "192.168.1.1", Source: "test"},
+		},
+		Set: "test",
+	}
+
+	result, err := Export(rc, testdataPath("templates", "dotenv.tmpl"))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var buf bytes.Buffer
+	err = ExportToWriter(rc, testdataPath("templates", "dotenv.tmpl"), &buf)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if buf.String() != result {
+		t.Errorf("ExportToWriter output differs from Export:\ngot:  %s\nwant: %s", buf.String(), result)
 	}
 }
