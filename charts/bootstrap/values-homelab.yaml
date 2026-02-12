@@ -1,0 +1,4 @@
+# Bootstrap Chart - Homelab Environment Values
+# No environment-specific overrides needed for bootstrap.
+# This file must exist because the gitops template auto-appends
+# values-{{ .Values.global.environment }}.yaml to all child apps.
