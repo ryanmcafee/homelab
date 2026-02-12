@@ -122,14 +122,51 @@ func newConfigEvalCmd() *cobra.Command {
 func newConfigExportCmd() *cobra.Command {
 	var format string
 	var all bool
+	var stdout bool
 
 	cmd := &cobra.Command{
 		Use:   "export",
 		Short: "Export config to consumer-specific format",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// Validate stdout flag usage
+			if stdout && all {
+				return fmt.Errorf("--stdout and --all are mutually exclusive")
+			}
+			if stdout && format == "" {
+				return fmt.Errorf("--stdout requires --format")
+			}
+
 			rc, err := loadResolvedConfig()
 			if err != nil {
 				return err
+			}
+
+			// Handle stdout mode
+			if stdout {
+				root := getConfigRoot()
+				var templateFile string
+				switch format {
+				case "helm-addons":
+					templateFile = "helm-addons.tmpl"
+				case "helm-apps":
+					templateFile = "helm-apps.tmpl"
+				case "tfvars":
+					templateFile = "tfvars.tmpl"
+				case "env":
+					templateFile = "dotenv.tmpl"
+				case "json":
+					templateFile = "json.tmpl"
+				default:
+					return fmt.Errorf("unknown format: %s", format)
+				}
+
+				tmplPath := filepath.Join(root, "templates", templateFile)
+				output, err := config.Export(rc, tmplPath)
+				if err != nil {
+					return err
+				}
+				fmt.Print(output)
+				return nil
 			}
 
 			root := getConfigRoot()
@@ -178,6 +215,7 @@ func newConfigExportCmd() *cobra.Command {
 
 	cmd.Flags().StringVar(&format, "format", "", "Export format (helm-addons, helm-apps, tfvars, env, json)")
 	cmd.Flags().BoolVar(&all, "all", false, "Export all formats")
+	cmd.Flags().BoolVar(&stdout, "stdout", false, "Write output to stdout instead of file (requires --format)")
 
 	return cmd
 }
