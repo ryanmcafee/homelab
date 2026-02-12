@@ -10,7 +10,7 @@ namespace: traefik
 dashboard:
   enabled: true
   host: traefik.example.com
-  staticIP: "172.16.100.200"
+  staticIP: "10.0.0.200"
 
 # OIDC authentication middleware
 oidc:

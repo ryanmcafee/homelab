@@ -856,8 +856,11 @@ unifi-port-forward:
   enabled: false
   namespace: unifi-port-forward
 
-  # Chart version
-  version: "0.1.0"
+  # Chart source
+  chart:
+    name: port-forwarding
+    repo: https://example.github.io/port-forwarding-controller
+    version: "0.1.0"
 
   # Port forwarding rule prefix
   rulePrefix: "kube-"
