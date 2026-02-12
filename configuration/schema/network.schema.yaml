@@ -1,0 +1,124 @@
+# Network configuration — IPs, CIDRs, BGP, load balancer pool
+keys:
+  DOMAIN:
+    description: Base domain for all services
+    required: true
+
+  GATEWAY_IP:
+    description: Default gateway / router IP
+    required: true
+    pattern: "^(?:\\d{1,3}\\.){3}\\d{1,3}$"
+
+  TRUENAS_IP:
+    description: TrueNAS storage server IP
+    required: true
+    pattern: "^(?:\\d{1,3}\\.){3}\\d{1,3}$"
+
+  PROXMOX_IP:
+    description: Proxmox hypervisor IP
+    required: true
+    pattern: "^(?:\\d{1,3}\\.){3}\\d{1,3}$"
+
+  CP_VIP:
+    description: Kubernetes control plane virtual IP
+    required: true
+    pattern: "^(?:\\d{1,3}\\.){3}\\d{1,3}$"
+
+  CP1_IP:
+    description: Control plane node 1 IP
+    required: true
+    pattern: "^(?:\\d{1,3}\\.){3}\\d{1,3}$"
+
+  CP2_IP:
+    description: Control plane node 2 IP
+    required: true
+    pattern: "^(?:\\d{1,3}\\.){3}\\d{1,3}$"
+
+  CP3_IP:
+    description: Control plane node 3 IP
+    required: true
+    pattern: "^(?:\\d{1,3}\\.){3}\\d{1,3}$"
+
+  WORKER1_IP:
+    description: Worker node 1 IP (GPU node)
+    required: true
+    pattern: "^(?:\\d{1,3}\\.){3}\\d{1,3}$"
+
+  WORKER2_IP:
+    description: Worker node 2 IP
+    required: true
+    pattern: "^(?:\\d{1,3}\\.){3}\\d{1,3}$"
+
+  WORKER3_IP:
+    description: Worker node 3 IP
+    required: true
+    pattern: "^(?:\\d{1,3}\\.){3}\\d{1,3}$"
+
+  LB_POOL_START:
+    description: First IP in Cilium LB IPAM pool
+    required: true
+    pattern: "^(?:\\d{1,3}\\.){3}\\d{1,3}$"
+
+  LB_POOL_END:
+    description: Last IP in Cilium LB IPAM pool
+    required: true
+    pattern: "^(?:\\d{1,3}\\.){3}\\d{1,3}$"
+
+  TRAEFIK_STATIC_IP:
+    description: Static LoadBalancer IP for Traefik ingress
+    required: true
+    pattern: "^(?:\\d{1,3}\\.){3}\\d{1,3}$"
+
+  PLEX_LB_IP:
+    description: Static LoadBalancer IP for Plex
+    required: true
+    pattern: "^(?:\\d{1,3}\\.){3}\\d{1,3}$"
+
+  NFS_SHARE_ALLOW:
+    description: CIDR allowed to access NFS shares
+    required: true
+    pattern: "^(?:\\d{1,3}\\.){3}\\d{1,3}/\\d{1,2}$"
+
+  BGP_K8S_ASN:
+    description: Cilium BGP autonomous system number
+    required: true
+    default: "64512"
+
+  BGP_ROUTER_ASN:
+    description: Upstream router BGP ASN
+    required: true
+    default: "64513"
+
+  BGP_PEER_IP:
+    description: BGP peer IP (upstream router)
+    required: true
+    pattern: "^(?:\\d{1,3}\\.){3}\\d{1,3}$"
+
+  # Computed hostnames — derived from DOMAIN
+  TRUENAS_HOSTNAME:
+    description: TrueNAS FQDN
+    const: "truenas.{{.DOMAIN}}"
+
+  ARGOCD_HOSTNAME:
+    description: ArgoCD UI hostname
+    const: "argocd.{{.DOMAIN}}"
+
+  GRAFANA_HOSTNAME:
+    description: Grafana dashboard hostname
+    const: "grafana.{{.DOMAIN}}"
+
+  TRAEFIK_HOSTNAME:
+    description: Traefik dashboard hostname
+    const: "traefik.{{.DOMAIN}}"
+
+  WORKFLOWS_HOSTNAME:
+    description: Argo Workflows hostname
+    const: "workflows.{{.DOMAIN}}"
+
+  AUTH_HOSTNAME:
+    description: OAuth2 proxy hostname
+    const: "auth.{{.DOMAIN}}"
+
+  OP_CONNECT_HOSTNAME:
+    description: 1Password Connect hostname
+    const: "op-connect.{{.DOMAIN}}"

@@ -1,0 +1,56 @@
+# Infrastructure configuration — Proxmox, TrueNAS, storage paths, PCI passthrough
+keys:
+  NFS_BASE_PATH:
+    description: Base NFS path on TrueNAS
+    required: true
+    default: "/mnt/storage"
+
+  NFS_MAPALL_USER:
+    description: NFS mapall user for permission mapping
+    required: true
+
+  ACME_EMAIL:
+    description: Email for Let's Encrypt ACME certificates
+    required: true
+
+  EXTERNAL_DNS_DEFAULT_TARGET:
+    description: Default CNAME target for external DNS records
+    required: true
+
+  TRUENAS_ZONE_PARENT:
+    description: TrueNAS ZFS dataset parent for NFS volumes
+    required: true
+    default: "storage/k8s"
+
+  TRUENAS_ZONE_SSD_PARENT:
+    description: TrueNAS ZFS SSD dataset parent
+    required: true
+    default: "ssd/k8s"
+
+  TRUENAS_ISCSI_PARENT:
+    description: TrueNAS ZFS parent for iSCSI SSD volumes
+    required: true
+    default: "ssd/iscsi"
+
+  TRUENAS_ISCSI_HDD_PARENT:
+    description: TrueNAS ZFS parent for iSCSI HDD volumes
+    required: true
+    default: "storage/k8s"
+
+  ISCSI_TARGET_PORTAL:
+    description: iSCSI target portal (IP:port)
+    required: true
+    const: "{{.TRUENAS_IP}}:3260"
+
+  DUCKDNS_SUBDOMAIN:
+    description: DuckDNS subdomain for dynamic DNS
+    required: true
+
+  TRAEFIK_OIDC_PROVIDER_URL:
+    description: OIDC provider URL for Traefik auth
+    required: true
+    default: "https://accounts.google.com"
+
+  TRAEFIK_OIDC_ALLOWED_DOMAINS:
+    description: Comma-separated list of allowed OIDC domains
+    required: true
