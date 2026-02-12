@@ -709,6 +709,35 @@ tasks:
         fi
 
   # ==========================================================================
+  # Configuration Management
+  # ==========================================================================
+
+  config:validate:
+    desc: Validate configuration schemas and environment values
+    cmds:
+      - go run ./cmd/homelab config validate --set {{.ENV | default "homelab"}}
+
+  config:eval:
+    desc: Resolve and print all configuration as JSON
+    cmds:
+      - go run ./cmd/homelab config eval --set {{.ENV | default "homelab"}}
+
+  config:export:
+    desc: Export all configuration formats
+    cmds:
+      - go run ./cmd/homelab config export --set {{.ENV | default "homelab"}} --all
+
+  config:export:format:
+    desc: Export a specific configuration format
+    cmds:
+      - go run ./cmd/homelab config export --set {{.ENV | default "homelab"}} --format {{.FORMAT}}
+
+  config:guard:
+    desc: Scan staged files for PII patterns
+    cmds:
+      - go run ./cmd/homelab config guard --set {{.ENV | default "homelab"}}
+
+  # ==========================================================================
   # Utilities
   # ==========================================================================
 
