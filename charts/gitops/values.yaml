@@ -1,9 +1,10 @@
 # GitOps Umbrella Chart - Default Values
 # This chart implements the App of Apps pattern for ArgoCD
 #
-# It manages two child applications:
-# 1. addons (sync-wave: 1) - Core cluster infrastructure
-# 2. applications (sync-wave: 2) - User-facing applications
+# It manages three child applications:
+# 1. bootstrap (sync-wave: 0) - Prerequisites (CMP plugin, config)
+# 2. addons (sync-wave: 2) - Core cluster infrastructure
+# 3. applications (sync-wave: 3) - User-facing applications
 #
 # Environment-specific values should be provided via:
 # - values-localdev.yaml (local Kind development)
@@ -30,6 +31,61 @@ global:
   project: default
 
 # ============================================================================
+# Bootstrap Application (Prerequisites)
+# ============================================================================
+
+bootstrap:
+  # Enable the bootstrap application
+  enabled: true
+
+  # Application metadata
+  name: bootstrap
+  namespace: argocd
+
+  # Sync wave - deploy before everything else
+  syncWave: "0"
+
+  # Source configuration
+  source:
+    # Path to bootstrap chart in repository
+    path: charts/bootstrap
+
+    # Helm values files to use (relative to chart path)
+    # The environment-specific values file is automatically added
+    valueFiles:
+      - values.yaml
+
+  # Destination configuration
+  destination:
+    # Deploy to the same cluster ArgoCD is running on
+    server: https://kubernetes.default.svc
+
+    # Namespace (chart creates its own namespaces)
+    namespace: argocd
+
+  # Sync policy
+  syncPolicy:
+    # Automatic sync disabled - manual sync only
+    # automated:
+    #   prune: true
+    #   selfHeal: true
+    #   allowEmpty: false
+
+    # Sync options
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - SkipDryRunOnMissingResource=true
+
+    # Retry with backoff for initial cluster bootstrap
+    retry:
+      limit: 5
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 3m
+
+# ============================================================================
 # Addons Application (Core Infrastructure)
 # ============================================================================
 
@@ -41,8 +97,8 @@ addons:
   name: addons
   namespace: argocd
 
-  # Sync wave - deploy before applications
-  syncWave: "1"
+  # Sync wave - deploy after bootstrap, before applications
+  syncWave: "2"
 
   # Source configuration
   source:
@@ -99,7 +155,7 @@ applications:
   namespace: argocd
 
   # Sync wave - deploy after addons
-  syncWave: "2"
+  syncWave: "3"
 
   # Source configuration
   source:
