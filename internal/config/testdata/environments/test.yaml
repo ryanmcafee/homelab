@@ -1,0 +1,4 @@
+DOMAIN: test.local
+IP_ADDR: "192.168.1.100"
+COLOR: green
+GATEWAY_IP: "192.168.1.1"
