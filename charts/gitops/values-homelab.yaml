@@ -21,6 +21,17 @@ global:
   project: default
 
 # ============================================================================
+# Bootstrap Application (Prerequisites)
+# ============================================================================
+
+bootstrap:
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      allowEmpty: false
+
+# ============================================================================
 # Addons Application (Core Infrastructure)
 # ============================================================================
 
