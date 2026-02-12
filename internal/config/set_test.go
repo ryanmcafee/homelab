@@ -92,3 +92,24 @@ func TestLoadVersions(t *testing.T) {
 		t.Errorf("talos version = %q, want %q", v.Tools["talos"], "v1.12.2")
 	}
 }
+
+func TestLoadEnvironmentCustomPath(t *testing.T) {
+	env, err := LoadEnvironment(testdataPath("environments", "custom-path.yaml"))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if env["DOMAIN"] != "custom.example.com" {
+		t.Errorf("DOMAIN = %q, want %q", env["DOMAIN"], "custom.example.com")
+	}
+	if env["IP_ADDR"] != "10.99.99.1" {
+		t.Errorf("IP_ADDR = %q, want %q", env["IP_ADDR"], "10.99.99.1")
+	}
+}
+
+func TestLoadEnvironmentMissingFile(t *testing.T) {
+	_, err := LoadEnvironment(testdataPath("environments", "nonexistent.yaml"))
+	if err == nil {
+		t.Fatal("expected error for missing environment file")
+	}
+}
