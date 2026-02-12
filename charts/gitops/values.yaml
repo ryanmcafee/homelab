@@ -18,10 +18,10 @@ global:
   environment: homelab
 
   # Base domain for ingress resources
-  domain: ryanmcafee.com
+  domain: example.com
 
   # Git repository containing chart sources
-  repoUrl: https://github.com/ryanmcafee/homelab.git
+  repoUrl: https://github.com/example/homelab.git
 
   # Target revision (branch/tag/commit)
   targetRevision: HEAD
