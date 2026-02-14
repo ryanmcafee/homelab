@@ -175,6 +175,5 @@ inputs = {
   kubeconfig_path = dependency.talos_cluster_config.outputs.kubeconfig_path
 
   # SOPS age private key for decrypting secrets (stored in 1Password)
-  # Retrieve with: op read "op://homelab/sops-age-key/private_key"
-  sops_age_private_key = get_env("SOPS_AGE_KEY", "")
+  sops_age_private_key = run_cmd("op", "read", "op://homelab/sops-age-key/private_key")
 }

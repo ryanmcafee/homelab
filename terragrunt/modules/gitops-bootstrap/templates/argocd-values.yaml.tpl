@@ -32,7 +32,7 @@ configs:
 server:
   ingress:
     enabled: ${server_ingress_enabled}
-    ingressClassName: traefik
+    ingressClassName: internal
     hostname: ${server_host}
     tls: true
     annotations:
