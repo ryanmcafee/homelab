@@ -111,6 +111,10 @@ keys:
     description: Traefik dashboard hostname
     const: "traefik.{{.DOMAIN}}"
 
+  TRAEFIK_INTERNAL_HOSTNAME:
+    description: Traefik internal dashboard hostname
+    const: "traefik-internal.{{.DOMAIN}}"
+
   WORKFLOWS_HOSTNAME:
     description: Argo Workflows hostname
     const: "workflows.{{.DOMAIN}}"
