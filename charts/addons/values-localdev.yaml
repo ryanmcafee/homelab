@@ -70,31 +70,25 @@ local-path-provisioner:
   # for clarity about storage configuration
 
 # ============================================================================
-# Traefik Ingress Controller
+# Traefik External Ingress Controller
 # ============================================================================
 
-traefik:
+traefikExternal:
   enabled: true
 
-  # Use NodePort instead of LoadBalancer
   service:
     type: NodePort
 
-  # Configure NodePort values to match Kind port mappings
   ports:
     web:
       nodePort: 30080
-      # Accessible via http://localhost:9080 (mapped in kind-config.yaml)
     websecure:
       nodePort: 30443
-      # Accessible via https://localhost:9443 (mapped in kind-config.yaml)
 
-  # Disable global arguments that phone home
   globalArguments:
     - --global.checknewversion=false
     - --global.sendanonymoususage=false
 
-  # Reduce resource requests for local development
   resources:
     requests:
       cpu: 50m
@@ -103,7 +97,38 @@ traefik:
       cpu: 200m
       memory: 256Mi
 
-  # Enable dashboard for debugging
+  ingressRoute:
+    dashboard:
+      enabled: true
+
+# ============================================================================
+# Traefik Internal Ingress Controller
+# ============================================================================
+
+traefikInternal:
+  enabled: true
+
+  service:
+    type: NodePort
+
+  ports:
+    web:
+      nodePort: 30081
+    websecure:
+      nodePort: 30444
+
+  globalArguments:
+    - --global.checknewversion=false
+    - --global.sendanonymoususage=false
+
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+
   ingressRoute:
     dashboard:
       enabled: true
