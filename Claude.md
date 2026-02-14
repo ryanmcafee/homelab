@@ -134,7 +134,7 @@ When updating helm chart versions, check these repositories:
 **Infrastructure Charts** - `charts/addons/values.yaml`:
 
 ArgoCD:
-<!-- embedme charts/addons/values.yaml#L53-L56 -->
+<!-- embedme charts/addons/values.yaml#L54-L57 -->
 ```yaml
 chart:
   name: argo-cd
@@ -143,7 +143,7 @@ chart:
 ```
 
 Kubelet CSR Approver:
-<!-- embedme charts/addons/values.yaml#L234-L237 -->
+<!-- embedme charts/addons/values.yaml#L263-L266 -->
 ```yaml
 chart:
   name: kubelet-csr-approver
@@ -152,7 +152,7 @@ chart:
 ```
 
 Democratic-CSI:
-<!-- embedme charts/addons/values.yaml#L258-L261 -->
+<!-- embedme charts/addons/values.yaml#L287-L290 -->
 ```yaml
 chart:
   name: democratic-csi
@@ -161,7 +161,7 @@ chart:
 ```
 
 Cert-Manager:
-<!-- embedme charts/addons/values.yaml#L392-L395 -->
+<!-- embedme charts/addons/values.yaml#L550-L553 -->
 ```yaml
 chart:
   name: cert-manager
@@ -170,7 +170,7 @@ chart:
 ```
 
 External-DNS:
-<!-- embedme charts/addons/values.yaml#L460-L463 -->
+<!-- embedme charts/addons/values.yaml#L618-L621 -->
 ```yaml
 chart:
   name: external-dns
@@ -179,7 +179,7 @@ chart:
 ```
 
 Kube-Prometheus-Stack:
-<!-- embedme charts/addons/values.yaml#L504-L507 -->
+<!-- embedme charts/addons/values.yaml#L662-L665 -->
 ```yaml
 chart:
   name: kube-prometheus-stack
@@ -187,8 +187,8 @@ chart:
   version: 69.8.2
 ```
 
-Traefik:
-<!-- embedme charts/addons/values.yaml#L626-L629 -->
+Traefik (External):
+<!-- embedme charts/addons/values.yaml#L791-L794 -->
 ```yaml
 chart:
   name: traefik
@@ -199,7 +199,7 @@ chart:
 **Application Charts** - `charts/applications/values.yaml`:
 
 Plex:
-<!-- embedme charts/applications/values.yaml#L63-L66 -->
+<!-- embedme charts/applications/values.yaml#L64-L67 -->
 ```yaml
 chart:
   name: plex-media-server
@@ -208,7 +208,7 @@ chart:
 ```
 
 Sonarr:
-<!-- embedme charts/applications/values.yaml#L181-L184 -->
+<!-- embedme charts/applications/values.yaml#L193-L196 -->
 ```yaml
 chart:
   name: sonarr
@@ -217,7 +217,7 @@ chart:
 ```
 
 Radarr:
-<!-- embedme charts/applications/values.yaml#L259-L262 -->
+<!-- embedme charts/applications/values.yaml#L282-L285 -->
 ```yaml
 chart:
   name: radarr
@@ -226,7 +226,7 @@ chart:
 ```
 
 Prowlarr:
-<!-- embedme charts/applications/values.yaml#L336-L339 -->
+<!-- embedme charts/applications/values.yaml#L370-L373 -->
 ```yaml
 chart:
   name: prowlarr
@@ -235,7 +235,7 @@ chart:
 ```
 
 Home Assistant:
-<!-- embedme charts/applications/values.yaml#L710-L713 -->
+<!-- embedme charts/applications/values.yaml#L658-L661 -->
 ```yaml
 chart:
   name: home-assistant
@@ -244,7 +244,7 @@ chart:
 ```
 
 Mosquitto:
-<!-- embedme charts/applications/values.yaml#L778-L781 -->
+<!-- embedme charts/applications/values.yaml#L726-L729 -->
 ```yaml
 chart:
   name: mosquitto
