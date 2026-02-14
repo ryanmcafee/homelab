@@ -37,8 +37,8 @@ spec:
 ---
 # CiliumL2AnnouncementPolicy - L2 (ARP) announcements for LoadBalancer IPs
 # Provides connectivity without requiring BGP on the gateway
-# No nodeSelector: Cilium announces from all nodes. With externalTrafficPolicy=Local,
-# only nodes with active service endpoints will respond to ARP.
+# nodeSelector excludes control-plane nodes: Proxmox VMs for control-plane nodes
+# block gratuitous ARP for VIPs, causing L2 announcements to be unreachable externally.
 apiVersion: cilium.io/v2alpha1
 kind: CiliumL2AnnouncementPolicy
 metadata:
@@ -46,6 +46,10 @@ metadata:
   annotations:
     argocd.argoproj.io/sync-wave: "1"
 spec:
+  nodeSelector:
+    matchExpressions:
+      - key: node-role.kubernetes.io/control-plane
+        operator: DoesNotExist
   serviceSelector:
     matchLabels: {}
   interfaces:
