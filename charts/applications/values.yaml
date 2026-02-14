@@ -32,8 +32,9 @@ global:
   # Default storage class for persistent volumes
   storageClass: democratic-csi-nfs
 
-  # Default ingress class
-  ingressClassName: traefik
+  # Default ingress classes
+  ingressClassNameExternal: external
+  ingressClassNameInternal: internal
 
   # Timezone for applications
   timezone: UTC
@@ -160,7 +161,7 @@ plex:
   # Note: Plex chart uses 'url' field instead of 'hosts' array
   ingress:
     enabled: true
-    ingressClassName: traefik
+    ingressClassName: external
     url: "https://plex.example.com"
     annotations:
       cert-manager.io/cluster-issuer: letsencrypt
@@ -245,7 +246,7 @@ sonarr:
   ingress:
     main:
       enabled: true
-      ingressClassName: traefik
+      ingressClassName: internal
       annotations:
         cert-manager.io/cluster-issuer: letsencrypt
         external-dns.alpha.kubernetes.io/hostname: sonarr.example.com
@@ -333,7 +334,7 @@ radarr:
   ingress:
     main:
       enabled: true
-      ingressClassName: traefik
+      ingressClassName: internal
       annotations:
         cert-manager.io/cluster-issuer: letsencrypt
         external-dns.alpha.kubernetes.io/hostname: radarr.example.com
@@ -405,7 +406,7 @@ prowlarr:
   ingress:
     main:
       enabled: true
-      ingressClassName: traefik
+      ingressClassName: internal
       annotations:
         cert-manager.io/cluster-issuer: letsencrypt
         external-dns.alpha.kubernetes.io/hostname: prowlarr.example.com
@@ -477,7 +478,7 @@ nzbget:
   ingress:
     main:
       enabled: true
-      ingressClassName: traefik
+      ingressClassName: internal
       annotations:
         cert-manager.io/cluster-issuer: letsencrypt
         external-dns.alpha.kubernetes.io/hostname: nzbget.example.com
@@ -541,7 +542,7 @@ tautulli:
   ingress:
     main:
       enabled: true
-      ingressClassName: traefik
+      ingressClassName: internal
       annotations:
         cert-manager.io/cluster-issuer: letsencrypt
         external-dns.alpha.kubernetes.io/hostname: tautulli.example.com
@@ -621,7 +622,7 @@ lazylibrarian:
   ingress:
     main:
       enabled: true
-      ingressClassName: traefik
+      ingressClassName: internal
       annotations:
         cert-manager.io/cluster-issuer: letsencrypt
         external-dns.alpha.kubernetes.io/hostname: lazylibrarian.example.com
@@ -695,7 +696,7 @@ homeassistant:
   ingress:
     main:
       enabled: true
-      ingressClassName: traefik
+      ingressClassName: internal
       annotations:
         cert-manager.io/cluster-issuer: letsencrypt
         external-dns.alpha.kubernetes.io/hostname: homeassistant.example.com
