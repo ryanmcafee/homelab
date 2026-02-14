@@ -1,0 +1,6 @@
+apiVersion: v2
+name: traefik-internal-config
+description: CRD-dependent configuration for internal Traefik (dashboard, certificates)
+type: application
+version: 1.0.0
+appVersion: "1.0"
