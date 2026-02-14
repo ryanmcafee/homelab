@@ -773,11 +773,11 @@ kube-prometheus-stack:
         memory: 256Mi
 
 # ============================================================================
-# Traefik - Ingress Controller
+# Traefik External - Ingress Controller (External/Public Traffic)
 # Sync Wave: 6 (last addon, requires Cilium LB IPAM and cert-manager)
 # ============================================================================
 
-traefik:
+traefikExternal:
   enabled: true
   namespace: traefik
 
@@ -862,6 +862,90 @@ traefik:
     replicas: 2  # High availability
 
   # Autoscaling
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 5
+    metrics:
+      - type: Resource
+        resource:
+          name: cpu
+          target:
+            type: Utilization
+            averageUtilization: 80
+
+# ============================================================================
+# Traefik Internal - Ingress Controller (Internal/Private Traffic)
+# Sync Wave: 6 (same wave as external, requires Cilium LB IPAM and cert-manager)
+# ============================================================================
+
+traefikInternal:
+  enabled: true
+  namespace: traefik
+
+  chart:
+    name: traefik
+    repo: https://traefik.github.io/charts
+    version: 39.0.0
+
+  service:
+    type: LoadBalancer
+    spec:
+      externalTrafficPolicy: Local
+
+  ports:
+    web:
+      port: 8000
+      exposedPort: 80
+      expose:
+        default: true
+      http:
+        redirections:
+          entryPoint:
+            to: websecure
+            scheme: https
+            permanent: true
+    websecure:
+      port: 8443
+      exposedPort: 443
+      expose:
+        default: true
+      asDefault: true
+      http:
+        tls:
+          enabled: true
+      transport:
+        respondingTimeouts:
+          readTimeout: 0
+          writeTimeout: 0
+          idleTimeout: 600s
+
+  additionalArguments:
+    - --global.checknewversion=false
+    - --global.sendanonymoususage=false
+
+  env: []
+
+  persistence:
+    enabled: false
+
+  ingressRoute:
+    dashboard:
+      enabled: true
+      matchRule: Host(`traefik-internal.example.com`)
+      entryPoints: ["websecure"]
+
+  resources:
+    requests:
+      cpu: 500m
+      memory: 2Gi
+    limits:
+      cpu: 1000m
+      memory: 2Gi
+
+  deployment:
+    replicas: 2
+
   autoscaling:
     enabled: true
     minReplicas: 2
