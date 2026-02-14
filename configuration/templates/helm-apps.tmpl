@@ -20,8 +20,9 @@ global:
   # Default storage class for persistent volumes
   storageClass: {{ .Values.STORAGE_CLASS_NFS.Value }}
 
-  # Default ingress class
-  ingressClassName: {{ .Values.INGRESS_CLASS.Value }}
+  # Default ingress classes
+  ingressClassNameExternal: {{ .Values.INGRESS_CLASS_EXTERNAL.Value }}
+  ingressClassNameInternal: {{ .Values.INGRESS_CLASS_INTERNAL.Value }}
 
   # Timezone for applications
   timezone: {{ .Values.TIMEZONE.Value }}
@@ -150,7 +151,7 @@ plex:
   # Ingress configuration
   ingress:
     enabled: true
-    ingressClassName: {{ .Values.INGRESS_CLASS.Value }}
+    ingressClassName: {{ .Values.INGRESS_CLASS_EXTERNAL.Value }}
     annotations:
       cert-manager.io/cluster-issuer: letsencrypt
       external-dns.alpha.kubernetes.io/hostname: {{ .Values.PLEX_HOSTNAME.Value }}
@@ -233,12 +234,10 @@ sonarr:
   ingress:
     main:
       enabled: true
-      ingressClassName: {{ .Values.INGRESS_CLASS.Value }}
+      ingressClassName: {{ .Values.INGRESS_CLASS_INTERNAL.Value }}
       annotations:
         cert-manager.io/cluster-issuer: letsencrypt
         external-dns.alpha.kubernetes.io/hostname: {{ .Values.SONARR_HOSTNAME.Value }}
-        # OIDC authentication via Traefik plugin
-        traefik.ingress.kubernetes.io/router.middlewares: traefik-oidc-auth@kubernetescrd
       hosts:
         - host: {{ .Values.SONARR_HOSTNAME.Value }}
           paths:
@@ -317,12 +316,10 @@ radarr:
   ingress:
     main:
       enabled: true
-      ingressClassName: {{ .Values.INGRESS_CLASS.Value }}
+      ingressClassName: {{ .Values.INGRESS_CLASS_INTERNAL.Value }}
       annotations:
         cert-manager.io/cluster-issuer: letsencrypt
         external-dns.alpha.kubernetes.io/hostname: {{ .Values.RADARR_HOSTNAME.Value }}
-        # OIDC authentication via Traefik plugin
-        traefik.ingress.kubernetes.io/router.middlewares: traefik-oidc-auth@kubernetescrd
       hosts:
         - host: {{ .Values.RADARR_HOSTNAME.Value }}
           paths:
@@ -385,12 +382,10 @@ prowlarr:
   ingress:
     main:
       enabled: true
-      ingressClassName: {{ .Values.INGRESS_CLASS.Value }}
+      ingressClassName: {{ .Values.INGRESS_CLASS_INTERNAL.Value }}
       annotations:
         cert-manager.io/cluster-issuer: letsencrypt
         external-dns.alpha.kubernetes.io/hostname: {{ .Values.PROWLARR_HOSTNAME.Value }}
-        # OIDC authentication via Traefik plugin
-        traefik.ingress.kubernetes.io/router.middlewares: traefik-oidc-auth@kubernetescrd
       hosts:
         - host: {{ .Values.PROWLARR_HOSTNAME.Value }}
           paths:
@@ -453,12 +448,10 @@ nzbget:
   ingress:
     main:
       enabled: true
-      ingressClassName: {{ .Values.INGRESS_CLASS.Value }}
+      ingressClassName: {{ .Values.INGRESS_CLASS_INTERNAL.Value }}
       annotations:
         cert-manager.io/cluster-issuer: letsencrypt
         external-dns.alpha.kubernetes.io/hostname: {{ .Values.NZBGET_HOSTNAME.Value }}
-        # OIDC authentication via Traefik plugin
-        traefik.ingress.kubernetes.io/router.middlewares: traefik-oidc-auth@kubernetescrd
       hosts:
         - host: {{ .Values.NZBGET_HOSTNAME.Value }}
           paths:
@@ -513,12 +506,10 @@ tautulli:
   ingress:
     main:
       enabled: true
-      ingressClassName: {{ .Values.INGRESS_CLASS.Value }}
+      ingressClassName: {{ .Values.INGRESS_CLASS_INTERNAL.Value }}
       annotations:
         cert-manager.io/cluster-issuer: letsencrypt
         external-dns.alpha.kubernetes.io/hostname: {{ .Values.TAUTULLI_HOSTNAME.Value }}
-        # OIDC authentication via Traefik plugin
-        traefik.ingress.kubernetes.io/router.middlewares: traefik-oidc-auth@kubernetescrd
       hosts:
         - host: {{ .Values.TAUTULLI_HOSTNAME.Value }}
           paths:
@@ -589,12 +580,10 @@ lazylibrarian:
   ingress:
     main:
       enabled: true
-      ingressClassName: {{ .Values.INGRESS_CLASS.Value }}
+      ingressClassName: {{ .Values.INGRESS_CLASS_INTERNAL.Value }}
       annotations:
         cert-manager.io/cluster-issuer: letsencrypt
         external-dns.alpha.kubernetes.io/hostname: {{ .Values.LAZYLIBRARIAN_HOSTNAME.Value }}
-        # OIDC authentication via Traefik plugin
-        traefik.ingress.kubernetes.io/router.middlewares: traefik-oidc-auth@kubernetescrd
       hosts:
         - host: {{ .Values.LAZYLIBRARIAN_HOSTNAME.Value }}
           paths:
@@ -653,12 +642,10 @@ homeassistant:
   ingress:
     main:
       enabled: true
-      ingressClassName: {{ .Values.INGRESS_CLASS.Value }}
+      ingressClassName: {{ .Values.INGRESS_CLASS_INTERNAL.Value }}
       annotations:
         cert-manager.io/cluster-issuer: letsencrypt
         external-dns.alpha.kubernetes.io/hostname: {{ .Values.HOMEASSISTANT_HOSTNAME.Value }}
-        # OIDC authentication via Traefik plugin
-        traefik.ingress.kubernetes.io/router.middlewares: traefik-oidc-auth@kubernetescrd
       hosts:
         - host: {{ .Values.HOMEASSISTANT_HOSTNAME.Value }}
           paths:
@@ -875,7 +862,7 @@ argocd:
       # Ingress for web UI
       ingress:
         enabled: true
-        ingressClassName: {{ .Values.INGRESS_CLASS.Value }}
+        ingressClassName: {{ .Values.INGRESS_CLASS_INTERNAL.Value }}
         hostname: {{ .Values.ARGOCD_HOSTNAME.Value }}
         tls: true
         annotations:
@@ -883,8 +870,6 @@ argocd:
           external-dns.alpha.kubernetes.io/hostname: {{ .Values.ARGOCD_HOSTNAME.Value }}
           # Tell Traefik to use HTTP when connecting to backend (ArgoCD serves HTTP on 8080)
           traefik.ingress.kubernetes.io/service.serversscheme: http
-          # OIDC authentication via Traefik plugin
-          traefik.ingress.kubernetes.io/router.middlewares: traefik-oidc-auth@kubernetescrd
 
       # Resource limits
       resources:

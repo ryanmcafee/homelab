@@ -27,10 +27,15 @@ keys:
     required: true
     default: "democratic-csi-ssd"
 
-  INGRESS_CLASS:
-    description: Default IngressClass name
+  INGRESS_CLASS_EXTERNAL:
+    description: IngressClass name for externally-facing services
     required: true
-    default: "traefik"
+    default: "external"
+
+  INGRESS_CLASS_INTERNAL:
+    description: IngressClass name for internal services
+    required: true
+    default: "internal"
 
   TIMEZONE:
     description: Default timezone for all workloads

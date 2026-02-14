@@ -1,0 +1,219 @@
+{{- if .Values.traefikInternal.enabled }}
+---
+# Dependencies Application: placeholder for future secret needs
+# Wave 5: Maintains consistent pattern with external traefik
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: traefik-internal-dependencies
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "5"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: {{ .Values.global.repoUrl }}
+    targetRevision: {{ .Values.global.targetRevision }}
+    path: charts/traefik-internal-dependencies
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-{{ .Values.global.environment }}.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: traefik
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - SkipDryRunOnMissingResource=true
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: traefik-internal
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "6"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: {{ .Values.traefikInternal.chart.repo }}
+    chart: {{ .Values.traefikInternal.chart.name }}
+    targetRevision: {{ .Values.traefikInternal.chart.version }}
+    helm:
+      releaseName: traefik-internal
+      values: |
+        # IngressClass configuration
+        ingressClass:
+          name: internal
+          isDefaultClass: false
+
+        deployment:
+          replicas: {{ .Values.traefikInternal.deployment.replicas }}
+
+        service:
+          type: {{ .Values.traefikInternal.service.type }}
+          {{- if .Values.traefikInternal.service.annotations }}
+          annotations:
+            {{- toYaml .Values.traefikInternal.service.annotations | nindent 12 }}
+          {{- end }}
+          {{- if .Values.traefikInternal.service.spec }}
+          spec:
+            {{- toYaml .Values.traefikInternal.service.spec | nindent 12 }}
+          {{- end }}
+
+        providers:
+          kubernetesIngress:
+            publishedService:
+              enabled: true
+            ingressClass: internal
+          kubernetesCRD:
+            allowCrossNamespace: true
+            ingressClass: internal
+
+        ports:
+          web:
+            port: {{ .Values.traefikInternal.ports.web.port }}
+            exposedPort: {{ .Values.traefikInternal.ports.web.exposedPort | default 80 }}
+            expose:
+              default: {{ .Values.traefikInternal.ports.web.expose.default }}
+            {{- if .Values.traefikInternal.ports.web.http }}
+            http:
+              {{- if .Values.traefikInternal.ports.web.http.redirections }}
+              redirections:
+                entryPoint:
+                  to: {{ .Values.traefikInternal.ports.web.http.redirections.entryPoint.to }}
+                  scheme: {{ .Values.traefikInternal.ports.web.http.redirections.entryPoint.scheme }}
+                  permanent: {{ .Values.traefikInternal.ports.web.http.redirections.entryPoint.permanent }}
+              {{- end }}
+            {{- end }}
+          websecure:
+            port: {{ .Values.traefikInternal.ports.websecure.port }}
+            exposedPort: {{ .Values.traefikInternal.ports.websecure.exposedPort | default 443 }}
+            expose:
+              default: {{ .Values.traefikInternal.ports.websecure.expose.default }}
+            {{- if .Values.traefikInternal.ports.websecure.asDefault }}
+            asDefault: {{ .Values.traefikInternal.ports.websecure.asDefault }}
+            {{- end }}
+            {{- if .Values.traefikInternal.ports.websecure.http }}
+            http:
+              tls:
+                enabled: {{ .Values.traefikInternal.ports.websecure.http.tls.enabled }}
+            {{- end }}
+            {{- if .Values.traefikInternal.ports.websecure.transport }}
+            transport:
+              {{- toYaml .Values.traefikInternal.ports.websecure.transport | nindent 14 }}
+            {{- end }}
+          {{- if .Values.traefikInternal.ports.traefik }}
+          traefik:
+            port: {{ .Values.traefikInternal.ports.traefik.port }}
+            expose:
+              default: {{ .Values.traefikInternal.ports.traefik.expose.default }}
+          {{- end }}
+
+        {{- if .Values.traefikInternal.additionalArguments }}
+        additionalArguments:
+          {{- range .Values.traefikInternal.additionalArguments }}
+          - {{ . }}
+          {{- end }}
+        {{- else }}
+        additionalArguments: []
+        {{- end }}
+
+        env:
+          {{- toYaml .Values.traefikInternal.env | nindent 10 }}
+
+        certificatesResolvers: {}
+
+        persistence:
+          enabled: {{ .Values.traefikInternal.persistence.enabled }}
+          {{- if .Values.traefikInternal.persistence.enabled }}
+          storageClass: {{ .Values.traefikInternal.persistence.storageClass }}
+          size: {{ .Values.traefikInternal.persistence.size }}
+          {{- end }}
+
+        ingressRoute:
+          dashboard:
+            enabled: {{ .Values.traefikInternal.ingressRoute.dashboard.enabled }}
+            {{- if .Values.traefikInternal.ingressRoute.dashboard.enabled }}
+            matchRule: {{ .Values.traefikInternal.ingressRoute.dashboard.matchRule }}
+            entryPoints:
+              {{- toYaml .Values.traefikInternal.ingressRoute.dashboard.entryPoints | nindent 14 }}
+            {{- if .Values.traefikInternal.ingressRoute.dashboard.tls }}
+            tls:
+              secretName: {{ .Values.traefikInternal.ingressRoute.dashboard.tls.secretName }}
+            {{- end }}
+            {{- end }}
+
+        resources:
+          {{- toYaml .Values.traefikInternal.resources | nindent 10 }}
+
+        {{- if .Values.traefikInternal.autoscaling.enabled }}
+        autoscaling:
+          enabled: true
+          minReplicas: {{ .Values.traefikInternal.autoscaling.minReplicas }}
+          maxReplicas: {{ .Values.traefikInternal.autoscaling.maxReplicas }}
+          metrics:
+            {{- toYaml .Values.traefikInternal.autoscaling.metrics | nindent 12 }}
+        {{- end }}
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: {{ .Values.traefikInternal.namespace }}
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+      - RespectIgnoreDifferences=true
+
+  ignoreDifferences:
+    - group: admissionregistration.k8s.io
+      kind: ValidatingWebhookConfiguration
+      jqPathExpressions:
+        - .webhooks[].clientConfig.caBundle
+---
+# Config Application: deploys CRD-dependent resources (dashboard)
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: traefik-internal-config
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: {{ .Values.global.repoUrl }}
+    targetRevision: {{ .Values.global.targetRevision }}
+    path: charts/traefik-internal-config
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-{{ .Values.global.environment }}.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: traefik
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - SkipDryRunOnMissingResource=true
+{{- end }}

@@ -98,14 +98,12 @@ argocd:
       # Ingress for web UI
       ingress:
         enabled: true
-        ingressClassName: {{ .Values.INGRESS_CLASS.Value }}
+        ingressClassName: {{ .Values.INGRESS_CLASS_INTERNAL.Value }}
         hostname: {{ .Values.ARGOCD_HOSTNAME.Value }}
         tls: true
         annotations:
           cert-manager.io/cluster-issuer: letsencrypt
           external-dns.alpha.kubernetes.io/hostname: {{ .Values.ARGOCD_HOSTNAME.Value }}
-          # OIDC authentication via Traefik plugin
-          traefik.ingress.kubernetes.io/router.middlewares: traefik-oidc-auth@kubernetescrd
 
       # Resource limits
       resources:
@@ -723,12 +721,10 @@ kube-prometheus-stack:
 
     ingress:
       enabled: true
-      ingressClassName: {{ .Values.INGRESS_CLASS.Value }}
+      ingressClassName: {{ .Values.INGRESS_CLASS_INTERNAL.Value }}
       annotations:
         cert-manager.io/cluster-issuer: letsencrypt
         external-dns.alpha.kubernetes.io/hostname: {{ .Values.GRAFANA_HOSTNAME.Value }}
-        # OIDC authentication via Traefik plugin
-        traefik.ingress.kubernetes.io/router.middlewares: traefik-oidc-auth@kubernetescrd
       hosts:
         - {{ .Values.GRAFANA_HOSTNAME.Value }}
       tls:
@@ -784,11 +780,11 @@ kube-prometheus-stack:
         memory: 256Mi
 
 # ============================================================================
-# Traefik - Ingress Controller
+# Traefik External - External Ingress Controller
 # Sync Wave: 6
 # ============================================================================
 
-traefik:
+traefikExternal:
   enabled: true
   namespace: traefik
 
@@ -917,6 +913,98 @@ traefik:
     onePasswordItemPath: {{ .Values.TRAEFIK_CLOUDFLARE_1P_PATH.Value }}
 
 # ============================================================================
+# Traefik Internal - Internal Ingress Controller
+# Sync Wave: 6
+# ============================================================================
+
+traefikInternal:
+  enabled: true
+  namespace: traefik
+
+  chart:
+    name: traefik
+    repo: https://traefik.github.io/charts
+    version: {{ .Versions.Charts.traefik }}
+
+  service:
+    type: LoadBalancer
+    spec:
+      externalTrafficPolicy: Local
+    # No static IP - Cilium LB IPAM assigns dynamically
+    # No port forwarding - internal only
+
+  ports:
+    web:
+      port: 8000
+      exposedPort: 80
+      expose:
+        default: true
+      http:
+        redirections:
+          entryPoint:
+            to: websecure
+            scheme: https
+            permanent: true
+    websecure:
+      port: 8443
+      exposedPort: 443
+      expose:
+        default: true
+      asDefault: true
+      http:
+        tls:
+          enabled: true
+      transport:
+        respondingTimeouts:
+          readTimeout: 0
+          writeTimeout: 0
+          idleTimeout: 600s
+    traefik:
+      port: 9000
+      expose:
+        default: true
+
+  additionalArguments:
+    - --global.checknewversion=false
+    - --global.sendanonymoususage=false
+
+  env: []
+
+  persistence:
+    enabled: false
+
+  ingressRoute:
+    dashboard:
+      enabled: true
+      matchRule: Host(`{{ .Values.TRAEFIK_INTERNAL_HOSTNAME.Value }}`)
+      entryPoints: ["websecure"]
+      tls:
+        secretName: traefik-internal-dashboard-tls
+
+  resources:
+    requests:
+      cpu: 500m
+      memory: 2Gi
+    limits:
+      cpu: 1000m
+      memory: 2Gi
+
+  deployment:
+    replicas: 2
+
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 5
+    metrics:
+      - type: Resource
+        resource:
+          name: cpu
+          target:
+            type: Utilization
+            averageUtilization: 80
+
+# ============================================================================
 # UniFi Port Forwarding Controller - Automatic Port Forwards
 # Sync Wave: 6-7
 # ============================================================================
@@ -996,12 +1084,10 @@ argo-workflows:
 
     ingress:
       enabled: true
-      ingressClassName: {{ .Values.INGRESS_CLASS.Value }}
+      ingressClassName: {{ .Values.INGRESS_CLASS_INTERNAL.Value }}
       annotations:
         cert-manager.io/cluster-issuer: letsencrypt
         external-dns.alpha.kubernetes.io/hostname: {{ .Values.WORKFLOWS_HOSTNAME.Value }}
-        # OIDC authentication via Traefik plugin (replaces oauth2-proxy)
-        traefik.ingress.kubernetes.io/router.middlewares: traefik-oidc-auth@kubernetescrd
       hosts:
         - {{ .Values.WORKFLOWS_HOSTNAME.Value }}
       paths:
