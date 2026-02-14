@@ -1,0 +1,10 @@
+# traefik-internal-config homelab values
+
+global:
+  domain: ryanmcafee.com
+
+namespace: traefik
+
+dashboard:
+  enabled: true
+  host: traefik-internal.ryanmcafee.com
