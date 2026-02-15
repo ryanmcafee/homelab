@@ -73,6 +73,20 @@ Each entry should include:
 - **Solution**: Added iSCSI block storage via democratic-csi (`democratic-csi-iscsi` storage class). iSCSI provides a proper block device with reliable file locking. Migrated Plex config PVC from NFS to iSCSI
 - **Prevention**: Use iSCSI (block storage) instead of NFS for any application that relies on SQLite or POSIX file locking
 
+### 2026-02-14 - LoadBalancer VIPs unreachable when L2 lease on control-plane node
+- **Issue**: Plex, traefik-external, and other services with L2 leases on control-plane nodes were unreachable from outside the cluster. `172.16.100.200` returned connection refused/timeout while `172.16.100.104` (on worker node) worked fine
+- **Root Cause**: Proxmox VMs hosting control-plane nodes block gratuitous ARP for VIPs. Cilium L2 announcements from control-plane nodes never reach the external network, so clients can't resolve the VIP MAC address
+- **Solution**: Added `nodeSelector` with `matchExpressions` (`node-role.kubernetes.io/control-plane` DoesNotExist) to `CiliumL2AnnouncementPolicy` to restrict L2 announcements to worker nodes only
+- **Prevention**: Always exclude control-plane nodes from L2 announcement policies in Proxmox-hosted clusters. If services become unreachable, check which node holds the L2 lease (`kubectl get leases -n kube-system | rg cilium-l2announce`)
+- **PR**: #138
+
+### 2026-02-14 - ArgoCD ingress returning 404 due to stale OIDC middleware annotation
+- **Issue**: ArgoCD web UI returned 404 error
+- **Root Cause**: Stale `traefik.ingress.kubernetes.io/router.middlewares: traefik-oidc-auth@kubernetescrd` annotation on ArgoCD ingress. The `traefikoidc` plugin is only loaded on `traefik-external`, but ArgoCD uses `traefik-internal` (ingressClassName: internal) which can't process the middleware
+- **Solution**: Removed the annotation from `terragrunt/modules/gitops-bootstrap/templates/argocd-values.yaml.tpl`
+- **Prevention**: Only apply middleware annotations for plugins loaded on the corresponding Traefik instance
+- **PR**: #137
+
 ### Known Common Errors (from CLAUDE.md)
 
 These are documented errors with known solutions:

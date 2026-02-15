@@ -36,12 +36,9 @@ spec:
           proxied: {{ index .Values "external-dns" "cloudflare" "proxied" }}
         {{- end }}
 
-        {{- if index .Values "external-dns" "sources" }}
+        # Only watch ingress resources (CRD source has its own deployment)
         sources:
-          {{- range (index .Values "external-dns" "sources") }}
-          - {{ . }}
-          {{- end }}
-        {{- end }}
+          - ingress
 
         domainFilters:
           {{- range (index .Values "external-dns" "domainFilters") }}
@@ -54,10 +51,11 @@ spec:
         registry: txt
         txtOwnerId: {{ .Values.global.environment }}-cloudflare
 
-        {{- if index .Values "external-dns" "defaultTarget" }}
-        # Use DDNS hostname as the target for all DNS records
-        # This ensures Cloudflare points to the dynamic public IP
+        # Only process ingresses with ingressClassName=external (e.g., Plex)
+        # Internal ingresses should only publish DNS to UniFi, not Cloudflare
         extraArgs:
+          - --ingress-class=external
+        {{- if index .Values "external-dns" "defaultTarget" }}
           - --default-targets={{ index .Values "external-dns" "defaultTarget" }}
         {{- end }}
 
