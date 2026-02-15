@@ -598,14 +598,12 @@ external-dns:
 
   provider: cloudflare
 
-  # Sources to watch for DNS records
-  # - service: watch Service resources with external-dns annotations
-  # - ingress: watch Ingress resources with external-dns annotations
-  # - crd: watch DNSEndpoint CRD resources (e.g., from traefik-config)
+  # Only watch ingress resources for Cloudflare DNS
+  # CRD source has its own dedicated deployment (external-dns-cloudflare-crd)
+  # Ingress class filtering (--ingress-class=external) is applied in the template
+  # to ensure only external ingresses (e.g., Plex) publish to Cloudflare
   sources:
-    - service
     - ingress
-    - crd
 
   cloudflare:
     apiToken: ""
