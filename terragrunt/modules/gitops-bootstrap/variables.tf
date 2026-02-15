@@ -21,7 +21,7 @@ variable "argocd_namespace" {
 }
 
 variable "argocd_version" {
-  description = "ArgoCD Helm chart version - keep in sync with charts/addons/values.yaml argocd.chart.version"
+  description = "ArgoCD Helm chart version - keep in sync with charts/bootstrap/values.yaml argocd.chart.version"
   type        = string
   default     = "7.7.15" # ArgoCD v2.13.x - synced with addon chart version
 }
@@ -128,6 +128,12 @@ variable "kubeconfig_path" {
 
 # SOPS Configuration
 # The age private key is stored in 1Password and retrieved during bootstrap
+variable "cmp_image_version" {
+  description = "Version tag for the homelab-cmp container image"
+  type        = string
+  default     = "0.1.0"
+}
+
 variable "sops_age_private_key" {
   description = "SOPS age private key for decrypting secrets (stored in 1Password: op://homelab/sops-age-key/private_key)"
   type        = string

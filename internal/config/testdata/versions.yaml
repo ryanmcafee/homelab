@@ -1,5 +1,7 @@
 charts:
   argocd: "7.7.15"
   cilium: "1.18.0"
+images:
+  homelab-cmp: "0.1.0"
 tools:
   talos: "v1.12.2"

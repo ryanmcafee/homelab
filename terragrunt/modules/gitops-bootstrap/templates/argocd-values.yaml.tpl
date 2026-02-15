@@ -116,7 +116,7 @@ repoServer:
   # CMP sidecar for homelab config plugin
   extraContainers:
     - name: homelab-cmp
-      image: ghcr.io/ryanmcafee/homelab-cmp:951e2aabd318b5bf5edf89478834bd6a76fdb284
+      image: ghcr.io/ryanmcafee/homelab-cmp:${cmp_image_version}
       command: [/var/run/argocd/argocd-cmp-server]
       securityContext:
         runAsNonRoot: true

@@ -31,7 +31,8 @@ charts:
   external-dns-webhook-unifi: "v0.8.1"
   traefik-oidc: "v0.8.21"
   unifi-port-forward: "1.1.x"
-
+images:
+  homelab-cmp: "0.1.2"
 tools:
   talos: "v1.12.2"
   kubernetes: "v1.32.0"
