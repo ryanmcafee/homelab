@@ -40,10 +40,13 @@ argocd:
         enabled: true
         ingressClassName: internal
         hostname: argocd.ryanmcafee.com
-        tls: true
         annotations:
           cert-manager.io/cluster-issuer: letsencrypt
           external-dns.alpha.kubernetes.io/hostname: argocd.ryanmcafee.com
+        extraTls:
+          - hosts:
+              - argocd.ryanmcafee.com
+            secretName: argocd-server-tls
 
       # Production resource limits
       resources:

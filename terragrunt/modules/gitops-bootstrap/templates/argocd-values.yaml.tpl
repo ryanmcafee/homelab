@@ -34,11 +34,13 @@ server:
     enabled: ${server_ingress_enabled}
     ingressClassName: internal
     hostname: ${server_host}
-    tls: true
     annotations:
       cert-manager.io/cluster-issuer: letsencrypt
       external-dns.alpha.kubernetes.io/hostname: ${server_host}
-      traefik.ingress.kubernetes.io/service.serversscheme: http
+    extraTls:
+      - hosts:
+          - ${server_host}
+        secretName: argocd-server-tls
 
 dex:
   enabled: ${dex_enabled}
