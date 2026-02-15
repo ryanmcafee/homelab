@@ -59,6 +59,8 @@ argocd:
   values:
     # Enable App of Apps health status progression
     configs:
+      params:
+        server.insecure: true
       cm:
         # Enable ksops plugin for SOPS decryption
         kustomize.buildOptions: "--enable-alpha-plugins --enable-exec"
