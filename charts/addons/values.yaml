@@ -40,13 +40,6 @@ global:
   loadBalancer: true
 
 # ============================================================================
-# ArgoCD - MOVED to charts/bootstrap/ at sync wave 1
-# ============================================================================
-
-argocd:
-  enabled: false
-
-# ============================================================================
 # Spegel - P2P Container Image Distribution
 # Sync Wave: 0 (early infrastructure, helps with slow registry pulls)
 # ============================================================================
