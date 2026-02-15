@@ -1,16 +1,14 @@
 {{- if .Values.argocd.enabled }}
 # ArgoCD Self-Management Application
 # This allows ArgoCD to manage itself after initial bootstrap by Terraform
-# Sync Wave: 0 (deploys before all other addons)
+# Sync Wave: 1 (after env-config at wave 0, before addons at wave 2)
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
   name: argocd
   namespace: {{ .Values.argocd.namespace | default "argocd" }}
-  labels:
-    {{- include "addons.labels" . | nindent 4 }}
   annotations:
-    argocd.argoproj.io/sync-wave: "0"
+    argocd.argoproj.io/sync-wave: "1"
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:

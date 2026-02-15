@@ -9,7 +9,7 @@ repos:
     hooks:
       - id: helm-lint
         name: Helm Lint
-        entry: helm lint charts/gitops charts/addons charts/applications
+        entry: helm lint charts/gitops charts/bootstrap charts/addons charts/applications
         language: system
         pass_filenames: false
         files: ^charts/
@@ -28,6 +28,13 @@ repos:
         language: system
         pass_filenames: false
         files: ^charts/applications/
+
+      - id: helm-template-bootstrap
+        name: Helm Template Bootstrap
+        entry: bash -c 'helm template bootstrap charts/bootstrap -f charts/bootstrap/values.yaml -f charts/bootstrap/values-homelab.yaml > /dev/null'
+        language: system
+        pass_filenames: false
+        files: ^charts/bootstrap/
 
       - id: helm-template-gitops
         name: Helm Template GitOps
@@ -62,6 +69,22 @@ repos:
             ^configuration/environments/homelab\.yaml$|
             \.generated\.
           )
+
+      - id: cmp-version-bump
+        name: Auto-bump CMP version
+        entry: deno run --allow-read --allow-write --allow-run scripts/cmp-version-bump.ts
+        language: system
+        pass_filenames: false
+        files: ^(cmd/|internal/|cmp/|Dockerfile\.cmp|configuration/)
+        stages: [pre-commit]
+
+      - id: config-export
+        name: Auto-export config on changes
+        entry: deno run --allow-read --allow-write --allow-run --allow-env scripts/config-export-hook.ts
+        language: system
+        pass_filenames: false
+        files: ^configuration/(schema/|environments/|versions\.yaml$|templates/)
+        stages: [pre-commit]
 
   # YAML validation (non-template files)
   - repo: https://github.com/adrienverge/yamllint

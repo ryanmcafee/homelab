@@ -22,6 +22,10 @@ on:
       - 'go.sum'
       - 'Dockerfile.cmp'
       - 'cmp/**'
+      - 'configuration/schema/**'
+      - 'configuration/environments/defaults.yaml'
+      - 'configuration/versions.yaml'
+      - 'configuration/templates/**'
 
 jobs:
   build:
@@ -32,6 +36,26 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Read CMP version
+        id: version
+        run: |
+          VERSION=$(yq '.images.homelab-cmp' configuration/versions.yaml)
+          echo "cmp_version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Verify version bumped
+        if: github.event_name == 'pull_request'
+        run: |
+          # Fetch the base branch for comparison
+          git fetch origin ${{ github.base_ref }} --depth=1
+          BASE_VERSION=$(git show origin/${{ github.base_ref }}:configuration/versions.yaml | yq '.images.homelab-cmp')
+          HEAD_VERSION=${{ steps.version.outputs.cmp_version }}
+
+          if [ "$BASE_VERSION" = "$HEAD_VERSION" ]; then
+            echo "::warning::CMP image version ($HEAD_VERSION) was not bumped. If CMP code changed, bump images.homelab-cmp in configuration/versions.yaml."
+          else
+            echo "CMP version bumped: $BASE_VERSION -> $HEAD_VERSION"
+          fi
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -52,7 +76,7 @@ jobs:
           push: ${{ github.event_name == 'push' }}
           tags: |
             ghcr.io/${{ github.repository_owner }}/homelab-cmp:latest
-            ghcr.io/${{ github.repository_owner }}/homelab-cmp:${{ github.sha }}
+            ghcr.io/${{ github.repository_owner }}/homelab-cmp:${{ steps.version.outputs.cmp_version }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 

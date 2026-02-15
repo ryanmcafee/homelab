@@ -737,6 +737,16 @@ tasks:
     cmds:
       - go run ./cmd/homelab config guard --set {{.ENV | default "homelab"}}
 
+  config:export:hook:
+    desc: Export config and stage generated files (used by pre-commit)
+    cmds:
+      - deno run --allow-read --allow-write --allow-run --allow-env scripts/config-export-hook.ts
+
+  cmp:bump:
+    desc: Manually bump the CMP image patch version
+    cmds:
+      - deno run --allow-read --allow-write --allow-run scripts/cmp-version-bump.ts --force
+
   # ==========================================================================
   # Utilities
   # ==========================================================================

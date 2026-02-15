@@ -134,9 +134,10 @@ inputs = {
   target_revision = include.env.locals.target_revision
 
   # ArgoCD configuration
-  argocd_namespace = "argocd"
-  argocd_version   = "7.7.15" # Keep in sync with addons chart
-  admin_enabled    = true
+  argocd_namespace  = "argocd"
+  argocd_version    = "7.7.15" # Keep in sync with bootstrap chart
+  cmp_image_version = yamldecode(file("${get_terragrunt_dir()}/../../../../configuration/versions.yaml"))["images"]["homelab-cmp"]
+  admin_enabled     = true
 
   # Ingress (enable for production access)
   server_ingress_enabled = true

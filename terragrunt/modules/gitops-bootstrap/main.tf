@@ -61,6 +61,7 @@ resource "helm_release" "argocd" {
       server_host            = var.server_host
       dex_enabled            = var.dex_enabled
       notifications_enabled  = var.notifications_enabled
+      cmp_image_version      = var.cmp_image_version
     })
   ]
 

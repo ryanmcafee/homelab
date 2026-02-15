@@ -91,6 +91,9 @@ func TestLoadVersions(t *testing.T) {
 	if v.Tools["talos"] != "v1.12.2" {
 		t.Errorf("talos version = %q, want %q", v.Tools["talos"], "v1.12.2")
 	}
+	if v.Images["homelab-cmp"] != "0.1.0" {
+		t.Errorf("homelab-cmp version = %q, want %q", v.Images["homelab-cmp"], "0.1.0")
+	}
 }
 
 func TestLoadEnvironmentCustomPath(t *testing.T) {

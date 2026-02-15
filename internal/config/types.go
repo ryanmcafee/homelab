@@ -22,9 +22,10 @@ type Schema struct {
 	Keys map[string]SchemaKey
 }
 
-// Versions holds chart and tool version strings.
+// Versions holds chart, image, and tool version strings.
 type Versions struct {
 	Charts map[string]string `yaml:"charts"`
+	Images map[string]string `yaml:"images"`
 	Tools  map[string]string `yaml:"tools"`
 }
 
