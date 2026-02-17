@@ -49,16 +49,17 @@ spec:
             - sh
             - -c
             - |
-              # Create validation ready files for Talos GPU nodes
-              # These files signal to GPU operator components that validation is complete
+              # Continuously maintain validation ready files for Talos GPU nodes
+              # The operator validator deletes driver-ready during its validation loop,
+              # so we must recreate it continuously rather than just once
               mkdir -p /run/nvidia/validations
-              touch /run/nvidia/validations/driver-ready
-              touch /run/nvidia/validations/toolkit-ready
-              touch /run/nvidia/validations/cuda-ready
-              touch /run/nvidia/validations/plugin-ready
-              echo "Validation files created for Talos GPU node"
-              # Keep running to maintain the validation files
-              exec sleep infinity
+              while true; do
+                touch /run/nvidia/validations/driver-ready
+                touch /run/nvidia/validations/toolkit-ready
+                touch /run/nvidia/validations/cuda-ready
+                touch /run/nvidia/validations/plugin-ready
+                sleep 5
+              done
           volumeMounts:
             - name: run-nvidia
               mountPath: /run/nvidia
@@ -101,10 +102,10 @@ spec:
         # Driver and toolkit are provided by Talos system extensions (nonfree-kmod-nvidia, nvidia-container-toolkit)
         # GPU Operator only manages device plugin and monitoring components
         #
-        # IMPORTANT: GPU nodes must have label nvidia.com/gpu.deploy.operator-validator=false
-        # to disable the validator (which has mount issues on Talos). This is set in
-        # talos/patches/gpu-passthrough.yaml and a validation-bypass DaemonSet creates
-        # the required validation files.
+        # NOTE: The operator's validator CRD doesn't support an 'enabled' field,
+        # so the validator DaemonSet runs regardless of Helm settings. The
+        # validation-bypass DaemonSet continuously recreates the driver-ready
+        # file that the validator deletes during its failed validation loop.
 
         driver:
           enabled: false
@@ -165,8 +166,11 @@ spec:
       jsonPointers:
         - /metadata/annotations
         - /metadata/labels
-    # ClusterPolicy has many auto-filled defaults from the helm chart
-    # The GPU operator manages these fields, so ignore spec differences
+    # ClusterPolicy: the GPU operator controller fills in many defaults
+    # (image versions, env vars, sub-component configs) that differ from
+    # what the Helm chart renders. Ignore all spec differences to prevent
+    # infinite sync loops. The validation-bypass DaemonSet handles the
+    # Talos driver validation issue independently.
     - group: nvidia.com
       kind: ClusterPolicy
       jqPathExpressions:
