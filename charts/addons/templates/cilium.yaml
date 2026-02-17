@@ -60,6 +60,9 @@ spec:
             enabled: true
           ui:
             enabled: true
+        bandwidthManager:
+          enabled: true
+          bbr: true
 
   destination:
     server: https://kubernetes.default.svc

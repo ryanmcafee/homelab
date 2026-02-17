@@ -190,6 +190,11 @@ inputs = {
         nodeLabels = {
           "storage.kubernetes.io/iscsi-client" = "true"
         }
+        # TCP BBR congestion control for improved throughput
+        sysctls = {
+          "net.core.default_qdisc"          = "fq"
+          "net.ipv4.tcp_congestion_control" = "bbr"
+        }
       }
     })
   ]
