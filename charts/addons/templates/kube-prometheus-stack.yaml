@@ -16,7 +16,6 @@ metadata:
   name: kube-prometheus-stack
   namespace: argocd
   annotations:
-    # Wave 9: After traefik-config (wave 8) so OIDC middleware is available for Grafana ingress
     argocd.argoproj.io/sync-wave: "9"
   finalizers:
     - resources-finalizer.argocd.argoproj.io
@@ -77,8 +76,6 @@ spec:
             annotations:
               cert-manager.io/cluster-issuer: letsencrypt
               external-dns.alpha.kubernetes.io/hostname: {{ index (index .Values "kube-prometheus-stack" "grafana" "ingress" "hosts") 0 }}
-              # OIDC authentication via Traefik plugin
-              traefik.ingress.kubernetes.io/router.middlewares: traefik-oidc-auth@kubernetescrd
             hosts:
               {{- range (index .Values "kube-prometheus-stack" "grafana" "ingress" "hosts") }}
               - {{ . }}
