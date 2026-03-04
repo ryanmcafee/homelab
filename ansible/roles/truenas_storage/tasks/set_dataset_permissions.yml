@@ -52,4 +52,8 @@
 
 - name: Display permission status - {{ dataset_path }}
   ansible.builtin.debug:
-    msg: "Permissions set on '/mnt/{{ dataset_path }}' - user: {{ perm_user | default('unchanged') }}, group: {{ perm_group | default('unchanged') }}, mode: {{ perm_mode | default('770') }}"
+    msg: >-
+      Permissions set on '/mnt/{{ dataset_path }}' -
+      user: {{ perm_user | default('unchanged') }},
+      group: {{ perm_group | default('unchanged') }},
+      mode: {{ perm_mode | default('770') }}

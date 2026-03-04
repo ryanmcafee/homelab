@@ -68,4 +68,9 @@
 
 - name: Display user status - {{ user.name }}
   ansible.builtin.debug:
-    msg: "User '{{ user.name }}' {{ 'created (gid: ' ~ _resolved_gid ~ ')' if not _user_exists and _resolved_gid is defined else 'already exists' if _user_exists else 'SKIPPED - group not found' }}"
+    msg: >-
+      User '{{ user.name }}'
+      {{ 'created (gid: ' ~ _resolved_gid ~ ')'
+      if not _user_exists and _resolved_gid is defined
+      else 'already exists' if _user_exists
+      else 'SKIPPED - group not found' }}
