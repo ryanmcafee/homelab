@@ -222,16 +222,5 @@
   "commitMessageExtra": "to {{{newVersion}}}",
 
   // Ignore specific packages
-  "ignoreDeps": [],
-
-  // Post-upgrade tasks (e.g., run tests)
-  "postUpgradeTasks": {
-    "commands": [
-      "task chart:lint"
-    ],
-    "fileFilters": [
-      "charts/**",
-      "configuration/versions.yaml"
-    ]
-  }
+  "ignoreDeps": []
 }

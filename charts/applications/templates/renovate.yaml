@@ -90,8 +90,7 @@ spec:
               "repositories": {{ .Values.renovate.config.repositories | toJson }},
               "gitAuthor": {{ .Values.renovate.config.gitAuthor | quote }},
               "onboarding": {{ .Values.renovate.config.onboarding }},
-              "requireConfig": {{ .Values.renovate.config.requireConfig | quote }},
-              "allowedPostUpgradeCommands": ["^task chart:lint$"]
+              "requireConfig": {{ .Values.renovate.config.requireConfig | quote }}
             }
 
         {{- if .Values.renovate.resources }}
