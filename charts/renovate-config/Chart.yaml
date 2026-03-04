@@ -1,0 +1,6 @@
+apiVersion: v2
+name: renovate-config
+description: Pre-requisite resources for Renovate (1Password secret)
+type: application
+version: 1.0.0
+appVersion: "1.0"
