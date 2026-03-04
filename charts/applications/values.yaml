@@ -861,8 +861,8 @@ renovate:
   # https://github.com/renovatebot/helm-charts
   chart:
     name: renovate
-    repo: ghcr.io/renovatebot/helm-charts
-    version: "39.237.0"
+    repo: ghcr.io/renovatebot/charts
+    version: "46.49.0"
 
   # CronJob schedule (every 4 hours)
   schedule: "0 */4 * * *"

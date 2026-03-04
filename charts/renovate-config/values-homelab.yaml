@@ -1,0 +1,5 @@
+# renovate-config homelab values
+
+namespace: renovate
+
+onePasswordItemPath: vaults/homelab/items/renovate

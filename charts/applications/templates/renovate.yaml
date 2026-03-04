@@ -53,7 +53,7 @@ metadata:
 stringData:
   name: renovatebot
   type: helm
-  url: ghcr.io/renovatebot/helm-charts
+  url: ghcr.io/renovatebot/charts
   enableOCI: "true"
 ---
 # Renovate Application: deploys the dependency update CronJob
@@ -69,7 +69,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: ghcr.io/renovatebot/helm-charts
+    repoURL: ghcr.io/renovatebot/charts
     chart: {{ .Values.renovate.chart.name }}
     targetRevision: {{ .Values.renovate.chart.version }}
     helm:

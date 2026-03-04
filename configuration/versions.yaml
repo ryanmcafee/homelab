@@ -49,8 +49,8 @@ charts:
   mosquitto: "17.13.9"
   # renovate: datasource=helm depName=flaresolverr registryUrl=https://trueforge-org.github.io/truecharts
   flaresolverr: "16.14.17"
-  # renovate: datasource=docker depName=ghcr.io/renovatebot/helm-charts/renovate
-  renovate: "39.237.0"
+  # renovate: datasource=docker depName=ghcr.io/renovatebot/charts/renovate
+  renovate: "46.49.0"
   # renovate: datasource=helm depName=gpu-operator registryUrl=https://helm.ngc.nvidia.com/nvidia
   nvidia-gpu-operator: "v25.3.0"
   # renovate: datasource=helm depName=oauth2-proxy registryUrl=https://oauth2-proxy.github.io/manifests
