@@ -1,0 +1,10 @@
+# renovate-config values
+
+namespace: renovate
+
+# Secret name for Renovate tokens
+secretName: renovate-token
+
+# 1Password vault path for Renovate credentials
+# The secret should have fields: RENOVATE_TOKEN, GITHUB_COM_TOKEN
+onePasswordItemPath: ""

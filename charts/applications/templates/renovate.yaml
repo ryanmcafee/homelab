@@ -1,0 +1,118 @@
+{{- if .Values.renovate.enabled }}
+---
+# Namespace for Renovate resources
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Values.renovate.namespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
+---
+# Config Application: deploys OnePasswordItem for Renovate tokens
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: renovate-config
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "11"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: {{ .Values.global.repoUrl }}
+    targetRevision: {{ .Values.global.targetRevision }}
+    path: charts/renovate-config
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-{{ .Values.global.environment }}.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: {{ .Values.renovate.namespace }}
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - SkipDryRunOnMissingResource=true
+---
+# OCI Repository: registers Renovate Helm chart registry in ArgoCD
+apiVersion: v1
+kind: Secret
+metadata:
+  name: renovatebot-oci
+  namespace: argocd
+  labels:
+    argocd.argoproj.io/secret-type: repository
+  annotations:
+    argocd.argoproj.io/sync-wave: "11"
+stringData:
+  name: renovatebot
+  type: helm
+  url: ghcr.io/renovatebot/helm-charts
+  enableOCI: "true"
+---
+# Renovate Application: deploys the dependency update CronJob
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: renovate
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "12"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: ghcr.io/renovatebot/helm-charts
+    chart: {{ .Values.renovate.chart.name }}
+    targetRevision: {{ .Values.renovate.chart.version }}
+    helm:
+      releaseName: renovate
+      values: |
+        cronjob:
+          schedule: {{ .Values.renovate.schedule | quote }}
+
+        envFrom:
+          - secretRef:
+              name: renovate-token
+
+        renovate:
+          config: |
+            {
+              "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+              "platform": {{ .Values.renovate.config.platform | quote }},
+              "repositories": {{ .Values.renovate.config.repositories | toJson }},
+              "onboarding": {{ .Values.renovate.config.onboarding }},
+              "requireConfig": {{ .Values.renovate.config.requireConfig | quote }}
+            }
+
+        {{- if .Values.renovate.resources }}
+        resources:
+          {{- toYaml .Values.renovate.resources | nindent 10 }}
+        {{- end }}
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: {{ .Values.renovate.namespace }}
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+{{- end }}
