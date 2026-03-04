@@ -31,23 +31,23 @@ charts:
   argo-workflows: "0.45.2"
   # renovate: datasource=helm depName=plex-media-server registryUrl=https://raw.githubusercontent.com/plexinc/pms-docker/gh-pages
   plex-media-server: "1.4.0"
-  # renovate: datasource=helm depName=sonarr registryUrl=https://trueforge-org.github.io/truecharts
+  # renovate: datasource=docker depName=oci.trueforge.org/truecharts/sonarr
   sonarr: "25.2.11"
-  # renovate: datasource=helm depName=radarr registryUrl=https://trueforge-org.github.io/truecharts
+  # renovate: datasource=docker depName=oci.trueforge.org/truecharts/radarr
   radarr: "26.3.11"
-  # renovate: datasource=helm depName=prowlarr registryUrl=https://trueforge-org.github.io/truecharts
+  # renovate: datasource=docker depName=oci.trueforge.org/truecharts/prowlarr
   prowlarr: "21.3.12"
-  # renovate: datasource=helm depName=nzbget registryUrl=https://trueforge-org.github.io/truecharts
+  # renovate: datasource=docker depName=oci.trueforge.org/truecharts/nzbget
   nzbget: "28.3.20"
-  # renovate: datasource=helm depName=tautulli registryUrl=https://trueforge-org.github.io/truecharts
+  # renovate: datasource=docker depName=oci.trueforge.org/truecharts/tautulli
   tautulli: "21.14.16"
-  # renovate: datasource=helm depName=lazylibrarian registryUrl=https://trueforge-org.github.io/truecharts
+  # renovate: datasource=docker depName=oci.trueforge.org/truecharts/lazylibrarian
   lazylibrarian: "21.14.20"
-  # renovate: datasource=helm depName=home-assistant registryUrl=https://trueforge-org.github.io/truecharts
+  # renovate: datasource=docker depName=oci.trueforge.org/truecharts/home-assistant
   home-assistant: "28.19.14"
-  # renovate: datasource=helm depName=mosquitto registryUrl=https://trueforge-org.github.io/truecharts
+  # renovate: datasource=docker depName=oci.trueforge.org/truecharts/mosquitto
   mosquitto: "17.13.9"
-  # renovate: datasource=helm depName=flaresolverr registryUrl=https://trueforge-org.github.io/truecharts
+  # renovate: datasource=docker depName=oci.trueforge.org/truecharts/flaresolverr
   flaresolverr: "16.14.17"
   # renovate: datasource=docker depName=ghcr.io/renovatebot/charts/renovate
   renovate: "46.49.0"
