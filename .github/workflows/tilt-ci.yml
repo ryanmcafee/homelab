@@ -60,6 +60,8 @@ jobs:
           config: localdev/kind-config.yaml
           cluster_name: homelab-ci
           wait: 300s
+          node_image: kindest/node:v1.32.0
+          kubectl_version: v1.32.0
 
       - name: Verify cluster
         run: |
@@ -127,6 +129,8 @@ jobs:
           config: localdev/kind-config.yaml
           cluster_name: homelab-ci-argocd
           wait: 300s
+          node_image: kindest/node:v1.32.0
+          kubectl_version: v1.32.0
 
       - name: Verify cluster
         run: |
