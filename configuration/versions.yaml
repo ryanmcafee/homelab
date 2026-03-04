@@ -3,38 +3,69 @@
 # Renovate/Dependabot PRs target this file only.
 
 charts:
+  # renovate: datasource=helm depName=argo-cd registryUrl=https://argoproj.github.io/argo-helm
   argocd: "7.7.15"
+  # renovate: datasource=helm depName=cilium registryUrl=https://helm.cilium.io/
   cilium: "1.18.0"
+  # renovate: datasource=helm depName=cert-manager registryUrl=https://charts.jetstack.io
   cert-manager: "v1.16.2"
+  # renovate: datasource=helm depName=external-dns registryUrl=https://kubernetes-sigs.github.io/external-dns/
   external-dns: "1.15.0"
+  # renovate: datasource=helm depName=kube-prometheus-stack registryUrl=https://prometheus-community.github.io/helm-charts
   kube-prometheus-stack: "69.8.2"
+  # renovate: datasource=helm depName=traefik registryUrl=https://traefik.github.io/charts
   traefik: "39.0.0"
+  # renovate: datasource=helm depName=democratic-csi registryUrl=https://democratic-csi.github.io/charts/
   democratic-csi: "0.14.6"
+  # renovate: datasource=helm depName=kubelet-csr-approver registryUrl=https://postfinance.github.io/kubelet-csr-approver
   kubelet-csr-approver: "1.2.2"
+  # renovate: datasource=helm depName=connect registryUrl=https://1password.github.io/connect-helm-charts
   onepassword-connect: "2.2.1"
+  # renovate: datasource=docker depName=ghcr.io/spegel-org/helm-charts/spegel
   spegel: "0.6.0"
+  # renovate: datasource=helm depName=local-path-provisioner registryUrl=https://charts.containeroo.ch
   local-path-provisioner: "0.0.30"
+  # renovate: datasource=helm depName=cloudnative-pg registryUrl=https://cloudnative-pg.github.io/charts
   cloudnative-pg: "0.27.0"
+  # renovate: datasource=helm depName=argo-workflows registryUrl=https://argoproj.github.io/argo-helm
   argo-workflows: "0.45.2"
+  # renovate: datasource=helm depName=plex-media-server registryUrl=https://raw.githubusercontent.com/plexinc/pms-docker/gh-pages
   plex-media-server: "1.4.0"
+  # renovate: datasource=helm depName=sonarr registryUrl=https://trueforge-org.github.io/truecharts
   sonarr: "25.2.11"
+  # renovate: datasource=helm depName=radarr registryUrl=https://trueforge-org.github.io/truecharts
   radarr: "26.3.11"
+  # renovate: datasource=helm depName=prowlarr registryUrl=https://trueforge-org.github.io/truecharts
   prowlarr: "21.3.12"
+  # renovate: datasource=helm depName=nzbget registryUrl=https://trueforge-org.github.io/truecharts
   nzbget: "28.3.20"
+  # renovate: datasource=helm depName=tautulli registryUrl=https://trueforge-org.github.io/truecharts
   tautulli: "21.14.16"
+  # renovate: datasource=helm depName=lazylibrarian registryUrl=https://trueforge-org.github.io/truecharts
   lazylibrarian: "21.14.20"
+  # renovate: datasource=helm depName=home-assistant registryUrl=https://trueforge-org.github.io/truecharts
   home-assistant: "28.19.14"
+  # renovate: datasource=helm depName=mosquitto registryUrl=https://trueforge-org.github.io/truecharts
   mosquitto: "17.13.9"
+  # renovate: datasource=helm depName=flaresolverr registryUrl=https://trueforge-org.github.io/truecharts
   flaresolverr: "16.14.17"
+  # renovate: datasource=helm depName=gpu-operator registryUrl=https://helm.ngc.nvidia.com/nvidia
   nvidia-gpu-operator: "v25.3.0"
+  # renovate: datasource=helm depName=oauth2-proxy registryUrl=https://oauth2-proxy.github.io/manifests
   oauth2-proxy: "7.7.30"
+  # renovate: datasource=docker depName=ghcr.io/kashalls/external-dns-unifi-webhook
   external-dns-webhook-unifi: "v0.8.1"
+  # renovate: datasource=github-releases depName=lukaszraczylo/traefikoidc
   traefik-oidc: "v0.8.21"
   unifi-port-forward: "1.1.x"
 images:
   homelab-cmp: "0.1.2"
 tools:
+  # renovate: datasource=github-releases depName=siderolabs/talos
   talos: "v1.12.2"
+  # renovate: datasource=github-releases depName=kubernetes/kubernetes
   kubernetes: "v1.32.0"
+  # renovate: datasource=github-releases depName=hashicorp/terraform
   terraform: "1.9.8"
+  # renovate: datasource=github-releases depName=helm/helm
   helm: "3.16.0"

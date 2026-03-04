@@ -98,6 +98,39 @@
     {
       "matchManagers": ["github-actions"],
       "pinDigests": true
+    },
+
+    // Group TrueCharts application updates from versions.yaml
+    {
+      "groupName": "TrueCharts applications",
+      "matchPackageNames": [
+        "sonarr", "radarr", "prowlarr", "nzbget",
+        "tautulli", "lazylibrarian", "home-assistant",
+        "mosquitto", "flaresolverr"
+      ],
+      "matchDatasources": ["helm"],
+      "matchFileNames": ["configuration/versions.yaml"],
+      "schedule": ["every weekend"]
+    },
+
+    // Group infrastructure tool updates
+    {
+      "groupName": "Infrastructure tools",
+      "matchPackageNames": [
+        "siderolabs/talos", "kubernetes/kubernetes",
+        "hashicorp/terraform", "helm/helm"
+      ],
+      "matchDatasources": ["github-releases"],
+      "schedule": ["every weekend"],
+      "automerge": false
+    },
+
+    // Require manual review for major version bumps in versions.yaml
+    {
+      "matchUpdateTypes": ["major"],
+      "matchFileNames": ["configuration/versions.yaml"],
+      "automerge": false,
+      "labels": ["renovate", "dependencies", "major"]
     }
   ],
 
@@ -138,6 +171,14 @@
 
   // Regex managers for custom version detection
   "regexManagers": [
+    // Detect versions in configuration/versions.yaml
+    {
+      "fileMatch": ["configuration/versions\\.yaml$"],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>.*?) depName=(?<depName>.*?)( registryUrl=(?<registryUrl>.*?))?\\s+[\\w-]+:\\s*\"(?<currentValue>[^\"]+)\""
+      ]
+    },
+
     // Detect Talos version in schematic.yaml
     {
       "fileMatch": ["talos/image/schematic\\.yaml$"],
@@ -186,7 +227,8 @@
       "task chart:lint"
     ],
     "fileFilters": [
-      "charts/**"
+      "charts/**",
+      "configuration/versions.yaml"
     ]
   }
 }
