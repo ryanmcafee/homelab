@@ -753,6 +753,11 @@ tasks:
   # Utilities
   # ==========================================================================
 
+  renovate:validate:
+    desc: Validate Renovate configuration locally
+    cmds:
+      - npx --package renovate -- renovate-config-validator .github/renovate.json5
+
   clean:
     desc: Clean temporary files
     cmds:
