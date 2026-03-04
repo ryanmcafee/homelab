@@ -11,7 +11,6 @@
   ],
   "labels": ["renovate", "dependencies"],
   "assignees": ["ryanmcafee"],
-  "reviewers": ["ryanmcafee"],
   "semanticCommits": "enabled",
   "separateMajorMinor": true,
   "separateMinorPatch": false,
@@ -104,11 +103,17 @@
     {
       "groupName": "TrueCharts applications",
       "matchPackageNames": [
-        "sonarr", "radarr", "prowlarr", "nzbget",
-        "tautulli", "lazylibrarian", "home-assistant",
-        "mosquitto", "flaresolverr"
+        "oci.trueforge.org/truecharts/sonarr",
+        "oci.trueforge.org/truecharts/radarr",
+        "oci.trueforge.org/truecharts/prowlarr",
+        "oci.trueforge.org/truecharts/nzbget",
+        "oci.trueforge.org/truecharts/tautulli",
+        "oci.trueforge.org/truecharts/lazylibrarian",
+        "oci.trueforge.org/truecharts/home-assistant",
+        "oci.trueforge.org/truecharts/mosquitto",
+        "oci.trueforge.org/truecharts/flaresolverr"
       ],
-      "matchDatasources": ["helm"],
+      "matchDatasources": ["docker"],
       "matchFileNames": ["configuration/versions.yaml"],
       "schedule": ["every weekend"]
     },

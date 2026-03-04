@@ -872,6 +872,7 @@ renovate:
     platform: github
     repositories:
       - ryanmcafee/homelab
+    gitAuthor: "Renovate Bot <renovate@ryanmcafee.com>"
     onboarding: false
     requireConfig: "optional"
 

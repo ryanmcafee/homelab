@@ -88,8 +88,10 @@ spec:
               "$schema": "https://docs.renovatebot.com/renovate-schema.json",
               "platform": {{ .Values.renovate.config.platform | quote }},
               "repositories": {{ .Values.renovate.config.repositories | toJson }},
+              "gitAuthor": {{ .Values.renovate.config.gitAuthor | quote }},
               "onboarding": {{ .Values.renovate.config.onboarding }},
-              "requireConfig": {{ .Values.renovate.config.requireConfig | quote }}
+              "requireConfig": {{ .Values.renovate.config.requireConfig | quote }},
+              "allowedPostUpgradeCommands": ["^task chart:lint$"]
             }
 
         {{- if .Values.renovate.resources }}
