@@ -136,44 +136,36 @@
 
   // Helm charts configuration
   "helm-values": {
-    "fileMatch": [
-      "charts/.+/values\\.yaml$",
-      "charts/.+/values-.+\\.yaml$"
+    "managerFilePatterns": [
+      "/charts/.+/values\\.yaml$/",
+      "/charts/.+/values-.+\\.yaml$/"
     ]
   },
 
   // Terraform configuration
   "terraform": {
     "enabled": true,
-    "fileMatch": [
-      "\\.tf$",
-      "\\.hcl$"
-    ]
-  },
-
-  // Docker image configuration
-  "docker": {
-    "enabled": true,
-    "fileMatch": [
-      "values\\.yaml$",
-      "values-.+\\.yaml$"
+    "managerFilePatterns": [
+      "/\\.tf$/",
+      "/\\.hcl$/"
     ]
   },
 
   // Ansible configuration
   "ansible": {
     "enabled": true,
-    "fileMatch": [
-      "requirements\\.yml$",
-      "galaxy\\.yml$"
+    "managerFilePatterns": [
+      "/requirements\\.yml$/",
+      "/galaxy\\.yml$/"
     ]
   },
 
-  // Regex managers for custom version detection
-  "regexManagers": [
+  // Custom managers for version detection
+  "customManagers": [
     // Detect versions in configuration/versions.yaml
     {
-      "fileMatch": ["configuration/versions\\.yaml$"],
+      "customType": "regex",
+      "managerFilePatterns": ["/configuration/versions\\.yaml$/"],
       "matchStrings": [
         "# renovate: datasource=(?<datasource>.*?) depName=(?<depName>.*?)( registryUrl=(?<registryUrl>.*?))?\\s+[\\w-]+:\\s*\"(?<currentValue>[^\"]+)\""
       ]
@@ -181,7 +173,8 @@
 
     // Detect Talos version in schematic.yaml
     {
-      "fileMatch": ["talos/image/schematic\\.yaml$"],
+      "customType": "regex",
+      "managerFilePatterns": ["/talos/image/schematic\\.yaml$/"],
       "matchStrings": [
         "# renovate: datasource=(?<datasource>.*?) depName=(?<depName>.*?)\\s+version: (?<currentValue>.*)"
       ],
@@ -191,7 +184,8 @@
 
     // Detect versions in GitHub Actions workflows
     {
-      "fileMatch": ["\\.github/workflows/.+\\.yml$"],
+      "customType": "regex",
+      "managerFilePatterns": ["/\\.github/workflows/.+\\.yml$/"],
       "matchStrings": [
         "# renovate: datasource=(?<datasource>.*?) depName=(?<depName>.*?)\\s+.+_VERSION: ['\"]?(?<currentValue>[^'\"\\s]+)"
       ]
@@ -199,7 +193,8 @@
 
     // Detect versions in Taskfile
     {
-      "fileMatch": ["Taskfile\\.yml$"],
+      "customType": "regex",
+      "managerFilePatterns": ["/Taskfile\\.yml$/"],
       "matchStrings": [
         "# renovate: datasource=(?<datasource>.*?) depName=(?<depName>.*?)\\s+version: ['\"]?(?<currentValue>[^'\"\\s]+)"
       ]
@@ -214,9 +209,12 @@
     "automerge": false
   },
 
-  // Customize PR title and body
+  // Customize PR body and commit message
   "prBodyTemplate": "{{{header}}}{{{table}}}{{{notes}}}{{{changelogs}}}{{{configDescription}}}{{{controls}}}{{{footer}}}",
-  "prTitle": "{{{semanticPrefix}}}Update {{{depName}}} to {{{newVersion}}}",
+  "commitMessagePrefix": "{{semanticPrefix}}",
+  "commitMessageAction": "Update",
+  "commitMessageTopic": "{{{depName}}}",
+  "commitMessageExtra": "to {{{newVersion}}}",
 
   // Ignore specific packages
   "ignoreDeps": [],
