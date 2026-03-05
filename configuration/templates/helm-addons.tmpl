@@ -672,7 +672,7 @@ traefikExternal:
   service:
     type: LoadBalancer
     spec:
-      externalTrafficPolicy: Local
+      externalTrafficPolicy: Cluster
     # Static IP for predictable port forwarding and DNS
     annotations:
       # Cilium LB IPAM annotation for static IP assignment
@@ -772,10 +772,19 @@ traefikExternal:
   deployment:
     replicas: 2
 
+  topologySpreadConstraints:
+    - maxSkew: 1
+      topologyKey: kubernetes.io/hostname
+      whenUnsatisfiable: DoNotSchedule
+      labelSelector:
+        matchLabels:
+          app.kubernetes.io/name: traefik
+          app.kubernetes.io/instance: traefik-external
+
   autoscaling:
     enabled: true
     minReplicas: 2
-    maxReplicas: 5
+    maxReplicas: 3
     metrics:
       - type: Resource
         resource:
@@ -805,7 +814,7 @@ traefikInternal:
   service:
     type: LoadBalancer
     spec:
-      externalTrafficPolicy: Local
+      externalTrafficPolicy: Cluster
     # No static IP - Cilium LB IPAM assigns dynamically
     # No port forwarding - internal only
 
@@ -868,10 +877,19 @@ traefikInternal:
   deployment:
     replicas: 2
 
+  topologySpreadConstraints:
+    - maxSkew: 1
+      topologyKey: kubernetes.io/hostname
+      whenUnsatisfiable: DoNotSchedule
+      labelSelector:
+        matchLabels:
+          app.kubernetes.io/name: traefik
+          app.kubernetes.io/instance: traefik-internal
+
   autoscaling:
     enabled: true
     minReplicas: 2
-    maxReplicas: 5
+    maxReplicas: 3
     metrics:
       - type: Resource
         resource:
