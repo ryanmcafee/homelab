@@ -648,7 +648,7 @@ traefikExternal:
   service:
     type: LoadBalancer
     spec:
-      externalTrafficPolicy: Local
+      externalTrafficPolicy: Cluster
     # Cilium LB IPAM will assign an IP from the pool
 
   # Ports configuration
@@ -712,11 +712,21 @@ traefikExternal:
   deployment:
     replicas: 2  # High availability
 
+  # Topology spread constraints - ensure pods spread across nodes
+  topologySpreadConstraints:
+    - maxSkew: 1
+      topologyKey: kubernetes.io/hostname
+      whenUnsatisfiable: DoNotSchedule
+      labelSelector:
+        matchLabels:
+          app.kubernetes.io/name: traefik
+          app.kubernetes.io/instance: traefik-external
+
   # Autoscaling
   autoscaling:
     enabled: true
     minReplicas: 2
-    maxReplicas: 5
+    maxReplicas: 3
     metrics:
       - type: Resource
         resource:
@@ -742,7 +752,7 @@ traefikInternal:
   service:
     type: LoadBalancer
     spec:
-      externalTrafficPolicy: Local
+      externalTrafficPolicy: Cluster
 
   ports:
     web:
@@ -797,10 +807,20 @@ traefikInternal:
   deployment:
     replicas: 2
 
+  # Topology spread constraints - ensure pods spread across nodes
+  topologySpreadConstraints:
+    - maxSkew: 1
+      topologyKey: kubernetes.io/hostname
+      whenUnsatisfiable: DoNotSchedule
+      labelSelector:
+        matchLabels:
+          app.kubernetes.io/name: traefik
+          app.kubernetes.io/instance: traefik-internal
+
   autoscaling:
     enabled: true
     minReplicas: 2
-    maxReplicas: 5
+    maxReplicas: 3
     metrics:
       - type: Resource
         resource:

@@ -185,6 +185,11 @@ spec:
         resources:
           {{- toYaml .Values.traefikExternal.resources | nindent 10 }}
 
+        {{- if .Values.traefikExternal.topologySpreadConstraints }}
+        topologySpreadConstraints:
+          {{- toYaml .Values.traefikExternal.topologySpreadConstraints | nindent 10 }}
+        {{- end }}
+
         {{- if .Values.traefikExternal.autoscaling.enabled }}
         autoscaling:
           enabled: true
