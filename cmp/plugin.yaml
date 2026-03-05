@@ -10,11 +10,17 @@ spec:
     command: [sh, -c]
     args:
       - |
+        CONFIG_ROOT="../../configuration"
+        if [ ! -d "$CONFIG_ROOT" ]; then
+          echo "ERROR: Config root not found at $CONFIG_ROOT (CWD: $(pwd))" >&2
+          exit 1
+        fi
+
         homelab config export \
           --set "$ARGOCD_ENV_ENVIRONMENT" \
           --format "$ARGOCD_ENV_FORMAT" \
           --env-file /config/homelab.yaml \
-          --config-root /config-root \
+          --config-root "$CONFIG_ROOT" \
           --stdout > /tmp/generated-values.yaml
 
         helm template "$ARGOCD_APP_NAME" . \

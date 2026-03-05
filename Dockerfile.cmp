@@ -16,13 +16,6 @@ RUN apk add --no-cache helm
 # Copy homelab CLI binary
 COPY --from=builder /homelab /usr/local/bin/homelab
 
-# Copy configuration schemas, defaults, versions, and templates
-# (the CMP needs these to run `homelab config export`)
-COPY configuration/schema/ /config-root/schema/
-COPY configuration/environments/defaults.yaml /config-root/environments/defaults.yaml
-COPY configuration/versions.yaml /config-root/versions.yaml
-COPY configuration/templates/ /config-root/templates/
-
 # Copy plugin configuration
 COPY cmp/plugin.yaml /home/argocd/cmp-server/config/plugin.yaml
 

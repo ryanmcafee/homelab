@@ -75,7 +75,7 @@ repos:
         entry: deno run --allow-read --allow-write --allow-run scripts/cmp-version-bump.ts
         language: system
         pass_filenames: false
-        files: ^(cmd/|internal/|cmp/|Dockerfile\.cmp|configuration/)
+        files: ^(cmd/|internal/|cmp/|Dockerfile\.cmp)
         stages: [pre-commit]
 
       - id: config-export

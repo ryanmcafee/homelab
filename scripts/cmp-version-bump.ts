@@ -37,7 +37,7 @@ async function hasStagedCmpFiles(): Promise<boolean> {
   const staged = await run(["git", "diff", "--cached", "--name-only"]);
   if (!staged) return false;
 
-  const cmpPrefixes = ["cmd/", "internal/", "cmp/", "Dockerfile.cmp", "configuration/"];
+  const cmpPrefixes = ["cmd/", "internal/", "cmp/", "Dockerfile.cmp"];
   const excludeFiles = ["configuration/versions.yaml"];
 
   return staged.split("\n").some((file) => {
