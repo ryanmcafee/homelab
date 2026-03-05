@@ -26,7 +26,7 @@ spec:
         providerRegex: {{ index .Values "kubelet-csr-approver" "providerRegex" | quote }}
         {{- end }}
         {{- if index .Values "kubelet-csr-approver" "maxExpirationSeconds" }}
-        maxExpirationSeconds: {{ index .Values "kubelet-csr-approver" "maxExpirationSeconds" }}
+        maxExpirationSeconds: {{ index .Values "kubelet-csr-approver" "maxExpirationSeconds" | int }}
         {{- end }}
         {{- if index .Values "kubelet-csr-approver" "bypassDnsResolution" }}
         bypassDnsResolution: {{ index .Values "kubelet-csr-approver" "bypassDnsResolution" }}
