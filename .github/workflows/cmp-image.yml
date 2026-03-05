@@ -10,10 +10,6 @@ on:
       - 'go.sum'
       - 'Dockerfile.cmp'
       - 'cmp/**'
-      - 'configuration/schema/**'
-      - 'configuration/environments/defaults.yaml'
-      - 'configuration/versions.yaml'
-      - 'configuration/templates/**'
   pull_request:
     paths:
       - 'cmd/**'
@@ -22,10 +18,6 @@ on:
       - 'go.sum'
       - 'Dockerfile.cmp'
       - 'cmp/**'
-      - 'configuration/schema/**'
-      - 'configuration/environments/defaults.yaml'
-      - 'configuration/versions.yaml'
-      - 'configuration/templates/**'
 
 jobs:
   build:
