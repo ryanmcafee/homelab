@@ -50,13 +50,13 @@ charts:
   # renovate: datasource=docker depName=oci.trueforge.org/truecharts/flaresolverr
   flaresolverr: "16.14.17"
   # renovate: datasource=docker depName=ghcr.io/renovatebot/charts/renovate
-  renovate: "46.49.0"
+  renovate: "46.56.2"
   # renovate: datasource=helm depName=gpu-operator registryUrl=https://helm.ngc.nvidia.com/nvidia
   nvidia-gpu-operator: "v25.10.1"
   # renovate: datasource=helm depName=oauth2-proxy registryUrl=https://oauth2-proxy.github.io/manifests
   oauth2-proxy: "7.18.0"
   # renovate: datasource=docker depName=ghcr.io/kashalls/external-dns-unifi-webhook
-  external-dns-webhook-unifi: "v0.8.1"
+  external-dns-webhook-unifi: "v0.8.2"
   # renovate: datasource=github-releases depName=lukaszraczylo/traefikoidc
   traefik-oidc: "v0.8.24"
   unifi-port-forward: "1.1.x"

@@ -1,5 +1,5 @@
 # Build stage — compile homelab CLI
-FROM golang:1.19-alpine AS builder
+FROM golang:1.26-alpine AS builder
 
 WORKDIR /src
 COPY go.mod go.sum ./
@@ -8,7 +8,7 @@ COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -o /homelab ./cmd/homelab
 
 # Runtime stage — minimal image for CMP sidecar
-FROM alpine:3.20
+FROM alpine:3.23
 
 # Install helm
 RUN apk add --no-cache helm
