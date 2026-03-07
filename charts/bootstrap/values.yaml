@@ -137,7 +137,7 @@ argocd:
       # Init container to install ksops
       initContainers:
         - name: install-ksops
-          image: viaductoss/ksops:v4.3.2
+          image: viaductoss/ksops:v4.4.0
           command: ["/bin/sh", "-c"]
           args:
             - echo "Installing KSOPS...";
