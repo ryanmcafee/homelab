@@ -1,226 +1,265 @@
 {
-  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": [
-    "config:recommended"
+  $schema: 'https://docs.renovatebot.com/renovate-schema.json',
+  extends: [
+    'config:recommended',
   ],
-  "timezone": "America/New_York",
-  "schedule": [
-    "after 10pm every weekday",
-    "before 5am every weekday",
-    "every weekend"
+  timezone: 'America/New_York',
+  schedule: [
+    'after 10pm every weekday',
+    'before 5am every weekday',
+    'every weekend',
   ],
-  "labels": ["renovate", "dependencies"],
-  "assignees": ["ryanmcafee"],
-  "semanticCommits": "enabled",
-  "separateMajorMinor": true,
-  "separateMinorPatch": false,
-  "prConcurrentLimit": 5,
-  "prHourlyLimit": 2,
-  "rebaseWhen": "behind-base-branch",
-  "automerge": false,
-  "platformAutomerge": false,
-
-  // Package rules
-  "packageRules": [
-    // Auto-merge patch updates for stable packages
+  labels: [
+    'renovate',
+    'dependencies',
+  ],
+  assignees: [
+    'ryanmcafee',
+  ],
+  semanticCommits: 'enabled',
+  separateMajorMinor: true,
+  separateMinorPatch: false,
+  prConcurrentLimit: 5,
+  prHourlyLimit: 2,
+  rebaseWhen: 'behind-base-branch',
+  automerge: false,
+  platformAutomerge: false,
+  packageRules: [
     {
-      "matchUpdateTypes": ["patch"],
-      "matchCurrentVersion": "!/^0/",
-      "automerge": true,
-      "automergeType": "pr",
-      "platformAutomerge": true
-    },
-
-    // Group Kubernetes ecosystem updates
-    {
-      "groupName": "Kubernetes ecosystem",
-      "matchPackagePatterns": ["^k8s\\.io", "^kubernetes-"],
-      "matchDatasources": ["docker", "helm"]
-    },
-
-    // Group Helm chart updates
-    {
-      "groupName": "Helm charts",
-      "matchDatasources": ["helm"],
-      "schedule": ["every weekend"]
-    },
-
-    // Group ArgoCD updates
-    {
-      "groupName": "ArgoCD",
-      "matchPackageNames": ["argoproj/argo-cd", "argo-cd"],
-      "matchDatasources": ["docker", "helm"]
-    },
-
-    // Group monitoring stack
-    {
-      "groupName": "Monitoring stack",
-      "matchPackageNames": [
-        "kube-prometheus-stack",
-        "prometheus-operator",
-        "grafana",
-        "alertmanager"
-      ]
-    },
-
-    // Terraform provider updates
-    {
-      "groupName": "Terraform providers",
-      "matchDatasources": ["terraform-provider"],
-      "schedule": ["every weekend"]
-    },
-
-    // Ansible collection updates
-    {
-      "groupName": "Ansible collections",
-      "matchDatasources": ["ansible-galaxy"],
-      "schedule": ["every weekend"]
-    },
-
-    // Container image updates
-    {
-      "groupName": "Container images",
-      "matchDatasources": ["docker"],
-      "schedule": ["after 10pm every weekday"]
-    },
-
-    // GitHub Actions updates
-    {
-      "groupName": "GitHub Actions",
-      "matchManagers": ["github-actions"],
-      "automerge": true,
-      "automergeType": "pr",
-      "platformAutomerge": true
-    },
-
-    // Pin GitHub Actions to SHA for security
-    {
-      "matchManagers": ["github-actions"],
-      "pinDigests": true
-    },
-
-    // Group TrueCharts application updates from versions.yaml
-    {
-      "groupName": "TrueCharts applications",
-      "matchPackageNames": [
-        "oci.trueforge.org/truecharts/sonarr",
-        "oci.trueforge.org/truecharts/radarr",
-        "oci.trueforge.org/truecharts/prowlarr",
-        "oci.trueforge.org/truecharts/nzbget",
-        "oci.trueforge.org/truecharts/tautulli",
-        "oci.trueforge.org/truecharts/lazylibrarian",
-        "oci.trueforge.org/truecharts/home-assistant",
-        "oci.trueforge.org/truecharts/mosquitto",
-        "oci.trueforge.org/truecharts/flaresolverr"
+      matchUpdateTypes: [
+        'patch',
       ],
-      "matchDatasources": ["docker"],
-      "matchFileNames": ["configuration/versions.yaml"],
-      "schedule": ["every weekend"]
+      matchCurrentVersion: '!/^0/',
+      automerge: true,
+      automergeType: 'pr',
+      platformAutomerge: true,
     },
-
-    // Group infrastructure tool updates
     {
-      "groupName": "Infrastructure tools",
-      "matchPackageNames": [
-        "siderolabs/talos", "kubernetes/kubernetes",
-        "hashicorp/terraform", "helm/helm"
+      groupName: 'Kubernetes ecosystem',
+      matchDatasources: [
+        'docker',
+        'helm',
       ],
-      "matchDatasources": ["github-releases"],
-      "schedule": ["every weekend"],
-      "automerge": false
-    },
-
-    // Require manual review for major version bumps in versions.yaml
-    {
-      "matchUpdateTypes": ["major"],
-      "matchFileNames": ["configuration/versions.yaml"],
-      "automerge": false,
-      "labels": ["renovate", "dependencies", "major"]
-    }
-  ],
-
-  // Helm charts configuration
-  "helm-values": {
-    "managerFilePatterns": [
-      "/charts/.+/values\\.yaml$/",
-      "/charts/.+/values-.+\\.yaml$/"
-    ]
-  },
-
-  // Terraform configuration
-  "terraform": {
-    "enabled": true,
-    "managerFilePatterns": [
-      "/\\.tf$/",
-      "/\\.hcl$/"
-    ]
-  },
-
-  // Ansible configuration
-  "ansible": {
-    "enabled": true,
-    "managerFilePatterns": [
-      "/requirements\\.yml$/",
-      "/galaxy\\.yml$/"
-    ]
-  },
-
-  // Custom managers for version detection
-  "customManagers": [
-    // Detect versions in configuration/versions.yaml
-    {
-      "customType": "regex",
-      "managerFilePatterns": ["/configuration/versions\\.yaml$/"],
-      "matchStrings": [
-        "# renovate: datasource=(?<datasource>.*?) depName=(?<depName>.*?)( registryUrl=(?<registryUrl>.*?))?\\s+[\\w-]+:\\s*\"(?<currentValue>[^\"]+)\""
-      ]
-    },
-
-    // Detect Talos version in schematic.yaml
-    {
-      "customType": "regex",
-      "managerFilePatterns": ["/talos/image/schematic\\.yaml$/"],
-      "matchStrings": [
-        "# renovate: datasource=(?<datasource>.*?) depName=(?<depName>.*?)\\s+version: (?<currentValue>.*)"
+      matchPackageNames: [
+        '/^k8s\\.io/',
+        '/^kubernetes-/',
       ],
-      "datasourceTemplate": "github-releases",
-      "depNameTemplate": "siderolabs/talos"
     },
-
-    // Detect versions in GitHub Actions workflows
     {
-      "customType": "regex",
-      "managerFilePatterns": ["/\\.github/workflows/.+\\.yml$/"],
-      "matchStrings": [
-        "# renovate: datasource=(?<datasource>.*?) depName=(?<depName>.*?)\\s+.+_VERSION: ['\"]?(?<currentValue>[^'\"\\s]+)"
-      ]
+      groupName: 'Helm charts',
+      matchDatasources: [
+        'helm',
+      ],
+      schedule: [
+        'every weekend',
+      ],
     },
-
-    // Detect versions in Taskfile
     {
-      "customType": "regex",
-      "managerFilePatterns": ["/Taskfile\\.yml$/"],
-      "matchStrings": [
-        "# renovate: datasource=(?<datasource>.*?) depName=(?<depName>.*?)\\s+version: ['\"]?(?<currentValue>[^'\"\\s]+)"
-      ]
-    }
+      groupName: 'ArgoCD',
+      matchPackageNames: [
+        'argoproj/argo-cd',
+        'argo-cd',
+      ],
+      matchDatasources: [
+        'docker',
+        'helm',
+      ],
+    },
+    {
+      groupName: 'Monitoring stack',
+      matchPackageNames: [
+        'kube-prometheus-stack',
+        'prometheus-operator',
+        'grafana',
+        'alertmanager',
+      ],
+    },
+    {
+      groupName: 'Terraform providers',
+      matchDatasources: [
+        'terraform-provider',
+      ],
+      schedule: [
+        'every weekend',
+      ],
+    },
+    {
+      groupName: 'Ansible collections',
+      matchDatasources: [
+        'ansible-galaxy',
+      ],
+      schedule: [
+        'every weekend',
+      ],
+    },
+    {
+      groupName: 'Container images',
+      matchDatasources: [
+        'docker',
+      ],
+      schedule: [
+        'after 10pm every weekday',
+      ],
+    },
+    {
+      groupName: 'GitHub Actions',
+      matchManagers: [
+        'github-actions',
+      ],
+      automerge: true,
+      automergeType: 'pr',
+      platformAutomerge: true,
+    },
+    {
+      matchManagers: [
+        'github-actions',
+      ],
+      pinDigests: true,
+    },
+    {
+      groupName: 'TrueCharts applications',
+      matchPackageNames: [
+        'oci.trueforge.org/truecharts/sonarr',
+        'oci.trueforge.org/truecharts/radarr',
+        'oci.trueforge.org/truecharts/prowlarr',
+        'oci.trueforge.org/truecharts/nzbget',
+        'oci.trueforge.org/truecharts/tautulli',
+        'oci.trueforge.org/truecharts/lazylibrarian',
+        'oci.trueforge.org/truecharts/home-assistant',
+        'oci.trueforge.org/truecharts/mosquitto',
+        'oci.trueforge.org/truecharts/flaresolverr',
+      ],
+      matchDatasources: [
+        'docker',
+      ],
+      matchFileNames: [
+        'configuration/versions.yaml',
+      ],
+      schedule: [
+        'every weekend',
+      ],
+    },
+    {
+      groupName: 'Infrastructure tools',
+      matchPackageNames: [
+        'siderolabs/talos',
+        'kubernetes/kubernetes',
+        'hashicorp/terraform',
+        'helm/helm',
+      ],
+      matchDatasources: [
+        'github-releases',
+      ],
+      schedule: [
+        'every weekend',
+      ],
+      automerge: false,
+    },
+    {
+      matchUpdateTypes: [
+        'major',
+      ],
+      matchFileNames: [
+        'configuration/versions.yaml',
+      ],
+      automerge: false,
+      labels: [
+        'renovate',
+        'dependencies',
+        'major',
+      ],
+    },
+    // ksops: distroless images may break init containers — disable auto-merge
+    {
+      matchPackageNames: [
+        'viaductoss/ksops',
+      ],
+      matchDatasources: [
+        'docker',
+      ],
+      automerge: false,
+      labels: [
+        'renovate',
+        'dependencies',
+        'requires-testing',
+      ],
+    },
   ],
-
-  // Vulnerability alerts
-  "vulnerabilityAlerts": {
-    "enabled": true,
-    "labels": ["security", "vulnerability"],
-    "assignees": ["ryanmcafee"],
-    "automerge": false
+  'helm-values': {
+    managerFilePatterns: [
+      '/charts/.+/values\\.yaml$/',
+      '/charts/.+/values-.+\\.yaml$/',
+    ],
   },
-
-  // Customize PR body and commit message
-  "prBodyTemplate": "{{{header}}}{{{table}}}{{{notes}}}{{{changelogs}}}{{{configDescription}}}{{{controls}}}{{{footer}}}",
-  "commitMessagePrefix": "{{semanticPrefix}}",
-  "commitMessageAction": "Update",
-  "commitMessageTopic": "{{{depName}}}",
-  "commitMessageExtra": "to {{{newVersion}}}",
-
-  // Ignore specific packages
-  "ignoreDeps": []
+  terraform: {
+    enabled: true,
+    managerFilePatterns: [
+      '/\\.tf$/',
+      '/\\.hcl$/',
+    ],
+  },
+  ansible: {
+    enabled: true,
+    managerFilePatterns: [
+      '/requirements\\.yml$/',
+      '/galaxy\\.yml$/',
+    ],
+  },
+  customManagers: [
+    {
+      customType: 'regex',
+      managerFilePatterns: [
+        '/configuration/versions\\.yaml$/',
+      ],
+      matchStrings: [
+        '# renovate: datasource=(?<datasource>.*?) depName=(?<depName>.*?)( registryUrl=(?<registryUrl>.*?))?\\s+[\\w-]+:\\s*"(?<currentValue>[^"]+)"',
+      ],
+    },
+    {
+      customType: 'regex',
+      managerFilePatterns: [
+        '/talos/image/schematic\\.yaml$/',
+      ],
+      matchStrings: [
+        '# renovate: datasource=(?<datasource>.*?) depName=(?<depName>.*?)\\s+version: (?<currentValue>.*)',
+      ],
+      datasourceTemplate: 'github-releases',
+      depNameTemplate: 'siderolabs/talos',
+    },
+    {
+      customType: 'regex',
+      managerFilePatterns: [
+        '/\\.github/workflows/.+\\.yml$/',
+      ],
+      matchStrings: [
+        '# renovate: datasource=(?<datasource>.*?) depName=(?<depName>.*?)\\s+.+_VERSION: [\'"]?(?<currentValue>[^\'"\\s]+)',
+      ],
+    },
+    {
+      customType: 'regex',
+      managerFilePatterns: [
+        '/Taskfile\\.yml$/',
+      ],
+      matchStrings: [
+        '# renovate: datasource=(?<datasource>.*?) depName=(?<depName>.*?)\\s+version: [\'"]?(?<currentValue>[^\'"\\s]+)',
+      ],
+    },
+  ],
+  vulnerabilityAlerts: {
+    enabled: true,
+    labels: [
+      'security',
+      'vulnerability',
+    ],
+    assignees: [
+      'ryanmcafee',
+    ],
+    automerge: false,
+  },
+  prBodyTemplate: '{{{header}}}{{{table}}}{{{notes}}}{{{changelogs}}}{{{configDescription}}}{{{controls}}}{{{footer}}}',
+  commitMessagePrefix: '{{#if semanticCommitType}}{{semanticCommitType}}{{#if semanticCommitScope}}({{semanticCommitScope}}){{/if}}: {{/if}}',
+  commitMessageAction: 'Update',
+  commitMessageTopic: '{{{depName}}}',
+  commitMessageExtra: 'to {{{newVersion}}}',
+  ignoreDeps: [],
 }
