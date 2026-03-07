@@ -14,7 +14,7 @@ charts:
   # renovate: datasource=helm depName=kube-prometheus-stack registryUrl=https://prometheus-community.github.io/helm-charts
   kube-prometheus-stack: "82.10.1"
   # renovate: datasource=helm depName=traefik registryUrl=https://traefik.github.io/charts
-  traefik: "39.0.2"
+  traefik: "39.0.4"
   # renovate: datasource=helm depName=democratic-csi registryUrl=https://democratic-csi.github.io/charts/
   democratic-csi: "0.15.1"
   # renovate: datasource=helm depName=kubelet-csr-approver registryUrl=https://postfinance.github.io/kubelet-csr-approver
