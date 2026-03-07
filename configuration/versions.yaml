@@ -70,4 +70,4 @@ tools:
   # renovate: datasource=github-releases depName=hashicorp/terraform
   terraform: "1.9.8"
   # renovate: datasource=github-releases depName=helm/helm
-  helm: "3.16.0"
+  helm: "4.1.1"
