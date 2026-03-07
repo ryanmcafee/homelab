@@ -169,6 +169,21 @@
         'major',
       ],
     },
+    // ksops: distroless images may break init containers — disable auto-merge
+    {
+      matchPackageNames: [
+        'viaductoss/ksops',
+      ],
+      matchDatasources: [
+        'docker',
+      ],
+      automerge: false,
+      labels: [
+        'renovate',
+        'dependencies',
+        'requires-testing',
+      ],
+    },
   ],
   'helm-values': {
     managerFilePatterns: [
