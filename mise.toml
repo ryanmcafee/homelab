@@ -4,8 +4,8 @@
 
 [tools]
 # Infrastructure as Code
-terraform = "1.7.5"
-terragrunt = "0.55.1"
+terraform = "1.14.6"
+terragrunt = "0.99.4"
 packer = "latest"
 
 # Kubernetes Tools
@@ -13,7 +13,7 @@ kubectl = "1.35.2"
 helm = "latest"
 kind = "0.31.0"
 talosctl = "1.12.4"
-tilt = "0.33.11"
+tilt = "0.37.0"
 argocd = "latest"
 argo = "latest"          # Argo Workflows CLI
 

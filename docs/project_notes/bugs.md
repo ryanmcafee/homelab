@@ -87,6 +87,12 @@ Each entry should include:
 - **Prevention**: Only apply middleware annotations for plugins loaded on the corresponding Traefik instance
 - **PR**: #137
 
+### 2026-03-06 - ArgoCD repo-server CrashLoopBackOff after KSOPS v4.4.0 upgrade
+- **Issue**: ArgoCD repo-server pods in CrashLoopBackOff with `exec: "/bin/sh": stat /bin/sh: no such file or directory`
+- **Root Cause**: Renovate PR #168 bumped `viaductoss/ksops` from v4.3.2 to v4.4.0. The v4.4.0 image switched to distroless (`distroless/base`) which has no `/bin/sh` or `/bin/cp`. The init container used `/bin/sh -c` to copy ksops binaries, which fails on distroless
+- **Solution**: Baked ksops binaries into the `homelab-cmp` image via multi-stage Docker build (`COPY --from=ksops`). Changed init container to use the CMP image with `/bin/cp` instead of the ksops image with `/bin/sh`. Bumped CMP image to 0.1.4
+- **Prevention**: Added Renovate guardrail to disable auto-merge for `viaductoss/ksops` docker updates. Future ksops version bumps require manual testing. Consider that any dependency could switch to distroless at any time
+
 ### Known Common Errors (from CLAUDE.md)
 
 These are documented errors with known solutions:

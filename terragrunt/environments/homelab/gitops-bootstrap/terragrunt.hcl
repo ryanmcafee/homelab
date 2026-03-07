@@ -135,7 +135,7 @@ inputs = {
 
   # ArgoCD configuration
   argocd_namespace  = "argocd"
-  argocd_version    = "7.7.15" # Keep in sync with bootstrap chart
+  argocd_version    = "9.4.7" # Keep in sync with bootstrap chart
   cmp_image_version = yamldecode(file("${get_terragrunt_dir()}/../../../../configuration/versions.yaml"))["images"]["homelab-cmp"]
   admin_enabled     = true
 

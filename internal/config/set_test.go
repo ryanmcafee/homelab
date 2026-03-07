@@ -85,8 +85,8 @@ func TestLoadVersions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if v.Charts["argocd"] != "7.7.15" {
-		t.Errorf("argocd version = %q, want %q", v.Charts["argocd"], "7.7.15")
+	if v.Charts["argocd"] != "9.4.7" {
+		t.Errorf("argocd version = %q, want %q", v.Charts["argocd"], "9.4.7")
 	}
 	if v.Tools["talos"] != "v1.12.2" {
 		t.Errorf("talos version = %q, want %q", v.Tools["talos"], "v1.12.2")

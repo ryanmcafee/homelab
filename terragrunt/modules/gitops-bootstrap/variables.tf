@@ -23,7 +23,7 @@ variable "argocd_namespace" {
 variable "argocd_version" {
   description = "ArgoCD Helm chart version - keep in sync with charts/bootstrap/values.yaml argocd.chart.version"
   type        = string
-  default     = "7.7.15" # ArgoCD v2.13.x - synced with addon chart version
+  default     = "9.4.7"
 }
 
 variable "argocd_helm_values" {
