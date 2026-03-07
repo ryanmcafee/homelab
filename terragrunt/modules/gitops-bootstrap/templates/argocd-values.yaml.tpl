@@ -101,16 +101,12 @@ repoServer:
     - name: sops-age
       mountPath: /.config/sops/age
 
-  # Init container to install ksops
+  # Init container to install ksops (binaries baked into CMP image)
   initContainers:
     - name: install-ksops
-      image: viaductoss/ksops:v4.3.2
-      command: ["/bin/sh", "-c"]
-      args:
-        - echo "Installing KSOPS...";
-          cp /usr/local/bin/ksops /custom-tools/ksops;
-          cp /usr/local/bin/kustomize /custom-tools/kustomize;
-          echo "Done.";
+      image: ghcr.io/ryanmcafee/homelab-cmp:${cmp_image_version}
+      command: ["/bin/cp"]
+      args: ["/usr/local/bin/ksops", "/usr/local/bin/kustomize", "/custom-tools/"]
       volumeMounts:
         - name: custom-tools
           mountPath: /custom-tools

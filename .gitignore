@@ -126,3 +126,5 @@ charts/*-config/values-homelab.yaml
 
 # PII audit (replaced by living schema docs)
 PII.md
+.serena/project.yml
+.serena/project.yml
