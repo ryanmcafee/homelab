@@ -142,6 +142,13 @@ spec:
         validator:
           enabled: false
 
+        # CDI mode disabled - Talos system extensions install drivers at host root,
+        # not /run/nvidia/driver where CDI spec generation expects them.
+        # Uses legacy envvar strategy instead.
+        cdi:
+          enabled: false
+          default: false
+
         # Talos-specific: Tell operator that driver/toolkit are pre-installed
         operator:
           defaultRuntime: containerd
