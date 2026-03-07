@@ -53,7 +53,7 @@ argocd:
   chart:
     name: argo-cd
     repo: https://argoproj.github.io/argo-helm
-    version: "7.7.15"
+    version: "9.4.7"
 
   # ArgoCD server configuration
   values:
@@ -134,23 +134,19 @@ argocd:
           subPath: kustomize
         - name: sops-age
           mountPath: /.config/sops/age
-      # Init container to install ksops
+      # Init container to install ksops (binaries baked into CMP image)
       initContainers:
         - name: install-ksops
-          image: viaductoss/ksops:v4.4.0
-          command: ["/bin/sh", "-c"]
-          args:
-            - echo "Installing KSOPS...";
-              cp /usr/local/bin/ksops /custom-tools/ksops;
-              cp /usr/local/bin/kustomize /custom-tools/kustomize;
-              echo "Done.";
+          image: ghcr.io/ryanmcafee/homelab-cmp:0.1.6
+          command: ["/bin/cp"]
+          args: ["/usr/local/bin/ksops", "/usr/local/bin/kustomize", "/custom-tools/"]
           volumeMounts:
             - name: custom-tools
               mountPath: /custom-tools
       # CMP sidecar for homelab config plugin
       extraContainers:
         - name: homelab-cmp
-          image: ghcr.io/ryanmcafee/homelab-cmp:0.1.3
+          image: ghcr.io/ryanmcafee/homelab-cmp:0.1.6
           command: [/var/run/argocd/argocd-cmp-server]
           securityContext:
             runAsNonRoot: true

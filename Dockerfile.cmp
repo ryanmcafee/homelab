@@ -1,3 +1,7 @@
+# ksops stage — extract binaries from distroless image
+# renovate: datasource=docker depName=viaductoss/ksops
+FROM viaductoss/ksops:v4.4.0 AS ksops
+
 # Build stage — compile homelab CLI
 FROM golang:1.26-alpine AS builder
 
@@ -15,6 +19,10 @@ RUN apk add --no-cache helm
 
 # Copy homelab CLI binary
 COPY --from=builder /homelab /usr/local/bin/homelab
+
+# Copy ksops binaries (extracted at build time from distroless image)
+COPY --from=ksops /usr/local/bin/ksops /usr/local/bin/ksops
+COPY --from=ksops /usr/local/bin/kustomize /usr/local/bin/kustomize
 
 # Copy plugin configuration
 COPY cmp/plugin.yaml /home/argocd/cmp-server/config/plugin.yaml
