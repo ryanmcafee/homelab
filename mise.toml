@@ -5,7 +5,7 @@
 [tools]
 # Infrastructure as Code
 terraform = "1.7.5"
-terragrunt = "0.55.1"
+terragrunt = "0.99.4"
 packer = "latest"
 
 # Kubernetes Tools
