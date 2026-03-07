@@ -139,7 +139,7 @@ ArgoCD:
 chart:
   name: argo-cd
   repo: https://argoproj.github.io/argo-helm
-  version: "7.7.15"
+  version: "9.4.7"
 ```
 
 Kubelet CSR Approver:
