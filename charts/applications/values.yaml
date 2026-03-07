@@ -179,6 +179,21 @@ plex:
     PLEX_GID: "100"
     CHANGE_CONFIG_DIR_OWNERSHIP: "false"
 
+  # DNS configuration - custom resolvers with cluster DNS fallback
+  dnsPolicy: "None"
+  dnsConfig:
+    nameservers:
+      - "8.8.8.8"
+      - "8.8.4.4"
+      - "10.96.0.10"
+    searches:
+      - media.svc.cluster.local
+      - svc.cluster.local
+      - cluster.local
+    options:
+      - name: ndots
+        value: "5"
+
 # ============================================================================
 # Sonarr - TV Show Management
 # Sync Wave: 2

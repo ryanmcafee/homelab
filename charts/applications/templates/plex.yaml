@@ -95,6 +95,15 @@ spec:
           {{- toYaml .Values.plex.ingress | nindent 10 }}
         {{- end }}
 
+        {{- if .Values.plex.dnsPolicy }}
+        dnsPolicy: {{ .Values.plex.dnsPolicy | quote }}
+        {{- end }}
+
+        {{- if .Values.plex.dnsConfig }}
+        dnsConfig:
+          {{- toYaml .Values.plex.dnsConfig | nindent 10 }}
+        {{- end }}
+
   destination:
     server: https://kubernetes.default.svc
     namespace: {{ .Values.plex.namespace }}
