@@ -38,13 +38,13 @@ charts:
   # renovate: datasource=docker depName=oci.trueforge.org/truecharts/prowlarr
   prowlarr: "21.3.12"
   # renovate: datasource=docker depName=oci.trueforge.org/truecharts/nzbget
-  nzbget: "28.3.20"
+  nzbget: "29.4.0"
   # renovate: datasource=docker depName=oci.trueforge.org/truecharts/tautulli
   tautulli: "21.14.16"
   # renovate: datasource=docker depName=oci.trueforge.org/truecharts/lazylibrarian
   lazylibrarian: "21.14.20"
   # renovate: datasource=docker depName=oci.trueforge.org/truecharts/home-assistant
-  home-assistant: "28.19.14"
+  home-assistant: "29.6.0"
   # renovate: datasource=docker depName=oci.trueforge.org/truecharts/mosquitto
   mosquitto: "17.13.9"
   # renovate: datasource=docker depName=oci.trueforge.org/truecharts/flaresolverr
