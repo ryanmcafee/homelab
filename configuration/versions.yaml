@@ -44,7 +44,7 @@ charts:
   # renovate: datasource=docker depName=oci.trueforge.org/truecharts/lazylibrarian
   lazylibrarian: "21.18.0"
   # renovate: datasource=docker depName=oci.trueforge.org/truecharts/home-assistant
-  home-assistant: "28.19.17"
+  home-assistant: "29.6.2"
   # renovate: datasource=docker depName=oci.trueforge.org/truecharts/mosquitto
   mosquitto: "17.17.0"
   # renovate: datasource=docker depName=oci.trueforge.org/truecharts/flaresolverr
