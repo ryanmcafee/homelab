@@ -32,23 +32,23 @@ charts:
   # renovate: datasource=helm depName=plex-media-server registryUrl=https://raw.githubusercontent.com/plexinc/pms-docker/gh-pages
   plex-media-server: "1.4.0"
   # renovate: datasource=docker depName=oci.trueforge.org/truecharts/sonarr
-  sonarr: "25.6.0"
+  sonarr: "25.6.2"
   # renovate: datasource=docker depName=oci.trueforge.org/truecharts/radarr
-  radarr: "26.7.0"
+  radarr: "26.7.2"
   # renovate: datasource=docker depName=oci.trueforge.org/truecharts/prowlarr
-  prowlarr: "21.7.0"
+  prowlarr: "21.7.2"
   # renovate: datasource=docker depName=oci.trueforge.org/truecharts/nzbget
-  nzbget: "29.4.0"
+  nzbget: "29.4.2"
   # renovate: datasource=docker depName=oci.trueforge.org/truecharts/tautulli
-  tautulli: "21.18.0"
+  tautulli: "21.18.2"
   # renovate: datasource=docker depName=oci.trueforge.org/truecharts/lazylibrarian
-  lazylibrarian: "21.18.0"
+  lazylibrarian: "21.18.2"
   # renovate: datasource=docker depName=oci.trueforge.org/truecharts/home-assistant
   home-assistant: "29.6.2"
   # renovate: datasource=docker depName=oci.trueforge.org/truecharts/mosquitto
-  mosquitto: "17.17.0"
+  mosquitto: "17.17.2"
   # renovate: datasource=docker depName=oci.trueforge.org/truecharts/flaresolverr
-  flaresolverr: "16.18.0"
+  flaresolverr: "16.18.2"
   # renovate: datasource=docker depName=ghcr.io/renovatebot/charts/renovate
   renovate: "46.56.2"
   # renovate: datasource=helm depName=gpu-operator registryUrl=https://helm.ngc.nvidia.com/nvidia
