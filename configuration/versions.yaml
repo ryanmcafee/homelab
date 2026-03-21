@@ -32,11 +32,11 @@ charts:
   # renovate: datasource=helm depName=plex-media-server registryUrl=https://raw.githubusercontent.com/plexinc/pms-docker/gh-pages
   plex-media-server: "1.4.0"
   # renovate: datasource=docker depName=oci.trueforge.org/truecharts/sonarr
-  sonarr: "25.6.2"
+  sonarr: "25.6.3"
   # renovate: datasource=docker depName=oci.trueforge.org/truecharts/radarr
   radarr: "26.7.2"
   # renovate: datasource=docker depName=oci.trueforge.org/truecharts/prowlarr
-  prowlarr: "21.7.2"
+  prowlarr: "21.7.3"
   # renovate: datasource=docker depName=oci.trueforge.org/truecharts/nzbget
   nzbget: "29.4.2"
   # renovate: datasource=docker depName=oci.trueforge.org/truecharts/tautulli
