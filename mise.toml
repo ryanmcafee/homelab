@@ -4,7 +4,7 @@
 
 [tools]
 # Infrastructure as Code
-terraform = "1.14.6"
+terraform = "1.14.8"
 terragrunt = "0.99.4"
 packer = "latest"
 

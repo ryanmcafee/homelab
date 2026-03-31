@@ -64,10 +64,10 @@ images:
   homelab-cmp: "0.1.6"
 tools:
   # renovate: datasource=github-releases depName=siderolabs/talos
-  talos: "v1.12.4"
+  talos: "v1.12.6"
   # renovate: datasource=github-releases depName=kubernetes/kubernetes
-  kubernetes: "v1.35.2"
+  kubernetes: "v1.35.3"
   # renovate: datasource=github-releases depName=hashicorp/terraform
-  terraform: "1.14.6"
+  terraform: "1.14.8"
   # renovate: datasource=github-releases depName=helm/helm
-  helm: "4.1.1"
+  helm: "4.1.3"
