@@ -6,31 +6,31 @@ charts:
   # renovate: datasource=helm depName=argo-cd registryUrl=https://argoproj.github.io/argo-helm
   argocd: "9.4.15"
   # renovate: datasource=helm depName=cilium registryUrl=https://helm.cilium.io/
-  cilium: "1.19.1"
+  cilium: "1.19.2"
   # renovate: datasource=helm depName=cert-manager registryUrl=https://charts.jetstack.io
-  cert-manager: "v1.19.4"
+  cert-manager: "v1.20.1"
   # renovate: datasource=helm depName=external-dns registryUrl=https://kubernetes-sigs.github.io/external-dns/
   external-dns: "1.20.0"
   # renovate: datasource=helm depName=kube-prometheus-stack registryUrl=https://prometheus-community.github.io/helm-charts
   kube-prometheus-stack: "82.16.0"
   # renovate: datasource=helm depName=traefik registryUrl=https://traefik.github.io/charts
-  traefik: "39.0.4"
+  traefik: "39.0.7"
   # renovate: datasource=helm depName=democratic-csi registryUrl=https://democratic-csi.github.io/charts/
   democratic-csi: "0.15.1"
   # renovate: datasource=helm depName=kubelet-csr-approver registryUrl=https://postfinance.github.io/kubelet-csr-approver
   kubelet-csr-approver: "1.2.13"
   # renovate: datasource=helm depName=connect registryUrl=https://1password.github.io/connect-helm-charts
-  onepassword-connect: "2.3.0"
+  onepassword-connect: "2.4.1"
   # renovate: datasource=docker depName=ghcr.io/spegel-org/helm-charts/spegel
   spegel: "0.6.0"
   # renovate: datasource=helm depName=local-path-provisioner registryUrl=https://charts.containeroo.ch
-  local-path-provisioner: "0.0.35"
+  local-path-provisioner: "0.0.36"
   # renovate: datasource=helm depName=cloudnative-pg registryUrl=https://cloudnative-pg.github.io/charts
-  cloudnative-pg: "0.27.1"
+  cloudnative-pg: "0.28.0"
   # renovate: datasource=helm depName=argo-workflows registryUrl=https://argoproj.github.io/argo-helm
-  argo-workflows: "0.47.4"
+  argo-workflows: "0.47.5"
   # renovate: datasource=helm depName=plex-media-server registryUrl=https://raw.githubusercontent.com/plexinc/pms-docker/gh-pages
-  plex-media-server: "1.4.0"
+  plex-media-server: "1.5.0"
   # renovate: datasource=docker depName=oci.trueforge.org/truecharts/sonarr
   sonarr: "25.6.3"
   # renovate: datasource=docker depName=oci.trueforge.org/truecharts/radarr
@@ -54,7 +54,7 @@ charts:
   # renovate: datasource=helm depName=gpu-operator registryUrl=https://helm.ngc.nvidia.com/nvidia
   nvidia-gpu-operator: "v25.10.1"
   # renovate: datasource=helm depName=oauth2-proxy registryUrl=https://oauth2-proxy.github.io/manifests
-  oauth2-proxy: "10.1.4"
+  oauth2-proxy: "10.4.2"
   # renovate: datasource=docker depName=ghcr.io/kashalls/external-dns-unifi-webhook
   external-dns-webhook-unifi: "v0.8.2"
   # renovate: datasource=github-releases depName=lukaszraczylo/traefikoidc
