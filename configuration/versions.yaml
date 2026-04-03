@@ -28,7 +28,7 @@ charts:
   # renovate: datasource=helm depName=cloudnative-pg registryUrl=https://cloudnative-pg.github.io/charts
   cloudnative-pg: "0.27.1"
   # renovate: datasource=helm depName=argo-workflows registryUrl=https://argoproj.github.io/argo-helm
-  argo-workflows: "0.47.4"
+  argo-workflows: "1.0.7"
   # renovate: datasource=helm depName=plex-media-server registryUrl=https://raw.githubusercontent.com/plexinc/pms-docker/gh-pages
   plex-media-server: "1.4.0"
   # renovate: datasource=docker depName=oci.trueforge.org/truecharts/sonarr
@@ -52,7 +52,7 @@ charts:
   # renovate: datasource=docker depName=ghcr.io/renovatebot/charts/renovate
   renovate: "46.56.2"
   # renovate: datasource=helm depName=gpu-operator registryUrl=https://helm.ngc.nvidia.com/nvidia
-  nvidia-gpu-operator: "v25.10.1"
+  nvidia-gpu-operator: "v26.3.0"
   # renovate: datasource=helm depName=oauth2-proxy registryUrl=https://oauth2-proxy.github.io/manifests
   oauth2-proxy: "10.1.4"
   # renovate: datasource=docker depName=ghcr.io/kashalls/external-dns-unifi-webhook
