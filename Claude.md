@@ -6,7 +6,7 @@ Before implementing a plan, ensure that 'bd' is used for task tracking to suppor
 
 ## Allowed Tools
 
-Always prefer mcp__serena allowed tools over other tools.
+Tool routing is mandatory, not advisory. Grep/Glob/Read are fallback tools. Every code-exploration session MUST start with `mcp__serena__list_memories` and `mcp__serena__get_symbols_overview` for the relevant files. Using Grep before `search_for_pattern`, or Read before `get_symbols_overview` on a code file, is a bug. Exceptions: non-code assets (YAML values files, plain Markdown, raw HCL), binary output, and files in languages without LSP support.
 
 ### Serena Tool Routing
 
@@ -19,11 +19,15 @@ Always prefer mcp__serena allowed tools over other tools.
 | Persist agent learnings | `write_memory` | N/A |
 | Reasoning checkpoints | `think_about_*` tools | N/A |
 
-### Memory System Coexistence
+### Memory System Coexistence (three tiers)
 
-- **Serena memories** (`.serena/memories/`): Agent-specific context, technical patterns, gotchas discovered during tasks
-- **Project notes** (`docs/project_notes/`): User-facing bug logs, ADRs, work logs, config facts
-- Use both - they serve different purposes
+| Tier | Location | Audience | Write when | Read when |
+|------|----------|----------|------------|-----------|
+| Auto-memory ("claudemem") | `~/.claude/projects/<dash-encoded-clone-path>/memory/` (Claude Code derives the slug from each user's absolute clone path) | Claude (cross-session) | User states a preference, corrects you, or reveals a fact you'll need next session | SessionStart (automatic from system prompt) |
+| Serena memories | `.serena/memories/` | Subagents (in-session + cross-session) | You discover a technical pattern, gotcha, or command sequence during a task | Before any exploration: `list_memories` then `read_memory` |
+| Project notes | `docs/project_notes/` | Humans | Bugs with fixes, ADRs, PR/issue work logs, durable config facts | When the user asks "what did we decide about X" |
+
+**Rule of thumb:** A human will read it → `docs/project_notes/`. Only Claude reads it and it's task-scoped → Serena. User preference or cross-session profile fact → auto-memory.
 
 ## Subagent Routing
 
