@@ -779,6 +779,46 @@ tasks:
     cmds:
       - embedme --verify CLAUDE.md AGENTS.md
 
+  # ==========================================================================
+  # Phase 1 Hardware Spike (SPK-02..SPK-05 Proxmox evidence capture)
+  # ==========================================================================
+
+  spk:capture:
+    desc: "Phase 1 hardware spike — capture all Proxmox-side evidence in one SSH session (SPK-02, SPK-03, SPK-04, SPK-05)"
+    vars:
+      PROXMOX_HOST: '{{.PROXMOX_HOST | default "root@proxmox.ryanmcafee.com"}}'
+      OUT: ".planning/phases/01-hardware-spike-discovery/findings/proxmox-ssh-session.log"
+    cmds:
+      - mkdir -p $(dirname {{.OUT}})
+      - |
+        ssh {{.PROXMOX_HOST}} 'bash -s' <<'EOF' | tee {{.OUT}}
+        set -euo pipefail
+        echo "=== SPK-05: kernel cmdline ==="
+        cat /proc/cmdline
+        echo
+        echo "=== SPK-02: B50 PCI ID ==="
+        lspci -nnk | grep -A 3 -iE 'intel.*(arc|e212)'
+        echo
+        BUS=$(lspci -nn | grep -iE 'intel.*(arc|e212)' | awk '{print $1}' | head -1)
+        echo "=== Captured bus: $BUS ==="
+        echo
+        echo "=== SPK-04: subsystem ID + driver binding ==="
+        lspci -vmmnn -s "$BUS"
+        lspci -nnk -s "$BUS"
+        echo
+        echo "=== SPK-03: IOMMU group + isolation ==="
+        GROUP=$(basename "$(readlink /sys/bus/pci/devices/0000:${BUS}/iommu_group)")
+        echo "IOMMU group: $GROUP"
+        echo "Devices in group $GROUP:"
+        for dev in /sys/kernel/iommu_groups/$GROUP/devices/*; do
+          lspci -nns "$(basename "$dev")"
+        done
+        echo
+        echo "=== SPK-05 (bonus): dmesg IOMMU ==="
+        dmesg | grep -i 'DMAR.*IOMMU enabled' | head -3 || true
+        EOF
+      - echo "Wave B captured to {{.OUT}}. Next — author per-SPK findings files from this transcript (see Plan 04)."
+
   default:
     desc: Show available tasks
     cmds:
