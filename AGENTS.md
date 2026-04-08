@@ -8,7 +8,8 @@ Use 'bd' for task tracking on long-running tasks.
 3. Use sub-agents for multi-file analysis, version audits, and troubleshooting
 4. Reference CLAUDE.local.md for environment-specific IP addresses and hostnames
 5. Check and update project memory files in `docs/project_notes/`
-6. Use Serena MCP tools proactively - search_for_pattern, memories, think tools
+6. Check `mcp__serena__list_memories` at session start; call `write_memory` after any non-trivial discovery
+7. Use Serena MCP tools proactively - search_for_pattern, memories, think tools
 
 ## Serena Tool Guidelines
 
