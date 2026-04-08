@@ -90,6 +90,9 @@ talosconfig
 # Claude local config (contains PII like IP addresses)
 CLAUDE.local.md
 
+# GSD planning workspace (codebase map and plans contain raw PII like IPs/hostnames)
+.planning/
+
 # Terraform state lock files
 terragrunt/terraform.tfstate.d/**/.terraform.tfstate.lock.info
 
