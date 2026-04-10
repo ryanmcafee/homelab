@@ -1,0 +1,9 @@
+# GPU vendor selection — controls which GPU operator and device plugin are deployed
+keys:
+  GPU_VENDOR:
+    description: GPU vendor for hardware transcoding (none disables GPU support)
+    required: true
+    enum:
+      - none
+      - nvidia
+      - intel
