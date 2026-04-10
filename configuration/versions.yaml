@@ -50,7 +50,7 @@ charts:
   # renovate: datasource=docker depName=oci.trueforge.org/truecharts/flaresolverr
   flaresolverr: "16.18.2"
   # renovate: datasource=docker depName=ghcr.io/renovatebot/charts/renovate
-  renovate: "46.56.2"
+  renovate: "46.106.12"
   # renovate: datasource=helm depName=gpu-operator registryUrl=https://helm.ngc.nvidia.com/nvidia
   nvidia-gpu-operator: "v26.3.0"
   # renovate: datasource=helm depName=oauth2-proxy registryUrl=https://oauth2-proxy.github.io/manifests
