@@ -949,7 +949,7 @@ oauth2-proxy:
 # ============================================================================
 
 nvidia-gpu-operator:
-  enabled: true
+  enabled: {{ eq .Values.GPU_VENDOR.Value "nvidia" }}
   namespace: gpu-operator
 
   chart:
