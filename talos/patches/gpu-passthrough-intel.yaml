@@ -1,0 +1,18 @@
+# Talos GPU Passthrough Configuration Patch - Intel
+# Apply this patch to worker nodes with Intel Arc GPU passthrough
+# This configuration enables Intel GPU support for Kubernetes workloads (e.g., Plex transcoding)
+
+machine:
+  # Load Intel GPU kernel modules
+  kernel:
+    modules:
+      - name: xe
+
+  # Node labels for GPU scheduling
+  nodeLabels:
+    # PCI vendor ID for Intel (8086)
+    feature.node.kubernetes.io/pci-8086.present: "true"
+
+  # Sysctls for container runtime (matching NVIDIA pattern)
+  sysctls:
+    vm.swappiness: "10"
