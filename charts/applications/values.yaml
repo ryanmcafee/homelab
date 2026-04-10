@@ -73,22 +73,28 @@ plex:
     tag: latest
     pullPolicy: IfNotPresent
 
-  # GPU configuration (NVIDIA Quadro P2200)
-  runtimeClassName: nvidia  # For GPU transcoding
+  # GPU configuration for hardware transcoding
+  # Active vendor is set by CMP template from GPU_VENDOR config flag
+  # In values.yaml, vendor defaults to "none" (safe for localdev/non-GPU clusters)
+  gpu:
+    # Active vendor: none | nvidia | intel
+    vendor: "none"
 
-  # Node selector for GPU-enabled nodes
-  nodeSelector:
-    feature.node.kubernetes.io/pci-10de.present: "true"  # NVIDIA GPU
+    # NVIDIA GPU settings (Quadro P2200)
+    nvidia:
+      runtimeClassName: nvidia
+      nodeSelector:
+        feature.node.kubernetes.io/pci-10de.present: "true"
 
-  # Resource requests and limits
-  resources:
-    requests:
-      cpu: 1000m
-      memory: 2Gi
-    limits:
-      cpu: 4000m
-      memory: 8Gi
-      nvidia.com/gpu: 1
+    # Intel GPU settings (Arc Pro B50)
+    intel:
+      nodeSelector:
+        feature.node.kubernetes.io/pci-8086.present: "true"
+      resources:
+        limits:
+          gpu.intel.com/xe: 1
+      devDri:
+        hostPath: /dev/dri
 
   # Plex configuration
   pms:
