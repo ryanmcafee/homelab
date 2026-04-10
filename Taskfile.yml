@@ -815,7 +815,7 @@ tasks:
         done
         echo
         echo "=== SPK-05 (bonus): dmesg IOMMU ==="
-        dmesg | grep -i 'DMAR.*IOMMU enabled' | head -3 || true
+        dmesg | grep -iE 'DMAR.*IOMMU enabled|AMD-Vi.*IOMMU|AMD-Vi.*Using global' | head -5 || true
         EOF
       - echo "Wave B captured to {{.OUT}}. Next — author per-SPK findings files from this transcript (see Plan 04)."
 
@@ -859,7 +859,7 @@ tasks:
         check 1-B-04 grep -E '^\*\*Status:\*\* (VERIFIED|VERIFIED-WITH-FALLBACK|BLOCKED)$' {{.F}}/spk-03-iommu-group.md
         check 1-B-05 grep -E '^- subsystem_id:' {{.F}}/spk-04-subsystem-id.md
         check 1-B-06 grep -iE 'vfio-pci|kernel driver' {{.F}}/spk-04-subsystem-id.md
-        check 1-B-07 grep -F 'intel_iommu=on' {{.F}}/spk-05-iommu-cmdline.md
+        check 1-B-07 grep -iE 'intel_iommu=on|AMD-Vi.*enabled|AMD-Vi.*Using global' {{.F}}/spk-05-iommu-cmdline.md
         echo
         echo "Passed: $pass  Failed: $fail"
         exit $fail
