@@ -11,7 +11,7 @@ schedule: "*/5 * * * *"
 # Container image
 image:
   repository: curlimages/curl
-  tag: "8.18.0"
+  tag: "8.19.0"
   pullPolicy: IfNotPresent
 
 # Resource limits
