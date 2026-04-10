@@ -87,7 +87,7 @@ Refactor the homelab cluster's GPU support so the active vendor (NVIDIA, Intel, 
   3. `helm-addons.tmpl` emits `intel-gpu-device-plugin.enabled: true` only when `GPU_VENDOR=intel`
   4. `task chart:lint` passes for both `enabled: false` and `enabled: true` and `task chart:template:addons` is byte-identical to today when `GPU_VENDOR=nvidia` (ADN-05)
 **Plans**: 2 plans
-- [ ] 04-01-PLAN.md — versions.yaml entry + addons values block + ArgoCD Application template [Wave 1]
+- [x] 04-01-PLAN.md — versions.yaml entry + addons values block + ArgoCD Application template [Wave 1]
 - [ ] 04-02-PLAN.md — helm-addons.tmpl Intel conditional block + full verification pass [Wave 2]
 **Parallelization**: Plan 01 creates all three new artifacts (CFG-07, ADN-01, ADN-02) in Wave 1. Plan 02 wires the CMP template (TPL-02) and runs all verification gates (ADN-03, ADN-04, ADN-05) in Wave 2.
 **Complexity**: M
