@@ -1,10 +1,21 @@
 {{- if index .Values "node-feature-discovery" "enabled" }}
 ---
-# Namespace for NodeFeatureDiscovery components
+# Namespace for NodeFeatureDiscovery components.
+#
+# Requires privileged PodSecurity because the nfd-worker DaemonSet mounts
+# host paths for hardware discovery: /boot, /etc/os-release, /sys, /usr/lib,
+# /lib, /proc/swaps, and /etc/kubernetes/node-feature-discovery/features.d.
+# Without these labels the baseline PodSecurity cluster default rejects the
+# DaemonSet pods with:
+#   violates PodSecurity "baseline:latest": hostPath volumes
 apiVersion: v1
 kind: Namespace
 metadata:
   name: {{ index .Values "node-feature-discovery" "namespace" }}
+  labels:
+    pod-security.kubernetes.io/enforce: privileged
+    pod-security.kubernetes.io/audit: privileged
+    pod-security.kubernetes.io/warn: privileged
   annotations:
     argocd.argoproj.io/sync-wave: "9"
 ---
