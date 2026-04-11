@@ -598,6 +598,16 @@ tasks:
       - kubectl describe node worker-1 | grep -A5 "Allocatable:" | grep nvidia
       - kubectl -n gpu-operator get pods
 
+  gpu:toggle-test:
+    desc: Render charts for GPU_VENDOR=none|nvidia|intel and assert TGL-01..TGL-04
+    cmds:
+      - deno run --allow-net --allow-run --allow-env --allow-read --allow-write scripts/toggle-test.ts {{.CLI_ARGS}}
+
+  gpu:toggle-baseline:regen:
+    desc: Regenerate tests/fixtures/toggle-baseline/nvidia/ from current code (use after intentional NVIDIA-side changes)
+    cmds:
+      - deno run --allow-net --allow-run --allow-env --allow-read --allow-write scripts/toggle-test.ts --regen-baseline
+
   # ==========================================================================
   # Kubernetes Operations
   # ==========================================================================
