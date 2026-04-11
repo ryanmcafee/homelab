@@ -45,11 +45,18 @@ const log = {
 // ============================================================================
 type Vendor = "none" | "nvidia" | "intel";
 const ALL_VENDORS: Vendor[] = ["none", "nvidia", "intel"];
-const ARTIFACT_ROOT = "/tmp/gpu-toggle-test";
+// ARTIFACT_ROOT is assigned at runtime from Deno.makeTempDir() to avoid
+// predictable paths in /tmp (symlink-swap exposure). See initArtifactRoot().
+let ARTIFACT_ROOT = "";
 const BASELINE_ROOT = "tests/fixtures/toggle-baseline";
 const HOMELAB_BIN = "./bin/homelab";
 const ADDONS_CHART = "charts/addons";
 const APPS_CHART = "charts/applications";
+// KUBERNETES_VERSION is the schema version kubeconform validates against.
+// Source of truth: the Talos cluster version currently deployed. Keep in sync
+// with the Talos release used in terragrunt/modules/talos-cluster/. If the
+// cluster is upgraded, bump this constant so the schema check reflects reality.
+const KUBERNETES_VERSION = "1.30.0";
 
 // ============================================================================
 // CLI args
@@ -304,7 +311,7 @@ async function kubeconformVendor(
     "-summary",
     "-ignore-missing-schemas",
     "-kubernetes-version",
-    "1.30.0",
+    KUBERNETES_VERSION,
   ];
   const a = await run(["kubeconform", ...args, addonsRendered]);
   if (a.code !== 0) {
