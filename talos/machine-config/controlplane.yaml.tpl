@@ -1,11 +1,15 @@
-# Talos Control Plane Machine Configuration Template
-# This template is used by the talos-cluster module to generate control plane configs
+# Talos Control Plane Machine Configuration — REFERENCE ONLY
 #
-# Variables are substituted by Terraform/Terragrunt:
-# - ${cluster_name}
-# - ${cluster_endpoint}
-# - ${hostname}
-# - ${node_ip}
+# This file is NOT consumed by the terraform/terragrunt pipeline. The talos-cluster
+# module generates control plane configs from scratch via the
+# `data "talos_machine_configuration"` resource (see
+# terragrunt/modules/talos-cluster/main.tf) and overlays patches from the
+# `common_config_patches` and `controlplane_config_patches` inputs defined in
+# terragrunt/environments/homelab/talos-cluster/terragrunt.hcl.
+#
+# Keep this file as a human-readable reference only — edits here have no
+# runtime effect. To change a control plane setting for real, edit
+# terragrunt/environments/homelab/talos-cluster/terragrunt.hcl instead.
 
 version: v1alpha1
 persist: true

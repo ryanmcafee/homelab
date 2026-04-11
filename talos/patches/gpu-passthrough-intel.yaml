@@ -1,6 +1,11 @@
-# Talos GPU Passthrough Configuration Patch - Intel
-# Apply this patch to worker nodes with Intel Arc GPU passthrough
-# This configuration enables Intel GPU support for Kubernetes workloads (e.g., Plex transcoding)
+# Talos GPU Passthrough Configuration Patch - Intel — REFERENCE ONLY
+#
+# This file is NOT consumed by the terraform/terragrunt pipeline. The authoritative
+# patch lives in terragrunt/environments/homelab/talos-cluster/terragrunt.hcl as the
+# `gpu_intel_config_patch` input (applied to worker-1 when `gpu_vendor = "intel"`).
+#
+# Keep this file in sync with the inline patch for human-readable reference only.
+# Edits here have no runtime effect on the cluster.
 
 machine:
   # Load Intel GPU kernel modules
@@ -10,8 +15,15 @@ machine:
 
   # Node labels for GPU scheduling
   nodeLabels:
+    # Vendor identification (parity with nvidia.com/gpu on NVIDIA workers)
+    intel.com/gpu: "true"
     # PCI vendor ID for Intel (8086)
     feature.node.kubernetes.io/pci-8086.present: "true"
+
+  # Taint Intel GPU workers so non-GPU workloads prefer to schedule elsewhere.
+  # PreferNoSchedule is a soft repel — DaemonSets and other system pods still schedule.
+  nodeTaints:
+    intel.com/gpu: "true:PreferNoSchedule"
 
   # Sysctls for container runtime (matching NVIDIA pattern)
   sysctls:

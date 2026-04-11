@@ -129,6 +129,9 @@ inputs = {
         "nvidia.com/gpu"                              = "true"
         "feature.node.kubernetes.io/pci-10de.present" = "true"
       }
+      nodeTaints = {
+        "nvidia.com/gpu" = "true:PreferNoSchedule"
+      }
     }
   })
 
@@ -145,7 +148,11 @@ inputs = {
         ]
       }
       nodeLabels = {
+        "intel.com/gpu"                               = "true"
         "feature.node.kubernetes.io/pci-8086.present" = "true"
+      }
+      nodeTaints = {
+        "intel.com/gpu" = "true:PreferNoSchedule"
       }
     }
   })
@@ -225,6 +232,27 @@ inputs = {
         sysctls = {
           "net.core.default_qdisc"          = "fq"
           "net.ipv4.tcp_congestion_control" = "bbr"
+        }
+      }
+    })
+  ]
+
+  # Control-plane-only patches
+  #
+  # Disable NodeRestriction admission plugin so Talos' worker-side NodeApplyController
+  # can atomically apply custom node labels (intel.com/gpu, nvidia.com/gpu,
+  # feature.node.kubernetes.io/pci-*.present, storage.kubernetes.io/iscsi-client).
+  # NodeRestriction only allows kubelet to self-set an allowlisted subset of labels,
+  # causing Talos' atomic label batch to be rejected wholesale — no custom labels
+  # or taints propagate to any worker Node. Trade-off: this re-expands kubelet's
+  # label-setting surface; acceptable in a trusted single-operator homelab.
+  controlplane_config_patches = [
+    yamlencode({
+      cluster = {
+        apiServer = {
+          extraArgs = {
+            "disable-admission-plugins" = "NodeRestriction"
+          }
         }
       }
     })

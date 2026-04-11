@@ -1,6 +1,11 @@
-# Talos GPU Passthrough Configuration Patch
-# Apply this patch to worker nodes with NVIDIA GPU passthrough
-# This configuration enables NVIDIA GPU support for Kubernetes workloads (e.g., Plex transcoding)
+# Talos GPU Passthrough Configuration Patch - NVIDIA — REFERENCE ONLY
+#
+# This file is NOT consumed by the terraform/terragrunt pipeline. The authoritative
+# patch lives in terragrunt/environments/homelab/talos-cluster/terragrunt.hcl as the
+# `gpu_config_patch` input (applied to worker-1 when `gpu_vendor = "nvidia"`).
+#
+# Keep this file in sync with the inline patch for human-readable reference only.
+# Edits here have no runtime effect on the cluster.
 
 machine:
   # Load NVIDIA kernel modules
@@ -30,6 +35,11 @@ machine:
     # nvidia.com/gpu.product: "Quadro-P2200"
 
   # Sysctls for container runtime
+  # Taint NVIDIA GPU workers so non-GPU workloads prefer to schedule elsewhere.
+  # PreferNoSchedule is a soft repel; parity with the Intel GPU patch.
+  nodeTaints:
+    nvidia.com/gpu: "true:PreferNoSchedule"
+
   sysctls:
     # Enable memory swappiness for GPU workloads
     vm.swappiness: "10"
