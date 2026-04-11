@@ -120,6 +120,10 @@ locals {
     }
   }
 
+  # GPU vendor selection (matches configuration/environments/homelab.yaml GPU_VENDOR)
+  # Phase 7 flips to "intel" after hardware bring-up verification
+  gpu_vendor = "nvidia"
+
   # GPU passthrough (NVIDIA Quadro P2200)
   # Verified via: ssh root@172.16.100.250 'lspci -nn | grep -i nvidia'
   # c1:00.0 VGA compatible controller: NVIDIA Corporation GP106GL [Quadro P2200] [10de:1c31]
@@ -132,6 +136,20 @@ locals {
     subsystem_id = "103c:131b" # HP subsystem
     iommu_group  = 11          # IOMMU group from /sys/kernel/iommu_groups
     description  = "NVIDIA Quadro P2200 for Plex transcoding"
+  }
+
+  # GPU passthrough - Intel Arc Pro B50
+  # Verified via Phase 1 hardware spike:
+  #   SPK-02: lspci -nn shows 0000:c3:00.0 [8086:e212]
+  #   SPK-03: IOMMU group 14 (clean isolation)
+  #   SPK-04: subsystem 8086:1114
+  gpu_intel_pci_id = "0000:c3:00.0"
+
+  gpu_intel_device = {
+    device_id    = "8086:e212" # Intel Arc Pro B50 (Battlemage)
+    subsystem_id = "8086:1114" # Intel subsystem
+    iommu_group  = 14          # IOMMU group from /sys/kernel/iommu_groups (clean isolation)
+    description  = "Intel Arc Pro B50 for Plex transcoding"
   }
 
   # Git repository
