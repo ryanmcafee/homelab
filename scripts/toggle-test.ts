@@ -109,11 +109,11 @@ Flags:
   --help, -h         Show this help and exit 0
   --dry-run          Print the planned vendor matrix and exit 0 (no rendering)
   --vendor=<v>       Run only one vendor (none|nvidia|intel); default: all three
-  --keep-artifacts   Do not delete /tmp/gpu-toggle-test/ on exit
+  --keep-artifacts   Do not delete the artifact temp dir on exit
   --regen-baseline   Regenerate tests/fixtures/toggle-baseline/nvidia/ from current code
 
-Constants (compile-time):
-  ARTIFACT_ROOT  = ${ARTIFACT_ROOT}
+Constants:
+  ARTIFACT_ROOT  = <allocated at runtime via Deno.makeTempDir>
   BASELINE_ROOT  = ${BASELINE_ROOT}
   HOMELAB_BIN    = ${HOMELAB_BIN}
   ADDONS_CHART   = ${ADDONS_CHART}
@@ -603,6 +603,13 @@ async function main(): Promise<number> {
     return 0;
   }
 
+  // Allocate a non-predictable artifact root via Deno.makeTempDir to avoid
+  // the hardcoded /tmp/gpu-toggle-test path (symlink-swap exposure on
+  // multi-user systems). Needed by both regen and normal runs, so allocate
+  // before branching. makeTempDir creates the directory fresh, so no pre-run
+  // cleanup of a previous tree is needed.
+  ARTIFACT_ROOT = await Deno.makeTempDir({ prefix: "gpu-toggle-test-" });
+
   if (args.regenBaseline) {
     return await regenBaseline();
   }
@@ -627,14 +634,6 @@ async function main(): Promise<number> {
   }
 
   await ensureHomelabBinary();
-
-  // Clean previous artifacts
-  try {
-    await Deno.remove(ARTIFACT_ROOT, { recursive: true });
-  } catch {
-    // ignore
-  }
-  await ensureDir(ARTIFACT_ROOT);
 
   // Render all three vendors in parallel
   const renderResults = await Promise.all(
