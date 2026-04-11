@@ -64,14 +64,22 @@ plex:
   # GPU configuration (NVIDIA Quadro P2200)
   runtimeClassName: nvidia  # For GPU transcoding
 
-  # Node selector for GPU-enabled nodes
+  # Node selector for GPU-enabled nodes.
+  # NFD's default PCI label format is pci-<class>_<vendor>.present where 0300
+  # is the PCI class code for "Display controller" and 10de is NVIDIA's vendor
+  # ID. Using the short pci-10de.present form would never match because NFD
+  # only emits the long form.
   nodeSelector:
-    feature.node.kubernetes.io/pci-10de.present: "true"
+    feature.node.kubernetes.io/pci-0300_10de.present: "true"
 {{- else if eq .Values.GPU_VENDOR.Value "intel" }}
 
-  # Node selector for GPU-enabled nodes
+  # Node selector for GPU-enabled nodes.
+  # NFD's default PCI label format is pci-<class>_<vendor>.present where 0300
+  # is the PCI class code for "Display controller" and 8086 is Intel's vendor
+  # ID. Using the short pci-8086.present form would never match because NFD
+  # only emits the long form.
   nodeSelector:
-    feature.node.kubernetes.io/pci-8086.present: "true"
+    feature.node.kubernetes.io/pci-0300_8086.present: "true"
 {{- end }}
 
   # GPU vendor selection (from GPU_VENDOR config flag)
