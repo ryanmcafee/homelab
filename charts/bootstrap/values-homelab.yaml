@@ -58,13 +58,18 @@ argocd:
           memory: 512Mi
 
     controller:
+      # Bumped from 512Mi/1Gi after argocd-application-controller-0 was OOMKilled
+      # 11 times (exit code 137). Homelab fleet sits ~30 ArgoCD Applications and
+      # the controller's working set needs ~1Gi steady-state, spiking higher
+      # during sync storms. Upstream base is 2Gi/4Gi; 1Gi/2Gi is a middle ground
+      # sized for this cluster's load.
       resources:
         requests:
           cpu: 250m
-          memory: 512Mi
+          memory: 1Gi
         limits:
           cpu: 1000m
-          memory: 1Gi
+          memory: 2Gi
 
     repoServer:
       # HA configuration - 2 replicas spread across different hosts
