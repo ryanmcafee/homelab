@@ -95,8 +95,10 @@ repos:
         exclude: ^charts/.*/templates/
 
   # Terraform/Terragrunt formatting
+  # v1.105.0+ supports terragrunt 0.78+ which replaced `hclfmt` with `hcl format`
+  # (our pinned terragrunt is v1.0.0 which only supports the new CLI).
   - repo: https://github.com/antonbabenko/pre-commit-terraform
-    rev: v1.96.1
+    rev: v1.105.0
     hooks:
       - id: terraform_fmt
       - id: terragrunt_fmt

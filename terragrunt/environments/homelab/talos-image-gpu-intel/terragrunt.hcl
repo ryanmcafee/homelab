@@ -45,12 +45,12 @@ inputs = {
   # NOTE: nfs-utils excluded (mirroring NVIDIA pattern to avoid potential conflicts)
   # GPU nodes don't need NFS client - storage is provided via iSCSI
   system_extensions = [
-    "siderolabs/qemu-guest-agent",    # Better VM integration with Proxmox
-    "siderolabs/intel-ucode",         # Intel CPU microcode updates
-    "siderolabs/i915-ucode",          # Intel GPU firmware
-    "siderolabs/xe",                  # Intel Xe kernel driver for Battlemage
-    "siderolabs/mei",                 # Intel Management Engine (required for discrete Arc)
-    "siderolabs/iscsi-tools",         # iSCSI client for democratic-csi block storage
+    "siderolabs/qemu-guest-agent", # Better VM integration with Proxmox
+    "siderolabs/intel-ucode",      # Intel CPU microcode updates
+    "siderolabs/i915-ucode",       # Intel GPU firmware
+    "siderolabs/xe",               # Intel Xe kernel driver for Battlemage
+    "siderolabs/mei",              # Intel Management Engine (required for discrete Arc)
+    "siderolabs/iscsi-tools",      # iSCSI client for democratic-csi block storage
   ]
 
   # Checksum verification

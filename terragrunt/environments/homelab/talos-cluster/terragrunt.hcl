@@ -133,9 +133,9 @@ inputs = {
   })
 
   # Intel GPU configuration for worker-1 (Intel Arc Pro B50)
-  gpu_intel_pci_id       = include.env.locals.gpu_intel_pci_id
-  gpu_intel_device       = include.env.locals.gpu_intel_device
-  gpu_intel_mapping_name = "gpu-intel-arc-b50"
+  gpu_intel_pci_id          = include.env.locals.gpu_intel_pci_id
+  gpu_intel_device          = include.env.locals.gpu_intel_device
+  gpu_intel_mapping_name    = "gpu-intel-arc-b50"
   gpu_intel_installer_image = "factory.talos.dev/installer/${dependency.talos_image_gpu_intel.outputs.schematic_id}:${dependency.talos_image_gpu_intel.outputs.talos_version}"
   gpu_intel_config_patch = yamlencode({
     machine = {
