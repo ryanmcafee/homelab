@@ -162,6 +162,47 @@ func TestVerifyGPUDispatch(t *testing.T) {
 			wantErr:       true,
 			wantErrSubstr: "allocatable",
 		},
+		{
+			name:   "nvidia runtime-class missing returns runtime-class error",
+			vendor: "nvidia",
+			setup: func(f *fakeGPUCheckRunner) {
+				f.runtimeClass["nvidia"] = false // explicit absence
+			},
+			wantErr:       true,
+			wantErrSubstr: "runtime-class",
+		},
+		{
+			name:   "nvidia allocatable missing resource returns allocatable error",
+			vendor: "nvidia",
+			setup: func(f *fakeGPUCheckRunner) {
+				f.runtimeClass["nvidia"] = true
+				f.allocatable["worker-1"] = map[string]string{} // no nvidia.com/gpu
+			},
+			wantErr:       true,
+			wantErrSubstr: "allocatable",
+		},
+		{
+			name:   "nvidia namespace unhealthy returns namespace-health error",
+			vendor: "nvidia",
+			setup: func(f *fakeGPUCheckRunner) {
+				f.runtimeClass["nvidia"] = true
+				f.allocatable["worker-1"] = map[string]string{"nvidia.com/gpu": "1"}
+				f.namespaceHealthy["gpu-operator"] = false
+			},
+			wantErr:       true,
+			wantErrSubstr: "namespace-health",
+		},
+		{
+			name:   "intel dev-dri missing card0 returns dev-dri error",
+			vendor: "intel",
+			setup: func(f *fakeGPUCheckRunner) {
+				f.allocatable["worker-1"] = map[string]string{"gpu.intel.com/xe": "1"}
+				f.namespaceHealthy["intel-device-plugins"] = true
+				f.devNodes["intel-device-plugins"] = []string{"renderD128"} // missing card0
+			},
+			wantErr:       true,
+			wantErrSubstr: "dev-dri",
+		},
 	}
 
 	for _, tt := range tests {
@@ -209,4 +250,81 @@ func TestVerifyGPUDispatch(t *testing.T) {
 // until Task 2 defines gpuCheckRunner.
 func TestVerifyGPUInterfaceContract(t *testing.T) {
 	var _ gpuCheckRunner = (*fakeGPUCheckRunner)(nil)
+}
+
+// TestPrintGPUStatus asserts that status mode is read-only: it invokes the
+// runner but swallows errors and never panics, for all three vendors.
+// Status mode is advisory and must never block `task gpu:status` on a
+// transient cluster failure.
+func TestPrintGPUStatus(t *testing.T) {
+	tests := []struct {
+		name      string
+		vendor    string
+		setup     func(f *fakeGPUCheckRunner)
+		wantCalls bool // whether the runner should be invoked at all
+	}{
+		{
+			name:      "nvidia status invokes runner and tolerates healthy cluster",
+			vendor:    "nvidia",
+			wantCalls: true,
+			setup: func(f *fakeGPUCheckRunner) {
+				f.allocatable["worker-1"] = map[string]string{"nvidia.com/gpu": "1"}
+				f.namespaceHealthy["gpu-operator"] = true
+			},
+		},
+		{
+			name:      "intel status invokes runner and tolerates healthy cluster",
+			vendor:    "intel",
+			wantCalls: true,
+			setup: func(f *fakeGPUCheckRunner) {
+				f.allocatable["worker-1"] = map[string]string{"gpu.intel.com/xe": "1"}
+				f.namespaceHealthy["intel-device-plugins"] = true
+			},
+		},
+		{
+			name:      "none status is a no-op and invokes no checks",
+			vendor:    "none",
+			wantCalls: false,
+			setup:     func(f *fakeGPUCheckRunner) {},
+		},
+		{
+			name:      "nvidia status swallows allocatable error",
+			vendor:    "nvidia",
+			wantCalls: true,
+			setup: func(f *fakeGPUCheckRunner) {
+				f.allocErr = errors.New("kubectl: connection refused")
+				f.namespaceHealthy["gpu-operator"] = true
+			},
+		},
+		{
+			name:      "intel status swallows namespace-health error",
+			vendor:    "intel",
+			wantCalls: true,
+			setup: func(f *fakeGPUCheckRunner) {
+				f.allocatable["worker-1"] = map[string]string{"gpu.intel.com/xe": "1"}
+				f.namespaceErr = errors.New("kubectl: forbidden")
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			f := newFakeRunner()
+			if tt.setup != nil {
+				tt.setup(f)
+			}
+
+			// printGPUStatus has no return value; the contract is
+			// "never panics, returns normally".
+			printGPUStatus(context.Background(), tt.vendor, f)
+
+			if tt.wantCalls && len(f.calls) == 0 {
+				t.Fatalf("expected runner calls for vendor=%s, got none", tt.vendor)
+			}
+			if !tt.wantCalls && len(f.calls) != 0 {
+				t.Fatalf("expected zero runner calls for vendor=%s, got %v", tt.vendor, f.calls)
+			}
+		})
+	}
 }

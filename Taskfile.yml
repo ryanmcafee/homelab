@@ -587,16 +587,14 @@ tasks:
       - ./bin/homelab verify gpu
 
   gpu:verify:
-    desc: Verify GPU support is working
+    desc: Verify GPU support is working (vendor resolved from GPU_VENDOR config)
     cmds:
       - ./bin/homelab verify gpu
 
   gpu:status:
-    desc: Show GPU node status and resources
+    desc: Show GPU node status and resources (vendor resolved from GPU_VENDOR config)
     cmds:
-      - kubectl get node worker-1 -o wide
-      - kubectl describe node worker-1 | grep -A5 "Allocatable:" | grep nvidia
-      - kubectl -n gpu-operator get pods
+      - ./bin/homelab verify gpu --status-only
 
   gpu:toggle-test:
     desc: Render charts for GPU_VENDOR=none|nvidia|intel and assert TGL-01..TGL-04
