@@ -147,7 +147,7 @@ async function run(
 }
 
 // ============================================================================
-// Stub: Plan 02 will implement these
+// Vendor result type
 // ============================================================================
 interface VendorResult {
   vendor: Vendor;
@@ -158,29 +158,226 @@ interface VendorResult {
   errors: string[];
 }
 
+// ============================================================================
+// Filesystem helpers
+// ============================================================================
+async function ensureDir(path: string): Promise<void> {
+  await Deno.mkdir(path, { recursive: true });
+}
+
+async function writeFile(path: string, content: string): Promise<void> {
+  const idx = path.lastIndexOf("/");
+  if (idx > 0) {
+    await ensureDir(path.substring(0, idx));
+  }
+  await Deno.writeTextFile(path, content);
+}
+
+// ============================================================================
+// Build the homelab CLI binary if missing
+// ============================================================================
+async function ensureHomelabBinary(): Promise<void> {
+  try {
+    const stat = await Deno.stat(HOMELAB_BIN);
+    if (stat.isFile) return;
+  } catch {
+    // not present
+  }
+  log.info(`Building ${HOMELAB_BIN} ...`);
+  const r = await run(["go", "build", "-o", HOMELAB_BIN, "./cmd/homelab"]);
+  if (r.code !== 0) {
+    throw new Error(`go build failed:\n${r.stderr}`);
+  }
+}
+
+// ============================================================================
+// Generate a temp env file with GPU_VENDOR overridden
+// ============================================================================
+async function writeVendorEnvFile(
+  vendor: Vendor,
+  outDir: string,
+): Promise<string> {
+  // Use homelab.yaml.example as the base (it has all the keys defaults.yaml
+  // leaves unset, e.g. TRUENAS_IP, NFS_SHARE_ALLOW), then override GPU_VENDOR.
+  const examplePath = "configuration/environments/homelab.yaml.example";
+  const base = await Deno.readTextFile(examplePath);
+  // Replace the GPU_VENDOR line with the target vendor.
+  const overridden = base.replace(
+    /^GPU_VENDOR:.*$/m,
+    `GPU_VENDOR: "${vendor}"`,
+  );
+  // Defensive: if homelab.yaml.example didn't have a GPU_VENDOR line, append one.
+  const final = /^GPU_VENDOR:/m.test(overridden)
+    ? overridden
+    : `${overridden}\nGPU_VENDOR: "${vendor}"\n`;
+  const envPath = `${outDir}/env.yaml`;
+  await writeFile(envPath, final);
+  return envPath;
+}
+
+// ============================================================================
+// Render: homelab config export → helm template
+// ============================================================================
+async function renderChart(
+  envFile: string,
+  format: "helm-addons" | "helm-apps",
+  chartPath: string,
+  releaseName: string,
+  outYamlPath: string,
+  outValuesPath: string,
+): Promise<void> {
+  // STAGE A: produce the values yaml via the homelab CLI
+  const valuesResult = await run([
+    HOMELAB_BIN,
+    "config",
+    "export",
+    "--env-file",
+    envFile,
+    "--format",
+    format,
+    "--stdout",
+  ]);
+  if (valuesResult.code !== 0) {
+    throw new Error(
+      `homelab config export ${format} failed (${envFile}):\n${valuesResult.stderr}`,
+    );
+  }
+  await writeFile(outValuesPath, valuesResult.stdout);
+
+  // STAGE B: helm template using the captured values file
+  const templateResult = await run([
+    "helm",
+    "template",
+    releaseName,
+    chartPath,
+    "-f",
+    outValuesPath,
+  ]);
+  if (templateResult.code !== 0) {
+    throw new Error(
+      `helm template ${chartPath} failed:\n${templateResult.stderr}`,
+    );
+  }
+  await writeFile(outYamlPath, templateResult.stdout);
+}
+
+// ============================================================================
+// helm lint per vendor (uses generated values file)
+// ============================================================================
+async function lintVendor(
+  vendor: Vendor,
+  outDir: string,
+): Promise<{ ok: boolean; err?: string }> {
+  const addonsValues = `${outDir}/addons-values.yaml`;
+  const appsValues = `${outDir}/apps-values.yaml`;
+
+  const a = await run(["helm", "lint", ADDONS_CHART, "-f", addonsValues]);
+  if (a.code !== 0) {
+    return {
+      ok: false,
+      err:
+        `helm lint ${ADDONS_CHART} failed for ${vendor}:\n${a.stdout}\n${a.stderr}`,
+    };
+  }
+  const b = await run(["helm", "lint", APPS_CHART, "-f", appsValues]);
+  if (b.code !== 0) {
+    return {
+      ok: false,
+      err:
+        `helm lint ${APPS_CHART} failed for ${vendor}:\n${b.stdout}\n${b.stderr}`,
+    };
+  }
+  return { ok: true };
+}
+
+// ============================================================================
+// kubeconform per vendor (validates rendered manifests)
+// ============================================================================
+async function kubeconformVendor(
+  vendor: Vendor,
+  outDir: string,
+): Promise<{ ok: boolean; err?: string }> {
+  const addonsRendered = `${outDir}/addons.yaml`;
+  const appsRendered = `${outDir}/applications.yaml`;
+  const args = [
+    "-strict",
+    "-summary",
+    "-ignore-missing-schemas",
+    "-kubernetes-version",
+    "1.30.0",
+  ];
+  const a = await run(["kubeconform", ...args, addonsRendered]);
+  if (a.code !== 0) {
+    return {
+      ok: false,
+      err:
+        `kubeconform addons failed for ${vendor}:\n${a.stdout}\n${a.stderr}`,
+    };
+  }
+  const b = await run(["kubeconform", ...args, appsRendered]);
+  if (b.code !== 0) {
+    return {
+      ok: false,
+      err:
+        `kubeconform applications failed for ${vendor}:\n${b.stdout}\n${b.stderr}`,
+    };
+  }
+  return { ok: true };
+}
+
+// ============================================================================
+// renderVendor: full render + lint + kubeconform pipeline for a single vendor
+// ============================================================================
 async function renderVendor(
   vendor: Vendor,
-  _outDir: string,
+  outDir: string,
 ): Promise<VendorResult> {
-  // PLAN 02 IMPLEMENTATION GOES HERE
-  // For Plan 01, this is a stub that returns an "unimplemented" result.
-  // The Deno.Command shell helper above will be used by Plan 02 to:
-  //   1. Write a temp env file to /tmp based on homelab.yaml.example + GPU_VENDOR=<vendor>
-  //   2. Invoke: ${HOMELAB_BIN} config export --env-file <tmp> --format helm-addons --stdout
-  //   3. Pipe stage-A output into `helm template addons charts/addons -f -`
-  //   4. Repeat for helm-apps → charts/applications
-  //   5. Write both stage-B outputs into _outDir
-  //   6. Run `helm lint` and `kubeconform -strict` against each
-  //   7. Run vendor-specific assertions (nvidia: byte-diff vs BASELINE_ROOT/nvidia/*.yaml,
-  //      intel/none: grep-based shape checks)
-  return await Promise.resolve({
+  const result: VendorResult = {
     vendor,
     renderOk: false,
     lintOk: false,
     kubeconformOk: false,
     assertionsOk: false,
-    errors: ["renderVendor not yet implemented (Plan 01 skeleton)"],
-  });
+    errors: [],
+  };
+
+  try {
+    await ensureDir(outDir);
+    const envFile = await writeVendorEnvFile(vendor, outDir);
+
+    await renderChart(
+      envFile,
+      "helm-addons",
+      ADDONS_CHART,
+      "addons",
+      `${outDir}/addons.yaml`,
+      `${outDir}/addons-values.yaml`,
+    );
+    await renderChart(
+      envFile,
+      "helm-apps",
+      APPS_CHART,
+      "applications",
+      `${outDir}/applications.yaml`,
+      `${outDir}/apps-values.yaml`,
+    );
+    result.renderOk = true;
+  } catch (err) {
+    result.errors.push(
+      `render: ${err instanceof Error ? err.message : String(err)}`,
+    );
+    return result;
+  }
+
+  const lintR = await lintVendor(vendor, outDir);
+  result.lintOk = lintR.ok;
+  if (!lintR.ok && lintR.err) result.errors.push(lintR.err);
+
+  const kcR = await kubeconformVendor(vendor, outDir);
+  result.kubeconformOk = kcR.ok;
+  if (!kcR.ok && kcR.err) result.errors.push(kcR.err);
+
+  return result;
 }
 
 // ============================================================================
