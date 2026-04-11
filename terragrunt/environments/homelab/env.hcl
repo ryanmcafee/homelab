@@ -138,17 +138,20 @@ locals {
     description  = "NVIDIA Quadro P2200 for Plex transcoding"
   }
 
-  # GPU passthrough - Intel Arc Pro B50
-  # Verified via Phase 1 hardware spike:
-  #   SPK-02: lspci -nn shows 0000:c3:00.0 [8086:e212]
-  #   SPK-03: IOMMU group 14 (clean isolation)
-  #   SPK-04: subsystem 8086:1114
+  # GPU passthrough — Intel Arc Pro B50 (Battlemage G21)
+  # Authoritative values from Phase 1 hardware spike (committed under .planning/):
+  #   pci_bus_address  : .planning/phases/01-hardware-spike-discovery/findings/spk-02-pci-id.md
+  #   iommu_group      : .planning/phases/01-hardware-spike-discovery/findings/spk-03-iommu-group.md
+  #   subsystem_id     : .planning/phases/01-hardware-spike-discovery/findings/spk-04-subsystem-id.md
+  #   iommu_cmdline    : .planning/phases/01-hardware-spike-discovery/findings/spk-05-iommu-cmdline.md (AMD-Vi active, no intel_iommu flag needed)
+  # Kernel driver currently bound to `xe`; Talos machine patch for Intel GPU loads `xe` + `mei` modules.
+  # INERT while active vendor is nvidia (see gpu_vendor local above). Plan 07-03 flips to "intel" under human checkpoint.
   gpu_intel_pci_id = "0000:c3:00.0"
 
   gpu_intel_device = {
-    device_id    = "8086:e212" # Intel Arc Pro B50 (Battlemage)
-    subsystem_id = "8086:1114" # Intel subsystem
-    iommu_group  = 14          # IOMMU group from /sys/kernel/iommu_groups (clean isolation)
+    device_id    = "8086:e212" # Intel Arc Pro B50 (Battlemage G21) — spk-02
+    subsystem_id = "8086:1114" # Intel subsystem — spk-04
+    iommu_group  = 14          # Clean isolation (1 device in group) — spk-03
     description  = "Intel Arc Pro B50 for Plex transcoding"
   }
 
