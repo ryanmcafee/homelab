@@ -187,8 +187,10 @@ async function ensureHomelabBinary(): Promise<void> {
   try {
     const stat = await Deno.stat(HOMELAB_BIN);
     if (stat.isFile) return;
-  } catch {
-    // not present
+  } catch (err) {
+    // Only treat "missing file" as build-required. Rethrow permission or
+    // I/O errors so we fail loudly instead of silently shelling out to go build.
+    if (!(err instanceof Deno.errors.NotFound)) throw err;
   }
   log.info(`Building ${HOMELAB_BIN} ...`);
   const r = await run(["go", "build", "-o", HOMELAB_BIN, "./cmd/homelab"]);
