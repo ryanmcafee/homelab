@@ -98,24 +98,24 @@ locals {
   # PCI passthrough for NVMe SSDs and SATA drives
   hba_devices = {
     "hba-nvme-ssds" = {
-      pci_id       = "0000:c2:00.0"
+      pci_id       = "0000:c5:00.0"
       device_id    = "1000:00af" # Broadcom LSI vendor:device ID
       subsystem_id = "1000:3010" # Broadcom HBA 9400-8i subsystem ID
-      iommu_group  = 12
+      iommu_group  = 16
       description  = "Broadcom LSI SAS3408 - 2x 1TB NVMe SSDs"
     }
     "sata-20tb-drives" = {
       pci_id       = "0000:49:00.0"
       device_id    = "1022:7901" # AMD vendor:device ID
       subsystem_id = "15d9:7901" # Supermicro subsystem ID
-      iommu_group  = 58
+      iommu_group  = 62
       description  = "AMD FCH SATA Controller #1 - 8x 20TB SATA drives"
     }
     "sata-20tb-drives-2" = {
       pci_id       = "0000:48:00.0"
       device_id    = "1022:7901" # AMD vendor:device ID
       subsystem_id = "15d9:7901" # Supermicro subsystem ID
-      iommu_group  = 57
+      iommu_group  = 61
       description  = "AMD FCH SATA Controller #2 - 3x 20TB SATA drives"
     }
   }
