@@ -255,9 +255,9 @@ func deployHomelab() error {
 
 	logger.Info("Phase 3: Infrastructure Provisioning (Terragrunt)")
 	if utils.Confirm("Run Terragrunt to provision infrastructure?") {
-		args := []string{"run-all", "apply"}
+		args := []string{"run", "--all", "apply"}
 		if AutoAccept {
-			args = append(args, "--terragrunt-non-interactive")
+			args = append(args, "--non-interactive")
 		}
 		result, err := utils.ExecCommand("terragrunt", args...)
 		if err != nil || !result.Success {

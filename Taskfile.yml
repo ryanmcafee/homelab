@@ -369,13 +369,13 @@ tasks:
     desc: Validate Terraform configurations
     dir: terragrunt
     cmds:
-      - op run --env-file={{.ROOT_DIR}}/.env.op -- terragrunt run-all validate
+      - op run --env-file={{.ROOT_DIR}}/.env.op -- terragrunt run --all validate
 
   tf:init:
     desc: Run Terragrunt init for environment
     dir: terragrunt/environments/{{.ENV}}
     cmds:
-      - op run --env-file={{.ROOT_DIR}}/.env.op -- terragrunt run-all init
+      - op run --env-file={{.ROOT_DIR}}/.env.op -- terragrunt run --all init
     vars:
       ENV: '{{.ENV | default "homelab"}}'
 
@@ -394,7 +394,7 @@ tasks:
     deps:
       - render:sync:silent
     cmds:
-      - op run --env-file={{.ROOT_DIR}}/.env.op -- terragrunt run-all plan {{.TF_ARGS}}
+      - op run --env-file={{.ROOT_DIR}}/.env.op -- terragrunt run --all plan {{.TF_ARGS}}
     vars:
       ENV: '{{.ENV | default "homelab"}}'
       TF_ARGS: '{{.TF_ARGS | default ""}}'
@@ -414,7 +414,7 @@ tasks:
     deps:
       - render:sync:silent
     cmds:
-      - op run --env-file={{.ROOT_DIR}}/.env.op -- terragrunt run-all apply --non-interactive --auto-approve
+      - op run --env-file={{.ROOT_DIR}}/.env.op -- terragrunt run --all apply --non-interactive --auto-approve
     vars:
       ENV: '{{.ENV | default "homelab"}}'
 
@@ -431,7 +431,7 @@ tasks:
     desc: Destroy infrastructure (use with caution)
     dir: terragrunt/environments/{{.ENV}}
     cmds:
-      - op run --env-file={{.ROOT_DIR}}/.env.op -- terragrunt run-all destroy --non-interactive --auto-approve
+      - op run --env-file={{.ROOT_DIR}}/.env.op -- terragrunt run --all destroy --non-interactive --auto-approve
     vars:
       ENV: '{{.ENV | default "homelab"}}'
     prompt: Are you sure you want to destroy the {{.ENV}} environment?

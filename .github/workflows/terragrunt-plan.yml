@@ -39,7 +39,7 @@ jobs:
       - name: Terragrunt Plan (dry-run)
         run: |
           cd terragrunt/environments/${{ matrix.environment }}
-          terragrunt run-all plan --terragrunt-non-interactive
+          terragrunt run --all plan --non-interactive
         env:
           TF_VAR_proxmox_api_url: ${{ secrets.PROXMOX_API_URL }}
           TF_VAR_proxmox_api_token_id: ${{ secrets.PROXMOX_API_TOKEN_ID }}
