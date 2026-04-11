@@ -123,7 +123,7 @@ Refactor the homelab cluster's GPU support so the active vendor (NVIDIA, Intel, 
   4. All three toggle states pass `task chart:lint` and kubeconform validation
 **Plans**: 2 plans
   - [x] 06-01-PLAN.md — Baseline capture and test harness scaffold (TGL-01, TGL-02)
-  - [ ] 06-02-PLAN.md — Three-vendor render, lint, kubeconform, and assertions (TGL-01, TGL-02, TGL-03, TGL-04)
+  - [x] 06-02-PLAN.md — Three-vendor render, lint, kubeconform, and assertions (TGL-01, TGL-02, TGL-03, TGL-04)
 **Parallelization**: Three render passes (none/nvidia/intel) run in parallel — they share no state. Diff comparison is the synthesis step.
 **Complexity**: S (mostly automation; the abstraction must already exist)
 **Risk**: Low locally / High globally — this gate failing means rolling back or fixing Phases 2–5 before Phase 7 can run. **MUST PASS before `task talos:recreate:node`.**
