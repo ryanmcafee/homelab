@@ -174,8 +174,11 @@ async function ensureDir(path: string): Promise<void> {
 
 async function writeFile(path: string, content: string): Promise<void> {
   const idx = path.lastIndexOf("/");
-  if (idx > 0) {
-    await ensureDir(path.substring(0, idx));
+  if (idx >= 0) {
+    // idx === 0 handles root-adjacent paths like "/rootfile.yaml";
+    // idx > 0 handles nested paths like "out/dir/file.yaml".
+    const dir = path.substring(0, idx) || "/";
+    await ensureDir(dir);
   }
   await Deno.writeTextFile(path, content);
 }
