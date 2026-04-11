@@ -138,7 +138,10 @@ Refactor the homelab cluster's GPU support so the active vendor (NVIDIA, Intel, 
   3. Intel Device Plugin Operator + GPU plugin pods are `Running` on `worker-1`; Plex pod schedules with the Intel resource request, no `runtimeClassName`, and `/dev/dri` mounted (verified via `kubectl -n plex exec deploy/plex -- ls /dev/dri` showing `card0` + `renderD128`)
   4. Plex 4K HEVC transcode test confirms Intel GPU engines are active (`intel_gpu_top` on `worker-1`); existing Plex media library + playback work with no client-side regressions
   5. `cmd/homelab/commands/verify.go` is vendor-aware (reads `GPU_VENDOR`, picks correct checks per vendor) and `task gpu:verify` exits 0 against the live Intel cluster
-**Plans**: TBD
+**Plans**: 3 plans
+  - [x] 07-01-PLAN.md — Vendor-aware `homelab verify gpu` rewrite (VFY-01..VFY-07) — Wave 1, autonomous
+  - [ ] 07-02-PLAN.md — env.hcl Intel block validation + TGR-07 pre-cutover baseline (HW-01) — Wave 1, autonomous, dormant
+  - [ ] 07-03-PLAN.md — Destructive cutover: flip gpu_vendor, recreate worker-1, validate Intel stack + Plex transcode (HW-02..HW-09, VFY-07) — Wave 2, checkpointed
 **Parallelization**: Verify command rewrite (VFY-01..VFY-06) can be authored in parallel with the env.hcl Intel block update (HW-01/02). The hardware cutover (HW-03..HW-08) is strictly sequential and gated on the maintenance window.
 **Complexity**: L
 **Risk**: HIGHEST. Destructive. Worker-1 reimage is irreversible without manual recovery. Plex outage during cutover. Mitigated by: stateless worker-1, media on TrueNAS NFS, Phase 6 toggle test gate, Phase 1 hardware evidence.
