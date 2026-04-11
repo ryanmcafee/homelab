@@ -237,27 +237,6 @@ inputs = {
     })
   ]
 
-  # Control-plane-only patches
-  #
-  # Disable NodeRestriction admission plugin so Talos' worker-side NodeApplyController
-  # can atomically apply custom node labels (intel.com/gpu, nvidia.com/gpu,
-  # feature.node.kubernetes.io/pci-*.present, storage.kubernetes.io/iscsi-client).
-  # NodeRestriction only allows kubelet to self-set an allowlisted subset of labels,
-  # causing Talos' atomic label batch to be rejected wholesale — no custom labels
-  # or taints propagate to any worker Node. Trade-off: this re-expands kubelet's
-  # label-setting surface; acceptable in a trusted single-operator homelab.
-  controlplane_config_patches = [
-    yamlencode({
-      cluster = {
-        apiServer = {
-          extraArgs = {
-            "disable-admission-plugins" = "NodeRestriction"
-          }
-        }
-      }
-    })
-  ]
-
   # SSH configuration for boot args
   proxmox_host    = include.env.locals.proxmox_host
   ssh_user        = include.env.locals.proxmox_ssh_user
