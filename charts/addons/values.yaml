@@ -884,6 +884,22 @@ intel-gpu-device-plugin:
     version: "0.35.0"
 
 # ============================================================================
+# Intel Device Plugins Operator - installs the GpuDevicePlugin CRD and a
+# reconciler that turns GpuDevicePlugin CRs (created by intel-gpu-device-plugin
+# at wave 10) into live DaemonSets. Required prerequisite — without it the
+# plugin chart fails with "GpuDevicePlugin CRD not installed".
+# ============================================================================
+
+intel-device-plugins-operator:
+  enabled: false
+  namespace: intel-device-plugins
+
+  chart:
+    name: intel-device-plugins-operator
+    repo: https://intel.github.io/helm-charts
+    version: "0.35.0"
+
+# ============================================================================
 # NodeFeatureDiscovery - hardware feature labeling
 # Required prerequisite for intel-gpu-device-plugin. Also broadly useful for
 # any chart with PCI/CPU/kernel-feature-driven nodeSelectors. Runs as a
