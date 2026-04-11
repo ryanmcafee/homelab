@@ -1,0 +1,2630 @@
+---
+# Source: addons/templates/argo-workflows.yaml
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: argo-workflows
+  labels:
+    helm.sh/chart: addons-1.0.0
+    app.kubernetes.io/name: addons
+    app.kubernetes.io/instance: addons
+    app.kubernetes.io/version: "1.0"
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+---
+# Source: addons/templates/democratic-csi.yaml
+# Namespace with privileged PodSecurity for CSI driver requirements
+# (hostNetwork, hostIPC, SYS_ADMIN capabilities, privileged containers)
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: democratic-csi
+  labels:
+    pod-security.kubernetes.io/enforce: privileged
+    pod-security.kubernetes.io/audit: privileged
+    pod-security.kubernetes.io/warn: privileged
+---
+# Source: addons/templates/external-dns-unifi.yaml
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: external-dns-unifi
+  annotations:
+    argocd.argoproj.io/sync-wave: "4"
+---
+# Source: addons/templates/kube-prometheus-stack.yaml
+# Namespace with privileged PodSecurity labels for node-exporter
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: monitoring
+  labels:
+    pod-security.kubernetes.io/enforce: privileged
+    pod-security.kubernetes.io/audit: privileged
+    pod-security.kubernetes.io/warn: privileged
+---
+# Source: addons/templates/nvidia-gpu-operator.yaml
+# Namespace for GPU operator components
+# Requires privileged PodSecurity for GPU device plugin and driver containers
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: gpu-operator
+  labels:
+    pod-security.kubernetes.io/enforce: privileged
+    pod-security.kubernetes.io/audit: privileged
+    pod-security.kubernetes.io/warn: privileged
+  annotations:
+    # Wave 10: After kube-prometheus-stack (wave 9)
+    argocd.argoproj.io/sync-wave: "10"
+---
+# Source: addons/templates/spegel.yaml
+# Spegel namespace needs privileged PodSecurity for hostPath and hostPort access
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: spegel
+  labels:
+    pod-security.kubernetes.io/enforce: privileged
+    pod-security.kubernetes.io/warn: privileged
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+---
+# Source: addons/templates/traefik-external.yaml
+# Namespace for Traefik external ingress controller
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: traefik
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+---
+# Source: addons/templates/unifi-port-forward.yaml
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: port-forwarding
+  annotations:
+    argocd.argoproj.io/sync-wave: "6"
+---
+# Source: addons/templates/spegel.yaml
+# OCI Repository configuration for ArgoCD to pull Spegel Helm chart
+apiVersion: v1
+kind: Secret
+metadata:
+  name: spegel-oci
+  namespace: argocd
+  labels:
+    argocd.argoproj.io/secret-type: repository
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+stringData:
+  name: spegel
+  type: helm
+  url: ghcr.io/spegel-org/helm-charts
+  enableOCI: "true"
+---
+# Source: addons/templates/external-dns-cloudflare-crd.yaml
+# Additional RBAC for CRD source (helm chart doesn't generate this correctly)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: external-dns-cloudflare-crd-dnsendpoints
+  annotations:
+    argocd.argoproj.io/sync-wave: "4"
+rules:
+  - apiGroups:
+      - externaldns.k8s.io
+    resources:
+      - dnsendpoints
+    verbs:
+      - get
+      - watch
+      - list
+  - apiGroups:
+      - externaldns.k8s.io
+    resources:
+      - dnsendpoints/status
+    verbs:
+      - update
+---
+# Source: addons/templates/external-dns-unifi.yaml
+# Additional RBAC for CRD source (helm chart doesn't generate this correctly)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: external-dns-unifi-crd-dnsendpoints
+  annotations:
+    argocd.argoproj.io/sync-wave: "4"
+rules:
+  - apiGroups:
+      - externaldns.k8s.io
+    resources:
+      - dnsendpoints
+    verbs:
+      - get
+      - watch
+      - list
+  - apiGroups:
+      - externaldns.k8s.io
+    resources:
+      - dnsendpoints/status
+    verbs:
+      - update
+---
+# Source: addons/templates/external-dns-cloudflare-crd.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: external-dns-cloudflare-crd-dnsendpoints
+  annotations:
+    argocd.argoproj.io/sync-wave: "4"
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: external-dns-cloudflare-crd-dnsendpoints
+subjects:
+  - kind: ServiceAccount
+    name: external-dns-cloudflare-crd
+    namespace: external-dns
+---
+# Source: addons/templates/external-dns-unifi.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: external-dns-unifi-crd-dnsendpoints
+  annotations:
+    argocd.argoproj.io/sync-wave: "4"
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: external-dns-unifi-crd-dnsendpoints
+subjects:
+  - kind: ServiceAccount
+    name: external-dns-unifi-crd
+    namespace: external-dns-unifi
+---
+# Source: addons/templates/traefik-external.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: oidc-redis
+  namespace: traefik
+  annotations:
+    argocd.argoproj.io/sync-wave: "7"
+spec:
+  selector:
+    app: oidc-redis
+  ports:
+    - port: 6379
+      targetPort: 6379
+---
+# Source: addons/templates/nvidia-gpu-operator.yaml
+# Talos GPU Validation Bypass DaemonSet
+# Creates validation files that the GPU device plugin waits for
+# Required because validator is disabled on Talos (driver/toolkit are pre-installed via system extensions)
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: nvidia-validation-bypass
+  namespace: gpu-operator
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
+  labels:
+    app.kubernetes.io/name: nvidia-validation-bypass
+    app.kubernetes.io/component: validation
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: nvidia-validation-bypass
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: nvidia-validation-bypass
+    spec:
+      nodeSelector:
+        nvidia.com/gpu: "true"
+      tolerations:
+        - key: nvidia.com/gpu
+          operator: Exists
+          effect: NoSchedule
+      containers:
+        - name: validation-bypass
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - |
+              # Continuously maintain validation ready files for Talos GPU nodes
+              # The operator validator deletes driver-ready during its validation loop,
+              # so we must recreate it continuously rather than just once
+              mkdir -p /run/nvidia/validations
+              while true; do
+                touch /run/nvidia/validations/driver-ready
+                touch /run/nvidia/validations/toolkit-ready
+                touch /run/nvidia/validations/cuda-ready
+                touch /run/nvidia/validations/plugin-ready
+                sleep 5
+              done
+          volumeMounts:
+            - name: run-nvidia
+              mountPath: /run/nvidia
+          resources:
+            requests:
+              cpu: 1m
+              memory: 8Mi
+            limits:
+              cpu: 10m
+              memory: 16Mi
+          securityContext:
+            runAsUser: 0
+            runAsGroup: 0
+      volumes:
+        - name: run-nvidia
+          hostPath:
+            path: /run/nvidia
+            type: DirectoryOrCreate
+---
+# Source: addons/templates/traefik-external.yaml
+# Redis for OIDC session storage (required for multi-replica Traefik)
+# Wave 7: After traefik-external (wave 6) but before traefik-external-config (wave 8)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: oidc-redis
+  namespace: traefik
+  annotations:
+    argocd.argoproj.io/sync-wave: "7"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: oidc-redis
+  template:
+    metadata:
+      labels:
+        app: oidc-redis
+    spec:
+      containers:
+        - name: redis
+          image: redis:7-alpine
+          ports:
+            - containerPort: 6379
+          resources:
+            requests:
+              memory: "64Mi"
+              cpu: "50m"
+            limits:
+              memory: "128Mi"
+              cpu: "100m"
+---
+# Source: addons/templates/argo-workflows.yaml
+# Argo Workflows - Workflow Orchestration Engine
+# Sync Wave: 9 (after traefik-config for OIDC middleware)
+---
+# Source: addons/templates/argo-workflows.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: argo-workflows
+  namespace: argocd
+  labels:
+    helm.sh/chart: addons-1.0.0
+    app.kubernetes.io/name: addons
+    app.kubernetes.io/instance: addons
+    app.kubernetes.io/version: "1.0"
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    # Wave 9: After traefik-config (wave 8) so OIDC middleware is available
+    argocd.argoproj.io/sync-wave: "9"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+
+  source:
+    repoURL: https://argoproj.github.io/argo-helm
+    chart: argo-workflows
+    targetRevision: 1.0.7
+    helm:
+      releaseName: argo-workflows
+      values: |
+        server:
+          authMode: server
+          ingress:
+            enabled: true
+            ingressClassName: internal
+            annotations:
+              cert-manager.io/cluster-issuer: letsencrypt
+              external-dns.alpha.kubernetes.io/hostname: workflows.your-domain.com
+            hosts:
+              - workflows.your-domain.com
+            paths:
+              - /
+            pathType: Prefix
+            tls:
+              - hosts:
+                - workflows.your-domain.com
+                secretName: argo-workflows-tls
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 50m
+              memory: 128Mi
+        controller:
+          resources:
+            limits:
+              cpu: 500m
+              memory: 512Mi
+            requests:
+              cpu: 100m
+              memory: 256Mi
+          workflowDefaults:
+            spec:
+              ttlStrategy:
+                secondsAfterCompletion: 86400
+                secondsAfterFailure: 172800
+                secondsAfterSuccess: 43200
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argo-workflows
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - PruneLast=true
+      - ApplyOutOfSyncOnly=true
+---
+# Source: addons/templates/argo-workflows.yaml
+# Argo Workflows Config - CronWorkflows and custom resources
+# Wave 10: After argo-workflows (wave 9) installs CRDs
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: argo-workflows-config
+  namespace: argocd
+  labels:
+    helm.sh/chart: addons-1.0.0
+    app.kubernetes.io/name: addons
+    app.kubernetes.io/instance: addons
+    app.kubernetes.io/version: "1.0"
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/ryanmcafee/homelab.git
+    targetRevision: main
+    path: charts/argo-workflows-config
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-homelab.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argo-workflows
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - SkipDryRunOnMissingResource=true
+---
+# Source: addons/templates/cert-manager.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cert-manager
+  namespace: argocd
+  annotations:
+    # Sync wave 0: cert-manager must deploy before ClusterIssuer (wave 1) and other resources needing TLS
+    argocd.argoproj.io/sync-wave: "0"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://charts.jetstack.io
+    chart: cert-manager
+    targetRevision: v1.20.1
+    helm:
+      releaseName: cert-manager
+      values: |
+        installCRDs: true
+        global:
+          leaderElection:
+            namespace: cert-manager
+        extraArgs:
+          - --dns01-recursive-nameservers-only
+          - --dns01-recursive-nameservers=1.1.1.1:53,8.8.8.8:53,8.8.4.4:53
+        resources:
+          limits:
+            cpu: 200m
+            memory: 256Mi
+          requests:
+            cpu: 50m
+            memory: 128Mi
+        webhook:
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 20m
+              memory: 64Mi
+        cainjector:
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 50m
+              memory: 128Mi
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: cert-manager
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+      - RespectIgnoreDifferences=true
+
+  # Ignore differences in webhook configurations
+  ignoreDifferences:
+    - group: admissionregistration.k8s.io
+      kind: ValidatingWebhookConfiguration
+      jsonPointers:
+        - /webhooks/0/clientConfig/caBundle
+    - group: admissionregistration.k8s.io
+      kind: MutatingWebhookConfiguration
+      jsonPointers:
+        - /webhooks/0/clientConfig/caBundle
+---
+# Source: addons/templates/cert-manager.yaml
+# Config Application: deploys OnePasswordItem for Cloudflare API token
+# Must deploy after 1password-operator (wave -1) so OnePasswordItem CRD is available
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cert-manager-config
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/ryanmcafee/homelab.git
+    targetRevision: main
+    path: charts/cert-manager-config
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-homelab.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: cert-manager
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+---
+# Source: addons/templates/cert-manager.yaml
+# ClusterIssuer Application: deploys after cert-manager installs CRDs
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cert-manager-cluster-issuer
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/ryanmcafee/homelab.git
+    targetRevision: main
+    path: charts/cert-manager-cluster-issuer
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-homelab.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: cert-manager
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+---
+# Source: addons/templates/cilium.yaml
+# Cilium CNI - Visibility Only Application
+# NOTE: Actual Cilium installation is managed via Talos inline manifests
+# This ArgoCD Application provides visibility into the Cilium deployment
+# without managing it (no automated sync)
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cilium
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+    argocd.argoproj.io/compare-options: IgnoreExtraneous
+spec:
+  project: default
+  source:
+    repoURL: https://helm.cilium.io/
+    chart: cilium
+    targetRevision: 1.19.2
+    helm:
+      releaseName: cilium
+      # Values must match inline bootstrap for accurate diff
+      values: |
+        ipam:
+          mode: kubernetes
+        kubeProxyReplacement: true
+        k8sServiceHost: localhost
+        k8sServicePort: 7445
+        securityContext:
+          capabilities:
+            ciliumAgent:
+              - CHOWN
+              - KILL
+              - NET_ADMIN
+              - NET_RAW
+              - IPC_LOCK
+              - SYS_ADMIN
+              - SYS_RESOURCE
+              - DAC_OVERRIDE
+              - FOWNER
+              - SETGID
+              - SETUID
+            cleanCiliumState:
+              - NET_ADMIN
+              - SYS_ADMIN
+              - SYS_RESOURCE
+        cgroup:
+          autoMount:
+            enabled: false
+          hostRoot: /sys/fs/cgroup
+        l2announcements:
+          enabled: true
+        externalIPs:
+          enabled: true
+        bgpControlPlane:
+          enabled: true
+        hubble:
+          relay:
+            enabled: true
+          ui:
+            enabled: true
+        bandwidthManager:
+          enabled: true
+          bbr: true
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: kube-system
+
+  syncPolicy:
+    automated:
+      prune: false  # Don't prune - Talos manages some resources
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true
+      - Validate=false
+      - RespectIgnoreDifferences=true
+      - ApplyOutOfSyncOnly=true
+
+  # Ignore all differences since we're just tracking, not managing
+  ignoreDifferences:
+    - group: "*"
+      kind: "*"
+      jsonPointers:
+        - /metadata/annotations
+        - /metadata/labels
+    # Ignore auto-generated TLS secrets managed by Cilium (cilium-ca, hubble-*-certs)
+    - group: ""
+      kind: Secret
+      jsonPointers:
+        - /data
+        - /metadata/annotations
+        - /metadata/labels
+---
+# Source: addons/templates/cloudnative-pg.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cloudnative-pg
+  namespace: argocd
+  annotations:
+    # Sync wave 8 - deploys after kube-prometheus-stack (wave 7) for monitoring integration
+    argocd.argoproj.io/sync-wave: "10"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://cloudnative-pg.github.io/charts
+    chart: cloudnative-pg
+    targetRevision: 0.28.0
+    helm:
+      releaseName: cloudnative-pg
+      values: |
+        resources:
+          limits:
+            cpu: 500m
+            memory: 512Mi
+          requests:
+            cpu: 100m
+            memory: 256Mi
+        monitoring:
+          grafanaDashboard:
+            create: false
+          podMonitorEnabled: true
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: cnpg-system
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+      - RespectIgnoreDifferences=true
+
+  # Ignore differences in webhook configurations
+  ignoreDifferences:
+    - group: admissionregistration.k8s.io
+      kind: ValidatingWebhookConfiguration
+      jsonPointers:
+        - /webhooks/0/clientConfig/caBundle
+        - /webhooks/1/clientConfig/caBundle
+    - group: admissionregistration.k8s.io
+      kind: MutatingWebhookConfiguration
+      jsonPointers:
+        - /webhooks/0/clientConfig/caBundle
+---
+# Source: addons/templates/democratic-csi-iscsi-hdd.yaml
+# Democratic-CSI iSCSI HDD - ArgoCD Application
+# Deploys a democratic-CSI instance for iSCSI block storage (HDD-backed)
+# Reuses the same namespace and truenas-api-key secret as the NFS instances
+#
+# DEPENDENCY: Requires democratic-csi (NFS) to be enabled. The democratic-csi-config
+# app (sync wave 1) creates the truenas-api-key secret in the democratic-csi namespace.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: democratic-csi-iscsi-hdd
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://democratic-csi.github.io/charts/
+    chart: democratic-csi
+    targetRevision: 0.15.1
+    helm:
+      releaseName: democratic-csi-iscsi-hdd
+      values: |
+        csiDriver:
+          name: "org.democratic-csi.iscsi-hdd"
+
+        driver:
+          config:
+            driver: freenas-api-iscsi
+
+            httpConnection:
+              protocol: https
+              host: 192.168.1.100
+              port: 443
+              allowInsecure: true
+              apiKey: "${TRUENAS_API_KEY}"
+
+            zfs:
+              datasetParentName: storage/k8s
+              detachedSnapshotsDatasetParentName: storage/k8s-iscsi-snapshots
+              zvolCompression: lz4
+              zvolEnableReservation: false
+              zvolBlocksize: 16K
+
+            iscsi:
+              targetPortal: "192.168.1.100:3260"
+              namePrefix: csi-
+              nameSuffix: "-homelab"
+              targetGroups:
+                - targetGroupPortalGroup: 1
+                  targetGroupInitiatorGroup: 1
+                  targetGroupAuthType: None
+              extentInsecureTpc: true
+              extentXenCompat: false
+              extentDisablePhysicalBlocksize: true
+              extentBlocksize: 512
+              extentRpm: "7200"
+              extentAvailThreshold: 0
+
+        storageClasses:
+          - name: democratic-csi-iscsi-hdd
+            defaultClass: false
+            reclaimPolicy: Retain
+            volumeBindingMode: Immediate
+            allowVolumeExpansion: true
+            parameters:
+              fsType: ext4
+
+        controller:
+          driver:
+            resources:
+              limits:
+                cpu: 200m
+                memory: 256Mi
+              requests:
+                cpu: 50m
+                memory: 128Mi
+            extraEnv:
+              - name: TRUENAS_API_KEY
+                valueFrom:
+                  secretKeyRef:
+                    name: truenas-api-key
+                    key: api_key
+
+        node:
+          driver:
+            resources:
+              limits:
+                cpu: 200m
+                memory: 256Mi
+              requests:
+                cpu: 50m
+                memory: 128Mi
+            extraEnv:
+              - name: TRUENAS_API_KEY
+                valueFrom:
+                  secretKeyRef:
+                    name: truenas-api-key
+                    key: api_key
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: democratic-csi
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+---
+# Source: addons/templates/democratic-csi-iscsi.yaml
+# Democratic-CSI iSCSI - ArgoCD Application
+# Deploys a democratic-CSI instance for iSCSI block storage (SSD-backed)
+# Reuses the same namespace and truenas-api-key secret as the NFS instances
+#
+# DEPENDENCY: Requires democratic-csi (NFS) to be enabled. The democratic-csi-config
+# app (sync wave 1) creates the truenas-api-key secret in the democratic-csi namespace.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: democratic-csi-iscsi
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://democratic-csi.github.io/charts/
+    chart: democratic-csi
+    targetRevision: 0.15.1
+    helm:
+      releaseName: democratic-csi-iscsi
+      values: |
+        csiDriver:
+          name: "org.democratic-csi.iscsi"
+
+        driver:
+          config:
+            driver: freenas-api-iscsi
+
+            httpConnection:
+              protocol: https
+              host: 192.168.1.100
+              port: 443
+              allowInsecure: true
+              apiKey: "${TRUENAS_API_KEY}"
+
+            zfs:
+              datasetParentName: ssd/iscsi
+              detachedSnapshotsDatasetParentName: ssd/iscsi-snapshots
+              zvolCompression: lz4
+              zvolEnableReservation: false
+              zvolBlocksize: 16K
+
+            iscsi:
+              targetPortal: "192.168.1.100:3260"
+              namePrefix: csi-
+              nameSuffix: "-homelab"
+              targetGroups:
+                - targetGroupPortalGroup: 1
+                  targetGroupInitiatorGroup: 1
+                  targetGroupAuthType: None
+              extentInsecureTpc: true
+              extentXenCompat: false
+              extentDisablePhysicalBlocksize: true
+              extentBlocksize: 512
+              extentRpm: "SSD"
+              extentAvailThreshold: 0
+
+        storageClasses:
+          - name: democratic-csi-iscsi
+            defaultClass: false
+            reclaimPolicy: Retain
+            volumeBindingMode: Immediate
+            allowVolumeExpansion: true
+            parameters:
+              fsType: ext4
+
+        controller:
+          driver:
+            resources:
+              limits:
+                cpu: 200m
+                memory: 256Mi
+              requests:
+                cpu: 50m
+                memory: 128Mi
+            extraEnv:
+              - name: TRUENAS_API_KEY
+                valueFrom:
+                  secretKeyRef:
+                    name: truenas-api-key
+                    key: api_key
+
+        node:
+          driver:
+            resources:
+              limits:
+                cpu: 200m
+                memory: 256Mi
+              requests:
+                cpu: 50m
+                memory: 128Mi
+            extraEnv:
+              - name: TRUENAS_API_KEY
+                valueFrom:
+                  secretKeyRef:
+                    name: truenas-api-key
+                    key: api_key
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: democratic-csi
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+---
+# Source: addons/templates/democratic-csi-ssd.yaml
+# Democratic-CSI SSD - ArgoCD Application
+# Deploys a separate democratic-CSI instance for SSD-backed NFS storage
+# Reuses the same namespace and truenas-api-key secret as the HDD instance
+#
+# DEPENDENCY: Requires democratic-csi (HDD) to be enabled. The democratic-csi-config
+# app (sync wave 1) creates the truenas-api-key secret in the democratic-csi namespace.
+# If the HDD instance is disabled, the secret won't exist and this app will fail.
+#
+# NOTE: Snapshots dataset is derived by appending "-snapshots" to the nfs.parent value.
+# e.g. parent "ssd/k8s" -> snapshots "ssd/k8s-snapshots". Keep Ansible dataset names in sync.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: democratic-csi-ssd
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://democratic-csi.github.io/charts/
+    chart: democratic-csi
+    targetRevision: 0.15.1
+    helm:
+      releaseName: democratic-csi-ssd
+      values: |
+        csiDriver:
+          name: "org.democratic-csi.nfs-ssd"
+
+        driver:
+          config:
+            driver: freenas-api-nfs
+
+            httpConnection:
+              protocol: https
+              host: 192.168.1.100
+              port: 443
+              allowInsecure: true
+              apiKey: "${TRUENAS_API_KEY}"
+
+            zfs:
+              datasetParentName: ssd/k8s
+              detachedSnapshotsDatasetParentName: ssd/k8s-snapshots
+              datasetEnableQuotas: true
+              datasetEnableReservation: false
+              datasetPermissionsMode: "0770"
+              datasetPermissionsUser: 568
+              datasetPermissionsGroup: 100
+
+            nfs:
+              shareHost: 192.168.1.100
+              shareAlldirs: false
+              shareAllowedHosts: []
+              shareAllowedNetworks:
+                - 192.168.1.0/24
+              shareMapallUser: rmcafee
+              shareMapallGroup: users
+
+        storageClasses:
+          - name: democratic-csi-ssd
+            defaultClass: false
+            reclaimPolicy: Retain
+            volumeBindingMode: Immediate
+            allowVolumeExpansion: true
+            parameters:
+              fsType: nfs
+            mountOptions:
+              - nfsvers=4
+              - noatime
+
+        controller:
+          driver:
+            resources:
+              limits:
+                cpu: 200m
+                memory: 256Mi
+              requests:
+                cpu: 50m
+                memory: 128Mi
+            extraEnv:
+              - name: TRUENAS_API_KEY
+                valueFrom:
+                  secretKeyRef:
+                    name: truenas-api-key
+                    key: api_key
+
+        node:
+          driver:
+            resources:
+              limits:
+                cpu: 200m
+                memory: 256Mi
+              requests:
+                cpu: 50m
+                memory: 128Mi
+            extraEnv:
+              - name: TRUENAS_API_KEY
+                valueFrom:
+                  secretKeyRef:
+                    name: truenas-api-key
+                    key: api_key
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: democratic-csi
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+---
+# Source: addons/templates/democratic-csi.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: democratic-csi
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://democratic-csi.github.io/charts/
+    chart: democratic-csi
+    targetRevision: 0.15.1
+    helm:
+      releaseName: democratic-csi
+      values: |
+        csiDriver:
+          name: "org.democratic-csi.nfs"
+
+        driver:
+          config:
+            driver: freenas-api-nfs
+
+            httpConnection:
+              protocol: https
+              host: 192.168.1.100
+              port: 443
+              allowInsecure: true
+              apiKey: "${TRUENAS_API_KEY}"
+
+            zfs:
+              datasetParentName: storage/k8s
+              # Convention: snapshots dataset = parent + "-snapshots" (e.g. storage/k8s -> storage/k8s-snapshots)
+              detachedSnapshotsDatasetParentName: storage/k8s-snapshots
+              datasetEnableQuotas: true
+              datasetEnableReservation: false
+              datasetPermissionsMode: "0770"
+              datasetPermissionsUser: 568
+              datasetPermissionsGroup: 100
+
+            nfs:
+              shareHost: 192.168.1.100
+              shareAlldirs: false
+              shareAllowedHosts: []
+              shareAllowedNetworks:
+                - 192.168.1.0/24
+              shareMapallUser: rmcafee
+              shareMapallGroup: users
+
+        storageClasses:
+          - name: democratic-csi-nfs
+            defaultClass: true
+            reclaimPolicy: Retain
+            volumeBindingMode: Immediate
+            allowVolumeExpansion: true
+            parameters:
+              fsType: nfs
+            mountOptions:
+              - nfsvers=4
+              - noatime
+
+        controller:
+          driver:
+            resources:
+              limits:
+                cpu: 200m
+                memory: 256Mi
+              requests:
+                cpu: 50m
+                memory: 128Mi
+            extraEnv:
+              - name: TRUENAS_API_KEY
+                valueFrom:
+                  secretKeyRef:
+                    name: truenas-api-key
+                    key: api_key
+
+        node:
+          driver:
+            resources:
+              limits:
+                cpu: 200m
+                memory: 256Mi
+              requests:
+                cpu: 50m
+                memory: 128Mi
+            extraEnv:
+              - name: TRUENAS_API_KEY
+                valueFrom:
+                  secretKeyRef:
+                    name: truenas-api-key
+                    key: api_key
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: democratic-csi
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+---
+# Source: addons/templates/democratic-csi.yaml
+# Config Application: deploys OnePasswordItem for TrueNAS API key before democratic-csi
+# Must deploy after 1Password operator (wave -1) but before democratic-csi (wave 2)
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: democratic-csi-config
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/ryanmcafee/homelab.git
+    targetRevision: main
+    path: charts/democratic-csi-config
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-homelab.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: democratic-csi
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+---
+# Source: addons/templates/external-dns-cloudflare-crd.yaml
+# CRD source instance for DNSEndpoint resources
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: external-dns-cloudflare-crd
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "4"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://kubernetes-sigs.github.io/external-dns/
+    chart: external-dns
+    targetRevision: 1.20.0
+    helm:
+      releaseName: external-dns-cloudflare-crd
+      values: |
+        fullnameOverride: external-dns-cloudflare-crd
+
+        provider:
+          name: cloudflare
+
+        env:
+          - name: CF_API_TOKEN
+            valueFrom:
+              secretKeyRef:
+                name: cloudflare-api-token
+                key: api_token
+
+        cloudflare:
+          proxied: true
+
+        sources:
+          - crd
+
+        domainFilters:
+          - your-domain.com
+
+        policy: sync
+        registry: txt
+        txtOwnerId: homelab-cloudflare-crd
+        extraArgs:
+          - --default-targets=your-subdomain.duckdns.org
+
+        resources:
+          limits:
+            cpu: 100m
+            memory: 128Mi
+          requests:
+            cpu: 20m
+            memory: 64Mi
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: external-dns
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+---
+# Source: addons/templates/external-dns-cloudflare.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: external-dns-cloudflare
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "4"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://kubernetes-sigs.github.io/external-dns/
+    chart: external-dns
+    targetRevision: 1.20.0
+    helm:
+      releaseName: external-dns-cloudflare
+      values: |
+        fullnameOverride: external-dns-cloudflare
+
+        provider:
+          name: cloudflare
+        env:
+          - name: CF_API_TOKEN
+            valueFrom:
+              secretKeyRef:
+                name: cloudflare-api-token
+                key: api_token
+
+        cloudflare:
+          proxied: true
+
+        # Only watch ingress resources (CRD source has its own deployment)
+        sources:
+          - ingress
+
+        domainFilters:
+          - your-domain.com
+
+        annotationFilter: external-dns.alpha.kubernetes.io/hostname
+
+        policy: sync
+        registry: txt
+        txtOwnerId: homelab-cloudflare
+
+        # Only process ingresses with ingressClassName=external (e.g., Plex)
+        # Internal ingresses should only publish DNS to UniFi, not Cloudflare
+        extraArgs:
+          - --ingress-class=external
+          - --default-targets=your-subdomain.duckdns.org
+
+        resources:
+          limits:
+            cpu: 100m
+            memory: 128Mi
+          requests:
+            cpu: 20m
+            memory: 64Mi
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: external-dns
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+---
+# Source: addons/templates/external-dns-cloudflare.yaml
+# Config Application: deploys OnePasswordItems for API credentials before external-dns
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: external-dns-config
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/ryanmcafee/homelab.git
+    targetRevision: main
+    path: charts/external-dns-config
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-homelab.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: external-dns
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+---
+# Source: addons/templates/external-dns-unifi.yaml
+# Instance 1: CRD source for DNSEndpoint resources
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: external-dns-unifi-crd
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "4"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://kubernetes-sigs.github.io/external-dns/
+    chart: external-dns
+    targetRevision: 1.20.0
+    helm:
+      releaseName: external-dns-unifi-crd
+      values: |
+        fullnameOverride: external-dns-unifi-crd
+
+        provider:
+          name: webhook
+          webhook:
+            image:
+              repository: ghcr.io/kashalls/external-dns-unifi-webhook
+              tag: v0.8.2
+            env:
+              - name: UNIFI_HOST
+                value: "https://192.168.1.1"
+              - name: UNIFI_EXTERNAL_CONTROLLER
+                value: "false"
+              - name: UNIFI_SKIP_TLS_VERIFY
+                value: "true"
+              - name: UNIFI_API_KEY
+                valueFrom:
+                  secretKeyRef:
+                    name: unifi-api-credentials
+                    key: api_key
+              - name: LOG_LEVEL
+                value: "info"
+            livenessProbe:
+              httpGet:
+                path: /healthz
+                port: 8080
+              initialDelaySeconds: 10
+              timeoutSeconds: 5
+            readinessProbe:
+              httpGet:
+                path: /readyz
+                port: 8080
+              initialDelaySeconds: 10
+              timeoutSeconds: 5
+
+        sources:
+          - crd
+
+        extraArgs:
+          - --txt-owner-id=homelab-unifi-crd
+
+        domainFilters:
+          - your-domain.com
+
+        policy: sync
+        registry: txt
+
+        resources:
+          limits:
+            cpu: 100m
+            memory: 128Mi
+          requests:
+            cpu: 20m
+            memory: 64Mi
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: external-dns-unifi
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+---
+# Source: addons/templates/external-dns-unifi.yaml
+# Instance 2: Ingress/Service sources with annotation filter
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: external-dns-unifi-ingress
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "4"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://kubernetes-sigs.github.io/external-dns/
+    chart: external-dns
+    targetRevision: 1.20.0
+    helm:
+      releaseName: external-dns-unifi-ingress
+      values: |
+        fullnameOverride: external-dns-unifi-ingress
+
+        provider:
+          name: webhook
+          webhook:
+            image:
+              repository: ghcr.io/kashalls/external-dns-unifi-webhook
+              tag: v0.8.2
+            env:
+              - name: UNIFI_HOST
+                value: "https://192.168.1.1"
+              - name: UNIFI_EXTERNAL_CONTROLLER
+                value: "false"
+              - name: UNIFI_SKIP_TLS_VERIFY
+                value: "true"
+              - name: UNIFI_API_KEY
+                valueFrom:
+                  secretKeyRef:
+                    name: unifi-api-credentials
+                    key: api_key
+              - name: LOG_LEVEL
+                value: "info"
+            livenessProbe:
+              httpGet:
+                path: /healthz
+                port: 8080
+              initialDelaySeconds: 10
+              timeoutSeconds: 5
+            readinessProbe:
+              httpGet:
+                path: /readyz
+                port: 8080
+              initialDelaySeconds: 10
+              timeoutSeconds: 5
+
+        sources:
+          - ingress
+          - service
+
+        extraArgs:
+          - --annotation-filter=external-dns.alpha.kubernetes.io/hostname
+          - --txt-owner-id=homelab-unifi-ingress
+
+        domainFilters:
+          - your-domain.com
+
+        policy: sync
+        registry: txt
+
+        resources:
+          limits:
+            cpu: 100m
+            memory: 128Mi
+          requests:
+            cpu: 20m
+            memory: 64Mi
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: external-dns-unifi
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+---
+# Source: addons/templates/grafana-config.yaml
+# Grafana Config: deploys static PV+PVC for Grafana persistent storage
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: grafana-config
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/ryanmcafee/homelab.git
+    targetRevision: main
+    path: charts/grafana-config
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-homelab.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - SkipDryRunOnMissingResource=true
+---
+# Source: addons/templates/kube-prometheus-stack.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: kube-prometheus-stack
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "9"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://prometheus-community.github.io/helm-charts
+    chart: kube-prometheus-stack
+    targetRevision: 82.16.0
+    helm:
+      releaseName: kube-prometheus-stack
+      values: |
+        prometheus:
+          prometheusSpec:
+            retention: 30d
+            retentionSize: 50GB
+
+            resources:
+              limits:
+                cpu: 2000m
+                memory: 4Gi
+              requests:
+                cpu: 500m
+                memory: 2Gi
+
+            storageSpec:
+              volumeClaimTemplate:
+                spec:
+                  storageClassName: democratic-csi-iscsi-hdd
+                  accessModes:
+                    - ReadWriteOnce
+                  resources:
+                    requests:
+                      storage: 100Gi
+
+            serviceMonitorSelectorNilUsesHelmValues: false
+            podMonitorSelectorNilUsesHelmValues: false
+            ruleSelectorNilUsesHelmValues: false
+            affinity:
+              nodeAffinity:
+                requiredDuringSchedulingIgnoredDuringExecution:
+                  nodeSelectorTerms:
+                  - matchExpressions:
+                    - key: nvidia.com/gpu.present
+                      operator: NotIn
+                      values:
+                      - "true"
+
+        grafana:
+          enabled: true
+
+          adminPassword: ""
+
+          persistence:
+            enabled: true
+            existingClaim: grafana-config
+            size: 10Gi
+          ingress:
+            enabled: true
+            ingressClassName: internal
+            annotations:
+              cert-manager.io/cluster-issuer: letsencrypt
+              external-dns.alpha.kubernetes.io/hostname: grafana.your-domain.com
+            hosts:
+              - grafana.your-domain.com
+            tls:
+              - hosts:
+                - grafana.your-domain.com
+                secretName: grafana-tls
+
+          resources:
+            limits:
+              cpu: 500m
+              memory: 512Mi
+            requests:
+              cpu: 100m
+              memory: 256Mi
+
+          securityContext:
+            fsGroup: 100
+            runAsGroup: 100
+            runAsUser: 568
+
+          # Use Recreate strategy to avoid Multi-Attach errors with RWO PVC
+          deploymentStrategy:
+            type: Recreate
+
+        alertmanager:
+          enabled: true
+          alertmanagerSpec:
+            storage:
+              volumeClaimTemplate:
+                spec:
+                  accessModes:
+                  - ReadWriteOnce
+                  resources:
+                    requests:
+                      storage: 10Gi
+                  storageClassName: democratic-csi-iscsi-hdd
+
+            resources:
+              limits:
+                cpu: 200m
+                memory: 256Mi
+              requests:
+                cpu: 50m
+                memory: 128Mi
+
+        nodeExporter:
+          enabled: true
+          resources:
+            limits:
+              cpu: 200m
+              memory: 128Mi
+            requests:
+              cpu: 50m
+              memory: 64Mi
+
+        kubeStateMetrics:
+          enabled: true
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 50m
+              memory: 128Mi
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+      - RespectIgnoreDifferences=true
+
+  # Ignore differences in dynamic fields
+  ignoreDifferences:
+    # Use jqPathExpressions to handle multiple webhooks (more robust than jsonPointers)
+    - group: admissionregistration.k8s.io
+      kind: ValidatingWebhookConfiguration
+      jqPathExpressions:
+        - .webhooks[].clientConfig.caBundle
+    - group: admissionregistration.k8s.io
+      kind: MutatingWebhookConfiguration
+      jqPathExpressions:
+        - .webhooks[].clientConfig.caBundle
+---
+# Source: addons/templates/kubelet-csr-approver.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: kubelet-csr-approver
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://postfinance.github.io/kubelet-csr-approver
+    chart: kubelet-csr-approver
+    targetRevision: 1.2.13
+    helm:
+      releaseName: kubelet-csr-approver
+      values: |
+        providerIpPrefixes:
+          - 192.168.1.0/24
+        providerRegex: "^talos-[a-z0-9]{3}-[a-z0-9]{3}$"
+        maxExpirationSeconds: "31536000"
+        bypassDnsResolution: true
+        resources:
+          limits:
+            cpu: 100m
+            memory: 128Mi
+          requests:
+            cpu: 10m
+            memory: 32Mi
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: kube-system
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+---
+# Source: addons/templates/nvidia-gpu-operator.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: nvidia-gpu-operator
+  namespace: argocd
+  annotations:
+    # Wave 10: After kube-prometheus-stack (wave 9) for DCGM metrics integration
+    argocd.argoproj.io/sync-wave: "10"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://helm.ngc.nvidia.com/nvidia
+    chart: gpu-operator
+    targetRevision: v26.3.0
+    helm:
+      releaseName: nvidia-gpu-operator
+      values: |
+        # Talos Linux configuration
+        # Driver and toolkit are provided by Talos system extensions (nonfree-kmod-nvidia, nvidia-container-toolkit)
+        # GPU Operator only manages device plugin and monitoring components
+        #
+        # NOTE: The operator's validator CRD doesn't support an 'enabled' field,
+        # so the validator DaemonSet runs regardless of Helm settings. The
+        # validation-bypass DaemonSet continuously recreates the driver-ready
+        # file that the validator deletes during its failed validation loop.
+
+        driver:
+          enabled: false
+        toolkit:
+          enabled: false
+
+        # Device plugin advertises GPUs to Kubernetes scheduler
+        devicePlugin:
+          enabled: true
+
+        # DCGM Exporter for GPU metrics (Prometheus/Grafana)
+        dcgmExporter:
+          enabled: true
+
+        # GPU Feature Discovery - labels nodes with GPU properties
+        gfd:
+          enabled: true
+
+        # MIG Manager - disabled (not using Multi-Instance GPU)
+        migManager:
+          enabled: false
+
+        # Node status exporter
+        nodeStatusExporter:
+          enabled: true
+
+        # Node Feature Discovery - detects GPU hardware
+        nfd:
+          enabled: true
+
+        # Validator - disabled on Talos (using validation-bypass DaemonSet instead)
+        # The validator has mount issues on Talos and is not needed since
+        # driver/toolkit are pre-installed via system extensions
+        validator:
+          enabled: false
+
+        # CDI mode disabled - Talos system extensions install drivers at host root,
+        # not /run/nvidia/driver where CDI spec generation expects them.
+        # Uses legacy envvar strategy instead.
+        cdi:
+          enabled: false
+          default: false
+
+        # Talos-specific: Tell operator that driver/toolkit are pre-installed
+        operator:
+          defaultRuntime: containerd
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: gpu-operator
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+
+  # Ignore differences in dynamic fields
+  ignoreDifferences:
+    - group: "*"
+      kind: "*"
+      jsonPointers:
+        - /metadata/annotations
+        - /metadata/labels
+    # ClusterPolicy: the GPU operator controller fills in many defaults
+    # (image versions, env vars, sub-component configs) that differ from
+    # what the Helm chart renders. Ignore all spec differences to prevent
+    # infinite sync loops. The validation-bypass DaemonSet handles the
+    # Talos driver validation issue independently.
+    - group: nvidia.com
+      kind: ClusterPolicy
+      jqPathExpressions:
+        - .spec
+---
+# Source: addons/templates/prometheus-config.yaml
+# Prometheus Config: deploys static PV+PVC for Prometheus and Alertmanager (iSCSI)
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: prometheus-config
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/ryanmcafee/homelab.git
+    targetRevision: main
+    path: charts/prometheus-config
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-homelab.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - SkipDryRunOnMissingResource=true
+---
+# Source: addons/templates/spegel.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: spegel
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: ghcr.io/spegel-org/helm-charts
+    chart: spegel
+    targetRevision: 0.6.0
+    helm:
+      releaseName: spegel
+      values: |
+        service:
+          registry:
+            hostPort: 30020
+            nodePort: 30021
+        spegel:
+          logLevel: INFO
+          registries:
+            - https://cgr.dev
+            - https://docker.io
+            - https://ghcr.io
+            - https://quay.io
+            - https://mcr.microsoft.com
+            - https://public.ecr.aws
+            - https://gcr.io
+            - https://registry.k8s.io
+            - https://k8s.gcr.io
+            - https://lscr.io
+          containerdRegistryConfigPath: /etc/cri/conf.d/hosts
+          containerdContentPath: /var/lib/containerd/io.containerd.content.v1.content
+          resolveTags: true
+          resolveLatestTag: true
+          appendMirrors: false
+        resources:
+          limits:
+            cpu: 100m
+            memory: 128Mi
+          requests:
+            cpu: 10m
+            memory: 32Mi
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: spegel
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+---
+# Source: addons/templates/traefik-external.yaml
+# Dependencies Application: deploys secrets and OnePasswordItems before traefik-external
+# Wave 5: After external-dns (wave 4) so OnePasswordItem CRDs are available
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: traefik-external-dependencies
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "5"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/ryanmcafee/homelab.git
+    targetRevision: main
+    path: charts/traefik-external-dependencies
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-homelab.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: traefik
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - SkipDryRunOnMissingResource=true
+---
+# Source: addons/templates/traefik-external.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: traefik-external
+  namespace: argocd
+  annotations:
+    # Sync wave 6: After traefik-external-dependencies (wave 5) creates secrets
+    argocd.argoproj.io/sync-wave: "6"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://traefik.github.io/charts
+    chart: traefik
+    targetRevision: 39.0.7
+    helm:
+      releaseName: traefik-external
+      values: |
+        # IngressClass configuration
+        ingressClass:
+          name: external
+          isDefaultClass: false
+
+        deployment:
+          replicas: 2
+
+        service:
+          type: LoadBalancer
+          annotations:
+            io.cilium/lb-ipam-ips: 192.168.1.200
+            port-forwarding.your-domain.com/enable: "true"
+          spec:
+            externalTrafficPolicy: Cluster
+
+        # Update Ingress status with LoadBalancer IP so ArgoCD sees them as healthy
+        providers:
+          kubernetesIngress:
+            publishedService:
+              enabled: true
+            ingressClass: external
+          # Enable cross-namespace references for middlewares
+          kubernetesCRD:
+            allowCrossNamespace: true
+            ingressClass: external
+
+        ports:
+          web:
+            port: 8000
+            exposedPort: 80
+            expose:
+              default: true
+            http:
+              redirections:
+                entryPoint:
+                  to: websecure
+                  scheme: https
+                  permanent: true
+          websecure:
+            port: 8443
+            exposedPort: 443
+            expose:
+              default: true
+            asDefault: true
+            http:
+              tls:
+                enabled: true
+            transport:
+              respondingTimeouts:
+                idleTimeout: 600s
+                readTimeout: 0
+                writeTimeout: 0
+          traefik:
+            port: 9000
+            expose:
+              default: true
+        additionalArguments:
+          - --global.checknewversion=false
+          - --global.sendanonymoususage=false
+        experimental:
+          plugins:
+            traefikoidc:
+              moduleName: github.com/lukaszraczylo/traefikoidc
+              version: v0.8.24
+
+        env:
+          []
+        volumes:
+          - mountPath: /etc/traefik/oidc/google
+            name: google-oauth-credentials
+            type: secret
+          - mountPath: /etc/traefik/oidc/session
+            name: oidc-session-key
+            type: secret
+
+        # Disable ACME certificate resolvers (using cert-manager instead for HA)
+        certificatesResolvers: {}
+
+        persistence:
+          enabled: false
+
+        ingressRoute:
+          dashboard:
+            enabled: true
+            matchRule: Host(`traefik.your-domain.com`)
+            entryPoints:
+              - websecure
+            tls:
+              secretName: traefik-dashboard-tls
+
+        resources:
+          limits:
+            cpu: 1000m
+            memory: 2Gi
+          requests:
+            cpu: 500m
+            memory: 2Gi
+        topologySpreadConstraints:
+          - labelSelector:
+              matchLabels:
+                app.kubernetes.io/instance: traefik-external
+                app.kubernetes.io/name: traefik
+            maxSkew: 1
+            topologyKey: kubernetes.io/hostname
+            whenUnsatisfiable: DoNotSchedule
+        autoscaling:
+          enabled: true
+          minReplicas: 2
+          maxReplicas: 3
+          metrics:
+            - resource:
+                name: cpu
+                target:
+                  averageUtilization: 80
+                  type: Utilization
+              type: Resource
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: traefik
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+      - RespectIgnoreDifferences=true
+
+  # Ignore differences in dynamic fields
+  ignoreDifferences:
+    - group: admissionregistration.k8s.io
+      kind: ValidatingWebhookConfiguration
+      jqPathExpressions:
+        - .webhooks[].clientConfig.caBundle
+---
+# Source: addons/templates/traefik-external.yaml
+# Config Application: deploys CRD-dependent resources (IngressRoute, Middleware, DNSEndpoint)
+# Wave 8: After traefik-external (wave 6) installs CRDs and oidc-redis (wave 7) is available
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: traefik-external-config
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/ryanmcafee/homelab.git
+    targetRevision: main
+    path: charts/traefik-external-config
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-homelab.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: traefik
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - SkipDryRunOnMissingResource=true
+---
+# Source: addons/templates/traefik-internal.yaml
+# Dependencies Application: placeholder for future secret needs
+# Wave 5: Maintains consistent pattern with external traefik
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: traefik-internal-dependencies
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "5"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/ryanmcafee/homelab.git
+    targetRevision: main
+    path: charts/traefik-internal-dependencies
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-homelab.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: traefik
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - SkipDryRunOnMissingResource=true
+---
+# Source: addons/templates/traefik-internal.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: traefik-internal
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "6"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://traefik.github.io/charts
+    chart: traefik
+    targetRevision: 39.0.7
+    helm:
+      releaseName: traefik-internal
+      values: |
+        # IngressClass configuration
+        ingressClass:
+          name: internal
+          isDefaultClass: false
+
+        deployment:
+          replicas: 2
+
+        service:
+          type: LoadBalancer
+          spec:
+            externalTrafficPolicy: Cluster
+
+        providers:
+          kubernetesIngress:
+            publishedService:
+              enabled: true
+            ingressClass: internal
+          kubernetesCRD:
+            allowCrossNamespace: true
+            ingressClass: internal
+
+        ports:
+          web:
+            port: 8000
+            exposedPort: 80
+            expose:
+              default: true
+            http:
+              redirections:
+                entryPoint:
+                  to: websecure
+                  scheme: https
+                  permanent: true
+          websecure:
+            port: 8443
+            exposedPort: 443
+            expose:
+              default: true
+            asDefault: true
+            http:
+              tls:
+                enabled: true
+            transport:
+              respondingTimeouts:
+                idleTimeout: 600s
+                readTimeout: 0
+                writeTimeout: 0
+          traefik:
+            port: 9000
+            expose:
+              default: true
+        additionalArguments:
+          - --global.checknewversion=false
+          - --global.sendanonymoususage=false
+
+        env:
+          []
+
+        certificatesResolvers: {}
+
+        persistence:
+          enabled: false
+
+        ingressRoute:
+          dashboard:
+            enabled: true
+            matchRule: Host(`traefik-internal.your-domain.com`)
+            entryPoints:
+              - websecure
+            tls:
+              secretName: traefik-internal-dashboard-tls
+
+        resources:
+          limits:
+            cpu: 1000m
+            memory: 2Gi
+          requests:
+            cpu: 500m
+            memory: 2Gi
+        topologySpreadConstraints:
+          - labelSelector:
+              matchLabels:
+                app.kubernetes.io/instance: traefik-internal
+                app.kubernetes.io/name: traefik
+            maxSkew: 1
+            topologyKey: kubernetes.io/hostname
+            whenUnsatisfiable: DoNotSchedule
+        autoscaling:
+          enabled: true
+          minReplicas: 2
+          maxReplicas: 3
+          metrics:
+            - resource:
+                name: cpu
+                target:
+                  averageUtilization: 80
+                  type: Utilization
+              type: Resource
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: traefik
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+      - RespectIgnoreDifferences=true
+
+  ignoreDifferences:
+    - group: admissionregistration.k8s.io
+      kind: ValidatingWebhookConfiguration
+      jqPathExpressions:
+        - .webhooks[].clientConfig.caBundle
+---
+# Source: addons/templates/traefik-internal.yaml
+# Config Application: deploys CRD-dependent resources (dashboard)
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: traefik-internal-config
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/ryanmcafee/homelab.git
+    targetRevision: main
+    path: charts/traefik-internal-config
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-homelab.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: traefik
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - SkipDryRunOnMissingResource=true
+---
+# Source: addons/templates/unifi-port-forward.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: port-forwarding-controller
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "7"
+    addons.homelab.local/config-hash: "93f7c18d"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://ryanmcafee.github.io/port-forwarding-controller
+    chart: port-forwarding
+    targetRevision: 1.1.1
+    helm:
+      releaseName: port-forwarding-controller
+      values: |
+        router:
+          existingSecret: unifi-credentials
+          secretKeys:
+            url: api_url
+            username: username
+            password: password
+            apiKey: api_key
+          rule_prefix: kube-
+          skipTlsVerification: true
+          deviceType: "udm"
+        resources:
+          requests:
+            cpu: 10m
+            memory: 32Mi
+          limits:
+            cpu: 100m
+            memory: 64Mi
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: port-forwarding
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+      - Replace=true
+---
+# Source: addons/templates/unifi-port-forward.yaml
+# Config Application: deploys OnePasswordItem for UniFi credentials before port-forwarding-controller
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: port-forwarding-controller-config
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "6"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/ryanmcafee/homelab.git
+    targetRevision: main
+    path: charts/port-forwarding-controller-config
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-homelab.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: port-forwarding
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+---
+# Source: addons/templates/cilium-lb-ipam.yaml
+# CiliumBGPAdvertisement - Service advertisement configuration
+# Configures which services are advertised via BGP
+apiVersion: cilium.io/v2
+kind: CiliumBGPAdvertisement
+metadata:
+  name: loadbalancer-ips
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  advertisements:
+    - advertisementType: Service
+      service:
+        addresses:
+          - LoadBalancerIP
+      selector:
+        matchExpressions:
+          - key: somekey
+            operator: NotIn
+            values:
+              - never-match
+      attributes:
+        communities:
+          standard:
+            - "64512:100"
+---
+# Source: addons/templates/cilium-lb-ipam.yaml
+# CiliumBGPClusterConfig - BGP cluster-wide configuration
+# Cilium native BGP configuration for route advertisements
+apiVersion: cilium.io/v2
+kind: CiliumBGPClusterConfig
+metadata:
+  name: homelab-bgp
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  nodeSelector:
+    matchLabels:
+      node-role.kubernetes.io/control-plane: ""
+  bgpInstances:
+    - name: homelab
+      localASN: 64512
+      peers:
+        - name: unifi-gateway
+          peerAddress: 192.168.1.1
+          peerASN: 64513
+          peerConfigRef:
+            name: unifi-gateway-peer
+---
+# Source: addons/templates/cilium-lb-ipam.yaml
+# CiliumBGPPeerConfig - Shared peer configuration
+# Defines connection parameters for BGP peers
+apiVersion: cilium.io/v2
+kind: CiliumBGPPeerConfig
+metadata:
+  name: unifi-gateway-peer
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  timers:
+    holdTimeSeconds: 90
+    keepAliveTimeSeconds: 30
+    connectRetryTimeSeconds: 120
+  gracefulRestart:
+    enabled: true
+    restartTimeSeconds: 120
+  ebgpMultihop: 1
+---
+# Source: addons/templates/cilium-lb-ipam.yaml
+# CiliumL2AnnouncementPolicy - L2 (ARP) announcements for LoadBalancer IPs
+# Provides connectivity without requiring BGP on the gateway
+# nodeSelector excludes control-plane nodes: Proxmox VMs for control-plane nodes
+# block gratuitous ARP for VIPs, causing L2 announcements to be unreachable externally.
+apiVersion: cilium.io/v2alpha1
+kind: CiliumL2AnnouncementPolicy
+metadata:
+  name: default
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  nodeSelector:
+    matchExpressions:
+      - key: node-role.kubernetes.io/control-plane
+        operator: DoesNotExist
+  serviceSelector:
+    matchLabels: {}
+  interfaces:
+    - ^ens.*
+  externalIPs: true
+  loadBalancerIPs: true
+---
+# Source: addons/templates/cilium-lb-ipam.yaml
+# CiliumLoadBalancerIPPool - IP address pool for LoadBalancer services
+# Defines the IP range available for LoadBalancer services
+apiVersion: cilium.io/v2
+kind: CiliumLoadBalancerIPPool
+metadata:
+  name: default
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  blocks:
+    - start: 192.168.1.100
+      stop: 192.168.1.200
+---
+# Source: addons/templates/cilium-lb-ipam.yaml
+# CiliumLoadBalancerIPPool for Control Plane VIP
+# Separate pool to ensure VIP is only announced by control-plane nodes
+apiVersion: cilium.io/v2
+kind: CiliumLoadBalancerIPPool
+metadata:
+  name: control-plane-vip
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  blocks:
+    - start: 192.168.1.10
+      stop: 192.168.1.10
+  # Only allow services with this specific label to use the VIP pool
+  serviceSelector:
+    matchLabels:
+      cilium.io/pool: control-plane-vip

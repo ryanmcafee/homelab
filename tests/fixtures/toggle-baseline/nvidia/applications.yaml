@@ -1,0 +1,1478 @@
+---
+# Source: applications/templates/duckdns.yaml
+# Namespace for DuckDNS resources
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: duckdns
+  annotations:
+    argocd.argoproj.io/sync-wave: "11"
+---
+# Source: applications/templates/namespaces.yaml
+# Namespace: media
+# Created early so config charts and app deployments have a target namespace
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: media
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
+---
+# Source: applications/templates/namespaces.yaml
+# Namespace: home-automation (privileged for hostNetwork)
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: home-automation
+  labels:
+    pod-security.kubernetes.io/enforce: privileged
+    pod-security.kubernetes.io/audit: privileged
+    pod-security.kubernetes.io/warn: privileged
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
+---
+# Source: applications/templates/renovate.yaml
+# Namespace for Renovate resources
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: renovate
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
+---
+# Source: applications/templates/oci-repositories.yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: truecharts-oci
+  namespace: argocd
+  labels:
+    argocd.argoproj.io/secret-type: repository
+  annotations:
+    argocd.argoproj.io/sync-wave: "11"
+stringData:
+  name: truecharts
+  type: helm
+  url: oci.trueforge.org/truecharts
+  enableOCI: "true"
+---
+# Source: applications/templates/renovate.yaml
+# OCI Repository: registers Renovate Helm chart registry in ArgoCD
+apiVersion: v1
+kind: Secret
+metadata:
+  name: renovatebot-oci
+  namespace: argocd
+  labels:
+    argocd.argoproj.io/secret-type: repository
+  annotations:
+    argocd.argoproj.io/sync-wave: "11"
+stringData:
+  name: renovatebot
+  type: helm
+  url: ghcr.io/renovatebot/charts
+  enableOCI: "true"
+---
+# Source: applications/templates/oci-repositories.yaml
+# OCI Repository configuration for ArgoCD
+# Single repository secret for TrueCharts OCI registry
+---
+# Source: applications/templates/duckdns.yaml
+# Dependencies Application: deploys OnePasswordItem for DuckDNS token
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: duckdns-dependencies
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "12"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/ryanmcafee/homelab.git
+    targetRevision: main
+    path: charts/duckdns-dependencies
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-homelab.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: duckdns
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - SkipDryRunOnMissingResource=true
+---
+# Source: applications/templates/duckdns.yaml
+# DuckDNS Application: deploys the updater CronJob
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: duckdns
+  namespace: argocd
+  annotations:
+    # Wave 2: After duckdns-dependencies (wave 1) creates the secret
+    argocd.argoproj.io/sync-wave: "13"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/ryanmcafee/homelab.git
+    targetRevision: main
+    path: charts/duckdns
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-homelab.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: duckdns
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+---
+# Source: applications/templates/flaresolverr.yaml
+# FlareSolverr Config: deploys static PV+PVC for flaresolverr persistent storage
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: flaresolverr-config
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "11"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/ryanmcafee/homelab.git
+    targetRevision: main
+    path: charts/flaresolverr-config
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-homelab.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: media
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - SkipDryRunOnMissingResource=true
+---
+# Source: applications/templates/flaresolverr.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: flaresolverr
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "12"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: oci.trueforge.org/truecharts
+    chart: flaresolverr
+    targetRevision: 16.18.2
+    helm:
+      releaseName: flaresolverr
+      values: |
+        workload:
+          main:
+            podSpec:
+              containers:
+                main:
+                  env:
+                    BROWSER_TIMEOUT: 40000
+                    CAPTCHA_SOLVER: none
+                    HEADLESS: true
+                    LOG_HTML: false
+                    LOG_LEVEL: info
+                  resources:
+                    limits:
+                      cpu: 1000m
+                      memory: 1Gi
+                    requests:
+                      cpu: 100m
+                      memory: 512Mi
+        persistence:
+          config:
+            accessModes:
+            - ReadWriteOnce
+            enabled: true
+            existingClaim: flaresolverr-config
+            size: 1Gi
+            storageClass: democratic-csi-nfs
+        TZ: "America/New_York"
+        securityContext:
+          container:
+            readOnlyRootFilesystem: false
+            runAsGroup: 0
+            runAsNonRoot: false
+            runAsUser: 0
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: media
+
+  # Ignore TrueCharts dynamic fields and Kubernetes defaults
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      jqPathExpressions:
+        - .spec.template.metadata.annotations | to_entries | map(select(.key | startswith("checksum/"))) | from_entries
+      jsonPointers:
+        - /spec/template/spec/hostUsers
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+      - RespectIgnoreDifferences=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+---
+# Source: applications/templates/lazylibrarian.yaml
+# LazyLibrarian Config: deploys static PV+PVC for lazylibrarian persistent storage
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: lazylibrarian-config
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "12"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/ryanmcafee/homelab.git
+    targetRevision: main
+    path: charts/lazylibrarian-config
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-homelab.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: media
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - SkipDryRunOnMissingResource=true
+---
+# Source: applications/templates/lazylibrarian.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: lazylibrarian
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "13"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: oci.trueforge.org/truecharts
+    chart: lazylibrarian
+    targetRevision: 21.18.2
+    helm:
+      releaseName: lazylibrarian
+      values: |
+        workload:
+          main:
+            podSpec:
+              containers:
+                main:
+                  resources:
+                    limits:
+                      cpu: 500m
+                      memory: 512Mi
+                    requests:
+                      cpu: 100m
+                      memory: 256Mi
+        persistence:
+          books:
+            enabled: true
+            mountPath: /books
+            path: /mnt/storage/books
+            server: truenas.your-domain.com
+            type: nfs
+          config:
+            accessModes:
+            - ReadWriteOnce
+            enabled: true
+            existingClaim: lazylibrarian-config
+            size: 5Gi
+            storageClass: democratic-csi-nfs
+          downloads:
+            enabled: true
+            mountPath: /downloads
+            path: /mnt/storage/downloads
+            server: truenas.your-domain.com
+            type: nfs
+        ingress:
+          main:
+            annotations:
+              cert-manager.io/cluster-issuer: letsencrypt
+              external-dns.alpha.kubernetes.io/hostname: lazylibrarian.your-domain.com
+            enabled: true
+            hosts:
+            - host: lazylibrarian.your-domain.com
+              paths:
+              - path: /
+                pathType: Prefix
+            ingressClassName: internal
+            tls:
+            - hosts:
+              - lazylibrarian.your-domain.com
+              secretName: lazylibrarian-tls
+        TZ: "America/New_York"
+        securityContext:
+          container:
+            runAsGroup: 100
+            runAsUser: 568
+          pod:
+            fsGroup: 100
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: media
+
+  # Ignore TrueCharts dynamic fields and Kubernetes defaults
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      jqPathExpressions:
+        - .spec.template.metadata.annotations | to_entries | map(select(.key | startswith("checksum/"))) | from_entries
+      jsonPointers:
+        - /spec/template/spec/hostUsers
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+      - RespectIgnoreDifferences=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+---
+# Source: applications/templates/mosquitto.yaml
+# Mosquitto Config: deploys static PV+PVC for mosquitto persistent storage
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: mosquitto-config
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "13"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/ryanmcafee/homelab.git
+    targetRevision: main
+    path: charts/mosquitto-config
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-homelab.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: home-automation
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - SkipDryRunOnMissingResource=true
+---
+# Source: applications/templates/mosquitto.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: mosquitto
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "14"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: oci.trueforge.org/truecharts
+    chart: mosquitto
+    targetRevision: 17.17.2
+    helm:
+      releaseName: mosquitto
+      values: |
+        workload:
+          main:
+            podSpec:
+              containers:
+                main:
+                  resources:
+                    limits:
+                      cpu: 200m
+                      memory: 256Mi
+                    requests:
+                      cpu: 50m
+                      memory: 128Mi
+        persistence:
+          config:
+            accessModes:
+            - ReadWriteOnce
+            enabled: true
+            existingClaim: mosquitto-config
+            mountPath: /mosquitto/config
+            size: 1Gi
+            storageClass: democratic-csi-nfs
+          configinc:
+            enabled: true
+            existingClaim: mosquitto-configinc
+            mountPath: /mosquitto/configinc
+          data:
+            accessModes:
+            - ReadWriteOnce
+            enabled: true
+            existingClaim: mosquitto-data
+            mountPath: /mosquitto/data
+            size: 1Gi
+            storageClass: democratic-csi-nfs
+        service:
+          main:
+            ports:
+              main:
+                port: 1883
+                protocol: tcp
+                targetPort: 1883
+            type: LoadBalancer
+          websockets:
+            enabled: true
+            ports:
+              websockets:
+                enabled: true
+                port: 9001
+                protocol: tcp
+                targetPort: 9001
+            type: LoadBalancer
+        mosquitto:
+          auth:
+            enabled: true
+        TZ: "America/New_York"
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: home-automation
+
+  # Ignore TrueCharts dynamic fields and Kubernetes defaults
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      jqPathExpressions:
+        - .spec.template.metadata.annotations | to_entries | map(select(.key | startswith("checksum/"))) | from_entries
+      jsonPointers:
+        - /spec/template/spec/hostUsers
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+      - RespectIgnoreDifferences=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+---
+# Source: applications/templates/nzbget.yaml
+# NZBGet Config: deploys static PV+PVC for nzbget persistent storage
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: nzbget-config
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "12"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/ryanmcafee/homelab.git
+    targetRevision: main
+    path: charts/nzbget-config
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-homelab.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: media
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - SkipDryRunOnMissingResource=true
+---
+# Source: applications/templates/nzbget.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: nzbget
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "13"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: oci.trueforge.org/truecharts
+    chart: nzbget
+    targetRevision: 29.4.2
+    helm:
+      releaseName: nzbget
+      values: |
+        workload:
+          main:
+            podSpec:
+              containers:
+                main:
+                  resources:
+                    limits:
+                      cpu: 1000m
+                      memory: 1Gi
+                    requests:
+                      cpu: 100m
+                      memory: 256Mi
+        persistence:
+          config:
+            accessModes:
+            - ReadWriteOnce
+            enabled: true
+            existingClaim: nzbget-config
+            size: 5Gi
+            storageClass: democratic-csi-nfs
+          downloads:
+            enabled: true
+            mountPath: /downloads
+            path: /mnt/storage/downloads
+            server: truenas.your-domain.com
+            type: nfs
+        ingress:
+          main:
+            annotations:
+              cert-manager.io/cluster-issuer: letsencrypt
+              external-dns.alpha.kubernetes.io/hostname: nzbget.your-domain.com
+            enabled: true
+            hosts:
+            - host: nzbget.your-domain.com
+              paths:
+              - path: /
+                pathType: Prefix
+            ingressClassName: internal
+            tls:
+            - hosts:
+              - nzbget.your-domain.com
+              secretName: nzbget-tls
+        TZ: "America/New_York"
+        securityContext:
+          container:
+            runAsGroup: 100
+            runAsUser: 568
+          pod:
+            fsGroup: 100
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: media
+
+  # Ignore TrueCharts dynamic fields and Kubernetes defaults
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      jqPathExpressions:
+        - .spec.template.metadata.annotations | to_entries | map(select(.key | startswith("checksum/"))) | from_entries
+      jsonPointers:
+        - /spec/template/spec/hostUsers
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+      - RespectIgnoreDifferences=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+---
+# Source: applications/templates/plex.yaml
+# Dependencies Application: deploys OnePasswordItem for Plex claim token
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: plex-config
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "11"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/ryanmcafee/homelab.git
+    targetRevision: main
+    path: charts/plex-config
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-homelab.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: media
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - SkipDryRunOnMissingResource=true
+---
+# Source: applications/templates/plex.yaml
+# Plex Application: deploys the media server
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: plex
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "12"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://raw.githubusercontent.com/plexinc/pms-docker/gh-pages
+    chart: plex-media-server
+    targetRevision: 1.5.0
+    helm:
+      releaseName: plex
+      values: |
+        image:
+          pullPolicy: IfNotPresent
+          registry: index.docker.io
+          repository: plexinc/pms-docker
+          tag: latest
+        extraEnv:
+          ADVERTISE_IP: https://plex.your-domain.com:443
+          CHANGE_CONFIG_DIR_OWNERSHIP: "false"
+          PLEX_GID: "100"
+          PLEX_UID: "568"
+          TZ: America/New_York
+        runtimeClassName: nvidia
+        nodeSelector:
+          feature.node.kubernetes.io/pci-10de.present: "true"
+        pms:
+          claimSecret:
+            key: plex-claim-token
+            name: plex
+          configExistingClaim: plex-config-iscsi
+          gpu:
+            nvidia:
+              enabled: true
+          resources:
+            limits:
+              cpu: 4000m
+              memory: 16Gi
+            requests:
+              cpu: 4000m
+              memory: 16Gi
+          storageClassName: democratic-csi-iscsi
+        extraVolumes:
+          - name: movies
+            nfs:
+              path: /mnt/storage/movies
+              server: truenas.your-domain.com
+          - name: tv
+            nfs:
+              path: /mnt/storage/tv
+              server: truenas.your-domain.com
+          - name: music
+            nfs:
+              path: /mnt/storage/music
+              server: truenas.your-domain.com
+          - name: pictures
+            nfs:
+              path: /mnt/storage/pictures
+              server: truenas.your-domain.com
+        extraVolumeMounts:
+          - mountPath: /movies
+            name: movies
+            readOnly: false
+          - mountPath: /tv
+            name: tv
+            readOnly: false
+          - mountPath: /music
+            name: music
+            readOnly: false
+          - mountPath: /pictures
+            name: pictures
+            readOnly: false
+        service:
+          annotations:
+            io.cilium/lb-ipam-ips: 192.168.1.103
+            port-forwarding.your-domain.com/enable: "true"
+          externalTrafficPolicy: Local
+          port: 32400
+          type: LoadBalancer
+        ingress:
+          annotations:
+            cert-manager.io/cluster-issuer: letsencrypt
+            external-dns.alpha.kubernetes.io/hostname: plex.your-domain.com
+            external-dns.alpha.kubernetes.io/target: your-subdomain.duckdns.org
+          enabled: true
+          hosts:
+          - host: plex.your-domain.com
+            paths:
+            - path: /
+              pathType: Prefix
+          ingressClassName: external
+          tls:
+          - hosts:
+            - plex.your-domain.com
+            secretName: plex-tls
+          url: https://plex.your-domain.com
+        dnsPolicy: "None"
+        dnsConfig:
+          nameservers:
+          - 8.8.8.8
+          - 8.8.4.4
+          - 10.96.0.10
+          options:
+          - name: ndots
+            value: "5"
+          searches:
+          - media.svc.cluster.local
+          - svc.cluster.local
+          - cluster.local
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: media
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+---
+# Source: applications/templates/prowlarr.yaml
+# Prowlarr Config: deploys static PV+PVC for prowlarr persistent storage
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: prowlarr-config
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "12"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/ryanmcafee/homelab.git
+    targetRevision: main
+    path: charts/prowlarr-config
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-homelab.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: media
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - SkipDryRunOnMissingResource=true
+---
+# Source: applications/templates/prowlarr.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: prowlarr
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "13"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: oci.trueforge.org/truecharts
+    chart: prowlarr
+    targetRevision: 21.7.3
+    helm:
+      releaseName: prowlarr
+      values: |
+        workload:
+          main:
+            podSpec:
+              containers:
+                exportarr:
+                  resources:
+                    limits:
+                      cpu: 200m
+                      memory: 256Mi
+                    requests:
+                      cpu: 50m
+                      memory: 64Mi
+                main:
+                  resources:
+                    limits:
+                      cpu: 500m
+                      memory: 512Mi
+                    requests:
+                      cpu: 100m
+                      memory: 256Mi
+        persistence:
+          config:
+            accessModes:
+            - ReadWriteOnce
+            enabled: true
+            existingClaim: prowlarr-config
+            size: 1Gi
+            storageClass: democratic-csi-nfs
+        ingress:
+          main:
+            annotations:
+              cert-manager.io/cluster-issuer: letsencrypt
+              external-dns.alpha.kubernetes.io/hostname: prowlarr.your-domain.com
+            enabled: true
+            hosts:
+            - host: prowlarr.your-domain.com
+              paths:
+              - path: /
+                pathType: Prefix
+            ingressClassName: internal
+            tls:
+            - hosts:
+              - prowlarr.your-domain.com
+              secretName: prowlarr-tls
+        TZ: "America/New_York"
+        securityContext:
+          container:
+            runAsGroup: 100
+            runAsUser: 568
+          pod:
+            fsGroup: 100
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: media
+
+  # Ignore TrueCharts dynamic fields and Kubernetes defaults
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      jqPathExpressions:
+        - .spec.template.metadata.annotations | to_entries | map(select(.key | startswith("checksum/"))) | from_entries
+      jsonPointers:
+        - /spec/template/spec/hostUsers
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+      - RespectIgnoreDifferences=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+---
+# Source: applications/templates/radarr.yaml
+# Radarr Config: deploys static PV+PVC for radarr persistent storage
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: radarr-config
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "12"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/ryanmcafee/homelab.git
+    targetRevision: main
+    path: charts/radarr-config
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-homelab.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: media
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - SkipDryRunOnMissingResource=true
+---
+# Source: applications/templates/radarr.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: radarr
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "13"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: oci.trueforge.org/truecharts
+    chart: radarr
+    targetRevision: 26.7.2
+    helm:
+      releaseName: radarr
+      values: |
+        workload:
+          main:
+            podSpec:
+              containers:
+                exportarr:
+                  resources:
+                    limits:
+                      cpu: 200m
+                      memory: 256Mi
+                    requests:
+                      cpu: 50m
+                      memory: 64Mi
+                main:
+                  resources:
+                    limits:
+                      cpu: 1000m
+                      memory: 1Gi
+                    requests:
+                      cpu: 200m
+                      memory: 512Mi
+        persistence:
+          config:
+            accessModes:
+            - ReadWriteOnce
+            enabled: true
+            existingClaim: radarr-config
+            size: 10Gi
+            storageClass: democratic-csi-nfs
+          downloads:
+            enabled: true
+            mountPath: /downloads
+            path: /mnt/storage/downloads
+            server: truenas.your-domain.com
+            type: nfs
+          movies:
+            enabled: true
+            mountPath: /movies
+            path: /mnt/storage/movies
+            server: truenas.your-domain.com
+            type: nfs
+        ingress:
+          main:
+            annotations:
+              cert-manager.io/cluster-issuer: letsencrypt
+              external-dns.alpha.kubernetes.io/hostname: radarr.your-domain.com
+            enabled: true
+            hosts:
+            - host: radarr.your-domain.com
+              paths:
+              - path: /
+                pathType: Prefix
+            ingressClassName: internal
+            tls:
+            - hosts:
+              - radarr.your-domain.com
+              secretName: radarr-tls
+        TZ: "America/New_York"
+        securityContext:
+          container:
+            runAsGroup: 100
+            runAsUser: 568
+          pod:
+            fsGroup: 100
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: media
+
+  # Ignore TrueCharts dynamic fields and Kubernetes defaults
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      jqPathExpressions:
+        - .spec.template.metadata.annotations | to_entries | map(select(.key | startswith("checksum/"))) | from_entries
+      jsonPointers:
+        - /spec/template/spec/hostUsers
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+      - RespectIgnoreDifferences=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+---
+# Source: applications/templates/renovate.yaml
+# Config Application: deploys OnePasswordItem for Renovate tokens
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: renovate-config
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "11"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/ryanmcafee/homelab.git
+    targetRevision: main
+    path: charts/renovate-config
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-homelab.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: renovate
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - SkipDryRunOnMissingResource=true
+---
+# Source: applications/templates/renovate.yaml
+# Renovate Application: deploys the dependency update CronJob
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: renovate
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "12"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: ghcr.io/renovatebot/charts
+    chart: renovate
+    targetRevision: 46.49.0
+    helm:
+      releaseName: renovate
+      values: |
+        cronjob:
+          schedule: "0 */4 * * *"
+
+        envFrom:
+          - secretRef:
+              name: renovate-token
+
+        renovate:
+          config: |
+            {
+              "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+              "platform": "github",
+              "repositories": ["ryanmcafee/homelab"],
+              "gitAuthor": "Renovate Bot <renovate@ryanmcafee.com>",
+              "onboarding": false,
+              "requireConfig": "optional"
+            }
+        resources:
+          limits:
+            cpu: 2000m
+            memory: 2Gi
+          requests:
+            cpu: 500m
+            memory: 512Mi
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: renovate
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+---
+# Source: applications/templates/sonarr.yaml
+# Sonarr Config: deploys static PV+PVC for sonarr persistent storage
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: sonarr-config
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "12"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/ryanmcafee/homelab.git
+    targetRevision: main
+    path: charts/sonarr-config
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-homelab.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: media
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - SkipDryRunOnMissingResource=true
+---
+# Source: applications/templates/sonarr.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: sonarr
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "13"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: oci.trueforge.org/truecharts
+    chart: sonarr
+    targetRevision: 25.6.3
+    helm:
+      releaseName: sonarr
+      values: |
+        workload:
+          main:
+            podSpec:
+              containers:
+                exportarr:
+                  resources:
+                    limits:
+                      cpu: 200m
+                      memory: 256Mi
+                    requests:
+                      cpu: 50m
+                      memory: 64Mi
+                main:
+                  resources:
+                    limits:
+                      cpu: 1000m
+                      memory: 1Gi
+                    requests:
+                      cpu: 200m
+                      memory: 512Mi
+        persistence:
+          config:
+            accessModes:
+            - ReadWriteOnce
+            enabled: true
+            existingClaim: sonarr-config
+            size: 10Gi
+            storageClass: democratic-csi-nfs
+          downloads:
+            enabled: true
+            mountPath: /downloads
+            path: /mnt/storage/downloads
+            server: truenas.your-domain.com
+            type: nfs
+          tv:
+            enabled: true
+            mountPath: /tv
+            path: /mnt/storage/tv
+            server: truenas.your-domain.com
+            type: nfs
+        ingress:
+          main:
+            annotations:
+              cert-manager.io/cluster-issuer: letsencrypt
+              external-dns.alpha.kubernetes.io/hostname: sonarr.your-domain.com
+            enabled: true
+            hosts:
+            - host: sonarr.your-domain.com
+              paths:
+              - path: /
+                pathType: Prefix
+            ingressClassName: internal
+            tls:
+            - hosts:
+              - sonarr.your-domain.com
+              secretName: sonarr-tls
+        TZ: "America/New_York"
+        securityContext:
+          container:
+            runAsGroup: 100
+            runAsUser: 568
+          pod:
+            fsGroup: 100
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: media
+
+  # Ignore TrueCharts dynamic fields and Kubernetes defaults
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      jqPathExpressions:
+        - .spec.template.metadata.annotations | to_entries | map(select(.key | startswith("checksum/"))) | from_entries
+      jsonPointers:
+        - /spec/template/spec/hostUsers
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+      - RespectIgnoreDifferences=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+---
+# Source: applications/templates/tautulli.yaml
+# Tautulli Config: deploys static PV+PVC for tautulli persistent storage
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: tautulli-config
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "12"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/ryanmcafee/homelab.git
+    targetRevision: main
+    path: charts/tautulli-config
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-homelab.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: media
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - SkipDryRunOnMissingResource=true
+---
+# Source: applications/templates/tautulli.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: tautulli
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "13"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: oci.trueforge.org/truecharts
+    chart: tautulli
+    targetRevision: 21.18.2
+    helm:
+      releaseName: tautulli
+      values: |
+        workload:
+          main:
+            podSpec:
+              containers:
+                main:
+                  resources:
+                    limits:
+                      cpu: 500m
+                      memory: 512Mi
+                    requests:
+                      cpu: 100m
+                      memory: 256Mi
+        persistence:
+          config:
+            accessModes:
+            - ReadWriteOnce
+            enabled: true
+            existingClaim: tautulli-config
+            size: 5Gi
+            storageClass: democratic-csi-nfs
+        ingress:
+          main:
+            annotations:
+              cert-manager.io/cluster-issuer: letsencrypt
+              external-dns.alpha.kubernetes.io/hostname: tautulli.your-domain.com
+            enabled: true
+            hosts:
+            - host: tautulli.your-domain.com
+              paths:
+              - path: /
+                pathType: Prefix
+            ingressClassName: internal
+            tls:
+            - hosts:
+              - tautulli.your-domain.com
+              secretName: tautulli-tls
+        TZ: "America/New_York"
+        securityContext:
+          container:
+            runAsGroup: 100
+            runAsUser: 568
+          pod:
+            fsGroup: 100
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: media
+
+  # Ignore TrueCharts dynamic fields and Kubernetes defaults
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      jqPathExpressions:
+        - .spec.template.metadata.annotations | to_entries | map(select(.key | startswith("checksum/"))) | from_entries
+      jsonPointers:
+        - /spec/template/spec/hostUsers
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+      - RespectIgnoreDifferences=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m

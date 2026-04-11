@@ -19,7 +19,7 @@ Refactor the homelab cluster's GPU support so the active vendor (NVIDIA, Intel, 
 - [ ] **Phase 2: Config Flag Plumbing** - Add `GPU_VENDOR` enum schema and gate `nvidia-gpu-operator.enabled` on it with zero behavior change
 - [ ] **Phase 3: Plex Auto-Switch & Apps Chart** - Restructure Plex GPU values under `plex.gpu.vendor` with byte-identical NVIDIA output
 - [ ] **Phase 4: Intel Addon Stack** - Add `intel-gpu-device-plugin` ArgoCD Application + chart template + versions.yaml entry, gated on `GPU_VENDOR=intel`
-- [ ] **Phase 5: Talos Image + Terragrunt Vendor Switch** - New Intel schematic, machine patch, `talos-image-gpu-intel` module, and `gpu_vendor` variable in `talos-cluster`
+- [x] **Phase 5: Talos Image + Terragrunt Vendor Switch** - New Intel schematic, machine patch, `talos-image-gpu-intel` module, and `gpu_vendor` variable in `talos-cluster`
 - [ ] **Phase 6: Toggle Test Gate** - Render-time proof that `GPU_VENDOR=none|nvidia|intel` each emit the expected manifests; no hardware touched
 - [ ] **Phase 7: Hardware Bring-Up & Verify** - Flip `gpu_vendor=intel`, run `task talos:recreate:node NODE=worker-1`, validate Plex hardware transcode, vendor-aware verify command
 - [ ] **Phase 8: Documentation, ADR & Closing PR** - Runbook, ADR, architecture/hardware-setup updates, embedme refresh, single PR closes #211
@@ -104,7 +104,10 @@ Refactor the homelab cluster's GPU support so the active vendor (NVIDIA, Intel, 
   3. New `talos-image-gpu-intel` Terragrunt module mirrors `talos-image-gpu/`; `task tf:plan:component COMPONENT=talos-image-gpu-intel` produces a clean plan
   4. `terragrunt/modules/talos-cluster/` has `gpu_vendor` variable (validated `none|nvidia|intel`) and conditional installer image / PCI mapping / config patch
   5. `task tf:plan` produces zero diff against current cluster state when `gpu_vendor = "nvidia"` (TGR-07) and a sane diff when flipped to `intel` (TGR-08)
-**Plans**: TBD
+**Plans**: 3 plans
+- [x] 05-01-PLAN.md — Talos image artifacts: Intel schematic, machine patch, talos-image-gpu-intel module [Wave 1]
+- [x] 05-02-PLAN.md — Terragrunt cluster module: gpu_vendor variable + vendor-conditional locals in main.tf [Wave 1]
+- [x] 05-03-PLAN.md — Environment wiring (env.hcl + terragrunt.hcl) + TGR-07 zero-diff gate [Wave 2, non-autonomous]
 **Parallelization**: Talos image work (TLI-01..TLI-05) and Terragrunt module work (TGR-01..TGR-08) can be authored in parallel; both gate on the final TGR-07 zero-diff check.
 **Complexity**: L
 **Risk**: High. Terraform module changes touch the live cluster's plan output — TGR-07 zero-diff is the hard gate. Wrong installer image at Phase 7 bricks the node.
