@@ -461,6 +461,15 @@ resource "proxmox_virtual_environment_vm" "controlplane" {
     ignore_changes = [
       disk,
       cdrom,
+      # Cloud-init user_data/meta_data is only read at first boot. Talos persists
+      # the config to its META partition after install, so subsequent snippet-file
+      # content changes are irrelevant to a running VM. Without ignoring this block,
+      # the BPG provider marks initialization.user_data_file_id as forces-replacement
+      # whenever the underlying proxmox_virtual_environment_file is regenerated —
+      # cascading a routine Talos machine-config edit into full VM recreation. Hot
+      # config changes flow through talos_machine_configuration_apply in the
+      # talos-cluster-config module, not through this file.
+      initialization,
     ]
   }
 }
@@ -567,6 +576,15 @@ resource "proxmox_virtual_environment_vm" "worker" {
     ignore_changes = [
       disk,
       cdrom,
+      # Cloud-init user_data/meta_data is only read at first boot. Talos persists
+      # the config to its META partition after install, so subsequent snippet-file
+      # content changes are irrelevant to a running VM. Without ignoring this block,
+      # the BPG provider marks initialization.user_data_file_id as forces-replacement
+      # whenever the underlying proxmox_virtual_environment_file is regenerated —
+      # cascading a routine Talos machine-config edit into full VM recreation. Hot
+      # config changes flow through talos_machine_configuration_apply in the
+      # talos-cluster-config module, not through this file.
+      initialization,
     ]
   }
 }
