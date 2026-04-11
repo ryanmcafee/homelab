@@ -884,6 +884,25 @@ intel-gpu-device-plugin:
     version: "0.35.0"
 
 # ============================================================================
+# NodeFeatureDiscovery - hardware feature labeling
+# Required prerequisite for intel-gpu-device-plugin. Also broadly useful for
+# any chart with PCI/CPU/kernel-feature-driven nodeSelectors. Runs as a
+# DaemonSet with its own cluster RBAC so it is NOT subject to NodeRestriction
+# (unlike Talos' worker-side nodeLabels path, which is blocked for vendor
+# labels like intel.com/gpu and feature.node.kubernetes.io/pci-*.present).
+# Always enabled regardless of GPU_VENDOR.
+# ============================================================================
+
+node-feature-discovery:
+  enabled: true
+  namespace: node-feature-discovery
+
+  chart:
+    name: node-feature-discovery
+    repo: https://kubernetes-sigs.github.io/node-feature-discovery/charts
+    version: "0.18.0"
+
+# ============================================================================
 # External DNS UniFi - DNS Management via UniFi Controller
 # Disabled by default - enable in environment-specific values
 # ============================================================================

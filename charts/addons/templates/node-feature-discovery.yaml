@@ -1,0 +1,88 @@
+{{- if index .Values "node-feature-discovery" "enabled" }}
+---
+# Namespace for NodeFeatureDiscovery components
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ index .Values "node-feature-discovery" "namespace" }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "9"
+---
+# NodeFeatureDiscovery — hardware feature labeling via a cluster-admin-scoped
+# DaemonSet. Required prerequisite for intel-gpu-device-plugin (sync wave 10)
+# which consumes NFD's NodeFeature/NodeFeatureRule CRs to decide where to
+# schedule its device DaemonSet. Also general-purpose: any chart that wants
+# PCI-driven nodeSelectors (e.g. feature.node.kubernetes.io/pci-8086.present)
+# depends on this being present.
+#
+# NFD runs with its own ServiceAccount and RBAC, so it is not subject to the
+# kubelet allowlist that NodeRestriction imposes on Talos' worker-side label
+# apply path. This is the canonical fix for hardware labels on Talos.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: node-feature-discovery
+  namespace: argocd
+  annotations:
+    # Wave 9: one wave earlier than intel-gpu-device-plugin / nvidia-gpu-operator
+    # so the PCI labels exist before any device plugin looks for them.
+    argocd.argoproj.io/sync-wave: "9"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: {{ index .Values "node-feature-discovery" "chart" "repo" }}
+    chart: {{ index .Values "node-feature-discovery" "chart" "name" }}
+    targetRevision: {{ index .Values "node-feature-discovery" "chart" "version" }}
+    helm:
+      releaseName: node-feature-discovery
+      values: |
+        master:
+          enabled: true
+          replicaCount: 1
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 300m
+              memory: 256Mi
+
+        worker:
+          enabled: true
+          # Run on every node — including control planes — so every node gets
+          # feature.node.kubernetes.io/* labels from the built-in PCI, CPU, and
+          # kernel sources.
+          tolerations:
+            - key: node-role.kubernetes.io/control-plane
+              operator: Exists
+              effect: NoSchedule
+            - key: node-role.kubernetes.io/master
+              operator: Exists
+              effect: NoSchedule
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+
+        # Garbage collector cleans up stale NodeFeature CRs when nodes disappear
+        gc:
+          enabled: true
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: {{ index .Values "node-feature-discovery" "namespace" }}
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+{{- end }}

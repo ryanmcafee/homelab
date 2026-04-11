@@ -132,9 +132,13 @@ spec:
         nodeStatusExporter:
           enabled: true
 
-        # Node Feature Discovery - detects GPU hardware
+        # Node Feature Discovery - provided by the standalone
+        # charts/addons/templates/node-feature-discovery.yaml addon (sync wave 9),
+        # not the bundled operator instance. Disable here to avoid two NFD
+        # masters fighting over the NodeFeature/NodeFeatureRule CRDs if the user
+        # ever flips GPU_VENDOR back to "nvidia".
         nfd:
-          enabled: true
+          enabled: false
 
         # Validator - disabled on Talos (using validation-bypass DaemonSet instead)
         # The validator has mount issues on Talos and is not needed since
