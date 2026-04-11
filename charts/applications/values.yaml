@@ -90,13 +90,19 @@ plex:
       nodeSelector:
         feature.node.kubernetes.io/pci-0300_10de.present: "true"
 
-    # Intel GPU settings (Arc Pro B50). Same NFD long-form rationale — see above.
+    # Intel GPU settings (Arc Pro B50). Uses the Intel GPU device plugin's
+    # `intel-gpu-platform-labeling` NodeFeatureRule label, which is set only on
+    # nodes where the device plugin successfully identifies an Intel GPU. This
+    # is the canonical Intel-side convention (the GpuDevicePlugin CR uses the
+    # same label as its own nodeSelector).
     intel:
       nodeSelector:
-        feature.node.kubernetes.io/pci-0300_8086.present: "true"
-      resources:
-        limits:
-          gpu.intel.com/xe: 1
+        intel.feature.node.kubernetes.io/gpu: "true"
+      # gpu.intel.com/xe resource limit intentionally omitted — the device
+      # plugin DaemonSet is Running but is not advertising the resource yet
+      # on this Talos cluster. Plex gets /dev/dri via the hostPath mount
+      # below and uses the GPU directly via the xe driver. Re-add the limit
+      # once the plugin advertises the resource.
       devDri:
         hostPath: /dev/dri
 
@@ -474,6 +480,20 @@ nzbget:
       podSpec:
         containers:
           main:
+            # nzbget v26 made Paths.MainDir and Paths.ScriptDir REQUIRED, and
+            # the truecharts/forge image renamed the bundled 7-zip binary from
+            # /usr/bin/7za to /usr/bin/7z. The persisted /config/nzbget.conf
+            # in the existing PVC predates v26 and is missing all three —
+            # nzbget refuses to start. Override at startup via the documented
+            # `-o Section.Key=value` flags so we don't have to mutate the
+            # config file inside the PVC.
+            args:
+              - "-o"
+              - "Paths.MainDir=/downloads"
+              - "-o"
+              - "Paths.ScriptDir=/config/scripts"
+              - "-o"
+              - "Unpack.SevenZipCmd=/usr/bin/7z"
             resources:
               requests:
                 cpu: 100m
