@@ -1,0 +1,60 @@
+{{- if index .Values "intel-device-plugins-operator" "enabled" }}
+---
+# Namespace for Intel Device Plugins Operator
+# Installs the operator controller and the GpuDevicePlugin/NodeFeatureRule CRDs
+# that the intel-gpu-device-plugin chart (wave 10) depends on. Without this,
+# the intel-gpu-device-plugin sync fails with:
+#   "The Kubernetes API could not find deviceplugin.intel.com/GpuDevicePlugin
+#    ... Make sure the \"GpuDevicePlugin\" CRD is installed on the destination cluster."
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ index .Values "intel-device-plugins-operator" "namespace" }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "9"
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: intel-device-plugins-operator
+  namespace: argocd
+  annotations:
+    # Wave 9: before the intel-gpu-device-plugin chart at wave 10. The operator
+    # installs the deviceplugin.intel.com CRDs the plugin chart's CRs reference.
+    argocd.argoproj.io/sync-wave: "9"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: {{ index .Values "intel-device-plugins-operator" "chart" "repo" }}
+    chart: {{ index .Values "intel-device-plugins-operator" "chart" "name" }}
+    targetRevision: {{ index .Values "intel-device-plugins-operator" "chart" "version" }}
+    helm:
+      releaseName: intel-device-plugins-operator
+      values: |
+        # Install CRDs for GpuDevicePlugin (and other device plugin CRs)
+        manager:
+          devices:
+            gpu: true
+            # Disable plugins we don't use — keeps the operator scope minimal
+            dlb: false
+            dsa: false
+            fpga: false
+            iaa: false
+            qat: false
+            sgx: false
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: {{ index .Values "intel-device-plugins-operator" "namespace" }}
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+{{- end }}

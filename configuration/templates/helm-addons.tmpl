@@ -974,6 +974,21 @@ intel-gpu-device-plugin:
     version: "{{ index .Versions.Charts "intel-device-plugins-gpu" }}"
 
 # ============================================================================
+# Intel Device Plugins Operator - installs CRDs + reconciler for GpuDevicePlugin
+# Sync Wave: 9 (before the intel-gpu-device-plugin chart at wave 10)
+# Gated on GPU_VENDOR=intel — operator only matters when the Intel plugin is on.
+# ============================================================================
+
+intel-device-plugins-operator:
+  enabled: {{ eq .Values.GPU_VENDOR.Value "intel" }}
+  namespace: intel-device-plugins
+
+  chart:
+    name: intel-device-plugins-operator
+    repo: https://intel.github.io/helm-charts
+    version: "{{ index .Versions.Charts "intel-device-plugins-operator" }}"
+
+# ============================================================================
 # NodeFeatureDiscovery - hardware feature labeling
 # Sync Wave: 9 (before intel-gpu-device-plugin / nvidia-gpu-operator at wave 10)
 # Always enabled regardless of GPU_VENDOR — it is a general-purpose label source

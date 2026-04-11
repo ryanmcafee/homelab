@@ -150,12 +150,11 @@ plex:
       nfs:
         server: {{ .Values.TRUENAS_HOSTNAME.Value }}
         path: {{ .Values.MEDIA_PICTURES_PATH.Value }}
-{{- if eq .Values.GPU_VENDOR.Value "intel" }}
-    - name: dev-dri
-      hostPath:
-        path: /dev/dri
-        type: Directory
-{{- end }}
+  # NOTE: dev-dri volume + mount for Intel GPU is added by the Plex application
+  # chart template (charts/applications/templates/plex.yaml) based on
+  # .Values.plex.gpu.vendor == "intel". Don't append it here, or the structured-
+  # merge diff against the rendered StatefulSet fails with "duplicate entries
+  # for key [name=\"dev-dri\"]".
 
   extraVolumeMounts:
     - name: movies
@@ -170,10 +169,7 @@ plex:
     - name: pictures
       mountPath: /pictures
       readOnly: false
-{{- if eq .Values.GPU_VENDOR.Value "intel" }}
-    - name: dev-dri
-      mountPath: /dev/dri
-{{- end }}
+  # (dev-dri mount is also added by plex.yaml — see note above.)
 
   # Ingress configuration
   ingress:
