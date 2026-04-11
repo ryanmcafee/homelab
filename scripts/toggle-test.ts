@@ -667,8 +667,17 @@ async function main(): Promise<number> {
   if (!args.keepArtifacts) {
     try {
       await Deno.remove(ARTIFACT_ROOT, { recursive: true });
-    } catch {
-      // ignore
+    } catch (err) {
+      // Don't fail the whole run for post-run cleanup hiccups, but DO surface
+      // them — silently ignoring causes disk accumulation under /tmp.
+      // NotFound is fine (someone else already cleaned up); anything else is a warning.
+      if (!(err instanceof Deno.errors.NotFound)) {
+        log.warn(
+          `post-run cleanup of ${ARTIFACT_ROOT} failed: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
+      }
     }
   } else {
     log.info(`Artifacts retained at ${ARTIFACT_ROOT}`);
