@@ -140,7 +140,7 @@ Refactor the homelab cluster's GPU support so the active vendor (NVIDIA, Intel, 
   5. `cmd/homelab/commands/verify.go` is vendor-aware (reads `GPU_VENDOR`, picks correct checks per vendor) and `task gpu:verify` exits 0 against the live Intel cluster
 **Plans**: 3 plans
   - [x] 07-01-PLAN.md — Vendor-aware `homelab verify gpu` rewrite (VFY-01..VFY-07) — Wave 1, autonomous
-  - [ ] 07-02-PLAN.md — env.hcl Intel block validation + TGR-07 pre-cutover baseline (HW-01) — Wave 1, autonomous, dormant
+  - [x] 07-02-PLAN.md — env.hcl Intel block validation + TGR-07 pre-cutover baseline (HW-01) — Wave 1, autonomous, dormant
   - [ ] 07-03-PLAN.md — Destructive cutover: flip gpu_vendor, recreate worker-1, validate Intel stack + Plex transcode (HW-02..HW-09, VFY-07) — Wave 2, checkpointed
 **Parallelization**: Verify command rewrite (VFY-01..VFY-06) can be authored in parallel with the env.hcl Intel block update (HW-01/02). The hardware cutover (HW-03..HW-08) is strictly sequential and gated on the maintenance window.
 **Complexity**: L
