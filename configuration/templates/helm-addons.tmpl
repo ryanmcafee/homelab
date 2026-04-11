@@ -974,6 +974,22 @@ intel-gpu-device-plugin:
     version: "{{ index .Versions.Charts "intel-device-plugins-gpu" }}"
 
 # ============================================================================
+# NodeFeatureDiscovery - hardware feature labeling
+# Sync Wave: 9 (before intel-gpu-device-plugin / nvidia-gpu-operator at wave 10)
+# Always enabled regardless of GPU_VENDOR — it is a general-purpose label source
+# and the prerequisite for the Intel GPU device plugin's NodeFeatureRule match.
+# ============================================================================
+
+node-feature-discovery:
+  enabled: true
+  namespace: node-feature-discovery
+
+  chart:
+    name: node-feature-discovery
+    repo: https://kubernetes-sigs.github.io/node-feature-discovery/charts
+    version: "{{ index .Versions.Charts "node-feature-discovery" }}"
+
+# ============================================================================
 # Argo Workflows - Workflow Orchestration
 # Sync Wave: 7 (after core infrastructure)
 # ============================================================================
