@@ -2,7 +2,7 @@
 
 ## Command
 ```bash
-cd terragrunt/environments/homelab/gitops-bootstrap && terragrunt apply --terragrunt-non-interactive -auto-approve
+cd terragrunt/environments/homelab/gitops-bootstrap && terragrunt apply --non-interactive -auto-approve
 ```
 
 ## Details

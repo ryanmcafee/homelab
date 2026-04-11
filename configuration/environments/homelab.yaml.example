@@ -24,3 +24,6 @@ ACME_EMAIL: admin@your-domain.com
 TRAEFIK_OIDC_ALLOWED_DOMAINS: your-domain.com
 DUCKDNS_SUBDOMAIN: your-subdomain
 EXTERNAL_DNS_DEFAULT_TARGET: your-subdomain.duckdns.org
+
+# GPU
+GPU_VENDOR: "nvidia"

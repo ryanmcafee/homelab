@@ -38,6 +38,16 @@ dependency "talos_image_gpu" {
   }
 }
 
+dependency "talos_image_gpu_intel" {
+  config_path = "../talos-image-gpu-intel"
+
+  mock_outputs = {
+    image_id      = "local:iso/talos-gpu-intel-mock.img"
+    schematic_id  = "mock-gpu-intel-schematic-id"
+    talos_version = "v1.12.2"
+  }
+}
+
 dependency "truenas" {
   config_path = "../truenas"
 
@@ -98,6 +108,9 @@ inputs = {
   network_cidr    = include.env.locals.subnet
   dns_servers     = include.env.locals.dns_servers
 
+  # GPU vendor selection
+  gpu_vendor = include.env.locals.gpu_vendor
+
   # GPU configuration for worker-1 (NVIDIA Quadro P2200)
   gpu_pci_id       = include.env.locals.gpu_pci_id
   gpu_device       = include.env.locals.gpu_device
@@ -115,6 +128,31 @@ inputs = {
       nodeLabels = {
         "nvidia.com/gpu"                              = "true"
         "feature.node.kubernetes.io/pci-10de.present" = "true"
+      }
+      nodeTaints = {
+        "nvidia.com/gpu" = "true:PreferNoSchedule"
+      }
+    }
+  })
+
+  # Intel GPU configuration for worker-1 (Intel Arc Pro B50)
+  gpu_intel_pci_id          = include.env.locals.gpu_intel_pci_id
+  gpu_intel_device          = include.env.locals.gpu_intel_device
+  gpu_intel_mapping_name    = "gpu-intel-arc-b50"
+  gpu_intel_installer_image = "factory.talos.dev/installer/${dependency.talos_image_gpu_intel.outputs.schematic_id}:${dependency.talos_image_gpu_intel.outputs.talos_version}"
+  gpu_intel_config_patch = yamlencode({
+    machine = {
+      kernel = {
+        modules = [
+          { name = "xe" }
+        ]
+      }
+      nodeLabels = {
+        "intel.com/gpu"                               = "true"
+        "feature.node.kubernetes.io/pci-8086.present" = "true"
+      }
+      nodeTaints = {
+        "intel.com/gpu" = "true:PreferNoSchedule"
       }
     }
   })

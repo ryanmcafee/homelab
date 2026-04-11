@@ -949,7 +949,7 @@ oauth2-proxy:
 # ============================================================================
 
 nvidia-gpu-operator:
-  enabled: true
+  enabled: {{ eq .Values.GPU_VENDOR.Value "nvidia" }}
   namespace: gpu-operator
 
   chart:
@@ -958,6 +958,20 @@ nvidia-gpu-operator:
   # Note: Driver and toolkit are provided by Talos system extensions
   # (siderolabs/nonfree-kmod-nvidia and siderolabs/nvidia-container-toolkit)
   # GPU Operator only manages device plugin, monitoring, and feature discovery
+
+# ============================================================================
+# Intel GPU Device Plugin - GPU Support for Kubernetes (Intel)
+# Sync Wave: 10 (same as NVIDIA GPU operator, mutually exclusive via GPU_VENDOR)
+# ============================================================================
+
+intel-gpu-device-plugin:
+  enabled: {{ eq .Values.GPU_VENDOR.Value "intel" }}
+  namespace: intel-device-plugins
+
+  chart:
+    name: intel-device-plugins-gpu
+    repo: https://intel.github.io/helm-charts
+    version: "{{ index .Versions.Charts "intel-device-plugins-gpu" }}"
 
 # ============================================================================
 # Argo Workflows - Workflow Orchestration

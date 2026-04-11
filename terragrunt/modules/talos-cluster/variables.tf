@@ -200,6 +200,54 @@ variable "gpu_config_patch" {
   default     = ""
 }
 
+# GPU Vendor Selection
+variable "gpu_vendor" {
+  description = "GPU vendor for worker nodes with gpu=true (none disables GPU support)"
+  type        = string
+  default     = "nvidia"
+
+  validation {
+    condition     = contains(["none", "nvidia", "intel"], var.gpu_vendor)
+    error_message = "gpu_vendor must be one of: none, nvidia, intel"
+  }
+}
+
+# Intel GPU Configuration (mirrors existing NVIDIA gpu_* variables)
+variable "gpu_intel_pci_id" {
+  description = "PCI ID of Intel GPU for passthrough (e.g., '0000:c3:00.0')"
+  type        = string
+  default     = ""
+}
+
+variable "gpu_intel_device" {
+  description = "Intel GPU device configuration for hardware mapping"
+  type = object({
+    device_id    = string
+    subsystem_id = string
+    iommu_group  = number
+    description  = string
+  })
+  default = null
+}
+
+variable "gpu_intel_mapping_name" {
+  description = "Name for the Intel GPU hardware mapping in Proxmox"
+  type        = string
+  default     = "gpu-intel-arc"
+}
+
+variable "gpu_intel_installer_image" {
+  description = "Custom Talos installer image URL for Intel GPU nodes (with xe + mei extensions)"
+  type        = string
+  default     = null
+}
+
+variable "gpu_intel_config_patch" {
+  description = "Talos config patch for Intel GPU support"
+  type        = string
+  default     = ""
+}
+
 # Talos Configuration
 variable "allow_scheduling_on_control_planes" {
   description = "Allow workloads to be scheduled on control plane nodes"

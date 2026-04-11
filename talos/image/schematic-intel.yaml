@@ -1,0 +1,26 @@
+# Talos Image Factory Schematic - Intel GPU
+# Defines system extensions for Intel Arc GPU nodes (Battlemage / Arc Pro B50)
+# Reference: https://factory.talos.dev
+
+customization:
+  systemExtensions:
+    officialExtensions:
+      # QEMU Guest Agent - Better VM integration with Proxmox
+      - siderolabs/qemu-guest-agent
+
+      # Intel CPU microcode updates
+      - siderolabs/intel-ucode
+
+      # Intel integrated GPU firmware (for i915 graphics)
+      - siderolabs/i915-ucode
+
+      # Intel Xe GPU kernel module - Required for Battlemage (Arc Pro B50)
+      # Provides kernel/drivers/gpu/drm/xe/xe.ko
+      - siderolabs/xe
+
+      # Intel Management Engine Interface - prerequisite for discrete Arc GPUs
+      # Provides mei and mei_txe kernel modules
+      - siderolabs/mei
+
+      # iSCSI tools - Required for iSCSI CSI driver (TrueNAS block storage)
+      - siderolabs/iscsi-tools

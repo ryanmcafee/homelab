@@ -98,27 +98,31 @@ locals {
   # PCI passthrough for NVMe SSDs and SATA drives
   hba_devices = {
     "hba-nvme-ssds" = {
-      pci_id       = "0000:c2:00.0"
+      pci_id       = "0000:c5:00.0"
       device_id    = "1000:00af" # Broadcom LSI vendor:device ID
       subsystem_id = "1000:3010" # Broadcom HBA 9400-8i subsystem ID
-      iommu_group  = 12
+      iommu_group  = 16
       description  = "Broadcom LSI SAS3408 - 2x 1TB NVMe SSDs"
     }
     "sata-20tb-drives" = {
       pci_id       = "0000:49:00.0"
       device_id    = "1022:7901" # AMD vendor:device ID
       subsystem_id = "15d9:7901" # Supermicro subsystem ID
-      iommu_group  = 58
+      iommu_group  = 62
       description  = "AMD FCH SATA Controller #1 - 8x 20TB SATA drives"
     }
     "sata-20tb-drives-2" = {
       pci_id       = "0000:48:00.0"
       device_id    = "1022:7901" # AMD vendor:device ID
       subsystem_id = "15d9:7901" # Supermicro subsystem ID
-      iommu_group  = 57
+      iommu_group  = 61
       description  = "AMD FCH SATA Controller #2 - 3x 20TB SATA drives"
     }
   }
+
+  # GPU vendor selection (matches configuration/environments/homelab.yaml GPU_VENDOR)
+  # Phase 7 flipped to "intel" 2026-04-11T04:31:32Z after hardware bring-up verification
+  gpu_vendor = "intel"
 
   # GPU passthrough (NVIDIA Quadro P2200)
   # Verified via: ssh root@172.16.100.250 'lspci -nn | grep -i nvidia'
@@ -132,6 +136,23 @@ locals {
     subsystem_id = "103c:131b" # HP subsystem
     iommu_group  = 11          # IOMMU group from /sys/kernel/iommu_groups
     description  = "NVIDIA Quadro P2200 for Plex transcoding"
+  }
+
+  # GPU passthrough — Intel Arc Pro B50 (Battlemage G21)
+  # Authoritative values from Phase 1 hardware spike (committed under .planning/):
+  #   pci_bus_address  : .planning/phases/01-hardware-spike-discovery/findings/spk-02-pci-id.md
+  #   iommu_group      : .planning/phases/01-hardware-spike-discovery/findings/spk-03-iommu-group.md
+  #   subsystem_id     : .planning/phases/01-hardware-spike-discovery/findings/spk-04-subsystem-id.md
+  #   iommu_cmdline    : .planning/phases/01-hardware-spike-discovery/findings/spk-05-iommu-cmdline.md (AMD-Vi active, no intel_iommu flag needed)
+  # Kernel driver currently bound to `xe`; Talos machine patch for Intel GPU loads `xe` + `mei` modules.
+  # INERT while active vendor is nvidia (see gpu_vendor local above). Plan 07-03 flips to "intel" under human checkpoint.
+  gpu_intel_pci_id = "0000:c3:00.0"
+
+  gpu_intel_device = {
+    device_id    = "8086:e212" # Intel Arc Pro B50 (Battlemage G21) — spk-02
+    subsystem_id = "8086:1114" # Intel subsystem — spk-04
+    iommu_group  = 14          # Clean isolation (1 device in group) — spk-03
+    description  = "Intel Arc Pro B50 for Plex transcoding"
   }
 
   # Git repository

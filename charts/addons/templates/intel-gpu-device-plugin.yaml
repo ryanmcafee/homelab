@@ -1,0 +1,53 @@
+{{- if index .Values "intel-gpu-device-plugin" "enabled" }}
+---
+# Namespace for Intel GPU device plugin components
+# Requires privileged PodSecurity for GPU device access (/dev/dri)
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ index .Values "intel-gpu-device-plugin" "namespace" }}
+  labels:
+    pod-security.kubernetes.io/enforce: privileged
+    pod-security.kubernetes.io/audit: privileged
+    pod-security.kubernetes.io/warn: privileged
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: intel-gpu-device-plugin
+  namespace: argocd
+  annotations:
+    # Wave 10: Same as NVIDIA GPU operator (mutually exclusive via GPU_VENDOR)
+    argocd.argoproj.io/sync-wave: "10"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: {{ index .Values "intel-gpu-device-plugin" "chart" "repo" }}
+    chart: {{ index .Values "intel-gpu-device-plugin" "chart" "name" }}
+    targetRevision: {{ index .Values "intel-gpu-device-plugin" "chart" "version" }}
+    helm:
+      releaseName: intel-gpu-device-plugin
+      values: |
+        # Intel GPU device plugin configuration for Talos Linux
+        # Auto-detects xe kernel driver on B50 GPU
+        nodeFeatureRule: true
+        sharedDevNum: 1
+        enableMonitoring: true
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: {{ index .Values "intel-gpu-device-plugin" "namespace" }}
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+{{- end }}

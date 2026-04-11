@@ -59,3 +59,6 @@ MOSQUITTO_DATA_PVC: mosquitto-data
 MOSQUITTO_CONFIGINC_PVC: mosquitto-configinc
 FLARESOLVERR_CONFIG_PVC: flaresolverr-config
 GRAFANA_CONFIG_PVC: grafana-config
+
+# GPU
+GPU_VENDOR: "none"

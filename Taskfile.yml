@@ -369,13 +369,13 @@ tasks:
     desc: Validate Terraform configurations
     dir: terragrunt
     cmds:
-      - op run --env-file={{.ROOT_DIR}}/.env.op -- terragrunt run-all validate
+      - op run --env-file={{.ROOT_DIR}}/.env.op -- terragrunt run --all validate
 
   tf:init:
     desc: Run Terragrunt init for environment
     dir: terragrunt/environments/{{.ENV}}
     cmds:
-      - op run --env-file={{.ROOT_DIR}}/.env.op -- terragrunt run-all init
+      - op run --env-file={{.ROOT_DIR}}/.env.op -- terragrunt run --all init
     vars:
       ENV: '{{.ENV | default "homelab"}}'
 
@@ -394,7 +394,7 @@ tasks:
     deps:
       - render:sync:silent
     cmds:
-      - op run --env-file={{.ROOT_DIR}}/.env.op -- terragrunt run-all plan {{.TF_ARGS}}
+      - op run --env-file={{.ROOT_DIR}}/.env.op -- terragrunt run --all plan {{.TF_ARGS}}
     vars:
       ENV: '{{.ENV | default "homelab"}}'
       TF_ARGS: '{{.TF_ARGS | default ""}}'
@@ -414,7 +414,7 @@ tasks:
     deps:
       - render:sync:silent
     cmds:
-      - op run --env-file={{.ROOT_DIR}}/.env.op -- terragrunt run-all apply --terragrunt-non-interactive --auto-approve
+      - op run --env-file={{.ROOT_DIR}}/.env.op -- terragrunt run --all apply --non-interactive --auto-approve
     vars:
       ENV: '{{.ENV | default "homelab"}}'
 
@@ -422,7 +422,7 @@ tasks:
     desc: Run Terragrunt apply for a specific component
     dir: terragrunt/environments/{{.ENV}}/{{.COMPONENT}}
     cmds:
-      - op run --env-file={{.ROOT_DIR}}/.env.op -- terragrunt apply --terragrunt-non-interactive --auto-approve
+      - op run --env-file={{.ROOT_DIR}}/.env.op -- terragrunt apply --non-interactive --auto-approve
     vars:
       ENV: '{{.ENV | default "homelab"}}'
       COMPONENT: '{{.COMPONENT}}'
@@ -431,7 +431,7 @@ tasks:
     desc: Destroy infrastructure (use with caution)
     dir: terragrunt/environments/{{.ENV}}
     cmds:
-      - op run --env-file={{.ROOT_DIR}}/.env.op -- terragrunt run-all destroy --terragrunt-non-interactive --auto-approve
+      - op run --env-file={{.ROOT_DIR}}/.env.op -- terragrunt run --all destroy --non-interactive --auto-approve
     vars:
       ENV: '{{.ENV | default "homelab"}}'
     prompt: Are you sure you want to destroy the {{.ENV}} environment?
@@ -440,7 +440,7 @@ tasks:
     desc: Destroy a specific component (use with caution)
     dir: terragrunt/environments/{{.ENV}}/{{.COMPONENT}}
     cmds:
-      - op run --env-file={{.ROOT_DIR}}/.env.op -- terragrunt destroy --terragrunt-non-interactive --auto-approve
+      - op run --env-file={{.ROOT_DIR}}/.env.op -- terragrunt destroy --non-interactive --auto-approve
     vars:
       ENV: '{{.ENV | default "homelab"}}'
       COMPONENT: '{{.COMPONENT}}'
@@ -569,34 +569,42 @@ tasks:
     desc: Regenerate Talos image with updated extensions
     dir: terragrunt/environments/homelab/talos-image
     cmds:
-      - op run --env-file={{.ROOT_DIR}}/.env.op -- terragrunt apply --terragrunt-non-interactive --auto-approve
+      - op run --env-file={{.ROOT_DIR}}/.env.op -- terragrunt apply --non-interactive --auto-approve
 
   talos:recreate:node:
     desc: Recreate a Talos node via terragrunt taint + apply
+    prompt: This will destroy and recreate the Talos VM for node {{.NODE}}. Continue?
     vars:
       NODE: '{{.NODE | default "worker-1"}}'
     cmds:
-      - ./bin/homelab talos recreate --node={{.NODE}}
+      - ./bin/homelab -y talos recreate --node={{.NODE}} --skip-drain
 
   talos:recreate:gpu-node:
     desc: Recreate GPU node (worker-1) with new image and verify GPU support
+    prompt: This will destroy and recreate worker-1 and then verify GPU support. Continue?
     cmds:
-      - task: talos:recreate:node
-        vars:
-          NODE: worker-1
+      - ./bin/homelab -y talos recreate --node=worker-1 --skip-drain
       - ./bin/homelab verify gpu
 
   gpu:verify:
-    desc: Verify GPU support is working
+    desc: Verify GPU support is working (vendor resolved from GPU_VENDOR config)
     cmds:
       - ./bin/homelab verify gpu
 
   gpu:status:
-    desc: Show GPU node status and resources
+    desc: Show GPU node status and resources (vendor resolved from GPU_VENDOR config)
     cmds:
-      - kubectl get node worker-1 -o wide
-      - kubectl describe node worker-1 | grep -A5 "Allocatable:" | grep nvidia
-      - kubectl -n gpu-operator get pods
+      - ./bin/homelab verify gpu --status-only
+
+  gpu:toggle-test:
+    desc: Render charts for GPU_VENDOR=none|nvidia|intel and assert TGL-01..TGL-04
+    cmds:
+      - deno run --allow-net --allow-run --allow-env --allow-read --allow-write scripts/toggle-test.ts {{.CLI_ARGS}}
+
+  gpu:toggle-baseline:regen:
+    desc: Regenerate tests/fixtures/toggle-baseline/nvidia/ from current code (use after intentional NVIDIA-side changes)
+    cmds:
+      - deno run --allow-net --allow-run --allow-env --allow-read --allow-write scripts/toggle-test.ts --regen-baseline
 
   # ==========================================================================
   # Kubernetes Operations
@@ -778,6 +786,91 @@ tasks:
     desc: Verify embedded snippets are up-to-date (CI)
     cmds:
       - embedme --verify CLAUDE.md AGENTS.md
+
+  # ==========================================================================
+  # Phase 1 Hardware Spike (SPK-02..SPK-05 Proxmox evidence capture)
+  # ==========================================================================
+
+  spk:capture:
+    desc: "Phase 1 hardware spike — capture all Proxmox-side evidence in one SSH session (SPK-02, SPK-03, SPK-04, SPK-05)"
+    vars:
+      PROXMOX_HOST: '{{.PROXMOX_HOST | default "root@proxmox.ryanmcafee.com"}}'
+      OUT: ".planning/phases/01-hardware-spike-discovery/findings/proxmox-ssh-session.log"
+    cmds:
+      - mkdir -p $(dirname {{.OUT}})
+      - |
+        ssh {{.PROXMOX_HOST}} 'bash -s' <<'EOF' | tee {{.OUT}}
+        set -euo pipefail
+        echo "=== SPK-05: kernel cmdline ==="
+        cat /proc/cmdline
+        echo
+        echo "=== SPK-02: B50 PCI ID ==="
+        lspci -nnk | grep -A 3 -iE 'intel.*(arc|e212)'
+        echo
+        BUS=$(lspci -nn | grep -iE 'intel.*(arc|e212)' | awk '{print $1}' | head -1)
+        echo "=== Captured bus: $BUS ==="
+        echo
+        echo "=== SPK-04: subsystem ID + driver binding ==="
+        lspci -vmmnn -s "$BUS"
+        lspci -nnk -s "$BUS"
+        echo
+        echo "=== SPK-03: IOMMU group + isolation ==="
+        GROUP=$(basename "$(readlink /sys/bus/pci/devices/0000:${BUS}/iommu_group)")
+        echo "IOMMU group: $GROUP"
+        echo "Devices in group $GROUP:"
+        for dev in /sys/kernel/iommu_groups/$GROUP/devices/*; do
+          lspci -nns "$(basename "$dev")"
+        done
+        echo
+        echo "=== SPK-05 (bonus): dmesg IOMMU ==="
+        dmesg | grep -iE 'DMAR.*IOMMU enabled|AMD-Vi.*IOMMU|AMD-Vi.*Using global' | head -5 || true
+        EOF
+      - echo "Wave B captured to {{.OUT}}. Next — author per-SPK findings files from this transcript (see Plan 04)."
+
+  spk:verify:
+    desc: "Phase 1 hardware spike — verify all 8 SPK findings files exist with required extracted-value fields (from 01-VALIDATION.md)"
+    vars:
+      F: ".planning/phases/01-hardware-spike-discovery/findings"
+    cmds:
+      - |
+        set -e
+        pass=0
+        fail=0
+        check() {
+          local id="$1"; shift
+          if "$@" >/dev/null 2>&1; then
+            echo "PASS  $id"
+            pass=$((pass+1))
+          else
+            echo "FAIL  $id"
+            fail=$((fail+1))
+          fi
+        }
+        # --- Wave A (desk research) ---
+        check 1-A-02 test -f {{.F}}/spk-01-talos-kernel.md
+        check 1-A-01 grep -E 'Linux 6\.(1[2-9]|[2-9][0-9])' {{.F}}/spk-01-talos-kernel.md
+        check 1-A-03 grep -E '^- digest:.*sha256' {{.F}}/spk-06-plex-libva.md
+        check 1-A-04 grep -E '(iHD_drv_video\.so|FALLBACK)' {{.F}}/spk-06-plex-libva.md
+        check 1-A-05 grep -E '(pms_version: 1\.[4-9][3-9]|FALLBACK)' {{.F}}/spk-06-plex-libva.md
+        # Row 1-A-06 — NFD default PCI label (CORRECTED from 01-VALIDATION.md).
+        # Original row specified 'pci-8086.present' (vendor-only). Plan 01-02
+        # proved the actual NFD default is 'pci-0300_8086.present' (class+vendor).
+        # spk-07-nfd-labels.md contains the corrected long form on line 113 under
+        # `default_label:` as the authoritative value. See 01-02-SUMMARY.md
+        # Rule 1 deviation and the findings file Interpretation block.
+        check 1-A-06 grep -E 'pci-0300_8086\.present' {{.F}}/spk-07-nfd-labels.md
+        check 1-A-07 grep -F 'compute-runtime/issues/872' {{.F}}/spk-08-compute-runtime.md
+        # --- Wave B (Proxmox shell — populated by Plan 04) ---
+        check 1-B-01 grep -E '^- pci_bus_address:' {{.F}}/spk-02-pci-id.md
+        check 1-B-02 grep -F '8086:e212' {{.F}}/spk-02-pci-id.md
+        check 1-B-03 grep -E '^- iommu_group:' {{.F}}/spk-03-iommu-group.md
+        check 1-B-04 grep -E '^\*\*Status:\*\* (VERIFIED|VERIFIED-WITH-FALLBACK|BLOCKED)$' {{.F}}/spk-03-iommu-group.md
+        check 1-B-05 grep -E '^- subsystem_id:' {{.F}}/spk-04-subsystem-id.md
+        check 1-B-06 grep -iE 'vfio-pci|kernel driver' {{.F}}/spk-04-subsystem-id.md
+        check 1-B-07 grep -iE 'intel_iommu=on|AMD-Vi.*enabled|AMD-Vi.*Using global' {{.F}}/spk-05-iommu-cmdline.md
+        echo
+        echo "Passed: $pass  Failed: $fail"
+        exit $fail
 
   default:
     desc: Show available tasks

@@ -675,7 +675,7 @@ ansible-playbook -i inventory/hosts.yml playbooks/site.yml
 
 # 3. Provision infrastructure
 cd terragrunt/environments/homelab
-terragrunt run-all apply
+terragrunt run --all apply
 
 # 4. Restore TrueNAS configuration
 # Upload config file via TrueNAS UI

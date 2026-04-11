@@ -179,7 +179,7 @@ Infrastructure components must be deployed in order due to dependencies:
 ```bash
 # Deploy all components in order
 cd terragrunt/environments/homelab
-terragrunt run-all apply --terragrunt-non-interactive
+terragrunt run --all apply --non-interactive
 ```
 
 ## Common Operations
@@ -232,7 +232,7 @@ terragrunt destroy
 
 # Destroy all components (careful!)
 cd terragrunt/environments/homelab
-terragrunt run-all destroy
+terragrunt run --all destroy
 ```
 
 ## GitOps Bridge Pattern

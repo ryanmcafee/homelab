@@ -870,6 +870,20 @@ nvidia-gpu-operator:
   namespace: nvidia-gpu-operator
 
 # ============================================================================
+# Intel GPU Device Plugin - GPU Support for Kubernetes (Intel)
+# Disabled by default - enable in environment-specific values
+# ============================================================================
+
+intel-gpu-device-plugin:
+  enabled: false
+  namespace: intel-device-plugins
+
+  chart:
+    name: intel-device-plugins-gpu
+    repo: https://intel.github.io/helm-charts
+    version: "0.35.0"
+
+# ============================================================================
 # External DNS UniFi - DNS Management via UniFi Controller
 # Disabled by default - enable in environment-specific values
 # ============================================================================

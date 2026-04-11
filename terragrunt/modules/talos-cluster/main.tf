@@ -43,8 +43,17 @@ locals {
   # Combined VM IDs for all nodes
   all_vm_ids = merge(local.controlplane_vm_ids, local.worker_vm_ids)
 
-  # Check if any worker has GPU enabled
-  gpu_enabled = var.gpu_device != null && anytrue([for k, v in var.worker_nodes : try(v.gpu, false)])
+  # GPU vendor selection - picks active vendor's configuration
+  # When gpu_vendor = "nvidia" (default), all active_gpu_* locals resolve to existing NVIDIA values
+  # This ensures zero Terraform state change for the current cluster configuration
+  active_gpu_pci_id          = var.gpu_vendor == "intel" ? var.gpu_intel_pci_id : var.gpu_pci_id
+  active_gpu_device          = var.gpu_vendor == "intel" ? var.gpu_intel_device : var.gpu_device
+  active_gpu_mapping_name    = var.gpu_vendor == "intel" ? var.gpu_intel_mapping_name : var.gpu_mapping_name
+  active_gpu_config_patch    = var.gpu_vendor == "intel" ? var.gpu_intel_config_patch : var.gpu_config_patch
+  active_gpu_installer_image = var.gpu_vendor == "intel" ? var.gpu_intel_installer_image : var.gpu_installer_image
+
+  # GPU enabled when vendor is not "none", device is configured, and at least one worker has GPU flag
+  gpu_enabled = var.gpu_vendor != "none" && local.active_gpu_device != null && anytrue([for k, v in var.worker_nodes : try(v.gpu, false)])
 
   # Generate deterministic MAC addresses for each node based on IP
   # Format: bc:24:11:xx:xx:xx where xx:xx:xx is derived from last octet of IP
@@ -141,15 +150,15 @@ locals {
 resource "proxmox_virtual_environment_hardware_mapping_pci" "gpu" {
   count = local.gpu_enabled ? 1 : 0
 
-  name    = var.gpu_mapping_name
-  comment = var.gpu_device.description
+  name    = local.active_gpu_mapping_name
+  comment = local.active_gpu_device.description
 
   map = [{
-    id           = var.gpu_device.device_id
+    id           = local.active_gpu_device.device_id
     node         = var.proxmox_node
-    path         = var.gpu_pci_id
-    iommu_group  = var.gpu_device.iommu_group
-    subsystem_id = var.gpu_device.subsystem_id
+    path         = local.active_gpu_pci_id
+    iommu_group  = local.active_gpu_device.iommu_group
+    subsystem_id = local.active_gpu_device.subsystem_id
   }]
 }
 
@@ -320,18 +329,18 @@ data "talos_machine_configuration" "worker" {
       })
     ],
     # Custom installer image for system extensions (from Image Factory)
-    # GPU nodes use gpu_installer_image (with nvidia-container-toolkit), others use base installer_image
-    (try(each.value.gpu, false) ? var.gpu_installer_image : var.installer_image) != null ? [
+    # GPU nodes use vendor-specific installer image, others use base installer_image
+    (try(each.value.gpu, false) ? local.active_gpu_installer_image : var.installer_image) != null ? [
       yamlencode({
         machine = {
           install = {
-            image = try(each.value.gpu, false) ? coalesce(var.gpu_installer_image, var.installer_image) : var.installer_image
+            image = try(each.value.gpu, false) ? coalesce(local.active_gpu_installer_image, var.installer_image) : var.installer_image
           }
         }
       })
     ] : [],
-    # GPU-specific patches for workers with GPU enabled
-    try(each.value.gpu, false) ? [var.gpu_config_patch] : []
+    # GPU-specific patches for workers with GPU enabled (vendor-conditional)
+    try(each.value.gpu, false) && var.gpu_vendor != "none" ? [local.active_gpu_config_patch] : []
   )
 }
 
@@ -452,6 +461,15 @@ resource "proxmox_virtual_environment_vm" "controlplane" {
     ignore_changes = [
       disk,
       cdrom,
+      # Cloud-init user_data/meta_data is only read at first boot. Talos persists
+      # the config to its META partition after install, so subsequent snippet-file
+      # content changes are irrelevant to a running VM. Without ignoring this block,
+      # the BPG provider marks initialization.user_data_file_id as forces-replacement
+      # whenever the underlying proxmox_virtual_environment_file is regenerated —
+      # cascading a routine Talos machine-config edit into full VM recreation. Hot
+      # config changes flow through talos_machine_configuration_apply in the
+      # talos-cluster-config module, not through this file.
+      initialization,
     ]
   }
 }
@@ -558,6 +576,15 @@ resource "proxmox_virtual_environment_vm" "worker" {
     ignore_changes = [
       disk,
       cdrom,
+      # Cloud-init user_data/meta_data is only read at first boot. Talos persists
+      # the config to its META partition after install, so subsequent snippet-file
+      # content changes are irrelevant to a running VM. Without ignoring this block,
+      # the BPG provider marks initialization.user_data_file_id as forces-replacement
+      # whenever the underlying proxmox_virtual_environment_file is regenerated —
+      # cascading a routine Talos machine-config edit into full VM recreation. Hot
+      # config changes flow through talos_machine_configuration_apply in the
+      # talos-cluster-config module, not through this file.
+      initialization,
     ]
   }
 }

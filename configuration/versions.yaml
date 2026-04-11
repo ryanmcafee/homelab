@@ -53,6 +53,8 @@ charts:
   renovate: "46.106.12"
   # renovate: datasource=helm depName=gpu-operator registryUrl=https://helm.ngc.nvidia.com/nvidia
   nvidia-gpu-operator: "v26.3.0"
+  # renovate: datasource=helm depName=intel-device-plugins-gpu registryUrl=https://intel.github.io/helm-charts
+  intel-device-plugins-gpu: "0.35.0"
   # renovate: datasource=helm depName=oauth2-proxy registryUrl=https://oauth2-proxy.github.io/manifests
   oauth2-proxy: "10.4.2"
   # renovate: datasource=docker depName=ghcr.io/kashalls/external-dns-unifi-webhook
@@ -61,7 +63,7 @@ charts:
   traefik-oidc: "v0.8.24"
   unifi-port-forward: "1.1.x"
 images:
-  homelab-cmp: "0.1.6"
+  homelab-cmp: "0.1.7"
 tools:
   # renovate: datasource=github-releases depName=siderolabs/talos
   talos: "v1.12.6"
