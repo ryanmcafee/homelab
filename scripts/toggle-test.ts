@@ -381,6 +381,202 @@ async function renderVendor(
 }
 
 // ============================================================================
+// Assertion helpers
+// ============================================================================
+interface AssertionFailure {
+  rule: string;
+  detail: string;
+}
+
+function mustNotContain(
+  label: string,
+  haystack: string,
+  needle: string,
+  failures: AssertionFailure[],
+): void {
+  if (haystack.includes(needle)) {
+    failures.push({
+      rule: `${label} MUST NOT contain "${needle}"`,
+      detail: `found at byte offset ${haystack.indexOf(needle)}`,
+    });
+  }
+}
+
+function mustContain(
+  label: string,
+  haystack: string,
+  needle: string,
+  failures: AssertionFailure[],
+): void {
+  if (!haystack.includes(needle)) {
+    failures.push({
+      rule: `${label} MUST contain "${needle}"`,
+      detail: `not found`,
+    });
+  }
+}
+
+function assertNone(addonsYaml: string, appsYaml: string): AssertionFailure[] {
+  const f: AssertionFailure[] = [];
+  // No GPU operator Applications
+  mustNotContain("addons[none]", addonsYaml, "name: nvidia-gpu-operator", f);
+  mustNotContain(
+    "addons[none]",
+    addonsYaml,
+    "name: intel-gpu-device-plugin",
+    f,
+  );
+  // No Plex GPU bits
+  mustNotContain("apps[none]", appsYaml, "runtimeClassName: nvidia", f);
+  mustNotContain("apps[none]", appsYaml, "nvidia.com/gpu", f);
+  mustNotContain("apps[none]", appsYaml, "gpu.intel.com/xe", f);
+  mustNotContain("apps[none]", appsYaml, "mountPath: /dev/dri", f);
+  mustNotContain("apps[none]", appsYaml, "path: /dev/dri", f);
+  return f;
+}
+
+async function assertNvidia(
+  addonsYaml: string,
+  appsYaml: string,
+  outDir: string,
+): Promise<AssertionFailure[]> {
+  const f: AssertionFailure[] = [];
+  const baselineAddons = await Deno.readTextFile(
+    `${BASELINE_ROOT}/nvidia/addons.yaml`,
+  );
+  const baselineApps = await Deno.readTextFile(
+    `${BASELINE_ROOT}/nvidia/applications.yaml`,
+  );
+
+  if (addonsYaml !== baselineAddons) {
+    f.push({
+      rule: "addons[nvidia] MUST be byte-identical to baseline",
+      detail: await unifiedDiff(
+        `${BASELINE_ROOT}/nvidia/addons.yaml`,
+        `${outDir}/addons.yaml`,
+      ),
+    });
+  }
+  if (appsYaml !== baselineApps) {
+    f.push({
+      rule: "apps[nvidia] MUST be byte-identical to baseline",
+      detail: await unifiedDiff(
+        `${BASELINE_ROOT}/nvidia/applications.yaml`,
+        `${outDir}/applications.yaml`,
+      ),
+    });
+  }
+  return f;
+}
+
+function assertIntel(addonsYaml: string, appsYaml: string): AssertionFailure[] {
+  const f: AssertionFailure[] = [];
+  // Intel GPU operator Application present
+  mustContain("addons[intel]", addonsYaml, "name: intel-gpu-device-plugin", f);
+  mustContain("addons[intel]", addonsYaml, "kind: Application", f);
+  // NVIDIA operator Application absent
+  mustNotContain("addons[intel]", addonsYaml, "name: nvidia-gpu-operator", f);
+  // Plex Intel bits
+  mustContain("apps[intel]", appsYaml, "gpu.intel.com/xe", f);
+  mustContain("apps[intel]", appsYaml, "path: /dev/dri", f);
+  mustContain("apps[intel]", appsYaml, "mountPath: /dev/dri", f);
+  // Plex must NOT have NVIDIA bits
+  mustNotContain("apps[intel]", appsYaml, "runtimeClassName: nvidia", f);
+  mustNotContain("apps[intel]", appsYaml, "nvidia.com/gpu", f);
+  return f;
+}
+
+async function unifiedDiff(
+  expectedPath: string,
+  actualPath: string,
+): Promise<string> {
+  const r = await run(["diff", "-u", expectedPath, actualPath]);
+  // diff exits 1 when files differ — that's the expected case here
+  return r.stdout || r.stderr || "(no diff output)";
+}
+
+async function runAssertions(
+  vendor: Vendor,
+  outDir: string,
+): Promise<AssertionFailure[]> {
+  const addonsYaml = await Deno.readTextFile(`${outDir}/addons.yaml`);
+  const appsYaml = await Deno.readTextFile(`${outDir}/applications.yaml`);
+  switch (vendor) {
+    case "none":
+      return assertNone(addonsYaml, appsYaml);
+    case "nvidia":
+      return await assertNvidia(addonsYaml, appsYaml, outDir);
+    case "intel":
+      return assertIntel(addonsYaml, appsYaml);
+  }
+}
+
+// ============================================================================
+// Results table
+// ============================================================================
+function printResultsTable(results: VendorResult[]): void {
+  console.log("");
+  console.log("Toggle Test Results");
+  console.log("====================");
+  console.log("Vendor   Render  Lint    Kubeconform  Assertions");
+  console.log("------   ------  ----    -----------  ----------");
+  for (const r of results) {
+    const cell = (ok: boolean) => (ok ? green("PASS") : red("FAIL"));
+    const pad = (s: string, n: number) =>
+      s + " ".repeat(Math.max(0, n - stripAnsi(s).length));
+    console.log(
+      `${pad(r.vendor, 9)}${pad(cell(r.renderOk), 8)}${pad(cell(r.lintOk), 8)}${
+        pad(cell(r.kubeconformOk), 13)
+      }${cell(r.assertionsOk)}`,
+    );
+  }
+  console.log("");
+  for (const r of results) {
+    if (r.errors.length === 0) continue;
+    console.log(red(`--- ${r.vendor} errors ---`));
+    for (const e of r.errors) console.log(e);
+    console.log("");
+  }
+}
+
+// Strip ANSI color codes for padding calculation (ensures aligned columns)
+function stripAnsi(s: string): string {
+  // deno-lint-ignore no-control-regex
+  return s.replace(/\x1b\[[0-9;]*m/g, "");
+}
+
+// ============================================================================
+// Regen baseline
+// ============================================================================
+async function regenBaseline(): Promise<number> {
+  log.info(
+    "Regenerating tests/fixtures/toggle-baseline/nvidia/ from current code",
+  );
+  await ensureHomelabBinary();
+  const tmpDir = `${ARTIFACT_ROOT}/regen-nvidia`;
+  await ensureDir(tmpDir);
+  const r = await renderVendor("nvidia", tmpDir);
+  if (!r.renderOk) {
+    log.error("Regen render failed:");
+    for (const e of r.errors) console.error(e);
+    return 1;
+  }
+  await Deno.copyFile(
+    `${tmpDir}/addons.yaml`,
+    `${BASELINE_ROOT}/nvidia/addons.yaml`,
+  );
+  await Deno.copyFile(
+    `${tmpDir}/applications.yaml`,
+    `${BASELINE_ROOT}/nvidia/applications.yaml`,
+  );
+  log.ok(`Baseline regenerated at ${BASELINE_ROOT}/nvidia/`);
+  log.warn(
+    "Review the diff with `git diff tests/fixtures/toggle-baseline/` before committing.",
+  );
+  return 0;
+}
+
+// ============================================================================
 // Main
 // ============================================================================
 async function main(): Promise<number> {
@@ -389,6 +585,10 @@ async function main(): Promise<number> {
   if (args.help) {
     printHelp();
     return 0;
+  }
+
+  if (args.regenBaseline) {
+    return await regenBaseline();
   }
 
   const targetVendors: Vendor[] = args.vendor ? [args.vendor] : ALL_VENDORS;
@@ -410,37 +610,61 @@ async function main(): Promise<number> {
     return 0;
   }
 
-  if (args.regenBaseline) {
-    log.warn(
-      "Baseline regeneration not yet implemented (Plan 01 skeleton).",
+  await ensureHomelabBinary();
+
+  // Clean previous artifacts
+  try {
+    await Deno.remove(ARTIFACT_ROOT, { recursive: true });
+  } catch {
+    // ignore
+  }
+  await ensureDir(ARTIFACT_ROOT);
+
+  // Render all three vendors in parallel
+  const renderResults = await Promise.all(
+    targetVendors.map((v) => renderVendor(v, `${ARTIFACT_ROOT}/${v}`)),
+  );
+
+  // Run assertions per vendor (sequential — they read files but are cheap)
+  for (const r of renderResults) {
+    if (!r.renderOk) {
+      r.assertionsOk = false;
+      continue;
+    }
+    const failures = await runAssertions(
+      r.vendor,
+      `${ARTIFACT_ROOT}/${r.vendor}`,
     );
-    log.warn(
-      "For now, regenerate manually per tests/fixtures/toggle-baseline/README.md.",
-    );
-    return 0;
+    r.assertionsOk = failures.length === 0;
+    if (failures.length > 0) {
+      for (const f of failures) {
+        r.errors.push(`assertion: ${f.rule}\n${f.detail}`);
+      }
+    }
   }
 
-  // Plan 02 wires the real loop here. Plan 01 just exits successfully so the
-  // skeleton is invocable end-to-end.
-  log.warn("Render/assert logic not yet implemented (Plan 01 skeleton).");
-  log.warn("Run Plan 02 to enable the full toggle test.");
+  printResultsTable(renderResults);
 
-  // Demonstrate the stub is reachable without doing any real work.
-  for (const v of targetVendors) {
-    const result = await renderVendor(v, `${ARTIFACT_ROOT}/${v}`);
-    log.warn(`  ${result.vendor}: ${result.errors.join("; ")}`);
-  }
+  const allOk = renderResults.every(
+    (r) => r.renderOk && r.lintOk && r.kubeconformOk && r.assertionsOk,
+  );
 
-  // Best-effort cleanup so --keep-artifacts behaves correctly even from skeleton
   if (!args.keepArtifacts) {
     try {
       await Deno.remove(ARTIFACT_ROOT, { recursive: true });
     } catch {
-      // ignore — may not exist
+      // ignore
     }
+  } else {
+    log.info(`Artifacts retained at ${ARTIFACT_ROOT}`);
   }
 
-  return 0;
+  if (allOk) {
+    log.ok("All toggle states pass (TGL-01..TGL-04)");
+    return 0;
+  }
+  log.error("One or more toggle states failed — see table above");
+  return 1;
 }
 
 if (import.meta.main) {
