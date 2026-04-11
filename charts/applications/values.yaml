@@ -490,12 +490,17 @@ nzbget:
             # the same three values via `kubectl exec sed -i ...` after the
             # pod first crashes.
             resources:
+              # Bumped from 256Mi/1Gi after nzbget-584d9c95cc-jwnkg was OOMKilled
+              # within 7 seconds of startup on a 1Gi limit. v26 of nzbget appears
+              # to use significantly more memory at startup than v25 (probably
+              # due to the new par2 + unpack subsystems). 1Gi was sufficient
+              # historically; bump to 2Gi to give headroom for active unpacking.
               requests:
                 cpu: 100m
-                memory: 256Mi
+                memory: 512Mi
               limits:
                 cpu: 2000m
-                memory: 1Gi
+                memory: 2Gi
 
   # Persistence configuration
   persistence:
