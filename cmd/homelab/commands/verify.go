@@ -16,11 +16,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// gpuNode is the single GPU worker node in this homelab. Hardcoding is
-// acceptable per plan 07-01 (single-GPU topology) and is a compile-time
-// constant — never interpolated from user input (threat T-07-01).
-const gpuNode = "worker-1"
-
 // perCheckTimeout bounds every individual cluster query. The parent cobra
 // RunE wraps the full dispatch in a 2-minute deadline; this prevents any
 // one check from consuming the whole budget (threat T-07-03).
@@ -168,15 +163,15 @@ func stderrOf(err error) error {
 // resolved from `GPU_VENDOR` in the homelab config pipeline. The vendor
 // string MUST come from the schema-validated config pipeline — never from
 // os.Getenv (threat T-07-05).
-func verifyGPU(ctx context.Context, vendor string, runner gpuCheckRunner) error {
+func verifyGPU(ctx context.Context, vendor, node string, runner gpuCheckRunner) error {
 	switch vendor {
 	case "none":
 		logger.Info("GPU_VENDOR=none — skipping GPU checks (expected on GPU-free clones)")
 		return nil
 	case "nvidia":
-		return verifyNvidiaGPU(ctx, runner)
+		return verifyNvidiaGPU(ctx, node, runner)
 	case "intel":
-		return verifyIntelGPU(ctx, runner)
+		return verifyIntelGPU(ctx, node, runner)
 	case "":
 		return fmt.Errorf("GPU_VENDOR not set in resolved config")
 	default:
@@ -185,7 +180,7 @@ func verifyGPU(ctx context.Context, vendor string, runner gpuCheckRunner) error 
 }
 
 // verifyNvidiaGPU runs the NVIDIA-specific check set.
-func verifyNvidiaGPU(ctx context.Context, runner gpuCheckRunner) error {
+func verifyNvidiaGPU(ctx context.Context, node string, runner gpuCheckRunner) error {
 	logger.Info("Running NVIDIA GPU verification...")
 
 	ok, err := runner.RuntimeClassExists(ctx, "nvidia")
@@ -197,18 +192,18 @@ func verifyNvidiaGPU(ctx context.Context, runner gpuCheckRunner) error {
 	}
 	logger.OK("RuntimeClass 'nvidia' present")
 
-	alloc, err := runner.NodeAllocatable(ctx, gpuNode)
+	alloc, err := runner.NodeAllocatable(ctx, node)
 	if err != nil {
 		return fmt.Errorf("nvidia check %q failed: %w", "allocatable", err)
 	}
 	qty, ok := alloc["nvidia.com/gpu"]
 	if !ok {
-		return fmt.Errorf("nvidia check %q failed: resource nvidia.com/gpu not advertised on %s", "allocatable", gpuNode)
+		return fmt.Errorf("nvidia check %q failed: resource nvidia.com/gpu not advertised on %s", "allocatable", node)
 	}
 	if n, _ := strconv.Atoi(qty); n < 1 {
-		return fmt.Errorf("nvidia check %q failed: nvidia.com/gpu=%s on %s (want >=1)", "allocatable", qty, gpuNode)
+		return fmt.Errorf("nvidia check %q failed: nvidia.com/gpu=%s on %s (want >=1)", "allocatable", qty, node)
 	}
-	logger.OK(fmt.Sprintf("nvidia.com/gpu=%s on %s", qty, gpuNode))
+	logger.OK(fmt.Sprintf("nvidia.com/gpu=%s on %s", qty, node))
 
 	healthy, err := runner.NamespacePodsHealthy(ctx, "gpu-operator")
 	if err != nil {
@@ -223,21 +218,21 @@ func verifyNvidiaGPU(ctx context.Context, runner gpuCheckRunner) error {
 }
 
 // verifyIntelGPU runs the Intel-specific check set.
-func verifyIntelGPU(ctx context.Context, runner gpuCheckRunner) error {
+func verifyIntelGPU(ctx context.Context, node string, runner gpuCheckRunner) error {
 	logger.Info("Running Intel GPU verification...")
 
-	alloc, err := runner.NodeAllocatable(ctx, gpuNode)
+	alloc, err := runner.NodeAllocatable(ctx, node)
 	if err != nil {
 		return fmt.Errorf("intel check %q failed: %w", "allocatable", err)
 	}
 	qty, ok := alloc["gpu.intel.com/xe"]
 	if !ok {
-		return fmt.Errorf("intel check %q failed: resource gpu.intel.com/xe not advertised on %s", "allocatable", gpuNode)
+		return fmt.Errorf("intel check %q failed: resource gpu.intel.com/xe not advertised on %s", "allocatable", node)
 	}
 	if n, _ := strconv.Atoi(qty); n < 1 {
-		return fmt.Errorf("intel check %q failed: gpu.intel.com/xe=%s on %s (want >=1)", "allocatable", qty, gpuNode)
+		return fmt.Errorf("intel check %q failed: gpu.intel.com/xe=%s on %s (want >=1)", "allocatable", qty, node)
 	}
-	logger.OK(fmt.Sprintf("gpu.intel.com/xe=%s on %s", qty, gpuNode))
+	logger.OK(fmt.Sprintf("gpu.intel.com/xe=%s on %s", qty, node))
 
 	healthy, err := runner.NamespacePodsHealthy(ctx, "intel-device-plugins")
 	if err != nil {
@@ -271,9 +266,9 @@ func verifyIntelGPU(ctx context.Context, runner gpuCheckRunner) error {
 
 // printGPUStatus prints a read-only status summary without failing on
 // individual check errors (status mode is advisory, not a health gate).
-func printGPUStatus(ctx context.Context, vendor string, runner gpuCheckRunner) {
+func printGPUStatus(ctx context.Context, vendor, node string, runner gpuCheckRunner) {
 	logger.Info(fmt.Sprintf("Active vendor: %s", vendor))
-	logger.Info(fmt.Sprintf("Target node:   %s", gpuNode))
+	logger.Info(fmt.Sprintf("Target node:   %s", node))
 
 	if vendor == "none" {
 		logger.Info("Status: GPU support disabled (GPU_VENDOR=none)")
@@ -281,7 +276,7 @@ func printGPUStatus(ctx context.Context, vendor string, runner gpuCheckRunner) {
 	}
 
 	// Allocatable (applies to both nvidia + intel)
-	alloc, err := runner.NodeAllocatable(ctx, gpuNode)
+	alloc, err := runner.NodeAllocatable(ctx, node)
 	if err != nil {
 		logger.Info(fmt.Sprintf("allocatable: unavailable (%v)", err))
 	} else {
@@ -293,9 +288,9 @@ func printGPUStatus(ctx context.Context, vendor string, runner gpuCheckRunner) {
 			resource = "gpu.intel.com/xe"
 		}
 		if qty, ok := alloc[resource]; ok {
-			logger.OK(fmt.Sprintf("%s=%s on %s", resource, qty, gpuNode))
+			logger.OK(fmt.Sprintf("%s=%s on %s", resource, qty, node))
 		} else {
-			logger.Info(fmt.Sprintf("%s: not advertised on %s", resource, gpuNode))
+			logger.Info(fmt.Sprintf("%s: not advertised on %s", resource, node))
 		}
 	}
 
@@ -351,21 +346,44 @@ func newVerifyGPUCmd() *cobra.Command {
 				return fmt.Errorf("loading resolved config: %w", err)
 			}
 			vendor := rc.Values["GPU_VENDOR"].Value
-			logger.Info(fmt.Sprintf("  Active vendor: %s", vendor))
-			logger.Info(fmt.Sprintf("  Target node:   %s", gpuNode))
-			fmt.Println()
 
 			ctx, cancel := context.WithTimeout(cmd.Context(), 2*time.Minute)
 			defer cancel()
 
+			// Resolve the K8s node name by the GPU worker's InternalIP
+			// from the resolved config. The single-GPU topology pins this
+			// to WORKER1_IP. The IP comes from schema-validated config;
+			// the name comes from cluster state — neither is user input
+			// (threat T-07-01 mitigated).
+			var node string
+			if vendor != "none" {
+				gpuIP := rc.Values["WORKER1_IP"].Value
+				if gpuIP == "" {
+					return fmt.Errorf("WORKER1_IP missing from resolved config")
+				}
+				n, rerr := resolveK8sNodeByIP(ctx, gpuIP)
+				if rerr != nil {
+					return fmt.Errorf("resolving GPU K8s node by InternalIP %s: %w", gpuIP, rerr)
+				}
+				node = n
+			}
+
+			logger.Info(fmt.Sprintf("  Active vendor: %s", vendor))
+			if node != "" {
+				logger.Info(fmt.Sprintf("  Target node:   %s", node))
+			} else {
+				logger.Info("  Target node:   n/a (GPU disabled)")
+			}
+			fmt.Println()
+
 			runner := kubectlGPUCheckRunner{}
 
 			if statusOnly {
-				printGPUStatus(ctx, vendor, runner)
+				printGPUStatus(ctx, vendor, node, runner)
 				return nil
 			}
 
-			if err := verifyGPU(ctx, vendor, runner); err != nil {
+			if err := verifyGPU(ctx, vendor, node, runner); err != nil {
 				logger.Error(err.Error())
 				return err
 			}

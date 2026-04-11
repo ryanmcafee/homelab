@@ -63,7 +63,7 @@ charts:
   traefik-oidc: "v0.8.24"
   unifi-port-forward: "1.1.x"
 images:
-  homelab-cmp: "0.1.10"
+  homelab-cmp: "0.1.11"
 tools:
   # renovate: datasource=github-releases depName=siderolabs/talos
   talos: "v1.12.6"

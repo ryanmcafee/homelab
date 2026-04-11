@@ -81,29 +81,53 @@ func runTalosRecreate(node string, skipDrain bool) error {
 		return err
 	}
 
+	// Resolve the InternalIP for this terragrunt node key. Talos assigns
+	// random K8s hostnames that do NOT match terragrunt keys, so every
+	// kubectl op must go through IP → name lookup.
+	rc, cerr := loadResolvedConfig()
+	if cerr != nil {
+		return fmt.Errorf("loading resolved config: %w", cerr)
+	}
+	ipKey := workerIPConfigKey(node)
+	nodeIP := rc.Values[ipKey].Value
+	if nodeIP == "" {
+		return fmt.Errorf("resolved config missing %s (required to map %s → K8s node)", ipKey, node)
+	}
+	logger.Info(fmt.Sprintf("Resolved terragrunt key %q → InternalIP %s", node, nodeIP))
+
 	if !AutoAccept && !DryRun {
-		msg := fmt.Sprintf("This will DESTROY and recreate the Proxmox VM for node %q. Continue?", node)
+		msg := fmt.Sprintf("This will DESTROY and recreate the Proxmox VM for node %q (IP %s). Continue?", node, nodeIP)
 		if !utils.Confirm(msg) {
-			logger.Warn("Aborted by user")
-			return nil
+			return fmt.Errorf("recreate aborted: user declined confirmation")
 		}
 	}
 
-	logger.Info(fmt.Sprintf("Step 1/6: Current state of node %q", node))
-	_ = streamCmd("", "", "", "kubectl", "get", "node", node, "-o", "wide")
+	ctx := context.Background()
 
-	logger.Info(fmt.Sprintf("Step 2/6: Cordoning node %q", node))
-	if err := streamCmd("", "", "", "kubectl", "cordon", node); err != nil {
-		logger.Warn(fmt.Sprintf("Cordon failed (continuing): %v", err))
+	preK8sName, lookupErr := resolveK8sNodeByIP(ctx, nodeIP)
+	if lookupErr != nil {
+		logger.Warn(fmt.Sprintf("Step 1/6: No existing K8s node at %s (%v) — continuing", nodeIP, lookupErr))
+	} else {
+		logger.Info(fmt.Sprintf("Step 1/6: Current K8s node at %s: %s", nodeIP, preK8sName))
+		_ = streamCmd("", "", "", "kubectl", "get", "node", preK8sName, "-o", "wide")
 	}
 
-	effectiveSkipDrain := skipDrain
+	if preK8sName != "" {
+		logger.Info(fmt.Sprintf("Step 2/6: Cordoning node %q", preK8sName))
+		if err := streamCmd("", "", "", "kubectl", "cordon", preK8sName); err != nil {
+			logger.Warn(fmt.Sprintf("Cordon failed (continuing): %v", err))
+		}
+	} else {
+		logger.Warn("Step 2/6: SKIPPED cordon (no existing K8s node at that IP)")
+	}
+
+	effectiveSkipDrain := skipDrain || preK8sName == ""
 	if !effectiveSkipDrain {
-		ready, rerr := isNodeReady(node)
+		ready, rerr := isNodeReady(preK8sName)
 		if rerr != nil {
 			logger.Warn(fmt.Sprintf("Could not determine node Ready state (%v); proceeding with drain anyway", rerr))
 		} else if !ready {
-			logger.Warn(fmt.Sprintf("Node %q is NotReady — auto-skipping drain (pods cannot be evicted from a stopped kubelet)", node))
+			logger.Warn(fmt.Sprintf("Node %q is NotReady — auto-skipping drain (pods cannot be evicted from a stopped kubelet)", preK8sName))
 			effectiveSkipDrain = true
 		}
 	}
@@ -111,13 +135,13 @@ func runTalosRecreate(node string, skipDrain bool) error {
 	if effectiveSkipDrain {
 		logger.Warn("Step 3/6: SKIPPED drain")
 	} else {
-		logger.Info(fmt.Sprintf("Step 3/6: Draining node %q (timeout %s)", node, talosDrainTimeout))
+		logger.Info(fmt.Sprintf("Step 3/6: Draining node %q (timeout %s)", preK8sName, talosDrainTimeout))
 		if err := streamCmd("", "", "",
-			"kubectl", "drain", node,
+			"kubectl", "drain", preK8sName,
 			"--ignore-daemonsets", "--delete-emptydir-data",
 			"--force", "--timeout="+talosDrainTimeout,
 		); err != nil {
-			return fmt.Errorf("drain node %q: %w", node, err)
+			return fmt.Errorf("drain node %q: %w", preK8sName, err)
 		}
 	}
 
@@ -133,20 +157,55 @@ func runTalosRecreate(node string, skipDrain bool) error {
 		return fmt.Errorf("terragrunt apply -replace=%s: %w", address, err)
 	}
 
-	logger.Info(fmt.Sprintf("Step 6/6: Waiting up to %s for %q to become Ready, then uncordoning", talosReadyTimeout, node))
-	if err := streamCmd("", "", "",
-		"kubectl", "wait",
-		"--for=condition=Ready", "node/"+node,
-		"--timeout="+talosReadyTimeout,
-	); err != nil {
-		return fmt.Errorf("wait for node %q Ready: %w", node, err)
+	logger.Info(fmt.Sprintf("Step 6/6: Waiting up to %s for a new Ready K8s node at %s", talosReadyTimeout, nodeIP))
+	newK8sName, werr := waitForNewReadyNodeByIP(ctx, nodeIP, preK8sName, 20*time.Minute)
+	if werr != nil {
+		return werr
 	}
-	if err := streamCmd("", "", "", "kubectl", "uncordon", node); err != nil {
+	logger.OK(fmt.Sprintf("New K8s node %q is Ready at %s", newK8sName, nodeIP))
+
+	if err := streamCmd("", "", "", "kubectl", "uncordon", newK8sName); err != nil {
 		logger.Warn(fmt.Sprintf("Uncordon failed: %v", err))
 	}
 
-	logger.OK(fmt.Sprintf("Node %q recreated and Ready", node))
+	// Talos assigns a fresh random hostname on every boot, so the old
+	// K8s node entry is stale and will never come back Ready. Delete it
+	// so downstream verify steps see a clean cluster view.
+	if preK8sName != "" && preK8sName != newK8sName {
+		logger.Info(fmt.Sprintf("Deleting stale K8s node entry %q", preK8sName))
+		if err := streamCmd("", "", "", "kubectl", "delete", "node", preK8sName); err != nil {
+			logger.Warn(fmt.Sprintf("Delete stale node %q failed (non-fatal): %v", preK8sName, err))
+		}
+	}
+
+	logger.OK(fmt.Sprintf("Node %q recreated and Ready (K8s name: %s)", node, newK8sName))
 	return nil
+}
+
+// waitForNewReadyNodeByIP polls kubectl until a K8s node whose InternalIP
+// matches ip is Ready. If oldName is non-empty it also requires the
+// resolved name to differ from oldName (so we do not accept the stale
+// pre-recreate entry). The name differs because Talos assigns a new
+// random hostname on every boot.
+func waitForNewReadyNodeByIP(ctx context.Context, ip, oldName string, timeout time.Duration) (string, error) {
+	if utils.DryRun {
+		return "dry-run-node", nil
+	}
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		name, err := resolveK8sNodeByIP(ctx, ip)
+		if err == nil && name != "" && name != oldName {
+			if ready, _ := isNodeReady(name); ready {
+				return name, nil
+			}
+		}
+		select {
+		case <-ctx.Done():
+			return "", ctx.Err()
+		case <-time.After(15 * time.Second):
+		}
+	}
+	return "", fmt.Errorf("timed out after %s waiting for a new Ready K8s node at %s (old=%q)", timeout, ip, oldName)
 }
 
 // resolveTalosClusterDir returns an absolute path to the talos-cluster
@@ -249,7 +308,9 @@ func lookupVMResourceAddress(moduleDir, opEnvFile, node string) (string, error) 
 		return fmt.Sprintf(`proxmox_virtual_environment_vm.worker["%s"]`, node), nil
 	}
 
-	c := exec.Command("op", "run", "--env-file="+opEnvFile, "--", "terragrunt", "state", "list")
+	// --no-masking: op otherwise redacts "proxmox" from stdout (it appears in
+	// concealed env values), which prevents vmAddressRe from matching.
+	c := exec.Command("op", "run", "--no-masking", "--env-file="+opEnvFile, "--", "terragrunt", "state", "list")
 	c.Dir = moduleDir
 	c.Env = os.Environ()
 	var stderr strings.Builder

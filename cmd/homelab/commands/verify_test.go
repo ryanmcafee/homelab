@@ -213,7 +213,7 @@ func TestVerifyGPUDispatch(t *testing.T) {
 				tt.setup(f)
 			}
 
-			err := verifyGPU(context.Background(), tt.vendor, f)
+			err := verifyGPU(context.Background(), tt.vendor, "worker-1", f)
 
 			if tt.wantErr && err == nil {
 				t.Fatalf("expected error, got nil (calls=%v)", f.calls)
@@ -317,7 +317,7 @@ func TestPrintGPUStatus(t *testing.T) {
 
 			// printGPUStatus has no return value; the contract is
 			// "never panics, returns normally".
-			printGPUStatus(context.Background(), tt.vendor, f)
+			printGPUStatus(context.Background(), tt.vendor, "worker-1", f)
 
 			if tt.wantCalls && len(f.calls) == 0 {
 				t.Fatalf("expected runner calls for vendor=%s, got none", tt.vendor)

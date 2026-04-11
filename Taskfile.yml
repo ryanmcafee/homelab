@@ -573,17 +573,17 @@ tasks:
 
   talos:recreate:node:
     desc: Recreate a Talos node via terragrunt taint + apply
+    prompt: This will destroy and recreate the Talos VM for node {{.NODE}}. Continue?
     vars:
       NODE: '{{.NODE | default "worker-1"}}'
     cmds:
-      - ./bin/homelab talos recreate --node={{.NODE}} --skip-drain
+      - ./bin/homelab -y talos recreate --node={{.NODE}} --skip-drain
 
   talos:recreate:gpu-node:
     desc: Recreate GPU node (worker-1) with new image and verify GPU support
+    prompt: This will destroy and recreate worker-1 and then verify GPU support. Continue?
     cmds:
-      - task: talos:recreate:node
-        vars:
-          NODE: worker-1
+      - ./bin/homelab -y talos recreate --node=worker-1 --skip-drain
       - ./bin/homelab verify gpu
 
   gpu:verify:
