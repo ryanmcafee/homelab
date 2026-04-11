@@ -414,7 +414,7 @@ tasks:
     deps:
       - render:sync:silent
     cmds:
-      - op run --env-file={{.ROOT_DIR}}/.env.op -- terragrunt run-all apply --terragrunt-non-interactive --auto-approve
+      - op run --env-file={{.ROOT_DIR}}/.env.op -- terragrunt run-all apply --non-interactive --auto-approve
     vars:
       ENV: '{{.ENV | default "homelab"}}'
 
@@ -422,7 +422,7 @@ tasks:
     desc: Run Terragrunt apply for a specific component
     dir: terragrunt/environments/{{.ENV}}/{{.COMPONENT}}
     cmds:
-      - op run --env-file={{.ROOT_DIR}}/.env.op -- terragrunt apply --terragrunt-non-interactive --auto-approve
+      - op run --env-file={{.ROOT_DIR}}/.env.op -- terragrunt apply --non-interactive --auto-approve
     vars:
       ENV: '{{.ENV | default "homelab"}}'
       COMPONENT: '{{.COMPONENT}}'
@@ -431,7 +431,7 @@ tasks:
     desc: Destroy infrastructure (use with caution)
     dir: terragrunt/environments/{{.ENV}}
     cmds:
-      - op run --env-file={{.ROOT_DIR}}/.env.op -- terragrunt run-all destroy --terragrunt-non-interactive --auto-approve
+      - op run --env-file={{.ROOT_DIR}}/.env.op -- terragrunt run-all destroy --non-interactive --auto-approve
     vars:
       ENV: '{{.ENV | default "homelab"}}'
     prompt: Are you sure you want to destroy the {{.ENV}} environment?
@@ -440,7 +440,7 @@ tasks:
     desc: Destroy a specific component (use with caution)
     dir: terragrunt/environments/{{.ENV}}/{{.COMPONENT}}
     cmds:
-      - op run --env-file={{.ROOT_DIR}}/.env.op -- terragrunt destroy --terragrunt-non-interactive --auto-approve
+      - op run --env-file={{.ROOT_DIR}}/.env.op -- terragrunt destroy --non-interactive --auto-approve
     vars:
       ENV: '{{.ENV | default "homelab"}}'
       COMPONENT: '{{.COMPONENT}}'
@@ -569,14 +569,14 @@ tasks:
     desc: Regenerate Talos image with updated extensions
     dir: terragrunt/environments/homelab/talos-image
     cmds:
-      - op run --env-file={{.ROOT_DIR}}/.env.op -- terragrunt apply --terragrunt-non-interactive --auto-approve
+      - op run --env-file={{.ROOT_DIR}}/.env.op -- terragrunt apply --non-interactive --auto-approve
 
   talos:recreate:node:
     desc: Recreate a Talos node via terragrunt taint + apply
     vars:
       NODE: '{{.NODE | default "worker-1"}}'
     cmds:
-      - ./bin/homelab talos recreate --node={{.NODE}}
+      - ./bin/homelab talos recreate --node={{.NODE}} --skip-drain
 
   talos:recreate:gpu-node:
     desc: Recreate GPU node (worker-1) with new image and verify GPU support

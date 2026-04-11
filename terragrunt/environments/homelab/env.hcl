@@ -121,8 +121,8 @@ locals {
   }
 
   # GPU vendor selection (matches configuration/environments/homelab.yaml GPU_VENDOR)
-  # Phase 7 flips to "intel" after hardware bring-up verification
-  gpu_vendor = "nvidia"
+  # Phase 7 flipped to "intel" 2026-04-11T04:31:32Z after hardware bring-up verification
+  gpu_vendor = "intel"
 
   # GPU passthrough (NVIDIA Quadro P2200)
   # Verified via: ssh root@172.16.100.250 'lspci -nn | grep -i nvidia'
