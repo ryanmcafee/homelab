@@ -568,8 +568,12 @@ async function regenBaseline(): Promise<number> {
   const tmpDir = `${ARTIFACT_ROOT}/regen-nvidia`;
   await ensureDir(tmpDir);
   const r = await renderVendor("nvidia", tmpDir);
-  if (!r.renderOk) {
-    log.error("Regen render failed:");
+  // Gate baseline overwrites on ALL pre-flight checks (render + lint + kubeconform).
+  // Without this, a broken render (schema regression, CRD typo, sync-wave mistake)
+  // would silently become the new baseline and compare broken-vs-broken on the next
+  // toggle-test run, masking the regression indefinitely.
+  if (!r.renderOk || !r.lintOk || !r.kubeconformOk) {
+    log.error("Regen pre-flight failed; refusing to overwrite baseline:");
     for (const e of r.errors) console.error(e);
     return 1;
   }
