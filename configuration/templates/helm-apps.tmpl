@@ -471,15 +471,18 @@ nzbget:
             # override syntax, so we cannot pass these as args from the chart.
             # The PVC at /config/nzbget.conf is hand-fixed (lines 11/71/1533).
             resources:
-              # Bumped from 256Mi/1Gi after nzbget v26 OOMKilled within 7s of
-              # startup on the old 1Gi limit. v26 uses significantly more
-              # memory than v25 (likely the new par2/unpack subsystems).
+              # Bumped from 256Mi/1Gi → 512Mi/2Gi → 1Gi/4Gi as nzbget v26 kept
+              # OOMing on smaller limits. At 1Gi: dead in 7s during startup.
+              # At 2Gi: survives ~88s into active unrar of large files before
+              # OOMKill. v26's par2 + unpack subsystems hold the entire output
+              # buffer in memory while extracting, so peaks track the largest
+              # file in the archive set (4K BluRay REMUX easily exceeds 2Gi).
               requests:
                 cpu: 100m
-                memory: 512Mi
+                memory: 1Gi
               limits:
                 cpu: 1000m
-                memory: 2Gi
+                memory: 4Gi
 
   persistence:
     config:
