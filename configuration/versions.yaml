@@ -18,7 +18,7 @@ charts:
   # renovate: datasource=helm depName=democratic-csi registryUrl=https://democratic-csi.github.io/charts/
   democratic-csi: "0.15.1"
   # renovate: datasource=helm depName=kubelet-csr-approver registryUrl=https://postfinance.github.io/kubelet-csr-approver
-  kubelet-csr-approver: "1.2.13"
+  kubelet-csr-approver: "1.2.14"
   # renovate: datasource=helm depName=connect registryUrl=https://1password.github.io/connect-helm-charts
   onepassword-connect: "2.4.1"
   # renovate: datasource=docker depName=ghcr.io/spegel-org/helm-charts/spegel
