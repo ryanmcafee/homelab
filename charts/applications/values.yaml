@@ -480,20 +480,15 @@ nzbget:
       podSpec:
         containers:
           main:
-            # nzbget v26 made Paths.MainDir and Paths.ScriptDir REQUIRED, and
-            # the truecharts/forge image renamed the bundled 7-zip binary from
-            # /usr/bin/7za to /usr/bin/7z. The persisted /config/nzbget.conf
-            # in the existing PVC predates v26 and is missing all three —
-            # nzbget refuses to start. Override at startup via the documented
-            # `-o Section.Key=value` flags so we don't have to mutate the
-            # config file inside the PVC.
-            args:
-              - "-o"
-              - "Paths.MainDir=/downloads"
-              - "-o"
-              - "Paths.ScriptDir=/config/scripts"
-              - "-o"
-              - "Unpack.SevenZipCmd=/usr/bin/7z"
+            # NOTE: nzbget v26 made `MainDir` and `ScriptDir` REQUIRED and
+            # renamed the bundled 7-zip from /usr/bin/7za to /usr/bin/7z. The
+            # PVC at /config/nzbget.conf has been hand-fixed (lines 11/71/1533)
+            # to set MainDir=/downloads, ScriptDir=/config/scripts, and
+            # SevenZipCmd=/usr/bin/7z. nzbget v26 rejects the dotted
+            # `-o Section.Key=value` CLI override syntax, so we cannot pass
+            # these as args from the chart. If the PVC is ever lost, restore
+            # the same three values via `kubectl exec sed -i ...` after the
+            # pod first crashes.
             resources:
               requests:
                 cpu: 100m
