@@ -73,13 +73,16 @@ plex:
     feature.node.kubernetes.io/pci-0300_10de.present: "true"
 {{- else if eq .Values.GPU_VENDOR.Value "intel" }}
 
-  # Node selector for GPU-enabled nodes.
-  # NFD's default PCI label format is pci-<class>_<vendor>.present where 0300
-  # is the PCI class code for "Display controller" and 8086 is Intel's vendor
-  # ID. Using the short pci-8086.present form would never match because NFD
-  # only emits the long form.
+  # Node selector for GPU-enabled nodes. The Intel GPU device plugin's
+  # `intel-gpu-platform-labeling` NodeFeatureRule sets
+  # `intel.feature.node.kubernetes.io/gpu=true` on every node where the plugin
+  # successfully identifies an Intel GPU — strictly better than the generic PCI
+  # vendor label because it confirms the device plugin actually recognized the
+  # GPU (not just that a PCI device with vendor 8086 exists). The
+  # GpuDevicePlugin CR uses this same label as its own nodeSelector, so Plex
+  # aligns with the canonical Intel-side convention.
   nodeSelector:
-    feature.node.kubernetes.io/pci-0300_8086.present: "true"
+    intel.feature.node.kubernetes.io/gpu: "true"
 {{- end }}
 
   # GPU vendor selection (from GPU_VENDOR config flag)
@@ -107,9 +110,14 @@ plex:
       limits:
         cpu: 4000m
         memory: 16Gi
-{{- if eq .Values.GPU_VENDOR.Value "intel" }}
-        gpu.intel.com/xe: 1
-{{- end }}
+    # NOTE: gpu.intel.com/xe resource limit intentionally NOT set yet.
+    # The intel-gpu-device-plugin DaemonSet is Running on talos-lz1-3u1 but is
+    # not advertising gpu.intel.com/xe in node allocatable (plugin logs cut off
+    # after "GPU (i915/xe) resource share count = 1" with no advertisement
+    # events; likely Talos /dev/dri/by-path layout incompatibility). Plex gets
+    # /dev/dri via the hostPath mount in plex.yaml's Intel branch and uses the
+    # GPU directly via the xe driver. Re-add the resource limit once the
+    # device plugin actually advertises the resource.
 
   # Persistence configuration
   persistence:
@@ -457,6 +465,20 @@ nzbget:
       podSpec:
         containers:
           main:
+            # nzbget v26 made Paths.MainDir and Paths.ScriptDir REQUIRED, and
+            # the truecharts/forge image renamed the bundled 7-zip binary from
+            # /usr/bin/7za to /usr/bin/7z. The persisted /config/nzbget.conf
+            # in the existing PVC predates v26 and is missing all three —
+            # nzbget refuses to start. Override at startup via the documented
+            # `-o Section.Key=value` flags so we don't have to mutate the
+            # config file inside the PVC.
+            args:
+              - "-o"
+              - "Paths.MainDir=/downloads"
+              - "-o"
+              - "Paths.ScriptDir=/config/scripts"
+              - "-o"
+              - "Unpack.SevenZipCmd=/usr/bin/7z"
             resources:
               requests:
                 cpu: 100m
