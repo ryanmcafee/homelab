@@ -137,7 +137,7 @@ argocd:
       # Init container to install ksops (binaries baked into CMP image)
       initContainers:
         - name: install-ksops
-          image: ghcr.io/ryanmcafee/homelab-cmp:0.1.6
+          image: ghcr.io/ryanmcafee/homelab-cmp:0.1.7
           command: ["/bin/cp"]
           args: ["/usr/local/bin/ksops", "/usr/local/bin/kustomize", "/custom-tools/"]
           volumeMounts:
@@ -146,7 +146,7 @@ argocd:
       # CMP sidecar for homelab config plugin
       extraContainers:
         - name: homelab-cmp
-          image: ghcr.io/ryanmcafee/homelab-cmp:0.1.6
+          image: ghcr.io/ryanmcafee/homelab-cmp:0.1.7
           command: [/var/run/argocd/argocd-cmp-server]
           securityContext:
             runAsNonRoot: true
