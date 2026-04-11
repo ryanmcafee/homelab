@@ -490,17 +490,19 @@ nzbget:
             # the same three values via `kubectl exec sed -i ...` after the
             # pod first crashes.
             resources:
-              # Bumped from 256Mi/1Gi after nzbget-584d9c95cc-jwnkg was OOMKilled
-              # within 7 seconds of startup on a 1Gi limit. v26 of nzbget appears
-              # to use significantly more memory at startup than v25 (probably
-              # due to the new par2 + unpack subsystems). 1Gi was sufficient
-              # historically; bump to 2Gi to give headroom for active unpacking.
+              # Bumped from 256Mi/1Gi → 512Mi/2Gi → 1Gi/4Gi as nzbget v26 keeps
+              # OOMing on the previous limit. At 1Gi: dead in 7s during startup.
+              # At 2Gi: survives ~88s into active unrar of large files (Captain
+              # America REMUX HEVC, BluRay-class) before OOMKill. v26's par2 +
+              # unpack subsystems hold the entire output buffer in memory while
+              # extracting, so peaks track the largest file in the archive set.
+              # 4Gi gives headroom for 4K BluRay REMUX (~50GB) extractions.
               requests:
                 cpu: 100m
-                memory: 512Mi
+                memory: 1Gi
               limits:
                 cpu: 2000m
-                memory: 2Gi
+                memory: 4Gi
 
   # Persistence configuration
   persistence:
