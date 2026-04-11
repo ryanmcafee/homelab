@@ -5,7 +5,11 @@ metadata:
   name: ingress-verification
   namespace: {{ .Values.namespace }}
 spec:
-  schedule: {{ .Values.ingressVerification.schedule | quote }}
+  # CronWorkflow schema in Argo Workflows v3.6+ renamed `schedule` (string) to
+  # `schedules` (array) for multi-cron support. Keep the values key singular so
+  # env overrides stay simple; wrap it into the array here.
+  schedules:
+    - {{ .Values.ingressVerification.schedule | quote }}
   concurrencyPolicy: Replace
   successfulJobsHistoryLimit: 2
   failedJobsHistoryLimit: 2
