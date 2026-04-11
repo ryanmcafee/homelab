@@ -1,15 +1,22 @@
 {{- if index .Values "intel-device-plugins-operator" "enabled" }}
 ---
-# Namespace for Intel Device Plugins Operator
-# Installs the operator controller and the GpuDevicePlugin/NodeFeatureRule CRDs
-# that the intel-gpu-device-plugin chart (wave 10) depends on. Without this,
-# the intel-gpu-device-plugin sync fails with:
-#   "The Kubernetes API could not find deviceplugin.intel.com/GpuDevicePlugin
-#    ... Make sure the \"GpuDevicePlugin\" CRD is installed on the destination cluster."
+# Shared namespace for the Intel Device Plugins operator AND the
+# intel-gpu-device-plugin. Owned by the operator template (this file) because
+# the operator syncs at wave 9, one wave before the plugin at wave 10. The
+# plugin template intentionally does NOT declare this Namespace — declaring it
+# in both produces a "RepeatedResourceWarning" on the addons app and makes
+# ArgoCD's sync engine fight over the labels.
+#
+# Privileged PodSecurity is required because the GPU device plugin DaemonSet
+# mounts /dev/dri (a hostPath device) — baseline rejects it.
 apiVersion: v1
 kind: Namespace
 metadata:
   name: {{ index .Values "intel-device-plugins-operator" "namespace" }}
+  labels:
+    pod-security.kubernetes.io/enforce: privileged
+    pod-security.kubernetes.io/audit: privileged
+    pod-security.kubernetes.io/warn: privileged
   annotations:
     argocd.argoproj.io/sync-wave: "9"
 ---

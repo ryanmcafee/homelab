@@ -81,15 +81,19 @@ plex:
     vendor: "none"
 
     # NVIDIA GPU settings (Quadro P2200)
+    # NFD's default PCI label format is pci-<class>_<vendor>.present where 0300
+    # is the PCI class code for "Display controller" and 10de is NVIDIA's vendor
+    # ID. The short pci-10de.present form is NOT emitted by NFD's default
+    # source config — using it as a nodeSelector would leave the pod Pending.
     nvidia:
       runtimeClassName: nvidia
       nodeSelector:
-        feature.node.kubernetes.io/pci-10de.present: "true"
+        feature.node.kubernetes.io/pci-0300_10de.present: "true"
 
-    # Intel GPU settings (Arc Pro B50)
+    # Intel GPU settings (Arc Pro B50). Same NFD long-form rationale — see above.
     intel:
       nodeSelector:
-        feature.node.kubernetes.io/pci-8086.present: "true"
+        feature.node.kubernetes.io/pci-0300_8086.present: "true"
       resources:
         limits:
           gpu.intel.com/xe: 1
