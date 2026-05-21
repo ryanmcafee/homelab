@@ -4,7 +4,7 @@
 
 charts:
   # renovate: datasource=helm depName=argo-cd registryUrl=https://argoproj.github.io/argo-helm
-  argocd: "9.4.15"
+  argocd: "9.5.15"
   # renovate: datasource=helm depName=cilium registryUrl=https://helm.cilium.io/
   cilium: "1.19.2"
   # renovate: datasource=helm depName=cert-manager registryUrl=https://charts.jetstack.io
