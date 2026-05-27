@@ -189,6 +189,7 @@ spec:
 
         extraArgs:
           - --annotation-filter=external-dns.alpha.kubernetes.io/hostname
+          - --ingress-class=internal
           - --txt-owner-id=homelab-unifi-ingress
 
         domainFilters:
