@@ -13,7 +13,7 @@ kubectl = "1.35.3"
 helm = "latest"
 kind = "0.31.0"
 talosctl = "1.12.6"
-tilt = "0.37.0"
+tilt = "0.37.3"
 argocd = "latest"
 argo = "latest"          # Argo Workflows CLI
 
