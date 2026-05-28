@@ -346,7 +346,6 @@ The homelab environment uses an ArgoCD Config Management Plugin (CMP) sidecar to
 - **Bootstrap chart** deploys: SOPS secrets, 1Password operator, homelab-environment-config secret
 - **CMP sidecar** runs `homelab config export --stdout` piped into `helm template`
 - **Localdev** continues using native Helm with `values-localdev.yaml` (no CMP)
-- Design doc: `docs/plans/2026-02-11-argocd-cmp-pii-removal-design.md`
 
 ### Common Errors & Solutions
 | Error | Cause | Solution |
