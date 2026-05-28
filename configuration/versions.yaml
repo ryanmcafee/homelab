@@ -64,7 +64,7 @@ charts:
   # renovate: datasource=docker depName=ghcr.io/kashalls/external-dns-unifi-webhook
   external-dns-webhook-unifi: "v0.8.2"
   # renovate: datasource=github-releases depName=lukaszraczylo/traefikoidc
-  traefik-oidc: "v0.8.24"
+  traefik-oidc: "v0.8.27"
   unifi-port-forward: "1.1.x"
 images:
   homelab-cmp: "0.1.7"
