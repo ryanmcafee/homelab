@@ -1,0 +1,75 @@
+---
+name: Sync Tailscale ACLs
+
+# Test-on-PR / apply-on-merge sync of policy.hujson to the tailnet ACL via
+# tailscale/gitops-acl-action. The CI OAuth client is scoped ONLY to policy_file
+# (separate from the operator client) and is referenced from GitHub Actions
+# secrets — no credentials are inline.
+#
+# ORDERING (Pitfall 1): the apply on push to main must run (policy live) BEFORE
+# Plan 03 deploys the Connector, or the advertised route stays unapproved.
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'policy.hujson'
+      - '.github/workflows/tailscale-acl.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - 'policy.hujson'
+      - '.github/workflows/tailscale-acl.yml'
+
+permissions:
+  contents: read
+  # NOTE: using the oauth-secret auth method (Assumption A1, simpler than
+  # federated OIDC). Switching to federated audience/OIDC auth would require
+  # adding `id-token: write` here.
+
+jobs:
+  test:
+    # Test runs only on pull_request — validates that policy.hujson compiles
+    # before merge (gitops-acl-action `test` mode).
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      # actions/checkout IS SHA-pinned (general third-party action, stricter
+      # supply-chain posture) — matches the form used across this repo.
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      # gitops-acl-action stays at the floating @v1 major tag on BOTH the test
+      # and apply jobs by design (threat T-01-SC, disposition "accept"):
+      # first-party Tailscale action with no transitive package installs. The
+      # asymmetry vs the SHA-pinned checkout above is intentional, not an
+      # oversight. Do not partially SHA-pin one job and not the other.
+      - name: Test ACL (pull request)
+        uses: tailscale/gitops-acl-action@v1
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          tailnet: ${{ secrets.TS_TAILNET }}
+          action: test
+          # policy-file defaults to ./policy.hujson — no override needed.
+
+  apply:
+    # Apply runs only on push to main, gated behind the production environment
+    # for a manual-approval gate on the destructive apply (matches
+    # terragrunt-apply.yml).
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Apply ACL (merge to main)
+        uses: tailscale/gitops-acl-action@v1
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          tailnet: ${{ secrets.TS_TAILNET }}
+          action: apply
+          # policy-file defaults to ./policy.hujson — no override needed.
