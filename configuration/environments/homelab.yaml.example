@@ -18,6 +18,8 @@ LB_POOL_END: "192.168.1.200"
 TRAEFIK_STATIC_IP: "192.168.1.200"
 PLEX_LB_IP: "192.168.1.103"
 NFS_SHARE_ALLOW: "192.168.1.0/24"
+# Homelab LAN CIDR advertised onto the tailnet by the Tailscale Connector subnet router
+TAILSCALE_ADVERTISE_ROUTES: "192.168.1.0/24"
 BGP_PEER_IP: "192.168.1.1"
 NFS_MAPALL_USER: your-username
 ACME_EMAIL: admin@your-domain.com

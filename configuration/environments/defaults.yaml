@@ -36,6 +36,7 @@ MOSQUITTO_WEBSOCKET_PORT: "9001"
 
 # 1Password paths (defaults — same across environments)
 DEMOCRATIC_CSI_1P_PATH: vaults/homelab/items/truenas
+TAILSCALE_OPERATOR_1P_PATH: vaults/homelab/items/tailscale-operator-oauth
 CERT_MANAGER_1P_PATH: vaults/homelab/items/cloudflare
 EXTERNAL_DNS_1P_PATH: vaults/homelab/items/cloudflare
 EXTERNAL_DNS_UNIFI_1P_PATH: vaults/homelab/items/unifi

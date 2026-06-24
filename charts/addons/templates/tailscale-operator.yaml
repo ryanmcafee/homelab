@@ -1,0 +1,113 @@
+{{- if index .Values "tailscale-operator" "enabled" }}
+---
+# Namespace with privileged PodSecurity for the Tailscale operator/proxy/Connector
+# pods (NET_ADMIN + privileged). Talos enforces PSA cluster-wide and rejects these
+# pods without the labels (TS-03 / Pitfall 2). Templated explicitly at wave 1 — do
+# NOT rely on CreateNamespace=true, which omits the labels.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ index .Values "tailscale-operator" "namespace" }}
+  labels:
+    pod-security.kubernetes.io/enforce: privileged
+    pod-security.kubernetes.io/audit: privileged
+    pod-security.kubernetes.io/warn: privileged
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+---
+# Operator Application (wave 2). oauth.clientId/clientSecret are EMPTY so the chart
+# creates no Secret and instead consumes the externally-provisioned operator-oauth
+# Secret (from the tailscale-config OnePasswordItem at wave 1) — no creds in git (TS-02).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: tailscale-operator
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: {{ index .Values "tailscale-operator" "chart" "repo" }}
+    chart: {{ index .Values "tailscale-operator" "chart" "name" }}
+    targetRevision: {{ index .Values "tailscale-operator" "chart" "version" }}
+    helm:
+      releaseName: tailscale-operator
+      values: |
+        oauth:
+          clientId: ""
+          clientSecret: ""
+        operatorConfig:
+          hostname: {{ index .Values "tailscale-operator" "hostname" | default "tailscale-operator-homelab" }}
+          defaultTags:
+            - "tag:k8s-operator"
+        proxyConfig:
+          defaultTags: "tag:k8s"
+        apiServerProxyConfig:
+          mode: "false"
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: {{ index .Values "tailscale-operator" "namespace" }}
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+---
+# Config Application (wave 1): deploys the operator-oauth OnePasswordItem before the
+# operator (wave 2). Mirrors the democratic-csi-config two-Application ordering.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: tailscale-config
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: {{ .Values.global.repoUrl }}
+    targetRevision: {{ .Values.global.targetRevision }}
+    path: charts/tailscale-config
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-{{ .Values.global.environment }}.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: {{ index .Values "tailscale-operator" "namespace" }}
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+---
+# Connector subnet router (wave 3 — AFTER the operator at wave 2 so the operator's
+# tailscale.com/v1alpha1 CRDs exist first; Pitfall 4). Advertises the homelab LAN /24
+# onto the tailnet (SR-01). advertiseRoutes is sourced from the CMP connector value
+# (TAILSCALE_ADVERTISE_ROUTES) — the CIDR is PII and is NEVER hard-coded here (T-01-12).
+# Dry-run safety before the CRD installs is provided by SkipDryRunOnMissingResource=true
+# on the addons ArgoCD Application syncOptions (charts/gitops/values{,-homelab}.yaml).
+# The Connector device carries tag:k8s (proxyConfig.defaultTags) which MUST match
+# policy.hujson autoApprovers.routes from Plan 01 for auto-approval at advertise time.
+# The ACL MUST be live BEFORE this first advertises (Pitfall 1 — non-retroactive approval).
+apiVersion: tailscale.com/v1alpha1
+kind: Connector
+metadata:
+  name: homelab-subnet-router
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+spec:
+  hostname: homelab-subnet-router
+  subnetRouter:
+    advertiseRoutes:
+      - {{ index .Values "tailscale-operator" "connector" "advertiseRoutes" | first | quote }}
+{{- end }}

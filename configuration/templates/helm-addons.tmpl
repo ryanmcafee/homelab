@@ -329,6 +329,32 @@ democratic-csi-iscsi-hdd:
         memory: 256Mi
 
 # ============================================================================
+# Tailscale Operator - Tailnet subnet router (homelab advertiser)
+# Sync Wave: operator at 2, config (operator-oauth OnePasswordItem) at 1
+# ============================================================================
+
+tailscale-operator:
+  enabled: true
+  namespace: tailscale
+  hostname: tailscale-operator-homelab
+
+  chart:
+    name: tailscale-operator
+    repo: https://pkgs.tailscale.com/helmcharts
+    version: "{{ index .Versions.Charts "tailscale-operator" }}"
+
+  # 1Password vault path for the operator OAuth client (creates secret: operator-oauth)
+  onePasswordItemPath: {{ .Values.TAILSCALE_OPERATOR_1P_PATH.Value }}
+
+  # Connector subnet-router config — consumed by the Connector in Plan 03.
+  # CIDR is PII, routed through the CMP config key (not a committed literal).
+  connector:
+    advertiseRoutes:
+      - "{{ .Values.TAILSCALE_ADVERTISE_ROUTES.Value }}"
+    tags:
+      - "tag:k8s"
+
+# ============================================================================
 # Local Path Provisioner - Disabled for homelab (using democratic-csi)
 # ============================================================================
 

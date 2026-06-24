@@ -1,0 +1,10 @@
+# tailscale-config default values
+# Provisions the operator-oauth Secret from 1Password for the Tailscale operator.
+
+tailscale:
+  # Disabled by default; environment overlays (values-homelab.yaml) enable it.
+  enabled: false
+  namespace: tailscale
+  # 1Password item path; the item's fields must surface as Secret data keys
+  # client_id and client_secret (consumed by the operator's oauth-secret template).
+  onePasswordItemPath: ""

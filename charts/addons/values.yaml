@@ -861,6 +861,31 @@ oauth2-proxy:
   namespace: oauth2-proxy
 
 # ============================================================================
+# Tailscale Operator - Tailnet subnet router (homelab advertiser)
+# Sync Wave: operator at 2, config (operator-oauth OnePasswordItem) at 1
+# ============================================================================
+
+tailscale-operator:
+  enabled: true
+  namespace: tailscale
+  hostname: tailscale-operator-homelab
+
+  chart:
+    name: tailscale-operator
+    repo: https://pkgs.tailscale.com/helmcharts
+    version: 1.98.4
+
+  # Connector subnet-router config for native/lint render only. In homelab this is
+  # overridden by the CMP value TAILSCALE_ADVERTISE_ROUTES (helm-addons.tmpl), which
+  # injects the real LAN /24 (PII). The placeholder below is a non-PII RFC 5737
+  # documentation CIDR so `helm lint`/native render resolve the Connector template.
+  connector:
+    advertiseRoutes:
+      - "192.0.2.0/24"
+    tags:
+      - "tag:k8s"
+
+# ============================================================================
 # NVIDIA GPU Operator - GPU Support for Kubernetes
 # Disabled by default - enable in environment-specific values
 # ============================================================================

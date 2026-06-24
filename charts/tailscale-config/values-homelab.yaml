@@ -1,0 +1,6 @@
+# tailscale-config homelab values
+
+tailscale:
+  enabled: true
+  namespace: tailscale
+  onePasswordItemPath: "vaults/homelab/items/tailscale-operator-oauth"
