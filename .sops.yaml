@@ -16,5 +16,9 @@ creation_rules:
   # Encrypt the Tailscale ACL policy (HuJSON) as an opaque whole-file blob.
   # HuJSON is not strict JSON, so it is encrypted via SOPS's binary store
   # (no encrypted_regex — the entire file, including the LAN CIDR PII, is encrypted).
+  # Two recipients: the master key (local admin / recovery) AND a DEDICATED
+  # ACL-only key whose private half is the CI SOPS_AGE_KEY secret. The CI key
+  # can decrypt ONLY this file, so a CI compromise cannot read other repo secrets.
   - path_regex: (^|/)policy\.sops\.hujson$
-    age: age1erylpvq5w8d3k6ztprhw8gzfs9q6zfwtvrcj90tu2qrusalqz95seq5v57
+    age: >-
+      age1erylpvq5w8d3k6ztprhw8gzfs9q6zfwtvrcj90tu2qrusalqz95seq5v57,age1ezzk9u4dscnfk7fxthyl3746jxnvm64937yxgqt864cq23n2r9psfk85s5
