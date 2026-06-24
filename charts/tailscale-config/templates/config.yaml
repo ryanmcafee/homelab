@@ -1,0 +1,13 @@
+{{- if .Values.tailscale.enabled }}
+---
+# OnePasswordItem -> operator-oauth Secret (data keys: client_id, client_secret)
+# Name MUST be exactly "operator-oauth" — the Tailscale operator chart reads this
+# Secret when oauth.clientId is left empty in its values (no creds in git).
+apiVersion: onepassword.com/v1
+kind: OnePasswordItem
+metadata:
+  name: operator-oauth
+  namespace: {{ .Values.tailscale.namespace }}
+spec:
+  itemPath: {{ .Values.tailscale.onePasswordItemPath | quote }}
+{{- end }}

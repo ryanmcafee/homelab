@@ -125,7 +125,10 @@ charts/addons/values-homelab.yaml
 charts/addons/values-homelab.generated.yaml
 charts/applications/values-homelab.yaml
 charts/applications/values-homelab.generated.yaml
-charts/*-config/values-homelab.yaml
+# Note: charts/*-config/values-homelab.yaml (e.g. democratic-csi-config, tailscale-config)
+# carry only 1Password item paths / namespaces — no PII — and ARE committed so the
+# wave-1 config Applications render. Ignore only the CMP-generated variant.
+charts/*-config/values-homelab.generated.yaml
 
 /policy.hujson
 

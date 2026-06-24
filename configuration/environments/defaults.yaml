@@ -5,6 +5,8 @@
 DOMAIN: example.com
 BGP_K8S_ASN: "64512"
 BGP_ROUTER_ASN: "64513"
+# Homelab LAN CIDR advertised onto the tailnet by the Tailscale Connector subnet router
+TAILSCALE_ADVERTISE_ROUTES: "172.16.100.0/24"
 
 # Kubernetes
 K8S_POD_CIDR: "10.244.0.0/16"
@@ -36,6 +38,7 @@ MOSQUITTO_WEBSOCKET_PORT: "9001"
 
 # 1Password paths (defaults — same across environments)
 DEMOCRATIC_CSI_1P_PATH: vaults/homelab/items/truenas
+TAILSCALE_OPERATOR_1P_PATH: vaults/homelab/items/tailscale-operator-oauth
 CERT_MANAGER_1P_PATH: vaults/homelab/items/cloudflare
 EXTERNAL_DNS_1P_PATH: vaults/homelab/items/cloudflare
 EXTERNAL_DNS_UNIFI_1P_PATH: vaults/homelab/items/unifi
