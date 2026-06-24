@@ -45,7 +45,7 @@ jobs:
       # actions/checkout IS SHA-pinned (general third-party action, stricter
       # supply-chain posture) — matches the form used across this repo.
       - name: Checkout code
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
       # Install a pinned sops and verify its checksum, then decrypt the policy.
       # sops has built-in age support, so no separate age binary is needed.
@@ -69,7 +69,7 @@ jobs:
       # asymmetry vs the SHA-pinned checkout above is intentional, not an
       # oversight. Do not partially SHA-pin one job and not the other.
       - name: Test ACL (pull request)
-        uses: tailscale/gitops-acl-action@v1
+        uses: tailscale/gitops-acl-action@5a4a17f5708e9bf96f4ee915a95e9f83c2eebe1a # v1
         with:
           oauth-client-id: ${{ secrets.TS_OAUTH_ID }}
           oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
@@ -86,7 +86,7 @@ jobs:
     environment: production
     steps:
       - name: Checkout code
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
       - name: Decrypt ACL policy (SOPS)
         env:
@@ -103,7 +103,7 @@ jobs:
           rm -f "sops-${ver}.linux.amd64" sops.checksums.txt
 
       - name: Apply ACL (merge to main)
-        uses: tailscale/gitops-acl-action@v1
+        uses: tailscale/gitops-acl-action@5a4a17f5708e9bf96f4ee915a95e9f83c2eebe1a # v1
         with:
           oauth-client-id: ${{ secrets.TS_OAUTH_ID }}
           oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
