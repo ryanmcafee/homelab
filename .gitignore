@@ -127,8 +127,6 @@ charts/applications/values-homelab.yaml
 charts/applications/values-homelab.generated.yaml
 charts/*-config/values-homelab.yaml
 
-# Decrypted Tailscale ACL policy — committed only as encrypted policy.sops.hujson;
-# CI decrypts it to ./policy.hujson at runtime (contains the LAN CIDR PII).
 /policy.hujson
 
 # PII audit (replaced by living schema docs)
