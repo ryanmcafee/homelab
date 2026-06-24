@@ -89,4 +89,25 @@ spec:
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
+---
+# Connector subnet router (wave 3 — AFTER the operator at wave 2 so the operator's
+# tailscale.com/v1alpha1 CRDs exist first; Pitfall 4). Advertises the homelab LAN /24
+# onto the tailnet (SR-01). advertiseRoutes is sourced from the CMP connector value
+# (TAILSCALE_ADVERTISE_ROUTES) — the CIDR is PII and is NEVER hard-coded here (T-01-12).
+# Dry-run safety before the CRD installs is provided by SkipDryRunOnMissingResource=true
+# on the addons ArgoCD Application syncOptions (charts/gitops/values{,-homelab}.yaml).
+# The Connector device carries tag:k8s (proxyConfig.defaultTags) which MUST match
+# policy.hujson autoApprovers.routes from Plan 01 for auto-approval at advertise time.
+# The ACL MUST be live BEFORE this first advertises (Pitfall 1 — non-retroactive approval).
+apiVersion: tailscale.com/v1alpha1
+kind: Connector
+metadata:
+  name: homelab-subnet-router
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+spec:
+  hostname: homelab-subnet-router
+  subnetRouter:
+    advertiseRoutes:
+      - {{ index .Values "tailscale-operator" "connector" "advertiseRoutes" | first | quote }}
 {{- end }}
