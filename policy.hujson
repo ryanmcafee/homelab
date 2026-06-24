@@ -1,0 +1,47 @@
+// Tailscale ACL policy as code (HuJSON — comments and trailing commas allowed).
+//
+// Source of truth for the tailnet access policy. Synced by
+// .github/workflows/tailscale-acl.yml via tailscale/gitops-acl-action@v1:
+//   - tested on pull_request to main
+//   - applied on push to main (the first apply OVERWRITES the live tailnet ACL)
+//
+// ORDERING (Pitfall 1): this policy MUST be applied (merged to main) BEFORE the
+// Connector in Plan 03 first advertises the LAN route. Tailscale evaluates
+// auto-approval at advertise time; editing autoApprovers does NOT retroactively
+// approve an already-advertised route.
+//
+// No credentials live in this file. The CI OAuth client (policy_file scope only)
+// and its GitHub Actions secrets are configured out-of-band.
+{
+  // tagOwners: which identities may apply each tag.
+  // tag:k8s-operator is owned by tailnet admins; the operator (authed as
+  // tag:k8s-operator) in turn owns tag:k8s so it can self-tag the proxy/Connector
+  // devices it mints. Without tag:k8s-operator owning tag:k8s, device creation
+  // fails with a tag-ownership error.
+  "tagOwners": {
+    "tag:k8s-operator": ["autogroup:admin"],
+    "tag:k8s":          ["tag:k8s-operator"],
+  },
+
+  // autoApprovers.routes: auto-approve the homelab LAN /24 when advertised by a
+  // device carrying tag:k8s. The tag here MUST match the Connector device tag
+  // chosen in Plan 03 (chart proxyConfig.defaultTags default = tag:k8s).
+  // Scoped to EXACTLY this one /24 and this one tag (no broader routes/tags).
+  "autoApprovers": {
+    "routes": {
+      "172.16.100.0/24": ["tag:k8s"],
+    },
+  },
+
+  // grants: port-scoped least-privilege access from tailnet members to the LAN /24.
+  // Researched default (Assumption A3): NFS (tcp:2049) + admin UIs (tcp:443/tcp:80),
+  // covering Phases 3-4. NOT widened to all ports or all destinations. Tighten
+  // src/tags here in a future hardening pass (ACL-04, deferred to v2).
+  "grants": [
+    {
+      "src": ["autogroup:member"],
+      "dst": ["172.16.100.0/24"],
+      "ip":  ["tcp:2049", "tcp:443", "tcp:80"],
+    },
+  ],
+}
