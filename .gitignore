@@ -127,6 +127,8 @@ charts/applications/values-homelab.yaml
 charts/applications/values-homelab.generated.yaml
 charts/*-config/values-homelab.yaml
 
+/policy.hujson
+
 # PII audit (replaced by living schema docs)
 PII.md
 .serena/project.yml
