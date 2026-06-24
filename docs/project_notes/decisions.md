@@ -204,48 +204,6 @@ Each decision should include:
 
 - **2026-02-13: Dual Traefik Ingress Controllers** — Split single Traefik into external (`external` IngressClass, static IP 172.16.100.200, OIDC, port forwarding) and internal (`internal` IngressClass, dynamic IP, no OIDC). Plex uses external; all other apps use internal. OIDC middleware annotations removed from internal apps. Design doc: `docs/plans/2026-02-13-dual-traefik-ingress-design.md`.
 
-### ADR-009: CI ACL OAuth client carries forced device scopes (2026-06-24)
-
-**Context:**
-- Phase 1 (Tailscale ACL foundation) threat model T-01-04 specified the GitHub Actions ACL-sync OAuth client be scoped *only* to `policy_file` write (least privilege; the operator client holds the device/auth-key scopes separately).
-- That design assumed Tailscale's classic OAuth-client UI, where `policy_file` write could stand alone.
-- Tailscale's current "Trust credentials" UI auto-adds and **locks** (disabled, cannot uncheck) device scopes as hard dependencies of `policy_file` write.
-
-**Decision:**
-- Accept the platform-forced minimum scope set for the CI client `githubactionsaclsync` (`kP7ibyzpBD21CNTRL`): `policy_file` (read+write) + `devices:core:read` + `devices:posture_attributes` (read+write).
-- This is the least privilege the platform now allows for ACL writes via `tailscale/gitops-acl-action`; the credential lives only in GitHub Actions secrets (`TS_OAUTH_ID`/`TS_OAUTH_SECRET`).
-
-**Alternatives Considered:**
-- policy_file-only client -> Not selectable in the current UI (device scopes are disabled-and-checked dependencies).
-- Raw Tailscale ACL API with a narrower credential -> No narrower credential type exists; PATs/API keys are broader.
-
-**Consequences:**
-- The CI secret can additionally read device core info and read/write device posture attributes — a wider blast radius than T-01-04 intended, but unavoidable for this workflow.
-- Operator client (Plan 02, `devices:core`+`auth_keys`, `tag:k8s-operator`) remains a separate credential — the two-client split still holds.
-- A superseded mis-scoped client (`kVq7UVMTHF11CNTRL`) was revoked during provisioning and remains as inert history in the admin console.
-
-- **2026-06-24: Tailscale OAuth provisioning** — CI `policy_file` client + GitHub Actions secrets (`TS_OAUTH_ID/SECRET/TAILNET`, tailnet `ryanmcafee.com`) provisioned via browser automation. Operator client + 1Password `tailscale-operator-oauth` item still pending (must be created after the ACL applies so `tag:k8s-operator` is live). See ADR-009.
-
-### ADR-010: Tailscale ACL policy committed SOPS-encrypted (2026-06-24)
-
-**Context:**
-- `tailscale/gitops-acl-action` reads a committed policy file to test/apply the tailnet ACL.
-- That policy (`policy.hujson`) contains the homelab LAN CIDR `172.16.100.0/24` — PII the project keeps out of cleartext.
-- HuJSON is not strict JSON, so SOPS structured (json) encryption can't parse it.
-
-**Decision:**
-- Commit the policy only as `policy.sops.hujson`, encrypted whole-file via SOPS's **binary** store with the existing repo Age recipient (`.sops.yaml` rule added). The plaintext `policy.hujson` is gitignored.
-- CI installs a checksum-pinned `sops` and decrypts `policy.sops.hujson` → `policy.hujson` at runtime (test and apply jobs) using a new `SOPS_AGE_KEY` GitHub Actions secret, then runs `gitops-acl-action`.
-
-**Alternatives Considered:**
-- Tokenize only the CIDR + inject from a GitHub secret -> Smaller CI blast radius (no Age key in CI), but leaves the rest of the policy cleartext; rejected in favor of encrypting the whole file.
-- Plain-commit `policy.hujson` -> Original approach; commits the LAN CIDR PII in cleartext.
-
-**Consequences:**
-- No ACL PII in cleartext in the repo; the whole policy is opaque at rest.
-- **The Age master key now lives in GitHub Actions (`SOPS_AGE_KEY`)** — that key decrypts every SOPS secret in the repo, so CI's blast radius is larger than the single CIDR it protects (explicitly accepted).
-- Editing the policy requires `sops policy.sops.hujson` (decrypt/edit/re-encrypt), not a plain text edit.
-
 ## Tips
 
 - Number decisions sequentially (ADR-001, ADR-002, etc.)

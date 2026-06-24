@@ -13,11 +13,6 @@ Each entry should include:
 
 ## Recent Work
 
-### 2026-06-24 - PR #244: Tailscale ACL foundation + CI apply pipeline (Phase 1 · Step 1)
-- **Status**: In-progress (open PR)
-- **Description**: Standalone ACL-as-code PR (`policy.hujson` + `tailscale-acl.yml`, gitops-acl-action test/apply). Must merge+apply before the operator/Connector PR (autoApprovers are non-retroactive). CI OAuth client + GitHub secrets provisioned; ADR-009 logs the forced device-scope deviation. Operator OAuth client + 1Password `tailscale-operator-oauth` item still pending (needs ACL live first).
-- **URL**: https://github.com/ryanmcafee/homelab/pull/244
-
 ### 2025-01-27 - PR #7: Automate TrueNAS Provisioning
 - **Status**: Merged
 - **Description**: Automated TrueNAS provisioning workflows
