@@ -9,7 +9,7 @@ terragrunt = "1.0.6"
 packer = "latest"
 
 # Kubernetes Tools
-kubectl = "1.35.3"
+kubectl = "1.36.2"
 helm = "latest"
 kind = "0.31.0"
 talosctl = "1.12.6"
