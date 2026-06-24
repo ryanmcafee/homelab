@@ -61,6 +61,14 @@ democratic-csi:
   # No NFS or iSCSI storage in local Kind cluster
 
 # ============================================================================
+# Tailscale Operator - Disabled for Local Dev
+# ============================================================================
+
+tailscale-operator:
+  enabled: false
+  # Localdev (consumer leg) is Phase 2; homelab is the advertiser in Phase 1
+
+# ============================================================================
 # local-path-provisioner - Enabled for Local Dev
 # ============================================================================
 

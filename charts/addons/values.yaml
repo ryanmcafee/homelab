@@ -861,6 +861,21 @@ oauth2-proxy:
   namespace: oauth2-proxy
 
 # ============================================================================
+# Tailscale Operator - Tailnet subnet router (homelab advertiser)
+# Sync Wave: operator at 2, config (operator-oauth OnePasswordItem) at 1
+# ============================================================================
+
+tailscale-operator:
+  enabled: true
+  namespace: tailscale
+  hostname: tailscale-operator-homelab
+
+  chart:
+    name: tailscale-operator
+    repo: https://pkgs.tailscale.com/helmcharts
+    version: 1.98.4
+
+# ============================================================================
 # NVIDIA GPU Operator - GPU Support for Kubernetes
 # Disabled by default - enable in environment-specific values
 # ============================================================================
