@@ -1,9 +1,16 @@
 ---
 name: Sync Tailscale ACLs
 
-# Test-on-PR / apply-on-merge sync of policy.hujson to the tailnet ACL via
-# tailscale/gitops-acl-action. The CI OAuth client is scoped ONLY to policy_file
-# (separate from the operator client) and is referenced from GitHub Actions
+# Test-on-PR / apply-on-merge sync of the Tailscale ACL to the tailnet via
+# tailscale/gitops-acl-action.
+#
+# The policy is committed ENCRYPTED as policy.sops.hujson (SOPS + age, whole-file
+# binary store) so the LAN CIDR PII never appears in cleartext in the repo. CI
+# decrypts it to ./policy.hujson at runtime using the SOPS_AGE_KEY secret; the
+# decrypted policy.hujson is gitignored and never committed.
+#
+# The CI OAuth client is scoped to policy_file (plus the device scopes Tailscale
+# now force-bundles with it — see ADR-009) and is referenced from GitHub Actions
 # secrets — no credentials are inline.
 #
 # ORDERING (Pitfall 1): the apply on push to main must run (policy live) BEFORE
@@ -13,13 +20,13 @@ on:
     branches:
       - main
     paths:
-      - 'policy.hujson'
+      - 'policy.sops.hujson'
       - '.github/workflows/tailscale-acl.yml'
   push:
     branches:
       - main
     paths:
-      - 'policy.hujson'
+      - 'policy.sops.hujson'
       - '.github/workflows/tailscale-acl.yml'
 
 permissions:
@@ -30,7 +37,7 @@ permissions:
 
 jobs:
   test:
-    # Test runs only on pull_request — validates that policy.hujson compiles
+    # Test runs only on pull_request — validates that the policy compiles
     # before merge (gitops-acl-action `test` mode).
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
@@ -39,6 +46,22 @@ jobs:
       # supply-chain posture) — matches the form used across this repo.
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      # Install a pinned sops and verify its checksum, then decrypt the policy.
+      # sops has built-in age support, so no separate age binary is needed.
+      - name: Decrypt ACL policy (SOPS)
+        env:
+          SOPS_AGE_KEY: ${{ secrets.SOPS_AGE_KEY }}
+        run: |
+          set -euo pipefail
+          ver=v3.11.0
+          base="https://github.com/getsops/sops/releases/download/${ver}"
+          curl -fsSL -o "sops-${ver}.linux.amd64" "${base}/sops-${ver}.linux.amd64"
+          curl -fsSL -o sops.checksums.txt "${base}/sops-${ver}.checksums.txt"
+          grep " sops-${ver}.linux.amd64$" sops.checksums.txt | sha256sum -c -
+          sudo install -m 0755 "sops-${ver}.linux.amd64" /usr/local/bin/sops
+          sops -d policy.sops.hujson > policy.hujson
+          rm -f "sops-${ver}.linux.amd64" sops.checksums.txt
 
       # gitops-acl-action stays at the floating @v1 major tag on BOTH the test
       # and apply jobs by design (threat T-01-SC, disposition "accept"):
@@ -52,7 +75,7 @@ jobs:
           oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
           tailnet: ${{ secrets.TS_TAILNET }}
           action: test
-          # policy-file defaults to ./policy.hujson — no override needed.
+          # policy-file defaults to ./policy.hujson (decrypted above).
 
   apply:
     # Apply runs only on push to main, gated behind the production environment
@@ -65,6 +88,20 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
+      - name: Decrypt ACL policy (SOPS)
+        env:
+          SOPS_AGE_KEY: ${{ secrets.SOPS_AGE_KEY }}
+        run: |
+          set -euo pipefail
+          ver=v3.11.0
+          base="https://github.com/getsops/sops/releases/download/${ver}"
+          curl -fsSL -o "sops-${ver}.linux.amd64" "${base}/sops-${ver}.linux.amd64"
+          curl -fsSL -o sops.checksums.txt "${base}/sops-${ver}.checksums.txt"
+          grep " sops-${ver}.linux.amd64$" sops.checksums.txt | sha256sum -c -
+          sudo install -m 0755 "sops-${ver}.linux.amd64" /usr/local/bin/sops
+          sops -d policy.sops.hujson > policy.hujson
+          rm -f "sops-${ver}.linux.amd64" sops.checksums.txt
+
       - name: Apply ACL (merge to main)
         uses: tailscale/gitops-acl-action@v1
         with:
@@ -72,4 +109,4 @@ jobs:
           oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
           tailnet: ${{ secrets.TS_TAILNET }}
           action: apply
-          # policy-file defaults to ./policy.hujson — no override needed.
+          # policy-file defaults to ./policy.hujson (decrypted above).

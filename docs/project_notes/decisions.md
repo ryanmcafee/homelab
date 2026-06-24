@@ -226,6 +226,26 @@ Each decision should include:
 
 - **2026-06-24: Tailscale OAuth provisioning** — CI `policy_file` client + GitHub Actions secrets (`TS_OAUTH_ID/SECRET/TAILNET`, tailnet `ryanmcafee.com`) provisioned via browser automation. Operator client + 1Password `tailscale-operator-oauth` item still pending (must be created after the ACL applies so `tag:k8s-operator` is live). See ADR-009.
 
+### ADR-010: Tailscale ACL policy committed SOPS-encrypted (2026-06-24)
+
+**Context:**
+- `tailscale/gitops-acl-action` reads a committed policy file to test/apply the tailnet ACL.
+- That policy (`policy.hujson`) contains the homelab LAN CIDR `172.16.100.0/24` — PII the project keeps out of cleartext.
+- HuJSON is not strict JSON, so SOPS structured (json) encryption can't parse it.
+
+**Decision:**
+- Commit the policy only as `policy.sops.hujson`, encrypted whole-file via SOPS's **binary** store with the existing repo Age recipient (`.sops.yaml` rule added). The plaintext `policy.hujson` is gitignored.
+- CI installs a checksum-pinned `sops` and decrypts `policy.sops.hujson` → `policy.hujson` at runtime (test and apply jobs) using a new `SOPS_AGE_KEY` GitHub Actions secret, then runs `gitops-acl-action`.
+
+**Alternatives Considered:**
+- Tokenize only the CIDR + inject from a GitHub secret -> Smaller CI blast radius (no Age key in CI), but leaves the rest of the policy cleartext; rejected in favor of encrypting the whole file.
+- Plain-commit `policy.hujson` -> Original approach; commits the LAN CIDR PII in cleartext.
+
+**Consequences:**
+- No ACL PII in cleartext in the repo; the whole policy is opaque at rest.
+- **The Age master key now lives in GitHub Actions (`SOPS_AGE_KEY`)** — that key decrypts every SOPS secret in the repo, so CI's blast radius is larger than the single CIDR it protects (explicitly accepted).
+- Editing the policy requires `sops policy.sops.hujson` (decrypt/edit/re-encrypt), not a plain text edit.
+
 ## Tips
 
 - Number decisions sequentially (ADR-001, ADR-002, etc.)
