@@ -45,7 +45,7 @@ jobs:
       # actions/checkout IS SHA-pinned (general third-party action, stricter
       # supply-chain posture) — matches the form used across this repo.
       - name: Checkout code
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
 
       # Install a pinned sops and verify its checksum, then decrypt the policy.
       # sops has built-in age support, so no separate age binary is needed.
@@ -86,7 +86,7 @@ jobs:
     environment: production
     steps:
       - name: Checkout code
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
 
       - name: Decrypt ACL policy (SOPS)
         env:
