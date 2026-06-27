@@ -8,7 +8,7 @@ charts:
   # renovate: datasource=helm depName=cilium registryUrl=https://helm.cilium.io/
   cilium: "1.19.5"
   # renovate: datasource=helm depName=cert-manager registryUrl=https://charts.jetstack.io
-  cert-manager: "v1.20.2"
+  cert-manager: "v1.20.3"
   # renovate: datasource=helm depName=external-dns registryUrl=https://kubernetes-sigs.github.io/external-dns/
   external-dns: "1.21.1"
   # renovate: datasource=helm depName=kube-prometheus-stack registryUrl=https://prometheus-community.github.io/helm-charts
@@ -30,7 +30,7 @@ charts:
   # renovate: datasource=helm depName=cloudnative-pg registryUrl=https://cloudnative-pg.github.io/charts
   cloudnative-pg: "0.28.3"
   # renovate: datasource=helm depName=argo-workflows registryUrl=https://argoproj.github.io/argo-helm
-  argo-workflows: "1.0.17"
+  argo-workflows: "1.0.18"
   # renovate: datasource=helm depName=plex-media-server registryUrl=https://raw.githubusercontent.com/plexinc/pms-docker/gh-pages
   plex-media-server: "1.6.0"
   # renovate: datasource=docker depName=oci.trueforge.org/truecharts/sonarr
@@ -54,7 +54,7 @@ charts:
   # renovate: datasource=docker depName=ghcr.io/renovatebot/charts/renovate
   renovate: "46.106.12"
   # renovate: datasource=helm depName=gpu-operator registryUrl=https://helm.ngc.nvidia.com/nvidia
-  nvidia-gpu-operator: "v26.3.2"
+  nvidia-gpu-operator: "v26.3.3"
   # renovate: datasource=helm depName=intel-device-plugins-gpu registryUrl=https://intel.github.io/helm-charts
   intel-device-plugins-gpu: "0.36.0"
   # renovate: datasource=helm depName=intel-device-plugins-operator registryUrl=https://intel.github.io/helm-charts
