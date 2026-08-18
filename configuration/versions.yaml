@@ -12,7 +12,7 @@ charts:
   # renovate: datasource=helm depName=external-dns registryUrl=https://kubernetes-sigs.github.io/external-dns/
   external-dns: "1.21.1"
   # renovate: datasource=helm depName=kube-prometheus-stack registryUrl=https://prometheus-community.github.io/helm-charts
-  kube-prometheus-stack: "87.1.0"
+  kube-prometheus-stack: "87.21.0"
   # renovate: datasource=helm depName=traefik registryUrl=https://traefik.github.io/charts
   traefik: "39.0.9"
   # renovate: datasource=helm depName=democratic-csi registryUrl=https://democratic-csi.github.io/charts/
