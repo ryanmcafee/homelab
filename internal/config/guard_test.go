@@ -2,8 +2,10 @@ package config
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 )
@@ -1115,5 +1117,194 @@ func TestDotfileTemplatesAreOutOfScope(t *testing.T) {
 	// A template with an inner extension is reached.
 	if !hasScannableExtension("configuration/environments/homelab.yaml.example") {
 		t.Error("a template with an inner extension must be in scope")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Pattern-set hygiene: a config set must be scannable against itself
+// ---------------------------------------------------------------------------
+
+// TestGuardPatternsFromASetDoNotFlagThatSet is the regression that turned the
+// committed tree red: `config guard --set localdev --ci` reported 26 findings
+// in 2 files, because the patterns were built from localdev.yaml and then
+// hunted for in localdev.yaml and in prose in defaults.yaml.
+func TestGuardPatternsFromASetDoNotFlagThatSet(t *testing.T) {
+	dir := t.TempDir()
+	envDir := filepath.Join(dir, "configuration", "environments")
+	if err := os.MkdirAll(envDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	defaults := filepath.Join(envDir, "defaults.yaml")
+	defaultsBody := "# Override per-environment in homelab.yaml or localdev.yaml.\n" +
+		"CLUSTER_NAME: homelab\n"
+	if err := os.WriteFile(defaults, []byte(defaultsBody), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	env := filepath.Join(envDir, "localdev.yaml")
+	envBody := `# ConfigSet "localdev" — Kind + Tilt local development.
+DOMAIN: homelab.local
+GATEWAY_IP: "127.0.0.1"
+TRUENAS_IP: "127.0.0.1"
+LB_POOL_END: "127.0.0.200"
+NFS_MAPALL_USER: localdev
+ACME_EMAIL: test@homelab.local
+DUCKDNS_SUBDOMAIN: homelab-dev
+EXTERNAL_DNS_DEFAULT_TARGET: homelab-dev.duckdns.org
+`
+	if err := os.WriteFile(env, []byte(envBody), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	report, err := RunGuard(GuardOptions{
+		RepoRoot: dir,
+		Files:    []string{"configuration/environments/localdev.yaml", "configuration/environments/defaults.yaml"},
+		EnvPath:  env,
+	})
+	if err != nil {
+		t.Fatalf("RunGuard: %v", err)
+	}
+	if n := report.MatchCount(); n != 0 {
+		t.Errorf("MatchCount() = %d, want 0; findings: %+v", n, report.Results)
+	}
+}
+
+// TestGuardStillFindsAPlantedValueOutsideTheSourceFiles proves the exemption
+// above narrows nothing that matters: a real value pasted into a chart values
+// file is still reported.
+func TestGuardStillFindsAPlantedValueOutsideTheSourceFiles(t *testing.T) {
+	dir := t.TempDir()
+	envDir := filepath.Join(dir, "configuration", "environments")
+	if err := os.MkdirAll(envDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	env := filepath.Join(envDir, "homelab.yaml")
+	if err := os.WriteFile(env, []byte("DOMAIN: ryanmcafee.com\nTRUENAS_IP: 172.16.100.150\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	chartDir := filepath.Join(dir, "charts", "addons")
+	if err := os.MkdirAll(chartDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	planted := filepath.Join(chartDir, "values-homelab.yaml")
+	body := "nfs:\n  server: truenas.ryanmcafee.com\n  portal: 172.16.100.150:3260\n"
+	if err := os.WriteFile(planted, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	report, err := RunGuard(GuardOptions{
+		RepoRoot: dir,
+		Files:    []string{"charts/addons/values-homelab.yaml"},
+		EnvPath:  env,
+	})
+	if err != nil {
+		t.Fatalf("RunGuard: %v", err)
+	}
+	if n := report.MatchCount(); n != 2 {
+		t.Fatalf("MatchCount() = %d, want 2 (one per planted line); findings: %+v", n, report.Results)
+	}
+}
+
+// TestRunGuardIsDeterministic asserts the property CI depends on: the same
+// tree scanned ten times prints the same report, so a guard failure is
+// reproducible and a passing run cannot flip on map iteration order.
+func TestRunGuardIsDeterministic(t *testing.T) {
+	dir := t.TempDir()
+	env := filepath.Join(dir, "homelab.yaml")
+	if err := os.WriteFile(env, []byte("DOMAIN: ryanmcafee.com\nTRUENAS_IP: 172.16.100.150\nCP_VIP: 172.16.100.10\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for name, body := range map[string]string{
+		"b.yaml": "host: truenas.ryanmcafee.com\nportal: 172.16.100.150\n",
+		"a.yaml": "vip: 172.16.100.10\nGATEWAY_IP: 172.16.100.1\n",
+	} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	render := func() string {
+		report, err := RunGuard(GuardOptions{
+			RepoRoot: dir,
+			Files:    []string{"b.yaml", "a.yaml"},
+			EnvPath:  env,
+		})
+		if err != nil {
+			t.Fatalf("RunGuard: %v", err)
+		}
+		var sb strings.Builder
+		for _, res := range report.Results {
+			for _, m := range res.Matches {
+				fmt.Fprintf(&sb, "%s:%d:%s\n", res.File, m.Line, m.Pattern)
+			}
+		}
+		return sb.String()
+	}
+
+	first := render()
+	if strings.TrimSpace(first) == "" {
+		t.Fatal("the fixture must produce findings for this test to mean anything")
+	}
+	for i := 0; i < 9; i++ {
+		if got := render(); got != first {
+			t.Fatalf("run %d differs from run 0:\n--- run 0 ---\n%s--- run %d ---\n%s", i+1, first, i+1, got)
+		}
+	}
+}
+
+func TestBuildGuardPatternsRejectsNonIdentifyingValues(t *testing.T) {
+	patterns := BuildGuardPatterns(map[string]string{
+		"GATEWAY_IP":                  "127.0.0.1",   // loopback on a PII-shaped key
+		"CP_VIP":                      "0.0.0.0",     // unspecified
+		"LINK_IP":                     "169.254.1.1", // link-local
+		"DOMAIN":                      "homelab.local",
+		"ACME_EMAIL":                  "test@homelab.local",
+		"EXAMPLE_HOSTNAME":            "your-domain.com",
+		"EXTERNAL_DNS_DEFAULT_TARGET": "homelab-dev.duckdns.org", // committed-safe
+		"SHORT_HOSTNAME":              "abc",                     // under MinGuardPatternLen
+		"TRUENAS_IP":                  "172.16.100.150",          // the one real value
+	})
+
+	want := []string{"172.16.100.150"}
+	if len(patterns) != 1 || patterns[0] != want[0] {
+		t.Errorf("BuildGuardPatterns = %v, want %v", patterns, want)
+	}
+}
+
+func TestBuildGuardPatternsIsSorted(t *testing.T) {
+	patterns := BuildGuardPatterns(map[string]string{
+		"A_IP":   "172.16.100.150",
+		"B_IP":   "172.16.100.10",
+		"DOMAIN": "ryanmcafee.com",
+	})
+	if !sort.StringsAreSorted(patterns) {
+		t.Errorf("BuildGuardPatterns = %v, want sorted", patterns)
+	}
+}
+
+func TestLineMatchesPatternRespectsTokenBoundaries(t *testing.T) {
+	tests := []struct {
+		name    string
+		line    string
+		pattern string
+		want    bool
+	}{
+		{"whole token", "portal: 172.16.100.150:3260", "172.16.100.150", true},
+		{"longer address is not a match", "ip: 172.16.100.1500", "172.16.100.150", false},
+		{"shorter prefix of an address", "ip: 172.16.100.100", "172.16.100.10", false},
+		{"parent domain inside a subdomain", "host: plex.ryanmcafee.com", "ryanmcafee.com", true},
+		{"word inside a longer identifier", "name: mylocaldevcluster", "localdev", false},
+		{"word inside a hyphenated identifier", "name: my-localdev-cluster", "localdev", true},
+		{"word followed by a dot", "see localdev.yaml", "localdev", true},
+		{"open-ended subnet prefix still matches", "ip: 172.16.100.150", "172.16.100.", true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := lineMatchesPattern(tc.line, tc.pattern); got != tc.want {
+				t.Errorf("lineMatchesPattern(%q, %q) = %v, want %v", tc.line, tc.pattern, got, tc.want)
+			}
+		})
 	}
 }

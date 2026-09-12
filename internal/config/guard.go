@@ -27,33 +27,144 @@ var piiKeySuffixes = []string{
 	"_IP", "_VIP", "_HOSTNAME",
 }
 
+// MinGuardPatternLen is the shortest literal that may become a value pattern.
+// A three-character value carries almost no identifying information and hits
+// ordinary prose constantly; the shape rules still cover such a value on a
+// PII-shaped key, so dropping it costs no protection.
+const MinGuardPatternLen = 4
+
+// isNonIdentifyingValue reports whether a value cannot name real
+// infrastructure, whatever key it sits on. It is the gate in front of the
+// whole pattern set: a value that clears it must never become a hunt pattern,
+// because every occurrence of it anywhere in the repository would be reported.
+//
+// This ran only for keys that were *not* PII-shaped, which is exactly
+// backwards: localdev's `GATEWAY_IP: "127.0.0.1"` is PII-shaped, so loopback
+// became the pattern `127.0.0.1` and matched every loopback address in the
+// tree. Judging the value first is what makes localdev's config scannable.
+func isNonIdentifyingValue(v string) bool {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return true
+	}
+	// An address is judged as an address: loopback, unspecified, link-local and
+	// multicast cannot identify a host, so they are never patterns.
+	if net.ParseIP(v) != nil {
+		return !isRoutableHostIP(v)
+	}
+	if hasPlaceholderMarker(v) {
+		return true
+	}
+	host := hostOf(v)
+	for _, p := range placeholderHosts {
+		if host == p {
+			return true
+		}
+	}
+	// Reserved suffixes are documentation or local-network names by definition
+	// (RFC 2606, RFC 6761): localdev's `DOMAIN: homelab.local` is one.
+	for _, suffix := range reservedHostSuffixes {
+		if strings.HasSuffix(host, suffix) {
+			return true
+		}
+	}
+	// A host this repository commits on purpose is not a leak when it appears.
+	for _, safe := range committedSafeHosts {
+		if host == safe || strings.HasSuffix(host, "."+safe) {
+			return true
+		}
+	}
+	return false
+}
+
 // BuildGuardPatterns extracts PII-sensitive values from a resolved config as guard patterns.
 // It selects values that look like IPs, domains, usernames, or emails — not generic numbers or paths.
+//
+// The returned list is sorted, so two runs over the same config produce the
+// same patterns in the same order and therefore byte-identical findings.
 func BuildGuardPatterns(values map[string]string) []string {
 	seen := make(map[string]bool)
 	var patterns []string
 
 	for key, val := range values {
+		val = strings.TrimSpace(val)
 		if val == "" {
+			continue
+		}
+
+		// Judge the value before the key. A non-identifying value is never a
+		// pattern even on a PII-shaped key.
+		if isNonIdentifyingValue(val) {
 			continue
 		}
 
 		isPII := IsPIIKey(key)
 
-		// Also flag anything that parses as a non-loopback IP
-		if !isPII {
-			if ip := net.ParseIP(val); ip != nil && !ip.IsLoopback() && !ip.IsUnspecified() {
-				isPII = true
-			}
+		// Also flag anything that parses as a routable IP, whatever its key.
+		if !isPII && isRoutableHostIP(val) {
+			isPII = true
 		}
 
-		if isPII && !seen[val] {
-			seen[val] = true
-			patterns = append(patterns, val)
+		if !isPII || len(val) < MinGuardPatternLen || seen[val] {
+			continue
 		}
+		seen[val] = true
+		patterns = append(patterns, val)
 	}
 
+	sort.Strings(patterns)
 	return patterns
+}
+
+// isWordByte reports whether c is a word byte in the regexp \b sense: letters,
+// digits and underscore. A dot and a hyphen are separators, so the pattern
+// example.com still matches inside sub.example.com (a subdomain of a real
+// domain leaks the domain) while the pattern 192.168.1.10 does not match
+// inside 192.168.1.100.
+func isWordByte(c byte) bool {
+	return c == '_' ||
+		(c >= '0' && c <= '9') ||
+		(c >= 'a' && c <= 'z') ||
+		(c >= 'A' && c <= 'Z')
+}
+
+// wordByteAt reports whether the byte at index i of s is a word byte. Out of
+// range counts as a separator, so a match at the start or end of a line has a
+// boundary there.
+func wordByteAt(s string, i int) bool {
+	return i >= 0 && i < len(s) && isWordByte(s[i])
+}
+
+// lineMatchesPattern reports whether line contains pattern at word boundaries
+// rather than inside a longer token. A bare strings.Contains made every short
+// value a prose magnet: the pattern "localdev" matched the sentence "Override
+// per-environment in homelab.yaml or localdev.yaml".
+//
+// A boundary is required only on a side where the pattern's own edge is a word
+// byte, exactly as \b works. That keeps a deliberately open-ended pattern such
+// as a subnet prefix ("172.16.100.") matching every address under it.
+func lineMatchesPattern(line, pattern string) bool {
+	if pattern == "" {
+		return false
+	}
+	needLeft := isWordByte(pattern[0])
+	needRight := isWordByte(pattern[len(pattern)-1])
+
+	for off := 0; off+len(pattern) <= len(line); {
+		j := strings.Index(line[off:], pattern)
+		if j < 0 {
+			return false
+		}
+		start := off + j
+		end := start + len(pattern)
+		leftOK := !needLeft || !wordByteAt(line, start-1)
+		rightOK := !needRight || !wordByteAt(line, end)
+		if leftOK && rightOK {
+			return true
+		}
+		off = start + 1
+	}
+	return false
 }
 
 // ScanFileForPII scans a file for lines containing any of the given PII patterns.
@@ -75,7 +186,7 @@ func ScanFileForPII(path string, patterns []string) (GuardResult, error) {
 		lineNum++
 		line := scanner.Text()
 		for _, p := range patterns {
-			if strings.Contains(line, p) {
+			if lineMatchesPattern(line, p) {
 				result.Matches = append(result.Matches, GuardMatch{
 					Line:    lineNum,
 					Pattern: p,
@@ -165,6 +276,10 @@ func gitLsFiles(repoRoot string, pathspecs []string) ([]string, error) {
 // IsGuardExcluded mirrors the pre-commit hook's exclude list: the real
 // environment file (which legitimately holds the values being guarded) and any
 // generated export.
+//
+// Only homelab.yaml is out of scope, because only it is gitignored. Every
+// other environment file is committed and is scanned — by shape always, and by
+// value whenever it did not itself supply the patterns (see patternSources).
 func IsGuardExcluded(path string) bool {
 	clean := filepath.ToSlash(filepath.Clean(path))
 	if clean == "configuration/environments/homelab.yaml" {
@@ -540,6 +655,70 @@ func isRoutableHostIP(v string) bool {
 // failure, never a pass: a guard that scans zero files proves nothing.
 var ErrGuardNoFiles = errors.New("guard scan scope is empty")
 
+// patternSources are the files the value pattern set was built from. Scanning
+// one of them against its own values reports every line of it, which is how
+// `config guard --set localdev --ci` came to fail on a clean tree: the
+// patterns were built from localdev.yaml and then hunted for in localdev.yaml.
+//
+// Shape rules still apply to these files. Those are the rules that matter
+// here: a real routable address or a real hostname in an environment file is
+// reported by shape whether or not the file also defines the pattern.
+//
+// Identity is compared with os.SameFile rather than by string, so an absolute
+// --env-file, a repository-relative path and a symlinked temp directory all
+// resolve to the same file.
+type patternSources struct {
+	infos []os.FileInfo
+	names []string
+}
+
+// newPatternSources resolves the files that contribute to the value patterns:
+// the environment file the caller selected (via --set or --env-file) and the
+// defaults layer merged underneath it.
+func newPatternSources(repoRoot, envPath string) patternSources {
+	var ps patternSources
+	add := func(p string) {
+		if p == "" {
+			return
+		}
+		if !filepath.IsAbs(p) && repoRoot != "" {
+			p = filepath.Join(repoRoot, p)
+		}
+		fi, err := os.Stat(p)
+		if err != nil {
+			return
+		}
+		ps.infos = append(ps.infos, fi)
+		ps.names = append(ps.names, filepath.Clean(p))
+	}
+	add(envPath)
+	// defaults.yaml sits next to the environment file. Fall back to the
+	// conventional location when no environment file was given.
+	if envPath != "" {
+		add(filepath.Join(filepath.Dir(envPath), "defaults.yaml"))
+	} else {
+		add(filepath.Join("configuration", "environments", "defaults.yaml"))
+	}
+	return ps
+}
+
+// contains reports whether path names one of the pattern source files.
+func (ps patternSources) contains(path string) bool {
+	if len(ps.infos) == 0 {
+		return false
+	}
+	fi, err := os.Stat(path)
+	if err != nil {
+		return false
+	}
+	for _, other := range ps.infos {
+		if os.SameFile(fi, other) {
+			return true
+		}
+	}
+	return false
+}
+
 // GuardOptions configures a scan.
 type GuardOptions struct {
 	// RepoRoot is the repository root that pathspecs resolve against.
@@ -627,6 +806,7 @@ func RunGuard(opts GuardOptions) (*GuardReport, error) {
 		report.EnvMissing = true
 	}
 	report.ValuePatterns = len(patterns)
+	sources := newPatternSources(opts.RepoRoot, opts.EnvPath)
 
 	for _, f := range files {
 		// git ls-files yields repository-relative paths, and pre-commit passes
@@ -639,7 +819,8 @@ func RunGuard(opts GuardOptions) (*GuardReport, error) {
 		merged := GuardResult{File: f}
 		flagged := map[int]bool{}
 
-		if len(patterns) > 0 {
+		// A file that fed the pattern set is scanned by shape only.
+		if len(patterns) > 0 && !sources.contains(abs) {
 			res, err := ScanFileForPII(abs, patterns)
 			if err != nil {
 				report.Unreadable = append(report.Unreadable, GuardUnreadable{File: f, Err: err})
@@ -665,10 +846,23 @@ func RunGuard(opts GuardOptions) (*GuardReport, error) {
 		}
 
 		if len(merged.Matches) > 0 {
-			sort.SliceStable(merged.Matches, func(i, j int) bool { return merged.Matches[i].Line < merged.Matches[j].Line })
+			// Findings are ordered by (line, pattern) so two runs print the
+			// same report: map iteration in the config layer and the two
+			// detectors' independent passes otherwise leak their order here.
+			sort.SliceStable(merged.Matches, func(i, j int) bool {
+				if merged.Matches[i].Line != merged.Matches[j].Line {
+					return merged.Matches[i].Line < merged.Matches[j].Line
+				}
+				return merged.Matches[i].Pattern < merged.Matches[j].Pattern
+			})
 			report.Results = append(report.Results, merged)
 		}
 	}
+
+	// ...and by file across the report, which explicit-file invocations
+	// (pre-commit) otherwise leave in argument order.
+	sort.SliceStable(report.Results, func(i, j int) bool { return report.Results[i].File < report.Results[j].File })
+	sort.SliceStable(report.Unreadable, func(i, j int) bool { return report.Unreadable[i].File < report.Unreadable[j].File })
 
 	return report, nil
 }
