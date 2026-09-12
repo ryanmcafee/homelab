@@ -296,12 +296,20 @@ jobs:
 
       # The parity check needs the base tag to tell "this PR bumped the tag,
       # so the image does not exist yet" from "the image was never built".
-      # The explicit refspec is what guarantees refs/remotes/origin/main
-      # exists in the shallow checkout.
+      # The explicit refspec is what guarantees the base ref exists in the
+      # shallow checkout. The base is the PR target branch (main on
+      # workflow_dispatch), not a hard-coded main.
       - name: Fetch base ref for the tag comparison
-        run: git fetch --no-tags --depth=1 origin main:refs/remotes/origin/main
+        env:
+          BASE: ${{ github.base_ref || 'main' }}
+        run: git fetch --no-tags --depth=1 origin "$BASE:refs/remotes/origin/$BASE"
 
       - name: Compare pinned image against source
+        env:
+          BASE: ${{ github.base_ref || 'main' }}
         run: |
+          deno run --allow-net --allow-run --allow-env --allow-read --allow-write \
+            scripts/cmp-parity-test.ts --base-ref "origin/$BASE"
+|
           deno run --allow-net --allow-run --allow-env --allow-read --allow-write \
             scripts/cmp-parity-test.ts --base-ref origin/main
