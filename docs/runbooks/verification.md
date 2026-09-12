@@ -124,7 +124,7 @@ every failing check with its findings.
 `environments/homelab.yaml` when present; without it the guard still applies shape rules
 (routable IPs on `*_IP`/`*_VIP` keys, real-looking hostnames and mailboxes on domain keys).
 Example/template files are held to a closed placeholder allowlist (`192.168.1.0/24`,
-`your-*` labels, `example.com`, loopback, `.local`): any other value on a PII-shaped key
+`REPLACEME` / `REPLACEME-*` labels, `example.com`, loopback, `.local`): any other value on a PII-shaped key
 fails. A new placeholder convention must be added to the allowlist in
 `internal/config/guard.go`. Widen the scope with `--paths` (issue #262 will add
 `charts/**/values-homelab.yaml`).
