@@ -373,15 +373,15 @@ spec:
             ingressClassName: internal
             annotations:
               cert-manager.io/cluster-issuer: letsencrypt
-              external-dns.alpha.kubernetes.io/hostname: workflows.your-domain.com
+              external-dns.alpha.kubernetes.io/hostname: workflows.REPLACEME-domain.com
             hosts:
-              - workflows.your-domain.com
+              - workflows.REPLACEME-domain.com
             paths:
               - /
             pathType: Prefix
             tls:
               - hosts:
-                - workflows.your-domain.com
+                - workflows.REPLACEME-domain.com
                 secretName: argo-workflows-tls
           resources:
             limits:
@@ -1277,13 +1277,13 @@ spec:
           - crd
 
         domainFilters:
-          - your-domain.com
+          - REPLACEME-domain.com
 
         policy: sync
         registry: txt
         txtOwnerId: homelab-cloudflare-crd
         extraArgs:
-          - --default-targets=your-subdomain.duckdns.org
+          - --default-targets=REPLACEME-subdomain.duckdns.org
 
         resources:
           limits:
@@ -1344,7 +1344,7 @@ spec:
           - ingress
 
         domainFilters:
-          - your-domain.com
+          - REPLACEME-domain.com
 
         annotationFilter: external-dns.alpha.kubernetes.io/hostname
 
@@ -1356,7 +1356,7 @@ spec:
         # Internal ingresses should only publish DNS to UniFi, not Cloudflare
         extraArgs:
           - --ingress-class=external
-          - --default-targets=your-subdomain.duckdns.org
+          - --default-targets=REPLACEME-subdomain.duckdns.org
 
         resources:
           limits:
@@ -1473,7 +1473,7 @@ spec:
           - --txt-owner-id=homelab-unifi-crd
 
         domainFilters:
-          - your-domain.com
+          - REPLACEME-domain.com
 
         policy: sync
         registry: txt
@@ -1564,7 +1564,7 @@ spec:
           - --txt-owner-id=homelab-unifi-ingress
 
         domainFilters:
-          - your-domain.com
+          - REPLACEME-domain.com
 
         policy: sync
         registry: txt
@@ -1692,12 +1692,12 @@ spec:
             ingressClassName: internal
             annotations:
               cert-manager.io/cluster-issuer: letsencrypt
-              external-dns.alpha.kubernetes.io/hostname: grafana.your-domain.com
+              external-dns.alpha.kubernetes.io/hostname: grafana.REPLACEME-domain.com
             hosts:
-              - grafana.your-domain.com
+              - grafana.REPLACEME-domain.com
             tls:
               - hosts:
-                - grafana.your-domain.com
+                - grafana.REPLACEME-domain.com
                 secretName: grafana-tls
 
           resources:
@@ -2254,7 +2254,7 @@ spec:
           type: LoadBalancer
           annotations:
             io.cilium/lb-ipam-ips: 192.168.1.200
-            port-forwarding.your-domain.com/enable: "true"
+            port-forwarding.REPLACEME-domain.com/enable: "true"
           spec:
             externalTrafficPolicy: Cluster
 
@@ -2327,7 +2327,7 @@ spec:
         ingressRoute:
           dashboard:
             enabled: true
-            matchRule: Host(`traefik.your-domain.com`)
+            matchRule: Host(`traefik.REPLACEME-domain.com`)
             entryPoints:
               - websecure
             tls:
@@ -2535,7 +2535,7 @@ spec:
         ingressRoute:
           dashboard:
             enabled: true
-            matchRule: Host(`traefik-internal.your-domain.com`)
+            matchRule: Host(`traefik-internal.REPLACEME-domain.com`)
             entryPoints:
               - websecure
             tls:

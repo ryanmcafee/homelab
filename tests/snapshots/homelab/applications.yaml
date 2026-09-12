@@ -339,7 +339,7 @@ spec:
             enabled: true
             mountPath: /books
             path: /mnt/storage/books
-            server: truenas.your-domain.com
+            server: truenas.REPLACEME-domain.com
             type: nfs
           config:
             accessModes:
@@ -352,23 +352,23 @@ spec:
             enabled: true
             mountPath: /downloads
             path: /mnt/storage/downloads
-            server: truenas.your-domain.com
+            server: truenas.REPLACEME-domain.com
             type: nfs
         ingress:
           main:
             annotations:
               cert-manager.io/cluster-issuer: letsencrypt
-              external-dns.alpha.kubernetes.io/hostname: lazylibrarian.your-domain.com
+              external-dns.alpha.kubernetes.io/hostname: lazylibrarian.REPLACEME-domain.com
             enabled: true
             hosts:
-            - host: lazylibrarian.your-domain.com
+            - host: lazylibrarian.REPLACEME-domain.com
               paths:
               - path: /
                 pathType: Prefix
             ingressClassName: internal
             tls:
             - hosts:
-              - lazylibrarian.your-domain.com
+              - lazylibrarian.REPLACEME-domain.com
               secretName: lazylibrarian-tls
         TZ: "America/New_York"
         securityContext:
@@ -619,23 +619,23 @@ spec:
             enabled: true
             mountPath: /downloads
             path: /mnt/storage/downloads
-            server: truenas.your-domain.com
+            server: truenas.REPLACEME-domain.com
             type: nfs
         ingress:
           main:
             annotations:
               cert-manager.io/cluster-issuer: letsencrypt
-              external-dns.alpha.kubernetes.io/hostname: nzbget.your-domain.com
+              external-dns.alpha.kubernetes.io/hostname: nzbget.REPLACEME-domain.com
             enabled: true
             hosts:
-            - host: nzbget.your-domain.com
+            - host: nzbget.REPLACEME-domain.com
               paths:
               - path: /
                 pathType: Prefix
             ingressClassName: internal
             tls:
             - hosts:
-              - nzbget.your-domain.com
+              - nzbget.REPLACEME-domain.com
               secretName: nzbget-tls
         TZ: "America/New_York"
         securityContext:
@@ -733,7 +733,7 @@ spec:
           repository: plexinc/pms-docker
           tag: latest
         extraEnv:
-          ADVERTISE_IP: https://plex.your-domain.com:443
+          ADVERTISE_IP: https://plex.REPLACEME-domain.com:443
           CHANGE_CONFIG_DIR_OWNERSHIP: "false"
           PLEX_GID: "100"
           PLEX_UID: "568"
@@ -761,19 +761,19 @@ spec:
           - name: movies
             nfs:
               path: /mnt/storage/movies
-              server: truenas.your-domain.com
+              server: truenas.REPLACEME-domain.com
           - name: tv
             nfs:
               path: /mnt/storage/tv
-              server: truenas.your-domain.com
+              server: truenas.REPLACEME-domain.com
           - name: music
             nfs:
               path: /mnt/storage/music
-              server: truenas.your-domain.com
+              server: truenas.REPLACEME-domain.com
           - name: pictures
             nfs:
               path: /mnt/storage/pictures
-              server: truenas.your-domain.com
+              server: truenas.REPLACEME-domain.com
         extraVolumeMounts:
           - mountPath: /movies
             name: movies
@@ -790,27 +790,27 @@ spec:
         service:
           annotations:
             io.cilium/lb-ipam-ips: 192.168.1.103
-            port-forwarding.your-domain.com/enable: "true"
+            port-forwarding.REPLACEME-domain.com/enable: "true"
           externalTrafficPolicy: Local
           port: 32400
           type: LoadBalancer
         ingress:
           annotations:
             cert-manager.io/cluster-issuer: letsencrypt
-            external-dns.alpha.kubernetes.io/hostname: plex.your-domain.com
-            external-dns.alpha.kubernetes.io/target: your-subdomain.duckdns.org
+            external-dns.alpha.kubernetes.io/hostname: plex.REPLACEME-domain.com
+            external-dns.alpha.kubernetes.io/target: REPLACEME-subdomain.duckdns.org
           enabled: true
           hosts:
-          - host: plex.your-domain.com
+          - host: plex.REPLACEME-domain.com
             paths:
             - path: /
               pathType: Prefix
           ingressClassName: external
           tls:
           - hosts:
-            - plex.your-domain.com
+            - plex.REPLACEME-domain.com
             secretName: plex-tls
-          url: https://plex.your-domain.com
+          url: https://plex.REPLACEME-domain.com
         dnsPolicy: "None"
         dnsConfig:
           nameservers:
@@ -928,17 +928,17 @@ spec:
           main:
             annotations:
               cert-manager.io/cluster-issuer: letsencrypt
-              external-dns.alpha.kubernetes.io/hostname: prowlarr.your-domain.com
+              external-dns.alpha.kubernetes.io/hostname: prowlarr.REPLACEME-domain.com
             enabled: true
             hosts:
-            - host: prowlarr.your-domain.com
+            - host: prowlarr.REPLACEME-domain.com
               paths:
               - path: /
                 pathType: Prefix
             ingressClassName: internal
             tls:
             - hosts:
-              - prowlarr.your-domain.com
+              - prowlarr.REPLACEME-domain.com
               secretName: prowlarr-tls
         TZ: "America/New_York"
         securityContext:
@@ -1061,29 +1061,29 @@ spec:
             enabled: true
             mountPath: /downloads
             path: /mnt/storage/downloads
-            server: truenas.your-domain.com
+            server: truenas.REPLACEME-domain.com
             type: nfs
           movies:
             enabled: true
             mountPath: /movies
             path: /mnt/storage/movies
-            server: truenas.your-domain.com
+            server: truenas.REPLACEME-domain.com
             type: nfs
         ingress:
           main:
             annotations:
               cert-manager.io/cluster-issuer: letsencrypt
-              external-dns.alpha.kubernetes.io/hostname: radarr.your-domain.com
+              external-dns.alpha.kubernetes.io/hostname: radarr.REPLACEME-domain.com
             enabled: true
             hosts:
-            - host: radarr.your-domain.com
+            - host: radarr.REPLACEME-domain.com
               paths:
               - path: /
                 pathType: Prefix
             ingressClassName: internal
             tls:
             - hosts:
-              - radarr.your-domain.com
+              - radarr.REPLACEME-domain.com
               secretName: radarr-tls
         TZ: "America/New_York"
         securityContext:
@@ -1303,29 +1303,29 @@ spec:
             enabled: true
             mountPath: /downloads
             path: /mnt/storage/downloads
-            server: truenas.your-domain.com
+            server: truenas.REPLACEME-domain.com
             type: nfs
           tv:
             enabled: true
             mountPath: /tv
             path: /mnt/storage/tv
-            server: truenas.your-domain.com
+            server: truenas.REPLACEME-domain.com
             type: nfs
         ingress:
           main:
             annotations:
               cert-manager.io/cluster-issuer: letsencrypt
-              external-dns.alpha.kubernetes.io/hostname: sonarr.your-domain.com
+              external-dns.alpha.kubernetes.io/hostname: sonarr.REPLACEME-domain.com
             enabled: true
             hosts:
-            - host: sonarr.your-domain.com
+            - host: sonarr.REPLACEME-domain.com
               paths:
               - path: /
                 pathType: Prefix
             ingressClassName: internal
             tls:
             - hosts:
-              - sonarr.your-domain.com
+              - sonarr.REPLACEME-domain.com
               secretName: sonarr-tls
         TZ: "America/New_York"
         securityContext:
@@ -1440,17 +1440,17 @@ spec:
           main:
             annotations:
               cert-manager.io/cluster-issuer: letsencrypt
-              external-dns.alpha.kubernetes.io/hostname: tautulli.your-domain.com
+              external-dns.alpha.kubernetes.io/hostname: tautulli.REPLACEME-domain.com
             enabled: true
             hosts:
-            - host: tautulli.your-domain.com
+            - host: tautulli.REPLACEME-domain.com
               paths:
               - path: /
                 pathType: Prefix
             ingressClassName: internal
             tls:
             - hosts:
-              - tautulli.your-domain.com
+              - tautulli.REPLACEME-domain.com
               secretName: tautulli-tls
         TZ: "America/New_York"
         securityContext:
