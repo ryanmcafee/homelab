@@ -40,6 +40,7 @@ spec:
         duration: 10s
         factor: 2
         maxDuration: 3m
+
 ---
 # Source: gitops/templates/applications.yaml
 apiVersion: argoproj.io/v1alpha1
@@ -81,6 +82,7 @@ spec:
         duration: 5s
         factor: 2
         maxDuration: 3m
+
 ---
 # Source: gitops/templates/bootstrap.yaml
 apiVersion: argoproj.io/v1alpha1

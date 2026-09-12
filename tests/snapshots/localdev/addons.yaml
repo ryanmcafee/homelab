@@ -216,6 +216,7 @@ spec:
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
+
 ---
 # Source: addons/templates/grafana-config.yaml
 # Grafana Config: deploys static PV+PVC for Grafana persistent storage
@@ -249,6 +250,7 @@ spec:
       - CreateNamespace=true
       - ServerSideApply=true
       - SkipDryRunOnMissingResource=true
+
 ---
 # Source: addons/templates/kube-prometheus-stack.yaml
 apiVersion: argoproj.io/v1alpha1
@@ -378,6 +380,7 @@ spec:
       kind: MutatingWebhookConfiguration
       jqPathExpressions:
         - .webhooks[].clientConfig.caBundle
+
 ---
 # Source: addons/templates/kubelet-csr-approver.yaml
 apiVersion: argoproj.io/v1alpha1
@@ -418,6 +421,7 @@ spec:
       - CreateNamespace=true
       - ServerSideApply=true
       - ApplyOutOfSyncOnly=true
+
 ---
 # Source: addons/templates/local-path-provisioner.yaml
 apiVersion: argoproj.io/v1alpha1
@@ -462,6 +466,7 @@ spec:
       - CreateNamespace=true
       - ServerSideApply=true
       - ApplyOutOfSyncOnly=true
+
 ---
 # Source: addons/templates/node-feature-discovery.yaml
 # NodeFeatureDiscovery — hardware feature labeling via a cluster-admin-scoped
@@ -541,6 +546,7 @@ spec:
       - CreateNamespace=true
       - ServerSideApply=true
       - ApplyOutOfSyncOnly=true
+
 ---
 # Source: addons/templates/prometheus-config.yaml
 # Prometheus Config: deploys static PV+PVC for Prometheus and Alertmanager (iSCSI)
@@ -574,6 +580,7 @@ spec:
       - CreateNamespace=true
       - ServerSideApply=true
       - SkipDryRunOnMissingResource=true
+
 ---
 # Source: addons/templates/spegel.yaml
 apiVersion: argoproj.io/v1alpha1
@@ -635,6 +642,7 @@ spec:
     syncOptions:
       - ServerSideApply=true
       - ApplyOutOfSyncOnly=true
+
 ---
 # Source: addons/templates/traefik-external.yaml
 # Dependencies Application: deploys secrets and OnePasswordItems before traefik-external
@@ -843,6 +851,7 @@ spec:
       - CreateNamespace=true
       - ServerSideApply=true
       - SkipDryRunOnMissingResource=true
+
 ---
 # Source: addons/templates/traefik-internal.yaml
 # Dependencies Application: placeholder for future secret needs

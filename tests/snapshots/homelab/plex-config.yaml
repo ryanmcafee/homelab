@@ -36,6 +36,7 @@ spec:
   resources:
     requests:
       storage: 100Gi
+
 ---
 # Source: plex-config/templates/secret.yaml
 apiVersion: onepassword.com/v1

@@ -10,7 +10,13 @@ packer = "latest"
 
 # Kubernetes Tools
 kubectl = "1.36.3"
-helm = "latest"
+# Pinned, and pinned to the same version as configuration/versions.yaml
+# `tools.helm` and .github/workflows/verify.yml HELM_VERSION. The golden
+# snapshots in tests/snapshots are byte-exact, so a different helm renders
+# different bytes and every snapshot check fails. versions.yaml is the single
+# source of truth (it is the Renovate-tracked one); change it and these two
+# together.
+helm = "4.2.0"
 kind = "0.31.0"
 talosctl = "1.13.8"
 tilt = "0.37.3"
@@ -23,6 +29,10 @@ argo = "latest"          # Argo Workflows CLI
 
 # Task Runner
 task = "latest"
+
+# Go toolchain (docs/runbooks/verification.md and the CI GO_VERSION agree on
+# this minor; the level-0 CLI and its tests are built with it)
+go = "1.25"
 
 # Utilities
 jq = "latest"

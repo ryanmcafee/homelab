@@ -38,6 +38,7 @@ spec:
           name: noop@internal
   tls:
     secretName: traefik-internal-dashboard-tls
+
 ---
 # Source: traefik-internal-config/templates/dashboard.yaml
 apiVersion: traefik.io/v1alpha1

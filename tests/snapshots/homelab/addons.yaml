@@ -458,6 +458,7 @@ spec:
       - CreateNamespace=true
       - ServerSideApply=true
       - SkipDryRunOnMissingResource=true
+
 ---
 # Source: addons/templates/cert-manager.yaml
 apiVersion: argoproj.io/v1alpha1
@@ -607,6 +608,7 @@ spec:
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
+
 ---
 # Source: addons/templates/cilium.yaml
 # Cilium CNI - Visibility Only Application
@@ -704,6 +706,7 @@ spec:
         - /data
         - /metadata/annotations
         - /metadata/labels
+
 ---
 # Source: addons/templates/cloudnative-pg.yaml
 apiVersion: argoproj.io/v1alpha1
@@ -762,6 +765,7 @@ spec:
       kind: MutatingWebhookConfiguration
       jsonPointers:
         - /webhooks/0/clientConfig/caBundle
+
 ---
 # Source: addons/templates/democratic-csi-iscsi-hdd.yaml
 # Democratic-CSI iSCSI HDD - ArgoCD Application
@@ -876,6 +880,7 @@ spec:
     syncOptions:
       - ServerSideApply=true
       - ApplyOutOfSyncOnly=true
+
 ---
 # Source: addons/templates/democratic-csi-iscsi.yaml
 # Democratic-CSI iSCSI - ArgoCD Application
@@ -990,6 +995,7 @@ spec:
     syncOptions:
       - ServerSideApply=true
       - ApplyOutOfSyncOnly=true
+
 ---
 # Source: addons/templates/democratic-csi-ssd.yaml
 # Democratic-CSI SSD - ArgoCD Application
@@ -1107,6 +1113,7 @@ spec:
     syncOptions:
       - ServerSideApply=true
       - ApplyOutOfSyncOnly=true
+
 ---
 # Source: addons/templates/democratic-csi.yaml
 apiVersion: argoproj.io/v1alpha1
@@ -1248,6 +1255,7 @@ spec:
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
+
 ---
 # Source: addons/templates/external-dns-cloudflare-crd.yaml
 # CRD source instance for DNSEndpoint resources
@@ -1316,6 +1324,7 @@ spec:
       - CreateNamespace=true
       - ServerSideApply=true
       - ApplyOutOfSyncOnly=true
+
 ---
 # Source: addons/templates/external-dns-cloudflare.yaml
 apiVersion: argoproj.io/v1alpha1
@@ -1421,6 +1430,7 @@ spec:
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
+
 ---
 # Source: addons/templates/external-dns-unifi.yaml
 # Instance 1: CRD source for DNSEndpoint resources
@@ -1600,6 +1610,7 @@ spec:
       - CreateNamespace=true
       - ServerSideApply=true
       - ApplyOutOfSyncOnly=true
+
 ---
 # Source: addons/templates/grafana-config.yaml
 # Grafana Config: deploys static PV+PVC for Grafana persistent storage
@@ -1633,6 +1644,7 @@ spec:
       - CreateNamespace=true
       - ServerSideApply=true
       - SkipDryRunOnMissingResource=true
+
 ---
 # Source: addons/templates/kube-prometheus-stack.yaml
 apiVersion: argoproj.io/v1alpha1
@@ -1794,6 +1806,7 @@ spec:
       kind: MutatingWebhookConfiguration
       jqPathExpressions:
         - .webhooks[].clientConfig.caBundle
+
 ---
 # Source: addons/templates/kubelet-csr-approver.yaml
 apiVersion: argoproj.io/v1alpha1
@@ -1839,6 +1852,7 @@ spec:
       - CreateNamespace=true
       - ServerSideApply=true
       - ApplyOutOfSyncOnly=true
+
 ---
 # Source: addons/templates/node-feature-discovery.yaml
 # NodeFeatureDiscovery — hardware feature labeling via a cluster-admin-scoped
@@ -1918,6 +1932,7 @@ spec:
       - CreateNamespace=true
       - ServerSideApply=true
       - ApplyOutOfSyncOnly=true
+
 ---
 # Source: addons/templates/nvidia-gpu-operator.yaml
 apiVersion: argoproj.io/v1alpha1
@@ -2027,6 +2042,7 @@ spec:
       kind: ClusterPolicy
       jqPathExpressions:
         - .spec
+
 ---
 # Source: addons/templates/prometheus-config.yaml
 # Prometheus Config: deploys static PV+PVC for Prometheus and Alertmanager (iSCSI)
@@ -2060,6 +2076,7 @@ spec:
       - CreateNamespace=true
       - ServerSideApply=true
       - SkipDryRunOnMissingResource=true
+
 ---
 # Source: addons/templates/spegel.yaml
 apiVersion: argoproj.io/v1alpha1
@@ -2121,6 +2138,7 @@ spec:
     syncOptions:
       - ServerSideApply=true
       - ApplyOutOfSyncOnly=true
+
 ---
 # Source: addons/templates/tailscale-operator.yaml
 # Operator Application (wave 2). oauth.clientId/clientSecret are EMPTY so the chart
@@ -2425,6 +2443,7 @@ spec:
       - CreateNamespace=true
       - ServerSideApply=true
       - SkipDryRunOnMissingResource=true
+
 ---
 # Source: addons/templates/traefik-internal.yaml
 # Dependencies Application: placeholder for future secret needs
@@ -2631,6 +2650,7 @@ spec:
       - CreateNamespace=true
       - ServerSideApply=true
       - SkipDryRunOnMissingResource=true
+
 ---
 # Source: addons/templates/unifi-port-forward.yaml
 apiVersion: argoproj.io/v1alpha1
@@ -2713,6 +2733,7 @@ spec:
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
+
 ---
 # Source: addons/templates/cilium-lb-ipam.yaml
 # CiliumBGPAdvertisement - Service advertisement configuration
@@ -2739,6 +2760,7 @@ spec:
         communities:
           standard:
             - "64512:100"
+
 ---
 # Source: addons/templates/cilium-lb-ipam.yaml
 # CiliumBGPClusterConfig - BGP cluster-wide configuration

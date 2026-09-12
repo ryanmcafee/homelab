@@ -175,6 +175,7 @@ spec:
       - CreateNamespace=true
       - ServerSideApply=true
       - ApplyOutOfSyncOnly=true
+
 ---
 # Source: bootstrap/templates/sops-secrets.yaml
 # SOPS-encrypted secrets deployment
@@ -204,6 +205,7 @@ spec:
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
+
 ---
 # Source: bootstrap/templates/homelab-environment-config.yaml
 apiVersion: onepassword.com/v1

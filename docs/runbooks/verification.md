@@ -60,9 +60,23 @@ loops and currently exit with code 2 until Section B of #261 lands.
 
 ## Tooling
 
-All tools are pinned in `mise.toml`: `helm`, `kubeconform`, `conftest`, `pluto`, `deno`, `go`.
 Run `mise install` after pulling. Core Kubernetes schemas are cached under
 `~/.cache/homelab-kubeconform` (first run downloads them; CI caches the directory).
+
+`helm` and `go` are pinned to an exact version in `mise.toml`. The helm pin matters most:
+the golden snapshots are byte-exact, so a different helm renders different bytes and every
+snapshot check fails. Three files name the helm version and must agree:
+
+| File | Key | Role |
+|---|---|---|
+| `configuration/versions.yaml` | `tools.helm` | single source of truth, Renovate-tracked |
+| `mise.toml` | `helm` | the local renderer |
+| `.github/workflows/verify.yml` | `HELM_VERSION` (with a `v` prefix) | the CI renderer |
+
+`kubeconform`, `conftest`, `pluto` and `deno` track `latest` in `mise.toml`; their output
+is not byte-compared, so a minor difference between a workstation and CI is tolerable. The
+CI pins for those live in `verify.yml`, each with a Renovate marker comment so bumps land
+there too.
 
 ## Adding a new chart or application
 
@@ -77,11 +91,24 @@ Run `mise install` after pulling. Core Kubernetes schemas are cached under
 
 ## Renovate bumps
 
-A chart bump changes rendered output. The `snapshot` job in `verify.yml` regenerates
-snapshots on `renovate[bot]` PRs, pushes the update to the PR branch, and posts a sticky
-comment with the manifest diff so the reviewer sees exactly what the bump changes. A bump
-of an operator that ships CRDs must also re-vendor schemas (`task schemas:vendor`); the
-`schemas` job fails until that commit is added.
+A chart bump changes rendered output, so the `snapshot` job fails — for Renovate exactly
+as for a human. Nothing is committed on your behalf. On a pull request the job also
+regenerates the snapshots inside the runner's working tree, uploads them as the
+`snapshots-regenerated` artifact, and posts a sticky comment with the diff stat and the
+full manifest diff, so the reviewer sees what the bump changes before accepting it.
+
+To accept a bump: run `task test:snapshot -- --update` locally and commit, or download
+the `snapshots-regenerated` artifact from the run and commit it. The job stays red until
+`tests/snapshots` matches.
+
+The job deliberately does not auto-commit. A commit pushed with `GITHUB_TOKEN` triggers
+no workflows, so the PR would keep a stale, green-looking status; and Renovate stops
+managing a branch that carries commits it did not write. `renovate.json5` automerges
+patch bumps, which is the other half of the reason: a green snapshot job on a bump that
+changed the render would merge an unreviewed manifest change.
+
+A bump of an operator that ships CRDs must also re-vendor schemas
+(`task schemas:vendor`); the `schemas` job fails until that commit is added.
 
 ## Reading failures from CI
 

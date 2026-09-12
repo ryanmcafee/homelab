@@ -33,6 +33,7 @@ metadata:
     pod-security.kubernetes.io/warn: privileged
   annotations:
     argocd.argoproj.io/sync-wave: "10"
+
 ---
 # Source: applications/templates/oci-repositories.yaml
 apiVersion: v1
@@ -49,6 +50,7 @@ stringData:
   type: helm
   url: oci.trueforge.org/truecharts
   enableOCI: "true"
+
 ---
 # Source: applications/templates/oci-repositories.yaml
 # OCI Repository configuration for ArgoCD
@@ -167,6 +169,7 @@ spec:
         duration: 5s
         factor: 2
         maxDuration: 3m
+
 ---
 # Source: applications/templates/lazylibrarian.yaml
 # LazyLibrarian Config: deploys static PV+PVC for lazylibrarian persistent storage
@@ -305,6 +308,7 @@ spec:
         duration: 5s
         factor: 2
         maxDuration: 3m
+
 ---
 # Source: applications/templates/mosquitto.yaml
 # Mosquitto Config: deploys static PV+PVC for mosquitto persistent storage
@@ -434,6 +438,7 @@ spec:
         duration: 5s
         factor: 2
         maxDuration: 3m
+
 ---
 # Source: applications/templates/nzbget.yaml
 # NZBGet Config: deploys static PV+PVC for nzbget persistent storage
@@ -566,6 +571,7 @@ spec:
         duration: 5s
         factor: 2
         maxDuration: 3m
+
 ---
 # Source: applications/templates/plex.yaml
 # Dependencies Application: deploys OnePasswordItem for Plex claim token
@@ -716,6 +722,7 @@ spec:
         duration: 5s
         factor: 2
         maxDuration: 3m
+
 ---
 # Source: applications/templates/prowlarr.yaml
 # Prowlarr Config: deploys static PV+PVC for prowlarr persistent storage
@@ -850,6 +857,7 @@ spec:
         duration: 5s
         factor: 2
         maxDuration: 3m
+
 ---
 # Source: applications/templates/radarr.yaml
 # Radarr Config: deploys static PV+PVC for radarr persistent storage
@@ -998,6 +1006,7 @@ spec:
         duration: 5s
         factor: 2
         maxDuration: 3m
+
 ---
 # Source: applications/templates/sonarr.yaml
 # Sonarr Config: deploys static PV+PVC for sonarr persistent storage
@@ -1146,6 +1155,7 @@ spec:
         duration: 5s
         factor: 2
         maxDuration: 3m
+
 ---
 # Source: applications/templates/tautulli.yaml
 # Tautulli Config: deploys static PV+PVC for tautulli persistent storage

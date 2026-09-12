@@ -35,6 +35,7 @@ subjects:
   - kind: ServiceAccount
     name: ingress-verifier
     namespace: argo-workflows
+
 ---
 # Source: argo-workflows-config/templates/cronworkflow.yaml
 apiVersion: argoproj.io/v1alpha1
