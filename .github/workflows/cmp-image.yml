@@ -1,5 +1,13 @@
 name: Build CMP Image
 
+# Publishes a multi-platform image (linux/amd64 + linux/arm64). amd64 is what
+# the Talos cluster runs; arm64 is what an Apple Silicon workstation needs to
+# run `task test:cmp-parity` without --platform emulation.
+#
+# The Go build cross-compiles (Dockerfile.cmp pins its builder stage to
+# $BUILDPLATFORM and honours $TARGETARCH), so only the small runtime stage
+# (`apk add helm`) is emulated per non-native architecture.
+
 on:
   push:
     branches: [main]
@@ -49,6 +57,12 @@ jobs:
             echo "CMP version bumped: $BASE_VERSION -> $HEAD_VERSION"
           fi
 
+      # Needed for the runtime stage only: `apk add` runs as the target
+      # architecture, so a non-native platform needs binfmt emulation. The Go
+      # build itself never touches QEMU (see Dockerfile.cmp).
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@1f40c72289eff860ee54a304f1438e3cff362e0a # v4
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4
 
@@ -60,11 +74,15 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # Both platforms are built on a pull request too (push: false discards
+      # the result), so an arm64-only breakage is caught before merge rather
+      # than on the push that publishes.
       - name: Build and push
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
         with:
           context: .
           file: Dockerfile.cmp
+          platforms: linux/amd64,linux/arm64
           push: ${{ github.event_name == 'push' }}
           tags: |
             ghcr.io/${{ github.repository_owner }}/homelab-cmp:latest

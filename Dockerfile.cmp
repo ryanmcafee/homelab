@@ -1,15 +1,31 @@
 # ksops stage — extract binaries from distroless image
+#
+# No --platform here on purpose: this stage must resolve to the TARGET platform
+# so the ksops and kustomize binaries copied into the runtime image are built
+# for the architecture that will run them. viaductoss/ksops publishes
+# linux/amd64 and linux/arm64, which is exactly the set this image is built for.
 # renovate: datasource=docker depName=viaductoss/ksops
 FROM viaductoss/ksops:v4.4.0 AS ksops
 
 # Build stage — compile homelab CLI
-FROM golang:1.26-alpine AS builder
+#
+# Pinned to the BUILD platform, not the target: Go cross-compiles, so the
+# compiler always runs natively and only the output architecture changes. The
+# alternative (letting this stage run as the target platform) would put the
+# whole Go build under QEMU for every non-native architecture, which is minutes
+# of emulation per platform for no benefit.
+FROM --platform=$BUILDPLATFORM golang:1.26-alpine AS builder
 
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-RUN CGO_ENABLED=0 GOOS=linux go build -o /homelab ./cmd/homelab
+# Declared after the COPY layers so a platform change does not invalidate the
+# module download cache.
+ARG TARGETOS
+ARG TARGETARCH
+RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
+    go build -o /homelab ./cmd/homelab
 
 # Runtime stage — minimal image for CMP sidecar
 FROM alpine:3.23
