@@ -21,7 +21,8 @@ const bold = (s: string) => `\x1b[1m${s}\x1b[0m`;
 const dim = (s: string) => `\x1b[2m${s}\x1b[0m`;
 
 // PVC UUID pattern: pvc-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
-const PVC_PATTERN = /^pvc-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const PVC_PATTERN =
+  /^pvc-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 // Democratic-CSI driver names
 const CSI_DRIVERS: Record<string, string> = {
@@ -32,7 +33,11 @@ const CSI_DRIVERS: Record<string, string> = {
 
 // Dataset parents to scan
 const DATASET_PARENTS = ["storage/k8s", "ssd/k8s", "ssd/iscsi"];
-const SNAPSHOT_PARENTS = ["storage/k8s-snapshots", "ssd/k8s-snapshots", "ssd/iscsi-snapshots"];
+const SNAPSHOT_PARENTS = [
+  "storage/k8s-snapshots",
+  "ssd/k8s-snapshots",
+  "ssd/iscsi-snapshots",
+];
 
 interface NfsShare {
   id: number;
@@ -132,8 +137,7 @@ function parseArgs(args: string[]): {
     delete: false,
     includeReleased: false,
     yes: false,
-    apiUrl:
-      Deno.env.get("TRUENAS_API_URL") || "https://truenas.ryanmcafee.com",
+    apiUrl: Deno.env.get("TRUENAS_API_URL") || "https://truenas.ryanmcafee.com",
     verifySsl: false,
     verbose: false,
   };
@@ -358,7 +362,9 @@ function analyzeDatasets(
     const pv = pvMap.get(shortName);
 
     if (pv) {
-      const status: DatasetStatus = pv.phase === "Bound" ? "IN USE" : "RELEASED";
+      const status: DatasetStatus = pv.phase === "Bound"
+        ? "IN USE"
+        : "RELEASED";
       results.push({
         datasetId: ds.id,
         shortName,
@@ -391,7 +397,9 @@ function printSummaryTable(analyses: DatasetAnalysis[]): void {
   }
 
   // Column headers
-  const header = `  ${"DATASET".padEnd(52)} ${"SIZE".padStart(10)} ${"STATUS".padEnd(10)} ${"PV PHASE".padEnd(10)} ${"PVC".padEnd(40)}`;
+  const header = `  ${"DATASET".padEnd(52)} ${"SIZE".padStart(10)} ${
+    "STATUS".padEnd(10)
+  } ${"PV PHASE".padEnd(10)} ${"PVC".padEnd(40)}`;
   console.log(bold(header));
   console.log("  " + "-".repeat(header.trimStart().length));
 
@@ -401,9 +409,7 @@ function printSummaryTable(analyses: DatasetAnalysis[]): void {
       : a.datasetId.padEnd(50);
     const size = formatBytes(a.usedBytes).padStart(10);
     const phase = (a.pvPhase || "-").padEnd(10);
-    const pvc = a.pvcName
-      ? `${a.pvcNamespace}/${a.pvcName}`
-      : "-";
+    const pvc = a.pvcName ? `${a.pvcNamespace}/${a.pvcName}` : "-";
     const pvcLabel = pvc.length > 38
       ? pvc.slice(0, 35) + "..."
       : pvc.padEnd(40);
@@ -424,13 +430,16 @@ function printSummaryTable(analyses: DatasetAnalysis[]): void {
         break;
     }
 
-    console.log(`  ${datasetLabel}  ${size} ${statusLabel} ${phase} ${pvcLabel}`);
+    console.log(
+      `  ${datasetLabel}  ${size} ${statusLabel} ${phase} ${pvcLabel}`,
+    );
   }
 }
 
 async function confirmDeletion(count: number): Promise<boolean> {
   console.log("");
-  const msg = `⚠ About to delete ${count} orphaned dataset(s) and their NFS shares. This is irreversible.`;
+  const msg =
+    `⚠ About to delete ${count} orphaned dataset(s) and their NFS shares. This is irreversible.`;
   console.log(yellow(msg));
   const answer = prompt("Type 'yes' to confirm deletion:");
   return answer?.toLowerCase() === "yes";
@@ -448,7 +457,9 @@ async function main(): Promise<void> {
 
   const apiKey = Deno.env.get("TRUENAS_API_KEY");
   if (!apiKey) {
-    console.error(red("ERROR: TRUENAS_API_KEY environment variable is required"));
+    console.error(
+      red("ERROR: TRUENAS_API_KEY environment variable is required"),
+    );
     console.error("Set it directly or use: op run --env-file=.env.op -- ...");
     Deno.exit(1);
   }
@@ -464,21 +475,31 @@ async function main(): Promise<void> {
   const [pvResult, sharesResult, ...datasetResults] = await Promise.allSettled([
     fetchK8sPersistentVolumes(),
     fetchShares(opts.apiUrl, apiKey),
-    ...DATASET_PARENTS.map((p) => fetchDatasetWithChildren(opts.apiUrl, apiKey, p)),
-    ...SNAPSHOT_PARENTS.map((p) => fetchDatasetWithChildren(opts.apiUrl, apiKey, p)),
+    ...DATASET_PARENTS.map((p) =>
+      fetchDatasetWithChildren(opts.apiUrl, apiKey, p)
+    ),
+    ...SNAPSHOT_PARENTS.map((p) =>
+      fetchDatasetWithChildren(opts.apiUrl, apiKey, p)
+    ),
   ]);
 
   // Extract PVs
   if (pvResult.status === "rejected") {
-    console.error(red(`ERROR: Failed to fetch Kubernetes PVs: ${pvResult.reason}`));
+    console.error(
+      red(`ERROR: Failed to fetch Kubernetes PVs: ${pvResult.reason}`),
+    );
     Deno.exit(1);
   }
   const pvMap = pvResult.value;
-  console.log(cyan(`INFO: Found ${pvMap.size} democratic-csi PersistentVolumes`));
+  console.log(
+    cyan(`INFO: Found ${pvMap.size} democratic-csi PersistentVolumes`),
+  );
 
   // Extract NFS shares
   if (sharesResult.status === "rejected") {
-    console.error(red(`ERROR: Failed to fetch NFS shares: ${sharesResult.reason}`));
+    console.error(
+      red(`ERROR: Failed to fetch NFS shares: ${sharesResult.reason}`),
+    );
     Deno.exit(1);
   }
   const allShares = sharesResult.value;
@@ -486,7 +507,10 @@ async function main(): Promise<void> {
   // Build share lookup by path for k8s paths
   const sharesByPath = new Map<string, NfsShare>();
   for (const share of allShares) {
-    if (share.path.startsWith("/mnt/storage/k8s/") || share.path.startsWith("/mnt/ssd/k8s/")) {
+    if (
+      share.path.startsWith("/mnt/storage/k8s/") ||
+      share.path.startsWith("/mnt/ssd/k8s/")
+    ) {
       sharesByPath.set(share.path, share);
     }
   }
@@ -503,7 +527,9 @@ async function main(): Promise<void> {
     const parentId = DATASET_PARENTS[i];
 
     if (result.status === "rejected") {
-      console.error(yellow(`WARN: Failed to fetch ${parentId}: ${result.reason}`));
+      console.error(
+        yellow(`WARN: Failed to fetch ${parentId}: ${result.reason}`),
+      );
       continue;
     }
 
@@ -516,7 +542,9 @@ async function main(): Promise<void> {
     }
 
     const children = parentDs.children || [];
-    console.log(cyan(`INFO: Found ${children.length} datasets under ${parentId}`));
+    console.log(
+      cyan(`INFO: Found ${children.length} datasets under ${parentId}`),
+    );
     const analyses = analyzeDatasets(pvMap, children, parentId);
     allAnalyses.push(...analyses);
   }
@@ -536,7 +564,13 @@ async function main(): Promise<void> {
       snapshotDatasets.set(child.name, child);
     }
     if (opts.verbose && (parentDs.children?.length || 0) > 0) {
-      console.log(cyan(`INFO: Found ${parentDs.children?.length || 0} snapshot datasets under ${parentId}`));
+      console.log(
+        cyan(
+          `INFO: Found ${
+            parentDs.children?.length || 0
+          } snapshot datasets under ${parentId}`,
+        ),
+      );
     }
   }
 
@@ -572,17 +606,33 @@ async function main(): Promise<void> {
   }
 
   console.log("");
-  console.log(bold(`Reclaimable space: ${formatBytes(totalReclaimable)} across ${targets.length} dataset(s)`));
+  console.log(
+    bold(
+      `Reclaimable space: ${
+        formatBytes(totalReclaimable)
+      } across ${targets.length} dataset(s)`,
+    ),
+  );
   if (opts.includeReleased && released.length > 0) {
-    console.log(yellow(`  (includes ${released.length} Released PVs due to --include-released)`));
+    console.log(
+      yellow(
+        `  (includes ${released.length} Released PVs due to --include-released)`,
+      ),
+    );
   }
 
   // Dry-run: suggest next steps
   if (opts.dryRun) {
     console.log("");
-    console.log(yellow("DRY RUN: No changes made. To delete orphaned datasets, run with --delete"));
+    console.log(
+      yellow(
+        "DRY RUN: No changes made. To delete orphaned datasets, run with --delete",
+      ),
+    );
     if (released.length > 0 && !opts.includeReleased) {
-      console.log(yellow("  Add --include-released to also target Released PVs"));
+      console.log(
+        yellow("  Add --include-released to also target Released PVs"),
+      );
     }
     Deno.exit(0);
   }
@@ -595,7 +645,11 @@ async function main(): Promise<void> {
       Deno.exit(0);
     }
   } else {
-    console.log(yellow(`\n--yes: Skipping confirmation, deleting ${targets.length} dataset(s)...`));
+    console.log(
+      yellow(
+        `\n--yes: Skipping confirmation, deleting ${targets.length} dataset(s)...`,
+      ),
+    );
   }
 
   // Delete orphaned datasets
@@ -616,7 +670,13 @@ async function main(): Promise<void> {
         await deleteNfsShare(opts.apiUrl, apiKey, share.id);
         console.log(green(`OK: Deleted NFS share [${share.id}] ${share.path}`));
       } catch (err) {
-        console.error(red(`ERROR: Failed to delete NFS share for ${label}: ${(err as Error).message}`));
+        console.error(
+          red(
+            `ERROR: Failed to delete NFS share for ${label}: ${
+              (err as Error).message
+            }`,
+          ),
+        );
         // Continue with dataset deletion anyway
       }
     }
@@ -628,17 +688,29 @@ async function main(): Promise<void> {
         await deleteDataset(opts.apiUrl, apiKey, snapshotDs.id);
         console.log(green(`OK: Deleted snapshot dataset ${snapshotDs.id}`));
       } catch (err) {
-        console.error(red(`ERROR: Failed to delete snapshot ${snapshotDs.id}: ${(err as Error).message}`));
+        console.error(
+          red(
+            `ERROR: Failed to delete snapshot ${snapshotDs.id}: ${
+              (err as Error).message
+            }`,
+          ),
+        );
       }
     }
 
     // Delete the dataset
     try {
       await deleteDataset(opts.apiUrl, apiKey, target.datasetId);
-      console.log(green(`OK: Deleted dataset ${label} (${formatBytes(target.usedBytes)})`));
+      console.log(
+        green(
+          `OK: Deleted dataset ${label} (${formatBytes(target.usedBytes)})`,
+        ),
+      );
       deleted++;
     } catch (err) {
-      console.error(red(`ERROR: Failed to delete ${label}: ${(err as Error).message}`));
+      console.error(
+        red(`ERROR: Failed to delete ${label}: ${(err as Error).message}`),
+      );
       errors++;
     }
   }
@@ -650,7 +722,16 @@ async function main(): Promise<void> {
   if (errors > 0) {
     console.log(red(`  Errors:  ${errors}`));
   }
-  console.log(`  Space reclaimed: ~${formatBytes(targets.filter((_, i) => i < deleted).reduce((sum, a) => sum + a.usedBytes, 0))}`);
+  console.log(
+    `  Space reclaimed: ~${
+      formatBytes(
+        targets.filter((_, i) => i < deleted).reduce(
+          (sum, a) => sum + a.usedBytes,
+          0,
+        ),
+      )
+    }`,
+  );
 
   if (errors > 0) {
     Deno.exit(1);

@@ -34,8 +34,8 @@ type WorkloadType = "deployment" | "statefulset";
 interface MigrateVolume {
   volumeHandle: string;
   oldNfsDatasetName: string; // e.g. "csi-pvc-38c35b19-...-homelab" under storage/k8s
-  newZvolName: string;       // e.g. "csi-sonarr-config-homelab"
-  pool: string;              // "storage/k8s"
+  newZvolName: string; // e.g. "csi-sonarr-config-homelab"
+  pool: string; // "storage/k8s"
   sizeBytes: number;
   namespace: string;
   workloadName: string;
@@ -108,32 +108,197 @@ function giToBytes(gi: number): number {
 
 /** Volumes migrating from NFS datasets to new iSCSI zvols */
 const MIGRATIONS: MigrateVolume[] = [
-  { volumeHandle: "sonarr-config", oldNfsDatasetName: "csi-pvc-38c35b19-a1ad-480b-9f94-8572acd8bc9c-homelab", newZvolName: "csi-sonarr-config-homelab", pool: "storage/k8s", sizeBytes: giToBytes(10), namespace: "media", workloadName: "sonarr", workloadType: "deployment", rpm: "7200" },
-  { volumeHandle: "radarr-config", oldNfsDatasetName: "csi-pvc-a899a2b4-d1fc-4827-9e09-0414e9f05597-homelab", newZvolName: "csi-radarr-config-homelab", pool: "storage/k8s", sizeBytes: giToBytes(10), namespace: "media", workloadName: "radarr", workloadType: "deployment", rpm: "7200" },
-  { volumeHandle: "prowlarr-config", oldNfsDatasetName: "csi-pvc-675a592d-efcd-41ee-94cd-2683928116d4-homelab", newZvolName: "csi-prowlarr-config-homelab", pool: "storage/k8s", sizeBytes: giToBytes(1), namespace: "media", workloadName: "prowlarr", workloadType: "deployment", rpm: "7200" },
-  { volumeHandle: "nzbget-config", oldNfsDatasetName: "csi-pvc-0cdae8bc-901e-473f-812f-17a4bd97a907-homelab", newZvolName: "csi-nzbget-config-homelab", pool: "storage/k8s", sizeBytes: giToBytes(5), namespace: "media", workloadName: "nzbget", workloadType: "deployment", rpm: "7200" },
-  { volumeHandle: "tautulli-config", oldNfsDatasetName: "csi-pvc-e72a2543-eefb-4e01-8924-8e19ed5bd227-homelab", newZvolName: "csi-tautulli-config-homelab", pool: "storage/k8s", sizeBytes: giToBytes(5), namespace: "media", workloadName: "tautulli", workloadType: "deployment", rpm: "7200" },
-  { volumeHandle: "lazylibrarian-config", oldNfsDatasetName: "csi-pvc-fe0cd214-d234-44a7-a60d-2460e94b63ac-homelab", newZvolName: "csi-lazylibrarian-config-homelab", pool: "storage/k8s", sizeBytes: giToBytes(5), namespace: "media", workloadName: "lazylibrarian", workloadType: "deployment", rpm: "7200" },
-  { volumeHandle: "flaresolverr-config", oldNfsDatasetName: "csi-pvc-4e3e698e-5a65-4c66-9515-72e01baf8776-homelab", newZvolName: "csi-flaresolverr-config-homelab", pool: "storage/k8s", sizeBytes: giToBytes(1), namespace: "media", workloadName: "flaresolverr", workloadType: "deployment", rpm: "7200" },
-  { volumeHandle: "mosquitto-config", oldNfsDatasetName: "csi-pvc-01298619-954c-44a5-844e-208efdaa616f-homelab", newZvolName: "csi-mosquitto-config-homelab", pool: "storage/k8s", sizeBytes: giToBytes(1), namespace: "home-automation", workloadName: "mosquitto", workloadType: "deployment", rpm: "7200" },
-  { volumeHandle: "mosquitto-data", oldNfsDatasetName: "csi-pvc-79e9e8ff-41d9-4838-a8f8-e48ee6f0b1ef-homelab", newZvolName: "csi-mosquitto-data-homelab", pool: "storage/k8s", sizeBytes: giToBytes(1), namespace: "home-automation", workloadName: "mosquitto", workloadType: "deployment", rpm: "7200" },
-  { volumeHandle: "mosquitto-configinc", oldNfsDatasetName: "csi-pvc-4e7c3c1f-7f5f-4609-82b6-d3a6b49fac1c-homelab", newZvolName: "csi-mosquitto-configinc-homelab", pool: "storage/k8s", sizeBytes: giToBytes(1), namespace: "home-automation", workloadName: "mosquitto", workloadType: "deployment", rpm: "7200" },
-  { volumeHandle: "homeassistant-config", oldNfsDatasetName: "csi-pvc-148d88bc-110f-4a6d-bf2f-1265d64f6aed-homelab", newZvolName: "csi-homeassistant-config-homelab", pool: "storage/k8s", sizeBytes: giToBytes(10), namespace: "home-automation", workloadName: "home-assistant", workloadType: "deployment", rpm: "7200" },
-  { volumeHandle: "grafana-config", oldNfsDatasetName: "csi-pvc-51ce155b-9944-4761-bc64-d64404a0a398-homelab", newZvolName: "csi-grafana-config-homelab", pool: "storage/k8s", sizeBytes: giToBytes(10), namespace: "monitoring", workloadName: "kube-prometheus-stack-grafana", workloadType: "deployment", rpm: "7200" },
+  {
+    volumeHandle: "sonarr-config",
+    oldNfsDatasetName: "csi-pvc-38c35b19-a1ad-480b-9f94-8572acd8bc9c-homelab",
+    newZvolName: "csi-sonarr-config-homelab",
+    pool: "storage/k8s",
+    sizeBytes: giToBytes(10),
+    namespace: "media",
+    workloadName: "sonarr",
+    workloadType: "deployment",
+    rpm: "7200",
+  },
+  {
+    volumeHandle: "radarr-config",
+    oldNfsDatasetName: "csi-pvc-a899a2b4-d1fc-4827-9e09-0414e9f05597-homelab",
+    newZvolName: "csi-radarr-config-homelab",
+    pool: "storage/k8s",
+    sizeBytes: giToBytes(10),
+    namespace: "media",
+    workloadName: "radarr",
+    workloadType: "deployment",
+    rpm: "7200",
+  },
+  {
+    volumeHandle: "prowlarr-config",
+    oldNfsDatasetName: "csi-pvc-675a592d-efcd-41ee-94cd-2683928116d4-homelab",
+    newZvolName: "csi-prowlarr-config-homelab",
+    pool: "storage/k8s",
+    sizeBytes: giToBytes(1),
+    namespace: "media",
+    workloadName: "prowlarr",
+    workloadType: "deployment",
+    rpm: "7200",
+  },
+  {
+    volumeHandle: "nzbget-config",
+    oldNfsDatasetName: "csi-pvc-0cdae8bc-901e-473f-812f-17a4bd97a907-homelab",
+    newZvolName: "csi-nzbget-config-homelab",
+    pool: "storage/k8s",
+    sizeBytes: giToBytes(5),
+    namespace: "media",
+    workloadName: "nzbget",
+    workloadType: "deployment",
+    rpm: "7200",
+  },
+  {
+    volumeHandle: "tautulli-config",
+    oldNfsDatasetName: "csi-pvc-e72a2543-eefb-4e01-8924-8e19ed5bd227-homelab",
+    newZvolName: "csi-tautulli-config-homelab",
+    pool: "storage/k8s",
+    sizeBytes: giToBytes(5),
+    namespace: "media",
+    workloadName: "tautulli",
+    workloadType: "deployment",
+    rpm: "7200",
+  },
+  {
+    volumeHandle: "lazylibrarian-config",
+    oldNfsDatasetName: "csi-pvc-fe0cd214-d234-44a7-a60d-2460e94b63ac-homelab",
+    newZvolName: "csi-lazylibrarian-config-homelab",
+    pool: "storage/k8s",
+    sizeBytes: giToBytes(5),
+    namespace: "media",
+    workloadName: "lazylibrarian",
+    workloadType: "deployment",
+    rpm: "7200",
+  },
+  {
+    volumeHandle: "flaresolverr-config",
+    oldNfsDatasetName: "csi-pvc-4e3e698e-5a65-4c66-9515-72e01baf8776-homelab",
+    newZvolName: "csi-flaresolverr-config-homelab",
+    pool: "storage/k8s",
+    sizeBytes: giToBytes(1),
+    namespace: "media",
+    workloadName: "flaresolverr",
+    workloadType: "deployment",
+    rpm: "7200",
+  },
+  {
+    volumeHandle: "mosquitto-config",
+    oldNfsDatasetName: "csi-pvc-01298619-954c-44a5-844e-208efdaa616f-homelab",
+    newZvolName: "csi-mosquitto-config-homelab",
+    pool: "storage/k8s",
+    sizeBytes: giToBytes(1),
+    namespace: "home-automation",
+    workloadName: "mosquitto",
+    workloadType: "deployment",
+    rpm: "7200",
+  },
+  {
+    volumeHandle: "mosquitto-data",
+    oldNfsDatasetName: "csi-pvc-79e9e8ff-41d9-4838-a8f8-e48ee6f0b1ef-homelab",
+    newZvolName: "csi-mosquitto-data-homelab",
+    pool: "storage/k8s",
+    sizeBytes: giToBytes(1),
+    namespace: "home-automation",
+    workloadName: "mosquitto",
+    workloadType: "deployment",
+    rpm: "7200",
+  },
+  {
+    volumeHandle: "mosquitto-configinc",
+    oldNfsDatasetName: "csi-pvc-4e7c3c1f-7f5f-4609-82b6-d3a6b49fac1c-homelab",
+    newZvolName: "csi-mosquitto-configinc-homelab",
+    pool: "storage/k8s",
+    sizeBytes: giToBytes(1),
+    namespace: "home-automation",
+    workloadName: "mosquitto",
+    workloadType: "deployment",
+    rpm: "7200",
+  },
+  {
+    volumeHandle: "homeassistant-config",
+    oldNfsDatasetName: "csi-pvc-148d88bc-110f-4a6d-bf2f-1265d64f6aed-homelab",
+    newZvolName: "csi-homeassistant-config-homelab",
+    pool: "storage/k8s",
+    sizeBytes: giToBytes(10),
+    namespace: "home-automation",
+    workloadName: "home-assistant",
+    workloadType: "deployment",
+    rpm: "7200",
+  },
+  {
+    volumeHandle: "grafana-config",
+    oldNfsDatasetName: "csi-pvc-51ce155b-9944-4761-bc64-d64404a0a398-homelab",
+    newZvolName: "csi-grafana-config-homelab",
+    pool: "storage/k8s",
+    sizeBytes: giToBytes(10),
+    namespace: "monitoring",
+    workloadName: "kube-prometheus-stack-grafana",
+    workloadType: "deployment",
+    rpm: "7200",
+  },
 ];
 
 /** Brand-new iSCSI volumes (no pre-existing NFS dataset) */
 const CREATES: CreateVolume[] = [
-  { volumeHandle: "plex-config-iscsi", zvolName: "csi-plex-config-iscsi-homelab", pool: "ssd/iscsi", sizeBytes: giToBytes(100), namespace: "media", workloadName: "plex-plex-media-server", workloadType: "statefulset", rpm: "SSD" },
-  { volumeHandle: "prometheus-db", zvolName: "csi-prometheus-db-homelab", pool: "storage/k8s", sizeBytes: giToBytes(100), namespace: "monitoring", workloadName: "prometheus-kube-prometheus-stack-prometheus", workloadType: "statefulset", rpm: "7200" },
-  { volumeHandle: "alertmanager-db", zvolName: "csi-alertmanager-db-homelab", pool: "storage/k8s", sizeBytes: giToBytes(10), namespace: "monitoring", workloadName: "alertmanager-kube-prometheus-stack-alertmanager", workloadType: "statefulset", rpm: "7200" },
+  {
+    volumeHandle: "plex-config-iscsi",
+    zvolName: "csi-plex-config-iscsi-homelab",
+    pool: "ssd/iscsi",
+    sizeBytes: giToBytes(100),
+    namespace: "media",
+    workloadName: "plex-plex-media-server",
+    workloadType: "statefulset",
+    rpm: "SSD",
+  },
+  {
+    volumeHandle: "prometheus-db",
+    zvolName: "csi-prometheus-db-homelab",
+    pool: "storage/k8s",
+    sizeBytes: giToBytes(100),
+    namespace: "monitoring",
+    workloadName: "prometheus-kube-prometheus-stack-prometheus",
+    workloadType: "statefulset",
+    rpm: "7200",
+  },
+  {
+    volumeHandle: "alertmanager-db",
+    zvolName: "csi-alertmanager-db-homelab",
+    pool: "storage/k8s",
+    sizeBytes: giToBytes(10),
+    namespace: "monitoring",
+    workloadName: "alertmanager-kube-prometheus-stack-alertmanager",
+    workloadType: "statefulset",
+    rpm: "7200",
+  },
 ];
 
 const NFS_CLEANUPS: NfsCleanup[] = [
-  { pvcName: "kube-prometheus-stack-grafana", namespace: "monitoring", datasetPattern: "csi-pvc-268a6235" },
-  { pvcName: "alertmanager-kube-prometheus-stack-alertmanager-db-alertmanager-kube-prometheus-stack-alertmanager-0", namespace: "monitoring", datasetPattern: "csi-pvc-47cfcbdd" },
-  { pvcName: "prometheus-kube-prometheus-stack-prometheus-db-prometheus-kube-prometheus-stack-prometheus-0", namespace: "monitoring", datasetPattern: "csi-pvc-d04e6ba4" },
-  { pvcName: "mosquitto-configinc", namespace: "home-automation", datasetPattern: "csi-pvc-4e7c3c1f" },
+  {
+    pvcName: "kube-prometheus-stack-grafana",
+    namespace: "monitoring",
+    datasetPattern: "csi-pvc-268a6235",
+  },
+  {
+    pvcName:
+      "alertmanager-kube-prometheus-stack-alertmanager-db-alertmanager-kube-prometheus-stack-alertmanager-0",
+    namespace: "monitoring",
+    datasetPattern: "csi-pvc-47cfcbdd",
+  },
+  {
+    pvcName:
+      "prometheus-kube-prometheus-stack-prometheus-db-prometheus-kube-prometheus-stack-prometheus-0",
+    namespace: "monitoring",
+    datasetPattern: "csi-pvc-d04e6ba4",
+  },
+  {
+    pvcName: "mosquitto-configinc",
+    namespace: "home-automation",
+    datasetPattern: "csi-pvc-4e7c3c1f",
+  },
 ];
 
 // All valid phase names
@@ -298,7 +463,11 @@ async function runKubectl(args: string[]): Promise<string> {
 
 // --- TrueNAS API ---
 
-async function truenasGet<T>(apiUrl: string, apiKey: string, path: string): Promise<T> {
+async function truenasGet<T>(
+  apiUrl: string,
+  apiKey: string,
+  path: string,
+): Promise<T> {
   const resp = await fetch(`${apiUrl}${path}`, {
     headers: { Authorization: `Bearer ${apiKey}` },
   });
@@ -311,7 +480,12 @@ async function truenasGet<T>(apiUrl: string, apiKey: string, path: string): Prom
   return await resp.json();
 }
 
-async function truenasPost<T>(apiUrl: string, apiKey: string, path: string, body: unknown): Promise<T> {
+async function truenasPost<T>(
+  apiUrl: string,
+  apiKey: string,
+  path: string,
+  body: unknown,
+): Promise<T> {
   const resp = await fetch(`${apiUrl}${path}`, {
     method: "POST",
     headers: {
@@ -329,7 +503,11 @@ async function truenasPost<T>(apiUrl: string, apiKey: string, path: string, body
   return await resp.json();
 }
 
-async function truenasCheck(apiUrl: string, apiKey: string, path: string): Promise<{ ok: boolean; status: number }> {
+async function truenasCheck(
+  apiUrl: string,
+  apiKey: string,
+  path: string,
+): Promise<{ ok: boolean; status: number }> {
   const resp = await fetch(`${apiUrl}${path}`, {
     headers: { Authorization: `Bearer ${apiKey}` },
   });
@@ -358,7 +536,9 @@ async function createIscsiVolume(
   opts: Options,
 ): Promise<boolean> {
   // Step 1: Create zvol
-  console.log(cyan(`  Creating zvol: ${pool}/${name} (${formatBytes(sizeBytes)})...`));
+  console.log(
+    cyan(`  Creating zvol: ${pool}/${name} (${formatBytes(sizeBytes)})...`),
+  );
   await truenasPost(apiUrl, apiKey, "/api/v2.0/pool/dataset", {
     name: `${pool}/${name}`,
     type: "VOLUME",
@@ -369,22 +549,32 @@ async function createIscsiVolume(
 
   // Step 2: Create extent
   console.log(cyan(`  Creating extent: ${name}...`));
-  const extent = await truenasPost<IscsiExtent>(apiUrl, apiKey, "/api/v2.0/iscsi/extent", {
-    name: name,
-    type: "DISK",
-    disk: `zvol/${pool}/${name}`,
-    blocksize: 512,
-    rpm: rpm,
-    enabled: true,
-  });
+  const extent = await truenasPost<IscsiExtent>(
+    apiUrl,
+    apiKey,
+    "/api/v2.0/iscsi/extent",
+    {
+      name: name,
+      type: "DISK",
+      disk: `zvol/${pool}/${name}`,
+      blocksize: 512,
+      rpm: rpm,
+      enabled: true,
+    },
+  );
   console.log(green(`  OK: Extent created (id=${extent.id})`));
 
   // Step 3: Create target
   console.log(cyan(`  Creating target: ${name}...`));
-  const target = await truenasPost<IscsiTarget>(apiUrl, apiKey, "/api/v2.0/iscsi/target", {
-    name: name,
-    groups: [{ portal: 1, initiator: 1, authmethod: "NONE" }],
-  });
+  const target = await truenasPost<IscsiTarget>(
+    apiUrl,
+    apiKey,
+    "/api/v2.0/iscsi/target",
+    {
+      name: name,
+      groups: [{ portal: 1, initiator: 1, authmethod: "NONE" }],
+    },
+  );
   console.log(green(`  OK: Target created (id=${target.id})`));
 
   // Step 4: Create target-extent mapping
@@ -397,7 +587,9 @@ async function createIscsiVolume(
   console.log(green(`  OK: Target-extent mapping created`));
 
   if (opts.verbose) {
-    console.log(dim(`  zvol=${pool}/${name} extent=${extent.id} target=${target.id}`));
+    console.log(
+      dim(`  zvol=${pool}/${name} extent=${extent.id} target=${target.id}`),
+    );
   }
 
   return true;
@@ -429,10 +621,14 @@ async function phaseDiscovery(
   const [extents, storageK8sCheck, ssdIscsiCheck] = await Promise.allSettled([
     truenasGet<IscsiExtent[]>(apiUrl, apiKey, "/api/v2.0/iscsi/extent"),
     truenasGet<{ children: Array<{ name: string; type: string }> }>(
-      apiUrl, apiKey, `/api/v2.0/pool/dataset/id/${encodeURIComponent("storage/k8s")}`,
+      apiUrl,
+      apiKey,
+      `/api/v2.0/pool/dataset/id/${encodeURIComponent("storage/k8s")}`,
     ),
     truenasGet<{ children: Array<{ name: string; type: string }> }>(
-      apiUrl, apiKey, `/api/v2.0/pool/dataset/id/${encodeURIComponent("ssd/iscsi")}`,
+      apiUrl,
+      apiKey,
+      `/api/v2.0/pool/dataset/id/${encodeURIComponent("ssd/iscsi")}`,
     ),
   ]);
 
@@ -443,7 +639,9 @@ async function phaseDiscovery(
     existingIscsiNames.add(ext.name);
   }
 
-  console.log(cyan(`INFO: Found ${iscsiExtents.length} existing iSCSI extents`));
+  console.log(
+    cyan(`INFO: Found ${iscsiExtents.length} existing iSCSI extents`),
+  );
 
   if (opts.verbose && iscsiExtents.length > 0) {
     console.log(dim("  Existing iSCSI extents:"));
@@ -459,7 +657,9 @@ async function phaseDiscovery(
       const shortName = child.name.split("/").pop() || child.name;
       oldNfsDatasets.add(shortName);
     }
-    console.log(cyan(`INFO: Found ${oldNfsDatasets.size} datasets under storage/k8s`));
+    console.log(
+      cyan(`INFO: Found ${oldNfsDatasets.size} datasets under storage/k8s`),
+    );
   } else {
     console.log(yellow("WARN: Could not fetch storage/k8s datasets"));
   }
@@ -472,15 +672,25 @@ async function phaseDiscovery(
       existingIscsiNames.add(shortName);
     }
     const ssdCount = ssdIscsiCheck.value.children?.length || 0;
-    if (opts.verbose) console.log(dim(`  Found ${ssdCount} datasets under ssd/iscsi`));
+    if (opts.verbose) {
+      console.log(dim(`  Found ${ssdCount} datasets under ssd/iscsi`));
+    }
   }
 
-  result.details.push(`${iscsiExtents.length} iSCSI extents, ${oldNfsDatasets.size} NFS datasets`);
+  result.details.push(
+    `${iscsiExtents.length} iSCSI extents, ${oldNfsDatasets.size} NFS datasets`,
+  );
 
   // Analyze MIGRATIONS
   console.log("");
   console.log(bold("--- Migration Plan (NFS → iSCSI) ---"));
-  console.log(bold(`  ${"Handle".padEnd(25)} ${"Old NFS Dataset".padEnd(20)} ${"New iSCSI Zvol".padEnd(40)} ${"Size".padStart(10)} ${"Status"}`));
+  console.log(
+    bold(
+      `  ${"Handle".padEnd(25)} ${"Old NFS Dataset".padEnd(20)} ${
+        "New iSCSI Zvol".padEnd(40)
+      } ${"Size".padStart(10)} ${"Status"}`,
+    ),
+  );
   console.log("  " + "-".repeat(110));
 
   for (const m of MIGRATIONS) {
@@ -492,41 +702,74 @@ async function phaseDiscovery(
       result.details.push(`${m.volumeHandle}: already provisioned`);
     } else if (oldExists) {
       status = yellow("READY (old NFS found)");
-      result.details.push(`${m.volumeHandle}: old NFS dataset found, will create iSCSI zvol`);
+      result.details.push(
+        `${m.volumeHandle}: old NFS dataset found, will create iSCSI zvol`,
+      );
     } else {
       status = cyan("CREATE (no old data)");
-      result.details.push(`${m.volumeHandle}: no old dataset, will create fresh iSCSI zvol`);
+      result.details.push(
+        `${m.volumeHandle}: no old dataset, will create fresh iSCSI zvol`,
+      );
     }
     // Truncate old dataset name for display
     const oldShort = m.oldNfsDatasetName.length > 18
       ? m.oldNfsDatasetName.slice(0, 15) + "..."
       : m.oldNfsDatasetName;
-    console.log(`  ${m.volumeHandle.padEnd(25)} ${dim(oldShort.padEnd(20))} ${m.newZvolName.padEnd(40)} ${formatBytes(m.sizeBytes).padStart(10)} ${status}`);
+    console.log(
+      `  ${m.volumeHandle.padEnd(25)} ${dim(oldShort.padEnd(20))} ${
+        m.newZvolName.padEnd(40)
+      } ${formatBytes(m.sizeBytes).padStart(10)} ${status}`,
+    );
   }
 
   // Analyze CREATES
   console.log("");
   console.log(bold("--- New Volume Plan ---"));
-  console.log(bold(`  ${"Handle".padEnd(25)} ${"Pool".padEnd(15)} ${"Zvol Name".padEnd(40)} ${"Size".padStart(10)} ${"Status"}`));
+  console.log(
+    bold(
+      `  ${"Handle".padEnd(25)} ${"Pool".padEnd(15)} ${
+        "Zvol Name".padEnd(40)
+      } ${"Size".padStart(10)} ${"Status"}`,
+    ),
+  );
   console.log("  " + "-".repeat(105));
   for (const create of CREATES) {
     const exists = existingIscsiNames.has(create.zvolName);
     const status = exists ? green("EXISTS") : yellow(create.rpm);
-    result.details.push(`${create.volumeHandle}: ${exists ? "already exists" : "will create"}`);
-    console.log(`  ${create.volumeHandle.padEnd(25)} ${create.pool.padEnd(15)} ${create.zvolName.padEnd(40)} ${formatBytes(create.sizeBytes).padStart(10)} ${status}`);
+    result.details.push(
+      `${create.volumeHandle}: ${exists ? "already exists" : "will create"}`,
+    );
+    console.log(
+      `  ${create.volumeHandle.padEnd(25)} ${create.pool.padEnd(15)} ${
+        create.zvolName.padEnd(40)
+      } ${formatBytes(create.sizeBytes).padStart(10)} ${status}`,
+    );
   }
 
   if (NFS_CLEANUPS.length > 0 && !opts.skipNfsCleanup) {
     console.log("");
     console.log(bold("--- NFS Cleanup Plan ---"));
-    console.log(bold(`  ${"PVC Name".padEnd(80)} ${"Namespace".padEnd(15)} ${"Dataset Pattern"}`));
+    console.log(
+      bold(
+        `  ${"PVC Name".padEnd(80)} ${
+          "Namespace".padEnd(15)
+        } ${"Dataset Pattern"}`,
+      ),
+    );
     console.log("  " + "-".repeat(120));
     for (const nfs of NFS_CLEANUPS) {
-      console.log(`  ${nfs.pvcName.padEnd(80)} ${nfs.namespace.padEnd(15)} ${nfs.datasetPattern}`);
+      console.log(
+        `  ${nfs.pvcName.padEnd(80)} ${
+          nfs.namespace.padEnd(15)
+        } ${nfs.datasetPattern}`,
+      );
     }
   }
 
-  return { result, state: { existingIscsiNames, oldNfsDatasets, extents: iscsiExtents } };
+  return {
+    result,
+    state: { existingIscsiNames, oldNfsDatasets, extents: iscsiExtents },
+  };
 }
 
 async function phasePreflight(
@@ -546,7 +789,9 @@ async function phasePreflight(
       console.log(green("  OK: TrueNAS API reachable"));
       result.details.push("TrueNAS API reachable");
     } catch (err) {
-      console.error(red(`  FAIL: TrueNAS API unreachable: ${(err as Error).message}`));
+      console.error(
+        red(`  FAIL: TrueNAS API unreachable: ${(err as Error).message}`),
+      );
       result.errors.push("TrueNAS API unreachable");
     }
   }
@@ -558,7 +803,9 @@ async function phasePreflight(
       console.log(green(`  OK: kubectl context: ${ctx}`));
       result.details.push(`kubectl context: ${ctx}`);
     } catch (err) {
-      console.error(red(`  FAIL: kubectl not configured: ${(err as Error).message}`));
+      console.error(
+        red(`  FAIL: kubectl not configured: ${(err as Error).message}`),
+      );
       result.errors.push("kubectl not configured");
     }
   }
@@ -574,8 +821,14 @@ async function phasePreflight(
         toProvision++;
       }
     }
-    console.log(green(`  OK: ${toProvision} iSCSI zvols to provision, ${alreadyDone} already done`));
-    result.details.push(`Migrations: ${toProvision} to provision, ${alreadyDone} done`);
+    console.log(
+      green(
+        `  OK: ${toProvision} iSCSI zvols to provision, ${alreadyDone} already done`,
+      ),
+    );
+    result.details.push(
+      `Migrations: ${toProvision} to provision, ${alreadyDone} done`,
+    );
   }
 
   // Check CREATES
@@ -589,7 +842,11 @@ async function phasePreflight(
         toCreate++;
       }
     }
-    console.log(green(`  OK: ${toCreate} new zvols to create, ${createExists} already exist`));
+    console.log(
+      green(
+        `  OK: ${toCreate} new zvols to create, ${createExists} already exist`,
+      ),
+    );
     result.details.push(`Creates: ${toCreate} needed, ${createExists} exist`);
   }
 
@@ -601,19 +858,39 @@ async function phasePreflight(
     for (const w of workloads) {
       try {
         const resource = w.type === "deployment" ? "deployment" : "statefulset";
-        await runKubectl(["get", resource, w.name, "-n", w.namespace, "-o", "name"]);
+        await runKubectl([
+          "get",
+          resource,
+          w.name,
+          "-n",
+          w.namespace,
+          "-o",
+          "name",
+        ]);
         found++;
-        if (opts.verbose) console.log(green(`  OK: ${w.type}/${w.name} in ${w.namespace}`));
+        if (opts.verbose) {
+          console.log(green(`  OK: ${w.type}/${w.name} in ${w.namespace}`));
+        }
       } catch {
         missing++;
-        console.log(yellow(`  WARN: ${w.type}/${w.name} not found in ${w.namespace} (may not be deployed yet)`));
-        result.warnings.push(`Workload not found: ${w.type}/${w.name} in ${w.namespace}`);
+        console.log(
+          yellow(
+            `  WARN: ${w.type}/${w.name} not found in ${w.namespace} (may not be deployed yet)`,
+          ),
+        );
+        result.warnings.push(
+          `Workload not found: ${w.type}/${w.name} in ${w.namespace}`,
+        );
       }
     }
-    console.log(missing === 0
-      ? green(`  OK: All ${found} workloads found`)
-      : yellow(`  INFO: ${found} workloads found, ${missing} not yet deployed (will be created by GitOps)`));
-    result.details.push(`Workloads: ${found} found, ${missing} not yet deployed`);
+    console.log(
+      missing === 0 ? green(`  OK: All ${found} workloads found`) : yellow(
+        `  INFO: ${found} workloads found, ${missing} not yet deployed (will be created by GitOps)`,
+      ),
+    );
+    result.details.push(
+      `Workloads: ${found} found, ${missing} not yet deployed`,
+    );
   }
 
   // Only fail on hard errors (API, kubectl) — not missing workloads
@@ -624,22 +901,34 @@ async function phasePreflight(
   return result;
 }
 
-function deduplicateWorkloads(): Array<{ name: string; namespace: string; type: WorkloadType }> {
+function deduplicateWorkloads(): Array<
+  { name: string; namespace: string; type: WorkloadType }
+> {
   const seen = new Set<string>();
-  const workloads: Array<{ name: string; namespace: string; type: WorkloadType }> = [];
+  const workloads: Array<
+    { name: string; namespace: string; type: WorkloadType }
+  > = [];
 
   for (const m of MIGRATIONS) {
     const key = `${m.namespace}/${m.workloadType}/${m.workloadName}`;
     if (!seen.has(key)) {
       seen.add(key);
-      workloads.push({ name: m.workloadName, namespace: m.namespace, type: m.workloadType });
+      workloads.push({
+        name: m.workloadName,
+        namespace: m.namespace,
+        type: m.workloadType,
+      });
     }
   }
   for (const c of CREATES) {
     const key = `${c.namespace}/${c.workloadType}/${c.workloadName}`;
     if (!seen.has(key)) {
       seen.add(key);
-      workloads.push({ name: c.workloadName, namespace: c.namespace, type: c.workloadType });
+      workloads.push({
+        name: c.workloadName,
+        namespace: c.namespace,
+        type: c.workloadType,
+      });
     }
   }
 
@@ -655,7 +944,9 @@ async function phaseScaleDown(
   console.log(bold("\n=== Phase 3: Scale Down ===\n"));
 
   if (opts.skipScale || opts.skipK8s) {
-    console.log(yellow("SKIP: Scale down skipped (--skip-scale or --skip-k8s)"));
+    console.log(
+      yellow("SKIP: Scale down skipped (--skip-scale or --skip-k8s)"),
+    );
     result.status = "skipped";
     return { result, savedState };
   }
@@ -666,13 +957,30 @@ async function phaseScaleDown(
   for (const w of workloads) {
     try {
       const resource = w.type === "deployment" ? "deployment" : "statefulset";
-      const raw = await runKubectl(["get", resource, w.name, "-n", w.namespace, "-o", "json"]);
+      const raw = await runKubectl([
+        "get",
+        resource,
+        w.name,
+        "-n",
+        w.namespace,
+        "-o",
+        "json",
+      ]);
       const obj = JSON.parse(raw);
       const replicas = obj.spec?.replicas ?? 1;
       const key = `${w.namespace}/${w.name}`;
-      savedState.set(key, { name: w.name, namespace: w.namespace, type: w.type, replicas });
+      savedState.set(key, {
+        name: w.name,
+        namespace: w.namespace,
+        type: w.type,
+        replicas,
+      });
     } catch {
-      console.log(yellow(`  SKIP: ${w.type}/${w.name} not found in ${w.namespace} (not deployed)`));
+      console.log(
+        yellow(
+          `  SKIP: ${w.type}/${w.name} not found in ${w.namespace} (not deployed)`,
+        ),
+      );
       result.warnings.push(`${w.namespace}/${w.name}: not deployed, skipping`);
     }
   }
@@ -700,10 +1008,23 @@ async function phaseScaleDown(
   for (const [key, state] of savedState) {
     const resource = state.type === "deployment" ? "deployment" : "statefulset";
     try {
-      await runKubectl(["scale", resource, state.name, "-n", state.namespace, "--replicas=0"]);
-      console.log(green(`  OK: Scaled ${resource}/${state.name} to 0 in ${state.namespace}`));
+      await runKubectl([
+        "scale",
+        resource,
+        state.name,
+        "-n",
+        state.namespace,
+        "--replicas=0",
+      ]);
+      console.log(
+        green(
+          `  OK: Scaled ${resource}/${state.name} to 0 in ${state.namespace}`,
+        ),
+      );
     } catch (err) {
-      console.error(red(`  ERROR: Failed to scale ${key}: ${(err as Error).message}`));
+      console.error(
+        red(`  ERROR: Failed to scale ${key}: ${(err as Error).message}`),
+      );
       result.errors.push(`Scale failed: ${key}`);
     }
   }
@@ -715,9 +1036,13 @@ async function phaseScaleDown(
   for (const [_key, state] of savedState) {
     try {
       await runKubectl([
-        "wait", "--for=delete", "pod",
-        "-l", `app.kubernetes.io/name=${state.name}`,
-        "-n", state.namespace,
+        "wait",
+        "--for=delete",
+        "pod",
+        "-l",
+        `app.kubernetes.io/name=${state.name}`,
+        "-n",
+        state.namespace,
         "--timeout=60s",
       ]);
     } catch {
@@ -759,23 +1084,43 @@ async function phaseTruenasProvision(
     }
 
     if (opts.dryRun) {
-      console.log(yellow(`  DRY RUN: Would create iSCSI zvol ${m.pool}/${m.newZvolName} (${formatBytes(m.sizeBytes)}, ${m.rpm})`));
+      console.log(
+        yellow(
+          `  DRY RUN: Would create iSCSI zvol ${m.pool}/${m.newZvolName} (${
+            formatBytes(m.sizeBytes)
+          }, ${m.rpm})`,
+        ),
+      );
       result.details.push(`${m.volumeHandle}: dry-run`);
       continue;
     }
 
     try {
-      console.log(cyan(`\n  Provisioning ${m.volumeHandle}: ${m.pool}/${m.newZvolName}`));
-      await createIscsiVolume(apiUrl, apiKey, m.newZvolName, m.pool, m.sizeBytes, m.rpm, opts);
+      console.log(
+        cyan(`\n  Provisioning ${m.volumeHandle}: ${m.pool}/${m.newZvolName}`),
+      );
+      await createIscsiVolume(
+        apiUrl,
+        apiKey,
+        m.newZvolName,
+        m.pool,
+        m.sizeBytes,
+        m.rpm,
+        opts,
+      );
       result.details.push(`${m.volumeHandle}: provisioned`);
     } catch (err) {
-      console.error(red(`  ERROR: ${m.volumeHandle}: ${(err as Error).message}`));
+      console.error(
+        red(`  ERROR: ${m.volumeHandle}: ${(err as Error).message}`),
+      );
       result.errors.push(`${m.volumeHandle}: ${(err as Error).message}`);
     }
   }
 
   if (result.errors.length > 0) {
-    result.status = result.errors.length === MIGRATIONS.length ? "failed" : "partial";
+    result.status = result.errors.length === MIGRATIONS.length
+      ? "failed"
+      : "partial";
   }
 
   return result;
@@ -806,23 +1151,45 @@ async function phaseTruenasCreate(
     }
 
     if (opts.dryRun) {
-      console.log(yellow(`  DRY RUN: Would create ${create.pool}/${create.zvolName} (${formatBytes(create.sizeBytes)}, ${create.rpm})`));
+      console.log(
+        yellow(
+          `  DRY RUN: Would create ${create.pool}/${create.zvolName} (${
+            formatBytes(create.sizeBytes)
+          }, ${create.rpm})`,
+        ),
+      );
       result.details.push(`${create.volumeHandle}: dry-run`);
       continue;
     }
 
     try {
-      console.log(cyan(`\n  Creating ${create.volumeHandle}: ${create.pool}/${create.zvolName}`));
-      await createIscsiVolume(apiUrl, apiKey, create.zvolName, create.pool, create.sizeBytes, create.rpm, opts);
+      console.log(
+        cyan(
+          `\n  Creating ${create.volumeHandle}: ${create.pool}/${create.zvolName}`,
+        ),
+      );
+      await createIscsiVolume(
+        apiUrl,
+        apiKey,
+        create.zvolName,
+        create.pool,
+        create.sizeBytes,
+        create.rpm,
+        opts,
+      );
       result.details.push(`${create.volumeHandle}: created`);
     } catch (err) {
-      console.error(red(`  ERROR: ${create.volumeHandle}: ${(err as Error).message}`));
+      console.error(
+        red(`  ERROR: ${create.volumeHandle}: ${(err as Error).message}`),
+      );
       result.errors.push(`${create.volumeHandle}: ${(err as Error).message}`);
     }
   }
 
   if (result.errors.length > 0) {
-    result.status = result.errors.length === CREATES.length ? "failed" : "partial";
+    result.status = result.errors.length === CREATES.length
+      ? "failed"
+      : "partial";
   }
 
   return result;
@@ -846,19 +1213,24 @@ async function phaseK8sCleanup(
   const pvData = JSON.parse(pvRaw);
 
   // Delete old NFS PVs/PVCs for MIGRATIONS
-  console.log(cyan("INFO: Cleaning up old NFS PVs/PVCs for migrated volumes..."));
+  console.log(
+    cyan("INFO: Cleaning up old NFS PVs/PVCs for migrated volumes..."),
+  );
 
   for (const m of MIGRATIONS) {
     // Match by volumeHandle (the UUID portion from the old NFS dataset name)
     const matchingPv = pvData.items.find((pv: Record<string, unknown>) => {
-      const handle = (pv as { spec?: { csi?: { volumeHandle?: string } } }).spec?.csi?.volumeHandle;
+      const handle = (pv as { spec?: { csi?: { volumeHandle?: string } } }).spec
+        ?.csi?.volumeHandle;
       return handle && m.oldNfsDatasetName.includes(handle);
     });
 
     if (!matchingPv) {
       // Also try matching by claim name patterns
       const claimPv = pvData.items.find((pv: Record<string, unknown>) => {
-        const ref = (pv as { spec?: { claimRef?: { name: string; namespace: string } } }).spec?.claimRef;
+        const ref =
+          (pv as { spec?: { claimRef?: { name: string; namespace: string } } })
+            .spec?.claimRef;
         return ref && ref.namespace === m.namespace && (
           ref.name === m.volumeHandle ||
           ref.name.includes(m.workloadName)
@@ -866,7 +1238,11 @@ async function phaseK8sCleanup(
       });
 
       if (!claimPv) {
-        console.log(dim(`  SKIP: No old PV found for ${m.volumeHandle} (already cleaned)`));
+        console.log(
+          dim(
+            `  SKIP: No old PV found for ${m.volumeHandle} (already cleaned)`,
+          ),
+        );
         result.details.push(`${m.volumeHandle}: no old PV found`);
         continue;
       }
@@ -876,12 +1252,18 @@ async function phaseK8sCleanup(
     if (!pv) continue;
 
     const pvName = (pv as { metadata: { name: string } }).metadata.name;
-    const claimRef = (pv as { spec?: { claimRef?: { name: string; namespace: string } } }).spec?.claimRef;
+    const claimRef =
+      (pv as { spec?: { claimRef?: { name: string; namespace: string } } }).spec
+        ?.claimRef;
 
     if (opts.dryRun) {
       console.log(yellow(`  DRY RUN: Would delete PV ${pvName}`));
       if (claimRef) {
-        console.log(yellow(`  DRY RUN: Would delete PVC ${claimRef.namespace}/${claimRef.name}`));
+        console.log(
+          yellow(
+            `  DRY RUN: Would delete PVC ${claimRef.namespace}/${claimRef.name}`,
+          ),
+        );
       }
       continue;
     }
@@ -889,11 +1271,24 @@ async function phaseK8sCleanup(
     // Delete PVC first
     if (claimRef) {
       try {
-        await runKubectl(["delete", "pvc", claimRef.name, "-n", claimRef.namespace, "--ignore-not-found"]);
-        console.log(green(`  OK: Deleted PVC ${claimRef.namespace}/${claimRef.name}`));
+        await runKubectl([
+          "delete",
+          "pvc",
+          claimRef.name,
+          "-n",
+          claimRef.namespace,
+          "--ignore-not-found",
+        ]);
+        console.log(
+          green(`  OK: Deleted PVC ${claimRef.namespace}/${claimRef.name}`),
+        );
       } catch (err) {
-        console.error(red(`  ERROR: Failed to delete PVC: ${(err as Error).message}`));
-        result.errors.push(`PVC delete failed: ${claimRef.namespace}/${claimRef.name}`);
+        console.error(
+          red(`  ERROR: Failed to delete PVC: ${(err as Error).message}`),
+        );
+        result.errors.push(
+          `PVC delete failed: ${claimRef.namespace}/${claimRef.name}`,
+        );
       }
     }
 
@@ -903,7 +1298,9 @@ async function phaseK8sCleanup(
       console.log(green(`  OK: Deleted PV ${pvName}`));
       result.details.push(`${m.volumeHandle}: old PV/PVC deleted`);
     } catch (err) {
-      console.error(red(`  ERROR: Failed to delete PV: ${(err as Error).message}`));
+      console.error(
+        red(`  ERROR: Failed to delete PV: ${(err as Error).message}`),
+      );
       result.errors.push(`PV delete failed: ${pvName}`);
     }
   }
@@ -914,31 +1311,54 @@ async function phaseK8sCleanup(
 
     for (const nfs of NFS_CLEANUPS) {
       if (opts.dryRun) {
-        console.log(yellow(`  DRY RUN: Would delete NFS PVC ${nfs.namespace}/${nfs.pvcName}`));
+        console.log(
+          yellow(
+            `  DRY RUN: Would delete NFS PVC ${nfs.namespace}/${nfs.pvcName}`,
+          ),
+        );
         continue;
       }
 
       try {
-        await runKubectl(["delete", "pvc", nfs.pvcName, "-n", nfs.namespace, "--ignore-not-found"]);
-        console.log(green(`  OK: Deleted NFS PVC ${nfs.namespace}/${nfs.pvcName}`));
+        await runKubectl([
+          "delete",
+          "pvc",
+          nfs.pvcName,
+          "-n",
+          nfs.namespace,
+          "--ignore-not-found",
+        ]);
+        console.log(
+          green(`  OK: Deleted NFS PVC ${nfs.namespace}/${nfs.pvcName}`),
+        );
       } catch (err) {
-        console.error(red(`  ERROR: Failed to delete NFS PVC: ${(err as Error).message}`));
-        result.errors.push(`NFS PVC delete failed: ${nfs.namespace}/${nfs.pvcName}`);
+        console.error(
+          red(`  ERROR: Failed to delete NFS PVC: ${(err as Error).message}`),
+        );
+        result.errors.push(
+          `NFS PVC delete failed: ${nfs.namespace}/${nfs.pvcName}`,
+        );
       }
 
       // Delete associated PV
       const pvMatch = pvData.items.find((pv: Record<string, unknown>) => {
-        const ref = (pv as { spec?: { claimRef?: { name: string; namespace: string } } }).spec?.claimRef;
-        return ref && ref.name === nfs.pvcName && ref.namespace === nfs.namespace;
+        const ref =
+          (pv as { spec?: { claimRef?: { name: string; namespace: string } } })
+            .spec?.claimRef;
+        return ref && ref.name === nfs.pvcName &&
+          ref.namespace === nfs.namespace;
       });
 
       if (pvMatch) {
-        const pvName = (pvMatch as { metadata: { name: string } }).metadata.name;
+        const pvName =
+          (pvMatch as { metadata: { name: string } }).metadata.name;
         try {
           await runKubectl(["delete", "pv", pvName, "--ignore-not-found"]);
           console.log(green(`  OK: Deleted NFS PV ${pvName}`));
         } catch (err) {
-          console.error(red(`  ERROR: Failed to delete NFS PV: ${(err as Error).message}`));
+          console.error(
+            red(`  ERROR: Failed to delete NFS PV: ${(err as Error).message}`),
+          );
           result.errors.push(`NFS PV delete failed: ${pvName}`);
         }
       }
@@ -966,7 +1386,11 @@ async function phaseWaitGitOps(opts: Options): Promise<PhaseResult> {
   }
 
   if (opts.dryRun) {
-    console.log(yellow("DRY RUN: Would wait for ArgoCD config apps to sync and PVCs to bind"));
+    console.log(
+      yellow(
+        "DRY RUN: Would wait for ArgoCD config apps to sync and PVCs to bind",
+      ),
+    );
     result.status = "skipped";
     return result;
   }
@@ -974,16 +1398,24 @@ async function phaseWaitGitOps(opts: Options): Promise<PhaseResult> {
   // Collect config app names
   const configApps = new Set<string>();
   for (const m of MIGRATIONS) {
-    const appName = m.volumeHandle.replace(/-config$/, "").replace(/-data$/, "");
+    const appName = m.volumeHandle.replace(/-config$/, "").replace(
+      /-data$/,
+      "",
+    );
     configApps.add(`${appName}-config`);
   }
   for (const c of CREATES) {
-    const appName = c.volumeHandle.replace(/-config.*$/, "").replace(/-db$/, "");
+    const appName = c.volumeHandle.replace(/-config.*$/, "").replace(
+      /-db$/,
+      "",
+    );
     configApps.add(`${appName}-config`);
   }
 
   // Wait for ArgoCD apps to sync
-  console.log(cyan(`INFO: Waiting for ${configApps.size} ArgoCD config apps to sync...`));
+  console.log(
+    cyan(`INFO: Waiting for ${configApps.size} ArgoCD config apps to sync...`),
+  );
 
   const start = Date.now();
   while (Date.now() - start < opts.timeout) {
@@ -992,14 +1424,21 @@ async function phaseWaitGitOps(opts: Options): Promise<PhaseResult> {
     for (const appName of configApps) {
       try {
         const raw = await runKubectl([
-          "get", "application", appName, "-n", "argocd", "-o",
+          "get",
+          "application",
+          appName,
+          "-n",
+          "argocd",
+          "-o",
           "jsonpath={.status.sync.status}/{.status.health.status}",
         ]);
         const [syncStatus, healthStatus] = raw.trim().split("/");
         if (syncStatus !== "Synced" || healthStatus !== "Healthy") {
           allSynced = false;
           if (opts.verbose) {
-            console.log(dim(`  ${appName}: sync=${syncStatus} health=${healthStatus}`));
+            console.log(
+              dim(`  ${appName}: sync=${syncStatus} health=${healthStatus}`),
+            );
           }
         }
       } catch {
@@ -1033,8 +1472,13 @@ async function phaseWaitGitOps(opts: Options): Promise<PhaseResult> {
     for (const pvc of pvcChecks) {
       try {
         const raw = await runKubectl([
-          "get", "pvc", pvc.name, "-n", pvc.namespace,
-          "-o", "jsonpath={.status.phase}",
+          "get",
+          "pvc",
+          pvc.name,
+          "-n",
+          pvc.namespace,
+          "-o",
+          "jsonpath={.status.phase}",
         ]);
         if (raw.trim() !== "Bound") {
           allBound = false;
@@ -1087,18 +1531,29 @@ async function phaseScaleUp(
   }
 
   if (savedState.size === 0) {
-    console.log(yellow("INFO: No workloads to scale up (none were scaled down)"));
+    console.log(
+      yellow("INFO: No workloads to scale up (none were scaled down)"),
+    );
     return result;
   }
 
   for (const [key, state] of savedState) {
     const resource = state.type === "deployment" ? "deployment" : "statefulset";
     try {
-      await runKubectl(["scale", resource, state.name, "-n", state.namespace, `--replicas=${state.replicas}`]);
+      await runKubectl([
+        "scale",
+        resource,
+        state.name,
+        "-n",
+        state.namespace,
+        `--replicas=${state.replicas}`,
+      ]);
       console.log(green(`  OK: Scaled ${key} to ${state.replicas}`));
       result.details.push(`${key}: restored to ${state.replicas}`);
     } catch (err) {
-      console.error(red(`  ERROR: Failed to scale ${key}: ${(err as Error).message}`));
+      console.error(
+        red(`  ERROR: Failed to scale ${key}: ${(err as Error).message}`),
+      );
       result.errors.push(`Scale up failed: ${key}`);
     }
   }
@@ -1110,13 +1565,19 @@ async function phaseScaleUp(
     const resource = state.type === "deployment" ? "deployment" : "statefulset";
     try {
       await runKubectl([
-        "rollout", "status", resource, state.name,
-        "-n", state.namespace,
+        "rollout",
+        "status",
+        resource,
+        state.name,
+        "-n",
+        state.namespace,
         `--timeout=${Math.floor(opts.timeout / 1000)}s`,
       ]);
     } catch {
       if (opts.verbose) {
-        console.log(dim(`  (rollout status for ${state.name} may have timed out)`));
+        console.log(
+          dim(`  (rollout status for ${state.name} may have timed out)`),
+        );
       }
     }
   }
@@ -1140,7 +1601,9 @@ async function phaseVerify(opts: Options): Promise<PhaseResult> {
   }
 
   if (opts.dryRun) {
-    console.log(yellow("DRY RUN: Would verify all PVCs bound and pods running"));
+    console.log(
+      yellow("DRY RUN: Would verify all PVCs bound and pods running"),
+    );
     result.status = "skipped";
     return result;
   }
@@ -1148,8 +1611,16 @@ async function phaseVerify(opts: Options): Promise<PhaseResult> {
   // Check PVCs
   console.log(cyan("INFO: Checking PVC status..."));
   const allPvcs = [
-    ...MIGRATIONS.map((m) => ({ name: m.volumeHandle, namespace: m.namespace, kind: "migrated" })),
-    ...CREATES.map((c) => ({ name: c.volumeHandle, namespace: c.namespace, kind: "new" })),
+    ...MIGRATIONS.map((m) => ({
+      name: m.volumeHandle,
+      namespace: m.namespace,
+      kind: "migrated",
+    })),
+    ...CREATES.map((c) => ({
+      name: c.volumeHandle,
+      namespace: c.namespace,
+      kind: "new",
+    })),
   ];
 
   let boundCount = 0;
@@ -1158,27 +1629,44 @@ async function phaseVerify(opts: Options): Promise<PhaseResult> {
   for (const pvc of allPvcs) {
     try {
       const raw = await runKubectl([
-        "get", "pvc", pvc.name, "-n", pvc.namespace,
-        "-o", "jsonpath={.status.phase}",
+        "get",
+        "pvc",
+        pvc.name,
+        "-n",
+        pvc.namespace,
+        "-o",
+        "jsonpath={.status.phase}",
       ]);
       const phase = raw.trim();
       if (phase === "Bound") {
         boundCount++;
       } else {
         issueCount++;
-        console.log(yellow(`  WARN: PVC ${pvc.namespace}/${pvc.name}: ${phase}`));
-        result.warnings.push(`PVC not bound: ${pvc.namespace}/${pvc.name} (${phase})`);
+        console.log(
+          yellow(`  WARN: PVC ${pvc.namespace}/${pvc.name}: ${phase}`),
+        );
+        result.warnings.push(
+          `PVC not bound: ${pvc.namespace}/${pvc.name} (${phase})`,
+        );
       }
     } catch {
       issueCount++;
-      console.log(yellow(`  WARN: PVC ${pvc.namespace}/${pvc.name}: not found (config chart may not be synced)`));
+      console.log(
+        yellow(
+          `  WARN: PVC ${pvc.namespace}/${pvc.name}: not found (config chart may not be synced)`,
+        ),
+      );
       result.warnings.push(`PVC not found: ${pvc.namespace}/${pvc.name}`);
     }
   }
 
-  console.log(boundCount === allPvcs.length
-    ? green(`OK: All ${boundCount} PVCs bound`)
-    : yellow(`INFO: ${boundCount}/${allPvcs.length} PVCs bound, ${issueCount} pending`));
+  console.log(
+    boundCount === allPvcs.length
+      ? green(`OK: All ${boundCount} PVCs bound`)
+      : yellow(
+        `INFO: ${boundCount}/${allPvcs.length} PVCs bound, ${issueCount} pending`,
+      ),
+  );
 
   // Check pods
   console.log(cyan("\nINFO: Checking workload status..."));
@@ -1190,14 +1678,21 @@ async function phaseVerify(opts: Options): Promise<PhaseResult> {
     const resource = w.type === "deployment" ? "deployment" : "statefulset";
     try {
       const raw = await runKubectl([
-        "get", resource, w.name, "-n", w.namespace,
-        "-o", "jsonpath={.status.readyReplicas}/{.spec.replicas}",
+        "get",
+        resource,
+        w.name,
+        "-n",
+        w.namespace,
+        "-o",
+        "jsonpath={.status.readyReplicas}/{.spec.replicas}",
       ]);
       const [ready, desired] = raw.trim().split("/");
       if (ready === desired && parseInt(ready || "0", 10) > 0) {
         runningCount++;
       } else {
-        console.log(yellow(`  WARN: ${w.namespace}/${w.name}: ${ready}/${desired} ready`));
+        console.log(
+          yellow(`  WARN: ${w.namespace}/${w.name}: ${ready}/${desired} ready`),
+        );
       }
     } catch {
       notDeployed++;
@@ -1206,34 +1701,59 @@ async function phaseVerify(opts: Options): Promise<PhaseResult> {
   }
 
   const deployedTotal = workloads.length - notDeployed;
-  console.log(runningCount === deployedTotal
-    ? green(`OK: All ${runningCount} deployed workloads running`)
-    : yellow(`INFO: ${runningCount}/${deployedTotal} deployed workloads running, ${notDeployed} not yet deployed`));
+  console.log(
+    runningCount === deployedTotal
+      ? green(`OK: All ${runningCount} deployed workloads running`)
+      : yellow(
+        `INFO: ${runningCount}/${deployedTotal} deployed workloads running, ${notDeployed} not yet deployed`,
+      ),
+  );
 
   // Final summary table
   console.log("");
   console.log(bold("--- Final Summary ---"));
-  console.log(bold(`  ${"Volume Handle".padEnd(25)} ${"Namespace".padEnd(20)} ${"Type".padEnd(12)} ${"Status"}`));
+  console.log(
+    bold(
+      `  ${"Volume Handle".padEnd(25)} ${"Namespace".padEnd(20)} ${
+        "Type".padEnd(12)
+      } ${"Status"}`,
+    ),
+  );
   console.log("  " + "-".repeat(70));
 
   for (const pvc of allPvcs) {
     try {
       const raw = await runKubectl([
-        "get", "pvc", pvc.name, "-n", pvc.namespace,
-        "-o", "jsonpath={.status.phase}",
+        "get",
+        "pvc",
+        pvc.name,
+        "-n",
+        pvc.namespace,
+        "-o",
+        "jsonpath={.status.phase}",
       ]);
       const phase = raw.trim();
       const statusColor = phase === "Bound" ? green : yellow;
-      console.log(`  ${pvc.name.padEnd(25)} ${pvc.namespace.padEnd(20)} ${pvc.kind.padEnd(12)} ${statusColor(phase)}`);
+      console.log(
+        `  ${pvc.name.padEnd(25)} ${pvc.namespace.padEnd(20)} ${
+          pvc.kind.padEnd(12)
+        } ${statusColor(phase)}`,
+      );
     } catch {
-      console.log(`  ${pvc.name.padEnd(25)} ${pvc.namespace.padEnd(20)} ${pvc.kind.padEnd(12)} ${dim("PENDING")}`);
+      console.log(
+        `  ${pvc.name.padEnd(25)} ${pvc.namespace.padEnd(20)} ${
+          pvc.kind.padEnd(12)
+        } ${dim("PENDING")}`,
+      );
     }
   }
 
   if (result.errors.length > 0) {
     result.status = "partial";
   } else {
-    result.details.push(`${boundCount} PVCs bound, ${runningCount} workloads running`);
+    result.details.push(
+      `${boundCount} PVCs bound, ${runningCount} workloads running`,
+    );
   }
 
   return result;
@@ -1251,17 +1771,25 @@ async function main(): Promise<void> {
 
   const apiKey = Deno.env.get("TRUENAS_API_KEY");
   if (!apiKey) {
-    console.error(red("ERROR: TRUENAS_API_KEY environment variable is required"));
+    console.error(
+      red("ERROR: TRUENAS_API_KEY environment variable is required"),
+    );
     console.error("Set it directly or use: op run --env-file=.env.op -- ...");
     Deno.exit(1);
   }
 
   console.log(bold(`\ntruenas-iscsi-migrate v${VERSION}\n`));
   console.log(cyan(`INFO: TrueNAS API: ${opts.apiUrl}`));
-  console.log(cyan(`INFO: Migrations: ${MIGRATIONS.length}, Creates: ${CREATES.length}, NFS Cleanups: ${NFS_CLEANUPS.length}`));
+  console.log(
+    cyan(
+      `INFO: Migrations: ${MIGRATIONS.length}, Creates: ${CREATES.length}, NFS Cleanups: ${NFS_CLEANUPS.length}`,
+    ),
+  );
 
   if (opts.dryRun) {
-    console.log(yellow("DRY RUN: No changes will be made (pass --execute to apply)"));
+    console.log(
+      yellow("DRY RUN: No changes will be made (pass --execute to apply)"),
+    );
   } else {
     console.log(red(bold("EXECUTE MODE: Changes WILL be applied")));
   }
@@ -1279,7 +1807,10 @@ async function main(): Promise<void> {
 
   // Phase 1: Discovery (always runs when needed)
   let discovery: DiscoveryState | undefined;
-  if (shouldRun("discovery") || shouldRun("preflight") || shouldRun("truenas-provision") || shouldRun("truenas-create")) {
+  if (
+    shouldRun("discovery") || shouldRun("preflight") ||
+    shouldRun("truenas-provision") || shouldRun("truenas-create")
+  ) {
     const disc = await phaseDiscovery(opts.apiUrl, apiKey, opts);
     results.push(disc.result);
     discovery = disc.state;
@@ -1292,7 +1823,12 @@ async function main(): Promise<void> {
 
   // Phase 2: Preflight
   if (shouldRun("preflight") && discovery) {
-    const preResult = await phasePreflight(opts.apiUrl, apiKey, opts, discovery);
+    const preResult = await phasePreflight(
+      opts.apiUrl,
+      apiKey,
+      opts,
+      discovery,
+    );
     results.push(preResult);
 
     if (preResult.status === "failed") {
@@ -1321,7 +1857,12 @@ async function main(): Promise<void> {
 
   // Phase 4: TrueNAS Provision (NFS → iSCSI migration)
   if (shouldRun("truenas-provision") && discovery) {
-    const provResult = await phaseTruenasProvision(opts.apiUrl, apiKey, opts, discovery);
+    const provResult = await phaseTruenasProvision(
+      opts.apiUrl,
+      apiKey,
+      opts,
+      discovery,
+    );
     results.push(provResult);
 
     if (opts.phase === "truenas-provision") {
@@ -1332,7 +1873,12 @@ async function main(): Promise<void> {
 
   // Phase 5: TrueNAS Create (new volumes)
   if (shouldRun("truenas-create") && discovery) {
-    const createResult = await phaseTruenasCreate(opts.apiUrl, apiKey, opts, discovery);
+    const createResult = await phaseTruenasCreate(
+      opts.apiUrl,
+      apiKey,
+      opts,
+      discovery,
+    );
     results.push(createResult);
 
     if (opts.phase === "truenas-create") {
@@ -1391,7 +1937,9 @@ async function main(): Promise<void> {
 function printResults(results: PhaseResult[]): void {
   console.log("");
   console.log(bold("=== Migration Results ===\n"));
-  console.log(bold(`  ${"Phase".padEnd(22)} ${"Status".padEnd(12)} ${"Details"}`));
+  console.log(
+    bold(`  ${"Phase".padEnd(22)} ${"Status".padEnd(12)} ${"Details"}`),
+  );
   console.log("  " + "-".repeat(70));
 
   for (const r of results) {
@@ -1410,7 +1958,9 @@ function printResults(results: PhaseResult[]): void {
         statusLabel = dim("SKIPPED".padEnd(12));
         break;
     }
-    const warnings = r.warnings.length > 0 ? `, ${r.warnings.length} warnings` : "";
+    const warnings = r.warnings.length > 0
+      ? `, ${r.warnings.length} warnings`
+      : "";
     const detail = r.errors.length > 0
       ? `${r.details.length} ok, ${r.errors.length} errors${warnings}`
       : `${r.details.length} items${warnings}`;

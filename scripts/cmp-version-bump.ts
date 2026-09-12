@@ -48,7 +48,11 @@ async function hasStagedCmpFiles(): Promise<boolean> {
 
 /** Read current CMP version from versions.yaml */
 async function readCurrentVersion(): Promise<string> {
-  return await run(["yq", ".images.homelab-cmp", "configuration/versions.yaml"]);
+  return await run([
+    "yq",
+    ".images.homelab-cmp",
+    "configuration/versions.yaml",
+  ]);
 }
 
 /** Increment patch version: 0.1.0 -> 0.1.1 */
@@ -85,7 +89,9 @@ async function main() {
   if (!force) {
     const hasCmpChanges = await hasStagedCmpFiles();
     if (!hasCmpChanges) {
-      console.log(cyan("INFO: No CMP-related files staged, skipping version bump."));
+      console.log(
+        cyan("INFO: No CMP-related files staged, skipping version bump."),
+      );
       Deno.exit(0);
     }
   }
@@ -127,7 +133,14 @@ async function main() {
   if (updatedFiles.length > 1) {
     console.log(cyan("Regenerating golden snapshots for the new image tag..."));
     try {
-      await run(["go", "run", "./cmd/homelab", "verify", "snapshot", "--update"]);
+      await run([
+        "go",
+        "run",
+        "./cmd/homelab",
+        "verify",
+        "snapshot",
+        "--update",
+      ]);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       console.error(red(

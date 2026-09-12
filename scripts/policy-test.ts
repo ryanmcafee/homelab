@@ -161,7 +161,9 @@ async function runConftest(
     parsed = JSON.parse(stdoutText);
   } catch {
     throw new Error(
-      `conftest failed to run against ${file} (exit ${code}):\n${stderrText || stdoutText}`,
+      `conftest failed to run against ${file} (exit ${code}):\n${
+        stderrText || stdoutText
+      }`,
     );
   }
   return parsed;
@@ -199,7 +201,10 @@ async function listYamlFiles(dir: string): Promise<string[]> {
   const out: string[] = [];
   try {
     for await (const entry of Deno.readDir(dir)) {
-      if (entry.isFile && entry.name.endsWith(".yaml") && !entry.name.startsWith("_")) {
+      if (
+        entry.isFile && entry.name.endsWith(".yaml") &&
+        !entry.name.startsWith("_")
+      ) {
         out.push(`${dir}/${entry.name}`);
       }
     }
@@ -217,7 +222,9 @@ async function expectedRuleId(file: string): Promise<string> {
   const m = firstLine.match(/^#\s*expect:\s*(\S+)\s*$/);
   if (!m) {
     throw new Error(
-      `${file}: first line must be "# expect: <rule-id>", got ${JSON.stringify(firstLine)}`,
+      `${file}: first line must be "# expect: <rule-id>", got ${
+        JSON.stringify(firstLine)
+      }`,
     );
   }
   return m[1];
@@ -242,14 +249,21 @@ async function runNegativeCase(
   const expect = await expectedRuleId(file);
   const name = file.split("/").pop()!;
   try {
-    const results = await runConftest(args.conftest, args.policyDir, dataFile, file);
+    const results = await runConftest(
+      args.conftest,
+      args.policyDir,
+      dataFile,
+      file,
+    );
     const messages = allFailureMessages(results);
     const prefix = `[${expect}]`;
     const matched = messages.some((m) => m.startsWith(prefix));
     if (matched) {
       return { name, kind: "negative", expect, ok: true, detail: "" };
     }
-    const got = messages.length > 0 ? messages.join("; ") : "(no failures reported)";
+    const got = messages.length > 0
+      ? messages.join("; ")
+      : "(no failures reported)";
     return {
       name,
       kind: "negative",
@@ -275,7 +289,12 @@ async function runPositiveCase(
 ): Promise<CaseResult> {
   const name = file.split("/").pop()!;
   try {
-    const results = await runConftest(args.conftest, args.policyDir, dataFile, file);
+    const results = await runConftest(
+      args.conftest,
+      args.policyDir,
+      dataFile,
+      file,
+    );
     const messages = allFailureMessages(results);
     if (messages.length === 0) {
       return { name, kind: "positive", expect: "(none)", ok: true, detail: "" };
@@ -305,12 +324,19 @@ function printResultsTable(results: CaseResult[]): void {
   console.log("");
   console.log("Policy Fixture Results");
   console.log("=======================");
-  const pad = (s: string, n: number) => s + " ".repeat(Math.max(0, n - s.length));
-  console.log(`${pad("Kind", 10)}${pad("Fixture", 28)}${pad("Expect", 20)}Result`);
-  console.log(`${pad("----", 10)}${pad("-------", 28)}${pad("------", 20)}------`);
+  const pad = (s: string, n: number) =>
+    s + " ".repeat(Math.max(0, n - s.length));
+  console.log(
+    `${pad("Kind", 10)}${pad("Fixture", 28)}${pad("Expect", 20)}Result`,
+  );
+  console.log(
+    `${pad("----", 10)}${pad("-------", 28)}${pad("------", 20)}------`,
+  );
   for (const r of results) {
     const cell = r.ok ? green("PASS") : red("FAIL");
-    console.log(`${pad(r.kind, 10)}${pad(r.name, 28)}${pad(r.expect, 20)}${cell}`);
+    console.log(
+      `${pad(r.kind, 10)}${pad(r.name, 28)}${pad(r.expect, 20)}${cell}`,
+    );
   }
   console.log("");
   for (const r of results) {
@@ -369,7 +395,9 @@ async function main(): Promise<number> {
       kind: "negative",
       expect: ruleId,
       ok,
-      detail: ok ? "" : `no negative fixture under ${negativeDir} expects "${ruleId}"`,
+      detail: ok
+        ? ""
+        : `no negative fixture under ${negativeDir} expects "${ruleId}"`,
     });
   }
 
@@ -388,7 +416,9 @@ async function main(): Promise<number> {
     return 0;
   }
   const failCount = results.filter((r) => !r.ok).length;
-  log.error(`${failCount} of ${results.length} policy fixtures mismatched — see table above`);
+  log.error(
+    `${failCount} of ${results.length} policy fixtures mismatched — see table above`,
+  );
   return 1;
 }
 

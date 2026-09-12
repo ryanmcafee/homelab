@@ -133,8 +133,7 @@ function parseArgs(args: string[]): {
     help: false,
     dryRun: false,
     all: false,
-    apiUrl:
-      Deno.env.get("TRUENAS_API_URL") || "https://truenas.ryanmcafee.com",
+    apiUrl: Deno.env.get("TRUENAS_API_URL") || "https://truenas.ryanmcafee.com",
     verifySsl: false,
     mapallUser: "apps",
     mapallGroup: "users",
@@ -200,7 +199,12 @@ function parseArgs(args: string[]): {
 // Democratic-CSI dataset paths (parent shares + PVC shares)
 const K8S_PATHS = ["/mnt/storage/k8s", "/mnt/ssd/k8s"];
 // Dataset names for permission fixing (without /mnt prefix)
-const K8S_DATASET_PARENTS = ["storage/k8s", "storage/k8s-snapshots", "ssd/k8s", "ssd/k8s-snapshots"];
+const K8S_DATASET_PARENTS = [
+  "storage/k8s",
+  "storage/k8s-snapshots",
+  "ssd/k8s",
+  "ssd/k8s-snapshots",
+];
 // Media and additional dataset parents for permission fixing
 const MEDIA_DATASET_PARENTS = [
   "storage/backups",
@@ -236,10 +240,14 @@ function isMediaShare(share: NfsShare): boolean {
   );
 }
 
-function needsUpdate(share: NfsShare, targetUser: string, targetGroup: string): boolean {
+function needsUpdate(
+  share: NfsShare,
+  targetUser: string,
+  targetGroup: string,
+): boolean {
   const hasMaproot = !!(share.maproot_user || share.maproot_group);
-  const hasCorrectMapall =
-    share.mapall_user === targetUser && share.mapall_group === targetGroup;
+  const hasCorrectMapall = share.mapall_user === targetUser &&
+    share.mapall_group === targetGroup;
   // Needs update if maproot is set, or mapall doesn't match the target
   return hasMaproot || !hasCorrectMapall;
 }
@@ -284,7 +292,9 @@ async function updateShare(
 
   if (!resp.ok) {
     const body = await resp.text();
-    throw new Error(`Failed to update share ${shareId}: ${resp.status} ${body}`);
+    throw new Error(
+      `Failed to update share ${shareId}: ${resp.status} ${body}`,
+    );
   }
 }
 
@@ -358,7 +368,9 @@ async function setDatasetPermissions(
 
   if (!resp.ok) {
     const respBody = await resp.text();
-    throw new Error(`Failed to set permissions on ${datasetPath}: ${resp.status} ${respBody}`);
+    throw new Error(
+      `Failed to set permissions on ${datasetPath}: ${resp.status} ${respBody}`,
+    );
   }
 
   // Returns a job ID
@@ -409,7 +421,9 @@ async function main(): Promise<void> {
 
   const apiKey = Deno.env.get("TRUENAS_API_KEY");
   if (!apiKey) {
-    console.error(red("ERROR: TRUENAS_API_KEY environment variable is required"));
+    console.error(
+      red("ERROR: TRUENAS_API_KEY environment variable is required"),
+    );
     console.error("Set it directly or use: op run --env-file=.env.op -- ...");
     Deno.exit(1);
   }
@@ -420,8 +434,14 @@ async function main(): Promise<void> {
   }
 
   if (opts.all) {
-    console.log(cyan(`INFO: K8s NFS mapall: ${opts.mapallUser}:${opts.mapallGroup}`));
-    console.log(cyan(`INFO: Media NFS mapall: ${opts.mediaMapallUser}:${opts.mediaMapallGroup}`));
+    console.log(
+      cyan(`INFO: K8s NFS mapall: ${opts.mapallUser}:${opts.mapallGroup}`),
+    );
+    console.log(
+      cyan(
+        `INFO: Media NFS mapall: ${opts.mediaMapallUser}:${opts.mediaMapallGroup}`,
+      ),
+    );
   }
 
   // Fetch all NFS shares
@@ -436,9 +456,7 @@ async function main(): Promise<void> {
   console.log(cyan(`INFO: Found ${shares.length} total NFS shares`));
 
   // Filter shares based on --all flag
-  const targetShares = opts.all
-    ? shares
-    : shares.filter((s) => isK8sShare(s));
+  const targetShares = opts.all ? shares : shares.filter((s) => isK8sShare(s));
 
   if (!opts.all) {
     console.log(
@@ -452,7 +470,11 @@ async function main(): Promise<void> {
   }
 
   // Find shares that need updating — when --all, apply different targets per share type
-  const sharesToUpdate: { share: NfsShare; targetUser: string; targetGroup: string }[] = [];
+  const sharesToUpdate: {
+    share: NfsShare;
+    targetUser: string;
+    targetGroup: string;
+  }[] = [];
   const alreadyCorrect: NfsShare[] = [];
 
   for (const share of targetShares) {
@@ -483,7 +505,9 @@ async function main(): Promise<void> {
   }
 
   if (sharesToUpdate.length === 0) {
-    console.log(green("OK: All target shares are already correctly configured"));
+    console.log(
+      green("OK: All target shares are already correctly configured"),
+    );
   } else {
     console.log(
       cyan(
@@ -500,7 +524,9 @@ async function main(): Promise<void> {
 
       const currentMapping = share.maproot_user
         ? `maproot(${share.maproot_user}:${share.maproot_group ?? "null"})`
-        : `mapall(${share.mapall_user ?? "null"}:${share.mapall_group ?? "null"})`;
+        : `mapall(${share.mapall_user ?? "null"}:${
+          share.mapall_group ?? "null"
+        })`;
 
       if (opts.dryRun) {
         console.log(
@@ -508,7 +534,12 @@ async function main(): Promise<void> {
             `DRY RUN: Would update ${label}: ${currentMapping} → mapall(${targetUser}:${targetGroup})`,
           ),
         );
-        results.push({ id: share.id, path: share.path, status: "skipped", reason: "dry-run" });
+        results.push({
+          id: share.id,
+          path: share.path,
+          status: "skipped",
+          reason: "dry-run",
+        });
         continue;
       }
 
@@ -527,7 +558,9 @@ async function main(): Promise<void> {
         );
         results.push({ id: share.id, path: share.path, status: "updated" });
       } catch (err) {
-        console.error(red(`ERROR: Failed to update ${label}: ${(err as Error).message}`));
+        console.error(
+          red(`ERROR: Failed to update ${label}: ${(err as Error).message}`),
+        );
         results.push({
           id: share.id,
           path: share.path,
@@ -561,10 +594,22 @@ async function main(): Promise<void> {
     const mediaDatasets = opts.all ? MEDIA_DATASET_PARENTS : [];
 
     if (opts.all) {
-      console.log(cyan(`INFO: K8s datasets (${k8sDatasets.length}): uid=${opts.permUid} gid=${opts.permGid}`));
-      console.log(cyan(`INFO: Media datasets (${mediaDatasets.length}): user=${opts.mediaPermUser} gid=${opts.permGid}`));
+      console.log(
+        cyan(
+          `INFO: K8s datasets (${k8sDatasets.length}): uid=${opts.permUid} gid=${opts.permGid}`,
+        ),
+      );
+      console.log(
+        cyan(
+          `INFO: Media datasets (${mediaDatasets.length}): user=${opts.mediaPermUser} gid=${opts.permGid}`,
+        ),
+      );
     } else {
-      console.log(cyan(`INFO: K8s datasets only (${k8sDatasets.length}): uid=${opts.permUid} gid=${opts.permGid}`));
+      console.log(
+        cyan(
+          `INFO: K8s datasets only (${k8sDatasets.length}): uid=${opts.permUid} gid=${opts.permGid}`,
+        ),
+      );
       console.log(cyan(`INFO: Use --all to include media datasets`));
     }
 
@@ -578,13 +623,25 @@ async function main(): Promise<void> {
         childCount = datasets.length - 1;
       } catch {
         console.log(yellow(`WARN: Dataset ${parentDs} not found, skipping`));
-        permResults.push({ dataset: parentDs, status: "skipped", reason: "not found" });
+        permResults.push({
+          dataset: parentDs,
+          status: "skipped",
+          reason: "not found",
+        });
         continue;
       }
 
       if (opts.dryRun) {
-        console.log(yellow(`DRY RUN: Would set ${parentDs} (${childCount} children) → uid=${opts.permUid} gid=${opts.permGid} mode=770 (recursive)`));
-        permResults.push({ dataset: parentDs, status: "skipped", reason: "dry-run" });
+        console.log(
+          yellow(
+            `DRY RUN: Would set ${parentDs} (${childCount} children) → uid=${opts.permUid} gid=${opts.permGid} mode=770 (recursive)`,
+          ),
+        );
+        permResults.push({
+          dataset: parentDs,
+          status: "skipped",
+          reason: "dry-run",
+        });
         continue;
       }
 
@@ -595,13 +652,31 @@ async function main(): Promise<void> {
           parentDs,
           { uid: opts.permUid, gid: opts.permGid },
         );
-        console.log(cyan(`INFO: Permission job ${jobId} started for ${parentDs} (${childCount} children, recursive)...`));
+        console.log(
+          cyan(
+            `INFO: Permission job ${jobId} started for ${parentDs} (${childCount} children, recursive)...`,
+          ),
+        );
         await waitForJob(opts.apiUrl, apiKey, jobId, 300000);
-        console.log(green(`OK: Permissions set on ${parentDs} → uid=${opts.permUid} gid=${opts.permGid}`));
+        console.log(
+          green(
+            `OK: Permissions set on ${parentDs} → uid=${opts.permUid} gid=${opts.permGid}`,
+          ),
+        );
         permResults.push({ dataset: parentDs, status: "updated" });
       } catch (err) {
-        console.error(red(`ERROR: Failed to set permissions on ${parentDs}: ${(err as Error).message}`));
-        permResults.push({ dataset: parentDs, status: "error", reason: (err as Error).message });
+        console.error(
+          red(
+            `ERROR: Failed to set permissions on ${parentDs}: ${
+              (err as Error).message
+            }`,
+          ),
+        );
+        permResults.push({
+          dataset: parentDs,
+          status: "error",
+          reason: (err as Error).message,
+        });
       }
     }
 
@@ -613,13 +688,25 @@ async function main(): Promise<void> {
         childCount = datasets.length - 1;
       } catch {
         console.log(yellow(`WARN: Dataset ${parentDs} not found, skipping`));
-        permResults.push({ dataset: parentDs, status: "skipped", reason: "not found" });
+        permResults.push({
+          dataset: parentDs,
+          status: "skipped",
+          reason: "not found",
+        });
         continue;
       }
 
       if (opts.dryRun) {
-        console.log(yellow(`DRY RUN: Would set ${parentDs} (${childCount} children) → user=${opts.mediaPermUser} gid=${opts.permGid} mode=770 (recursive)`));
-        permResults.push({ dataset: parentDs, status: "skipped", reason: "dry-run" });
+        console.log(
+          yellow(
+            `DRY RUN: Would set ${parentDs} (${childCount} children) → user=${opts.mediaPermUser} gid=${opts.permGid} mode=770 (recursive)`,
+          ),
+        );
+        permResults.push({
+          dataset: parentDs,
+          status: "skipped",
+          reason: "dry-run",
+        });
         continue;
       }
 
@@ -630,21 +717,43 @@ async function main(): Promise<void> {
           parentDs,
           { user: opts.mediaPermUser, gid: opts.permGid },
         );
-        console.log(cyan(`INFO: Permission job ${jobId} started for ${parentDs} (${childCount} children, recursive)...`));
+        console.log(
+          cyan(
+            `INFO: Permission job ${jobId} started for ${parentDs} (${childCount} children, recursive)...`,
+          ),
+        );
         await waitForJob(opts.apiUrl, apiKey, jobId, 300000);
-        console.log(green(`OK: Permissions set on ${parentDs} → user=${opts.mediaPermUser} gid=${opts.permGid}`));
+        console.log(
+          green(
+            `OK: Permissions set on ${parentDs} → user=${opts.mediaPermUser} gid=${opts.permGid}`,
+          ),
+        );
         permResults.push({ dataset: parentDs, status: "updated" });
       } catch (err) {
-        console.error(red(`ERROR: Failed to set permissions on ${parentDs}: ${(err as Error).message}`));
-        permResults.push({ dataset: parentDs, status: "error", reason: (err as Error).message });
+        console.error(
+          red(
+            `ERROR: Failed to set permissions on ${parentDs}: ${
+              (err as Error).message
+            }`,
+          ),
+        );
+        permResults.push({
+          dataset: parentDs,
+          status: "error",
+          reason: (err as Error).message,
+        });
       }
     }
 
     // Permission Summary
     console.log("");
     console.log(bold("--- Permission Summary ---"));
-    const permUpdated = permResults.filter((r) => r.status === "updated").length;
-    const permSkipped = permResults.filter((r) => r.status === "skipped").length;
+    const permUpdated = permResults.filter((r) =>
+      r.status === "updated"
+    ).length;
+    const permSkipped = permResults.filter((r) =>
+      r.status === "skipped"
+    ).length;
     const permErrors = permResults.filter((r) => r.status === "error").length;
 
     console.log(`  Updated: ${permUpdated}`);
