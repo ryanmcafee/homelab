@@ -23,9 +23,6 @@ func stubCmd(use, short string) *cobra.Command {
 func newVerifyRenderCmd() *cobra.Command {
 	return stubCmd("render", "Render, lint and schema-validate every chart")
 }
-func newVerifyGitOpsCmd() *cobra.Command {
-	return stubCmd("gitops", "Lint the rendered ArgoCD Application graph")
-}
 func newVerifySnapshotCmd() *cobra.Command {
 	return stubCmd("snapshot", "Diff rendered charts against golden snapshots")
 }
