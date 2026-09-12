@@ -40,8 +40,8 @@ metadata:
   annotations:
     # Sync wave 15: After namespace (wave 14) and mosquitto (wave 14)
     argocd.argoproj.io/sync-wave: "15"
-    homelab.ryanmcafee.com/policy-exempt: "image-latest"
-    homelab.ryanmcafee.com/policy-exempt-reason: "lscr.io/linuxserver/homeassistant is intentionally tracked at :latest for automatic updates in this homelab."
+    homelab.ryanmcafee.com/policy-exempt: "image-latest,hostname-domain"
+    homelab.ryanmcafee.com/policy-exempt-reason: "image-latest: lscr.io/linuxserver/homeassistant is intentionally tracked at :latest for automatic updates in this homelab. hostname-domain: localdev renders addons/applications without the CMP domain-substitution stage (CLAUDE.md's CMP Architecture: localdev uses native Helm with values-localdev.yaml, no CMP), so the ingress hostname stays the checked-in values.yaml placeholder there; it is never resolved or used in localdev (services are reached via NodePort), and is correctly domain-derived for homelab via the two-stage config-export flow. Distinct root cause from GitHub issue #262; worth its own follow-up issue. (Currently moot: home-assistant.enabled is false by default.)"
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:

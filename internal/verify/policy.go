@@ -4,13 +4,17 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 	"time"
+
+	"gopkg.in/yaml.v3"
 )
 
-// conftestFailure is one Rego deny/violation message from `conftest test -o json`.
+// conftestFailure is one Rego deny/violation/warn message from
+// `conftest test -o json`.
 type conftestFailure struct {
 	Msg string `json:"msg"`
 }
@@ -22,6 +26,7 @@ type conftestResult struct {
 	Namespace string            `json:"namespace"`
 	Successes int               `json:"successes"`
 	Failures  []conftestFailure `json:"failures"`
+	Warnings  []conftestFailure `json:"warnings"`
 }
 
 // Policy runs the tests/policy Rego policies (via conftest) against every
@@ -59,6 +64,19 @@ func policyForEnv(ctx context.Context, r Runner, renderDir, policyDir string, en
 
 	dataFile := filepath.Join(envDir, "_data.yaml")
 
+	// hostname-domain (and any future domain-scoped rule) fails open if
+	// data.domain is absent: the Rego reference to an undefined lib.domain
+	// makes the whole rule body undefined, so conftest reports zero
+	// failures instead of erroring. Guard here so a missing/empty domain is
+	// a hard, loud failure rather than a silent pass. tests/policy/hostname.rego
+	// also carries a Rego-level safety net for the same case (defense in
+	// depth for direct conftest invocations that bypass this Go wrapper).
+	if domain, derr := readDomain(dataFile); derr != nil {
+		return FailCheck(name, start, fmt.Sprintf("reading %s: %v", dataFile, derr))
+	} else if strings.TrimSpace(domain) == "" {
+		return FailCheck(name, start, "policy data missing domain")
+	}
+
 	args := []string{
 		"test",
 		"-p", policyDir,
@@ -87,18 +105,43 @@ func policyForEnv(ctx context.Context, r Runner, renderDir, policyDir string, en
 	}
 
 	var findings []string
+	failureCount := 0
 	for _, res := range results {
 		base := filepath.Base(res.Filename)
 		for _, f := range res.Failures {
 			findings = append(findings, fmt.Sprintf("%s: %s", base, f.Msg))
+			failureCount++
+		}
+		// Rego `warn` rules don't fail the check, but they're still worth
+		// surfacing; prefix them so they're never mistaken for a failure.
+		for _, w := range res.Warnings {
+			findings = append(findings, fmt.Sprintf("warn: %s: %s", base, w.Msg))
 		}
 	}
 	sort.Strings(findings)
 
-	if len(findings) > 0 {
-		return FailCheck(name, start, fmt.Sprintf("%d policy violation(s) across %d file(s)", len(findings), len(files)), findings...)
+	if failureCount > 0 {
+		return FailCheck(name, start, fmt.Sprintf("%d policy violation(s) across %d file(s)", failureCount, len(files)), findings...)
 	}
-	return PassCheck(name, start, fmt.Sprintf("%d file(s), 0 policy violations", len(files)))
+	detail := fmt.Sprintf("%d file(s), 0 policy violations", len(files))
+	return Check{Name: name, Status: StatusPass, DurationMS: time.Since(start).Milliseconds(), Detail: detail, Findings: findings}
+}
+
+// readDomain reads the "domain" key out of a _data.yaml file. Returns ("", nil)
+// if the file exists but has no domain key (or is empty); returns an error
+// only if the file can't be read or isn't valid YAML.
+func readDomain(dataFile string) (string, error) {
+	raw, err := os.ReadFile(dataFile)
+	if err != nil {
+		return "", err
+	}
+	var doc struct {
+		Domain string `yaml:"domain"`
+	}
+	if err := yaml.Unmarshal(raw, &doc); err != nil {
+		return "", err
+	}
+	return doc.Domain, nil
 }
 
 // manifestFiles lists the rendered *.yaml files in dir, excluding metadata

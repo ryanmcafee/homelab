@@ -17,6 +17,8 @@ metadata:
   namespace: argocd
   annotations:
     argocd.argoproj.io/sync-wave: "9"
+    homelab.ryanmcafee.com/policy-exempt: "hostname-domain"
+    homelab.ryanmcafee.com/policy-exempt-reason: "localdev renders addons/applications without the CMP domain-substitution stage (CLAUDE.md's CMP Architecture: localdev uses native Helm with values-localdev.yaml, no CMP), so Grafana's ingress hostname stays the checked-in values.yaml placeholder there; it is never resolved or used in localdev (services are reached via NodePort), and is correctly domain-derived for homelab via the two-stage config-export flow. Distinct root cause from GitHub issue #262 (values-homelab.yaml hardcoding); worth its own follow-up issue."
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:

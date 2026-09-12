@@ -76,6 +76,38 @@ test_application_inline_helm_pinned_tag if {
 	count(deny) == 0 with input as obj
 }
 
+test_registry_port_is_not_mistaken_for_a_tag if {
+	obj := {
+		"kind": "Deployment",
+		"metadata": {"name": "app", "namespace": "ns"},
+		"spec": {"template": {"spec": {"containers": [{"name": "app", "image": "registry.local:5000/app", "resources": good_resources}]}}},
+	}
+	some m in deny with input as obj
+	startswith(m, "[image-latest]")
+}
+
+test_registry_port_with_pinned_tag_passes if {
+	obj := {
+		"kind": "Deployment",
+		"metadata": {"name": "app", "namespace": "ns"},
+		"spec": {"template": {"spec": {"containers": [{"name": "app", "image": "registry.local:5000/app:1.2.3", "resources": good_resources}]}}},
+	}
+	count(deny) == 0 with input as obj
+}
+
+test_digest_pinned_image_passes if {
+	obj := {
+		"kind": "Deployment",
+		"metadata": {"name": "app", "namespace": "ns"},
+		"spec": {"template": {"spec": {"containers": [{
+			"name": "app",
+			"image": "nginx@sha256:1234567890123456789012345678901234567890123456789012345678901234",
+			"resources": good_resources,
+		}]}}},
+	}
+	count(deny) == 0 with input as obj
+}
+
 test_exempt_image_latest if {
 	obj := {
 		"kind": "Deployment",

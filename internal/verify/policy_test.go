@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -92,13 +93,99 @@ func TestPolicyPass(t *testing.T) {
 	// the "main" namespace is evaluated and every homelab.* rule is ignored)
 	// and pointed at the per-env _data.yaml.
 	found := false
-	for _, a := range r.lastArgs {
+	wantData := filepath.Join(root, "homelab", "_data.yaml")
+	gotData := ""
+	for i, a := range r.lastArgs {
 		if a == "--all-namespaces" {
 			found = true
+		}
+		if a == "--data" && i+1 < len(r.lastArgs) {
+			gotData = r.lastArgs[i+1]
 		}
 	}
 	if !found {
 		t.Fatal("Policy must invoke conftest with --all-namespaces")
+	}
+	if gotData != wantData {
+		t.Fatalf("want --data %q, got %q", wantData, gotData)
+	}
+
+	// _data.yaml itself must never be passed as a manifest to scan (it's
+	// metadata, not a rendered object).
+	for _, a := range r.lastArgs {
+		if strings.HasSuffix(a, "_data.yaml") && a != wantData {
+			t.Fatalf("_data.yaml must not appear as a manifest argument, got %q", a)
+		}
+	}
+	if !strings.Contains(strings.Join(r.lastArgs, " "), "addons.yaml") {
+		t.Fatalf("want addons.yaml among the manifest args, got %v", r.lastArgs)
+	}
+}
+
+func TestPolicyMissingDomainFailsWithoutRunningConftest(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "homelab")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "addons.yaml"), []byte("kind: Application\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// _data.yaml exists but has no domain key at all.
+	if err := os.WriteFile(filepath.Join(dir, "_data.yaml"), []byte("kubernetes_version: \"1.36.1\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	r := &fakePolicyRunner{stdout: []byte(`[]`)}
+
+	checks := Policy(context.Background(), r, root, "tests/policy", []Env{{Name: "homelab"}})
+	if checks[0].Status != StatusFail {
+		t.Fatalf("want fail when domain is missing, got %s", checks[0].Status)
+	}
+	if checks[0].Detail != "policy data missing domain" {
+		t.Fatalf("want detail %q, got %q", "policy data missing domain", checks[0].Detail)
+	}
+	if r.lastArgs != nil {
+		t.Fatal("Policy must not invoke conftest at all when domain is missing")
+	}
+}
+
+func TestPolicyEmptyDomainFailsWithoutRunningConftest(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "homelab")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "addons.yaml"), []byte("kind: Application\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "_data.yaml"), []byte("domain: \"\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	r := &fakePolicyRunner{stdout: []byte(`[]`)}
+
+	checks := Policy(context.Background(), r, root, "tests/policy", []Env{{Name: "homelab"}})
+	if checks[0].Status != StatusFail {
+		t.Fatalf("want fail when domain is empty, got %s", checks[0].Status)
+	}
+	if r.lastArgs != nil {
+		t.Fatal("Policy must not invoke conftest at all when domain is empty")
+	}
+}
+
+func TestPolicyWarningsAreSurfacedWithoutFailing(t *testing.T) {
+	root := t.TempDir()
+	writeRenderedManifests(t, root, "homelab")
+	r := &fakePolicyRunner{
+		stdout: []byte(`[{"filename":"addons.yaml","namespace":"homelab.application","successes":4,
+			"warnings":[{"msg":"[image-latest] Application/argocd/plex: exempt but no follow-up ticket referenced"}]}]`),
+	}
+
+	checks := Policy(context.Background(), r, root, "tests/policy", []Env{{Name: "homelab"}})
+	if checks[0].Status != StatusPass {
+		t.Fatalf("want pass (warnings must not fail the check), got %s", checks[0].Status)
+	}
+	if len(checks[0].Findings) != 1 || !strings.HasPrefix(checks[0].Findings[0], "warn: ") {
+		t.Fatalf("want one warn:-prefixed finding, got %v", checks[0].Findings)
 	}
 }
 

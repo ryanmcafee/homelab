@@ -27,8 +27,16 @@ is_workload if input.kind in workload_kinds
 is_workload if input.kind == "CronJob"
 
 # is_untagged reports whether an image reference has no tag, or is
-# explicitly pinned to the moving ":latest" tag.
-is_untagged(image) if not contains(image, ":")
+# explicitly pinned to the moving ":latest" tag. A tag is only present if the
+# LAST "/"-separated path segment contains ":" (registry:port prefixes like
+# "registry.local:5000/app" must not be mistaken for a tag), or the image
+# carries a "@" digest reference.
+is_untagged(image) if {
+	segments := split(image, "/")
+	last := segments[count(segments) - 1]
+	not contains(last, ":")
+	not contains(image, "@")
+}
 
 is_untagged(image) if endswith(image, ":latest")
 

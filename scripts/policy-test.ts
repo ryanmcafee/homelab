@@ -45,6 +45,19 @@ interface Args {
   conftest: string;
 }
 
+// requireValue returns argv[i], failing with exit 2 if it's missing or is
+// itself another flag (e.g. `--policy-dir --conftest x`, or `--policy-dir`
+// as the last argument) — a bare value-taking flag with nothing after it is
+// an argument error, not "use the default".
+function requireValue(argv: string[], i: number, flag: string): string {
+  const v = argv[i];
+  if (v === undefined || v.startsWith("--")) {
+    log.error(`${flag} requires a value`);
+    Deno.exit(2);
+  }
+  return v;
+}
+
 function parseArgs(argv: string[]): Args {
   const args: Args = {
     help: false,
@@ -57,15 +70,15 @@ function parseArgs(argv: string[]): Args {
     if (a === "--help" || a === "-h") {
       args.help = true;
     } else if (a === "--policy-dir") {
-      args.policyDir = argv[++i];
+      args.policyDir = requireValue(argv, ++i, "--policy-dir");
     } else if (a.startsWith("--policy-dir=")) {
       args.policyDir = a.slice("--policy-dir=".length);
     } else if (a === "--fixtures-dir") {
-      args.fixturesDir = argv[++i];
+      args.fixturesDir = requireValue(argv, ++i, "--fixtures-dir");
     } else if (a.startsWith("--fixtures-dir=")) {
       args.fixturesDir = a.slice("--fixtures-dir=".length);
     } else if (a === "--conftest") {
-      args.conftest = argv[++i];
+      args.conftest = requireValue(argv, ++i, "--conftest");
     } else if (a.startsWith("--conftest=")) {
       args.conftest = a.slice("--conftest=".length);
     } else {
@@ -161,6 +174,23 @@ function allFailureMessages(results: ConftestResult[]): string[] {
   }
   return out;
 }
+
+// ============================================================================
+// Rule coverage
+// ============================================================================
+// Kept in sync by hand with the rule ids implemented across
+// tests/policy/*.rego (see tests/policy/README.md's rule table). A rule
+// with no negative fixture at all would mean nothing ever proves it fires.
+const ALL_RULE_IDS = [
+  "app-finalizer",
+  "app-sync-wave",
+  "app-ssa",
+  "app-automated",
+  "image-latest",
+  "container-resources",
+  "inline-secret",
+  "hostname-domain",
+];
 
 // ============================================================================
 // Fixture discovery
@@ -322,6 +352,27 @@ async function main(): Promise<number> {
   );
 
   const results: CaseResult[] = [];
+
+  // Rule coverage: every rule id in ALL_RULE_IDS must have at least one
+  // negative fixture that expects it (a fixture like
+  // exempt-missing-reason.yaml can expect a rule id other than its own
+  // filename, so this reads each fixture's "# expect:" header rather than
+  // just checking filenames).
+  const coveredRuleIds = new Set<string>();
+  for (const f of negativeFiles) {
+    coveredRuleIds.add(await expectedRuleId(f));
+  }
+  for (const ruleId of ALL_RULE_IDS) {
+    const ok = coveredRuleIds.has(ruleId);
+    results.push({
+      name: "(rule coverage)",
+      kind: "negative",
+      expect: ruleId,
+      ok,
+      detail: ok ? "" : `no negative fixture under ${negativeDir} expects "${ruleId}"`,
+    });
+  }
+
   for (const f of negativeFiles) {
     results.push(await runNegativeCase(args, f, dataFile));
   }
