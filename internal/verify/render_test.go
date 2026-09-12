@@ -34,6 +34,8 @@ type fakeRunner struct {
 	kubeconformOutput string
 	// plutoOutput overrides the canned pluto stdout.
 	plutoOutput string
+	// plutoStderr, when set, makes pluto exit non-zero with this stderr.
+	plutoStderr string
 }
 
 func (f *fakeRunner) LookPath(name string) (string, error) {
@@ -68,6 +70,9 @@ func (f *fakeRunner) Run(_ context.Context, dir, name string, args ...string) ([
 		}
 		return []byte(out), nil, nil
 	case name == "pluto":
+		if f.plutoStderr != "" {
+			return nil, []byte(f.plutoStderr), fmt.Errorf("exit status 1")
+		}
 		out := f.plutoOutput
 		if out == "" {
 			out = `{"items":[]}`
@@ -445,6 +450,56 @@ func TestPlutoReportsDeprecatedAPIs(t *testing.T) {
 		if !strings.Contains(joined, want) {
 			t.Errorf("pluto findings missing %q: %v", want, c.Findings)
 		}
+	}
+}
+
+func TestPlutoMiseShimMissReportsMissingTool(t *testing.T) {
+	root := testRepoRoot(t)
+
+	tests := []struct {
+		name       string
+		stderr     string
+		wantDetail string
+	}{
+		{
+			name:       "mise shim with no version installed",
+			stderr:     "mise ERROR No version is set for shim: pluto\nSet a global default version with one of the following:\nmise use -g pluto@5.24.3\n",
+			wantDetail: "mise install",
+		},
+		{
+			name:       "mise reports the tool is not installed",
+			stderr:     "mise ERROR pluto@5.24.3 is not installed\n",
+			wantDetail: "mise install",
+		},
+		{
+			name:       "a genuine pluto failure keeps its own detail",
+			stderr:     "Error: unable to read directory: permission denied\n",
+			wantDetail: "pluto failed",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			fr := &fakeRunner{plutoStderr: tc.stderr}
+			_, res := Render(context.Background(), RenderOptions{
+				RepoRoot: root,
+				OutDir:   t.TempDir(),
+				Envs:     []Env{Envs[0]},
+				Charts:   []string{"addons"},
+				SkipLint: true,
+				Runner:   fr,
+			})
+			c := checkByName(t, res, "pluto/localdev")
+			if c.Status != StatusFail {
+				t.Fatalf("pluto/localdev: status %s, want fail", c.Status)
+			}
+			if !strings.Contains(c.Detail, tc.wantDetail) {
+				t.Errorf("detail = %q, want it to contain %q", c.Detail, tc.wantDetail)
+			}
+			if len(c.Findings) == 0 {
+				t.Error("findings should carry pluto stderr for diagnosis")
+			}
+		})
 	}
 }
 

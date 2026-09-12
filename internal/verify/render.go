@@ -512,6 +512,13 @@ func plutoCheck(ctx context.Context, opts RenderOptions, env Env, k8sVersion str
 	}
 	stdout, stderr, err := opts.Runner.Run(ctx, opts.RepoRoot, "pluto", args...)
 
+	// mise puts a shim on PATH for every tool it knows about, installed or not,
+	// so LookPath succeeds and a missing pluto only surfaces as a failed run.
+	// Report it as the missing tool it is rather than a raw exit status.
+	if err != nil && isMiseShimMiss(stderr) {
+		return FailCheck(name, start, ToolMissingDetail("pluto"), outputLines(stderr)...)
+	}
+
 	var parsed plutoOutput
 	if jerr := json.Unmarshal(stdout, &parsed); jerr != nil {
 		detail := fmt.Sprintf("parsing pluto output: %v", jerr)
@@ -544,6 +551,15 @@ func plutoCheck(ctx context.Context, opts RenderOptions, env Env, k8sVersion str
 		return FailCheck(name, start, fmt.Sprintf("pluto exited %v", err), outputLines(stderr)...)
 	}
 	return PassCheck(name, start, "no deprecated APIs for k8s v"+k8sVersion)
+}
+
+// isMiseShimMiss reports whether stderr is mise telling us a shim resolved but
+// no version of the tool is installed. That is a missing tool, not a tool
+// failure, and the two need different remediation.
+func isMiseShimMiss(stderr []byte) bool {
+	s := string(stderr)
+	return strings.Contains(s, "No version is set for shim") ||
+		strings.Contains(s, "is not installed")
 }
 
 func orNA(s string) string {

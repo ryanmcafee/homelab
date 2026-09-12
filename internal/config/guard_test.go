@@ -1,8 +1,10 @@
 package config
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -52,5 +54,310 @@ func TestScanFileForPII(t *testing.T) {
 	// line 3 matches both "ryanmcafee.com" and "admin@ryanmcafee.com"
 	if len(dirtyResults.Matches) != 4 {
 		t.Errorf("dirty file should have 4 matches, got %d", len(dirtyResults.Matches))
+	}
+}
+
+func TestIsPIIKey(t *testing.T) {
+	tests := []struct {
+		key  string
+		want bool
+	}{
+		{key: "DOMAIN", want: true},
+		{key: "TRAEFIK_OIDC_ALLOWED_DOMAINS", want: true},
+		{key: "ACME_EMAIL", want: true},
+		{key: "NFS_MAPALL_USER", want: true},
+		{key: "EXTERNAL_DNS_DEFAULT_TARGET", want: true},
+		{key: "GATEWAY_IP", want: true},
+		{key: "WORKER1_IP", want: true},
+		{key: "TRUENAS_HOSTNAME", want: true},
+		// Not PII-shaped: CIDRs, ports, ASNs, storage classes, vault paths.
+		{key: "K8S_POD_CIDR", want: false},
+		{key: "K8S_SERVICE_CIDR", want: false},
+		{key: "BGP_K8S_ASN", want: false},
+		{key: "CP_VIP", want: false},
+		{key: "LB_POOL_START", want: false},
+		{key: "STORAGE_CLASS_NFS", want: false},
+		{key: "TRAEFIK_OIDC_PROVIDER_URL", want: false},
+		{key: "DEMOCRATIC_CSI_1P_PATH", want: false},
+		{key: "MOSQUITTO_MQTT_PORT", want: false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.key, func(t *testing.T) {
+			if got := IsPIIKey(tc.key); got != tc.want {
+				t.Errorf("IsPIIKey(%q) = %v, want %v", tc.key, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestIsGuardExcluded(t *testing.T) {
+	tests := []struct {
+		path string
+		want bool
+	}{
+		{path: "configuration/environments/homelab.yaml", want: true},
+		{path: "charts/applications/values-homelab.generated.yaml", want: true},
+		{path: "configuration/environments/homelab.generated.yaml", want: true},
+		{path: "configuration/environments/homelab.yaml.example", want: false},
+		{path: "configuration/environments/localdev.yaml", want: false},
+		{path: "configuration/environments/defaults.yaml", want: false},
+		{path: "configuration/schema/network.schema.yaml", want: false},
+		{path: "charts/plex-config/values-homelab.yaml", want: false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.path, func(t *testing.T) {
+			if got := IsGuardExcluded(tc.path); got != tc.want {
+				t.Errorf("IsGuardExcluded(%q) = %v, want %v", tc.path, got, tc.want)
+			}
+		})
+	}
+}
+
+// withTrackedFiles swaps the package-level lister for the duration of a test.
+func withTrackedFiles(t *testing.T, files []string, err error) *[][]string {
+	t.Helper()
+	prev := TrackedFiles
+	var calls [][]string
+	TrackedFiles = func(_ string, pathspecs []string) ([]string, error) {
+		calls = append(calls, append([]string(nil), pathspecs...))
+		return files, err
+	}
+	t.Cleanup(func() { TrackedFiles = prev })
+	return &calls
+}
+
+func TestListGuardFilesAppliesScopeAndExclusions(t *testing.T) {
+	tracked := []string{
+		"configuration/versions.yaml",
+		"configuration/schema/network.schema.yaml",
+		"configuration/environments/localdev.yaml",
+		"configuration/environments/homelab.yaml",         // excluded: real values
+		"configuration/environments/homelab.yaml.example", // excluded: .example is not a scannable extension
+		"configuration/templates/helm-addons.tmpl",        // excluded: not a scannable extension
+		"configuration/README.md",
+		"configuration/exports/apps.generated.json", // excluded: generated
+		"configuration/.configu.yaml",
+		"configuration/versions.yaml", // duplicate
+	}
+	withTrackedFiles(t, tracked, nil)
+
+	got, err := ListGuardFiles("/repo", nil)
+	if err != nil {
+		t.Fatalf("ListGuardFiles: %v", err)
+	}
+	want := []string{
+		"configuration/.configu.yaml",
+		"configuration/README.md",
+		"configuration/environments/localdev.yaml",
+		"configuration/schema/network.schema.yaml",
+		"configuration/versions.yaml",
+	}
+	if len(got) != len(want) {
+		t.Fatalf("got %d files %v, want %d %v", len(got), got, len(want), want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("file[%d] = %q, want %q (list must be sorted and deduplicated)", i, got[i], want[i])
+		}
+	}
+}
+
+func TestListGuardFilesPathspecs(t *testing.T) {
+	tests := []struct {
+		name      string
+		pathspecs []string
+		want      []string
+	}{
+		{name: "default scope mirrors the pre-commit hook", pathspecs: nil, want: DefaultGuardPathspecs},
+		{name: "explicit scope is passed through", pathspecs: []string{"charts/**/values-homelab.yaml"}, want: []string{"charts/**/values-homelab.yaml"}},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			calls := withTrackedFiles(t, nil, nil)
+			if _, err := ListGuardFiles("/repo", tc.pathspecs); err != nil {
+				t.Fatalf("ListGuardFiles: %v", err)
+			}
+			if len(*calls) != 1 {
+				t.Fatalf("lister called %d times, want 1", len(*calls))
+			}
+			got := (*calls)[0]
+			if len(got) != len(tc.want) {
+				t.Fatalf("pathspecs = %v, want %v", got, tc.want)
+			}
+			for i := range tc.want {
+				if got[i] != tc.want[i] {
+					t.Errorf("pathspec[%d] = %q, want %q", i, got[i], tc.want[i])
+				}
+			}
+		})
+	}
+}
+
+func TestListGuardFilesPropagatesListerError(t *testing.T) {
+	withTrackedFiles(t, nil, os.ErrPermission)
+	if _, err := ListGuardFiles("/repo", nil); err == nil {
+		t.Fatal("expected the lister error to propagate")
+	}
+}
+
+func TestScanFileForPIIShape(t *testing.T) {
+	tests := []struct {
+		name    string
+		content string
+		want    []string // keys expected to be flagged
+	}{
+		{
+			name:    "routable host IP on a PII-shaped key",
+			content: "DOMAIN: homelab.local\nTRUENAS_IP: \"172.16.100.150\"\n",
+			want:    []string{"TRUENAS_IP"},
+		},
+		{
+			name:    "committed localdev values are clean",
+			content: "DOMAIN: homelab.local\nGATEWAY_IP: \"127.0.0.1\"\nTRUENAS_IP: \"127.0.0.1\"\nLB_POOL_START: \"127.0.0.100\"\nNFS_SHARE_ALLOW: \"127.0.0.0/8\"\nNFS_MAPALL_USER: localdev\nACME_EMAIL: test@homelab.local\nEXTERNAL_DNS_DEFAULT_TARGET: homelab-dev.duckdns.org\n",
+			want:    nil,
+		},
+		{
+			name:    "committed defaults are clean",
+			content: "DOMAIN: example.com\nK8S_POD_CIDR: \"10.244.0.0/16\"\nK8S_SERVICE_CIDR: \"10.96.0.0/12\"\nBGP_K8S_ASN: \"64512\"\nACME_EMAIL: \"\"\n",
+			want:    nil,
+		},
+		{
+			name:    "schema files declare keys without values",
+			content: "keys:\n  GATEWAY_IP:\n    description: Default gateway / router IP\n    default: \"10.244.0.0/16\"\n    pattern: \"^(?:\\\\d{1,3}\\\\.){3}\\\\d{1,3}$\"\n",
+			want:    nil,
+		},
+		{
+			name:    "non-PII keys with routable IPs are ignored",
+			content: "K8S_POD_CIDR: 10.244.0.1\nMOSQUITTO_MQTT_PORT: \"1883\"\n",
+			want:    nil,
+		},
+		{
+			name:    "inline comment and quotes are stripped",
+			content: "WORKER1_IP: \"172.16.100.21\" # GPU node\n",
+			want:    []string{"WORKER1_IP"},
+		},
+		{
+			name:    "several leaks are all reported",
+			content: "GATEWAY_IP: 172.16.100.1\nfiller: x\nPROXMOX_IP: 172.16.100.250\n",
+			want:    []string{"GATEWAY_IP", "PROXMOX_IP"},
+		},
+		{
+			name:    "markdown table rows are not key/value lines",
+			content: "| Service | IP |\n|---|---|\n| TrueNAS | 172.16.100.150 |\n",
+			want:    nil,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "f.yaml")
+			if err := os.WriteFile(path, []byte(tc.content), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			res := ScanFileForPIIShape(path)
+			if len(res.Matches) != len(tc.want) {
+				t.Fatalf("got %d match(es) %+v, want %d for %v", len(res.Matches), res.Matches, len(tc.want), tc.want)
+			}
+			for i, key := range tc.want {
+				if !strings.Contains(res.Matches[i].Pattern, key) {
+					t.Errorf("match[%d].Pattern = %q, want it to name %q", i, res.Matches[i].Pattern, key)
+				}
+			}
+		})
+	}
+}
+
+func TestRunGuardEmptyCIScopeIsFailure(t *testing.T) {
+	withTrackedFiles(t, nil, nil)
+
+	report, err := RunGuard(GuardOptions{RepoRoot: "/repo", CI: true})
+	if !errors.Is(err, ErrGuardNoFiles) {
+		t.Fatalf("err = %v, want ErrGuardNoFiles so CI cannot pass vacuously", err)
+	}
+	if report != nil && len(report.Files) != 0 {
+		t.Errorf("report should carry an empty file list, got %v", report.Files)
+	}
+}
+
+func TestRunGuardMissingEnvFileDegrades(t *testing.T) {
+	dir := t.TempDir()
+	dirty := filepath.Join(dir, "dirty.yaml")
+	if err := os.WriteFile(dirty, []byte("DOMAIN: ryanmcafee.com\nTRUENAS_IP: 172.16.100.150\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	report, err := RunGuard(GuardOptions{
+		RepoRoot: dir,
+		Files:    []string{dirty},
+		EnvPath:  filepath.Join(dir, "does-not-exist.yaml"),
+	})
+	if err != nil {
+		t.Fatalf("a missing environment file must not be fatal: %v", err)
+	}
+	if !report.EnvMissing {
+		t.Error("report.EnvMissing should be set so the caller can warn")
+	}
+	if report.ValuePatterns != 0 {
+		t.Errorf("ValuePatterns = %d, want 0 without an environment file", report.ValuePatterns)
+	}
+	// Value-based detection is gone, but the IP on a PII-shaped key is still caught.
+	if n := report.MatchCount(); n != 1 {
+		t.Fatalf("MatchCount() = %d, want 1 from shape-based detection alone", n)
+	}
+}
+
+func TestRunGuardValueModeFindsLeaksAndDoesNotDoubleReport(t *testing.T) {
+	dir := t.TempDir()
+	env := filepath.Join(dir, "homelab.yaml")
+	if err := os.WriteFile(env, []byte("DOMAIN: ryanmcafee.com\nTRUENAS_IP: 172.16.100.150\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dirty := filepath.Join(dir, "snapshot.yaml")
+	if err := os.WriteFile(dirty, []byte("portal: 172.16.100.150:3260\nhost: plex.ryanmcafee.com\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	clean := filepath.Join(dir, "clean.yaml")
+	if err := os.WriteFile(clean, []byte("host: plex.example.com\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	report, err := RunGuard(GuardOptions{RepoRoot: dir, Files: []string{dirty, clean}, EnvPath: env})
+	if err != nil {
+		t.Fatalf("RunGuard: %v", err)
+	}
+	if report.EnvMissing {
+		t.Error("EnvMissing should be false when the environment file loaded")
+	}
+	if report.ValuePatterns == 0 {
+		t.Error("ValuePatterns should be non-zero in value mode")
+	}
+	if n := report.MatchCount(); n != 2 {
+		t.Fatalf("MatchCount() = %d, want 2 (one per leaking line, no double report)", n)
+	}
+	if len(report.Files) != 2 {
+		t.Errorf("report.Files = %v, want both scanned files", report.Files)
+	}
+}
+
+func TestRunGuardExplicitFilesBypassPathspecs(t *testing.T) {
+	calls := withTrackedFiles(t, []string{"configuration/versions.yaml"}, nil)
+	dir := t.TempDir()
+	f := filepath.Join(dir, "a.yaml")
+	if err := os.WriteFile(f, []byte("x: 1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	report, err := RunGuard(GuardOptions{RepoRoot: dir, Files: []string{f}, EnvPath: filepath.Join(dir, "none.yaml")})
+	if err != nil {
+		t.Fatalf("RunGuard: %v", err)
+	}
+	if len(*calls) != 0 {
+		t.Errorf("the lister must not run when explicit files are given, calls: %v", *calls)
+	}
+	if len(report.Files) != 1 || report.Files[0] != f {
+		t.Errorf("report.Files = %v, want %v", report.Files, []string{f})
 	}
 }
