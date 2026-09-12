@@ -432,11 +432,12 @@ func TestIsRealHostname(t *testing.T) {
 		// Documentation placeholders.
 		{name: "example.com", value: "example.com", want: false},
 		{name: "example.org", value: "example.org", want: false},
-		{name: "your- marker", value: "your-domain.com", want: false},
-		{name: "your- subdomain marker", value: "your-subdomain.duckdns.org", want: false},
-		{name: "placeholder email", value: "admin@your-domain.com", want: false},
+		{name: "REPLACEME- marker", value: "REPLACEME-domain.com", want: false},
+		{name: "REPLACEME- subdomain marker", value: "REPLACEME-subdomain.duckdns.org", want: false},
+		{name: "placeholder email", value: "admin@REPLACEME-domain.com", want: false},
 		{name: "angle-bracket placeholder", value: "<domain>.com", want: false},
-		{name: "changeme", value: "changeme.io", want: false},
+		// changeme.io is registrable, so it is no longer excused.
+		{name: "retired changeme marker", value: "changeme.io", want: true},
 
 		// Reserved suffixes.
 		{name: "dot local", value: "homelab.local", want: false},
@@ -540,7 +541,7 @@ func TestScanFileForPIIShapeHostnames(t *testing.T) {
 		{
 			name:     "the environment template's documented placeholders pass",
 			filename: "homelab.yaml.example",
-			content:  "DOMAIN: your-domain.com\nGATEWAY_IP: \"192.168.1.1\"\nTRUENAS_IP: \"192.168.1.100\"\nCP_VIP: \"192.168.1.10\"\nNFS_MAPALL_USER: your-username\nACME_EMAIL: admin@your-domain.com\nEXTERNAL_DNS_DEFAULT_TARGET: your-subdomain.duckdns.org\n",
+			content:  "DOMAIN: REPLACEME-domain.com\nGATEWAY_IP: \"192.168.1.1\"\nTRUENAS_IP: \"192.168.1.100\"\nCP_VIP: \"192.168.1.10\"\nNFS_MAPALL_USER: REPLACEME-username\nACME_EMAIL: admin@REPLACEME-domain.com\nEXTERNAL_DNS_DEFAULT_TARGET: REPLACEME-subdomain.duckdns.org\n",
 			want:     nil,
 		},
 		{
@@ -725,16 +726,16 @@ func TestIsExamplePlaceholder(t *testing.T) {
 		{name: "loopback", value: "127.0.0.1", want: true},
 		{name: "loopback CIDR", value: "127.0.0.0/8", want: true},
 		// Allowed: documented placeholder hostnames and mailboxes on them.
-		{name: "placeholder domain", value: "your-domain.com", want: true},
-		{name: "placeholder subdomain", value: "traefik.your-domain.com", want: true},
-		{name: "placeholder mailbox", value: "you@your-domain.com", want: true},
-		{name: "admin mailbox on the placeholder domain", value: "admin@your-domain.com", want: true},
+		{name: "placeholder domain", value: "REPLACEME-domain.com", want: true},
+		{name: "placeholder subdomain", value: "traefik.REPLACEME-domain.com", want: true},
+		{name: "placeholder mailbox", value: "you@REPLACEME-domain.com", want: true},
+		{name: "admin mailbox on the placeholder domain", value: "admin@REPLACEME-domain.com", want: true},
 		{name: "example.com", value: "example.com", want: true},
 		{name: "mailbox on example.com", value: "you@example.com", want: true},
 		// Allowed: the repository's fill-me-in prefix and reserved suffixes.
-		{name: "placeholder username", value: "your-username", want: true},
-		{name: "placeholder subdomain label", value: "your-subdomain", want: true},
-		{name: "placeholder duckdns target", value: "your-subdomain.duckdns.org", want: true},
+		{name: "placeholder username", value: "REPLACEME-username", want: true},
+		{name: "placeholder subdomain label", value: "REPLACEME-subdomain", want: true},
+		{name: "placeholder duckdns target", value: "REPLACEME-subdomain.duckdns.org", want: true},
 		{name: "reserved local suffix", value: "truenas.local", want: true},
 		{name: "empty", value: "", want: true},
 		{name: "empty quoted", value: `""`, want: true},
@@ -770,7 +771,7 @@ func TestScanTemplateFileRequiresPlaceholders(t *testing.T) {
 	}{
 		{
 			name:     "a real address pasted into the template",
-			content:  "DOMAIN: your-domain.com\nCP_VIP: \"172.16.100.10\"\n",
+			content:  "DOMAIN: REPLACEME-domain.com\nCP_VIP: \"172.16.100.10\"\n",
 			wantKeys: []string{"CP_VIP"},
 			wantVals: []string{"172.16.100.10"},
 		},
@@ -861,23 +862,30 @@ func TestHasPlaceholderMarker(t *testing.T) {
 		host string
 		want bool
 	}{
-		// Markers as whole labels, or as a prefix form ending in a hyphen.
-		{name: "your- prefix form", host: "your-domain.com", want: true},
-		{name: "your- prefix on a deeper label", host: "traefik.your-domain.com", want: true},
-		{name: "your- prefix with no dot at all", host: "your-username", want: true},
-		{name: "yourdomain whole label", host: "yourdomain.com", want: true},
-		{name: "changeme whole label", host: "changeme.io", want: true},
-		{name: "changeme as a deeper label", host: "host.changeme.io", want: true},
-		{name: "replace-me whole label", host: "replace-me.net", want: true},
-		{name: "todo whole label", host: "todo.internal", want: true},
+		// The convention: REPLACEME on its own, or as a REPLACEME- prefix.
+		// Matching is case-insensitive because hosts are lowercased first.
+		{name: "REPLACEME- prefix form", host: "replaceme-domain.com", want: true},
+		{name: "REPLACEME- prefix on a deeper label", host: "traefik.replaceme-domain.com", want: true},
+		{name: "REPLACEME- prefix with no dot at all", host: "replaceme-username", want: true},
+		{name: "REPLACEME alone as a whole label", host: "replaceme", want: true},
+		{name: "REPLACEME as a deeper label", host: "replaceme.duckdns.org", want: true},
 		{name: "angle brackets cannot occur in a real host", host: "<domain>.com", want: true},
 
-		// The regression this addendum exists for: a real host that merely
-		// contains the letters must NOT be excused.
+		// Retired markers. Each of these is a registrable domain, which is why
+		// the natural-language markers were replaced: recognising them as
+		// placeholders waved a real host through.
+		{name: "yourdomain.com is registrable", host: "yourdomain.com", want: false},
+		{name: "changeme.io is registrable", host: "changeme.io", want: false},
+		{name: "replace-me.net is registrable", host: "replace-me.net", want: false},
+		{name: "todo.com is registrable", host: "todo.com", want: false},
+
+		// A real host that merely contains a marker's letters.
 		{name: "mytodolist.com is a real host", host: "mytodolist.com", want: false},
 		{name: "todolist.com is a real host", host: "todolist.com", want: false},
+		{name: "custodoservices.com is a real host", host: "custodoservices.com", want: false},
 		{name: "notyourdomain.com is a real host", host: "notyourdomain.com", want: false},
 		{name: "exchangemevents.com is a real host", host: "exchangemevents.com", want: false},
+		{name: "notreplaceme.com is a real host", host: "notreplaceme.com", want: false},
 		{name: "ryanmcafee.com", host: "ryanmcafee.com", want: false},
 	}
 
@@ -899,10 +907,17 @@ func TestIsRealHostnameMarkerAnchoring(t *testing.T) {
 	}{
 		{value: "mytodolist.com", want: true},
 		{value: "todolist.com", want: true},
+		{value: "custodoservices.com", want: true},
 		{value: "notyourdomain.com", want: true},
 		{value: "admin@mytodolist.com", want: true},
-		{value: "your-domain.com", want: false},
-		{value: "changeme.io", want: false},
+		// Retired markers are now ordinary registrable domains.
+		{value: "changeme.io", want: true},
+		{value: "yourdomain.com", want: true},
+		// The convention, judged on the reduced host.
+		{value: "REPLACEME-domain.com", want: false},
+		{value: "admin@REPLACEME-domain.com", want: false},
+		{value: "REPLACEME-subdomain.duckdns.org", want: false},
+		// A reserved suffix is a placeholder regardless of the marker.
 		{value: "todo.internal", want: false},
 	}
 
@@ -922,10 +937,10 @@ func TestExamplePlaceholderPrefixIsAnchored(t *testing.T) {
 		want  bool
 	}{
 		// The template's own values.
-		{name: "placeholder domain", value: "your-domain.com", want: true},
-		{name: "placeholder username", value: "your-username", want: true},
-		{name: "placeholder mailbox", value: "admin@your-domain.com", want: true},
-		{name: "placeholder duckdns target", value: "your-subdomain.duckdns.org", want: true},
+		{name: "placeholder domain", value: "REPLACEME-domain.com", want: true},
+		{name: "placeholder username", value: "REPLACEME-username", want: true},
+		{name: "placeholder mailbox", value: "admin@REPLACEME-domain.com", want: true},
+		{name: "placeholder duckdns target", value: "REPLACEME-subdomain.duckdns.org", want: true},
 		// A pasted value that merely contains the letters is not a placeholder.
 		{name: "not a placeholder despite the letters", value: "notyourdomain.com", want: false},
 		{name: "real host containing todo", value: "mytodolist.com", want: false},
@@ -987,25 +1002,25 @@ func TestPlaceholderMarkersJudgeTheReducedHost(t *testing.T) {
 		{
 			name:         "marker in the mailbox local part, real host",
 			key:          "ACME_EMAIL",
-			value:        "your-name@realcorp-internal.com",
+			value:        "REPLACEME-name@realcorp-internal.com",
 			wantReported: true,
 		},
 		{
 			name:         "marker in the URL path, real host",
 			key:          "EXTERNAL_DNS_DEFAULT_TARGET",
-			value:        "real.corp.com/your-path",
+			value:        "real.corp.com/REPLACEME-path",
 			wantReported: true,
 		},
 		{
 			name:         "marker embedded mid-label, real host",
 			key:          "DOMAIN",
-			value:        "evil-your-domain.com",
+			value:        "evil-REPLACEME-domain.com",
 			wantReported: true,
 		},
 		{
 			name:         "marker in a URL path with a port",
 			key:          "EXTERNAL_DNS_DEFAULT_TARGET",
-			value:        "real.corp.com:8443/your-path",
+			value:        "real.corp.com:8443/REPLACEME-path",
 			wantReported: true,
 		},
 		// The template's own values must still pass, or the rule is
@@ -1013,19 +1028,19 @@ func TestPlaceholderMarkersJudgeTheReducedHost(t *testing.T) {
 		{
 			name:         "the template's placeholder mailbox",
 			key:          "ACME_EMAIL",
-			value:        "admin@your-domain.com",
+			value:        "admin@REPLACEME-domain.com",
 			wantReported: false,
 		},
 		{
 			name:         "the template's placeholder target",
 			key:          "EXTERNAL_DNS_DEFAULT_TARGET",
-			value:        "your-subdomain.duckdns.org",
+			value:        "REPLACEME-subdomain.duckdns.org",
 			wantReported: false,
 		},
 		{
 			name:         "the template's placeholder domain",
 			key:          "DOMAIN",
-			value:        "your-domain.com",
+			value:        "REPLACEME-domain.com",
 			wantReported: false,
 		},
 	}
@@ -1069,40 +1084,41 @@ func TestPlaceholderMarkersJudgeTheReducedHost(t *testing.T) {
 	}
 }
 
-func TestTodoMarkerIsAnchored(t *testing.T) {
-	// A host that merely contains a marker's letters is real infrastructure and
-	// must be reported by both paths. The two rules use deliberately different
-	// sets: the shape rule excuses whole marker labels, while the template
-	// allowlist is stricter and excuses only documented placeholders. The
-	// agreement asserted here is on real hosts, which is the direction that
-	// matters.
+func TestRetiredMarkersNoLongerExcuseRealHosts(t *testing.T) {
+	// Every one of these is a registrable domain, which is why the
+	// natural-language markers were replaced by the single REPLACEME token.
+	// Both paths must report them: the shape rule because they are real
+	// hostnames, the template allowlist because they are not documented
+	// placeholders.
 	realHosts := []string{
+		// The retired markers themselves.
+		"yourdomain.com",
+		"changeme.io",
+		"replace-me.net",
+		"todo.com",
+		// Hosts that merely contain a retired marker's letters, which the old
+		// substring test cleared outright.
 		"mytodolist.com",
 		"custodoservices.com",
 		"todolist.com",
 		"custodian.co.uk",
 		"notyourdomain.com",
 		"exchangemevents.com",
+		// And the same collision shape against the new token.
+		"notreplaceme.com",
+		"replacemenow.com",
 	}
 
 	for _, host := range realHosts {
 		t.Run(host, func(t *testing.T) {
 			if !isRealHostname(host) {
-				t.Errorf("isRealHostname(%q) = false; a marker's letters must not excuse a real host", host)
+				t.Errorf("isRealHostname(%q) = false; a registrable domain must not be excused", host)
 			}
 			if isExamplePlaceholder(host) {
 				t.Errorf("isExamplePlaceholder(%q) = true; a real host is not a documented placeholder", host)
 			}
 		})
 	}
-
-	// A whole-label marker is still excused by the shape rule, which is all the
-	// marker was ever meant to do.
-	t.Run("todo as a whole label", func(t *testing.T) {
-		if isRealHostname("todo.example-host.net") {
-			t.Error("a whole-label marker should still be excused by the shape rule")
-		}
-	})
 }
 
 func TestDotfileTemplatesAreOutOfScope(t *testing.T) {

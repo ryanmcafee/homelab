@@ -338,15 +338,22 @@ var reservedHostSuffixes = []string{
 // placeholderHosts are exact hostnames used as documentation placeholders.
 var placeholderHosts = []string{"example.com", "example.org", "example.net", "localhost"}
 
-// placeholderMarkers are fill-me-in markers, matched at DNS label boundaries
-// rather than anywhere in the string. A bare substring test would silently
-// clear a real host that happens to contain the letters: "todo" alone excused
-// mytodolist.com and todolist.com, turning a placeholder convenience into a
-// false negative.
+// placeholderMarkers is this repository's fill-me-in convention: REPLACEME,
+// on its own or as a REPLACEME-something prefix. Values are compared
+// lowercased, so the templates write it in capitals for visibility while the
+// markers here stay lower case.
 //
-// A marker ending in "-" is a prefix form and matches a label that starts with
-// it (your-domain, your-username). Every other marker must be a whole label.
-var placeholderMarkers = []string{"your-", "yourdomain", "changeme", "replace-me", "todo"}
+// One deliberately unpronounceable token, rather than a set of natural-language
+// guesses. The earlier list (your-, yourdomain, changeme, replace-me, todo) all
+// collide with registrable domains: yourdomain.com, changeme.io and
+// custodoservices.com are real hosts, so every one of those markers was a
+// channel for a real value to be waved through. REPLACEME- has no plausible
+// collision, which is the point.
+//
+// Markers are matched at DNS label boundaries, never as a bare substring. A
+// marker ending in "-" is a prefix form and matches a label starting with it;
+// every other marker must be a whole label.
+var placeholderMarkers = []string{"replaceme", "replaceme-"}
 
 // hasPlaceholderMarker reports whether any label of host is a fill-me-in
 // marker. An angle bracket anywhere is also a placeholder, since it cannot
@@ -412,31 +419,14 @@ var examplePlaceholderSubnets = []string{
 }
 
 // examplePlaceholderHosts are the documented placeholder domains a template
-// file may name, including mailboxes on them such as you@your-domain.com.
+// file may name, including mailboxes on them such as you@example.com. The
+// REPLACEME convention is handled by placeholderMarkers, which both the
+// template and the plain path share, so REPLACEME-domain.com needs no entry
+// here.
 var examplePlaceholderHosts = []string{
-	"your-domain.com",
 	"example.com",
 	"example.org",
 	"example.net",
-}
-
-// examplePlaceholderPrefixes are this repository's fill-me-in convention, as
-// in your-username, your-subdomain and your-subdomain.duckdns.org. They are
-// matched at a label boundary, not as a bare substring, so a pasted value that
-// merely contains the letters is not allowlisted by accident.
-var examplePlaceholderPrefixes = []string{"your-"}
-
-// hasExamplePlaceholderPrefix reports whether any label of the value carries a
-// documented fill-me-in prefix.
-func hasExamplePlaceholderPrefix(value string) bool {
-	for _, label := range strings.Split(hostOf(value), ".") {
-		for _, prefix := range examplePlaceholderPrefixes {
-			if strings.HasPrefix(label, prefix) {
-				return true
-			}
-		}
-	}
-	return false
 }
 
 // isExamplePlaceholder reports whether a value is one of the documented
@@ -450,7 +440,10 @@ func isExamplePlaceholder(value string) bool {
 	if v == "" || v == `""` || v == "''" {
 		return true
 	}
-	if hasExamplePlaceholderPrefix(v) {
+	// The REPLACEME convention, judged on the reduced host so that a marker in
+	// a mailbox local part or a URL path cannot excuse a real host. Shared with
+	// the plain path, so neither can be laxer than the other.
+	if hasPlaceholderMarker(hostOf(v)) {
 		return true
 	}
 

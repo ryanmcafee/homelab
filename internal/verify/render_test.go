@@ -327,7 +327,7 @@ func TestRenderWritesFilesAndData(t *testing.T) {
 	if err != nil {
 		t.Fatalf("_data.yaml: %v", err)
 	}
-	for _, want := range []string{"env: homelab", "domain: your-domain.com", "kubernetes_version: "} {
+	for _, want := range []string{"env: homelab", "domain: REPLACEME-domain.com", "kubernetes_version: "} {
 		if !strings.Contains(string(raw), want) {
 			t.Errorf("_data.yaml missing %q; got:\n%s", want, string(raw))
 		}
