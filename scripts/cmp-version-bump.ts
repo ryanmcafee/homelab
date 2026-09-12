@@ -118,6 +118,29 @@ async function main() {
     }
   }
 
+  // charts/bootstrap/values.yaml carries the CMP image tag and is covered by
+  // the golden snapshots, so bumping the tag invalidates them. Regenerating
+  // them here is not a convenience: without it every commit touching cmd/ or
+  // internal/ left the branch with stale snapshots, and the level-0
+  // pre-commit hook could not catch it because charts/** was not part of the
+  // originally staged set. CI then failed on a commit that passed locally.
+  if (updatedFiles.length > 1) {
+    console.log(cyan("Regenerating golden snapshots for the new image tag..."));
+    try {
+      await run(["go", "run", "./cmd/homelab", "verify", "snapshot", "--update"]);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error(red(
+        "ERROR: snapshots could not be regenerated after the version bump.\n" +
+          "The image tag changed but tests/snapshots did not, which fails CI.\n" +
+          "Fix the render, then run: task test:snapshot -- --update\n" +
+          message,
+      ));
+      Deno.exit(1);
+    }
+    updatedFiles.push("tests/snapshots");
+  }
+
   // Stage all modified files
   if (updatedFiles.length > 0) {
     await run(["git", "add", ...updatedFiles]);
