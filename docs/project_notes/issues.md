@@ -13,6 +13,11 @@ Each entry should include:
 
 ## Recent Work
 
+### 2026-09-12 - PR #264: Level-0 static verification (#261 Section A)
+- **Status**: Open
+- **Description**: `task verify` renders every chart for localdev + homelab.yaml.example, runs helm lint, kubeconform (vendored CRD schemas, no -skip), pluto, a GitOps graph linter, golden snapshots and conftest policies; JSON summary, < 5 s. CI workflow verify.yml, pre-commit hook, runbook, ADR-009. Follow-ups #262, #263.
+- **URL**: https://github.com/ryanmcafee/homelab/pull/264
+
 ### 2025-01-27 - PR #7: Automate TrueNAS Provisioning
 - **Status**: Merged
 - **Description**: Automated TrueNAS provisioning workflows
