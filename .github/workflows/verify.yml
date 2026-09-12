@@ -40,7 +40,11 @@ on:
       - 'cmd/**'
       - 'internal/**'
       - 'scripts/**'
+      - 'go.mod'
+      - 'go.sum'
       - 'Taskfile.yml'
+      - 'mise.toml'
+      - '.github/workflows/verify.yml'
   workflow_dispatch:
 
 concurrency:
@@ -160,6 +164,16 @@ jobs:
       - name: Negative and positive fixtures
         run: deno run --allow-read --allow-run --allow-env scripts/policy-test.ts
 
+      # Every script in scripts/ is TypeScript on Deno and is the automation
+      # this repo runs; a formatting or type error there breaks a task, not a
+      # chart, so it is checked here rather than nowhere.
+      - name: TypeScript format, types and unit tests
+        run: |
+          set -euo pipefail
+          deno fmt --check scripts/
+          deno check scripts/*.ts
+          deno test scripts/
+
   schemas:
     name: Vendored CRD schemas are current
     runs-on: ubuntu-latest
@@ -264,6 +278,11 @@ jobs:
     name: CMP image parity
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    # Not on push: cmp-image.yml builds and pushes the image from the same
+    # commit, so running here would race it and fail on a tag that is seconds
+    # away from existing. Parity on main is covered by the next pull request,
+    # or on demand with workflow_dispatch.
+    if: github.event_name != 'push'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
@@ -275,5 +294,14 @@ jobs:
         with:
           deno-version: v2.x
 
+      # The parity check needs the base tag to tell "this PR bumped the tag,
+      # so the image does not exist yet" from "the image was never built".
+      # The explicit refspec is what guarantees refs/remotes/origin/main
+      # exists in the shallow checkout.
+      - name: Fetch base ref for the tag comparison
+        run: git fetch --no-tags --depth=1 origin main:refs/remotes/origin/main
+
       - name: Compare pinned image against source
-        run: deno run --allow-net --allow-run --allow-env --allow-read --allow-write scripts/cmp-parity-test.ts
+        run: |
+          deno run --allow-net --allow-run --allow-env --allow-read --allow-write \
+            scripts/cmp-parity-test.ts --base-ref origin/main

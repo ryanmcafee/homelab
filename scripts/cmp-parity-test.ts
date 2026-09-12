@@ -25,11 +25,20 @@
  *      comparison (best-effort only — Dockerfile.cmp does not pass -ldflags, so
  *      both currently report "dev" regardless of source drift).
  *
+ * Tag bumped in this change: cmp-image.yml pushes the image only on a merge to
+ * main, so a PR that bumps images.homelab-cmp pins a tag that does not exist in
+ * the registry yet and `docker pull` reports "manifest unknown". That is not
+ * drift. When the pull fails that way, the pinned tag is compared with the base
+ * ref's (--base-ref, default origin/main): a different tag means the bump is
+ * part of this change and the check passes, the same tag means the image is
+ * genuinely missing and it fails. Any other pull failure still fails.
+ *
  * Usage:
  *   task test:cmp-parity
  *   deno run ... scripts/cmp-parity-test.ts --help
  *   deno run ... scripts/cmp-parity-test.ts --dry-run
  *   deno run ... scripts/cmp-parity-test.ts --tag 0.1.8
+ *   deno run ... scripts/cmp-parity-test.ts --base-ref origin/main
  *   deno run ... scripts/cmp-parity-test.ts --no-pull --keep-artifacts
  *
  * Exit codes: 0 = image matches source; 1 = mismatch (drift or tag inconsistency)
@@ -57,6 +66,7 @@ const log = {
 // Constants
 // ============================================================================
 const IMAGE_REPO = "ghcr.io/ryanmcafee/homelab-cmp";
+const DEFAULT_BASE_REF = "origin/main";
 const BOOTSTRAP_VALUES = "charts/bootstrap/values.yaml";
 const VERSIONS_YAML = "configuration/versions.yaml";
 const ENV_FILE_REL = "configuration/environments/homelab.yaml.example";
@@ -80,6 +90,7 @@ interface Args {
   tag: string | null;
   noPull: boolean;
   keepArtifacts: boolean;
+  baseRef: string;
 }
 
 function parseArgs(argv: string[]): Args {
@@ -89,6 +100,7 @@ function parseArgs(argv: string[]): Args {
     tag: null,
     noPull: false,
     keepArtifacts: false,
+    baseRef: DEFAULT_BASE_REF,
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -106,6 +118,16 @@ function parseArgs(argv: string[]): Args {
       i++;
     } else if (a.startsWith("--tag=")) {
       args.tag = a.slice("--tag=".length);
+    } else if (a === "--base-ref") {
+      const v = argv[i + 1];
+      if (!v) {
+        log.error("--base-ref requires a value");
+        Deno.exit(2);
+      }
+      args.baseRef = v;
+      i++;
+    } else if (a.startsWith("--base-ref=")) {
+      args.baseRef = a.slice("--base-ref=".length);
     } else {
       log.error(`Unknown argument: ${a}`);
       Deno.exit(2);
@@ -131,12 +153,18 @@ Flags:
   --dry-run          Print the planned checks and exit 0 (no docker/go invoked)
   --tag <tag>        Override the image tag to test (default: read from
                       ${BOOTSTRAP_VALUES} / ${VERSIONS_YAML})
+  --base-ref <ref>   Git ref to compare the pinned tag against when the image
+                      is not in the registry yet (default: ${DEFAULT_BASE_REF})
   --no-pull          Skip \`docker pull\` (use whatever image is already local)
   --keep-artifacts   Do not delete the temp artifact dir on exit
 
 Exit codes:
-  0  Image output matches source for every format; tags consistent
-  1  Drift detected, tag inconsistency, or a check could not run (e.g. no
+  0  Image output matches source for every format; tags consistent. Also 0 when
+     the pinned tag does not exist in the registry yet *and* it differs from
+     --base-ref's tag, i.e. this change bumped it and cmp-image.yml will build
+     it on merge.
+  1  Drift detected, tag inconsistency, the pinned tag is missing from the
+     registry without having been bumped, or a check could not run (e.g. no
      Docker daemon)
   2  Argument error
 `);
@@ -287,11 +315,78 @@ async function dockerAvailable(): Promise<boolean> {
   return r.code === 0;
 }
 
-async function dockerPull(image: string): Promise<void> {
+async function dockerPull(
+  image: string,
+): Promise<{ stdout: string; stderr: string; code: number }> {
   log.info(`Pulling ${image} ...`);
-  const r = await run(["docker", "pull", image]);
+  return await run(["docker", "pull", image]);
+}
+
+/**
+ * Reports whether a `docker pull` failure means "this tag does not exist in the
+ * registry" rather than a transport, auth or daemon problem. Registries word it
+ * differently ("manifest unknown", "manifest for <ref> not found", and GHCR's
+ * "not found: manifest unknown"), so all the shapes are matched.
+ */
+export function isUnknownTagError(stderr: string): boolean {
+  const s = stderr.toLowerCase();
+  if (s.includes("manifest unknown")) return true;
+  if (s.includes("manifest for") && s.includes("not found")) return true;
+  return false;
+}
+
+export type MissingTagDecision = "bumped" | "missing";
+
+/**
+ * Decides what a missing image tag means.
+ *
+ * cmp-image.yml pushes the image only on a merge to main, so a PR that bumps
+ * images.homelab-cmp necessarily pins a tag the registry does not have yet.
+ * That is the bump working as designed, not drift, and parity is verified on
+ * main by the next run. The same tag missing, however, means the image was
+ * never built and the cluster would pull nothing — a real failure.
+ *
+ * A base tag of null (the ref could not be read) is treated as "missing": this
+ * check must not pass because it could not find out.
+ */
+export function decideMissingTag(
+  opts: { pinned: string; base: string | null },
+): MissingTagDecision {
+  const base = opts.base?.trim();
+  if (!base) return "missing";
+  return opts.pinned.trim() === base ? "missing" : "bumped";
+}
+
+/**
+ * Reads images.homelab-cmp from a git ref's configuration/versions.yaml.
+ * Returns null when the ref (or the key) is unavailable; the caller treats that
+ * as a failure rather than a pass.
+ */
+async function baseRefCmpTag(
+  repoRoot: string,
+  baseRef: string,
+): Promise<string | null> {
+  const r = await run(["git", "show", `${baseRef}:${VERSIONS_YAML}`], {
+    cwd: repoRoot,
+  });
   if (r.code !== 0) {
-    throw new Error(`docker pull ${image} failed:\n${r.stderr}`);
+    log.warn(
+      `could not read ${VERSIONS_YAML} at ${baseRef}: ${
+        r.stderr.trim() || `exit ${r.code}`
+      }`,
+    );
+    return null;
+  }
+  try {
+    const tag = dig(parseYaml(r.stdout), ["images", "homelab-cmp"]);
+    return typeof tag === "string" && tag.trim() !== "" ? tag.trim() : null;
+  } catch (err) {
+    log.warn(
+      `could not parse ${VERSIONS_YAML} at ${baseRef}: ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    );
+    return null;
   }
 }
 
@@ -407,6 +502,9 @@ async function main(): Promise<number> {
     console.log(
       `  - capture \`homelab --version\` from both sides (informational)`,
     );
+    console.log(
+      `  - if the tag is not in the registry, compare it with ${args.baseRef}'s images.homelab-cmp`,
+    );
     return 0;
   }
 
@@ -436,10 +534,24 @@ async function main(): Promise<number> {
   }
 
   if (!args.noPull) {
-    try {
-      await dockerPull(image);
-    } catch (err) {
-      log.error(err instanceof Error ? err.message : String(err));
+    const pull = await dockerPull(image);
+    if (pull.code !== 0) {
+      if (!isUnknownTagError(pull.stderr)) {
+        log.error(`docker pull ${image} failed:\n${pull.stderr}`);
+        return 1;
+      }
+      const baseTag = await baseRefCmpTag(repoRoot, args.baseRef);
+      if (decideMissingTag({ pinned: tag, base: baseTag }) === "bumped") {
+        log.ok(
+          `tag ${tag} is bumped in this change (base: ${baseTag}); the image is built by cmp-image.yml on merge and parity is verified on main`,
+        );
+        return 0;
+      }
+      log.error(
+        `image ${image} is not in the registry and the tag matches ${args.baseRef} (${
+          baseTag ?? "unreadable"
+        }), so nothing bumped it: run \`task cmp:bump\` and let cmp-image.yml build it`,
+      );
       return 1;
     }
   } else {
