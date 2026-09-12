@@ -26,6 +26,38 @@ test_ingressroute_fail if {
 	startswith(m, "[hostname-domain]")
 }
 
+test_ingressroute_comma_form_pass if {
+	obj := {"kind": "IngressRoute", "metadata": {"name": "x", "namespace": "ns"}, "spec": {"routes": [{"match": "Host(`a.example.com`, `b.example.com`)"}]}}
+	count(deny) == 0 with input as obj with data.domain as "example.com"
+}
+
+test_ingressroute_comma_form_catches_second_host if {
+	obj := {"kind": "IngressRoute", "metadata": {"name": "x", "namespace": "ns"}, "spec": {"routes": [{"match": "Host(`a.example.com`, `b.other.com`)"}]}}
+	some m in deny with input as obj with data.domain as "example.com"
+	contains(m, "b.other.com")
+}
+
+test_ingressroute_or_form_catches_second_call if {
+	obj := {"kind": "IngressRoute", "metadata": {"name": "x", "namespace": "ns"}, "spec": {"routes": [{"match": "Host(`a.example.com`) || Host(`b.other.com`)"}]}}
+	some m in deny with input as obj with data.domain as "example.com"
+	contains(m, "b.other.com")
+}
+
+test_ingressroute_mixed_or_and_comma_form_catches_all if {
+	obj := {"kind": "IngressRoute", "metadata": {"name": "x", "namespace": "ns"}, "spec": {"routes": [{"match": "Host(`a.example.com`) || Host(`b.other.com`, `c.other.com`)"}]}}
+	msgs := {m | some m in deny} with input as obj with data.domain as "example.com"
+	count(msgs) == 2
+	some m1 in msgs
+	contains(m1, "b.other.com")
+	some m2 in msgs
+	contains(m2, "c.other.com")
+}
+
+test_ingressroute_mixed_or_and_comma_form_pass if {
+	obj := {"kind": "IngressRoute", "metadata": {"name": "x", "namespace": "ns"}, "spec": {"routes": [{"match": "Host(`a.example.com`) || Host(`b.example.com`, `c.example.com`)"}]}}
+	count(deny) == 0 with input as obj with data.domain as "example.com"
+}
+
 test_certificate_pass if {
 	obj := {"kind": "Certificate", "metadata": {"name": "x", "namespace": "ns"}, "spec": {"dnsNames": ["auth.example.com"]}}
 	count(deny) == 0 with input as obj with data.domain as "example.com"
@@ -144,6 +176,68 @@ test_inline_commonname_fail if {
 	}
 	some m in deny with input as obj with data.domain as "example.com"
 	startswith(m, "[hostname-domain]")
+}
+
+test_inline_external_hostname_fail if {
+	obj := {
+		"kind": "Application",
+		"apiVersion": "argoproj.io/v1alpha1",
+		"metadata": {"name": "app", "namespace": "argocd"},
+		"spec": {"source": {"helm": {"values": "ingress:\n  externalHostname: app.other.com\n"}}},
+	}
+	some m in deny with input as obj with data.domain as "example.com"
+	startswith(m, "[hostname-domain]")
+}
+
+test_inline_external_hostname_pass if {
+	obj := {
+		"kind": "Application",
+		"apiVersion": "argoproj.io/v1alpha1",
+		"metadata": {"name": "app", "namespace": "argocd"},
+		"spec": {"source": {"helm": {"values": "ingress:\n  externalHostname: app.example.com\n"}}},
+	}
+	count(deny) == 0 with input as obj with data.domain as "example.com"
+}
+
+test_inline_url_host_fail if {
+	obj := {
+		"kind": "Application",
+		"apiVersion": "argoproj.io/v1alpha1",
+		"metadata": {"name": "app", "namespace": "argocd"},
+		"spec": {"source": {"helm": {"values": "webhook:\n  url: https://app.other.com:8443/callback\n"}}},
+	}
+	some m in deny with input as obj with data.domain as "example.com"
+	startswith(m, "[hostname-domain]")
+}
+
+test_inline_url_host_pass if {
+	obj := {
+		"kind": "Application",
+		"apiVersion": "argoproj.io/v1alpha1",
+		"metadata": {"name": "app", "namespace": "argocd"},
+		"spec": {"source": {"helm": {"values": "webhook:\n  url: https://app.example.com/callback\n"}}},
+	}
+	count(deny) == 0 with input as obj with data.domain as "example.com"
+}
+
+test_inline_url_non_http_scheme_is_skipped if {
+	obj := {
+		"kind": "Application",
+		"apiVersion": "argoproj.io/v1alpha1",
+		"metadata": {"name": "app", "namespace": "argocd"},
+		"spec": {"source": {"helm": {"values": "chart:\n  url: oci.trueforge.org/truecharts\ngit:\n  url: git@github.com:ryanmcafee/homelab.git\n"}}},
+	}
+	count(deny) == 0 with input as obj with data.domain as "example.com"
+}
+
+test_inline_url_ip_is_skipped if {
+	obj := {
+		"kind": "Application",
+		"apiVersion": "argoproj.io/v1alpha1",
+		"metadata": {"name": "app", "namespace": "argocd"},
+		"spec": {"source": {"helm": {"values": "webhook:\n  url: http://192.168.1.100:8080/callback\n"}}},
+	}
+	count(deny) == 0 with input as obj with data.domain as "example.com"
 }
 
 test_inline_values_object_fail if {

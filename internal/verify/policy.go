@@ -123,6 +123,12 @@ func policyForEnv(ctx context.Context, r Runner, renderDir, policyDir string, en
 	if failureCount > 0 {
 		return FailCheck(name, start, fmt.Sprintf("%d policy violation(s) across %d file(s)", failureCount, len(files)), findings...)
 	}
+	// StatusPass with a non-empty Findings here is by design: every finding
+	// at this point came from res.Warnings (deny-level failures already
+	// returned above), so they are `warn:`-prefixed advisories on an
+	// otherwise-passing check, not violations — callers must not treat a
+	// non-empty Findings list as itself meaning the check failed; check
+	// c.Status instead.
 	detail := fmt.Sprintf("%d file(s), 0 policy violations", len(files))
 	return Check{Name: name, Status: StatusPass, DurationMS: time.Since(start).Milliseconds(), Detail: detail, Findings: findings}
 }

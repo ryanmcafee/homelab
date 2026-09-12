@@ -35,17 +35,29 @@ deny contains msg if {
 
 # --- Direct object checks --------------------------------------------------
 
-# hostname_regex matches a Traefik matcher's `Host(...)` argument, whether
-# it's backtick-quoted (Host(`x`)) or double-quoted (Host("x")).
-hostname_regex := "Host\\(\\s*[`\"]([^`\"]+)[`\"]\\s*\\)"
+# host_call_regex extracts the full argument list of each Host(...) matcher
+# call (everything between its parens); quoted_value_regex then pulls every
+# quoted value out of that argument list. Two passes are needed because a
+# single Host() call can carry multiple hosts, comma-separated:
+# Host(`a.example.com`, `b.example.com`).
+host_call_regex := `Host\(([^)]*)\)`
+
+quoted_value_regex := "[`\"]([^`\"]+)[`\"]"
 
 # hosts_from_match extracts every Host() matcher host out of a Traefik
-# IngressRoute route's match expression, e.g.
-# "Host(`traefik.example.com`) && Path(`/dashboard`)".
-hosts_from_match(match) := [h |
-	some m in regex.find_all_string_submatch_n(hostname_regex, match, -1)
-	h := m[1]
-]
+# match expression, however many Host() calls or comma-separated hosts per
+# call it contains, e.g. all three of:
+#   "Host(`traefik.example.com`) && Path(`/dashboard`)"
+#   "Host(`a.example.com`, `b.example.com`)"
+#   "Host(`a.example.com`) || Host(`b.example.com`, `c.example.com`)"
+hosts_from_match(match) := hosts if {
+	calls := regex.find_all_string_submatch_n(host_call_regex, match, -1)
+	hosts := {h |
+		some call in calls
+		some m in regex.find_all_string_submatch_n(quoted_value_regex, call[1], -1)
+		h := m[1]
+	}
+}
 
 # hostname-domain: every Ingress host must live under the environment domain.
 deny contains msg if {
@@ -121,9 +133,13 @@ inline_values(obj) := merged if {
 # host_key_names / host_list_key_names are the field names, anywhere in the
 # inline values tree, whose value(s) are treated as a hostname regardless of
 # what else is nearby.
-host_key_names := {"host", "hostname", "commonName"}
+host_key_names := {"host", "hostname", "commonName", "externalHostname"}
 
 host_list_key_names := {"hosts", "dnsNames"}
+
+# url_key_names are field names whose value is a full URL, not a bare
+# hostname; host_from_url pulls the hostname out of it.
+url_key_names := {"url"}
 
 # is_ip_literal matches a bare IPv4 address or a bracketed IPv6 address,
 # each with an optional ":<port>" suffix (e.g. "192.168.1.100:3260",
@@ -142,6 +158,22 @@ is_ip_literal(s) if regex.match(`^\[[0-9A-Fa-f:]+\](:[0-9]+)?$`, s)
 looks_like_hostname(s) if {
 	contains(s, ".")
 	not is_ip_literal(s)
+}
+
+# url_host_regex pulls the host (and, if present, port) out of an http(s) URL.
+# Deliberately anchored to http/https only: a "url" field pointing at an
+# oci://, ghcr.io chart reference, ssh git remote, etc. is not a web hostname
+# under our domain and must not be checked as one.
+url_host_regex := `^https?://([^/:?#]+)`
+
+# host_from_url extracts the hostname out of a "url" value, or is undefined
+# for a non-http(s) scheme (chart OCI/registry references, git remotes, ...).
+default host_from_url(u) := ""
+
+host_from_url(u) := host if {
+	m := regex.find_all_string_submatch_n(url_host_regex, u, 1)
+	count(m) == 1
+	host := m[0][1]
 }
 
 # walk_hosts collects every hostname reachable inside an arbitrary
@@ -170,12 +202,21 @@ walk_hosts(value) := hosts if {
 		is_string(h)
 		looks_like_hostname(h)
 	}
+	from_urls := {h |
+		walk(value, [path, v])
+		count(path) > 0
+		key := path[count(path) - 1]
+		key in url_key_names
+		is_string(v)
+		h := host_from_url(v)
+		looks_like_hostname(h)
+	}
 	from_strings := {h |
 		walk(value, [_, v])
 		is_string(v)
 		some h in hosts_from_match(v)
 	}
-	hosts := (from_keys | from_lists) | from_strings
+	hosts := ((from_keys | from_lists) | from_urls) | from_strings
 }
 
 # hostname-domain: every hostname embedded in an Application's inline helm
