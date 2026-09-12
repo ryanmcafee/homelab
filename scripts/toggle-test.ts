@@ -10,8 +10,12 @@
  *
  * - GPU_VENDOR=none   → no GPU operator Applications, no Plex GPU block
  * - GPU_VENDOR=nvidia → byte-identical to tests/fixtures/toggle-baseline/nvidia/
- * - GPU_VENDOR=intel  → intel-gpu-device-plugin Application present, Plex requests
- *                       gpu.intel.com/xe, /dev/dri mounted, no runtimeClassName
+ * - GPU_VENDOR=intel  → intel-gpu-device-plugin Application present, Plex has
+ *                       /dev/dri mounted, no runtimeClassName. Plex does NOT
+ *                       yet request the gpu.intel.com/xe resource — that
+ *                       limit is intentionally omitted (see
+ *                       configuration/templates/helm-apps.tmpl) until the
+ *                       device plugin advertises it in node allocatable.
  *
  * All three renders are validated against `helm lint` and `kubeconform -strict`.
  *
@@ -556,8 +560,15 @@ function assertIntel(addonsYaml: string, appsYaml: string): AssertionFailure[] {
   mustContain("addons[intel]", addonsYaml, "kind: Application", f);
   // NVIDIA operator Application absent
   mustNotContain("addons[intel]", addonsYaml, "name: nvidia-gpu-operator", f);
-  // Plex Intel bits
-  mustContain("apps[intel]", appsYaml, "gpu.intel.com/xe", f);
+  // Plex Intel bits. No mustContain(..., "gpu.intel.com/xe", ...) here: per
+  // configuration/templates/helm-apps.tmpl (see the "NOTE: gpu.intel.com/xe
+  // resource limit intentionally NOT set yet" comment there) and
+  // charts/applications/values.yaml, that resource limit is deliberately
+  // omitted until the intel-gpu-device-plugin actually advertises
+  // gpu.intel.com/xe in node allocatable on this cluster — asserting on it
+  // would either false-pass against a stray comment (as it did before) or
+  // permanently fail against the intentional current design. Plex instead
+  // uses a hostPath /dev/dri mount, which the two checks below do cover.
   mustContain("apps[intel]", appsYaml, "path: /dev/dri", f);
   mustContain("apps[intel]", appsYaml, "mountPath: /dev/dri", f);
   // Plex must NOT have NVIDIA bits
