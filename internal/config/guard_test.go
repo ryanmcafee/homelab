@@ -968,3 +968,152 @@ func TestCIScopeIncludesTheEnvironmentTemplate(t *testing.T) {
 		}
 	}
 }
+
+// TestPlaceholderMarkersJudgeTheReducedHost pins that the template and
+// non-template paths agree. A marker in a mailbox local part or a URL path used
+// to make the template laxer than a plain file, which is backwards: the
+// template is the higher-risk file.
+func TestPlaceholderMarkersJudgeTheReducedHost(t *testing.T) {
+	tests := []struct {
+		name  string
+		key   string
+		value string
+		// wantReported is true when the value must be a finding in BOTH the
+		// template path and the plain path.
+		wantReported bool
+	}{
+		{
+			name:         "marker in the mailbox local part, real host",
+			key:          "ACME_EMAIL",
+			value:        "your-name@realcorp-internal.com",
+			wantReported: true,
+		},
+		{
+			name:         "marker in the URL path, real host",
+			key:          "EXTERNAL_DNS_DEFAULT_TARGET",
+			value:        "real.corp.com/your-path",
+			wantReported: true,
+		},
+		{
+			name:         "marker embedded mid-label, real host",
+			key:          "DOMAIN",
+			value:        "evil-your-domain.com",
+			wantReported: true,
+		},
+		{
+			name:         "marker in a URL path with a port",
+			key:          "EXTERNAL_DNS_DEFAULT_TARGET",
+			value:        "real.corp.com:8443/your-path",
+			wantReported: true,
+		},
+		// The template's own values must still pass, or the rule is
+		// unenforceable.
+		{
+			name:         "the template's placeholder mailbox",
+			key:          "ACME_EMAIL",
+			value:        "admin@your-domain.com",
+			wantReported: false,
+		},
+		{
+			name:         "the template's placeholder target",
+			key:          "EXTERNAL_DNS_DEFAULT_TARGET",
+			value:        "your-subdomain.duckdns.org",
+			wantReported: false,
+		},
+		{
+			name:         "the template's placeholder domain",
+			key:          "DOMAIN",
+			value:        "your-domain.com",
+			wantReported: false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			content := tc.key + ": " + tc.value + "\n"
+			dir := t.TempDir()
+
+			// Template path: judged against the placeholder allowlist.
+			tmpl := filepath.Join(dir, "homelab.yaml.example")
+			if err := os.WriteFile(tmpl, []byte(content), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			tmplRes, err := ScanFileForPIIShape(tmpl)
+			if err != nil {
+				t.Fatalf("scanning the template: %v", err)
+			}
+			if got := len(tmplRes.Matches) > 0; got != tc.wantReported {
+				t.Errorf("template path reported=%v, want %v (matches: %+v)", got, tc.wantReported, tmplRes.Matches)
+			}
+
+			// Plain path: judged by shape.
+			plain := filepath.Join(dir, "homelab.yaml")
+			if err := os.WriteFile(plain, []byte(content), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			plainRes, err := ScanFileForPIIShape(plain)
+			if err != nil {
+				t.Fatalf("scanning the plain file: %v", err)
+			}
+			if got := len(plainRes.Matches) > 0; got != tc.wantReported {
+				t.Errorf("plain path reported=%v, want %v (matches: %+v)", got, tc.wantReported, plainRes.Matches)
+			}
+
+			// The template must never be laxer than a plain file.
+			if len(tmplRes.Matches) < len(plainRes.Matches) {
+				t.Errorf("template path cleared what the plain path reported: %q", tc.value)
+			}
+		})
+	}
+}
+
+func TestTodoMarkerIsAnchored(t *testing.T) {
+	// A host that merely contains a marker's letters is real infrastructure and
+	// must be reported by both paths. The two rules use deliberately different
+	// sets: the shape rule excuses whole marker labels, while the template
+	// allowlist is stricter and excuses only documented placeholders. The
+	// agreement asserted here is on real hosts, which is the direction that
+	// matters.
+	realHosts := []string{
+		"mytodolist.com",
+		"custodoservices.com",
+		"todolist.com",
+		"custodian.co.uk",
+		"notyourdomain.com",
+		"exchangemevents.com",
+	}
+
+	for _, host := range realHosts {
+		t.Run(host, func(t *testing.T) {
+			if !isRealHostname(host) {
+				t.Errorf("isRealHostname(%q) = false; a marker's letters must not excuse a real host", host)
+			}
+			if isExamplePlaceholder(host) {
+				t.Errorf("isExamplePlaceholder(%q) = true; a real host is not a documented placeholder", host)
+			}
+		})
+	}
+
+	// A whole-label marker is still excused by the shape rule, which is all the
+	// marker was ever meant to do.
+	t.Run("todo as a whole label", func(t *testing.T) {
+		if isRealHostname("todo.example-host.net") {
+			t.Error("a whole-label marker should still be excused by the shape rule")
+		}
+	})
+}
+
+func TestDotfileTemplatesAreOutOfScope(t *testing.T) {
+	// Documented limitation, asserted so the behaviour is deliberate rather
+	// than accidental: a dotfile template has no inner extension to look
+	// through, so hasScannableExtension does not reach it.
+	for _, path := range []string{".envrc.example", ".env.example", ".npmrc.sample"} {
+		if hasScannableExtension(path) {
+			t.Errorf("hasScannableExtension(%q) = true; expected the documented gap", path)
+		}
+	}
+	// A template with an inner extension is reached.
+	if !hasScannableExtension("configuration/environments/homelab.yaml.example") {
+		t.Error("a template with an inner extension must be in scope")
+	}
+}
