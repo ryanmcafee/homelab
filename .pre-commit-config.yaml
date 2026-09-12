@@ -67,9 +67,9 @@ repos:
     rev: v5.0.0
     hooks:
       - id: trailing-whitespace
-        exclude: ^charts/.*/templates/
+        exclude: ^(charts/.*/templates/|tests/snapshots/)
       - id: end-of-file-fixer
-        exclude: ^charts/.*/templates/
+        exclude: ^(charts/.*/templates/|tests/snapshots/)
       - id: check-yaml
         args: [--allow-multiple-documents]
         exclude: ^charts/.*/templates/

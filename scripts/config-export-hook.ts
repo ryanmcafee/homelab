@@ -14,7 +14,9 @@ const red = (s: string) => `\x1b[31m${s}\x1b[0m`;
 const yellow = (s: string) => `\x1b[33m${s}\x1b[0m`;
 
 /** Run a shell command */
-async function run(cmd: string[]): Promise<{ success: boolean; stdout: string; stderr: string }> {
+async function run(
+  cmd: string[],
+): Promise<{ success: boolean; stdout: string; stderr: string }> {
   const p = new Deno.Command(cmd[0], {
     args: cmd.slice(1),
     stdout: "piped",
@@ -29,6 +31,25 @@ async function run(cmd: string[]): Promise<{ success: boolean; stdout: string; s
 }
 
 async function main() {
+  // The homelab environment file is gitignored (PII). In a clone without it
+  // (fresh checkout, worktree, CI) there is nothing to export: warn and skip
+  // instead of failing the commit. Level-0 verification covers the same
+  // templates with homelab.yaml.example.
+  const envFile = "configuration/environments/homelab.yaml";
+  try {
+    await Deno.stat(envFile);
+  } catch (err) {
+    if (err instanceof Deno.errors.NotFound) {
+      console.log(
+        yellow(
+          `WARN: ${envFile} not found; skipping config export (nothing to regenerate)`,
+        ),
+      );
+      Deno.exit(0);
+    }
+    throw err;
+  }
+
   console.log(cyan("Exporting configuration..."));
 
   // Run config export
