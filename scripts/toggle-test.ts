@@ -437,16 +437,30 @@ interface AssertionFailure {
   detail: string;
 }
 
+// stripFullCommentLines drops lines whose first non-whitespace character is
+// "#" (whole-line YAML comments) before a "must not contain" search, so a
+// human-readable note in the rendered chart (e.g. "# ...gpu.intel.com/xe...")
+// can't produce a false-positive assertion failure. Trailing inline comments
+// on an otherwise live line (`key: value # note`) are deliberately left
+// alone — only lines that are comments in their entirety are removed.
+function stripFullCommentLines(text: string): string {
+  return text
+    .split("\n")
+    .filter((line) => !line.trimStart().startsWith("#"))
+    .join("\n");
+}
+
 function mustNotContain(
   label: string,
   haystack: string,
   needle: string,
   failures: AssertionFailure[],
 ): void {
-  if (haystack.includes(needle)) {
+  const codeOnly = stripFullCommentLines(haystack);
+  if (codeOnly.includes(needle)) {
     failures.push({
       rule: `${label} MUST NOT contain "${needle}"`,
-      detail: `found at byte offset ${haystack.indexOf(needle)}`,
+      detail: `found at byte offset ${codeOnly.indexOf(needle)}`,
     });
   }
 }
