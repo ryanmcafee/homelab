@@ -1277,7 +1277,7 @@ func TestBuildGuardPatternsRejectsNonIdentifyingValues(t *testing.T) {
 		"LINK_IP":                     "169.254.1.1", // link-local
 		"DOMAIN":                      "homelab.local",
 		"ACME_EMAIL":                  "test@homelab.local",
-		"EXAMPLE_HOSTNAME":            "REPLACEME-domain.com", // placeholder marker
+		"EXAMPLE_HOSTNAME":            "REPLACEME-domain.com",    // placeholder marker
 		"EXTERNAL_DNS_DEFAULT_TARGET": "homelab-dev.duckdns.org", // committed-safe
 		"SHORT_HOSTNAME":              "abc",                     // under MinGuardPatternLen
 		"TRUENAS_IP":                  "172.16.100.150",          // the one real value

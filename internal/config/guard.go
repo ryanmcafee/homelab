@@ -359,6 +359,7 @@ var placeholderMarkers = []string{"replaceme", "replaceme-"}
 // marker. An angle bracket anywhere is also a placeholder, since it cannot
 // appear in a real hostname.
 func hasPlaceholderMarker(host string) bool {
+	host = strings.ToLower(host) // templates write REPLACEME in capitals; markers are lower case
 	if strings.ContainsAny(host, "<>") {
 		return true
 	}
