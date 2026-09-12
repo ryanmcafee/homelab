@@ -1,0 +1,109 @@
+# Sources for vendored CRD JSON schemas.
+#
+# Each source describes where to fetch one or more Kubernetes CustomResourceDefinitions
+# from and which `spec.names.kind` values to keep. Chart versions are NEVER hard-coded
+# here — `versionKey` looks up `charts.<versionKey>` in configuration/versions.yaml so a
+# Renovate bump there is the single source of truth. Regenerate with:
+#
+#   task schemas:vendor
+#
+# See tests/schemas/README.md for the full mechanics and how to add a new kind.
+sources:
+  - name: argo-cd
+    versionKey: argocd
+    chart:
+      repo: https://argoproj.github.io/argo-helm
+      name: argo-cd
+    kinds: [Application, AppProject, ApplicationSet]
+
+  - name: argo-workflows
+    versionKey: argo-workflows
+    # The argo-workflows chart does NOT bundle full-schema CRDs by default
+    # (values.crds.full=true, the chart default) — it ships "minimal" CRDs with
+    # x-kubernetes-preserve-unknown-fields and downloads the real, fully-schema'd
+    # CRDs at install time via a pre-install Job from this exact GitHub path, tagged
+    # `argo-workflows-<chart version>` in the argoproj/argo-helm repo. Vendoring from
+    # the chart itself (as originally drafted) would only produce the weak/minimal
+    # schemas, so this source fetches what the cluster actually installs.
+    github:
+      repo: argoproj/argo-helm
+      ref: "argo-workflows-{version}"
+      paths:
+        - charts/argo-workflows/files/crds/full
+    kinds: [CronWorkflow, Workflow, WorkflowTemplate]
+
+  - name: cert-manager
+    versionKey: cert-manager
+    chart:
+      repo: https://charts.jetstack.io
+      name: cert-manager
+    # cert-manager's CRDs live under templates/ gated by .Values.crds.enabled, not the
+    # special crds/ chart directory, so `helm show crds` returns nothing for this chart
+    # and the `helm template --include-crds` fallback is required.
+    helmArgs: ["--set", "crds.enabled=true"]
+    kinds: [Certificate, ClusterIssuer, Issuer]
+
+  - name: traefik
+    versionKey: traefik
+    chart:
+      repo: https://traefik.github.io/charts
+      name: traefik
+    kinds: [IngressRoute, Middleware, IngressRouteTCP, TLSOption, ServersTransport]
+
+  - name: onepassword-connect
+    versionKey: onepassword-connect
+    chart:
+      repo: https://1password.github.io/connect-helm-charts
+      name: connect
+    kinds: [OnePasswordItem]
+
+  - name: external-dns
+    versionKey: external-dns
+    chart:
+      repo: https://kubernetes-sigs.github.io/external-dns/
+      name: external-dns
+    # DNSEndpoint's CRD template is gated by .Values.crd.create.
+    helmArgs: ["--set", "crd.create=true"]
+    kinds: [DNSEndpoint]
+
+  - name: cilium
+    versionKey: cilium
+    # Cilium does not publish CRDs through its Helm chart at all; the CRDs live in the
+    # main cilium/cilium repo, split across a v2 and a v2alpha1 directory.
+    github:
+      repo: cilium/cilium
+      ref: "v{version}"
+      paths:
+        - pkg/k8s/apis/cilium.io/client/crds/v2
+        - pkg/k8s/apis/cilium.io/client/crds/v2alpha1
+    kinds:
+      [
+        CiliumLoadBalancerIPPool,
+        CiliumL2AnnouncementPolicy,
+        CiliumBGPClusterConfig,
+        CiliumBGPPeerConfig,
+        CiliumBGPAdvertisement,
+      ]
+
+  - name: tailscale-operator
+    versionKey: tailscale-operator
+    chart:
+      repo: https://pkgs.tailscale.com/helmcharts
+      name: tailscale-operator
+    # The Connector/ProxyClass CRD templates are gated by .Values.installCRDs.
+    helmArgs: ["--set", "installCRDs=true"]
+    kinds: [Connector, ProxyClass]
+
+  - name: cloudnative-pg
+    versionKey: cloudnative-pg
+    chart:
+      repo: https://cloudnative-pg.github.io/charts
+      name: cloudnative-pg
+    kinds: [Cluster, Pooler, ScheduledBackup, Backup]
+
+  - name: kube-prometheus-stack
+    versionKey: kube-prometheus-stack
+    chart:
+      repo: https://prometheus-community.github.io/helm-charts
+      name: kube-prometheus-stack
+    kinds: [ServiceMonitor, PodMonitor, PrometheusRule]
