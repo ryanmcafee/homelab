@@ -53,17 +53,9 @@ invoked wrongly.`,
 			if len(args) > 0 {
 				return NewUsageError(fmt.Errorf("unexpected argument %q", args[0]))
 			}
-			if renderDir == "" {
-				return NewUsageError(fmt.Errorf("--render-dir is required: render first with `homelab verify render --out <dir>`"))
-			}
-
 			envs, err := verify.ParseEnvs(envList)
 			if err != nil {
 				return NewUsageError(err)
-			}
-
-			if fi, serr := os.Stat(renderDir); serr != nil || !fi.IsDir() {
-				return NewUsageError(fmt.Errorf("--render-dir %q is not a directory", renderDir))
 			}
 
 			wd, err := os.Getwd()
@@ -73,6 +65,31 @@ invoked wrongly.`,
 			repoRoot, err := verify.FindRepoRoot(wd)
 			if err != nil {
 				return err
+			}
+
+			// Without --render-dir, render into a temp dir first (lint and schema
+			// checks belong to `verify render`; the graph only needs the objects).
+			if renderDir == "" {
+				tmp, terr := os.MkdirTemp("", "homelab-verify-gitops-")
+				if terr != nil {
+					return fmt.Errorf("creating render directory: %w", terr)
+				}
+				defer os.RemoveAll(tmp)
+				_, rres := verify.Render(cmd.Context(), verify.RenderOptions{
+					RepoRoot:         repoRoot,
+					OutDir:           tmp,
+					Envs:             envs,
+					SkipLint:         true,
+					OmitSchemaChecks: true,
+					Runner:           verify.ExecRunner{},
+				})
+				if !rres.Pass {
+					rres.WriteText(cmd.ErrOrStderr())
+					return ErrVerificationFailed
+				}
+				renderDir = tmp
+			} else if fi, serr := os.Stat(renderDir); serr != nil || !fi.IsDir() {
+				return NewUsageError(fmt.Errorf("--render-dir %q is not a directory", renderDir))
 			}
 
 			reg, err := verify.LoadGitOpsRegistry(repoRoot)
@@ -112,17 +129,15 @@ invoked wrongly.`,
 			}
 
 			if !result.Pass {
-				_, fail, _ := result.Counts()
-				return fmt.Errorf("%d GitOps graph check(s) failed", fail)
+				return ErrVerificationFailed
 			}
 			return nil
 		},
 	}
 
-	cmd.Flags().StringVar(&renderDir, "render-dir", "", "Directory of rendered manifests (<dir>/<env>/<chart>.yaml)")
+	cmd.Flags().StringVar(&renderDir, "render-dir", "", "Directory of rendered manifests (<dir>/<env>/<chart>.yaml); default: render into a temp dir")
 	cmd.Flags().StringVar(&envList, "env", "", "Comma-separated environments to lint (default: all)")
 	cmd.Flags().BoolVar(&asJSON, "json", false, "Emit the machine-readable result contract")
-	cmd.SetFlagErrorFunc(func(_ *cobra.Command, err error) error { return NewUsageError(err) })
 
 	return cmd
 }

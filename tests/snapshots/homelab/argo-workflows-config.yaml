@@ -1,0 +1,244 @@
+---
+# Source: argo-workflows-config/templates/rbac.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ingress-verifier
+  namespace: argo-workflows
+---
+# Source: argo-workflows-config/templates/rbac.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: ingress-verifier
+rules:
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses"]
+    verbs: ["get", "list"]
+  - apiGroups: ["traefik.io"]
+    resources: ["ingressroutes"]
+    verbs: ["get", "list"]
+  - apiGroups: ["argoproj.io"]
+    resources: ["workflowtaskresults"]
+    verbs: ["create", "patch"]
+---
+# Source: argo-workflows-config/templates/rbac.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: ingress-verifier
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: ingress-verifier
+subjects:
+  - kind: ServiceAccount
+    name: ingress-verifier
+    namespace: argo-workflows
+---
+# Source: argo-workflows-config/templates/cronworkflow.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: CronWorkflow
+metadata:
+  name: ingress-verification
+  namespace: argo-workflows
+spec:
+  # CronWorkflow schema in Argo Workflows v3.6+ renamed `schedule` (string) to
+  # `schedules` (array) for multi-cron support. Keep the values key singular so
+  # env overrides stay simple; wrap it into the array here.
+  schedules:
+    - "0 0 * * *"
+  concurrencyPolicy: Replace
+  successfulJobsHistoryLimit: 2
+  failedJobsHistoryLimit: 2
+  startingDeadlineSeconds: 60
+  workflowSpec:
+    serviceAccountName: ingress-verifier
+    entrypoint: verify-all-ingresses
+    ttlStrategy:
+      secondsAfterCompletion: 172800
+      secondsAfterSuccess: 172800
+      secondsAfterFailure: 172800
+    templates:
+      - name: verify-all-ingresses
+        dag:
+          tasks:
+            - name: verify-traefik
+              template: verify-ingress
+              arguments:
+                parameters:
+                  - name: name
+                    value: "traefik"
+                  - name: url
+                    value: "https://traefik.ryanmcafee.com/dashboard/"
+                  - name: expect-auth
+                    value: "true"
+            - name: verify-argocd
+              template: verify-ingress
+              arguments:
+                parameters:
+                  - name: name
+                    value: "argocd"
+                  - name: url
+                    value: "https://argocd.ryanmcafee.com"
+                  - name: expect-auth
+                    value: "true"
+            - name: verify-grafana
+              template: verify-ingress
+              arguments:
+                parameters:
+                  - name: name
+                    value: "grafana"
+                  - name: url
+                    value: "https://grafana.ryanmcafee.com"
+                  - name: expect-auth
+                    value: "true"
+            - name: verify-plex
+              template: verify-ingress
+              arguments:
+                parameters:
+                  - name: name
+                    value: "plex"
+                  - name: url
+                    value: "https://plex.ryanmcafee.com"
+                  - name: expect-auth
+                    value: "true"
+            - name: verify-sonarr
+              template: verify-ingress
+              arguments:
+                parameters:
+                  - name: name
+                    value: "sonarr"
+                  - name: url
+                    value: "https://sonarr.ryanmcafee.com"
+                  - name: expect-auth
+                    value: "true"
+            - name: verify-radarr
+              template: verify-ingress
+              arguments:
+                parameters:
+                  - name: name
+                    value: "radarr"
+                  - name: url
+                    value: "https://radarr.ryanmcafee.com"
+                  - name: expect-auth
+                    value: "true"
+            - name: verify-prowlarr
+              template: verify-ingress
+              arguments:
+                parameters:
+                  - name: name
+                    value: "prowlarr"
+                  - name: url
+                    value: "https://prowlarr.ryanmcafee.com"
+                  - name: expect-auth
+                    value: "true"
+            - name: verify-homeassistant
+              template: verify-ingress
+              arguments:
+                parameters:
+                  - name: name
+                    value: "homeassistant"
+                  - name: url
+                    value: "https://homeassistant.ryanmcafee.com"
+                  - name: expect-auth
+                    value: "true"
+            - name: verify-auth
+              template: verify-ingress
+              arguments:
+                parameters:
+                  - name: name
+                    value: "auth"
+                  - name: url
+                    value: "https://auth.ryanmcafee.com"
+                  - name: expect-auth
+                    value: "true"
+      - name: verify-ingress
+        inputs:
+          parameters:
+            - name: name
+            - name: url
+            - name: expect-auth
+        container:
+          image: curlimages/curl:8.5.0
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -e
+              echo "============================================"
+              echo "Verifying ingress: $NAME"
+              echo "URL: $URL"
+              echo "============================================"
+
+              # Capture headers to detect OIDC redirects (don't follow redirects)
+              RESPONSE=$(curl -s -D - -o /dev/null \
+                --connect-timeout 10 \
+                --max-time 30 \
+                "$URL" 2>&1) || true
+
+              HTTP_CODE=$(echo "$RESPONSE" | head -1 | grep -oE '[0-9]{3}' | head -1)
+              LOCATION=$(echo "$RESPONSE" | grep -i "^location:" | sed 's/location: //i' | tr -d '\r')
+
+              echo "HTTP Status Code: $HTTP_CODE"
+              if [ -n "$LOCATION" ]; then
+                echo "Redirect Location: $LOCATION"
+              fi
+
+              if [ -z "$HTTP_CODE" ] || [ "$HTTP_CODE" = "000" ]; then
+                echo "ERROR: Connection failed - ingress is not accessible"
+                exit 1
+              fi
+
+              if [ "$HTTP_CODE" = "503" ]; then
+                echo "ERROR: Service returned 503 - backend unavailable"
+                exit 1
+              fi
+
+              if [ "$HTTP_CODE" = "502" ]; then
+                echo "ERROR: Service returned 502 - bad gateway"
+                exit 1
+              fi
+
+              if [ "$HTTP_CODE" = "504" ]; then
+                echo "ERROR: Service returned 504 - gateway timeout"
+                exit 1
+              fi
+
+              if [ "$EXPECT_AUTH" = "true" ]; then
+                # Check for OIDC redirect to Google
+                if echo "$LOCATION" | grep -qi "accounts.google.com"; then
+                  echo "OK: OIDC authentication redirect to Google detected (HTTP $HTTP_CODE)"
+                elif [ "$HTTP_CODE" = "401" ]; then
+                  echo "OK: Authentication required as expected (HTTP 401)"
+                elif [ "$HTTP_CODE" = "302" ] || [ "$HTTP_CODE" = "303" ]; then
+                  echo "OK: Authentication redirect detected (HTTP $HTTP_CODE)"
+                elif [ "$HTTP_CODE" = "200" ]; then
+                  echo "WARNING: Expected authentication but got HTTP 200 - auth may be disabled"
+                else
+                  echo "OK: HTTP $HTTP_CODE received"
+                fi
+              else
+                if [ "$HTTP_CODE" = "200" ]; then
+                  echo "OK: Service accessible"
+                else
+                  echo "OK: HTTP $HTTP_CODE received"
+                fi
+              fi
+
+              echo "============================================"
+              echo "Verification complete for $NAME"
+              echo "============================================"
+          env:
+            - name: NAME
+              value: "{{inputs.parameters.name}}"
+            - name: URL
+              value: "{{inputs.parameters.url}}"
+            - name: EXPECT_AUTH
+              value: "{{inputs.parameters.expect-auth}}"
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi

@@ -1,0 +1,47 @@
+---
+# Source: plex-config/templates/persistent-volume.yaml
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: plex-config-iscsi-pv
+spec:
+  capacity:
+    storage: 100Gi
+  accessModes: ["ReadWriteOnce"]
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: democratic-csi-iscsi
+  volumeMode: Filesystem
+  csi:
+    driver: org.democratic-csi.iscsi
+    fsType: ext4
+    volumeHandle: plex-config-iscsi
+    volumeAttributes:
+      interface: ""
+      iqn: iqn.2005-10.org.freenas.ctl:csi-plex-config-iscsi-homelab
+      lun: "0"
+      node_attach_driver: iscsi
+      portal: 172.16.100.150:3260
+      portals: ""
+---
+# Source: plex-config/templates/persistent-volume.yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: plex-config-iscsi
+  namespace: media
+spec:
+  accessModes: ["ReadWriteOnce"]
+  storageClassName: democratic-csi-iscsi
+  volumeName: plex-config-iscsi-pv
+  resources:
+    requests:
+      storage: 100Gi
+---
+# Source: plex-config/templates/secret.yaml
+apiVersion: onepassword.com/v1
+kind: OnePasswordItem
+metadata:
+  name: plex
+  namespace: media
+spec:
+  itemPath: "vaults/homelab/items/plex"

@@ -87,6 +87,9 @@ func policyForEnv(ctx context.Context, r Runner, renderDir, policyDir string, en
 	args = append(args, files...)
 
 	stdout, stderr, runErr := r.Run(ctx, ".", "conftest", args...)
+	if runErr != nil && isShimMissing(stderr) {
+		return FailCheck(name, start, ToolMissingDetail("conftest"))
+	}
 
 	var results []conftestResult
 	if jsonErr := json.Unmarshal(stdout, &results); jsonErr != nil {

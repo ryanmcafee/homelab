@@ -1,0 +1,9 @@
+---
+# Source: renovate-config/templates/secret.yaml
+apiVersion: onepassword.com/v1
+kind: OnePasswordItem
+metadata:
+  name: renovate-token
+  namespace: renovate
+spec:
+  itemPath: "vaults/homelab/items/renovate"

@@ -757,15 +757,6 @@ func joinRefPath(path, key string) string {
 	return path + "." + key
 }
 
-func sortedKeys(m map[string]any) []string {
-	out := make([]string, 0, len(m))
-	for k := range m {
-		out = append(out, k)
-	}
-	sort.Strings(out)
-	return out
-}
-
 // -------------------------------------------------------------------------
 // Rule: namespaces
 // -------------------------------------------------------------------------

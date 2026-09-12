@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -105,6 +106,13 @@ func (r *Result) WriteText(w io.Writer) {
 	for _, c := range r.Checks {
 		if c.Status == StatusSkip {
 			fmt.Fprintf(w, "[SKIP] %s: %s\n", c.Name, c.Detail)
+		}
+	}
+	// Passing checks that skipped part of their input disclose it in Detail;
+	// surface those so text-mode readers see what was not checked.
+	for _, c := range r.Checks {
+		if c.Status == StatusPass && strings.Contains(c.Detail, "skipped") {
+			fmt.Fprintf(w, "[INFO] %s: %s\n", c.Name, c.Detail)
 		}
 	}
 	pass, fail, skip := r.Counts()

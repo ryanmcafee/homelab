@@ -37,7 +37,7 @@ func checksByRule(t *testing.T, checks []Check) map[string]Check {
 
 // testRepoRoot creates a repo root containing the given chart directories,
 // each with a values.yaml, so the paths rule has something real to stat.
-func testRepoRoot(t *testing.T, charts ...string) string {
+func fakeRepoRoot(t *testing.T, charts ...string) string {
 	t.Helper()
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "Taskfile.yml"), []byte("version: '3'\n"), 0o644); err != nil {
@@ -1175,7 +1175,7 @@ spec:
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			root := testRepoRoot(t, tc.repoCharts...)
+			root := fakeRepoRoot(t, tc.repoCharts...)
 			rendered := map[string][]Doc{}
 			for chart, src := range tc.rendered {
 				rendered[chart] = mustDocs(t, chart, "homelab", src)
@@ -1278,7 +1278,7 @@ metadata:
   namespace: argocd
 `),
 	}
-	got := checksByRule(t, LintGitOps("homelab", rendered, reg, testRepoRoot(t, "bootstrap", "addons", "applications")))["crd-order"]
+	got := checksByRule(t, LintGitOps("homelab", rendered, reg, fakeRepoRoot(t, "bootstrap", "addons", "applications")))["crd-order"]
 	if got.Status != StatusPass {
 		t.Fatalf("Application-family kinds must be exempt regardless of registry skipKinds: %v", got.Findings)
 	}
@@ -1294,7 +1294,7 @@ metadata:
   annotations:
     argocd.argoproj.io/sync-wave: "3"
 `)...)
-	got = checksByRule(t, LintGitOps("homelab", rendered, reg, testRepoRoot(t, "bootstrap", "addons", "applications")))["crd-order"]
+	got = checksByRule(t, LintGitOps("homelab", rendered, reg, fakeRepoRoot(t, "bootstrap", "addons", "applications")))["crd-order"]
 	if got.Status != StatusFail || !containsSubstring(got.Findings, "CronWorkflow") {
 		t.Fatalf("CronWorkflow must still be ordered: %s %v", got.Status, got.Findings)
 	}
@@ -1318,7 +1318,7 @@ func containsSubstring(haystack []string, needle string) bool {
 }
 
 func TestLintGitOpsEmitsEveryRuleOnce(t *testing.T) {
-	root := testRepoRoot(t, "bootstrap", "addons", "applications")
+	root := fakeRepoRoot(t, "bootstrap", "addons", "applications")
 	rendered := map[string][]Doc{"gitops": mustDocs(t, "gitops", "localdev", gitopsParents)}
 	checks := LintGitOps("localdev", rendered, testRegistry(), root)
 	byRule := checksByRule(t, checks)
@@ -1359,7 +1359,7 @@ func TestLintGitOpsSkipsOrphanChildCharts(t *testing.T) {
 	// A chart like democratic-csi-config renders in localdev but no
 	// Application owns it, so its CRs are outside the env's GitOps graph and
 	// must not be ordered. The skip has to be visible in the detail.
-	root := testRepoRoot(t, "bootstrap", "addons", "applications", "orphan")
+	root := fakeRepoRoot(t, "bootstrap", "addons", "applications", "orphan")
 	rendered := map[string][]Doc{
 		"gitops": mustDocs(t, "gitops", "localdev", gitopsParents),
 		"orphan": mustDocs(t, "orphan", "localdev", `
@@ -1392,7 +1392,7 @@ func lintFixture(t *testing.T, name string, repoCharts ...string) map[string]Che
 	if !ok {
 		t.Fatalf("fixture %s has no homelab environment", name)
 	}
-	return checksByRule(t, LintGitOps("homelab", docs, testRegistry(), testRepoRoot(t, repoCharts...)))
+	return checksByRule(t, LintGitOps("homelab", docs, testRegistry(), fakeRepoRoot(t, repoCharts...)))
 }
 
 func TestLintGitOpsGoodFixturePasses(t *testing.T) {
