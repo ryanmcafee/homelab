@@ -1,0 +1,9 @@
+# bootstrap — local development overrides
+#
+# No overrides are needed here:
+# ArgoCD self-management stays disabled in Kind, where ArgoCD is installed
+# directly instead of managing itself.
+#
+# The file still has to exist. The parent Application always appends
+# values-localdev.yaml to spec.source.helm.valueFiles, and ArgoCD fails
+# the sync when a declared value file is missing.

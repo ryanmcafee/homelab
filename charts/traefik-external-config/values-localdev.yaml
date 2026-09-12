@@ -1,0 +1,8 @@
+# traefik-external-config — local development overrides
+#
+# Kind runs no external-dns, so the externaldns.k8s.io CRDs are absent and a
+# rendered DNSEndpoint would fail the Application sync.
+
+dashboard:
+  dnsEndpoint:
+    enabled: false

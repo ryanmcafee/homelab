@@ -62,15 +62,19 @@ spec:
       jsonPointers:
         - /webhooks/0/clientConfig/caBundle
 ---
-# Config Application: deploys OnePasswordItem for Cloudflare API token
-# Must deploy after 1password-operator (wave -1) so OnePasswordItem CRD is available
+# Config Application: deploys OnePasswordItem for Cloudflare API token.
+# The OnePasswordItem CRD comes from 1password-operator in the bootstrap
+# parent, which syncs in an earlier parent wave. Within addons this runs at
+# wave -1 so the Cloudflare token Secret exists before cert-manager (wave 0)
+# and before the ClusterIssuer that consumes it (wave 1). Sharing a wave with
+# cert-manager would leave the ordering of the two up to ArgoCD.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
   name: cert-manager-config
   namespace: argocd
   annotations:
-    argocd.argoproj.io/sync-wave: "0"
+    argocd.argoproj.io/sync-wave: "-1"
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:

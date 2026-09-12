@@ -30,10 +30,10 @@ addons:
   enabled: true
 
   source:
-    # Use localdev-specific values
+    # values-localdev.yaml is appended by the template from global.environment,
+    # so listing it here too would pass it to helm twice.
     valueFiles:
       - values.yaml
-      - values-localdev.yaml
 
 # ============================================================================
 # Applications
@@ -43,7 +43,7 @@ applications:
   enabled: true
 
   source:
-    # Use localdev-specific values
+    # values-localdev.yaml is appended by the template from global.environment,
+    # so listing it here too would pass it to helm twice.
     valueFiles:
       - values.yaml
-      - values-localdev.yaml

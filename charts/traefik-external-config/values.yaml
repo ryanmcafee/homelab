@@ -12,6 +12,12 @@ dashboard:
   host: traefik.example.com
   staticIP: "10.0.0.200"
 
+  # DNSEndpoint publishing the dashboard hostname. It needs the
+  # externaldns.k8s.io CRDs, so disable it wherever external-dns is not
+  # deployed.
+  dnsEndpoint:
+    enabled: true
+
 # OIDC authentication middleware
 oidc:
   enabled: false

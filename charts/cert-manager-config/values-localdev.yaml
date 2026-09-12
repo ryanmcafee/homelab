@@ -1,0 +1,8 @@
+# cert-manager-config — local development overrides
+#
+# No overrides are needed here:
+# onePasswordItemPath is empty, so no OnePasswordItem is rendered.
+#
+# The file still has to exist. The parent Application always appends
+# values-localdev.yaml to spec.source.helm.valueFiles, and ArgoCD fails
+# the sync when a declared value file is missing.
