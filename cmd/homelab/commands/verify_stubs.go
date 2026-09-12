@@ -23,9 +23,6 @@ func stubCmd(use, short string) *cobra.Command {
 func newVerifyGitOpsCmd() *cobra.Command {
 	return stubCmd("gitops", "Lint the rendered ArgoCD Application graph")
 }
-func newVerifySnapshotCmd() *cobra.Command {
-	return stubCmd("snapshot", "Diff rendered charts against golden snapshots")
-}
 func newVerifyAllCmd() *cobra.Command {
 	return stubCmd("all", "Run every check for a verification level")
 }

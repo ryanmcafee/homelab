@@ -1,0 +1,114 @@
+---
+# Source: mosquitto-config/templates/persistent-volume.yaml
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: mosquitto-config-pv
+spec:
+  capacity:
+    storage: 1Gi
+  accessModes: ["ReadWriteOnce"]
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: democratic-csi-iscsi-hdd
+  volumeMode: Filesystem
+  csi:
+    driver: org.democratic-csi.iscsi-hdd
+    fsType: ext4
+    volumeHandle: mosquitto-config
+    volumeAttributes:
+      interface: ""
+      iqn: iqn.2005-10.org.freenas.ctl:csi-mosquitto-config-homelab
+      lun: "0"
+      node_attach_driver: iscsi
+      portal: 172.16.100.150:3260
+      portals: ""
+---
+# Source: mosquitto-config/templates/persistent-volume.yaml
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: mosquitto-data-pv
+spec:
+  capacity:
+    storage: 1Gi
+  accessModes: ["ReadWriteOnce"]
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: democratic-csi-iscsi-hdd
+  volumeMode: Filesystem
+  csi:
+    driver: org.democratic-csi.iscsi-hdd
+    fsType: ext4
+    volumeHandle: mosquitto-data
+    volumeAttributes:
+      interface: ""
+      iqn: iqn.2005-10.org.freenas.ctl:csi-mosquitto-data-homelab
+      lun: "0"
+      node_attach_driver: iscsi
+      portal: 172.16.100.150:3260
+      portals: ""
+---
+# Source: mosquitto-config/templates/persistent-volume.yaml
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: mosquitto-configinc-pv
+spec:
+  capacity:
+    storage: 1Gi
+  accessModes: ["ReadWriteOnce"]
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: democratic-csi-iscsi-hdd
+  volumeMode: Filesystem
+  csi:
+    driver: org.democratic-csi.iscsi-hdd
+    fsType: ext4
+    volumeHandle: mosquitto-configinc
+    volumeAttributes:
+      interface: ""
+      iqn: iqn.2005-10.org.freenas.ctl:csi-mosquitto-configinc-homelab
+      lun: "0"
+      node_attach_driver: iscsi
+      portal: 172.16.100.150:3260
+      portals: ""
+---
+# Source: mosquitto-config/templates/persistent-volume.yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mosquitto-config
+  namespace: home-automation
+spec:
+  accessModes: ["ReadWriteOnce"]
+  storageClassName: democratic-csi-iscsi-hdd
+  volumeName: mosquitto-config-pv
+  resources:
+    requests:
+      storage: 1Gi
+---
+# Source: mosquitto-config/templates/persistent-volume.yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mosquitto-data
+  namespace: home-automation
+spec:
+  accessModes: ["ReadWriteOnce"]
+  storageClassName: democratic-csi-iscsi-hdd
+  volumeName: mosquitto-data-pv
+  resources:
+    requests:
+      storage: 1Gi
+---
+# Source: mosquitto-config/templates/persistent-volume.yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mosquitto-configinc
+  namespace: home-automation
+spec:
+  accessModes: ["ReadWriteOnce"]
+  storageClassName: democratic-csi-iscsi-hdd
+  volumeName: mosquitto-configinc-pv
+  resources:
+    requests:
+      storage: 1Gi

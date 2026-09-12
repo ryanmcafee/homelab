@@ -1,0 +1,9 @@
+---
+# Source: democratic-csi-config/templates/config.yaml
+apiVersion: onepassword.com/v1
+kind: OnePasswordItem
+metadata:
+  name: truenas-api-key
+  namespace: democratic-csi
+spec:
+  itemPath: ""

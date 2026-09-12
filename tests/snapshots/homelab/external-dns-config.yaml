@@ -1,0 +1,18 @@
+---
+# Source: external-dns-config/templates/config.yaml
+apiVersion: onepassword.com/v1
+kind: OnePasswordItem
+metadata:
+  name: cloudflare-api-token
+  namespace: external-dns
+spec:
+  itemPath: "vaults/homelab/items/cloudflare"
+---
+# Source: external-dns-config/templates/config.yaml
+apiVersion: onepassword.com/v1
+kind: OnePasswordItem
+metadata:
+  name: unifi-api-credentials
+  namespace: external-dns-unifi
+spec:
+  itemPath: "vaults/homelab/items/unifi"

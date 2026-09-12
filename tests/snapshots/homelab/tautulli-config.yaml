@@ -1,0 +1,38 @@
+---
+# Source: tautulli-config/templates/persistent-volume.yaml
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: tautulli-config-pv
+spec:
+  capacity:
+    storage: 5Gi
+  accessModes: ["ReadWriteOnce"]
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: democratic-csi-iscsi-hdd
+  volumeMode: Filesystem
+  csi:
+    driver: org.democratic-csi.iscsi-hdd
+    fsType: ext4
+    volumeHandle: tautulli-config
+    volumeAttributes:
+      interface: ""
+      iqn: iqn.2005-10.org.freenas.ctl:csi-tautulli-config-homelab
+      lun: "0"
+      node_attach_driver: iscsi
+      portal: 172.16.100.150:3260
+      portals: ""
+---
+# Source: tautulli-config/templates/persistent-volume.yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: tautulli-config
+  namespace: media
+spec:
+  accessModes: ["ReadWriteOnce"]
+  storageClassName: democratic-csi-iscsi-hdd
+  volumeName: tautulli-config-pv
+  resources:
+    requests:
+      storage: 5Gi
