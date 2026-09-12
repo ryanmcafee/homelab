@@ -1,8 +1,13 @@
 # cert-manager-config — local development overrides
 #
-# No overrides are needed here:
-# onePasswordItemPath is empty, so no OnePasswordItem is rendered.
+# Kind has no 1Password Connect credentials, so there is no Cloudflare API
+# token to fetch. Leaving cloudflare.enabled at its default rendered an
+# OnePasswordItem with an empty spec.itemPath — an object the operator can
+# never resolve, which nonetheless reads like a working Secret producer to
+# anything inspecting the manifests. Disabled outright instead.
 #
-# The file still has to exist. The parent Application always appends
-# values-localdev.yaml to spec.source.helm.valueFiles, and ArgoCD fails
-# the sync when a declared value file is missing.
+# The localdev ClusterIssuer uses the HTTP-01 solver to match; see
+# charts/cert-manager-cluster-issuer/values-localdev.yaml.
+
+cloudflare:
+  enabled: false

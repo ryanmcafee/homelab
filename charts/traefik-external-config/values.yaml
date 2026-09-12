@@ -6,17 +6,18 @@ global:
 
 namespace: traefik
 
+# DNSEndpoint records published by this chart: the dashboard hostname, plus the
+# OIDC auth hostname when oidc.enabled. They are externaldns.k8s.io resources,
+# so their CRDs only exist where external-dns is deployed. Set this to false in
+# any environment without it, or the Application cannot sync.
+externalDNS:
+  enabled: true
+
 # Dashboard configuration
 dashboard:
   enabled: true
   host: traefik.example.com
   staticIP: "10.0.0.200"
-
-  # DNSEndpoint publishing the dashboard hostname. It needs the
-  # externaldns.k8s.io CRDs, so disable it wherever external-dns is not
-  # deployed.
-  dnsEndpoint:
-    enabled: true
 
 # OIDC authentication middleware
 oidc:

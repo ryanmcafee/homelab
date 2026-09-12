@@ -1,8 +1,13 @@
 # cert-manager-cluster-issuer — local development overrides
 #
-# No overrides are needed here:
-# the Let's Encrypt ClusterIssuer takes no per-cluster values.
+# Kind has no Cloudflare API token, so the DNS-01 solver has no credential to
+# read. Disabling cloudflare here switches the template to its HTTP-01 branch,
+# which needs no Secret at all, and keeps the issuer consistent with
+# charts/cert-manager-config/values-localdev.yaml.
 #
-# The file still has to exist. The parent Application always appends
-# values-localdev.yaml to spec.source.helm.valueFiles, and ArgoCD fails
-# the sync when a declared value file is missing.
+# Neither solver can actually issue a certificate for the .test domain Kind
+# uses; the point is that the manifest no longer references a Secret nothing
+# creates.
+
+cloudflare:
+  enabled: false
