@@ -161,9 +161,11 @@ func TestListGuardFilesAppliesScopeAndExclusions(t *testing.T) {
 		"configuration/versions.yaml",
 		"configuration/schema/network.schema.yaml",
 		"configuration/environments/localdev.yaml",
-		"configuration/environments/homelab.yaml",         // excluded: real values
-		"configuration/environments/homelab.yaml.example", // excluded: .example is not a scannable extension
-		"configuration/templates/helm-addons.tmpl",        // excluded: not a scannable extension
+		"configuration/environments/homelab.yaml", // excluded: real values
+		// Included: the template is the likeliest place for a real value to be
+		// pasted, so it is scanned as YAML under the placeholder allowlist.
+		"configuration/environments/homelab.yaml.example",
+		"configuration/templates/helm-addons.tmpl", // excluded: not a scannable extension
 		"configuration/README.md",
 		"configuration/exports/apps.generated.json", // excluded: generated
 		"configuration/.configu.yaml",
@@ -178,6 +180,7 @@ func TestListGuardFilesAppliesScopeAndExclusions(t *testing.T) {
 	want := []string{
 		"configuration/.configu.yaml",
 		"configuration/README.md",
+		"configuration/environments/homelab.yaml.example",
 		"configuration/environments/localdev.yaml",
 		"configuration/schema/network.schema.yaml",
 		"configuration/versions.yaml",
@@ -533,9 +536,9 @@ func TestScanFileForPIIShapeHostnames(t *testing.T) {
 			want:     nil,
 		},
 		{
-			name:     "the environment template is skipped entirely",
+			name:     "the environment template's documented placeholders pass",
 			filename: "homelab.yaml.example",
-			content:  "DOMAIN: your-domain.com\nGATEWAY_IP: \"192.168.1.1\"\nTRUENAS_IP: \"192.168.1.100\"\nCP_VIP: \"192.168.1.10\"\n",
+			content:  "DOMAIN: your-domain.com\nGATEWAY_IP: \"192.168.1.1\"\nTRUENAS_IP: \"192.168.1.100\"\nCP_VIP: \"192.168.1.10\"\nNFS_MAPALL_USER: your-username\nACME_EMAIL: admin@your-domain.com\nEXTERNAL_DNS_DEFAULT_TARGET: your-subdomain.duckdns.org\n",
 			want:     nil,
 		},
 		{
@@ -673,5 +676,295 @@ func TestRunGuardUnreadableAlongsideValuePatterns(t *testing.T) {
 	}
 	if len(report.Unreadable) != 1 {
 		t.Fatalf("Unreadable = %+v, want one entry", report.Unreadable)
+	}
+}
+
+func TestHasScannableExtension(t *testing.T) {
+	tests := []struct {
+		path string
+		want bool
+	}{
+		{path: "configuration/versions.yaml", want: true},
+		{path: "configuration/a.yml", want: true},
+		{path: "configuration/a.json", want: true},
+		{path: "configuration/README.md", want: true},
+		// A template suffix is looked through, so the highest-risk file in the
+		// repository stays in scope instead of falling out on its name.
+		{path: "configuration/environments/homelab.yaml.example", want: true},
+		{path: "configuration/environments/homelab.yaml.template", want: true},
+		{path: "notes.md.sample", want: true},
+		{path: "configuration/templates/helm-addons.tmpl", want: false},
+		{path: "configuration/environments/.gitkeep", want: false},
+		{path: "scripts/run.ts", want: false},
+		{path: "binary.example", want: false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.path, func(t *testing.T) {
+			if got := hasScannableExtension(tc.path); got != tc.want {
+				t.Errorf("hasScannableExtension(%q) = %v, want %v", tc.path, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestIsExamplePlaceholder(t *testing.T) {
+	tests := []struct {
+		name  string
+		value string
+		want  bool
+	}{
+		// Allowed: the documentation subnet used throughout the template.
+		{name: "documentation subnet gateway", value: "192.168.1.1", want: true},
+		{name: "documentation subnet host", value: "192.168.1.100", want: true},
+		{name: "documentation subnet edge", value: "192.168.1.255", want: true},
+		{name: "documentation subnet with a port", value: "192.168.1.100:3260", want: true},
+		{name: "documentation CIDR", value: "192.168.1.0/24", want: true},
+		{name: "loopback", value: "127.0.0.1", want: true},
+		{name: "loopback CIDR", value: "127.0.0.0/8", want: true},
+		// Allowed: documented placeholder hostnames and mailboxes on them.
+		{name: "placeholder domain", value: "your-domain.com", want: true},
+		{name: "placeholder subdomain", value: "traefik.your-domain.com", want: true},
+		{name: "placeholder mailbox", value: "you@your-domain.com", want: true},
+		{name: "admin mailbox on the placeholder domain", value: "admin@your-domain.com", want: true},
+		{name: "example.com", value: "example.com", want: true},
+		{name: "mailbox on example.com", value: "you@example.com", want: true},
+		// Allowed: the repository's fill-me-in prefix and reserved suffixes.
+		{name: "placeholder username", value: "your-username", want: true},
+		{name: "placeholder subdomain label", value: "your-subdomain", want: true},
+		{name: "placeholder duckdns target", value: "your-subdomain.duckdns.org", want: true},
+		{name: "reserved local suffix", value: "truenas.local", want: true},
+		{name: "empty", value: "", want: true},
+		{name: "empty quoted", value: `""`, want: true},
+
+		// Rejected: anything a real environment would contain.
+		{name: "real private address", value: "172.16.100.10", want: false},
+		{name: "real private address in another range", value: "10.0.0.5", want: false},
+		{name: "adjacent documentation subnet is not allowed", value: "192.168.2.10", want: false},
+		{name: "real public address", value: "203.0.113.10", want: false},
+		{name: "real domain", value: "ryanmcafee.com", want: false},
+		{name: "real subdomain", value: "plex.ryanmcafee.com", want: false},
+		{name: "real mailbox", value: "admin@ryanmcafee.com", want: false},
+		{name: "real username", value: "rmcafee", want: false},
+		{name: "real duckdns target", value: "homelab-dev.duckdns.org", want: false},
+		{name: "real CIDR", value: "172.16.100.0/24", want: false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := isExamplePlaceholder(tc.value); got != tc.want {
+				t.Errorf("isExamplePlaceholder(%q) = %v, want %v", tc.value, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestScanTemplateFileRequiresPlaceholders(t *testing.T) {
+	tests := []struct {
+		name     string
+		content  string
+		wantKeys []string
+		wantVals []string
+	}{
+		{
+			name:     "a real address pasted into the template",
+			content:  "DOMAIN: your-domain.com\nCP_VIP: \"172.16.100.10\"\n",
+			wantKeys: []string{"CP_VIP"},
+			wantVals: []string{"172.16.100.10"},
+		},
+		{
+			name:     "a real domain pasted into the template",
+			content:  "DOMAIN: ryanmcafee.com\nGATEWAY_IP: \"192.168.1.1\"\n",
+			wantKeys: []string{"DOMAIN"},
+			wantVals: []string{"ryanmcafee.com"},
+		},
+		{
+			name:     "a real username, which shape detection alone cannot see",
+			content:  "NFS_MAPALL_USER: rmcafee\n",
+			wantKeys: []string{"NFS_MAPALL_USER"},
+			wantVals: []string{"rmcafee"},
+		},
+		{
+			name:     "a real mailbox",
+			content:  "ACME_EMAIL: admin@ryanmcafee.com\n",
+			wantKeys: []string{"ACME_EMAIL"},
+			wantVals: []string{"admin@ryanmcafee.com"},
+		},
+		{
+			name:     "every leak in one paste is reported",
+			content:  "DOMAIN: ryanmcafee.com\nTRUENAS_IP: \"172.16.100.150\"\nNFS_MAPALL_USER: rmcafee\n",
+			wantKeys: []string{"DOMAIN", "TRUENAS_IP", "NFS_MAPALL_USER"},
+			wantVals: []string{"ryanmcafee.com", "172.16.100.150", "rmcafee"},
+		},
+		{
+			name:     "non-PII keys are still out of scope",
+			content:  "K8S_POD_CIDR: \"10.244.0.0/16\"\nTIMEZONE: \"America/New_York\"\nSTORAGE_CLASS_NFS: democratic-csi-nfs\n",
+			wantKeys: nil,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "homelab.yaml.example")
+			if err := os.WriteFile(path, []byte(tc.content), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			res, err := ScanFileForPIIShape(path)
+			if err != nil {
+				t.Fatalf("ScanFileForPIIShape: %v", err)
+			}
+			if len(res.Matches) != len(tc.wantKeys) {
+				t.Fatalf("got %d match(es) %+v, want %d for %v",
+					len(res.Matches), res.Matches, len(tc.wantKeys), tc.wantKeys)
+			}
+			for i, key := range tc.wantKeys {
+				m := res.Matches[i]
+				if !strings.Contains(m.Pattern, key) {
+					t.Errorf("match[%d].Pattern = %q, want it to name %q", i, m.Pattern, key)
+				}
+				// The Note carries the exact operator-facing message.
+				wantNote := "non-placeholder value in example file (" + tc.wantVals[i] + ")"
+				if m.Note != wantNote {
+					t.Errorf("match[%d].Note = %q, want %q", i, m.Note, wantNote)
+				}
+			}
+		})
+	}
+}
+
+func TestScanCommittedTemplateIsClean(t *testing.T) {
+	// The committed template must satisfy its own allowlist, or the rule is
+	// unenforceable in CI. This reads the real file rather than a fixture.
+	root, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(root, "..", "..", "configuration", "environments", "homelab.yaml.example")
+	if _, err := os.Stat(path); err != nil {
+		t.Skipf("template not found at %s: %v", path, err)
+	}
+
+	res, err := ScanFileForPIIShape(path)
+	if err != nil {
+		t.Fatalf("ScanFileForPIIShape: %v", err)
+	}
+	for _, m := range res.Matches {
+		t.Errorf("committed template line %d is outside the placeholder allowlist: %s", m.Line, m.Note)
+	}
+}
+
+func TestHasPlaceholderMarker(t *testing.T) {
+	tests := []struct {
+		name string
+		host string
+		want bool
+	}{
+		// Markers as whole labels, or as a prefix form ending in a hyphen.
+		{name: "your- prefix form", host: "your-domain.com", want: true},
+		{name: "your- prefix on a deeper label", host: "traefik.your-domain.com", want: true},
+		{name: "your- prefix with no dot at all", host: "your-username", want: true},
+		{name: "yourdomain whole label", host: "yourdomain.com", want: true},
+		{name: "changeme whole label", host: "changeme.io", want: true},
+		{name: "changeme as a deeper label", host: "host.changeme.io", want: true},
+		{name: "replace-me whole label", host: "replace-me.net", want: true},
+		{name: "todo whole label", host: "todo.internal", want: true},
+		{name: "angle brackets cannot occur in a real host", host: "<domain>.com", want: true},
+
+		// The regression this addendum exists for: a real host that merely
+		// contains the letters must NOT be excused.
+		{name: "mytodolist.com is a real host", host: "mytodolist.com", want: false},
+		{name: "todolist.com is a real host", host: "todolist.com", want: false},
+		{name: "notyourdomain.com is a real host", host: "notyourdomain.com", want: false},
+		{name: "exchangemevents.com is a real host", host: "exchangemevents.com", want: false},
+		{name: "ryanmcafee.com", host: "ryanmcafee.com", want: false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := hasPlaceholderMarker(tc.host); got != tc.want {
+				t.Errorf("hasPlaceholderMarker(%q) = %v, want %v", tc.host, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestIsRealHostnameMarkerAnchoring(t *testing.T) {
+	// The same anchoring, exercised through the public shape rule: a real host
+	// containing a marker's letters must still be reported.
+	tests := []struct {
+		value string
+		want  bool
+	}{
+		{value: "mytodolist.com", want: true},
+		{value: "todolist.com", want: true},
+		{value: "notyourdomain.com", want: true},
+		{value: "admin@mytodolist.com", want: true},
+		{value: "your-domain.com", want: false},
+		{value: "changeme.io", want: false},
+		{value: "todo.internal", want: false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.value, func(t *testing.T) {
+			if got := isRealHostname(tc.value); got != tc.want {
+				t.Errorf("isRealHostname(%q) = %v, want %v", tc.value, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestExamplePlaceholderPrefixIsAnchored(t *testing.T) {
+	tests := []struct {
+		name  string
+		value string
+		want  bool
+	}{
+		// The template's own values.
+		{name: "placeholder domain", value: "your-domain.com", want: true},
+		{name: "placeholder username", value: "your-username", want: true},
+		{name: "placeholder mailbox", value: "admin@your-domain.com", want: true},
+		{name: "placeholder duckdns target", value: "your-subdomain.duckdns.org", want: true},
+		// A pasted value that merely contains the letters is not a placeholder.
+		{name: "not a placeholder despite the letters", value: "notyourdomain.com", want: false},
+		{name: "real host containing todo", value: "mytodolist.com", want: false},
+		{name: "real username", value: "rmcafee", want: false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := isExamplePlaceholder(tc.value); got != tc.want {
+				t.Errorf("isExamplePlaceholder(%q) = %v, want %v", tc.value, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestCIScopeIncludesTheEnvironmentTemplate(t *testing.T) {
+	// The template is the highest-risk file in the repository, so CI mode must
+	// reach it. Extensions are resolved by looking through a template suffix
+	// rather than by listing ".example" as a scannable type, which would pull
+	// in unrelated files such as an archive named *.example.
+	withTrackedFiles(t, []string{
+		"configuration/environments/homelab.yaml.example",
+		"configuration/environments/localdev.yaml",
+		"configuration/archive.tar.example",
+		"configuration/notes.txt.example",
+	}, nil)
+
+	got, err := ListGuardFiles("/repo", nil)
+	if err != nil {
+		t.Fatalf("ListGuardFiles: %v", err)
+	}
+	want := []string{
+		"configuration/environments/homelab.yaml.example",
+		"configuration/environments/localdev.yaml",
+	}
+	if len(got) != len(want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("file[%d] = %q, want %q", i, got[i], want[i])
+		}
 	}
 }

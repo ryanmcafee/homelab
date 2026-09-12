@@ -321,6 +321,12 @@ An empty scan scope in CI mode is a failure, never a pass.`,
 
 			for _, result := range report.Results {
 				for _, m := range result.Matches {
+					// A template-file finding reads differently: the value may
+					// not be PII, it is simply not a documented placeholder.
+					if m.Note != "" {
+						logger.Error(fmt.Sprintf("%s:%d %s", result.File, m.Line, m.Note))
+						continue
+					}
 					logger.Error(fmt.Sprintf("%s:%d PII detected (%s): %s",
 						result.File, m.Line, m.Pattern, strings.TrimSpace(m.Content)))
 				}

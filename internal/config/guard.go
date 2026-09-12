@@ -127,6 +127,18 @@ var guardScanExtensions = map[string]bool{
 	".md":   true,
 }
 
+// hasScannableExtension reports whether a path is a file type the guard can
+// read. A template suffix is looked through first, so homelab.yaml.example is
+// scanned as YAML: that file is the likeliest place for a real value to be
+// pasted, so it must never fall out of scope on its name alone.
+func hasScannableExtension(path string) bool {
+	name := strings.ToLower(filepath.Base(path))
+	for _, suffix := range templateFileSuffixes {
+		name = strings.TrimSuffix(name, suffix)
+	}
+	return guardScanExtensions[filepath.Ext(name)]
+}
+
 // FileLister enumerates repository-tracked files matching git pathspecs.
 type FileLister func(repoRoot string, pathspecs []string) ([]string, error)
 
@@ -178,7 +190,7 @@ func ListGuardFiles(repoRoot string, pathspecs []string) ([]string, error) {
 	seen := make(map[string]bool, len(tracked))
 	var files []string
 	for _, f := range tracked {
-		if !guardScanExtensions[strings.ToLower(filepath.Ext(f))] {
+		if !hasScannableExtension(f) {
 			continue
 		}
 		if IsGuardExcluded(f) || seen[f] {
@@ -211,8 +223,35 @@ var reservedHostSuffixes = []string{
 // placeholderHosts are exact hostnames used as documentation placeholders.
 var placeholderHosts = []string{"example.com", "example.org", "example.net", "localhost"}
 
-// placeholderMarkers appear inside a value that is obviously a fill-me-in.
-var placeholderMarkers = []string{"your-", "yourdomain", "changeme", "replace-me", "todo", "<"}
+// placeholderMarkers are fill-me-in markers, matched at DNS label boundaries
+// rather than anywhere in the string. A bare substring test would silently
+// clear a real host that happens to contain the letters: "todo" alone excused
+// mytodolist.com and todolist.com, turning a placeholder convenience into a
+// false negative.
+//
+// A marker ending in "-" is a prefix form and matches a label that starts with
+// it (your-domain, your-username). Every other marker must be a whole label.
+var placeholderMarkers = []string{"your-", "yourdomain", "changeme", "replace-me", "todo"}
+
+// hasPlaceholderMarker reports whether any label of host is a fill-me-in
+// marker. An angle bracket anywhere is also a placeholder, since it cannot
+// appear in a real hostname.
+func hasPlaceholderMarker(host string) bool {
+	if strings.ContainsAny(host, "<>") {
+		return true
+	}
+	for _, label := range strings.Split(host, ".") {
+		for _, marker := range placeholderMarkers {
+			if label == marker {
+				return true
+			}
+			if strings.HasSuffix(marker, "-") && strings.HasPrefix(label, marker) {
+				return true
+			}
+		}
+	}
+	return false
+}
 
 // committedSafeHosts are real public hostnames this repository commits on
 // purpose. Each entry is a deliberate exception to hostname detection: add one
@@ -229,17 +268,109 @@ var templateFileSuffixes = []string{".example", ".template", ".sample", ".dist"}
 
 // IsTemplateFile reports whether a path is an example or template file.
 //
-// Shape-based detection does not run on these. A documentation address such as
-// 192.168.1.100 is indistinguishable from a real one by shape alone, and
-// configuration/environments/homelab.yaml.example is full of them, so scanning
-// templates by shape would be 13 false positives with no way to silence them.
-// Value-based detection still scans template files, so a real value pasted
-// into one by mistake is still caught whenever the real environment file is
-// available.
+// These are held to a stricter rule rather than skipped. A documentation
+// address such as 192.168.1.100 cannot be told from a real one by shape, so
+// instead of clearing template files by shape the guard requires every
+// PII-shaped key in them to carry a value from examplePlaceholder's closed
+// set. That matters most for configuration/environments/homelab.yaml.example:
+// it is the likeliest place for a real value to be pasted, and level 0 renders
+// the homelab environment from it, so a paste there would flow straight into
+// the committed snapshots.
 func IsTemplateFile(path string) bool {
 	base := strings.ToLower(filepath.Base(path))
 	for _, suffix := range templateFileSuffixes {
 		if strings.HasSuffix(base, suffix) {
+			return true
+		}
+	}
+	return false
+}
+
+// examplePlaceholderSubnets are the address ranges a template file may use.
+// 192.168.1.0/24 is this repository's documentation subnet, used throughout
+// configuration/environments/homelab.yaml.example. It is private and routable,
+// so shape detection cannot clear it on its own; listing it here is what makes
+// every other address in a template a finding.
+var examplePlaceholderSubnets = []string{
+	"192.168.1.0/24",
+	"127.0.0.0/8",
+}
+
+// examplePlaceholderHosts are the documented placeholder domains a template
+// file may name, including mailboxes on them such as you@your-domain.com.
+var examplePlaceholderHosts = []string{
+	"your-domain.com",
+	"example.com",
+	"example.org",
+	"example.net",
+}
+
+// examplePlaceholderPrefixes are this repository's fill-me-in convention, as
+// in your-username, your-subdomain and your-subdomain.duckdns.org. They are
+// matched at a label boundary, not as a bare substring, so a pasted value that
+// merely contains the letters is not allowlisted by accident.
+var examplePlaceholderPrefixes = []string{"your-"}
+
+// hasExamplePlaceholderPrefix reports whether any label of the value carries a
+// documented fill-me-in prefix.
+func hasExamplePlaceholderPrefix(value string) bool {
+	for _, label := range strings.Split(hostOf(value), ".") {
+		for _, prefix := range examplePlaceholderPrefixes {
+			if strings.HasPrefix(label, prefix) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// isExamplePlaceholder reports whether a value is one of the documented
+// placeholders a template file is allowed to carry on a PII-shaped key.
+//
+// The rule is a closed allowlist, not a heuristic: anything a template says
+// that is not on this list is reported, because a template has no business
+// holding a value nobody wrote down here.
+func isExamplePlaceholder(value string) bool {
+	v := strings.TrimSpace(strings.ToLower(value))
+	if v == "" || v == `""` || v == "''" {
+		return true
+	}
+	if hasExamplePlaceholderPrefix(v) {
+		return true
+	}
+
+	// An address, bare or with a port, must fall inside a placeholder subnet.
+	if ip := net.ParseIP(hostOf(v)); ip != nil {
+		return ipInAny(ip, examplePlaceholderSubnets)
+	}
+	// A CIDR value must sit inside a placeholder subnet too.
+	if ip, _, err := net.ParseCIDR(v); err == nil {
+		return ipInAny(ip, examplePlaceholderSubnets)
+	}
+
+	host := hostOf(v)
+	for _, h := range examplePlaceholderHosts {
+		if host == h || strings.HasSuffix(host, "."+h) {
+			return true
+		}
+	}
+	// Reserved suffixes are placeholders by definition (RFC 2606, RFC 6761).
+	for _, suffix := range reservedHostSuffixes {
+		if strings.HasSuffix(host, suffix) {
+			return true
+		}
+	}
+	return false
+}
+
+// ipInAny reports whether ip falls inside any of the given CIDRs.
+func ipInAny(ip net.IP, cidrs []string) bool {
+	for _, cidr := range cidrs {
+		_, network, err := net.ParseCIDR(cidr)
+		if err != nil {
+			continue
+		}
+		if network.Contains(ip) {
 			return true
 		}
 	}
@@ -278,10 +409,8 @@ func isRealHostname(v string) bool {
 	if net.ParseIP(host) != nil {
 		return false
 	}
-	for _, marker := range placeholderMarkers {
-		if strings.Contains(host, marker) {
-			return false
-		}
+	if hasPlaceholderMarker(host) {
+		return false
 	}
 	for _, p := range placeholderHosts {
 		if host == p {
@@ -318,14 +447,12 @@ func isRealHostname(v string) bool {
 // so it keeps working in a clone without the real environment file, where
 // value-based detection is impossible.
 //
-// Template files are skipped; see IsTemplateFile. An unreadable file is an
-// error, never an empty (clean) result.
+// In a template file the test inverts: every PII-shaped key must carry a
+// documented placeholder, and anything else is reported. See IsTemplateFile.
+// An unreadable file is an error, never an empty (clean) result.
 func ScanFileForPIIShape(path string) (GuardResult, error) {
 	result := GuardResult{File: path}
-
-	if IsTemplateFile(path) {
-		return result, nil
-	}
+	template := IsTemplateFile(path)
 
 	f, err := os.Open(path)
 	if err != nil {
@@ -343,6 +470,22 @@ func ScanFileForPIIShape(path string) (GuardResult, error) {
 			continue
 		}
 		value := stripValue(m[2])
+
+		// A template file is judged against the closed placeholder set rather
+		// than by shape, so a real value pasted into it is reported even when
+		// it is neither an address nor a hostname (a real username, say).
+		if template {
+			if isExamplePlaceholder(value) {
+				continue
+			}
+			result.Matches = append(result.Matches, GuardMatch{
+				Line:    lineNum,
+				Pattern: m[1] + " (non-placeholder value in example file)",
+				Content: line,
+				Note:    fmt.Sprintf("non-placeholder value in example file (%s)", value),
+			})
+			continue
+		}
 
 		var kind string
 		switch {
