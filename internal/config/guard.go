@@ -57,12 +57,15 @@ func BuildGuardPatterns(values map[string]string) []string {
 }
 
 // ScanFileForPII scans a file for lines containing any of the given PII patterns.
-func ScanFileForPII(path string, patterns []string) GuardResult {
+// The open and read errors are returned rather than swallowed: a file the
+// guard cannot read is a file it cannot clear, and reporting it as clean is
+// the one failure mode a PII guard must not have.
+func ScanFileForPII(path string, patterns []string) (GuardResult, error) {
 	result := GuardResult{File: path}
 
 	f, err := os.Open(path)
 	if err != nil {
-		return result
+		return result, err
 	}
 	defer f.Close()
 
@@ -81,8 +84,11 @@ func ScanFileForPII(path string, patterns []string) GuardResult {
 			}
 		}
 	}
+	if err := scanner.Err(); err != nil {
+		return result, err
+	}
 
-	return result
+	return result, nil
 }
 
 // IsPIIKey reports whether a config key name is PII-shaped, i.e. its value is
@@ -152,7 +158,10 @@ func IsGuardExcluded(path string) bool {
 	if clean == "configuration/environments/homelab.yaml" {
 		return true
 	}
-	return strings.Contains(filepath.Base(clean), ".generated.")
+	// Any path component may carry the marker, so a generated directory such
+	// as exports.generated.d/values.yaml is excluded too, not just a file
+	// whose own name contains it.
+	return strings.Contains(clean, ".generated.")
 }
 
 // ListGuardFiles returns the sorted, deduplicated tracked files in scope.
@@ -309,17 +318,18 @@ func isRealHostname(v string) bool {
 // so it keeps working in a clone without the real environment file, where
 // value-based detection is impossible.
 //
-// Template files are skipped; see IsTemplateFile.
-func ScanFileForPIIShape(path string) GuardResult {
+// Template files are skipped; see IsTemplateFile. An unreadable file is an
+// error, never an empty (clean) result.
+func ScanFileForPIIShape(path string) (GuardResult, error) {
 	result := GuardResult{File: path}
 
 	if IsTemplateFile(path) {
-		return result
+		return result, nil
 	}
 
 	f, err := os.Open(path)
 	if err != nil {
-		return result
+		return result, err
 	}
 	defer f.Close()
 
@@ -350,8 +360,11 @@ func ScanFileForPIIShape(path string) GuardResult {
 			Content: line,
 		})
 	}
+	if err := scanner.Err(); err != nil {
+		return result, err
+	}
 
-	return result
+	return result, nil
 }
 
 // stripValue removes an inline comment and surrounding quotes from a YAML
@@ -415,6 +428,15 @@ type GuardReport struct {
 	EnvPath string
 	// Results holds one entry per file with at least one match.
 	Results []GuardResult
+	// Unreadable holds files the guard could not read. These are failures, not
+	// passes: an unscanned file has not been cleared.
+	Unreadable []GuardUnreadable
+}
+
+// GuardUnreadable is a file the guard could not open or read.
+type GuardUnreadable struct {
+	File string
+	Err  error
 }
 
 // MatchCount totals the matches across every file.
@@ -464,18 +486,35 @@ func RunGuard(opts GuardOptions) (*GuardReport, error) {
 	report.ValuePatterns = len(patterns)
 
 	for _, f := range files {
+		// git ls-files yields repository-relative paths, and pre-commit passes
+		// paths relative to the repository root too, so resolve against
+		// RepoRoot rather than the process working directory. Without this the
+		// guard opened nothing when invoked from a subdirectory and reported
+		// every file as clean.
+		abs := resolveScanPath(opts.RepoRoot, f)
+
 		merged := GuardResult{File: f}
 		flagged := map[int]bool{}
 
 		if len(patterns) > 0 {
-			for _, m := range ScanFileForPII(f, patterns).Matches {
+			res, err := ScanFileForPII(abs, patterns)
+			if err != nil {
+				report.Unreadable = append(report.Unreadable, GuardUnreadable{File: f, Err: err})
+				continue
+			}
+			for _, m := range res.Matches {
 				merged.Matches = append(merged.Matches, m)
 				flagged[m.Line] = true
 			}
 		}
 		// Shape-based hits on a line already reported by value-based detection
 		// would be the same leak twice.
-		for _, m := range ScanFileForPIIShape(f).Matches {
+		shape, err := ScanFileForPIIShape(abs)
+		if err != nil {
+			report.Unreadable = append(report.Unreadable, GuardUnreadable{File: f, Err: err})
+			continue
+		}
+		for _, m := range shape.Matches {
 			if flagged[m.Line] {
 				continue
 			}
@@ -489,4 +528,23 @@ func RunGuard(opts GuardOptions) (*GuardReport, error) {
 	}
 
 	return report, nil
+}
+
+// resolveScanPath turns a scan path into something openable. An absolute path
+// is used as given. A relative path is resolved against repoRoot, falling back
+// to the working directory only when the repository-relative candidate does
+// not exist, so an explicit relative argument still works.
+func resolveScanPath(repoRoot, path string) string {
+	if filepath.IsAbs(path) || repoRoot == "" {
+		return path
+	}
+	joined := filepath.Join(repoRoot, path)
+	if _, err := os.Stat(joined); err == nil {
+		return joined
+	}
+	if _, err := os.Stat(path); err == nil {
+		return path
+	}
+	// Neither exists: name the repository-relative candidate in the error.
+	return joined
 }

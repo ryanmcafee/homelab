@@ -9,6 +9,23 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// orphanMode decides what an orphan snapshot pass is allowed to do.
+//
+// Deleting requires both --update and a render in which every chart succeeded.
+// A chart that failed to render produces no output, so on a failed pass an
+// orphan is indistinguishable from a chart that is merely broken, and deleting
+// its snapshot would destroy the very baseline needed to diagnose the failure.
+func orphanMode(update, renderPassed bool) verify.OrphanMode {
+	switch {
+	case update && renderPassed:
+		return verify.OrphanPrune
+	case update:
+		return verify.OrphanKeep
+	default:
+		return verify.OrphanReport
+	}
+}
+
 func newVerifySnapshotCmd() *cobra.Command {
 	var (
 		o           renderPassOptions
@@ -32,8 +49,7 @@ deletes it. Orphan detection needs the full render, so it is skipped when
 
 Exit status: 0 when every snapshot matches, 1 on drift, a missing snapshot or an
 orphan, 2 on a usage error.`,
-		SilenceUsage:  true,
-		SilenceErrors: true,
+		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := o.validate(args); err != nil {
 				return err
@@ -81,7 +97,19 @@ orphan, 2 on a usage error.`,
 			// A filtered render makes every chart it did not cover look
 			// orphaned, so only a full pass may report orphans.
 			if !o.filtered() {
-				orphans, oerr := verify.OrphanSnapshots(out.Files, dir, update)
+				// The expected set comes from chart discovery, not from the
+				// rendered files, so a chart that failed to render is never
+				// mistaken for a deleted one. Pruning additionally requires
+				// every render check to have passed: an incomplete pass
+				// reports orphans without deleting anything.
+				expected := map[string][]string{}
+				for env := range out.Files {
+					for _, c := range out.Charts {
+						expected[env] = append(expected[env], c.Name)
+					}
+				}
+
+				orphans, oerr := verify.OrphanSnapshots(expected, dir, orphanMode(update, renderRes.Pass))
 				if oerr != nil {
 					return fmt.Errorf("checking for orphan snapshots: %w", oerr)
 				}

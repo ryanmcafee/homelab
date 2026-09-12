@@ -325,9 +325,22 @@ An empty scan scope in CI mode is a failure, never a pass.`,
 						result.File, m.Line, m.Pattern, strings.TrimSpace(m.Content)))
 				}
 			}
-			if n := report.MatchCount(); n > 0 {
+			// A file the guard could not read has not been cleared, so it
+			// fails the scan instead of counting as clean.
+			for _, u := range report.Unreadable {
+				logger.Error(fmt.Sprintf("%s: %v", u.File, u.Err))
+			}
+
+			n := report.MatchCount()
+			switch {
+			case n > 0 && len(report.Unreadable) > 0:
+				return fmt.Errorf("%d PII pattern(s) detected in %d file(s), and %d file(s) unreadable — see errors above",
+					n, len(report.Results), len(report.Unreadable))
+			case n > 0:
 				return fmt.Errorf("%d PII pattern(s) detected in %d file(s) — see errors above",
 					n, len(report.Results))
+			case len(report.Unreadable) > 0:
+				return fmt.Errorf("%d file(s) could not be read — see errors above", len(report.Unreadable))
 			}
 
 			if len(report.Files) == 0 {

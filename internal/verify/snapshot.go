@@ -88,21 +88,36 @@ func snapshotOne(env, chart, renderedPath, snapshotDir string, update bool) (Che
 		strings.Split(strings.TrimRight(diff, "\n"), "\n")...), nil
 }
 
-// OrphanSnapshots reports snapshot files with no corresponding rendered chart,
-// which is what a deleted or renamed chart leaves behind. With remove set the
-// files are deleted, so `verify snapshot --update` prunes them.
+// OrphanMode says what to do with a snapshot that has no chart.
+type OrphanMode int
+
+const (
+	// OrphanReport fails the check and leaves the file alone.
+	OrphanReport OrphanMode = iota
+	// OrphanPrune deletes the file and passes the check.
+	OrphanPrune
+	// OrphanKeep fails the check and records that the file was deliberately
+	// not deleted. An --update run whose render did not fully succeed must
+	// never remove a snapshot: a chart that failed to render looks exactly
+	// like a chart that was deleted.
+	OrphanKeep
+)
+
+// OrphanSnapshots reports snapshot files with no corresponding chart, which is
+// what a deleted or renamed chart leaves behind.
 //
-// Call it only for a render that covered every env and chart: a --chart or
-// --env filter would make every chart it skipped look orphaned. Only envs
-// present in files are examined, so an env the caller did not render is left
-// alone either way.
-func OrphanSnapshots(files map[string]map[string]string, snapshotDir string, remove bool) ([]Check, error) {
+// expected maps env to the chart names the pass covered. It comes from chart
+// discovery, not from the rendered-file map: a chart that fails to render
+// produces no file, and treating that as an orphan would delete a perfectly
+// good snapshot. Only envs present in expected are examined, so an env the
+// caller did not render is untouched.
+func OrphanSnapshots(expected map[string][]string, snapshotDir string, mode OrphanMode) ([]Check, error) {
 	if snapshotDir == "" {
 		return nil, fmt.Errorf("snapshot directory is required")
 	}
 
 	var checks []Check
-	for _, env := range sortedKeys(files) {
+	for _, env := range sortedKeys(expected) {
 		entries, err := os.ReadDir(filepath.Join(snapshotDir, env))
 		if err != nil {
 			if os.IsNotExist(err) {
@@ -111,7 +126,11 @@ func OrphanSnapshots(files map[string]map[string]string, snapshotDir string, rem
 			return checks, fmt.Errorf("reading snapshot directory for %s: %w", env, err)
 		}
 
-		rendered := files[env]
+		known := make(map[string]bool, len(expected[env]))
+		for _, chart := range expected[env] {
+			known[chart] = true
+		}
+
 		var orphans []string
 		for _, e := range entries {
 			fname := e.Name()
@@ -119,7 +138,7 @@ func OrphanSnapshots(files map[string]map[string]string, snapshotDir string, rem
 				continue
 			}
 			chart := strings.TrimSuffix(fname, ".yaml")
-			if _, ok := rendered[chart]; !ok {
+			if !known[chart] {
 				orphans = append(orphans, chart)
 			}
 		}
@@ -129,16 +148,22 @@ func OrphanSnapshots(files map[string]map[string]string, snapshotDir string, rem
 			start := time.Now()
 			name := fmt.Sprintf("snapshot/%s/%s", env, chart)
 			path := filepath.Join(snapshotDir, env, chart+".yaml")
-			if remove {
+
+			switch mode {
+			case OrphanPrune:
 				if err := os.Remove(path); err != nil {
 					return checks, fmt.Errorf("removing orphan snapshot %s: %w", path, err)
 				}
 				checks = append(checks, PassCheck(name, start, "orphan snapshot removed"))
-				continue
+			case OrphanKeep:
+				checks = append(checks, FailCheck(name, start,
+					fmt.Sprintf("orphan snapshot: no chart %q is known for %s; not pruned: render incomplete",
+						chart, env)))
+			default:
+				checks = append(checks, FailCheck(name, start,
+					fmt.Sprintf("orphan snapshot: no chart %q is known for %s; %s",
+						chart, env, snapshotUpdateHint)))
 			}
-			checks = append(checks, FailCheck(name, start,
-				fmt.Sprintf("orphan snapshot: no chart %q renders for %s; %s",
-					chart, env, snapshotUpdateHint)))
 		}
 	}
 	return checks, nil

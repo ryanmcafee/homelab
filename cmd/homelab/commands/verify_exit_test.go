@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ryanmcafee/homelab/internal/verify"
 	"github.com/spf13/cobra"
 )
 
@@ -137,4 +138,59 @@ func countVerifyTempDirs(t *testing.T) int {
 		t.Fatalf("globbing temp dirs: %v", err)
 	}
 	return len(matches)
+}
+
+func TestOrphanModeNeverPrunesAfterAFailedRender(t *testing.T) {
+	tests := []struct {
+		name         string
+		update       bool
+		renderPassed bool
+		want         verify.OrphanMode
+	}{
+		{name: "check only", update: false, renderPassed: true, want: verify.OrphanReport},
+		{name: "check only after a failed render", update: false, renderPassed: false, want: verify.OrphanReport},
+		{name: "update after a clean render prunes", update: true, renderPassed: true, want: verify.OrphanPrune},
+		{name: "update after a failed render keeps", update: true, renderPassed: false, want: verify.OrphanKeep},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := orphanMode(tc.update, tc.renderPassed)
+			if got != tc.want {
+				t.Errorf("orphanMode(update=%v, renderPassed=%v) = %v, want %v",
+					tc.update, tc.renderPassed, got, tc.want)
+			}
+			if !tc.renderPassed && got == verify.OrphanPrune {
+				t.Error("a failed render must never lead to deleting a snapshot")
+			}
+		})
+	}
+}
+
+func TestGuardFailsOnUnreadableFile(t *testing.T) {
+	// The guard used to swallow the open error and print "[OK] ... 1 file(s)".
+	root := &cobra.Command{Use: "homelab", SilenceUsage: true, SilenceErrors: true}
+	root.SetFlagErrorFunc(UsageErrorFunc)
+	root.AddCommand(NewConfigCmd())
+
+	var out bytes.Buffer
+	root.SetOut(&out)
+	root.SetErr(&out)
+	missing := filepath.Join(t.TempDir(), "does-not-exist.yaml")
+	root.SetArgs([]string{
+		"config", "guard",
+		"--env-file", filepath.Join(t.TempDir(), "absent.yaml"),
+		"--", missing,
+	})
+
+	err := root.ExecuteContext(context.Background())
+	if err == nil {
+		t.Fatal("scanning a file that cannot be read must fail, not report success")
+	}
+	if got := ExitCode(err); got != ExitFailure {
+		t.Errorf("ExitCode = %d, want %d", got, ExitFailure)
+	}
+	if !strings.Contains(err.Error(), "could not be read") {
+		t.Errorf("error %q should say the file could not be read", err.Error())
+	}
 }

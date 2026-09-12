@@ -895,10 +895,15 @@ func TestRenderParallelBoundsConcurrency(t *testing.T) {
 	tests := []struct {
 		name     string
 		parallel int
-		wantMax  int
+		schema   bool
 	}{
-		{name: "serialised", parallel: 1, wantMax: 1},
-		{name: "two at a time", parallel: 2, wantMax: 2},
+		{name: "serialised", parallel: 1},
+		{name: "two at a time", parallel: 2},
+		// The schema phase runs both envs concurrently, and pluto spawns one
+		// process per rendered file. All of it must share the render pool's
+		// semaphore, or --parallel 1 still permits two processes at once.
+		{name: "serialised including the schema phase", parallel: 1, schema: true},
+		{name: "two at a time including the schema phase", parallel: 2, schema: true},
 	}
 
 	for _, tc := range tests {
@@ -910,18 +915,28 @@ func TestRenderParallelBoundsConcurrency(t *testing.T) {
 				Envs:       Envs,
 				Parallel:   tc.parallel,
 				SkipLint:   true,
-				SkipSchema: true,
+				SkipSchema: !tc.schema,
 				Runner:     fr,
 			})
 			if !res.Pass {
-				t.Fatal("expected the render to pass")
+				var buf strings.Builder
+				res.WriteText(&buf)
+				t.Fatalf("expected the render to pass, got:\n%s", buf.String())
 			}
-			if got := fr.peakConcurrency(); got > tc.wantMax {
+			if got := fr.peakConcurrency(); got > tc.parallel {
 				t.Errorf("peak concurrency %d exceeds --parallel %d", got, tc.parallel)
 			}
 			// Guard against the pool silently never running anything.
 			if len(fr.cmds) == 0 {
 				t.Fatal("no commands were run")
+			}
+			if tc.schema {
+				if _, ok := fr.find("kubeconform"); !ok {
+					t.Error("the schema phase did not run")
+				}
+				if _, ok := fr.find("pluto"); !ok {
+					t.Error("pluto did not run")
+				}
 			}
 		})
 	}

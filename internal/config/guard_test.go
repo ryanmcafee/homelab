@@ -44,16 +44,39 @@ func TestScanFileForPII(t *testing.T) {
 
 	patterns := []string{"ryanmcafee.com", "172.16.100.", "admin@ryanmcafee.com"}
 
-	cleanResults := ScanFileForPII(cleanFile, patterns)
+	cleanResults, err := ScanFileForPII(cleanFile, patterns)
+	if err != nil {
+		t.Fatalf("scanning the clean file: %v", err)
+	}
 	if len(cleanResults.Matches) != 0 {
 		t.Errorf("clean file should have 0 matches, got %d", len(cleanResults.Matches))
 	}
 
-	dirtyResults := ScanFileForPII(dirtyFile, patterns)
+	dirtyResults, err := ScanFileForPII(dirtyFile, patterns)
+	if err != nil {
+		t.Fatalf("scanning the dirty file: %v", err)
+	}
 	// 4 matches: line 1 matches "ryanmcafee.com", line 2 matches "172.16.100.",
 	// line 3 matches both "ryanmcafee.com" and "admin@ryanmcafee.com"
 	if len(dirtyResults.Matches) != 4 {
 		t.Errorf("dirty file should have 4 matches, got %d", len(dirtyResults.Matches))
+	}
+}
+
+func TestScannersReportUnreadableFiles(t *testing.T) {
+	missing := filepath.Join(t.TempDir(), "does-not-exist.yaml")
+
+	if _, err := ScanFileForPII(missing, []string{"secret"}); err == nil {
+		t.Error("ScanFileForPII must not report an unreadable file as clean")
+	}
+	if _, err := ScanFileForPIIShape(missing); err == nil {
+		t.Error("ScanFileForPIIShape must not report an unreadable file as clean")
+	}
+
+	// A directory opens but cannot be read as a file.
+	dir := t.TempDir()
+	if _, err := ScanFileForPII(dir, []string{"secret"}); err == nil {
+		t.Error("scanning a directory should fail rather than return no matches")
 	}
 }
 
@@ -101,6 +124,9 @@ func TestIsGuardExcluded(t *testing.T) {
 		{path: "configuration/environments/homelab.yaml", want: true},
 		{path: "charts/applications/values-homelab.generated.yaml", want: true},
 		{path: "configuration/environments/homelab.generated.yaml", want: true},
+		// The marker may sit on a directory, not just the file itself.
+		{path: "configuration/exports.generated.d/values.yaml", want: true},
+		{path: "a/b.generated.c/d/e.json", want: true},
 		{path: "configuration/environments/homelab.yaml.example", want: false},
 		{path: "configuration/environments/localdev.yaml", want: false},
 		{path: "configuration/environments/defaults.yaml", want: false},
@@ -264,7 +290,10 @@ func TestScanFileForPIIShape(t *testing.T) {
 			if err := os.WriteFile(path, []byte(tc.content), 0o644); err != nil {
 				t.Fatal(err)
 			}
-			res := ScanFileForPIIShape(path)
+			res, err := ScanFileForPIIShape(path)
+			if err != nil {
+				t.Fatalf("ScanFileForPIIShape: %v", err)
+			}
 			if len(res.Matches) != len(tc.want) {
 				t.Fatalf("got %d match(es) %+v, want %d for %v", len(res.Matches), res.Matches, len(tc.want), tc.want)
 			}
@@ -529,7 +558,10 @@ func TestScanFileForPIIShapeHostnames(t *testing.T) {
 			if err := os.WriteFile(path, []byte(tc.content), 0o644); err != nil {
 				t.Fatal(err)
 			}
-			res := ScanFileForPIIShape(path)
+			res, err := ScanFileForPIIShape(path)
+			if err != nil {
+				t.Fatalf("ScanFileForPIIShape: %v", err)
+			}
 			if len(res.Matches) != len(tc.want) {
 				t.Fatalf("got %d match(es) %+v, want %d for %v", len(res.Matches), res.Matches, len(tc.want), tc.want)
 			}
@@ -539,5 +571,107 @@ func TestScanFileForPIIShapeHostnames(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestRunGuardResolvesPathsAgainstRepoRoot(t *testing.T) {
+	// git ls-files and pre-commit both hand over repository-relative paths.
+	// Resolving them against the process working directory meant the guard
+	// opened nothing when invoked from a subdirectory and called every file
+	// clean.
+	repo := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repo, "charts", "plex"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	planted := filepath.Join("charts", "plex", "values-homelab.yaml")
+	if err := os.WriteFile(filepath.Join(repo, planted), []byte("DOMAIN: ryanmcafee.com\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Run with a working directory that is not the repository root, and below it.
+	below := filepath.Join(repo, "charts")
+	prev, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(below); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(prev) })
+
+	report, err := RunGuard(GuardOptions{
+		RepoRoot: repo,
+		Files:    []string{planted},
+		EnvPath:  filepath.Join(repo, "absent.yaml"),
+	})
+	if err != nil {
+		t.Fatalf("RunGuard: %v", err)
+	}
+	if len(report.Unreadable) != 0 {
+		t.Fatalf("file should have been readable via RepoRoot, got %+v", report.Unreadable)
+	}
+	if n := report.MatchCount(); n != 1 {
+		t.Fatalf("MatchCount() = %d, want 1: the planted leak must be found from a subdirectory", n)
+	}
+	if got := report.Results[0].File; got != planted {
+		t.Errorf("reported path = %q, want the repository-relative %q", got, planted)
+	}
+}
+
+func TestRunGuardReportsUnreadableFiles(t *testing.T) {
+	repo := t.TempDir()
+
+	tests := []struct {
+		name  string
+		files []string
+	}{
+		{name: "missing file", files: []string{"does-not-exist.yaml"}},
+		{name: "missing absolute file", files: []string{filepath.Join(repo, "nope.yaml")}},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			report, err := RunGuard(GuardOptions{
+				RepoRoot: repo,
+				Files:    tc.files,
+				EnvPath:  filepath.Join(repo, "absent.yaml"),
+			})
+			if err != nil {
+				t.Fatalf("RunGuard: %v", err)
+			}
+			if len(report.Unreadable) != 1 {
+				t.Fatalf("Unreadable = %+v, want exactly one entry: an unscanned file is not a clean file", report.Unreadable)
+			}
+			if report.Unreadable[0].Err == nil {
+				t.Error("the unreadable entry must carry the underlying error")
+			}
+			if report.MatchCount() != 0 {
+				t.Error("an unreadable file yields no matches, only an unreadable entry")
+			}
+		})
+	}
+}
+
+func TestRunGuardUnreadableAlongsideValuePatterns(t *testing.T) {
+	repo := t.TempDir()
+	env := filepath.Join(repo, "homelab.yaml")
+	if err := os.WriteFile(env, []byte("DOMAIN: ryanmcafee.com\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Value-based detection runs first, so the unreadable file must be caught
+	// on that path too, not only on the shape path.
+	report, err := RunGuard(GuardOptions{
+		RepoRoot: repo,
+		Files:    []string{"gone.yaml"},
+		EnvPath:  env,
+	})
+	if err != nil {
+		t.Fatalf("RunGuard: %v", err)
+	}
+	if report.ValuePatterns == 0 {
+		t.Fatal("expected value patterns to be built")
+	}
+	if len(report.Unreadable) != 1 {
+		t.Fatalf("Unreadable = %+v, want one entry", report.Unreadable)
 	}
 }

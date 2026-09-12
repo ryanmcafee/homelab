@@ -160,8 +160,7 @@ management plugin.
 
 Exit status: 0 when every check passes, 1 when a check fails, 2 on a usage
 error.`,
-		SilenceUsage:  true,
-		SilenceErrors: true,
+		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := o.validate(args); err != nil {
 				return err

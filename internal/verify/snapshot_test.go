@@ -266,18 +266,15 @@ func TestUnifiedDiffTruncates(t *testing.T) {
 }
 
 func TestOrphanSnapshotsReported(t *testing.T) {
-	renderDir := t.TempDir()
 	snapshotDir := t.TempDir()
-
-	files := writeRender(t, renderDir, map[string]map[string]string{
-		"homelab": {"addons": "kind: ConfigMap\n"},
-	})
 	writeSnapshot(t, snapshotDir, "homelab", "addons", "kind: ConfigMap\n")
 	writeSnapshot(t, snapshotDir, "homelab", "deleted-chart", "kind: Secret\n")
 	// An env the caller did not render must be left alone entirely.
 	writeSnapshot(t, snapshotDir, "localdev", "addons", "kind: ConfigMap\n")
 
-	checks, err := OrphanSnapshots(files, snapshotDir, false)
+	expected := map[string][]string{"homelab": {"addons"}}
+
+	checks, err := OrphanSnapshots(expected, snapshotDir, OrphanReport)
 	if err != nil {
 		t.Fatalf("OrphanSnapshots: %v", err)
 	}
@@ -299,17 +296,14 @@ func TestOrphanSnapshotsReported(t *testing.T) {
 	}
 }
 
-func TestOrphanSnapshotsRemoved(t *testing.T) {
-	renderDir := t.TempDir()
+func TestOrphanSnapshotsPruned(t *testing.T) {
 	snapshotDir := t.TempDir()
-
-	files := writeRender(t, renderDir, map[string]map[string]string{
-		"homelab": {"addons": "kind: ConfigMap\n"},
-	})
 	writeSnapshot(t, snapshotDir, "homelab", "addons", "kind: ConfigMap\n")
 	writeSnapshot(t, snapshotDir, "homelab", "deleted-chart", "kind: Secret\n")
 
-	checks, err := OrphanSnapshots(files, snapshotDir, true)
+	expected := map[string][]string{"homelab": {"addons"}}
+
+	checks, err := OrphanSnapshots(expected, snapshotDir, OrphanPrune)
 	if err != nil {
 		t.Fatalf("OrphanSnapshots: %v", err)
 	}
@@ -327,11 +321,57 @@ func TestOrphanSnapshotsRemoved(t *testing.T) {
 	}
 }
 
+func TestOrphanSnapshotsKeepModeDeletesNothing(t *testing.T) {
+	snapshotDir := t.TempDir()
+	writeSnapshot(t, snapshotDir, "homelab", "addons", "kind: ConfigMap\n")
+	writeSnapshot(t, snapshotDir, "homelab", "deleted-chart", "kind: Secret\n")
+
+	expected := map[string][]string{"homelab": {"addons"}}
+
+	checks, err := OrphanSnapshots(expected, snapshotDir, OrphanKeep)
+	if err != nil {
+		t.Fatalf("OrphanSnapshots: %v", err)
+	}
+	if len(checks) != 1 || checks[0].Status != StatusFail {
+		t.Fatalf("got %+v, want one failing check", checks)
+	}
+	if !strings.Contains(checks[0].Detail, "not pruned: render incomplete") {
+		t.Errorf("detail = %q, want it to say why nothing was deleted", checks[0].Detail)
+	}
+	if _, err := os.Stat(filepath.Join(snapshotDir, "homelab", "deleted-chart.yaml")); err != nil {
+		t.Errorf("keep mode must not delete anything: %v", err)
+	}
+}
+
+func TestOrphanSnapshotsIgnoreChartsThatFailedToRender(t *testing.T) {
+	snapshotDir := t.TempDir()
+	writeSnapshot(t, snapshotDir, "homelab", "addons", "kind: ConfigMap\n")
+	writeSnapshot(t, snapshotDir, "homelab", "broken", "kind: Secret\n")
+
+	// "broken" is a discovered chart whose render failed, so it produced no
+	// rendered file. It must not be mistaken for a deleted chart, or --update
+	// would throw away a perfectly good snapshot.
+	expected := map[string][]string{"homelab": {"addons", "broken"}}
+
+	for _, mode := range []OrphanMode{OrphanReport, OrphanPrune, OrphanKeep} {
+		checks, err := OrphanSnapshots(expected, snapshotDir, mode)
+		if err != nil {
+			t.Fatalf("OrphanSnapshots(mode %d): %v", mode, err)
+		}
+		if len(checks) != 0 {
+			t.Errorf("mode %d: got %+v, want no checks", mode, checks)
+		}
+	}
+	for _, chart := range []string{"addons", "broken"} {
+		if _, err := os.Stat(filepath.Join(snapshotDir, "homelab", chart+".yaml")); err != nil {
+			t.Errorf("snapshot for %s must survive: %v", chart, err)
+		}
+	}
+}
+
 func TestOrphanSnapshotsTolerateMissingDir(t *testing.T) {
-	files := writeRender(t, t.TempDir(), map[string]map[string]string{
-		"homelab": {"addons": "kind: ConfigMap\n"},
-	})
-	checks, err := OrphanSnapshots(files, filepath.Join(t.TempDir(), "absent"), false)
+	expected := map[string][]string{"homelab": {"addons"}}
+	checks, err := OrphanSnapshots(expected, filepath.Join(t.TempDir(), "absent"), OrphanReport)
 	if err != nil {
 		t.Fatalf("a snapshot directory that does not exist yet is not an error: %v", err)
 	}
@@ -341,11 +381,7 @@ func TestOrphanSnapshotsTolerateMissingDir(t *testing.T) {
 }
 
 func TestOrphanSnapshotsIgnoreNonYAML(t *testing.T) {
-	renderDir := t.TempDir()
 	snapshotDir := t.TempDir()
-	files := writeRender(t, renderDir, map[string]map[string]string{
-		"homelab": {"addons": "kind: ConfigMap\n"},
-	})
 	writeSnapshot(t, snapshotDir, "homelab", "addons", "kind: ConfigMap\n")
 	if err := os.WriteFile(filepath.Join(snapshotDir, "homelab", "README.md"), []byte("notes\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -354,7 +390,8 @@ func TestOrphanSnapshotsIgnoreNonYAML(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	checks, err := OrphanSnapshots(files, snapshotDir, false)
+	expected := map[string][]string{"homelab": {"addons"}}
+	checks, err := OrphanSnapshots(expected, snapshotDir, OrphanReport)
 	if err != nil {
 		t.Fatalf("OrphanSnapshots: %v", err)
 	}

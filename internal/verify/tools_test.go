@@ -51,8 +51,22 @@ func TestIsShimMissing(t *testing.T) {
 		},
 		{
 			name:   "asdf reports the version is not installed",
-			stderr: "version is not installed for helm\n",
+			stderr: "asdf: version is not installed for helm\n",
 			want:   true,
+		},
+		{
+			// The decisive counter-example. A chart using `fail` or `required`
+			// can report that a component is not installed. Reading that as a
+			// missing binary would replace the real stderr with an install
+			// hint and hide the actual template failure.
+			name:   "a chart reporting a missing dependency is not a missing tool",
+			stderr: "Error: execution error at (addons/templates/cert-manager.yaml:4:3): cert-manager is not installed\n",
+			want:   false,
+		},
+		{
+			name:   "a chart reporting a missing version is not a missing tool",
+			stderr: "Error: template: addons/x.yaml:2:3: executing \"addons/x.yaml\": cilium version is not installed\n",
+			want:   false,
 		},
 		{
 			name:   "a genuine helm template failure",

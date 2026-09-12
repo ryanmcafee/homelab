@@ -24,6 +24,12 @@ func main() {
 		Short:   "Homelab infrastructure automation CLI",
 		Long:    `Cross-platform CLI tool for managing homelab infrastructure, replacing legacy shell and TypeScript scripts.`,
 		Version: version,
+		// main is the single error printer for the whole tree. Without this,
+		// cobra prints the error and main prints it again, so every failing
+		// command reported itself twice. Usage is likewise printed exactly
+		// once, by UsageErrorFunc, for the invocations that warrant it.
+		SilenceErrors: true,
+		SilenceUsage:  true,
 	}
 
 	// Cobra reports an unknown or malformed flag as an ordinary error, which

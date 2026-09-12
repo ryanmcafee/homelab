@@ -216,8 +216,11 @@ func Render(ctx context.Context, opts RenderOptions) (*RenderOutput, *Result) {
 			go func(er envRender) {
 				defer swg.Done()
 				files := out.Files[er.env.Name]
-				kc := kubeconformCheck(ctx, opts, er.env, k8sVersion, files)
-				pl := plutoCheck(ctx, opts, er.env, k8sVersion, files)
+				// Reusing the render pool's semaphore means --parallel caps
+				// external processes across the whole pass, not per env. The
+				// render pool has fully drained by this point.
+				kc := kubeconformCheck(ctx, opts, er.env, k8sVersion, files, sem)
+				pl := plutoCheck(ctx, opts, er.env, k8sVersion, files, sem)
 				mu.Lock()
 				res.Add(kc, pl)
 				mu.Unlock()
@@ -477,7 +480,7 @@ type kubeconformResult struct {
 // kubeconformCheck validates every rendered file for an env against the
 // upstream schemas plus the vendored CRD schemas in SchemaDir. There is
 // deliberately no -skip: an unknown kind is a missing schema, not a pass.
-func kubeconformCheck(ctx context.Context, opts RenderOptions, env Env, k8sVersion string, files map[string]string) Check {
+func kubeconformCheck(ctx context.Context, opts RenderOptions, env Env, k8sVersion string, files map[string]string, sem chan struct{}) Check {
 	name := "kubeconform/" + env.Name
 	start := time.Now()
 
@@ -507,7 +510,9 @@ func kubeconformCheck(ctx context.Context, opts RenderOptions, env Env, k8sVersi
 	}
 	args = append(args, paths...)
 
+	sem <- struct{}{}
 	stdout, stderr, err := opts.Runner.Run(ctx, opts.RepoRoot, "kubeconform", args...)
+	<-sem
 
 	if err != nil && isShimMissing(stderr) {
 		return FailCheck(name, start, ToolMissingDetail("kubeconform"), outputLines(stderr)...)
@@ -570,7 +575,7 @@ type plutoOutput struct {
 // _data.yaml and _values/, which are conftest input and Helm values, not
 // Kubernetes manifests. pluto's detect-files flag takes a directory only, so an
 // explicit file list means one invocation per file.
-func plutoCheck(ctx context.Context, opts RenderOptions, env Env, k8sVersion string, files map[string]string) Check {
+func plutoCheck(ctx context.Context, opts RenderOptions, env Env, k8sVersion string, files map[string]string, sem chan struct{}) Check {
 	name := "pluto/" + env.Name
 	start := time.Now()
 
@@ -590,7 +595,6 @@ func plutoCheck(ctx context.Context, opts RenderOptions, env Env, k8sVersion str
 		hardFindings []string
 		wg           sync.WaitGroup
 	)
-	sem := make(chan struct{}, opts.Parallel)
 
 	for _, path := range paths {
 		wg.Add(1)
