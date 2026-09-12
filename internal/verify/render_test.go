@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 // fakeCmd is one recorded invocation.
@@ -36,6 +37,35 @@ type fakeRunner struct {
 	plutoOutput string
 	// plutoStderr, when set, makes pluto exit non-zero with this stderr.
 	plutoStderr string
+	// lintErr, when set, makes `helm lint` exit non-zero with this stderr.
+	lintErr string
+
+	// inFlight and maxInFlight record observed concurrency so tests can assert
+	// that --parallel actually bounds the worker pool.
+	inFlight    int
+	maxInFlight int
+}
+
+// enter records the start of a concurrent invocation and blocks briefly so
+// overlapping calls are actually observable.
+func (f *fakeRunner) enter() {
+	f.mu.Lock()
+	f.inFlight++
+	if f.inFlight > f.maxInFlight {
+		f.maxInFlight = f.inFlight
+	}
+	f.mu.Unlock()
+	time.Sleep(time.Millisecond)
+	f.mu.Lock()
+	f.inFlight--
+	f.mu.Unlock()
+}
+
+// peakConcurrency reports the highest number of simultaneous invocations.
+func (f *fakeRunner) peakConcurrency() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.maxInFlight
 }
 
 func (f *fakeRunner) LookPath(name string) (string, error) {
@@ -49,6 +79,7 @@ func (f *fakeRunner) Run(_ context.Context, dir, name string, args ...string) ([
 	f.mu.Lock()
 	f.cmds = append(f.cmds, fakeCmd{Dir: dir, Name: name, Args: append([]string(nil), args...)})
 	f.mu.Unlock()
+	f.enter()
 
 	switch {
 	case name == "helm" && len(args) > 1 && args[0] == "template":
@@ -58,6 +89,9 @@ func (f *fakeRunner) Run(_ context.Context, dir, name string, args ...string) ([
 		}
 		return []byte(cannedManifest(release)), nil, nil
 	case name == "helm" && len(args) > 1 && args[0] == "lint":
+		if f.lintErr != "" {
+			return []byte(f.lintOutput), []byte(f.lintErr), fmt.Errorf("exit status 1")
+		}
 		out := f.lintOutput
 		if out == "" {
 			out = "==> Linting " + args[1] + "\n[INFO] Chart.yaml: icon is recommended\n\n1 chart(s) linted, 0 chart(s) failed\n"
@@ -207,8 +241,6 @@ func TestRenderValuesArgsPerEnv(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			marker := filepath.Join(outDir, tc.env)
-			_ = marker
 			check := checkByName(t, res, "render/"+tc.env+"/"+tc.release)
 			if check.Status != StatusPass {
 				t.Fatalf("check %s: status %s (%s)", check.Name, check.Status, check.Detail)
@@ -340,6 +372,14 @@ func TestKubeconformArgsUseVersionsYaml(t *testing.T) {
 	cacheDir := filepath.Join(t.TempDir(), "kubeconform")
 	fr := &fakeRunner{}
 
+	// The target version is whatever configuration/versions.yaml says. Asserting
+	// a literal here would let a version bump pass while the tool ran against
+	// the wrong schemas.
+	wantVersion, err := KubernetesVersion(root)
+	if err != nil {
+		t.Fatalf("KubernetesVersion: %v", err)
+	}
+
 	_, res := Render(context.Background(), RenderOptions{
 		RepoRoot:  root,
 		OutDir:    outDir,
@@ -357,11 +397,13 @@ func TestKubeconformArgsUseVersionsYaml(t *testing.T) {
 	}
 	line := cmd.line()
 	wants := []string{
-		"-kubernetes-version 1.36.1",
+		"-kubernetes-version " + wantVersion,
 		"-strict",
 		"-summary",
 		"-output json",
-		"-cache " + cacheDir,
+		// Per-env cache subdirectory: the envs validate concurrently and
+		// kubeconform writes its schema cache without locking.
+		"-cache " + filepath.Join(cacheDir, "localdev"),
 		"-schema-location default",
 		"-schema-location " + filepath.Join(schemaDir, "{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json"),
 	}
@@ -384,9 +426,99 @@ func TestKubeconformArgsUseVersionsYaml(t *testing.T) {
 	if !ok {
 		t.Fatalf("pluto was never invoked; recorded:\n%s", fr.dump())
 	}
-	for _, want := range []string{"detect-files", "-d " + filepath.Join(outDir, "localdev"), "--target-versions k8s=v1.36.1", "-o json"} {
+	plutoWants := []string{
+		// An explicit file, not `detect-files -d <dir>`: the directory form
+		// would also walk _data.yaml and _values/.
+		"detect " + RenderedFile(outDir, "localdev", "addons"),
+		"--target-versions k8s=v" + wantVersion,
+		"-o json",
+	}
+	for _, want := range plutoWants {
 		if !strings.Contains(plutoCmd.line(), want) {
 			t.Errorf("pluto args missing %q:\n%s", want, plutoCmd.line())
+		}
+	}
+	if strings.Contains(plutoCmd.line(), "detect-files") {
+		t.Errorf("pluto must not scan a whole directory:\n%s", plutoCmd.line())
+	}
+}
+
+func TestPerEnvKubeconformCacheDirs(t *testing.T) {
+	root := testRepoRoot(t)
+	cacheDir := filepath.Join(t.TempDir(), "kubeconform")
+	fr := &fakeRunner{}
+
+	Render(context.Background(), RenderOptions{
+		RepoRoot: root,
+		OutDir:   t.TempDir(),
+		Envs:     Envs,
+		Charts:   []string{"addons"},
+		SkipLint: true,
+		CacheDir: cacheDir,
+		Runner:   fr,
+	})
+
+	for _, env := range Envs {
+		want := "-cache " + filepath.Join(cacheDir, env.Name)
+		if _, ok := fr.find("kubeconform", want); !ok {
+			t.Errorf("no kubeconform invocation with %q; recorded:\n%s", want, fr.dump())
+		}
+		if _, err := os.Stat(filepath.Join(cacheDir, env.Name)); err != nil {
+			t.Errorf("cache directory for %s was not created: %v", env.Name, err)
+		}
+	}
+	// A shared cache dir would be a concurrent-write race between the envs.
+	if _, ok := fr.find("kubeconform", "-cache "+cacheDir+" "); ok {
+		t.Error("kubeconform must not be given the shared cache root")
+	}
+}
+
+func TestSchemaToolsNeverSeeMetadataFiles(t *testing.T) {
+	root := testRepoRoot(t)
+	outDir := t.TempDir()
+	fr := &fakeRunner{}
+
+	// addons is two-stage for homelab, so this run generates both _data.yaml
+	// and _values/addons.yaml alongside the rendered chart.
+	_, res := Render(context.Background(), RenderOptions{
+		RepoRoot: root,
+		OutDir:   outDir,
+		Envs:     []Env{Envs[1]},
+		Charts:   []string{"addons"},
+		SkipLint: true,
+		Runner:   fr,
+	})
+	if c := checkByName(t, res, "render/homelab/_config"); c.Status != StatusPass {
+		t.Fatalf("render/homelab/_config: status %s (%s)", c.Status, c.Detail)
+	}
+	// Both metadata files must exist, or the test proves nothing.
+	for _, p := range []string{
+		filepath.Join(outDir, "homelab", "_data.yaml"),
+		filepath.Join(outDir, "homelab", "_values", "addons.yaml"),
+	} {
+		if _, err := os.Stat(p); err != nil {
+			t.Fatalf("expected %s to exist: %v", p, err)
+		}
+	}
+
+	for _, tool := range []string{"kubeconform", "pluto"} {
+		cmd, ok := fr.find(tool)
+		if !ok {
+			t.Fatalf("%s was never invoked; recorded:\n%s", tool, fr.dump())
+		}
+		line := cmd.line()
+		for _, forbidden := range []string{"_data.yaml", "_values"} {
+			if strings.Contains(line, forbidden) {
+				t.Errorf("%s args must not reference %s:\n%s", tool, forbidden, line)
+			}
+		}
+		// Neither tool may be handed the env directory, which contains them.
+		if strings.Contains(line, filepath.Join(outDir, "homelab")+" ") ||
+			strings.HasSuffix(line, filepath.Join(outDir, "homelab")) {
+			t.Errorf("%s args must name files, not the env directory:\n%s", tool, line)
+		}
+		if !strings.Contains(line, RenderedFile(outDir, "homelab", "addons")) {
+			t.Errorf("%s args missing the rendered chart file:\n%s", tool, line)
 		}
 	}
 }
@@ -632,6 +764,176 @@ func TestRenderLintPassesOnWarnings(t *testing.T) {
 	}
 	if !res.Pass {
 		t.Error("helm lint warnings must not fail the result")
+	}
+}
+
+func TestRenderLintFailsOnNonZeroExitWithoutErrorLines(t *testing.T) {
+	root := testRepoRoot(t)
+	// helm can exit non-zero without printing an [ERROR] line, for example on
+	// an unreadable values file. That must still fail, with stderr attached.
+	fr := &fakeRunner{
+		lintOutput: "==> Linting charts/addons\n",
+		lintErr:    "Error: cannot load values file: open charts/addons/values.yaml: permission denied\n",
+	}
+
+	_, res := Render(context.Background(), RenderOptions{
+		RepoRoot:   root,
+		OutDir:     t.TempDir(),
+		Envs:       []Env{Envs[0]},
+		Charts:     []string{"addons"},
+		SkipSchema: true,
+		Runner:     fr,
+	})
+	if res.Pass {
+		t.Fatal("a non-zero helm lint exit must fail the result even with no [ERROR] line")
+	}
+	c := checkByName(t, res, "lint/localdev/addons")
+	if c.Status != StatusFail {
+		t.Fatalf("lint/localdev/addons: status %s, want fail", c.Status)
+	}
+	if !strings.Contains(c.Detail, "helm lint failed") {
+		t.Errorf("detail = %q, want it to report the failed run", c.Detail)
+	}
+	joined := strings.Join(c.Findings, "\n")
+	if !strings.Contains(joined, "permission denied") {
+		t.Errorf("findings must carry helm stderr: %v", c.Findings)
+	}
+}
+
+func TestRenderParallelBoundsConcurrency(t *testing.T) {
+	root := testRepoRoot(t)
+
+	tests := []struct {
+		name     string
+		parallel int
+		wantMax  int
+	}{
+		{name: "serialised", parallel: 1, wantMax: 1},
+		{name: "two at a time", parallel: 2, wantMax: 2},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			fr := &fakeRunner{}
+			_, res := Render(context.Background(), RenderOptions{
+				RepoRoot:   root,
+				OutDir:     t.TempDir(),
+				Envs:       Envs,
+				Parallel:   tc.parallel,
+				SkipLint:   true,
+				SkipSchema: true,
+				Runner:     fr,
+			})
+			if !res.Pass {
+				t.Fatal("expected the render to pass")
+			}
+			if got := fr.peakConcurrency(); got > tc.wantMax {
+				t.Errorf("peak concurrency %d exceeds --parallel %d", got, tc.parallel)
+			}
+			// Guard against the pool silently never running anything.
+			if len(fr.cmds) == 0 {
+				t.Fatal("no commands were run")
+			}
+		})
+	}
+}
+
+func TestRenderConfigFailureEmitsSkipChecks(t *testing.T) {
+	root := testRepoRoot(t)
+	fr := &fakeRunner{}
+
+	// An env whose file does not exist cannot resolve, so nothing can render
+	// for it. Agents match checks by name, so each name must still appear.
+	broken := Env{Name: "homelab", ConfigSet: "homelab", EnvFile: "configuration/environments/nope.yaml", TwoStage: true}
+
+	_, res := Render(context.Background(), RenderOptions{
+		RepoRoot: root,
+		OutDir:   t.TempDir(),
+		Envs:     []Env{broken},
+		Charts:   []string{"addons", "tailscale-config"},
+		Runner:   fr,
+	})
+	if res.Pass {
+		t.Fatal("expected failure when config resolution fails")
+	}
+	if c := checkByName(t, res, "render/homelab/_config"); c.Status != StatusFail {
+		t.Errorf("render/homelab/_config: status %s, want fail", c.Status)
+	}
+
+	wantSkipped := []string{
+		"render/homelab/addons",
+		"render/homelab/tailscale-config",
+		"lint/homelab/addons",
+		"lint/homelab/tailscale-config",
+		"kubeconform/homelab",
+		"pluto/homelab",
+	}
+	for _, name := range wantSkipped {
+		c := checkByName(t, res, name)
+		if c.Status != StatusSkip {
+			t.Errorf("%s: status %s, want skip", name, c.Status)
+		}
+		if !strings.Contains(c.Detail, "config resolution failed") {
+			t.Errorf("%s detail = %q, want it to explain the skip", name, c.Detail)
+		}
+	}
+	if len(fr.cmds) != 0 {
+		t.Errorf("no tool should run for an env that failed to resolve, ran:\n%s", fr.dump())
+	}
+}
+
+func TestRenderOmitSchemaChecksEmitsNothing(t *testing.T) {
+	root := testRepoRoot(t)
+	fr := &fakeRunner{}
+
+	_, res := Render(context.Background(), RenderOptions{
+		RepoRoot:         root,
+		OutDir:           t.TempDir(),
+		Envs:             Envs,
+		Charts:           []string{"addons"},
+		SkipLint:         true,
+		OmitSchemaChecks: true,
+		Runner:           fr,
+	})
+	if !res.Pass {
+		t.Fatal("omitting schema checks must not fail the result")
+	}
+	for _, c := range res.Checks {
+		if strings.HasPrefix(c.Name, "kubeconform/") || strings.HasPrefix(c.Name, "pluto/") {
+			t.Errorf("unexpected check %q: schema checks must be absent, not skipped", c.Name)
+		}
+	}
+	for _, tool := range []string{"kubeconform", "pluto"} {
+		if _, ok := fr.find(tool); ok {
+			t.Errorf("%s must not run when schema checks are omitted", tool)
+		}
+	}
+}
+
+func TestRenderCancelledContextStopsDispatch(t *testing.T) {
+	root := testRepoRoot(t)
+	fr := &fakeRunner{}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, res := Render(ctx, RenderOptions{
+		RepoRoot:   root,
+		OutDir:     t.TempDir(),
+		Envs:       Envs,
+		SkipLint:   true,
+		SkipSchema: true,
+		Runner:     fr,
+	})
+	if res.Pass {
+		t.Fatal("a cancelled run must not report success")
+	}
+	c := checkByName(t, res, "render/cancelled")
+	if c.Status != StatusFail || !strings.Contains(c.Detail, "cancelled") {
+		t.Errorf("render/cancelled: status %s detail %q", c.Status, c.Detail)
+	}
+	if len(fr.cmds) != 0 {
+		t.Errorf("no helm invocation should be dispatched after cancellation, ran %d", len(fr.cmds))
 	}
 }
 

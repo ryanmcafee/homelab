@@ -264,3 +264,101 @@ func TestUnifiedDiffTruncates(t *testing.T) {
 		t.Errorf("long diff must be marked truncated:\n%s", strings.Join(lines[:5], "\n"))
 	}
 }
+
+func TestOrphanSnapshotsReported(t *testing.T) {
+	renderDir := t.TempDir()
+	snapshotDir := t.TempDir()
+
+	files := writeRender(t, renderDir, map[string]map[string]string{
+		"homelab": {"addons": "kind: ConfigMap\n"},
+	})
+	writeSnapshot(t, snapshotDir, "homelab", "addons", "kind: ConfigMap\n")
+	writeSnapshot(t, snapshotDir, "homelab", "deleted-chart", "kind: Secret\n")
+	// An env the caller did not render must be left alone entirely.
+	writeSnapshot(t, snapshotDir, "localdev", "addons", "kind: ConfigMap\n")
+
+	checks, err := OrphanSnapshots(files, snapshotDir, false)
+	if err != nil {
+		t.Fatalf("OrphanSnapshots: %v", err)
+	}
+	if len(checks) != 1 {
+		t.Fatalf("got %d check(s) %+v, want exactly the orphan", len(checks), checks)
+	}
+	c := checks[0]
+	if c.Name != "snapshot/homelab/deleted-chart" {
+		t.Errorf("name = %q, want snapshot/homelab/deleted-chart", c.Name)
+	}
+	if c.Status != StatusFail {
+		t.Errorf("status = %s, want fail", c.Status)
+	}
+	if !strings.Contains(c.Detail, "orphan snapshot") || !strings.Contains(c.Detail, "--update") {
+		t.Errorf("detail = %q, want it to name the orphan and the fix", c.Detail)
+	}
+	if _, err := os.Stat(filepath.Join(snapshotDir, "homelab", "deleted-chart.yaml")); err != nil {
+		t.Errorf("the orphan must survive a read-only check: %v", err)
+	}
+}
+
+func TestOrphanSnapshotsRemoved(t *testing.T) {
+	renderDir := t.TempDir()
+	snapshotDir := t.TempDir()
+
+	files := writeRender(t, renderDir, map[string]map[string]string{
+		"homelab": {"addons": "kind: ConfigMap\n"},
+	})
+	writeSnapshot(t, snapshotDir, "homelab", "addons", "kind: ConfigMap\n")
+	writeSnapshot(t, snapshotDir, "homelab", "deleted-chart", "kind: Secret\n")
+
+	checks, err := OrphanSnapshots(files, snapshotDir, true)
+	if err != nil {
+		t.Fatalf("OrphanSnapshots: %v", err)
+	}
+	if len(checks) != 1 || checks[0].Status != StatusPass {
+		t.Fatalf("got %+v, want one passing check", checks)
+	}
+	if !strings.Contains(checks[0].Detail, "removed") {
+		t.Errorf("detail = %q, want it to report the removal", checks[0].Detail)
+	}
+	if _, err := os.Stat(filepath.Join(snapshotDir, "homelab", "deleted-chart.yaml")); !os.IsNotExist(err) {
+		t.Errorf("orphan should be deleted, stat err = %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(snapshotDir, "homelab", "addons.yaml")); err != nil {
+		t.Errorf("a live snapshot must not be deleted: %v", err)
+	}
+}
+
+func TestOrphanSnapshotsTolerateMissingDir(t *testing.T) {
+	files := writeRender(t, t.TempDir(), map[string]map[string]string{
+		"homelab": {"addons": "kind: ConfigMap\n"},
+	})
+	checks, err := OrphanSnapshots(files, filepath.Join(t.TempDir(), "absent"), false)
+	if err != nil {
+		t.Fatalf("a snapshot directory that does not exist yet is not an error: %v", err)
+	}
+	if len(checks) != 0 {
+		t.Errorf("got %+v, want no checks", checks)
+	}
+}
+
+func TestOrphanSnapshotsIgnoreNonYAML(t *testing.T) {
+	renderDir := t.TempDir()
+	snapshotDir := t.TempDir()
+	files := writeRender(t, renderDir, map[string]map[string]string{
+		"homelab": {"addons": "kind: ConfigMap\n"},
+	})
+	writeSnapshot(t, snapshotDir, "homelab", "addons", "kind: ConfigMap\n")
+	if err := os.WriteFile(filepath.Join(snapshotDir, "homelab", "README.md"), []byte("notes\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(snapshotDir, "homelab", "subdir"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	checks, err := OrphanSnapshots(files, snapshotDir, false)
+	if err != nil {
+		t.Fatalf("OrphanSnapshots: %v", err)
+	}
+	if len(checks) != 0 {
+		t.Errorf("got %+v, want no checks: only .yaml files are snapshots", checks)
+	}
+}

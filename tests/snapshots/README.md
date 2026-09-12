@@ -13,17 +13,38 @@ tests/snapshots/
 └── homelab/<chart>.yaml    # values.yaml + config export (two-stage, mirrors the ArgoCD CMP)
 ```
 
-The homelab snapshots come from `configuration/environments/homelab.yaml.example`,
-never from the gitignored `homelab.yaml`, so they contain no PII.
+## Sensitivity
+
+The homelab snapshots are rendered from
+`configuration/environments/homelab.yaml.example`. No value from the gitignored
+`homelab.yaml` is ever read, so nothing here originates in the real environment
+file.
+
+That is not the same as being free of production values. Many child charts still
+carry the production domain and IP addresses in their committed
+`values-homelab.yaml` files, and a snapshot reproduces whatever its chart's
+values say. Removing that PII at the source is tracked in GitHub issue #262.
+Until it lands, treat these files as exactly as sensitive as `charts/` already
+is.
+
+To see the current extent:
+
+```bash
+homelab config guard --ci --paths 'tests/snapshots/**'
+```
 
 ## Commands
 
 | Command | Purpose |
 |---------|---------|
 | `homelab verify snapshot` | Diff the current render against the snapshots |
-| `homelab verify snapshot --update` | Rewrite the snapshots from the current render |
+| `homelab verify snapshot --update` | Rewrite the snapshots and delete orphans |
 | `homelab verify snapshot --env homelab --chart addons` | Narrow to one env and chart |
 | `homelab verify snapshot --json` | Machine-readable result for agents |
+
+A snapshot whose chart no longer renders is reported as an orphan, and
+`--update` deletes it. Orphan detection needs the full render, so it is skipped
+when `--chart` or `--env` narrows the pass.
 
 ## Review discipline
 

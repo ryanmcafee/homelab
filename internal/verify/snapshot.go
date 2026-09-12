@@ -88,6 +88,62 @@ func snapshotOne(env, chart, renderedPath, snapshotDir string, update bool) (Che
 		strings.Split(strings.TrimRight(diff, "\n"), "\n")...), nil
 }
 
+// OrphanSnapshots reports snapshot files with no corresponding rendered chart,
+// which is what a deleted or renamed chart leaves behind. With remove set the
+// files are deleted, so `verify snapshot --update` prunes them.
+//
+// Call it only for a render that covered every env and chart: a --chart or
+// --env filter would make every chart it skipped look orphaned. Only envs
+// present in files are examined, so an env the caller did not render is left
+// alone either way.
+func OrphanSnapshots(files map[string]map[string]string, snapshotDir string, remove bool) ([]Check, error) {
+	if snapshotDir == "" {
+		return nil, fmt.Errorf("snapshot directory is required")
+	}
+
+	var checks []Check
+	for _, env := range sortedKeys(files) {
+		entries, err := os.ReadDir(filepath.Join(snapshotDir, env))
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return checks, fmt.Errorf("reading snapshot directory for %s: %w", env, err)
+		}
+
+		rendered := files[env]
+		var orphans []string
+		for _, e := range entries {
+			fname := e.Name()
+			if e.IsDir() || !strings.HasSuffix(fname, ".yaml") {
+				continue
+			}
+			chart := strings.TrimSuffix(fname, ".yaml")
+			if _, ok := rendered[chart]; !ok {
+				orphans = append(orphans, chart)
+			}
+		}
+		sort.Strings(orphans)
+
+		for _, chart := range orphans {
+			start := time.Now()
+			name := fmt.Sprintf("snapshot/%s/%s", env, chart)
+			path := filepath.Join(snapshotDir, env, chart+".yaml")
+			if remove {
+				if err := os.Remove(path); err != nil {
+					return checks, fmt.Errorf("removing orphan snapshot %s: %w", path, err)
+				}
+				checks = append(checks, PassCheck(name, start, "orphan snapshot removed"))
+				continue
+			}
+			checks = append(checks, FailCheck(name, start,
+				fmt.Sprintf("orphan snapshot: no chart %q renders for %s; %s",
+					chart, env, snapshotUpdateHint)))
+		}
+	}
+	return checks, nil
+}
+
 // UnifiedDiff renders a line diff of want (the snapshot) against got (the
 // fresh render) in unified style. It returns "" when the inputs are identical
 // and truncates the body at maxDiffLines.

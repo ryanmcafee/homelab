@@ -10,32 +10,43 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// errVerificationFailed signals that checks ran and at least one failed. main
-// turns any returned error into exit status 1; usage errors exit 2 via
-// usageErrorf so agents can tell "bad invocation" from "repo is broken".
-var errVerificationFailed = errors.New("verification failed")
+// ErrVerificationFailed signals that checks ran and at least one failed. Its
+// findings have already been printed, as text or as the JSON result contract,
+// so main exits 1 without printing the error again. A usage error is wrapped
+// as a UsageError and exits 2, which lets agents tell "bad invocation" from
+// "the repository is broken".
+var ErrVerificationFailed = errors.New("verification failed")
 
-// usageErrorf prints a usage error and exits 2 (the documented usage-error
-// status for every homelab verify subcommand).
-func usageErrorf(format string, args ...any) {
-	fmt.Fprintf(os.Stderr, "error: "+format+"\n", args...)
-	os.Exit(2)
+// usageErrorf builds a usage error. It returns rather than exiting so every
+// deferred cleanup still runs, notably the temp render directory.
+func usageErrorf(format string, args ...any) error {
+	return NewUsageError(fmt.Errorf(format, args...))
+}
+
+// UsageErrorFunc is cobra's FlagErrorFunc for the whole command tree. An
+// unknown or malformed flag is a misuse, so it prints usage and marks the error
+// as a UsageError, which ExitCode maps to 2. Set it on the root: cobra walks up
+// to the nearest ancestor that has one.
+func UsageErrorFunc(c *cobra.Command, err error) error {
+	fmt.Fprintln(c.ErrOrStderr(), c.UsageString())
+	return NewUsageError(err)
 }
 
 // emitResult writes a Result as JSON or human-readable text and returns
-// errVerificationFailed when the result did not pass.
-func emitResult(res *verify.Result, asJSON bool) error {
+// ErrVerificationFailed when the result did not pass.
+func emitResult(cmd *cobra.Command, res *verify.Result, asJSON bool) error {
+	out := cmd.OutOrStdout()
 	if asJSON {
 		data, err := res.JSON()
 		if err != nil {
 			return fmt.Errorf("encoding result: %w", err)
 		}
-		fmt.Println(string(data))
+		fmt.Fprintln(out, string(data))
 	} else {
-		res.WriteText(os.Stdout)
+		res.WriteText(out)
 	}
 	if !res.Pass {
-		return errVerificationFailed
+		return ErrVerificationFailed
 	}
 	return nil
 }
@@ -50,17 +61,45 @@ type renderPassOptions struct {
 	asJSON     bool
 	skipLint   bool
 	skipSchema bool
+	omitSchema bool
 	parallel   int
+
+	// envs is populated by validate() so the flag is rejected before any
+	// filesystem work happens.
+	envs []verify.Env
 }
 
 // bindRenderFlags registers the render flags on a command.
 func bindRenderFlags(cmd *cobra.Command, o *renderPassOptions) {
 	cmd.Flags().StringVar(&o.envList, "env", "all", "Environments to verify (all, localdev, homelab, or a comma-separated list)")
 	cmd.Flags().StringArrayVar(&o.charts, "chart", nil, "Restrict to a chart directory name (repeatable)")
-	cmd.Flags().StringVar(&o.outDir, "out-dir", "", "Directory for rendered manifests (default: a temp dir removed on exit)")
+	cmd.Flags().StringVar(&o.outDir, "out-dir", "", "Directory for rendered manifests. Reused as-is and never pruned, so stale files from a previous run with a wider --chart or --env survive; prefer a fresh directory (default: a temp dir removed on exit)")
 	cmd.Flags().BoolVar(&o.keep, "keep", false, "Keep the render directory instead of deleting it")
 	cmd.Flags().BoolVar(&o.asJSON, "json", false, "Emit the machine-readable result contract")
 	cmd.Flags().IntVar(&o.parallel, "parallel", 0, "Concurrent helm invocations (default: number of CPUs)")
+}
+
+// validate checks the flags that do not depend on the filesystem. It runs
+// before any directory is created so a usage error cannot leak a temp dir.
+func (o *renderPassOptions) validate(args []string) error {
+	if len(args) > 0 {
+		return usageErrorf("unexpected argument %q", args[0])
+	}
+	envs, err := verify.ParseEnvs(o.envList)
+	if err != nil {
+		return NewUsageError(err)
+	}
+	if o.parallel < 0 {
+		return usageErrorf("--parallel must be zero (auto) or positive, got %d", o.parallel)
+	}
+	o.envs = envs
+	return nil
+}
+
+// filtered reports whether the render covers less than every chart and env,
+// which makes orphan-snapshot detection meaningless.
+func (o *renderPassOptions) filtered() bool {
+	return len(o.charts) > 0 || len(o.envs) != len(verify.Envs)
 }
 
 // resolveOutDir returns the render directory and a cleanup function.
@@ -81,26 +120,24 @@ func (o *renderPassOptions) resolveOutDir() (string, func(), error) {
 	return dir, func() { os.RemoveAll(dir) }, nil
 }
 
-// renderPass runs a level-0 render with the shared flags applied.
+// renderPass runs a level-0 render with the shared flags applied. validate
+// must have run first.
 func (o *renderPassOptions) renderPass(cmd *cobra.Command, outDir string) (*verify.RenderOutput, *verify.Result, error) {
 	root, err := findProjectRoot()
 	if err != nil {
 		return nil, nil, err
 	}
-	envs, err := verify.ParseEnvs(o.envList)
-	if err != nil {
-		usageErrorf("%v", err)
-	}
 
 	out, res := verify.Render(cmd.Context(), verify.RenderOptions{
-		RepoRoot:   root,
-		OutDir:     outDir,
-		Envs:       envs,
-		Charts:     o.charts,
-		Parallel:   o.parallel,
-		SkipLint:   o.skipLint,
-		SkipSchema: o.skipSchema,
-		SchemaDir:  filepath.Join(root, "tests", "schemas"),
+		RepoRoot:         root,
+		OutDir:           outDir,
+		Envs:             o.envs,
+		Charts:           o.charts,
+		Parallel:         o.parallel,
+		SkipLint:         o.skipLint,
+		SkipSchema:       o.skipSchema,
+		OmitSchemaChecks: o.omitSchema,
+		SchemaDir:        filepath.Join(root, "tests", "schemas"),
 	})
 	return out, res, nil
 }
@@ -126,8 +163,8 @@ error.`,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if len(args) > 0 {
-				usageErrorf("unexpected argument %q", args[0])
+			if err := o.validate(args); err != nil {
+				return err
 			}
 
 			outDir, cleanup, err := o.resolveOutDir()
@@ -140,7 +177,7 @@ error.`,
 			if err != nil {
 				return err
 			}
-			return emitResult(res, o.asJSON)
+			return emitResult(cmd, res, o.asJSON)
 		},
 	}
 
