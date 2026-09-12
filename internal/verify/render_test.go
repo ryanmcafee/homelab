@@ -39,6 +39,10 @@ type fakeRunner struct {
 	plutoStderr string
 	// lintErr, when set, makes `helm lint` exit non-zero with this stderr.
 	lintErr string
+	// templateStderr, when set, makes `helm template` exit non-zero with this stderr.
+	templateStderr string
+	// kubeconformStderr, when set, makes kubeconform exit non-zero with this stderr.
+	kubeconformStderr string
 
 	// inFlight and maxInFlight record observed concurrency so tests can assert
 	// that --parallel actually bounds the worker pool.
@@ -84,6 +88,9 @@ func (f *fakeRunner) Run(_ context.Context, dir, name string, args ...string) ([
 	switch {
 	case name == "helm" && len(args) > 1 && args[0] == "template":
 		release := args[1]
+		if f.templateStderr != "" {
+			return nil, []byte(f.templateStderr), fmt.Errorf("exit status 1")
+		}
 		if release == f.failRelease {
 			return nil, []byte("Error: template: " + release + "/templates/app.yaml:3:12: nil pointer evaluating interface {}.repoURL"), fmt.Errorf("exit status 1")
 		}
@@ -98,6 +105,9 @@ func (f *fakeRunner) Run(_ context.Context, dir, name string, args ...string) ([
 		}
 		return []byte(out), nil, nil
 	case name == "kubeconform":
+		if f.kubeconformStderr != "" {
+			return nil, []byte(f.kubeconformStderr), fmt.Errorf("exit status 1")
+		}
 		out := f.kubeconformOutput
 		if out == "" {
 			out = `{"resources":[],"summary":{"valid":2,"invalid":0,"errors":0,"skipped":0}}`
@@ -585,51 +595,130 @@ func TestPlutoReportsDeprecatedAPIs(t *testing.T) {
 	}
 }
 
-func TestPlutoMiseShimMissReportsMissingTool(t *testing.T) {
+// shimMissStderr is what mise prints when a shim resolves but no version of
+// the tool is installed.
+func shimMissStderr(tool string) string {
+	return "mise ERROR No version is set for shim: " + tool +
+		"\nSet a global default version with one of the following:\nmise use -g " + tool + "@1.2.3\n"
+}
+
+func TestShimMissReportsMissingToolForEveryTool(t *testing.T) {
+	root := testRepoRoot(t)
+
+	tests := []struct {
+		name     string
+		runner   *fakeRunner
+		check    string
+		wantTool string
+	}{
+		{
+			name:     "helm template",
+			runner:   &fakeRunner{templateStderr: shimMissStderr("helm")},
+			check:    "render/localdev/addons",
+			wantTool: "helm",
+		},
+		{
+			name:     "helm lint",
+			runner:   &fakeRunner{lintErr: shimMissStderr("helm")},
+			check:    "lint/localdev/addons",
+			wantTool: "helm",
+		},
+		{
+			name:     "kubeconform",
+			runner:   &fakeRunner{kubeconformStderr: shimMissStderr("kubeconform")},
+			check:    "kubeconform/localdev",
+			wantTool: "kubeconform",
+		},
+		{
+			name:     "pluto",
+			runner:   &fakeRunner{plutoStderr: shimMissStderr("pluto")},
+			check:    "pluto/localdev",
+			wantTool: "pluto",
+		},
+		{
+			name:     "asdf phrasing is recognised too",
+			runner:   &fakeRunner{plutoStderr: "No version set for command pluto\n"},
+			check:    "pluto/localdev",
+			wantTool: "pluto",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			_, res := Render(context.Background(), RenderOptions{
+				RepoRoot: root,
+				OutDir:   t.TempDir(),
+				Envs:     []Env{Envs[0]},
+				Charts:   []string{"addons"},
+				Runner:   tc.runner,
+			})
+			c := checkByName(t, res, tc.check)
+			if c.Status != StatusFail {
+				t.Fatalf("%s: status %s, want fail", tc.check, c.Status)
+			}
+			if c.Detail != ToolMissingDetail(tc.wantTool) {
+				t.Errorf("detail = %q, want the standard missing-tool detail for %s", c.Detail, tc.wantTool)
+			}
+			if len(c.Findings) == 0 {
+				t.Error("findings should carry the tool's stderr for diagnosis")
+			}
+		})
+	}
+}
+
+func TestGenuineToolFailuresKeepTheirOwnDetail(t *testing.T) {
 	root := testRepoRoot(t)
 
 	tests := []struct {
 		name       string
-		stderr     string
+		runner     *fakeRunner
+		check      string
 		wantDetail string
 	}{
 		{
-			name:       "mise shim with no version installed",
-			stderr:     "mise ERROR No version is set for shim: pluto\nSet a global default version with one of the following:\nmise use -g pluto@5.24.3\n",
-			wantDetail: "mise install",
+			name:       "helm template",
+			runner:     &fakeRunner{templateStderr: "Error: template: addons/templates/app.yaml:3:12: nil pointer\n"},
+			check:      "render/localdev/addons",
+			wantDetail: "helm template failed",
 		},
 		{
-			name:       "mise reports the tool is not installed",
-			stderr:     "mise ERROR pluto@5.24.3 is not installed\n",
-			wantDetail: "mise install",
+			name:       "helm lint",
+			runner:     &fakeRunner{lintErr: "Error: cannot load values file: permission denied\n"},
+			check:      "lint/localdev/addons",
+			wantDetail: "helm lint failed",
 		},
 		{
-			name:       "a genuine pluto failure keeps its own detail",
-			stderr:     "Error: unable to read directory: permission denied\n",
+			name:       "kubeconform",
+			runner:     &fakeRunner{kubeconformStderr: "failed opening cache folder /tmp/x: no such file or directory\n"},
+			check:      "kubeconform/localdev",
+			wantDetail: "kubeconform failed",
+		},
+		{
+			name:       "pluto",
+			runner:     &fakeRunner{plutoStderr: "Error: unable to read file: permission denied\n"},
+			check:      "pluto/localdev",
 			wantDetail: "pluto failed",
 		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			fr := &fakeRunner{plutoStderr: tc.stderr}
 			_, res := Render(context.Background(), RenderOptions{
 				RepoRoot: root,
 				OutDir:   t.TempDir(),
 				Envs:     []Env{Envs[0]},
 				Charts:   []string{"addons"},
-				SkipLint: true,
-				Runner:   fr,
+				Runner:   tc.runner,
 			})
-			c := checkByName(t, res, "pluto/localdev")
+			c := checkByName(t, res, tc.check)
 			if c.Status != StatusFail {
-				t.Fatalf("pluto/localdev: status %s, want fail", c.Status)
+				t.Fatalf("%s: status %s, want fail", tc.check, c.Status)
 			}
 			if !strings.Contains(c.Detail, tc.wantDetail) {
 				t.Errorf("detail = %q, want it to contain %q", c.Detail, tc.wantDetail)
 			}
-			if len(c.Findings) == 0 {
-				t.Error("findings should carry pluto stderr for diagnosis")
+			if strings.Contains(c.Detail, "mise install") {
+				t.Errorf("a real tool failure must not be reported as a missing tool: %q", c.Detail)
 			}
 		})
 	}

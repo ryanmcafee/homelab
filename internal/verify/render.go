@@ -402,6 +402,9 @@ func renderChart(ctx context.Context, opts RenderOptions, er envRender, c Chart)
 
 	stdout, stderr, err := opts.Runner.Run(ctx, opts.RepoRoot, "helm", args...)
 	if err != nil {
+		if isShimMissing(stderr) {
+			return []Check{FailCheck(name, start, ToolMissingDetail("helm"), outputLines(stderr)...)}, ""
+		}
 		return []Check{FailCheck(name, start,
 			fmt.Sprintf("helm template failed (%v)", err),
 			outputLines(stderr, stdout)...)}, ""
@@ -427,6 +430,10 @@ func lintChart(ctx context.Context, opts RenderOptions, er envRender, c Chart, v
 
 	args := append([]string{"lint", c.Path}, vargs...)
 	stdout, stderr, err := opts.Runner.Run(ctx, opts.RepoRoot, "helm", args...)
+
+	if err != nil && isShimMissing(stderr) {
+		return FailCheck(name, start, ToolMissingDetail("helm"), outputLines(stderr)...)
+	}
 
 	combined := string(stdout) + "\n" + string(stderr)
 	var errors []string
@@ -501,6 +508,10 @@ func kubeconformCheck(ctx context.Context, opts RenderOptions, env Env, k8sVersi
 	args = append(args, paths...)
 
 	stdout, stderr, err := opts.Runner.Run(ctx, opts.RepoRoot, "kubeconform", args...)
+
+	if err != nil && isShimMissing(stderr) {
+		return FailCheck(name, start, ToolMissingDetail("kubeconform"), outputLines(stderr)...)
+	}
 
 	var parsed kubeconformResult
 	if jerr := json.Unmarshal(stdout, &parsed); jerr != nil {
@@ -602,11 +613,10 @@ func plutoCheck(ctx context.Context, opts RenderOptions, env Env, k8sVersion str
 			mu.Lock()
 			defer mu.Unlock()
 
-			// mise puts a shim on PATH for every tool it knows about,
-			// installed or not, so LookPath succeeds and a missing pluto only
-			// surfaces as a failed run. Report the missing tool, not the exit
-			// status.
-			if err != nil && isMiseShimMiss(stderr) {
+			// A version-manager shim resolves even when pluto is not
+			// installed, so LookPath succeeds and the miss only surfaces as a
+			// failed run. Report the missing tool, not the exit status.
+			if err != nil && isShimMissing(stderr) {
 				shimMiss = true
 				if len(hardFindings) == 0 {
 					hardFindings = outputLines(stderr)
@@ -658,15 +668,6 @@ func plutoCheck(ctx context.Context, opts RenderOptions, env Env, k8sVersion str
 	}
 	return PassCheck(name, start,
 		fmt.Sprintf("%d file(s) free of deprecated APIs for k8s v%s", len(paths), k8sVersion))
-}
-
-// isMiseShimMiss reports whether stderr is mise telling us a shim resolved but
-// no version of the tool is installed. That is a missing tool, not a tool
-// failure, and the two need different remediation.
-func isMiseShimMiss(stderr []byte) bool {
-	s := string(stderr)
-	return strings.Contains(s, "No version is set for shim") ||
-		strings.Contains(s, "is not installed")
 }
 
 func orNA(s string) string {

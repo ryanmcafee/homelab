@@ -70,11 +70,13 @@ func TestIsPIIKey(t *testing.T) {
 		{key: "GATEWAY_IP", want: true},
 		{key: "WORKER1_IP", want: true},
 		{key: "TRUENAS_HOSTNAME", want: true},
+		// The control-plane virtual address holds a real host address but its
+		// key ends in _VIP, not _IP.
+		{key: "CP_VIP", want: true},
 		// Not PII-shaped: CIDRs, ports, ASNs, storage classes, vault paths.
 		{key: "K8S_POD_CIDR", want: false},
 		{key: "K8S_SERVICE_CIDR", want: false},
 		{key: "BGP_K8S_ASN", want: false},
-		{key: "CP_VIP", want: false},
 		{key: "LB_POOL_START", want: false},
 		{key: "STORAGE_CLASS_NFS", want: false},
 		{key: "TRAEFIK_OIDC_PROVIDER_URL", want: false},
@@ -216,8 +218,13 @@ func TestScanFileForPIIShape(t *testing.T) {
 		},
 		{
 			name:    "committed localdev values are clean",
-			content: "DOMAIN: homelab.local\nGATEWAY_IP: \"127.0.0.1\"\nTRUENAS_IP: \"127.0.0.1\"\nLB_POOL_START: \"127.0.0.100\"\nNFS_SHARE_ALLOW: \"127.0.0.0/8\"\nNFS_MAPALL_USER: localdev\nACME_EMAIL: test@homelab.local\nEXTERNAL_DNS_DEFAULT_TARGET: homelab-dev.duckdns.org\n",
+			content: "DOMAIN: homelab.local\nGATEWAY_IP: \"127.0.0.1\"\nTRUENAS_IP: \"127.0.0.1\"\nCP_VIP: \"127.0.0.1\"\nLB_POOL_START: \"127.0.0.100\"\nNFS_SHARE_ALLOW: \"127.0.0.0/8\"\nNFS_MAPALL_USER: localdev\nACME_EMAIL: test@homelab.local\nEXTERNAL_DNS_DEFAULT_TARGET: homelab-dev.duckdns.org\n",
 			want:    nil,
+		},
+		{
+			name:    "control-plane virtual address is covered",
+			content: "CP_VIP: \"172.16.100.10\"\n",
+			want:    []string{"CP_VIP"},
 		},
 		{
 			name:    "committed defaults are clean",

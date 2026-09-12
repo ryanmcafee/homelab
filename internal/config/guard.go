@@ -21,8 +21,10 @@ var piiKeyPrefixes = []string{
 }
 
 // piiKeySuffixes are config key suffixes whose values are likely PII.
+// _VIP covers the control-plane virtual address, which holds a real host
+// address but does not end in _IP.
 var piiKeySuffixes = []string{
-	"_IP", "_HOSTNAME",
+	"_IP", "_VIP", "_HOSTNAME",
 }
 
 // BuildGuardPatterns extracts PII-sensitive values from a resolved config as guard patterns.
@@ -85,8 +87,8 @@ func ScanFileForPII(path string, patterns []string) GuardResult {
 
 // IsPIIKey reports whether a config key name is PII-shaped, i.e. its value is
 // expected to identify a real host, domain, user or mailbox. Key names ending
-// in _CIDR, _ASN, _PORT, _PATH or _VIP are deliberately not PII-shaped: they
-// carry topology constants that are committed on purpose.
+// in _CIDR, _ASN, _PORT or _PATH are deliberately not PII-shaped: they carry
+// topology constants and vault references that are committed on purpose.
 func IsPIIKey(key string) bool {
 	for _, prefix := range piiKeyPrefixes {
 		if key == prefix || strings.HasPrefix(key, prefix) {
