@@ -91,6 +91,7 @@ interface Args {
   noPull: boolean;
   keepArtifacts: boolean;
   baseRef: string;
+  platform: string | null;
 }
 
 function parseArgs(argv: string[]): Args {
@@ -101,6 +102,7 @@ function parseArgs(argv: string[]): Args {
     noPull: false,
     keepArtifacts: false,
     baseRef: DEFAULT_BASE_REF,
+    platform: null,
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -128,6 +130,16 @@ function parseArgs(argv: string[]): Args {
       i++;
     } else if (a.startsWith("--base-ref=")) {
       args.baseRef = a.slice("--base-ref=".length);
+    } else if (a === "--platform") {
+      const v = argv[i + 1];
+      if (!v) {
+        log.error("--platform requires a value");
+        Deno.exit(2);
+      }
+      args.platform = v;
+      i++;
+    } else if (a.startsWith("--platform=")) {
+      args.platform = a.slice("--platform=".length);
     } else {
       log.error(`Unknown argument: ${a}`);
       Deno.exit(2);
@@ -155,6 +167,9 @@ Flags:
                       ${BOOTSTRAP_VALUES} / ${VERSIONS_YAML})
   --base-ref <ref>   Git ref to compare the pinned tag against when the image
                       is not in the registry yet (default: ${DEFAULT_BASE_REF})
+  --platform <p>     Pass --platform to docker pull/run. The CMP image is built
+                      linux/amd64 only, so an arm64 workstation needs
+                      --platform linux/amd64 (CI runs amd64 and needs nothing)
   --no-pull          Skip \`docker pull\` (use whatever image is already local)
   --keep-artifacts   Do not delete the temp artifact dir on exit
 
@@ -315,24 +330,65 @@ async function dockerAvailable(): Promise<boolean> {
   return r.code === 0;
 }
 
+/** platformArgs renders the optional --platform flag for a docker invocation. */
+function platformArgs(platform: string | null): string[] {
+  return platform ? ["--platform", platform] : [];
+}
+
 async function dockerPull(
   image: string,
+  platform: string | null,
 ): Promise<{ stdout: string; stderr: string; code: number }> {
-  log.info(`Pulling ${image} ...`);
-  return await run(["docker", "pull", image]);
+  log.info(
+    `Pulling ${image}${platform ? ` (--platform ${platform})` : ""} ...`,
+  );
+  return await run(["docker", "pull", ...platformArgs(platform), image]);
 }
 
 /**
  * Reports whether a `docker pull` failure means "this tag does not exist in the
- * registry" rather than a transport, auth or daemon problem. Registries word it
- * differently ("manifest unknown", "manifest for <ref> not found", and GHCR's
- * "not found: manifest unknown"), so all the shapes are matched.
+ * registry" rather than a transport, auth or daemon problem.
+ *
+ * The wording depends on the daemon and the registry, so every shape seen in
+ * practice is matched:
+ *   - "manifest unknown" — registry API v2, and GHCR's
+ *     "manifest for <ref> not found: manifest unknown"
+ *   - 'failed to resolve reference "<ref>": <ref>: not found' — the
+ *     containerd-backed image store (Docker 25+; Docker 29.2 produces exactly
+ *     this and nothing else, which is why the first two patterns alone let a
+ *     bumped tag read as a hard failure)
+ *
+ * Deliberately NOT matched: "denied", "unauthorized", and docker's
+ * "repository does not exist or may require 'docker login'". Those are
+ * ambiguous between "absent" and "no credentials", and a missing-credentials
+ * run must fail rather than be excused as a bumped tag.
  */
 export function isUnknownTagError(stderr: string): boolean {
   const s = stderr.toLowerCase();
+  // A platform mismatch also ends in "not found" ("no matching manifest for
+  // linux/arm64/v8 ... : not found"), but the tag exists — it just has no
+  // build for this architecture. Excusing it would report a present image as
+  // absent, so it is ruled out first.
+  if (isPlatformMismatchError(stderr)) return false;
   if (s.includes("manifest unknown")) return true;
   if (s.includes("manifest for") && s.includes("not found")) return true;
+  if (s.includes("failed to resolve reference") && s.includes("not found")) {
+    return true;
+  }
   return false;
+}
+
+/**
+ * Reports whether a `docker pull` failure means the tag exists but has no image
+ * for the daemon's architecture. The CMP image is built by cmp-image.yml on an
+ * ubuntu runner without a `platforms:` list, so it is linux/amd64 only, and a
+ * pull on an arm64 workstation fails this way. The fix is --platform, not a
+ * rebuild, so it gets its own message.
+ */
+export function isPlatformMismatchError(stderr: string): boolean {
+  const s = stderr.toLowerCase();
+  return s.includes("no match for platform") ||
+    s.includes("no matching manifest for");
 }
 
 export type MissingTagDecision = "bumped" | "missing";
@@ -401,11 +457,13 @@ async function exportFromContainer(
   image: string,
   repoRoot: string,
   spec: FormatSpec,
+  platform: string | null,
 ): Promise<{ stdout: string; stderr: string; code: number }> {
   return await run([
     "docker",
     "run",
     "--rm",
+    ...platformArgs(platform),
     "--entrypoint",
     "homelab",
     "-v",
@@ -452,11 +510,15 @@ async function exportFromSource(
   );
 }
 
-async function containerVersion(image: string): Promise<string> {
+async function containerVersion(
+  image: string,
+  platform: string | null,
+): Promise<string> {
   const r = await run([
     "docker",
     "run",
     "--rm",
+    ...platformArgs(platform),
     "--entrypoint",
     "homelab",
     image,
@@ -518,7 +580,7 @@ async function main(): Promise<number> {
   const tag = args.tag ?? tagCheck.versionsTag;
   const image = `${IMAGE_REPO}:${tag}`;
   log.ok(
-    `Tag consistent across ${BOOTSTRAP_VALUES} and ${VERSIONS_YAML}: ${tag}`,
+    `Tag consistent across ${BOOTSTRAP_VALUES} and ${VERSIONS_YAML}: ${tagCheck.versionsTag}`,
   );
   if (args.tag) {
     log.info(
@@ -534,8 +596,16 @@ async function main(): Promise<number> {
   }
 
   if (!args.noPull) {
-    const pull = await dockerPull(image);
+    const pull = await dockerPull(image, args.platform);
     if (pull.code !== 0) {
+      if (isPlatformMismatchError(pull.stderr)) {
+        log.error(
+          `image ${image} exists but has no build for this machine's architecture. ` +
+            `cmp-image.yml builds linux/amd64 only, so re-run with --platform linux/amd64 ` +
+            `(CI runs on amd64 and needs no flag):\n${pull.stderr}`,
+        );
+        return 1;
+      }
       if (!isUnknownTagError(pull.stderr)) {
         log.error(`docker pull ${image} failed:\n${pull.stderr}`);
         return 1;
@@ -570,7 +640,7 @@ async function main(): Promise<number> {
     );
 
     const [containerResult, sourceResult] = await Promise.all([
-      exportFromContainer(image, repoRoot, spec),
+      exportFromContainer(image, repoRoot, spec, args.platform),
       exportFromSource(repoRoot, spec),
     ]);
 
@@ -608,7 +678,7 @@ async function main(): Promise<number> {
   // not pass -ldflags at build time, so both sides currently print "dev"
   // regardless of source drift; this does not gate the exit code.
   const [cVersion, sVersion] = await Promise.all([
-    containerVersion(image),
+    containerVersion(image, args.platform),
     sourceVersion(repoRoot),
   ]);
   log.info(`homelab --version (container): ${cVersion}`);

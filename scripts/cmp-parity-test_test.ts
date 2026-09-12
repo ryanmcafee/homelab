@@ -10,7 +10,11 @@
  */
 
 import { assertEquals } from "jsr:@std/assert@^1";
-import { decideMissingTag, isUnknownTagError } from "./cmp-parity-test.ts";
+import {
+  decideMissingTag,
+  isPlatformMismatchError,
+  isUnknownTagError,
+} from "./cmp-parity-test.ts";
 
 Deno.test("decideMissingTag: a bumped tag is not a failure", () => {
   // cmp-image.yml builds the image on merge to main, so the PR that bumps the
@@ -49,6 +53,11 @@ Deno.test("isUnknownTagError: recognises the registry's wordings", () => {
     "Error response from daemon: manifest for ghcr.io/ryanmcafee/homelab-cmp:0.1.10 not found: manifest unknown: manifest unknown",
     "MANIFEST UNKNOWN",
     "manifest for x:1 not found",
+    // Docker 29.2 with the containerd image store says only this — no
+    // "manifest" anywhere. Matching just the two older wordings made a bumped
+    // tag read as a hard failure, which is how this was found: the first live
+    // run of `task test:cmp-parity` still exited 1.
+    'Error response from daemon: failed to resolve reference "ghcr.io/ryanmcafee/homelab-cmp:0.1.12": ghcr.io/ryanmcafee/homelab-cmp:0.1.12: not found',
   ];
   for (const stderr of unknown) {
     assertEquals(isUnknownTagError(stderr), true, stderr);
@@ -61,9 +70,45 @@ Deno.test("isUnknownTagError: every other failure stays a failure", () => {
     "unauthorized: authentication required",
     "net/http: TLS handshake timeout",
     "denied: permission_denied: read_package",
+    // Ambiguous between "absent" and "no credentials", so it must stay a
+    // failure: excusing it would turn a missing login into a green check.
+    "pull access denied for ghcr.io/ryanmcafee/homelab-cmp, repository does not exist or may require 'docker login'",
+    // A resolve failure that is not a 404 is still a failure.
+    'failed to resolve reference "ghcr.io/x:1": unexpected status from HEAD request: 403 Forbidden',
+    // A platform mismatch ends in "not found" too, but the tag is present: the
+    // image simply has no build for this architecture. Reading it as a missing
+    // tag would report a published image as absent.
+    "no matching manifest for linux/arm64/v8 in the manifest list entries: no match for platform in manifest: not found",
     "",
   ];
   for (const stderr of other) {
     assertEquals(isUnknownTagError(stderr), false, stderr);
+  }
+});
+
+Deno.test("isPlatformMismatchError: the amd64-only image on an arm64 machine", () => {
+  // cmp-image.yml builds without a `platforms:` list, so the image is
+  // linux/amd64 only and a pull on an arm64 workstation fails this way. The fix
+  // is --platform, not a rebuild, so it must not be confused with either a
+  // missing tag or drift.
+  const mismatches = [
+    "Error response from daemon: no matching manifest for linux/arm64/v8 in the manifest list entries: no match for platform in manifest: not found",
+    "no match for platform in manifest",
+  ];
+  for (const stderr of mismatches) {
+    assertEquals(isPlatformMismatchError(stderr), true, stderr);
+    assertEquals(isUnknownTagError(stderr), false, stderr);
+  }
+});
+
+Deno.test("isPlatformMismatchError: a genuinely missing tag is not a platform problem", () => {
+  const notPlatform = [
+    "Error response from daemon: manifest unknown",
+    'Error response from daemon: failed to resolve reference "ghcr.io/x:1": ghcr.io/x:1: not found',
+    "Cannot connect to the Docker daemon",
+    "",
+  ];
+  for (const stderr of notPlatform) {
+    assertEquals(isPlatformMismatchError(stderr), false, stderr);
   }
 });
