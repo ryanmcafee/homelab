@@ -9,12 +9,18 @@
 #
 # See tests/schemas/README.md for the full mechanics and how to add a new kind.
 sources:
+  # Vendor only kinds that are rendered today (plus what issue #260 needs); this keeps
+  # tests/schemas/ from carrying multi-megabyte schemas for kinds nothing renders yet.
+  # Workflow, WorkflowTemplate and ApplicationSet are all real, legitimately huge
+  # upstream CRDs (multi-MB each) — re-add them (to the relevant source's `kinds` list
+  # below) the moment a chart actually renders one. ApplicationSet is expected to
+  # arrive with #261 Section C.
   - name: argo-cd
     versionKey: argocd
     chart:
       repo: https://argoproj.github.io/argo-helm
       name: argo-cd
-    kinds: [Application, AppProject, ApplicationSet]
+    kinds: [Application, AppProject]
 
   - name: argo-workflows
     versionKey: argo-workflows
@@ -30,7 +36,7 @@ sources:
       ref: "argo-workflows-{version}"
       paths:
         - charts/argo-workflows/files/crds/full
-    kinds: [CronWorkflow, Workflow, WorkflowTemplate]
+    kinds: [CronWorkflow]
 
   - name: cert-manager
     versionKey: cert-manager
