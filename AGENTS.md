@@ -89,25 +89,26 @@ The `/gitops-test` skill MUST be invoked automatically in these scenarios:
 
 | Trigger Condition | Action |
 |-------------------|--------|
-| Modified `charts/**/*` | Run Tier 1-2 validation before commit |
+| Modified `charts/**/*`, `configuration/**`, `tests/**` | Run `task verify:text` (level 0) before commit; fix every finding |
 | ArgoCD accessibility issue | Use tiered debugging approach |
 | ArgoCD sync failures | Validate templates and dry-run |
-| After committing GitOps changes | Run full Tier 1-4 validation |
-| Before creating GitOps PRs | Complete validation checklist |
+| After committing GitOps changes | Push, open the PR, and read the `verify.yml` (level 0) and `tilt-ci` checks |
+| Before creating GitOps PRs | Paste the `task verify` JSON summary in the PR body |
 
 **Do NOT wait for explicit `/gitops-test` command** - invoke proactively when conditions match.
 
 ### Validation Flow After Chart Changes
 
 ```
-1. Make changes to charts/**
-2. INVOKE gitops-test skill (Tier 1: lint + template)
-3. Commit changes (pre-commit hooks run automatically)
-4. Push to feature branch
-5. INVOKE gitops-test skill (Tier 4: full GitOps sync)
-6. Verify health
-7. Create PR
+1. Make changes to charts/**, configuration/** or tests/**
+2. Run `task verify:text` (level 0: render, kubeconform, gitops graph, snapshots, policy)
+3. If the render changed on purpose: `task test:snapshot -- --update`
+4. Commit (the pre-commit hook re-runs level 0)
+5. Push to a feature branch and create the PR with the `task verify` JSON summary
+6. Watch `gh pr checks` (verify.yml + tilt-ci); never apply to or repoint production to test
 ```
+
+Agents may mutate only Kind clusters (ADR-009). Production is verified through merge -> ArgoCD -> CI/notifications.
 
 ## Installed Subagents (VoltAgent)
 

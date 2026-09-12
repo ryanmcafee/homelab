@@ -607,6 +607,67 @@ tasks:
       - deno run --allow-net --allow-run --allow-env --allow-read --allow-write scripts/toggle-test.ts --regen-baseline
 
   # ==========================================================================
+  # Verification (level 0: static, cluster-free, PII-free) — see docs/runbooks/verification.md
+  # ==========================================================================
+
+  verify:
+    desc: "Level-0 verification with JSON summary (task verify, task verify LEVEL=0, task verify -- --env homelab)"
+    silent: true
+    cmds:
+      - go run ./cmd/homelab verify all --level {{.LEVEL | default "0"}} --json {{.CLI_ARGS}}
+
+  verify:text:
+    desc: Level-0 verification with human-readable output
+    cmds:
+      - go run ./cmd/homelab verify all --level {{.LEVEL | default "0"}} {{.CLI_ARGS}}
+
+  verify:render:
+    desc: Render, lint and schema-validate every chart (task verify:render -- --env homelab --chart addons)
+    cmds:
+      - go run ./cmd/homelab verify render {{.CLI_ARGS}}
+
+  verify:gitops:
+    desc: Lint the rendered ArgoCD Application graph
+    cmds:
+      - go run ./cmd/homelab verify gitops {{.CLI_ARGS}}
+
+  test:snapshot:
+    desc: Diff rendered charts against tests/snapshots (task test:snapshot -- --update to regenerate)
+    cmds:
+      - go run ./cmd/homelab verify snapshot {{.CLI_ARGS}}
+
+  test:policy:
+    desc: Run conftest unit tests and assert every negative fixture fails as intended
+    cmds:
+      - conftest verify -p tests/policy
+      - deno run --allow-read --allow-run --allow-env scripts/policy-test.ts {{.CLI_ARGS}}
+
+  test:cmp-parity:
+    desc: Prove the pinned homelab-cmp image matches `homelab config export` from source (needs Docker)
+    cmds:
+      - deno run --allow-net --allow-run --allow-env --allow-read --allow-write scripts/cmp-parity-test.ts {{.CLI_ARGS}}
+
+  test:config:
+    desc: Config-system contract tests (templates <-> schema <-> versions.yaml)
+    cmds:
+      - go test ./internal/config/...
+
+  test:go:
+    desc: All Go unit tests
+    cmds:
+      - go test ./...
+
+  schemas:vendor:
+    desc: Regenerate tests/schemas from the chart versions pinned in configuration/versions.yaml
+    cmds:
+      - deno run --allow-net --allow-run --allow-env --allow-read --allow-write scripts/crd-schemas-vendor.ts {{.CLI_ARGS}}
+
+  schemas:check:
+    desc: Fail if tests/schemas is stale relative to configuration/versions.yaml
+    cmds:
+      - deno run --allow-net --allow-run --allow-env --allow-read --allow-write scripts/crd-schemas-vendor.ts --check
+
+  # ==========================================================================
   # Kubernetes Operations
   # ==========================================================================
 
@@ -635,12 +696,13 @@ tasks:
       - yamllint .
 
   ci:test:
-    desc: Run all tests
+    desc: Run all non-interactive tests (no cluster required)
     cmds:
       - task: ci:lint
       - task: tf:validate
-      - task: localdev:up
-      - task: localdev:down
+      - task: test:go
+      - task: verify
+      - task: test:policy
 
   # ==========================================================================
   # SOPS - Secret Management

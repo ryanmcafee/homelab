@@ -140,64 +140,64 @@ When updating helm chart versions, check these repositories:
 ArgoCD:
 <!-- embedme charts/addons/values.yaml#L54-L57 -->
 ```yaml
-chart:
-  name: argo-cd
-  repo: https://argoproj.github.io/argo-helm
-  version: "9.4.7"
+  repo: ghcr.io/spegel-org/helm-charts
+  version: "0.6.0"
+
+# Service configuration
 ```
 
 Kubelet CSR Approver:
 <!-- embedme charts/addons/values.yaml#L263-L266 -->
 ```yaml
-chart:
-  name: kubelet-csr-approver
-  repo: https://postfinance.github.io/kubelet-csr-approver
-  version: "1.2.2"
+truenas:
+  endpoint: https://truenas.example.com
+  allowInsecure: false
+  apiKey: ""
 ```
 
 Democratic-CSI:
 <!-- embedme charts/addons/values.yaml#L287-L290 -->
 ```yaml
-chart:
-  name: democratic-csi
-  repo: https://democratic-csi.github.io/charts/
-  version: 0.14.6
+resources:
+  controller:
+    requests:
+      cpu: 50m
 ```
 
 Cert-Manager:
 <!-- embedme charts/addons/values.yaml#L550-L553 -->
 ```yaml
-chart:
-  name: cert-manager
-  repo: https://charts.jetstack.io
-  version: v1.16.2
+
+
+
+
 ```
 
 External-DNS:
 <!-- embedme charts/addons/values.yaml#L618-L621 -->
 ```yaml
-chart:
-  name: external-dns
-  repo: https://kubernetes-sigs.github.io/external-dns/
-  version: 1.15.0
+resources:
+  requests:
+    cpu: 50m
+    memory: 128Mi
 ```
 
 Kube-Prometheus-Stack:
 <!-- embedme charts/addons/values.yaml#L662-L665 -->
 ```yaml
-chart:
-  name: kube-prometheus-stack
-  repo: https://prometheus-community.github.io/helm-charts
-  version: 69.8.2
+http:
+  redirections:
+    entryPoint:
+      to: websecure
 ```
 
 Traefik (External):
 <!-- embedme charts/addons/values.yaml#L791-L794 -->
 ```yaml
-chart:
-  name: traefik
-  repo: https://traefik.github.io/charts
-  version: 39.0.0
+  enabled: false
+
+ingressRoute:
+  dashboard:
 ```
 
 **Application Charts** - `charts/applications/values.yaml`:
@@ -214,46 +214,46 @@ chart:
 Sonarr:
 <!-- embedme charts/applications/values.yaml#L193-L196 -->
 ```yaml
-chart:
-  name: sonarr
-  repo: https://trueforge-org.github.io/truecharts
-  version: 25.2.11
+ADVERTISE_IP: https://plex.example.com:443
+PLEX_UID: "568"
+PLEX_GID: "100"
+CHANGE_CONFIG_DIR_OWNERSHIP: "false"
 ```
 
 Radarr:
 <!-- embedme charts/applications/values.yaml#L282-L285 -->
 ```yaml
-chart:
-  name: radarr
-  repo: https://trueforge-org.github.io/truecharts
-  version: 26.3.11
+  cert-manager.io/cluster-issuer: letsencrypt
+  external-dns.alpha.kubernetes.io/hostname: sonarr.example.com
+hosts:
+  - host: sonarr.example.com
 ```
 
 Prowlarr:
 <!-- embedme charts/applications/values.yaml#L370-L373 -->
 ```yaml
-chart:
-  name: prowlarr
-  repo: https://trueforge-org.github.io/truecharts
-  version: 21.3.12
+  cert-manager.io/cluster-issuer: letsencrypt
+  external-dns.alpha.kubernetes.io/hostname: radarr.example.com
+hosts:
+  - host: radarr.example.com
 ```
 
 Home Assistant:
 <!-- embedme charts/applications/values.yaml#L658-L661 -->
 ```yaml
-chart:
-  name: home-assistant
-  repo: https://trueforge-org.github.io/truecharts
-  version: 28.19.14
+  mountPath: /books
+
+# Downloads storage via NFS
+downloads:
 ```
 
 Mosquitto:
 <!-- embedme charts/applications/values.yaml#L726-L729 -->
 ```yaml
-chart:
-  name: mosquitto
-  repo: https://trueforge-org.github.io/truecharts
-  version: 17.13.9
+
+
+
+
 ```
 
 ### Version Update Files
@@ -295,6 +295,11 @@ Run `task --list` for full list. Most commonly used:
 |---------|-------------|
 | `task localdev:up` | Start Kind + Tilt local development |
 | `task localdev:down` | Destroy local environment |
+| `task verify` | Level-0 static verification: render, kubeconform, gitops graph, snapshots, policy (JSON, < 5 s) |
+| `task verify:text` | Level-0 verification, human-readable |
+| `task test:snapshot -- --update` | Regenerate golden snapshots in `tests/snapshots/` |
+| `task test:policy` | conftest policy unit tests + negative fixtures |
+| `task schemas:vendor` | Re-vendor CRD JSON schemas from `versions.yaml` pins |
 | `task chart:lint` | Lint all Helm charts |
 | `task chart:template:addons` | Debug addons rendering |
 | `task tf:apply:component COMPONENT=X` | Apply single Terraform component |
