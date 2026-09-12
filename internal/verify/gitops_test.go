@@ -1411,7 +1411,7 @@ func TestLintGitOpsGoodFixturePasses(t *testing.T) {
 		"waves": "8 Applications, 1 sibling wave comparisons",
 		// Only the ClusterIssuer is ordered: testRegistry does not register
 		// onepassword.com, so the OnePasswordItem has no provider to follow.
-		"crd-order":    "1 custom resources ordered against 2 CRD providers; skipped 1 object(s) from charts no Application references: orphan-config",
+		"crd-order": "1 custom resources ordered against 2 CRD providers; skipped 1 object(s) from charts no Application references: orphan-config",
 		// The disclosure of skipped https sources is part of the contract:
 		// repo-secrets checks oci:// only.
 		"repo-secrets": "1 OCI chart sources, 1 repository Secrets; 2 https repositories not checked (public Helm repos need no Secret)",
