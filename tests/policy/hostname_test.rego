@@ -167,6 +167,26 @@ test_inline_ip_address_host_is_not_a_hostname if {
 	count(deny) == 0 with input as obj with data.domain as "example.com"
 }
 
+test_inline_ip_address_with_port_host_is_not_a_hostname if {
+	obj := {
+		"kind": "Application",
+		"apiVersion": "argoproj.io/v1alpha1",
+		"metadata": {"name": "democratic-csi-iscsi", "namespace": "argocd"},
+		"spec": {"source": {"helm": {"values": "driver:\n  config:\n    httpConnection:\n      host: 192.168.1.100:3260\n"}}},
+	}
+	count(deny) == 0 with input as obj with data.domain as "example.com"
+}
+
+test_inline_bracketed_ipv6_host_is_not_a_hostname if {
+	obj := {
+		"kind": "Application",
+		"apiVersion": "argoproj.io/v1alpha1",
+		"metadata": {"name": "app", "namespace": "argocd"},
+		"spec": {"source": {"helm": {"values": "config:\n  host: \"[2001:db8::1]:2049\"\n"}}},
+	}
+	count(deny) == 0 with input as obj with data.domain as "example.com"
+}
+
 test_inline_single_label_hostname_field_is_not_a_hostname if {
 	obj := {
 		"kind": "Application",

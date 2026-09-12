@@ -125,15 +125,23 @@ host_key_names := {"host", "hostname", "commonName"}
 
 host_list_key_names := {"hosts", "dnsNames"}
 
+# is_ip_literal matches a bare IPv4 address or a bracketed IPv6 address,
+# each with an optional ":<port>" suffix (e.g. "192.168.1.100:3260",
+# "[::1]:2049", "[2001:db8::1]").
+is_ip_literal(s) if regex.match(`^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}(:[0-9]+)?$`, s)
+
+is_ip_literal(s) if regex.match(`^\[[0-9A-Fa-f:]+\](:[0-9]+)?$`, s)
+
 # looks_like_hostname filters out values that share a key name with a real
-# hostname field but aren't one: bare IPv4 addresses (e.g. democratic-csi's
-# `host: 192.168.1.100` NFS/iSCSI server address) and single-label slugs
-# (e.g. Tailscale's `hostname: tailscale-operator-homelab`, a MagicDNS device
-# name in the tailnet's own namespace, never suffixed by the cluster domain).
-# A real hostname under our domain always has at least one dot.
+# hostname field but aren't one: bare IP addresses, optionally with a port
+# (e.g. democratic-csi's `host: 192.168.1.100` NFS/iSCSI server address, or
+# an iSCSI portal like `192.168.1.100:3260`) and single-label slugs (e.g.
+# Tailscale's `hostname: tailscale-operator-homelab`, a MagicDNS device name
+# in the tailnet's own namespace, never suffixed by the cluster domain). A
+# real hostname under our domain always has at least one dot.
 looks_like_hostname(s) if {
 	contains(s, ".")
-	not regex.match(`^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$`, s)
+	not is_ip_literal(s)
 }
 
 # walk_hosts collects every hostname reachable inside an arbitrary
