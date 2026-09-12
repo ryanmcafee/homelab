@@ -15,9 +15,9 @@ var (
 
 func main() {
 	rootCmd := &cobra.Command{
-		Use:   "homelab",
-		Short: "Homelab infrastructure automation CLI",
-		Long:  `Cross-platform CLI tool for managing homelab infrastructure, replacing legacy shell and TypeScript scripts.`,
+		Use:     "homelab",
+		Short:   "Homelab infrastructure automation CLI",
+		Long:    `Cross-platform CLI tool for managing homelab infrastructure, replacing legacy shell and TypeScript scripts.`,
 		Version: version,
 	}
 
@@ -34,7 +34,10 @@ func main() {
 	rootCmd.AddCommand(commands.NewRenderCmd())
 	rootCmd.AddCommand(commands.NewConfigCmd())
 
+	// ExitCode keeps the historical exit 1 for ordinary failures and reserves
+	// exit 2 for usage errors, which lets autonomous callers tell "the repo is
+	// broken" apart from "I called the command wrongly".
 	if err := rootCmd.Execute(); err != nil {
-		os.Exit(1)
+		os.Exit(commands.ExitCode(err))
 	}
 }

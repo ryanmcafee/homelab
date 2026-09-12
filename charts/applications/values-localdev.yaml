@@ -280,6 +280,17 @@ jellyfin:
     port: 8096
 
 # ============================================================================
+# Renovate (Dependency Updates)
+# ============================================================================
+
+renovate:
+  # Disabled in local development. Renovate reads its GitHub credentials from
+  # the renovate-token Secret, which the renovate-config chart only produces
+  # from 1Password; localdev provisions no such Secret, so the CronJob would
+  # never start.
+  enabled: false
+
+# ============================================================================
 # Additional Configuration Notes
 # ============================================================================
 

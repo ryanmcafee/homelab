@@ -1,0 +1,126 @@
+# Addons parent (parent wave 1): the CRD provider, its config sibling one wave
+# earlier, the CR consumer one wave later, and an OCI chart with its
+# repository Secret.
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: spegel
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: spegel-oci
+  namespace: argocd
+  labels:
+    argocd.argoproj.io/secret-type: repository
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+stringData:
+  name: spegel
+  type: helm
+  url: ghcr.io/spegel-org/helm-charts
+  enableOCI: "true"
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: spegel
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  project: default
+  source:
+    repoURL: ghcr.io/spegel-org/helm-charts
+    chart: spegel
+    targetRevision: v0.4.0
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: spegel
+  syncPolicy:
+    syncOptions:
+      - ServerSideApply=true
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cert-manager-config
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/example/repo.git
+    targetRevision: HEAD
+    path: charts/cert-manager-config
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-homelab.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: cert-manager
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cert-manager
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  project: default
+  source:
+    repoURL: https://charts.jetstack.io
+    chart: cert-manager
+    targetRevision: v1.16.2
+    helm:
+      releaseName: cert-manager
+      values: |
+        installCRDs: true
+        extraEnv:
+          - name: CF_API_TOKEN
+            valueFrom:
+              secretKeyRef:
+                name: cloudflare-api-token
+                key: api_token
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: cert-manager
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cert-manager-cluster-issuer
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/example/repo.git
+    targetRevision: HEAD
+    path: charts/cert-manager-cluster-issuer
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-homelab.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: cert-manager
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

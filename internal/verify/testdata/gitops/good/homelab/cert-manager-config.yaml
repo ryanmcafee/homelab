@@ -1,0 +1,10 @@
+# Child chart owned by the cert-manager-config Application (addons, wave -1).
+# Produces the Secret that the cert-manager Helm values consume.
+---
+apiVersion: onepassword.com/v1
+kind: OnePasswordItem
+metadata:
+  name: cloudflare-api-token
+  namespace: cert-manager
+spec:
+  itemPath: vaults/homelab/items/cloudflare-api-token

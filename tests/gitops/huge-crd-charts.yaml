@@ -1,0 +1,28 @@
+# Charts whose CRDs are too large for client-side apply, for
+# `homelab verify gitops` (rule gitops/<env>/ssa).
+#
+# kubectl's client-side apply stores the whole object in the
+# kubectl.kubernetes.io/last-applied-configuration annotation, which is capped
+# at 256 KiB. Several of these charts ship CRDs well past that, so their
+# ArgoCD Application must set ServerSideApply=true in
+# spec.syncPolicy.syncOptions.
+#
+# An entry matches either an Application name or a spec.source.chart value.
+---
+charts:
+  - argo-workflows
+  - argocd
+  - cert-manager
+  - cilium
+  - cloudnative-pg
+  - democratic-csi
+  - democratic-csi-iscsi
+  - democratic-csi-iscsi-hdd
+  - democratic-csi-ssd
+  - external-dns-cloudflare-crd
+  - intel-device-plugins-operator
+  - kube-prometheus-stack
+  - nvidia-gpu-operator
+  - tailscale-operator
+  - traefik-external
+  - traefik-internal

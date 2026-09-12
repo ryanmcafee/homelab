@@ -1,4 +1,9 @@
-{{- if .Values.cloudflare.enabled }}
+{{/*
+An OnePasswordItem with an empty itemPath renders but is inert: the operator
+has nothing to fetch, so no Secret ever appears while the manifest still reads
+like a working producer. Require the path as well as the toggle.
+*/}}
+{{- if and .Values.cloudflare.enabled .Values.cloudflare.onePasswordItemPath }}
 ---
 apiVersion: onepassword.com/v1
 kind: OnePasswordItem

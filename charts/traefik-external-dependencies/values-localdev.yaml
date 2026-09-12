@@ -1,0 +1,9 @@
+# traefik-external-dependencies — local development overrides
+#
+# No overrides are needed here:
+# the Cloudflare and OIDC secret blocks are disabled, so no OnePasswordItem
+# is rendered.
+#
+# The file still has to exist. The parent Application always appends
+# values-localdev.yaml to spec.source.helm.valueFiles, and ArgoCD fails
+# the sync when a declared value file is missing.
