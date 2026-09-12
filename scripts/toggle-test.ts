@@ -25,6 +25,8 @@
  * Exit codes: 0 = all assertions pass; 1 = any failure.
  */
 
+import { parse as parseYaml } from "jsr:@std/yaml@^1";
+
 // ============================================================================
 // Logging
 // ============================================================================
@@ -53,10 +55,43 @@ const HOMELAB_BIN = "./bin/homelab";
 const ADDONS_CHART = "charts/addons";
 const APPS_CHART = "charts/applications";
 // KUBERNETES_VERSION is the schema version kubeconform validates against.
-// Source of truth: the Talos cluster version currently deployed. Keep in sync
-// with the Talos release used in terragrunt/modules/talos-cluster/. If the
-// cluster is upgraded, bump this constant so the schema check reflects reality.
-const KUBERNETES_VERSION = "1.30.0";
+// Source of truth: configuration/versions.yaml's tools.kubernetes (the single
+// centralized version registry — see readKubernetesVersion() below). Loaded at
+// runtime so this test never drifts from the version the rest of the project
+// already tracks; bumping tools.kubernetes there is sufficient to keep this
+// check in sync.
+let KUBERNETES_VERSION = "";
+
+// VERSIONS_YAML_PATH is the centralized version registry read by
+// readKubernetesVersion().
+const VERSIONS_YAML_PATH = "configuration/versions.yaml";
+
+// ============================================================================
+// Version registry
+// ============================================================================
+// Reads tools.kubernetes from configuration/versions.yaml and strips any
+// leading "v" (the registry stores tags like "v1.36.1"; kubeconform's
+// -kubernetes-version flag expects a bare "1.36.1").
+async function readKubernetesVersion(): Promise<string> {
+  let raw: string;
+  try {
+    raw = await Deno.readTextFile(VERSIONS_YAML_PATH);
+  } catch (err) {
+    throw new Error(
+      `Could not read ${VERSIONS_YAML_PATH} to determine kubeconform's -kubernetes-version: ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    );
+  }
+  const parsed = parseYaml(raw) as { tools?: { kubernetes?: string } } | null;
+  const version = parsed?.tools?.kubernetes;
+  if (!version) {
+    throw new Error(
+      `${VERSIONS_YAML_PATH} is missing tools.kubernetes — cannot determine kubeconform's -kubernetes-version`,
+    );
+  }
+  return version.replace(/^v/, "");
+}
 
 // ============================================================================
 // CLI args
@@ -314,7 +349,10 @@ async function kubeconformVendor(
   const args = [
     "-strict",
     "-summary",
-    "-ignore-missing-schemas",
+    "-schema-location",
+    "default",
+    "-schema-location",
+    "tests/schemas/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json",
     "-kubernetes-version",
     KUBERNETES_VERSION,
   ];
@@ -322,8 +360,7 @@ async function kubeconformVendor(
   if (a.code !== 0) {
     return {
       ok: false,
-      err:
-        `kubeconform addons failed for ${vendor}:\n${a.stdout}\n${a.stderr}`,
+      err: `kubeconform addons failed for ${vendor}:\n${a.stdout}\n${a.stderr}`,
     };
   }
   const b = await run(["kubeconform", ...args, appsRendered]);
@@ -602,6 +639,11 @@ async function main(): Promise<number> {
     printHelp();
     return 0;
   }
+
+  KUBERNETES_VERSION = await readKubernetesVersion();
+  log.info(
+    `Kubernetes schema version (from ${VERSIONS_YAML_PATH}): ${KUBERNETES_VERSION}`,
+  );
 
   // Allocate a non-predictable artifact root via Deno.makeTempDir to avoid
   // the hardcoded /tmp/gpu-toggle-test path (symlink-swap exposure on
