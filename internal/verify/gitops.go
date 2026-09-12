@@ -213,23 +213,37 @@ func (g *gitopsGraph) appKey(app Doc) orderKey {
 	return orderKey{parent: g.parentWave[app.Chart], wave: w}
 }
 
-// objectKey is a rendered object's sync position. ok is false when the object
-// is not part of this environment's graph: an orphan child chart (rendered for
-// completeness but owned by no Application in this env) or an object of the
-// gitops chart itself.
+// chartInGraph reports whether this environment actually deploys the chart: a
+// parent chart (an app-of-apps root's target) or a child chart some
+// Application's spec.source.path points at. The renderer renders every chart
+// for every environment, so a chart whose parent toggle is off still produces
+// manifests that never reach a cluster. crd-order and secret-refs both skip
+// those and disclose the skip, rather than judging objects that never deploy.
+//
+// The gitops chart is excluded: it holds the roots of the graph it defines and
+// has no position inside it.
+func (g *gitopsGraph) chartInGraph(chart string) bool {
+	if chart == "gitops" {
+		return false
+	}
+	if ParentCharts[chart] {
+		return true
+	}
+	_, ok := g.chartOwner[chart]
+	return ok
+}
+
+// objectKey is a rendered object's sync position. ok is false when the
+// object's chart is not part of this environment's graph.
 func (g *gitopsGraph) objectKey(d Doc) (orderKey, bool) {
-	if d.Chart == "gitops" {
+	if !g.chartInGraph(d.Chart) {
 		return orderKey{}, false
 	}
 	if ParentCharts[d.Chart] {
 		w, _ := docWave(d)
 		return orderKey{parent: g.parentWave[d.Chart], wave: w}, true
 	}
-	owner, ok := g.chartOwner[d.Chart]
-	if !ok {
-		return orderKey{}, false
-	}
-	return g.appKey(owner), true
+	return g.appKey(g.chartOwner[d.Chart]), true
 }
 
 // destNamespace resolves the namespace an object lands in: its own, or the
@@ -375,8 +389,7 @@ func (g *gitopsGraph) ruleCRDOrder(reg *GitOpsRegistry) Check {
 	// (a chart whose parent toggle is off still renders) but it must be
 	// visible rather than silent, so it is counted per chart and reported in
 	// the check detail.
-	skippedCharts := map[string]int{}
-	var skippedOrder []string
+	skipped := skipTally{}
 
 	for _, d := range g.docs {
 		group := d.Group()
@@ -396,10 +409,7 @@ func (g *gitopsGraph) ruleCRDOrder(reg *GitOpsRegistry) Check {
 		}
 		objKey, inGraph := g.objectKey(d)
 		if !inGraph {
-			if _, counted := skippedCharts[d.Chart]; !counted {
-				skippedOrder = append(skippedOrder, d.Chart)
-			}
-			skippedCharts[d.Chart]++
+			skipped.add(d.Chart)
 			continue
 		}
 		checked++
@@ -422,15 +432,7 @@ func (g *gitopsGraph) ruleCRDOrder(reg *GitOpsRegistry) Check {
 		}
 	}
 	detail := fmt.Sprintf("%d custom resources ordered against %d CRD providers", checked, len(reg.CRDProviders))
-	if len(skippedOrder) > 0 {
-		sort.Strings(skippedOrder)
-		total := 0
-		for _, c := range skippedOrder {
-			total += skippedCharts[c]
-		}
-		detail += fmt.Sprintf("; skipped %d objects from charts no Application references: %s",
-			total, strings.Join(skippedOrder, ", "))
-	}
+	detail += skipped.detail("object(s)")
 	return g.result("crd-order", start, detail, findings)
 }
 
@@ -544,8 +546,26 @@ type secretRef struct {
 
 // ruleSecretRefs verifies every Secret a rendered object or Helm value block
 // consumes is produced somewhere in the same environment and namespace.
+//
+// The rule deliberately also asserts producer validity — an OnePasswordItem
+// with an empty spec.itemPath is reported, not counted — because a producer
+// that cannot produce is indistinguishable from a missing one at sync time,
+// and this is the only rule that looks at secret wiring at all.
 func (g *gitopsGraph) ruleSecretRefs(reg *GitOpsRegistry) Check {
 	start := time.Now()
+
+	var findings []string
+	reported := map[string]bool{}
+	report := func(msg string) {
+		if !reported[msg] {
+			reported[msg] = true
+			findings = append(findings, msg)
+		}
+	}
+
+	// Charts this environment does not deploy are skipped on both sides of the
+	// rule: their objects consume nothing and produce nothing here.
+	skipped := skipTally{}
 
 	producers := map[string]bool{}
 	produce := func(ns, name string) {
@@ -553,20 +573,20 @@ func (g *gitopsGraph) ruleSecretRefs(reg *GitOpsRegistry) Check {
 			producers[ns+"/"+name] = true
 		}
 	}
-	var findings []string
 	for _, d := range g.docs {
+		if !g.chartInGraph(d.Chart) {
+			continue
+		}
 		ns := g.destNamespace(d)
 		switch {
 		case d.Kind() == "Secret" && d.Group() == "":
 			produce(ns, d.Name())
 		case d.Kind() == "OnePasswordItem":
-			// An OnePasswordItem with no itemPath is rendered but inert: the
-			// operator has nothing to fetch, so no Secret ever appears. Counting
-			// it as a producer would hide exactly the wiring gap this rule
-			// exists to catch.
+			// An OnePasswordItem with no itemPath renders but is inert: the
+			// operator has nothing to fetch, so no Secret ever appears while
+			// the manifest still reads like a working producer.
 			if strings.TrimSpace(d.GetString("spec", "itemPath")) == "" {
-				findings = append(findings, fmt.Sprintf(
-					"%s: empty spec.itemPath — will never produce a Secret", d.ID()))
+				report(fmt.Sprintf("%s: empty spec.itemPath — will never produce a Secret", d.ID()))
 				continue
 			}
 			produce(ns, d.Name())
@@ -578,7 +598,7 @@ func (g *gitopsGraph) ruleSecretRefs(reg *GitOpsRegistry) Check {
 		}
 	}
 
-	var refs []secretRef
+	c := secretRefCollector{reg: reg}
 	for _, d := range g.docs {
 		if isApplication(d) {
 			// An Application's own object holds no Secret references; the
@@ -587,36 +607,33 @@ func (g *gitopsGraph) ruleSecretRefs(reg *GitOpsRegistry) Check {
 			ns := d.GetString("spec", "destination", "namespace")
 			for _, src := range appSources(d) {
 				if vo, ok := src.Get("helm", "valuesObject"); ok {
-					collectSecretRefs(vo, "spec.source.helm.valuesObject", d, ns, &refs)
+					c.walk(vo, "spec.source.helm.valuesObject", d, ns)
 				}
 				if raw := src.GetString("helm", "values"); strings.TrimSpace(raw) != "" {
 					var parsed any
 					if err := yaml.Unmarshal([]byte(raw), &parsed); err == nil {
-						collectSecretRefs(parsed, "spec.source.helm.values", d, ns, &refs)
+						c.walk(parsed, "spec.source.helm.values", d, ns)
 					}
 				}
 			}
 			continue
 		}
-		collectSecretRefs(d.Object, "", d, g.destNamespace(d), &refs)
+		c.walk(d.Object, "", d, g.destNamespace(d))
 	}
 
-	reported := map[string]bool{}
-	report := func(msg string) {
-		if !reported[msg] {
-			reported[msg] = true
-			findings = append(findings, msg)
+	checked := 0
+	for _, r := range c.refs {
+		if !g.chartInGraph(r.owner.Chart) {
+			skipped.add(r.owner.Chart)
+			continue
 		}
-	}
-	unresolved := 0
-	for _, r := range refs {
+		checked++
 		if r.ns == "" {
-			// A cluster-scoped object in a chart no Application deploys: there
-			// is no destination namespace to resolve the reference against.
-			// Reported rather than dropped, so the blind spot is visible.
-			unresolved++
+			// The chart does deploy, but nothing says where: a cluster-scoped
+			// object, or an Application with no spec.destination.namespace.
+			// This one is a real gap, so it fails rather than being skipped.
 			report(fmt.Sprintf(
-				"%s: cannot resolve namespace (no owning Application), so the Secret reference %q at %s is unverified",
+				"%s: cannot resolve a namespace for the Secret reference %q at %s (the chart deploys but declares no destination namespace)",
 				r.owner.ID(), r.name, r.where))
 			continue
 		}
@@ -627,60 +644,97 @@ func (g *gitopsGraph) ruleSecretRefs(reg *GitOpsRegistry) Check {
 			"%s: references Secret %s/%s at %s, which no rendered Secret, OnePasswordItem or Certificate produces (register it in %s/known-secrets.yaml if it is created outside the rendered charts)",
 			r.owner.ID(), r.ns, r.name, r.where, GitOpsRegistryDir))
 	}
-	detail := fmt.Sprintf("%d secret references, %d rendered producers", len(refs), len(producers))
-	if unresolved > 0 {
-		detail += fmt.Sprintf("; %d references have no resolvable namespace", unresolved)
-	}
+
+	detail := fmt.Sprintf("%d secret references, %d rendered producers", checked, len(producers))
+	detail += skipped.detail("reference(s)")
 	return g.result("secret-refs", start, detail, findings)
 }
 
-// collectSecretRefs walks a decoded manifest subtree and records every
+// skipTally counts objects skipped per chart so a rule can disclose what it
+// did not look at.
+type skipTally struct {
+	counts map[string]int
+	order  []string
+}
+
+func (s *skipTally) add(chart string) {
+	if s.counts == nil {
+		s.counts = map[string]int{}
+	}
+	if _, seen := s.counts[chart]; !seen {
+		s.order = append(s.order, chart)
+	}
+	s.counts[chart]++
+}
+
+// detail renders the "; skipped N <unit> from charts no Application
+// references: a, b" suffix, or "" when nothing was skipped.
+func (s *skipTally) detail(unit string) string {
+	if len(s.order) == 0 {
+		return ""
+	}
+	charts := append([]string(nil), s.order...)
+	sort.Strings(charts)
+	total := 0
+	for _, c := range charts {
+		total += s.counts[c]
+	}
+	return fmt.Sprintf("; skipped %d %s from charts no Application references: %s",
+		total, unit, strings.Join(charts, ", "))
+}
+
+// secretRefCollector walks decoded manifest subtrees and accumulates every
 // consumer reference to a Secret. Ingress-style tls[].secretName is
 // deliberately not collected: cert-manager creates those on demand.
-func collectSecretRefs(node any, path string, owner Doc, ns string, out *[]secretRef) {
+type secretRefCollector struct {
+	reg  *GitOpsRegistry
+	refs []secretRef
+}
+
+func (c *secretRefCollector) walk(node any, path string, owner Doc, ns string) {
 	switch v := node.(type) {
 	case map[string]any:
 		for _, key := range sortedKeys(v) {
 			child := v[key]
 			childPath := joinRefPath(path, key)
 			switch {
-			case isSecretRefKey(key), key == "existingSecret", key == "existingSecretName":
+			case c.isSecretRefKey(key), key == "existingSecret", key == "existingSecretName":
 				if n := refName(child); n != "" {
-					appendSecretRef(out, owner, ns, n, childPath)
+					c.add(owner, ns, n, childPath)
 				}
 			case key == "secret":
 				if m, ok := child.(map[string]any); ok {
 					if sn, ok := m["secretName"].(string); ok && sn != "" {
-						appendSecretRef(out, owner, ns, sn, joinRefPath(childPath, "secretName"))
+						c.add(owner, ns, sn, joinRefPath(childPath, "secretName"))
 					}
 				}
 			}
-			collectSecretRefs(child, childPath, owner, ns, out)
+			c.walk(child, childPath, owner, ns)
 		}
 	case []any:
 		for i, item := range v {
-			collectSecretRefs(item, fmt.Sprintf("%s[%d]", path, i), owner, ns, out)
+			c.walk(item, fmt.Sprintf("%s[%d]", path, i), owner, ns)
 		}
 	}
-}
-
-// secretRefOutputKeys are *SecretRef fields a controller WRITES rather than
-// reads. They name a Secret that does not have to exist beforehand, so they are
-// not consumer references. cert-manager stores the ACME account key in
-// spec.acme.privateKeySecretRef the first time it registers the account.
-var secretRefOutputKeys = map[string]bool{
-	"privateKeySecretRef": true,
 }
 
 // isSecretRefKey reports whether a map key names a Secret the object reads.
 // Kubernetes and its operators spell this a dozen ways — secretRef,
 // secretKeyRef, apiTokenSecretRef, tokenSecretRef — so anything ending in
-// SecretRef counts, minus the output fields above.
-func isSecretRefKey(key string) bool {
-	if secretRefOutputKeys[key] {
+// SecretRef counts, minus the output keys the registry declares.
+func (c *secretRefCollector) isSecretRefKey(key string) bool {
+	if c.reg != nil && c.reg.IsOutputRefKey(key) {
 		return false
 	}
 	return key == "secretRef" || key == "secretKeyRef" || strings.HasSuffix(key, "SecretRef")
+}
+
+func (c *secretRefCollector) add(owner Doc, ns, name, where string) {
+	// Unresolved templating is not a reference we can verify.
+	if name == "" || strings.Contains(name, "{{") || strings.Contains(name, "$(") {
+		return
+	}
+	c.refs = append(c.refs, secretRef{owner: owner, ns: ns, name: name, where: strings.TrimPrefix(where, ".")})
 }
 
 // refName extracts a Secret name from either a bare string or a {name: x} map.
@@ -694,14 +748,6 @@ func refName(v any) string {
 		}
 	}
 	return ""
-}
-
-func appendSecretRef(out *[]secretRef, owner Doc, ns, name, where string) {
-	// Unresolved templating is not a reference we can verify.
-	if name == "" || strings.Contains(name, "{{") || strings.Contains(name, "$(") {
-		return
-	}
-	*out = append(*out, secretRef{owner: owner, ns: ns, name: name, where: strings.TrimPrefix(where, ".")})
 }
 
 func joinRefPath(path, key string) string {
@@ -825,14 +871,14 @@ func (g *gitopsGraph) ruleUniqueNames() Check {
 		if len(claims) < 2 {
 			continue
 		}
-		names := make([]string, 0, len(claims))
-		for _, a := range claims {
-			names = append(names, a.Name())
+		others := make([]string, 0, len(claims)-1)
+		for _, a := range claims[1:] {
+			others = append(others, a.Name())
 		}
-		sort.Strings(names)
+		sort.Strings(others)
 		findings = append(findings, fmt.Sprintf(
 			"Application/%s/%s: source path %q is also claimed by %s, so chart ownership is ambiguous",
-			claims[0].Namespace(), claims[0].Name(), path, strings.Join(names, ", ")))
+			claims[0].Namespace(), claims[0].Name(), path, strings.Join(others, ", ")))
 	}
 
 	detail := fmt.Sprintf("%d distinct Applications, %d distinct source paths", len(order), len(g.pathOrder))

@@ -122,6 +122,7 @@ func testRegistry() *GitOpsRegistry {
 		HugeCRDCharts:    []string{"cert-manager"},
 		SystemNamespaces: []string{"argocd", "kube-system"},
 		KnownSecrets:     []KnownSecret{{Name: "sops-age-key", Namespace: "argocd", Reason: "created by ksops"}},
+		OutputRefKeys:    []OutputRefKey{{Key: "privateKeySecretRef", Reason: "cert-manager writes the ACME account key"}},
 	}
 }
 
@@ -134,6 +135,9 @@ func TestLintGitOpsRules(t *testing.T) {
 		rendered   map[string]string
 		wantStatus Status
 		wantFind   string
+		// wantDetail, when set, must equal the check's Detail exactly. Used
+		// where the disclosure of what was skipped is the point of the case.
+		wantDetail string
 	}{
 		// ---------------- paths ----------------
 		{
@@ -700,17 +704,50 @@ spec:
 			wantFind:   "cert-manager/cloudflare-api-token",
 		},
 		{
-			// charts/orphan has no owning Application and a ClusterIssuer has
-			// no namespace of its own, so the reference cannot be resolved.
-			name:       "secret-refs report a reference with no resolvable namespace",
+			// charts/orphan has no owning Application, so nothing in it
+			// deploys in this environment. Same treatment as crd-order:
+			// skipped, and disclosed in the detail rather than failed.
+			name:       "secret-refs skip references from charts no Application deploys",
 			rule:       "secret-refs",
 			repoCharts: []string{"bootstrap", "addons", "applications"},
 			rendered: map[string]string{
 				"gitops": gitopsParents,
 				"orphan": clusterIssuerWithCloudflare,
 			},
+			wantStatus: StatusPass,
+			wantDetail: "0 secret references, 0 rendered producers; skipped 1 reference(s) from charts no Application references: orphan",
+		},
+		{
+			// The chart does deploy, but the Application declares no
+			// destination namespace, so there is nowhere to look for the
+			// producer. That is a real gap, not an undeployed chart.
+			name:       "secret-refs fail when a deployed Application declares no destination namespace",
+			rule:       "secret-refs",
+			repoCharts: []string{"bootstrap", "addons", "applications"},
+			rendered: map[string]string{
+				"gitops": gitopsParents,
+				"addons": `
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: widget
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "4"
+spec:
+  source:
+    repoURL: https://example.com/charts
+    chart: widget
+    helm:
+      values: |
+        auth:
+          existingSecret: widget-credentials
+  destination:
+    server: https://kubernetes.default.svc
+`,
+			},
 			wantStatus: StatusFail,
-			wantFind:   "cannot resolve namespace",
+			wantFind:   "cannot resolve a namespace",
 		},
 		{
 			name:       "secret-refs ignore privateKeySecretRef, which cert-manager writes",
@@ -1161,6 +1198,9 @@ spec:
 			if tc.wantStatus == StatusPass && len(got.Findings) != 0 {
 				t.Fatalf("rule %s: passing check must have no findings, got %v", tc.rule, got.Findings)
 			}
+			if tc.wantDetail != "" && got.Detail != tc.wantDetail {
+				t.Fatalf("rule %s: detail = %q, want %q", tc.rule, got.Detail, tc.wantDetail)
+			}
 		})
 	}
 }
@@ -1334,7 +1374,7 @@ metadata:
 	if got.Status != StatusPass {
 		t.Fatalf("crd-order should skip orphan charts, got %s %v", got.Status, got.Findings)
 	}
-	if want := "skipped 1 objects from charts no Application references: orphan"; !strings.Contains(got.Detail, want) {
+	if want := "skipped 1 object(s) from charts no Application references: orphan"; !strings.Contains(got.Detail, want) {
 		t.Errorf("crd-order detail must disclose the skip, got %q", got.Detail)
 	}
 }
@@ -1371,7 +1411,7 @@ func TestLintGitOpsGoodFixturePasses(t *testing.T) {
 		"waves": "8 Applications, 1 sibling wave comparisons",
 		// Only the ClusterIssuer is ordered: testRegistry does not register
 		// onepassword.com, so the OnePasswordItem has no provider to follow.
-		"crd-order":    "1 custom resources ordered against 2 CRD providers; skipped 1 objects from charts no Application references: orphan-config",
+		"crd-order":    "1 custom resources ordered against 2 CRD providers; skipped 1 object(s) from charts no Application references: orphan-config",
 		"repo-secrets": "1 OCI chart sources, 1 repository Secrets",
 		"secret-refs":  "1 secret references, 2 rendered producers",
 		"namespaces":   "8 Application destination namespaces, 2 rendered Namespaces",

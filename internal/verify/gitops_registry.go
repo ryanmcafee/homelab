@@ -106,6 +106,15 @@ func (k KnownSecret) Matches(ns, name string) bool {
 	return k.Namespace == "" || k.Namespace == "*" || k.Namespace == ns
 }
 
+// OutputRefKey is a *SecretRef field a controller WRITES rather than reads. It
+// names a Secret that does not have to exist beforehand, so secret-refs must
+// not count it as a consumer reference. Reason is mandatory: each entry is a
+// hole in the rule and has to justify itself.
+type OutputRefKey struct {
+	Key    string `yaml:"key"`
+	Reason string `yaml:"reason"`
+}
+
 // GitOpsRegistry is the declarative input to LintGitOps: the facts about the
 // cluster and the upstream ecosystem that cannot be derived from the rendered
 // manifests alone.
@@ -118,6 +127,8 @@ type GitOpsRegistry struct {
 	HugeCRDCharts []string
 	// KnownSecrets are accepted secret producers outside the rendered charts.
 	KnownSecrets []KnownSecret
+	// OutputRefKeys are *SecretRef map keys that name an output, not an input.
+	OutputRefKeys []OutputRefKey
 	// SystemNamespaces always exist in the cluster.
 	SystemNamespaces []string
 }
@@ -134,8 +145,12 @@ type hugeCRDChartsFile struct {
 	Charts []string `yaml:"charts"`
 }
 
+// knownSecretsFile is tests/gitops/known-secrets.yaml. Both lists in it are
+// exceptions to the secret-refs rule: secrets produced outside the rendered
+// charts, and reference keys that are outputs rather than inputs.
 type knownSecretsFile struct {
-	Secrets []KnownSecret `yaml:"secrets"`
+	Secrets       []KnownSecret  `yaml:"secrets"`
+	OutputRefKeys []OutputRefKey `yaml:"outputRefKeys"`
 }
 
 // LoadGitOpsRegistry reads <repoRoot>/tests/gitops/*.yaml. Missing files are
@@ -187,6 +202,15 @@ func LoadGitOpsRegistry(repoRoot string) (*GitOpsRegistry, error) {
 		}
 		reg.KnownSecrets = append(reg.KnownSecrets, ks)
 	}
+	for i, ok := range known.OutputRefKeys {
+		if strings.TrimSpace(ok.Key) == "" {
+			return nil, fmt.Errorf("%s/known-secrets.yaml: outputRefKeys entry %d has no key", GitOpsRegistryDir, i)
+		}
+		if strings.TrimSpace(ok.Reason) == "" {
+			return nil, fmt.Errorf("%s/known-secrets.yaml: outputRefKeys entry %q has no reason (every exception must be justified)", GitOpsRegistryDir, ok.Key)
+		}
+		reg.OutputRefKeys = append(reg.OutputRefKeys, ok)
+	}
 
 	sort.Strings(reg.SystemNamespaces)
 	sort.Strings(reg.HugeCRDCharts)
@@ -225,6 +249,17 @@ func (r *GitOpsRegistry) HugeCRDChartSet() map[string]bool {
 		out[c] = true
 	}
 	return out
+}
+
+// IsOutputRefKey reports whether a *SecretRef map key names a Secret the
+// controller writes rather than reads.
+func (r *GitOpsRegistry) IsOutputRefKey(key string) bool {
+	for _, o := range r.OutputRefKeys {
+		if o.Key == key {
+			return true
+		}
+	}
+	return false
 }
 
 // KnownSecret reports whether ns/name is an accepted external producer.
