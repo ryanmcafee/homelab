@@ -1,6 +1,7 @@
 package verify
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -282,6 +283,45 @@ spec:
 			wantFind:   "cert-manager-config",
 		},
 		{
+			// The boundary: wave(X-dependencies) must be strictly lower, so
+			// equal waves are a violation, not a pass.
+			name:       "waves fail when dependencies share the wave of its chart",
+			rule:       "waves",
+			repoCharts: []string{"bootstrap", "addons", "applications", "traefik-dependencies"},
+			rendered: map[string]string{
+				"gitops": gitopsParents,
+				"addons": appDoc("traefik-dependencies", "6", "charts/traefik-dependencies", "traefik") +
+					appDoc("traefik", "6", "", "traefik"),
+			},
+			wantStatus: StatusFail,
+			wantFind:   "must be lower than traefik",
+		},
+		{
+			name:       "waves fail on a non-numeric sync-wave annotation",
+			rule:       "waves",
+			repoCharts: []string{"bootstrap", "addons", "applications"},
+			rendered: map[string]string{
+				"gitops": gitopsParents,
+				"addons": `
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: badwave
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "first"
+spec:
+  source:
+    chart: badwave
+    repoURL: https://example.com/charts
+  destination:
+    namespace: kube-system
+`,
+			},
+			wantStatus: StatusFail,
+			wantFind:   "missing or non-numeric",
+		},
+		{
 			name:       "waves fail on missing sync-wave annotation",
 			rule:       "waves",
 			repoCharts: []string{"bootstrap", "addons", "applications"},
@@ -477,6 +517,45 @@ stringData:
 			wantFind:   "enableOCI",
 		},
 		{
+			// ArgoCD only reads repository credentials from its own namespace,
+			// so a Secret parked anywhere else is inert.
+			name:       "repo-secrets fail when the repository Secret is outside argocd",
+			rule:       "repo-secrets",
+			repoCharts: []string{"bootstrap", "addons", "applications"},
+			rendered: map[string]string{
+				"gitops": gitopsParents,
+				"addons": `
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: spegel
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  source:
+    repoURL: ghcr.io/spegel-org/helm-charts
+    chart: spegel
+  destination:
+    namespace: kube-system
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: spegel-oci
+  namespace: kube-system
+  labels:
+    argocd.argoproj.io/secret-type: repository
+stringData:
+  url: ghcr.io/spegel-org/helm-charts
+  enableOCI: "true"
+  type: helm
+`,
+			},
+			wantStatus: StatusFail,
+			wantFind:   "must live in the argocd namespace",
+		},
+		{
 			name:       "repo-secrets ignore http chart repositories",
 			rule:       "repo-secrets",
 			repoCharts: []string{"bootstrap", "addons", "applications"},
@@ -535,15 +614,158 @@ spec:
   syncPolicy:
     syncOptions: [CreateNamespace=true]
 ` + appDoc("dns-config", "3", "charts/dns-config", "external-dns"),
-				"dns-config": `
-apiVersion: onepassword.com/v1
-kind: OnePasswordItem
+				"dns-config": onePasswordItem("cloudflare-api-token", "external-dns",
+					"vaults/homelab/items/cloudflare"),
+			},
+			wantStatus: StatusPass,
+		},
+		{
+			name:       "secret-refs reject an OnePasswordItem with no itemPath",
+			rule:       "secret-refs",
+			repoCharts: []string{"bootstrap", "addons", "applications", "dns-config"},
+			rendered: map[string]string{
+				"gitops": gitopsParents,
+				"addons": `
+apiVersion: argoproj.io/v1alpha1
+kind: Application
 metadata:
-  name: cloudflare-api-token
-  namespace: external-dns
+  name: external-dns
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "4"
+spec:
+  source:
+    repoURL: https://example.com/charts
+    chart: external-dns
+    helm:
+      values: |
+        env:
+          - name: CF_API_TOKEN
+            valueFrom:
+              secretKeyRef:
+                name: cloudflare-api-token
+                key: api_token
+  destination:
+    namespace: external-dns
+  syncPolicy:
+    syncOptions: [CreateNamespace=true]
+` + appDoc("dns-config", "3", "charts/dns-config", "external-dns"),
+				"dns-config": onePasswordItem("cloudflare-api-token", "external-dns", ""),
+			},
+			wantStatus: StatusFail,
+			wantFind:   "empty spec.itemPath",
+		},
+		{
+			name:       "secret-refs follow apiTokenSecretRef on a cert-manager solver",
+			rule:       "secret-refs",
+			repoCharts: []string{"bootstrap", "addons", "applications", "issuer", "cm-config"},
+			rendered: map[string]string{
+				"gitops": gitopsParents,
+				"addons": appDoc("cm-config", "-1", "charts/cm-config", "cert-manager") +
+					appDoc("issuer", "1", "charts/issuer", "cert-manager"),
+				"cm-config": onePasswordItem("cloudflare-api-token", "cert-manager",
+					"vaults/homelab/items/cloudflare"),
+				"issuer": clusterIssuerWithCloudflare,
+			},
+			wantStatus: StatusPass,
+		},
+		{
+			name:       "secret-refs fail on an unproduced apiTokenSecretRef",
+			rule:       "secret-refs",
+			repoCharts: []string{"bootstrap", "addons", "applications", "issuer"},
+			rendered: map[string]string{
+				"gitops": gitopsParents,
+				"addons": appDoc("issuer", "1", "charts/issuer", "cert-manager"),
+				"issuer": clusterIssuerWithCloudflare,
+			},
+			wantStatus: StatusFail,
+			wantFind:   "apiTokenSecretRef",
+		},
+		{
+			// The ClusterIssuer is cluster-scoped, so its reference resolves
+			// only through the destination namespace of the Application that
+			// deploys charts/issuer. The producer sits in another namespace.
+			name:       "secret-refs inherit the namespace of the owning Application",
+			rule:       "secret-refs",
+			repoCharts: []string{"bootstrap", "addons", "applications", "issuer", "cm-config"},
+			rendered: map[string]string{
+				"gitops": gitopsParents,
+				"addons": appDoc("cm-config", "-1", "charts/cm-config", "other-namespace") +
+					appDoc("issuer", "1", "charts/issuer", "cert-manager"),
+				"cm-config": onePasswordItem("cloudflare-api-token", "other-namespace",
+					"vaults/homelab/items/cloudflare"),
+				"issuer": clusterIssuerWithCloudflare,
+			},
+			wantStatus: StatusFail,
+			wantFind:   "cert-manager/cloudflare-api-token",
+		},
+		{
+			// charts/orphan has no owning Application and a ClusterIssuer has
+			// no namespace of its own, so the reference cannot be resolved.
+			name:       "secret-refs report a reference with no resolvable namespace",
+			rule:       "secret-refs",
+			repoCharts: []string{"bootstrap", "addons", "applications"},
+			rendered: map[string]string{
+				"gitops": gitopsParents,
+				"orphan": clusterIssuerWithCloudflare,
+			},
+			wantStatus: StatusFail,
+			wantFind:   "cannot resolve namespace",
+		},
+		{
+			name:       "secret-refs ignore privateKeySecretRef, which cert-manager writes",
+			rule:       "secret-refs",
+			repoCharts: []string{"bootstrap", "addons", "applications", "issuer"},
+			rendered: map[string]string{
+				"gitops": gitopsParents,
+				"addons": appDoc("issuer", "1", "charts/issuer", "cert-manager"),
+				"issuer": `
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt
+spec:
+  acme:
+    privateKeySecretRef:
+      name: letsencrypt-account-key
+    solvers:
+      - http01:
+          ingress:
+            class: traefik
 `,
 			},
 			wantStatus: StatusPass,
+		},
+		{
+			name:       "secret-refs walk valuesObject as well as values",
+			rule:       "secret-refs",
+			repoCharts: []string{"bootstrap", "addons", "applications"},
+			rendered: map[string]string{
+				"gitops": gitopsParents,
+				"addons": `
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: widget
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "4"
+spec:
+  source:
+    repoURL: https://example.com/charts
+    chart: widget
+    helm:
+      valuesObject:
+        auth:
+          existingSecretName: widget-credentials
+  destination:
+    namespace: widgets
+  syncPolicy:
+    syncOptions: [CreateNamespace=true]
+`,
+			},
+			wantStatus: StatusFail,
+			wantFind:   "valuesObject.auth.existingSecretName",
 		},
 		{
 			name:       "secret-refs fail on unproduced helm-values reference",
@@ -664,7 +886,7 @@ spec:
 			wantStatus: StatusPass,
 		},
 		{
-			name:       "secret-refs catch envFrom and existingSecret on rendered objects",
+			name:       "secret-refs catch envFrom secretRef on rendered objects",
 			rule:       "secret-refs",
 			repoCharts: []string{"bootstrap", "addons", "applications", "job"},
 			rendered: map[string]string{
@@ -695,6 +917,43 @@ spec:
 			},
 			wantStatus: StatusFail,
 			wantFind:   "missing-token",
+		},
+		{
+			// existingSecret is the Helm-chart spelling, and it appears both as
+			// a bare string and as a {name: …} map depending on the chart.
+			name:       "secret-refs catch existingSecret in both spellings",
+			rule:       "secret-refs",
+			repoCharts: []string{"bootstrap", "addons", "applications"},
+			rendered: map[string]string{
+				"gitops": gitopsParents,
+				"addons": `
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: router
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "7"
+spec:
+  source:
+    repoURL: https://example.com/charts
+    chart: port-forwarding
+    helm:
+      values: |
+        router:
+          existingSecret: unifi-credentials
+        database:
+          auth:
+            existingSecret:
+              name: db-credentials
+  destination:
+    namespace: port-forwarding
+  syncPolicy:
+    syncOptions: [CreateNamespace=true]
+`,
+			},
+			wantStatus: StatusFail,
+			wantFind:   "unifi-credentials",
 		},
 
 		// ---------------- namespaces ----------------
@@ -808,6 +1067,36 @@ spec:
 			wantFind:   "ServerSideApply=true",
 		},
 
+		{
+			// The Application name is nvidia-gpu-operator but the chart is
+			// gpu-operator, so only the spec.source.chart branch can match.
+			name:       "ssa fail when only spec.source.chart matches the huge-CRD list",
+			rule:       "ssa",
+			repoCharts: []string{"bootstrap", "addons", "applications"},
+			rendered: map[string]string{
+				"gitops": gitopsParents,
+				"addons": `
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: certificate-authority
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  source:
+    repoURL: https://charts.jetstack.io
+    chart: cert-manager
+  destination:
+    namespace: kube-system
+  syncPolicy:
+    syncOptions: [CreateNamespace=true]
+`,
+			},
+			wantStatus: StatusFail,
+			wantFind:   "Application/argocd/certificate-authority",
+		},
+
 		// ---------------- unique-names ----------------
 		{
 			name:       "unique-names pass for distinct Applications",
@@ -830,6 +1119,20 @@ spec:
 			},
 			wantStatus: StatusFail,
 			wantFind:   "dup",
+		},
+		{
+			// Two Applications claiming one path makes chart ownership, and so
+			// every ordering key derived from it, a coin toss.
+			name:       "unique-names fail when two Applications claim one source path",
+			rule:       "unique-names",
+			repoCharts: []string{"bootstrap", "addons", "applications", "shared"},
+			rendered: map[string]string{
+				"gitops": gitopsParents,
+				"addons": appDoc("first", "1", "charts/shared", "kube-system") +
+					appDoc("second", "2", "charts/shared", "kube-system"),
+			},
+			wantStatus: StatusFail,
+			wantFind:   "charts/shared",
 		},
 	}
 
@@ -876,6 +1179,87 @@ func appDoc(name, wave, path, destNS string) string {
 		"\n  syncPolicy:\n    syncOptions: [CreateNamespace=true, ServerSideApply=true]\n"
 }
 
+// onePasswordItem builds an OnePasswordItem. An empty namespace leaves
+// metadata.namespace off, forcing the linter to inherit it from the owning
+// Application; an empty itemPath makes the item inert.
+func onePasswordItem(name, namespace, itemPath string) string {
+	out := "---\napiVersion: onepassword.com/v1\nkind: OnePasswordItem\nmetadata:\n  name: " + name + "\n"
+	if namespace != "" {
+		out += "  namespace: " + namespace + "\n"
+	}
+	return out + "spec:\n  itemPath: " + fmt.Sprintf("%q", itemPath) + "\n"
+}
+
+// clusterIssuerWithCloudflare is a cluster-scoped object carrying both an
+// input reference (apiTokenSecretRef) and an output one (privateKeySecretRef).
+const clusterIssuerWithCloudflare = `
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt
+spec:
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    privateKeySecretRef:
+      name: letsencrypt-account-key
+    solvers:
+      - dns01:
+          cloudflare:
+            apiTokenSecretRef:
+              name: cloudflare-api-token
+              key: api_token
+`
+
+// TestLintGitOpsExemptsApplicationFamilyWithoutRegistrySkips proves the
+// argoproj.io Application-family exemption is enforced in code, not merely by
+// the skipKinds list in tests/gitops/crd-providers.yaml: a registry that
+// forgets skipKinds must still not order Applications against themselves.
+func TestLintGitOpsExemptsApplicationFamilyWithoutRegistrySkips(t *testing.T) {
+	reg := &GitOpsRegistry{
+		// No SkipKinds at all, and a provider that is not rendered: if the
+		// exemption were registry-driven, every Application would be reported.
+		CRDProviders:     map[string]CRDProvider{"argoproj.io": {App: "argo-workflows"}},
+		SystemNamespaces: []string{"argocd", "kube-system"},
+	}
+	rendered := map[string][]Doc{
+		"gitops": mustDocs(t, "gitops", "homelab", gitopsParents),
+		"addons": mustDocs(t, "addons", "homelab", appDoc("widget", "3", "", "kube-system")+`
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: default
+  namespace: argocd
+---
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: cluster-addons
+  namespace: argocd
+`),
+	}
+	got := checksByRule(t, LintGitOps("homelab", rendered, reg, testRepoRoot(t, "bootstrap", "addons", "applications")))["crd-order"]
+	if got.Status != StatusPass {
+		t.Fatalf("Application-family kinds must be exempt regardless of registry skipKinds: %v", got.Findings)
+	}
+
+	// The same registry must still order a real Argo Workflows resource, so
+	// the exemption is narrow rather than a blanket group skip.
+	rendered["addons"] = append(rendered["addons"], mustDocs(t, "addons", "homelab", `
+apiVersion: argoproj.io/v1alpha1
+kind: CronWorkflow
+metadata:
+  name: verify
+  namespace: argo-workflows
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+`)...)
+	got = checksByRule(t, LintGitOps("homelab", rendered, reg, testRepoRoot(t, "bootstrap", "addons", "applications")))["crd-order"]
+	if got.Status != StatusFail || !containsSubstring(got.Findings, "CronWorkflow") {
+		t.Fatalf("CronWorkflow must still be ordered: %s %v", got.Status, got.Findings)
+	}
+}
+
 func keysOf(m map[string]Check) []string {
 	out := make([]string, 0, len(m))
 	for k := range m {
@@ -910,11 +1294,31 @@ func TestLintGitOpsEmitsEveryRuleOnce(t *testing.T) {
 	if len(byRule) != len(GitOpsRules) {
 		t.Errorf("got %d checks, want %d", len(byRule), len(GitOpsRules))
 	}
+
+	// The graph here is only the three parent Applications, so the details
+	// must say so. Asserting the counts stops a passing-but-empty run from
+	// looking like a clean bill of health.
+	wantDetail := map[string]string{
+		"paths":        "3 Application source paths checked",
+		"waves":        "3 Applications, 0 sibling wave comparisons",
+		"crd-order":    "0 custom resources ordered against 2 CRD providers",
+		"repo-secrets": "0 OCI chart sources, 0 repository Secrets",
+		"secret-refs":  "0 secret references, 0 rendered producers",
+		"namespaces":   "3 Application destination namespaces, 0 rendered Namespaces",
+		"ssa":          "0 of 3 Applications require ServerSideApply",
+		"unique-names": "3 distinct Applications, 3 distinct source paths",
+	}
+	for rule, want := range wantDetail {
+		if got := byRule[rule].Detail; got != want {
+			t.Errorf("rule %s detail = %q, want %q", rule, got, want)
+		}
+	}
 }
 
 func TestLintGitOpsSkipsOrphanChildCharts(t *testing.T) {
-	// democratic-csi-config renders in localdev but no Application owns it,
-	// so its CRs are outside the env's GitOps graph and must not be ordered.
+	// A chart like democratic-csi-config renders in localdev but no
+	// Application owns it, so its CRs are outside the env's GitOps graph and
+	// must not be ordered. The skip has to be visible in the detail.
 	root := testRepoRoot(t, "bootstrap", "addons", "applications", "orphan")
 	rendered := map[string][]Doc{
 		"gitops": mustDocs(t, "gitops", "localdev", gitopsParents),
@@ -926,8 +1330,12 @@ metadata:
 `),
 	}
 	checks := LintGitOps("localdev", rendered, testRegistry(), root)
-	if got := checksByRule(t, checks)["crd-order"]; got.Status != StatusPass {
+	got := checksByRule(t, checks)["crd-order"]
+	if got.Status != StatusPass {
 		t.Fatalf("crd-order should skip orphan charts, got %s %v", got.Status, got.Findings)
+	}
+	if want := "skipped 1 objects from charts no Application references: orphan"; !strings.Contains(got.Detail, want) {
+		t.Errorf("crd-order detail must disclose the skip, got %q", got.Detail)
 	}
 }
 
@@ -953,6 +1361,26 @@ func TestLintGitOpsGoodFixturePasses(t *testing.T) {
 	for _, rule := range GitOpsRules {
 		if got := byRule[rule]; got.Status != StatusPass {
 			t.Errorf("rule %s: %s %v", rule, got.Status, got.Findings)
+		}
+	}
+
+	// Assert what each rule actually examined. Without this a fixture that
+	// silently stopped loading would still report eight green checks.
+	wantDetail := map[string]string{
+		"paths": "5 Application source paths checked",
+		"waves": "8 Applications, 1 sibling wave comparisons",
+		// Only the ClusterIssuer is ordered: testRegistry does not register
+		// onepassword.com, so the OnePasswordItem has no provider to follow.
+		"crd-order":    "1 custom resources ordered against 2 CRD providers; skipped 1 objects from charts no Application references: orphan-config",
+		"repo-secrets": "1 OCI chart sources, 1 repository Secrets",
+		"secret-refs":  "1 secret references, 2 rendered producers",
+		"namespaces":   "8 Application destination namespaces, 2 rendered Namespaces",
+		"ssa":          "1 of 8 Applications require ServerSideApply",
+		"unique-names": "8 distinct Applications, 5 distinct source paths",
+	}
+	for rule, want := range wantDetail {
+		if got := byRule[rule].Detail; got != want {
+			t.Errorf("rule %s detail = %q, want %q", rule, got, want)
 		}
 	}
 }

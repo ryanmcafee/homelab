@@ -19,6 +19,9 @@ const SyncWaveAnnotation = "argocd.argoproj.io/sync-wave"
 // repositorySecretLabel marks a Secret as an ArgoCD repository credential.
 const repositorySecretLabel = "argocd.argoproj.io/secret-type"
 
+// ArgoCDNamespace is where ArgoCD reads repository credentials from.
+const ArgoCDNamespace = "argocd"
+
 // GitOpsRules are the rule ids emitted by LintGitOps, in declaration order.
 // Check names are "gitops/<env>/<rule>".
 var GitOpsRules = []string{
@@ -85,8 +88,13 @@ type gitopsGraph struct {
 	// the wave of its Application in the rendered gitops chart.
 	parentWave map[string]int
 	// chartOwner maps a chart directory name to the Application whose
-	// spec.source.path is charts/<name>.
+	// spec.source.path is charts/<name>. First claim wins; pathClaims records
+	// every claim so unique-names can report a contested path.
 	chartOwner map[string]Doc
+	// pathClaims maps a source path to every Application declaring it.
+	pathClaims map[string][]Doc
+	// pathOrder is pathClaims' key order, for deterministic findings.
+	pathOrder  []string
 	namespaces map[string]bool
 }
 
@@ -97,6 +105,7 @@ func buildGitOpsGraph(env string, rendered map[string][]Doc) *gitopsGraph {
 		appByName:  map[string]Doc{},
 		parentWave: map[string]int{},
 		chartOwner: map[string]Doc{},
+		pathClaims: map[string][]Doc{},
 		namespaces: map[string]bool{},
 	}
 	for name := range rendered {
@@ -125,6 +134,14 @@ func buildGitOpsGraph(env string, rendered map[string][]Doc) *gitopsGraph {
 	for _, app := range g.apps {
 		for _, src := range appSources(app) {
 			p := strings.TrimSuffix(strings.TrimSpace(src.GetString("path")), "/")
+			if p == "" {
+				continue
+			}
+			if _, seen := g.pathClaims[p]; !seen {
+				g.pathOrder = append(g.pathOrder, p)
+			}
+			g.pathClaims[p] = append(g.pathClaims[p], app)
+
 			chart, ok := chartNameFromPath(p)
 			if !ok {
 				continue
@@ -353,6 +370,13 @@ func (g *gitopsGraph) ruleCRDOrder(reg *GitOpsRegistry) Check {
 	var findings []string
 	seen := map[string]bool{}
 	checked := 0
+	// Objects from charts no Application in this env references have no
+	// position in the sync order, so they cannot be checked. That is normal
+	// (a chart whose parent toggle is off still renders) but it must be
+	// visible rather than silent, so it is counted per chart and reported in
+	// the check detail.
+	skippedCharts := map[string]int{}
+	var skippedOrder []string
 
 	for _, d := range g.docs {
 		group := d.Group()
@@ -372,6 +396,10 @@ func (g *gitopsGraph) ruleCRDOrder(reg *GitOpsRegistry) Check {
 		}
 		objKey, inGraph := g.objectKey(d)
 		if !inGraph {
+			if _, counted := skippedCharts[d.Chart]; !counted {
+				skippedOrder = append(skippedOrder, d.Chart)
+			}
+			skippedCharts[d.Chart]++
 			continue
 		}
 		checked++
@@ -386,9 +414,6 @@ func (g *gitopsGraph) ruleCRDOrder(reg *GitOpsRegistry) Check {
 			}
 			continue
 		}
-		if d.Name() == providerApp && isApplication(d) {
-			continue
-		}
 		provKey := g.appKey(p)
 		if !provKey.less(objKey) {
 			findings = append(findings, fmt.Sprintf(
@@ -396,7 +421,17 @@ func (g *gitopsGraph) ruleCRDOrder(reg *GitOpsRegistry) Check {
 				d.ID(), d.Kind(), objKey, providerApp, provKey))
 		}
 	}
-	return g.result("crd-order", start, fmt.Sprintf("%d custom resources ordered against %d CRD providers", checked, len(reg.CRDProviders)), findings)
+	detail := fmt.Sprintf("%d custom resources ordered against %d CRD providers", checked, len(reg.CRDProviders))
+	if len(skippedOrder) > 0 {
+		sort.Strings(skippedOrder)
+		total := 0
+		for _, c := range skippedOrder {
+			total += skippedCharts[c]
+		}
+		detail += fmt.Sprintf("; skipped %d objects from charts no Application references: %s",
+			total, strings.Join(skippedOrder, ", "))
+	}
+	return g.result("crd-order", start, detail, findings)
 }
 
 // -------------------------------------------------------------------------
@@ -417,9 +452,17 @@ func (g *gitopsGraph) ruleRepoSecrets() Check {
 		if d.Labels()[repositorySecretLabel] != "repository" {
 			continue
 		}
-		if url := secretValue(d, "url"); url != "" {
-			repoSecrets[normalizeRepoURL(url)] = d
+		url := secretValue(d, "url")
+		if url == "" {
+			continue
 		}
+		key := normalizeRepoURL(url)
+		// A Secret in the right namespace always wins, so a stray duplicate
+		// elsewhere cannot mask the real credential.
+		if prev, dup := repoSecrets[key]; dup && prev.Namespace() == ArgoCDNamespace {
+			continue
+		}
+		repoSecrets[key] = d
 	}
 
 	ociRepos := 0
@@ -442,12 +485,19 @@ func (g *gitopsGraph) ruleRepoSecrets() Check {
 					app.ID(), repo, repositorySecretLabel, repo))
 				continue
 			}
-			if secretValue(sec, "enableOCI") != "true" {
-				msg := fmt.Sprintf("%s: repository Secret for %q must set enableOCI: \"true\"", sec.ID(), repo)
+			report := func(msg string) {
 				if !reported[msg] {
 					reported[msg] = true
 					findings = append(findings, msg)
 				}
+			}
+			if secretValue(sec, "enableOCI") != "true" {
+				report(fmt.Sprintf("%s: repository Secret for %q must set enableOCI: \"true\"", sec.ID(), repo))
+			}
+			// ArgoCD only reads repository credentials from its own namespace.
+			if sec.Namespace() != ArgoCDNamespace {
+				report(fmt.Sprintf("%s: repository Secret for %q must live in the %s namespace, not %q",
+					sec.ID(), repo, ArgoCDNamespace, sec.Namespace()))
 			}
 		}
 	}
@@ -503,12 +553,22 @@ func (g *gitopsGraph) ruleSecretRefs(reg *GitOpsRegistry) Check {
 			producers[ns+"/"+name] = true
 		}
 	}
+	var findings []string
 	for _, d := range g.docs {
 		ns := g.destNamespace(d)
 		switch {
 		case d.Kind() == "Secret" && d.Group() == "":
 			produce(ns, d.Name())
 		case d.Kind() == "OnePasswordItem":
+			// An OnePasswordItem with no itemPath is rendered but inert: the
+			// operator has nothing to fetch, so no Secret ever appears. Counting
+			// it as a producer would hide exactly the wiring gap this rule
+			// exists to catch.
+			if strings.TrimSpace(d.GetString("spec", "itemPath")) == "" {
+				findings = append(findings, fmt.Sprintf(
+					"%s: empty spec.itemPath — will never produce a Secret", d.ID()))
+				continue
+			}
 			produce(ns, d.Name())
 		case d.Kind() == "Certificate" && d.Group() == "cert-manager.io":
 			produce(ns, d.GetString("spec", "secretName"))
@@ -541,25 +601,37 @@ func (g *gitopsGraph) ruleSecretRefs(reg *GitOpsRegistry) Check {
 		collectSecretRefs(d.Object, "", d, g.destNamespace(d), &refs)
 	}
 
-	var findings []string
 	reported := map[string]bool{}
+	report := func(msg string) {
+		if !reported[msg] {
+			reported[msg] = true
+			findings = append(findings, msg)
+		}
+	}
+	unresolved := 0
 	for _, r := range refs {
 		if r.ns == "" {
+			// A cluster-scoped object in a chart no Application deploys: there
+			// is no destination namespace to resolve the reference against.
+			// Reported rather than dropped, so the blind spot is visible.
+			unresolved++
+			report(fmt.Sprintf(
+				"%s: cannot resolve namespace (no owning Application), so the Secret reference %q at %s is unverified",
+				r.owner.ID(), r.name, r.where))
 			continue
 		}
 		if producers[r.ns+"/"+r.name] || reg.KnownSecret(r.ns, r.name) {
 			continue
 		}
-		key := r.owner.ID() + "|" + r.ns + "/" + r.name
-		if reported[key] {
-			continue
-		}
-		reported[key] = true
-		findings = append(findings, fmt.Sprintf(
+		report(fmt.Sprintf(
 			"%s: references Secret %s/%s at %s, which no rendered Secret, OnePasswordItem or Certificate produces (register it in %s/known-secrets.yaml if it is created outside the rendered charts)",
 			r.owner.ID(), r.ns, r.name, r.where, GitOpsRegistryDir))
 	}
-	return g.result("secret-refs", start, fmt.Sprintf("%d secret references, %d rendered producers", len(refs), len(producers)), findings)
+	detail := fmt.Sprintf("%d secret references, %d rendered producers", len(refs), len(producers))
+	if unresolved > 0 {
+		detail += fmt.Sprintf("; %d references have no resolvable namespace", unresolved)
+	}
+	return g.result("secret-refs", start, detail, findings)
 }
 
 // collectSecretRefs walks a decoded manifest subtree and records every
@@ -571,16 +643,12 @@ func collectSecretRefs(node any, path string, owner Doc, ns string, out *[]secre
 		for _, key := range sortedKeys(v) {
 			child := v[key]
 			childPath := joinRefPath(path, key)
-			switch key {
-			case "secretKeyRef", "secretRef":
+			switch {
+			case isSecretRefKey(key), key == "existingSecret", key == "existingSecretName":
 				if n := refName(child); n != "" {
 					appendSecretRef(out, owner, ns, n, childPath)
 				}
-			case "existingSecret", "existingSecretName":
-				if n := refName(child); n != "" {
-					appendSecretRef(out, owner, ns, n, childPath)
-				}
-			case "secret":
+			case key == "secret":
 				if m, ok := child.(map[string]any); ok {
 					if sn, ok := m["secretName"].(string); ok && sn != "" {
 						appendSecretRef(out, owner, ns, sn, joinRefPath(childPath, "secretName"))
@@ -594,6 +662,25 @@ func collectSecretRefs(node any, path string, owner Doc, ns string, out *[]secre
 			collectSecretRefs(item, fmt.Sprintf("%s[%d]", path, i), owner, ns, out)
 		}
 	}
+}
+
+// secretRefOutputKeys are *SecretRef fields a controller WRITES rather than
+// reads. They name a Secret that does not have to exist beforehand, so they are
+// not consumer references. cert-manager stores the ACME account key in
+// spec.acme.privateKeySecretRef the first time it registers the account.
+var secretRefOutputKeys = map[string]bool{
+	"privateKeySecretRef": true,
+}
+
+// isSecretRefKey reports whether a map key names a Secret the object reads.
+// Kubernetes and its operators spell this a dozen ways — secretRef,
+// secretKeyRef, apiTokenSecretRef, tokenSecretRef — so anything ending in
+// SecretRef counts, minus the output fields above.
+func isSecretRefKey(key string) bool {
+	if secretRefOutputKeys[key] {
+		return false
+	}
+	return key == "secretRef" || key == "secretKeyRef" || strings.HasSuffix(key, "SecretRef")
 }
 
 // refName extracts a Secret name from either a bare string or a {name: x} map.
@@ -710,7 +797,9 @@ func (g *gitopsGraph) ruleSSA(reg *GitOpsRegistry) Check {
 
 // ruleUniqueNames verifies no two rendered Applications collide on
 // namespace/name — two charts claiming the same Application would fight over
-// it forever.
+// it forever — and that no two Applications claim the same source path, which
+// would make chart ownership, and therefore every ordering key derived from
+// it, ambiguous.
 func (g *gitopsGraph) ruleUniqueNames() Check {
 	start := time.Now()
 	charts := map[string][]string{}
@@ -730,5 +819,22 @@ func (g *gitopsGraph) ruleUniqueNames() Check {
 		findings = append(findings, fmt.Sprintf(
 			"Application/%s: rendered %d times, by charts %s", key, len(charts[key]), strings.Join(charts[key], ", ")))
 	}
-	return g.result("unique-names", start, fmt.Sprintf("%d distinct Applications", len(order)), findings)
+
+	for _, path := range g.pathOrder {
+		claims := g.pathClaims[path]
+		if len(claims) < 2 {
+			continue
+		}
+		names := make([]string, 0, len(claims))
+		for _, a := range claims {
+			names = append(names, a.Name())
+		}
+		sort.Strings(names)
+		findings = append(findings, fmt.Sprintf(
+			"Application/%s/%s: source path %q is also claimed by %s, so chart ownership is ambiguous",
+			claims[0].Namespace(), claims[0].Name(), path, strings.Join(names, ", ")))
+	}
+
+	detail := fmt.Sprintf("%d distinct Applications, %d distinct source paths", len(order), len(g.pathOrder))
+	return g.result("unique-names", start, detail, findings)
 }
