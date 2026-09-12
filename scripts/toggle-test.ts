@@ -438,11 +438,27 @@ interface AssertionFailure {
 }
 
 // stripFullCommentLines drops lines whose first non-whitespace character is
-// "#" (whole-line YAML comments) before a "must not contain" search, so a
+// "#" (whole-line YAML comments) before a substring search, so a
 // human-readable note in the rendered chart (e.g. "# ...gpu.intel.com/xe...")
-// can't produce a false-positive assertion failure. Trailing inline comments
-// on an otherwise live line (`key: value # note`) are deliberately left
-// alone — only lines that are comments in their entirety are removed.
+// can't produce a false-positive "must not contain" failure, and so a
+// "must contain" check can't be satisfied by that same boilerplate comment
+// while the real field it's meant to guard is silently missing. Trailing
+// inline comments on an otherwise live line (`key: value # note`) are
+// deliberately left alone — only lines that are comments in their entirety
+// are removed.
+//
+// Known limitation: this is a plain line-prefix filter, not a YAML/Helm
+// parser, so it also strips "#"-prefixed lines that appear inside a block
+// scalar (`|`/`>`) value — e.g. an inline shell script or config file
+// embedded via `helm.values` where a leading "#" starts what is actually a
+// comment *inside that embedded content*, not a YAML comment on the chart
+// itself. That's the intended behavior for genuine YAML comments in the
+// rendered chart, but it means a needle that only ever appears as a
+// comment line *inside* such embedded content would be invisible to these
+// assertions too. None of the current mustContain/mustNotContain needles in
+// this file target embedded-script content, so this doesn't affect today's
+// checks — but keep it in mind before asserting on rendered block-scalar
+// bodies.
 function stripFullCommentLines(text: string): string {
   return text
     .split("\n")
@@ -471,7 +487,8 @@ function mustContain(
   needle: string,
   failures: AssertionFailure[],
 ): void {
-  if (!haystack.includes(needle)) {
+  const codeOnly = stripFullCommentLines(haystack);
+  if (!codeOnly.includes(needle)) {
     failures.push({
       rule: `${label} MUST contain "${needle}"`,
       detail: `not found`,
