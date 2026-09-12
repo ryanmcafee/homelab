@@ -191,16 +191,131 @@ func ListGuardFiles(repoRoot string, pathspecs []string) ([]string, error) {
 // lowercase YAML keys and markdown table rows deliberately do not match.
 var configKeyLine = regexp.MustCompile(`^\s*([A-Z][A-Z0-9_]*)\s*:\s*(\S.*)$`)
 
-// ScanFileForPIIShape reports PII-shaped keys whose value is a routable host
-// address. It needs no resolved config, so it keeps working in a clone without
-// the real environment file, where value-based detection is impossible.
+// reservedHostSuffixes are domain suffixes reserved for documentation, testing
+// and local networks (RFC 2606, RFC 6761). A value under one of them cannot
+// name real infrastructure.
+var reservedHostSuffixes = []string{
+	".local", ".localhost", ".localdomain", ".internal", ".intranet",
+	".test", ".invalid", ".example", ".example.com", ".example.org", ".example.net",
+}
+
+// placeholderHosts are exact hostnames used as documentation placeholders.
+var placeholderHosts = []string{"example.com", "example.org", "example.net", "localhost"}
+
+// placeholderMarkers appear inside a value that is obviously a fill-me-in.
+var placeholderMarkers = []string{"your-", "yourdomain", "changeme", "replace-me", "todo", "<"}
+
+// committedSafeHosts are real public hostnames this repository commits on
+// purpose. Each entry is a deliberate exception to hostname detection: add one
+// only after confirming the value is not sensitive, and record why.
+var committedSafeHosts = []string{
+	// localdev's external-dns target: a fixed fake subdomain of a real
+	// dynamic-DNS provider, committed so local development resolves.
+	"homelab-dev.duckdns.org",
+}
+
+// templateFileSuffixes mark a file whose values are placeholders by
+// construction.
+var templateFileSuffixes = []string{".example", ".template", ".sample", ".dist"}
+
+// IsTemplateFile reports whether a path is an example or template file.
 //
-// It is deliberately narrow: only IP addresses on PII-shaped keys. Committed
-// placeholder domains (example.com), reserved TLDs (homelab.local) and
-// deliberate public hostnames (homelab-dev.duckdns.org) must not trip it, so
-// hostname shapes are left to value-based detection.
+// Shape-based detection does not run on these. A documentation address such as
+// 192.168.1.100 is indistinguishable from a real one by shape alone, and
+// configuration/environments/homelab.yaml.example is full of them, so scanning
+// templates by shape would be 13 false positives with no way to silence them.
+// Value-based detection still scans template files, so a real value pasted
+// into one by mistake is still caught whenever the real environment file is
+// available.
+func IsTemplateFile(path string) bool {
+	base := strings.ToLower(filepath.Base(path))
+	for _, suffix := range templateFileSuffixes {
+		if strings.HasSuffix(base, suffix) {
+			return true
+		}
+	}
+	return false
+}
+
+// hostOf reduces a value to the hostname it contains, dropping a URL scheme
+// and path, an email mailbox and a trailing port.
+func hostOf(v string) string {
+	v = strings.TrimSpace(strings.ToLower(v))
+	if i := strings.Index(v, "://"); i >= 0 {
+		v = v[i+3:]
+	}
+	if i := strings.IndexAny(v, "/?#"); i >= 0 {
+		v = v[:i]
+	}
+	if i := strings.LastIndex(v, "@"); i >= 0 {
+		v = v[i+1:]
+	}
+	// Strip a port, but leave an IPv6 literal alone.
+	if strings.Count(v, ":") == 1 {
+		v = v[:strings.LastIndex(v, ":")]
+	}
+	return strings.Trim(v, ".")
+}
+
+// isRealHostname reports whether a value names a host, domain or mailbox that
+// could identify real infrastructure. Documentation placeholders, reserved
+// suffixes and the committed-safe allowlist are excluded. IP addresses are
+// handled by isRoutableHostIP instead.
+func isRealHostname(v string) bool {
+	host := hostOf(v)
+	if host == "" || !strings.Contains(host, ".") {
+		return false
+	}
+	if net.ParseIP(host) != nil {
+		return false
+	}
+	for _, marker := range placeholderMarkers {
+		if strings.Contains(host, marker) {
+			return false
+		}
+	}
+	for _, p := range placeholderHosts {
+		if host == p {
+			return false
+		}
+	}
+	for _, suffix := range reservedHostSuffixes {
+		if strings.HasSuffix(host, suffix) {
+			return false
+		}
+	}
+	for _, safe := range committedSafeHosts {
+		if host == safe || strings.HasSuffix(host, "."+safe) {
+			return false
+		}
+	}
+	// Require a plausible alphabetic TLD, so a version string or a filename
+	// does not read as a domain.
+	tld := host[strings.LastIndex(host, ".")+1:]
+	if len(tld) < 2 {
+		return false
+	}
+	for _, r := range tld {
+		if r < 'a' || r > 'z' {
+			return false
+		}
+	}
+	return true
+}
+
+// ScanFileForPIIShape reports PII-shaped keys whose value looks like real
+// infrastructure: a routable host address, or a hostname, domain or mailbox
+// outside the placeholder and allowlisted sets. It needs no resolved config,
+// so it keeps working in a clone without the real environment file, where
+// value-based detection is impossible.
+//
+// Template files are skipped; see IsTemplateFile.
 func ScanFileForPIIShape(path string) GuardResult {
 	result := GuardResult{File: path}
+
+	if IsTemplateFile(path) {
+		return result
+	}
 
 	f, err := os.Open(path)
 	if err != nil {
@@ -217,12 +332,21 @@ func ScanFileForPIIShape(path string) GuardResult {
 		if m == nil || !IsPIIKey(m[1]) {
 			continue
 		}
-		if !isRoutableHostIP(stripValue(m[2])) {
+		value := stripValue(m[2])
+
+		var kind string
+		switch {
+		case isRoutableHostIP(value):
+			kind = "routable host IP"
+		case isRealHostname(value):
+			kind = "real hostname"
+		default:
 			continue
 		}
+
 		result.Matches = append(result.Matches, GuardMatch{
 			Line:    lineNum,
-			Pattern: m[1] + " (routable host IP)",
+			Pattern: m[1] + " (" + kind + ")",
 			Content: line,
 		})
 	}

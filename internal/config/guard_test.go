@@ -310,9 +310,21 @@ func TestRunGuardMissingEnvFileDegrades(t *testing.T) {
 	if report.ValuePatterns != 0 {
 		t.Errorf("ValuePatterns = %d, want 0 without an environment file", report.ValuePatterns)
 	}
-	// Value-based detection is gone, but the IP on a PII-shaped key is still caught.
-	if n := report.MatchCount(); n != 1 {
-		t.Fatalf("MatchCount() = %d, want 1 from shape-based detection alone", n)
+	// Value-based detection is gone, but shape-based detection still catches
+	// both the real domain and the routable address on their PII-shaped keys.
+	if n := report.MatchCount(); n != 2 {
+		t.Fatalf("MatchCount() = %d, want 2 from shape-based detection alone", n)
+	}
+	var kinds []string
+	for _, m := range report.Results[0].Matches {
+		kinds = append(kinds, m.Pattern)
+	}
+	joined := strings.Join(kinds, " ")
+	if !strings.Contains(joined, "DOMAIN (real hostname)") {
+		t.Errorf("expected the domain to be reported as a hostname, got %v", kinds)
+	}
+	if !strings.Contains(joined, "TRUENAS_IP (routable host IP)") {
+		t.Errorf("expected the address to be reported as an IP, got %v", kinds)
 	}
 }
 
@@ -366,5 +378,166 @@ func TestRunGuardExplicitFilesBypassPathspecs(t *testing.T) {
 	}
 	if len(report.Files) != 1 || report.Files[0] != f {
 		t.Errorf("report.Files = %v, want %v", report.Files, []string{f})
+	}
+}
+
+func TestIsRealHostname(t *testing.T) {
+	tests := []struct {
+		name  string
+		value string
+		want  bool
+	}{
+		// Real infrastructure.
+		{name: "bare domain", value: "ryanmcafee.com", want: true},
+		{name: "subdomain", value: "plex.ryanmcafee.com", want: true},
+		{name: "email mailbox is stripped", value: "admin@ryanmcafee.com", want: true},
+		{name: "url scheme and path are stripped", value: "https://argocd.ryanmcafee.com/applications", want: true},
+		{name: "port is stripped", value: "truenas.ryanmcafee.com:443", want: true},
+		{name: "uppercase is normalised", value: "PLEX.RyanMcAfee.COM", want: true},
+
+		// Documentation placeholders.
+		{name: "example.com", value: "example.com", want: false},
+		{name: "example.org", value: "example.org", want: false},
+		{name: "your- marker", value: "your-domain.com", want: false},
+		{name: "your- subdomain marker", value: "your-subdomain.duckdns.org", want: false},
+		{name: "placeholder email", value: "admin@your-domain.com", want: false},
+		{name: "angle-bracket placeholder", value: "<domain>.com", want: false},
+		{name: "changeme", value: "changeme.io", want: false},
+
+		// Reserved suffixes.
+		{name: "dot local", value: "homelab.local", want: false},
+		{name: "dot local email", value: "test@homelab.local", want: false},
+		{name: "dot internal", value: "truenas.internal", want: false},
+		{name: "dot test", value: "foo.test", want: false},
+		{name: "localhost", value: "localhost", want: false},
+
+		// Allowlisted committed value.
+		{name: "localdev duckdns target", value: "homelab-dev.duckdns.org", want: false},
+
+		// Not hostnames at all.
+		{name: "empty", value: "", want: false},
+		{name: "no dot", value: "homelab-dev", want: false},
+		{name: "username", value: "localdev", want: false},
+		{name: "IPv4 is handled as an IP", value: "172.16.100.150", want: false},
+		{name: "CIDR", value: "10.244.0.0/16", want: false},
+		{name: "numeric TLD", value: "1.36.1", want: false},
+		{name: "single-letter TLD", value: "foo.x", want: false},
+		{name: "storage class", value: "democratic-csi-nfs", want: false},
+		{name: "vault path", value: "vaults/homelab/items/truenas", want: false},
+		{name: "timezone", value: "America/New_York", want: false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := isRealHostname(tc.value); got != tc.want {
+				t.Errorf("isRealHostname(%q) = %v, want %v", tc.value, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestIsTemplateFile(t *testing.T) {
+	tests := []struct {
+		path string
+		want bool
+	}{
+		{path: "configuration/environments/homelab.yaml.example", want: true},
+		{path: "configuration/environments/homelab.yaml.template", want: true},
+		{path: "CLAUDE.local.md.example", want: true},
+		{path: "app.conf.sample", want: true},
+		{path: "nginx.conf.dist", want: true},
+		{path: "configuration/environments/localdev.yaml", want: false},
+		{path: "configuration/environments/homelab.yaml", want: false},
+		{path: "tests/snapshots/homelab/addons.yaml", want: false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.path, func(t *testing.T) {
+			if got := IsTemplateFile(tc.path); got != tc.want {
+				t.Errorf("IsTemplateFile(%q) = %v, want %v", tc.path, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestScanFileForPIIShapeHostnames(t *testing.T) {
+	tests := []struct {
+		name     string
+		filename string
+		content  string
+		want     []string
+	}{
+		{
+			name:     "real domain on a PII-shaped key",
+			filename: "f.yaml",
+			content:  "DOMAIN: ryanmcafee.com\n",
+			want:     []string{"DOMAIN"},
+		},
+		{
+			name:     "real mailbox",
+			filename: "f.yaml",
+			content:  "ACME_EMAIL: admin@ryanmcafee.com\n",
+			want:     []string{"ACME_EMAIL"},
+		},
+		{
+			name:     "external-dns target",
+			filename: "f.yaml",
+			content:  "EXTERNAL_DNS_DEFAULT_TARGET: home.ryanmcafee.com\n",
+			want:     []string{"EXTERNAL_DNS_DEFAULT_TARGET"},
+		},
+		{
+			name:     "allowed domains list",
+			filename: "f.yaml",
+			content:  "TRAEFIK_OIDC_ALLOWED_DOMAINS: ryanmcafee.com\n",
+			want:     []string{"TRAEFIK_OIDC_ALLOWED_DOMAINS"},
+		},
+		{
+			name:     "committed localdev hostnames stay clean",
+			filename: "localdev.yaml",
+			content:  "DOMAIN: homelab.local\nACME_EMAIL: test@homelab.local\nTRAEFIK_OIDC_ALLOWED_DOMAINS: homelab.local\nEXTERNAL_DNS_DEFAULT_TARGET: homelab-dev.duckdns.org\nDUCKDNS_SUBDOMAIN: homelab-dev\nNFS_MAPALL_USER: localdev\n",
+			want:     nil,
+		},
+		{
+			name:     "committed defaults stay clean",
+			filename: "defaults.yaml",
+			content:  "DOMAIN: example.com\nACME_EMAIL: \"\"\nDUCKDNS_SUBDOMAIN: \"\"\nEXTERNAL_DNS_DEFAULT_TARGET: \"\"\nTRAEFIK_OIDC_PROVIDER_URL: \"https://accounts.google.com\"\n",
+			want:     nil,
+		},
+		{
+			name:     "the environment template is skipped entirely",
+			filename: "homelab.yaml.example",
+			content:  "DOMAIN: your-domain.com\nGATEWAY_IP: \"192.168.1.1\"\nTRUENAS_IP: \"192.168.1.100\"\nCP_VIP: \"192.168.1.10\"\n",
+			want:     nil,
+		},
+		{
+			name:     "a real address in a non-template file is still caught",
+			filename: "homelab.yaml",
+			content:  "GATEWAY_IP: \"192.168.1.1\"\n",
+			want:     []string{"GATEWAY_IP"},
+		},
+		{
+			name:     "IP and hostname on different keys are both reported",
+			filename: "f.yaml",
+			content:  "DOMAIN: ryanmcafee.com\nTRUENAS_IP: 172.16.100.150\n",
+			want:     []string{"DOMAIN", "TRUENAS_IP"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), tc.filename)
+			if err := os.WriteFile(path, []byte(tc.content), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			res := ScanFileForPIIShape(path)
+			if len(res.Matches) != len(tc.want) {
+				t.Fatalf("got %d match(es) %+v, want %d for %v", len(res.Matches), res.Matches, len(tc.want), tc.want)
+			}
+			for i, key := range tc.want {
+				if !strings.Contains(res.Matches[i].Pattern, key) {
+					t.Errorf("match[%d].Pattern = %q, want it to name %q", i, res.Matches[i].Pattern, key)
+				}
+			}
+		})
 	}
 }
