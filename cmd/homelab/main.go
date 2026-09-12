@@ -30,6 +30,16 @@ func main() {
 		// once, by UsageErrorFunc, for the invocations that warrant it.
 		SilenceErrors: true,
 		SilenceUsage:  true,
+		// An unknown top-level command is a misuse, so it exits 2 like every
+		// other bad invocation rather than 1. Args alone would not run:
+		// cobra returns help for a command with no Run/RunE before it
+		// validates arguments, so the root needs both. Bare `homelab` still
+		// prints help and exits 0, which is what an interactive caller
+		// expects.
+		Args: commands.GroupCommandArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return cmd.Help()
+		},
 	}
 
 	// Cobra reports an unknown or malformed flag as an ordinary error, which
