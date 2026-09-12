@@ -1,6 +1,6 @@
 ---
 name: gitops-test
-description: Test ArgoCD/GitOps updates by temporarily pointing applications to a feature branch, syncing, verifying, and creating PRs. MUST be invoked automatically after ANY modification to charts/ files before committing.
+description: Validate ArgoCD/GitOps chart changes with level-0 static verification (Tier 1) and, on a Kind cluster, a dry-run (Tier 2). MUST be invoked automatically after ANY modification to charts/ files before committing. Tiers 3 and 4 (applying to, or repointing, the live cluster) are RETIRED for agents by ADR-009 and are human-only reference.
 triggers:
   # Explicit invocation
   - /gitops-test
@@ -49,6 +49,10 @@ triggers:
   - values-homelab.yaml modified
   - traefik.yaml modified
 proactive: true
+# Proactive invocation is capped at Tier 1 (and Tier 2 against Kind). Tiers 3
+# and 4 mutate or repoint the live cluster and are RETIRED for agents by
+# ADR-009 — nothing here may invoke them.
+proactive_tier_ceiling: 2
 proactive_conditions:
   # MUST invoke after ANY of these file patterns are modified
   - file_modified: "charts/addons/templates/*.yaml"
@@ -62,17 +66,37 @@ proactive_conditions:
     when_staged: "charts/**"
 ---
 
+> ## ⛔ TIERS 3 AND 4 ARE RETIRED FOR AGENTS
+>
+> **ADR-009 and `AGENTS.md`: agents may mutate only Kind clusters. Production is
+> verified by merge → ArgoCD → CI/notifications, never by an agent applying
+> manifests to it or repointing a live Application at a feature branch.**
+>
+> - **Tier 1** (level-0 static verification, `task verify`) is the mandatory gate.
+> - **Tier 2** is a dry-run and is allowed **against Kind only**.
+> - **Tier 3** (direct `kubectl apply` to the cluster) and **Tier 4** (patching the
+>   live `gitops`/`addons`/`applications` Applications to a feature branch) are
+>   **retired for agents**. They remain below as human-only reference.
+> - Section D of [issue #261](https://github.com/ryanmcafee/homelab/issues/261)
+>   replaces them with the Kind loop. Until it lands, an agent's end state for a
+>   chart change is: Tier 1 passes → commit → PR → CI.
+>
+> Nothing in this skill may proactively invoke Tier 3 or Tier 4.
+
 ## PROACTIVE USAGE REQUIREMENT
 
 **CRITICAL**: This skill MUST be invoked automatically (not just on explicit `/gitops-test` command) when:
 
-1. **IMMEDIATELY after modifying any files in `charts/`** - Run Tier 1-2 validation before proceeding
+Every item below means **Tier 1**, plus Tier 2 when a Kind cluster is up. None of
+them authorises Tier 3 or Tier 4.
+
+1. **IMMEDIATELY after modifying any files in `charts/`** - Run Tier 1 before proceeding
 2. **BEFORE offering to commit chart changes** - NEVER offer "would you like me to commit?" without running validation first
 3. **After implementing features that touch Helm templates** - traefik, middleware, ingress, authentication, etc.
-4. **When debugging ArgoCD accessibility issues** - Use tiered validation to diagnose
-5. **When ArgoCD applications show errors** - Run through validation tiers
-6. **After fixing Helm/ArgoCD configuration bugs** - Verify the fix works
-7. **Before creating PRs that touch GitOps configs** - Full validation required
+4. **When debugging ArgoCD accessibility issues** - Tier 1 for anything static; reading live state (`kubectl get`, `argocd app get`) is fine, mutating it is not
+5. **When ArgoCD applications show errors** - Tier 1, then read live state; a live fix is a human action
+6. **After fixing Helm/ArgoCD configuration bugs** - Verify with Tier 1
+7. **Before creating PRs that touch GitOps configs** - Tier 1 must pass; CI re-runs it on the PR
 
 ### Proactive Invocation Checklist
 
@@ -80,7 +104,7 @@ Before saying "ready to commit" or "would you like me to commit?", the agent MUS
 
 ```
 □ Check if any charts/* files were modified in this session
-□ If yes → Run gitops-test Tier 1-2 validation
+□ If yes → Run gitops-test Tier 1 (level 0); Tier 2 too if Kind is up
 □ Only after validation passes → Offer to commit
 ```
 
@@ -90,7 +114,7 @@ Before saying "ready to commit" or "would you like me to commit?", the agent MUS
 User: "Replace oauth2-proxy with traefik OIDC plugin"
 Agent: [modifies charts/addons/templates/traefik.yaml]
 Agent: [modifies charts/addons/values-homelab.yaml]
-Agent: [INVOKES /gitops-test skill - Tier 1-2 validation]
+Agent: [INVOKES /gitops-test skill - Tier 1 (level-0) validation]
 Agent: "Validation passed. Would you like me to commit these changes?"
 ```
 
@@ -141,16 +165,19 @@ This skill monitors and tests changes to:
 │  kubectl apply --dry-run=server                                    │
 │  ↓ PASS                                                            │
 ├────────────────────────────────────────────────────────────────────┤
-│  TIER 3: DIRECT APPLY (~15-30 seconds)                             │
-│  Apply directly to cluster, bypass ArgoCD for immediate feedback   │
-│  ↓ PASS                                                            │
+│  TIER 3: DIRECT APPLY — ⛔ RETIRED FOR AGENTS (ADR-009)             │
+│  Human-only reference. Agents may mutate Kind only.                │
 ├────────────────────────────────────────────────────────────────────┤
-│  TIER 4: FULL GITOPS (~2-5 minutes)                                │
-│  Git push → ArgoCD sync → Health verification → PR                 │
+│  TIER 4: FULL GITOPS — ⛔ RETIRED FOR AGENTS (ADR-009)              │
+│  Repoints live Applications at a branch. Human-only reference.      │
 └────────────────────────────────────────────────────────────────────┘
 ```
 
-**Time Savings**: Most errors caught in Tier 1-2 (~7 seconds) vs Tier 4 (~6 minutes per iteration).
+**An agent's path stops at Tier 1** (Tier 2 against Kind when one is up): Tier 1 passes
+→ commit → PR → CI → merge → ArgoCD. Section D of issue #261 replaces Tiers 3-4 with the
+Kind loop.
+
+**Time Savings**: Most errors are caught in Tier 1 (~2 seconds).
 
 ---
 
@@ -233,6 +260,17 @@ kubectl get crd onepassworditems.onepassword.com >/dev/null 2>&1 || echo "ERROR:
 ---
 
 ## TIER 3: Direct Apply Testing (~15-30 seconds)
+
+> ### ⛔ RETIRED FOR AGENTS — human-only reference
+>
+> ADR-009 and `AGENTS.md`: **an agent may mutate only a Kind cluster.** Applying
+> rendered manifests to the homelab cluster bypasses ArgoCD, makes the cluster
+> disagree with git, and will be reverted by self-heal. Section D of issue #261
+> replaces this tier with the Kind loop. An agent that reaches this point has
+> already done its job at Tier 1: commit, open a PR, and let ArgoCD apply the
+> change after merge.
+>
+> Everything below is kept for a human operator working the cluster by hand.
 
 **Goal**: Apply changes directly to cluster for immediate feedback, bypassing ArgoCD's git-based workflow.
 
@@ -365,6 +403,18 @@ argocd app sync addons --prune
 
 ## TIER 4: Full GitOps Validation
 
+> ### ⛔ RETIRED FOR AGENTS — human-only reference
+>
+> ADR-009 and `AGENTS.md`: **an agent must never repoint the live
+> `gitops`/`addons`/`applications` Applications at a feature branch, and must
+> never disable their automated sync.** Doing so leaves production tracking an
+> unmerged branch, and a missed cleanup step leaves it there. Production is
+> verified by merge → ArgoCD → CI/notifications. Section D of issue #261
+> replaces this tier with the Kind loop.
+>
+> Everything below is kept for a human operator doing a deliberate, supervised
+> branch deploy.
+
 **Goal**: Complete end-to-end GitOps verification. Only run after Tiers 1-3 pass.
 
 ### 4.1 Setup - Redirect to Feature Branch
@@ -445,10 +495,8 @@ gh pr create --title "feat: <title>" --body "$(cat <<'EOF'
 - <changes>
 
 ## Validation
-- [x] Tier 1: Local validation passed
-- [x] Tier 2: Cluster dry-run passed
-- [x] Tier 3: Direct apply tested
-- [x] Tier 4: Full GitOps sync verified
+- [x] Tier 1: level-0 static verification passed (`task verify`)
+- [ ] Tier 2: Kind dry-run passed (if a Kind cluster was up)
 
 ## ArgoCD Status
 - gitops: Synced/Healthy
@@ -524,13 +572,16 @@ argocd:
 
 ### Validation Tiers Summary
 
-| Tier | Time | Command | Catches |
-|------|------|---------|---------|
-| 1 | ~2s | `task chart:lint` | Syntax, schema, formatting |
-| 2 | ~5s | `helm template $CHART charts/$CHART -f charts/$CHART/values.yaml -f charts/$CHART/values-homelab.yaml \| kubectl apply --dry-run=server -f -` | CRD schema mismatches |
-| 3 | ~30s | `helm template $CHART charts/$CHART -f charts/$CHART/values.yaml -f charts/$CHART/values-homelab.yaml -s templates/X.yaml > /tmp/X.yaml && kubectl apply -f /tmp/X.yaml` | Runtime issues |
-| 4 | ~5min | Full GitOps cycle (git push → ArgoCD sync) | Integration issues |
-| 5 | ~10s | Context-aware validation (component-specific checks) | Component-specific issues |
+⛔ **Tiers 3 and 4 are retired for agents (ADR-009).** An agent uses Tiers 1, 2 (Kind
+only) and 5.
+
+| Tier | Agents? | Time | Command | Catches |
+|------|---------|------|---------|---------|
+| 1 | ✅ mandatory | ~2s | `task verify` | Render, schema, GitOps graph, snapshots, policy |
+| 2 | ✅ Kind only | ~5s | `helm template $CHART charts/$CHART -f charts/$CHART/values.yaml -f charts/$CHART/values-homelab.yaml \| kubectl apply --dry-run=server -f -` | CRD schema mismatches |
+| 3 | ⛔ retired | ~30s | `helm template ... > /tmp/X.yaml && kubectl apply -f /tmp/X.yaml` | Runtime issues (human-only) |
+| 4 | ⛔ retired | ~5min | Full GitOps cycle (repoint live Applications → sync) | Integration issues (human-only) |
+| 5 | ✅ | ~10s | Context-aware validation (component-specific checks) | Component-specific issues |
 
 ### Generic Render/Apply/Assert Commands
 
@@ -563,7 +614,7 @@ kubectl get application "$APP_NAME" -n argocd -o jsonpath='Sync:{.status.sync.st
 #### Step 1: Identify the Component Under Test
 
 Before running Tier 5, determine what was modified:
-- What template was rendered/applied in Tier 3?
+- What template was changed (and, for a human working Tier 3, applied)?
 - What ArgoCD Application was affected?
 - What namespace and resources were changed?
 
@@ -749,15 +800,11 @@ Start: Make changes to charts/**/*
   │   ├── FAIL → Fix locally, check CRDs
   │   └── PASS ↓
   │
-  ├── Run Tier 3 (direct apply) [OPTIONAL for quick iteration]
-  │   ├── FAIL → Fix locally, iterate fast
-  │   └── PASS ↓
+  ├── ⛔ Tier 3 / Tier 4 — RETIRED FOR AGENTS (ADR-009), human-only
   │
-  ├── Run Tier 4 (full GitOps)
-  │   ├── FAIL → Analyze, fix, loop back to Tier 1
-  │   └── PASS ↓
-  │
-  └── Create PR → CI passes → Merge → Done
+  └── Create PR → CI passes → Merge → ArgoCD applies → Done
 ```
 
-**Key Insight**: 80% of errors are caught in Tiers 1-2 (~7 seconds). Reserve Tier 4 for final validation only.
+**Key Insight**: almost every error is caught in Tier 1 (~2 seconds). An agent's loop
+ends at the PR; ArgoCD applies the change after merge, and CI is the production
+feedback signal.
