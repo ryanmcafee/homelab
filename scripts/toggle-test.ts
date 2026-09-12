@@ -9,9 +9,19 @@
  * and asserts each rendered output matches its expected shape (TGL-01..TGL-04).
  *
  * - GPU_VENDOR=none   → no GPU operator Applications, no Plex GPU block
- * - GPU_VENDOR=nvidia → byte-identical to tests/fixtures/toggle-baseline/nvidia/
- * - GPU_VENDOR=intel  → intel-gpu-device-plugin Application present, Plex requests
- *                       gpu.intel.com/xe, /dev/dri mounted, no runtimeClassName
+ * - GPU_VENDOR=nvidia → byte-identical to the golden snapshots at
+ *                       tests/snapshots/homelab/{addons,applications}.yaml
+ *                       (homelab.yaml.example, which this snapshot was
+ *                       rendered from, sets GPU_VENDOR: nvidia). A mismatch
+ *                       means either a real regression or that the snapshots
+ *                       are stale — run `task test:snapshot -- --update` and
+ *                       review the diff before trusting either explanation.
+ * - GPU_VENDOR=intel  → intel-gpu-device-plugin Application present, Plex has
+ *                       /dev/dri mounted, no runtimeClassName. Plex does NOT
+ *                       yet request the gpu.intel.com/xe resource — that
+ *                       limit is intentionally omitted (see
+ *                       configuration/templates/helm-apps.tmpl) until the
+ *                       device plugin advertises it in node allocatable.
  *
  * All three renders are validated against `helm lint` and `kubeconform -strict`.
  *
@@ -24,6 +34,8 @@
  *
  * Exit codes: 0 = all assertions pass; 1 = any failure.
  */
+
+import { parse as parseYaml } from "jsr:@std/yaml@^1";
 
 // ============================================================================
 // Logging
@@ -48,15 +60,55 @@ const ALL_VENDORS: Vendor[] = ["none", "nvidia", "intel"];
 // ARTIFACT_ROOT is assigned at runtime from Deno.makeTempDir() to avoid
 // predictable paths in /tmp (symlink-swap exposure). See initArtifactRoot().
 let ARTIFACT_ROOT = "";
-const BASELINE_ROOT = "tests/fixtures/toggle-baseline";
+// SNAPSHOT_DIR holds the golden, byte-exact renders produced by
+// `task test:snapshot -- --update` (see internal/verify/snapshot.go). The
+// nvidia toggle state is asserted against SNAPSHOT_DIR/{addons,applications}.yaml
+// instead of a separate fixture, so there is exactly one source of truth for
+// "what does a homelab render look like" — this test's own render must match
+// internal/verify/render.go's invocation exactly (release name, --include-crds,
+// -f order) for that comparison to be meaningful. See renderChart() below.
+const SNAPSHOT_DIR = "tests/snapshots/homelab";
 const HOMELAB_BIN = "./bin/homelab";
 const ADDONS_CHART = "charts/addons";
 const APPS_CHART = "charts/applications";
 // KUBERNETES_VERSION is the schema version kubeconform validates against.
-// Source of truth: the Talos cluster version currently deployed. Keep in sync
-// with the Talos release used in terragrunt/modules/talos-cluster/. If the
-// cluster is upgraded, bump this constant so the schema check reflects reality.
-const KUBERNETES_VERSION = "1.30.0";
+// Source of truth: configuration/versions.yaml's tools.kubernetes (the single
+// centralized version registry — see readKubernetesVersion() below). Loaded at
+// runtime so this test never drifts from the version the rest of the project
+// already tracks; bumping tools.kubernetes there is sufficient to keep this
+// check in sync.
+let KUBERNETES_VERSION = "";
+
+// VERSIONS_YAML_PATH is the centralized version registry read by
+// readKubernetesVersion().
+const VERSIONS_YAML_PATH = "configuration/versions.yaml";
+
+// ============================================================================
+// Version registry
+// ============================================================================
+// Reads tools.kubernetes from configuration/versions.yaml and strips any
+// leading "v" (the registry stores tags like "v1.36.1"; kubeconform's
+// -kubernetes-version flag expects a bare "1.36.1").
+async function readKubernetesVersion(): Promise<string> {
+  let raw: string;
+  try {
+    raw = await Deno.readTextFile(VERSIONS_YAML_PATH);
+  } catch (err) {
+    throw new Error(
+      `Could not read ${VERSIONS_YAML_PATH} to determine kubeconform's -kubernetes-version: ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    );
+  }
+  const parsed = parseYaml(raw) as { tools?: { kubernetes?: string } } | null;
+  const version = parsed?.tools?.kubernetes;
+  if (!version) {
+    throw new Error(
+      `${VERSIONS_YAML_PATH} is missing tools.kubernetes — cannot determine kubeconform's -kubernetes-version`,
+    );
+  }
+  return version.replace(/^v/, "");
+}
 
 // ============================================================================
 // CLI args
@@ -66,7 +118,6 @@ interface Args {
   dryRun: boolean;
   keepArtifacts: boolean;
   vendor: Vendor | null;
-  regenBaseline: boolean;
 }
 
 function parseArgs(argv: string[]): Args {
@@ -75,13 +126,11 @@ function parseArgs(argv: string[]): Args {
     dryRun: false,
     keepArtifacts: false,
     vendor: null,
-    regenBaseline: false,
   };
   for (const a of argv) {
     if (a === "--help" || a === "-h") args.help = true;
     else if (a === "--dry-run") args.dryRun = true;
     else if (a === "--keep-artifacts") args.keepArtifacts = true;
-    else if (a === "--regen-baseline") args.regenBaseline = true;
     else if (a.startsWith("--vendor=")) {
       const v = a.slice("--vendor=".length);
       if (v !== "none" && v !== "nvidia" && v !== "intel") {
@@ -110,11 +159,14 @@ Flags:
   --dry-run          Print the planned vendor matrix and exit 0 (no rendering)
   --vendor=<v>       Run only one vendor (none|nvidia|intel); default: all three
   --keep-artifacts   Do not delete the artifact temp dir on exit
-  --regen-baseline   Regenerate tests/fixtures/toggle-baseline/nvidia/ from current code
+
+  On a GPU_VENDOR=nvidia mismatch against the golden snapshots, run
+  \`task test:snapshot -- --update\` and review the diff — see
+  tests/snapshots/README.md.
 
 Constants:
   ARTIFACT_ROOT  = <allocated at runtime via Deno.makeTempDir>
-  BASELINE_ROOT  = ${BASELINE_ROOT}
+  SNAPSHOT_DIR   = ${SNAPSHOT_DIR}
   HOMELAB_BIN    = ${HOMELAB_BIN}
   ADDONS_CHART   = ${ADDONS_CHART}
   APPS_CHART     = ${APPS_CHART}
@@ -256,12 +308,21 @@ async function renderChart(
   }
   await writeFile(outValuesPath, valuesResult.stdout);
 
-  // STAGE B: helm template using the captured values file
+  // STAGE B: helm template using the captured values file. Flags and -f
+  // order deliberately mirror internal/verify/render.go's renderChart()
+  // exactly (release name = chart dir name, --include-crds, base
+  // values.yaml before the config-export-generated file) — the nvidia
+  // toggle state is asserted byte-for-byte against the golden snapshots
+  // that render produces, so any divergence here would either produce
+  // false failures or mask real ones.
   const templateResult = await run([
     "helm",
     "template",
     releaseName,
     chartPath,
+    "--include-crds",
+    "-f",
+    `${chartPath}/values.yaml`,
     "-f",
     outValuesPath,
   ]);
@@ -283,7 +344,17 @@ async function lintVendor(
   const addonsValues = `${outDir}/addons-values.yaml`;
   const appsValues = `${outDir}/apps-values.yaml`;
 
-  const a = await run(["helm", "lint", ADDONS_CHART, "-f", addonsValues]);
+  // Same -f set as renderChart()/render.go's lintChart(): base values.yaml
+  // plus the config-export-generated file, in that order.
+  const a = await run([
+    "helm",
+    "lint",
+    ADDONS_CHART,
+    "-f",
+    `${ADDONS_CHART}/values.yaml`,
+    "-f",
+    addonsValues,
+  ]);
   if (a.code !== 0) {
     return {
       ok: false,
@@ -291,7 +362,15 @@ async function lintVendor(
         `helm lint ${ADDONS_CHART} failed for ${vendor}:\n${a.stdout}\n${a.stderr}`,
     };
   }
-  const b = await run(["helm", "lint", APPS_CHART, "-f", appsValues]);
+  const b = await run([
+    "helm",
+    "lint",
+    APPS_CHART,
+    "-f",
+    `${APPS_CHART}/values.yaml`,
+    "-f",
+    appsValues,
+  ]);
   if (b.code !== 0) {
     return {
       ok: false,
@@ -314,7 +393,10 @@ async function kubeconformVendor(
   const args = [
     "-strict",
     "-summary",
-    "-ignore-missing-schemas",
+    "-schema-location",
+    "default",
+    "-schema-location",
+    "tests/schemas/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json",
     "-kubernetes-version",
     KUBERNETES_VERSION,
   ];
@@ -322,8 +404,7 @@ async function kubeconformVendor(
   if (a.code !== 0) {
     return {
       ok: false,
-      err:
-        `kubeconform addons failed for ${vendor}:\n${a.stdout}\n${a.stderr}`,
+      err: `kubeconform addons failed for ${vendor}:\n${a.stdout}\n${a.stderr}`,
     };
   }
   const b = await run(["kubeconform", ...args, appsRendered]);
@@ -400,16 +481,46 @@ interface AssertionFailure {
   detail: string;
 }
 
+// stripFullCommentLines drops lines whose first non-whitespace character is
+// "#" (whole-line YAML comments) before a substring search, so a
+// human-readable note in the rendered chart (e.g. "# ...gpu.intel.com/xe...")
+// can't produce a false-positive "must not contain" failure, and so a
+// "must contain" check can't be satisfied by that same boilerplate comment
+// while the real field it's meant to guard is silently missing. Trailing
+// inline comments on an otherwise live line (`key: value # note`) are
+// deliberately left alone — only lines that are comments in their entirety
+// are removed.
+//
+// Known limitation: this is a plain line-prefix filter, not a YAML/Helm
+// parser, so it also strips "#"-prefixed lines that appear inside a block
+// scalar (`|`/`>`) value — e.g. an inline shell script or config file
+// embedded via `helm.values` where a leading "#" starts what is actually a
+// comment *inside that embedded content*, not a YAML comment on the chart
+// itself. That's the intended behavior for genuine YAML comments in the
+// rendered chart, but it means a needle that only ever appears as a
+// comment line *inside* such embedded content would be invisible to these
+// assertions too. None of the current mustContain/mustNotContain needles in
+// this file target embedded-script content, so this doesn't affect today's
+// checks — but keep it in mind before asserting on rendered block-scalar
+// bodies.
+function stripFullCommentLines(text: string): string {
+  return text
+    .split("\n")
+    .filter((line) => !line.trimStart().startsWith("#"))
+    .join("\n");
+}
+
 function mustNotContain(
   label: string,
   haystack: string,
   needle: string,
   failures: AssertionFailure[],
 ): void {
-  if (haystack.includes(needle)) {
+  const codeOnly = stripFullCommentLines(haystack);
+  if (codeOnly.includes(needle)) {
     failures.push({
       rule: `${label} MUST NOT contain "${needle}"`,
-      detail: `found at byte offset ${haystack.indexOf(needle)}`,
+      detail: `found at byte offset ${codeOnly.indexOf(needle)}`,
     });
   }
 }
@@ -420,7 +531,8 @@ function mustContain(
   needle: string,
   failures: AssertionFailure[],
 ): void {
-  if (!haystack.includes(needle)) {
+  const codeOnly = stripFullCommentLines(haystack);
+  if (!codeOnly.includes(needle)) {
     failures.push({
       rule: `${label} MUST contain "${needle}"`,
       detail: `not found`,
@@ -447,35 +559,41 @@ function assertNone(addonsYaml: string, appsYaml: string): AssertionFailure[] {
   return f;
 }
 
+// SNAPSHOT_MISMATCH_HINT is appended to a failing nvidia assertion's detail.
+// A mismatch means either a real regression, or that the golden snapshots
+// are stale relative to current source — `task test:snapshot -- --update`
+// regenerates them (from the same env.EnvFile / helm invocation this test
+// mirrors), and the resulting diff is a reviewable, committed change, same
+// as the (now-removed) --regen-baseline flow used to be for the old fixture.
+const SNAPSHOT_MISMATCH_HINT = "run: task test:snapshot -- --update";
+
 async function assertNvidia(
   addonsYaml: string,
   appsYaml: string,
   outDir: string,
 ): Promise<AssertionFailure[]> {
   const f: AssertionFailure[] = [];
-  const baselineAddons = await Deno.readTextFile(
-    `${BASELINE_ROOT}/nvidia/addons.yaml`,
-  );
-  const baselineApps = await Deno.readTextFile(
-    `${BASELINE_ROOT}/nvidia/applications.yaml`,
-  );
+  const snapshotAddonsPath = `${SNAPSHOT_DIR}/addons.yaml`;
+  const snapshotAppsPath = `${SNAPSHOT_DIR}/applications.yaml`;
+  const snapshotAddons = await Deno.readTextFile(snapshotAddonsPath);
+  const snapshotApps = await Deno.readTextFile(snapshotAppsPath);
 
-  if (addonsYaml !== baselineAddons) {
+  if (addonsYaml !== snapshotAddons) {
     f.push({
-      rule: "addons[nvidia] MUST be byte-identical to baseline",
-      detail: await unifiedDiff(
-        `${BASELINE_ROOT}/nvidia/addons.yaml`,
+      rule: "addons[nvidia] MUST be byte-identical to the golden snapshot",
+      detail: `${await unifiedDiff(
+        snapshotAddonsPath,
         `${outDir}/addons.yaml`,
-      ),
+      )}\n${SNAPSHOT_MISMATCH_HINT}`,
     });
   }
-  if (appsYaml !== baselineApps) {
+  if (appsYaml !== snapshotApps) {
     f.push({
-      rule: "apps[nvidia] MUST be byte-identical to baseline",
-      detail: await unifiedDiff(
-        `${BASELINE_ROOT}/nvidia/applications.yaml`,
+      rule: "apps[nvidia] MUST be byte-identical to the golden snapshot",
+      detail: `${await unifiedDiff(
+        snapshotAppsPath,
         `${outDir}/applications.yaml`,
-      ),
+      )}\n${SNAPSHOT_MISMATCH_HINT}`,
     });
   }
   return f;
@@ -488,8 +606,15 @@ function assertIntel(addonsYaml: string, appsYaml: string): AssertionFailure[] {
   mustContain("addons[intel]", addonsYaml, "kind: Application", f);
   // NVIDIA operator Application absent
   mustNotContain("addons[intel]", addonsYaml, "name: nvidia-gpu-operator", f);
-  // Plex Intel bits
-  mustContain("apps[intel]", appsYaml, "gpu.intel.com/xe", f);
+  // Plex Intel bits. No mustContain(..., "gpu.intel.com/xe", ...) here: per
+  // configuration/templates/helm-apps.tmpl (see the "NOTE: gpu.intel.com/xe
+  // resource limit intentionally NOT set yet" comment there) and
+  // charts/applications/values.yaml, that resource limit is deliberately
+  // omitted until the intel-gpu-device-plugin actually advertises
+  // gpu.intel.com/xe in node allocatable on this cluster — asserting on it
+  // would either false-pass against a stray comment (as it did before) or
+  // permanently fail against the intentional current design. Plex instead
+  // uses a hostPath /dev/dri mount, which the two checks below do cover.
   mustContain("apps[intel]", appsYaml, "path: /dev/dri", f);
   mustContain("apps[intel]", appsYaml, "mountPath: /dev/dri", f);
   // Plex must NOT have NVIDIA bits
@@ -558,41 +683,6 @@ function stripAnsi(s: string): string {
 }
 
 // ============================================================================
-// Regen baseline
-// ============================================================================
-async function regenBaseline(): Promise<number> {
-  log.info(
-    "Regenerating tests/fixtures/toggle-baseline/nvidia/ from current code",
-  );
-  await ensureHomelabBinary();
-  const tmpDir = `${ARTIFACT_ROOT}/regen-nvidia`;
-  await ensureDir(tmpDir);
-  const r = await renderVendor("nvidia", tmpDir);
-  // Gate baseline overwrites on ALL pre-flight checks (render + lint + kubeconform).
-  // Without this, a broken render (schema regression, CRD typo, sync-wave mistake)
-  // would silently become the new baseline and compare broken-vs-broken on the next
-  // toggle-test run, masking the regression indefinitely.
-  if (!r.renderOk || !r.lintOk || !r.kubeconformOk) {
-    log.error("Regen pre-flight failed; refusing to overwrite baseline:");
-    for (const e of r.errors) console.error(e);
-    return 1;
-  }
-  await Deno.copyFile(
-    `${tmpDir}/addons.yaml`,
-    `${BASELINE_ROOT}/nvidia/addons.yaml`,
-  );
-  await Deno.copyFile(
-    `${tmpDir}/applications.yaml`,
-    `${BASELINE_ROOT}/nvidia/applications.yaml`,
-  );
-  log.ok(`Baseline regenerated at ${BASELINE_ROOT}/nvidia/`);
-  log.warn(
-    "Review the diff with `git diff tests/fixtures/toggle-baseline/` before committing.",
-  );
-  return 0;
-}
-
-// ============================================================================
 // Main
 // ============================================================================
 async function main(): Promise<number> {
@@ -603,22 +693,22 @@ async function main(): Promise<number> {
     return 0;
   }
 
+  KUBERNETES_VERSION = await readKubernetesVersion();
+  log.info(
+    `Kubernetes schema version (from ${VERSIONS_YAML_PATH}): ${KUBERNETES_VERSION}`,
+  );
+
   // Allocate a non-predictable artifact root via Deno.makeTempDir to avoid
   // the hardcoded /tmp/gpu-toggle-test path (symlink-swap exposure on
-  // multi-user systems). Needed by both regen and normal runs, so allocate
-  // before branching. makeTempDir creates the directory fresh, so no pre-run
-  // cleanup of a previous tree is needed.
+  // multi-user systems). makeTempDir creates the directory fresh, so no
+  // pre-run cleanup of a previous tree is needed.
   ARTIFACT_ROOT = await Deno.makeTempDir({ prefix: "gpu-toggle-test-" });
-
-  if (args.regenBaseline) {
-    return await regenBaseline();
-  }
 
   const targetVendors: Vendor[] = args.vendor ? [args.vendor] : ALL_VENDORS;
 
   log.info(`Toggle test harness — vendors: ${targetVendors.join(", ")}`);
   log.info(`Artifact root: ${ARTIFACT_ROOT}`);
-  log.info(`Baseline root: ${BASELINE_ROOT}`);
+  log.info(`Snapshot dir: ${SNAPSHOT_DIR}`);
 
   if (args.dryRun) {
     log.info("Dry-run mode — listing planned operations and exiting.");
