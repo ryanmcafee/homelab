@@ -20,9 +20,10 @@ tasks:
       - ./bin/homelab validate
 
   install-tools:
-    desc: Install required CLI tools via mise
+    desc: Install required CLI tools via mise (also creates the terraform plugin cache dir mise.toml points at)
     cmds:
       - mise install -y
+      - mkdir -p .terraform.d/plugin-cache
 
   mise:doctor:
     desc: Run mise diagnostics
