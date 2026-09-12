@@ -11,13 +11,6 @@ spec:
     privateKeySecretRef:
       name: letsencrypt-account-key
     solvers:
-    - dns01:
-        cloudflare:
-          email: admin@example.com
-          apiTokenSecretRef:
-            name: cloudflare-api-token
-            key: api_token
-        cnameStrategy: Follow
-      selector:
-        dnsZones:
-          - example.com
+    - http01:
+        ingress:
+          class: traefik

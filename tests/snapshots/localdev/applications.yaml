@@ -34,15 +34,6 @@ metadata:
   annotations:
     argocd.argoproj.io/sync-wave: "10"
 ---
-# Source: applications/templates/renovate.yaml
-# Namespace for Renovate resources
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: renovate
-  annotations:
-    argocd.argoproj.io/sync-wave: "10"
----
 # Source: applications/templates/oci-repositories.yaml
 apiVersion: v1
 kind: Secret
@@ -57,23 +48,6 @@ stringData:
   name: truecharts
   type: helm
   url: oci.trueforge.org/truecharts
-  enableOCI: "true"
----
-# Source: applications/templates/renovate.yaml
-# OCI Repository: registers Renovate Helm chart registry in ArgoCD
-apiVersion: v1
-kind: Secret
-metadata:
-  name: renovatebot-oci
-  namespace: argocd
-  labels:
-    argocd.argoproj.io/secret-type: repository
-  annotations:
-    argocd.argoproj.io/sync-wave: "11"
-stringData:
-  name: renovatebot
-  type: helm
-  url: ghcr.io/renovatebot/charts
   enableOCI: "true"
 ---
 # Source: applications/templates/oci-repositories.yaml
@@ -235,6 +209,8 @@ metadata:
   namespace: argocd
   annotations:
     argocd.argoproj.io/sync-wave: "13"
+    homelab.ryanmcafee.com/policy-exempt: "hostname-domain"
+    homelab.ryanmcafee.com/policy-exempt-reason: "GitHub issue #263: localdev renders addons/applications without the CMP domain-substitution stage (CLAUDE.md's CMP Architecture: localdev uses native Helm with values-localdev.yaml, no CMP), so this Ingress hostname stays the checked-in values.yaml placeholder here; it is never resolved or used in localdev (services are reached via NodePort). Fix is to generate values-localdev.yaml from config; remove this exemption then. In homelab this hostname is correctly domain-derived by the two-stage config-export flow, so the exemption is scoped to localdev only."
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
@@ -500,6 +476,8 @@ metadata:
   namespace: argocd
   annotations:
     argocd.argoproj.io/sync-wave: "13"
+    homelab.ryanmcafee.com/policy-exempt: "hostname-domain"
+    homelab.ryanmcafee.com/policy-exempt-reason: "GitHub issue #263: localdev renders addons/applications without the CMP domain-substitution stage (CLAUDE.md's CMP Architecture: localdev uses native Helm with values-localdev.yaml, no CMP), so this Ingress hostname stays the checked-in values.yaml placeholder here; it is never resolved or used in localdev (services are reached via NodePort). Fix is to generate values-localdev.yaml from config; remove this exemption then. In homelab this hostname is correctly domain-derived by the two-stage config-export flow, so the exemption is scoped to localdev only."
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
@@ -631,6 +609,8 @@ metadata:
   namespace: argocd
   annotations:
     argocd.argoproj.io/sync-wave: "12"
+    homelab.ryanmcafee.com/policy-exempt: "image-latest,hostname-domain"
+    homelab.ryanmcafee.com/policy-exempt-reason: "image-latest: upstream plexinc/pms-docker publishes no numbered release tags; tracking :latest is the documented, intentional deployment model for Plex. hostname-domain: GitHub issue #263: localdev renders addons/applications without the CMP domain-substitution stage (CLAUDE.md's CMP Architecture: localdev uses native Helm with values-localdev.yaml, no CMP), so the ingress hostname stays the checked-in values.yaml placeholder here; it is never resolved or used in localdev (services are reached via NodePort). Fix is to generate values-localdev.yaml from config; remove the hostname-domain exemption then. In homelab this hostname is correctly domain-derived by the two-stage config-export flow, so that part of the exemption is scoped to localdev only."
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
@@ -778,6 +758,8 @@ metadata:
   namespace: argocd
   annotations:
     argocd.argoproj.io/sync-wave: "13"
+    homelab.ryanmcafee.com/policy-exempt: "hostname-domain"
+    homelab.ryanmcafee.com/policy-exempt-reason: "GitHub issue #263: localdev renders addons/applications without the CMP domain-substitution stage (CLAUDE.md's CMP Architecture: localdev uses native Helm with values-localdev.yaml, no CMP), so this Ingress hostname stays the checked-in values.yaml placeholder here; it is never resolved or used in localdev (services are reached via NodePort). Fix is to generate values-localdev.yaml from config; remove this exemption then. In homelab this hostname is correctly domain-derived by the two-stage config-export flow, so the exemption is scoped to localdev only."
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
@@ -910,6 +892,8 @@ metadata:
   namespace: argocd
   annotations:
     argocd.argoproj.io/sync-wave: "13"
+    homelab.ryanmcafee.com/policy-exempt: "hostname-domain"
+    homelab.ryanmcafee.com/policy-exempt-reason: "GitHub issue #263: localdev renders addons/applications without the CMP domain-substitution stage (CLAUDE.md's CMP Architecture: localdev uses native Helm with values-localdev.yaml, no CMP), so this Ingress hostname stays the checked-in values.yaml placeholder here; it is never resolved or used in localdev (services are reached via NodePort). Fix is to generate values-localdev.yaml from config; remove this exemption then. In homelab this hostname is correctly domain-derived by the two-stage config-export flow, so the exemption is scoped to localdev only."
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
@@ -1015,103 +999,6 @@ spec:
         factor: 2
         maxDuration: 3m
 ---
-# Source: applications/templates/renovate.yaml
-# Config Application: deploys OnePasswordItem for Renovate tokens
-apiVersion: argoproj.io/v1alpha1
-kind: Application
-metadata:
-  name: renovate-config
-  namespace: argocd
-  annotations:
-    argocd.argoproj.io/sync-wave: "11"
-  finalizers:
-    - resources-finalizer.argocd.argoproj.io
-spec:
-  project: default
-  source:
-    repoURL: https://github.com/ryanmcafee/homelab.git
-    targetRevision: main
-    path: charts/renovate-config
-    helm:
-      valueFiles:
-        - values.yaml
-        - values-localdev.yaml
-  destination:
-    server: https://kubernetes.default.svc
-    namespace: renovate
-  syncPolicy:
-    automated:
-      prune: true
-      selfHeal: true
-    syncOptions:
-      - CreateNamespace=true
-      - ServerSideApply=true
-      - SkipDryRunOnMissingResource=true
----
-# Source: applications/templates/renovate.yaml
-# Renovate Application: deploys the dependency update CronJob
-apiVersion: argoproj.io/v1alpha1
-kind: Application
-metadata:
-  name: renovate
-  namespace: argocd
-  annotations:
-    argocd.argoproj.io/sync-wave: "12"
-  finalizers:
-    - resources-finalizer.argocd.argoproj.io
-spec:
-  project: default
-  source:
-    repoURL: ghcr.io/renovatebot/charts
-    chart: renovate
-    targetRevision: 46.49.0
-    helm:
-      releaseName: renovate
-      values: |
-        cronjob:
-          schedule: "0 */4 * * *"
-
-        envFrom:
-          - secretRef:
-              name: renovate-token
-
-        renovate:
-          config: |
-            {
-              "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-              "platform": "github",
-              "repositories": ["ryanmcafee/homelab"],
-              "gitAuthor": "Renovate Bot <renovate@ryanmcafee.com>",
-              "onboarding": false,
-              "requireConfig": "optional"
-            }
-        resources:
-          limits:
-            cpu: 2000m
-            memory: 2Gi
-          requests:
-            cpu: 500m
-            memory: 512Mi
-
-  destination:
-    server: https://kubernetes.default.svc
-    namespace: renovate
-
-  syncPolicy:
-    automated:
-      prune: true
-      selfHeal: true
-    syncOptions:
-      - CreateNamespace=true
-      - ServerSideApply=true
-      - ApplyOutOfSyncOnly=true
-    retry:
-      limit: 5
-      backoff:
-        duration: 5s
-        factor: 2
-        maxDuration: 3m
----
 # Source: applications/templates/sonarr.yaml
 # Sonarr Config: deploys static PV+PVC for sonarr persistent storage
 apiVersion: argoproj.io/v1alpha1
@@ -1153,6 +1040,8 @@ metadata:
   namespace: argocd
   annotations:
     argocd.argoproj.io/sync-wave: "13"
+    homelab.ryanmcafee.com/policy-exempt: "hostname-domain"
+    homelab.ryanmcafee.com/policy-exempt-reason: "GitHub issue #263: localdev renders addons/applications without the CMP domain-substitution stage (CLAUDE.md's CMP Architecture: localdev uses native Helm with values-localdev.yaml, no CMP), so this Ingress hostname stays the checked-in values.yaml placeholder here; it is never resolved or used in localdev (services are reached via NodePort). Fix is to generate values-localdev.yaml from config; remove this exemption then. In homelab this hostname is correctly domain-derived by the two-stage config-export flow, so the exemption is scoped to localdev only."
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
@@ -1299,6 +1188,8 @@ metadata:
   namespace: argocd
   annotations:
     argocd.argoproj.io/sync-wave: "13"
+    homelab.ryanmcafee.com/policy-exempt: "hostname-domain"
+    homelab.ryanmcafee.com/policy-exempt-reason: "GitHub issue #263: localdev renders addons/applications without the CMP domain-substitution stage (CLAUDE.md's CMP Architecture: localdev uses native Helm with values-localdev.yaml, no CMP), so this Ingress hostname stays the checked-in values.yaml placeholder here; it is never resolved or used in localdev (services are reached via NodePort). Fix is to generate values-localdev.yaml from config; remove this exemption then. In homelab this hostname is correctly domain-derived by the two-stage config-export flow, so the exemption is scoped to localdev only."
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
