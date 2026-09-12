@@ -74,12 +74,16 @@ Current exemptions in the rendered repo:
   is exempt from `app-automated` (Talos manages the CNI directly; ArgoCD must
   not prune or self-heal it) and from `app-finalizer` (deleting this
   Application must never cascade-delete the CNI Talos installed and manages).
+  Unconditional (both envs).
 - `charts/applications/templates/plex.yaml` — Plex is exempt from
   `image-latest` (upstream `plexinc/pms-docker` publishes no numbered image
   tags; `:latest` tracking is the documented, intentional deployment model).
+  Unconditional (both envs).
 - `charts/applications/templates/homeassistant.yaml` — Home Assistant is
   exempt from `image-latest` (the `lscr.io/linuxserver/homeassistant` image is
   intentionally tracked at `:latest` for automatic updates in this homelab).
+  Unconditional (both envs); currently moot since `home-assistant.enabled` is
+  `false` by default.
 - `charts/traefik-external-config/templates/{dashboard,oidc}.yaml` and
   `charts/traefik-internal-config/templates/dashboard.yaml` — the dashboard/
   OIDC DNSEndpoint, Certificate and IngressRoute objects are exempt from
@@ -87,7 +91,30 @@ Current exemptions in the rendered repo:
   `global.domain` in `values-homelab.yaml` instead of taking `DOMAIN` from the
   centralized config system, so their hostnames are correct in real
   deployments but can never match the level-0 placeholder domain. Remove
-  these exemptions once #262 is fixed.
+  these exemptions once #262 is fixed. Unconditional (both envs — the gap
+  exists in both).
+- `charts/bootstrap/templates/argocd.yaml` — the `argocd` Application is
+  exempt from `hostname-domain`, same **GitHub issue #262** class: its inline
+  `spec.source.helm.values` sets the ArgoCD server hostname from this chart's
+  own `values-homelab.yaml`, not the centralized config. Unconditional (both
+  envs).
+- `charts/addons/templates/{kube-prometheus-stack,traefik-external,traefik-internal}.yaml`
+  and `charts/applications/templates/{sonarr,radarr,prowlarr,nzbget,tautulli,
+  lazylibrarian,plex,homeassistant}.yaml` — exempt from `hostname-domain`
+  **only when `.Values.global.environment == "localdev"`**
+  (`{{- if eq .Values.global.environment "localdev" }}`): per **GitHub issue
+  #263**, `addons`/`applications` never go through the CMP domain-substitution
+  stage for localdev (CLAUDE.md's CMP Architecture documents this as
+  intentional — localdev uses native Helm with `values-localdev.yaml`, no
+  CMP), so these Applications' inline Ingress/IngressRoute hostnames stay the
+  checked-in `values.yaml` placeholder there. In homelab, the same objects
+  ARE checked (no exemption rendered) because the two-stage config-export
+  flow correctly derives their hostname from `DOMAIN` — verified by
+  rendering both envs: `policy/homelab` shows these 11 objects with no
+  `policy-exempt` annotation and still passing; `policy/localdev` shows the
+  annotation present. `plex` and `homeassistant` combine this with their
+  unconditional `image-latest` exemption above (one shared reason per env
+  branch); see those two templates for the exact conditional structure.
 
 ## Running
 

@@ -39,8 +39,10 @@ metadata:
   namespace: argocd
   annotations:
     argocd.argoproj.io/sync-wave: "13"
+    {{- if eq .Values.global.environment "localdev" }}
     homelab.ryanmcafee.com/policy-exempt: "hostname-domain"
-    homelab.ryanmcafee.com/policy-exempt-reason: "localdev renders addons/applications without the CMP domain-substitution stage (CLAUDE.md's CMP Architecture: localdev uses native Helm with values-localdev.yaml, no CMP), so this Ingress hostname stays the checked-in values.yaml placeholder there; it is never resolved or used in localdev (services are reached via NodePort), and is correctly domain-derived for homelab via the two-stage config-export flow. Distinct root cause from GitHub issue #262 (values-homelab.yaml hardcoding); worth its own follow-up issue."
+    homelab.ryanmcafee.com/policy-exempt-reason: "GitHub issue #263: localdev renders addons/applications without the CMP domain-substitution stage (CLAUDE.md's CMP Architecture: localdev uses native Helm with values-localdev.yaml, no CMP), so this Ingress hostname stays the checked-in values.yaml placeholder here; it is never resolved or used in localdev (services are reached via NodePort). Fix is to generate values-localdev.yaml from config; remove this exemption then. In homelab this hostname is correctly domain-derived by the two-stage config-export flow, so the exemption is scoped to localdev only."
+    {{- end }}
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
