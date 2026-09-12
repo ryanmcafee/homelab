@@ -194,3 +194,151 @@ func TestGuardFailsOnUnreadableFile(t *testing.T) {
 		t.Errorf("error %q should say the file could not be read", err.Error())
 	}
 }
+
+// runCommandTree executes one invocation against a root built the way main
+// builds it, so the exit-code mapping under test is the real one.
+func runCommandTree(t *testing.T, args ...string) (error, string) {
+	t.Helper()
+
+	root := &cobra.Command{Use: "homelab", SilenceUsage: true, SilenceErrors: true}
+	root.SetFlagErrorFunc(UsageErrorFunc)
+	root.AddCommand(NewVerifyCmd())
+	root.AddCommand(NewConfigCmd())
+
+	var out bytes.Buffer
+	root.SetOut(&out)
+	root.SetErr(&out)
+	root.SetArgs(args)
+
+	return root.ExecuteContext(context.Background()), out.String()
+}
+
+// TestGroupCommandsRejectBadInvocations is the regression for the exit-code
+// hole: a command group declared neither Args nor RunE, so cobra printed help
+// and exited 0. `homelab verify rendr` therefore reported success, which to an
+// autonomous caller is indistinguishable from a clean verification.
+func TestGroupCommandsRejectBadInvocations(t *testing.T) {
+	tests := []struct {
+		name    string
+		args    []string
+		wantMsg string
+	}{
+		{
+			name:    "verify with no subcommand",
+			args:    []string{"verify"},
+			wantMsg: "requires a subcommand",
+		},
+		{
+			name:    "verify with an unknown subcommand",
+			args:    []string{"verify", "rendr"},
+			wantMsg: `unknown verify subcommand "rendr"`,
+		},
+		{
+			name:    "config with no subcommand",
+			args:    []string{"config"},
+			wantMsg: "requires a subcommand",
+		},
+		{
+			name:    "config with an unknown subcommand",
+			args:    []string{"config", "gaurd"},
+			wantMsg: `unknown config subcommand "gaurd"`,
+		},
+		{
+			name:    "an unexpected argument to verify all",
+			args:    []string{"verify", "all", "bogusarg"},
+			wantMsg: `unknown command "bogusarg"`,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err, printed := runCommandTree(t, tc.args...)
+			if err == nil {
+				t.Fatalf("%v must not succeed", tc.args)
+			}
+			if got := ExitCode(err); got != ExitUsage {
+				t.Errorf("ExitCode = %d, want %d (err: %v)", got, ExitUsage, err)
+			}
+			if !strings.Contains(err.Error(), tc.wantMsg) {
+				t.Errorf("error %q does not mention %q", err.Error(), tc.wantMsg)
+			}
+			// The caller has to be able to see what the valid subcommands are.
+			if !strings.Contains(printed, "Available Commands:") && !strings.Contains(printed, "Usage:") {
+				t.Errorf("expected help output, got:\n%s", printed)
+			}
+		})
+	}
+}
+
+// TestConfigExportRejectsBadInput covers the invocation mistakes that returned
+// plain errors (exit 1) or, with no flags at all, exported nothing and exited
+// 0. None of them resolves config first, so the exit code does not depend on
+// whether the environment file is present.
+func TestConfigExportRejectsBadInput(t *testing.T) {
+	tests := []struct {
+		name    string
+		args    []string
+		wantMsg string
+	}{
+		{
+			name:    "stdout without a format",
+			args:    []string{"config", "export", "--stdout"},
+			wantMsg: "--stdout requires --format",
+		},
+		{
+			name:    "stdout together with all",
+			args:    []string{"config", "export", "--stdout", "--all"},
+			wantMsg: "mutually exclusive",
+		},
+		{
+			name:    "an unknown format",
+			args:    []string{"config", "export", "--format", "bogus"},
+			wantMsg: `unknown format "bogus"`,
+		},
+		{
+			name:    "neither format nor all",
+			args:    []string{"config", "export"},
+			wantMsg: "requires --format or --all",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err, _ := runCommandTree(t, tc.args...)
+			if err == nil {
+				t.Fatalf("%v must not succeed", tc.args)
+			}
+			if got := ExitCode(err); got != ExitUsage {
+				t.Errorf("ExitCode = %d, want %d (err: %v)", got, ExitUsage, err)
+			}
+			if !strings.Contains(err.Error(), tc.wantMsg) {
+				t.Errorf("error %q does not mention %q", err.Error(), tc.wantMsg)
+			}
+		})
+	}
+}
+
+// TestGuardEmptyScopeIsAUsageError: an empty --paths scope is a bad
+// invocation, not a broken repository.
+func TestGuardEmptyScopeIsAUsageError(t *testing.T) {
+	err, _ := runCommandTree(t, "config", "guard", "--ci", "--paths", "no/such/path/**")
+	if err == nil {
+		t.Fatal("a scan scope of zero files must fail")
+	}
+	if got := ExitCode(err); got != ExitUsage {
+		t.Errorf("ExitCode = %d, want %d (err: %v)", got, ExitUsage, err)
+	}
+	if !strings.Contains(err.Error(), "scanned 0 files") {
+		t.Errorf("error %q should say the scan scope was empty", err.Error())
+	}
+}
+
+// TestExportFormatListMatchesTheTemplateMap keeps the usage message honest.
+func TestExportFormatListMatchesTheTemplateMap(t *testing.T) {
+	got := exportFormatList()
+	for name := range exportTemplates {
+		if !strings.Contains(got, name) {
+			t.Errorf("exportFormatList() = %q, missing %q", got, name)
+		}
+	}
+}

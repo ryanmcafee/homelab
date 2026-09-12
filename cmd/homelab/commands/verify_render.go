@@ -32,6 +32,46 @@ func UsageErrorFunc(c *cobra.Command, err error) error {
 	return NewUsageError(err)
 }
 
+// UsageArgs wraps a cobra positional-argument validator so a rejected argument
+// list becomes a UsageError (exit 2) instead of an ordinary error (exit 1).
+// cobra.NoArgs on its own reports a misuse, but exiting 1 made it read to an
+// autonomous caller as a broken repository.
+//
+// The root sets SilenceUsage, so help is printed here rather than by cobra.
+func UsageArgs(fn cobra.PositionalArgs) cobra.PositionalArgs {
+	return func(cmd *cobra.Command, args []string) error {
+		if err := fn(cmd, args); err != nil {
+			_ = cmd.Help()
+			return NewUsageError(err)
+		}
+		return nil
+	}
+}
+
+// GroupCommandArgs is the Args validator for a command group. A group carries
+// no behaviour of its own, so any positional argument is an unknown
+// subcommand: it is named, help is printed, and the command exits 2.
+func GroupCommandArgs(cmd *cobra.Command, args []string) error {
+	if len(args) == 0 {
+		return nil
+	}
+	_ = cmd.Help()
+	return NewUsageError(fmt.Errorf("unknown %s subcommand %q; run %s --help for the list",
+		cmd.Name(), args[0], cmd.CommandPath()))
+}
+
+// RunGroupCommand is the RunE of a command group. Cobra's default for a parent
+// with no RunE is to print help and exit 0, which reported both `homelab
+// verify` and `homelab verify rendr` as successes. A group is never runnable,
+// so invoking one directly is always a misuse.
+func RunGroupCommand(cmd *cobra.Command, args []string) error {
+	if len(args) > 0 {
+		return GroupCommandArgs(cmd, args)
+	}
+	_ = cmd.Help()
+	return NewUsageError(fmt.Errorf("%s requires a subcommand", cmd.CommandPath()))
+}
+
 // emitResult writes a Result as JSON or human-readable text and returns
 // ErrVerificationFailed when the result did not pass.
 func emitResult(cmd *cobra.Command, res *verify.Result, asJSON bool) error {

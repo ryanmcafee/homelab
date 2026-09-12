@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/ryanmcafee/homelab/internal/config"
@@ -32,6 +33,12 @@ func NewConfigCmd() *cobra.Command {
 		Use:   "config",
 		Short: "Configuration management — validate, eval, export, guard",
 		Long:  `Schema-driven configuration pipeline. Centralizes all environment-specific values (IPs, domains, secrets references) and exports consumer-specific files.`,
+		// A group is not runnable. Without these, `homelab config` and
+		// `homelab config gaurd` both printed help and exited 0.
+		Args:          GroupCommandArgs,
+		RunE:          RunGroupCommand,
+		SilenceUsage:  true,
+		SilenceErrors: true,
 	}
 
 	cmd.PersistentFlags().StringVar(&configRoot, "config-root", "", "Path to configuration/ directory (default: auto-detect)")
@@ -128,6 +135,27 @@ func newConfigEvalCmd() *cobra.Command {
 	}
 }
 
+// exportTemplates maps an export format to its template file. It is the single
+// list of valid --format values, so the flag help, the usage error and the
+// stdout path cannot drift apart.
+var exportTemplates = map[string]string{
+	"helm-addons": "helm-addons.tmpl",
+	"helm-apps":   "helm-apps.tmpl",
+	"tfvars":      "tfvars.tmpl",
+	"env":         "dotenv.tmpl",
+	"json":        "json.tmpl",
+}
+
+// exportFormatList is the sorted format list for messages.
+func exportFormatList() string {
+	names := make([]string, 0, len(exportTemplates))
+	for name := range exportTemplates {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return strings.Join(names, ", ")
+}
+
 func newConfigExportCmd() *cobra.Command {
 	var format string
 	var all bool
@@ -139,10 +167,22 @@ func newConfigExportCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// Validate stdout flag usage
 			if stdout && all {
-				return fmt.Errorf("--stdout and --all are mutually exclusive")
+				return usageErrorf("--stdout and --all are mutually exclusive")
 			}
 			if stdout && format == "" {
-				return fmt.Errorf("--stdout requires --format")
+				return usageErrorf("--stdout requires --format")
+			}
+			// With neither flag no target matches below, so the command
+			// exported nothing and still exited 0.
+			if !stdout && !all && format == "" {
+				return usageErrorf("export requires --format or --all")
+			}
+			// An unknown format is a misuse, so it is rejected before any
+			// config is resolved: the caller gets the same exit 2 whether or
+			// not the environment file happens to be present.
+			templateFile, known := exportTemplates[format]
+			if format != "" && !known {
+				return usageErrorf("unknown format %q (want one of %s)", format, exportFormatList())
 			}
 
 			rc, err := loadResolvedConfig()
@@ -153,22 +193,6 @@ func newConfigExportCmd() *cobra.Command {
 			// Handle stdout mode
 			if stdout {
 				root := getConfigRoot()
-				var templateFile string
-				switch format {
-				case "helm-addons":
-					templateFile = "helm-addons.tmpl"
-				case "helm-apps":
-					templateFile = "helm-apps.tmpl"
-				case "tfvars":
-					templateFile = "tfvars.tmpl"
-				case "env":
-					templateFile = "dotenv.tmpl"
-				case "json":
-					templateFile = "json.tmpl"
-				default:
-					return fmt.Errorf("unknown format: %s", format)
-				}
-
 				tmplPath := filepath.Join(root, "templates", templateFile)
 				output, err := config.Export(rc, tmplPath)
 				if err != nil {
@@ -302,7 +326,7 @@ An empty scan scope in CI mode is a failure, never a pass.`,
 			if errors.Is(err, config.ErrGuardNoFiles) {
 				logger.Warn(fmt.Sprintf("scan scope matched 0 files (pathspecs: %s)",
 					strings.Join(effectivePathspecs(paths), " ")))
-				return fmt.Errorf("guard scanned 0 files — refusing to report success; check --paths")
+				return usageErrorf("guard scanned 0 files — refusing to report success; check --paths")
 			}
 			if err != nil {
 				return fmt.Errorf("running PII guard: %w", err)

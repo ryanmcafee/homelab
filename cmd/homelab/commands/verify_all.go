@@ -38,7 +38,7 @@ plus pluto), checked against the GitOps graph rules (tests/gitops/), diffed
 against tests/snapshots/, and evaluated with the conftest policies in tests/policy/.
 
 Exit code 0 when every check passes, 1 when any check fails, 2 on usage error.`,
-		Args:          cobra.NoArgs,
+		Args:          UsageArgs(cobra.NoArgs),
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, _ []string) error {

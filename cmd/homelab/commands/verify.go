@@ -319,6 +319,13 @@ func NewVerifyCmd() *cobra.Command {
 		Use:   "verify",
 		Short: "Verification utilities",
 		Long:  `Verify GPU support, Cilium migration, etc.`,
+		// A group is not runnable. Without these, `homelab verify` and
+		// `homelab verify rendr` both printed help and exited 0, so a
+		// misspelled subcommand looked like a passing verification.
+		Args:          GroupCommandArgs,
+		RunE:          RunGroupCommand,
+		SilenceUsage:  true,
+		SilenceErrors: true,
 	}
 
 	cmd.AddCommand(newVerifyGPUCmd())
