@@ -59,6 +59,11 @@ See `CLAUDE.local.md` for IP addresses and hostnames.
 |---------|-------------|
 | `task localdev:up` | Start Kind + Tilt local development |
 | `task localdev:down` | Destroy local environment |
+| `task verify` | Level-0 static verification (render, schema, gitops graph, snapshots, policy) — JSON |
+| `task verify:text` | Same checks, human-readable |
+| `task test:snapshot -- --update` | Regenerate golden snapshots after an intended render change |
+| `task test:policy` | conftest unit tests + negative fixtures |
+| `task schemas:vendor` | Re-vendor CRD schemas after an operator bump |
 | `task chart:lint` | Lint all Helm charts |
 | `task chart:template:addons` | Debug addons rendering |
 | `task talos:recreate:node NODE=X` | Recreate Talos node |

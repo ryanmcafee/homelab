@@ -12,8 +12,10 @@ global:
   # Environment identifier
   environment: localdev
 
-  # Use .test TLD for local development (reserved for testing)
-  domain: homelab.test
+  # Must match configuration/environments/localdev.yaml's DOMAIN (config is
+  # the source of truth). Currently unused by any template in this chart,
+  # but kept in sync to avoid misleading drift if that changes.
+  domain: homelab.local
 
   # Repository URL - can be local path or GitHub URL
   # ArgoCD will pull from this repository
@@ -23,6 +25,17 @@ global:
   targetRevision: HEAD
 
 # ============================================================================
+# Bootstrap Application (Prerequisites)
+# ============================================================================
+
+bootstrap:
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      allowEmpty: false
+
+# ============================================================================
 # Addons Application
 # ============================================================================
 
@@ -30,10 +43,16 @@ addons:
   enabled: true
 
   source:
-    # Use localdev-specific values
+    # values-localdev.yaml is appended by the template from global.environment,
+    # so listing it here too would pass it to helm twice.
     valueFiles:
       - values.yaml
-      - values-localdev.yaml
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      allowEmpty: false
 
 # ============================================================================
 # Applications
@@ -43,7 +62,13 @@ applications:
   enabled: true
 
   source:
-    # Use localdev-specific values
+    # values-localdev.yaml is appended by the template from global.environment,
+    # so listing it here too would pass it to helm twice.
     valueFiles:
       - values.yaml
-      - values-localdev.yaml
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      allowEmpty: false

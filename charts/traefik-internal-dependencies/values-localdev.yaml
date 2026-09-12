@@ -1,0 +1,8 @@
+# traefik-internal-dependencies — local development overrides
+#
+# No overrides are needed here:
+# internal Traefik needs no secrets, so the chart renders nothing.
+#
+# The file still has to exist. The parent Application always appends
+# values-localdev.yaml to spec.source.helm.valueFiles, and ArgoCD fails
+# the sync when a declared value file is missing.

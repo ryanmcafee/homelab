@@ -33,8 +33,10 @@ deno = "latest"
 "pipx:pre-commit" = "latest"  # Git hooks framework
 "npm:embedme" = "latest"  # Living documentation - embeds code snippets into markdown
 
-# Kubernetes Validation
+# Kubernetes Validation (level-0 static verification: task verify)
 kubeconform = "latest"    # Kubernetes manifest schema validation
+conftest = "latest"       # Policy-as-code (Rego) over rendered manifests
+pluto = "latest"          # Detect deprecated apiVersions ahead of upgrades
 
 # Secrets Management
 op = "latest"          # 1Password CLI for secrets management

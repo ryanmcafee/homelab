@@ -65,4 +65,9 @@ type GuardMatch struct {
 	Line    int
 	Pattern string
 	Content string
+	// Note, when set, is printed instead of the standard "PII detected"
+	// phrasing. A non-placeholder value in a template file is a different
+	// finding: the value may not be PII at all, but a template may hold only
+	// values from the documented placeholder set.
+	Note string
 }

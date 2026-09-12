@@ -1,0 +1,8 @@
+# traefik-external-config — local development overrides
+#
+# Kind runs no external-dns, so the externaldns.k8s.io CRDs are absent and any
+# rendered DNSEndpoint would fail the Application sync. One flag covers both of
+# the chart's records: the dashboard hostname and the OIDC auth hostname.
+
+externalDNS:
+  enabled: false

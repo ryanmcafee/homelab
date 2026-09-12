@@ -422,6 +422,12 @@ kubectl port-forward -n demo svc/nginx-demo 8888:80
 
 ### Unit Testing (Helm Charts)
 
+The fastest and most complete cluster-free check is level-0 verification (see `docs/runbooks/verification.md`):
+
+```bash
+task verify:text   # render + kubeconform + gitops graph + snapshots + policy, < 5 s
+```
+
 **Test chart rendering**:
 
 ```bash

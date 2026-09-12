@@ -1,0 +1,9 @@
+# plex-config — local development overrides
+#
+# No overrides are needed here:
+# onePasswordItemPath and volumes are both empty, so neither the claim-token
+# OnePasswordItem nor the iSCSI PersistentVolume is rendered.
+#
+# The file still has to exist. The parent Application always appends
+# values-localdev.yaml to spec.source.helm.valueFiles, and ArgoCD fails
+# the sync when a declared value file is missing.

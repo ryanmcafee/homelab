@@ -1,0 +1,9 @@
+---
+# Source: duckdns-dependencies/templates/secrets.yaml
+apiVersion: onepassword.com/v1
+kind: OnePasswordItem
+metadata:
+  name: duckdns-token
+  namespace: duckdns
+spec:
+  itemPath: "vaults/homelab/items/duckdns"

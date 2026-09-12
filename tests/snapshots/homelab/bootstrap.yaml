@@ -1,0 +1,441 @@
+---
+# Source: bootstrap/templates/sops-secrets.yaml
+# Namespace for 1Password operator (must exist before secrets)
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: onepassword-operator
+  annotations:
+    argocd.argoproj.io/sync-wave: "-3"
+  labels:
+    app.kubernetes.io/name: onepassword-operator
+    app.kubernetes.io/managed-by: argocd
+---
+# Source: bootstrap/templates/sops-secrets.yaml
+# ServiceAccount for secret transformer job
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: secret-transformer
+  namespace: onepassword-operator
+  annotations:
+    argocd.argoproj.io/sync-wave: "-3"
+---
+# Source: bootstrap/templates/sops-secrets.yaml
+# Role to allow patching the credentials secret
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: secret-transformer
+  namespace: onepassword-operator
+  annotations:
+    argocd.argoproj.io/sync-wave: "-3"
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "patch"]
+---
+# Source: bootstrap/templates/sops-secrets.yaml
+# RoleBinding for secret transformer
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: secret-transformer
+  namespace: onepassword-operator
+  annotations:
+    argocd.argoproj.io/sync-wave: "-3"
+subjects:
+  - kind: ServiceAccount
+    name: secret-transformer
+    namespace: onepassword-operator
+roleRef:
+  kind: Role
+  name: secret-transformer
+  apiGroup: rbac.authorization.k8s.io
+---
+# Source: bootstrap/templates/sops-secrets.yaml
+# Job to transform the 1Password credentials secret
+# Adds base64-encoded credentials key required by OP_SESSION
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: onepassword-credentials-transformer
+  namespace: onepassword-operator
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+spec:
+  ttlSecondsAfterFinished: 300
+  template:
+    spec:
+      serviceAccountName: secret-transformer
+      restartPolicy: OnFailure
+      containers:
+        - name: transform
+          # This script needs a shell + coreutils (grep, base64, tr) — the
+          # distroless registry.k8s.io/kubectl image only ships bin/kubectl
+          # and bin/kube-log-runner, so /bin/sh -c below would fail with
+          # "exec /bin/sh: no such file or directory" at this wave -1 hook.
+          # alpine/kubectl (~22MB) ships busybox sh/grep/base64/tr plus
+          # kubectl on top of plain Alpine — enough for this script without
+          # alpine/k8s's much larger bundle (helm/kustomize/kubeseal/krew/
+          # vals/kubeconform), none of which a Job that only patches a
+          # Secret needs. Keep the kubectl minor within ±1 of the cluster
+          # version in configuration/versions.yaml (tools.kubernetes);
+          # bitnami/kubectl no longer publishes versioned tags (only
+          # :latest) and is not an option here.
+          image: alpine/kubectl:1.36.4
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -e
+              echo "Checking if base64 key already exists..."
+              if kubectl get secret onepassword-credentials -n onepassword-operator -o jsonpath='{.data.1password-credentials\.json\.b64}' 2>/dev/null | grep -q .; then
+                echo "Base64 key already exists, skipping transformation"
+                exit 0
+              fi
+              echo "Adding base64-encoded credentials key..."
+              # Get the raw credentials JSON (base64-decoded from secret)
+              RAW_CREDS=$(kubectl get secret onepassword-credentials -n onepassword-operator -o jsonpath='{.data.1password-credentials\.json}' | base64 -d)
+              # Base64 encode the JSON for OP_SESSION
+              B64_CREDS=$(echo -n "$RAW_CREDS" | base64 | tr -d '\n')
+              # Base64 encode again for storage in secret data field
+              B64_B64_CREDS=$(echo -n "$B64_CREDS" | base64 | tr -d '\n')
+              # Patch the secret
+              kubectl patch secret onepassword-credentials -n onepassword-operator \
+                --type='json' \
+                -p="[{\"op\":\"add\",\"path\":\"/data/1password-credentials.json.b64\",\"value\":\"$B64_B64_CREDS\"}]"
+              echo "Secret transformed successfully"
+---
+# Source: bootstrap/templates/1password-operator.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: onepassword-operator
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://1password.github.io/connect-helm-charts
+    chart: connect
+    targetRevision: 1.16.0
+    helm:
+      releaseName: onepassword-connect
+      values: |
+        operator:
+          create: true
+          autoRestart: true
+          # Use token from the SOPS-encrypted credentials secret
+          token:
+            name: onepassword-credentials
+            key: token
+          resources:
+            limits:
+              cpu: 200m
+              memory: 128Mi
+            requests:
+              cpu: 50m
+              memory: 64Mi
+
+        connect:
+          create: true
+          # Use base64-encoded credentials key - OP_SESSION expects base64-encoded JSON
+          credentialsName: onepassword-credentials
+          credentialsKey: 1password-credentials.json.b64
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 50m
+              memory: 64Mi
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: onepassword-operator
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+---
+# Source: bootstrap/templates/argocd.yaml
+# ArgoCD Self-Management Application
+# This allows ArgoCD to manage itself after initial bootstrap by Terraform
+# Sync Wave: 1 (after env-config at wave 0, before addons at wave 2)
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: argocd
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+    homelab.ryanmcafee.com/policy-exempt: "hostname-domain"
+    homelab.ryanmcafee.com/policy-exempt-reason: "GitHub issue #262: domain hardcoded in values-homelab.yaml; this chart's inline spec.source.helm.values (argocd.values) sets the ArgoCD server hostname independently of configuration/environments/*.yaml (the centralized, PII-free level-0 domain), so it is correct in real deployments but never matches the level-0 placeholder domain. Remove this exemption when the chart takes DOMAIN from the config system."
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+
+  source:
+    repoURL: https://argoproj.github.io/argo-helm
+    chart: argo-cd
+    targetRevision: 9.4.7
+    helm:
+      releaseName: argocd
+      values: |
+        applicationSet:
+          replicas: 2
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 50m
+              memory: 128Mi
+        configs:
+          cm:
+            kustomize.buildOptions: --enable-alpha-plugins --enable-exec
+            resource.customizations.health.argoproj.io_Application: |
+              hs = {}
+              hs.status = "Progressing"
+              hs.message = ""
+              if obj.status ~= nil then
+                if obj.status.health ~= nil then
+                  hs.status = obj.status.health.status
+                  if obj.status.health.message ~= nil then
+                    hs.message = obj.status.health.message
+                  end
+                end
+              end
+              return hs
+            resource.customizations.health.networking.k8s.io_Ingress: |
+              hs = {}
+              hs.status = "Healthy"
+              hs.message = ""
+              if obj.status ~= nil then
+                if obj.status.loadBalancer ~= nil then
+                  if obj.status.loadBalancer.ingress ~= nil then
+                    hs.message = "Load balancer ingress configured"
+                  else
+                    hs.message = "Waiting for load balancer (non-blocking)"
+                  end
+                end
+              end
+              return hs
+          params:
+            server.insecure: true
+        controller:
+          resources:
+            limits:
+              cpu: 1000m
+              memory: 2Gi
+            requests:
+              cpu: 250m
+              memory: 1Gi
+        notifications:
+          enabled: true
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 50m
+              memory: 64Mi
+        repoServer:
+          env:
+          - name: XDG_CONFIG_HOME
+            value: /.config
+          - name: SOPS_AGE_KEY_FILE
+            value: /.config/sops/age/keys.txt
+          extraContainers:
+          - command:
+            - /var/run/argocd/argocd-cmp-server
+            env:
+            - name: ARGOCD_EXEC_TIMEOUT
+              value: "90"
+            image: ghcr.io/ryanmcafee/homelab-cmp:0.1.7
+            name: homelab-cmp
+            securityContext:
+              runAsNonRoot: true
+              runAsUser: 999
+            volumeMounts:
+            - mountPath: /var/run/argocd
+              name: var-files
+            - mountPath: /home/argocd/cmp-server/plugins
+              name: plugins
+            - mountPath: /tmp
+              name: cmp-tmp
+            - mountPath: /config/homelab.yaml
+              name: homelab-config
+              readOnly: true
+              subPath: homelab.yaml
+          initContainers:
+          - args:
+            - /usr/local/bin/ksops
+            - /usr/local/bin/kustomize
+            - /custom-tools/
+            command:
+            - /bin/cp
+            image: ghcr.io/ryanmcafee/homelab-cmp:0.1.7
+            name: install-ksops
+            volumeMounts:
+            - mountPath: /custom-tools
+              name: custom-tools
+          replicas: 2
+          resources:
+            limits:
+              cpu: 500m
+              memory: 512Mi
+            requests:
+              cpu: 100m
+              memory: 256Mi
+          topologySpreadConstraints:
+          - labelSelector:
+              matchLabels:
+                app.kubernetes.io/name: argocd-repo-server
+            maxSkew: 1
+            topologyKey: kubernetes.io/hostname
+            whenUnsatisfiable: ScheduleAnyway
+          volumeMounts:
+          - mountPath: /usr/local/bin/ksops
+            name: custom-tools
+            subPath: ksops
+          - mountPath: /usr/local/bin/kustomize
+            name: custom-tools
+            subPath: kustomize
+          - mountPath: /.config/sops/age
+            name: sops-age
+          volumes:
+          - emptyDir: {}
+            name: custom-tools
+          - name: sops-age
+            secret:
+              secretName: sops-age-key
+          - emptyDir: {}
+            name: cmp-tmp
+          - name: homelab-config
+            secret:
+              optional: true
+              secretName: homelab-environment-config
+        server:
+          ingress:
+            annotations:
+              cert-manager.io/cluster-issuer: letsencrypt
+              external-dns.alpha.kubernetes.io/hostname: argocd.ryanmcafee.com
+            enabled: true
+            extraTls:
+            - hosts:
+              - argocd.ryanmcafee.com
+              secretName: argocd-server-tls
+            hostname: argocd.ryanmcafee.com
+            ingressClassName: internal
+          replicas: 3
+          resources:
+            limits:
+              cpu: 500m
+              memory: 512Mi
+            requests:
+              cpu: 100m
+              memory: 256Mi
+          topologySpreadConstraints:
+          - labelSelector:
+              matchLabels:
+                app.kubernetes.io/name: argocd-server
+            maxSkew: 1
+            topologyKey: kubernetes.io/hostname
+            whenUnsatisfiable: ScheduleAnyway
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - PruneLast=true
+      - ApplyOutOfSyncOnly=true
+      - RespectIgnoreDifferences=true
+
+  # Ignore differences in fields that change frequently
+  ignoreDifferences:
+    # Initial admin secret is generated and should not be overwritten
+    - group: ""
+      kind: Secret
+      name: argocd-initial-admin-secret
+      jsonPointers:
+        - /data
+    # Webhook secret is generated
+    - group: ""
+      kind: Secret
+      name: argocd-secret
+      jsonPointers:
+        - /data/webhook.github.secret
+        - /data/webhook.gitlab.secret
+        - /data/webhook.bitbucket.uuid
+    # Server deployment has auto-generated fields
+    - group: apps
+      kind: Deployment
+      jsonPointers:
+        - /spec/template/metadata/annotations
+---
+# Source: bootstrap/templates/sops-secrets.yaml
+# SOPS-encrypted secrets deployment
+# Deploys before 1Password operator to ensure credentials are available
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: sops-secrets
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/ryanmcafee/homelab.git
+    targetRevision: HEAD
+    path: charts/secrets/onepassword
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: onepassword-operator
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+---
+# Source: bootstrap/templates/homelab-environment-config.yaml
+apiVersion: onepassword.com/v1
+kind: OnePasswordItem
+metadata:
+  name: homelab-environment-config
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  itemPath: "vaults/homelab/items/homelab-environment-config"

@@ -130,21 +130,21 @@ func TestParityHelmApps(t *testing.T) {
 	}
 
 	requiredValues := map[string]string{
-		"DOMAIN":                rc.Values["DOMAIN"].Value,
-		"TRUENAS_HOSTNAME":     rc.Values["TRUENAS_HOSTNAME"].Value,
-		"PLEX_HOSTNAME":        rc.Values["PLEX_HOSTNAME"].Value,
-		"PLEX_LB_IP":           rc.Values["PLEX_LB_IP"].Value,
-		"SONARR_HOSTNAME":      rc.Values["SONARR_HOSTNAME"].Value,
-		"RADARR_HOSTNAME":      rc.Values["RADARR_HOSTNAME"].Value,
-		"PROWLARR_HOSTNAME":    rc.Values["PROWLARR_HOSTNAME"].Value,
-		"NZBGET_HOSTNAME":      rc.Values["NZBGET_HOSTNAME"].Value,
-		"TAUTULLI_HOSTNAME":    rc.Values["TAUTULLI_HOSTNAME"].Value,
+		"DOMAIN":                 rc.Values["DOMAIN"].Value,
+		"TRUENAS_HOSTNAME":       rc.Values["TRUENAS_HOSTNAME"].Value,
+		"PLEX_HOSTNAME":          rc.Values["PLEX_HOSTNAME"].Value,
+		"PLEX_LB_IP":             rc.Values["PLEX_LB_IP"].Value,
+		"SONARR_HOSTNAME":        rc.Values["SONARR_HOSTNAME"].Value,
+		"RADARR_HOSTNAME":        rc.Values["RADARR_HOSTNAME"].Value,
+		"PROWLARR_HOSTNAME":      rc.Values["PROWLARR_HOSTNAME"].Value,
+		"NZBGET_HOSTNAME":        rc.Values["NZBGET_HOSTNAME"].Value,
+		"TAUTULLI_HOSTNAME":      rc.Values["TAUTULLI_HOSTNAME"].Value,
 		"LAZYLIBRARIAN_HOSTNAME": rc.Values["LAZYLIBRARIAN_HOSTNAME"].Value,
-		"MEDIA_MOVIES_PATH":    rc.Values["MEDIA_MOVIES_PATH"].Value,
-		"MEDIA_TV_PATH":        rc.Values["MEDIA_TV_PATH"].Value,
-		"DUCKDNS_SUBDOMAIN":    rc.Values["DUCKDNS_SUBDOMAIN"].Value,
-		"TIMEZONE":             rc.Values["TIMEZONE"].Value,
-		"ARGOCD_HOSTNAME":      rc.Values["ARGOCD_HOSTNAME"].Value,
+		"MEDIA_MOVIES_PATH":      rc.Values["MEDIA_MOVIES_PATH"].Value,
+		"MEDIA_TV_PATH":          rc.Values["MEDIA_TV_PATH"].Value,
+		"DUCKDNS_SUBDOMAIN":      rc.Values["DUCKDNS_SUBDOMAIN"].Value,
+		"TIMEZONE":               rc.Values["TIMEZONE"].Value,
+		"ARGOCD_HOSTNAME":        rc.Values["ARGOCD_HOSTNAME"].Value,
 	}
 
 	for key, val := range requiredValues {

@@ -1,4 +1,9 @@
-{{- if index .Values "homelab-environment-config" "enabled" }}
+{{/*
+An OnePasswordItem with an empty itemPath renders but is inert: the operator
+has nothing to fetch, so no Secret ever appears while the manifest still reads
+like a working producer. Require the path as well as the toggle.
+*/}}
+{{- if and (index .Values "homelab-environment-config" "enabled") (index .Values "homelab-environment-config" "itemPath") }}
 ---
 apiVersion: onepassword.com/v1
 kind: OnePasswordItem

@@ -154,89 +154,39 @@ This skill monitors and tests changes to:
 
 ---
 
-## TIER 1: Local Validation (No Cluster Required)
+## TIER 1: Level-0 Static Verification (No Cluster Required)
 
-**Goal**: Catch syntax errors, typos, and schema issues in ~2 seconds.
+**Goal**: Catch rendering, schema, GitOps-graph, snapshot and policy problems in < 5 seconds, with no cluster, no network and no PII. This is the mandatory gate for every chart change (ADR-009). Full reference: `docs/runbooks/verification.md`.
 
-### 1.1 Helm Lint
-
-```bash
-# Lint all charts
-helm lint charts/gitops charts/addons charts/applications
-
-# Or use Taskfile
-task chart:lint
-```
-
-### 1.2 Helm Template Rendering
+### 1.1 Run it
 
 ```bash
-# Render gitops chart
-helm template gitops charts/gitops \
-  -f charts/gitops/values.yaml \
-  -f charts/gitops/values-homelab.yaml \
-  > /tmp/gitops-rendered.yaml
-
-# Render addons chart
-helm template addons charts/addons \
-  -f charts/addons/values.yaml \
-  -f charts/addons/values-homelab.yaml \
-  > /tmp/addons-rendered.yaml
-
-# Render applications chart
-helm template applications charts/applications \
-  -f charts/applications/values.yaml \
-  -f charts/applications/values-homelab.yaml \
-  > /tmp/applications-rendered.yaml
+task verify:text                 # human-readable, failures first
+task verify                      # JSON summary (paste into the PR body)
+task verify -- --env homelab     # one environment
+task verify:render -- --chart addons --keep   # keep rendered manifests for inspection
 ```
 
-**Or use Taskfile shortcuts:**
-```bash
-task chart:template           # gitops
-task chart:template:addons    # addons
-task chart:template:apps      # applications
+Exit code 0 = pass, 1 = findings, 2 = usage error. JSON contract:
+
+```json
+{"level":0,"checks":[{"name":"render/homelab/addons","status":"pass","duration_ms":120}],"pass":true,"duration_ms":2900}
 ```
 
-### 1.3 Kubernetes Schema Validation (kubeconform)
+### 1.2 What it checks
 
-Validate rendered manifests with CRD catalog:
-```bash
-# Validate addons with CRD schemas from datree catalog
-helm template addons charts/addons \
-  -f charts/addons/values.yaml \
-  -f charts/addons/values-homelab.yaml | \
-  kubeconform -summary \
-    -schema-location default \
-    -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' \
-    -skip OnePasswordItem,CiliumLoadBalancerIPPool,CiliumBGPPeeringPolicy,CiliumBGPClusterConfig,CiliumBGPPeerConfig,CiliumBGPAdvertisement,CiliumL2AnnouncementPolicy,DNSEndpoint
+| Check | Meaning |
+|---|---|
+| `render/<env>/<chart>`, `lint/<env>/<chart>` | `helm template --include-crds` and `helm lint` for every chart in `charts/` (homelab renders through the same two-stage `config export` path as the CMP, from `homelab.yaml.example`) |
+| `kubeconform/<env>` | Every object validates against `versions.yaml` `tools.kubernetes` and the vendored CRD schemas in `tests/schemas/` — there is **no `-skip` list**; a missing schema means `task schemas:vendor` after adding the kind to `tests/schemas/sources.yaml` |
+| `pluto/<env>` | No deprecated apiVersions for the target Kubernetes version |
+| `gitops/<env>/*` | paths + value files exist, `*-dependencies` < main, CR after CRD provider, OCI repo Secrets present, secret refs produced in-namespace, namespaces declared, `ServerSideApply=true` on huge-CRD charts, unique Application names (registries in `tests/gitops/`) |
+| `snapshot/<env>/<chart>` | Byte-identical to `tests/snapshots/`; intended changes: `task test:snapshot -- --update` |
+| `policy/<env>` | conftest rules in `tests/policy/` (finalizer, sync-wave, SSA, automated sync, no `:latest`, resources, no inline secrets, hostnames under DOMAIN); exempt with `homelab.ryanmcafee.com/policy-exempt` + `-reason` annotations |
 
-# Validate applications
-helm template apps charts/applications \
-  -f charts/applications/values.yaml \
-  -f charts/applications/values-homelab.yaml | \
-  kubeconform -summary \
-    -schema-location default \
-    -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' \
-    -skip OnePasswordItem
-```
+### 1.3 Pre-commit
 
-**Note**: Pre-commit hooks automatically run kubeconform on chart changes.
-
-### 1.4 Quick Validation (Pre-commit)
-
-The fastest way to run Tier 1 validation is via pre-commit hooks:
-
-```bash
-# Run all Helm and kubeconform checks
-pre-commit run --all-files
-
-# Run specific hooks
-pre-commit run helm-lint --all-files
-pre-commit run kubeconform-addons --all-files
-pre-commit run kubeconform-applications --all-files
-```
-
-**Pre-commit runs automatically on `git commit`** - no manual validation needed for most workflows.
+The `verify-level-0` pre-commit hook runs `task verify:text` whenever `charts/`, `configuration/` or `tests/` change, so `git commit` is gated automatically. CI re-runs it in `.github/workflows/verify.yml`.
 
 ---
 

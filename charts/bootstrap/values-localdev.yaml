@@ -1,0 +1,18 @@
+# bootstrap — local development overrides
+#
+# This file carries no overrides, which is not the same as the chart doing
+# nothing in localdev. With the defaults from values.yaml, localdev still
+# deploys the 1Password Connect operator and the homelab-environment-config
+# OnePasswordItem, and that item still points at the production vault
+# (vaults/homelab/items/homelab-environment-config). Without Connect
+# credentials in Kind it simply never resolves.
+#
+# Only ArgoCD self-management is genuinely off here: Kind installs ArgoCD
+# directly rather than having it manage itself.
+#
+# Section B replaces the 1Password path in localdev with a fake secret source;
+# until then this is the honest description of what localdev bootstraps.
+#
+# The file has to exist regardless. The parent Application always appends
+# values-localdev.yaml to spec.source.helm.valueFiles, and ArgoCD fails the
+# sync when a declared value file is missing.
