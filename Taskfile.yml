@@ -800,9 +800,11 @@ tasks:
       - go run ./cmd/homelab config export --set {{.ENV | default "homelab"}} --format {{.FORMAT}}
 
   config:guard:
-    desc: Scan staged files for PII patterns
+    desc: Scan every tracked configuration file for PII patterns
+    # --ci is not optional here: without it (and without file arguments) the
+    # guard resolves an empty scan scope, checks nothing and exits 0.
     cmds:
-      - go run ./cmd/homelab config guard --set {{.ENV | default "homelab"}}
+      - go run ./cmd/homelab config guard --set {{.ENV | default "homelab"}} --ci
 
   config:export:hook:
     desc: Export config and stage generated files (used by pre-commit)
