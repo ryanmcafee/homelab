@@ -9,6 +9,8 @@ metadata:
   namespace: {{ .Values.argocd.namespace | default "argocd" }}
   annotations:
     argocd.argoproj.io/sync-wave: "1"
+    homelab.ryanmcafee.com/policy-exempt: "hostname-domain"
+    homelab.ryanmcafee.com/policy-exempt-reason: "GitHub issue #262: domain hardcoded in values-homelab.yaml; this chart's inline spec.source.helm.values (argocd.values) sets the ArgoCD server hostname independently of configuration/environments/*.yaml (the centralized, PII-free level-0 domain), so it is correct in real deployments but never matches the level-0 placeholder domain. Remove this exemption when the chart takes DOMAIN from the config system."
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:

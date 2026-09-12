@@ -1,0 +1,50 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: duckdns-updater
+  namespace: duckdns
+spec:
+  schedule: "*/5 * * * *"
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: duckdns-updater
+              image: curlimages/curl:8.19.0
+              resources:
+                requests:
+                  cpu: 10m
+                  memory: 16Mi
+                limits:
+                  cpu: 50m
+                  memory: 32Mi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: oidc-redis
+  namespace: traefik-external
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: oidc-redis
+  template:
+    metadata:
+      labels:
+        app: oidc-redis
+    spec:
+      containers:
+        - name: redis
+          image: redis:7-alpine
+          ports:
+            - containerPort: 6379
+          resources:
+            requests:
+              memory: "64Mi"
+              cpu: "50m"
+            limits:
+              memory: "128Mi"
+              cpu: "100m"

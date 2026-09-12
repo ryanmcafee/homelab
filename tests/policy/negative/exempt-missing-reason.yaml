@@ -1,0 +1,27 @@
+# expect: app-finalizer
+# A policy-exempt annotation without its paired policy-exempt-reason grants
+# no exemption at all (see tests/policy/lib.rego exempt_rules) — this object
+# should still fail app-finalizer exactly as if the annotation weren't there.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: addons
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+    homelab.ryanmcafee.com/policy-exempt: "app-finalizer"
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/ryanmcafee/homelab.git
+    targetRevision: HEAD
+    path: charts/addons
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true
