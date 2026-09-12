@@ -1,0 +1,16 @@
+# expect: container-resources
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: broken-job
+  namespace: default
+spec:
+  schedule: "*/5 * * * *"
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: worker
+              image: curlimages/curl:8.19.0

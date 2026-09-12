@@ -40,6 +40,8 @@ metadata:
   namespace: argocd
   annotations:
     argocd.argoproj.io/sync-wave: "12"
+    homelab.ryanmcafee.com/policy-exempt: "image-latest"
+    homelab.ryanmcafee.com/policy-exempt-reason: "Upstream plexinc/pms-docker publishes no numbered release tags; tracking :latest is the documented, intentional deployment model for Plex."
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:

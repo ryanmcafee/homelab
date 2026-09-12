@@ -23,6 +23,17 @@ global:
   targetRevision: HEAD
 
 # ============================================================================
+# Bootstrap Application (Prerequisites)
+# ============================================================================
+
+bootstrap:
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      allowEmpty: false
+
+# ============================================================================
 # Addons Application
 # ============================================================================
 
@@ -34,6 +45,12 @@ addons:
     valueFiles:
       - values.yaml
       - values-localdev.yaml
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      allowEmpty: false
 
 # ============================================================================
 # Applications
@@ -47,3 +64,9 @@ applications:
     valueFiles:
       - values.yaml
       - values-localdev.yaml
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+      allowEmpty: false

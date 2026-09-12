@@ -40,6 +40,8 @@ metadata:
   annotations:
     # Sync wave 15: After namespace (wave 14) and mosquitto (wave 14)
     argocd.argoproj.io/sync-wave: "15"
+    homelab.ryanmcafee.com/policy-exempt: "image-latest"
+    homelab.ryanmcafee.com/policy-exempt-reason: "lscr.io/linuxserver/homeassistant is intentionally tracked at :latest for automatic updates in this homelab."
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:

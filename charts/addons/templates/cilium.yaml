@@ -12,6 +12,10 @@ metadata:
   annotations:
     argocd.argoproj.io/sync-wave: "0"
     argocd.argoproj.io/compare-options: IgnoreExtraneous
+    homelab.ryanmcafee.com/policy-exempt: "app-automated"
+    homelab.ryanmcafee.com/policy-exempt-reason: "Cilium CNI is installed by Talos inline manifests; this Application is visibility-only and must not prune resources Talos manages directly."
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
 spec:
   project: default
   source:
