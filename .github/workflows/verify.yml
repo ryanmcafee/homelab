@@ -310,6 +310,5 @@ jobs:
         run: |
           deno run --allow-net --allow-run --allow-env --allow-read --allow-write \
             scripts/cmp-parity-test.ts --base-ref "origin/$BASE"
-|
           deno run --allow-net --allow-run --allow-env --allow-read --allow-write \
             scripts/cmp-parity-test.ts --base-ref origin/main
