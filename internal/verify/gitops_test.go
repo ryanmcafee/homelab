@@ -1412,7 +1412,9 @@ func TestLintGitOpsGoodFixturePasses(t *testing.T) {
 		// Only the ClusterIssuer is ordered: testRegistry does not register
 		// onepassword.com, so the OnePasswordItem has no provider to follow.
 		"crd-order":    "1 custom resources ordered against 2 CRD providers; skipped 1 object(s) from charts no Application references: orphan-config",
-		"repo-secrets": "1 OCI chart sources, 1 repository Secrets",
+		// The disclosure of skipped https sources is part of the contract:
+		// repo-secrets checks oci:// only.
+		"repo-secrets": "1 OCI chart sources, 1 repository Secrets; 2 https repositories not checked (public Helm repos need no Secret)",
 		"secret-refs":  "1 secret references, 2 rendered producers",
 		"namespaces":   "8 Application destination namespaces, 2 rendered Namespaces",
 		"ssa":          "1 of 8 Applications require ServerSideApply",
@@ -1559,5 +1561,168 @@ func TestLoadGitOpsRegistryRealRepo(t *testing.T) {
 		if strings.TrimSpace(ks.Reason) == "" {
 			t.Errorf("known secret %s/%s has no reason", ks.Namespace, ks.Name)
 		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Disclosures: a rule that checked nothing must not report a pass
+// ---------------------------------------------------------------------------
+
+// TestRepoSecretsDisclosesSkippedHTTPSRepos: repo-secrets deliberately checks
+// only oci:// sources, which is narrower than issue #261 asked for. The
+// narrowing has to be visible in the level-0 output, not only in a comment.
+func TestRepoSecretsDisclosesSkippedHTTPSRepos(t *testing.T) {
+	const apps = `
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: one
+  namespace: argocd
+spec:
+  source:
+    repoURL: https://charts.jetstack.io
+    chart: cert-manager
+  destination:
+    namespace: cert-manager
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: two
+  namespace: argocd
+spec:
+  source:
+    repoURL: https://prometheus-community.github.io/helm-charts
+    chart: kube-prometheus-stack
+  destination:
+    namespace: monitoring
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: three
+  namespace: argocd
+spec:
+  source:
+    repoURL: https://charts.jetstack.io
+    chart: cert-manager-istio-csr
+  destination:
+    namespace: cert-manager
+`
+	g := buildGitOpsGraph("localdev", map[string][]Doc{"addons": mustDocs(t, "addons", "localdev", apps)})
+	c := g.ruleRepoSecrets()
+
+	// Three https sources, two distinct repositories.
+	if !strings.Contains(c.Detail, "2 https repositories not checked (public Helm repos need no Secret)") {
+		t.Errorf("detail = %q; it must disclose the skipped https repositories", c.Detail)
+	}
+	if c.Status != StatusPass {
+		t.Errorf("status = %s, want pass: an https source needs no repository Secret", c.Status)
+	}
+}
+
+func TestRepoSecretsDisclosureIsSingularForOneRepo(t *testing.T) {
+	const app = `
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: one
+  namespace: argocd
+spec:
+  source:
+    repoURL: https://charts.jetstack.io
+    chart: cert-manager
+  destination:
+    namespace: cert-manager
+`
+	g := buildGitOpsGraph("localdev", map[string][]Doc{"addons": mustDocs(t, "addons", "localdev", app)})
+	if got := g.ruleRepoSecrets().Detail; !strings.Contains(got, "1 https repository not checked") {
+		t.Errorf("detail = %q, want the singular form", got)
+	}
+}
+
+// TestEmptyRegistrySectionsSkipRatherThanPass: a rule whose registry section is
+// empty matched nothing by construction. Reporting a pass would claim the
+// convention was verified.
+func TestEmptyRegistrySectionsSkipRatherThanPass(t *testing.T) {
+	root := fakeRepoRoot(t, "bootstrap", "addons", "applications")
+	rendered := map[string][]Doc{"gitops": mustDocs(t, "gitops", "localdev", gitopsParents)}
+
+	empty := &GitOpsRegistry{SystemNamespaces: []string{"argocd", "kube-system"}}
+	byRule := checksByRule(t, LintGitOps("localdev", rendered, empty, root))
+
+	for rule, wantFile := range map[string]string{
+		"crd-order": "crd-providers.yaml",
+		"ssa":       "huge-crd-charts.yaml",
+	} {
+		c := byRule[rule]
+		if c.Status != StatusSkip {
+			t.Errorf("rule %s status = %s, want skip when its registry section is empty", rule, c.Status)
+		}
+		if !strings.Contains(c.Detail, wantFile) {
+			t.Errorf("rule %s detail = %q; it must name %s", rule, c.Detail, wantFile)
+		}
+	}
+
+	// With entries present the same rules report normally again.
+	byRule = checksByRule(t, LintGitOps("localdev", rendered, testRegistry(), root))
+	for _, rule := range []string{"crd-order", "ssa"} {
+		if got := byRule[rule].Status; got != StatusPass {
+			t.Errorf("rule %s status = %s, want pass with a populated registry", rule, got)
+		}
+	}
+}
+
+// TestLoadGitOpsRegistryRejectsUnknownTopLevelKeys: yaml.Unmarshal ignores a
+// key the struct does not know, so a typo left the registry section empty and
+// the rule quietly checked nothing.
+func TestLoadGitOpsRegistryRejectsUnknownTopLevelKeys(t *testing.T) {
+	tests := []struct {
+		name string
+		file string
+		body string
+	}{
+		{"crd-providers typo", "crd-providers.yaml", "provider:\n  cert-manager.io: cert-manager\n"},
+		{"huge-crd-charts typo", "huge-crd-charts.yaml", "chart:\n  - cilium\n"},
+		{"known-secrets typo", "known-secrets.yaml", "secret:\n  - name: x\n    reason: y\n"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			dir := filepath.Join(root, "tests", "gitops")
+			if err := os.MkdirAll(dir, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(dir, tc.file), []byte(tc.body), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			_, err := LoadGitOpsRegistry(root)
+			if err == nil {
+				t.Fatalf("a typo'd top-level key in %s must fail loudly", tc.file)
+			}
+			if !strings.Contains(err.Error(), tc.file) {
+				t.Errorf("error %q should name %s", err.Error(), tc.file)
+			}
+		})
+	}
+}
+
+func TestLoadGitOpsRegistryAcceptsAnEmptyFile(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "tests", "gitops")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"crd-providers.yaml", "huge-crd-charts.yaml", "known-secrets.yaml"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("# nothing yet\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	reg, err := LoadGitOpsRegistry(root)
+	if err != nil {
+		t.Fatalf("an empty registry file is a legitimate \"no entries\": %v", err)
+	}
+	if len(reg.CRDProviders) != 0 || len(reg.HugeCRDCharts) != 0 {
+		t.Errorf("expected empty registries, got %+v", reg)
 	}
 }

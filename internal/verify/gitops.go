@@ -381,6 +381,13 @@ func (g *gitopsGraph) ruleWaves() Check {
 // Application that installs its CRDs.
 func (g *gitopsGraph) ruleCRDOrder(reg *GitOpsRegistry) Check {
 	start := time.Now()
+	// With no providers registered the rule checks nothing, so reporting a
+	// pass would claim CR ordering was verified when it was not. Name the
+	// file that has to be populated.
+	if len(reg.CRDProviders) == 0 {
+		return SkipCheck("gitops/"+g.env+"/crd-order",
+			fmt.Sprintf("no CRD providers registered in %s/crd-providers.yaml; custom-resource ordering was not checked", GitOpsRegistryDir))
+	}
 	var findings []string
 	seen := map[string]bool{}
 	checked := 0
@@ -442,6 +449,15 @@ func (g *gitopsGraph) ruleCRDOrder(reg *GitOpsRegistry) Check {
 
 // ruleRepoSecrets verifies every OCI Helm repository an Application pulls from
 // has a matching ArgoCD repository Secret with enableOCI set.
+//
+// Scope, stated because it is narrower than issue #261 asked for: only oci://
+// sources are checked. A plain http/https Helm repository needs no ArgoCD
+// repository Secret — ArgoCD fetches an anonymous index.yaml, and every
+// http/https repo this repository pulls from is public — so requiring a Secret
+// for those would be a rule nothing could satisfy. The count of skipped
+// https sources is reported in the check detail so the narrowing is visible
+// in the level-0 output rather than only here. A private http/https repo
+// would need credentials and is therefore NOT covered by this rule.
 func (g *gitopsGraph) ruleRepoSecrets() Check {
 	start := time.Now()
 	var findings []string
@@ -468,6 +484,9 @@ func (g *gitopsGraph) ruleRepoSecrets() Check {
 	}
 
 	ociRepos := 0
+	// httpRepos counts the distinct public http/https chart repositories this
+	// rule deliberately does not check, so the detail can disclose it.
+	httpRepos := map[string]bool{}
 	reported := map[string]bool{}
 	for _, app := range g.apps {
 		for _, src := range appSources(app) {
@@ -475,7 +494,11 @@ func (g *gitopsGraph) ruleRepoSecrets() Check {
 				continue
 			}
 			repo := strings.TrimSpace(src.GetString("repoURL"))
-			if repo == "" || isHTTPRepo(repo) {
+			if repo == "" {
+				continue
+			}
+			if isHTTPRepo(repo) {
+				httpRepos[normalizeRepoURL(repo)] = true
 				continue
 			}
 			ociRepos++
@@ -503,7 +526,20 @@ func (g *gitopsGraph) ruleRepoSecrets() Check {
 			}
 		}
 	}
-	return g.result("repo-secrets", start, fmt.Sprintf("%d OCI chart sources, %d repository Secrets", ociRepos, len(repoSecrets)), findings)
+	detail := fmt.Sprintf("%d OCI chart sources, %d repository Secrets", ociRepos, len(repoSecrets))
+	if n := len(httpRepos); n > 0 {
+		detail += fmt.Sprintf("; %d https %s not checked (public Helm repos need no Secret)",
+			n, plural(n, "repository", "repositories"))
+	}
+	return g.result("repo-secrets", start, detail, findings)
+}
+
+// plural picks the singular or plural word for n.
+func plural(n int, one, many string) string {
+	if n == 1 {
+		return one
+	}
+	return many
 }
 
 // secretValue reads a key from stringData, falling back to base64 data.
@@ -802,6 +838,12 @@ func hasSyncOption(app Doc, want string) bool {
 // the only way their CRDs fit inside the last-applied-configuration budget.
 func (g *gitopsGraph) ruleSSA(reg *GitOpsRegistry) Check {
 	start := time.Now()
+	// An empty list means the rule matched nothing by construction, which is
+	// not the same as every Application being correct.
+	if len(reg.HugeCRDCharts) == 0 {
+		return SkipCheck("gitops/"+g.env+"/ssa",
+			fmt.Sprintf("no charts registered in %s/huge-crd-charts.yaml; ServerSideApply was not checked", GitOpsRegistryDir))
+	}
 	var findings []string
 	huge := reg.HugeCRDChartSet()
 	matched := 0

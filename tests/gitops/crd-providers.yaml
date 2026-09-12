@@ -20,6 +20,14 @@ providers:
   cilium.io: cilium
   postgresql.cnpg.io: cloudnative-pg
   monitoring.coreos.com: kube-prometheus-stack
+  # external-dns ships crds/dnsendpoint.yaml inside the chart (verified against
+  # external-dns 1.15.0, the version pinned in configuration/versions.yaml), so
+  # every Application using that chart installs the DNSEndpoint CRD: helm and
+  # ArgoCD apply a chart's crds/ directory unless told otherwise, and none of
+  # these Applications sets spec.source.helm.skipCrds. The chart has no
+  # crd.create value in this version — the crds/ directory is unconditional.
+  # external-dns-cloudflare-crd is the DNSEndpoint consumer (sources: [crd]),
+  # so it is named here; it and external-dns-cloudflare share wave 4.
   externaldns.k8s.io: external-dns-cloudflare-crd
   deviceplugin.intel.com: intel-device-plugins-operator
   nvidia.com: nvidia-gpu-operator

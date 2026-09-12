@@ -1,7 +1,9 @@
 package verify
 
 import (
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -218,16 +220,29 @@ func LoadGitOpsRegistry(repoRoot string) (*GitOpsRegistry, error) {
 }
 
 // readRegistryFile decodes one optional registry file into out.
+//
+// Decoding is strict (KnownFields): a top-level key the struct does not know
+// is an error, not a silent no-op. yaml.Unmarshal ignores unknown keys, so a
+// typo such as `charts:` written as `chart:` in huge-crd-charts.yaml left the
+// registry section empty and the rule quietly checked nothing.
 func readRegistryFile(repoRoot, name string, out any) error {
 	path := filepath.Join(repoRoot, filepath.FromSlash(GitOpsRegistryDir), name)
-	data, err := os.ReadFile(path)
+	f, err := os.Open(path)
 	if os.IsNotExist(err) {
 		return nil
 	}
 	if err != nil {
 		return fmt.Errorf("reading %s: %w", path, err)
 	}
-	if err := yaml.Unmarshal(data, out); err != nil {
+	defer f.Close()
+
+	dec := yaml.NewDecoder(f)
+	dec.KnownFields(true)
+	if err := dec.Decode(out); err != nil {
+		// An empty document is a legitimate "no entries".
+		if errors.Is(err, io.EOF) {
+			return nil
+		}
 		return fmt.Errorf("parsing %s: %w", path, err)
 	}
 	return nil
