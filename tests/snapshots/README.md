@@ -20,14 +20,17 @@ The homelab snapshots are rendered from
 `homelab.yaml` is ever read, so nothing here originates in the real environment
 file.
 
-That is not the same as being free of production values. Many child charts still
-carry the production domain and IP addresses in their committed
-`values-homelab.yaml` files, and a snapshot reproduces whatever its chart's
-values say. Removing that PII at the source is tracked in GitHub issue #262.
-Until it lands, treat these files as exactly as sensitive as `charts/` already
-is.
+Nor do the snapshots contain production values from the charts themselves.
+Child charts keep only non-derived settings in their committed
+`values-homelab.yaml`; the domain, hostnames, IPs, iSCSI portal and e-mail they
+need arrive through the parent Application's `helm.valuesObject` (ADR-010). The
+render mirrors that: parents render first, and each child receives the
+`valuesObject` extracted from its parent as an extra values file, written to
+`_inherited/<chart>.yaml` in the render directory. So a homelab snapshot only
+ever shows the `REPLACEME-*` / `192.168.1.x` placeholders from the example file.
 
-To see the current extent:
+`homelab config guard` scans `configuration/**` and `charts/**/values-homelab.yaml`
+by default. To confirm the snapshots stayed clean after a chart change:
 
 ```bash
 homelab config guard --ci --paths 'tests/snapshots/**'

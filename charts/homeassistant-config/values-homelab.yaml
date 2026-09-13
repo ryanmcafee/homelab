@@ -10,7 +10,6 @@ volumes:
       fsType: ext4
       volumeAttributes:
         node_attach_driver: iscsi
-        portal: "172.16.100.150:3260"
         portals: ""
         iqn: "iqn.2005-10.org.freenas.ctl:csi-homeassistant-config-homelab"
         lun: "0"

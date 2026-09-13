@@ -214,6 +214,13 @@ spec:
       valueFiles:
         - values.yaml
         - values-{{ .Values.global.environment }}.yaml
+      # Derived values (domain, dashboard hostname) come from this parent's
+      # values (configuration/ via the CMP in homelab) so the child's committed
+      # values files stay PII-free. valuesObject overrides valueFiles in ArgoCD.
+      valuesObject:
+        global:
+          domain: {{ .Values.global.domain }}
+        {{- toYaml .Values.traefikInternal.config | nindent 8 }}
   destination:
     server: https://kubernetes.default.svc
     namespace: traefik

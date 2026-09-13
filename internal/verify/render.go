@@ -1,6 +1,7 @@
 package verify
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -12,6 +13,8 @@ import (
 	"sync"
 	"time"
 
+	"gopkg.in/yaml.v3"
+
 	"github.com/ryanmcafee/homelab/internal/config"
 )
 
@@ -21,11 +24,16 @@ type RenderOptions struct {
 	// RepoRoot is the repository root (the directory holding Taskfile.yml).
 	RepoRoot string
 	// OutDir is required. Renders land at <OutDir>/<env>/<chart>.yaml and
-	// per-env metadata at <OutDir>/<env>/_data.yaml.
+	// per-env metadata at <OutDir>/<env>/_data.yaml. Values a child inherits
+	// from its parent Application are written to
+	// <OutDir>/<env>/_inherited/<chart>.yaml, and parents rendered only to
+	// extract those values (see Charts) to <OutDir>/<env>/_parents/<chart>.yaml.
 	OutDir string
 	// Envs defaults to the package-level Envs.
 	Envs []Env
 	// Charts optionally restricts the pass to these chart directory names.
+	// Parents the selection leaves out are still rendered when a selected
+	// chart inherits values from them, but produce no checks and no Files.
 	Charts []string
 	// Parallel bounds concurrent helm invocations; defaults to runtime.NumCPU().
 	Parallel int
@@ -60,12 +68,54 @@ type RenderOutput struct {
 	Files map[string]map[string]string
 }
 
-// envRender is the per-environment state shared by every chart render.
+// inheritedValues is one chart's parent-provided values: the helm.valuesObject
+// of the Application that deploys it, extracted from the parent's render.
+type inheritedValues struct {
+	// path is the absolute path of the extracted values file.
+	path string
+	// body is the marshalled valuesObject, kept so a second Application
+	// handing the same chart different values can be detected.
+	body []byte
+	// producer names the Application (and its chart) the values came from.
+	producer string
+}
+
+// envRender is the per-environment state shared by every chart render. It is
+// passed by pointer: the inheritance maps are filled between render waves and
+// read by the renders of the next wave.
 type envRender struct {
 	env Env
+	// domain is the env's resolved DOMAIN. Two-stage envs hand it to the
+	// gitops chart with --set, mirroring the Terraform root Application.
+	domain string
 	// generated maps a two-stage chart name to the absolute path of its
 	// config-export-generated values file.
 	generated map[string]string
+	// inherited maps a chart name to the values its parent Application
+	// passes through helm.valuesObject. ArgoCD applies valuesObject on top of
+	// valueFiles, so the file is appended after the chart's own values.
+	inherited map[string]inheritedValues
+	// parentFiles maps a parent chart rendered in the current wave to its
+	// output file, whether a normal render or an inherit-only one. It is
+	// consumed (and cleared) by collectInherited after each parent wave.
+	parentFiles map[string]string
+	// inheritFindings and inheritProblems feed the render/<env>/_inherit
+	// check: a problem is one conflict or one failed inherit-only render,
+	// which may contribute several finding lines.
+	inheritFindings []string
+	inheritProblems int
+	// inheritSpent is the time collectInherited took, so the _inherit check
+	// reports the extraction cost rather than the surrounding renders.
+	inheritSpent time.Duration
+}
+
+// renderJob is one (env, chart) render. inheritOnly renders are parents the
+// --chart filter left out: their output only feeds inheritance and produces
+// neither checks nor RenderOutput.Files entries.
+type renderJob struct {
+	er          *envRender
+	chart       Chart
+	inheritOnly bool
 }
 
 // applyDefaults fills unset options.
@@ -90,6 +140,12 @@ func (o *RenderOptions) applyDefaults() {
 // Render renders, lints and schema-validates every selected chart for every
 // selected environment. It never returns a Go error: every failure is a Check
 // so that the JSON contract is the single output surface.
+//
+// Charts render in waves so that a parent's Applications are on disk before
+// the children they hand values to: gitops first, then the other parents,
+// then everything else. After each parent wave the helm.valuesObject of every
+// rendered Application is extracted for the chart it points at (see
+// collectInherited), mirroring ArgoCD's valueFiles < valuesObject precedence.
 func Render(ctx context.Context, opts RenderOptions) (*RenderOutput, *Result) {
 	start := time.Now()
 	opts.applyDefaults()
@@ -110,11 +166,11 @@ func Render(ctx context.Context, opts RenderOptions) (*RenderOutput, *Result) {
 		return setupFail("RenderOptions.RepoRoot is required")
 	}
 
-	charts, err := DiscoverCharts(opts.RepoRoot)
+	all, err := DiscoverCharts(opts.RepoRoot)
 	if err != nil {
 		return setupFail(fmt.Sprintf("discovering charts: %v", err))
 	}
-	charts, err = filterCharts(charts, opts.Charts)
+	charts, err := filterCharts(all, opts.Charts)
 	if err != nil {
 		return setupFail(err.Error())
 	}
@@ -122,6 +178,7 @@ func Render(ctx context.Context, opts RenderOptions) (*RenderOutput, *Result) {
 		return setupFail("no charts found under " + filepath.Join(opts.RepoRoot, "charts"))
 	}
 	out.Charts = charts
+	inheritOnly := inheritOnlyParents(all, charts, opts.Charts)
 
 	k8sVersion, err := KubernetesVersion(opts.RepoRoot)
 	if err != nil {
@@ -136,7 +193,7 @@ func Render(ctx context.Context, opts RenderOptions) (*RenderOutput, *Result) {
 
 	// Per-environment preparation is sequential: it resolves the config once
 	// and writes _data.yaml plus any generated values the renders depend on.
-	var prepared []envRender
+	var prepared []*envRender
 	for _, env := range opts.Envs {
 		er, check := prepareEnv(opts, env, k8sVersion)
 		res.Add(check)
@@ -147,55 +204,45 @@ func Render(ctx context.Context, opts RenderOptions) (*RenderOutput, *Result) {
 			res.Add(skippedEnvChecks(opts, env, charts)...)
 			continue
 		}
-		prepared = append(prepared, *er)
+		prepared = append(prepared, er)
 		out.Files[env.Name] = map[string]string{}
 	}
 
-	type job struct {
-		er    envRender
-		chart Chart
-	}
-	var jobs []job
-	for _, er := range prepared {
-		for _, c := range charts {
-			jobs = append(jobs, job{er: er, chart: c})
-		}
-	}
-
-	var (
-		mu sync.Mutex
-		wg sync.WaitGroup
-	)
+	var mu sync.Mutex
+	// One semaphore for the whole pass, so --parallel caps external processes
+	// across waves and the schema phase alike.
 	sem := make(chan struct{}, opts.Parallel)
-	for _, j := range jobs {
-		// A cancelled run stops dispatching instead of draining the queue.
-		if ctx.Err() != nil {
-			break
+	for wave := 0; wave <= lastWave; wave++ {
+		var jobs []renderJob
+		for _, er := range prepared {
+			for _, c := range charts {
+				if renderWave(c) == wave {
+					jobs = append(jobs, renderJob{er: er, chart: c})
+				}
+			}
+			for _, c := range inheritOnly {
+				if renderWave(c) == wave {
+					jobs = append(jobs, renderJob{er: er, chart: c, inheritOnly: true})
+				}
+			}
 		}
-		wg.Add(1)
-		go func(j job) {
-			defer wg.Done()
-			sem <- struct{}{}
-			defer func() { <-sem }()
-			if ctx.Err() != nil {
-				return
+		runWave(ctx, opts, jobs, sem, &mu, res, out)
+		if ctx.Err() != nil {
+			res.Add(FailCheck("render/cancelled", start, fmt.Sprintf("run cancelled before completion: %v", ctx.Err())))
+			res.Finalize(start)
+			return out, res
+		}
+		if wave < lastWave {
+			for _, er := range prepared {
+				collectInherited(opts, er)
 			}
-
-			checks, file := renderChart(ctx, opts, j.er, j.chart)
-			mu.Lock()
-			res.Add(checks...)
-			if file != "" {
-				out.Files[j.er.env.Name][j.chart.Name] = file
+		}
+		if wave == lastWave-1 {
+			// Every producer has rendered by now; the last wave only consumes.
+			for _, er := range prepared {
+				res.Add(inheritCheck(er))
 			}
-			mu.Unlock()
-		}(j)
-	}
-	wg.Wait()
-
-	if ctx.Err() != nil {
-		res.Add(FailCheck("render/cancelled", start, fmt.Sprintf("run cancelled before completion: %v", ctx.Err())))
-		res.Finalize(start)
-		return out, res
+		}
 	}
 
 	switch {
@@ -213,7 +260,7 @@ func Render(ctx context.Context, opts RenderOptions) (*RenderOutput, *Result) {
 		var swg sync.WaitGroup
 		for _, er := range prepared {
 			swg.Add(1)
-			go func(er envRender) {
+			go func(er *envRender) {
 				defer swg.Done()
 				files := out.Files[er.env.Name]
 				// Reusing the render pool's semaphore means --parallel caps
@@ -233,13 +280,204 @@ func Render(ctx context.Context, opts RenderOptions) (*RenderOutput, *Result) {
 	return out, res
 }
 
+// lastWave is the index of the final render wave (the non-parent charts).
+const lastWave = 2
+
+// renderWave places a chart in its render wave: gitops (wave 0) deploys the
+// other parents, which (wave 1) deploy every remaining chart (wave 2). A
+// chart only ever inherits values from an earlier wave.
+func renderWave(c Chart) int {
+	switch {
+	case c.Name == "gitops":
+		return 0
+	case c.Parent:
+		return 1
+	default:
+		return lastWave
+	}
+}
+
+// inheritOnlyParents lists the parents a --chart filter left out that a
+// selected chart may inherit values from. Only gitops, addons and
+// applications emit path-based Applications: gitops deploys the other
+// parents, addons and applications deploy the children. bootstrap deploys no
+// chart from this repository, so it is never needed on another chart's
+// behalf. Without a filter there is nothing to add.
+func inheritOnlyParents(all, selected []Chart, filter []string) []Chart {
+	if len(filter) == 0 {
+		return nil
+	}
+	chosen := map[string]bool{}
+	needGitops, needChildParents := false, false
+	for _, c := range selected {
+		chosen[c.Name] = true
+		switch {
+		case c.Name == "gitops":
+		case c.Parent:
+			needGitops = true
+		default:
+			needChildParents = true
+		}
+	}
+	var out []Chart
+	for _, c := range all {
+		if chosen[c.Name] {
+			continue
+		}
+		if (c.Name == "gitops" && needGitops) ||
+			((c.Name == "addons" || c.Name == "applications") && needChildParents) {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+// runWave renders one wave through the bounded worker pool and returns once
+// every dispatched job has finished. A cancelled context stops dispatching
+// instead of draining the queue; the caller checks ctx afterwards.
+func runWave(ctx context.Context, opts RenderOptions, jobs []renderJob, sem chan struct{}, mu *sync.Mutex, res *Result, out *RenderOutput) {
+	var wg sync.WaitGroup
+	for _, j := range jobs {
+		if ctx.Err() != nil {
+			break
+		}
+		wg.Add(1)
+		go func(j renderJob) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			if ctx.Err() != nil {
+				return
+			}
+
+			if j.inheritOnly {
+				file, findings := renderParentForInheritance(ctx, opts, j.er, j.chart)
+				mu.Lock()
+				if file != "" {
+					j.er.parentFiles[j.chart.Name] = file
+				}
+				if len(findings) > 0 {
+					j.er.inheritProblems++
+					j.er.inheritFindings = append(j.er.inheritFindings, findings...)
+				}
+				mu.Unlock()
+				return
+			}
+
+			checks, file := renderChart(ctx, opts, j.er, j.chart)
+			mu.Lock()
+			res.Add(checks...)
+			if file != "" {
+				out.Files[j.er.env.Name][j.chart.Name] = file
+				if j.chart.Parent {
+					j.er.parentFiles[j.chart.Name] = file
+				}
+			}
+			mu.Unlock()
+		}(j)
+	}
+	wg.Wait()
+}
+
+// collectInherited extracts helm.valuesObject from every Application in the
+// parents rendered by the wave that just finished and writes each one to
+// <OutDir>/<env>/_inherited/<chart>.yaml, keyed by the Application's
+// spec.source.path. The next wave appends that file to the child's values.
+//
+// Two Applications may deploy the same chart only if they hand it the same
+// values; anything else is a real GitOps ambiguity and is reported through
+// the render/<env>/_inherit check rather than silently picking one.
+func collectInherited(opts RenderOptions, er *envRender) {
+	start := time.Now()
+	defer func() { er.inheritSpent += time.Since(start) }()
+
+	problem := func(findings ...string) {
+		er.inheritProblems++
+		er.inheritFindings = append(er.inheritFindings, findings...)
+	}
+
+	for _, parent := range sortedKeys(er.parentFiles) {
+		file := er.parentFiles[parent]
+		data, err := os.ReadFile(file)
+		if err != nil {
+			problem(fmt.Sprintf("%s: reading %s: %v", parent, shortPath(opts.OutDir, file), err))
+			continue
+		}
+		docs, err := ParseMultiDoc(parent, er.env.Name, data)
+		if err != nil {
+			problem(fmt.Sprintf("%s: parsing rendered output: %v", parent, err))
+			continue
+		}
+		for _, d := range docs {
+			if !isApplication(d) {
+				continue
+			}
+			for _, src := range appSources(d) {
+				chart, ok := chartNameFromPath(src.GetString("path"))
+				if !ok {
+					continue
+				}
+				vo, ok := src.Get("helm", "valuesObject")
+				if !ok {
+					continue
+				}
+				producer := fmt.Sprintf("Application %s (%s)", d.Name(), parent)
+				m, ok := vo.(map[string]any)
+				if !ok {
+					problem(fmt.Sprintf("%s: %s: helm.valuesObject is not a mapping", chart, producer))
+					continue
+				}
+				body, err := yaml.Marshal(m)
+				if err != nil {
+					problem(fmt.Sprintf("%s: %s: marshalling helm.valuesObject: %v", chart, producer, err))
+					continue
+				}
+				if prev, seen := er.inherited[chart]; seen {
+					if !bytes.Equal(prev.body, body) {
+						problem(fmt.Sprintf("%s: helm.valuesObject from %s differs from %s", chart, producer, prev.producer))
+					}
+					continue
+				}
+				dest := filepath.Join(opts.OutDir, er.env.Name, "_inherited", chart+".yaml")
+				if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+					problem(fmt.Sprintf("%s: creating %s: %v", chart, filepath.Dir(dest), err))
+					continue
+				}
+				if err := os.WriteFile(dest, body, 0o644); err != nil {
+					problem(fmt.Sprintf("%s: writing %s: %v", chart, shortPath(opts.OutDir, dest), err))
+					continue
+				}
+				er.inherited[chart] = inheritedValues{path: dest, body: body, producer: producer}
+			}
+		}
+	}
+	er.parentFiles = map[string]string{}
+}
+
+// inheritCheck reports how many charts received parent values in an env and
+// fails on any conflict or failed inherit-only render.
+func inheritCheck(er *envRender) Check {
+	c := Check{
+		Name:       fmt.Sprintf("render/%s/_inherit", er.env.Name),
+		Status:     StatusPass,
+		DurationMS: er.inheritSpent.Milliseconds(),
+		Detail:     fmt.Sprintf("values inherited from parent Applications: %d", len(er.inherited)),
+	}
+	if er.inheritProblems > 0 {
+		c.Status = StatusFail
+		c.Detail += fmt.Sprintf("; %d problem(s)", er.inheritProblems)
+		c.Findings = er.inheritFindings
+	}
+	return c
+}
+
 // skippedEnvChecks returns the full set of check names an env would have
 // produced, as skips. It runs when config resolution failed, so that an agent
 // matching on render/<env>/<chart> or kubeconform/<env> finds the name present
 // and explicitly not run, rather than absent.
 func skippedEnvChecks(opts RenderOptions, env Env, charts []Chart) []Check {
 	const detail = "config resolution failed"
-	var out []Check
+	out := []Check{SkipCheck(fmt.Sprintf("render/%s/_inherit", env.Name), detail)}
 	for _, c := range charts {
 		out = append(out, SkipCheck(fmt.Sprintf("render/%s/%s", env.Name, c.Name), detail))
 		if !opts.SkipLint {
@@ -308,7 +546,13 @@ func prepareEnv(opts RenderOptions, env Env, k8sVersion string) (*envRender, Che
 		return nil, FailCheck(name, start, fmt.Sprintf("writing _data.yaml: %v", err))
 	}
 
-	er := &envRender{env: env, generated: map[string]string{}}
+	er := &envRender{
+		env:         env,
+		domain:      domain,
+		generated:   map[string]string{},
+		inherited:   map[string]inheritedValues{},
+		parentFiles: map[string]string{},
+	}
 	if env.TwoStage {
 		for chart, format := range TwoStageCharts {
 			tmpl := filepath.Join(opts.RepoRoot, "configuration", "templates", format+".tmpl")
@@ -359,28 +603,49 @@ func resolveEnvConfig(repoRoot string, env Env) (*config.ResolvedConfig, error) 
 	return config.Eval(schema, versions, env.ConfigSet, defaults, values)
 }
 
-// valuesArgs builds the -f arguments for a (chart, env) pair and a detail
-// string describing which values files were used.
-func valuesArgs(opts RenderOptions, er envRender, c Chart) ([]string, string) {
+// valuesArgs builds the helm values arguments for a (chart, env) pair and a
+// detail string describing where each value came from. The order mirrors the
+// precedence ArgoCD applies: the chart's own files first, then the values the
+// parent Application hands down through helm.valuesObject, then the
+// parameters Terraform sets on the root Application.
+func valuesArgs(opts RenderOptions, er *envRender, c Chart) ([]string, string) {
+	var (
+		args    []string
+		sources []string
+		missing string
+	)
 	if _, twoStage := TwoStageCharts[c.Name]; twoStage && er.env.TwoStage {
 		base := filepath.ToSlash(filepath.Join(c.Path, "values.yaml"))
 		gen := er.generated[c.Name]
 		// The detail is part of the JSON contract and is snapshot-compared by
 		// callers, so it carries the render-relative path. The absolute path
 		// stays in the argv, where helm needs it.
-		return []string{"-f", base, "-f", gen},
-			fmt.Sprintf("values: %s, %s (generated by config export)", base, shortPath(opts.OutDir, gen))
+		args = append(args, "-f", base, "-f", gen)
+		sources = append(sources, base, shortPath(opts.OutDir, gen)+" (generated by config export)")
+	} else {
+		files := ValuesFiles(opts.RepoRoot, c, er.env.Name)
+		for _, f := range files {
+			args = append(args, "-f", f)
+		}
+		sources = append(sources, files...)
+		envValues := "values-" + er.env.Name + ".yaml"
+		if !containsSuffix(files, "/"+envValues) {
+			missing = "; " + envValues + " missing"
+		}
 	}
 
-	files := ValuesFiles(opts.RepoRoot, c, er.env.Name)
-	args := make([]string, 0, len(files)*2)
-	for _, f := range files {
-		args = append(args, "-f", f)
+	if inh, ok := er.inherited[c.Name]; ok {
+		args = append(args, "-f", inh.path)
+		sources = append(sources, shortPath(opts.OutDir, inh.path)+" (inherited from parent Application helm.valuesObject)")
 	}
-	detail := "values: " + strings.Join(files, ", ")
-	envValues := "values-" + er.env.Name + ".yaml"
-	if !containsSuffix(files, "/"+envValues) {
-		detail += "; " + envValues + " missing"
+	detail := "values: " + strings.Join(sources, ", ") + missing
+
+	// The root Application that Terraform creates for the gitops chart passes
+	// global.domain as a helm parameter; nothing in git carries the real
+	// domain. Level 0 injects the example env's domain the same way.
+	if c.Name == "gitops" && er.env.TwoStage {
+		args = append(args, "--set", "global.domain="+er.domain)
+		detail += "; --set global.domain=" + er.domain + " (mirrors the Terraform root Application helm.parameters)"
 	}
 	return args, detail
 }
@@ -396,7 +661,41 @@ func containsSuffix(list []string, suffix string) bool {
 
 // renderChart runs helm template (and optionally helm lint) for one
 // (env, chart) pair and returns its checks plus the rendered file path.
-func renderChart(ctx context.Context, opts RenderOptions, er envRender, c Chart) ([]Check, string) {
+func renderChart(ctx context.Context, opts RenderOptions, er *envRender, c Chart) ([]Check, string) {
+	dest := RenderedFile(opts.OutDir, er.env.Name, c.Name)
+	check, vargs := templateChart(ctx, opts, er, c, dest)
+	if check.Status != StatusPass {
+		return []Check{check}, ""
+	}
+	checks := []Check{check}
+	if !opts.SkipLint {
+		checks = append(checks, lintChart(ctx, opts, er, c, vargs))
+	}
+	return checks, dest
+}
+
+// renderParentForInheritance renders a parent the --chart filter left out,
+// solely so the helm.valuesObject of its Applications can reach the selected
+// children. The output lands under _parents/ and yields no check and no
+// RenderOutput.Files entry; a failure surfaces through render/<env>/_inherit
+// because the children would otherwise silently render without their values.
+func renderParentForInheritance(ctx context.Context, opts RenderOptions, er *envRender, c Chart) (string, []string) {
+	dest := filepath.Join(opts.OutDir, er.env.Name, "_parents", c.Name+".yaml")
+	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+		return "", []string{fmt.Sprintf("%s: creating %s: %v", c.Name, filepath.Dir(dest), err)}
+	}
+	check, _ := templateChart(ctx, opts, er, c, dest)
+	if check.Status != StatusPass {
+		findings := []string{fmt.Sprintf("%s: inherit-only render failed: %s", c.Name, check.Detail)}
+		return "", append(findings, check.Findings...)
+	}
+	return dest, nil
+}
+
+// templateChart runs helm template for one (env, chart) pair and writes the
+// output to dest. The check is named render/<env>/<chart>; the values
+// arguments come back so helm lint can reuse them.
+func templateChart(ctx context.Context, opts RenderOptions, er *envRender, c Chart, dest string) (Check, []string) {
 	name := fmt.Sprintf("render/%s/%s", er.env.Name, c.Name)
 	start := time.Now()
 
@@ -406,28 +705,22 @@ func renderChart(ctx context.Context, opts RenderOptions, er envRender, c Chart)
 	stdout, stderr, err := opts.Runner.Run(ctx, opts.RepoRoot, "helm", args...)
 	if err != nil {
 		if isShimMissing(stderr) {
-			return []Check{FailCheck(name, start, ToolMissingDetail("helm"), outputLines(stderr)...)}, ""
+			return FailCheck(name, start, ToolMissingDetail("helm"), outputLines(stderr)...), vargs
 		}
-		return []Check{FailCheck(name, start,
+		return FailCheck(name, start,
 			fmt.Sprintf("helm template failed (%v)", err),
-			outputLines(stderr, stdout)...)}, ""
+			outputLines(stderr, stdout)...), vargs
 	}
 
-	dest := RenderedFile(opts.OutDir, er.env.Name, c.Name)
 	if err := os.WriteFile(dest, stdout, 0o644); err != nil {
-		return []Check{FailCheck(name, start, fmt.Sprintf("writing %s: %v", dest, err))}, ""
+		return FailCheck(name, start, fmt.Sprintf("writing %s: %v", dest, err)), vargs
 	}
-
-	checks := []Check{PassCheck(name, start, detail)}
-	if !opts.SkipLint {
-		checks = append(checks, lintChart(ctx, opts, er, c, vargs))
-	}
-	return checks, dest
+	return PassCheck(name, start, detail), vargs
 }
 
 // lintChart runs helm lint. Only [ERROR] lines (or a non-zero exit) fail the
 // check; [WARNING] and [INFO] lines are informational.
-func lintChart(ctx context.Context, opts RenderOptions, er envRender, c Chart, vargs []string) Check {
+func lintChart(ctx context.Context, opts RenderOptions, er *envRender, c Chart, vargs []string) Check {
 	name := fmt.Sprintf("lint/%s/%s", er.env.Name, c.Name)
 	start := time.Now()
 

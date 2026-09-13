@@ -1,15 +1,12 @@
 # cert-manager-cluster-issuer homelab values
-
-global:
-  domain: ryanmcafee.com
+#
+# The ACME e-mail, DNS zones, ACME server and global.domain are not set here.
+# The cert-manager-cluster-issuer Application in charts/addons passes them
+# through helm.valuesObject from the parent's cert-manager values
+# (configuration/ via the CMP), so this committed file stays PII-free.
 
 cloudflare:
   enabled: true
-  email: admin@ryanmcafee.com
 
 letsencrypt:
   enabled: true
-  server: https://acme-v02.api.letsencrypt.org/directory
-  email: admin@ryanmcafee.com
-  dnsZones:
-    - ryanmcafee.com

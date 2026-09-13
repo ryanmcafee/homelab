@@ -1,19 +1,18 @@
 # traefik-config homelab values
 # CRD-dependent resources that deploy AFTER Traefik
-
-global:
-  domain: ryanmcafee.com
+#
+# Hostnames, the static IP, the allowed OIDC domains and global.domain are not
+# set here. The traefik-external-config Application in charts/addons passes
+# them through helm.valuesObject from configuration/ (via the CMP), so this
+# committed file stays PII-free. Only non-derived settings live here.
 
 namespace: traefik
 
 dashboard:
   enabled: true
-  host: traefik.ryanmcafee.com
-  staticIP: "172.16.100.200"
 
 oidc:
   enabled: true
-  host: auth.ryanmcafee.com
   providerURL: https://accounts.google.com
   # IMPORTANT: Use path-only format. The plugin constructs full URL from request host.
   # Each protected service needs its callback registered in Google Cloud Console.
@@ -23,5 +22,3 @@ oidc:
     - openid
     - email
     - profile
-  allowedDomains:
-    - ryanmcafee.com

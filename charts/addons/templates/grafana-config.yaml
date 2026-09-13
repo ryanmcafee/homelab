@@ -20,6 +20,11 @@ spec:
       valueFiles:
         - values.yaml
         - values-{{ .Values.global.environment }}.yaml
+      # The iSCSI portal comes from this parent's global values (configuration/
+      # via the CMP in homelab) so the child's committed values stay PII-free.
+      valuesObject:
+        iscsi:
+          portal: {{ .Values.global.iscsi.portal | quote }}
   destination:
     server: https://kubernetes.default.svc
     namespace: {{ (index .Values "kube-prometheus-stack").namespace }}

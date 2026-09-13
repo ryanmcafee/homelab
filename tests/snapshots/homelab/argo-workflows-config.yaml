@@ -71,7 +71,7 @@ spec:
                   - name: name
                     value: "traefik"
                   - name: url
-                    value: "https://traefik.ryanmcafee.com/dashboard/"
+                    value: "https://traefik.REPLACEME-domain.com/dashboard/"
                   - name: expect-auth
                     value: "true"
             - name: verify-argocd
@@ -81,7 +81,7 @@ spec:
                   - name: name
                     value: "argocd"
                   - name: url
-                    value: "https://argocd.ryanmcafee.com"
+                    value: "https://argocd.REPLACEME-domain.com"
                   - name: expect-auth
                     value: "true"
             - name: verify-grafana
@@ -91,7 +91,7 @@ spec:
                   - name: name
                     value: "grafana"
                   - name: url
-                    value: "https://grafana.ryanmcafee.com"
+                    value: "https://grafana.REPLACEME-domain.com"
                   - name: expect-auth
                     value: "true"
             - name: verify-plex
@@ -101,7 +101,7 @@ spec:
                   - name: name
                     value: "plex"
                   - name: url
-                    value: "https://plex.ryanmcafee.com"
+                    value: "https://plex.REPLACEME-domain.com"
                   - name: expect-auth
                     value: "true"
             - name: verify-sonarr
@@ -111,7 +111,7 @@ spec:
                   - name: name
                     value: "sonarr"
                   - name: url
-                    value: "https://sonarr.ryanmcafee.com"
+                    value: "https://sonarr.REPLACEME-domain.com"
                   - name: expect-auth
                     value: "true"
             - name: verify-radarr
@@ -121,7 +121,7 @@ spec:
                   - name: name
                     value: "radarr"
                   - name: url
-                    value: "https://radarr.ryanmcafee.com"
+                    value: "https://radarr.REPLACEME-domain.com"
                   - name: expect-auth
                     value: "true"
             - name: verify-prowlarr
@@ -131,7 +131,7 @@ spec:
                   - name: name
                     value: "prowlarr"
                   - name: url
-                    value: "https://prowlarr.ryanmcafee.com"
+                    value: "https://prowlarr.REPLACEME-domain.com"
                   - name: expect-auth
                     value: "true"
             - name: verify-homeassistant
@@ -141,7 +141,7 @@ spec:
                   - name: name
                     value: "homeassistant"
                   - name: url
-                    value: "https://homeassistant.ryanmcafee.com"
+                    value: "https://homeassistant.REPLACEME-domain.com"
                   - name: expect-auth
                     value: "true"
             - name: verify-auth
@@ -151,7 +151,7 @@ spec:
                   - name: name
                     value: "auth"
                   - name: url
-                    value: "https://auth.ryanmcafee.com"
+                    value: "https://auth.REPLACEME-domain.com"
                   - name: expect-auth
                     value: "true"
       - name: verify-ingress

@@ -13,8 +13,8 @@ global:
   environment: localdev
 
   # Must match configuration/environments/localdev.yaml's DOMAIN (config is
-  # the source of truth). Currently unused by any template in this chart,
-  # but kept in sync to avoid misleading drift if that changes.
+  # the source of truth). The bootstrap template derives the ArgoCD ingress
+  # hostname (argocd.<domain>) from it via helm.valuesObject.
   domain: homelab.local
 
   # Repository URL - can be local path or GitHub URL

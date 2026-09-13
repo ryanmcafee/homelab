@@ -61,6 +61,8 @@ spec:
       valueFiles:
         - values.yaml
         - values-{{ .Values.global.environment }}.yaml
+      valuesObject:
+        subdomain: {{ .Values.duckdns.subdomain | quote }}
   destination:
     server: https://kubernetes.default.svc
     namespace: {{ .Values.duckdns.namespace }}

@@ -174,7 +174,11 @@ kubectl get secret gitops-secrets -n argocd -o yaml
 
 1. **Terragrunt** provisions infrastructure and creates the cluster
 2. **Bootstrap Module** installs ArgoCD and creates metadata
-3. **Bootstrap Application** points to `charts/gitops` in the repo
+3. **Bootstrap Application** points to `charts/gitops` in the repo and passes
+   `var.base_fqdn` as the Helm parameter `global.domain`. The domain is never
+   committed; the gitops chart derives the ArgoCD ingress hostname from it and
+   hands it to the `bootstrap` child via `helm.valuesObject` (bootstrap installs
+   the CMP, so it cannot read `configuration/` itself)
 4. **GitOps Chart** reads metadata and deploys addons/apps
 5. **ArgoCD** manages all subsequent deployments
 

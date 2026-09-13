@@ -210,8 +210,6 @@ metadata:
   namespace: argocd
   annotations:
     argocd.argoproj.io/sync-wave: "1"
-    homelab.ryanmcafee.com/policy-exempt: "hostname-domain"
-    homelab.ryanmcafee.com/policy-exempt-reason: "GitHub issue #262: domain hardcoded in values-homelab.yaml; this chart's inline spec.source.helm.values (argocd.values) sets the ArgoCD server hostname independently of configuration/environments/*.yaml (the centralized, PII-free level-0 domain), so it is correct in real deployments but never matches the level-0 placeholder domain. Remove this exemption when the chart takes DOMAIN from the config system."
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
@@ -294,7 +292,7 @@ spec:
             env:
             - name: ARGOCD_EXEC_TIMEOUT
               value: "90"
-            image: ghcr.io/ryanmcafee/homelab-cmp:0.1.13
+            image: ghcr.io/ryanmcafee/homelab-cmp:0.1.14
             name: homelab-cmp
             securityContext:
               runAsNonRoot: true
@@ -317,7 +315,7 @@ spec:
             - /custom-tools/
             command:
             - /bin/cp
-            image: ghcr.io/ryanmcafee/homelab-cmp:0.1.13
+            image: ghcr.io/ryanmcafee/homelab-cmp:0.1.14
             name: install-ksops
             volumeMounts:
             - mountPath: /custom-tools
@@ -362,13 +360,13 @@ spec:
           ingress:
             annotations:
               cert-manager.io/cluster-issuer: letsencrypt
-              external-dns.alpha.kubernetes.io/hostname: argocd.ryanmcafee.com
+              external-dns.alpha.kubernetes.io/hostname: argocd.REPLACEME-domain.com
             enabled: true
             extraTls:
             - hosts:
-              - argocd.ryanmcafee.com
+              - argocd.REPLACEME-domain.com
               secretName: argocd-server-tls
-            hostname: argocd.ryanmcafee.com
+            hostname: argocd.REPLACEME-domain.com
             ingressClassName: internal
           replicas: 3
           resources:

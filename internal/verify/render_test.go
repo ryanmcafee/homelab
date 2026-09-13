@@ -43,6 +43,9 @@ type fakeRunner struct {
 	templateStderr string
 	// kubeconformStderr, when set, makes kubeconform exit non-zero with this stderr.
 	kubeconformStderr string
+	// manifests overrides the canned `helm template <release>` stdout per
+	// release, so a parent can emit Applications for inheritance tests.
+	manifests map[string]string
 
 	// inFlight and maxInFlight record observed concurrency so tests can assert
 	// that --parallel actually bounds the worker pool.
@@ -93,6 +96,9 @@ func (f *fakeRunner) Run(_ context.Context, dir, name string, args ...string) ([
 		}
 		if release == f.failRelease {
 			return nil, []byte("Error: template: " + release + "/templates/app.yaml:3:12: nil pointer evaluating interface {}.repoURL"), fmt.Errorf("exit status 1")
+		}
+		if m, ok := f.manifests[release]; ok {
+			return []byte(m), nil, nil
 		}
 		return []byte(cannedManifest(release)), nil, nil
 	case name == "helm" && len(args) > 1 && args[0] == "lint":
@@ -157,6 +163,35 @@ func cannedManifest(release string) string {
 		"  release: " + release + "\n"
 }
 
+// applicationManifest fabricates an ArgoCD Application that deploys chartPath
+// and hands it valuesObject (a YAML mapping body, already indented by 8).
+// An empty valuesObject omits the helm block entirely.
+func applicationManifest(appName, chartPath, valuesObject string) string {
+	m := "---\n" +
+		"apiVersion: argoproj.io/v1alpha1\n" +
+		"kind: Application\n" +
+		"metadata:\n" +
+		"  name: " + appName + "\n" +
+		"  namespace: argocd\n" +
+		"spec:\n" +
+		"  project: default\n" +
+		"  source:\n" +
+		"    repoURL: https://github.com/example/homelab.git\n" +
+		"    path: " + chartPath + "\n"
+	if valuesObject != "" {
+		m += "    helm:\n" +
+			"      valuesObject:\n" + valuesObject
+	}
+	return m
+}
+
+// tailscaleValuesObject is the valuesObject body the tests hand to
+// tailscale-config, and tailscaleInherited its deterministic yaml.v3 form.
+const (
+	tailscaleValuesObject = "        tailscale:\n          hostname: ts.example.com\n"
+	tailscaleInherited    = "tailscale:\n    hostname: ts.example.com\n"
+)
+
 // testRepoRoot locates the worktree root from the package directory.
 func testRepoRoot(t *testing.T) string {
 	t.Helper()
@@ -190,7 +225,11 @@ func checkByName(t *testing.T, res *Result, name string) Check {
 func TestRenderValuesArgsPerEnv(t *testing.T) {
 	root := testRepoRoot(t)
 	outDir := t.TempDir()
-	fr := &fakeRunner{}
+	// The addons parent deploys tailscale-config and hands it values through
+	// helm.valuesObject, exactly as charts/addons does after #262.
+	fr := &fakeRunner{manifests: map[string]string{
+		"addons": cannedManifest("addons") + applicationManifest("tailscale", "charts/tailscale-config", tailscaleValuesObject),
+	}}
 
 	out, res := Render(context.Background(), RenderOptions{
 		RepoRoot:   root,
@@ -235,17 +274,21 @@ func TestRenderValuesArgsPerEnv(t *testing.T) {
 			notWantArgs: "_values",
 		},
 		{
-			name:     "child chart homelab uses values-homelab.yaml",
-			release:  "tailscale-config",
-			env:      "homelab",
-			wantArgs: "-f charts/tailscale-config/values.yaml -f charts/tailscale-config/values-homelab.yaml",
+			name:    "child chart homelab uses values-homelab.yaml then the inherited values",
+			release: "tailscale-config",
+			env:     "homelab",
+			wantArgs: "-f charts/tailscale-config/values.yaml -f charts/tailscale-config/values-homelab.yaml -f " +
+				filepath.Join(outDir, "homelab", "_inherited", "tailscale-config.yaml"),
+			wantDetail: "homelab/_inherited/tailscale-config.yaml (inherited from parent Application helm.valuesObject)",
 		},
 		{
-			name:       "child chart localdev falls back to values.yaml only",
-			release:    "tailscale-config",
-			env:        "localdev",
-			wantArgs:   "-f charts/tailscale-config/values.yaml",
-			wantDetail: "values-localdev.yaml missing",
+			name:     "child chart localdev falls back to values.yaml then the inherited values",
+			release:  "tailscale-config",
+			env:      "localdev",
+			wantArgs: "-f charts/tailscale-config/values.yaml -f " + filepath.Join(outDir, "localdev", "_inherited", "tailscale-config.yaml"),
+			// The inherited file is a values source and sits before the
+			// "missing" note, not after it.
+			wantDetail: "values: charts/tailscale-config/values.yaml, localdev/_inherited/tailscale-config.yaml (inherited from parent Application helm.valuesObject); values-localdev.yaml missing",
 		},
 	}
 
@@ -277,6 +320,326 @@ func TestRenderValuesArgsPerEnv(t *testing.T) {
 	// The localdev child chart must not receive a values-localdev.yaml flag.
 	if cmd, ok := fr.find("helm", "template tailscale-config ", "values-localdev.yaml"); ok {
 		t.Errorf("localdev child chart got a non-existent values file: %s", cmd.line())
+	}
+
+	// The inherited file holds exactly the valuesObject, marshalled
+	// deterministically, and the per-env check accounts for it.
+	for _, env := range Envs {
+		raw, err := os.ReadFile(filepath.Join(outDir, env.Name, "_inherited", "tailscale-config.yaml"))
+		if err != nil {
+			t.Fatalf("%s inherited file: %v", env.Name, err)
+		}
+		if string(raw) != tailscaleInherited {
+			t.Errorf("%s inherited file = %q, want %q", env.Name, raw, tailscaleInherited)
+		}
+		c := checkByName(t, res, "render/"+env.Name+"/_inherit")
+		if c.Status != StatusPass || c.Detail != "values inherited from parent Applications: 1" {
+			t.Errorf("render/%s/_inherit: status %s detail %q", env.Name, c.Status, c.Detail)
+		}
+	}
+	// addons itself is deployed by gitops, whose Applications carry no
+	// valuesObject in the fake, so it inherits nothing.
+	if cmd, ok := fr.find("helm", "template addons ", "_inherited"); ok {
+		t.Errorf("addons must not receive an inherited values file: %s", cmd.line())
+	}
+}
+
+func TestRenderInheritedValuesConflict(t *testing.T) {
+	root := testRepoRoot(t)
+	other := "        tailscale:\n          hostname: other.example.com\n"
+
+	tests := []struct {
+		name       string
+		apps       string // applications parent output
+		wantStatus Status
+		wantDetail string
+	}{
+		{
+			name:       "two Applications handing the same chart different values fail",
+			apps:       cannedManifest("applications") + applicationManifest("tailscale-again", "charts/tailscale-config", other),
+			wantStatus: StatusFail,
+			wantDetail: "values inherited from parent Applications: 1; 1 problem(s)",
+		},
+		{
+			name:       "two Applications handing the same chart identical values pass",
+			apps:       cannedManifest("applications") + applicationManifest("tailscale-again", "charts/tailscale-config", tailscaleValuesObject),
+			wantStatus: StatusPass,
+			wantDetail: "values inherited from parent Applications: 1",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			fr := &fakeRunner{manifests: map[string]string{
+				"addons":       cannedManifest("addons") + applicationManifest("tailscale", "charts/tailscale-config", tailscaleValuesObject),
+				"applications": tc.apps,
+			}}
+			_, res := Render(context.Background(), RenderOptions{
+				RepoRoot:   root,
+				OutDir:     t.TempDir(),
+				Envs:       []Env{Envs[1]},
+				Charts:     []string{"addons", "applications", "tailscale-config"},
+				SkipLint:   true,
+				SkipSchema: true,
+				Runner:     fr,
+			})
+			c := checkByName(t, res, "render/homelab/_inherit")
+			if c.Status != tc.wantStatus {
+				t.Fatalf("render/homelab/_inherit: status %s (%s), want %s", c.Status, c.Detail, tc.wantStatus)
+			}
+			if c.Detail != tc.wantDetail {
+				t.Errorf("detail = %q, want %q", c.Detail, tc.wantDetail)
+			}
+			if tc.wantStatus == StatusPass {
+				if res.Pass != true {
+					t.Error("identical values from two Applications must not fail the result")
+				}
+				return
+			}
+			if res.Pass {
+				t.Error("a valuesObject conflict must fail the result")
+			}
+			joined := strings.Join(c.Findings, "\n")
+			// The finding names the chart and both producers so the ambiguity
+			// can be resolved without re-rendering.
+			for _, want := range []string{"tailscale-config", "Application tailscale (addons)", "Application tailscale-again (applications)", "differs from"} {
+				if !strings.Contains(joined, want) {
+					t.Errorf("findings missing %q: %v", want, c.Findings)
+				}
+			}
+		})
+	}
+}
+
+func TestRenderGitopsDomainMirrorsTerraform(t *testing.T) {
+	root := testRepoRoot(t)
+	fr := &fakeRunner{}
+
+	_, res := Render(context.Background(), RenderOptions{
+		RepoRoot:   root,
+		OutDir:     t.TempDir(),
+		Envs:       Envs,
+		Charts:     []string{"gitops"},
+		SkipLint:   true,
+		SkipSchema: true,
+		Runner:     fr,
+	})
+	if !res.Pass {
+		var buf strings.Builder
+		res.WriteText(&buf)
+		t.Fatalf("expected pass, got:\n%s", buf.String())
+	}
+
+	// homelab: the Terraform root Application sets global.domain as a helm
+	// parameter, so the two-stage env injects the example domain the same way.
+	const set = "--set global.domain=REPLACEME-domain.com"
+	cmd, ok := fr.find("helm", "template gitops ", set)
+	if !ok {
+		t.Fatalf("no homelab helm template gitops with %q; recorded:\n%s", set, fr.dump())
+	}
+	if !strings.HasSuffix(cmd.line(), set) {
+		t.Errorf("--set must come after the values files: %s", cmd.line())
+	}
+	c := checkByName(t, res, "render/homelab/gitops")
+	wantDetail := "values: charts/gitops/values.yaml, charts/gitops/values-homelab.yaml; " + set + " (mirrors the Terraform root Application helm.parameters)"
+	if c.Detail != wantDetail {
+		t.Errorf("render/homelab/gitops detail = %q, want %q", c.Detail, wantDetail)
+	}
+
+	// localdev renders in plain-Helm mode and reads its domain from
+	// values-localdev.yaml, so nothing is injected.
+	if cmd, ok := fr.find("helm", "template gitops ", "values-localdev.yaml", "--set"); ok {
+		t.Errorf("localdev gitops must not receive --set: %s", cmd.line())
+	}
+	if c := checkByName(t, res, "render/localdev/gitops"); strings.Contains(c.Detail, "--set") {
+		t.Errorf("render/localdev/gitops detail must not mention --set: %q", c.Detail)
+	}
+	// No --chart-filter parent is needed on gitops' behalf.
+	if cmd, ok := fr.find("helm", "template addons "); ok {
+		t.Errorf("gitops alone must not trigger an inherit-only addons render: %s", cmd.line())
+	}
+}
+
+func TestRenderInheritOnlyParentsUnderChartFilter(t *testing.T) {
+	root := testRepoRoot(t)
+	outDir := t.TempDir()
+	fr := &fakeRunner{manifests: map[string]string{
+		"addons": cannedManifest("addons") + applicationManifest("tailscale", "charts/tailscale-config", tailscaleValuesObject),
+	}}
+
+	out, res := Render(context.Background(), RenderOptions{
+		RepoRoot:   root,
+		OutDir:     outDir,
+		Envs:       []Env{Envs[1]},
+		Charts:     []string{"tailscale-config"},
+		SkipLint:   true,
+		SkipSchema: true,
+		Runner:     fr,
+	})
+	if !res.Pass {
+		var buf strings.Builder
+		res.WriteText(&buf)
+		t.Fatalf("expected pass, got:\n%s", buf.String())
+	}
+
+	// Both child-deploying parents render inherit-only; gitops is not needed
+	// because no selected chart is deployed by it, and bootstrap never is.
+	for _, parent := range []string{"addons", "applications"} {
+		if _, ok := fr.find("helm", "template "+parent+" "); !ok {
+			t.Errorf("%s was not rendered for inheritance; recorded:\n%s", parent, fr.dump())
+		}
+		if _, err := os.Stat(filepath.Join(outDir, "homelab", "_parents", parent+".yaml")); err != nil {
+			t.Errorf("inherit-only output for %s missing: %v", parent, err)
+		}
+		if _, err := os.Stat(RenderedFile(outDir, "homelab", parent)); err == nil {
+			t.Errorf("inherit-only %s must not land next to the selected renders", parent)
+		}
+		if _, ok := out.Files["homelab"][parent]; ok {
+			t.Errorf("inherit-only %s must not appear in RenderOutput.Files", parent)
+		}
+		for _, c := range res.Checks {
+			if strings.HasSuffix(c.Name, "/"+parent) {
+				t.Errorf("inherit-only %s must not produce a check, got %s", parent, c.Name)
+			}
+		}
+	}
+	for _, parent := range []string{"gitops", "bootstrap"} {
+		if cmd, ok := fr.find("helm", "template "+parent+" "); ok {
+			t.Errorf("%s is not needed for a child-only selection: %s", parent, cmd.line())
+		}
+	}
+	if len(out.Charts) != 1 || out.Charts[0].Name != "tailscale-config" {
+		t.Errorf("RenderOutput.Charts = %v, want only tailscale-config", out.Charts)
+	}
+
+	// The selected child still receives the values its parent hands down.
+	inherited := filepath.Join(outDir, "homelab", "_inherited", "tailscale-config.yaml")
+	if _, ok := fr.find("helm", "template tailscale-config ", "-f "+inherited); !ok {
+		t.Errorf("tailscale-config did not receive the inherited values; recorded:\n%s", fr.dump())
+	}
+	if c := checkByName(t, res, "render/homelab/_inherit"); c.Detail != "values inherited from parent Applications: 1" {
+		t.Errorf("render/homelab/_inherit detail = %q", c.Detail)
+	}
+
+	// Parents render before children: every parent invocation precedes the
+	// child's, or the child could not have seen the extracted values.
+	childIdx, parentIdx := -1, -1
+	for i, c := range fr.cmds {
+		line := c.line()
+		switch {
+		case strings.HasPrefix(line, "helm template tailscale-config "):
+			childIdx = i
+		case strings.HasPrefix(line, "helm template addons ") || strings.HasPrefix(line, "helm template applications "):
+			if i > parentIdx {
+				parentIdx = i
+			}
+		}
+	}
+	if childIdx < 0 || parentIdx < 0 || parentIdx > childIdx {
+		t.Errorf("parents must render before children (last parent at %d, child at %d):\n%s", parentIdx, childIdx, fr.dump())
+	}
+}
+
+func TestRenderInheritOnlyGitopsForParentSelection(t *testing.T) {
+	root := testRepoRoot(t)
+	bootstrapValues := "        argocd:\n          hostname: argocd.example.com\n"
+	fr := &fakeRunner{manifests: map[string]string{
+		"gitops": cannedManifest("gitops") + applicationManifest("bootstrap", "charts/bootstrap", bootstrapValues),
+	}}
+
+	_, res := Render(context.Background(), RenderOptions{
+		RepoRoot:   root,
+		OutDir:     t.TempDir(),
+		Envs:       []Env{Envs[1]},
+		Charts:     []string{"bootstrap"},
+		SkipLint:   true,
+		SkipSchema: true,
+		Runner:     fr,
+	})
+	if !res.Pass {
+		var buf strings.Builder
+		res.WriteText(&buf)
+		t.Fatalf("expected pass, got:\n%s", buf.String())
+	}
+	// gitops deploys bootstrap, so it renders inherit-only (with the
+	// Terraform-mirroring --set); the child-deploying parents are not needed.
+	if _, ok := fr.find("helm", "template gitops ", "--set global.domain=REPLACEME-domain.com"); !ok {
+		t.Errorf("gitops was not rendered for inheritance; recorded:\n%s", fr.dump())
+	}
+	for _, parent := range []string{"addons", "applications"} {
+		if cmd, ok := fr.find("helm", "template "+parent+" "); ok {
+			t.Errorf("%s is not needed for a bootstrap selection: %s", parent, cmd.line())
+		}
+	}
+	if _, ok := fr.find("helm", "template bootstrap ", "_inherited/bootstrap.yaml (inherited"); ok {
+		t.Error("the detail text must not leak into argv")
+	}
+	if _, ok := fr.find("helm", "template bootstrap ", filepath.Join("_inherited", "bootstrap.yaml")); !ok {
+		t.Errorf("bootstrap did not receive the values gitops hands it; recorded:\n%s", fr.dump())
+	}
+	c := checkByName(t, res, "render/homelab/bootstrap")
+	if !strings.Contains(c.Detail, "homelab/_inherited/bootstrap.yaml (inherited from parent Application helm.valuesObject)") {
+		t.Errorf("render/homelab/bootstrap detail = %q", c.Detail)
+	}
+}
+
+func TestRenderInheritOnlyParentFailureIsReported(t *testing.T) {
+	root := testRepoRoot(t)
+	// addons is not selected, so its failure has no render check of its own;
+	// it must surface through _inherit or the child silently renders without
+	// its parent's values.
+	fr := &fakeRunner{failRelease: "addons"}
+
+	_, res := Render(context.Background(), RenderOptions{
+		RepoRoot:   root,
+		OutDir:     t.TempDir(),
+		Envs:       []Env{Envs[1]},
+		Charts:     []string{"tailscale-config"},
+		SkipLint:   true,
+		SkipSchema: true,
+		Runner:     fr,
+	})
+	if res.Pass {
+		t.Fatal("a failed inherit-only parent render must fail the result")
+	}
+	c := checkByName(t, res, "render/homelab/_inherit")
+	if c.Status != StatusFail {
+		t.Fatalf("render/homelab/_inherit: status %s (%s), want fail", c.Status, c.Detail)
+	}
+	if c.Detail != "values inherited from parent Applications: 0; 1 problem(s)" {
+		t.Errorf("detail = %q", c.Detail)
+	}
+	joined := strings.Join(c.Findings, "\n")
+	for _, want := range []string{"addons: inherit-only render failed: helm template failed", "nil pointer evaluating"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("findings missing %q: %v", want, c.Findings)
+		}
+	}
+	// The selected chart itself still renders and passes.
+	if c := checkByName(t, res, "render/homelab/tailscale-config"); c.Status != StatusPass {
+		t.Errorf("render/homelab/tailscale-config: status %s (%s)", c.Status, c.Detail)
+	}
+	for _, c := range res.Checks {
+		if c.Name == "render/homelab/addons" {
+			t.Error("an inherit-only parent must not get a render check")
+		}
+	}
+}
+
+func TestRenderInheritSkippedWhenConfigFails(t *testing.T) {
+	root := testRepoRoot(t)
+	broken := Env{Name: "homelab", ConfigSet: "homelab", EnvFile: "configuration/environments/nope.yaml", TwoStage: true}
+
+	_, res := Render(context.Background(), RenderOptions{
+		RepoRoot: root,
+		OutDir:   t.TempDir(),
+		Envs:     []Env{broken},
+		Charts:   []string{"addons"},
+		Runner:   &fakeRunner{},
+	})
+	c := checkByName(t, res, "render/homelab/_inherit")
+	if c.Status != StatusSkip || !strings.Contains(c.Detail, "config resolution failed") {
+		t.Errorf("render/homelab/_inherit: status %s detail %q, want skip", c.Status, c.Detail)
 	}
 }
 

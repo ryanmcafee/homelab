@@ -77,6 +77,9 @@ spec:
       valueFiles:
         - values.yaml
         - values-localdev.yaml
+      valuesObject:
+        iscsi:
+          portal: ""
   destination:
     server: https://kubernetes.default.svc
     namespace: media
@@ -192,6 +195,9 @@ spec:
       valueFiles:
         - values.yaml
         - values-localdev.yaml
+      valuesObject:
+        iscsi:
+          portal: ""
   destination:
     server: https://kubernetes.default.svc
     namespace: media
@@ -331,6 +337,9 @@ spec:
       valueFiles:
         - values.yaml
         - values-localdev.yaml
+      valuesObject:
+        iscsi:
+          portal: ""
   destination:
     server: https://kubernetes.default.svc
     namespace: home-automation
@@ -461,6 +470,9 @@ spec:
       valueFiles:
         - values.yaml
         - values-localdev.yaml
+      valuesObject:
+        iscsi:
+          portal: ""
   destination:
     server: https://kubernetes.default.svc
     namespace: media
@@ -594,6 +606,9 @@ spec:
       valueFiles:
         - values.yaml
         - values-localdev.yaml
+      valuesObject:
+        iscsi:
+          portal: ""
   destination:
     server: https://kubernetes.default.svc
     namespace: media
@@ -745,6 +760,9 @@ spec:
       valueFiles:
         - values.yaml
         - values-localdev.yaml
+      valuesObject:
+        iscsi:
+          portal: ""
   destination:
     server: https://kubernetes.default.svc
     namespace: media
@@ -880,6 +898,9 @@ spec:
       valueFiles:
         - values.yaml
         - values-localdev.yaml
+      valuesObject:
+        iscsi:
+          portal: ""
   destination:
     server: https://kubernetes.default.svc
     namespace: media
@@ -1029,6 +1050,9 @@ spec:
       valueFiles:
         - values.yaml
         - values-localdev.yaml
+      valuesObject:
+        iscsi:
+          portal: ""
   destination:
     server: https://kubernetes.default.svc
     namespace: media
@@ -1178,6 +1202,9 @@ spec:
       valueFiles:
         - values.yaml
         - values-localdev.yaml
+      valuesObject:
+        iscsi:
+          portal: ""
   destination:
     server: https://kubernetes.default.svc
     namespace: media

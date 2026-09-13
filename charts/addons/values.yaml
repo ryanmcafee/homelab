@@ -39,6 +39,12 @@ global:
   # Enable external load balancing
   loadBalancer: true
 
+  # iSCSI target portal handed to the *-config child charts (grafana-config,
+  # prometheus-config) through the parent Application's helm.valuesObject.
+  # Set from ISCSI_TARGET_PORTAL by the CMP in homelab; never commit a real one.
+  iscsi:
+    portal: ""
+
 # ============================================================================
 # Spegel - P2P Container Image Distribution
 # Sync Wave: 0 (early infrastructure, helps with slow registry pulls)
@@ -735,6 +741,18 @@ traefikExternal:
             type: Utilization
             averageUtilization: 80
 
+  # Values handed to the traefik-external-config child chart through the
+  # traefik-external-config Application's helm.valuesObject. Placeholders
+  # here; the CMP derives the real values from configuration/ in homelab.
+  config:
+    dashboard:
+      host: traefik.example.com
+      staticIP: "10.0.0.200"
+    oidc:
+      host: auth.example.com
+      allowedDomains:
+        - example.com
+
 # ============================================================================
 # Traefik Internal - Ingress Controller (Internal/Private Traffic)
 # Sync Wave: 6 (same wave as external, requires Cilium LB IPAM and cert-manager)
@@ -828,6 +846,13 @@ traefikInternal:
           target:
             type: Utilization
             averageUtilization: 80
+
+  # Values handed to the traefik-internal-config child chart through the
+  # traefik-internal-config Application's helm.valuesObject. Placeholder
+  # here; the CMP derives the real hostname from configuration/ in homelab.
+  config:
+    dashboard:
+      host: traefik-internal.example.com
 
 # ============================================================================
 # UniFi Port Forward Controller - Automatic Port Forwarding
@@ -1054,12 +1079,13 @@ argo-workflows:
           secondsAfterFailure: 172800    # 48 hours
 
   # Ingress verification workflow
-  # NOTE: Disabled - extraObjects in argo-workflows chart uses tpl() which
-  # causes double-templating issues. To re-enable, create a separate
-  # argo-workflows-config chart to deploy the CronWorkflow directly.
+  # NOTE: Consumed by the argo-workflows-config child chart (CronWorkflow) via
+  # the argo-workflows-config Application's helm.valuesObject, not by the
+  # upstream argo-workflows chart. Disabled by default; homelab enables it
+  # with the ingress list derived from configuration/ by the CMP.
   ingressVerification:
     enabled: false
     # Schedule: every 5 minutes
     schedule: "*/5 * * * *"
-    # Ingresses to verify (auto-populated from cluster if empty)
+    # Ingresses to verify (name, url, expectAuth)
     ingresses: []
