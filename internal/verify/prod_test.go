@@ -31,8 +31,9 @@ func TestProdArgoCDApps(t *testing.T) {
 	opts := prodOpts(t, r)
 	checks := ProdArgoCDApps(context.Background(), opts)
 
-	if len(checks) != 3 {
-		t.Fatalf("want 3 checks (one per Application), got %d: %+v", len(checks), checks)
+	// One check per Application plus prod/argocd/domain.
+	if len(checks) != 4 {
+		t.Fatalf("want 4 checks (one per Application + the domain check), got %d: %+v", len(checks), checks)
 	}
 	for _, c := range checks {
 		if !strings.HasPrefix(c.Name, "prod/argocd/") {
@@ -233,6 +234,113 @@ func TestProdArgoCDAppsFailureModes(t *testing.T) {
 			}
 			if tc.wantNoKubectl && len(tc.runner.invocations("kubectl")) != 0 {
 				t.Errorf("kubectl must not run, got %d invocation(s)", len(tc.runner.invocations("kubectl")))
+			}
+		})
+	}
+}
+
+// Fixtures for prod/argocd/domain: the root gitops Application either carries
+// the Terraform-injected global.domain helm parameter or it does not, in which
+// case the chart placeholder example.com reaches the bootstrap and argocd
+// Applications (what happened after PR #265 until the module was applied).
+const (
+	prodRootWithDomainJSON = `{"items":[
+  {"metadata":{"name":"gitops"},"spec":{"source":{"path":"charts/gitops","helm":{"valueFiles":["values.yaml","values-homelab.yaml"],"parameters":[{"name":"global.domain","value":"REPLACEME-domain.com"}]}}},
+   "status":{"sync":{"status":"Synced"},"health":{"status":"Healthy"},"operationState":{"phase":"Succeeded"}}},
+  {"metadata":{"name":"bootstrap"},"spec":{"source":{"path":"charts/bootstrap","helm":{"valuesObject":{"argocd":{"values":{"server":{"ingress":{"hostname":"argocd.REPLACEME-domain.com"}}}}}}}},
+   "status":{"sync":{"status":"Synced"},"health":{"status":"Healthy"},"operationState":{"phase":"Succeeded"}}},
+  {"metadata":{"name":"argocd"},"spec":{"source":{"chart":"argo-cd","helm":{"values":"server:\n  ingress:\n    hostname: argocd.REPLACEME-domain.com\n"}}},
+   "status":{"sync":{"status":"Synced"},"health":{"status":"Healthy"},"operationState":{"phase":"Succeeded"}}}
+]}`
+
+	prodRootWithoutDomainJSON = `{"items":[
+  {"metadata":{"name":"gitops"},"spec":{"source":{"path":"charts/gitops","helm":{"valueFiles":["values.yaml","values-homelab.yaml"]}}},
+   "status":{"sync":{"status":"Synced"},"health":{"status":"Healthy"},"operationState":{"phase":"Succeeded"}}},
+  {"metadata":{"name":"bootstrap"},"spec":{"source":{"path":"charts/bootstrap","helm":{"valuesObject":{"argocd":{"values":{"server":{"ingress":{"hostname":"argocd.example.com"}}}}}}}},
+   "status":{"sync":{"status":"Synced"},"health":{"status":"Healthy"},"operationState":{"phase":"Succeeded"}}},
+  {"metadata":{"name":"argocd"},"spec":{"source":{"chart":"argo-cd","helm":{"values":"notifications:\n  argocdUrl: https://argocd.example.com\nserver:\n  ingress:\n    hostname: argocd.example.com\n"}}},
+   "status":{"sync":{"status":"Synced"},"health":{"status":"Healthy"},"operationState":{"phase":"Succeeded"}}},
+  {"metadata":{"name":"addons"},"spec":{"source":{"path":"charts/addons","plugin":{"name":"homelab-config-helm-v1.0"}}},
+   "status":{"sync":{"status":"Synced"},"health":{"status":"Healthy"},"operationState":{"phase":"Succeeded"}}}
+]}`
+
+	prodRootPlaceholderParameterJSON = `{"items":[
+  {"metadata":{"name":"gitops"},"spec":{"source":{"path":"charts/gitops","helm":{"parameters":[{"name":"global.domain","value":"example.com"}]}}},
+   "status":{"sync":{"status":"Synced"},"health":{"status":"Healthy"},"operationState":{"phase":"Succeeded"}}}
+]}`
+
+	prodMultiSourceRootJSON = `{"items":[
+  {"metadata":{"name":"gitops"},"spec":{"sources":[{"path":"charts/gitops","helm":{"parameters":[{"name":"global.domain","value":"REPLACEME-domain.com"}]}}]},
+   "status":{"sync":{"status":"Synced"},"health":{"status":"Healthy"},"operationState":{"phase":"Succeeded"}}}
+]}`
+)
+
+func TestProdArgoCDDomain(t *testing.T) {
+	tests := []struct {
+		name         string
+		stdout       string
+		wantStatus   Status
+		wantFindings []string
+		notFindings  []string
+	}{
+		{
+			name:       "root carries global.domain and no Application embeds the placeholder",
+			stdout:     prodRootWithDomainJSON,
+			wantStatus: StatusPass,
+		},
+		{
+			name:       "spec.sources (multi-source root) is read too",
+			stdout:     prodMultiSourceRootJSON,
+			wantStatus: StatusPass,
+		},
+		{
+			name:       "root without the parameter fails and names every Application the placeholder reached",
+			stdout:     prodRootWithoutDomainJSON,
+			wantStatus: StatusFail,
+			wantFindings: []string{
+				"root Application gitops has no helm parameter global.domain",
+				"bootstrap: spec.source.helm.valuesObject contains example.com",
+				"argocd: spec.source.helm.values contains example.com",
+				"task tf:apply:component COMPONENT=gitops-bootstrap",
+			},
+			notFindings: []string{"addons:"},
+		},
+		{
+			name:         "a parameter set to the placeholder is as bad as none",
+			stdout:       prodRootPlaceholderParameterJSON,
+			wantStatus:   StatusFail,
+			wantFindings: []string{"global.domain is the placeholder example.com"},
+		},
+		{
+			name:         "no root Application is a failure, not a pass",
+			stdout:       argoAppsJSON,
+			wantStatus:   StatusFail,
+			wantFindings: []string{"root Application gitops not found"},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			r := &fakeClusterRunner{getStdout: tc.stdout}
+			checks := ProdArgoCDApps(context.Background(), prodOpts(t, r))
+			c := clusterCheck(t, checks, ProdDomainCheck)
+			if c.Status != tc.wantStatus {
+				t.Fatalf("status = %s, want %s (detail %q, findings %v)", c.Status, tc.wantStatus, c.Detail, c.Findings)
+			}
+			// Detail names the failure; findings carry the evidence and the hint.
+			joined := c.Detail + "\n" + strings.Join(c.Findings, "\n")
+			for _, want := range tc.wantFindings {
+				if !strings.Contains(joined, want) {
+					t.Errorf("findings lack %q:\n%s", want, joined)
+				}
+			}
+			for _, not := range tc.notFindings {
+				if strings.Contains(joined, not) {
+					t.Errorf("findings must not mention %q:\n%s", not, joined)
+				}
+			}
+			// One read only: the domain check reuses the Applications list.
+			if cmds := r.invocations("kubectl"); len(cmds) != 1 {
+				t.Errorf("want exactly 1 kubectl invocation, got %d", len(cmds))
 			}
 		})
 	}

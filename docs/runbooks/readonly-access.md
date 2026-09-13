@@ -46,6 +46,13 @@ task prod:diff -- <app>               # argocd app diff as the read-only ArgoCD 
   `homelab-readonly` in `~/.kube/homelab-readonly.yaml`. It refuses `kind-*` contexts (the local
   loop uses `task verify LEVEL=2`). Anything that blocks the read is one failing `prod/argocd/apps`
   check, never a skip.
+- `prod/argocd/domain` proves the base domain reached production: the root `gitops` Application
+  must carry the helm parameter `global.domain` that `terragrunt/modules/gitops-bootstrap` injects
+  (the domain never lives in git), and no Application may embed the chart placeholder `example.com`
+  in `helm.values`, `helm.valuesObject` or `helm.parameters`. It fails, naming the Applications,
+  when the module was changed but not applied — the ArgoCD Ingress then reads `argocd.example.com`
+  (`docs/project_notes/bugs.md` 2026-09-13). The fix is a human `task tf:apply:component
+  COMPONENT=gitops-bootstrap`, never an agent action.
 - `task prod:diff` passes the ArgoCD token in `ARGOCD_AUTH_TOKEN` rather than on the command line.
   It points the CLI at an empty private `--config`, so a saved admin login is never used. The server
   comes from `--argocd-server`, then `HOMELAB_ARGOCD_SERVER`, then `argocd.<DOMAIN>` from the

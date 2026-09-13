@@ -60,7 +60,7 @@ Each entry should include:
 
 ## Pending/In Progress
 
-_(Add items here as work begins)_
+- **2026-09-13** - PR #275: `prod/argocd/domain` check + docs for the ArgoCD Ingress rendering `argocd.example.com` (root `gitops` Application never received `global.domain` after #265). Blocked on the human `task tf:apply:component COMPONENT=gitops-bootstrap` — https://github.com/ryanmcafee/homelab/pull/275
 
 ## Tips
 
