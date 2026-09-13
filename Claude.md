@@ -152,69 +152,69 @@ When updating helm chart versions, check these repositories:
 
 ### Current Versions (Auto-embedded from values.yaml)
 
-**Infrastructure Charts** - `charts/addons/values.yaml`:
+**Infrastructure Charts** - `charts/addons/values.yaml` (ArgoCD: `charts/bootstrap/values.yaml`):
 
 ArgoCD:
-<!-- embedme charts/addons/values.yaml#L54-L57 -->
+<!-- embedme charts/bootstrap/values.yaml#L53-L56 -->
 ```yaml
-  repo: ghcr.io/spegel-org/helm-charts
-  version: "0.6.0"
-
-# Service configuration
+chart:
+  name: argo-cd
+  repo: https://argoproj.github.io/argo-helm
+  version: "9.4.7"
 ```
 
 Kubelet CSR Approver:
-<!-- embedme charts/addons/values.yaml#L263-L266 -->
+<!-- embedme charts/addons/values.yaml#L114-L117 -->
 ```yaml
-truenas:
-  endpoint: https://truenas.example.com
-  allowInsecure: false
-  apiKey: ""
+chart:
+  name: kubelet-csr-approver
+  repo: https://postfinance.github.io/kubelet-csr-approver
+  version: "1.2.2"
 ```
 
 Democratic-CSI:
-<!-- embedme charts/addons/values.yaml#L287-L290 -->
+<!-- embedme charts/addons/values.yaml#L138-L141 -->
 ```yaml
-resources:
-  controller:
-    requests:
-      cpu: 50m
+chart:
+  name: democratic-csi
+  repo: https://democratic-csi.github.io/charts/
+  version: 0.14.6
 ```
 
 Cert-Manager:
-<!-- embedme charts/addons/values.yaml#L550-L553 -->
+<!-- embedme charts/addons/values.yaml#L401-L404 -->
 ```yaml
-
-
-
-
+chart:
+  name: cert-manager
+  repo: https://charts.jetstack.io
+  version: v1.16.2
 ```
 
 External-DNS:
-<!-- embedme charts/addons/values.yaml#L618-L621 -->
+<!-- embedme charts/addons/values.yaml#L469-L472 -->
 ```yaml
-resources:
-  requests:
-    cpu: 50m
-    memory: 128Mi
+chart:
+  name: external-dns
+  repo: https://kubernetes-sigs.github.io/external-dns/
+  version: 1.15.0
 ```
 
 Kube-Prometheus-Stack:
-<!-- embedme charts/addons/values.yaml#L662-L665 -->
+<!-- embedme charts/addons/values.yaml#L513-L516 -->
 ```yaml
-http:
-  redirections:
-    entryPoint:
-      to: websecure
+chart:
+  name: kube-prometheus-stack
+  repo: https://prometheus-community.github.io/helm-charts
+  version: 69.8.2
 ```
 
 Traefik (External):
-<!-- embedme charts/addons/values.yaml#L791-L794 -->
+<!-- embedme charts/addons/values.yaml#L642-L645 -->
 ```yaml
-  enabled: false
-
-ingressRoute:
-  dashboard:
+chart:
+  name: traefik
+  repo: https://traefik.github.io/charts
+  version: 39.0.0
 ```
 
 **Application Charts** - `charts/applications/values.yaml`:
@@ -229,48 +229,48 @@ chart:
 ```
 
 Sonarr:
-<!-- embedme charts/applications/values.yaml#L193-L196 -->
+<!-- embedme charts/applications/values.yaml#L224-L227 -->
 ```yaml
-ADVERTISE_IP: https://plex.example.com:443
-PLEX_UID: "568"
-PLEX_GID: "100"
-CHANGE_CONFIG_DIR_OWNERSHIP: "false"
+chart:
+  name: sonarr
+  repo: https://trueforge-org.github.io/truecharts
+  version: 25.2.11
 ```
 
 Radarr:
-<!-- embedme charts/applications/values.yaml#L282-L285 -->
+<!-- embedme charts/applications/values.yaml#L313-L316 -->
 ```yaml
-  cert-manager.io/cluster-issuer: letsencrypt
-  external-dns.alpha.kubernetes.io/hostname: sonarr.example.com
-hosts:
-  - host: sonarr.example.com
+chart:
+  name: radarr
+  repo: https://trueforge-org.github.io/truecharts
+  version: 26.3.11
 ```
 
 Prowlarr:
-<!-- embedme charts/applications/values.yaml#L370-L373 -->
+<!-- embedme charts/applications/values.yaml#L401-L404 -->
 ```yaml
-  cert-manager.io/cluster-issuer: letsencrypt
-  external-dns.alpha.kubernetes.io/hostname: radarr.example.com
-hosts:
-  - host: radarr.example.com
+chart:
+  name: prowlarr
+  repo: https://trueforge-org.github.io/truecharts
+  version: 21.3.12
 ```
 
 Home Assistant:
-<!-- embedme charts/applications/values.yaml#L658-L661 -->
+<!-- embedme charts/applications/values.yaml#L705-L708 -->
 ```yaml
-  mountPath: /books
-
-# Downloads storage via NFS
-downloads:
+chart:
+  name: home-assistant
+  repo: https://trueforge-org.github.io/truecharts
+  version: 28.19.14
 ```
 
 Mosquitto:
-<!-- embedme charts/applications/values.yaml#L726-L729 -->
+<!-- embedme charts/applications/values.yaml#L773-L776 -->
 ```yaml
-
-
-
-
+chart:
+  name: mosquitto
+  repo: https://trueforge-org.github.io/truecharts
+  version: 17.13.9
 ```
 
 ### Version Update Files
