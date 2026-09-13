@@ -12,6 +12,7 @@ metadata:
     app.kubernetes.io/managed-by: Helm
   annotations:
     argocd.argoproj.io/sync-wave: "-1"
+
 ---
 # Source: addons/templates/democratic-csi.yaml
 # Namespace with privileged PodSecurity for CSI driver requirements
@@ -24,6 +25,7 @@ metadata:
     pod-security.kubernetes.io/enforce: privileged
     pod-security.kubernetes.io/audit: privileged
     pod-security.kubernetes.io/warn: privileged
+
 ---
 # Source: addons/templates/external-dns-unifi.yaml
 apiVersion: v1
@@ -32,6 +34,7 @@ metadata:
   name: external-dns-unifi
   annotations:
     argocd.argoproj.io/sync-wave: "4"
+
 ---
 # Source: addons/templates/kube-prometheus-stack.yaml
 # Namespace with privileged PodSecurity labels for node-exporter
@@ -43,6 +46,7 @@ metadata:
     pod-security.kubernetes.io/enforce: privileged
     pod-security.kubernetes.io/audit: privileged
     pod-security.kubernetes.io/warn: privileged
+
 ---
 # Source: addons/templates/node-feature-discovery.yaml
 # Namespace for NodeFeatureDiscovery components.
@@ -63,6 +67,7 @@ metadata:
     pod-security.kubernetes.io/warn: privileged
   annotations:
     argocd.argoproj.io/sync-wave: "9"
+
 ---
 # Source: addons/templates/nvidia-gpu-operator.yaml
 # Namespace for GPU operator components
@@ -78,6 +83,7 @@ metadata:
   annotations:
     # Wave 10: After kube-prometheus-stack (wave 9)
     argocd.argoproj.io/sync-wave: "10"
+
 ---
 # Source: addons/templates/spegel.yaml
 # Spegel namespace needs privileged PodSecurity for hostPath and hostPort access
@@ -90,6 +96,7 @@ metadata:
     pod-security.kubernetes.io/warn: privileged
   annotations:
     argocd.argoproj.io/sync-wave: "0"
+
 ---
 # Source: addons/templates/tailscale-operator.yaml
 # Namespace with privileged PodSecurity for the Tailscale operator/proxy/Connector
@@ -106,6 +113,7 @@ metadata:
     pod-security.kubernetes.io/warn: privileged
   annotations:
     argocd.argoproj.io/sync-wave: "1"
+
 ---
 # Source: addons/templates/traefik-external.yaml
 # Namespace for Traefik external ingress controller
@@ -115,6 +123,7 @@ metadata:
   name: traefik
   annotations:
     argocd.argoproj.io/sync-wave: "-1"
+
 ---
 # Source: addons/templates/unifi-port-forward.yaml
 apiVersion: v1
@@ -123,6 +132,7 @@ metadata:
   name: port-forwarding
   annotations:
     argocd.argoproj.io/sync-wave: "6"
+
 ---
 # Source: addons/templates/spegel.yaml
 # OCI Repository configuration for ArgoCD to pull Spegel Helm chart
@@ -140,6 +150,7 @@ stringData:
   type: helm
   url: ghcr.io/spegel-org/helm-charts
   enableOCI: "true"
+
 ---
 # Source: addons/templates/external-dns-cloudflare-crd.yaml
 # Additional RBAC for CRD source (helm chart doesn't generate this correctly)
@@ -164,6 +175,7 @@ rules:
       - dnsendpoints/status
     verbs:
       - update
+
 ---
 # Source: addons/templates/external-dns-unifi.yaml
 # Additional RBAC for CRD source (helm chart doesn't generate this correctly)
@@ -188,6 +200,7 @@ rules:
       - dnsendpoints/status
     verbs:
       - update
+
 ---
 # Source: addons/templates/external-dns-cloudflare-crd.yaml
 apiVersion: rbac.authorization.k8s.io/v1
@@ -204,6 +217,7 @@ subjects:
   - kind: ServiceAccount
     name: external-dns-cloudflare-crd
     namespace: external-dns
+
 ---
 # Source: addons/templates/external-dns-unifi.yaml
 apiVersion: rbac.authorization.k8s.io/v1
@@ -220,6 +234,7 @@ subjects:
   - kind: ServiceAccount
     name: external-dns-unifi-crd
     namespace: external-dns-unifi
+
 ---
 # Source: addons/templates/traefik-external.yaml
 apiVersion: v1
@@ -235,6 +250,7 @@ spec:
   ports:
     - port: 6379
       targetPort: 6379
+
 ---
 # Source: addons/templates/nvidia-gpu-operator.yaml
 # Talos GPU Validation Bypass DaemonSet
@@ -301,6 +317,7 @@ spec:
           hostPath:
             path: /run/nvidia
             type: DirectoryOrCreate
+
 ---
 # Source: addons/templates/traefik-external.yaml
 # Redis for OIDC session storage (required for multi-replica Traefik)
@@ -334,6 +351,7 @@ spec:
             limits:
               memory: "128Mi"
               cpu: "100m"
+
 ---
 # Source: addons/templates/kube-prometheus-stack.yaml
 apiVersion: batch/v1
@@ -384,6 +402,7 @@ spec:
                 - ALL
             seccompProfile:
               type: RuntimeDefault
+
 ---
 # Source: addons/templates/kube-prometheus-stack.yaml
 apiVersion: batch/v1
@@ -439,6 +458,7 @@ spec:
 # Source: addons/templates/argo-workflows.yaml
 # Argo Workflows - Workflow Orchestration Engine
 # Sync Wave: 9 (after traefik-config for OIDC middleware)
+
 ---
 # Source: addons/templates/argo-workflows.yaml
 apiVersion: argoproj.io/v1alpha1
@@ -519,6 +539,7 @@ spec:
       - ServerSideApply=true
       - PruneLast=true
       - ApplyOutOfSyncOnly=true
+
 ---
 # Source: addons/templates/argo-workflows.yaml
 # Argo Workflows Config - CronWorkflows and custom resources
@@ -671,6 +692,7 @@ spec:
       kind: MutatingWebhookConfiguration
       jsonPointers:
         - /webhooks/0/clientConfig/caBundle
+
 ---
 # Source: addons/templates/cert-manager.yaml
 # Config Application: deploys the OnePasswordItem for the Cloudflare API token.
@@ -712,6 +734,7 @@ spec:
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
+
 ---
 # Source: addons/templates/cert-manager.yaml
 # ClusterIssuer Application: deploys after cert-manager installs CRDs
@@ -1381,6 +1404,7 @@ spec:
     syncOptions:
       - ServerSideApply=true
       - ApplyOutOfSyncOnly=true
+
 ---
 # Source: addons/templates/democratic-csi.yaml
 # Config Application: deploys OnePasswordItem for TrueNAS API key before democratic-csi
@@ -1557,6 +1581,7 @@ spec:
       - CreateNamespace=true
       - ServerSideApply=true
       - ApplyOutOfSyncOnly=true
+
 ---
 # Source: addons/templates/external-dns-cloudflare.yaml
 # Config Application: deploys OnePasswordItems for API credentials before external-dns
@@ -1678,6 +1703,7 @@ spec:
       - CreateNamespace=true
       - ServerSideApply=true
       - ApplyOutOfSyncOnly=true
+
 ---
 # Source: addons/templates/external-dns-unifi.yaml
 # Instance 2: Ingress/Service sources with annotation filter
@@ -1970,6 +1996,7 @@ spec:
       kind: MutatingWebhookConfiguration
       jqPathExpressions:
         - .webhooks[].clientConfig.caBundle
+
 ---
 # Source: addons/templates/kubelet-csr-approver.yaml
 apiVersion: argoproj.io/v1alpha1
@@ -2351,6 +2378,7 @@ spec:
     syncOptions:
       - ServerSideApply=true
       - ApplyOutOfSyncOnly=true
+
 ---
 # Source: addons/templates/tailscale-operator.yaml
 # Config Application (wave 1): deploys the operator-oauth OnePasswordItem before the
@@ -2384,6 +2412,7 @@ spec:
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
+
 ---
 # Source: addons/templates/traefik-external.yaml
 # Dependencies Application: deploys secrets and OnePasswordItems before traefik-external
@@ -2418,6 +2447,7 @@ spec:
       - CreateNamespace=true
       - ServerSideApply=true
       - SkipDryRunOnMissingResource=true
+
 ---
 # Source: addons/templates/traefik-external.yaml
 apiVersion: argoproj.io/v1alpha1
@@ -2577,6 +2607,7 @@ spec:
       kind: ValidatingWebhookConfiguration
       jqPathExpressions:
         - .webhooks[].clientConfig.caBundle
+
 ---
 # Source: addons/templates/traefik-external.yaml
 # Config Application: deploys CRD-dependent resources (IngressRoute, Middleware, DNSEndpoint)
@@ -2660,6 +2691,7 @@ spec:
       - CreateNamespace=true
       - ServerSideApply=true
       - SkipDryRunOnMissingResource=true
+
 ---
 # Source: addons/templates/traefik-internal.yaml
 apiVersion: argoproj.io/v1alpha1
@@ -2799,6 +2831,7 @@ spec:
       kind: ValidatingWebhookConfiguration
       jqPathExpressions:
         - .webhooks[].clientConfig.caBundle
+
 ---
 # Source: addons/templates/traefik-internal.yaml
 # Config Application: deploys CRD-dependent resources (dashboard)
@@ -2891,6 +2924,7 @@ spec:
       - ServerSideApply=true
       - ApplyOutOfSyncOnly=true
       - Replace=true
+
 ---
 # Source: addons/templates/unifi-port-forward.yaml
 # Config Application: deploys OnePasswordItem for UniFi credentials before port-forwarding-controller
@@ -2974,6 +3008,7 @@ spec:
           peerASN: 64513
           peerConfigRef:
             name: unifi-gateway-peer
+
 ---
 # Source: addons/templates/cilium-lb-ipam.yaml
 # CiliumBGPPeerConfig - Shared peer configuration
@@ -2993,6 +3028,7 @@ spec:
     enabled: true
     restartTimeSeconds: 120
   ebgpMultihop: 1
+
 ---
 # Source: addons/templates/cilium-lb-ipam.yaml
 # CiliumL2AnnouncementPolicy - L2 (ARP) announcements for LoadBalancer IPs
@@ -3016,6 +3052,7 @@ spec:
     - ^ens.*
   externalIPs: true
   loadBalancerIPs: true
+
 ---
 # Source: addons/templates/cilium-lb-ipam.yaml
 # CiliumLoadBalancerIPPool - IP address pool for LoadBalancer services
@@ -3030,6 +3067,7 @@ spec:
   blocks:
     - start: 192.168.1.100
       stop: 192.168.1.200
+
 ---
 # Source: addons/templates/cilium-lb-ipam.yaml
 # CiliumLoadBalancerIPPool for Control Plane VIP
@@ -3048,6 +3086,7 @@ spec:
   serviceSelector:
     matchLabels:
       cilium.io/pool: control-plane-vip
+
 ---
 # Source: addons/templates/tailscale-operator.yaml
 # Connector subnet router (wave 3 — AFTER the operator at wave 2 so the operator's

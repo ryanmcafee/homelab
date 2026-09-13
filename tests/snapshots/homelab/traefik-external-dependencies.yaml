@@ -7,6 +7,7 @@ metadata:
   namespace: traefik
 spec:
   itemPath: "vaults/homelab/items/cloudflare"
+
 ---
 # Source: traefik-external-dependencies/templates/secrets.yaml
 apiVersion: onepassword.com/v1
@@ -16,6 +17,7 @@ metadata:
   namespace: traefik
 spec:
   itemPath: "vaults/homelab/items/google-oauth"
+
 ---
 # Source: traefik-external-dependencies/templates/secrets.yaml
 apiVersion: onepassword.com/v1

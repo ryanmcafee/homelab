@@ -22,6 +22,7 @@ spec:
       node_attach_driver: iscsi
       portal: 192.168.1.100:3260
       portals: ""
+
 ---
 # Source: grafana-config/templates/persistent-volume.yaml
 apiVersion: v1

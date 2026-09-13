@@ -87,7 +87,7 @@ Learned while landing #261 Section A (PR #264). Each one cost real time once.
 |--------|------------|
 | mise refuses a fresh git worktree ("Config files ... are not trusted") | `mise trust && mise install` right after `git worktree add`. Pinned tools (terraform, terragrunt, kind, talosctl) show as "missing" until installed; the pre-commit `terraform_fmt`/`terragrunt_fmt` hooks fail with "command not found" until then. |
 | Serena is rooted at the directory Claude Code was launched from (`--project-from-cwd`) | Launch Claude Code from the worktree you edit. `.mcp.json` (committed) and `.serena/project.yml` (committed) make Serena available in every checkout; Serena's edit tools refuse paths outside its root, so use Bash/Edit for files in another worktree. |
-| Non-interactive shells miss the mise shims | Prepend `$HOME/.local/share/mise/shims` to `PATH` (`go`, `helm`, `deno`, `task` are all mise-managed; `mise.toml` pins `go = "1.25"` and `helm = "4.2.0"`). |
+| Non-interactive shells miss the mise shims | Prepend `$HOME/.local/share/mise/shims` to `PATH` (`go`, `helm`, `deno`, `task` are all mise-managed; `mise.toml` pins `go = "1.25"` and `helm = "4.3.0"`). |
 | helm version changes rendered bytes | Golden snapshots are byte-exact against `configuration/versions.yaml` `tools.helm`; keep `mise.toml`, `verify.yml` and `versions.yaml` on the same helm. |
 | `go run ./cmd/homelab` collapses child exit codes to 1 | Check exit codes with the built binary (`go build -o bin/homelab ./cmd/homelab`). |
 | Terraform warns about the plugin cache dir | `task install-tools` creates `.terraform.d/plugin-cache` (the path `mise.toml` sets in `TF_PLUGIN_CACHE_DIR`). |
@@ -238,13 +238,13 @@ images:
   kind-node: "v1.36.1"
 tools:
   # renovate: datasource=github-releases depName=siderolabs/talos
-  talos: "v1.13.3"
+  talos: "v1.14.0"
   # renovate: datasource=github-releases depName=kubernetes/kubernetes
-  kubernetes: "v1.36.1"
+  kubernetes: "v1.37.0"
   # renovate: datasource=github-releases depName=hashicorp/terraform
-  terraform: "1.15.5"
+  terraform: "1.16.2"
   # renovate: datasource=github-releases depName=helm/helm
-  helm: "4.2.0"
+  helm: "4.3.0"
   # renovate: datasource=github-releases depName=kubernetes-sigs/kind
   kind: "v0.33.0"
   # renovate: datasource=github-releases depName=kyverno/chainsaw
