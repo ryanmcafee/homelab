@@ -337,6 +337,10 @@ func inheritOnlyParents(all, selected []Chart, filter []string) []Chart {
 // instead of draining the queue; the caller checks ctx afterwards.
 func runWave(ctx context.Context, opts RenderOptions, jobs []renderJob, sem chan struct{}, mu *sync.Mutex, res *Result, out *RenderOutput) {
 	var wg sync.WaitGroup
+	// Inherit-only failures land here in goroutine completion order and are
+	// appended per env in chart order after the wave, so the findings of
+	// render/<env>/_inherit read the same on every run.
+	inheritOnlyFindings := map[*envRender]map[string][]string{}
 	for _, j := range jobs {
 		if ctx.Err() != nil {
 			break
@@ -357,8 +361,10 @@ func runWave(ctx context.Context, opts RenderOptions, jobs []renderJob, sem chan
 					j.er.parentFiles[j.chart.Name] = file
 				}
 				if len(findings) > 0 {
-					j.er.inheritProblems++
-					j.er.inheritFindings = append(j.er.inheritFindings, findings...)
+					if inheritOnlyFindings[j.er] == nil {
+						inheritOnlyFindings[j.er] = map[string][]string{}
+					}
+					inheritOnlyFindings[j.er][j.chart.Name] = findings
 				}
 				mu.Unlock()
 				return
@@ -377,6 +383,17 @@ func runWave(ctx context.Context, opts RenderOptions, jobs []renderJob, sem chan
 		}(j)
 	}
 	wg.Wait()
+	for er, byChart := range inheritOnlyFindings {
+		charts := make([]string, 0, len(byChart))
+		for name := range byChart {
+			charts = append(charts, name)
+		}
+		sort.Strings(charts)
+		for _, name := range charts {
+			er.inheritProblems++
+			er.inheritFindings = append(er.inheritFindings, byChart[name]...)
+		}
+	}
 }
 
 // collectInherited extracts helm.valuesObject from every Application in the

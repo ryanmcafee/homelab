@@ -1730,3 +1730,49 @@ func TestDefaultGuardScopeCoversChartHomelabValues(t *testing.T) {
 		t.Fatalf("files = %v, want %v", files, wantFiles)
 	}
 }
+
+// TestScanFileForPIIShapeHelmRuleEdges pins the edge cases found in review:
+// a CIDR is a network and never a host, a flow list is reported once per
+// line, in-cluster .svc names identify nothing outside the cluster, and a
+// quoted annotation key is judged like an unquoted one.
+func TestScanFileForPIIShapeHelmRuleEdges(t *testing.T) {
+	tests := []struct {
+		name    string
+		content string
+		want    []string
+	}{
+		{
+			name:    "CIDR under ip or address is a network, not a host",
+			content: "ip: 172.16.100.0/24\naddress: 10.0.0.0/8\n",
+			want:    nil,
+		},
+		{
+			name:    "flow list with two real hostnames is one finding",
+			content: "dnsZones: [ryanmcafee.com, \"x.ryanmcafee.com\"]\n",
+			want:    []string{"dnsZones[] (real hostname)"},
+		},
+		{
+			name:    "in-cluster .svc names are reserved",
+			content: "host: oauth2-proxy.oauth2-proxy.svc\naddress: alertmanager.monitoring.svc:9093\n",
+			want:    nil,
+		},
+		{
+			name:    "quoted annotation key is judged by its last segment",
+			content: "annotations:\n  \"external-dns.alpha.kubernetes.io/hostname\": plex.ryanmcafee.com\n",
+			want:    []string{"external-dns.alpha.kubernetes.io/hostname (real hostname)"},
+		},
+		{
+			name:    "single-quoted key too",
+			content: "  'host': traefik.ryanmcafee.com\n",
+			want:    []string{"host (real hostname)"},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := patternsOf(scanShapeFixture(t, "values-homelab.yaml", tc.content))
+			if strings.Join(got, "\n") != strings.Join(tc.want, "\n") {
+				t.Fatalf("patterns:\n got %q\nwant %q", got, tc.want)
+			}
+		})
+	}
+}

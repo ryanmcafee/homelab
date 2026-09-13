@@ -342,6 +342,9 @@ var configKeyLine = regexp.MustCompile(`^\s*([A-Z][A-Z0-9_]*)\s*:\s*(\S.*)$`)
 var reservedHostSuffixes = []string{
 	".local", ".localhost", ".localdomain", ".internal", ".intranet",
 	".test", ".invalid", ".example", ".example.com", ".example.org", ".example.net",
+	// Kubernetes in-cluster service names (<svc>.<ns>.svc, with or without
+	// .cluster.local) never leave the cluster and identify nothing outside it.
+	".svc",
 }
 
 // placeholderHosts are exact hostnames used as documentation placeholders.
@@ -609,8 +612,9 @@ var chartPIIListKeys = map[string]bool{
 // value. The value is optional so a key opening a nested block or a list
 // (`dnsZones:`) matches too. A key may be an annotation name such as
 // external-dns.alpha.kubernetes.io/hostname; only its last path segment is
-// looked up, so that form is judged as `hostname`.
-var chartKeyLine = regexp.MustCompile(`^(\s*)(?:-\s+)?([A-Za-z][A-Za-z0-9_./-]*)\s*:(?:\s+(.*?))?\s*$`)
+// looked up, so that form is judged as `hostname`. The key may be quoted, as
+// annotation names often are.
+var chartKeyLine = regexp.MustCompile(`^(\s*)(?:-\s+)?["']?([A-Za-z][A-Za-z0-9_./-]*)["']?\s*:(?:\s+(.*?))?\s*$`)
 
 // chartListItemLine matches a bare YAML sequence item, capturing the
 // indentation and the item.
@@ -654,6 +658,12 @@ func flowListItems(value string) []string {
 // first, so an iSCSI portal with a port (`172.16.100.150:3260`) or a URL
 // wrapping an address (`https://172.16.100.1`) is judged on its address.
 func classifyHostValue(value string) string {
+	// A CIDR names a network, not a host. The config rule never flags one
+	// (isRoutableHostIP cannot parse it) and isExamplePlaceholder handles it
+	// on its own, so this rule agrees rather than reducing it to its address.
+	if _, _, err := net.ParseCIDR(strings.TrimSpace(value)); err == nil {
+		return ""
+	}
 	switch {
 	case isRoutableHostIP(hostOf(value)):
 		return "routable host IP"
@@ -791,8 +801,14 @@ func ScanFileForPIIShape(path string) (GuardResult, error) {
 					listIndent += 2 // the key sits after the `- ` marker
 				}
 			case chartPIIListKeys[name]:
+				// A flow list sits on one line, and a line is reported once:
+				// stop at the first item that produces a finding.
+				before := len(result.Matches)
 				for _, item := range flowListItems(m[3]) {
 					judge(lineNum, line, key+"[]", item)
+					if len(result.Matches) > before {
+						break
+					}
 				}
 			case chartPIIKeys[name] && value != "":
 				judge(lineNum, line, key, value)

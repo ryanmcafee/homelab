@@ -1459,3 +1459,39 @@ func TestRenderAllChartsForBothEnvs(t *testing.T) {
 		}
 	}
 }
+
+// TestRenderInheritFindingsAreDeterministic renders with two inherit-only
+// parents failing in the same wave and requires the render/<env>/_inherit
+// findings to read identically on every run: they arrive in goroutine
+// completion order and must be re-ordered by chart before they are reported.
+func TestRenderInheritFindingsAreDeterministic(t *testing.T) {
+	root := testRepoRoot(t)
+	var first []string
+	for i := 0; i < 15; i++ {
+		fr := &fakeRunner{templateStderr: "boom"}
+		_, res := Render(context.Background(), RenderOptions{
+			RepoRoot:   root,
+			OutDir:     t.TempDir(),
+			Envs:       []Env{Envs[1]},
+			Charts:     []string{"tailscale-config"},
+			Parallel:   4,
+			SkipLint:   true,
+			SkipSchema: true,
+			Runner:     fr,
+		})
+		c := checkByName(t, res, "render/homelab/_inherit")
+		if c.Status != StatusFail || len(c.Findings) < 2 {
+			t.Fatalf("expected a failing _inherit check with findings for both parents, got %s %q", c.Status, c.Findings)
+		}
+		if i == 0 {
+			first = c.Findings
+			if !strings.HasPrefix(first[0], "addons:") {
+				t.Fatalf("findings must be ordered by chart, got first %q", first[0])
+			}
+			continue
+		}
+		if strings.Join(first, "\n") != strings.Join(c.Findings, "\n") {
+			t.Fatalf("run %d findings differ from run 0:\n%s\n---\n%s", i, strings.Join(first, "\n"), strings.Join(c.Findings, "\n"))
+		}
+	}
+}
