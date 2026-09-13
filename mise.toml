@@ -60,8 +60,10 @@ stern = "latest"         # Multi-pod log streaming (task localdev:logs)
 # Terraform plugin cache
 TF_PLUGIN_CACHE_DIR = "{{config_root}}/.terraform.d/plugin-cache"
 
-# 1Password CLI Authentication (reads file contents directly)
-OP_SERVICE_ACCOUNT_TOKEN = "{{ read_file(path=env.HOME ~ '/.op/op_service_account_token') | trim }}"
+# 1Password CLI Authentication. The token file only exists on a workstation;
+# fall back to an empty value so `mise` still loads this config (and installs
+# tools) on CI runners and fresh machines. read_file() would abort instead.
+OP_SERVICE_ACCOUNT_TOKEN = '{{ exec(command="cat $HOME/.op/op_service_account_token 2>/dev/null || true") | trim }}'
 
 # Load remaining env vars from .envrc (non-shell substitution vars only)
 _.file = ".envrc"

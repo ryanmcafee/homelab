@@ -210,6 +210,7 @@ These are documented errors with known solutions:
 - **Issue**: `terragrunt run --all validate` failed with `There is no variable named "dependency"` / "detected no outputs" in `localdev/gitops-bootstrap`, `homelab/truenas`, `homelab/talos-cluster` (zfs_pool) and `homelab/gitops-bootstrap` (truenas).
 - **Root Cause**: those `dependency` blocks had no `mock_outputs`, so Terragrunt required real outputs even for `validate`.
 - **Solution**: validate-only `mock_outputs` (`mock_outputs_allowed_terraform_commands = ["validate"]`) on each; plan/apply still need the real outputs.
+- **Also**: `homelab/gitops-bootstrap` shelled out to `op read` at parse time (`run_cmd`), which needs a signed-in 1Password CLI; it now reads `SOPS_AGE_KEY` (injected by `op run --env-file .env.op` in every `task tf:*`), so validate runs without `op` and CI holds no vault credentials. `mise.toml` also stopped aborting when `~/.op/op_service_account_token` is missing, so `mise-action` can install the pinned tools on runners.
 - **Prevention**: every `dependency` block gets validate mocks; the Terragrunt Plan workflow now catches omissions.
 
 ### 2026-09-13 - kind-cluster module used a block for `containerd_config_patches`

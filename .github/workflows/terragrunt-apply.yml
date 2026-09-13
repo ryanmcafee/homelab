@@ -10,12 +10,7 @@ on:
 # Apply runs only after the `production` environment approval and needs the
 # PROXMOX_* secrets plus network access to the homelab LAN, which GitHub-hosted
 # runners do not have; `task tf:apply` from a workstation is the working path
-# (ADR-009). The pins mirror configuration/versions.yaml and mise.toml.
-env:
-  # renovate: datasource=github-releases depName=hashicorp/terraform
-  TERRAFORM_VERSION: '1.16.2'
-  # renovate: datasource=github-releases depName=gruntwork-io/terragrunt
-  TERRAGRUNT_VERSION: 'v1.0.8'
+# (ADR-009). Tools come from mise.toml through jdx/mise-action.
 
 jobs:
   apply:
@@ -25,17 +20,14 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4
+      - name: Install terraform, terragrunt and op from mise.toml
+        uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
         with:
-          terraform_version: ${{ env.TERRAFORM_VERSION }}
-          terraform_wrapper: false
+          install_args: terraform terragrunt op
 
-      - name: Setup Terragrunt
+      - name: Tool versions
         run: |
-          curl -sSL --retry 5 --retry-all-errors --retry-delay 3 -o terragrunt_linux_amd64 "https://github.com/gruntwork-io/terragrunt/releases/download/${{ env.TERRAGRUNT_VERSION }}/terragrunt_linux_amd64"
-          chmod +x terragrunt_linux_amd64
-          sudo mv terragrunt_linux_amd64 /usr/local/bin/terragrunt
+          terraform version
           terragrunt --version
 
       - name: Terragrunt Apply

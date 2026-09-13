@@ -180,6 +180,11 @@ inputs = {
   # Kubeconfig path for kubectl commands in local-exec provisioner
   kubeconfig_path = dependency.talos_cluster_config.outputs.kubeconfig_path
 
-  # SOPS age private key for decrypting secrets (stored in 1Password)
-  sops_age_private_key = run_cmd("op", "read", "op://homelab/sops-age-key/private_key")
+  # SOPS age private key for decrypting secrets. Every `task tf:*` command runs
+  # under `op run --env-file .env.op`, which resolves SOPS_AGE_KEY from
+  # op://homelab/sops-age-key/private_key; reading the env var instead of
+  # shelling out to `op` at parse time lets `terraform validate` run where the
+  # 1Password CLI is absent (CI). The module creates the key Secret only when
+  # the value is non-empty, so an unset variable is safe for validate.
+  sops_age_private_key = get_env("SOPS_AGE_KEY", "")
 }

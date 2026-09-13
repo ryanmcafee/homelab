@@ -14,8 +14,9 @@ name: Terragrunt Plan
 # with 1.x syntax and hid the resulting "no command named run" error behind
 # continue-on-error, so the job was green without checking anything.
 #
-# Tool pins mirror configuration/versions.yaml (terraform) and mise.toml
-# (terragrunt); every pin carries a Renovate marker so a bump lands here too.
+# Tools come from mise.toml through jdx/mise-action, so CI runs the same
+# terraform, terragrunt and op versions as a workstation (only those three are
+# installed). No 1Password login is configured: the job holds no secrets.
 
 on:
   pull_request:
@@ -31,12 +32,6 @@ concurrency:
 permissions:
   contents: read
 
-env:
-  # renovate: datasource=github-releases depName=hashicorp/terraform
-  TERRAFORM_VERSION: '1.16.2'
-  # renovate: datasource=github-releases depName=gruntwork-io/terragrunt
-  TERRAGRUNT_VERSION: 'v1.0.8'
-
 jobs:
   validate:
     name: validate (${{ matrix.environment }})
@@ -50,24 +45,16 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      # terraform_wrapper: false gives terragrunt the real binary; the wrapper
-      # script breaks its output handling.
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4
+      - name: Install terraform, terragrunt and op from mise.toml
+        uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
         with:
-          terraform_version: ${{ env.TERRAFORM_VERSION }}
-          terraform_wrapper: false
+          install_args: terraform terragrunt op
 
-      - name: Setup Terragrunt
+      - name: Tool versions
         run: |
-          set -euo pipefail
-          mkdir -p "$HOME/bin"
-          export PATH="$HOME/bin:$PATH"
-          curl -sSL --retry 5 --retry-all-errors --retry-delay 3 -o "$HOME/bin/terragrunt" "https://github.com/gruntwork-io/terragrunt/releases/download/${TERRAGRUNT_VERSION}/terragrunt_linux_amd64"
-          chmod +x "$HOME/bin/terragrunt"
-          echo "$HOME/bin" >> "$GITHUB_PATH"
           terraform version
           terragrunt --version
+          op --version
 
       - name: Terragrunt HCL format check
         working-directory: terragrunt
@@ -85,6 +72,10 @@ jobs:
           done
           [ -f "$HOME/.ssh/id_ed25519" ] || ssh-keygen -q -t ed25519 -N '' -f "$HOME/.ssh/id_ed25519"
 
+      # mise.toml exports TF_PLUGIN_CACHE_DIR for workstations; a shared cache
+      # races across the parallel unit inits here, and an empty value disables it.
       - name: Terragrunt validate (${{ matrix.environment }})
         working-directory: terragrunt/environments/${{ matrix.environment }}
+        env:
+          TF_PLUGIN_CACHE_DIR: ''
         run: terragrunt run --all validate --non-interactive
