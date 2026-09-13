@@ -4,7 +4,7 @@
 
 [tools]
 # Infrastructure as Code
-terraform = "1.15.5"
+terraform = "1.16.2"
 terragrunt = "1.0.8"
 packer = "latest"
 
@@ -16,7 +16,7 @@ kubectl = "1.36.3"
 # different bytes and every snapshot check fails. versions.yaml is the single
 # source of truth (it is the Renovate-tracked one); change it and these two
 # together.
-helm = "4.2.0"
+helm = "4.3.0"
 kind = "0.33.0"          # configuration/versions.yaml tools.kind is the source of truth
 talosctl = "1.13.8"
 tilt = "0.37.3"
