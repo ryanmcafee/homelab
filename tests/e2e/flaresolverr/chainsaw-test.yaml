@@ -1,0 +1,131 @@
+---
+# Generated shape shared by every HTTP e2e test; see tests/e2e/README.md.
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: flaresolverr
+spec:
+  description: >-
+    FlareSolverr answers on its ClusterIP Service (no Ingress in any environment).
+  steps:
+    - name: applications-healthy
+      description: The ArgoCD Applications behind this test are Healthy and their last sync Succeeded.
+      try:
+        - assert:
+            resource:
+              apiVersion: argoproj.io/v1alpha1
+              kind: Application
+              metadata:
+                name: flaresolverr
+                namespace: argocd
+              status:
+                health:
+                  status: Healthy
+                operationState:
+                  phase: Succeeded
+        - assert:
+            resource:
+              apiVersion: argoproj.io/v1alpha1
+              kind: Application
+              metadata:
+                name: flaresolverr-config
+                namespace: argocd
+              status:
+                health:
+                  status: Healthy
+                operationState:
+                  phase: Succeeded
+      catch:
+        - describe:
+            apiVersion: argoproj.io/v1alpha1
+            kind: Application
+            name: flaresolverr
+            namespace: argocd
+        - describe:
+            apiVersion: argoproj.io/v1alpha1
+            kind: Application
+            name: flaresolverr-config
+            namespace: argocd
+    - name: curl-flaresolverr
+      description: >-
+        A curl Job must get one of [200]
+        from http://flaresolverr.media.svc.cluster.local:8191/.
+      timeouts:
+        assert: 5m
+      try:
+        - apply:
+            resource:
+              apiVersion: batch/v1
+              kind: Job
+              metadata:
+                name: curl-flaresolverr
+              spec:
+                backoffLimit: 0
+                activeDeadlineSeconds: 300
+                template:
+                  spec:
+                    restartPolicy: Never
+                    securityContext:
+                      runAsNonRoot: true
+                      runAsUser: 100
+                      seccompProfile:
+                        type: RuntimeDefault
+                    containers:
+                      - name: curl
+                        # pinned from configuration/versions.yaml images.curl
+                        image: curlimages/curl:8.22.0
+                        securityContext:
+                          allowPrivilegeEscalation: false
+                          capabilities:
+                            drop: ["ALL"]
+                        resources:
+                          requests:
+                            cpu: 10m
+                            memory: 32Mi
+                          limits:
+                            cpu: 100m
+                            memory: 64Mi
+                        env:
+                          - name: URL
+                            value: "http://flaresolverr.media.svc.cluster.local:8191/"
+                          - name: EXPECT
+                            value: "200"
+                          - name: ATTEMPTS
+                            value: "20"
+                        command: ["sh", "-c"]
+                        args:
+                          - |
+                            set -u
+                            i=1
+                            while [ "$i" -le "$ATTEMPTS" ]; do
+                              code=$(curl -s -o /dev/null -w '%{http_code}' -L --max-redirs 5 --max-time 20 "$URL")
+                              echo "attempt $i/$ATTEMPTS: HTTP $code for $URL"
+                              for ok in $EXPECT; do [ "$code" = "$ok" ] && exit 0; done
+                              i=$((i + 1))
+                              sleep 6
+                            done
+                            echo "giving up: last HTTP code $code, expected one of: $EXPECT"
+                            exit 1
+        - assert:
+            resource:
+              apiVersion: batch/v1
+              kind: Job
+              metadata:
+                name: curl-flaresolverr
+              status:
+                succeeded: 1
+      catch:
+        - events: {}
+        - podLogs:
+            selector: job-name=curl-flaresolverr
+            tail: 50
+        - describe:
+            apiVersion: argoproj.io/v1alpha1
+            kind: Application
+            name: flaresolverr
+            namespace: argocd
+        - describe:
+            apiVersion: argoproj.io/v1alpha1
+            kind: Application
+            name: flaresolverr-config
+            namespace: argocd

@@ -46,7 +46,7 @@ spec:
     namespace: {{ .Values.bootstrap.destination.namespace }}
 
   syncPolicy:
-    {{- if .Values.bootstrap.syncPolicy.automated }}
+    {{- if and .Values.global.automatedSync .Values.bootstrap.syncPolicy.automated }}
     automated:
       prune: {{ .Values.bootstrap.syncPolicy.automated.prune }}
       selfHeal: {{ .Values.bootstrap.syncPolicy.automated.selfHeal }}

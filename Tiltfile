@@ -65,7 +65,7 @@ local_resource(
     echo "📖 Documentation:"
     echo "  • Local dev setup: docs/local-development.md"
     echo "  • Architecture:    docs/architecture.md"
-    echo "  • Plan:            plan.md"
+    echo "  • Kind + ArgoCD:   docs/local-development.md"
     echo ""
     """,
     labels=["welcome"],

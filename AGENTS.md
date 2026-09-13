@@ -103,9 +103,15 @@ The `/gitops-test` skill MUST be invoked automatically in these scenarios:
 1. Make changes to charts/**, configuration/** or tests/**
 2. Run `task verify:text` (level 0: render, kubeconform, gitops graph, snapshots, policy)
 3. If the render changed on purpose: `task test:snapshot -- --update`
-4. Commit (the pre-commit hook re-runs level 0)
-5. Push to a feature branch and create the PR with the `task verify` JSON summary
-6. Watch `gh pr checks` (verify.yml + tilt-ci); never apply to or repoint production to test
+4. Level 1 on Kind: `task localdev:kind && task verify:text LEVEL=1`
+   (server-side dry run of every localdev chart: dryrun/localdev/<chart>)
+5. Level 2 on Kind: `task localdev:up && task verify:text LEVEL=2`
+   (every Application Healthy + Succeeded, chainsaw e2e: argocd/<app>, e2e/<test>);
+   `task localdev:diagnose` on failure, `task localdev:sync -- --only <app>` to re-sync one
+6. Commit (the pre-commit hook re-runs level 0)
+7. Push to a feature branch and create the PR with the `task verify` JSON summary
+8. Watch `gh pr checks` (verify.yml level 0 + tilt-ci.yml kind-argocd level 2);
+   never apply to or repoint production to test
 ```
 
 Agents may mutate only Kind clusters (ADR-009). Production is verified through merge -> ArgoCD -> CI/notifications.

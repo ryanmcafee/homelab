@@ -51,9 +51,11 @@ spec:
     server: https://kubernetes.default.svc
     namespace: {{ index .Values "tailscale-operator" "namespace" }}
   syncPolicy:
+    {{- if .Values.global.automatedSync }}
     automated:
       prune: true
       selfHeal: true
+    {{- end }}
     syncOptions:
       - ServerSideApply=true
       - ApplyOutOfSyncOnly=true
@@ -83,9 +85,11 @@ spec:
     server: https://kubernetes.default.svc
     namespace: {{ index .Values "tailscale-operator" "namespace" }}
   syncPolicy:
+    {{- if .Values.global.automatedSync }}
     automated:
       prune: true
       selfHeal: true
+    {{- end }}
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true

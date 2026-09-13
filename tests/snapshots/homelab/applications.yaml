@@ -87,6 +87,414 @@ stringData:
   url: ghcr.io/renovatebot/charts
   enableOCI: "true"
 ---
+# Source: applications/templates/flaresolverr.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: smoke-flaresolverr
+  namespace: media
+  labels:
+    app.kubernetes.io/name: smoke-flaresolverr
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation,HookSucceeded
+    argocd.argoproj.io/sync-wave: "12"
+spec:
+  backoffLimit: 2
+  activeDeadlineSeconds: 600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: smoke-flaresolverr
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: curl
+          image: curlimages/curl:8.22.0
+          env:
+            - name: URL
+              value: "http://flaresolverr.media.svc.cluster.local:8191/"
+          command: ["sh", "-c"]
+          args:
+            - |
+              code=$(curl -sL --max-redirs 5 -o /dev/null -w '%{http_code}' --retry 30 --retry-delay 10 --retry-all-errors --max-time 20 "$URL")
+              echo "smoke flaresolverr: $URL -> HTTP $code"
+              case "$code" in 200) exit 0;; *) exit 1;; esac
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 100
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            seccompProfile:
+              type: RuntimeDefault
+
+---
+# Source: applications/templates/lazylibrarian.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: smoke-lazylibrarian
+  namespace: media
+  labels:
+    app.kubernetes.io/name: smoke-lazylibrarian
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation,HookSucceeded
+    argocd.argoproj.io/sync-wave: "13"
+spec:
+  backoffLimit: 2
+  activeDeadlineSeconds: 600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: smoke-lazylibrarian
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: curl
+          image: curlimages/curl:8.22.0
+          env:
+            - name: URL
+              value: "http://lazylibrarian.media.svc.cluster.local:5299/"
+          command: ["sh", "-c"]
+          args:
+            - |
+              code=$(curl -sL --max-redirs 5 -o /dev/null -w '%{http_code}' --retry 30 --retry-delay 10 --retry-all-errors --max-time 20 "$URL")
+              echo "smoke lazylibrarian: $URL -> HTTP $code"
+              case "$code" in 200) exit 0;; *) exit 1;; esac
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 100
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            seccompProfile:
+              type: RuntimeDefault
+
+---
+# Source: applications/templates/nzbget.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: smoke-nzbget
+  namespace: media
+  labels:
+    app.kubernetes.io/name: smoke-nzbget
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation,HookSucceeded
+    argocd.argoproj.io/sync-wave: "13"
+spec:
+  backoffLimit: 2
+  activeDeadlineSeconds: 600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: smoke-nzbget
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: curl
+          image: curlimages/curl:8.22.0
+          env:
+            - name: URL
+              value: "http://nzbget.media.svc.cluster.local:10057/"
+          command: ["sh", "-c"]
+          args:
+            - |
+              code=$(curl -sL --max-redirs 5 -o /dev/null -w '%{http_code}' --retry 30 --retry-delay 10 --retry-all-errors --max-time 20 "$URL")
+              echo "smoke nzbget: $URL -> HTTP $code"
+              case "$code" in 200|401) exit 0;; *) exit 1;; esac
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 100
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            seccompProfile:
+              type: RuntimeDefault
+
+---
+# Source: applications/templates/plex.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: smoke-plex
+  namespace: media
+  labels:
+    app.kubernetes.io/name: smoke-plex
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation,HookSucceeded
+    argocd.argoproj.io/sync-wave: "12"
+spec:
+  backoffLimit: 2
+  activeDeadlineSeconds: 600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: smoke-plex
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: curl
+          image: curlimages/curl:8.22.0
+          env:
+            - name: URL
+              value: "http://plex-plex-media-server.media.svc.cluster.local:32400/identity"
+          command: ["sh", "-c"]
+          args:
+            - |
+              code=$(curl -sL --max-redirs 5 -o /dev/null -w '%{http_code}' --retry 30 --retry-delay 10 --retry-all-errors --max-time 20 "$URL")
+              echo "smoke plex: $URL -> HTTP $code"
+              case "$code" in 200) exit 0;; *) exit 1;; esac
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 100
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            seccompProfile:
+              type: RuntimeDefault
+
+---
+# Source: applications/templates/prowlarr.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: smoke-prowlarr
+  namespace: media
+  labels:
+    app.kubernetes.io/name: smoke-prowlarr
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation,HookSucceeded
+    argocd.argoproj.io/sync-wave: "13"
+spec:
+  backoffLimit: 2
+  activeDeadlineSeconds: 600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: smoke-prowlarr
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: curl
+          image: curlimages/curl:8.22.0
+          env:
+            - name: URL
+              value: "http://prowlarr.media.svc.cluster.local:9696/ping"
+          command: ["sh", "-c"]
+          args:
+            - |
+              code=$(curl -sL --max-redirs 5 -o /dev/null -w '%{http_code}' --retry 30 --retry-delay 10 --retry-all-errors --max-time 20 "$URL")
+              echo "smoke prowlarr: $URL -> HTTP $code"
+              case "$code" in 200) exit 0;; *) exit 1;; esac
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 100
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            seccompProfile:
+              type: RuntimeDefault
+
+---
+# Source: applications/templates/radarr.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: smoke-radarr
+  namespace: media
+  labels:
+    app.kubernetes.io/name: smoke-radarr
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation,HookSucceeded
+    argocd.argoproj.io/sync-wave: "13"
+spec:
+  backoffLimit: 2
+  activeDeadlineSeconds: 600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: smoke-radarr
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: curl
+          image: curlimages/curl:8.22.0
+          env:
+            - name: URL
+              value: "http://radarr.media.svc.cluster.local:7878/ping"
+          command: ["sh", "-c"]
+          args:
+            - |
+              code=$(curl -sL --max-redirs 5 -o /dev/null -w '%{http_code}' --retry 30 --retry-delay 10 --retry-all-errors --max-time 20 "$URL")
+              echo "smoke radarr: $URL -> HTTP $code"
+              case "$code" in 200) exit 0;; *) exit 1;; esac
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 100
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            seccompProfile:
+              type: RuntimeDefault
+
+---
+# Source: applications/templates/sonarr.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: smoke-sonarr
+  namespace: media
+  labels:
+    app.kubernetes.io/name: smoke-sonarr
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation,HookSucceeded
+    argocd.argoproj.io/sync-wave: "13"
+spec:
+  backoffLimit: 2
+  activeDeadlineSeconds: 600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: smoke-sonarr
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: curl
+          image: curlimages/curl:8.22.0
+          env:
+            - name: URL
+              value: "http://sonarr.media.svc.cluster.local:8989/ping"
+          command: ["sh", "-c"]
+          args:
+            - |
+              code=$(curl -sL --max-redirs 5 -o /dev/null -w '%{http_code}' --retry 30 --retry-delay 10 --retry-all-errors --max-time 20 "$URL")
+              echo "smoke sonarr: $URL -> HTTP $code"
+              case "$code" in 200) exit 0;; *) exit 1;; esac
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 100
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            seccompProfile:
+              type: RuntimeDefault
+
+---
+# Source: applications/templates/tautulli.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: smoke-tautulli
+  namespace: media
+  labels:
+    app.kubernetes.io/name: smoke-tautulli
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation,HookSucceeded
+    argocd.argoproj.io/sync-wave: "13"
+spec:
+  backoffLimit: 2
+  activeDeadlineSeconds: 600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: smoke-tautulli
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: curl
+          image: curlimages/curl:8.22.0
+          env:
+            - name: URL
+              value: "http://tautulli.media.svc.cluster.local:8181/status"
+          command: ["sh", "-c"]
+          args:
+            - |
+              code=$(curl -sL --max-redirs 5 -o /dev/null -w '%{http_code}' --retry 30 --retry-delay 10 --retry-all-errors --max-time 20 "$URL")
+              echo "smoke tautulli: $URL -> HTTP $code"
+              case "$code" in 200) exit 0;; *) exit 1;; esac
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 100
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            seccompProfile:
+              type: RuntimeDefault
+
+---
 # Source: applications/templates/oci-repositories.yaml
 # OCI Repository configuration for ArgoCD
 # Single repository secret for TrueCharts OCI registry
@@ -277,7 +685,6 @@ spec:
         duration: 5s
         factor: 2
         maxDuration: 3m
-
 ---
 # Source: applications/templates/lazylibrarian.yaml
 # LazyLibrarian Config: deploys static PV+PVC for lazylibrarian persistent storage
@@ -418,7 +825,6 @@ spec:
         duration: 5s
         factor: 2
         maxDuration: 3m
-
 ---
 # Source: applications/templates/mosquitto.yaml
 # Mosquitto Config: deploys static PV+PVC for mosquitto persistent storage
@@ -693,7 +1099,6 @@ spec:
         duration: 5s
         factor: 2
         maxDuration: 3m
-
 ---
 # Source: applications/templates/plex.yaml
 # Dependencies Application: deploys OnePasswordItem for Plex claim token
@@ -869,7 +1274,6 @@ spec:
         duration: 5s
         factor: 2
         maxDuration: 3m
-
 ---
 # Source: applications/templates/prowlarr.yaml
 # Prowlarr Config: deploys static PV+PVC for prowlarr persistent storage
@@ -1006,7 +1410,6 @@ spec:
         duration: 5s
         factor: 2
         maxDuration: 3m
-
 ---
 # Source: applications/templates/radarr.yaml
 # Radarr Config: deploys static PV+PVC for radarr persistent storage
@@ -1155,7 +1558,6 @@ spec:
         duration: 5s
         factor: 2
         maxDuration: 3m
-
 ---
 # Source: applications/templates/renovate.yaml
 # Config Application: deploys OnePasswordItem for Renovate tokens
@@ -1402,7 +1804,6 @@ spec:
         duration: 5s
         factor: 2
         maxDuration: 3m
-
 ---
 # Source: applications/templates/tautulli.yaml
 # Tautulli Config: deploys static PV+PVC for tautulli persistent storage

@@ -1,0 +1,2142 @@
+#!/usr/bin/env -S deno run --allow-net --allow-run --allow-env --allow-read --allow-write
+
+/**
+ * localdev-argocd.ts
+ *
+ * ArgoCD for the Kind localdev loop: install, sync every Application from the
+ * working tree, wait for health, diagnose failures (issue #261 Section B).
+ *
+ * Subcommands:
+ *   install   helm upgrade --install argo-cd at the version pinned in
+ *             configuration/versions.yaml (charts.argocd) with
+ *             localdev/values/argocd-values.yaml plus one --set-file per health
+ *             Lua in charts/bootstrap/files/health, apply the root Application
+ *             (localdev/argocd/gitops-app.yaml) and log the argocd CLI in
+ *             through a kubectl port-forward. Idempotent.
+ *   sync      Walk the Application tree tier by tier and sync each app from the
+ *             working tree (`argocd app sync --local`; chart apps sync from
+ *             their repo). Tier = the sync-wave path from the root
+ *             (gitops [0] → bootstrap [0,0] → addons [0,2] → cilium [0,2,-5]
+ *             ...), parent = the app named by the argocd.argoproj.io/
+ *             tracking-id annotation (ArgoCD v3 default) or the
+ *             app.kubernetes.io/instance label; parents always sync before
+ *             their children. Git-path apps are rendered first with `argocd
+ *             app manifests --local`; when that yields nothing they are
+ *             synced plainly if Git renders nothing either (empty app →
+ *             Synced/Healthy) and refused if Git has manifests (ArgoCD
+ *             would silently sync the Git revision instead). Apps
+ *             that still carry an automated sync policy are not synced
+ *             (ArgoCD does that) but are waited for. A tier
+ *             is complete when every app is Healthy with a Succeeded operation
+ *             or is a parent whose Running operation waits on child
+ *             Applications. Newly created children are discovered every poll.
+ *             Failed/Error operations are retried 3x with 15 s backoff.
+ *   wait      Poll until every Application is Healthy with a Succeeded
+ *             operation (--require-synced also demands Synced). Runs diagnose
+ *             and exits 1 on timeout.
+ *   diagnose  Print conditions, operation message, unhealthy resources, recent
+ *             namespace events and failing pod describe/logs for every
+ *             Application that is not Healthy/Succeeded. Never throws on
+ *             missing fields; stdout only.
+ *
+ * Automated sync is OFF in localdev (ARGOCD_AUTOMATED_SYNC=false): `argocd app
+ * sync --local` refuses automated apps, and the whole point of the loop is to
+ * sync the working tree, not GitHub main.
+ *
+ * ArgoCD API access never depends on the Kind host-port mapping. Docker
+ * Desktop's host-port proxy forwards packets with bad TCP checksums; kindnet
+ * tolerated them but Cilium's BPF delivery makes the pod validate them, so
+ * every SYN to localhost:8080 is dropped ("gRPC connection not ready").
+ * Instead, install and sync spawn `kubectl port-forward -n argocd
+ * svc/argocd-server <local-port>:80 --address 127.0.0.1` (default 18080, next
+ * free port if taken), wait for /healthz, run every argocd command with
+ * --server 127.0.0.1:<port> --plaintext --insecure --grpc-web, and kill the
+ * port-forward on exit, error, SIGINT and SIGTERM. --server <host:port> skips
+ * the port-forward. The login passes --skip-test-tls: the CLI's TLS probe on a
+ * plaintext port gets a connection reset, which kubectl port-forward treats as
+ * fatal. Every kubectl command pins --context kind-homelab-localdev (ADR-009:
+ * agents mutate only Kind).
+ *
+ * Usage:
+ *   task localdev:argocd | localdev:sync | localdev:wait | localdev:diagnose
+ *   deno run ... scripts/localdev-argocd.ts --help
+ *   deno run ... scripts/localdev-argocd.ts install [--dry-run] [--local-port 18080 | --server host:port]
+ *   deno run ... scripts/localdev-argocd.ts sync [--warm] [--only a,b] [--timeout 40m] [--dry-run]
+ *   deno run ... scripts/localdev-argocd.ts wait [--require-synced] [--exclude a,b] [--timeout 20m]
+ *   deno run ... scripts/localdev-argocd.ts diagnose
+ *
+ * Exit codes: 0 = success; 1 = install/sync/wait failed (diagnostics printed);
+ *             2 = argument error.
+ */
+
+import { parse as parseYaml } from "jsr:@std/yaml@^1";
+import { expandGlob } from "jsr:@std/fs@^1/expand-glob";
+import { join, normalize, resolve } from "jsr:@std/path@^1";
+
+// ============================================================================
+// Logging
+// ============================================================================
+const cyan = (s: string) => `\x1b[36m${s}\x1b[0m`;
+const green = (s: string) => `\x1b[32m${s}\x1b[0m`;
+const red = (s: string) => `\x1b[31m${s}\x1b[0m`;
+const yellow = (s: string) => `\x1b[33m${s}\x1b[0m`;
+
+const log = {
+  info: (msg: string) => console.log(`${cyan("INFO")}  ${msg}`),
+  ok: (msg: string) => console.log(`${green("OK")}    ${msg}`),
+  warn: (msg: string) => console.log(`${yellow("WARN")}  ${msg}`),
+  error: (msg: string) => console.error(`${red("ERROR")} ${msg}`),
+  dry: (msg: string) => console.log(`${yellow("DRY")}   ${msg}`),
+};
+
+// ============================================================================
+// Constants
+// ============================================================================
+export const KUBE_CONTEXT = "kind-homelab-localdev";
+export const ARGOCD_NAMESPACE = "argocd";
+export const ARGOCD_SERVICE = "svc/argocd-server";
+export const ARGOCD_SERVICE_PORT = 80;
+export const DEFAULT_LOCAL_PORT = 18080;
+/** How many consecutive ports to try when the preferred one is taken. */
+export const PORT_CANDIDATES = 20;
+export const ARGOCD_RELEASE = "argocd";
+export const ARGOCD_CHART = "argo-cd";
+export const ARGOCD_HELM_REPO = "https://argoproj.github.io/argo-helm";
+export const ROOT_APP = "gitops";
+export const VERSIONS_YAML = "configuration/versions.yaml";
+export const ARGOCD_VALUES = "localdev/values/argocd-values.yaml";
+export const ROOT_APP_MANIFEST = "localdev/argocd/gitops-app.yaml";
+export const HEALTH_LUA_DIR = "charts/bootstrap/files/health";
+export const SYNC_WAVE_ANNOTATION = "argocd.argoproj.io/sync-wave";
+export const PARENT_LABEL = "app.kubernetes.io/instance";
+export const TRACKING_ANNOTATION = "argocd.argoproj.io/tracking-id";
+/** `--warm` never syncs this app nor anything under it. */
+export const WARM_EXCLUDED_ROOT = "applications";
+
+const POLL_INTERVAL_MS = 10_000;
+const LOGIN_RETRY_MS = 2 * 60_000;
+const LOGIN_RETRY_INTERVAL_MS = 5_000;
+const SYNC_RETRIES = 3;
+const SYNC_RETRY_BACKOFF_MS = 15_000;
+const DEFAULT_SYNC_TIMEOUT_MS = 40 * 60_000;
+const DEFAULT_WAIT_TIMEOUT_MS = 20 * 60_000;
+const HELM_WAIT_TIMEOUT = "10m";
+const EVENTS_TAIL = 30;
+const DESCRIBE_TAIL = 40;
+const LOGS_TAIL = "50";
+const PORT_FORWARD_READY_MS = 60_000;
+const PORT_FORWARD_PROBE_MS = 500;
+
+/** Connection flags for every argocd invocation against `server`. */
+export function serverFlags(server: string): string[] {
+  return ["--server", server, "--plaintext", "--insecure", "--grpc-web"];
+}
+
+/** The kubectl port-forward that exposes argocd-server on 127.0.0.1:<port>. */
+export function portForwardCmd(localPort: number): string[] {
+  return [
+    "kubectl",
+    "--context",
+    KUBE_CONTEXT,
+    "port-forward",
+    "-n",
+    ARGOCD_NAMESPACE,
+    ARGOCD_SERVICE,
+    `${localPort}:${ARGOCD_SERVICE_PORT}`,
+    "--address",
+    "127.0.0.1",
+  ];
+}
+
+/** preferred, preferred+1, ... (n entries), staying inside the port range. */
+export function candidatePorts(
+  preferred: number,
+  n = PORT_CANDIDATES,
+): number[] {
+  const out: number[] = [];
+  for (let p = preferred; p <= 65535 && out.length < n; p++) out.push(p);
+  return out;
+}
+
+/** true when 127.0.0.1:<port> can be bound right now. */
+export function portIsFree(port: number): boolean {
+  try {
+    const l = Deno.listen({ hostname: "127.0.0.1", port });
+    l.close();
+    return true;
+  } catch (err) {
+    if (err instanceof Deno.errors.AddrInUse) return false;
+    throw err;
+  }
+}
+
+/** The first candidate the probe reports free (probe injectable for tests). */
+export function findFreePort(
+  candidates: number[],
+  probe: (port: number) => boolean = portIsFree,
+): number {
+  for (const port of candidates) {
+    if (probe(port)) return port;
+  }
+  throw new Error(
+    `no free port among ${candidates[0]}-${candidates[candidates.length - 1]}`,
+  );
+}
+
+// ============================================================================
+// Application JSON shape (the subset the orchestrator reads)
+// ============================================================================
+export interface AppResource {
+  group?: string;
+  version?: string;
+  kind?: string;
+  namespace?: string;
+  name?: string;
+  status?: string;
+  health?: { status?: string; message?: string };
+}
+
+export interface AppSource {
+  repoURL?: string;
+  path?: string;
+  chart?: string;
+  targetRevision?: string;
+}
+
+export interface Application {
+  metadata: {
+    name: string;
+    namespace?: string;
+    labels?: Record<string, string>;
+    annotations?: Record<string, string>;
+  };
+  spec?: {
+    source?: AppSource;
+    sources?: AppSource[];
+    destination?: { namespace?: string; server?: string };
+    syncPolicy?: { automated?: unknown };
+  };
+  status?: {
+    health?: { status?: string; message?: string };
+    sync?: { status?: string };
+    operationState?: {
+      phase?: string;
+      message?: string;
+      startedAt?: string;
+      finishedAt?: string;
+    };
+    resources?: AppResource[];
+    conditions?: Array<{ type?: string; message?: string }>;
+  };
+}
+
+export type AppState = "complete" | "failed" | "pending";
+export type SourceKind = "local" | "chart" | "multi";
+/** Sync waves from the root down to the app; see tierKey. */
+export type TierKey = readonly number[];
+
+// ============================================================================
+// Pure functions (unit-tested)
+// ============================================================================
+
+/** Sync wave from the annotation; missing or unparsable → 0. */
+export function parseWave(app: Application): number {
+  const raw = app.metadata?.annotations?.[SYNC_WAVE_ANNOTATION];
+  if (raw === undefined || raw === null) return 0;
+  const n = Number.parseInt(String(raw).trim(), 10);
+  return Number.isFinite(n) ? n : 0;
+}
+
+/**
+ * Parent Application name; root → null. ArgoCD v3 tracks resources with the
+ * annotation `argocd.argoproj.io/tracking-id: <app>:<group>/<kind>:<ns>/<name>`
+ * (application.resourceTrackingMethod defaults to `annotation`); the
+ * `app.kubernetes.io/instance` label is the legacy `label` method. Both are
+ * honoured, annotation first.
+ */
+export function parentOf(app: Application): string | null {
+  const tracking = app.metadata?.annotations?.[TRACKING_ANNOTATION];
+  if (tracking) {
+    const parent = tracking.split(":")[0]?.trim();
+    if (parent && parent !== app.metadata.name) return parent;
+  }
+  const parent = app.metadata?.labels?.[PARENT_LABEL];
+  if (!parent || parent === app.metadata.name) return null;
+  return parent;
+}
+
+/** Automated sync policy: `argocd app sync --local` refuses such apps. */
+export function isAutomated(app: Application): boolean {
+  const a = app.spec?.syncPolicy?.automated;
+  return a !== undefined && a !== null;
+}
+
+/** ArgoCD could not generate the app's manifests from its repo. */
+export function hasComparisonError(app: Application): boolean {
+  return (app.status?.conditions ?? []).some((c) =>
+    c?.type === "ComparisonError"
+  );
+}
+
+/** argocd's wording when an operation is already running on the app. */
+export function isOperationInProgress(detail: string): boolean {
+  return /another operation is already in progress/i.test(detail);
+}
+
+/** name → Application for every app in the list. */
+export function indexApps(apps: Application[]): Map<string, Application> {
+  const m = new Map<string, Application>();
+  for (const a of apps) m.set(a.metadata.name, a);
+  return m;
+}
+
+/**
+ * Tier key: the sync waves along the path from the root to the app, e.g.
+ * gitops [0], bootstrap [0,0], sops-secrets [0,0,-2], addons [0,2], cilium
+ * [0,2,-5], applications [0,3], sonarr-config [0,3,0]. Keys compare
+ * lexicographically with a prefix sorting first, so a parent always precedes
+ * its children (also on re-runs, when every app already exists) and whole
+ * subtrees stay in wave order: everything under bootstrap before everything
+ * under addons before everything under applications. The plan's
+ * (parent wave, own wave) pair is the last two elements; it alone would put
+ * a negative-wave child (0,-2) before its own parent (0,0).
+ *
+ * A parent that is not in the index counts as an unknown root of wave 0; a
+ * cycle in the tracking annotations is cut where a name repeats.
+ */
+export function tierKey(
+  app: Application,
+  byName: Map<string, Application>,
+): TierKey {
+  const path: number[] = [];
+  const seen = new Set<string>();
+  let cur: Application | undefined = app;
+  while (cur && !seen.has(cur.metadata.name)) {
+    seen.add(cur.metadata.name);
+    path.unshift(parseWave(cur));
+    const parent = parentOf(cur);
+    if (parent === null) break;
+    const next = byName.get(parent);
+    if (!next) {
+      path.unshift(0);
+      break;
+    }
+    cur = next;
+  }
+  return path;
+}
+
+export function compareTierKey(a: TierKey, b: TierKey): number {
+  const n = Math.min(a.length, b.length);
+  for (let i = 0; i < n; i++) {
+    if (a[i] !== b[i]) return a[i] - b[i];
+  }
+  return a.length - b.length;
+}
+
+export function formatTierKey(key: TierKey): string {
+  return `[${key.join(" › ")}]`;
+}
+
+/**
+ * The lowest tier among apps not yet done: every not-done app sharing the
+ * minimum key, sorted by name. null when nothing is left.
+ */
+export function nextTier(
+  apps: Application[],
+  done: Set<string>,
+): { key: TierKey; apps: Application[] } | null {
+  const byName = indexApps(apps);
+  let best: TierKey | null = null;
+  const keyed: Array<{ key: TierKey; app: Application }> = [];
+  for (const app of apps) {
+    if (done.has(app.metadata.name)) continue;
+    const key = tierKey(app, byName);
+    keyed.push({ key, app });
+    if (best === null || compareTierKey(key, best) < 0) best = key;
+  }
+  if (best === null) return null;
+  const tier = keyed
+    .filter((k) => compareTierKey(k.key, best!) === 0)
+    .map((k) => k.app)
+    .sort((a, b) => a.metadata.name.localeCompare(b.metadata.name));
+  return { key: best, apps: tier };
+}
+
+/** A parent: its resources include child Applications (gitops, addons, ...). */
+export function isParentApp(app: Application): boolean {
+  return (app.status?.resources ?? []).some((r) => r?.kind === "Application");
+}
+
+/**
+ * complete: Healthy + Succeeded, or a parent ("accepted") whose operation is
+ * Running or Succeeded while its child Applications are not Healthy yet —
+ * ArgoCD holds a parent's operation open per wave until every child is
+ * Healthy, and only this orchestrator syncs the children.
+ * failed: operation phase Failed/Error (for a parent: typically a child went
+ * Degraded during ArgoCD's wave wait; see parentResyncDecision).
+ * Everything else: pending.
+ */
+export function appState(app: Application): AppState {
+  const health = app.status?.health?.status;
+  const phase = app.status?.operationState?.phase;
+  if (phase === "Failed" || phase === "Error") return "failed";
+  if (health === "Healthy" && phase === "Succeeded") return "complete";
+  if ((phase === "Running" || phase === "Succeeded") && isParentApp(app)) {
+    return "complete";
+  }
+  return "pending";
+}
+
+/**
+ * Apps not done and not being waited on whose tier key is LOWER than the tier
+ * currently being waited on. They belong to an earlier subtree (e.g. a parent
+ * created wave-8 children while we waited on another parent's wave-12 child),
+ * so their prerequisites are complete and they must be synced immediately
+ * instead of after the current tier. Sorted by key, then name.
+ */
+export function discoverable(
+  apps: Application[],
+  done: Set<string>,
+  active: Set<string>,
+  currentKey: TierKey,
+): Application[] {
+  const byName = indexApps(apps);
+  return apps
+    .filter((a) => !done.has(a.metadata.name) && !active.has(a.metadata.name))
+    .map((a) => ({ a, key: tierKey(a, byName) }))
+    .filter(({ key }) => compareTierKey(key, currentKey) < 0)
+    .sort((x, y) =>
+      compareTierKey(x.key, y.key) ||
+      x.a.metadata.name.localeCompare(y.a.metadata.name)
+    )
+    .map(({ a }) => a);
+}
+
+/** Children of `parent` (by tracking annotation/label) that are not done. */
+export function pendingChildren(
+  parent: string,
+  apps: Application[],
+  done: Set<string>,
+): Application[] {
+  return apps.filter((a) =>
+    parentOf(a) === parent && !done.has(a.metadata.name)
+  );
+}
+
+export type ParentResync = "none" | "wait" | "resync" | "give-up";
+
+/**
+ * What to do with a parent whose operation is Failed/Error (ArgoCD gave up
+ * waiting for a child during a wave): nothing if it is not a failed parent;
+ * wait while it still has pending children (they are being synced right
+ * now); re-sync it with the same command once they are all complete, up to
+ * `limit` times; then give up.
+ */
+export function parentResyncDecision(
+  parent: Application,
+  pendingChildCount: number,
+  retriesUsed: number,
+  limit = SYNC_RETRIES,
+): ParentResync {
+  if (!isParentApp(parent) || appState(parent) !== "failed") return "none";
+  if (pendingChildCount > 0) return "wait";
+  if (retriesUsed >= limit) return "give-up";
+  return "resync";
+}
+
+export type FinalPassDecision = "done" | "wait" | "resync";
+
+/**
+ * Final pass over the parents: Succeeded → done; Running/Terminating → wait
+ * (the operation may be executing PostSync smoke hooks and must never be cut
+ * short); Failed/Error or no operation at all → re-sync from the working
+ * tree.
+ */
+export function finalPassDecision(app: Application): FinalPassDecision {
+  const phase = app.status?.operationState?.phase;
+  if (phase === "Succeeded") return "done";
+  if (phase === "Running" || phase === "Terminating") return "wait";
+  return "resync";
+}
+
+/**
+ * One-line hint when an Application is Degraded only because a child
+ * Application is Degraded (the message names "Application/<child>").
+ */
+export function degradedChildHint(app: Application): string | null {
+  if (app.status?.health?.status !== "Degraded") return null;
+  const children = (app.status?.resources ?? [])
+    .filter((r) => r?.kind === "Application" && r.health?.status === "Degraded")
+    .map((r) => r.name ?? "?");
+  const msgs = [
+    app.status?.health?.message ?? "",
+    app.status?.operationState?.message ?? "",
+  ];
+  if (children.length === 0 && !msgs.some((m) => m.includes("Application/"))) {
+    return null;
+  }
+  const who = children.length > 0 ? children.join(", ") : "a child Application";
+  return `${app.metadata.name} is Degraded because ${who} is Degraded: fix the child, then re-run \`task localdev:sync\` (the parent re-syncs once its children are complete)`;
+}
+
+export function isAppComplete(app: Application): boolean {
+  return appState(app) === "complete";
+}
+
+export function isTierComplete(apps: Application[]): boolean {
+  return apps.every(isAppComplete);
+}
+
+export function sourceKind(app: Application): SourceKind {
+  if (Array.isArray(app.spec?.sources) && app.spec.sources.length > 0) {
+    return "multi";
+  }
+  if (app.spec?.source?.path) return "local";
+  return "chart";
+}
+
+/**
+ * argocd arguments (after the binary) that sync one Application. Git-path
+ * apps sync from the working tree; chart and multi-source apps sync from their
+ * repo (`--local` refuses multi-source apps).
+ */
+export function syncArgs(
+  app: Application,
+  repoRoot: string,
+  opts: { plain?: boolean } = {},
+): string[] {
+  const name = app.metadata.name;
+  const root = normalize(repoRoot).replace(/\/+$/, "");
+  const base = ["app", "sync", name];
+  if (sourceKind(app) === "local" && !opts.plain) {
+    const local = normalize(join(root, app.spec!.source!.path!));
+    if (local !== root && !local.startsWith(root + "/")) {
+      throw new Error(
+        `${name}: spec.source.path ${
+          app.spec!.source!.path
+        } resolves outside the repo root ${root}`,
+      );
+    }
+    base.push("--local", local, "--local-repo-root", root);
+  }
+  base.push("--prune", "--async");
+  return base;
+}
+
+/**
+ * argocd arguments that render a git-path app from the working tree without
+ * syncing (`argocd app manifests --local`), used to refuse empty renders.
+ */
+export function manifestsArgs(app: Application, repoRoot: string): string[] {
+  const sync = syncArgs(app, repoRoot);
+  const i = sync.indexOf("--local");
+  if (i < 0) {
+    throw new Error(`${app.metadata.name}: not a git-path app`);
+  }
+  return ["app", "manifests", app.metadata.name, ...sync.slice(i, i + 4)];
+}
+
+export type EmptyRenderDecision = "local" | "empty" | "error";
+
+/**
+ * What to do with a git-path app given how many manifests the working tree
+ * renders (localCount) and, when that is zero, how many Git renders
+ * (gitCount; null when the Git render could not be obtained).
+ *
+ *   local > 0             → "local": normal `argocd app sync --local`.
+ *   local = 0, git = 0    → "empty": plain `argocd app sync` (no --local); an
+ *                           empty Application becomes Synced/Healthy. Many
+ *                           child charts render nothing in localdev by design.
+ *   local = 0, git > 0    → "error": ArgoCD would silently apply the Git
+ *                           revision (the bootstrap-in-localdev case).
+ *   local = 0, git = null → "error": fail closed rather than guess.
+ */
+export function emptyRenderDecision(
+  localCount: number,
+  gitCount: number | null,
+): EmptyRenderDecision {
+  if (localCount > 0) return "local";
+  if (gitCount === 0) return "empty";
+  return "error";
+}
+
+/** Number of non-empty YAML documents in a multi-document stream. */
+export function countManifests(yaml: string): number {
+  return yaml
+    .split(/^---\s*$/m)
+    .filter((doc) =>
+      doc.split("\n").some((l) => l.trim() && !l.trim().startsWith("#"))
+    )
+    .length;
+}
+
+/** Apply --warm / --only to the discovered app list. */
+export function selectApps(
+  apps: Application[],
+  opts: { warm: boolean; only: string[] | null },
+): Application[] {
+  let out = apps;
+  if (opts.warm) {
+    out = out.filter((a) =>
+      a.metadata.name !== WARM_EXCLUDED_ROOT &&
+      parentOf(a) !== WARM_EXCLUDED_ROOT
+    );
+  }
+  if (opts.only) {
+    const wanted = new Set(opts.only);
+    out = out.filter((a) => wanted.has(a.metadata.name));
+  }
+  return out;
+}
+
+/** `wait` readiness: Healthy + Succeeded (+ Synced with --require-synced). */
+export function isReady(app: Application, requireSynced: boolean): boolean {
+  const health = app.status?.health?.status;
+  const phase = app.status?.operationState?.phase;
+  if (health !== "Healthy" || phase !== "Succeeded") return false;
+  if (requireSynced && app.status?.sync?.status !== "Synced") return false;
+  return true;
+}
+
+/** Escape a helm --set key segment: every `.` becomes `\.`. */
+export function escapeHelmKey(s: string): string {
+  return s.replaceAll(".", "\\.");
+}
+
+/**
+ * One `--set-file configs.cm.resource\.customizations\.health\.<group>_<kind>=<file>`
+ * per Lua file, sorted by file name. The group's own dots are escaped too;
+ * helm splits --set keys on unescaped dots, so `argoproj.io_Application`
+ * would otherwise nest as `argoproj: {io_Application: ...}`.
+ */
+export function setFileArgs(luaFiles: string[]): string[] {
+  const out: string[] = [];
+  const sorted = [...luaFiles].sort((a, b) =>
+    baseName(a).localeCompare(baseName(b))
+  );
+  for (const file of sorted) {
+    const stem = baseName(file).replace(/\.lua$/, "");
+    const key = `configs.cm.${
+      escapeHelmKey(`resource.customizations.health.${stem}`)
+    }`;
+    out.push("--set-file", `${key}=${file}`);
+  }
+  return out;
+}
+
+function baseName(p: string): string {
+  const i = p.lastIndexOf("/");
+  return i < 0 ? p : p.slice(i + 1);
+}
+
+/** "40m", "90s", "2h", "1500ms", bare number = seconds. */
+export function parseDuration(s: string): number {
+  const m = /^\s*(\d+(?:\.\d+)?)\s*(ms|s|m|h)?\s*$/.exec(s);
+  if (!m) throw new Error(`invalid duration "${s}" (use e.g. 40m, 90s, 2h)`);
+  const n = Number(m[1]);
+  const unit = m[2] ?? "s";
+  const mult = unit === "ms"
+    ? 1
+    : unit === "s"
+    ? 1000
+    : unit === "m"
+    ? 60_000
+    : 3_600_000;
+  return Math.round(n * mult);
+}
+
+export function formatDuration(ms: number): string {
+  if (ms < 1000) return `${ms}ms`;
+  const s = Math.round(ms / 1000);
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  return `${m}m${String(s % 60).padStart(2, "0")}s`;
+}
+
+/** Fixed-width text table (no dependency, no colour). */
+export function formatTable(headers: string[], rows: string[][]): string {
+  const widths = headers.map((h, i) =>
+    Math.max(h.length, ...rows.map((r) => (r[i] ?? "").length))
+  );
+  const line = (cells: string[]) =>
+    "  " +
+    cells.map((c, i) => (c ?? "").padEnd(widths[i])).join("  ").trimEnd();
+  return [
+    line(headers),
+    line(widths.map((w) => "-".repeat(w))),
+    ...rows.map(line),
+  ].join("\n");
+}
+
+// ============================================================================
+// CLI args
+// ============================================================================
+export type Command = "install" | "sync" | "wait" | "diagnose";
+
+export interface Args {
+  command: Command | null;
+  help: boolean;
+  dryRun: boolean;
+  warm: boolean;
+  only: string[] | null;
+  exclude: string[];
+  requireSynced: boolean;
+  timeoutMs: number | null;
+  repoRoot: string | null;
+  /** --server host:port: use this ArgoCD API directly, no port-forward. */
+  server: string | null;
+  /** --local-port: preferred local port for the port-forward. */
+  localPort: number | null;
+}
+
+export function parsePort(s: string): number {
+  const n = Number(s);
+  if (!Number.isInteger(n) || n < 1 || n > 65535) {
+    throw new Error(`invalid port "${s}" (1-65535)`);
+  }
+  return n;
+}
+
+function splitList(v: string): string[] {
+  return v.split(",").map((s) => s.trim()).filter((s) => s.length > 0);
+}
+
+export function parseArgs(argv: string[]): Args {
+  const args: Args = {
+    command: null,
+    help: false,
+    dryRun: false,
+    warm: false,
+    only: null,
+    exclude: [],
+    requireSynced: false,
+    timeoutMs: null,
+    repoRoot: null,
+    server: null,
+    localPort: null,
+  };
+  const valueOf = (i: number, flag: string): string => {
+    const v = argv[i + 1];
+    if (v === undefined || v.startsWith("--")) {
+      throw new Error(`${flag} requires a value`);
+    }
+    return v;
+  };
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (a === "--help" || a === "-h") args.help = true;
+    else if (a === "--dry-run") args.dryRun = true;
+    else if (a === "--warm") args.warm = true;
+    else if (a === "--require-synced") args.requireSynced = true;
+    else if (a === "--only") args.only = splitList(valueOf(i++, a));
+    else if (a.startsWith("--only=")) {
+      args.only = splitList(a.slice("--only=".length));
+    } else if (a === "--exclude") args.exclude = splitList(valueOf(i++, a));
+    else if (a.startsWith("--exclude=")) {
+      args.exclude = splitList(a.slice("--exclude=".length));
+    } else if (a === "--timeout") {
+      args.timeoutMs = parseDuration(valueOf(i++, a));
+    } else if (a.startsWith("--timeout=")) {
+      args.timeoutMs = parseDuration(a.slice("--timeout=".length));
+    } else if (a === "--repo-root") args.repoRoot = valueOf(i++, a);
+    else if (a.startsWith("--repo-root=")) {
+      args.repoRoot = a.slice("--repo-root=".length);
+    } else if (a === "--server") args.server = valueOf(i++, a);
+    else if (a.startsWith("--server=")) {
+      args.server = a.slice("--server=".length);
+    } else if (a === "--local-port") {
+      args.localPort = parsePort(valueOf(i++, a));
+    } else if (a.startsWith("--local-port=")) {
+      args.localPort = parsePort(a.slice("--local-port=".length));
+    } else if (a.startsWith("-")) {
+      throw new Error(`Unknown argument: ${a}`);
+    } else if (args.command === null) {
+      if (
+        a === "install" || a === "sync" || a === "wait" || a === "diagnose"
+      ) {
+        args.command = a;
+      } else {
+        throw new Error(
+          `Unknown command: ${a} (expected install, sync, wait or diagnose)`,
+        );
+      }
+    } else {
+      throw new Error(`Unknown argument: ${a}`);
+    }
+  }
+  return args;
+}
+
+function printHelp(): void {
+  console.log(
+    `localdev-argocd.ts — ArgoCD install + sync orchestrator for the Kind localdev loop
+
+Usage:
+  deno run --allow-net --allow-run --allow-env --allow-read --allow-write \\
+    scripts/localdev-argocd.ts <command> [flags]
+
+Commands:
+  install    helm upgrade --install argo-cd (version: ${VERSIONS_YAML} charts.argocd,
+             values: ${ARGOCD_VALUES}, health Lua: ${HEALTH_LUA_DIR}/*.lua),
+             apply ${ROOT_APP_MANIFEST}, log the argocd CLI in.
+             Idempotent.                                        (task localdev:argocd)
+  sync       Sync every Application from the working tree, tier by tier
+             (argocd app sync --local for git-path apps, plain sync for chart apps).
+                                                                  (task localdev:sync)
+  wait       Block until every Application is Healthy with a Succeeded operation.
+                                                                  (task localdev:wait)
+  diagnose   Print conditions, unhealthy resources, events and failing pod logs for
+             every Application that is not Healthy/Succeeded.  (task localdev:diagnose)
+
+Flags:
+  --help, -h            Show this help and exit 0
+  --dry-run             install/sync: print the exact commands and exit 0 without
+                        touching the cluster (sync lists Applications when a cluster
+                        is reachable, otherwise plans the root app only)
+  --timeout <dur>       sync: default 40m; wait: default 20m (e.g. 90s, 15m, 1h)
+  --warm                sync: stop once everything under ${ROOT_APP}/bootstrap/addons is
+                        done; never sync '${WARM_EXCLUDED_ROOT}' or its children
+  --only <a,b>          sync: only these Applications (still in tier order)
+  --repo-root <dir>     sync: working tree to sync from (default: git toplevel of cwd)
+  --require-synced      wait: also require status.sync.status == Synced (off by
+                        default: --local syncs are OutOfSync against GitHub by design)
+  --exclude <a,b>       wait: ignore these Applications
+  --local-port <n>      install/sync: preferred local port for the kubectl
+                        port-forward (default ${DEFAULT_LOCAL_PORT}; the next free port is
+                        used if it is taken)
+  --server <host:port>  install/sync: talk to this ArgoCD API directly and skip
+                        the port-forward
+
+Connection:
+  kubectl --context ${KUBE_CONTEXT}. install and sync spawn
+  \`kubectl port-forward -n ${ARGOCD_NAMESPACE} ${ARGOCD_SERVICE} <local-port>:${ARGOCD_SERVICE_PORT} --address 127.0.0.1\`,
+  wait for http://127.0.0.1:<local-port>/healthz, run every argocd command with
+  --server 127.0.0.1:<local-port> --plaintext --insecure --grpc-web, and kill
+  the port-forward on exit (also on error, SIGINT and SIGTERM). The Kind
+  host-port mapping (NodePort 30080 -> localhost:8080) is not used: Docker
+  Desktop's proxy corrupts TCP checksums and Cilium drops those packets. Every
+  command logs in with the argocd-initial-admin-secret first, so the CLI
+  context can never point at another cluster.
+
+Exit codes:
+  0  Success
+  1  Install failed, a sync tier failed or timed out, wait timed out (diagnose
+     output is printed first), or the cluster is unreachable
+  2  Argument error
+`,
+  );
+}
+
+// ============================================================================
+// Shell helpers
+// ============================================================================
+interface RunResult {
+  stdout: string;
+  stderr: string;
+  code: number;
+}
+
+async function run(
+  cmd: string[],
+  opts: { cwd?: string; quiet?: boolean } = {},
+): Promise<RunResult> {
+  const p = new Deno.Command(cmd[0], {
+    args: cmd.slice(1),
+    cwd: opts.cwd,
+    stdout: "piped",
+    stderr: "piped",
+  });
+  try {
+    const out = await p.output();
+    return {
+      stdout: new TextDecoder().decode(out.stdout),
+      stderr: new TextDecoder().decode(out.stderr),
+      code: out.code,
+    };
+  } catch (err) {
+    if (err instanceof Deno.errors.NotFound) {
+      return { stdout: "", stderr: `${cmd[0]}: command not found`, code: 127 };
+    }
+    throw err;
+  }
+}
+
+/** Run with inherited stdio (streams helm/argocd output to the terminal). */
+async function runInherit(cmd: string[], cwd?: string): Promise<number> {
+  const p = new Deno.Command(cmd[0], {
+    args: cmd.slice(1),
+    cwd,
+    stdout: "inherit",
+    stderr: "inherit",
+  });
+  const out = await p.output();
+  return out.code;
+}
+
+function shellQuote(s: string): string {
+  return /^[A-Za-z0-9_\/.:=@%+,-]+$/.test(s)
+    ? s
+    : `'${s.replaceAll("'", "'\\''")}'`;
+}
+
+function fmtCmd(cmd: string[]): string {
+  return cmd.map(shellQuote).join(" ");
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+async function findRepoRoot(): Promise<string> {
+  const r = await run(["git", "rev-parse", "--show-toplevel"]);
+  if (r.code !== 0) {
+    throw new Error(`git rev-parse --show-toplevel failed:\n${r.stderr}`);
+  }
+  return r.stdout.trim();
+}
+
+function kubectl(...args: string[]): string[] {
+  return ["kubectl", "--context", KUBE_CONTEXT, ...args];
+}
+
+/** ArgoCD API address every argocd command targets; set by withArgocdServer. */
+let argocdServer = `127.0.0.1:${DEFAULT_LOCAL_PORT}`;
+
+function argocd(...args: string[]): string[] {
+  return ["argocd", ...args, ...serverFlags(argocdServer)];
+}
+
+// ============================================================================
+// Port-forward supervisor
+// ============================================================================
+class PortForward {
+  #child: Deno.ChildProcess | null = null;
+  #exited: Promise<Deno.CommandStatus> | null = null;
+  #stderr = "";
+  #stopped = false;
+  readonly port: number;
+
+  constructor(port: number) {
+    this.port = port;
+  }
+
+  get server(): string {
+    return `127.0.0.1:${this.port}`;
+  }
+
+  /** Spawn kubectl port-forward and wait until /healthz answers. */
+  async start(): Promise<void> {
+    const cmd = portForwardCmd(this.port);
+    log.info(fmtCmd(cmd));
+    const child = new Deno.Command(cmd[0], {
+      args: cmd.slice(1),
+      stdin: "null",
+      stdout: "null",
+      stderr: "piped",
+    }).spawn();
+    this.#child = child;
+    this.#stderr = "";
+    // Drain stderr so kubectl never blocks; keep the tail for error reports.
+    (async () => {
+      try {
+        for await (const chunk of child.stderr) {
+          this.#stderr = (this.#stderr + new TextDecoder().decode(chunk))
+            .slice(-2000);
+        }
+      } catch {
+        // stream closed with the process
+      }
+    })();
+    this.#exited = child.status;
+    let exited = false;
+    this.#exited.then(() => {
+      exited = true;
+    });
+    const deadline = Date.now() + PORT_FORWARD_READY_MS;
+    while (Date.now() < deadline) {
+      if (exited) {
+        throw new Error(
+          `kubectl port-forward exited before ${this.server} was ready: ${
+            this.#stderr.trim() || "(no stderr)"
+          }`,
+        );
+      }
+      if (await this.healthy()) {
+        log.ok(`ArgoCD API reachable at http://${this.server} (port-forward)`);
+        return;
+      }
+      await sleep(PORT_FORWARD_PROBE_MS);
+    }
+    await this.stop();
+    throw new Error(
+      `port-forward to ${this.server} not ready within ${
+        formatDuration(PORT_FORWARD_READY_MS)
+      }: ${this.#stderr.trim()}`,
+    );
+  }
+
+  async healthy(): Promise<boolean> {
+    try {
+      const ctl = new AbortController();
+      const t = setTimeout(() => ctl.abort(), 2000);
+      const r = await fetch(`http://${this.server}/healthz`, {
+        signal: ctl.signal,
+      });
+      clearTimeout(t);
+      await r.body?.cancel();
+      return r.ok;
+    } catch {
+      return false;
+    }
+  }
+
+  /** Respawn if kubectl died (pod restart, lost connection) since last use. */
+  async ensure(): Promise<void> {
+    if (this.#stopped || !this.#child) return;
+    const alive = await Promise.race([
+      this.#exited!.then(() => false),
+      sleep(0).then(() => true),
+    ]);
+    if (alive) return;
+    log.warn(
+      `port-forward to ${this.server} died (${
+        this.#stderr.trim().split("\n").pop() ?? ""
+      }); restarting`,
+    );
+    await this.start();
+  }
+
+  async stop(): Promise<void> {
+    this.#stopped = true;
+    const child = this.#child;
+    if (!child) return;
+    this.#child = null;
+    try {
+      child.kill("SIGTERM");
+    } catch {
+      // already gone
+    }
+    try {
+      await Promise.race([this.#exited, sleep(2000)]);
+    } catch {
+      // exit status of a killed process is not interesting
+    }
+  }
+}
+
+let activePortForward: PortForward | null = null;
+
+function stopPortForwardSync(): void {
+  // Signal handlers cannot await; a SIGTERM to the child is enough.
+  const pf = activePortForward;
+  activePortForward = null;
+  if (pf) pf.stop();
+}
+
+/**
+ * Run `fn` with the argocd CLI pointed at a working ArgoCD API: --server as
+ * given, or a supervised kubectl port-forward that is torn down afterwards
+ * whatever happens (return, throw, SIGINT, SIGTERM).
+ */
+async function withArgocdServer<T>(
+  args: Args,
+  fn: () => Promise<T>,
+): Promise<T> {
+  if (args.server) {
+    argocdServer = args.server;
+    log.info(`using ArgoCD API at ${argocdServer} (--server; no port-forward)`);
+    return await fn();
+  }
+  const port = findFreePort(
+    candidatePorts(args.localPort ?? DEFAULT_LOCAL_PORT),
+  );
+  if (args.localPort !== null && port !== args.localPort) {
+    log.warn(`--local-port ${args.localPort} is in use; using ${port}`);
+  }
+  const pf = new PortForward(port);
+  activePortForward = pf;
+  const onSignal = () => {
+    stopPortForwardSync();
+    Deno.exit(130);
+  };
+  Deno.addSignalListener("SIGINT", onSignal);
+  Deno.addSignalListener("SIGTERM", onSignal);
+  try {
+    await pf.start();
+    argocdServer = pf.server;
+    return await fn();
+  } finally {
+    Deno.removeSignalListener("SIGINT", onSignal);
+    Deno.removeSignalListener("SIGTERM", onSignal);
+    activePortForward = null;
+    await pf.stop();
+  }
+}
+
+/** Before each argocd call: restart the port-forward if it died. */
+async function ensureArgocdReachable(): Promise<void> {
+  if (activePortForward) await activePortForward.ensure();
+}
+
+// ============================================================================
+// Cluster access
+// ============================================================================
+async function listApplications(): Promise<Application[]> {
+  const r = await run(
+    kubectl(
+      "get",
+      "applications.argoproj.io",
+      "-n",
+      ARGOCD_NAMESPACE,
+      "-o",
+      "json",
+    ),
+  );
+  if (r.code !== 0) {
+    throw new Error(
+      `kubectl get applications failed: ${
+        r.stderr.trim().split("\n").filter((l) => l.trim())[0] ??
+          `exit ${r.code}`
+      }`,
+    );
+  }
+  const parsed = JSON.parse(r.stdout) as { items?: Application[] };
+  return (parsed.items ?? []).filter((a) => a?.metadata?.name);
+}
+
+async function getApplication(name: string): Promise<Application | null> {
+  const r = await run(
+    kubectl(
+      "get",
+      "applications.argoproj.io",
+      name,
+      "-n",
+      ARGOCD_NAMESPACE,
+      "-o",
+      "json",
+    ),
+  );
+  if (r.code !== 0) return null;
+  try {
+    return JSON.parse(r.stdout) as Application;
+  } catch {
+    return null;
+  }
+}
+
+async function readAdminPassword(): Promise<string | null> {
+  const r = await run(
+    kubectl(
+      "get",
+      "secret",
+      "argocd-initial-admin-secret",
+      "-n",
+      ARGOCD_NAMESPACE,
+      "-o",
+      "jsonpath={.data.password}",
+    ),
+  );
+  if (r.code !== 0 || !r.stdout.trim()) return null;
+  return new TextDecoder().decode(
+    Uint8Array.from(atob(r.stdout.trim()), (c) => c.charCodeAt(0)),
+  );
+}
+
+function loginCmd(password: string): string[] {
+  return [
+    "argocd",
+    "login",
+    argocdServer,
+    "--plaintext",
+    "--insecure",
+    "--grpc-web",
+    // `argocd login` probes the server with a TLS ClientHello even with
+    // --plaintext; argocd-server resets that connection and kubectl
+    // port-forward treats the reset as fatal ("lost connection to pod").
+    "--skip-test-tls",
+    "--username",
+    "admin",
+    "--password",
+    password,
+  ];
+}
+
+/** Log the CLI in, retrying while the server comes up (up to 2 minutes). */
+async function login(dryRun: boolean): Promise<void> {
+  if (dryRun) {
+    log.dry(fmtCmd(loginCmd("<argocd-initial-admin-secret .data.password>")));
+    return;
+  }
+  const deadline = Date.now() + LOGIN_RETRY_MS;
+  let lastErr = "";
+  for (;;) {
+    const password = await readAdminPassword();
+    if (password === null) {
+      lastErr = "argocd-initial-admin-secret not readable yet";
+    } else {
+      await ensureArgocdReachable();
+      const r = await run(loginCmd(password));
+      if (r.code === 0) {
+        log.ok(`argocd CLI logged in at ${argocdServer} as admin`);
+        return;
+      }
+      lastErr = (r.stderr || r.stdout).trim().split("\n").pop() ?? "";
+    }
+    if (Date.now() >= deadline) {
+      throw new Error(
+        `argocd login at ${argocdServer} did not succeed within ${
+          formatDuration(LOGIN_RETRY_MS)
+        }: ${lastErr}`,
+      );
+    }
+    log.info(`waiting for ArgoCD server (${lastErr}); retrying in 5 s`);
+    await sleep(LOGIN_RETRY_INTERVAL_MS);
+  }
+}
+
+// ============================================================================
+// install
+// ============================================================================
+async function readArgocdChartVersion(repoRoot: string): Promise<string> {
+  const text = await Deno.readTextFile(join(repoRoot, VERSIONS_YAML));
+  const doc = parseYaml(text) as { charts?: Record<string, unknown> };
+  const v = doc?.charts?.["argocd"];
+  if (typeof v !== "string" || !v.trim()) {
+    throw new Error(`${VERSIONS_YAML}: charts.argocd is not set`);
+  }
+  return v.trim();
+}
+
+async function listHealthLua(repoRoot: string): Promise<string[]> {
+  const files: string[] = [];
+  const dir = join(repoRoot, HEALTH_LUA_DIR);
+  try {
+    if (!(await Deno.stat(dir)).isDirectory) return files;
+  } catch {
+    return files;
+  }
+  for await (const e of expandGlob("*.lua", { root: dir })) {
+    if (e.isFile) files.push(`${HEALTH_LUA_DIR}/${e.name}`);
+  }
+  return files.sort();
+}
+
+async function helmInstallCmd(repoRoot: string): Promise<string[]> {
+  const version = await readArgocdChartVersion(repoRoot);
+  const lua = await listHealthLua(repoRoot);
+  if (lua.length === 0) {
+    log.warn(
+      `${HEALTH_LUA_DIR} has no .lua files; custom resource health will be missing`,
+    );
+  } else {
+    log.info(`health Lua: ${lua.map(baseName).join(", ")}`);
+  }
+  return [
+    "helm",
+    "--kube-context",
+    KUBE_CONTEXT,
+    "upgrade",
+    "--install",
+    ARGOCD_RELEASE,
+    ARGOCD_CHART,
+    "--repo",
+    ARGOCD_HELM_REPO,
+    "--version",
+    version,
+    "--namespace",
+    ARGOCD_NAMESPACE,
+    "--create-namespace",
+    "-f",
+    ARGOCD_VALUES,
+    ...setFileArgs(lua),
+    "--wait",
+    "--timeout",
+    HELM_WAIT_TIMEOUT,
+  ];
+}
+
+function applyRootAppCmd(): string[] {
+  return kubectl(
+    "apply",
+    "--server-side",
+    "--force-conflicts",
+    "-f",
+    ROOT_APP_MANIFEST,
+  );
+}
+
+async function cmdInstall(args: Args, repoRoot: string): Promise<number> {
+  const helm = await helmInstallCmd(repoRoot);
+  const apply = applyRootAppCmd();
+  if (args.dryRun) {
+    log.dry(`(cwd ${repoRoot})`);
+    log.dry(fmtCmd(helm));
+    log.dry(fmtCmd(apply));
+    dryRunConnection(args);
+    await login(true);
+    return 0;
+  }
+  log.info(`installing ArgoCD chart ${helm[helm.indexOf("--version") + 1]}`);
+  const code = await runInherit(helm, repoRoot);
+  if (code !== 0) {
+    log.error(`helm upgrade --install exited ${code}`);
+    return 1;
+  }
+  log.ok("ArgoCD installed");
+  log.info(`applying root Application from ${ROOT_APP_MANIFEST}`);
+  const r = await run(apply, { cwd: repoRoot });
+  if (r.code !== 0) {
+    log.error(`kubectl apply failed:\n${r.stderr.trim()}`);
+    return 1;
+  }
+  log.ok(r.stdout.trim());
+  await withArgocdServer(args, () => login(false));
+  return 0;
+}
+
+/** Dry-run: show how the API would be reached and pin the printed server. */
+function dryRunConnection(args: Args): void {
+  if (args.server) {
+    argocdServer = args.server;
+    log.dry(`(ArgoCD API at ${argocdServer} via --server; no port-forward)`);
+    return;
+  }
+  const port = args.localPort ?? DEFAULT_LOCAL_PORT;
+  argocdServer = `127.0.0.1:${port}`;
+  log.dry(
+    `${
+      fmtCmd(portForwardCmd(port))
+    }  # background; next free port if ${port} is taken`,
+  );
+  log.dry(`wait for http://${argocdServer}/healthz`);
+}
+
+// ============================================================================
+// sync
+// ============================================================================
+interface TierRow {
+  app: string;
+  kind: SourceKind;
+  result: string;
+  startedAt: number;
+  finishedAt?: number;
+}
+
+async function syncOne(
+  app: Application,
+  repoRoot: string,
+  dryRun: boolean,
+  opts: { terminateRunning?: boolean } = {},
+): Promise<{ ok: boolean; detail: string; skipped?: string }> {
+  const name = app.metadata.name;
+  if (isAutomated(app)) {
+    // Not from the working tree: ArgoCD syncs it from its repo on its own.
+    // Expected only when ARGOCD_AUTOMATED_SYNC=false did not reach this app.
+    const msg =
+      `${name}: automated sync policy; ArgoCD syncs it from its own repo (argocd app sync --local would be refused). Set ARGOCD_AUTOMATED_SYNC=false for localdev to sync it from the working tree.`;
+    if (dryRun) log.dry(`skip ${msg}`);
+    else log.warn(msg);
+    return { ok: true, detail: "", skipped: "automated" };
+  }
+  let cmd = argocd(...syncArgs(app, repoRoot));
+  if (dryRun) {
+    if (sourceKind(app) === "local") {
+      log.dry(
+        `${
+          fmtCmd(argocd(...manifestsArgs(app, repoRoot)))
+        }  # if this renders nothing and \`argocd app manifests ${name}\` (Git) renders nothing too: ${
+          fmtCmd(argocd(...syncArgs(app, repoRoot, { plain: true })))
+        }; nothing locally but something in Git: error`,
+      );
+    }
+    log.dry(fmtCmd(cmd));
+    return { ok: true, detail: "dry-run" };
+  }
+  await ensureArgocdReachable();
+  let skipped: string | undefined;
+  if (sourceKind(app) === "local") {
+    // ArgoCD treats a local sync with zero manifests as "no local manifests"
+    // and silently syncs spec.source.targetRevision from Git instead — the
+    // one thing this loop must never do. Render first and decide.
+    const m = await run(argocd(...manifestsArgs(app, repoRoot)), {
+      cwd: repoRoot,
+    });
+    if (m.code !== 0) {
+      return {
+        ok: false,
+        detail: `local render failed:\n${(m.stderr || m.stdout).trim()}`,
+      };
+    }
+    const localCount = countManifests(m.stdout);
+    let gitCount: number | null = null;
+    if (localCount === 0) {
+      // Many child charts legitimately render nothing in localdev. Whether
+      // this one does depends on what Git would render instead.
+      const g = await run(argocd("app", "manifests", name), { cwd: repoRoot });
+      gitCount = g.code === 0 ? countManifests(g.stdout) : null;
+      if (g.code !== 0) {
+        log.warn(
+          `${name}: Git render failed: ${(g.stderr || g.stdout).trim()}`,
+        );
+      }
+    }
+    const decision = emptyRenderDecision(localCount, gitCount);
+    if (decision === "error") {
+      return {
+        ok: false,
+        detail:
+          `${name} renders no manifests from ${repoRoot}/${app.spec?.source?.path} but ${
+            gitCount === null ? "an unknown number" : gitCount
+          } from ${
+            app.spec?.source?.targetRevision ?? "the Git revision"
+          }; ArgoCD would silently sync the Git revision instead. Disable this Application in its parent's localdev values (it has nothing to deploy here) or give it something to render.`,
+      };
+    }
+    if (decision === "empty") {
+      // Nothing to deploy from either side: a plain sync (no --local) makes
+      // the empty Application Synced/Healthy without touching the cluster.
+      cmd = argocd(...syncArgs(app, repoRoot, { plain: true }));
+      skipped = "empty";
+      log.info(
+        `sync ${name} (empty: no manifests locally or in Git; plain sync)`,
+      );
+    } else {
+      log.info(
+        `sync ${name} (local, ${localCount} manifest${
+          localCount === 1 ? "" : "s"
+        })`,
+      );
+    }
+  } else {
+    log.info(`sync ${name} (${sourceKind(app)})`);
+  }
+  let r = await run(cmd, { cwd: repoRoot });
+  if (r.code !== 0 && isOperationInProgress((r.stderr || r.stdout).trim())) {
+    if (!opts.terminateRunning) {
+      // Re-syncs and the final pass never cut a running operation short
+      // (it may be executing PostSync hooks): wait for it instead.
+      log.warn(`${name}: an operation is already running; waiting for it`);
+      return { ok: true, detail: "", skipped: "in-progress" };
+    }
+    // First sync of this run: a previous run left an operation running
+    // (typically a parent waiting on children the working tree no longer
+    // renders). Re-runs exist to push the current tree, so end that
+    // operation and sync once more.
+    log.warn(
+      `${name}: an operation is already running from a previous run; terminating it and re-syncing`,
+    );
+    await terminateOperation(name);
+    r = await run(cmd, { cwd: repoRoot });
+    if (r.code !== 0 && isOperationInProgress((r.stderr || r.stdout).trim())) {
+      log.warn(`${name}: still running an operation; waiting for it`);
+      return { ok: true, detail: "", skipped: "in-progress" };
+    }
+  }
+  if (r.code !== 0) {
+    return { ok: false, detail: (r.stderr || r.stdout).trim() };
+  }
+  return { ok: true, detail: "", skipped };
+}
+
+/** argocd app terminate-op, then wait (≤ 60 s) for the phase to leave Running. */
+async function terminateOperation(name: string): Promise<void> {
+  const t = await run(argocd("app", "terminate-op", name));
+  if (t.code !== 0) {
+    log.warn(`${name}: terminate-op: ${(t.stderr || t.stdout).trim()}`);
+  }
+  const deadline = Date.now() + 60_000;
+  while (Date.now() < deadline) {
+    const app = await getApplication(name);
+    const phase = app?.status?.operationState?.phase;
+    if (phase !== "Running" && phase !== "Terminating") return;
+    await sleep(2000);
+  }
+  log.warn(`${name}: operation still running 60 s after terminate-op`);
+}
+
+function printTier(key: TierKey, rows: TierRow[]): void {
+  console.log(`\nTier ${formatTierKey(key)}:`);
+  console.log(
+    formatTable(
+      ["APP", "KIND", "RESULT", "DURATION"],
+      rows.map((r) => [
+        r.app,
+        r.kind,
+        r.result,
+        formatDuration((r.finishedAt ?? Date.now()) - r.startedAt),
+      ]),
+    ),
+  );
+  console.log("");
+}
+
+function summarise(apps: Application[]): string {
+  return apps
+    .map((a) =>
+      `${a.metadata.name}=${a.status?.health?.status ?? "?"}/${
+        a.status?.operationState?.phase ?? "-"
+      }`
+    )
+    .join(" ");
+}
+
+/**
+ * Root-only synthetic app for `sync --dry-run` without a reachable cluster:
+ * mirrors localdev/argocd/gitops-app.yaml so the printed command is exact.
+ */
+function syntheticRootApp(): Application {
+  return {
+    metadata: {
+      name: ROOT_APP,
+      namespace: ARGOCD_NAMESPACE,
+      annotations: { [SYNC_WAVE_ANNOTATION]: "0" },
+    },
+    spec: { source: { path: "charts/gitops" } },
+  };
+}
+
+async function cmdSyncDryRun(args: Args, repoRoot: string): Promise<number> {
+  const opts = { warm: args.warm, only: args.only };
+  log.dry(`(cwd ${repoRoot})`);
+  dryRunConnection(args);
+  await login(true);
+  let apps: Application[];
+  let live = true;
+  try {
+    apps = await listApplications();
+  } catch (err) {
+    live = false;
+    log.warn(
+      `cluster not reachable (${
+        (err instanceof Error ? err.message : String(err)).split("\n")[0]
+      }); planning the root app only`,
+    );
+    apps = [syntheticRootApp()];
+  }
+  const selected = selectApps(apps, opts);
+  const done = new Set<string>();
+  for (;;) {
+    const tier = nextTier(selected, done);
+    if (!tier) break;
+    console.log(`\nTier ${formatTierKey(tier.key)}:`);
+    for (const app of tier.apps) {
+      await syncOne(app, repoRoot, true);
+      done.add(app.metadata.name);
+    }
+  }
+  console.log("");
+  if (!live) {
+    log.info(
+      "with a cluster, every child Application the root sync creates is discovered on the next poll and synced in its own tier: git-path apps as `argocd app sync <app> --local <repo>/<spec.source.path> --local-repo-root <repo> --prune --async`, chart apps as `argocd app sync <app> --prune --async`",
+    );
+  }
+  log.dry(
+    `then poll every ${
+      formatDuration(POLL_INTERVAL_MS)
+    } until each tier is complete (timeout ${
+      formatDuration(args.timeoutMs ?? DEFAULT_SYNC_TIMEOUT_MS)
+    }); Failed/Error operations retry ${SYNC_RETRIES}x with ${
+      formatDuration(SYNC_RETRY_BACKOFF_MS)
+    } backoff`,
+  );
+  return 0;
+}
+
+async function cmdSync(args: Args, repoRoot: string): Promise<number> {
+  if (args.dryRun) return cmdSyncDryRun(args, repoRoot);
+  return await withArgocdServer(args, () => syncLoop(args, repoRoot));
+}
+
+async function syncLoop(args: Args, repoRoot: string): Promise<number> {
+  const timeoutMs = args.timeoutMs ?? DEFAULT_SYNC_TIMEOUT_MS;
+  const opts = { warm: args.warm, only: args.only };
+  const start = Date.now();
+  const deadline = start + timeoutMs;
+  const done = new Set<string>();
+  const retries = new Map<string, number>();
+  /** Rows being waited on, by app name. */
+  const active = new Map<string, TierRow>();
+  /** Every row, grouped by tier key, for the per-tier tables. */
+  const tables = new Map<string, { key: TierKey; rows: TierRow[] }>();
+  const printed = new Set<string>();
+  let tiersRun = 0;
+
+  const fail = async (msg: string): Promise<number> => {
+    flushTables(tables, printed, true);
+    log.error(msg);
+    await cmdDiagnose();
+    return 1;
+  };
+
+  /** Issue the sync for one app and start waiting on it. */
+  const startSync = async (
+    app: Application,
+    key: TierKey,
+    label?: string,
+  ): Promise<string | null> => {
+    const row: TierRow = {
+      app: app.metadata.name,
+      kind: sourceKind(app),
+      result: label ?? "syncing",
+      startedAt: Date.now(),
+    };
+    const k = formatTierKey(key);
+    if (!tables.has(k)) tables.set(k, { key, rows: [] });
+    tables.get(k)!.rows.push(row);
+    active.set(app.metadata.name, row);
+    const r = await syncOne(app, repoRoot, false, { terminateRunning: true });
+    if (!r.ok) {
+      row.result = "sync-cmd-failed";
+      row.finishedAt = Date.now();
+      return `argocd app sync ${app.metadata.name} failed:\n${r.detail}`;
+    }
+    if (r.skipped) row.result = r.skipped;
+    return null;
+  };
+
+  await login(false);
+  log.info(
+    `syncing from ${repoRoot}${
+      args.warm ? " (--warm: bootstrap + addons only)" : ""
+    }${args.only ? ` (--only ${args.only.join(",")})` : ""}; timeout ${
+      formatDuration(timeoutMs)
+    }`,
+  );
+
+  for (;;) {
+    let apps = selectApps(await listApplications(), opts);
+    if (active.size === 0) {
+      const tier = nextTier(apps, done);
+      if (!tier) break;
+      tiersRun++;
+      log.info(
+        `tier ${formatTierKey(tier.key)}: ${
+          tier.apps.map((a) => a.metadata.name).join(", ")
+        }`,
+      );
+      for (const app of tier.apps) {
+        const err = await startSync(app, tier.key);
+        if (err) return await fail(err);
+      }
+    }
+
+    await sleep(POLL_INTERVAL_MS);
+    apps = selectApps(await listApplications(), opts);
+    const byName = indexApps(apps);
+
+    // A parent accepted earlier whose operation has since failed (a child
+    // went Degraded during ArgoCD's wave wait) is no longer done.
+    for (const app of apps) {
+      const name = app.metadata.name;
+      if (
+        done.has(name) && !active.has(name) && isParentApp(app) &&
+        appState(app) === "failed"
+      ) {
+        done.delete(name);
+        const key = tierKey(app, byName);
+        log.warn(
+          `${name}: parent operation ${app.status?.operationState?.phase} after acceptance (${
+            (app.status?.operationState?.message ?? "").split("\n")[0]
+          }); will re-sync once its children are complete`,
+        );
+        const row: TierRow = {
+          app: name,
+          kind: sourceKind(app),
+          result: "re-sync pending",
+          startedAt: Date.now(),
+        };
+        const k = formatTierKey(key);
+        if (!tables.has(k)) tables.set(k, { key, rows: [] });
+        tables.get(k)!.rows.push(row);
+        active.set(name, row);
+      }
+    }
+
+    // Discover apps in LOWER tiers than anything we are waiting on (created
+    // by a parent while we waited elsewhere) and sync them right away.
+    let currentKey: TierKey | null = null;
+    for (const name of active.keys()) {
+      const app = byName.get(name);
+      if (!app) continue;
+      const key = tierKey(app, byName);
+      if (currentKey === null || compareTierKey(key, currentKey) < 0) {
+        currentKey = key;
+      }
+    }
+    if (currentKey !== null) {
+      const found = discoverable(
+        apps,
+        done,
+        new Set(active.keys()),
+        currentKey,
+      );
+      if (found.length > 0) {
+        log.info(
+          `discovered lower-tier app(s) while waiting on ${
+            formatTierKey(currentKey)
+          }: ${found.map((a) => a.metadata.name).join(", ")}`,
+        );
+        for (const app of found) {
+          const err = await startSync(app, tierKey(app, byName));
+          if (err) return await fail(err);
+        }
+      }
+    }
+
+    // Evaluate everything we are waiting on.
+    const pending: Application[] = [];
+    for (const [name, row] of [...active.entries()]) {
+      const app = byName.get(name);
+      if (!app) {
+        // Pruned by its parent while we waited: nothing left to sync.
+        row.result = "gone";
+        row.finishedAt = Date.now();
+        done.add(name);
+        active.delete(name);
+        log.warn(`${name} disappeared during sync (pruned by its parent?)`);
+        continue;
+      }
+      const state = appState(app);
+      if (state !== "complete" && isAutomated(app) && hasComparisonError(app)) {
+        // Nobody will fix this from here: ArgoCD cannot render the app from
+        // its repo and we are not allowed to push the working tree into it.
+        row.result = "comparison-error";
+        row.finishedAt = Date.now();
+        return await fail(
+          `${name}: automated app cannot be rendered by ArgoCD: ${
+            (app.status?.conditions ?? []).find((c) =>
+              c?.type === "ComparisonError"
+            )?.message ?? ""
+          }`,
+        );
+      }
+      if (state === "complete") {
+        // "accepted": a parent's operation stays open until its child
+        // Applications (synced in later tiers) are Healthy.
+        const healthy = app.status?.health?.status === "Healthy" &&
+          app.status?.operationState?.phase === "Succeeded";
+        if (row.result === "empty") {
+          // keep the label
+        } else {
+          row.result = healthy ? "complete" : "accepted";
+        }
+        row.finishedAt = Date.now();
+        done.add(name);
+        active.delete(name);
+        continue;
+      }
+      if (state === "failed") {
+        const msg = (app.status?.operationState?.message ?? "").split("\n")[0];
+        const used = retries.get(name) ?? 0;
+        if (isParentApp(app)) {
+          const kids = pendingChildren(name, apps, done).length;
+          const decision = parentResyncDecision(app, kids, used);
+          if (decision === "wait") {
+            row.result = `re-sync pending (${kids} child${
+              kids === 1 ? "" : "ren"
+            } pending)`;
+            pending.push(app);
+            continue;
+          }
+          if (decision === "give-up") {
+            row.result = `failed (${SYNC_RETRIES} re-syncs)`;
+            row.finishedAt = Date.now();
+            return await fail(
+              `${name}: parent operation ${app.status?.operationState?.phase} after ${SYNC_RETRIES} re-syncs: ${msg}`,
+            );
+          }
+          retries.set(name, used + 1);
+          log.warn(
+            `${name}: parent operation ${app.status?.operationState?.phase} (${msg}); children complete, re-sync ${
+              used + 1
+            }/${SYNC_RETRIES}`,
+          );
+          const r = await syncOne(app, repoRoot, false);
+          if (!r.ok) log.warn(`${name}: re-sync command failed: ${r.detail}`);
+          row.result = `re-sync ${used + 1}`;
+          pending.push(app);
+          continue;
+        }
+        const n = used + 1;
+        if (n > SYNC_RETRIES) {
+          row.result = `failed (${SYNC_RETRIES} retries)`;
+          row.finishedAt = Date.now();
+          return await fail(
+            `${name}: operation ${app.status?.operationState?.phase} after ${SYNC_RETRIES} retries: ${msg}`,
+          );
+        }
+        retries.set(name, n);
+        log.warn(
+          `${name}: operation ${app.status?.operationState?.phase} (${msg}); retry ${n}/${SYNC_RETRIES} in ${
+            formatDuration(SYNC_RETRY_BACKOFF_MS)
+          }`,
+        );
+        await sleep(SYNC_RETRY_BACKOFF_MS);
+        const r = await syncOne(app, repoRoot, false);
+        if (!r.ok) log.warn(`${name}: re-sync command failed: ${r.detail}`);
+        row.result = `retry ${n}`;
+        pending.push(app);
+        continue;
+      }
+      pending.push(app);
+    }
+
+    flushTables(tables, printed, false);
+    if (Date.now() >= deadline) {
+      return await fail(
+        `sync timed out after ${formatDuration(timeoutMs)} waiting for: ${
+          summarise(pending)
+        }`,
+      );
+    }
+    if (pending.length > 0) {
+      log.info(
+        `[${formatDuration(Date.now() - start)}] waiting: ${
+          summarise(pending)
+        }`,
+      );
+    }
+  }
+  flushTables(tables, printed, true);
+
+  // Final pass: every parent whose last operation is not Succeeded gets one
+  // more sync from the working tree (deepest parents first, root last) so
+  // the parent's own PostSync hooks run and ArgoCD records a clean result.
+  const rc = await finishParents(repoRoot, opts, deadline, start);
+  if (rc !== 0) return rc;
+
+  log.ok(
+    `${done.size} Application(s) synced in ${tiersRun} tier(s), ${
+      formatDuration(Date.now() - start)
+    }`,
+  );
+  return 0;
+}
+
+/** Print each tier table once all its rows are finished (or all, at the end). */
+function flushTables(
+  tables: Map<string, { key: TierKey; rows: TierRow[] }>,
+  printed: Set<string>,
+  all: boolean,
+): void {
+  for (const [k, t] of tables) {
+    if (printed.has(k)) continue;
+    if (all || t.rows.every((r) => r.finishedAt !== undefined)) {
+      printTier(t.key, t.rows);
+      printed.add(k);
+    }
+  }
+}
+
+async function finishParents(
+  repoRoot: string,
+  opts: { warm: boolean; only: string[] | null },
+  deadline: number,
+  start: number,
+): Promise<number> {
+  const apps = selectApps(await listApplications(), opts);
+  const byName = indexApps(apps);
+  const parents = apps
+    .filter((a) => isParentApp(a) && finalPassDecision(a) !== "done")
+    .sort((x, y) => -compareTierKey(tierKey(x, byName), tierKey(y, byName)));
+  if (parents.length === 0) return 0;
+  log.info(
+    `final pass: parent(s) without a Succeeded operation: ${
+      parents.map((a) =>
+        `${a.metadata.name} (${
+          a.status?.operationState?.phase ?? "no operation"
+        })`
+      ).join(", ")
+    }`,
+  );
+  for (const parent of parents) {
+    const name = parent.metadata.name;
+    let resyncs = 0;
+    let app: Application | null = parent;
+    for (;;) {
+      const decision = app ? finalPassDecision(app) : "resync";
+      if (decision === "done") {
+        log.ok(`${name}: operation Succeeded (${app?.status?.health?.status})`);
+        break;
+      }
+      if (decision === "resync") {
+        const msg = (app?.status?.operationState?.message ?? "").split("\n")[0];
+        if (resyncs >= SYNC_RETRIES) {
+          log.error(
+            `${name}: final re-sync ${
+              app?.status?.operationState?.phase ?? "-"
+            } after ${SYNC_RETRIES} attempts: ${msg}`,
+          );
+          await cmdDiagnose();
+          return 1;
+        }
+        resyncs++;
+        log.warn(
+          `${name}: operation ${
+            app?.status?.operationState?.phase ?? "missing"
+          }${msg ? ` (${msg})` : ""}; final re-sync ${resyncs}/${SYNC_RETRIES}`,
+        );
+        const r = await syncOne(parent, repoRoot, false);
+        if (!r.ok) {
+          log.error(`final re-sync of ${name} failed:\n${r.detail}`);
+          await cmdDiagnose();
+          return 1;
+        }
+      } else {
+        log.info(
+          `[${
+            formatDuration(Date.now() - start)
+          }] final pass: waiting for ${name} (${
+            app?.status?.health?.status ?? "?"
+          }/${app?.status?.operationState?.phase ?? "-"})`,
+        );
+      }
+      if (Date.now() >= deadline) {
+        log.error(
+          `sync timed out after ${
+            formatDuration(deadline - start)
+          } in the final parent pass waiting for ${name}`,
+        );
+        await cmdDiagnose();
+        return 1;
+      }
+      await sleep(POLL_INTERVAL_MS);
+      app = await getApplication(name);
+      if (!app) {
+        log.warn(`${name} disappeared during the final pass`);
+        break;
+      }
+    }
+  }
+  return 0;
+}
+
+// ============================================================================
+// wait
+// ============================================================================
+async function cmdWait(args: Args): Promise<number> {
+  const timeoutMs = args.timeoutMs ?? DEFAULT_WAIT_TIMEOUT_MS;
+  const excluded = new Set(args.exclude);
+  const hinted = new Set<string>();
+  const start = Date.now();
+  const deadline = start + timeoutMs;
+  log.info(
+    `waiting for every Application to be Healthy + Succeeded${
+      args.requireSynced ? " + Synced" : ""
+    }${
+      excluded.size ? ` (excluding ${[...excluded].join(", ")})` : ""
+    }; timeout ${formatDuration(timeoutMs)}`,
+  );
+  for (;;) {
+    const apps = (await listApplications()).filter((a) =>
+      !excluded.has(a.metadata.name)
+    );
+    const notReady = apps.filter((a) => !isReady(a, args.requireSynced));
+    if (apps.length > 0 && notReady.length === 0) {
+      log.ok(
+        `${apps.length} Application(s) Healthy after ${
+          formatDuration(Date.now() - start)
+        }`,
+      );
+      return 0;
+    }
+    if (Date.now() >= deadline) {
+      log.error(
+        `wait timed out after ${formatDuration(timeoutMs)}; not ready: ${
+          apps.length === 0 ? "(no Applications found)" : summarise(notReady)
+        }`,
+      );
+      await cmdDiagnose();
+      return 1;
+    }
+    log.info(
+      `[${formatDuration(Date.now() - start)}] ${
+        apps.length - notReady.length
+      }/${apps.length} ready; waiting: ${
+        apps.length === 0 ? "(no Applications yet)" : summarise(notReady)
+      }`,
+    );
+    for (const app of notReady) {
+      const hint = degradedChildHint(app);
+      if (hint && !hinted.has(app.metadata.name)) {
+        hinted.add(app.metadata.name);
+        log.warn(hint);
+      }
+    }
+    await sleep(POLL_INTERVAL_MS);
+  }
+}
+
+// ============================================================================
+// diagnose
+// ============================================================================
+function tail(text: string, n: number): string {
+  const lines = text.trimEnd().split("\n");
+  return lines.slice(Math.max(0, lines.length - n)).join("\n");
+}
+
+interface PodSummary {
+  metadata?: { name?: string; namespace?: string };
+  status?: { phase?: string };
+}
+
+async function diagnoseNamespace(ns: string): Promise<void> {
+  console.log(`\n--- namespace ${ns}: last ${EVENTS_TAIL} events ---`);
+  const ev = await run(
+    kubectl("get", "events", "-n", ns, "--sort-by=.lastTimestamp"),
+  );
+  console.log(
+    ev.code === 0
+      ? tail(ev.stdout, EVENTS_TAIL) || "(no events)"
+      : `(kubectl get events failed: ${ev.stderr.trim()})`,
+  );
+
+  const pods = await run(kubectl("get", "pods", "-n", ns, "-o", "json"));
+  if (pods.code !== 0) {
+    console.log(`(kubectl get pods failed: ${pods.stderr.trim()})`);
+    return;
+  }
+  let items: PodSummary[] = [];
+  try {
+    items = (JSON.parse(pods.stdout) as { items?: PodSummary[] }).items ?? [];
+  } catch {
+    console.log("(pod list was not JSON)");
+    return;
+  }
+  for (const pod of items) {
+    const phase = pod.status?.phase ?? "Unknown";
+    const name = pod.metadata?.name;
+    if (!name || phase === "Running" || phase === "Succeeded") continue;
+    console.log(`\n--- pod ${ns}/${name} (${phase}): describe tail ---`);
+    const d = await run(kubectl("describe", "pod", name, "-n", ns));
+    console.log(d.code === 0 ? tail(d.stdout, DESCRIBE_TAIL) : d.stderr.trim());
+    console.log(
+      `\n--- pod ${ns}/${name}: logs --tail=${LOGS_TAIL} --all-containers ---`,
+    );
+    const l = await run(
+      kubectl(
+        "logs",
+        name,
+        "-n",
+        ns,
+        `--tail=${LOGS_TAIL}`,
+        "--all-containers",
+      ),
+    );
+    console.log((l.code === 0 ? l.stdout : l.stderr).trim() || "(no logs)");
+  }
+}
+
+async function cmdDiagnose(): Promise<number> {
+  let apps: Application[];
+  try {
+    apps = await listApplications();
+  } catch (err) {
+    log.error(err instanceof Error ? err.message : String(err));
+    return 1;
+  }
+  const unhealthy = apps.filter((a) => !isReady(a, false));
+  console.log(
+    `\n===== diagnose: ${unhealthy.length}/${apps.length} Application(s) not Healthy/Succeeded =====`,
+  );
+  if (unhealthy.length === 0) {
+    log.ok("every Application is Healthy with a Succeeded operation");
+    return 0;
+  }
+  const namespaces = new Set<string>();
+  for (const app of unhealthy) {
+    const st = app.status ?? {};
+    console.log(`\n=== ${app.metadata.name} ===`);
+    console.log(
+      `  health: ${st.health?.status ?? "-"}  sync: ${
+        st.sync?.status ?? "-"
+      }  operation: ${st.operationState?.phase ?? "-"}`,
+    );
+    if (st.health?.message) {
+      console.log(`  health message: ${st.health.message}`);
+    }
+    if (st.operationState?.message) {
+      console.log(`  operation message: ${st.operationState.message}`);
+    }
+    for (const c of st.conditions ?? []) {
+      console.log(`  condition ${c?.type ?? "?"}: ${c?.message ?? ""}`);
+    }
+    const bad = (st.resources ?? []).filter((r) =>
+      r && r.health && r.health.status !== "Healthy"
+    );
+    if (bad.length > 0) {
+      console.log("  resources not Healthy:");
+      for (const r of bad) {
+        const ns = r.namespace ?? app.spec?.destination?.namespace ?? "";
+        console.log(
+          `    ${r.group ? `${r.group}/` : ""}${r.kind ?? "?"} ${
+            ns ? `${ns}/` : ""
+          }${r.name ?? "?"}: ${r.health?.status ?? "?"}${
+            r.health?.message ? ` — ${r.health.message}` : ""
+          }`,
+        );
+        if (ns && r.kind !== "Application") namespaces.add(ns);
+      }
+    }
+    if (namespaces.size === 0 && app.spec?.destination?.namespace) {
+      namespaces.add(app.spec.destination.namespace);
+    }
+  }
+  for (const ns of [...namespaces].sort()) {
+    try {
+      await diagnoseNamespace(ns);
+    } catch (err) {
+      log.warn(
+        `diagnose ${ns}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
+  console.log("");
+  return 0;
+}
+
+// ============================================================================
+// Main
+// ============================================================================
+async function main(): Promise<number> {
+  let args: Args;
+  try {
+    args = parseArgs(Deno.args);
+  } catch (err) {
+    log.error(err instanceof Error ? err.message : String(err));
+    console.error("Run with --help for usage.");
+    return 2;
+  }
+  if (args.help) {
+    printHelp();
+    return 0;
+  }
+  if (args.command === null) {
+    log.error("missing command (install, sync, wait or diagnose)");
+    console.error("Run with --help for usage.");
+    return 2;
+  }
+  const repoRoot = args.repoRoot
+    ? resolve(args.repoRoot)
+    : await findRepoRoot();
+  switch (args.command) {
+    case "install":
+      return await cmdInstall(args, repoRoot);
+    case "sync":
+      return await cmdSync(args, repoRoot);
+    case "wait":
+      return await cmdWait(args);
+    case "diagnose":
+      return await cmdDiagnose();
+  }
+}
+
+if (import.meta.main) {
+  try {
+    Deno.exit(await main());
+  } catch (err) {
+    log.error(err instanceof Error ? err.message : String(err));
+    Deno.exit(1);
+  }
+}

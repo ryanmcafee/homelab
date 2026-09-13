@@ -1,12 +1,19 @@
 # Kind Cluster Configuration for Local Development
-# Homelab Project - Phase 0.5: Local Development Environment
+# Homelab Project - Local Development Environment (Kind + ArgoCD loop)
+#
+# Created by `scripts/localdev-kind.ts up` (task localdev:kind), which also:
+# - passes the node image (`--image kindest/node:<images.kind-node>` from
+#   configuration/versions.yaml) - it is deliberately NOT pinned in this file
+# - installs Cilium as the CNI (values from charts/addons/values-localdev.yaml)
+# - writes containerd hosts.toml files for the registry pull-through caches
+# - removes Kind's bundled local-path-provisioner (the addon Application owns it)
+# - applies the localdev fakes in localdev/fakes/
 #
 # Architecture:
 # - 1 control-plane node with ingress-ready label
 # - 2 worker nodes for application workloads
 # - Port mappings for Traefik and ArgoCD access
-# - Container registry mirror support for faster pulls
-
+---
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
 name: homelab-localdev
@@ -53,23 +60,27 @@ nodes:
       workload: applications
 
 # Networking Configuration
-# - Uses default CNI (kindnet) for simplicity in local dev
+# - No default CNI: Cilium is installed by scripts/localdev-kind.ts right after
+#   the cluster is created (same chart version and values the `cilium` ArgoCD
+#   Application renders, so the Application adopts the release as a no-op)
 # - Pod and Service subnets match Kind defaults
-# - Compatible with Calico if needed in future
 networking:
-  # Use Kind's default CNI (kindnet) - simple and fast for local dev
-  disableDefaultCNI: false
+  # Cilium, installed by scripts/localdev-kind.ts (task localdev:kind)
+  disableDefaultCNI: true
 
-  # Standard pod network (matches Kind/Calico defaults)
+  # Standard pod network (matches Kind defaults)
   podSubnet: "10.244.0.0/16"
 
   # Standard service network (matches Kubernetes defaults)
   serviceSubnet: "10.96.0.0/12"
 
 # Containerd Configuration
-# - Configure registry mirror for local registry if needed
-# - Useful for testing with locally built images
+# - Enables the per-registry hosts.toml directory. The kindest/node image does
+#   not set config_path, so it is set here; scripts/localdev-kind.ts then writes
+#   /etc/containerd/certs.d/<registry>/hosts.toml into every node, pointing
+#   pulls at the kind-registry-<name> pull-through caches with the upstream as
+#   the fallback (see `task localdev:registry -- status`).
 containerdConfigPatches:
   - |-
-    [plugins."io.containerd.grpc.v1.cri".registry.mirrors."localhost:5000"]
-      endpoint = ["http://kind-registry:5000"]
+    [plugins."io.containerd.grpc.v1.cri".registry]
+      config_path = "/etc/containerd/certs.d"

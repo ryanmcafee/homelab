@@ -1,0 +1,20 @@
+# expect: Degraded
+# message: operator-oauth
+apiVersion: tailscale.com/v1alpha1
+kind: Connector
+metadata:
+  name: homelab-subnet-router
+  generation: 1
+spec:
+  hostname: homelab-subnet-router
+  subnetRouter:
+    advertiseRoutes:
+      - 10.0.0.0/24
+status:
+  conditions:
+    - type: ConnectorReady
+      status: "False"
+      reason: ConnectorCreationFailed
+      message: 'failed to provision: secret "operator-oauth" not found'
+      observedGeneration: 1
+      lastTransitionTime: "2026-09-12T00:00:00Z"

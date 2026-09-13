@@ -40,7 +40,7 @@ spec:
     namespace: {{ .Values.addons.destination.namespace }}
 
   syncPolicy:
-    {{- if .Values.addons.syncPolicy.automated }}
+    {{- if and .Values.global.automatedSync .Values.addons.syncPolicy.automated }}
     automated:
       prune: {{ .Values.addons.syncPolicy.automated.prune }}
       selfHeal: {{ .Values.addons.syncPolicy.automated.selfHeal }}

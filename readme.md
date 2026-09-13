@@ -2,11 +2,11 @@
 
 # Homelab
 
-[![Kubernetes](https://img.shields.io/badge/k8s-v1.33.x-326CE5?logo=kubernetes&logoColor=white)](https://kubernetes.io/)
-[![Talos](https://img.shields.io/badge/Talos-v1.12.x-FF6C2C?logo=talos&logoColor=white)](https://www.talos.dev/)
-[![ArgoCD](https://img.shields.io/badge/ArgoCD-v2.11.x-EF7B4D?logo=argo&logoColor=white)](https://argoproj.github.io/cd/)
+[![Kubernetes](https://img.shields.io/badge/k8s-v1.36.x-326CE5?logo=kubernetes&logoColor=white)](https://kubernetes.io/)
+[![Talos](https://img.shields.io/badge/Talos-v1.13.x-FF6C2C?logo=talos&logoColor=white)](https://www.talos.dev/)
+[![ArgoCD](https://img.shields.io/badge/ArgoCD-v3.4.x-EF7B4D?logo=argo&logoColor=white)](https://argoproj.github.io/cd/)
 [![Proxmox](https://img.shields.io/badge/Proxmox-VE_9.x-E57000?logo=proxmox&logoColor=white)](https://www.proxmox.com/)
-[![Terragrunt](https://img.shields.io/badge/Terragrunt-0.55.x-7B42BC?logo=terraform&logoColor=white)](https://terragrunt.gruntwork.io/)
+[![Terragrunt](https://img.shields.io/badge/Terragrunt-1.0.x-7B42BC?logo=terraform&logoColor=white)](https://terragrunt.gruntwork.io/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
 A GitOps-driven homelab monorepo using CNCF best practices.<br>
@@ -135,6 +135,7 @@ homelab config validate # Validate schemas + environment values
 homelab config eval     # Resolve and print config as JSON
 homelab config export   # Export all consumer formats
 homelab config guard    # Scan staged files for PII
+homelab verify all --level 0|1|2  # Static verification; + Kind dry run; + ArgoCD health and e2e (task verify)
 
 # All commands support --dry-run and --help
 homelab bootstrap --dry-run --yes
@@ -198,15 +199,16 @@ homelab bootstrap --dry-run --yes
 |-------|------------|
 | Hypervisor | Proxmox VE 9.x |
 | Storage | TrueNAS Scale 24.04.x |
-| Kubernetes | Talos Linux 1.12.x / K8s 1.33.x |
-| GitOps | ArgoCD 2.11.x |
-| IaC | Terragrunt 0.55.x |
+| Kubernetes | Talos Linux 1.13.x / K8s 1.36.x |
+| GitOps | ArgoCD 3.4.x (argo-cd chart 9.5.x) |
+| IaC | Terragrunt 1.0.x / Terraform 1.15.x |
 | Configuration | Ansible 2.16.x |
 | Secrets | 1Password + SOPS (age encryption) |
 | Load Balancer | Cilium (BGP mode) |
 | Ingress | Traefik |
 | Observability | kube-prometheus-stack |
-| Local Dev | Kind 0.22.x + Tilt 0.33.x |
+| Local Dev | Kind 0.33.x + Cilium + ArgoCD (`argocd app sync --local`), Tilt 0.37.x optional |
+| Verification | `homelab verify` levels 0-2: helm + kubeconform + conftest, Kind dry run, Chainsaw 0.2.x e2e |
 
 ---
 
@@ -214,12 +216,13 @@ homelab bootstrap --dry-run --yes
 
 All CLI tools are managed via mise (defined in `mise.toml`):
 
-- **Infrastructure as Code**: Terragrunt 0.55.1
-- **Kubernetes Tools**: kubectl 1.33.0, Helm, Kind 0.22.0, Talos 1.12.2, Tilt 0.33.11
+- **Infrastructure as Code**: Terraform 1.15.5, Terragrunt 1.0.8
+- **Kubernetes Tools**: kubectl 1.36.x, Helm 4.2.0, Kind 0.33.0, Talos 1.13.x, ArgoCD CLI 3.5.2, Tilt 0.37.3
+- **Verification**: kubeconform, conftest, pluto, Chainsaw 0.2.15 (`configuration/versions.yaml` is the source of truth for the pinned ones)
 - **Configuration Management**: Ansible, ansible-lint (via pipx)
-- **Task Runner**: Task (go-task)
+- **Task Runner**: Task (go-task); scripts run on Deno
 - **Secrets**: age, sops, op (1Password CLI)
-- **Utilities**: jq, direnv, yamllint
+- **Utilities**: jq, yq, direnv, yamllint, pre-commit
 
 External prerequisites (install separately):
 - **Docker Desktop**: Required for local Kind development
@@ -325,23 +328,25 @@ A pre-commit hook runs `config guard` automatically, and a CI workflow validates
 
 ## Local Development
 
-Develop and test GitOps configurations without physical hardware:
+Run the whole GitOps stack on a Kind cluster and sync the working tree into it; nothing
+touches the homelab cluster.
 
 ```bash
-# Start local Kind cluster + Tilt
-task localdev:up
+task localdev:up            # Kind (Cilium, registry caches, fakes) + ArgoCD + every Application synced from the working tree
+task localdev:sync          # push the working tree again after an edit (-- --only <app> for one)
+task verify:text LEVEL=2    # level 0 + Kind dry run + every Application Healthy + chainsaw e2e
+task localdev:diagnose      # conditions, events, failing pod logs
+task localdev:down          # delete the cluster (registry caches are kept)
 
-# Or start in ArgoCD mode (realistic GitOps simulation)
-task localdev:tilt:argocd
-
-# Tear down
-task localdev:down
+task localdev:tilt:argocd   # optional: Tilt wraps the loop and re-syncs on every chart change
 ```
 
 **URLs (when running locally):**
-- ArgoCD: http://localhost:8080
-- Traefik: http://localhost:9080
-- Grafana: http://localhost:3000
+- ArgoCD: http://localhost:8080 (`admin`; password in `argocd-initial-admin-secret`); on macOS run `task localdev:ui` first (Kind host port mappings do not work there with Cilium)
+- Applications: in-cluster through Traefik with `Host: <app>.homelab.local`, or `kubectl port-forward`
+
+See [docs/local-development.md](./docs/local-development.md) and
+[docs/runbooks/verification.md](./docs/runbooks/verification.md).
 
 ---
 

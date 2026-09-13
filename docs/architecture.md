@@ -780,23 +780,31 @@ See [disaster-recovery.md](./disaster-recovery.md) for complete procedures.
 
 ### Environment Comparison
 
+Every difference is a capability key in `configuration/schema/platform.schema.yaml`
+(ADR-011, ADR-012); the same charts and the same ArgoCD Applications run in both.
+
 | Feature | localdev | homelab |
 |---------|----------|---------|
-| Platform | Kind (Docker) | Proxmox VMs |
-| Nodes | 1 control-plane | 2 CP + 3 workers |
-| Storage | local-path | TrueNAS NFS |
-| Load Balancer | NodePort | MetalLB (BGP) |
-| DNS | /etc/hosts | external-dns |
-| Secrets | Fake secrets | 1Password |
+| Platform | Kind (Docker), `kindest/node` at `images.kind-node` | Proxmox VMs (Talos) |
+| Nodes | 1 control-plane + 2 workers | 2 CP + 3 workers |
+| CNI | Cilium, installed by `scripts/localdev-kind.ts` and adopted by the `cilium` Application | Cilium (Talos inline manifest), BGP to UniFi |
+| Storage | local-path, plus `democratic-csi-*` StorageClass aliases (fakes) | democratic-csi (TrueNAS NFS/iSCSI) |
+| Media libraries | `emptyDir` | TrueNAS NFS exports |
+| Load Balancer | none (NodePort) | Cilium LB IPAM (BGP) |
+| DNS | none; `homelab.local` via `Host` headers in-cluster | external-dns (Cloudflare, UniFi) |
+| TLS | self-signed `letsencrypt` ClusterIssuer | Let's Encrypt (Cloudflare DNS-01) |
+| Secrets | seeded fakes (`localdev/fakes`) | 1Password + SOPS |
+| Sync | manual; working tree pushed with `argocd app sync --local` | automated (prune + selfHeal) |
 | GPU | None | NVIDIA P2200 |
-| Monitoring | Optional | Full stack |
+| Monitoring | kube-prometheus-stack, trimmed | Full stack |
 
 ### Workflow
 
-1. **Develop Locally**: Make changes, test with Tilt (seconds to see changes)
-2. **Push to Git**: CI validates charts and configs
-3. **Deploy to Homelab**: ArgoCD syncs to homelab environment
-4. **Verify**: Confirm changes work in homelab environment
+1. **Develop Locally**: edit, `task verify:text` (level 0, seconds), `task localdev:sync`
+   into Kind, `task verify:text LEVEL=2` (every Application Healthy + chainsaw e2e)
+2. **Push to Git**: CI re-runs level 0 (`verify.yml`) and the whole Kind loop (`tilt-ci.yml`)
+3. **Deploy to Homelab**: ArgoCD syncs `main` to the homelab environment
+4. **Verify**: ArgoCD health and notifications; agents never apply to production (ADR-009)
 
 ---
 

@@ -78,9 +78,11 @@ spec:
     namespace: {{ .Values.spegel.namespace }}
 
   syncPolicy:
+    {{- if .Values.global.automatedSync }}
     automated:
       prune: true
       selfHeal: true
+    {{- end }}
     syncOptions:
       - ServerSideApply=true
       - ApplyOutOfSyncOnly=true

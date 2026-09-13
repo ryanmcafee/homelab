@@ -5,25 +5,10 @@ argocd:
   enabled: true
 
   values:
-    configs:
-      cm:
-        # Custom health check for Ingress - treat as Healthy even without loadBalancer address
-        # This prevents circular dependency during initial sync when Traefik isn't deployed yet
-        resource.customizations.health.networking.k8s.io_Ingress: |
-          hs = {}
-          hs.status = "Healthy"
-          hs.message = ""
-          if obj.status ~= nil then
-            if obj.status.loadBalancer ~= nil then
-              if obj.status.loadBalancer.ingress ~= nil then
-                hs.message = "Load balancer ingress configured"
-              else
-                hs.message = "Waiting for load balancer (non-blocking)"
-              end
-            end
-          end
-          return hs
-
+    # The Ingress health Lua (Healthy even without a loadBalancer address, so
+    # the initial sync does not wait on Traefik) now lives in
+    # files/health/networking.k8s.io_Ingress.lua and is injected by
+    # templates/argocd.yaml for every environment.
     server:
       # HA configuration - 3 replicas spread across different hosts
       replicas: 3

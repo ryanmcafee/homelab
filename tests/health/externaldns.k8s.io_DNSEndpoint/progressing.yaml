@@ -1,0 +1,17 @@
+# expect: Progressing
+# message: observe generation 4
+apiVersion: externaldns.k8s.io/v1alpha1
+kind: DNSEndpoint
+metadata:
+  name: traefik-external
+  namespace: traefik
+  generation: 4
+spec:
+  endpoints:
+    - dnsName: plex.homelab.local
+      recordType: A
+      recordTTL: 300
+      targets:
+        - 172.16.100.201
+status:
+  observedGeneration: 3

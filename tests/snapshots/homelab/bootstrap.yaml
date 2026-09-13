@@ -235,6 +235,8 @@ spec:
           cm:
             kustomize.buildOptions: --enable-alpha-plugins --enable-exec
             resource.customizations.health.argoproj.io_Application: |
+              -- ArgoCD Application: propagate the child Application's own health so the
+              -- App-of-Apps parents progress only once every child is Healthy.
               hs = {}
               hs.status = "Progressing"
               hs.message = ""
@@ -247,7 +249,33 @@ spec:
                 end
               end
               return hs
+            resource.customizations.health.externaldns.k8s.io_DNSEndpoint: |
+              -- external-dns DNSEndpoint: the CRD source records the generation it last
+              -- reconciled in status.observedGeneration. Healthy once that has caught up
+              -- with metadata.generation (or when either side is missing, since older
+              -- external-dns releases never write status); Progressing while it lags.
+              hs = {}
+              hs.status = "Healthy"
+              hs.message = "DNSEndpoint observed by external-dns"
+              local generation = nil
+              if obj.metadata ~= nil then
+                generation = obj.metadata.generation
+              end
+              local observed = nil
+              if obj.status ~= nil then
+                observed = obj.status.observedGeneration
+              end
+              if generation == nil or observed == nil then
+                hs.message = "No generation information; assuming reconciled"
+              elseif observed < generation then
+                hs.status = "Progressing"
+                hs.message = "Waiting for external-dns to observe generation " .. tostring(generation) .. " (observed " .. tostring(observed) .. ")"
+              end
+              return hs
             resource.customizations.health.networking.k8s.io_Ingress: |
+              -- Ingress: treat as Healthy even without a loadBalancer address.
+              -- This prevents a circular dependency during the initial sync when Traefik
+              -- (which would populate status.loadBalancer) is not deployed yet.
               hs = {}
               hs.status = "Healthy"
               hs.message = ""
@@ -257,6 +285,96 @@ spec:
                     hs.message = "Load balancer ingress configured"
                   else
                     hs.message = "Waiting for load balancer (non-blocking)"
+                  end
+                end
+              end
+              return hs
+            resource.customizations.health.onepassword.com_OnePasswordItem: |
+              -- 1Password Connect operator OnePasswordItem: Healthy once the operator has
+              -- materialised the Secret (condition Ready=True), Degraded when the item could
+              -- not be fetched (Ready=False), Progressing until the operator reports either.
+              -- The operator often leaves condition.message empty, and "" is truthy in Lua,
+              -- so fall back explicitly instead of relying on `or`.
+              local function messageOr(condition, fallback)
+                if condition.message ~= nil and condition.message ~= "" then
+                  return condition.message
+                end
+                return fallback
+              end
+        
+              hs = {}
+              hs.status = "Progressing"
+              hs.message = "Waiting for the 1Password operator to report a Ready condition"
+              if obj.status ~= nil and obj.status.conditions ~= nil then
+                for _, condition in ipairs(obj.status.conditions) do
+                  if condition.type == "Ready" then
+                    if condition.status == "True" then
+                      hs.status = "Healthy"
+                      hs.message = messageOr(condition, "Secret synced from 1Password")
+                    elseif condition.status == "False" then
+                      hs.status = "Degraded"
+                      hs.message = messageOr(condition, "1Password item could not be synced")
+                    else
+                      hs.message = messageOr(condition, "Ready condition is Unknown")
+                    end
+                  end
+                end
+              end
+              return hs
+            resource.customizations.health.paperclip.inc_Instance: |
+              -- paperclip.inc Instance: the operator publishes a coarse lifecycle phase in
+              -- status.phase. Running is Healthy, Failed/Error are Degraded, and anything
+              -- else (Pending, Provisioning, no status yet) is still Progressing.
+              hs = {}
+              hs.status = "Progressing"
+              hs.message = "Waiting for the Instance to report a phase"
+              if obj.status ~= nil and obj.status.phase ~= nil then
+                local phase = obj.status.phase
+                if phase == "Running" then
+                  hs.status = "Healthy"
+                  hs.message = "Instance is running"
+                elseif phase == "Failed" or phase == "Error" then
+                  hs.status = "Degraded"
+                  hs.message = "Instance is in phase " .. phase
+                else
+                  hs.message = "Instance is in phase " .. phase
+                end
+                if obj.status.message ~= nil and obj.status.message ~= "" then
+                  hs.message = hs.message .. ": " .. obj.status.message
+                end
+              end
+              return hs
+            resource.customizations.health.tailscale.com_Connector: |
+              -- Tailscale operator Connector: the operator sets a single ConnectorReady
+              -- condition (the only known type on the v1alpha1 CRD). Healthy on True,
+              -- Degraded on False, Progressing until the operator has reconciled it.
+              -- The operator sets condition.message to "" on success, and "" is truthy in
+              -- Lua, so fall back explicitly instead of relying on `or`.
+              local function messageOr(condition, fallback)
+                if condition.message ~= nil and condition.message ~= "" then
+                  return condition.message
+                end
+                return fallback
+              end
+        
+              hs = {}
+              hs.status = "Progressing"
+              hs.message = "Waiting for the Tailscale operator to report ConnectorReady"
+              if obj.status ~= nil and obj.status.conditions ~= nil then
+                for _, condition in ipairs(obj.status.conditions) do
+                  if condition.type == "ConnectorReady" then
+                    if condition.status == "True" then
+                      hs.status = "Healthy"
+                      hs.message = messageOr(condition, "Connector is ready")
+                      if obj.status.hostname ~= nil and obj.status.hostname ~= "" then
+                        hs.message = hs.message .. " (" .. obj.status.hostname .. ")"
+                      end
+                    elseif condition.status == "False" then
+                      hs.status = "Degraded"
+                      hs.message = messageOr(condition, "Connector is not ready")
+                    else
+                      hs.message = messageOr(condition, "ConnectorReady condition is Unknown")
+                    end
                   end
                 end
               end
@@ -292,7 +410,7 @@ spec:
             env:
             - name: ARGOCD_EXEC_TIMEOUT
               value: "90"
-            image: ghcr.io/ryanmcafee/homelab-cmp:0.1.18
+            image: ghcr.io/ryanmcafee/homelab-cmp:0.1.19
             name: homelab-cmp
             securityContext:
               runAsNonRoot: true
@@ -315,7 +433,7 @@ spec:
             - /custom-tools/
             command:
             - /bin/cp
-            image: ghcr.io/ryanmcafee/homelab-cmp:0.1.18
+            image: ghcr.io/ryanmcafee/homelab-cmp:0.1.19
             name: install-ksops
             volumeMounts:
             - mountPath: /custom-tools

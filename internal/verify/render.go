@@ -570,7 +570,8 @@ func prepareEnv(opts RenderOptions, env Env, k8sVersion string) (*envRender, Che
 	if v, ok := rc.Values["DOMAIN"]; ok {
 		domain = v.Value
 	}
-	data := fmt.Sprintf("env: %s\ndomain: %s\nkubernetes_version: %s\n", env.Name, domain, k8sVersion)
+	data := fmt.Sprintf("env: %s\ndomain: %s\nkubernetes_version: %s\nargocd_automated_sync: %t\n",
+		env.Name, domain, k8sVersion, automatedSync(rc))
 	if err := os.WriteFile(filepath.Join(envDir, "_data.yaml"), []byte(data), 0o644); err != nil {
 		return nil, FailCheck(name, start, fmt.Sprintf("writing _data.yaml: %v", err))
 	}
@@ -606,6 +607,18 @@ func prepareEnv(opts RenderOptions, env Env, k8sVersion string) (*envRender, Che
 		detail += fmt.Sprintf(" two-stage values=%d", len(er.generated))
 	}
 	return er, PassCheck(name, start, detail)
+}
+
+// automatedSync reports the env's ARGOCD_AUTOMATED_SYNC platform key. It is
+// written to _data.yaml as argocd_automated_sync so tests/policy can skip
+// app-automated for an env that syncs Applications from the working tree
+// with `argocd app sync --local` (localdev). Anything but an explicit
+// "false" keeps the strict policy.
+func automatedSync(rc *config.ResolvedConfig) bool {
+	if v, ok := rc.Values["ARGOCD_AUTOMATED_SYNC"]; ok && v.Value == "false" {
+		return false
+	}
+	return true
 }
 
 // committedValuesCheck proves that the values-<env>.yaml a plain-Helm env

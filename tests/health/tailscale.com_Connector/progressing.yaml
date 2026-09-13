@@ -1,0 +1,12 @@
+# expect: Progressing
+# message: Waiting for the Tailscale operator
+apiVersion: tailscale.com/v1alpha1
+kind: Connector
+metadata:
+  name: homelab-subnet-router
+  generation: 1
+spec:
+  hostname: homelab-subnet-router
+  subnetRouter:
+    advertiseRoutes:
+      - 10.0.0.0/24

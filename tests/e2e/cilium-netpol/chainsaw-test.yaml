@@ -1,0 +1,273 @@
+---
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: cilium-netpol
+spec:
+  description: >-
+    Cilium enforces Kubernetes NetworkPolicy: an nginx Pod behind a default-deny ingress
+    policy rejects a curl Job (the Job must fail), and an allow policy for the namespace
+    lets a second curl Job succeed. Everything lives in the chainsaw test namespace.
+  steps:
+    - name: cilium-healthy
+      description: The cilium Application is Healthy and Succeeded.
+      try:
+        - assert:
+            resource:
+              apiVersion: argoproj.io/v1alpha1
+              kind: Application
+              metadata:
+                name: cilium
+                namespace: argocd
+              status:
+                health:
+                  status: Healthy
+                operationState:
+                  phase: Succeeded
+      catch:
+        - describe:
+            apiVersion: argoproj.io/v1alpha1
+            kind: Application
+            name: cilium
+            namespace: argocd
+    - name: nginx-ready
+      description: An nginx Pod and Service are created in the test namespace and the Pod becomes Ready.
+      timeouts:
+        assert: 3m
+      try:
+        - apply:
+            resource:
+              apiVersion: v1
+              kind: Pod
+              metadata:
+                name: nginx
+                labels:
+                  app: nginx
+              spec:
+                securityContext:
+                  seccompProfile:
+                    type: RuntimeDefault
+                containers:
+                  - name: nginx
+                    # pinned tag; nginx has no entry in configuration/versions.yaml
+                    image: nginx:1.29-alpine
+                    ports:
+                      - name: http
+                        containerPort: 80
+                    securityContext:
+                      allowPrivilegeEscalation: false
+                    resources:
+                      requests:
+                        cpu: 10m
+                        memory: 32Mi
+                      limits:
+                        cpu: 100m
+                        memory: 64Mi
+        - apply:
+            resource:
+              apiVersion: v1
+              kind: Service
+              metadata:
+                name: nginx
+              spec:
+                selector:
+                  app: nginx
+                ports:
+                  - name: http
+                    port: 80
+                    targetPort: http
+        - assert:
+            resource:
+              apiVersion: v1
+              kind: Pod
+              metadata:
+                name: nginx
+              status:
+                phase: Running
+                (conditions[?type == 'Ready']):
+                  - status: 'True'
+      catch:
+        - events: {}
+        - describe:
+            apiVersion: v1
+            kind: Pod
+            name: nginx
+    - name: default-deny-blocks-curl
+      description: >-
+        With a default-deny ingress NetworkPolicy in place, a single curl attempt with a 5s
+        timeout must fail (Job status.failed == 1).
+      timeouts:
+        assert: 3m
+      try:
+        - apply:
+            resource:
+              apiVersion: networking.k8s.io/v1
+              kind: NetworkPolicy
+              metadata:
+                name: default-deny-ingress
+              spec:
+                podSelector: {}
+                policyTypes:
+                  - Ingress
+        # give the agent a moment to program the policy before probing
+        - sleep:
+            duration: 10s
+        - apply:
+            resource:
+              apiVersion: batch/v1
+              kind: Job
+              metadata:
+                name: curl-denied
+              spec:
+                backoffLimit: 0
+                activeDeadlineSeconds: 120
+                template:
+                  metadata:
+                    labels:
+                      app: curl
+                  spec:
+                    restartPolicy: Never
+                    securityContext:
+                      runAsNonRoot: true
+                      runAsUser: 100
+                      seccompProfile:
+                        type: RuntimeDefault
+                    containers:
+                      - name: curl
+                        # pinned from configuration/versions.yaml images.curl
+                        image: curlimages/curl:8.22.0
+                        securityContext:
+                          allowPrivilegeEscalation: false
+                          capabilities:
+                            drop: ["ALL"]
+                        resources:
+                          requests:
+                            cpu: 10m
+                            memory: 32Mi
+                          limits:
+                            cpu: 100m
+                            memory: 64Mi
+                        command: ["sh", "-c"]
+                        args:
+                          - |
+                            set -u
+                            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 http://nginx/)
+                            echo "HTTP $code from http://nginx/ (expected the connection to be dropped)"
+                            [ "$code" = "000" ] && exit 1
+                            exit 0
+        - assert:
+            resource:
+              apiVersion: batch/v1
+              kind: Job
+              metadata:
+                name: curl-denied
+              status:
+                failed: 1
+      catch:
+        - events: {}
+        - podLogs:
+            selector: job-name=curl-denied
+            tail: 20
+        - describe:
+            apiVersion: networking.k8s.io/v1
+            kind: NetworkPolicy
+            name: default-deny-ingress
+        - describe:
+            apiVersion: cilium.io/v2
+            kind: CiliumEndpoint
+    - name: allow-policy-permits-curl
+      description: >-
+        An allow policy for ingress to nginx from any Pod in the namespace lets a retrying
+        curl Job succeed (Job status.succeeded == 1).
+      timeouts:
+        assert: 5m
+      try:
+        - apply:
+            resource:
+              apiVersion: networking.k8s.io/v1
+              kind: NetworkPolicy
+              metadata:
+                name: allow-nginx-from-namespace
+              spec:
+                podSelector:
+                  matchLabels:
+                    app: nginx
+                policyTypes:
+                  - Ingress
+                ingress:
+                  - from:
+                      - podSelector: {}
+                    ports:
+                      - protocol: TCP
+                        port: 80
+        - apply:
+            resource:
+              apiVersion: batch/v1
+              kind: Job
+              metadata:
+                name: curl-allowed
+              spec:
+                backoffLimit: 0
+                activeDeadlineSeconds: 300
+                template:
+                  metadata:
+                    labels:
+                      app: curl
+                  spec:
+                    restartPolicy: Never
+                    securityContext:
+                      runAsNonRoot: true
+                      runAsUser: 100
+                      seccompProfile:
+                        type: RuntimeDefault
+                    containers:
+                      - name: curl
+                        # pinned from configuration/versions.yaml images.curl
+                        image: curlimages/curl:8.22.0
+                        securityContext:
+                          allowPrivilegeEscalation: false
+                          capabilities:
+                            drop: ["ALL"]
+                        resources:
+                          requests:
+                            cpu: 10m
+                            memory: 32Mi
+                          limits:
+                            cpu: 100m
+                            memory: 64Mi
+                        env:
+                          - name: ATTEMPTS
+                            value: "20"
+                        command: ["sh", "-c"]
+                        args:
+                          - |
+                            set -u
+                            i=1
+                            while [ "$i" -le "$ATTEMPTS" ]; do
+                              code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 http://nginx/)
+                              echo "attempt $i/$ATTEMPTS: HTTP $code from http://nginx/"
+                              [ "$code" = "200" ] && exit 0
+                              i=$((i + 1))
+                              sleep 3
+                            done
+                            echo "giving up: nginx never answered 200 after the allow policy"
+                            exit 1
+        - assert:
+            resource:
+              apiVersion: batch/v1
+              kind: Job
+              metadata:
+                name: curl-allowed
+              status:
+                succeeded: 1
+      catch:
+        - events: {}
+        - podLogs:
+            selector: job-name=curl-allowed
+            tail: 30
+        - describe:
+            apiVersion: networking.k8s.io/v1
+            kind: NetworkPolicy
+        - describe:
+            apiVersion: cilium.io/v2
+            kind: CiliumEndpoint

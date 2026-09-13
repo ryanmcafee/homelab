@@ -1,10 +1,14 @@
 {{- if .Values.cilium.enabled }}
 ---
-# Cilium CNI - Visibility Only Application
-# NOTE: Actual Cilium installation is managed via Talos inline manifests
-# This ArgoCD Application provides visibility into the Cilium deployment
-# without managing it (automated.prune is false; see the app-automated
-# exemption below for why the block exists but never prunes/deletes).
+# Cilium CNI - Adopted, never installed, by ArgoCD
+#
+# homelab: Talos installs Cilium from inline manifests rendered with the same
+# values (task render). Kind: scripts/localdev-kind.ts installs it with
+# `helm upgrade --install` from charts/addons/values-localdev.yaml
+# cilium.values before ArgoCD exists. In both cases this Application adopts
+# the release: the values below are the ones the installer used (identical
+# values → no diff), automated.prune is false and the Application carries no
+# resources-finalizer (see the app-automated / app-finalizer exemption).
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -14,7 +18,7 @@ metadata:
     argocd.argoproj.io/sync-wave: "0"
     argocd.argoproj.io/compare-options: IgnoreExtraneous
     homelab.ryanmcafee.com/policy-exempt: "app-automated,app-finalizer"
-    homelab.ryanmcafee.com/policy-exempt-reason: "Cilium CNI is installed by Talos inline manifests, not by ArgoCD. This Application is visibility-only: it must not prune/self-heal resources Talos manages directly (app-automated), and it must NOT carry resources-finalizer.argocd.argoproj.io (app-finalizer) — deleting this Application must never cascade-delete the running CNI."
+    homelab.ryanmcafee.com/policy-exempt-reason: "Cilium CNI is installed outside ArgoCD (Talos inline manifests in homelab, scripts/localdev-kind.ts in Kind). This Application only adopts it: it must not prune/self-heal resources the installer manages directly (app-automated), and it must NOT carry resources-finalizer.argocd.argoproj.io (app-finalizer) — deleting this Application must never cascade-delete the running CNI."
 spec:
   project: default
   source:
@@ -23,58 +27,21 @@ spec:
     targetRevision: {{ .Values.cilium.chart.version }}
     helm:
       releaseName: cilium
-      # Values must match inline bootstrap for accurate diff
+      # Values must match what installed the release for an accurate diff
+      # (cilium.values in the environment values file).
       values: |
-        ipam:
-          mode: kubernetes
-        kubeProxyReplacement: true
-        k8sServiceHost: localhost
-        k8sServicePort: 7445
-        securityContext:
-          capabilities:
-            ciliumAgent:
-              - CHOWN
-              - KILL
-              - NET_ADMIN
-              - NET_RAW
-              - IPC_LOCK
-              - SYS_ADMIN
-              - SYS_RESOURCE
-              - DAC_OVERRIDE
-              - FOWNER
-              - SETGID
-              - SETUID
-            cleanCiliumState:
-              - NET_ADMIN
-              - SYS_ADMIN
-              - SYS_RESOURCE
-        cgroup:
-          autoMount:
-            enabled: false
-          hostRoot: /sys/fs/cgroup
-        l2announcements:
-          enabled: true
-        externalIPs:
-          enabled: true
-        bgpControlPlane:
-          enabled: true
-        hubble:
-          relay:
-            enabled: true
-          ui:
-            enabled: true
-        bandwidthManager:
-          enabled: true
-          bbr: true
+        {{- toYaml .Values.cilium.values | nindent 8 }}
 
   destination:
     server: https://kubernetes.default.svc
     namespace: kube-system
 
   syncPolicy:
+    {{- if .Values.global.automatedSync }}
     automated:
-      prune: false  # Don't prune - Talos manages some resources
+      prune: false  # Don't prune - the installer manages some resources
       selfHeal: true
+    {{- end }}
     syncOptions:
       - ServerSideApply=true
       - Validate=false

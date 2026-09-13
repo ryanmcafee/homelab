@@ -1,0 +1,101 @@
+---
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: cloudnative-pg
+spec:
+  description: >-
+    The cloudnative-pg operator Application is Healthy and the operator can bring a
+    1-instance Cluster on the local-path StorageClass to "Cluster in healthy state".
+    The Cluster lives in the chainsaw test namespace and is deleted on cleanup.
+  steps:
+    - name: operator-healthy
+      description: The cloudnative-pg Application is Healthy and Succeeded and the operator Deployment is available.
+      try:
+        - assert:
+            resource:
+              apiVersion: argoproj.io/v1alpha1
+              kind: Application
+              metadata:
+                name: cloudnative-pg
+                namespace: argocd
+              status:
+                health:
+                  status: Healthy
+                operationState:
+                  phase: Succeeded
+        - assert:
+            resource:
+              apiVersion: apps/v1
+              kind: Deployment
+              metadata:
+                namespace: cnpg-system
+                labels:
+                  app.kubernetes.io/name: cloudnative-pg
+              status:
+                (conditions[?type == 'Available']):
+                  - status: 'True'
+      catch:
+        - describe:
+            apiVersion: argoproj.io/v1alpha1
+            kind: Application
+            name: cloudnative-pg
+            namespace: argocd
+        - describe:
+            apiVersion: apps/v1
+            kind: Deployment
+            namespace: cnpg-system
+    - name: cluster-healthy
+      description: A 1-instance Cluster with 1Gi local-path storage reaches "Cluster in healthy state".
+      timeouts:
+        apply: 2m
+        assert: 10m
+      try:
+        - apply:
+            resource:
+              apiVersion: postgresql.cnpg.io/v1
+              kind: Cluster
+              metadata:
+                name: e2e-pg
+              spec:
+                instances: 1
+                storage:
+                  size: 1Gi
+                  storageClass: local-path
+                resources:
+                  requests:
+                    cpu: 100m
+                    memory: 256Mi
+                  limits:
+                    cpu: "1"
+                    memory: 512Mi
+        - assert:
+            resource:
+              apiVersion: postgresql.cnpg.io/v1
+              kind: Cluster
+              metadata:
+                name: e2e-pg
+              status:
+                phase: Cluster in healthy state
+                readyInstances: 1
+      catch:
+        - events: {}
+        - describe:
+            apiVersion: postgresql.cnpg.io/v1
+            kind: Cluster
+            name: e2e-pg
+        - describe:
+            apiVersion: v1
+            kind: Pod
+            selector: cnpg.io/cluster=e2e-pg
+        - describe:
+            apiVersion: v1
+            kind: PersistentVolumeClaim
+            selector: cnpg.io/cluster=e2e-pg
+        - podLogs:
+            selector: cnpg.io/cluster=e2e-pg
+            tail: 100
+        - podLogs:
+            namespace: cnpg-system
+            selector: app.kubernetes.io/name=cloudnative-pg
+            tail: 100

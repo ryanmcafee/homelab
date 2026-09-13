@@ -29,6 +29,16 @@ global:
   repoUrl: https://github.com/ryanmcafee/homelab.git
   targetRevision: main
 
+  # Whether every Application syncs automatically (prune + selfHeal). The
+  # generated localdev values set false so `argocd app sync --local` pushes
+  # the working tree without ArgoCD reverting it to Git (ARGOCD_AUTOMATED_SYNC).
+  automatedSync: true
+
+  # Images shared by the chart's own templates (PostSync smoke Jobs).
+  # Placeholder; configuration/versions.yaml images.curl wins at render time.
+  images:
+    curl: "8.22.0"
+
   # Default storage class for persistent volumes
   storageClass: democratic-csi-nfs
 
@@ -215,6 +225,13 @@ plex:
       - name: ndots
         value: "5"
 
+  # PostSync smoke hook (charts/applications/templates/_smoke.tpl): curl the in-cluster
+  # Service after sync; expect lists the accepted HTTP codes.
+  smoke:
+    enabled: true
+    url: http://plex-plex-media-server.media.svc.cluster.local:32400/identity
+    expect: ["200"]
+
 # ============================================================================
 # Sonarr - TV Show Management
 # Sync Wave: 2
@@ -304,6 +321,13 @@ sonarr:
     pod:
       fsGroup: 100
 
+  # PostSync smoke hook (charts/applications/templates/_smoke.tpl): curl the in-cluster
+  # Service after sync; expect lists the accepted HTTP codes.
+  smoke:
+    enabled: true
+    url: http://sonarr.media.svc.cluster.local:8989/ping
+    expect: ["200"]
+
 # ============================================================================
 # Radarr - Movie Management
 # Sync Wave: 2
@@ -392,6 +416,13 @@ radarr:
     pod:
       fsGroup: 100
 
+  # PostSync smoke hook (charts/applications/templates/_smoke.tpl): curl the in-cluster
+  # Service after sync; expect lists the accepted HTTP codes.
+  smoke:
+    enabled: true
+    url: http://radarr.media.svc.cluster.local:7878/ping
+    expect: ["200"]
+
 # ============================================================================
 # Prowlarr - Indexer Manager
 # Sync Wave: 2
@@ -463,6 +494,13 @@ prowlarr:
       runAsGroup: 100
     pod:
       fsGroup: 100
+
+  # PostSync smoke hook (charts/applications/templates/_smoke.tpl): curl the in-cluster
+  # Service after sync; expect lists the accepted HTTP codes.
+  smoke:
+    enabled: true
+    url: http://prowlarr.media.svc.cluster.local:9696/ping
+    expect: ["200"]
 
 # ============================================================================
 # NZBGet - Usenet Downloader
@@ -552,6 +590,13 @@ nzbget:
     pod:
       fsGroup: 100
 
+  # PostSync smoke hook (charts/applications/templates/_smoke.tpl): curl the in-cluster
+  # Service after sync; expect lists the accepted HTTP codes.
+  smoke:
+    enabled: true
+    url: http://nzbget.media.svc.cluster.local:10057/
+    expect: ["200", "401"]
+
 # ============================================================================
 # Tautulli - Plex Monitoring
 # Sync Wave: 13
@@ -615,6 +660,13 @@ tautulli:
       runAsGroup: 100
     pod:
       fsGroup: 100
+
+  # PostSync smoke hook (charts/applications/templates/_smoke.tpl): curl the in-cluster
+  # Service after sync; expect lists the accepted HTTP codes.
+  smoke:
+    enabled: true
+    url: http://tautulli.media.svc.cluster.local:8181/status
+    expect: ["200"]
 
 # ============================================================================
 # LazyLibrarian - Ebook Management
@@ -696,6 +748,13 @@ lazylibrarian:
     pod:
       fsGroup: 100
 
+  # PostSync smoke hook (charts/applications/templates/_smoke.tpl): curl the in-cluster
+  # Service after sync; expect lists the accepted HTTP codes.
+  smoke:
+    enabled: true
+    url: http://lazylibrarian.media.svc.cluster.local:5299/
+    expect: ["200"]
+
 # ============================================================================
 # Home Assistant - Home Automation Hub
 # Sync Wave: 3
@@ -763,6 +822,13 @@ homeassistant:
             - homeassistant.example.com
 
   TZ: UTC
+
+  # PostSync smoke hook (charts/applications/templates/_smoke.tpl): curl the in-cluster
+  # Service after sync; expect lists the accepted HTTP codes.
+  smoke:
+    enabled: true
+    url: http://home-assistant.home-automation.svc.cluster.local:8123/api/
+    expect: ["200", "401"]
 
 # ============================================================================
 # Mosquitto - MQTT Broker
@@ -832,6 +898,11 @@ mosquitto:
 
   TZ: UTC
 
+  # PostSync smoke hook (charts/applications/templates/_smoke.tpl): curl the in-cluster
+  # Service after sync; expect lists the accepted HTTP codes.
+  smoke:
+    enabled: false  # MQTT only, no HTTP endpoint to probe
+
 # ============================================================================
 # FlareSolverr - Cloudflare Protection Bypass Proxy
 # Sync Wave: 12 (before Prowlarr at wave 13)
@@ -883,6 +954,13 @@ flaresolverr:
       runAsNonRoot: false
       runAsUser: 0
       runAsGroup: 0
+
+  # PostSync smoke hook (charts/applications/templates/_smoke.tpl): curl the in-cluster
+  # Service after sync; expect lists the accepted HTTP codes.
+  smoke:
+    enabled: true
+    url: http://flaresolverr.media.svc.cluster.local:8191/
+    expect: ["200"]
 
 # ============================================================================
 # DuckDNS - Dynamic DNS Updater

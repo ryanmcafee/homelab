@@ -33,9 +33,11 @@ spec:
     namespace: {{ index .Values "intel-gpu-device-plugin" "namespace" }}
 
   syncPolicy:
+    {{- if .Values.global.automatedSync }}
     automated:
       prune: true
       selfHeal: true
+    {{- end }}
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true

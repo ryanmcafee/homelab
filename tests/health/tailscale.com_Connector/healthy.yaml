@@ -1,0 +1,22 @@
+# expect: Healthy
+# message: Connector is ready (homelab-subnet-router
+apiVersion: tailscale.com/v1alpha1
+kind: Connector
+metadata:
+  name: homelab-subnet-router
+  generation: 1
+spec:
+  hostname: homelab-subnet-router
+  subnetRouter:
+    advertiseRoutes:
+      - 10.0.0.0/24
+status:
+  hostname: homelab-subnet-router.tailnet.ts.net
+  subnetRoutes: 10.0.0.0/24
+  conditions:
+    - type: ConnectorReady
+      status: "True"
+      reason: ConnectorCreated
+      message: ""
+      observedGeneration: 1
+      lastTransitionTime: "2026-09-12T00:00:00Z"

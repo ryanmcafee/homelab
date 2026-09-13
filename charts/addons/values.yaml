@@ -30,6 +30,16 @@ global:
   repoUrl: https://github.com/ryanmcafee/homelab.git
   targetRevision: main
 
+  # Whether every Application syncs automatically (prune + selfHeal). The
+  # generated localdev values set false so `argocd app sync --local` pushes
+  # the working tree without ArgoCD reverting it to Git (ARGOCD_AUTOMATED_SYNC).
+  automatedSync: true
+
+  # Images shared by the chart's own templates (PostSync smoke Jobs).
+  # Placeholder; configuration/versions.yaml images.curl wins at render time.
+  images:
+    curl: "8.22.0"
+
   # Default storage class for persistent volumes
   storageClass: democratic-csi-nfs
 
@@ -412,6 +422,11 @@ cert-manager:
   # Install CRDs
   installCRDs: true
 
+  # When true the letsencrypt ClusterIssuer (cert-manager-cluster-issuer child
+  # chart) is a self-signed issuer under the same name, for clusters without a
+  # public domain (CERT_ISSUER=selfsigned in configuration/).
+  selfSigned: false
+
   # Let's Encrypt configuration
   letsencrypt:
     enabled: true
@@ -628,6 +643,19 @@ kube-prometheus-stack:
       limits:
         cpu: 200m
         memory: 256Mi
+
+  # PostSync smoke hooks (charts/addons/templates/_smoke.tpl): curl the
+  # in-cluster Services after sync; expect lists the accepted HTTP codes.
+  # Service names follow the chart's <release>-grafana / <release>-prometheus.
+  smoke:
+    grafana:
+      enabled: true
+      url: http://kube-prometheus-stack-grafana.monitoring.svc.cluster.local:80/api/health
+      expect: ["200"]
+    prometheus:
+      enabled: true
+      url: http://kube-prometheus-stack-prometheus.monitoring.svc.cluster.local:9090/-/ready
+      expect: ["200"]
 
 # ============================================================================
 # Traefik External - Ingress Controller (External/Public Traffic)
@@ -1019,6 +1047,16 @@ cilium-lb-ipam:
 
 cilium:
   enabled: false
+
+  # Helm values of the installed release. The Application never installs
+  # Cilium (Talos inline manifests in homelab, scripts/localdev-kind.ts in
+  # Kind); it adopts the release, so the values must match what installed it
+  # or the Application shows a diff. They live only in the environment values
+  # rendered from configuration/templates/helm-addons.tmpl (homelab: Talos
+  # values; localdev: Kind values). Deliberately empty here: Helm deep-merges
+  # maps, so any key in this file would leak into every environment that does
+  # not override it (BGP into Kind, for instance).
+  values: {}
 
 # ============================================================================
 # Argo Workflows - Workflow Orchestration

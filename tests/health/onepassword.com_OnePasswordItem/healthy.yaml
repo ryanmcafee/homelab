@@ -1,0 +1,14 @@
+# expect: Healthy
+# message: Secret synced from 1Password
+apiVersion: onepassword.com/v1
+kind: OnePasswordItem
+metadata:
+  name: truenas-api-key
+  namespace: democratic-csi
+spec:
+  itemPath: vaults/homelab/items/truenas-api-key
+status:
+  conditions:
+    - type: Ready
+      status: "True"
+      lastTransitionTime: "2026-09-12T00:00:00Z"

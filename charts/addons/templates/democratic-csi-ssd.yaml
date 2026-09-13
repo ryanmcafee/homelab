@@ -101,9 +101,11 @@ spec:
     namespace: {{ index .Values "democratic-csi-ssd" "namespace" }}
 
   syncPolicy:
+    {{- if .Values.global.automatedSync }}
     automated:
       prune: true
       selfHeal: true
+    {{- end }}
     syncOptions:
       - ServerSideApply=true
       - ApplyOutOfSyncOnly=true

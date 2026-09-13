@@ -41,9 +41,11 @@ deny contains msg if {
 
 # app-automated: every Application must self-heal and prune drift so the
 # cluster tracks Git. Deliberate exceptions (e.g. Cilium, installed by Talos)
-# use the policy-exempt annotation.
+# use the policy-exempt annotation. The whole rule is off for an env whose
+# _data.yaml says argocd_automated_sync: false (see lib.automated_sync_required).
 deny contains msg if {
 	is_app
+	lib.automated_sync_required
 	not lib.is_exempt(input, "app-automated")
 	automated := object.get(object.get(input.spec, "syncPolicy", {}), "automated", {})
 	not automated.prune == true
@@ -52,6 +54,7 @@ deny contains msg if {
 
 deny contains msg if {
 	is_app
+	lib.automated_sync_required
 	not lib.is_exempt(input, "app-automated")
 	automated := object.get(object.get(input.spec, "syncPolicy", {}), "automated", {})
 	not automated.selfHeal == true

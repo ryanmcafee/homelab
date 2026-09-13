@@ -32,9 +32,11 @@ spec:
     server: https://kubernetes.default.svc
     namespace: {{ .Values.renovate.namespace }}
   syncPolicy:
+    {{- if .Values.global.automatedSync }}
     automated:
       prune: true
       selfHeal: true
+    {{- end }}
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
@@ -103,9 +105,11 @@ spec:
     namespace: {{ .Values.renovate.namespace }}
 
   syncPolicy:
+    {{- if .Values.global.automatedSync }}
     automated:
       prune: true
       selfHeal: true
+    {{- end }}
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true

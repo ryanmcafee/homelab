@@ -26,15 +26,23 @@ TRAEFIK_OIDC_ALLOWED_DOMAINS: homelab.local
 DUCKDNS_SUBDOMAIN: homelab-dev
 EXTERNAL_DNS_DEFAULT_TARGET: homelab-dev.duckdns.org
 
-# Kind provides none of the homelab platform layers (see schema/platform.schema.yaml):
-# kindnet CNI, no LoadBalancer addresses, no external DNS, local-path storage, no
-# secret store. The helm templates switch on these keys, so the generated
-# charts/{addons,applications}/values-localdev.yaml stays Kind-safe.
-CNI_PROVIDER: kindnet
+# Kind provides almost none of the homelab platform layers (see
+# schema/platform.schema.yaml): Cilium is installed by scripts/localdev-kind.ts
+# (no BGP, no LoadBalancer addresses), there is no external DNS, storage is
+# local-path, there is no secret store, media libraries are emptyDirs and the
+# letsencrypt ClusterIssuer is self-signed. Applications are not automated so
+# `task localdev:sync` can push the working tree with `argocd app sync --local`
+# without ArgoCD reverting it to Git. The helm templates switch on these keys,
+# so the generated charts/{addons,applications}/values-localdev.yaml stays
+# Kind-safe.
+CNI_PROVIDER: cilium
 LOAD_BALANCER_ENABLED: "false"
 EXTERNAL_DNS_ENABLED: "false"
 STORAGE_PROVIDER: local-path
 SECRETS_PROVIDER: none
+ARGOCD_AUTOMATED_SYNC: "false"
+MEDIA_PROVIDER: ephemeral
+CERT_ISSUER: selfsigned
 STORAGE_CLASS_NFS: local-path
 STORAGE_CLASS_ISCSI: local-path
 STORAGE_CLASS_SSD: local-path

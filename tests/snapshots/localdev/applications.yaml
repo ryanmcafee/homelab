@@ -52,6 +52,414 @@ stringData:
   enableOCI: "true"
 
 ---
+# Source: applications/templates/flaresolverr.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: smoke-flaresolverr
+  namespace: media
+  labels:
+    app.kubernetes.io/name: smoke-flaresolverr
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation,HookSucceeded
+    argocd.argoproj.io/sync-wave: "12"
+spec:
+  backoffLimit: 2
+  activeDeadlineSeconds: 600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: smoke-flaresolverr
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: curl
+          image: curlimages/curl:8.22.0
+          env:
+            - name: URL
+              value: "http://flaresolverr.media.svc.cluster.local:8191/"
+          command: ["sh", "-c"]
+          args:
+            - |
+              code=$(curl -sL --max-redirs 5 -o /dev/null -w '%{http_code}' --retry 30 --retry-delay 10 --retry-all-errors --max-time 20 "$URL")
+              echo "smoke flaresolverr: $URL -> HTTP $code"
+              case "$code" in 200) exit 0;; *) exit 1;; esac
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 100
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            seccompProfile:
+              type: RuntimeDefault
+
+---
+# Source: applications/templates/lazylibrarian.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: smoke-lazylibrarian
+  namespace: media
+  labels:
+    app.kubernetes.io/name: smoke-lazylibrarian
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation,HookSucceeded
+    argocd.argoproj.io/sync-wave: "13"
+spec:
+  backoffLimit: 2
+  activeDeadlineSeconds: 600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: smoke-lazylibrarian
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: curl
+          image: curlimages/curl:8.22.0
+          env:
+            - name: URL
+              value: "http://lazylibrarian.media.svc.cluster.local:5299/"
+          command: ["sh", "-c"]
+          args:
+            - |
+              code=$(curl -sL --max-redirs 5 -o /dev/null -w '%{http_code}' --retry 30 --retry-delay 10 --retry-all-errors --max-time 20 "$URL")
+              echo "smoke lazylibrarian: $URL -> HTTP $code"
+              case "$code" in 200) exit 0;; *) exit 1;; esac
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 100
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            seccompProfile:
+              type: RuntimeDefault
+
+---
+# Source: applications/templates/nzbget.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: smoke-nzbget
+  namespace: media
+  labels:
+    app.kubernetes.io/name: smoke-nzbget
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation,HookSucceeded
+    argocd.argoproj.io/sync-wave: "13"
+spec:
+  backoffLimit: 2
+  activeDeadlineSeconds: 600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: smoke-nzbget
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: curl
+          image: curlimages/curl:8.22.0
+          env:
+            - name: URL
+              value: "http://nzbget.media.svc.cluster.local:10057/"
+          command: ["sh", "-c"]
+          args:
+            - |
+              code=$(curl -sL --max-redirs 5 -o /dev/null -w '%{http_code}' --retry 30 --retry-delay 10 --retry-all-errors --max-time 20 "$URL")
+              echo "smoke nzbget: $URL -> HTTP $code"
+              case "$code" in 200|401) exit 0;; *) exit 1;; esac
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 100
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            seccompProfile:
+              type: RuntimeDefault
+
+---
+# Source: applications/templates/plex.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: smoke-plex
+  namespace: media
+  labels:
+    app.kubernetes.io/name: smoke-plex
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation,HookSucceeded
+    argocd.argoproj.io/sync-wave: "12"
+spec:
+  backoffLimit: 2
+  activeDeadlineSeconds: 600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: smoke-plex
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: curl
+          image: curlimages/curl:8.22.0
+          env:
+            - name: URL
+              value: "http://plex-plex-media-server.media.svc.cluster.local:32400/identity"
+          command: ["sh", "-c"]
+          args:
+            - |
+              code=$(curl -sL --max-redirs 5 -o /dev/null -w '%{http_code}' --retry 30 --retry-delay 10 --retry-all-errors --max-time 20 "$URL")
+              echo "smoke plex: $URL -> HTTP $code"
+              case "$code" in 200) exit 0;; *) exit 1;; esac
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 100
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            seccompProfile:
+              type: RuntimeDefault
+
+---
+# Source: applications/templates/prowlarr.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: smoke-prowlarr
+  namespace: media
+  labels:
+    app.kubernetes.io/name: smoke-prowlarr
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation,HookSucceeded
+    argocd.argoproj.io/sync-wave: "13"
+spec:
+  backoffLimit: 2
+  activeDeadlineSeconds: 600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: smoke-prowlarr
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: curl
+          image: curlimages/curl:8.22.0
+          env:
+            - name: URL
+              value: "http://prowlarr.media.svc.cluster.local:9696/ping"
+          command: ["sh", "-c"]
+          args:
+            - |
+              code=$(curl -sL --max-redirs 5 -o /dev/null -w '%{http_code}' --retry 30 --retry-delay 10 --retry-all-errors --max-time 20 "$URL")
+              echo "smoke prowlarr: $URL -> HTTP $code"
+              case "$code" in 200) exit 0;; *) exit 1;; esac
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 100
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            seccompProfile:
+              type: RuntimeDefault
+
+---
+# Source: applications/templates/radarr.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: smoke-radarr
+  namespace: media
+  labels:
+    app.kubernetes.io/name: smoke-radarr
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation,HookSucceeded
+    argocd.argoproj.io/sync-wave: "13"
+spec:
+  backoffLimit: 2
+  activeDeadlineSeconds: 600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: smoke-radarr
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: curl
+          image: curlimages/curl:8.22.0
+          env:
+            - name: URL
+              value: "http://radarr.media.svc.cluster.local:7878/ping"
+          command: ["sh", "-c"]
+          args:
+            - |
+              code=$(curl -sL --max-redirs 5 -o /dev/null -w '%{http_code}' --retry 30 --retry-delay 10 --retry-all-errors --max-time 20 "$URL")
+              echo "smoke radarr: $URL -> HTTP $code"
+              case "$code" in 200) exit 0;; *) exit 1;; esac
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 100
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            seccompProfile:
+              type: RuntimeDefault
+
+---
+# Source: applications/templates/sonarr.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: smoke-sonarr
+  namespace: media
+  labels:
+    app.kubernetes.io/name: smoke-sonarr
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation,HookSucceeded
+    argocd.argoproj.io/sync-wave: "13"
+spec:
+  backoffLimit: 2
+  activeDeadlineSeconds: 600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: smoke-sonarr
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: curl
+          image: curlimages/curl:8.22.0
+          env:
+            - name: URL
+              value: "http://sonarr.media.svc.cluster.local:8989/ping"
+          command: ["sh", "-c"]
+          args:
+            - |
+              code=$(curl -sL --max-redirs 5 -o /dev/null -w '%{http_code}' --retry 30 --retry-delay 10 --retry-all-errors --max-time 20 "$URL")
+              echo "smoke sonarr: $URL -> HTTP $code"
+              case "$code" in 200) exit 0;; *) exit 1;; esac
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 100
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            seccompProfile:
+              type: RuntimeDefault
+
+---
+# Source: applications/templates/tautulli.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: smoke-tautulli
+  namespace: media
+  labels:
+    app.kubernetes.io/name: smoke-tautulli
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation,HookSucceeded
+    argocd.argoproj.io/sync-wave: "13"
+spec:
+  backoffLimit: 2
+  activeDeadlineSeconds: 600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: smoke-tautulli
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: curl
+          image: curlimages/curl:8.22.0
+          env:
+            - name: URL
+              value: "http://tautulli.media.svc.cluster.local:8181/status"
+          command: ["sh", "-c"]
+          args:
+            - |
+              code=$(curl -sL --max-redirs 5 -o /dev/null -w '%{http_code}' --retry 30 --retry-delay 10 --retry-all-errors --max-time 20 "$URL")
+              echo "smoke tautulli: $URL -> HTTP $code"
+              case "$code" in 200) exit 0;; *) exit 1;; esac
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 100
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            seccompProfile:
+              type: RuntimeDefault
+
+---
 # Source: applications/templates/oci-repositories.yaml
 # OCI Repository configuration for ArgoCD
 # Single repository secret for TrueCharts OCI registry
@@ -84,9 +492,6 @@ spec:
     server: https://kubernetes.default.svc
     namespace: media
   syncPolicy:
-    automated:
-      prune: true
-      selfHeal: true
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
@@ -129,14 +534,15 @@ spec:
                     requests:
                       cpu: 100m
                       memory: 512Mi
+              nodeSelector:
+                kubernetes.io/arch: null
         persistence:
           config:
             accessModes:
             - ReadWriteOnce
             enabled: true
-            existingClaim: flaresolverr-config
             size: 1Gi
-            storageClass: democratic-csi-nfs
+            storageClass: local-path
         TZ: "America/New_York"
         securityContext:
           container:
@@ -159,9 +565,6 @@ spec:
         - /spec/template/spec/hostUsers
 
   syncPolicy:
-    automated:
-      prune: true
-      selfHeal: true
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
@@ -173,7 +576,6 @@ spec:
         duration: 5s
         factor: 2
         maxDuration: 3m
-
 ---
 # Source: applications/templates/lazylibrarian.yaml
 # LazyLibrarian Config: deploys static PV+PVC for lazylibrarian persistent storage
@@ -203,9 +605,6 @@ spec:
     server: https://kubernetes.default.svc
     namespace: media
   syncPolicy:
-    automated:
-      prune: true
-      selfHeal: true
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
@@ -242,26 +641,27 @@ spec:
                     requests:
                       cpu: 100m
                       memory: 256Mi
+              nodeSelector:
+                kubernetes.io/arch: null
         persistence:
           books:
             enabled: true
             mountPath: /books
-            path: /tmp/storage/books
-            server: truenas.homelab.local
-            type: nfs
+            path: /mnt/storage/books
+            server: truenas.example.com
+            type: emptyDir
           config:
             accessModes:
             - ReadWriteOnce
             enabled: true
-            existingClaim: lazylibrarian-config
-            size: 5Gi
-            storageClass: democratic-csi-nfs
+            size: 1Gi
+            storageClass: local-path
           downloads:
             enabled: true
             mountPath: /downloads
-            path: /tmp/storage/downloads
-            server: truenas.homelab.local
-            type: nfs
+            path: /mnt/storage/downloads
+            server: truenas.example.com
+            type: emptyDir
         ingress:
           main:
             annotations:
@@ -300,9 +700,6 @@ spec:
         - /spec/template/spec/hostUsers
 
   syncPolicy:
-    automated:
-      prune: true
-      selfHeal: true
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
@@ -314,7 +711,6 @@ spec:
         duration: 5s
         factor: 2
         maxDuration: 3m
-
 ---
 # Source: applications/templates/mosquitto.yaml
 # Mosquitto Config: deploys static PV+PVC for mosquitto persistent storage
@@ -344,9 +740,6 @@ spec:
     server: https://kubernetes.default.svc
     namespace: home-automation
   syncPolicy:
-    automated:
-      prune: true
-      selfHeal: true
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
@@ -383,31 +776,33 @@ spec:
                     requests:
                       cpu: 50m
                       memory: 128Mi
+              nodeSelector:
+                kubernetes.io/arch: null
         persistence:
           config:
             accessModes:
             - ReadWriteOnce
             enabled: true
-            existingClaim: mosquitto-config
             mountPath: /mosquitto/config
             size: 1Gi
-            storageClass: democratic-csi-nfs
+            storageClass: local-path
           configinc:
             enabled: true
-            existingClaim: mosquitto-configinc
             mountPath: /mosquitto/configinc
+            size: 1Gi
+            storageClass: local-path
           data:
             accessModes:
             - ReadWriteOnce
             enabled: true
-            existingClaim: mosquitto-data
             mountPath: /mosquitto/data
             size: 1Gi
-            storageClass: democratic-csi-nfs
+            storageClass: local-path
         service:
           main:
             ports:
               main:
+                nodePort: 31883
                 port: 1883
                 protocol: tcp
                 targetPort: 1883
@@ -417,6 +812,7 @@ spec:
             ports:
               websockets:
                 enabled: true
+                nodePort: 31901
                 port: 9001
                 protocol: tcp
                 targetPort: 9001
@@ -440,9 +836,6 @@ spec:
         - /spec/template/spec/hostUsers
 
   syncPolicy:
-    automated:
-      prune: true
-      selfHeal: true
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
@@ -484,9 +877,6 @@ spec:
     server: https://kubernetes.default.svc
     namespace: media
   syncPolicy:
-    automated:
-      prune: true
-      selfHeal: true
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
@@ -523,20 +913,21 @@ spec:
                     requests:
                       cpu: 100m
                       memory: 1Gi
+              nodeSelector:
+                kubernetes.io/arch: null
         persistence:
           config:
             accessModes:
             - ReadWriteOnce
             enabled: true
-            existingClaim: nzbget-config
-            size: 5Gi
-            storageClass: democratic-csi-nfs
+            size: 1Gi
+            storageClass: local-path
           downloads:
             enabled: true
             mountPath: /downloads
-            path: /tmp/storage/downloads
-            server: truenas.homelab.local
-            type: nfs
+            path: /mnt/storage/downloads
+            server: truenas.example.com
+            type: emptyDir
         ingress:
           main:
             annotations:
@@ -575,9 +966,6 @@ spec:
         - /spec/template/spec/hostUsers
 
   syncPolicy:
-    automated:
-      prune: true
-      selfHeal: true
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
@@ -589,7 +977,6 @@ spec:
         duration: 5s
         factor: 2
         maxDuration: 3m
-
 ---
 # Source: applications/templates/plex.yaml
 # Dependencies Application: deploys OnePasswordItem for Plex claim token
@@ -619,9 +1006,6 @@ spec:
     server: https://kubernetes.default.svc
     namespace: media
   syncPolicy:
-    automated:
-      prune: true
-      selfHeal: true
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
@@ -664,7 +1048,7 @@ spec:
           claimSecret:
             key: plex-claim-token
             name: plex
-          configExistingClaim: plex-config-iscsi
+          configExistingClaim: ""
           resources:
             limits:
               cpu: 1000m
@@ -672,24 +1056,16 @@ spec:
             requests:
               cpu: 100m
               memory: 512Mi
-          storageClassName: democratic-csi-iscsi
+          storageClassName: local-path
         extraVolumes:
-          - name: movies
-            nfs:
-              path: /tmp/storage/movies
-              server: truenas.homelab.local
-          - name: tv
-            nfs:
-              path: /tmp/storage/tv
-              server: truenas.homelab.local
-          - name: music
-            nfs:
-              path: /tmp/storage/music
-              server: truenas.homelab.local
-          - name: pictures
-            nfs:
-              path: /tmp/storage/pictures
-              server: truenas.homelab.local
+          - emptyDir: {}
+            name: movies
+          - emptyDir: {}
+            name: tv
+          - emptyDir: {}
+            name: music
+          - emptyDir: {}
+            name: pictures
         extraVolumeMounts:
           - mountPath: /movies
             name: movies
@@ -743,9 +1119,6 @@ spec:
     namespace: media
 
   syncPolicy:
-    automated:
-      prune: true
-      selfHeal: true
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
@@ -756,7 +1129,6 @@ spec:
         duration: 5s
         factor: 2
         maxDuration: 3m
-
 ---
 # Source: applications/templates/prowlarr.yaml
 # Prowlarr Config: deploys static PV+PVC for prowlarr persistent storage
@@ -786,9 +1158,6 @@ spec:
     server: https://kubernetes.default.svc
     namespace: media
   syncPolicy:
-    automated:
-      prune: true
-      selfHeal: true
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
@@ -833,14 +1202,15 @@ spec:
                     requests:
                       cpu: 100m
                       memory: 256Mi
+              nodeSelector:
+                kubernetes.io/arch: null
         persistence:
           config:
             accessModes:
             - ReadWriteOnce
             enabled: true
-            existingClaim: prowlarr-config
             size: 1Gi
-            storageClass: democratic-csi-nfs
+            storageClass: local-path
         ingress:
           main:
             annotations:
@@ -879,9 +1249,6 @@ spec:
         - /spec/template/spec/hostUsers
 
   syncPolicy:
-    automated:
-      prune: true
-      selfHeal: true
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
@@ -893,7 +1260,6 @@ spec:
         duration: 5s
         factor: 2
         maxDuration: 3m
-
 ---
 # Source: applications/templates/radarr.yaml
 # Radarr Config: deploys static PV+PVC for radarr persistent storage
@@ -923,9 +1289,6 @@ spec:
     server: https://kubernetes.default.svc
     namespace: media
   syncPolicy:
-    automated:
-      prune: true
-      selfHeal: true
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
@@ -970,26 +1333,27 @@ spec:
                     requests:
                       cpu: 200m
                       memory: 512Mi
+              nodeSelector:
+                kubernetes.io/arch: null
         persistence:
           config:
             accessModes:
             - ReadWriteOnce
             enabled: true
-            existingClaim: radarr-config
-            size: 10Gi
-            storageClass: democratic-csi-nfs
+            size: 1Gi
+            storageClass: local-path
           downloads:
             enabled: true
             mountPath: /downloads
-            path: /tmp/storage/downloads
-            server: truenas.homelab.local
-            type: nfs
+            path: /mnt/storage/downloads
+            server: truenas.example.com
+            type: emptyDir
           movies:
             enabled: true
             mountPath: /movies
-            path: /tmp/storage/movies
-            server: truenas.homelab.local
-            type: nfs
+            path: /mnt/storage/movies
+            server: truenas.example.com
+            type: emptyDir
         ingress:
           main:
             annotations:
@@ -1028,9 +1392,6 @@ spec:
         - /spec/template/spec/hostUsers
 
   syncPolicy:
-    automated:
-      prune: true
-      selfHeal: true
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
@@ -1042,7 +1403,6 @@ spec:
         duration: 5s
         factor: 2
         maxDuration: 3m
-
 ---
 # Source: applications/templates/sonarr.yaml
 # Sonarr Config: deploys static PV+PVC for sonarr persistent storage
@@ -1072,9 +1432,6 @@ spec:
     server: https://kubernetes.default.svc
     namespace: media
   syncPolicy:
-    automated:
-      prune: true
-      selfHeal: true
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
@@ -1119,26 +1476,27 @@ spec:
                     requests:
                       cpu: 200m
                       memory: 512Mi
+              nodeSelector:
+                kubernetes.io/arch: null
         persistence:
           config:
             accessModes:
             - ReadWriteOnce
             enabled: true
-            existingClaim: sonarr-config
-            size: 10Gi
-            storageClass: democratic-csi-nfs
+            size: 1Gi
+            storageClass: local-path
           downloads:
             enabled: true
             mountPath: /downloads
-            path: /tmp/storage/downloads
-            server: truenas.homelab.local
-            type: nfs
+            path: /mnt/storage/downloads
+            server: truenas.example.com
+            type: emptyDir
           tv:
             enabled: true
             mountPath: /tv
-            path: /tmp/storage/tv
-            server: truenas.homelab.local
-            type: nfs
+            path: /mnt/storage/tv
+            server: truenas.example.com
+            type: emptyDir
         ingress:
           main:
             annotations:
@@ -1177,9 +1535,6 @@ spec:
         - /spec/template/spec/hostUsers
 
   syncPolicy:
-    automated:
-      prune: true
-      selfHeal: true
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
@@ -1191,7 +1546,6 @@ spec:
         duration: 5s
         factor: 2
         maxDuration: 3m
-
 ---
 # Source: applications/templates/tautulli.yaml
 # Tautulli Config: deploys static PV+PVC for tautulli persistent storage
@@ -1221,9 +1575,6 @@ spec:
     server: https://kubernetes.default.svc
     namespace: media
   syncPolicy:
-    automated:
-      prune: true
-      selfHeal: true
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
@@ -1260,14 +1611,15 @@ spec:
                     requests:
                       cpu: 100m
                       memory: 256Mi
+              nodeSelector:
+                kubernetes.io/arch: null
         persistence:
           config:
             accessModes:
             - ReadWriteOnce
             enabled: true
-            existingClaim: tautulli-config
-            size: 5Gi
-            storageClass: democratic-csi-nfs
+            size: 1Gi
+            storageClass: local-path
         ingress:
           main:
             annotations:
@@ -1306,9 +1658,6 @@ spec:
         - /spec/template/spec/hostUsers
 
   syncPolicy:
-    automated:
-      prune: true
-      selfHeal: true
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true

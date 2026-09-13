@@ -1,13 +1,17 @@
 # cert-manager-cluster-issuer — local development overrides
 #
-# Kind has no Cloudflare API token, so the DNS-01 solver has no credential to
-# read. Disabling cloudflare here switches the template to its HTTP-01 branch,
-# which needs no Secret at all, and keeps the issuer consistent with
-# charts/cert-manager-config/values-localdev.yaml.
+# Kind has no public domain (localdev uses homelab.local) and no Cloudflare
+# API token, so neither ACME solver can ever issue a certificate there. The
+# addons parent hands this chart `selfSigned.enabled: true` through the
+# cert-manager-cluster-issuer Application's helm.valuesObject
+# (CERT_ISSUER=selfsigned in configuration/environments/localdev.yaml), which
+# turns the `letsencrypt` ClusterIssuer into a self-signed issuer under the
+# same name: every `cert-manager.io/cluster-issuer: letsencrypt` annotation
+# keeps working and cert-manager creates the TLS Secrets the Ingresses expect.
 #
-# Neither solver can actually issue a certificate for the .test domain Kind
-# uses; the point is that the manifest no longer references a Secret nothing
-# creates.
+# cloudflare stays off as well so the manifest never references the
+# cloudflare-api-token Secret nothing creates in Kind; this keeps the chart
+# consistent with charts/cert-manager-config/values-localdev.yaml.
 
 cloudflare:
   enabled: false

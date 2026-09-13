@@ -1,17 +1,25 @@
-# Tilt CI Validation Workflow
-# Phase 0.5: Local Development Environment
-#
-# This workflow validates that:
-# 1. Kind cluster can be created successfully
-# 2. Tiltfile syntax is valid and executes without errors
-# 3. All Helm charts render correctly
-# 4. ArgoCD applications can be validated
-#
-# Triggered on:
-# - Pull requests that modify charts or Tiltfiles
-# - Manual workflow dispatch for testing
+name: Verify (Kind, levels 1-2)
 
-name: Tilt CI
+# Cluster-backed verification of the GitOps repository on a Kind cluster
+# (issue #261, Section B). Nothing here touches the homelab cluster.
+#
+#   kind-argocd  task localdev:ci        Kind (Cilium, registry caches, fakes) -> ArgoCD ->
+#                                        every Application synced from the working tree
+#                                        (argocd app sync --local) -> wait Healthy -> chainsaw e2e
+#                task verify LEVEL=2     level 0 + server-side dry run (dryrun/localdev/<chart>)
+#                                        + Application state (argocd/<app>) + e2e (e2e/<test>)
+#   kind-direct  tilt ci                 Tilt direct mode (a few charts installed straight
+#                                        into Kind, no ArgoCD); asserts Traefik + cert-manager
+#   yaml-lint    yamllint                charts/, localdev/, tests/e2e, tests/health
+#
+# kind-argocd is the required check: it has no continue-on-error, and a failing
+# Application, e2e test or dry run fails the pull request. Its Job Summary lists
+# every non-passing check and the verify-level2 artifact carries the full JSON.
+#
+# Tool versions mirror configuration/versions.yaml (the single source of truth)
+# and mise.toml; every pin below carries a Renovate marker so a bump lands here
+# too. Docker ships with ubuntu-latest, as do jq and yq (scripts/localdev-kind.ts
+# reads versions.yaml with yq); kind needs no further setup.
 
 on:
   pull_request:
@@ -19,220 +27,285 @@ on:
       - 'charts/**'
       - 'localdev/**'
       - 'Tiltfile'
+      - 'scripts/**'
+      - 'configuration/**'
+      - 'tests/e2e/**'
+      - 'tests/health/**'
+      - 'Taskfile.yml'
+      - 'cmd/**'
+      - 'internal/**'
+      - 'go.mod'
+      - 'go.sum'
+      - 'mise.toml'
       - '.github/workflows/tilt-ci.yml'
   push:
-    branches:
-      - main
-      - develop
+    branches: [main]
     paths:
       - 'charts/**'
       - 'localdev/**'
       - 'Tiltfile'
+      - 'scripts/**'
+      - 'configuration/**'
+      - 'tests/e2e/**'
+      - 'tests/health/**'
+      - 'Taskfile.yml'
+      - 'cmd/**'
+      - 'internal/**'
+      - 'go.mod'
+      - 'go.sum'
+      - 'mise.toml'
       - '.github/workflows/tilt-ci.yml'
   workflow_dispatch:
 
-# Concurrency: cancel in-progress runs for the same PR
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: tilt-ci-${{ github.ref }}
   cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # renovate: datasource=golang-version depName=go
+  GO_VERSION: '1.25'
+  # renovate: datasource=github-releases depName=kubernetes-sigs/kind
+  KIND_VERSION: 'v0.33.0'
+  # renovate: datasource=github-releases depName=kubernetes/kubernetes
+  KUBECTL_VERSION: 'v1.36.1'
+  # renovate: datasource=github-releases depName=helm/helm
+  HELM_VERSION: 'v4.2.0'
+  # renovate: datasource=github-releases depName=argoproj/argo-cd
+  ARGOCD_VERSION: 'v3.5.2'
+  # renovate: datasource=github-releases depName=kyverno/chainsaw
+  CHAINSAW_VERSION: 'v0.2.15'
+  # renovate: datasource=github-releases depName=tilt-dev/tilt
+  TILT_VERSION: '0.37.3'
+  # renovate: datasource=github-releases depName=go-task/task
+  TASK_VERSION: 'v3.46.4'
+  # renovate: datasource=github-releases depName=yannh/kubeconform
+  KUBECONFORM_VERSION: 'v0.7.0'
+  # renovate: datasource=github-releases depName=open-policy-agent/conftest
+  CONFTEST_VERSION: '0.70.0'
+  # renovate: datasource=github-releases depName=FairwindsOps/pluto
+  PLUTO_VERSION: '5.24.3'
+  # Every kubectl/argocd call in the scripts pins this context (ADR-009).
+  KIND_CONTEXT: kind-homelab-localdev
 
 jobs:
   # ============================================================================
-  # Job: Validate Tiltfile in Direct Mode
+  # Kind + ArgoCD loop: the required check
   # ============================================================================
-  tilt-ci-direct:
-    name: Tilt CI (Direct Mode)
+  kind-argocd:
+    name: Kind + ArgoCD loop (level 2)
     runs-on: ubuntu-latest
-    timeout-minutes: 20
-
+    timeout-minutes: 45
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - name: Setup Go (required for Tilt)
-        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
-          go-version: '1.25'
+          go-version: ${{ env.GO_VERSION }}
 
-      - name: Create Kind cluster
-        uses: helm/kind-action@ef37e7f390d99f746eb8b610417061a60e82a6cc # v1
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5
         with:
-          config: localdev/kind-config.yaml
-          cluster_name: homelab-ci
-          wait: 300s
-          node_image: kindest/node:v1.32.0
-          kubectl_version: v1.32.0
+          version: ${{ env.HELM_VERSION }}
 
-      - name: Verify cluster
-        run: |
-          kubectl cluster-info
-          kubectl get nodes
-          kubectl get pods --all-namespaces
-
-      - name: Install Tilt
-        run: |
-          curl -fsSL https://raw.githubusercontent.com/tilt-dev/tilt/master/scripts/install.sh | bash
-          tilt version
-
-      - name: Run Tilt CI (Direct Mode)
-        working-directory: localdev
-        run: |
-          # Run Tilt in CI mode with timeout
-          # CI mode runs all resources once and exits
-          tilt ci --timeout 10m
-
-      - name: Check resource status
-        if: always()
-        run: |
-          echo "=== Pods Status ==="
-          kubectl get pods --all-namespaces
-          echo ""
-          echo "=== Failed Pods Logs ==="
-          kubectl get pods --all-namespaces --field-selector=status.phase!=Running,status.phase!=Succeeded -o json | \
-            jq -r '.items[] | "\(.metadata.namespace)/\(.metadata.name)"' | \
-            while read pod; do
-              echo "--- Logs for $pod ---"
-              kubectl logs -n "$(echo $pod | cut -d/ -f1)" "$(echo $pod | cut -d/ -f2)" --tail=50 || true
-            done
-
-      - name: Verify Traefik deployment
-        run: |
-          kubectl wait --for=condition=available --timeout=120s deployment/traefik -n traefik
-          kubectl get svc -n traefik
-
-      - name: Verify cert-manager deployment
-        run: |
-          kubectl wait --for=condition=available --timeout=120s deployment/cert-manager -n cert-manager
-          kubectl get pods -n cert-manager
-
-  # ============================================================================
-  # Job: Validate Tiltfile in ArgoCD Mode
-  # ============================================================================
-  tilt-ci-argocd:
-    name: Tilt CI (ArgoCD Mode)
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    continue-on-error: true  # Allow this job to fail without failing the workflow
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-
-      - name: Setup Go (required for Tilt)
-        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+      - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
         with:
-          go-version: '1.25'
+          deno-version: v2.x
 
-      - name: Create Kind cluster
-        uses: helm/kind-action@ef37e7f390d99f746eb8b610417061a60e82a6cc # v1
-        with:
-          config: localdev/kind-config.yaml
-          cluster_name: homelab-ci-argocd
-          wait: 300s
-          node_image: kindest/node:v1.32.0
-          kubectl_version: v1.32.0
-
-      - name: Verify cluster
+      # kubectl is published on dl.k8s.io, not on the kubernetes/kubernetes
+      # release page; the Renovate marker still tracks that repository's tags.
+      - name: Install kind, kubectl, argocd, chainsaw, tilt, task, kubeconform, conftest, pluto
         run: |
-          kubectl cluster-info
-          kubectl get nodes
-
-      - name: Install Helm
-        uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5
-        with:
-          version: 'latest'
-
-      - name: Install Tilt
-        run: |
-          curl -fsSL https://raw.githubusercontent.com/tilt-dev/tilt/master/scripts/install.sh | bash
-          tilt version
-
-      - name: Run Tilt CI (ArgoCD Mode)
-        working-directory: localdev
-        env:
-          TILT_MODE: argocd
-        run: |
-          # Run Tilt in ArgoCD mode
-          tilt ci --timeout 10m
-
-      - name: Wait for ArgoCD to be ready
-        run: |
-          kubectl wait --for=condition=available --timeout=300s deployment/argocd-server -n argocd
-          kubectl get pods -n argocd
-
-      - name: Install ArgoCD CLI
-        run: |
-          curl -sSL -o /usr/local/bin/argocd https://github.com/argoproj/argo-cd/releases/latest/download/argocd-linux-amd64
-          chmod +x /usr/local/bin/argocd
+          set -euo pipefail
+          mkdir -p "$HOME/bin"
+          export PATH="$HOME/bin:$PATH"
+          # level 2 includes level 0, which needs kubeconform, conftest and pluto (same pins as verify.yml)
+          curl -sSL --retry 5 --retry-all-errors --retry-delay 3 "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz" | tar -xz -C "$HOME/bin" kubeconform
+          curl -sSL --retry 5 --retry-all-errors --retry-delay 3 "https://github.com/open-policy-agent/conftest/releases/download/v${CONFTEST_VERSION}/conftest_${CONFTEST_VERSION}_Linux_x86_64.tar.gz" | tar -xz -C "$HOME/bin" conftest
+          curl -sSL --retry 5 --retry-all-errors --retry-delay 3 "https://github.com/FairwindsOps/pluto/releases/download/v${PLUTO_VERSION}/pluto_${PLUTO_VERSION}_linux_amd64.tar.gz" | tar -xz -C "$HOME/bin" pluto
+          curl -sSL --retry 5 --retry-all-errors --retry-delay 3 -o "$HOME/bin/kind" "https://github.com/kubernetes-sigs/kind/releases/download/${KIND_VERSION}/kind-linux-amd64"
+          curl -sSL --retry 5 --retry-all-errors --retry-delay 3 -o "$HOME/bin/kubectl" "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl"
+          curl -sSL --retry 5 --retry-all-errors --retry-delay 3 -o "$HOME/bin/argocd" "https://github.com/argoproj/argo-cd/releases/download/${ARGOCD_VERSION}/argocd-linux-amd64"
+          curl -sSL --retry 5 --retry-all-errors --retry-delay 3 "https://github.com/kyverno/chainsaw/releases/download/${CHAINSAW_VERSION}/chainsaw_linux_amd64.tar.gz" | tar -xz -C "$HOME/bin" chainsaw
+          curl -sSL --retry 5 --retry-all-errors --retry-delay 3 "https://github.com/tilt-dev/tilt/releases/download/v${TILT_VERSION}/tilt.${TILT_VERSION}.linux.x86_64.tar.gz" | tar -xz -C "$HOME/bin" tilt
+          curl -sSL --retry 5 --retry-all-errors --retry-delay 3 "https://github.com/go-task/task/releases/download/${TASK_VERSION}/task_linux_amd64.tar.gz" | tar -xz -C "$HOME/bin" task
+          chmod +x "$HOME/bin"/*
+          echo "$HOME/bin" >> "$GITHUB_PATH"
+          kind version
+          kubectl version --client
           argocd version --client
+          chainsaw version
+          tilt version
+          task --version
 
-      - name: Get ArgoCD admin password
-        id: argocd-password
+      # The registry pull-through caches (scripts/localdev-kind.ts registry)
+      # persist their blobs under ~/.cache/homelab-kind-registry. Restoring a
+      # previous run's cache turns most image pulls into local reads. Best
+      # effort: the cache may grow to several GB and GitHub evicts entries past
+      # the 10 GB per-repository budget; every hosts.toml lists the upstream as
+      # a fallback, so an empty or evicted cache only costs pull time.
+      - name: Cache kubeconform core schemas
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ~/.cache/homelab-kubeconform
+          key: kubeconform-${{ hashFiles('configuration/versions.yaml') }}
+
+      - name: Registry pull-through cache (best effort)
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ~/.cache/homelab-kind-registry
+          key: kind-registry-${{ hashFiles('configuration/versions.yaml', 'charts/addons/values-localdev.yaml', 'charts/applications/values-localdev.yaml') }}
+          restore-keys: |
+            kind-registry-
+
+      # kind -> argocd -> sync every Application from the working tree ->
+      # wait until Healthy/Succeeded -> chainsaw e2e. Non-interactive; on a
+      # timeout `localdev:wait` prints the diagnostics before exiting 1.
+      - name: task localdev:ci
+        run: task localdev:ci
+
+      - name: task verify LEVEL=2
+        id: verify
         run: |
-          PASSWORD=$(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d)
-          echo "::add-mask::$PASSWORD"
-          echo "password=$PASSWORD" >> $GITHUB_OUTPUT
+          set -o pipefail
+          task verify LEVEL=2 | tee verify-level2.json
 
-      - name: Port forward ArgoCD (background)
-        run: |
-          kubectl port-forward svc/argocd-server -n argocd 8080:443 > /dev/null 2>&1 &
-          sleep 5
-
-      - name: Login to ArgoCD
-        run: |
-          argocd login localhost:8080 \
-            --username admin \
-            --password '${{ steps.argocd-password.outputs.password }}' \
-            --insecure \
-            --plaintext
-
-      - name: List ArgoCD applications
-        run: |
-          argocd app list
-
-      - name: Check ArgoCD application sync status
+      - name: Summary
         if: always()
         run: |
-          echo "=== ArgoCD Applications ==="
-          kubectl get applications -n argocd -o wide
-          echo ""
-          echo "=== Application Details ==="
-          kubectl get applications -n argocd -o yaml
+          # task prints its own failure line after the JSON; keep only the object.
+          if [ -f verify-level2.json ] && sed -n '/^{/,/^}/p' verify-level2.json > verify-level2.clean.json && jq -e . verify-level2.clean.json >/dev/null 2>&1; then
+            mv verify-level2.clean.json verify-level2.json
+            {
+              echo "## Level 2 verification (Kind)"
+              echo
+              jq -r '"**Result:** \(if .pass then "PASS ✅" else "FAIL ❌" end) in \(.duration_ms) ms"' verify-level2.json
+              echo
+              echo "| Check | Status | ms | Findings |"
+              echo "|---|---|---:|---:|"
+              jq -r '.checks[] | select(.status != "pass") | "| \(.name) | \(.status) | \(.duration_ms) | \(.findings // [] | length) |"' verify-level2.json
+              echo
+              jq -r '.checks[] | select(.status == "fail") | "### \(.name)\n\(.detail // "")\n" + ((.findings // []) | map("- " + .) | join("\n"))' verify-level2.json
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            {
+              echo "## Level 2 verification (Kind)"
+              echo
+              echo "verify-level2.json was not written: task localdev:ci failed before the verify step (see its log)."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
 
-  # Helm lint/template/kubeconform moved to .github/workflows/verify.yml (task verify).
+      - name: Diagnostics
+        if: always()
+        run: |
+          task localdev:diagnose || true
+          echo "=== Applications ==="
+          kubectl --context "$KIND_CONTEXT" -n argocd get applications.argoproj.io -o wide || true
+          echo "=== Pods ==="
+          kubectl --context "$KIND_CONTEXT" get pods -A || true
+
+      # The registry containers write their blobs as root. actions/cache tars
+      # the directory as the runner user in its post step, so hand it back.
+      - name: Make the registry cache readable for actions/cache
+        if: always()
+        run: |
+          if [ -d "$HOME/.cache/homelab-kind-registry" ]; then
+            sudo chown -R "$(id -u):$(id -g)" "$HOME/.cache/homelab-kind-registry"
+            du -sh "$HOME/.cache/homelab-kind-registry" || true
+          fi
+
+      - name: Upload level-2 JSON
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: verify-level2
+          path: verify-level2.json
+          retention-days: 14
+          if-no-files-found: ignore
 
   # ============================================================================
-  # Job: YAML Validation
+  # Tilt direct mode: a few charts installed straight into Kind, no ArgoCD
+  # ============================================================================
+  kind-direct:
+    name: Kind direct mode (tilt ci)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5
+        with:
+          version: ${{ env.HELM_VERSION }}
+
+      - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
+        with:
+          deno-version: v2.x
+
+      - name: Install kind, kubectl, tilt, task
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/bin"
+          export PATH="$HOME/bin:$PATH"
+          curl -sSL --retry 5 --retry-all-errors --retry-delay 3 -o "$HOME/bin/kind" "https://github.com/kubernetes-sigs/kind/releases/download/${KIND_VERSION}/kind-linux-amd64"
+          curl -sSL --retry 5 --retry-all-errors --retry-delay 3 -o "$HOME/bin/kubectl" "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl"
+          curl -sSL --retry 5 --retry-all-errors --retry-delay 3 "https://github.com/tilt-dev/tilt/releases/download/v${TILT_VERSION}/tilt.${TILT_VERSION}.linux.x86_64.tar.gz" | tar -xz -C "$HOME/bin" tilt
+          curl -sSL --retry 5 --retry-all-errors --retry-delay 3 "https://github.com/go-task/task/releases/download/${TASK_VERSION}/task_linux_amd64.tar.gz" | tar -xz -C "$HOME/bin" task
+          chmod +x "$HOME/bin"/*
+          echo "$HOME/bin" >> "$GITHUB_PATH"
+          kind version
+          tilt version
+
+      # Same cluster as the loop (Cilium CNI, fakes), without the registry
+      # caches: this job pulls three charts' worth of images and does not
+      # restore the cache, so the proxies would only add containers.
+      - name: Create the Kind cluster
+        run: task localdev:kind -- --no-registry
+
+      - name: tilt ci (direct mode)
+        working-directory: localdev
+        run: tilt ci --timeout 15m
+
+      - name: Pods and failed-pod logs
+        if: always()
+        run: |
+          echo "=== Pods ==="
+          kubectl --context "$KIND_CONTEXT" get pods -A || { echo "no cluster (an earlier step failed)"; exit 0; }
+          echo
+          echo "=== Logs of pods not Running/Succeeded ==="
+          kubectl --context "$KIND_CONTEXT" get pods -A --field-selector=status.phase!=Running,status.phase!=Succeeded -o json \
+            | jq -r '.items[] | "\(.metadata.namespace) \(.metadata.name)"' \
+            | while read -r ns pod; do
+                echo "--- $ns/$pod ---"
+                kubectl --context "$KIND_CONTEXT" logs -n "$ns" "$pod" --all-containers --tail=50 || true
+              done
+
+      - name: Traefik is available
+        run: |
+          kubectl --context "$KIND_CONTEXT" wait --for=condition=available --timeout=120s deployment/traefik -n traefik
+          kubectl --context "$KIND_CONTEXT" get svc -n traefik
+
+      - name: cert-manager is available
+        run: |
+          kubectl --context "$KIND_CONTEXT" wait --for=condition=available --timeout=120s deployment/cert-manager -n cert-manager
+          kubectl --context "$KIND_CONTEXT" get pods -n cert-manager
+
+  # ============================================================================
+  # YAML lint (non-template files; .yamllint ignores charts/*/templates)
   # ============================================================================
   yaml-lint:
-    name: YAML Linting
+    name: YAML lint
     runs-on: ubuntu-latest
     timeout-minutes: 5
-
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Install yamllint
-        run: |
-          pip install yamllint
+        run: pip install yamllint
 
-      - name: Lint YAML files
-        run: |
-          # Lint all YAML files in charts and localdev directories
-          yamllint -c .yamllint charts/ localdev/ || true
-
-      - name: Validate Kind config
-        run: |
-          # Basic YAML validation for Kind config
-          python3 -c "import yaml; yaml.safe_load(open('localdev/kind-config.yaml'))"
-          echo "✓ Kind config is valid YAML"
-
-      - name: Validate values files
-        run: |
-          # Validate all values files are valid YAML (exclude Helm templates)
-          find charts/ localdev/ -name "*.yaml" -type f | grep -v "/templates/" | while read file; do
-            echo "Validating: $file"
-            python3 -c "import yaml; yaml.safe_load(open('$file'))" || exit 1
-          done
-          echo "✓ All values files are valid YAML"
+      - name: yamllint
+        run: yamllint -c .yamllint charts/ localdev/ tests/e2e tests/health

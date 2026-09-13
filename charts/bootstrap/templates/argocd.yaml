@@ -1,4 +1,20 @@
 {{- if .Values.argocd.enabled }}
+{{- /*
+Resource health Lua lives in files/health/<group>_<kind>.lua so that a single
+copy serves homelab (this Application), localdev (scripts/localdev-argocd.ts
+passes the same files with --set-file) and `task test:health`. Every file is
+injected here as configs.cm."resource.customizations.health.<group>_<kind>".
+The copy keeps .Values untouched; keys already present in .Values.argocd.values
+(kustomize.buildOptions, ...) survive the merge.
+*/}}
+{{- $values := deepCopy .Values.argocd.values }}
+{{- $configs := merge (dict) (dig "configs" (dict) $values) }}
+{{- $cm := merge (dict) (dig "cm" (dict) $configs) }}
+{{- range $path, $_ := .Files.Glob "files/health/*.lua" }}
+{{- $_ := set $cm (printf "resource.customizations.health.%s" (trimSuffix ".lua" (base $path))) ($.Files.Get $path) }}
+{{- end }}
+{{- $_ := set $configs "cm" $cm }}
+{{- $_ := set $values "configs" $configs }}
 # ArgoCD Self-Management Application
 # This allows ArgoCD to manage itself after initial bootstrap by Terraform
 # Sync Wave: 1 (after env-config at wave 0, before addons at wave 2)
@@ -21,16 +37,18 @@ spec:
     helm:
       releaseName: argocd
       values: |
-        {{- toYaml .Values.argocd.values | nindent 8 }}
+        {{- toYaml $values | nindent 8 }}
 
   destination:
     server: https://kubernetes.default.svc
     namespace: {{ .Values.argocd.namespace | default "argocd" }}
 
   syncPolicy:
+    {{- if .Values.global.automatedSync }}
     automated:
       prune: true
       selfHeal: true
+    {{- end }}
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true

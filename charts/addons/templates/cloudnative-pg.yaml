@@ -19,6 +19,10 @@ spec:
     helm:
       releaseName: cloudnative-pg
       values: |
+        {{- with index .Values "cloudnative-pg" "replicaCount" }}
+        replicaCount: {{ . }}
+        {{- end }}
+
         {{- if index .Values "cloudnative-pg" "resources" }}
         resources:
           {{- toYaml (index .Values "cloudnative-pg" "resources") | nindent 10 }}
@@ -34,9 +38,11 @@ spec:
     namespace: {{ index .Values "cloudnative-pg" "namespace" }}
 
   syncPolicy:
+    {{- if .Values.global.automatedSync }}
     automated:
       prune: true
       selfHeal: true
+    {{- end }}
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true

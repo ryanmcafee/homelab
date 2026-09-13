@@ -1,0 +1,42 @@
+---
+# Localdev fakes: StorageClass aliases.
+#
+# The homelab cluster provisions volumes with democratic-csi (TrueNAS NFS and
+# iSCSI). Kind has no TrueNAS, so every democratic-csi class name that a chart
+# can reference is aliased to the local-path provisioner (installed by the
+# local-path-provisioner addon; the provisioner watches PVCs by provisioner
+# name, so any class carrying rancher.io/local-path is served). The generated
+# localdev values already point STORAGE_CLASS_* at local-path; these aliases
+# keep a rendered or hand-set democratic-csi-* class from leaving a PVC
+# Pending forever. Applied by `scripts/localdev-kind.ts fakes`.
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: democratic-csi-nfs
+provisioner: rancher.io/local-path
+volumeBindingMode: WaitForFirstConsumer
+reclaimPolicy: Delete
+---
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: democratic-csi-ssd
+provisioner: rancher.io/local-path
+volumeBindingMode: WaitForFirstConsumer
+reclaimPolicy: Delete
+---
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: democratic-csi-iscsi
+provisioner: rancher.io/local-path
+volumeBindingMode: WaitForFirstConsumer
+reclaimPolicy: Delete
+---
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: democratic-csi-iscsi-hdd
+provisioner: rancher.io/local-path
+volumeBindingMode: WaitForFirstConsumer
+reclaimPolicy: Delete

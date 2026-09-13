@@ -50,40 +50,90 @@ tasks:
   # ==========================================================================
 
   localdev:up:
-    desc: Start local development environment
+    desc: "Kind + ArgoCD loop: cluster (Cilium, fakes) -> ArgoCD -> sync every Application from the working tree"
     cmds:
       - task: localdev:kind
-      - task: localdev:tilt
+      - task: localdev:argocd
+      - task: localdev:sync
 
   localdev:kind:
-    desc: Create Kind cluster for local development
-    dir: localdev
+    desc: Create the Kind cluster (Cilium CNI, registry pull-through cache, localdev fakes); idempotent
     cmds:
-      - |
-        if ! kind get clusters | grep -q homelab-localdev; then
-          kind create cluster --config kind-config.yaml
-        else
-          echo "Cluster already exists"
-        fi
-      - kubectl cluster-info --context kind-homelab-localdev
+      - deno run --allow-net --allow-run --allow-env --allow-read --allow-write scripts/localdev-kind.ts up {{.CLI_ARGS}}
+
+  localdev:fakes:
+    desc: (Re)apply the localdev fakes in localdev/fakes (StorageClass aliases, seeded Secrets, OnePasswordItem CRD)
+    cmds:
+      - deno run --allow-net --allow-run --allow-env --allow-read --allow-write scripts/localdev-kind.ts fakes {{.CLI_ARGS}}
+
+  localdev:registry:
+    desc: Start the registry pull-through caches used by Kind (task localdev:registry -- down|status)
+    cmds:
+      - deno run --allow-net --allow-run --allow-env --allow-read --allow-write scripts/localdev-kind.ts registry {{.CLI_ARGS | default "up"}}
+
+  localdev:argocd:
+    desc: Install ArgoCD into Kind (chart version from configuration/versions.yaml, health Lua from charts/bootstrap/files/health) and apply the root Application
+    cmds:
+      - deno run --allow-net --allow-run --allow-env --allow-read --allow-write scripts/localdev-argocd.ts install {{.CLI_ARGS}}
+
+  localdev:sync:
+    desc: Sync every Application from the working tree (argocd app sync --local), wave by wave (task localdev:sync -- --warm for bootstrap+addons only)
+    cmds:
+      - deno run --allow-net --allow-run --allow-env --allow-read --allow-write scripts/localdev-argocd.ts sync {{.CLI_ARGS}}
+
+  localdev:wait:
+    desc: Block until every Application is Healthy with a succeeded sync; dumps conditions, events and pod logs on failure
+    cmds:
+      - deno run --allow-net --allow-run --allow-env --allow-read --allow-write scripts/localdev-argocd.ts wait {{.CLI_ARGS}}
+
+  localdev:diagnose:
+    desc: Print Application conditions, unhealthy resources, events and failing pod logs
+    cmds:
+      - deno run --allow-net --allow-run --allow-env --allow-read --allow-write scripts/localdev-argocd.ts diagnose {{.CLI_ARGS}}
+
+  localdev:ui:
+    desc: "ArgoCD UI at http://localhost:8080 via kubectl port-forward (Docker Desktop cannot deliver the NodePort through Cilium; admin password: task k8s:argocd-password)"
+    cmds:
+      - kubectl --context kind-homelab-localdev -n argocd port-forward svc/argocd-server 8080:80 --address 127.0.0.1
+
+  localdev:traefik:
+    desc: "Traefik internal ingress at http://localhost:9080 and https://localhost:9443 via kubectl port-forward (use a Host header or /etc/hosts entries for *.homelab.local)"
+    cmds:
+      - kubectl --context kind-homelab-localdev -n traefik port-forward svc/traefik-internal 9080:80 9443:443 --address 127.0.0.1
+
+  localdev:warm:
+    desc: "Warm cluster: Kind + registry cache + ArgoCD + bootstrap/addons synced (operators and CRDs), applications left for localdev:sync"
+    cmds:
+      - task: localdev:kind
+      - task: localdev:argocd
+      - deno run --allow-net --allow-run --allow-env --allow-read --allow-write scripts/localdev-argocd.ts sync --warm
+
+  localdev:ci:
+    desc: "Non-interactive full loop (what tilt-ci.yml runs): kind -> argocd -> sync -> wait -> e2e"
+    cmds:
+      - task: localdev:kind
+      - task: localdev:argocd
+      - task: localdev:sync
+      - task: localdev:wait
+      - task: test:e2e
 
   localdev:tilt:
-    desc: Start Tilt for hot-reload development (direct mode)
+    desc: Start Tilt for hot-reload development (direct mode, no ArgoCD)
     dir: localdev
     cmds:
       - tilt up
 
   localdev:tilt:argocd:
-    desc: Start Tilt in ArgoCD mode (realistic GitOps)
+    desc: Start Tilt in ArgoCD mode (wraps localdev:argocd / localdev:sync and re-syncs on chart changes)
     dir: localdev
     cmds:
       - tilt up -- --mode=argocd
 
   localdev:down:
-    desc: Tear down local development environment
+    desc: Tear down the Kind cluster (registry caches are kept; task localdev:registry -- down removes them)
     cmds:
       - tilt down --file localdev/Tiltfile || true
-      - kind delete cluster --name homelab-localdev
+      - deno run --allow-net --allow-run --allow-env --allow-read --allow-write scripts/localdev-kind.ts down {{.CLI_ARGS}}
 
   localdev:reset:
     desc: Reset local environment (full teardown + recreate)
@@ -607,13 +657,13 @@ tasks:
   # ==========================================================================
 
   verify:
-    desc: "Level-0 verification with JSON summary (task verify, task verify LEVEL=0, task verify -- --env homelab)"
+    desc: "Verification with JSON summary (task verify = level 0 static; LEVEL=1 Kind dry-run; LEVEL=2 Kind live + e2e; task verify -- --env homelab)"
     silent: true
     cmds:
       - go run ./cmd/homelab verify all --level {{.LEVEL | default "0"}} --json {{.CLI_ARGS}}
 
   verify:text:
-    desc: Level-0 verification with human-readable output
+    desc: Verification with human-readable output (LEVEL=0|1|2, see docs/runbooks/verification.md)
     cmds:
       - go run ./cmd/homelab verify all --level {{.LEVEL | default "0"}} {{.CLI_ARGS}}
 
@@ -637,6 +687,16 @@ tasks:
     cmds:
       - conftest verify -p tests/policy
       - deno run --allow-read --allow-run --allow-env scripts/policy-test.ts {{.CLI_ARGS}}
+
+  test:e2e:
+    desc: Declarative Kind e2e tests (chainsaw) against the running localdev cluster (task test:e2e -- --test-dir tests/e2e/plex)
+    cmds:
+      - chainsaw test --config tests/e2e/.chainsaw.yaml tests/e2e {{.CLI_ARGS}}
+
+  test:health:
+    desc: Exercise every ArgoCD health Lua in charts/bootstrap/files/health against the fixtures in tests/health
+    cmds:
+      - deno run --allow-read --allow-run --allow-env --allow-write scripts/health-test.ts {{.CLI_ARGS}}
 
   test:cmp-parity:
     desc: Prove the pinned homelab-cmp image matches `homelab config export` from source (needs Docker)

@@ -9,6 +9,9 @@
 {{- $lb := eq .Values.LOAD_BALANCER_ENABLED.Value "true" -}}
 {{- $externalDNS := eq .Values.EXTERNAL_DNS_ENABLED.Value "true" -}}
 {{- $onepassword := eq .Values.SECRETS_PROVIDER.Value "onepassword" -}}
+{{- $automated := eq .Values.ARGOCD_AUTOMATED_SYNC.Value "true" -}}
+{{- $csi := eq .Values.STORAGE_PROVIDER.Value "democratic-csi" -}}
+{{- $nfsMedia := eq .Values.MEDIA_PROVIDER.Value "nfs" -}}
 # Applications Chart - {{ .Set }} Environment Values
 #
 # GENERATED FILE — do not edit. Source: configuration/templates/helm-apps.tmpl
@@ -29,6 +32,14 @@ global:
   # Git repository for local charts
   repoUrl: https://github.com/ryanmcafee/homelab.git
   targetRevision: main
+
+  # Whether every Application syncs automatically (prune + selfHeal). Off where
+  # the working tree is pushed with `argocd app sync --local` (ARGOCD_AUTOMATED_SYNC).
+  automatedSync: {{ $automated }}
+
+  # Images shared by the chart's own templates (PostSync smoke Jobs).
+  images:
+    curl: "{{ index .Versions.Images "curl" }}"
 
   # Default storage class for persistent volumes
   storageClass: {{ .Values.STORAGE_CLASS_NFS.Value }}
@@ -109,8 +120,15 @@ plex:
 
   # Plex configuration
   pms:
+{{- if $csi }}
+    # The static iSCSI claim comes from the plex-config child chart.
     configExistingClaim: "{{ .Values.PLEX_CONFIG_PVC.Value }}"
     storageClassName: democratic-csi-iscsi
+{{- else }}
+    # No static claim without democratic-csi: the chart provisions its own
+    # PVC in the configured class (STORAGE_PROVIDER).
+    storageClassName: {{ .Values.STORAGE_CLASS_ISCSI.Value }}
+{{- end }}
     # Plex claim token from 1Password
     claimSecret:
       name: plex
@@ -179,8 +197,10 @@ plex:
       port-forwarding.{{ .Values.DOMAIN.Value }}/enable: "true"
 {{- end }}
 
-  # Extra volumes for media storage via NFS
+  # Extra volumes for media storage (NFS exports, or emptyDirs where there is
+  # no file server: MEDIA_PROVIDER)
   extraVolumes:
+{{- if $nfsMedia }}
     - name: movies
       nfs:
         server: {{ .Values.TRUENAS_HOSTNAME.Value }}
@@ -197,6 +217,16 @@ plex:
       nfs:
         server: {{ .Values.TRUENAS_HOSTNAME.Value }}
         path: {{ .Values.MEDIA_PICTURES_PATH.Value }}
+{{- else }}
+    - name: movies
+      emptyDir: {}
+    - name: tv
+      emptyDir: {}
+    - name: music
+      emptyDir: {}
+    - name: pictures
+      emptyDir: {}
+{{- end }}
   # NOTE: dev-dri volume + mount for Intel GPU is added by the Plex application
   # chart template (charts/applications/templates/plex.yaml) based on
   # .Values.plex.gpu.vendor == "intel". Don't append it here, or the structured-
@@ -245,6 +275,13 @@ plex:
     PLEX_GID: "{{ .Values.MEDIA_APP_GID.Value }}"
     CHANGE_CONFIG_DIR_OWNERSHIP: "false"
 
+  # PostSync smoke hook (charts/applications/templates/_smoke.tpl): curl the in-cluster
+  # Service after sync; expect lists the accepted HTTP codes.
+  smoke:
+    enabled: true
+    url: http://plex-plex-media-server.media.svc.cluster.local:32400/identity
+    expect: ["200"]
+
 # ============================================================================
 # Sonarr - TV Show Management
 # Sync Wave: 2
@@ -264,6 +301,13 @@ sonarr:
   workload:
     main:
       podSpec:
+{{- if $localdev }}
+        # Kind nodes run the host architecture (arm64 on Apple Silicon). Drop the
+        # TrueCharts common default kubernetes.io/arch=amd64 pin; null deletes the
+        # key when helm merges values, so the pod schedules on any node.
+        nodeSelector:
+          kubernetes.io/arch: null
+{{- end }}
         containers:
           main:
             resources:
@@ -285,22 +329,35 @@ sonarr:
   persistence:
     config:
       enabled: true
+{{- if $csi }}
       existingClaim: "{{ .Values.SONARR_CONFIG_PVC.Value }}"
+{{- else }}
+      storageClass: {{ .Values.STORAGE_CLASS_ISCSI.Value }}
+      size: 1Gi
+{{- end }}
 
-    # TV storage via NFS
+    # TV storage (NFS export, or an emptyDir without a file server)
     tv:
       enabled: true
+{{- if $nfsMedia }}
       type: nfs
       server: {{ .Values.TRUENAS_HOSTNAME.Value }}
       path: {{ .Values.MEDIA_TV_PATH.Value }}
+{{- else }}
+      type: emptyDir
+{{- end }}
       mountPath: /tv
 
-    # Downloads storage via NFS
+    # Downloads storage (NFS export, or an emptyDir without a file server)
     downloads:
       enabled: true
+{{- if $nfsMedia }}
       type: nfs
       server: {{ .Values.TRUENAS_HOSTNAME.Value }}
       path: {{ .Values.MEDIA_DOWNLOADS_PATH.Value }}
+{{- else }}
+      type: emptyDir
+{{- end }}
       mountPath: /downloads
 
   ingress:
@@ -328,6 +385,13 @@ sonarr:
     pod:
       fsGroup: {{ .Values.MEDIA_APP_GID.Value }}
 
+  # PostSync smoke hook (charts/applications/templates/_smoke.tpl): curl the in-cluster
+  # Service after sync; expect lists the accepted HTTP codes.
+  smoke:
+    enabled: true
+    url: http://sonarr.media.svc.cluster.local:8989/ping
+    expect: ["200"]
+
 # ============================================================================
 # Radarr - Movie Management
 # Sync Wave: 2
@@ -346,6 +410,13 @@ radarr:
   workload:
     main:
       podSpec:
+{{- if $localdev }}
+        # Kind nodes run the host architecture (arm64 on Apple Silicon). Drop the
+        # TrueCharts common default kubernetes.io/arch=amd64 pin; null deletes the
+        # key when helm merges values, so the pod schedules on any node.
+        nodeSelector:
+          kubernetes.io/arch: null
+{{- end }}
         containers:
           main:
             resources:
@@ -367,22 +438,35 @@ radarr:
   persistence:
     config:
       enabled: true
+{{- if $csi }}
       existingClaim: "{{ .Values.RADARR_CONFIG_PVC.Value }}"
+{{- else }}
+      storageClass: {{ .Values.STORAGE_CLASS_ISCSI.Value }}
+      size: 1Gi
+{{- end }}
 
-    # Movies storage via NFS
+    # Movies storage (NFS export, or an emptyDir without a file server)
     movies:
       enabled: true
+{{- if $nfsMedia }}
       type: nfs
       server: {{ .Values.TRUENAS_HOSTNAME.Value }}
       path: {{ .Values.MEDIA_MOVIES_PATH.Value }}
+{{- else }}
+      type: emptyDir
+{{- end }}
       mountPath: /movies
 
-    # Downloads storage via NFS
+    # Downloads storage (NFS export, or an emptyDir without a file server)
     downloads:
       enabled: true
+{{- if $nfsMedia }}
       type: nfs
       server: {{ .Values.TRUENAS_HOSTNAME.Value }}
       path: {{ .Values.MEDIA_DOWNLOADS_PATH.Value }}
+{{- else }}
+      type: emptyDir
+{{- end }}
       mountPath: /downloads
 
   ingress:
@@ -410,6 +494,13 @@ radarr:
     pod:
       fsGroup: {{ .Values.MEDIA_APP_GID.Value }}
 
+  # PostSync smoke hook (charts/applications/templates/_smoke.tpl): curl the in-cluster
+  # Service after sync; expect lists the accepted HTTP codes.
+  smoke:
+    enabled: true
+    url: http://radarr.media.svc.cluster.local:7878/ping
+    expect: ["200"]
+
 # ============================================================================
 # Prowlarr - Indexer Manager
 # Sync Wave: 2
@@ -428,6 +519,13 @@ prowlarr:
   workload:
     main:
       podSpec:
+{{- if $localdev }}
+        # Kind nodes run the host architecture (arm64 on Apple Silicon). Drop the
+        # TrueCharts common default kubernetes.io/arch=amd64 pin; null deletes the
+        # key when helm merges values, so the pod schedules on any node.
+        nodeSelector:
+          kubernetes.io/arch: null
+{{- end }}
         containers:
           main:
             resources:
@@ -449,7 +547,12 @@ prowlarr:
   persistence:
     config:
       enabled: true
+{{- if $csi }}
       existingClaim: "{{ .Values.PROWLARR_CONFIG_PVC.Value }}"
+{{- else }}
+      storageClass: {{ .Values.STORAGE_CLASS_ISCSI.Value }}
+      size: 1Gi
+{{- end }}
 
   ingress:
     main:
@@ -476,6 +579,13 @@ prowlarr:
     pod:
       fsGroup: {{ .Values.MEDIA_APP_GID.Value }}
 
+  # PostSync smoke hook (charts/applications/templates/_smoke.tpl): curl the in-cluster
+  # Service after sync; expect lists the accepted HTTP codes.
+  smoke:
+    enabled: true
+    url: http://prowlarr.media.svc.cluster.local:9696/ping
+    expect: ["200"]
+
 # ============================================================================
 # NZBGet - Usenet Downloader
 # Sync Wave: 13
@@ -494,6 +604,13 @@ nzbget:
   workload:
     main:
       podSpec:
+{{- if $localdev }}
+        # Kind nodes run the host architecture (arm64 on Apple Silicon). Drop the
+        # TrueCharts common default kubernetes.io/arch=amd64 pin; null deletes the
+        # key when helm merges values, so the pod schedules on any node.
+        nodeSelector:
+          kubernetes.io/arch: null
+{{- end }}
         containers:
           main:
             # NOTE: nzbget v26 made `MainDir` and `ScriptDir` REQUIRED and
@@ -518,14 +635,23 @@ nzbget:
   persistence:
     config:
       enabled: true
+{{- if $csi }}
       existingClaim: "{{ .Values.NZBGET_CONFIG_PVC.Value }}"
+{{- else }}
+      storageClass: {{ .Values.STORAGE_CLASS_ISCSI.Value }}
+      size: 1Gi
+{{- end }}
 
-    # Downloads storage via NFS
+    # Downloads storage (NFS export, or an emptyDir without a file server)
     downloads:
       enabled: true
+{{- if $nfsMedia }}
       type: nfs
       server: {{ .Values.TRUENAS_HOSTNAME.Value }}
       path: {{ .Values.MEDIA_DOWNLOADS_PATH.Value }}
+{{- else }}
+      type: emptyDir
+{{- end }}
       mountPath: /downloads
 
   ingress:
@@ -553,6 +679,13 @@ nzbget:
     pod:
       fsGroup: {{ .Values.MEDIA_APP_GID.Value }}
 
+  # PostSync smoke hook (charts/applications/templates/_smoke.tpl): curl the in-cluster
+  # Service after sync; expect lists the accepted HTTP codes.
+  smoke:
+    enabled: true
+    url: http://nzbget.media.svc.cluster.local:10057/
+    expect: ["200", "401"]
+
 # ============================================================================
 # Tautulli - Plex Monitoring
 # Sync Wave: 13
@@ -571,6 +704,13 @@ tautulli:
   workload:
     main:
       podSpec:
+{{- if $localdev }}
+        # Kind nodes run the host architecture (arm64 on Apple Silicon). Drop the
+        # TrueCharts common default kubernetes.io/arch=amd64 pin; null deletes the
+        # key when helm merges values, so the pod schedules on any node.
+        nodeSelector:
+          kubernetes.io/arch: null
+{{- end }}
         containers:
           main:
             resources:
@@ -584,7 +724,12 @@ tautulli:
   persistence:
     config:
       enabled: true
+{{- if $csi }}
       existingClaim: "{{ .Values.TAUTULLI_CONFIG_PVC.Value }}"
+{{- else }}
+      storageClass: {{ .Values.STORAGE_CLASS_ISCSI.Value }}
+      size: 1Gi
+{{- end }}
 
   ingress:
     main:
@@ -611,6 +756,13 @@ tautulli:
     pod:
       fsGroup: {{ .Values.MEDIA_APP_GID.Value }}
 
+  # PostSync smoke hook (charts/applications/templates/_smoke.tpl): curl the in-cluster
+  # Service after sync; expect lists the accepted HTTP codes.
+  smoke:
+    enabled: true
+    url: http://tautulli.media.svc.cluster.local:8181/status
+    expect: ["200"]
+
 # ============================================================================
 # LazyLibrarian - Ebook Management
 # Sync Wave: 13
@@ -629,6 +781,13 @@ lazylibrarian:
   workload:
     main:
       podSpec:
+{{- if $localdev }}
+        # Kind nodes run the host architecture (arm64 on Apple Silicon). Drop the
+        # TrueCharts common default kubernetes.io/arch=amd64 pin; null deletes the
+        # key when helm merges values, so the pod schedules on any node.
+        nodeSelector:
+          kubernetes.io/arch: null
+{{- end }}
         containers:
           main:
             resources:
@@ -642,22 +801,35 @@ lazylibrarian:
   persistence:
     config:
       enabled: true
+{{- if $csi }}
       existingClaim: "{{ .Values.LAZYLIBRARIAN_CONFIG_PVC.Value }}"
+{{- else }}
+      storageClass: {{ .Values.STORAGE_CLASS_ISCSI.Value }}
+      size: 1Gi
+{{- end }}
 
-    # Books storage via NFS
+    # Books storage (NFS export, or an emptyDir without a file server)
     books:
       enabled: true
+{{- if $nfsMedia }}
       type: nfs
       server: {{ .Values.TRUENAS_HOSTNAME.Value }}
       path: {{ .Values.MEDIA_BOOKS_PATH.Value }}
+{{- else }}
+      type: emptyDir
+{{- end }}
       mountPath: /books
 
-    # Downloads storage via NFS
+    # Downloads storage (NFS export, or an emptyDir without a file server)
     downloads:
       enabled: true
+{{- if $nfsMedia }}
       type: nfs
       server: {{ .Values.TRUENAS_HOSTNAME.Value }}
       path: {{ .Values.MEDIA_DOWNLOADS_PATH.Value }}
+{{- else }}
+      type: emptyDir
+{{- end }}
       mountPath: /downloads
 
   ingress:
@@ -685,6 +857,13 @@ lazylibrarian:
     pod:
       fsGroup: {{ .Values.MEDIA_APP_GID.Value }}
 
+  # PostSync smoke hook (charts/applications/templates/_smoke.tpl): curl the in-cluster
+  # Service after sync; expect lists the accepted HTTP codes.
+  smoke:
+    enabled: true
+    url: http://lazylibrarian.media.svc.cluster.local:5299/
+    expect: ["200"]
+
 # ============================================================================
 # Home Assistant - Home Automation Hub
 # Sync Wave: 3
@@ -703,6 +882,13 @@ homeassistant:
   workload:
     main:
       podSpec:
+{{- if $localdev }}
+        # Kind nodes run the host architecture (arm64 on Apple Silicon). Drop the
+        # TrueCharts common default kubernetes.io/arch=amd64 pin; null deletes the
+        # key when helm merges values, so the pod schedules on any node.
+        nodeSelector:
+          kubernetes.io/arch: null
+{{- end }}
         hostNetwork: true
         containers:
           main:
@@ -720,7 +906,12 @@ homeassistant:
   persistence:
     config:
       enabled: true
+{{- if $csi }}
       existingClaim: "{{ .Values.HOMEASSISTANT_CONFIG_PVC.Value }}"
+{{- else }}
+      storageClass: {{ .Values.STORAGE_CLASS_ISCSI.Value }}
+      size: 1Gi
+{{- end }}
 
   ingress:
     main:
@@ -741,6 +932,13 @@ homeassistant:
 
   TZ: {{ .Values.TIMEZONE.Value }}
 
+  # PostSync smoke hook (charts/applications/templates/_smoke.tpl): curl the in-cluster
+  # Service after sync; expect lists the accepted HTTP codes.
+  smoke:
+    enabled: true
+    url: http://home-assistant.home-automation.svc.cluster.local:8123/api/
+    expect: ["200", "401"]
+
 # ============================================================================
 # Mosquitto - MQTT Broker
 # Sync Wave: 3
@@ -759,6 +957,13 @@ mosquitto:
   workload:
     main:
       podSpec:
+{{- if $localdev }}
+        # Kind nodes run the host architecture (arm64 on Apple Silicon). Drop the
+        # TrueCharts common default kubernetes.io/arch=amd64 pin; null deletes the
+        # key when helm merges values, so the pod schedules on any node.
+        nodeSelector:
+          kubernetes.io/arch: null
+{{- end }}
         containers:
           main:
             resources:
@@ -772,19 +977,37 @@ mosquitto:
   persistence:
     config:
       enabled: true
+{{- if $csi }}
       existingClaim: "{{ .Values.MOSQUITTO_CONFIG_PVC.Value }}"
+{{- else }}
+      storageClass: {{ .Values.STORAGE_CLASS_ISCSI.Value }}
+      size: 1Gi
+{{- end }}
       mountPath: /mosquitto/config
 
     data:
       enabled: true
+{{- if $csi }}
       existingClaim: "{{ .Values.MOSQUITTO_DATA_PVC.Value }}"
+{{- else }}
+      storageClass: {{ .Values.STORAGE_CLASS_ISCSI.Value }}
+      size: 1Gi
+{{- end }}
       mountPath: /mosquitto/data
 
     configinc:
       enabled: true
+{{- if $csi }}
       existingClaim: "{{ .Values.MOSQUITTO_CONFIGINC_PVC.Value }}"
+{{- else }}
+      storageClass: {{ .Values.STORAGE_CLASS_ISCSI.Value }}
+      size: 1Gi
+{{- end }}
       mountPath: /mosquitto/configinc
 
+  # The TrueCharts common library refuses a NodePort Service without an
+  # explicit nodePort, so without LoadBalancer addresses both listeners get a
+  # fixed port in the Kind range (30000-32767; ArgoCD uses 30080).
   service:
     main:
       type: {{ if $lb }}LoadBalancer{{ else }}NodePort{{ end }}
@@ -792,6 +1015,9 @@ mosquitto:
         main:
           port: {{ .Values.MOSQUITTO_MQTT_PORT.Value }}
           targetPort: {{ .Values.MOSQUITTO_MQTT_PORT.Value }}
+{{- if not $lb }}
+          nodePort: 31883
+{{- end }}
           protocol: tcp
     websockets:
       enabled: true
@@ -801,6 +1027,9 @@ mosquitto:
           enabled: true
           port: {{ .Values.MOSQUITTO_WEBSOCKET_PORT.Value }}
           targetPort: {{ .Values.MOSQUITTO_WEBSOCKET_PORT.Value }}
+{{- if not $lb }}
+          nodePort: 31901
+{{- end }}
           protocol: tcp
 
   # Authentication configuration
@@ -809,6 +1038,11 @@ mosquitto:
       enabled: true
 
   TZ: {{ .Values.TIMEZONE.Value }}
+
+  # PostSync smoke hook (charts/applications/templates/_smoke.tpl): curl the in-cluster
+  # Service after sync; expect lists the accepted HTTP codes.
+  smoke:
+    enabled: false  # MQTT only, no HTTP endpoint to probe
 
 # ============================================================================
 # FlareSolverr - Cloudflare Protection Bypass Proxy
@@ -828,6 +1062,13 @@ flaresolverr:
   workload:
     main:
       podSpec:
+{{- if $localdev }}
+        # Kind nodes run the host architecture (arm64 on Apple Silicon). Drop the
+        # TrueCharts common default kubernetes.io/arch=amd64 pin; null deletes the
+        # key when helm merges values, so the pod schedules on any node.
+        nodeSelector:
+          kubernetes.io/arch: null
+{{- end }}
         containers:
           main:
             env:
@@ -847,7 +1088,12 @@ flaresolverr:
   persistence:
     config:
       enabled: true
+{{- if $csi }}
       existingClaim: "{{ .Values.FLARESOLVERR_CONFIG_PVC.Value }}"
+{{- else }}
+      storageClass: {{ .Values.STORAGE_CLASS_ISCSI.Value }}
+      size: 1Gi
+{{- end }}
 
   TZ: {{ .Values.TIMEZONE.Value }}
   securityContext:
@@ -856,6 +1102,13 @@ flaresolverr:
       runAsNonRoot: false
       runAsUser: 0
       runAsGroup: 0
+
+  # PostSync smoke hook (charts/applications/templates/_smoke.tpl): curl the in-cluster
+  # Service after sync; expect lists the accepted HTTP codes.
+  smoke:
+    enabled: true
+    url: http://flaresolverr.media.svc.cluster.local:8191/
+    expect: ["200"]
 
 # ============================================================================
 # DuckDNS - Dynamic DNS Updater
@@ -886,206 +1139,3 @@ renovate:
   enabled: {{ $onepassword }}
   config:
     gitAuthor: "Renovate Bot <renovate@{{ .Values.DOMAIN.Value }}>"
-
-# ============================================================================
-# ArgoCD - Self-Management
-# Sync Wave: 5 (LAST - after all applications for stability)
-# ============================================================================
-
-argocd:
-  enabled: true
-  namespace: argocd
-
-  # Chart source - must match bootstrap version
-  chart:
-    name: argo-cd
-    repo: https://argoproj.github.io/argo-helm
-    version: "{{ .Versions.Charts.argocd }}"
-
-  # ArgoCD server configuration
-  values:
-    # Enable App of Apps health status progression
-    configs:
-      cm:
-        # ArgoCD base URL - required for OAuth redirects and API calls
-        url: https://{{ .Values.ARGOCD_HOSTNAME.Value }}
-        # Enable ksops plugin for SOPS decryption
-        kustomize.buildOptions: "--enable-alpha-plugins --enable-exec"
-        resource.customizations.health.argoproj.io_Application: |
-          hs = {}
-          hs.status = "Progressing"
-          hs.message = ""
-          if obj.status ~= nil then
-            if obj.status.health ~= nil then
-              hs.status = obj.status.health.status
-              if obj.status.health.message ~= nil then
-                hs.message = obj.status.health.message
-              end
-            end
-          end
-          return hs
-        # Custom health check for Ingress - treat as Healthy even without loadBalancer address
-        # This prevents circular dependency during initial sync when Traefik isn't deployed yet
-        resource.customizations.health.networking.k8s.io_Ingress: |
-          hs = {}
-          hs.status = "Healthy"
-          hs.message = ""
-          if obj.status ~= nil then
-            if obj.status.loadBalancer ~= nil then
-              if obj.status.loadBalancer.ingress ~= nil then
-                hs.message = "Load balancer ingress configured"
-              else
-                hs.message = "Waiting for load balancer (non-blocking)"
-              end
-            end
-          end
-          return hs
-      # Enable insecure mode - required for Traefik TLS termination
-      # Traefik terminates TLS and forwards HTTP to ArgoCD backend
-      params:
-        server.insecure: "true"
-
-    server:
-      # HA configuration - 3 replicas spread across different hosts
-      replicas: 3
-      topologySpreadConstraints:
-        - maxSkew: 1
-          topologyKey: kubernetes.io/hostname
-          whenUnsatisfiable: ScheduleAnyway
-          labelSelector:
-            matchLabels:
-              app.kubernetes.io/name: argocd-server
-
-      # Ingress for web UI
-      ingress:
-        enabled: true
-        ingressClassName: {{ .Values.INGRESS_CLASS_INTERNAL.Value }}
-        hostname: {{ .Values.ARGOCD_HOSTNAME.Value }}
-        tls: true
-        annotations:
-          cert-manager.io/cluster-issuer: letsencrypt
-          external-dns.alpha.kubernetes.io/hostname: {{ .Values.ARGOCD_HOSTNAME.Value }}
-          # Tell Traefik to use HTTP when connecting to backend (ArgoCD serves HTTP on 8080)
-          traefik.ingress.kubernetes.io/service.serversscheme: http
-
-      # Resource limits
-      resources:
-        requests:
-          cpu: 100m
-          memory: 256Mi
-        limits:
-          cpu: 500m
-          memory: 512Mi
-
-    controller:
-      resources:
-        requests:
-          cpu: 250m
-          memory: 512Mi
-        limits:
-          cpu: 1000m
-          memory: 1Gi
-
-    repoServer:
-      # HA configuration - 2 replicas spread across different hosts
-      replicas: 2
-      topologySpreadConstraints:
-        - maxSkew: 1
-          topologyKey: kubernetes.io/hostname
-          whenUnsatisfiable: ScheduleAnyway
-          labelSelector:
-            matchLabels:
-              app.kubernetes.io/name: argocd-repo-server
-
-      resources:
-        requests:
-          cpu: 100m
-          memory: 256Mi
-        limits:
-          cpu: 500m
-          memory: 512Mi
-
-      # SOPS/ksops configuration for decrypting secrets
-      env:
-        - name: XDG_CONFIG_HOME
-          value: /.config
-        - name: SOPS_AGE_KEY_FILE
-          value: /.config/sops/age/keys.txt
-      # Mount age key and custom tools
-      volumes:
-        - name: custom-tools
-          emptyDir: {}
-        - name: sops-age
-          secret:
-            secretName: sops-age-key
-        - name: cmp-tmp
-          emptyDir: {}
-        - name: homelab-config
-          secret:
-            secretName: homelab-environment-config
-            optional: true
-      volumeMounts:
-        - name: custom-tools
-          mountPath: /usr/local/bin/ksops
-          subPath: ksops
-        - name: custom-tools
-          mountPath: /usr/local/bin/kustomize
-          subPath: kustomize
-        - name: sops-age
-          mountPath: /.config/sops/age
-      # Init container to install ksops
-      initContainers:
-        - name: install-ksops
-          image: viaductoss/ksops:v4.3.2
-          command: ["/bin/sh", "-c"]
-          args:
-            - echo "Installing KSOPS...";
-              cp /usr/local/bin/ksops /custom-tools/ksops;
-              cp /usr/local/bin/kustomize /custom-tools/kustomize;
-              echo "Done.";
-          volumeMounts:
-            - name: custom-tools
-              mountPath: /custom-tools
-      # CMP sidecar for homelab config plugin
-      extraContainers:
-        - name: homelab-cmp
-          image: ghcr.io/ryanmcafee/homelab-cmp:{{ index .Versions.Images "homelab-cmp" }}
-          command: [/var/run/argocd/argocd-cmp-server]
-          securityContext:
-            runAsNonRoot: true
-            runAsUser: 999
-          env:
-            - name: ARGOCD_EXEC_TIMEOUT
-              value: "90"
-          volumeMounts:
-            - mountPath: /var/run/argocd
-              name: var-files
-            - mountPath: /home/argocd/cmp-server/plugins
-              name: plugins
-            - mountPath: /tmp
-              name: cmp-tmp
-            - mountPath: /config/homelab.yaml
-              name: homelab-config
-              subPath: homelab.yaml
-              readOnly: true
-
-    applicationSet:
-      # HA configuration - 2 replicas
-      replicas: 2
-      resources:
-        requests:
-          cpu: 50m
-          memory: 128Mi
-        limits:
-          cpu: 200m
-          memory: 256Mi
-
-    notifications:
-      enabled: true
-      resources:
-        requests:
-          cpu: 50m
-          memory: 64Mi
-        limits:
-          cpu: 100m
-          memory: 128Mi

@@ -1,0 +1,36 @@
+---
+# Root Application for the Kind localdev loop (applied by
+# scripts/localdev-argocd.ts install, task localdev:argocd).
+#
+# It points at GitHub main so ArgoCD has a repo to compare against, but nothing
+# is ever synced from there: `scripts/localdev-argocd.ts sync` pushes the
+# working tree into every Application with `argocd app sync --local`, which
+# refuses apps with an automated sync policy. Hence NO `automated` block here
+# (and ARGOCD_AUTOMATED_SYNC=false in the localdev values for every child).
+# OutOfSync against GitHub after a local sync is expected.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: gitops
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/ryanmcafee/homelab.git
+    targetRevision: main
+    path: charts/gitops
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-localdev.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

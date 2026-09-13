@@ -8,6 +8,16 @@ global:
   repoUrl: https://github.com/ryanmcafee/homelab.git
   targetRevision: HEAD
 
+  # Whether every Application syncs automatically (prune + selfHeal).
+  # values-localdev.yaml sets false so `argocd app sync --local` pushes the
+  # working tree without ArgoCD reverting it (ARGOCD_AUTOMATED_SYNC).
+  automatedSync: true
+
+  # Images shared by the chart family (PostSync smoke Jobs). Placeholder;
+  # configuration/versions.yaml images.curl wins at render time.
+  images:
+    curl: "8.22.0"
+
 sops-secrets:
   enabled: true
 
@@ -57,26 +67,17 @@ argocd:
 
   # ArgoCD server configuration
   values:
-    # Enable App of Apps health status progression
     configs:
       params:
         server.insecure: true
       cm:
         # Enable ksops plugin for SOPS decryption
         kustomize.buildOptions: "--enable-alpha-plugins --enable-exec"
-        resource.customizations.health.argoproj.io_Application: |
-          hs = {}
-          hs.status = "Progressing"
-          hs.message = ""
-          if obj.status ~= nil then
-            if obj.status.health ~= nil then
-              hs.status = obj.status.health.status
-              if obj.status.health.message ~= nil then
-                hs.message = obj.status.health.message
-              end
-            end
-          end
-          return hs
+        # Resource health Lua (resource.customizations.health.<group>_<kind>)
+        # is NOT declared here: templates/argocd.yaml injects every
+        # files/health/<group>_<kind>.lua into configs.cm at render time, and
+        # localdev passes the same files to the ArgoCD chart with --set-file.
+        # Exercise them with `task test:health` (fixtures in tests/health/).
 
     server:
       ingress:
@@ -137,7 +138,7 @@ argocd:
       # Init container to install ksops (binaries baked into CMP image)
       initContainers:
         - name: install-ksops
-          image: ghcr.io/ryanmcafee/homelab-cmp:0.1.18
+          image: ghcr.io/ryanmcafee/homelab-cmp:0.1.19
           command: ["/bin/cp"]
           args: ["/usr/local/bin/ksops", "/usr/local/bin/kustomize", "/custom-tools/"]
           volumeMounts:
@@ -146,7 +147,7 @@ argocd:
       # CMP sidecar for homelab config plugin
       extraContainers:
         - name: homelab-cmp
-          image: ghcr.io/ryanmcafee/homelab-cmp:0.1.18
+          image: ghcr.io/ryanmcafee/homelab-cmp:0.1.19
           command: [/var/run/argocd/argocd-cmp-server]
           securityContext:
             runAsNonRoot: true

@@ -1,0 +1,130 @@
+---
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: mosquitto
+spec:
+  description: >-
+    The mosquitto Applications are Healthy and the MQTT listener accepts a TCP connection on
+    mosquitto.home-automation.svc.cluster.local:1883 (busybox nc from the pinned curl image).
+  steps:
+    - name: applications-healthy
+      description: mosquitto and mosquitto-config are Healthy and Succeeded.
+      try:
+        - assert:
+            resource:
+              apiVersion: argoproj.io/v1alpha1
+              kind: Application
+              metadata:
+                name: mosquitto
+                namespace: argocd
+              status:
+                health:
+                  status: Healthy
+                operationState:
+                  phase: Succeeded
+        - assert:
+            resource:
+              apiVersion: argoproj.io/v1alpha1
+              kind: Application
+              metadata:
+                name: mosquitto-config
+                namespace: argocd
+              status:
+                health:
+                  status: Healthy
+                operationState:
+                  phase: Succeeded
+      catch:
+        - describe:
+            apiVersion: argoproj.io/v1alpha1
+            kind: Application
+            name: mosquitto
+            namespace: argocd
+        - describe:
+            apiVersion: argoproj.io/v1alpha1
+            kind: Application
+            name: mosquitto-config
+            namespace: argocd
+    - name: nc-mosquitto
+      description: A Job must open a TCP connection to the MQTT port 1883.
+      timeouts:
+        assert: 5m
+      try:
+        - apply:
+            resource:
+              apiVersion: batch/v1
+              kind: Job
+              metadata:
+                name: nc-mosquitto
+              spec:
+                backoffLimit: 0
+                activeDeadlineSeconds: 300
+                template:
+                  spec:
+                    restartPolicy: Never
+                    securityContext:
+                      runAsNonRoot: true
+                      runAsUser: 100
+                      seccompProfile:
+                        type: RuntimeDefault
+                    containers:
+                      - name: nc
+                        # pinned from configuration/versions.yaml images.curl (Alpine image, ships busybox nc)
+                        image: curlimages/curl:8.22.0
+                        securityContext:
+                          allowPrivilegeEscalation: false
+                          capabilities:
+                            drop: ["ALL"]
+                        resources:
+                          requests:
+                            cpu: 10m
+                            memory: 32Mi
+                          limits:
+                            cpu: 100m
+                            memory: 64Mi
+                        env:
+                          - name: HOST
+                            value: "mosquitto.home-automation.svc.cluster.local"
+                          - name: PORT
+                            value: "1883"
+                          - name: ATTEMPTS
+                            value: "20"
+                        command: ["sh", "-c"]
+                        args:
+                          - |
+                            set -u
+                            i=1
+                            while [ "$i" -le "$ATTEMPTS" ]; do
+                              if nc -z -w 5 "$HOST" "$PORT"; then
+                                echo "attempt $i/$ATTEMPTS: TCP connect to $HOST:$PORT succeeded"
+                                exit 0
+                              fi
+                              echo "attempt $i/$ATTEMPTS: TCP connect to $HOST:$PORT failed"
+                              i=$((i + 1))
+                              sleep 6
+                            done
+                            echo "giving up: $HOST:$PORT never accepted a connection"
+                            exit 1
+        - assert:
+            resource:
+              apiVersion: batch/v1
+              kind: Job
+              metadata:
+                name: nc-mosquitto
+              status:
+                succeeded: 1
+      catch:
+        - events: {}
+        - podLogs:
+            selector: job-name=nc-mosquitto
+            tail: 50
+        - describe:
+            apiVersion: argoproj.io/v1alpha1
+            kind: Application
+            name: mosquitto
+            namespace: argocd
+        - podLogs:
+            namespace: home-automation
+            selector: app.kubernetes.io/name=mosquitto
+            tail: 50

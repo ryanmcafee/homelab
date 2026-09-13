@@ -73,13 +73,13 @@ proactive_conditions:
 > manifests to it or repointing a live Application at a feature branch.**
 >
 > - **Tier 1** (level-0 static verification, `task verify`) is the mandatory gate.
-> - **Tier 2** is a dry-run and is allowed **against Kind only**.
+> - **Tier 2** is the Kind loop, `task verify LEVEL=1|2`, and is allowed **against Kind only**.
 > - **Tier 3** (direct `kubectl apply` to the cluster) and **Tier 4** (patching the
 >   live `gitops`/`addons`/`applications` Applications to a feature branch) are
 >   **retired for agents**. They remain below as human-only reference.
-> - Section D of [issue #261](https://github.com/ryanmcafee/homelab/issues/261)
->   replaces them with the Kind loop. Until it lands, an agent's end state for a
->   chart change is: Tier 1 passes → commit → PR → CI.
+> - Section B of [issue #261](https://github.com/ryanmcafee/homelab/issues/261)
+>   replaced them with the Kind loop (ADR-012). An agent's end state for a chart
+>   change is: Tier 1 passes → Tier 2 on Kind passes → commit → PR → CI.
 >
 > Nothing in this skill may proactively invoke Tier 3 or Tier 4.
 
@@ -161,8 +161,8 @@ This skill monitors and tests changes to:
 │  helm lint + helm template + kubeconform                           │
 │  ↓ PASS                                                            │
 ├────────────────────────────────────────────────────────────────────┤
-│  TIER 2: CLUSTER DRY-RUN (~5 seconds)                              │
-│  kubectl apply --dry-run=server                                    │
+│  TIER 2: KIND LOOP (level 1 ~10 s dry run, level 2 minutes)        │
+│  task verify LEVEL=1 | LEVEL=2  (Kind only)                        │
 │  ↓ PASS                                                            │
 ├────────────────────────────────────────────────────────────────────┤
 │  TIER 3: DIRECT APPLY — ⛔ RETIRED FOR AGENTS (ADR-009)             │
@@ -173,9 +173,8 @@ This skill monitors and tests changes to:
 └────────────────────────────────────────────────────────────────────┘
 ```
 
-**An agent's path stops at Tier 1** (Tier 2 against Kind when one is up): Tier 1 passes
-→ commit → PR → CI → merge → ArgoCD. Section D of issue #261 replaces Tiers 3-4 with the
-Kind loop.
+**An agent's path stops at Tier 2**: Tier 1 passes → Tier 2 on Kind passes → commit → PR
+→ CI → merge → ArgoCD. The Kind loop (Section B of issue #261, ADR-012) replaced Tiers 3-4.
 
 **Time Savings**: Most errors are caught in Tier 1 (~2 seconds).
 
@@ -213,49 +212,50 @@ Exit code 0 = pass, 1 = findings, 2 = usage error. JSON contract:
 
 ### 1.3 Pre-commit
 
-The `verify-level-0` pre-commit hook runs `task verify:text` whenever `charts/`, `configuration/` or `tests/` change, so `git commit` is gated automatically. CI re-runs it in `.github/workflows/verify.yml`.
+The `verify-level-0` pre-commit hook runs `task verify:text` whenever `charts/`, `configuration/`, `localdev/` or `tests/` change, so `git commit` is gated automatically. CI re-runs it in `.github/workflows/verify.yml`, and runs the Kind loop (level 2) in `.github/workflows/tilt-ci.yml`.
 
 ---
 
-## TIER 2: Cluster Dry-Run (~5 seconds)
+## TIER 2: Kind Loop (`task verify LEVEL=1|2`)
 
-**Goal**: Validate against actual cluster CRDs without applying changes.
+**Goal**: Prove the change against a real API server and a real ArgoCD, on Kind only
+(ADR-009). Both levels emit the same JSON contract as level 0 and run in CI
+(`.github/workflows/tilt-ci.yml`, job `kind-argocd`, required). Full reference:
+`docs/runbooks/verification.md`, `docs/local-development.md`.
 
-### 2.1 Server-Side Dry Run
-
-```bash
-# Dry-run addons (Application CRDs)
-helm template addons charts/addons \
-  -f charts/addons/values.yaml \
-  -f charts/addons/values-homelab.yaml | \
-  kubectl apply --dry-run=server -f -
-
-# Dry-run applications
-helm template applications charts/applications \
-  -f charts/applications/values.yaml \
-  -f charts/applications/values-homelab.yaml | \
-  kubectl apply --dry-run=server -f -
-```
-
-### 2.2 Validate Specific Resources
+### 2.1 Level 1: server-side dry run (~10 seconds once the cluster exists)
 
 ```bash
-# Test single addon template
-helm template addons charts/addons \
-  -f charts/addons/values.yaml \
-  -f charts/addons/values-homelab.yaml \
-  -s templates/traefik.yaml | \
-  kubectl apply --dry-run=server -f -
+task localdev:kind               # Kind + Cilium + fakes; idempotent, no ArgoCD needed
+task verify:text LEVEL=1         # level 0 + kubectl apply --server-side --dry-run=server of every localdev chart
 ```
 
-### 2.3 Check CRD Dependencies
+Checks `dryrun/localdev/<chart>`: admission webhooks, installed CRD versions, namespaces
+and StorageClasses that exist in Kind. `--env` must include `localdev`; the homelab render
+is never applied anywhere by an agent.
+
+### 2.2 Level 2: Application health and e2e (minutes)
 
 ```bash
-# Verify required CRDs exist
-kubectl get crd applications.argoproj.io >/dev/null 2>&1 || echo "ERROR: ArgoCD CRDs missing"
-kubectl get crd certificates.cert-manager.io >/dev/null 2>&1 || echo "ERROR: cert-manager CRDs missing"
-kubectl get crd onepassworditems.onepassword.com >/dev/null 2>&1 || echo "ERROR: 1Password CRDs missing"
+task localdev:up                 # Kind + ArgoCD + every Application synced from the working tree (argocd app sync --local)
+task verify:text LEVEL=2         # level 1 + argocd/<app> (Healthy + Succeeded) + e2e/<test> (chainsaw)
 ```
+
+After editing, `task localdev:sync` (or `-- --only <app>`) pushes the working tree again;
+`task localdev:diagnose` prints conditions, events and failing pod logs. Every
+Application is `OutOfSync` against GitHub `main` after a local sync by design (automated
+sync is off in localdev); never treat that as a failure.
+
+### 2.3 One-off checks
+
+```bash
+task test:e2e -- --test-dir tests/e2e/<app>      # one chainsaw test with full output
+task test:health                                 # health Lua fixtures, no cluster
+kubectl --context kind-homelab-localdev get crd applications.argoproj.io certificates.cert-manager.io
+```
+
+Always pin `--context kind-homelab-localdev` on any manual kubectl call: the current
+context may be production.
 
 ---
 
@@ -496,7 +496,7 @@ gh pr create --title "feat: <title>" --body "$(cat <<'EOF'
 
 ## Validation
 - [x] Tier 1: level-0 static verification passed (`task verify`)
-- [ ] Tier 2: Kind dry-run passed (if a Kind cluster was up)
+- [ ] Tier 2: `task verify LEVEL=2` on Kind passed (paste the JSON summary)
 
 ## ArgoCD Status
 - gitops: Synced/Healthy
@@ -578,7 +578,7 @@ only) and 5.
 | Tier | Agents? | Time | Command | Catches |
 |------|---------|------|---------|---------|
 | 1 | ✅ mandatory | ~2s | `task verify` | Render, schema, GitOps graph, snapshots, policy |
-| 2 | ✅ Kind only | ~5s | `helm template $CHART charts/$CHART -f charts/$CHART/values.yaml -f charts/$CHART/values-homelab.yaml \| kubectl apply --dry-run=server -f -` | CRD schema mismatches |
+| 2 | ✅ Kind only | ~10s / minutes | `task verify LEVEL=1` (server-side dry run) / `task verify LEVEL=2` (Application health + chainsaw e2e) after `task localdev:up` | Webhook and CRD rejections; Applications that do not reach Healthy; endpoints that do not answer |
 | 3 | ⛔ retired | ~30s | `helm template ... > /tmp/X.yaml && kubectl apply -f /tmp/X.yaml` | Runtime issues (human-only) |
 | 4 | ⛔ retired | ~5min | Full GitOps cycle (repoint live Applications → sync) | Integration issues (human-only) |
 | 5 | ✅ | ~10s | Context-aware validation (component-specific checks) | Component-specific issues |
@@ -796,8 +796,8 @@ Start: Make changes to charts/**/*
   │   ├── FAIL → Fix locally, no git needed
   │   └── PASS ↓
   │
-  ├── Run Tier 2 (dry-run=server)
-  │   ├── FAIL → Fix locally, check CRDs
+  ├── Run Tier 2 on Kind (task verify LEVEL=1, then LEVEL=2 after task localdev:up)
+  │   ├── FAIL → task localdev:diagnose, fix locally, task localdev:sync
   │   └── PASS ↓
   │
   ├── ⛔ Tier 3 / Tier 4 — RETIRED FOR AGENTS (ADR-009), human-only
