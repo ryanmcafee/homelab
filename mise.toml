@@ -17,7 +17,7 @@ kubectl = "1.36.3"
 # source of truth (it is the Renovate-tracked one); change it and these two
 # together.
 helm = "4.2.0"
-kind = "0.31.0"
+kind = "0.33.0"
 talosctl = "1.13.8"
 tilt = "0.37.3"
 argocd = "latest"
