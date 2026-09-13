@@ -13,6 +13,11 @@ Each entry should include:
 
 ## Recent Work
 
+### 2026-09-12 - PR #265: Child-chart values-homelab.yaml PII moved to the config system (#262)
+- **Status**: Open
+- **Description**: Parent Applications now pass derived values (domain, hostnames, iSCSI portal, Traefik static IP, ACME e-mail, DuckDNS subdomain) to child charts via `helm.valuesObject`; ~20 child `values-homelab.yaml` files stripped to non-PII settings; bootstrap ArgoCD hostname derived from a Terraform-injected `global.domain`; level 0 inherits parent `valuesObject` per child; PII guard widened to `charts/**/values-homelab.yaml` with Helm-key shape rules; 9 `hostname-domain` exemptions removed. ADR-010.
+- **URL**: https://github.com/ryanmcafee/homelab/issues/262
+
 ### 2026-09-12 - PR #264: Level-0 static verification (#261 Section A)
 - **Status**: Open
 - **Description**: `task verify` renders every chart for localdev + homelab.yaml.example, runs helm lint, kubeconform (vendored CRD schemas, no -skip), pluto, a GitOps graph linter, golden snapshots and conftest policies; JSON summary, < 5 s. CI workflow verify.yml, pre-commit hook, runbook, ADR-009. Follow-ups #262, #263.
