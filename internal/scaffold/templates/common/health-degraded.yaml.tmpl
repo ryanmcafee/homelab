@@ -1,0 +1,13 @@
+# expect: Degraded
+# message: reconcile failed
+apiVersion: [[ .Group ]]/[[ .Version ]]
+kind: [[ .Kind ]]
+metadata:
+  name: example
+  namespace: [[ .Namespace ]]
+status:
+  conditions:
+    - type: Ready
+      status: "False"
+      message: "reconcile failed: example error"
+      lastTransitionTime: "2026-09-13T00:00:00Z"

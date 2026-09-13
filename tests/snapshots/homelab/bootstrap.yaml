@@ -238,6 +238,7 @@ spec:
               memory: 128Mi
         configs:
           cm:
+            accounts.agent: apiKey
             kustomize.buildOptions: --enable-alpha-plugins --enable-exec
             resource.customizations.health.argoproj.io_Application: |
               -- ArgoCD Application: propagate the child Application's own health so the
@@ -385,7 +386,11 @@ spec:
               end
               return hs
           params:
+            application.namespaces: preview-*
             server.insecure: true
+          rbac:
+            policy.csv: |
+              g, agent, role:readonly
         controller:
           resources:
             limits:
@@ -395,6 +400,7 @@ spec:
               cpu: 250m
               memory: 1Gi
         notifications:
+          argocdUrl: https://argocd.REPLACEME-domain.com
           enabled: true
           resources:
             limits:
@@ -415,7 +421,7 @@ spec:
             env:
             - name: ARGOCD_EXEC_TIMEOUT
               value: "90"
-            image: ghcr.io/ryanmcafee/homelab-cmp:0.1.19
+            image: ghcr.io/ryanmcafee/homelab-cmp:0.1.20
             name: homelab-cmp
             securityContext:
               runAsNonRoot: true
@@ -438,7 +444,7 @@ spec:
             - /custom-tools/
             command:
             - /bin/cp
-            image: ghcr.io/ryanmcafee/homelab-cmp:0.1.19
+            image: ghcr.io/ryanmcafee/homelab-cmp:0.1.20
             name: install-ksops
             volumeMounts:
             - mountPath: /custom-tools

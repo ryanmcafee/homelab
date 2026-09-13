@@ -70,3 +70,12 @@ applications:
     # so listing it here too would pass it to helm twice.
     valueFiles:
       - values.yaml
+
+# ============================================================================
+# Per-PR Preview Environments
+# ============================================================================
+
+previews:
+  # Homelab only: Kind syncs the working tree and has no pull-request
+  # generator to feed (docs/runbooks/previews.md).
+  enabled: false

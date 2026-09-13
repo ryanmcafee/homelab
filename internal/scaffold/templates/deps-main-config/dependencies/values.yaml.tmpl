@@ -1,0 +1,12 @@
+# [[ .Name ]]-dependencies values: prerequisites synced before [[ .Name ]]
+# (wave [[ .DepsWave ]] < [[ .Wave ]]). Scaffolded by `homelab scaffold app [[ .Name ]]`.
+
+namespace: [[ .Namespace ]]
+
+# A 1Password item the operator materialises as Secret <secretName>. Inert until
+# both enabled and itemPath are set. Localdev has no secret store
+# (SECRETS_PROVIDER=none): seed the Secret in localdev/fakes/secrets.yaml instead.
+onePassword:
+  enabled: false
+  secretName: [[ .Name ]]-credentials
+  itemPath: ""

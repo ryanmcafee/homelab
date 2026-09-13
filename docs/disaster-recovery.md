@@ -4,6 +4,7 @@ This document outlines comprehensive backup strategies, recovery procedures, and
 
 ## Table of Contents
 
+- [Verified claims](#verified-claims)
 - [Overview](#overview)
 - [Recovery Objectives](#recovery-objectives)
 - [Backup Strategy](#backup-strategy)
@@ -13,6 +14,53 @@ This document outlines comprehensive backup strategies, recovery procedures, and
 - [Automation](#automation)
 - [Troubleshooting](#troubleshooting)
 - [References](#references)
+
+---
+
+## Verified claims
+
+Most of this document is a target design. This table states, claim by claim, what the
+repository actually implements and what is proven by a test. A claim is only
+**Verified weekly** when `.github/workflows/restore-drill.yml` exercises it: that workflow runs
+`task drill:restore` every Monday (Kind, never production) and opens an issue labelled
+`restore-drill` when it fails.
+
+| Claim (section) | Status | Evidence / gap |
+|-----------------|--------|----------------|
+| A CloudNativePG `Cluster` archives WAL and takes base backups to S3 through the Barman Cloud Plugin, and a new `Cluster` restored from that object store returns the same data | **Verified weekly (restore drill)** | `tests/drills/cnpg-restore` in Kind: WAL archiving (`ContinuousArchiving`), `Backup` `method: plugin` completes, `bootstrap.recovery` from `externalClusters` restores 1001 rows and a per-run marker |
+| The Barman Cloud Plugin is installed wherever CloudNativePG is | Implemented, not drilled in production | Addon `cnpg-barman-cloud` (`charts/addons/templates/cnpg-barman-cloud.yaml`, chart `plugin-barman-cloud` in `configuration/versions.yaml`); the drill asserts it Healthy in Kind |
+| Production PostgreSQL is backed up | **Not implemented** | No production app runs a CNPG `Cluster` yet and there is no object store (no bucket, no `ObjectStore`, no `ScheduledBackup`); see [CloudNativePG backup path](#cloudnativepg-backup-path) |
+| Infrastructure as code lives in Git (Layer 1) | Implemented, not drilled | The repository is public on GitHub, not private. Every PR rebuilds the GitOps stack from it in Kind (`tilt-ci.yml`), which exercises manifests, not data. `./scripts/setup.sh` does not exist |
+| Proxmox VMs are backed up daily via Ansible `proxmox-backup` role | Not implemented | No such role (`ansible/` holds HBA firmware only). `terragrunt/modules/proxmox-backup-policy` exists but no environment uses it |
+| Proxmox `/etc/pve`, TrueNAS config database backups | Not implemented | Manual commands only; nothing schedules or checks them |
+| TrueNAS ZFS snapshots (hourly) and replication to an external drive | Not implemented (in this repo) | Would be TrueNAS UI configuration; nothing here creates or verifies it |
+| "Talos automatically backs up etcd" / `etcd-backup` CronJob every 6 h | Not implemented | Talos has no automatic etcd backup; the CronJob does not exist (and its kubeadm paths and `bitnami/etcd:latest` would not work on Talos). The manual `talosctl etcd snapshot` step in [talos-upgrade.md](./runbooks/talos-upgrade.md) is the only procedure |
+| Velero PV backups to Backblaze B2 | Not implemented | Velero is not installed; no B2 bucket or credentials exist |
+| `postgres-backup` CronJob (`pg_dump`) | Not implemented | Does not exist; CloudNativePG uses the plugin path instead |
+| Off-site copy (3-2-1: B2 via rclone, weekly USB) and the daily backup script | Not implemented | No rclone, B2 or `/usr/local/bin/daily-backup.sh` anywhere |
+| Backup alerts (`VeleroBackupFailed`, `NoBackupIn24Hours`) | Not implemented | No such PrometheusRule is rendered |
+| RTO / RPO figures in the tables below | Not measured | Targets only. In Kind the drill restores a small cluster from the object store in about a minute; nothing measures production |
+
+### CloudNativePG backup path
+
+CloudNativePG 1.29 still ships the in-tree `barmanObjectStore`, but it is deprecated and removed
+in 1.31. This repository uses the **Barman Cloud Plugin** instead:
+
+1. The `cnpg-barman-cloud` addon (sync wave 11, after `cert-manager` and `cloudnative-pg`) installs
+   the plugin Deployment in `cnpg-system` and the `objectstores.barmancloud.cnpg.io` CRD. Its gRPC
+   TLS comes from a cert-manager self-signed `Issuer` the chart creates.
+2. An `ObjectStore` (`barmancloud.cnpg.io/v1`) per bucket: `destinationPath: s3://<bucket>/`,
+   `endpointURL` for S3-compatible stores, `s3Credentials` from a Secret.
+3. The `Cluster` enables `spec.plugins: [{name: barman-cloud.cloudnative-pg.io, isWALArchiver: true,
+   parameters: {barmanObjectName: <store>}}]`; `Backup` / `ScheduledBackup` use `method: plugin`
+   with `pluginConfiguration.name: barman-cloud.cloudnative-pg.io`.
+4. Restore: a new `Cluster` with `bootstrap.recovery.source: <name>` and an `externalClusters` entry
+   whose `plugin` names the store and `serverName: <original cluster>`.
+
+Production has **no object store yet**. Enabling backups for the first real Cluster (#260) needs an
+S3-compatible bucket (TrueNAS or off-site), its credentials in 1Password, and an `ObjectStore` +
+`ScheduledBackup` next to the Cluster. The drill proves the mechanics against versitygw in Kind;
+it does not prove that a production bucket exists or is reachable.
 
 ---
 
@@ -369,7 +417,7 @@ spec:
 
 **Restore etcd**:
 
-See [runbooks/talos-recovery.md](./runbooks/talos-recovery.md) for complete procedure.
+See [runbooks/talos-upgrade.md, Emergency Recovery](./runbooks/talos-upgrade.md#emergency-recovery) for the complete procedure.
 
 #### Persistent Volume Backups
 
@@ -427,6 +475,10 @@ velero restore create --from-backup media-backup \
 ### Application Data
 
 #### Database Backups
+
+> Not implemented: the `postgres-backup` CronJob below does not exist in this repository.
+> CloudNativePG clusters are backed up through the Barman Cloud Plugin
+> ([CloudNativePG backup path](#cloudnativepg-backup-path)), verified weekly by the restore drill.
 
 **PostgreSQL Example**:
 
@@ -702,6 +754,7 @@ kubectl get applications -n argocd --watch
 
 | Test | Frequency | Procedure |
 |------|-----------|-----------|
+| CloudNativePG backup + restore | Weekly, automated (`restore-drill.yml`) | `task drill:restore`: Kind, plugin backup to S3 (versitygw), restore into a new Cluster, compare data ([tests/drills/README.md](../tests/drills/README.md)) |
 | Pod recovery | Weekly | Delete random pod, verify auto-restart |
 | PVC restore | Monthly | Restore PVC from Velero backup to test namespace |
 | etcd restore | Quarterly | Restore etcd to test cluster |

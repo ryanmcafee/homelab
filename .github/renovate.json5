@@ -23,16 +23,27 @@
   prHourlyLimit: 2,
   rebaseWhen: 'behind-base-branch',
   automerge: false,
+  // Renovate merges an automerge PR itself, and only once every status check
+  // on the head commit is green. platformAutomerge (GitHub native auto-merge)
+  // is never used: the main ruleset requires no status checks, so GitHub
+  // would merge the moment the PR opened, before CI or the upgrade gate ran.
   platformAutomerge: false,
+  // .github/workflows/upgrade.yml (job regenerate) commits regenerated
+  // snapshots, schemas and localdev values onto renovate/* branches as this
+  // author. Ignoring it keeps Renovate managing (and rebasing) the branch
+  // instead of treating it as edited by a human.
+  gitIgnoredAuthors: [
+    'homelab-regen-bot@users.noreply.github.com',
+  ],
   packageRules: [
     {
       matchUpdateTypes: [
         'patch',
       ],
-      matchCurrentVersion: '!/^0/',
+      matchCurrentVersion: '!/^v?0\\./',
       automerge: true,
       automergeType: 'pr',
-      platformAutomerge: true,
+      platformAutomerge: false,
     },
     {
       groupName: 'Kubernetes ecosystem',
@@ -108,7 +119,7 @@
       ],
       automerge: true,
       automergeType: 'pr',
-      platformAutomerge: true,
+      platformAutomerge: false,
     },
     {
       matchManagers: [
@@ -137,6 +148,35 @@
       ],
       schedule: [
         'every weekend',
+      ],
+    },
+    // Non-major chart and image bumps in versions.yaml automerge only through
+    // the upgrade gate: upgrade.yml sets the upgrade/automerge-gate commit
+    // status to failure whenever a rendered manifest changes or a custom
+    // resource no longer validates, and Renovate merges only when every status
+    // is green. 0.x versions, majors (rule below), infrastructure tools,
+    // kindest/node (tracks the Kubernetes version) and ksops stay manual.
+    {
+      matchFileNames: [
+        'configuration/versions.yaml',
+      ],
+      matchDatasources: [
+        'helm',
+        'docker',
+      ],
+      matchUpdateTypes: [
+        'minor',
+        'patch',
+      ],
+      matchCurrentVersion: '!/^v?0\\./',
+      matchPackageNames: [
+        '!kindest/node',
+      ],
+      automerge: true,
+      automergeType: 'pr',
+      platformAutomerge: false,
+      prBodyNotes: [
+        '**Upgrade gate:** `upgrade.yml` renders every upstream chart this PR changes at `main` and at this branch, posts the manifest diff as the `upgrade-diff` comment, re-vendors the CRD schemas and revalidates every custom resource. Renovate automerges only when the `upgrade/automerge-gate` status is green, which requires an empty rendered diff; any manifest change needs a human review. When the regeneration bot is configured it commits the snapshots, schemas and localdev values (see docs/runbooks/verification.md, "Renovate bumps").',
       ],
     },
     {
@@ -185,10 +225,13 @@
       ],
     },
   ],
+  // Patterns are anchored at the repository root: internal/scaffold/testdata/repo
+  // holds a miniature copy of charts/, configuration/ and Taskfile.yml whose golden
+  // tests must never be bumped.
   'helm-values': {
     managerFilePatterns: [
-      '/charts/.+/values\\.yaml$/',
-      '/charts/.+/values-.+\\.yaml$/',
+      '/^charts/.+/values\\.yaml$/',
+      '/^charts/.+/values-.+\\.yaml$/',
     ],
   },
   terraform: {
@@ -209,7 +252,7 @@
     {
       customType: 'regex',
       managerFilePatterns: [
-        '/configuration/versions\\.yaml$/',
+        '/^configuration/versions\\.yaml$/',
       ],
       matchStrings: [
         '# renovate: datasource=(?<datasource>.*?) depName=(?<depName>.*?)( registryUrl=(?<registryUrl>.*?))?\\s+[\\w-]+:\\s*"(?<currentValue>[^"]+)"',
@@ -238,7 +281,7 @@
     {
       customType: 'regex',
       managerFilePatterns: [
-        '/Taskfile\\.yml$/',
+        '/^Taskfile\\.yml$/',
       ],
       matchStrings: [
         '# renovate: datasource=(?<datasource>.*?) depName=(?<depName>.*?)\\s+version: [\'"]?(?<currentValue>[^\'"\\s]+)',

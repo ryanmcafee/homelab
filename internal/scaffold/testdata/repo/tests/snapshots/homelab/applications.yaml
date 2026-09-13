@@ -1,0 +1,27 @@
+---
+# Source: applications/templates/namespaces.yaml
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: media
+---
+# Source: applications/templates/oci-repositories.yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: truecharts-oci
+  namespace: argocd
+  labels:
+    argocd.argoproj.io/secret-type: repository
+stringData:
+  name: truecharts
+  type: helm
+  url: oci.trueforge.org/truecharts
+  enableOCI: "true"
+---
+# Source: applications/templates/sonarr.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: sonarr
+  namespace: argocd

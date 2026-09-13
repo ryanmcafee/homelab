@@ -1,0 +1,14 @@
+---
+# Source: addons/templates/cloudnative-pg.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cloudnative-pg
+  namespace: argocd
+---
+# Source: addons/templates/external-dns-cloudflare.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: external-dns-cloudflare-crd
+  namespace: argocd

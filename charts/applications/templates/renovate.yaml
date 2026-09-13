@@ -1,4 +1,5 @@
-{{- if .Values.renovate.enabled }}
+{{- /* Never part of a preview (docs/runbooks/previews.md). */ -}}
+{{- if and .Values.renovate.enabled (not (include "homelab.preview.enabled" .)) }}
 ---
 # Namespace for Renovate resources
 apiVersion: v1

@@ -939,6 +939,17 @@ tailscale-operator:
       - "tag:k8s"
 
 # ============================================================================
+# Agent Read-Only Access - ServiceAccount + ClusterRoles agents use through the
+# Tailscale API server proxy (no Secrets, no write verbs). Enabled in every
+# environment; tests/e2e/agent-readonly proves the RBAC in Kind.
+# Sync Wave: Namespace at 1, Application at 2. docs/runbooks/readonly-access.md
+# ============================================================================
+
+agentReadonly:
+  enabled: true
+  namespace: agent-access
+
+# ============================================================================
 # NVIDIA GPU Operator - GPU Support for Kubernetes
 # Disabled by default - enable in environment-specific values
 # ============================================================================
@@ -1031,6 +1042,28 @@ cloudnative-pg:
     podMonitorEnabled: false
     grafanaDashboard:
       create: false
+
+# ============================================================================
+# CloudNativePG Barman Cloud Plugin - backup/restore through an ObjectStore
+# Disabled by default - rendered only together with cloudnative-pg
+# ============================================================================
+
+cnpg-barman-cloud:
+  enabled: false
+  namespace: cnpg-system
+
+  chart:
+    name: plugin-barman-cloud
+    repo: https://cloudnative-pg.github.io/charts
+    version: 0.8.0
+
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
 
 # ============================================================================
 # Cilium LB IPAM - LoadBalancer IP Address Management

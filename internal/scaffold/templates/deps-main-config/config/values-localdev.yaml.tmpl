@@ -1,0 +1,8 @@
+# [[ .Name ]]-config — local development overrides
+#
+# No overrides are needed: the hostname arrives through the parent
+# Application's helm.valuesObject, generated from configuration/ for localdev.
+# The file still has to exist: the parent Application always appends
+# values-localdev.yaml to spec.source.helm.valueFiles.
+
+namespace: [[ .Namespace ]]

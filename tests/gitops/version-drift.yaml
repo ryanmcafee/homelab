@@ -1,0 +1,25 @@
+# Accepted chart-version drift for the versions/<env> level-0 check.
+#
+# configuration/versions.yaml `charts:` is the single source of truth for every
+# chart version. versions/<env> fails when a chart-sourced Application renders a
+# targetRevision that is not its pin (mapped by chart name, Renovate depName or
+# Application name). An Application listed here may render `revision` instead.
+#
+# Every field is mandatory. An entry whose revision no longer matches the render,
+# whose drift was fixed, or that matches no rendered Application in any
+# environment fails the check, so remove it when the drift goes away.
+entries:
+  - application: argocd
+    chart: argo-cd
+    revision: 9.4.7
+    reason: >-
+      charts/bootstrap is rendered with plain Helm, not the CMP, so versions.yaml does not reach it;
+      aligning upgrades production ArgoCD/1Password Connect — pending the owner's decision
+      (docs/project_notes/bugs.md 2026-09-13)
+  - application: onepassword-operator
+    chart: connect
+    revision: 1.16.0
+    reason: >-
+      charts/bootstrap is rendered with plain Helm, not the CMP, so versions.yaml does not reach it;
+      aligning upgrades production ArgoCD/1Password Connect — pending the owner's decision
+      (docs/project_notes/bugs.md 2026-09-13)

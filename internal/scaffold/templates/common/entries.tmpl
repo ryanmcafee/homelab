@@ -1,0 +1,39 @@
+[[- /* Snippets inserted into existing registries. Each define renders one block. */ -]]
+
+[[- define "versionsEntry" ]]
+  # renovate: [[ .RenovateMarker ]]
+  [[ .Name ]]: "[[ .ChartVersion ]]"
+[[- end -]]
+
+[[- define "schemaKey" ]]
+
+  # [[ .Name ]] (scaffolded by `homelab scaffold app [[ .Name ]]`)
+  [[ .HostnameKey ]]:
+    description: [[ .Name ]] hostname
+    const: "[[ .Name ]].{{.DOMAIN}}"
+[[- end -]]
+
+[[- define "crdProvider" ]]
+  # [[ .Name ]] (scaffolded): its chart installs the [[ .CRDGroup ]] CRDs.
+  [[ .CRDGroup ]]: [[ .Name ]]
+[[- end -]]
+
+[[- define "hugeCRDChart" ]]
+  - [[ .Name ]]
+[[- end -]]
+
+[[- define "schemaSource" ]]
+
+  # [[ .Name ]] (scaffolded): run `task schemas:vendor -- --only [[ .Name ]]`. Add
+  # helmArgs (e.g. ["--set", "crds.create=true"]) if the chart gates its CRDs.
+  - name: [[ .Name ]]
+    versionKey: [[ .Name ]]
+    chart:
+      repo: [[ .ChartRepo ]]
+      name: [[ .ChartName ]]
+    kinds: [[ flowListBare .CRDKinds ]]
+[[- end -]]
+
+[[- define "renovatePackage" ]]
+        'oci.trueforge.org/truecharts/[[ .ChartName ]]',
+[[- end -]]

@@ -1,0 +1,127 @@
+---
+# Scaffolded by `homelab scaffold app [[ .Name ]]`; see tests/e2e/README.md.
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: [[ .Name ]]
+spec:
+  description: >-
+[[- if .Ingress ]]
+    [[ .Name ]] [[ .HealthPath ]] answers through the internal Traefik with Host [[ .LocaldevHost ]].
+[[- else ]]
+    The [[ .Name ]] Application is Healthy and its last sync Succeeded.
+[[- end ]]
+  steps:
+    - name: applications-healthy
+      description: The ArgoCD Applications behind this test are Healthy and their last sync Succeeded.
+      try:
+[[- range .AppNames ]]
+        - assert:
+            resource:
+              apiVersion: argoproj.io/v1alpha1
+              kind: Application
+              metadata:
+                name: [[ . ]]
+                namespace: argocd
+              status:
+                health:
+                  status: Healthy
+                operationState:
+                  phase: Succeeded
+[[- end ]]
+      catch:
+[[- range .AppNames ]]
+        - describe:
+            apiVersion: argoproj.io/v1alpha1
+            kind: Application
+            name: [[ . ]]
+            namespace: argocd
+[[- end ]]
+[[- if .Ingress ]]
+    - name: curl-[[ .Name ]]
+      description: >-
+        A curl Job must get one of [[ flowListBare .Expect ]]
+        from https://[[ .LocaldevHost ]][[ .HealthPath ]] via [[ .Gateway ]].
+      timeouts:
+        assert: 5m
+      try:
+        - apply:
+            resource:
+              apiVersion: batch/v1
+              kind: Job
+              metadata:
+                name: curl-[[ .Name ]]
+              spec:
+                backoffLimit: 0
+                activeDeadlineSeconds: 300
+                template:
+                  spec:
+                    restartPolicy: Never
+                    securityContext:
+                      runAsNonRoot: true
+                      runAsUser: 100
+                      seccompProfile:
+                        type: RuntimeDefault
+                    containers:
+                      - name: curl
+                        # pinned from configuration/versions.yaml images.curl
+                        image: curlimages/curl:[[ .CurlImage ]]
+                        securityContext:
+                          allowPrivilegeEscalation: false
+                          capabilities:
+                            drop: ["ALL"]
+                        resources:
+                          requests:
+                            cpu: 10m
+                            memory: 32Mi
+                          limits:
+                            cpu: 100m
+                            memory: 64Mi
+                        env:
+                          - name: HOST
+                            value: "[[ .LocaldevHost ]]"
+                          - name: GATEWAY
+                            value: "[[ .Gateway ]]"
+                          - name: URL_PATH
+                            value: "[[ .HealthPath ]]"
+                          - name: EXPECT
+                            value: "[[ join .Expect " " ]]"
+                          - name: ATTEMPTS
+                            value: "20"
+                        command: ["sh", "-c"]
+                        args:
+                          - |
+                            set -u
+                            i=1
+                            while [ "$i" -le "$ATTEMPTS" ]; do
+                              code=$(curl -sk -o /dev/null -w '%{http_code}' -L --max-redirs 5 --max-time 20 \
+                                --connect-to "$HOST:443:$GATEWAY:443" --connect-to "$HOST:80:$GATEWAY:80" \
+                                "https://$HOST$URL_PATH")
+                              echo "attempt $i/$ATTEMPTS: HTTP $code for https://$HOST$URL_PATH via $GATEWAY"
+                              for ok in $EXPECT; do [ "$code" = "$ok" ] && exit 0; done
+                              i=$((i + 1))
+                              sleep 6
+                            done
+                            echo "giving up: last HTTP code $code, expected one of: $EXPECT"
+                            exit 1
+        - assert:
+            resource:
+              apiVersion: batch/v1
+              kind: Job
+              metadata:
+                name: curl-[[ .Name ]]
+              status:
+                succeeded: 1
+      catch:
+        - events: {}
+        - podLogs:
+            selector: job-name=curl-[[ .Name ]]
+            tail: 50
+[[- range .AppNames ]]
+        - describe:
+            apiVersion: argoproj.io/v1alpha1
+            kind: Application
+            name: [[ . ]]
+            namespace: argocd
+[[- end ]]
+[[- end ]]

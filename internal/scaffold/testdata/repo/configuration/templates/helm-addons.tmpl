@@ -1,0 +1,17 @@
+{{- $localdev := eq .Set "localdev" -}}
+# Addons Chart - {{ .Set }} Environment Values (fixture)
+
+global:
+  environment: {{ .Set }}
+  domain: {{ .Values.DOMAIN.Value }}
+
+cloudnative-pg:
+  enabled: true
+  namespace: cnpg-system
+  chart:
+    name: cloudnative-pg
+    repo: https://cloudnative-pg.github.io/charts
+    version: {{ index .Versions.Charts "cloudnative-pg" }}
+{{- if $localdev }}
+  replicaCount: 1
+{{- end }}

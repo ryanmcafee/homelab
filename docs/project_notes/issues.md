@@ -13,8 +13,13 @@ Each entry should include:
 
 ## Recent Work
 
+### 2026-09-13 - Issue #261 Sections C + D: previews, read-only prod, upgrade gate, restore drill, scaffolder, agent contract
+- **Status**: Open (PR #273, single PR for items 16-22, closes #261)
+- **Description**: Label-gated per-PR previews on the homelab cluster (ApplicationSet PR generator, `preview-<N>` namespaces, AppProject `previews`); sticky Kind report with `argocd app diff` vs main on every PR; read-only production access for agents (`agent-readonly` RBAC, Tailscale API server proxy, ArgoCD `agent` account, `homelab verify prod`) and gated ArgoCD GitHub deploy notifications; `homelab verify upgrade` + `upgrade.yml` (upstream manifest diff, CRD revalidation, Renovate automerge gate, optional regeneration bot); weekly CloudNativePG restore drill in Kind (Barman Cloud Plugin + versitygw); `homelab scaffold app`; committed PostToolUse level-0 hook, PR-body claim checked by `pr-contract.yml`, gitops-test skill without prod-mutating tiers. ADR-013, ADR-014.
+- **URL**: https://github.com/ryanmcafee/homelab/issues/261
+
 ### 2026-09-13 - Issue #261 Section B / PR #270: Kind + ArgoCD loop (levels 1-2)
-- **Status**: Open (PR #270, awaiting CI + merge)
+- **Status**: Merged (cca7600)
 - **Description**: `task localdev:up` builds Kind (Cilium, registry pull-through caches, fakes), installs ArgoCD from `versions.yaml` with the shared health Lua, and syncs every Application from the working tree with `argocd app sync --local` tier by tier; automated sync is off in localdev (`ARGOCD_AUTOMATED_SYNC`), `MEDIA_PROVIDER`/`CERT_ISSUER` keys make the render Kind-safe. `task verify LEVEL=1|2` adds `dryrun/localdev/<chart>`, `argocd/<app>` and `e2e/<test>` checks; PostSync smoke hooks; chainsaw e2e in `tests/e2e/`; `task test:health` fixtures; `tilt-ci.yml` rewritten with a required `kind-argocd` job. ADR-012. Items 9-15 of #261.
 - **URL**: https://github.com/ryanmcafee/homelab/pull/270 (issue https://github.com/ryanmcafee/homelab/issues/261)
 

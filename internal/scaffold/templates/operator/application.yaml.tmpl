@@ -1,0 +1,10 @@
+[[- template "appHeader" . ]]
+{{- /*
+The chart installs the [[ .CRDGroup ]] CRDs (tests/gitops/crd-providers.yaml), so
+every custom resource of that group must sync after this Application
+(rule gitops/<env>/crd-order): put them in a later wave or a later parent.
+*/}}
+[[- template "namespace" . ]]
+[[- template "repoSecret" . ]]
+[[- template "mainApp" . ]]
+{{- end }}

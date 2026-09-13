@@ -33,8 +33,10 @@ The JSON contract is stable and intended for machines:
 ```
 
 `status` is `pass`, `fail` or `skip`; failing checks carry `detail` and a `findings[]` list
-with one line per problem. Paste the JSON summary in PR descriptions; CI re-runs it and
-uploads its own copy as the `verify-level0` artifact.
+with one line per problem. Put the `task verify:claim` block (a compact form of this JSON)
+in PR descriptions: `pr-contract.yml` re-runs level 0 on the PR head and fails when the
+claim disagrees (see "Agent contract" below); `verify.yml` uploads its own copy as the
+`verify-level0` artifact.
 
 ## What level 0 checks
 
@@ -53,8 +55,19 @@ uploads its own copy as the `verify-level0` artifact.
 | `gitops/<env>/namespaces` | Every destination namespace is declared as a `Namespace` object, created with `CreateNamespace=true`, or is a system namespace. | Declare it (with pod-security labels) or add the sync option. |
 | `gitops/<env>/ssa` | Charts on the huge-CRD list (`tests/gitops/huge-crd-charts.yaml`) use `ServerSideApply=true`. Reports `skip`, not `pass`, when the list is empty. | Add the sync option. |
 | `gitops/<env>/unique-names` | No duplicate Application `namespace/name`. | Rename. |
+| `versions/<env>` | Every chart-sourced Application (`spec.source.chart` or `spec.sources[].chart`) renders the `targetRevision` that `configuration/versions.yaml` `charts:` pins for it (key mapped by chart name, Renovate `depName` or Application name; exact string match; a chart with no mapped key must equal some `charts:` value). Drift listed with a reason in `tests/gitops/version-drift.yaml` is allowed; an entry whose revision no longer renders, whose drift was fixed, or (full render only, `versions/registry`) that matches no Application fails. | Make the export template emit `chart.version` from `.Versions.Charts`, or register the drift with a reason; remove stale entries. |
 | `snapshot/<env>/<chart>` | The render is byte-identical to `tests/snapshots/<env>/<chart>.yaml`. | Review the diff; if intended run `task test:snapshot -- --update` and commit. |
 | `policy/<env>` | conftest policies in `tests/policy/` pass (finalizers, sync waves, SSA, automated sync, no `:latest`, resources on every container, no inline secrets, hostnames under the configured domain). | Fix the chart, or add `homelab.ryanmcafee.com/policy-exempt: "<rule-id>"` plus `homelab.ryanmcafee.com/policy-exempt-reason` on the object. |
+
+Level 0 renders a third environment, `homelab-preview`: the homelab two-stage render of
+`charts/applications` alone in preview mode (`global.preview.pr=123`, every app in
+`global.preview.allowedApps`), which is what the `previews` ApplicationSet produces for a
+labelled PR. It gets render, lint, kubeconform, pluto, policy, snapshot
+(`tests/snapshots/homelab-preview/applications.yaml`) and the gitops rules;
+`gitops/homelab-preview/repo-secrets` is always `skip` because the TrueCharts repository
+Secret comes from the homelab environment. `tests/policy/applicationset.rego` checks every
+ApplicationSet template (finalizer, `ServerSideApply=true`, a project other than `default`,
+automated sync). See `docs/runbooks/previews.md`.
 
 ## Level 1: server-side dry run against Kind
 
@@ -110,6 +123,17 @@ NZBGet `nzbget.media.svc.cluster.local:10057/` (200 or 401, basic auth), Home As
 readiness endpoint; mosquitto has `enabled: false` (no HTTP). A failing smoke Job shows up as the Application's operation
 `Failed` in `argocd/<app>` and in `task localdev:diagnose`.
 
+On pull requests `kind-argocd` then runs `task localdev:report` and posts the result as the
+sticky comment `kind-preview`: the level-2 verdict and failing checks, a table of every
+Application (health, last operation, vs main) and one collapsed `argocd app diff` per
+Application that is not Synced. The root `gitops` Application tracks GitHub `main` while
+the tree was synced with `--local`, so each diff is this PR against `main` (`-` main, `+`
+PR); a child Application's chart or values change shows on its parent's diff. The same
+Markdown lands in the job summary and in the `verify-level2` artifact (`kind-report.md`).
+The step never decides the check, and fork PRs get the summary but no comment. Locally,
+`task localdev:report -- --out kind-report.md --verify-json verify-level2.json` prints the
+same report (`--no-diff`, `--max-diff-bytes 0` for full diffs); it only reads.
+
 ## Related commands
 
 | Command | Purpose |
@@ -154,41 +178,173 @@ argocd, chainsaw, tilt, task), each with a Renovate marker. `kubectl` in CI foll
 
 ## Adding a new chart or application
 
-1. Add the chart under `charts/<name>` (and `charts/<name>-config` for its `OnePasswordItem`s).
-2. Add the Application template to `charts/addons/templates/` or `charts/applications/templates/`
-   with a finalizer, a `sync-wave`, `ServerSideApply=true`, automated `prune`+`selfHeal`.
-3. If it installs CRDs, add its API group to `tests/gitops/crd-providers.yaml` and its name to
-   `tests/gitops/huge-crd-charts.yaml`; add the CRD kinds you render to `tests/schemas/sources.yaml`
-   and run `task schemas:vendor`.
-4. Run `task verify:text`, fix findings, then `task test:snapshot -- --update`.
-5. If it runs in localdev: add a `smoke:` block (URL + expected codes) to its values, seed any
-   Secret it needs by name in `localdev/fakes/secrets.yaml`, and add `tests/e2e/<name>/`
-   (see `tests/e2e/README.md`). Add health Lua + fixtures for any new custom resource kind
-   (`tests/health/README.md`).
-6. `task localdev:up && task verify:text LEVEL=2` on Kind.
-7. Commit; the pre-commit hook re-runs level 0, CI re-runs level 0 (`verify.yml`) and level 2
-   (`tilt-ci.yml`) on the PR.
+Start with the scaffolder: `task scaffold -- app <name> --pattern operator|helm|deps-main-config
+--chart-repo <https://…|oci://registry/path> --chart-version <v>` (add `--dry-run` to see the
+change as a patch that `git apply` accepts; nothing is written).
+
+| Pattern | Modelled on | Generates |
+|---|---|---|
+| `operator` | cloudnative-pg | one Application (addons, wave 10); the CRD group in `tests/gitops/crd-providers.yaml` (and `huge-crd-charts.yaml` with `--huge-crds`), a `tests/schemas/sources.yaml` source, Ready-condition health Lua + fixtures per `--crd-kinds` |
+| `helm` | sonarr | one Application (applications, wave 13) with an Ingress on `<name>.<domain>` (new `<NAME>_HOSTNAME` schema key) and a PostSync smoke hook; TrueCharts charts join the Renovate group |
+| `deps-main-config` | traefik-external | `<name>-dependencies` < `<name>` < `<name>-config`, child charts fed through `helm.valuesObject` (ADR-010) |
+
+Every pattern also writes the placeholder block in `charts/<tier>/values.yaml`, the real values
+in `configuration/templates/helm-*.tmpl`, the `versions.yaml` pin with its Renovate marker,
+`tests/e2e/<name>/` and `docs/apps/<name>.md`, then regenerates the tier's committed localdev
+values and the affected snapshots (`--no-regenerate` skips that). Usage errors (a name, key,
+CRD group or health check that already exists) exit 2. `task test:scaffold` proves every pattern
+passes level 0 in a temporary copy of the repository; `verify.yml` runs it (job `scaffold`).
+
+After scaffolding:
+
+1. Adapt the `values:` block to the chart's own values and check that `smoke.url` names the
+   chart's Service; `task config:export:localdev && task test:snapshot -- --update`.
+2. Operators: `task schemas:vendor -- --only <name>` (network) before rendering any resource of
+   the group, then `task test:health`. An `oci://` chart source cannot be vendored by the script;
+   add the CRD kinds from a `github:` source instead.
+3. Seed any Secret that 1Password provides in homelab in `localdev/fakes/secrets.yaml`.
+4. To offer the app in PR previews, add it to `global.preview.allowedApps` (`docs/runbooks/previews.md`).
+5. `task verify:text`, then `task localdev:up && task verify:text LEVEL=2` on Kind.
+6. Commit; the pre-commit hook and the PostToolUse hook re-run level 0, CI re-runs level 0
+   (`verify.yml`, including the scaffolder self-test) and level 2 (`tilt-ci.yml`).
+
+Doing it by hand follows the same checklist: every file the table names must exist.
 
 ## Renovate bumps
 
-A chart bump changes rendered output, so the `snapshot` job fails — for Renovate exactly
-as for a human. Nothing is committed on your behalf. On a pull request the job also
-regenerates the snapshots inside the runner's working tree, uploads them as the
-`snapshots-regenerated` artifact, and posts a sticky comment with the diff stat and the
-full manifest diff, so the reviewer sees what the bump changes before accepting it.
+Renovate (self-hosted in the cluster, `charts/applications` `renovate`) bumps
+`configuration/versions.yaml`. A chart bump there changes one `targetRevision` line in the
+rendered Application; level 0 cannot see what the new chart deploys, because it renders
+this repository's charts, not the upstream charts an Application points at (ADR-009).
+`.github/workflows/upgrade.yml` fills that gap on every PR that touches `versions.yaml` or
+`charts/**`.
 
-To accept a bump: run `task test:snapshot -- --update` locally and commit, or download
-the `snapshots-regenerated` artifact from the run and commit it. The job stays red until
-`tests/snapshots` matches.
+**Upstream manifest diff.** `task verify:upgrade -- --base origin/main` checks the base
+ref out into a temporary `git worktree`, runs the level-0 render there and in the working
+tree, and collects every Application Helm chart source (`spec.source.chart` or
+`spec.sources[].chart`: repoURL, chart, targetRevision, inline values, valuesObject,
+parameters, release name, namespace). Each source that was added, removed or changed is
+rendered with `helm template` at both sides (`--include-crds`, the target Kubernetes
+version; OCI repositories as `oci://<repoURL>/<chart>`, others with `--repo`), the
+`helm.sh/chart` and `app.kubernetes.io/version` labels are dropped, and the manifests are
+diffed object by object. Unchanged sources are not re-rendered.
 
-The job deliberately does not auto-commit. A commit pushed with `GITHUB_TOKEN` triggers
-no workflows, so the PR would keep a stale, green-looking status; and Renovate stops
-managing a branch that carries commits it did not write. `renovate.json5` automerges
-patch bumps, which is the other half of the reason: a green snapshot job on a bump that
-changed the render would merge an unreviewed manifest change.
+| Check name | Meaning |
+|---|---|
+| `upgrade/<env>/<app>` | `pass` with detail `unchanged: ...` or `manifest diff: +A -D lines (...)`, the diff in `findings` (capped by `--max-diff-lines`, default 400) and every CRD whose spec changed; `fail` when the chart does not render at head; `skip` when only the base render fails. |
+| `upgrade/<env>/_repo` | The level-0 render of this repository's own charts, base vs head, with Application chart sources masked (the per-app checks own them). |
+| `upgrade/<env>/_render` / `_base-render` | The working tree (fail) or the base ref (skip) does not render. |
 
-A bump of an operator that ships CRDs must also re-vendor schemas
-(`task schemas:vendor`); the `schemas` job fails until that commit is added.
+The job posts the report as the sticky `upgrade-diff` comment (bounded to one comment;
+the JSON artifact `upgrade-report` carries the capped diffs) and fails only when a render
+fails, never because a manifest changed. Locally: `task verify:upgrade -- --base
+origin/main --report upgrade.md`, `--keep` to inspect the renders, `--env
+homelab,localdev` for both environments. Both sides render with the working tree's helm
+(a mise shim is resolved with `mise which helm`, since mise refuses the untrusted
+`mise.toml` of a fresh worktree), so the diff shows the charts, not a helm upgrade.
+
+**CRD revalidation.** In the runner's tree only, the job then regenerates the localdev
+values (`task config:export:localdev`), re-vendors `tests/schemas` from the bumped
+versions (`task schemas:vendor`) and re-runs `homelab verify render --env
+homelab,localdev`: kubeconform validates every custom resource this repository renders
+against the new CRD schemas. The result and the list of files the bump needs regenerated
+are appended to the report. Nothing is committed.
+
+**Automerge gate.** On `renovate/*` branches the job sets the commit status
+`upgrade/automerge-gate` on the head SHA: `success` ("no rendered manifest changes")
+only when every `upgrade/*` check is `unchanged` and revalidation passed, otherwise
+`failure` ("rendered manifests changed — human review required, automerge blocked").
+`renovate.json5` automerges non-major, non-0.x chart and image bumps in `versions.yaml`
+(`kindest/node`, majors, infrastructure tools and ksops stay manual) and patch bumps
+elsewhere, always with `platformAutomerge: false`: Renovate merges itself, and only when
+every status on the head commit is green. GitHub native auto-merge is never used because
+the `main` ruleset requires no status checks, so it would merge before CI ran. In practice
+a bump whose upstream render changes anything (an image tag, a CRD) waits for a human who
+reads the `upgrade-diff` comment.
+
+**Regeneration bot (optional).** A chart bump also needs the committed localdev values,
+`tests/schemas` and `tests/snapshots` regenerated; until then the `level-0`, `schemas` and
+`snapshot` jobs in `verify.yml` stay red. The `regenerate` job in `upgrade.yml` does that
+on `renovate/*` branches and pushes one commit, `chore(deps): regenerate snapshots,
+schemas and localdev values`, authored by `homelab-regen-bot
+<homelab-regen-bot@users.noreply.github.com>`, with a GitHub App token. This supersedes
+the "no auto-commit" stance of the `snapshot` job for this bot only, and it answers that
+stance's three reasons: an App-token push triggers the other workflows (a `GITHUB_TOKEN`
+push does not), `gitIgnoredAuthors` keeps Renovate managing and rebasing the branch, and
+the automerge gate blocks any bump whose render changed. A loop guard skips a head commit
+that is already the bot's. Human PRs are never committed to.
+
+Without the secrets the job prints a notice and does nothing. To enable it (human step):
+create a GitHub App owned by the repository owner with repository permission
+**Contents: read and write**, install it on this repository only, and store its App ID and
+a private key as the Actions secrets `HOMELAB_BOT_APP_ID` and `HOMELAB_BOT_PRIVATE_KEY`.
+
+To accept a bump without the bot: run `task config:export:localdev`, `task
+schemas:vendor` and `task test:snapshot -- --update` on the branch and commit, or commit
+the `snapshots-regenerated` artifact of the `snapshot` job, which also posts its own
+`snapshot-diff` comment with the in-repository manifest diff.
+
+## Agent contract
+
+Level 0 is wired into the agent loop rather than left to memory, and every pull request
+states the result its author saw; CI checks the statement (issue #261 item 22).
+
+| Piece | File | What it does |
+|---|---|---|
+| PostToolUse hook | `.claude/settings.json` → `scripts/claude-verify-hook.ts` | After every Claude Code `Edit`/`Write`/`MultiEdit` of a file under `charts/` or `configuration/` of `$CLAUDE_PROJECT_DIR`, builds `./cmd/homelab` and runs `verify all --level 0 --json` in the project root (150 s cap, hook timeout 180 s). Pass: silent, exit 0. Fail: exit 2, and Claude Code hands the agent a summary of at most 60 lines (failing checks, `detail`, up to five findings each, hints such as `task test:snapshot -- --update` for intended snapshot drift). A build error or timeout is reported the same way. |
+| Claim | `task verify:claim` (`scripts/verify-claim.ts render`) | Prints the level-0 result as a PR-body block (format below). Exit 0 for any valid result; a failing level 0 is recorded as `"pass":false`, never hidden. |
+| PR template | `.github/pull_request_template.md` | A Verification section with the marker and a placeholder to replace. |
+| CI comparison | `.github/workflows/pr-contract.yml`, job `claim` | On opened/edited/synchronize/reopened/ready_for_review (no paths filter; drafts and `renovate/*` heads skipped): runs `task verify` on the PR **head**, then `verify-claim.ts compare`. Verdict in the job summary and the sticky `verify-claim` comment; the job fails on a missing or mismatched claim. |
+
+The block, one check per line and sorted:
+
+````
+<!-- verify-level0 -->
+```json
+{"level":0,"pass":true,"checks":{
+"gitops/homelab/crd-order":"pass",
+...
+"snapshot/localdev/traefik-internal-dependencies":"pass"
+}}
+```
+````
+
+Compare rules: a missing or unparseable block fails with instructions; the claimed `level`
+must be 0; the claimed and CI check-name sets must be identical (a difference means the claim
+is stale: re-run `task verify:claim` after the last change); a per-check difference with
+`fail` on either side fails; `skip`↔`pass` is only a warning (a tool missing on one side); a
+different overall `pass` fails. When the PR template's placeholder and a pasted block are both
+present, the last well-formed block counts. Editing the description re-runs the job. A claim
+that honestly says `"pass":false` matches; `verify.yml` is what fails the PR for it.
+
+The PR body reaches the script only through `env: PR_BODY`; it is never expanded inside a
+`run:` script. The comparison runs on the head commit because that is what the author
+verified; `verify.yml` verifies the merge result.
+
+Hook notes:
+
+- `HOMELAB_VERIFY_HOOK=off` (or `0`/`false`/`no`) in the environment disables it; use it for a
+  long mechanical edit series and run `task verify:text` at the end.
+- A lock file in `$TMPDIR` (one per project root, stale after 200 s) skips a run while another
+  is in flight, so the last edit of a fast burst can go unverified: run `task verify:text`
+  before committing. The pre-commit hook re-runs level 0 anyway.
+- Only `charts/` and `configuration/` are watched. Edits to `tests/**`, `localdev/**` or
+  `internal/verify/**` change level 0 too; run `task verify:text` after them.
+- The root is `$CLAUDE_PROJECT_DIR`: launch Claude Code from the worktree you edit, or edits in
+  another worktree are not verified. The hook needs `deno` on `PATH`; it adds the mise shims
+  to the child `PATH` itself, so `go`, `helm`, `kubeconform`, `conftest` and `pluto` resolve
+  (in a fresh worktree run `mise trust && mise install` first, or the hook reports mise's
+  "not trusted" error).
+- `.claude/settings.json` is committed (`.gitignore` exception); personal settings stay in the
+  ignored `.claude/settings.local.json`, and Claude Code merges both.
+
+What an agent may do (ADR-009): mutate only Kind. Production is read through the
+`homelab-readonly` context and the read-only ArgoCD account: `task verify:prod` (checks
+`prod/argocd/<app>`), `task prod:status`, `task prod:diff -- <app>`
+(`docs/runbooks/readonly-access.md`). A preview on the homelab cluster is requested with the
+`preview` and `preview:<app>` labels, a maintainer action (`docs/runbooks/previews.md`). The
+`gitops-test` skill (`.claude/skills/gitops-test/SKILL.md`) and `AGENTS.md` "Validation Flow"
+describe the same loop for agents.
 
 ## Reading failures from CI
 

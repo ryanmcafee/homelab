@@ -102,12 +102,13 @@ orphan, 2 on a usage error.`,
 				// mistaken for a deleted one. Pruning additionally requires
 				// every render check to have passed: an incomplete pass
 				// reports orphans without deleting anything.
-				expected := map[string][]string{}
-				for env := range out.Files {
-					for _, c := range out.Charts {
-						expected[env] = append(expected[env], c.Name)
+				var rendered []verify.Env
+				for _, env := range out.Envs {
+					if _, ok := out.Files[env.Name]; ok {
+						rendered = append(rendered, env)
 					}
 				}
+				expected := verify.ExpectedSnapshots(rendered, out.Charts)
 
 				orphans, oerr := verify.OrphanSnapshots(expected, dir, orphanMode(update, renderRes.Pass))
 				if oerr != nil {

@@ -1,0 +1,1080 @@
+---
+# Source: applications/templates/namespaces.yaml
+# Namespace of one pull request's preview (docs/runbooks/previews.md). The
+# preview-pr<N> Application also creates it (CreateNamespace=true) with the
+# same labels through managedNamespaceMetadata in
+# charts/gitops/templates/previews-applicationset.yaml; keep both at baseline.
+# Rendering it here makes the teardown prune it with everything inside.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: preview-123
+  labels:
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/audit: baseline
+    pod-security.kubernetes.io/warn: baseline
+    homelab.ryanmcafee.com/preview-pr: "123"
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
+
+---
+# Source: applications/templates/namespaces.yaml
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: preview
+  namespace: preview-123
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
+spec:
+  hard:
+    limits.cpu: "12"
+    limits.memory: 16Gi
+    persistentvolumeclaims: "0"
+    pods: "30"
+    requests.cpu: "4"
+    requests.memory: 8Gi
+    requests.storage: "0"
+    services.loadbalancers: "0"
+    services.nodeports: "0"
+
+---
+# Source: applications/templates/namespaces.yaml
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: preview
+  namespace: preview-123
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
+spec:
+  limits:
+    - type: Container
+      default:
+        cpu: 500m
+        memory: 512Mi
+      defaultRequest:
+        cpu: 50m
+        memory: 64Mi
+
+---
+# Source: applications/templates/flaresolverr.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: smoke-flaresolverr
+  namespace: preview-123
+  labels:
+    app.kubernetes.io/name: smoke-flaresolverr
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation,HookSucceeded
+    argocd.argoproj.io/sync-wave: "12"
+spec:
+  backoffLimit: 2
+  activeDeadlineSeconds: 600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: smoke-flaresolverr
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: curl
+          image: curlimages/curl:8.22.0
+          env:
+            - name: URL
+              value: "http://flaresolverr.preview-123.svc.cluster.local:8191/"
+          command: ["sh", "-c"]
+          args:
+            - |
+              code=$(curl -sL --max-redirs 5 -o /dev/null -w '%{http_code}' --retry 30 --retry-delay 10 --retry-all-errors --max-time 20 "$URL")
+              echo "smoke flaresolverr: $URL -> HTTP $code"
+              case "$code" in 200) exit 0;; *) exit 1;; esac
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 100
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            seccompProfile:
+              type: RuntimeDefault
+
+---
+# Source: applications/templates/lazylibrarian.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: smoke-lazylibrarian
+  namespace: preview-123
+  labels:
+    app.kubernetes.io/name: smoke-lazylibrarian
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation,HookSucceeded
+    argocd.argoproj.io/sync-wave: "13"
+spec:
+  backoffLimit: 2
+  activeDeadlineSeconds: 600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: smoke-lazylibrarian
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: curl
+          image: curlimages/curl:8.22.0
+          env:
+            - name: URL
+              value: "http://lazylibrarian.preview-123.svc.cluster.local:5299/"
+          command: ["sh", "-c"]
+          args:
+            - |
+              code=$(curl -sL --max-redirs 5 -o /dev/null -w '%{http_code}' --retry 30 --retry-delay 10 --retry-all-errors --max-time 20 "$URL")
+              echo "smoke lazylibrarian: $URL -> HTTP $code"
+              case "$code" in 200) exit 0;; *) exit 1;; esac
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 100
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            seccompProfile:
+              type: RuntimeDefault
+
+---
+# Source: applications/templates/nzbget.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: smoke-nzbget
+  namespace: preview-123
+  labels:
+    app.kubernetes.io/name: smoke-nzbget
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation,HookSucceeded
+    argocd.argoproj.io/sync-wave: "13"
+spec:
+  backoffLimit: 2
+  activeDeadlineSeconds: 600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: smoke-nzbget
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: curl
+          image: curlimages/curl:8.22.0
+          env:
+            - name: URL
+              value: "http://nzbget.preview-123.svc.cluster.local:10057/"
+          command: ["sh", "-c"]
+          args:
+            - |
+              code=$(curl -sL --max-redirs 5 -o /dev/null -w '%{http_code}' --retry 30 --retry-delay 10 --retry-all-errors --max-time 20 "$URL")
+              echo "smoke nzbget: $URL -> HTTP $code"
+              case "$code" in 200|401) exit 0;; *) exit 1;; esac
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 100
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            seccompProfile:
+              type: RuntimeDefault
+
+---
+# Source: applications/templates/prowlarr.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: smoke-prowlarr
+  namespace: preview-123
+  labels:
+    app.kubernetes.io/name: smoke-prowlarr
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation,HookSucceeded
+    argocd.argoproj.io/sync-wave: "13"
+spec:
+  backoffLimit: 2
+  activeDeadlineSeconds: 600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: smoke-prowlarr
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: curl
+          image: curlimages/curl:8.22.0
+          env:
+            - name: URL
+              value: "http://prowlarr.preview-123.svc.cluster.local:9696/ping"
+          command: ["sh", "-c"]
+          args:
+            - |
+              code=$(curl -sL --max-redirs 5 -o /dev/null -w '%{http_code}' --retry 30 --retry-delay 10 --retry-all-errors --max-time 20 "$URL")
+              echo "smoke prowlarr: $URL -> HTTP $code"
+              case "$code" in 200) exit 0;; *) exit 1;; esac
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 100
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            seccompProfile:
+              type: RuntimeDefault
+
+---
+# Source: applications/templates/radarr.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: smoke-radarr
+  namespace: preview-123
+  labels:
+    app.kubernetes.io/name: smoke-radarr
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation,HookSucceeded
+    argocd.argoproj.io/sync-wave: "13"
+spec:
+  backoffLimit: 2
+  activeDeadlineSeconds: 600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: smoke-radarr
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: curl
+          image: curlimages/curl:8.22.0
+          env:
+            - name: URL
+              value: "http://radarr.preview-123.svc.cluster.local:7878/ping"
+          command: ["sh", "-c"]
+          args:
+            - |
+              code=$(curl -sL --max-redirs 5 -o /dev/null -w '%{http_code}' --retry 30 --retry-delay 10 --retry-all-errors --max-time 20 "$URL")
+              echo "smoke radarr: $URL -> HTTP $code"
+              case "$code" in 200) exit 0;; *) exit 1;; esac
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 100
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            seccompProfile:
+              type: RuntimeDefault
+
+---
+# Source: applications/templates/sonarr.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: smoke-sonarr
+  namespace: preview-123
+  labels:
+    app.kubernetes.io/name: smoke-sonarr
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation,HookSucceeded
+    argocd.argoproj.io/sync-wave: "13"
+spec:
+  backoffLimit: 2
+  activeDeadlineSeconds: 600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: smoke-sonarr
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: curl
+          image: curlimages/curl:8.22.0
+          env:
+            - name: URL
+              value: "http://sonarr.preview-123.svc.cluster.local:8989/ping"
+          command: ["sh", "-c"]
+          args:
+            - |
+              code=$(curl -sL --max-redirs 5 -o /dev/null -w '%{http_code}' --retry 30 --retry-delay 10 --retry-all-errors --max-time 20 "$URL")
+              echo "smoke sonarr: $URL -> HTTP $code"
+              case "$code" in 200) exit 0;; *) exit 1;; esac
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 100
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            seccompProfile:
+              type: RuntimeDefault
+
+---
+# Source: applications/templates/tautulli.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: smoke-tautulli
+  namespace: preview-123
+  labels:
+    app.kubernetes.io/name: smoke-tautulli
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation,HookSucceeded
+    argocd.argoproj.io/sync-wave: "13"
+spec:
+  backoffLimit: 2
+  activeDeadlineSeconds: 600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: smoke-tautulli
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: curl
+          image: curlimages/curl:8.22.0
+          env:
+            - name: URL
+              value: "http://tautulli.preview-123.svc.cluster.local:8181/status"
+          command: ["sh", "-c"]
+          args:
+            - |
+              code=$(curl -sL --max-redirs 5 -o /dev/null -w '%{http_code}' --retry 30 --retry-delay 10 --retry-all-errors --max-time 20 "$URL")
+              echo "smoke tautulli: $URL -> HTTP $code"
+              case "$code" in 200) exit 0;; *) exit 1;; esac
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 100
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            seccompProfile:
+              type: RuntimeDefault
+
+---
+# Source: applications/templates/flaresolverr.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: flaresolverr-pr123
+  namespace: preview-123
+  annotations:
+    argocd.argoproj.io/sync-wave: "12"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: previews
+  source:
+    repoURL: oci.trueforge.org/truecharts
+    chart: flaresolverr
+    targetRevision: 16.18.2
+    helm:
+      releaseName: flaresolverr
+      values: |
+        workload:
+          main:
+            podSpec:
+              containers:
+                main:
+                  env:
+                    BROWSER_TIMEOUT: 40000
+                    CAPTCHA_SOLVER: none
+                    HEADLESS: true
+                    LOG_HTML: false
+                    LOG_LEVEL: info
+                  resources:
+                    limits:
+                      cpu: 1000m
+                      memory: 1Gi
+                    requests:
+                      cpu: 100m
+                      memory: 512Mi
+        persistence:
+          config:
+            enabled: true
+            type: emptyDir
+        TZ: "America/New_York"
+        securityContext:
+          container:
+            readOnlyRootFilesystem: false
+            runAsGroup: 0
+            runAsNonRoot: false
+            runAsUser: 0
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: preview-123
+
+  # Ignore TrueCharts dynamic fields and Kubernetes defaults
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      jqPathExpressions:
+        - .spec.template.metadata.annotations | to_entries | map(select(.key | startswith("checksum/"))) | from_entries
+      jsonPointers:
+        - /spec/template/spec/hostUsers
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+      - RespectIgnoreDifferences=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+
+---
+# Source: applications/templates/lazylibrarian.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: lazylibrarian-pr123
+  namespace: preview-123
+  annotations:
+    argocd.argoproj.io/sync-wave: "13"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: previews
+  source:
+    repoURL: oci.trueforge.org/truecharts
+    chart: lazylibrarian
+    targetRevision: 21.18.2
+    helm:
+      releaseName: lazylibrarian
+      values: |
+        workload:
+          main:
+            podSpec:
+              containers:
+                main:
+                  resources:
+                    limits:
+                      cpu: 500m
+                      memory: 512Mi
+                    requests:
+                      cpu: 100m
+                      memory: 256Mi
+        persistence:
+          books:
+            enabled: true
+            mountPath: /books
+            type: emptyDir
+          config:
+            enabled: true
+            type: emptyDir
+          downloads:
+            enabled: true
+            mountPath: /downloads
+            type: emptyDir
+        ingress:
+          main:
+            annotations:
+              cert-manager.io/cluster-issuer: letsencrypt
+              external-dns.alpha.kubernetes.io/hostname: lazylibrarian-pr123.REPLACEME-domain.com
+            enabled: true
+            hosts:
+            - host: lazylibrarian-pr123.REPLACEME-domain.com
+              paths:
+              - path: /
+                pathType: Prefix
+            ingressClassName: internal
+            tls:
+            - hosts:
+              - lazylibrarian-pr123.REPLACEME-domain.com
+              secretName: lazylibrarian-tls
+        TZ: "America/New_York"
+        securityContext:
+          container:
+            runAsGroup: 100
+            runAsUser: 568
+          pod:
+            fsGroup: 100
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: preview-123
+
+  # Ignore TrueCharts dynamic fields and Kubernetes defaults
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      jqPathExpressions:
+        - .spec.template.metadata.annotations | to_entries | map(select(.key | startswith("checksum/"))) | from_entries
+      jsonPointers:
+        - /spec/template/spec/hostUsers
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+      - RespectIgnoreDifferences=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+
+---
+# Source: applications/templates/nzbget.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: nzbget-pr123
+  namespace: preview-123
+  annotations:
+    argocd.argoproj.io/sync-wave: "13"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: previews
+  source:
+    repoURL: oci.trueforge.org/truecharts
+    chart: nzbget
+    targetRevision: 29.4.2
+    helm:
+      releaseName: nzbget
+      values: |
+        workload:
+          main:
+            podSpec:
+              containers:
+                main:
+                  resources:
+                    limits:
+                      cpu: 1000m
+                      memory: 4Gi
+                    requests:
+                      cpu: 100m
+                      memory: 1Gi
+        persistence:
+          config:
+            enabled: true
+            type: emptyDir
+          downloads:
+            enabled: true
+            mountPath: /downloads
+            type: emptyDir
+        ingress:
+          main:
+            annotations:
+              cert-manager.io/cluster-issuer: letsencrypt
+              external-dns.alpha.kubernetes.io/hostname: nzbget-pr123.REPLACEME-domain.com
+            enabled: true
+            hosts:
+            - host: nzbget-pr123.REPLACEME-domain.com
+              paths:
+              - path: /
+                pathType: Prefix
+            ingressClassName: internal
+            tls:
+            - hosts:
+              - nzbget-pr123.REPLACEME-domain.com
+              secretName: nzbget-tls
+        TZ: "America/New_York"
+        securityContext:
+          container:
+            runAsGroup: 100
+            runAsUser: 568
+          pod:
+            fsGroup: 100
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: preview-123
+
+  # Ignore TrueCharts dynamic fields and Kubernetes defaults
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      jqPathExpressions:
+        - .spec.template.metadata.annotations | to_entries | map(select(.key | startswith("checksum/"))) | from_entries
+      jsonPointers:
+        - /spec/template/spec/hostUsers
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+      - RespectIgnoreDifferences=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+
+---
+# Source: applications/templates/prowlarr.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: prowlarr-pr123
+  namespace: preview-123
+  annotations:
+    argocd.argoproj.io/sync-wave: "13"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: previews
+  source:
+    repoURL: oci.trueforge.org/truecharts
+    chart: prowlarr
+    targetRevision: 21.7.3
+    helm:
+      releaseName: prowlarr
+      values: |
+        workload:
+          main:
+            podSpec:
+              containers:
+                exportarr:
+                  resources:
+                    limits:
+                      cpu: 200m
+                      memory: 256Mi
+                    requests:
+                      cpu: 50m
+                      memory: 64Mi
+                main:
+                  resources:
+                    limits:
+                      cpu: 500m
+                      memory: 512Mi
+                    requests:
+                      cpu: 100m
+                      memory: 256Mi
+        persistence:
+          config:
+            enabled: true
+            type: emptyDir
+        ingress:
+          main:
+            annotations:
+              cert-manager.io/cluster-issuer: letsencrypt
+              external-dns.alpha.kubernetes.io/hostname: prowlarr-pr123.REPLACEME-domain.com
+            enabled: true
+            hosts:
+            - host: prowlarr-pr123.REPLACEME-domain.com
+              paths:
+              - path: /
+                pathType: Prefix
+            ingressClassName: internal
+            tls:
+            - hosts:
+              - prowlarr-pr123.REPLACEME-domain.com
+              secretName: prowlarr-tls
+        TZ: "America/New_York"
+        securityContext:
+          container:
+            runAsGroup: 100
+            runAsUser: 568
+          pod:
+            fsGroup: 100
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: preview-123
+
+  # Ignore TrueCharts dynamic fields and Kubernetes defaults
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      jqPathExpressions:
+        - .spec.template.metadata.annotations | to_entries | map(select(.key | startswith("checksum/"))) | from_entries
+      jsonPointers:
+        - /spec/template/spec/hostUsers
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+      - RespectIgnoreDifferences=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+
+---
+# Source: applications/templates/radarr.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: radarr-pr123
+  namespace: preview-123
+  annotations:
+    argocd.argoproj.io/sync-wave: "13"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: previews
+  source:
+    repoURL: oci.trueforge.org/truecharts
+    chart: radarr
+    targetRevision: 26.7.2
+    helm:
+      releaseName: radarr
+      values: |
+        workload:
+          main:
+            podSpec:
+              containers:
+                exportarr:
+                  resources:
+                    limits:
+                      cpu: 200m
+                      memory: 256Mi
+                    requests:
+                      cpu: 50m
+                      memory: 64Mi
+                main:
+                  resources:
+                    limits:
+                      cpu: 1000m
+                      memory: 1Gi
+                    requests:
+                      cpu: 200m
+                      memory: 512Mi
+        persistence:
+          config:
+            enabled: true
+            type: emptyDir
+          downloads:
+            enabled: true
+            mountPath: /downloads
+            type: emptyDir
+          movies:
+            enabled: true
+            mountPath: /movies
+            type: emptyDir
+        ingress:
+          main:
+            annotations:
+              cert-manager.io/cluster-issuer: letsencrypt
+              external-dns.alpha.kubernetes.io/hostname: radarr-pr123.REPLACEME-domain.com
+            enabled: true
+            hosts:
+            - host: radarr-pr123.REPLACEME-domain.com
+              paths:
+              - path: /
+                pathType: Prefix
+            ingressClassName: internal
+            tls:
+            - hosts:
+              - radarr-pr123.REPLACEME-domain.com
+              secretName: radarr-tls
+        TZ: "America/New_York"
+        securityContext:
+          container:
+            runAsGroup: 100
+            runAsUser: 568
+          pod:
+            fsGroup: 100
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: preview-123
+
+  # Ignore TrueCharts dynamic fields and Kubernetes defaults
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      jqPathExpressions:
+        - .spec.template.metadata.annotations | to_entries | map(select(.key | startswith("checksum/"))) | from_entries
+      jsonPointers:
+        - /spec/template/spec/hostUsers
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+      - RespectIgnoreDifferences=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+
+---
+# Source: applications/templates/sonarr.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: sonarr-pr123
+  namespace: preview-123
+  annotations:
+    argocd.argoproj.io/sync-wave: "13"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: previews
+  source:
+    repoURL: oci.trueforge.org/truecharts
+    chart: sonarr
+    targetRevision: 25.6.3
+    helm:
+      releaseName: sonarr
+      values: |
+        workload:
+          main:
+            podSpec:
+              containers:
+                exportarr:
+                  resources:
+                    limits:
+                      cpu: 200m
+                      memory: 256Mi
+                    requests:
+                      cpu: 50m
+                      memory: 64Mi
+                main:
+                  resources:
+                    limits:
+                      cpu: 1000m
+                      memory: 1Gi
+                    requests:
+                      cpu: 200m
+                      memory: 512Mi
+        persistence:
+          config:
+            enabled: true
+            type: emptyDir
+          downloads:
+            enabled: true
+            mountPath: /downloads
+            type: emptyDir
+          tv:
+            enabled: true
+            mountPath: /tv
+            type: emptyDir
+        ingress:
+          main:
+            annotations:
+              cert-manager.io/cluster-issuer: letsencrypt
+              external-dns.alpha.kubernetes.io/hostname: sonarr-pr123.REPLACEME-domain.com
+            enabled: true
+            hosts:
+            - host: sonarr-pr123.REPLACEME-domain.com
+              paths:
+              - path: /
+                pathType: Prefix
+            ingressClassName: internal
+            tls:
+            - hosts:
+              - sonarr-pr123.REPLACEME-domain.com
+              secretName: sonarr-tls
+        TZ: "America/New_York"
+        securityContext:
+          container:
+            runAsGroup: 100
+            runAsUser: 568
+          pod:
+            fsGroup: 100
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: preview-123
+
+  # Ignore TrueCharts dynamic fields and Kubernetes defaults
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      jqPathExpressions:
+        - .spec.template.metadata.annotations | to_entries | map(select(.key | startswith("checksum/"))) | from_entries
+      jsonPointers:
+        - /spec/template/spec/hostUsers
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+      - RespectIgnoreDifferences=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+
+---
+# Source: applications/templates/tautulli.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: tautulli-pr123
+  namespace: preview-123
+  annotations:
+    argocd.argoproj.io/sync-wave: "13"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: previews
+  source:
+    repoURL: oci.trueforge.org/truecharts
+    chart: tautulli
+    targetRevision: 21.18.2
+    helm:
+      releaseName: tautulli
+      values: |
+        workload:
+          main:
+            podSpec:
+              containers:
+                main:
+                  resources:
+                    limits:
+                      cpu: 500m
+                      memory: 512Mi
+                    requests:
+                      cpu: 100m
+                      memory: 256Mi
+        persistence:
+          config:
+            enabled: true
+            type: emptyDir
+        ingress:
+          main:
+            annotations:
+              cert-manager.io/cluster-issuer: letsencrypt
+              external-dns.alpha.kubernetes.io/hostname: tautulli-pr123.REPLACEME-domain.com
+            enabled: true
+            hosts:
+            - host: tautulli-pr123.REPLACEME-domain.com
+              paths:
+              - path: /
+                pathType: Prefix
+            ingressClassName: internal
+            tls:
+            - hosts:
+              - tautulli-pr123.REPLACEME-domain.com
+              secretName: tautulli-tls
+        TZ: "America/New_York"
+        securityContext:
+          container:
+            runAsGroup: 100
+            runAsUser: 568
+          pod:
+            fsGroup: 100
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: preview-123
+
+  # Ignore TrueCharts dynamic fields and Kubernetes defaults
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      jqPathExpressions:
+        - .spec.template.metadata.annotations | to_entries | map(select(.key | startswith("checksum/"))) | from_entries
+      jsonPointers:
+        - /spec/template/spec/hostUsers
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+      - RespectIgnoreDifferences=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m

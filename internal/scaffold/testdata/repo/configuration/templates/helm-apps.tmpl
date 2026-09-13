@@ -1,0 +1,18 @@
+{{- $localdev := eq .Set "localdev" -}}
+# Applications Chart - {{ .Set }} Environment Values (fixture)
+
+global:
+  environment: {{ .Set }}
+  domain: {{ .Values.DOMAIN.Value }}
+
+sonarr:
+  enabled: true
+  namespace: media
+  chart:
+    name: sonarr
+    repo: oci://oci.trueforge.org/truecharts/sonarr
+    version: {{ .Versions.Charts.sonarr }}
+  ingress:
+    main:
+      hosts:
+        - host: {{ .Values.SONARR_HOSTNAME.Value }}

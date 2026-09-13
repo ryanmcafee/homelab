@@ -122,3 +122,21 @@ ignoreDifferences: []
 
 healthChecks:
   enabled: true
+
+# ============================================================================
+# ArgoCD Notifications
+# ============================================================================
+
+notifications:
+  # Human step: set true once charts/bootstrap/values-homelab.yaml has
+  # argocd.notificationsGithub.enabled: true and the notifier is live
+  # (docs/runbooks/readonly-access.md).
+  github: false
+
+# ============================================================================
+# Per-PR Preview Environments
+# ============================================================================
+
+previews:
+  # The `previews` ApplicationSet + AppProject (docs/runbooks/previews.md).
+  enabled: true

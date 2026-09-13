@@ -88,6 +88,22 @@ func snapshotOne(env, chart, renderedPath, snapshotDir string, update bool) (Che
 		strings.Split(strings.TrimRight(diff, "\n"), "\n")...), nil
 }
 
+// ExpectedSnapshots maps each env to the charts it renders (Env.Renders), the
+// set OrphanSnapshots judges a snapshot directory against. A chart-restricted
+// env such as homelab-preview expects only its own charts, so a stray
+// snapshot of any other chart under its directory is reported.
+func ExpectedSnapshots(envs []Env, charts []Chart) map[string][]string {
+	expected := map[string][]string{}
+	for _, env := range envs {
+		for _, c := range charts {
+			if env.Renders(c.Name) {
+				expected[env.Name] = append(expected[env.Name], c.Name)
+			}
+		}
+	}
+	return expected
+}
+
 // OrphanMode says what to do with a snapshot that has no chart.
 type OrphanMode int
 

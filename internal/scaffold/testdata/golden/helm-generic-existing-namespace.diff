@@ -1,0 +1,360 @@
+diff --git a/charts/applications/templates/demo-generic.yaml b/charts/applications/templates/demo-generic.yaml
+new file mode 100644
+--- /dev/null
++++ b/charts/applications/templates/demo-generic.yaml
+@@ -0,0 +1,71 @@
++{{- /*
++demo-generic (helm pattern), scaffolded by:
++  homelab scaffold app demo-generic --pattern helm --namespace media --chart-repo https://charts.example.com/demo --chart-name generic --chart-version 0.3.1
++Chart, version, values and smoke URL come from the `demo-generic:` block of
++configuration/templates/helm-apps.tmpl; charts/applications/values.yaml only holds
++placeholders. See docs/apps/demo-generic.md.
++*/}}
++{{- $app := index .Values "demo-generic" }}
++{{- /*
++Preview mode (templates/_preview.tpl, docs/runbooks/previews.md): the app renders
++in a PR preview only once it is listed in global.preview.allowedApps; the
++helpers then rename it, move it to preview-<pr>, rewrite its hosts and give it
++fresh storage.
++*/}}
++{{- if include "homelab.preview.appEnabled" (dict "root" . "app" "demo-generic") }}
++{{- $preview := include "homelab.preview.enabled" . }}
++{{- $values := $app.values }}
++{{- if and $preview $values (hasKey $values "persistence") }}
++{{- $values = omit $values "persistence" }}
++{{- $_ := set $values "persistence" (include "homelab.preview.persistence" (dict "root" . "persistence" $app.values.persistence) | fromYaml) }}
++{{- end }}
++{{- $smoke := include "homelab.preview.smoke" (dict "root" . "smoke" $app.smoke "namespace" $app.namespace) | fromYaml }}
++{{- /*
++One Application with the upstream chart and a PostSync smoke hook; there is no
++demo-generic-config child. Add charts/demo-generic-config (and a demo-generic-config
++Application in a different wave) only when the app needs objects the upstream
++chart cannot render, e.g. a static PV for existing data (see sonarr).
++*/}}
++---
++apiVersion: argoproj.io/v1alpha1
++kind: Application
++metadata:
++  name: {{ include "homelab.preview.appName" (dict "root" $ "app" "demo-generic") }}
++  namespace: {{ include "homelab.preview.appNamespace" $ }}
++  annotations:
++    argocd.argoproj.io/sync-wave: "13"
++  finalizers:
++    - resources-finalizer.argocd.argoproj.io
++spec:
++  project: {{ include "homelab.preview.project" $ }}
++  source:
++    repoURL: {{ $app.chart.repo }}
++    chart: {{ $app.chart.name }}
++    targetRevision: {{ $app.chart.version | quote }}
++    helm:
++      releaseName: demo-generic
++      {{- with $values }}
++      values: |
++        {{- include "homelab.preview.hosts" (dict "root" $ "text" (toYaml .)) | nindent 8 }}
++      {{- end }}
++  destination:
++    server: https://kubernetes.default.svc
++    namespace: {{ include "homelab.preview.destNamespace" (dict "root" $ "namespace" $app.namespace) }}
++
++  syncPolicy:
++    {{- if $.Values.global.automatedSync }}
++    automated:
++      prune: true
++      selfHeal: true
++    {{- end }}
++    syncOptions:
++      - CreateNamespace=true
++      - ServerSideApply=true
++    retry:
++      limit: 5
++      backoff:
++        duration: 5s
++        factor: 2
++        maxDuration: 3m
++{{- include "homelab.smokeJob" (dict "name" "demo-generic" "namespace" (include "homelab.preview.destNamespace" (dict "root" $ "namespace" $app.namespace)) "smoke" $smoke "wave" "13" "image" $.Values.global.images.curl) }}
++{{- end }}
+diff --git a/charts/applications/values.yaml b/charts/applications/values.yaml
+--- a/charts/applications/values.yaml
++++ b/charts/applications/values.yaml
+@@ -7,3 +7,29 @@
+ sonarr:
+   enabled: true
+   namespace: media
++
++# ============================================================================
++# demo-generic - upstream Helm chart (scaffolded)
++# homelab scaffold app demo-generic --pattern helm --namespace media --chart-repo https://charts.example.com/demo --chart-name generic --chart-version 0.3.1
++# Sync Wave: 13
++# ============================================================================
++# Placeholders only: configuration/templates/helm-apps.tmpl generates the real
++# values for every environment (the CMP in homelab, values-localdev.yaml in Kind).
++
++demo-generic:
++  enabled: false
++  namespace: media
++
++  # ArgoCD source: repoURL (no oci:// scheme for OCI registries), chart name and
++  # version. configuration/versions.yaml charts.demo-generic is the only place to bump it.
++  chart:
++    name: generic
++    repo: https://charts.example.com/demo
++    # Placeholder; configuration/versions.yaml charts.demo-generic wins at render time.
++    version: "0.3.1"
++
++  # Handed verbatim to the upstream chart (spec.source.helm.values).
++  values: {}
++
++  smoke:
++    enabled: false
+diff --git a/configuration/schema/applications.schema.yaml b/configuration/schema/applications.schema.yaml
+--- a/configuration/schema/applications.schema.yaml
++++ b/configuration/schema/applications.schema.yaml
+@@ -11,3 +11,8 @@
+   SONARR_HOSTNAME:
+     description: Sonarr hostname
+     const: "sonarr.{{.DOMAIN}}"
++
++  # demo-generic (scaffolded by `homelab scaffold app demo-generic`)
++  DEMO_GENERIC_HOSTNAME:
++    description: demo-generic hostname
++    const: "demo-generic.{{.DOMAIN}}"
+diff --git a/configuration/templates/helm-apps.tmpl b/configuration/templates/helm-apps.tmpl
+--- a/configuration/templates/helm-apps.tmpl
++++ b/configuration/templates/helm-apps.tmpl
+@@ -16,3 +16,65 @@
+     main:
+       hosts:
+         - host: {{ .Values.SONARR_HOSTNAME.Value }}
++
++# ============================================================================
++# demo-generic - upstream Helm chart (scaffolded)
++# homelab scaffold app demo-generic --pattern helm --namespace media --chart-repo https://charts.example.com/demo --chart-name generic --chart-version 0.3.1
++# Sync Wave: 13
++# ============================================================================
++
++demo-generic:
++  enabled: true
++  namespace: media
++
++  # ArgoCD source: repoURL (no oci:// scheme for OCI registries), chart name and
++  # version. configuration/versions.yaml charts.demo-generic is the only place to bump it.
++  chart:
++    name: generic
++    repo: https://charts.example.com/demo
++    version: "{{ index .Versions.Charts "demo-generic" }}"
++
++  # Handed verbatim to the upstream chart (spec.source.helm.values), in the
++  # `helm create` layout most charts follow: rename the keys to what the
++  # chart's own values.yaml expects.
++  values:
++{{- if $localdev }}
++    # Kind sizing: one replica, small footprint
++    replicaCount: 1
++    resources:
++      requests:
++        cpu: 50m
++        memory: 64Mi
++      limits:
++        cpu: 250m
++        memory: 256Mi
++{{- else }}
++    resources:
++      requests:
++        cpu: 100m
++        memory: 128Mi
++      limits:
++        cpu: 500m
++        memory: 512Mi
++{{- end }}
++    ingress:
++      enabled: true
++      className: {{ .Values.INGRESS_CLASS_INTERNAL.Value }}
++      annotations:
++        cert-manager.io/cluster-issuer: letsencrypt
++      hosts:
++        - host: {{ .Values.DEMO_GENERIC_HOSTNAME.Value }}
++          paths:
++            - path: /
++              pathType: Prefix
++      tls:
++        - secretName: demo-generic-tls
++          hosts:
++            - {{ .Values.DEMO_GENERIC_HOSTNAME.Value }}
++
++  # PostSync smoke hook (charts/applications/templates/_smoke.tpl): curl the
++  # in-cluster Service after sync; expect lists the accepted HTTP codes.
++  smoke:
++    enabled: true
++    url: http://demo-generic.media.svc.cluster.local:80/
++    expect: ["200"]
+diff --git a/configuration/versions.yaml b/configuration/versions.yaml
+--- a/configuration/versions.yaml
++++ b/configuration/versions.yaml
+@@ -5,6 +5,8 @@
+   cloudnative-pg: "0.28.3"
+   sonarr: "25.6.3"
+   unifi-port-forward: "1.1.x"
++  # renovate: datasource=helm depName=generic registryUrl=https://charts.example.com/demo
++  demo-generic: "0.3.1"
+ images:
+   curl: "8.22.0"
+ tools:
+diff --git a/docs/apps/demo-generic.md b/docs/apps/demo-generic.md
+new file mode 100644
+--- /dev/null
++++ b/docs/apps/demo-generic.md
+@@ -0,0 +1,33 @@
++# demo-generic
++
++Pattern: upstream Helm chart (helm), parent chart `charts/applications`. Scaffolded with:
++
++```bash
++homelab scaffold app demo-generic --pattern helm --namespace media --chart-repo https://charts.example.com/demo --chart-name generic --chart-version 0.3.1
++```
++
++## Generated
++
++| Path | Purpose |
++|------|---------|
++| `charts/applications/templates/demo-generic.yaml` | ArgoCD Application(s): demo-generic |
++| `charts/applications/values.yaml` | placeholder values block |
++| `configuration/schema/applications.schema.yaml` | `DEMO_GENERIC_HOSTNAME` hostname key |
++| `configuration/templates/helm-apps.tmpl` | values for every environment (version, sizing, hostname, smoke URL) |
++| `configuration/versions.yaml` | chart version with its Renovate marker |
++| `tests/e2e/demo-generic/chainsaw-test.yaml` | chainsaw e2e test |
++
++## Before the first PR
++
++- [ ] Adapt the `values:` block in `configuration/templates/helm-apps.tmpl` to the chart's own values
++- [ ] Check that `smoke.url` (`http://demo-generic.media.svc.cluster.local:80/`) names the chart's Service and port
++- [ ] Seed any Secret 1Password provides in homelab in `localdev/fakes/secrets.yaml`
++- [ ] Replace this checklist with what the app does and how to operate it
++
++## Verify
++
++```bash
++task verify:text                                   # level 0
++task localdev:up && task verify:text LEVEL=2       # Kind: Healthy + Succeeded, e2e
++task test:e2e -- --test-dir tests/e2e/demo-generic
++```
+diff --git a/tests/e2e/demo-generic/chainsaw-test.yaml b/tests/e2e/demo-generic/chainsaw-test.yaml
+new file mode 100644
+--- /dev/null
++++ b/tests/e2e/demo-generic/chainsaw-test.yaml
+@@ -0,0 +1,115 @@
++---
++# Scaffolded by `homelab scaffold app demo-generic`; see tests/e2e/README.md.
++apiVersion: chainsaw.kyverno.io/v1alpha1
++kind: Test
++metadata:
++  name: demo-generic
++spec:
++  description: >-
++    demo-generic / answers through the internal Traefik with Host demo-generic.homelab.local.
++  steps:
++    - name: applications-healthy
++      description: The ArgoCD Applications behind this test are Healthy and their last sync Succeeded.
++      try:
++        - assert:
++            resource:
++              apiVersion: argoproj.io/v1alpha1
++              kind: Application
++              metadata:
++                name: demo-generic
++                namespace: argocd
++              status:
++                health:
++                  status: Healthy
++                operationState:
++                  phase: Succeeded
++      catch:
++        - describe:
++            apiVersion: argoproj.io/v1alpha1
++            kind: Application
++            name: demo-generic
++            namespace: argocd
++    - name: curl-demo-generic
++      description: >-
++        A curl Job must get one of [200]
++        from https://demo-generic.homelab.local/ via traefik-internal.traefik.svc.cluster.local.
++      timeouts:
++        assert: 5m
++      try:
++        - apply:
++            resource:
++              apiVersion: batch/v1
++              kind: Job
++              metadata:
++                name: curl-demo-generic
++              spec:
++                backoffLimit: 0
++                activeDeadlineSeconds: 300
++                template:
++                  spec:
++                    restartPolicy: Never
++                    securityContext:
++                      runAsNonRoot: true
++                      runAsUser: 100
++                      seccompProfile:
++                        type: RuntimeDefault
++                    containers:
++                      - name: curl
++                        # pinned from configuration/versions.yaml images.curl
++                        image: curlimages/curl:8.22.0
++                        securityContext:
++                          allowPrivilegeEscalation: false
++                          capabilities:
++                            drop: ["ALL"]
++                        resources:
++                          requests:
++                            cpu: 10m
++                            memory: 32Mi
++                          limits:
++                            cpu: 100m
++                            memory: 64Mi
++                        env:
++                          - name: HOST
++                            value: "demo-generic.homelab.local"
++                          - name: GATEWAY
++                            value: "traefik-internal.traefik.svc.cluster.local"
++                          - name: URL_PATH
++                            value: "/"
++                          - name: EXPECT
++                            value: "200"
++                          - name: ATTEMPTS
++                            value: "20"
++                        command: ["sh", "-c"]
++                        args:
++                          - |
++                            set -u
++                            i=1
++                            while [ "$i" -le "$ATTEMPTS" ]; do
++                              code=$(curl -sk -o /dev/null -w '%{http_code}' -L --max-redirs 5 --max-time 20 \
++                                --connect-to "$HOST:443:$GATEWAY:443" --connect-to "$HOST:80:$GATEWAY:80" \
++                                "https://$HOST$URL_PATH")
++                              echo "attempt $i/$ATTEMPTS: HTTP $code for https://$HOST$URL_PATH via $GATEWAY"
++                              for ok in $EXPECT; do [ "$code" = "$ok" ] && exit 0; done
++                              i=$((i + 1))
++                              sleep 6
++                            done
++                            echo "giving up: last HTTP code $code, expected one of: $EXPECT"
++                            exit 1
++        - assert:
++            resource:
++              apiVersion: batch/v1
++              kind: Job
++              metadata:
++                name: curl-demo-generic
++              status:
++                succeeded: 1
++      catch:
++        - events: {}
++        - podLogs:
++            selector: job-name=curl-demo-generic
++            tail: 50
++        - describe:
++            apiVersion: argoproj.io/v1alpha1
++            kind: Application
++            name: demo-generic
++            namespace: argocd

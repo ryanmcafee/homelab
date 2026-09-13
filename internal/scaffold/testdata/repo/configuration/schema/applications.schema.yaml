@@ -1,0 +1,13 @@
+# Fixture application keys.
+keys:
+  STORAGE_CLASS_ISCSI:
+    description: iSCSI StorageClass
+    default: "democratic-csi-iscsi-hdd"
+
+  TIMEZONE:
+    description: Timezone for applications
+    default: "America/New_York"
+
+  SONARR_HOSTNAME:
+    description: Sonarr hostname
+    const: "sonarr.{{.DOMAIN}}"

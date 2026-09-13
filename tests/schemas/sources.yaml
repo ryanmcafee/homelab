@@ -11,16 +11,16 @@
 sources:
   # Vendor only kinds that are rendered today (plus what issue #260 needs); this keeps
   # tests/schemas/ from carrying multi-megabyte schemas for kinds nothing renders yet.
-  # Workflow, WorkflowTemplate and ApplicationSet are all real, legitimately huge
-  # upstream CRDs (multi-MB each) — re-add them (to the relevant source's `kinds` list
-  # below) the moment a chart actually renders one. ApplicationSet is expected to
-  # arrive with #261 Section C.
+  # Workflow and WorkflowTemplate are real, legitimately huge upstream CRDs (multi-MB
+  # each) — re-add them (to the relevant source's `kinds` list below) the moment a
+  # chart actually renders one. ApplicationSet is rendered by charts/gitops in homelab
+  # (templates/previews-applicationset.yaml, #261 Section C).
   - name: argo-cd
     versionKey: argocd
     chart:
       repo: https://argoproj.github.io/argo-helm
       name: argo-cd
-    kinds: [Application, AppProject]
+    kinds: [Application, AppProject, ApplicationSet]
 
   - name: argo-workflows
     versionKey: argo-workflows
@@ -113,3 +113,12 @@ sources:
       repo: https://prometheus-community.github.io/helm-charts
       name: kube-prometheus-stack
     kinds: [ServiceMonitor, PodMonitor, PrometheusRule]
+
+  - name: plugin-barman-cloud
+    versionKey: plugin-barman-cloud
+    chart:
+      repo: https://cloudnative-pg.github.io/charts
+      name: plugin-barman-cloud
+    # The ObjectStore CRD is a template gated by .Values.crds.create (default true), so
+    # `helm show crds` is empty and the `helm template --include-crds` fallback applies.
+    kinds: [ObjectStore]

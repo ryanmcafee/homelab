@@ -7,6 +7,11 @@ metadata:
   namespace: {{ .Values.bootstrap.namespace }}
   annotations:
     argocd.argoproj.io/sync-wave: "{{ .Values.bootstrap.syncWave }}"
+    {{- if and .Values.notifications .Values.notifications.github }}
+    {{- range .Values.notifications.triggers }}
+    notifications.argoproj.io/subscribe.{{ . }}.github: ""
+    {{- end }}
+    {{- end }}
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
@@ -40,6 +45,11 @@ spec:
                   - hosts:
                       - argocd.{{ .Values.global.domain }}
                     secretName: argocd-server-tls
+            # Link target of ArgoCD notifications ({{"{{"}}.context.argocdUrl{{"}}"}}),
+            # e.g. the GitHub commit status and PR comment
+            # (docs/runbooks/readonly-access.md).
+            notifications:
+              argocdUrl: https://argocd.{{ .Values.global.domain }}
 
   destination:
     server: {{ .Values.bootstrap.destination.server }}

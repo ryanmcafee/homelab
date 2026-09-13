@@ -334,6 +334,8 @@ func NewVerifyCmd() *cobra.Command {
 	cmd.AddCommand(newVerifyGitOpsCmd())
 	cmd.AddCommand(newVerifySnapshotCmd())
 	cmd.AddCommand(newVerifyAllCmd())
+	cmd.AddCommand(newVerifyUpgradeCmd())
+	cmd.AddCommand(newVerifyProdCmd())
 
 	return cmd
 }

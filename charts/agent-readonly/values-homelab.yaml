@@ -1,0 +1,9 @@
+# agent-readonly homelab values
+#
+# Nothing differs from values.yaml: the same ServiceAccount and roles exist in
+# Kind (where tests/e2e/agent-readonly proves the RBAC) and in homelab (where
+# agents use them through the Tailscale API server proxy). The file exists
+# because the parent Application always appends values-<environment>.yaml.
+# Never put PII here (ADR-010); the namespace comes from the parent's
+# helm.valuesObject.
+enabled: true

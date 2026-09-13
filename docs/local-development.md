@@ -182,6 +182,8 @@ On Linux the Kind port mapping (NodePort 30080 to host 8080) serves the UI direc
 | `task localdev:sync` | Sync every Application from the working tree, tier by tier (parent wave, then own wave): git-path apps with `argocd app sync --local <path> --local-repo-root <repo>`, chart apps with a plain `argocd app sync`. `-- --warm` stops after addons (the bootstrap Application is not created in localdev); `-- --only a,b` limits it; `-- --dry-run` prints the commands. Failed operations retry 3 times. | `scripts/localdev-argocd.ts sync` |
 | `task localdev:wait` | Poll until every Application is Healthy with a Succeeded operation (default 20 min); on timeout run diagnose and exit 1. `-- --require-synced` also demands Synced (off by default, see below). | `scripts/localdev-argocd.ts wait` |
 | `task localdev:diagnose` | For every Application that is not Healthy/Succeeded: conditions, operation message, unhealthy resources, recent events in their namespaces, describe + logs of pods not Running. | `scripts/localdev-argocd.ts diagnose` |
+| `task localdev:report` | Markdown report of the loop: level-2 verdict (`-- --verify-json verify-level2.json`), a table of every Application (health, last operation, vs `main`) and one `argocd app diff` per Application that is not Synced (`-` main, `+` working tree). `-- --out <file>`, `--no-diff`, `--max-diff-bytes 0` for full diffs. Read-only; CI posts it on PRs as the `kind-preview` comment. | `scripts/localdev-argocd.ts report` |
+| `task drill:restore` | kind + argocd + `sync --warm` + `test:drill`: the CloudNativePG backup/restore drill in `tests/drills/` (`.github/workflows/restore-drill.yml` runs it weekly). `task test:drill` alone on a warm cluster. | |
 | `task localdev:up` | kind + argocd + sync. | |
 | `task localdev:warm` | kind + argocd + `sync --warm`: operators and CRDs up, applications left for a later `task localdev:sync`. | |
 | `task localdev:ci` | kind + argocd + sync + wait + `test:e2e`. What `tilt-ci.yml` runs. | |
@@ -556,7 +558,7 @@ use `task localdev:ui` / `task localdev:traefik` ([Host ports on macOS](#host-po
 
 | Job | What it runs | Required |
 |-----|--------------|----------|
-| `kind-argocd` | pinned tools from `versions.yaml` (kind, kubectl, helm, argocd, chainsaw, tilt, task, deno), `actions/cache` on `~/.cache/homelab-kind-registry`, `task localdev:ci`, `task verify LEVEL=2` (JSON to the Job Summary and the `verify-level2` artifact), `task localdev:diagnose` on every outcome. 45 minute budget. | yes |
+| `kind-argocd` | pinned tools from `versions.yaml` (kind, kubectl, helm, argocd, chainsaw, tilt, task, deno), `actions/cache` on `~/.cache/homelab-kind-registry`, `task localdev:ci`, `task verify LEVEL=2` (JSON to the Job Summary and the `verify-level2` artifact), `task localdev:diagnose` on every outcome, then `task localdev:report` as the sticky PR comment `kind-preview` (same-repo PRs; never decides the check). 45 minute budget. | yes |
 | `kind-direct` | `task localdev:kind -- --no-registry`, `tilt ci --timeout 15m` in direct mode, asserts the Traefik and cert-manager Deployments | |
 | `yaml-lint` | `yamllint` over `charts/`, `localdev/`, `tests/e2e`, `tests/health` | |
 

@@ -9,6 +9,7 @@ name: Verify (level 0)
 #               task test:health   ArgoCD health Lua (charts/bootstrap/files/health) against tests/health
 #   schemas     task schemas:check vendored CRD schemas match configuration/versions.yaml
 #   cmp-parity  task test:cmp-parity  pinned homelab-cmp image == source `config export`
+#   scaffold    task test:scaffold one scaffolded app per pattern passes level 0 in a temp copy
 #
 # Snapshot drift fails the `snapshot` job for every author. On a pull request the job
 # also regenerates the snapshots into the runner's working tree, uploads them as the
@@ -327,3 +328,51 @@ jobs:
         run: |
           deno run --allow-net --allow-run --allow-env --allow-read --allow-write \
             scripts/cmp-parity-test.ts --base-ref "origin/$BASE"
+
+  # Scaffolder self-test (issue #261 item 21): `homelab scaffold app` for every
+  # pattern (operator, helm, deps-main-config, and all of them together) in a
+  # temporary copy of the repository must pass level 0 there, plus the PII
+  # guard on what it generated. Checks that already fail in the unmodified copy
+  # are reported as pre-existing, not blamed on the scaffolder.
+  scaffold:
+    name: Scaffolder self-test (one app per pattern passes level 0)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5
+        with:
+          version: ${{ env.HELM_VERSION }}
+
+      - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
+        with:
+          deno-version: v2.x
+
+      - name: Install kubeconform, conftest, pluto, task
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/bin"
+          export PATH="$HOME/bin:$PATH"
+          curl -sSL --retry 5 --retry-all-errors --retry-delay 3 "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz" | tar -xz -C "$HOME/bin" kubeconform
+          curl -sSL --retry 5 --retry-all-errors --retry-delay 3 "https://github.com/open-policy-agent/conftest/releases/download/v${CONFTEST_VERSION}/conftest_${CONFTEST_VERSION}_Linux_x86_64.tar.gz" | tar -xz -C "$HOME/bin" conftest
+          curl -sSL --retry 5 --retry-all-errors --retry-delay 3 "https://github.com/FairwindsOps/pluto/releases/download/v${PLUTO_VERSION}/pluto_${PLUTO_VERSION}_linux_amd64.tar.gz" | tar -xz -C "$HOME/bin" pluto
+          go install "github.com/go-task/task/v3/cmd/task@${TASK_VERSION}"
+          echo "$HOME/bin" >> "$GITHUB_PATH"
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - name: Cache kubeconform core schemas
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ~/.cache/homelab-kubeconform
+          key: kubeconform-${{ hashFiles('configuration/versions.yaml') }}
+
+      # chainsaw and argocd are not installed here, so their extra checks
+      # report skip; the policy job runs the health Lua fixtures, and yamllint
+      # (preinstalled on the runner) still checks the generated YAML.
+      - name: task test:scaffold
+        run: task test:scaffold

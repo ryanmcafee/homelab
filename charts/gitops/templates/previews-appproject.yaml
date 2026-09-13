@@ -1,0 +1,69 @@
+{{- if .Values.previews.enabled }}
+---
+# AppProject for per-PR preview environments (docs/runbooks/previews.md).
+#
+# Used by the preview-pr<N> Applications the `previews` ApplicationSet
+# generates (namespace argocd) and by the <app>-pr<N> Applications they render
+# into preview-<N> (ArgoCD "apps in any namespace": sourceNamespaces below plus
+# configs.params."application.namespaces" in charts/bootstrap/values-homelab.yaml).
+# A preview can only deploy into preview-* namespaces, only from this repo and
+# the TrueCharts registry, and only the kinds a preview renders. Deliberately
+# absent: Secret, ServiceAccount, RBAC, onepassword.com (previews get no
+# 1Password items) and every other cluster-scoped kind (no CRDs or operators).
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: previews
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: {{ .Values.previews.appProjectSyncWave | quote }}
+spec:
+  description: Per-PR preview environments (docs/runbooks/previews.md)
+  sourceRepos:
+    - {{ .Values.global.repoUrl }}
+    - oci.trueforge.org/truecharts
+  sourceNamespaces:
+    - preview-*
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: preview-*
+  clusterResourceWhitelist:
+    # The preview namespace itself (charts/applications/templates/namespaces.yaml).
+    - group: ""
+      kind: Namespace
+  namespaceResourceWhitelist:
+    # preview-pr<N> renders charts/applications in preview mode: the
+    # <app>-pr<N> Applications, the namespace's ResourceQuota and LimitRange,
+    # and one PostSync smoke Job per app (templates/_smoke.tpl).
+    - group: argoproj.io
+      kind: Application
+    - group: ""
+      kind: ResourceQuota
+    - group: ""
+      kind: LimitRange
+    - group: batch
+      kind: Job
+    # What the allowed TrueCharts apps render with preview values (helm
+    # template of each chart at its configuration/versions.yaml pin): the
+    # exportarr sidecars of sonarr/radarr/prowlarr add a ServiceMonitor.
+    # No PersistentVolumeClaim: preview storage is emptyDir only
+    # (charts/applications/templates/_preview.tpl), and the namespace quota
+    # allows zero claims.
+    - group: ""
+      kind: ConfigMap
+    - group: ""
+      kind: Service
+    - group: apps
+      kind: Deployment
+    - group: networking.k8s.io
+      kind: Ingress
+    - group: monitoring.coreos.com
+      kind: ServiceMonitor
+    # TrueCharts ingress integrations (not rendered by today's values; allowed
+    # so turning one on does not need a project change). cert-manager's
+    # ingress-shim creates the TLS Certificates itself, outside ArgoCD.
+    - group: traefik.io
+      kind: Middleware
+    - group: cert-manager.io
+      kind: Certificate
+{{- end }}

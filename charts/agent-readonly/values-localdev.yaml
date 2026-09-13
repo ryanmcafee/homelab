@@ -1,0 +1,8 @@
+# agent-readonly localdev values
+#
+# Enabled in Kind on purpose: tests/e2e/agent-readonly asserts with
+# `kubectl auth can-i --as=system:serviceaccount:agent-access:agent-readonly`
+# that the roles read what agents need and nothing else (no Secrets, no writes).
+# The file exists because the parent Application always appends
+# values-<environment>.yaml.
+enabled: true

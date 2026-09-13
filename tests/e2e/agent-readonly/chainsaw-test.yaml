@@ -1,0 +1,147 @@
+---
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: agent-readonly
+spec:
+  description: >-
+    The agent-readonly Application is Healthy, its ServiceAccount has a populated token Secret, and
+    RBAC lets system:serviceaccount:agent-access:agent-readonly (and the group homelab:agent-readonly)
+    read workloads, Applications, CRDs and cluster-scoped objects but never Secrets and never write
+    (docs/runbooks/readonly-access.md).
+  steps:
+    - name: application-healthy
+      description: agent-readonly is Healthy and Succeeded; the token Secret exists with the service-account-token type.
+      try:
+        - assert:
+            resource:
+              apiVersion: argoproj.io/v1alpha1
+              kind: Application
+              metadata:
+                name: agent-readonly
+                namespace: argocd
+              status:
+                health:
+                  status: Healthy
+                operationState:
+                  phase: Succeeded
+        - assert:
+            resource:
+              apiVersion: v1
+              kind: ServiceAccount
+              metadata:
+                name: agent-readonly
+                namespace: agent-access
+        - assert:
+            resource:
+              apiVersion: v1
+              kind: Secret
+              metadata:
+                name: agent-readonly-token
+                namespace: agent-access
+                annotations:
+                  kubernetes.io/service-account.name: agent-readonly
+              type: kubernetes.io/service-account-token
+      catch:
+        - describe:
+            apiVersion: argoproj.io/v1alpha1
+            kind: Application
+            name: agent-readonly
+            namespace: argocd
+        - events:
+            namespace: agent-access
+    - name: token-populated
+      description: The token controller filled data.token (the credential a human copies into 1Password).
+      try:
+        - script:
+            timeout: 1m
+            content: |
+              set -eu
+              token=$(kubectl get secret agent-readonly-token -n agent-access -o jsonpath='{.data.token}')
+              if [ -z "$token" ]; then
+                echo "agent-readonly-token has no data.token yet"
+                exit 1
+              fi
+              echo "agent-readonly-token carries a token (${#token} base64 characters)"
+      catch:
+        - describe:
+            apiVersion: v1
+            kind: ServiceAccount
+            name: agent-readonly
+            namespace: agent-access
+        - events:
+            namespace: agent-access
+    - name: rbac-allows-reads-denies-secrets-and-writes
+      description: >-
+        kubectl auth can-i as the ServiceAccount and as a member of homelab:agent-readonly:
+        yes for reads, no for Secrets and every write verb.
+      try:
+        - script:
+            timeout: 2m
+            content: |
+              set -u
+              sa=system:serviceaccount:agent-access:agent-readonly
+              failed=0
+              # check <expected yes|no> <identity flags> -- <can-i arguments>
+              check() {
+                want=$1
+                shift
+                ident=""
+                while [ "$1" != "--" ]; do
+                  ident="$ident $1"
+                  shift
+                done
+                shift
+                # shellcheck disable=SC2086
+                got=$(kubectl auth can-i "$@" $ident 2>/dev/null)
+                if [ "$got" = "$want" ]; then
+                  echo "ok    $want  can-i $*$ident"
+                else
+                  echo "FAIL  want $want, got '$got': can-i $*$ident"
+                  failed=1
+                fi
+              }
+              for who in "--as=$sa" "--as=agent-probe --as-group=homelab:agent-readonly"; do
+                # shellcheck disable=SC2086
+                check yes $who -- list pods -A
+                # shellcheck disable=SC2086
+                check yes $who -- get pods/log -n argocd
+                # shellcheck disable=SC2086
+                check yes $who -- get applications.argoproj.io -n argocd
+                # shellcheck disable=SC2086
+                check yes $who -- list customresourcedefinitions
+                # shellcheck disable=SC2086
+                check yes $who -- list nodes
+                # shellcheck disable=SC2086
+                check yes $who -- list persistentvolumes
+                # shellcheck disable=SC2086
+                check yes $who -- list certificates.cert-manager.io -A
+                # shellcheck disable=SC2086
+                check no $who -- get secrets -A
+                # shellcheck disable=SC2086
+                check no $who -- get secrets -n agent-access
+                # shellcheck disable=SC2086
+                check no $who -- create configmaps -n default
+                # shellcheck disable=SC2086
+                check no $who -- delete pods -n default
+                # shellcheck disable=SC2086
+                check no $who -- patch applications.argoproj.io -n argocd
+                # shellcheck disable=SC2086
+                check no $who -- create pods/exec -n default
+                # shellcheck disable=SC2086
+                check no $who -- delete customresourcedefinitions
+              done
+              exit $failed
+      catch:
+        - describe:
+            apiVersion: rbac.authorization.k8s.io/v1
+            kind: ClusterRole
+            name: homelab-agent-readonly
+        - describe:
+            apiVersion: rbac.authorization.k8s.io/v1
+            kind: ClusterRoleBinding
+            name: homelab-agent-readonly
+        - describe:
+            apiVersion: rbac.authorization.k8s.io/v1
+            kind: ClusterRoleBinding
+            name: agent-readonly-view

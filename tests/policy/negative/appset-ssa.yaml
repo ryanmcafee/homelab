@@ -1,0 +1,41 @@
+# expect: appset-ssa
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: previews
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "12"
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - pullRequest:
+        github:
+          owner: ryanmcafee
+          repo: homelab
+          labels:
+            - preview
+        requeueAfterSeconds: 300
+  template:
+    metadata:
+      name: 'preview-pr{{.number}}'
+      namespace: argocd
+      finalizers:
+        - resources-finalizer.argocd.argoproj.io
+    spec:
+      project: previews
+      source:
+        repoURL: https://github.com/ryanmcafee/homelab.git
+        targetRevision: '{{.head_sha}}'
+        path: charts/applications
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: 'preview-{{.number}}'
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
+          - Validate=true

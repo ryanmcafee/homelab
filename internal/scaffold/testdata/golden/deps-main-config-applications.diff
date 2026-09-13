@@ -1,0 +1,663 @@
+diff --git a/charts/applications/templates/demo-suite.yaml b/charts/applications/templates/demo-suite.yaml
+new file mode 100644
+--- /dev/null
++++ b/charts/applications/templates/demo-suite.yaml
+@@ -0,0 +1,164 @@
++{{- /*
++demo-suite (deps-main-config pattern), scaffolded by:
++  homelab scaffold app demo-suite --pattern deps-main-config --tier applications --chart-repo https://charts.example.com/demo --chart-version 3.1.4 --port 3000
++Chart, version, values and smoke URL come from the `demo-suite:` block of
++configuration/templates/helm-apps.tmpl; charts/applications/values.yaml only holds
++placeholders. See docs/apps/demo-suite.md.
++*/}}
++{{- $app := index .Values "demo-suite" }}
++{{- /*
++Preview mode (templates/_preview.tpl, docs/runbooks/previews.md): the app renders
++in a PR preview only once it is listed in global.preview.allowedApps; the
++helpers then rename it, move it to preview-<pr>, rewrite its hosts and give it
++fresh storage.
++*/}}
++{{- if include "homelab.preview.appEnabled" (dict "root" . "app" "demo-suite") }}
++{{- $preview := include "homelab.preview.enabled" . }}
++{{- $values := $app.values }}
++{{- if and $preview $values (hasKey $values "persistence") }}
++{{- $values = omit $values "persistence" }}
++{{- $_ := set $values "persistence" (include "homelab.preview.persistence" (dict "root" . "persistence" $app.values.persistence) | fromYaml) }}
++{{- end }}
++{{- $smoke := include "homelab.preview.smoke" (dict "root" . "smoke" $app.smoke "namespace" $app.namespace) | fromYaml }}
++{{- /*
++Three Applications (rule gitops/<env>/waves: -dependencies < main, -config != main):
++  wave 12  demo-suite-dependencies  charts/demo-suite-dependencies (Secrets, OnePasswordItems)
++  wave 13  demo-suite               upstream chart demo-suite
++  wave 15  demo-suite-config        charts/demo-suite-config (Ingress; anything needing the main chart)
++Derived values reach the -config child through helm.valuesObject (ADR-010).
++*/}}
++{{- if not $preview }}
++---
++# Namespace demo-suite: nothing else renders it, and the smoke Job below
++# lands in it before the Application's CreateNamespace=true would.
++apiVersion: v1
++kind: Namespace
++metadata:
++  name: {{ $app.namespace }}
++  annotations:
++    argocd.argoproj.io/sync-wave: "-1"
++{{- end }}
++{{- if not $preview }}
++---
++# Dependencies Application: prerequisites of demo-suite (Secrets, OnePasswordItems)
++apiVersion: argoproj.io/v1alpha1
++kind: Application
++metadata:
++  name: demo-suite-dependencies
++  namespace: argocd
++  annotations:
++    argocd.argoproj.io/sync-wave: "12"
++  finalizers:
++    - resources-finalizer.argocd.argoproj.io
++spec:
++  project: default
++  source:
++    repoURL: {{ $.Values.global.repoUrl }}
++    targetRevision: {{ $.Values.global.targetRevision }}
++    path: charts/demo-suite-dependencies
++    helm:
++      valueFiles:
++        - values.yaml
++        - values-{{ $.Values.global.environment }}.yaml
++  destination:
++    server: https://kubernetes.default.svc
++    namespace: {{ $app.namespace }}
++  syncPolicy:
++    {{- if $.Values.global.automatedSync }}
++    automated:
++      prune: true
++      selfHeal: true
++    {{- end }}
++    syncOptions:
++      - CreateNamespace=true
++      - ServerSideApply=true
++      - SkipDryRunOnMissingResource=true
++{{- end }}
++---
++apiVersion: argoproj.io/v1alpha1
++kind: Application
++metadata:
++  name: {{ include "homelab.preview.appName" (dict "root" $ "app" "demo-suite") }}
++  namespace: {{ include "homelab.preview.appNamespace" $ }}
++  annotations:
++    argocd.argoproj.io/sync-wave: "13"
++  finalizers:
++    - resources-finalizer.argocd.argoproj.io
++spec:
++  project: {{ include "homelab.preview.project" $ }}
++  source:
++    repoURL: {{ $app.chart.repo }}
++    chart: {{ $app.chart.name }}
++    targetRevision: {{ $app.chart.version | quote }}
++    helm:
++      releaseName: demo-suite
++      {{- with $values }}
++      values: |
++        {{- include "homelab.preview.hosts" (dict "root" $ "text" (toYaml .)) | nindent 8 }}
++      {{- end }}
++  destination:
++    server: https://kubernetes.default.svc
++    namespace: {{ include "homelab.preview.destNamespace" (dict "root" $ "namespace" $app.namespace) }}
++
++  syncPolicy:
++    {{- if $.Values.global.automatedSync }}
++    automated:
++      prune: true
++      selfHeal: true
++    {{- end }}
++    syncOptions:
++      - CreateNamespace=true
++      - ServerSideApply=true
++    retry:
++      limit: 5
++      backoff:
++        duration: 5s
++        factor: 2
++        maxDuration: 3m
++{{- include "homelab.smokeJob" (dict "name" "demo-suite" "namespace" (include "homelab.preview.destNamespace" (dict "root" $ "namespace" $app.namespace)) "smoke" $smoke "wave" "13" "image" $.Values.global.images.curl) }}
++{{- if not $preview }}
++---
++# Config Application: objects that need the main chart (its Service, its CRDs)
++apiVersion: argoproj.io/v1alpha1
++kind: Application
++metadata:
++  name: demo-suite-config
++  namespace: argocd
++  annotations:
++    argocd.argoproj.io/sync-wave: "15"
++  finalizers:
++    - resources-finalizer.argocd.argoproj.io
++spec:
++  project: default
++  source:
++    repoURL: {{ $.Values.global.repoUrl }}
++    targetRevision: {{ $.Values.global.targetRevision }}
++    path: charts/demo-suite-config
++    helm:
++      valueFiles:
++        - values.yaml
++        - values-{{ $.Values.global.environment }}.yaml
++      # Derived values (domain, hostname) come from this parent's values
++      # (configuration/ via the CMP in homelab) so the child's committed values
++      # files stay PII-free. valuesObject overrides valueFiles in ArgoCD.
++      valuesObject:
++        global:
++          domain: {{ $.Values.global.domain }}
++        {{- with $app.config }}
++        {{- toYaml . | nindent 8 }}
++        {{- end }}
++  destination:
++    server: https://kubernetes.default.svc
++    namespace: {{ $app.namespace }}
++  syncPolicy:
++    {{- if $.Values.global.automatedSync }}
++    automated:
++      prune: true
++      selfHeal: true
++    {{- end }}
++    syncOptions:
++      - CreateNamespace=true
++      - ServerSideApply=true
++      - SkipDryRunOnMissingResource=true
++{{- end }}
++{{- end }}
+diff --git a/charts/applications/values.yaml b/charts/applications/values.yaml
+--- a/charts/applications/values.yaml
++++ b/charts/applications/values.yaml
+@@ -7,3 +7,33 @@
+ sonarr:
+   enabled: true
+   namespace: media
++
++# ============================================================================
++# demo-suite - dependencies + main chart + config (scaffolded)
++# homelab scaffold app demo-suite --pattern deps-main-config --tier applications --chart-repo https://charts.example.com/demo --chart-version 3.1.4 --port 3000
++# Sync Wave: 13
++# ============================================================================
++# Placeholders only: configuration/templates/helm-apps.tmpl generates the real
++# values for every environment (the CMP in homelab, values-localdev.yaml in Kind).
++
++demo-suite:
++  enabled: false
++  namespace: demo-suite
++
++  # ArgoCD source: repoURL (no oci:// scheme for OCI registries), chart name and
++  # version. configuration/versions.yaml charts.demo-suite is the only place to bump it.
++  chart:
++    name: demo-suite
++    repo: https://charts.example.com/demo
++    # Placeholder; configuration/versions.yaml charts.demo-suite wins at render time.
++    version: "3.1.4"
++
++  # Handed verbatim to the upstream chart (spec.source.helm.values).
++  values: {}
++
++  # Handed to charts/demo-suite-config through the demo-suite-config Application's
++  # helm.valuesObject (ADR-010).
++  config: {}
++
++  smoke:
++    enabled: false
+diff --git a/charts/demo-suite-config/Chart.yaml b/charts/demo-suite-config/Chart.yaml
+new file mode 100644
+--- /dev/null
++++ b/charts/demo-suite-config/Chart.yaml
+@@ -0,0 +1,6 @@
++apiVersion: v2
++name: demo-suite-config
++description: Configuration for demo-suite that needs the main chart (Ingress), synced after it
++type: application
++version: 1.0.0
++appVersion: "1.0"
+diff --git a/charts/demo-suite-config/templates/ingress.yaml b/charts/demo-suite-config/templates/ingress.yaml
+new file mode 100644
+--- /dev/null
++++ b/charts/demo-suite-config/templates/ingress.yaml
+@@ -0,0 +1,27 @@
++{{- if .Values.ingress.enabled }}
++---
++apiVersion: networking.k8s.io/v1
++kind: Ingress
++metadata:
++  name: demo-suite
++  namespace: {{ .Values.namespace }}
++  annotations:
++    cert-manager.io/cluster-issuer: letsencrypt
++spec:
++  ingressClassName: {{ .Values.ingress.className }}
++  rules:
++    - host: {{ .Values.ingress.host }}
++      http:
++        paths:
++          - path: /
++            pathType: Prefix
++            backend:
++              service:
++                name: {{ .Values.ingress.service.name }}
++                port:
++                  number: {{ .Values.ingress.service.port }}
++  tls:
++    - secretName: demo-suite-tls
++      hosts:
++        - {{ .Values.ingress.host }}
++{{- end }}
+diff --git a/charts/demo-suite-config/values-homelab.yaml b/charts/demo-suite-config/values-homelab.yaml
+new file mode 100644
+--- /dev/null
++++ b/charts/demo-suite-config/values-homelab.yaml
+@@ -0,0 +1,5 @@
++# demo-suite-config homelab values. Committed and PII-free (ADR-010): the
++# hostname and domain arrive through the parent Application's helm.valuesObject.
++# Only non-derived settings live here.
++
++namespace: demo-suite
+diff --git a/charts/demo-suite-config/values-localdev.yaml b/charts/demo-suite-config/values-localdev.yaml
+new file mode 100644
+--- /dev/null
++++ b/charts/demo-suite-config/values-localdev.yaml
+@@ -0,0 +1,8 @@
++# demo-suite-config — local development overrides
++#
++# No overrides are needed: the hostname arrives through the parent
++# Application's helm.valuesObject, generated from configuration/ for localdev.
++# The file still has to exist: the parent Application always appends
++# values-localdev.yaml to spec.source.helm.valueFiles.
++
++namespace: demo-suite
+diff --git a/charts/demo-suite-config/values.yaml b/charts/demo-suite-config/values.yaml
+new file mode 100644
+--- /dev/null
++++ b/charts/demo-suite-config/values.yaml
+@@ -0,0 +1,21 @@
++# demo-suite-config values: objects that need the main chart (its Service, its
++# CRDs), synced after demo-suite (wave 15). Scaffolded by
++# `homelab scaffold app demo-suite`.
++#
++# global.domain, ingress.host and ingress.className are placeholders: the
++# demo-suite-config Application in charts/applications passes the real values through
++# helm.valuesObject (ADR-010).
++
++global:
++  domain: example.com
++
++namespace: demo-suite
++
++ingress:
++  enabled: true
++  host: demo-suite.example.com
++  className: internal
++  # The Service the upstream chart creates for release demo-suite.
++  service:
++    name: demo-suite
++    port: 3000
+diff --git a/charts/demo-suite-dependencies/Chart.yaml b/charts/demo-suite-dependencies/Chart.yaml
+new file mode 100644
+--- /dev/null
++++ b/charts/demo-suite-dependencies/Chart.yaml
+@@ -0,0 +1,6 @@
++apiVersion: v2
++name: demo-suite-dependencies
++description: Prerequisites for demo-suite (Secrets, OnePasswordItems), synced before the main chart
++type: application
++version: 1.0.0
++appVersion: "1.0"
+diff --git a/charts/demo-suite-dependencies/templates/secrets.yaml b/charts/demo-suite-dependencies/templates/secrets.yaml
+new file mode 100644
+--- /dev/null
++++ b/charts/demo-suite-dependencies/templates/secrets.yaml
+@@ -0,0 +1,14 @@
++{{/*
++An OnePasswordItem with an empty itemPath renders but is inert, so the item
++requires its path as well as the toggle.
++*/}}
++{{- if and .Values.onePassword.enabled .Values.onePassword.itemPath }}
++---
++apiVersion: onepassword.com/v1
++kind: OnePasswordItem
++metadata:
++  name: {{ .Values.onePassword.secretName }}
++  namespace: {{ .Values.namespace }}
++spec:
++  itemPath: {{ .Values.onePassword.itemPath | quote }}
++{{- end }}
+diff --git a/charts/demo-suite-dependencies/values-homelab.yaml b/charts/demo-suite-dependencies/values-homelab.yaml
+new file mode 100644
+--- /dev/null
++++ b/charts/demo-suite-dependencies/values-homelab.yaml
+@@ -0,0 +1,8 @@
++# demo-suite-dependencies homelab values. Committed and PII-free (ADR-010):
++# 1Password item paths belong here, hostnames and addresses never do.
++
++namespace: demo-suite
++
++onePassword:
++  # Set enabled: true and itemPath: vaults/homelab/items/<item> once the item exists.
++  enabled: false
+diff --git a/charts/demo-suite-dependencies/values-localdev.yaml b/charts/demo-suite-dependencies/values-localdev.yaml
+new file mode 100644
+--- /dev/null
++++ b/charts/demo-suite-dependencies/values-localdev.yaml
+@@ -0,0 +1,9 @@
++# demo-suite-dependencies — local development overrides
++#
++# Kind has no secret store (SECRETS_PROVIDER=none), so no OnePasswordItem is
++# rendered. The file still has to exist: the parent Application always appends
++# values-localdev.yaml to spec.source.helm.valueFiles, and ArgoCD fails the
++# sync when a declared value file is missing.
++
++onePassword:
++  enabled: false
+diff --git a/charts/demo-suite-dependencies/values.yaml b/charts/demo-suite-dependencies/values.yaml
+new file mode 100644
+--- /dev/null
++++ b/charts/demo-suite-dependencies/values.yaml
+@@ -0,0 +1,12 @@
++# demo-suite-dependencies values: prerequisites synced before demo-suite
++# (wave 12 < 13). Scaffolded by `homelab scaffold app demo-suite`.
++
++namespace: demo-suite
++
++# A 1Password item the operator materialises as Secret <secretName>. Inert until
++# both enabled and itemPath are set. Localdev has no secret store
++# (SECRETS_PROVIDER=none): seed the Secret in localdev/fakes/secrets.yaml instead.
++onePassword:
++  enabled: false
++  secretName: demo-suite-credentials
++  itemPath: ""
+diff --git a/configuration/schema/applications.schema.yaml b/configuration/schema/applications.schema.yaml
+--- a/configuration/schema/applications.schema.yaml
++++ b/configuration/schema/applications.schema.yaml
+@@ -11,3 +11,8 @@
+   SONARR_HOSTNAME:
+     description: Sonarr hostname
+     const: "sonarr.{{.DOMAIN}}"
++
++  # demo-suite (scaffolded by `homelab scaffold app demo-suite`)
++  DEMO_SUITE_HOSTNAME:
++    description: demo-suite hostname
++    const: "demo-suite.{{.DOMAIN}}"
+diff --git a/configuration/templates/helm-apps.tmpl b/configuration/templates/helm-apps.tmpl
+--- a/configuration/templates/helm-apps.tmpl
++++ b/configuration/templates/helm-apps.tmpl
+@@ -16,3 +16,59 @@
+     main:
+       hosts:
+         - host: {{ .Values.SONARR_HOSTNAME.Value }}
++
++# ============================================================================
++# demo-suite - dependencies + main chart + config (scaffolded)
++# homelab scaffold app demo-suite --pattern deps-main-config --tier applications --chart-repo https://charts.example.com/demo --chart-version 3.1.4 --port 3000
++# Sync Wave: 13
++# ============================================================================
++# Waves: demo-suite-dependencies 12 < demo-suite 13 < demo-suite-config 15
++
++demo-suite:
++  enabled: true
++  namespace: demo-suite
++
++  # ArgoCD source: repoURL (no oci:// scheme for OCI registries), chart name and
++  # version. configuration/versions.yaml charts.demo-suite is the only place to bump it.
++  chart:
++    name: demo-suite
++    repo: https://charts.example.com/demo
++    version: "{{ index .Versions.Charts "demo-suite" }}"
++
++  # Handed verbatim to the upstream chart (spec.source.helm.values): rename the
++  # keys to what the chart's own values.yaml expects.
++  values:
++{{- if $localdev }}
++    # Kind sizing: one replica, small footprint
++    replicaCount: 1
++    resources:
++      requests:
++        cpu: 50m
++        memory: 64Mi
++      limits:
++        cpu: 250m
++        memory: 256Mi
++{{- else }}
++    resources:
++      requests:
++        cpu: 100m
++        memory: 128Mi
++      limits:
++        cpu: 500m
++        memory: 512Mi
++{{- end }}
++
++  # Derived values for charts/demo-suite-config, handed down through the
++  # demo-suite-config Application's helm.valuesObject (ADR-010). Never put them
++  # in charts/demo-suite-config/values-homelab.yaml.
++  config:
++    ingress:
++      host: {{ .Values.DEMO_SUITE_HOSTNAME.Value }}
++      className: {{ .Values.INGRESS_CLASS_INTERNAL.Value }}
++
++  # PostSync smoke hook (charts/applications/templates/_smoke.tpl): curl the
++  # in-cluster Service after sync; expect lists the accepted HTTP codes.
++  smoke:
++    enabled: true
++    url: http://demo-suite.demo-suite.svc.cluster.local:3000/
++    expect: ["200"]
+diff --git a/configuration/versions.yaml b/configuration/versions.yaml
+--- a/configuration/versions.yaml
++++ b/configuration/versions.yaml
+@@ -5,6 +5,8 @@
+   cloudnative-pg: "0.28.3"
+   sonarr: "25.6.3"
+   unifi-port-forward: "1.1.x"
++  # renovate: datasource=helm depName=demo-suite registryUrl=https://charts.example.com/demo
++  demo-suite: "3.1.4"
+ images:
+   curl: "8.22.0"
+ tools:
+diff --git a/docs/apps/demo-suite.md b/docs/apps/demo-suite.md
+new file mode 100644
+--- /dev/null
++++ b/docs/apps/demo-suite.md
+@@ -0,0 +1,35 @@
++# demo-suite
++
++Pattern: dependencies + main chart + config (deps-main-config), parent chart `charts/applications`. Scaffolded with:
++
++```bash
++homelab scaffold app demo-suite --pattern deps-main-config --tier applications --chart-repo https://charts.example.com/demo --chart-version 3.1.4 --port 3000
++```
++
++## Generated
++
++| Path | Purpose |
++|------|---------|
++| `charts/applications/templates/demo-suite.yaml` | ArgoCD Application(s): demo-suite-dependencies, demo-suite, demo-suite-config |
++| `charts/applications/values.yaml` | placeholder values block |
++| `charts/demo-suite-config/` | config child chart (wave 15) |
++| `charts/demo-suite-dependencies/` | dependencies child chart (wave 12) |
++| `configuration/schema/applications.schema.yaml` | `DEMO_SUITE_HOSTNAME` hostname key |
++| `configuration/templates/helm-apps.tmpl` | values for every environment (version, sizing, hostname, smoke URL) |
++| `configuration/versions.yaml` | chart version with its Renovate marker |
++| `tests/e2e/demo-suite/chainsaw-test.yaml` | chainsaw e2e test |
++
++## Before the first PR
++
++- [ ] Adapt the `values:` block in `configuration/templates/helm-apps.tmpl` to the chart's own values
++- [ ] Check that `smoke.url` (`http://demo-suite.demo-suite.svc.cluster.local:3000/`) names the chart's Service and port
++- [ ] Seed any Secret 1Password provides in homelab in `localdev/fakes/secrets.yaml`
++- [ ] Replace this checklist with what the app does and how to operate it
++
++## Verify
++
++```bash
++task verify:text                                   # level 0
++task localdev:up && task verify:text LEVEL=2       # Kind: Healthy + Succeeded, e2e
++task test:e2e -- --test-dir tests/e2e/demo-suite
++```
+diff --git a/tests/e2e/demo-suite/chainsaw-test.yaml b/tests/e2e/demo-suite/chainsaw-test.yaml
+new file mode 100644
+--- /dev/null
++++ b/tests/e2e/demo-suite/chainsaw-test.yaml
+@@ -0,0 +1,159 @@
++---
++# Scaffolded by `homelab scaffold app demo-suite`; see tests/e2e/README.md.
++apiVersion: chainsaw.kyverno.io/v1alpha1
++kind: Test
++metadata:
++  name: demo-suite
++spec:
++  description: >-
++    demo-suite / answers through the internal Traefik with Host demo-suite.homelab.local.
++  steps:
++    - name: applications-healthy
++      description: The ArgoCD Applications behind this test are Healthy and their last sync Succeeded.
++      try:
++        - assert:
++            resource:
++              apiVersion: argoproj.io/v1alpha1
++              kind: Application
++              metadata:
++                name: demo-suite-dependencies
++                namespace: argocd
++              status:
++                health:
++                  status: Healthy
++                operationState:
++                  phase: Succeeded
++        - assert:
++            resource:
++              apiVersion: argoproj.io/v1alpha1
++              kind: Application
++              metadata:
++                name: demo-suite
++                namespace: argocd
++              status:
++                health:
++                  status: Healthy
++                operationState:
++                  phase: Succeeded
++        - assert:
++            resource:
++              apiVersion: argoproj.io/v1alpha1
++              kind: Application
++              metadata:
++                name: demo-suite-config
++                namespace: argocd
++              status:
++                health:
++                  status: Healthy
++                operationState:
++                  phase: Succeeded
++      catch:
++        - describe:
++            apiVersion: argoproj.io/v1alpha1
++            kind: Application
++            name: demo-suite-dependencies
++            namespace: argocd
++        - describe:
++            apiVersion: argoproj.io/v1alpha1
++            kind: Application
++            name: demo-suite
++            namespace: argocd
++        - describe:
++            apiVersion: argoproj.io/v1alpha1
++            kind: Application
++            name: demo-suite-config
++            namespace: argocd
++    - name: curl-demo-suite
++      description: >-
++        A curl Job must get one of [200]
++        from https://demo-suite.homelab.local/ via traefik-internal.traefik.svc.cluster.local.
++      timeouts:
++        assert: 5m
++      try:
++        - apply:
++            resource:
++              apiVersion: batch/v1
++              kind: Job
++              metadata:
++                name: curl-demo-suite
++              spec:
++                backoffLimit: 0
++                activeDeadlineSeconds: 300
++                template:
++                  spec:
++                    restartPolicy: Never
++                    securityContext:
++                      runAsNonRoot: true
++                      runAsUser: 100
++                      seccompProfile:
++                        type: RuntimeDefault
++                    containers:
++                      - name: curl
++                        # pinned from configuration/versions.yaml images.curl
++                        image: curlimages/curl:8.22.0
++                        securityContext:
++                          allowPrivilegeEscalation: false
++                          capabilities:
++                            drop: ["ALL"]
++                        resources:
++                          requests:
++                            cpu: 10m
++                            memory: 32Mi
++                          limits:
++                            cpu: 100m
++                            memory: 64Mi
++                        env:
++                          - name: HOST
++                            value: "demo-suite.homelab.local"
++                          - name: GATEWAY
++                            value: "traefik-internal.traefik.svc.cluster.local"
++                          - name: URL_PATH
++                            value: "/"
++                          - name: EXPECT
++                            value: "200"
++                          - name: ATTEMPTS
++                            value: "20"
++                        command: ["sh", "-c"]
++                        args:
++                          - |
++                            set -u
++                            i=1
++                            while [ "$i" -le "$ATTEMPTS" ]; do
++                              code=$(curl -sk -o /dev/null -w '%{http_code}' -L --max-redirs 5 --max-time 20 \
++                                --connect-to "$HOST:443:$GATEWAY:443" --connect-to "$HOST:80:$GATEWAY:80" \
++                                "https://$HOST$URL_PATH")
++                              echo "attempt $i/$ATTEMPTS: HTTP $code for https://$HOST$URL_PATH via $GATEWAY"
++                              for ok in $EXPECT; do [ "$code" = "$ok" ] && exit 0; done
++                              i=$((i + 1))
++                              sleep 6
++                            done
++                            echo "giving up: last HTTP code $code, expected one of: $EXPECT"
++                            exit 1
++        - assert:
++            resource:
++              apiVersion: batch/v1
++              kind: Job
++              metadata:
++                name: curl-demo-suite
++              status:
++                succeeded: 1
++      catch:
++        - events: {}
++        - podLogs:
++            selector: job-name=curl-demo-suite
++            tail: 50
++        - describe:
++            apiVersion: argoproj.io/v1alpha1
++            kind: Application
++            name: demo-suite-dependencies
++            namespace: argocd
++        - describe:
++            apiVersion: argoproj.io/v1alpha1
++            kind: Application
++            name: demo-suite
++            namespace: argocd
++        - describe:
++            apiVersion: argoproj.io/v1alpha1
++            kind: Application
++            name: demo-suite-config
++            namespace: argocd

@@ -1,0 +1,19 @@
+{
+  packageRules: [
+    {
+      groupName: 'Helm charts',
+      matchDatasources: [
+        'helm',
+      ],
+    },
+    {
+      groupName: 'TrueCharts applications',
+      matchPackageNames: [
+        'oci.trueforge.org/truecharts/sonarr',
+      ],
+      matchDatasources: [
+        'docker',
+      ],
+    },
+  ],
+}

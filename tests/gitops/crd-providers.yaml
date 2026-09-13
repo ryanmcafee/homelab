@@ -19,6 +19,7 @@ providers:
   tailscale.com: tailscale-operator
   cilium.io: cilium
   postgresql.cnpg.io: cloudnative-pg
+  barmancloud.cnpg.io: cnpg-barman-cloud
   monitoring.coreos.com: kube-prometheus-stack
   # external-dns ships crds/dnsendpoint.yaml inside the chart (verified against
   # external-dns 1.21.1, the version pinned in configuration/versions.yaml), so

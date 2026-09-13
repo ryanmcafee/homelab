@@ -192,6 +192,10 @@ const ALL_RULE_IDS = [
   "container-resources",
   "inline-secret",
   "hostname-domain",
+  "appset-finalizer",
+  "appset-ssa",
+  "appset-project",
+  "appset-automated",
 ];
 
 // ============================================================================

@@ -1,0 +1,75 @@
+[[- template "blockHeader" . ]]
+
+[[ .Name ]]:
+  enabled: true
+  namespace: [[ .Namespace ]]
+[[- template "chartValues" . ]]
+    version: "{{ index .Versions.Charts "[[ .Name ]]" }}"
+[[- if .TrueCharts ]]
+
+  # Handed verbatim to the upstream chart (spec.source.helm.values), in the
+  # TrueCharts common-library layout (compare the sonarr block).
+  values:
+    workload:
+      main:
+        podSpec:
+{{- if $localdev }}
+          # Kind nodes run the host architecture (arm64 on Apple Silicon). Drop the
+          # TrueCharts common default kubernetes.io/arch=amd64 pin; null deletes the
+          # key when helm merges values, so the pod schedules on any node.
+          nodeSelector:
+            kubernetes.io/arch: null
+{{- end }}
+          containers:
+            main:
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 128Mi
+                limits:
+                  cpu: 500m
+                  memory: 512Mi
+    persistence:
+      config:
+        enabled: true
+        storageClass: {{ .Values.STORAGE_CLASS_ISCSI.Value }}
+        size: 1Gi
+    ingress:
+      main:
+        enabled: true
+        ingressClassName: {{ .Values.INGRESS_CLASS_INTERNAL.Value }}
+        annotations:
+          cert-manager.io/cluster-issuer: letsencrypt
+        hosts:
+          - host: {{ .Values.[[ .HostnameKey ]].Value }}
+            paths:
+              - path: /
+                pathType: Prefix
+        tls:
+          - secretName: [[ .Name ]]-tls
+            hosts:
+              - {{ .Values.[[ .HostnameKey ]].Value }}
+    TZ: {{ .Values.TIMEZONE.Value }}
+[[- else ]]
+
+  # Handed verbatim to the upstream chart (spec.source.helm.values), in the
+  # `helm create` layout most charts follow: rename the keys to what the
+  # chart's own values.yaml expects.
+  values:
+[[- template "genericResources" . ]]
+    ingress:
+      enabled: true
+      className: {{ .Values.INGRESS_CLASS_INTERNAL.Value }}
+      annotations:
+        cert-manager.io/cluster-issuer: letsencrypt
+      hosts:
+        - host: {{ .Values.[[ .HostnameKey ]].Value }}
+          paths:
+            - path: /
+              pathType: Prefix
+      tls:
+        - secretName: [[ .Name ]]-tls
+          hosts:
+            - {{ .Values.[[ .HostnameKey ]].Value }}
+[[- end ]]
+[[- template "smokeValues" . ]]

@@ -1,0 +1,93 @@
+[[- template "appHeader" . ]]
+{{- /*
+Three Applications (rule gitops/<env>/waves: -dependencies < main, -config != main):
+  wave [[ .DepsWave ]]  [[ .Name ]]-dependencies  charts/[[ .Name ]]-dependencies (Secrets, OnePasswordItems)
+  wave [[ .Wave ]]  [[ .Name ]]               upstream chart [[ .ChartName ]]
+  wave [[ .ConfigWave ]]  [[ .Name ]]-config        charts/[[ .Name ]]-config (Ingress; anything needing the main chart)
+Derived values reach the -config child through helm.valuesObject (ADR-010).
+*/}}
+[[- template "namespace" . ]]
+[[- template "repoSecret" . ]]
+[[- template "prodOnlyOpen" . ]]
+---
+# Dependencies Application: prerequisites of [[ .Name ]] (Secrets, OnePasswordItems)
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: [[ .Name ]]-dependencies
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "[[ .DepsWave ]]"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: {{ $.Values.global.repoUrl }}
+    targetRevision: {{ $.Values.global.targetRevision }}
+    path: charts/[[ .Name ]]-dependencies
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-{{ $.Values.global.environment }}.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: {{ $app.namespace }}
+  syncPolicy:
+    {{- if $.Values.global.automatedSync }}
+    automated:
+      prune: true
+      selfHeal: true
+    {{- end }}
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - SkipDryRunOnMissingResource=true
+[[- template "prodOnlyClose" . ]]
+[[- template "mainApp" . ]]
+[[- template "prodOnlyOpen" . ]]
+---
+# Config Application: objects that need the main chart (its Service, its CRDs)
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: [[ .Name ]]-config
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "[[ .ConfigWave ]]"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: {{ $.Values.global.repoUrl }}
+    targetRevision: {{ $.Values.global.targetRevision }}
+    path: charts/[[ .Name ]]-config
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-{{ $.Values.global.environment }}.yaml
+      # Derived values (domain, hostname) come from this parent's values
+      # (configuration/ via the CMP in homelab) so the child's committed values
+      # files stay PII-free. valuesObject overrides valueFiles in ArgoCD.
+      valuesObject:
+        global:
+          domain: {{ $.Values.global.domain }}
+        {{- with $app.config }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: {{ $app.namespace }}
+  syncPolicy:
+    {{- if $.Values.global.automatedSync }}
+    automated:
+      prune: true
+      selfHeal: true
+    {{- end }}
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - SkipDryRunOnMissingResource=true
+[[- template "prodOnlyClose" . ]]
+{{- end }}

@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "deno run --allow-read --allow-write --allow-run --allow-env \"$CLAUDE_PROJECT_DIR/scripts/claude-verify-hook.ts\"",
+            "timeout": 180
+          }
+        ]
+      }
+    ]
+  }
+}

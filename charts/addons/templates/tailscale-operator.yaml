@@ -45,8 +45,16 @@ spec:
             - "tag:k8s-operator"
         proxyConfig:
           defaultTags: "tag:k8s"
+        # "noauth": the operator runs an in-process Kubernetes API server proxy
+        # at https://<operatorConfig.hostname>.<tailnet>.ts.net that forwards
+        # requests without adding authentication, so the caller's bearer token
+        # reaches the kube-apiserver unchanged: agents authenticate as
+        # system:serviceaccount:agent-access:agent-readonly and RBAC
+        # (charts/agent-readonly) decides what they may read. No impersonation
+        # (allowImpersonation stays "false"). Reaching it needs a tailnet policy
+        # grant to tag:k8s-operator:443 (docs/runbooks/readonly-access.md).
         apiServerProxyConfig:
-          mode: "false"
+          mode: "noauth"
   destination:
     server: https://kubernetes.default.svc
     namespace: {{ index .Values "tailscale-operator" "namespace" }}

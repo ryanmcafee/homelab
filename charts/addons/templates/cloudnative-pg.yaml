@@ -6,7 +6,8 @@ metadata:
   name: cloudnative-pg
   namespace: argocd
   annotations:
-    # Sync wave 8 - deploys after kube-prometheus-stack (wave 7) for monitoring integration
+    # Sync wave 10 - after kube-prometheus-stack (wave 9), whose PodMonitor CRD the
+    # operator's podMonitorEnabled needs; cnpg-barman-cloud follows at 11
     argocd.argoproj.io/sync-wave: "10"
   finalizers:
     - resources-finalizer.argocd.argoproj.io

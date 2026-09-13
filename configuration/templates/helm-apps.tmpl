@@ -1137,5 +1137,7 @@ duckdns:
 
 renovate:
   enabled: {{ $onepassword }}
+  chart:
+    version: {{ .Versions.Charts.renovate }}
   config:
     gitAuthor: "Renovate Bot <renovate@{{ .Values.DOMAIN.Value }}>"

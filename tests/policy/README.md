@@ -10,6 +10,7 @@ and hostname object in the GitOps repo. Evaluated by `internal/verify.Policy`
 |------|---------|
 | `lib.rego` | Shared helpers: `data.domain`, exemption annotations, object id. |
 | `application.rego` | `app-finalizer`, `app-sync-wave`, `app-ssa`, `app-automated`. |
+| `applicationset.rego` | `appset-finalizer`, `appset-ssa`, `appset-project`, `appset-automated` (the `spec.template` of an `ApplicationSet`). |
 | `workload.rego` | `image-latest`, `container-resources`. |
 | `secret.rego` | `inline-secret`. |
 | `hostname.rego` | `hostname-domain`, plus the domain-missing safety net. |
@@ -25,6 +26,10 @@ and hostname object in the GitOps repo. Evaluated by `internal/verify.Policy`
 | `app-sync-wave` | `Application` | `argocd.argoproj.io/sync-wave` annotation, numeric. Note: Kubernetes annotation values are always strings — a rendered manifest with an unquoted numeric sync-wave (`sync-wave: 2` instead of `sync-wave: "2"`) is itself malformed, but if it reaches the policy anyway the rule still fails it (`object.get` only matches a *string* annotation value; a bare YAML integer doesn't satisfy `regex.match` and the rule fires). |
 | `app-ssa` | `Application` | `spec.syncPolicy.syncOptions` contains `ServerSideApply=true`. |
 | `app-automated` | `Application` | `spec.syncPolicy.automated.prune == true` and `.selfHeal == true`. |
+| `appset-finalizer` | `ApplicationSet` | `spec.template.metadata.finalizers` contains `resources-finalizer.argocd.argoproj.io`, so deleting a generated Application (e.g. a closed PR's preview) cascades. |
+| `appset-ssa` | `ApplicationSet` | `spec.template.spec.syncPolicy.syncOptions` contains `ServerSideApply=true`. |
+| `appset-project` | `ApplicationSet` | `spec.template.spec.project` is set and is not `default` (an externally fed generator must land in a restricted AppProject). |
+| `appset-automated` | `ApplicationSet` | `spec.template.spec.syncPolicy.automated.prune == true` and `.selfHeal == true`; off when `argocd_automated_sync: false`, like `app-automated`. |
 | `image-latest` | `Deployment`/`StatefulSet`/`DaemonSet`/`Job`/`CronJob`/`Pod` containers, and `image.tag` parsed out of an `Application`'s inline `spec.source.helm.values` | No container image ending in `:latest` or without a tag. A tag is only recognized in the *last* `/`-separated path segment (`registry.local:5000/app` is untagged; `registry.local:5000/app:1.2.3` is pinned), or a `@digest` reference anywhere in the string. |
 | `container-resources` | same workload kinds | Every container sets `resources.requests`/`resources.limits` for both `cpu` and `memory`. |
 | `inline-secret` | `Secret` | `data`/`stringData` keys are a subset of `name, url, type, enableOCI, project, insecure` (the ArgoCD repository-secret shape). Anything else is treated as inline secret material that should live in 1Password/SOPS instead. |

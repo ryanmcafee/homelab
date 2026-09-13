@@ -1,4 +1,20 @@
 ---
+# Source: addons/templates/agent-readonly.yaml
+# Namespace for the agent-readonly ServiceAccount and its token Secret (wave 1,
+# before the Application at wave 2). Nothing runs here, so PodSecurity is the
+# strictest level. docs/runbooks/readonly-access.md
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: agent-access
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+
+---
 # Source: addons/templates/argo-workflows.yaml
 apiVersion: v1
 kind: Namespace
@@ -460,6 +476,51 @@ spec:
 # Sync Wave: 9 (after traefik-config for OIDC middleware)
 
 ---
+# Source: addons/templates/agent-readonly.yaml
+# Read-only identity for agents (issue #261 item 18): ServiceAccount + token
+# Secret bound to `view` and homelab-agent-readonly. No Secrets, no write verbs.
+# Enabled in Kind too, where tests/e2e/agent-readonly proves the RBAC.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: agent-readonly
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/ryanmcafee/homelab.git
+    targetRevision: main
+    path: charts/agent-readonly
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-homelab.yaml
+      # One source of truth for the namespace: the Namespace above.
+      valuesObject:
+        namespace: "agent-access"
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: agent-access
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true
+  # The token controller writes the token into the Secret; that is not drift.
+  ignoreDifferences:
+    - group: ""
+      kind: Secret
+      name: agent-readonly-token
+      namespace: agent-access
+      jsonPointers:
+        - /data
+
+---
 # Source: addons/templates/argo-workflows.yaml
 apiVersion: argoproj.io/v1alpha1
 kind: Application
@@ -897,7 +958,8 @@ metadata:
   name: cloudnative-pg
   namespace: argocd
   annotations:
-    # Sync wave 8 - deploys after kube-prometheus-stack (wave 7) for monitoring integration
+    # Sync wave 10 - after kube-prometheus-stack (wave 9), whose PodMonitor CRD the
+    # operator's podMonitorEnabled needs; cnpg-barman-cloud follows at 11
     argocd.argoproj.io/sync-wave: "10"
   finalizers:
     - resources-finalizer.argocd.argoproj.io
@@ -947,6 +1009,53 @@ spec:
       kind: MutatingWebhookConfiguration
       jsonPointers:
         - /webhooks/0/clientConfig/caBundle
+
+---
+# Source: addons/templates/cnpg-barman-cloud.yaml
+# Barman Cloud Plugin for CloudNativePG: the supported backup/restore path
+# (the operator's native barmanObjectStore is deprecated and goes away in
+# CloudNativePG 1.31). It installs the ObjectStore CRD
+# (objectstores.barmancloud.cnpg.io) and a gRPC plugin Deployment next to the
+# operator in cnpg-system; its TLS comes from cert-manager (wave 0), so it
+# syncs after both cert-manager and cloudnative-pg (wave 10).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cnpg-barman-cloud
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "11"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://cloudnative-pg.github.io/charts
+    chart: plugin-barman-cloud
+    targetRevision: 0.8.0
+    helm:
+      releaseName: cnpg-barman-cloud
+      values: |
+        resources:
+          limits:
+            cpu: 500m
+            memory: 256Mi
+          requests:
+            cpu: 50m
+            memory: 64Mi
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: cnpg-system
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
 
 ---
 # Source: addons/templates/democratic-csi-iscsi-hdd.yaml
@@ -2366,8 +2475,16 @@ spec:
             - "tag:k8s-operator"
         proxyConfig:
           defaultTags: "tag:k8s"
+        # "noauth": the operator runs an in-process Kubernetes API server proxy
+        # at https://<operatorConfig.hostname>.<tailnet>.ts.net that forwards
+        # requests without adding authentication, so the caller's bearer token
+        # reaches the kube-apiserver unchanged: agents authenticate as
+        # system:serviceaccount:agent-access:agent-readonly and RBAC
+        # (charts/agent-readonly) decides what they may read. No impersonation
+        # (allowImpersonation stays "false"). Reaching it needs a tailnet policy
+        # grant to tag:k8s-operator:443 (docs/runbooks/readonly-access.md).
         apiServerProxyConfig:
-          mode: "false"
+          mode: "noauth"
   destination:
     server: https://kubernetes.default.svc
     namespace: tailscale
@@ -2883,7 +3000,7 @@ metadata:
   namespace: argocd
   annotations:
     argocd.argoproj.io/sync-wave: "7"
-    addons.homelab.local/config-hash: "93f7c18d"
+    addons.homelab.local/config-hash: "bb39867b"
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:

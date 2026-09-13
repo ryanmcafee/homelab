@@ -130,6 +130,21 @@ trusting a prose table.
 | Reaching apps | in-cluster through `traefik-internal.traefik.svc.cluster.local` (or `traefik-external`) port 443 with `Host: <app>.homelab.local`; from the host, port-forward the Traefik Service |
 | CI | `.github/workflows/tilt-ci.yml`: `kind-argocd` (required, 45 min, artifact `verify-level2`), `kind-direct`, `yaml-lint` |
 | Expected state | every Application `OutOfSync` against `main` after a local sync; `Healthy` + `Succeeded` is the contract |
+| Restore drill | `tests/drills/cnpg-restore` (`task drill:restore`, weekly `restore-drill.yml`, failures open an issue labelled `restore-drill`); S3 fake `versity/versitygw` (`images.versitygw`), Barman Cloud Plugin addon `cnpg-barman-cloud` (`charts.plugin-barman-cloud`) in `cnpg-system` |
+
+## Verification contract (issue #261 Sections C/D)
+
+| Fact | Value |
+|------|-------|
+| Agent hook | `.claude/settings.json` PostToolUse → `scripts/claude-verify-hook.ts` (level 0 after edits under `charts/`/`configuration/`; `HOMELAB_VERIFY_HOOK=off`) |
+| PR claim | `task verify:claim` → `<!-- verify-level0 -->` block in the PR body; `pr-contract.yml` compares it with level 0 on the head (skips `renovate/*` and drafts) |
+| Sticky PR comments | `snapshot-diff` (verify.yml), `kind-preview` (tilt-ci.yml), `upgrade-diff` (upgrade.yml), `verify-claim` (pr-contract.yml) |
+| Automerge gate | commit status `upgrade/automerge-gate` on `renovate/*` heads: success only when no upstream manifest changed and CRs revalidate; Renovate `platformAutomerge: false` everywhere |
+| Regeneration bot | optional; secrets `HOMELAB_BOT_APP_ID` / `HOMELAB_BOT_PRIVATE_KEY` (GitHub App, human step); commits as `homelab-regen-bot <homelab-regen-bot@users.noreply.github.com>` (Renovate `gitIgnoredAuthors`) |
+| Previews | labels `preview` + `preview:<app>`; ApplicationSet `previews` + AppProject `previews` (charts/gitops, homelab only); namespace `preview-<N>` (ArgoCD `application.namespaces: preview-*`); Applications `<app>-pr<N>`; hosts `<app>-pr<N>.<domain>`; level-0 env `homelab-preview` |
+| Read-only production | kube context `homelab-readonly` (`~/.kube/homelab-readonly.yaml`, 0600, `task prod:kubeconfig`), ServiceAccount `agent-access/agent-readonly` (token Secret `agent-readonly-token`) via the Tailscale API server proxy (`noauth`) at `https://tailscale-operator-homelab.<tailnet>.ts.net`; ArgoCD account `agent` (`role:readonly`, token passed in `ARGOCD_AUTH_TOKEN`); `homelab verify prod` refuses `kind-*` contexts |
+| Read-only 1Password refs | `op://homelab/k8s-agent-readonly/credential` (ServiceAccount token), `op://homelab/argocd-agent-token/credential` (ArgoCD `agent` token), `vaults/homelab/items/argocd-notifications-github` (fields `github-appID`, `github-installationID`, `github-privateKey`) |
+| Deploy notifications | ArgoCD GitHub notifier (commit status `argocd/<app>` + PR comment) for `bootstrap`/`addons`/`applications`; off until the GitHub App and `argocd-notifications-secret` 1Password item exist |
 
 ## Important URLs (Production)
 

@@ -15,6 +15,20 @@ The copy keeps .Values untouched; keys already present in .Values.argocd.values
 {{- end }}
 {{- $_ := set $configs "cm" $cm }}
 {{- $_ := set $values "configs" $configs }}
+{{- /*
+GitHub deploy notifications (docs/runbooks/readonly-access.md). The notifier,
+templates and triggers in argocd.notificationsGithub.notifications reach the
+argo-cd chart's `notifications` values only while
+argocd.notificationsGithub.enabled is true, because they need the
+argocd-notifications-secret that templates/argocd-notifications-secret.yaml
+provisions from 1Password. Off, the Application renders exactly as before.
+*/}}
+{{- $github := dig "notificationsGithub" (dict) .Values.argocd }}
+{{- if dig "enabled" false $github }}
+{{- $notifications := merge (dict) (dig "notifications" (dict) $values) }}
+{{- $notifications = mergeOverwrite $notifications (deepCopy (dig "notifications" (dict) $github)) }}
+{{- $_ := set $values "notifications" $notifications }}
+{{- end }}
 # ArgoCD Self-Management Application
 # This allows ArgoCD to manage itself after initial bootstrap by Terraform
 # Sync Wave: 1 (after env-config at wave 0, before addons at wave 2)

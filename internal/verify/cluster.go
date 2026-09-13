@@ -191,9 +191,36 @@ func ArgoCDApps(ctx context.Context, opts ClusterOptions) []Check {
 	return checks
 }
 
-// argoAppCheck evaluates one Application.
+// argoAppRules parameterises evaluateArgoApp for the Kind checks (level 2,
+// "argocd/<app>") and the read-only production checks (`verify prod`,
+// "prod/argocd/<app>", prod.go).
+type argoAppRules struct {
+	// prefix names the checks: "<prefix>/<app>".
+	prefix string
+	// noOperationHint is the finding for an Application with no recorded
+	// sync operation.
+	noOperationHint string
+	// requireSynced also fails an Application whose sync status is not Synced.
+	requireSynced bool
+}
+
+// kindAppRules: in Kind every Application is OutOfSync against main by design
+// (ADR-012), so only health and the last operation count.
+var kindAppRules = argoAppRules{
+	prefix:          "argocd",
+	noOperationHint: "no sync operation recorded (run task localdev:sync)",
+}
+
+// argoAppCheck evaluates one Application of the Kind cluster.
 func argoAppCheck(app argoApp, start time.Time) Check {
-	name := "argocd/" + app.Metadata.Name
+	return evaluateArgoApp(app, start, kindAppRules)
+}
+
+// evaluateArgoApp passes an Application that is Healthy with a Succeeded
+// last operation (and Synced when rules.requireSynced); otherwise it fails
+// with its conditions, unhealthy resources and operation message.
+func evaluateArgoApp(app argoApp, start time.Time, rules argoAppRules) Check {
+	name := rules.prefix + "/" + app.Metadata.Name
 	phase := ""
 	opMessage := ""
 	if app.Status.OperationState != nil {
@@ -202,12 +229,20 @@ func argoAppCheck(app argoApp, start time.Time) Check {
 	}
 	health := app.Status.Health.Status
 	detail := fmt.Sprintf("sync=%s health=%s op=%s", app.Status.Sync.Status, health, phase)
+	synced := !rules.requireSynced || app.Status.Sync.Status == "Synced"
 
-	if health == "Healthy" && phase == "Succeeded" {
+	if health == "Healthy" && phase == "Succeeded" && synced {
 		return PassCheck(name, start, detail)
 	}
 
 	var findings []string
+	if !synced {
+		status := app.Status.Sync.Status
+		if status == "" {
+			status = "unknown"
+		}
+		findings = append(findings, fmt.Sprintf("sync status %s (want Synced)", status))
+	}
 	for _, cond := range app.Status.Conditions {
 		findings = append(findings, fmt.Sprintf("%s: %s", cond.Type, cond.Message))
 	}
@@ -225,7 +260,7 @@ func argoAppCheck(app argoApp, start time.Time) Check {
 		findings = append(findings, fmt.Sprintf("operation %s: %s", phase, opMessage))
 	}
 	if phase == "" && opMessage == "" {
-		findings = append(findings, "no sync operation recorded (run task localdev:sync)")
+		findings = append(findings, rules.noOperationHint)
 	}
 	return FailCheck(name, start, detail, findings...)
 }

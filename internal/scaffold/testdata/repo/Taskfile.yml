@@ -1,0 +1,6 @@
+---
+# Fixture repository root for the scaffold tests (internal/scaffold and
+# cmd/homelab/commands). A trimmed copy of the files `homelab scaffold app`
+# reads and edits; nothing here is rendered by level 0.
+version: '3'
+tasks: {}

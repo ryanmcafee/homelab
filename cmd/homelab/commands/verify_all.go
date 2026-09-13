@@ -124,6 +124,9 @@ Exit code 0 when every check passes, 1 when any check fails, 2 on usage error.`,
 				for _, env := range envs {
 					result.Add(verify.LintGitOps(env.Name, rendered[env.Name], reg, repoRoot)...)
 				}
+				// Chart versions against configuration/versions.yaml
+				// (versions/<env>, exceptions in tests/gitops/version-drift.yaml).
+				result.Add(verify.VersionChecks(repoRoot, rendered, envs, len(envs) == len(verify.Envs))...)
 			}
 
 			// 3. Golden snapshots (compare only; `verify snapshot --update` rewrites).
@@ -134,12 +137,7 @@ Exit code 0 when every check passes, 1 when any check fails, 2 on usage error.`,
 				result.Add(checks...)
 			}
 			if len(envs) == len(verify.Envs) {
-				expected := map[string][]string{}
-				for _, env := range out.Envs {
-					for _, c := range out.Charts {
-						expected[env.Name] = append(expected[env.Name], c.Name)
-					}
-				}
+				expected := verify.ExpectedSnapshots(out.Envs, out.Charts)
 				if checks, err := verify.OrphanSnapshots(expected, snapshotDir, verify.OrphanReport); err != nil {
 					result.Add(verify.FailCheck("snapshot/orphans", start, "scanning for orphan snapshots", err.Error()))
 				} else {
@@ -188,7 +186,7 @@ Exit code 0 when every check passes, 1 when any check fails, 2 on usage error.`,
 	}
 
 	cmd.Flags().IntVar(&level, "level", levelStatic, "Verification level: 0 = static (render, schema, gitops graph, snapshots, policy); 1 = level 0 + server-side dry run of the localdev render against Kind; 2 = level 1 + ArgoCD Application state + chainsaw e2e")
-	cmd.Flags().StringVar(&envList, "env", "all", "Environments to verify (all, localdev, homelab, or a comma-separated list); levels 1 and 2 need localdev")
+	cmd.Flags().StringVar(&envList, "env", "all", "Environments to verify (all, localdev, homelab, homelab-preview, or a comma-separated list); levels 1 and 2 need localdev")
 	cmd.Flags().BoolVar(&asJSON, "json", false, "Emit the machine-readable result contract")
 	cmd.Flags().BoolVar(&keep, "keep-render-dir", false, "Keep the temporary render directory and print its path")
 	cmd.Flags().StringVar(&outDir, "out-dir", "", "Render into this directory instead of a temp dir (never pruned)")

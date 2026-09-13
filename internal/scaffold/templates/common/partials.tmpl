@@ -1,0 +1,192 @@
+[[- /*
+Shared partials for every pattern. The scaffolder renders these files with
+[[ ]] delimiters, so the Helm {{ }} actions below are emitted verbatim.
+
+Tier differences come from Go-computed fields: in charts/applications
+(.PreviewAware) every name, namespace, project, values and smoke expression goes
+through the homelab.preview.* helpers of templates/_preview.tpl; in charts/addons
+they are plain literals.
+*/ -]]
+
+[[- define "appHeader" -]]
+{{- /*
+[[ .Name ]] ([[ .Pattern ]] pattern), scaffolded by:
+  [[ .Command ]]
+Chart, version, values and smoke URL come from the `[[ .Name ]]:` block of
+configuration/templates/[[ .ExportFile ]]; charts/[[ .Tier ]]/values.yaml only holds
+placeholders. See docs/apps/[[ .Name ]].md.
+*/}}
+{{- $app := index .Values "[[ .Name ]]" }}
+[[- if .PreviewAware ]]
+{{- /*
+Preview mode (templates/_preview.tpl, docs/runbooks/previews.md): the app renders
+in a PR preview only once it is listed in global.preview.allowedApps; the
+helpers then rename it, move it to preview-<pr>, rewrite its hosts and give it
+fresh storage.
+*/}}
+{{- if include "homelab.preview.appEnabled" (dict "root" . "app" "[[ .Name ]]") }}
+{{- $preview := include "homelab.preview.enabled" . }}
+{{- $values := $app.values }}
+{{- if and $preview $values (hasKey $values "persistence") }}
+{{- $values = omit $values "persistence" }}
+{{- $_ := set $values "persistence" (include "homelab.preview.persistence" (dict "root" . "persistence" $app.values.persistence) | fromYaml) }}
+{{- end }}
+{{- $smoke := include "homelab.preview.smoke" (dict "root" . "smoke" $app.smoke "namespace" $app.namespace) | fromYaml }}
+[[- else ]]
+{{- if $app.enabled }}
+[[- end ]]
+[[- end -]]
+
+[[- define "prodOnlyOpen" ]][[ if .PreviewAware ]]
+{{- if not $preview }}[[ end ]][[ end -]]
+[[- define "prodOnlyClose" ]][[ if .PreviewAware ]]
+{{- end }}[[ end ]][[ end -]]
+
+[[- define "namespace" -]]
+[[- if .CreateNamespace ]]
+[[- template "prodOnlyOpen" . ]]
+---
+# Namespace [[ .Namespace ]]: nothing else renders it, and the smoke Job below
+# lands in it before the Application's CreateNamespace=true would.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ $app.namespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+[[- template "prodOnlyClose" . ]]
+[[- end ]]
+[[- end -]]
+
+[[- define "repoSecret" -]]
+[[- if .RepoSecret ]]
+[[- template "prodOnlyOpen" . ]]
+---
+# ArgoCD repository credential for the OCI registry (anonymous pull). ArgoCD only
+# pulls OCI charts from a registry it has a repository Secret for
+# (rule gitops/<env>/repo-secrets).
+apiVersion: v1
+kind: Secret
+metadata:
+  name: [[ .Name ]]-oci
+  namespace: argocd
+  labels:
+    argocd.argoproj.io/secret-type: repository
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+stringData:
+  name: [[ .Name ]]
+  type: helm
+  url: {{ $app.chart.repo }}
+  enableOCI: "true"
+[[- template "prodOnlyClose" . ]]
+[[- end ]]
+[[- end -]]
+
+[[- define "mainApp" ]]
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: [[ .AppNameExpr ]]
+  namespace: [[ .AppNamespaceExpr ]]
+  annotations:
+    argocd.argoproj.io/sync-wave: "[[ .Wave ]]"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: [[ .ProjectExpr ]]
+  source:
+    repoURL: {{ $app.chart.repo }}
+    chart: {{ $app.chart.name }}
+    targetRevision: {{ $app.chart.version | quote }}
+    helm:
+      releaseName: [[ .Name ]]
+      {{- with [[ .ValuesExpr ]] }}
+      values: |
+        [[ .ValuesBody ]]
+      {{- end }}
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: [[ .DestNSExpr ]]
+[[- if .TrueCharts ]]
+
+  # Ignore TrueCharts dynamic fields and Kubernetes defaults
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      jqPathExpressions:
+        - .spec.template.metadata.annotations | to_entries | map(select(.key | startswith("checksum/"))) | from_entries
+      jsonPointers:
+        - /spec/template/spec/hostUsers
+[[- end ]]
+
+  syncPolicy:
+    {{- if $.Values.global.automatedSync }}
+    automated:
+      prune: true
+      selfHeal: true
+    {{- end }}
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+{{- include "homelab.smokeJob" (dict "name" "[[ .Name ]]" "namespace" [[ .SmokeNSExpr ]] "smoke" [[ .SmokeExpr ]] "wave" "[[ .Wave ]]" "image" $.Values.global.images.curl) }}
+[[- end -]]
+
+[[- define "blockHeader" ]]
+
+# ============================================================================
+# [[ .Name ]] - [[ .PatternTitle ]] (scaffolded)
+# [[ .Command ]]
+# Sync Wave: [[ .Wave ]][[ if .CRDGroup ]]; installs the [[ .CRDGroup ]] CRDs (tests/gitops/crd-providers.yaml)[[ end ]]
+# ============================================================================
+[[- end -]]
+
+[[- define "chartValues" ]]
+
+  # ArgoCD source: repoURL (no oci:// scheme for OCI registries), chart name and
+  # version. configuration/versions.yaml charts.[[ .Name ]] is the only place to bump it.
+  chart:
+    name: [[ .ChartName ]]
+    repo: [[ .RepoURL ]]
+[[- end -]]
+
+[[- define "smokeValues" ]]
+
+  # PostSync smoke hook (charts/[[ .Tier ]]/templates/_smoke.tpl): curl the
+  # in-cluster Service after sync; expect lists the accepted HTTP codes.
+  smoke:
+    enabled: [[ .Smoke ]]
+[[- if .Smoke ]]
+    url: [[ .SmokeURL ]]
+    expect: [[ flowList .Expect ]]
+[[- end ]]
+[[- end -]]
+
+[[- define "genericResources" ]]
+{{- if $localdev }}
+    # Kind sizing: one replica, small footprint
+    replicaCount: 1
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: 250m
+        memory: 256Mi
+{{- else }}
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+{{- end }}
+[[- end -]]

@@ -1,3 +1,5 @@
+{{- /* Previews reuse the Secret the normal homelab render creates (repository Secrets are cluster-wide in ArgoCD). */ -}}
+{{- if not (include "homelab.preview.enabled" .) -}}
 # OCI Repository configuration for ArgoCD
 # Single repository secret for TrueCharts OCI registry
 ---
@@ -15,3 +17,4 @@ stringData:
   type: helm
   url: oci.trueforge.org/truecharts
   enableOCI: "true"
+{{- end }}

@@ -1,3 +1,50 @@
+{{- if include "homelab.preview.enabled" . }}
+{{- /* Fails the render on a PR number or preview app the chart does not accept. */ -}}
+{{- $_ := include "homelab.preview.apps" . }}
+---
+# Namespace of one pull request's preview (docs/runbooks/previews.md). The
+# preview-pr<N> Application also creates it (CreateNamespace=true) with the
+# same labels through managedNamespaceMetadata in
+# charts/gitops/templates/previews-applicationset.yaml; keep both at baseline.
+# Rendering it here makes the teardown prune it with everything inside.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ include "homelab.preview.namespace" . }}
+  labels:
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/audit: baseline
+    pod-security.kubernetes.io/warn: baseline
+    homelab.ryanmcafee.com/preview-pr: {{ include "homelab.preview.pr" . | quote }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: preview
+  namespace: {{ include "homelab.preview.namespace" . }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
+spec:
+  hard:
+    {{- toYaml .Values.global.preview.quota | nindent 4 }}
+---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: preview
+  namespace: {{ include "homelab.preview.namespace" . }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
+spec:
+  limits:
+    - type: Container
+      default:
+        {{- toYaml .Values.global.preview.limitRange.defaultLimits | nindent 8 }}
+      defaultRequest:
+        {{- toYaml .Values.global.preview.limitRange.defaultRequests | nindent 8 }}
+{{- else -}}
 ---
 # Namespace: media
 # Created early so config charts and app deployments have a target namespace.
@@ -31,3 +78,4 @@ metadata:
     pod-security.kubernetes.io/warn: privileged
   annotations:
     argocd.argoproj.io/sync-wave: "10"
+{{- end }}

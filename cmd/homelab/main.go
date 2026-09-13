@@ -60,6 +60,7 @@ func main() {
 	rootCmd.AddCommand(commands.NewVerifyCmd())
 	rootCmd.AddCommand(commands.NewRenderCmd())
 	rootCmd.AddCommand(commands.NewConfigCmd())
+	rootCmd.AddCommand(commands.NewScaffoldCmd())
 
 	// A cancelled context stops the verification worker pools from dispatching
 	// further work, so Ctrl-C returns promptly instead of draining every

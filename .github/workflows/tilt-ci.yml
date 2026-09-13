@@ -16,6 +16,15 @@ name: Verify (Kind, levels 1-2)
 # Application, e2e test or dry run fails the pull request. Its Job Summary lists
 # every non-passing check and the verify-level2 artifact carries the full JSON.
 #
+# On pull requests kind-argocd also runs `task localdev:report` (issue #261
+# item 17): the Application table, the failing level-2 checks and `argocd app
+# diff` of every Application that is not Synced. The root Application tracks
+# GitHub main while everything was synced from the PR's working tree, so that
+# diff is exactly this PR vs main. The report goes to the Job Summary, the
+# verify-level2 artifact (kind-report.md) and, for same-repository PRs (fork
+# tokens cannot comment), the sticky comment `kind-preview`. The report step is
+# continue-on-error: it never decides the check.
+#
 # Tool versions mirror configuration/versions.yaml (the single source of truth)
 # and mise.toml; every pin below carries a Renovate marker so a bump lands here
 # too. Docker ships with ubuntu-latest, as do jq and yq (scripts/localdev-kind.ts
@@ -98,6 +107,11 @@ jobs:
     name: Kind + ArgoCD loop (level 2)
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    permissions:
+      # Read-only on contents: nothing is committed. pull-requests: write is
+      # for the kind-preview sticky comment only.
+      contents: read
+      pull-requests: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
@@ -196,6 +210,32 @@ jobs:
             } >> "$GITHUB_STEP_SUMMARY"
           fi
 
+      # PR head vs main as ArgoCD sees it. Tolerates a missing or partial
+      # verify-level2.json and an unreachable ArgoCD (it says so in the
+      # report). !cancelled() rather than always(): a run superseded by a newer
+      # push must not spend its grace period posting a stale comment.
+      - name: Kind report (task localdev:report)
+        id: report
+        if: ${{ !cancelled() && github.event_name == 'pull_request' }}
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          task localdev:report -- --out kind-report.md --verify-json verify-level2.json
+          tee -a "$GITHUB_STEP_SUMMARY" < kind-report.md > /dev/null
+        env:
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+
+      - name: Sticky comment with the Kind report
+        if: >-
+          ${{ !cancelled() && steps.report.outcome == 'success'
+          && github.event_name == 'pull_request'
+          && github.event.pull_request.head.repo.full_name == github.repository }}
+        continue-on-error: true
+        uses: marocchino/sticky-pull-request-comment@5770ad5eb8f42dd2c4f34da00c94c5381e49af88 # v3.0.5
+        with:
+          header: kind-preview
+          path: kind-report.md
+
       - name: Diagnostics
         if: always()
         run: |
@@ -215,12 +255,14 @@ jobs:
             du -sh "$HOME/.cache/homelab-kind-registry" || true
           fi
 
-      - name: Upload level-2 JSON
+      - name: Upload level-2 JSON and Kind report
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: verify-level2
-          path: verify-level2.json
+          path: |
+            verify-level2.json
+            kind-report.md
           retention-days: 14
           if-no-files-found: ignore
 

@@ -16,6 +16,11 @@ Pieces
   `kind-registry-<docker|ghcr|quay|k8s|lscr>` (cache dir `~/.cache/homelab-kind-registry`, hosts.toml in
   `/etc/containerd/certs.d`), fakes from `localdev/fakes/` (StorageClass aliases → local-path, seeded
   Secrets, OnePasswordItem CRD).
+- `scripts/localdev-argocd.ts report` (`task localdev:report`, posted by tilt-ci.yml as the sticky
+  PR comment `kind-preview`): Application table + level-2 verdict + `argocd app diff` per
+  non-Synced app. `argocd app diff` prints live-vs-target (live = working tree, target = main);
+  the script sets `KUBECTL_EXTERNAL_DIFF="diff -u"` and inverts it so `-` is main, `+` the PR.
+  A child's spec change shows on its parent's diff. All logs go to stderr in report mode.
 - `scripts/localdev-argocd.ts install|sync|wait|diagnose`: helm-installs argo-cd (version
   `charts.argocd`) with `localdev/values/argocd-values.yaml` + `--set-file` of every
   `charts/bootstrap/files/health/*.lua`; root app `localdev/argocd/gitops-app.yaml` (GitHub main, no

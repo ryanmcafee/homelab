@@ -1,0 +1,9 @@
+# [[ .Name ]]-dependencies — local development overrides
+#
+# Kind has no secret store (SECRETS_PROVIDER=none), so no OnePasswordItem is
+# rendered. The file still has to exist: the parent Application always appends
+# values-localdev.yaml to spec.source.helm.valueFiles, and ArgoCD fails the
+# sync when a declared value file is missing.
+
+onePassword:
+  enabled: false
