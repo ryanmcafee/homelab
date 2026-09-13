@@ -79,6 +79,23 @@ Bug investigation:     debugger + kubernetes-specialist + sre-engineer
 Performance issue:     performance-engineer + postgres-pro + network-engineer
 ```
 
+## Worktrees and Toolchain Gotchas
+
+Learned while landing #261 Section A (PR #264). Each one cost real time once.
+
+| Gotcha | What to do |
+|--------|------------|
+| mise refuses a fresh git worktree ("Config files ... are not trusted") | `mise trust && mise install` right after `git worktree add`. Pinned tools (terraform, terragrunt, kind, talosctl) show as "missing" until installed; the pre-commit `terraform_fmt`/`terragrunt_fmt` hooks fail with "command not found" until then. |
+| Serena is rooted at the directory Claude Code was launched from (`--project-from-cwd`) | Launch Claude Code from the worktree you edit. `.mcp.json` (committed) and `.serena/project.yml` (committed) make Serena available in every checkout; Serena's edit tools refuse paths outside its root, so use Bash/Edit for files in another worktree. |
+| Non-interactive shells miss the mise shims | Prepend `$HOME/.local/share/mise/shims` to `PATH` (`go`, `helm`, `deno`, `task` are all mise-managed; `mise.toml` pins `go = "1.25"` and `helm = "4.2.0"`). |
+| helm version changes rendered bytes | Golden snapshots are byte-exact against `configuration/versions.yaml` `tools.helm`; keep `mise.toml`, `verify.yml` and `versions.yaml` on the same helm. |
+| `go run ./cmd/homelab` collapses child exit codes to 1 | Check exit codes with the built binary (`go build -o bin/homelab ./cmd/homelab`). |
+| Terraform warns about the plugin cache dir | `task install-tools` creates `.terraform.d/plugin-cache` (the path `mise.toml` sets in `TF_PLUGIN_CACHE_DIR`). |
+| Docker Desktop is slow to start; CMP image tags before PR #264 are linux/amd64 only | `open -a Docker` and wait; on Apple Silicon run `task test:cmp-parity -- --platform linux/amd64` for old tags. |
+| `git push` over HTTPS occasionally fails ("remote end hung up", transient DNS) | Retry with `git -c http.version=HTTP/1.1 push`. |
+| `tests/snapshots/` must stay byte-exact | yamllint and the whitespace pre-commit fixers exclude it; regenerate with `task test:snapshot -- --update`, never hand-edit. |
+| `eza`, `fd`, `bat` are not installed | Use `rg` (`rg --files` for listing). |
+
 ## Local Configuration
 
 For environment-specific settings (IP addresses, hostnames, credentials), see `CLAUDE.local.md`.
