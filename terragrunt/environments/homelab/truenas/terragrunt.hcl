@@ -16,6 +16,12 @@ terraform {
 
 dependency "zfs_pool" {
   config_path = "../proxmox-zfs-pool"
+
+  # Placeholder so `terraform validate` runs without applied state (CI).
+  mock_outputs = {
+    pool_id = "mock-pool"
+  }
+  mock_outputs_allowed_terraform_commands = ["validate"]
 }
 
 # Configure Proxmox provider

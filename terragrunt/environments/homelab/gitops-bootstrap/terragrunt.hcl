@@ -77,6 +77,11 @@ EOT
 
 dependency "truenas" {
   config_path = "../truenas"
+
+  # Ordering-only dependency (no outputs are read); the empty mock lets
+  # `terraform validate` run without applied state (CI).
+  mock_outputs                            = {}
+  mock_outputs_allowed_terraform_commands = ["validate"]
 }
 
 # Configure Kubernetes providers using Talos cluster outputs

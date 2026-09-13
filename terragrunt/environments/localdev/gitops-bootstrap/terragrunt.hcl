@@ -16,6 +16,17 @@ terraform {
 
 dependency "kind_cluster" {
   config_path = "../kind-cluster"
+
+  # Placeholders so `terraform validate` (CI, fresh checkout) can render the
+  # provider blocks below without an applied Kind cluster. They are never used
+  # for plan or apply, and the values only have to be valid base64.
+  mock_outputs = {
+    endpoint               = "https://127.0.0.1:6443"
+    client_certificate     = base64encode("mock-client-certificate")
+    client_key             = base64encode("mock-client-key")
+    cluster_ca_certificate = base64encode("mock-cluster-ca-certificate")
+  }
+  mock_outputs_allowed_terraform_commands = ["validate"]
 }
 
 # Configure Kubernetes provider to use Kind cluster
