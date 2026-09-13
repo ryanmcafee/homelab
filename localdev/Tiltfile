@@ -34,6 +34,13 @@ print("Mode: %s" % mode)
 print("CI: %s" % is_ci)
 print("=" * 60)
 
+# helm_resource apply commands are bounded by Tilt's k8s upsert timeout
+# (default 30s). The cert-manager install (chart fetch + CRDs) measures
+# 18-28s on GitHub-hosted runners and intermittently crosses 30s, failing
+# `tilt ci` with "apply command timed out after 30s". 120s leaves headroom
+# without masking a genuinely hung apply (tilt ci still caps at --timeout).
+update_settings(k8s_upsert_timeout_secs=120)
+
 # ============================================================================
 # Prerequisites - Storage
 # ============================================================================

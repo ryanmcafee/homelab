@@ -100,6 +100,13 @@ Each entry should include:
 - **Prevention**: `homelab config guard` default scope is now `configuration/**` + `charts/**/values-homelab.yaml`, with shape rules for Helm-style keys (`host`, `portal`, `staticIP`, `email`, `dnsZones` items), so a real hostname, routable IP or mailbox in any child values file fails pre-commit and CI. Never add a `configuration/`-derived value to a child `values-homelab.yaml`; add it to the parent's export template and `valuesObject` instead
 - **PR**: #265 (GitHub issue #262)
 
+### 2026-09-12 - Tilt CI (Direct Mode) flaking on `main` with cert-manager "apply command timed out after 30s"
+- **Issue**: Push-to-main Tilt CI runs 34724814567 and 34730721014 failed at `cert-manager │ ERROR: Build Failed: apply command timed out after 30s`, with identical code passing minutes earlier on the PR branch
+- **Root Cause**: `helm_resource` apply commands are bounded by Tilt's `k8s_upsert_timeout_secs` (default 30s). The cert-manager `helm upgrade --install` (repo index fetch + `installCRDs=true`) measures 18-28s on GitHub-hosted runners in passing runs, so it races the default and loses under runner load. Traefik installs in ~8-15s and never trips it
+- **Solution**: `update_settings(k8s_upsert_timeout_secs=120)` in `localdev/Tiltfile`; `tilt ci --timeout 10m` still bounds a genuinely hung apply
+- **Prevention**: When a Tilt-driven install gets slower (new CRDs, bigger charts), check `Step 1 - N.NNs (Deploying)` in the Tilt CI log against the upsert timeout before blaming the chart
+- **PR**: #268
+
 ### Known Common Errors (from CLAUDE.md)
 
 These are documented errors with known solutions:
