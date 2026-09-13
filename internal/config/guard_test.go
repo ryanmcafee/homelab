@@ -1811,3 +1811,68 @@ func TestScanFileForPIIShapeHelmRuleEdges(t *testing.T) {
 		})
 	}
 }
+
+// TestGuardDoesNotHuntTheSetName: localdev sets NFS_MAPALL_USER to the set's
+// own name, which would otherwise become a value pattern and flag every
+// comment that mentions the environment (issue #263 hit this in
+// configuration/schema/platform.schema.yaml). The other patterns from the same
+// file must keep working.
+func TestGuardDoesNotHuntTheSetName(t *testing.T) {
+	dir := t.TempDir()
+	envDir := filepath.Join(dir, "configuration", "environments")
+	schemaDir := filepath.Join(dir, "configuration", "schema")
+	for _, d := range []string{envDir, schemaDir} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	env := filepath.Join(envDir, "localdev.yaml")
+	envBody := "NFS_MAPALL_USER: localdev\nDUCKDNS_SUBDOMAIN: homelab-dev\n"
+	if err := os.WriteFile(env, []byte(envBody), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	tests := []struct {
+		name      string
+		body      string
+		wantCount int
+	}{
+		{
+			name:      "prose naming the environment file is not a finding",
+			body:      "# Overridden in configuration/environments/localdev.yaml for Kind.\nkeys: {}\n",
+			wantCount: 0,
+		},
+		{
+			name:      "the set name on its own is not a finding",
+			body:      "# The localdev set flips every capability below.\nkeys: {}\n",
+			wantCount: 0,
+		},
+		{
+			name:      "another value from the same file is still a finding",
+			body:      "# Points at homelab-dev by default.\nkeys: {}\n",
+			wantCount: 1,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			schema := filepath.Join(schemaDir, "platform.schema.yaml")
+			if err := os.WriteFile(schema, []byte(tc.body), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			report, err := RunGuard(GuardOptions{
+				RepoRoot: dir,
+				Files:    []string{"configuration/schema/platform.schema.yaml"},
+				EnvPath:  env,
+			})
+			if err != nil {
+				t.Fatalf("RunGuard: %v", err)
+			}
+			if report.ValuePatterns != 1 {
+				t.Errorf("ValuePatterns = %d, want 1 (homelab-dev only; the set name must be dropped)", report.ValuePatterns)
+			}
+			if n := report.MatchCount(); n != tc.wantCount {
+				t.Errorf("MatchCount() = %d, want %d; findings: %+v", n, tc.wantCount, report.Results)
+			}
+		})
+	}
+}
