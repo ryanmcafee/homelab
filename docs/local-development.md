@@ -97,7 +97,7 @@ Everything is pinned in `mise.toml`; run `mise install` after cloning. Docker De
 | Docker Desktop | 24+ with 8 GB RAM allocated | runs the Kind nodes and the registry caches |
 | kind | `configuration/versions.yaml` `tools.kind` (v0.33.0), node image `images.kind-node` | cluster |
 | kubectl | mise | |
-| helm | `tools.helm` (4.2.0) | Cilium and ArgoCD installs; every render |
+| helm | `tools.helm` (4.3.0) | Cilium and ArgoCD installs; every render |
 | argocd | `tools.argocd` (v3.5.2) | `argocd app sync --local`, health fixture tests |
 | chainsaw | `tools.chainsaw` (v0.2.15) | e2e tests |
 | deno | mise | every script under `scripts/` |

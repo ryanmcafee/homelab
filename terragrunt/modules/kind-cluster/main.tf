@@ -91,13 +91,10 @@ resource "kind_cluster" "this" {
       }
     }
 
-    # Runtime configuration
-    dynamic "containerd_config_patches" {
-      for_each = var.containerd_config_patches
-      content {
-        value = containerd_config_patches.value
-      }
-    }
+    # Runtime configuration. The tehcyx/kind provider exposes this as a plain
+    # list(string) attribute on kind_config, not a nested block; the previous
+    # dynamic block failed validation with "Unsupported block type".
+    containerd_config_patches = var.containerd_config_patches
   }
 }
 

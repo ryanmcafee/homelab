@@ -10,6 +10,7 @@ metadata:
   labels:
     app.kubernetes.io/name: onepassword-operator
     app.kubernetes.io/managed-by: argocd
+
 ---
 # Source: bootstrap/templates/sops-secrets.yaml
 # ServiceAccount for secret transformer job
@@ -20,6 +21,7 @@ metadata:
   namespace: onepassword-operator
   annotations:
     argocd.argoproj.io/sync-wave: "-3"
+
 ---
 # Source: bootstrap/templates/sops-secrets.yaml
 # Role to allow patching the credentials secret
@@ -34,6 +36,7 @@ rules:
   - apiGroups: [""]
     resources: ["secrets"]
     verbs: ["get", "patch"]
+
 ---
 # Source: bootstrap/templates/sops-secrets.yaml
 # RoleBinding for secret transformer
@@ -52,6 +55,7 @@ roleRef:
   kind: Role
   name: secret-transformer
   apiGroup: rbac.authorization.k8s.io
+
 ---
 # Source: bootstrap/templates/sops-secrets.yaml
 # Job to transform the 1Password credentials secret
@@ -137,6 +141,7 @@ spec:
                 --type='json' \
                 -p="[{\"op\":\"add\",\"path\":\"/data/1password-credentials.json.b64\",\"value\":\"$B64_B64_CREDS\"}]"
               echo "Secret transformed successfully"
+
 ---
 # Source: bootstrap/templates/1password-operator.yaml
 apiVersion: argoproj.io/v1alpha1

@@ -200,6 +200,24 @@ These are documented errors with known solutions:
 - **Solution**: the `homelab.smokeJob` curl follows up to 5 redirects; the expected codes apply to the final response
 - **Prevention**: e2e Jobs (`tests/e2e`) already used `-L`; the two helper copies must stay byte-identical
 
+### 2026-09-13 - Terragrunt Plan workflow was green while checking nothing
+- **Issue**: `.github/workflows/terragrunt-plan.yml` passed on every PR although its plan step failed immediately (`Terraform has no command named "run"`): it downloaded terragrunt 0.55.1 but used the 1.x `run --all` syntax, and `continue-on-error: true` hid the exit code. Terraform was pinned to 1.7.5 while versions.yaml said 1.15+.
+- **Root Cause**: the workflow was never updated when terragrunt moved to 1.x; a real `plan` also cannot run on GitHub-hosted runners (Proxmox/TrueNAS/UniFi on the LAN, credentials in 1Password, rendered manifests gitignored, and the repo has no `PROXMOX_*` secrets), so nobody noticed the swallowed error.
+- **Solution**: the workflow now runs `terragrunt hcl fmt --check` and `terragrunt run --all validate` for both environments with pins mirroring versions.yaml/mise.toml (Renovate markers), stubs the workstation-only inputs (`terragrunt/files/*-rendered.yaml`, SSH key) so `file()` resolves, and has no `continue-on-error`. Plans stay `task tf:plan` (ADR-009). `terragrunt-apply.yml` got the same pins and CLI fix.
+- **Prevention**: never `continue-on-error` a verification step; a job that cannot fail is not a check.
+
+### 2026-09-13 - Terragrunt units could not be validated without applied state
+- **Issue**: `terragrunt run --all validate` failed with `There is no variable named "dependency"` / "detected no outputs" in `localdev/gitops-bootstrap`, `homelab/truenas`, `homelab/talos-cluster` (zfs_pool) and `homelab/gitops-bootstrap` (truenas).
+- **Root Cause**: those `dependency` blocks had no `mock_outputs`, so Terragrunt required real outputs even for `validate`.
+- **Solution**: validate-only `mock_outputs` (`mock_outputs_allowed_terraform_commands = ["validate"]`) on each; plan/apply still need the real outputs.
+- **Also**: `homelab/gitops-bootstrap` shelled out to `op read` at parse time (`run_cmd`), which needs a signed-in 1Password CLI; it now reads `SOPS_AGE_KEY` (injected by `op run --env-file .env.op` in every `task tf:*`), so validate runs without `op` and CI holds no vault credentials. `mise.toml` also stopped aborting when `~/.op/op_service_account_token` is missing, so `mise-action` can install the pinned tools on runners.
+- **Prevention**: every `dependency` block gets validate mocks; the Terragrunt Plan workflow now catches omissions.
+
+### 2026-09-13 - kind-cluster module used a block for `containerd_config_patches`
+- **Issue**: `terraform validate` of `terragrunt/modules/kind-cluster` failed with `Unsupported block type` on the `dynamic "containerd_config_patches"` block.
+- **Root Cause**: the tehcyx/kind provider exposes `kind_config.containerd_config_patches` as a `list(string)` attribute, not a nested block; the module had never been validated in CI.
+- **Solution**: `containerd_config_patches = var.containerd_config_patches`.
+
 ## Tips
 
 - Keep descriptions under 2-3 lines

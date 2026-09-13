@@ -9,6 +9,7 @@ metadata:
     pod-security.kubernetes.io/enforce: privileged
     pod-security.kubernetes.io/audit: privileged
     pod-security.kubernetes.io/warn: privileged
+
 ---
 # Source: addons/templates/node-feature-discovery.yaml
 # Namespace for NodeFeatureDiscovery components.
@@ -29,6 +30,7 @@ metadata:
     pod-security.kubernetes.io/warn: privileged
   annotations:
     argocd.argoproj.io/sync-wave: "9"
+
 ---
 # Source: addons/templates/spegel.yaml
 # Spegel namespace needs privileged PodSecurity for hostPath and hostPort access
@@ -41,6 +43,7 @@ metadata:
     pod-security.kubernetes.io/warn: privileged
   annotations:
     argocd.argoproj.io/sync-wave: "0"
+
 ---
 # Source: addons/templates/traefik-external.yaml
 # Namespace for Traefik external ingress controller
@@ -50,6 +53,7 @@ metadata:
   name: traefik
   annotations:
     argocd.argoproj.io/sync-wave: "-1"
+
 ---
 # Source: addons/templates/spegel.yaml
 # OCI Repository configuration for ArgoCD to pull Spegel Helm chart
@@ -67,6 +71,7 @@ stringData:
   type: helm
   url: ghcr.io/spegel-org/helm-charts
   enableOCI: "true"
+
 ---
 # Source: addons/templates/kube-prometheus-stack.yaml
 apiVersion: batch/v1
@@ -117,6 +122,7 @@ spec:
                 - ALL
             seccompProfile:
               type: RuntimeDefault
+
 ---
 # Source: addons/templates/kube-prometheus-stack.yaml
 apiVersion: batch/v1
@@ -241,6 +247,7 @@ spec:
       kind: MutatingWebhookConfiguration
       jsonPointers:
         - /webhooks/0/clientConfig/caBundle
+
 ---
 # Source: addons/templates/cert-manager.yaml
 # Config Application: deploys the OnePasswordItem for the Cloudflare API token.
@@ -279,6 +286,7 @@ spec:
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
+
 ---
 # Source: addons/templates/cert-manager.yaml
 # ClusterIssuer Application: deploys after cert-manager installs CRDs
@@ -635,6 +643,7 @@ spec:
       kind: MutatingWebhookConfiguration
       jqPathExpressions:
         - .webhooks[].clientConfig.caBundle
+
 ---
 # Source: addons/templates/kubelet-csr-approver.yaml
 apiVersion: argoproj.io/v1alpha1
@@ -923,6 +932,7 @@ spec:
       - CreateNamespace=true
       - ServerSideApply=true
       - SkipDryRunOnMissingResource=true
+
 ---
 # Source: addons/templates/traefik-external.yaml
 apiVersion: argoproj.io/v1alpha1
@@ -1050,6 +1060,7 @@ spec:
       kind: ValidatingWebhookConfiguration
       jqPathExpressions:
         - .webhooks[].clientConfig.caBundle
+
 ---
 # Source: addons/templates/traefik-external.yaml
 # Config Application: deploys CRD-dependent resources (IngressRoute, Middleware, DNSEndpoint)
@@ -1127,6 +1138,7 @@ spec:
       - CreateNamespace=true
       - ServerSideApply=true
       - SkipDryRunOnMissingResource=true
+
 ---
 # Source: addons/templates/traefik-internal.yaml
 apiVersion: argoproj.io/v1alpha1
@@ -1244,6 +1256,7 @@ spec:
       kind: ValidatingWebhookConfiguration
       jqPathExpressions:
         - .webhooks[].clientConfig.caBundle
+
 ---
 # Source: addons/templates/traefik-internal.yaml
 # Config Application: deploys CRD-dependent resources (dashboard)

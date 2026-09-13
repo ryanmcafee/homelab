@@ -12,6 +12,7 @@ spec:
     kind: ClusterIssuer
   dnsNames:
     - traefik-internal.REPLACEME-domain.com
+
 ---
 # Source: traefik-internal-config/templates/dashboard.yaml
 apiVersion: traefik.io/v1alpha1

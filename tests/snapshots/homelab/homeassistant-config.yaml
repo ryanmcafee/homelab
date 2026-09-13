@@ -22,6 +22,7 @@ spec:
       node_attach_driver: iscsi
       portal: ""
       portals: ""
+
 ---
 # Source: homeassistant-config/templates/persistent-volume.yaml
 apiVersion: v1

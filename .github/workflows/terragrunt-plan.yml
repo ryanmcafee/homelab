@@ -1,47 +1,81 @@
 name: Terragrunt Plan
 
+# Static verification of the Terragrunt tree on every pull request that
+# touches it: HCL formatting plus `terraform validate` for every unit of both
+# environments (provider schemas are downloaded; no state, no API calls;
+# dependency outputs come from the units' mock_outputs).
+#
+# A real `plan` cannot run on GitHub-hosted runners: Proxmox, TrueNAS and the
+# UniFi gateway live on the homelab LAN, the credentials come from 1Password
+# (`op run --env-file .env.op`), and the talos-cluster unit reads rendered
+# manifests that are gitignored (`task render:pull`). Plans stay a human step
+# (`task tf:plan`, ADR-009); this workflow makes sure what gets planned parses
+# and type-checks. Until this rewrite the plan step ran a terragrunt 0.55 CLI
+# with 1.x syntax and hid the resulting "no command named run" error behind
+# continue-on-error, so the job was green without checking anything.
+#
+# Tools come from mise.toml through jdx/mise-action, so CI runs the same
+# terraform, terragrunt and op versions as a workstation (only those three are
+# installed). No 1Password login is configured: the job holds no secrets.
+
 on:
   pull_request:
     paths:
       - 'terragrunt/**'
       - '.github/workflows/terragrunt-plan.yml'
+  workflow_dispatch:
 
-env:
-  TERRAGRUNT_VERSION: '0.55.1'
-  TERRAFORM_VERSION: '1.7.5'
+concurrency:
+  group: terragrunt-plan-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
 
 jobs:
-  plan:
+  validate:
+    name: validate (${{ matrix.environment }})
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     strategy:
+      fail-fast: false
       matrix:
         environment: [localdev, homelab]
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4
+      - name: Install terraform, terragrunt and op from mise.toml
+        uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
         with:
-          terraform_version: ${{ env.TERRAFORM_VERSION }}
+          install_args: terraform terragrunt op
 
-      - name: Setup Terragrunt
+      - name: Tool versions
         run: |
-          wget https://github.com/gruntwork-io/terragrunt/releases/download/v${{ env.TERRAGRUNT_VERSION }}/terragrunt_linux_amd64
-          chmod +x terragrunt_linux_amd64
-          sudo mv terragrunt_linux_amd64 /usr/local/bin/terragrunt
+          terraform version
+          terragrunt --version
+          op --version
 
-      - name: Terragrunt Format Check
-        run: |
-          cd terragrunt
-          terragrunt hclfmt --terragrunt-check
+      - name: Terragrunt HCL format check
+        working-directory: terragrunt
+        run: terragrunt hcl fmt --check
 
-      - name: Terragrunt Plan (dry-run)
+      # Inputs that only exist on a workstation. `terraform validate` never
+      # reads their contents, but Terragrunt evaluates file() while parsing
+      # the unit configuration, so the paths have to exist.
+      - name: Stub workstation-only inputs
         run: |
-          cd terragrunt/environments/${{ matrix.environment }}
-          terragrunt run --all plan --non-interactive
+          set -euo pipefail
+          mkdir -p terragrunt/files "$HOME/.ssh"
+          for f in cilium kubelet-csr-approver spegel; do
+            [ -f "terragrunt/files/$f-rendered.yaml" ] || echo "# stub for terraform validate in CI (task render:pull produces the real file)" > "terragrunt/files/$f-rendered.yaml"
+          done
+          [ -f "$HOME/.ssh/id_ed25519" ] || ssh-keygen -q -t ed25519 -N '' -f "$HOME/.ssh/id_ed25519"
+
+      # mise.toml exports TF_PLUGIN_CACHE_DIR for workstations; a shared cache
+      # races across the parallel unit inits here, and an empty value disables it.
+      - name: Terragrunt validate (${{ matrix.environment }})
+        working-directory: terragrunt/environments/${{ matrix.environment }}
         env:
-          TF_VAR_proxmox_api_url: ${{ secrets.PROXMOX_API_URL }}
-          TF_VAR_proxmox_api_token_id: ${{ secrets.PROXMOX_API_TOKEN_ID }}
-          TF_VAR_proxmox_api_token_secret: ${{ secrets.PROXMOX_API_TOKEN_SECRET }}
-        continue-on-error: true  # Allow plan to fail for now (secrets may not be set)
+          TF_PLUGIN_CACHE_DIR: ''
+        run: terragrunt run --all validate --non-interactive

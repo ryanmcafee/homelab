@@ -7,6 +7,7 @@ metadata:
   name: duckdns
   annotations:
     argocd.argoproj.io/sync-wave: "11"
+
 ---
 # Source: applications/templates/namespaces.yaml
 # Namespace: media
@@ -29,6 +30,7 @@ metadata:
     pod-security.kubernetes.io/warn: privileged
   annotations:
     argocd.argoproj.io/sync-wave: "10"
+
 ---
 # Source: applications/templates/namespaces.yaml
 # Namespace: home-automation (privileged for hostNetwork)
@@ -52,6 +54,7 @@ metadata:
   name: renovate
   annotations:
     argocd.argoproj.io/sync-wave: "10"
+
 ---
 # Source: applications/templates/oci-repositories.yaml
 apiVersion: v1
@@ -86,6 +89,7 @@ stringData:
   type: helm
   url: ghcr.io/renovatebot/charts
   enableOCI: "true"
+
 ---
 # Source: applications/templates/flaresolverr.yaml
 apiVersion: batch/v1
@@ -498,6 +502,7 @@ spec:
 # Source: applications/templates/oci-repositories.yaml
 # OCI Repository configuration for ArgoCD
 # Single repository secret for TrueCharts OCI registry
+
 ---
 # Source: applications/templates/duckdns.yaml
 # Dependencies Application: deploys OnePasswordItem for DuckDNS token
@@ -531,6 +536,7 @@ spec:
       - CreateNamespace=true
       - ServerSideApply=true
       - SkipDryRunOnMissingResource=true
+
 ---
 # Source: applications/templates/duckdns.yaml
 # DuckDNS Application: deploys the updater CronJob
@@ -603,6 +609,7 @@ spec:
       - CreateNamespace=true
       - ServerSideApply=true
       - SkipDryRunOnMissingResource=true
+
 ---
 # Source: applications/templates/flaresolverr.yaml
 apiVersion: argoproj.io/v1alpha1
@@ -685,6 +692,7 @@ spec:
         duration: 5s
         factor: 2
         maxDuration: 3m
+
 ---
 # Source: applications/templates/lazylibrarian.yaml
 # LazyLibrarian Config: deploys static PV+PVC for lazylibrarian persistent storage
@@ -721,6 +729,7 @@ spec:
       - CreateNamespace=true
       - ServerSideApply=true
       - SkipDryRunOnMissingResource=true
+
 ---
 # Source: applications/templates/lazylibrarian.yaml
 apiVersion: argoproj.io/v1alpha1
@@ -825,6 +834,7 @@ spec:
         duration: 5s
         factor: 2
         maxDuration: 3m
+
 ---
 # Source: applications/templates/mosquitto.yaml
 # Mosquitto Config: deploys static PV+PVC for mosquitto persistent storage
@@ -861,6 +871,7 @@ spec:
       - CreateNamespace=true
       - ServerSideApply=true
       - SkipDryRunOnMissingResource=true
+
 ---
 # Source: applications/templates/mosquitto.yaml
 apiVersion: argoproj.io/v1alpha1
@@ -1001,6 +1012,7 @@ spec:
       - CreateNamespace=true
       - ServerSideApply=true
       - SkipDryRunOnMissingResource=true
+
 ---
 # Source: applications/templates/nzbget.yaml
 apiVersion: argoproj.io/v1alpha1
@@ -1099,6 +1111,7 @@ spec:
         duration: 5s
         factor: 2
         maxDuration: 3m
+
 ---
 # Source: applications/templates/plex.yaml
 # Dependencies Application: deploys OnePasswordItem for Plex claim token
@@ -1135,6 +1148,7 @@ spec:
       - CreateNamespace=true
       - ServerSideApply=true
       - SkipDryRunOnMissingResource=true
+
 ---
 # Source: applications/templates/plex.yaml
 # Plex Application: deploys the media server
@@ -1274,6 +1288,7 @@ spec:
         duration: 5s
         factor: 2
         maxDuration: 3m
+
 ---
 # Source: applications/templates/prowlarr.yaml
 # Prowlarr Config: deploys static PV+PVC for prowlarr persistent storage
@@ -1310,6 +1325,7 @@ spec:
       - CreateNamespace=true
       - ServerSideApply=true
       - SkipDryRunOnMissingResource=true
+
 ---
 # Source: applications/templates/prowlarr.yaml
 apiVersion: argoproj.io/v1alpha1
@@ -1410,6 +1426,7 @@ spec:
         duration: 5s
         factor: 2
         maxDuration: 3m
+
 ---
 # Source: applications/templates/radarr.yaml
 # Radarr Config: deploys static PV+PVC for radarr persistent storage
@@ -1446,6 +1463,7 @@ spec:
       - CreateNamespace=true
       - ServerSideApply=true
       - SkipDryRunOnMissingResource=true
+
 ---
 # Source: applications/templates/radarr.yaml
 apiVersion: argoproj.io/v1alpha1
@@ -1558,6 +1576,7 @@ spec:
         duration: 5s
         factor: 2
         maxDuration: 3m
+
 ---
 # Source: applications/templates/renovate.yaml
 # Config Application: deploys OnePasswordItem for Renovate tokens
@@ -1591,6 +1610,7 @@ spec:
       - CreateNamespace=true
       - ServerSideApply=true
       - SkipDryRunOnMissingResource=true
+
 ---
 # Source: applications/templates/renovate.yaml
 # Renovate Application: deploys the dependency update CronJob
@@ -1692,6 +1712,7 @@ spec:
       - CreateNamespace=true
       - ServerSideApply=true
       - SkipDryRunOnMissingResource=true
+
 ---
 # Source: applications/templates/sonarr.yaml
 apiVersion: argoproj.io/v1alpha1
@@ -1804,6 +1825,7 @@ spec:
         duration: 5s
         factor: 2
         maxDuration: 3m
+
 ---
 # Source: applications/templates/tautulli.yaml
 # Tautulli Config: deploys static PV+PVC for tautulli persistent storage
@@ -1840,6 +1862,7 @@ spec:
       - CreateNamespace=true
       - ServerSideApply=true
       - SkipDryRunOnMissingResource=true
+
 ---
 # Source: applications/templates/tautulli.yaml
 apiVersion: argoproj.io/v1alpha1
