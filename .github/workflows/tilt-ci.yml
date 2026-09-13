@@ -113,6 +113,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$HOME/bin"
+          export PATH="$HOME/bin:$PATH"
           curl -sSL --retry 5 --retry-all-errors --retry-delay 3 -o "$HOME/bin/kind" "https://github.com/kubernetes-sigs/kind/releases/download/${KIND_VERSION}/kind-linux-amd64"
           curl -sSL --retry 5 --retry-all-errors --retry-delay 3 -o "$HOME/bin/kubectl" "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl"
           curl -sSL --retry 5 --retry-all-errors --retry-delay 3 -o "$HOME/bin/argocd" "https://github.com/argoproj/argo-cd/releases/download/${ARGOCD_VERSION}/argocd-linux-amd64"
@@ -231,6 +232,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$HOME/bin"
+          export PATH="$HOME/bin:$PATH"
           curl -sSL --retry 5 --retry-all-errors --retry-delay 3 -o "$HOME/bin/kind" "https://github.com/kubernetes-sigs/kind/releases/download/${KIND_VERSION}/kind-linux-amd64"
           curl -sSL --retry 5 --retry-all-errors --retry-delay 3 -o "$HOME/bin/kubectl" "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl"
           curl -sSL --retry 5 --retry-all-errors --retry-delay 3 "https://github.com/tilt-dev/tilt/releases/download/v${TILT_VERSION}/tilt.${TILT_VERSION}.linux.x86_64.tar.gz" | tar -xz -C "$HOME/bin" tilt
@@ -254,7 +256,7 @@ jobs:
         if: always()
         run: |
           echo "=== Pods ==="
-          kubectl --context "$KIND_CONTEXT" get pods -A
+          kubectl --context "$KIND_CONTEXT" get pods -A || { echo "no cluster (an earlier step failed)"; exit 0; }
           echo
           echo "=== Logs of pods not Running/Succeeded ==="
           kubectl --context "$KIND_CONTEXT" get pods -A --field-selector=status.phase!=Running,status.phase!=Succeeded -o json \
