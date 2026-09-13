@@ -19,6 +19,22 @@ const ProdKubeContext = "homelab-readonly"
 // ProdCheckPrefix names the production Application checks: prod/argocd/<app>.
 const ProdCheckPrefix = "prod/argocd"
 
+// ProdDomainCheck is the check that the base domain reached production:
+// the root Application carries the helm parameter global.domain that
+// terragrunt/modules/gitops-bootstrap injects (the domain never lives in
+// git), and no Application embeds the chart placeholder.
+const ProdDomainCheck = ProdCheckPrefix + "/domain"
+
+// prodRootApp is the root App-of-Apps Application the Terraform module
+// creates; prodDomainParameter the helm parameter it must carry, and
+// prodDomainPlaceholder the committed stand-in that wins when it does not.
+const (
+	prodRootApp           = "gitops"
+	prodDomainParameter   = "global.domain"
+	prodDomainPlaceholder = "example.com"
+	prodDomainApplyHint   = "the parameter comes from terragrunt/modules/gitops-bootstrap (templates/bootstrap-app.yaml.tpl); a human runs `task tf:plan:component COMPONENT=gitops-bootstrap`, reviews, then `task tf:apply:component COMPONENT=gitops-bootstrap` (docs/runbooks/readonly-access.md)"
+)
+
 // prodSetupHint ends every failure that means the read-only path to
 // production is not set up or not reachable.
 const prodSetupHint = "run `task prod:kubeconfig`, check that Tailscale is connected, and see docs/runbooks/readonly-access.md"
@@ -101,12 +117,107 @@ func ProdArgoCDApps(ctx context.Context, opts ProdOptions) []Check {
 	}
 
 	rules := prodAppRules(opts.RequireSynced)
-	checks := make([]Check, 0, len(list.Items))
+	checks := make([]Check, 0, len(list.Items)+1)
 	for _, app := range list.Items {
 		checks = append(checks, evaluateArgoApp(app, start, rules))
 	}
+	checks = append(checks, prodDomainCheck(list.Items, start))
 	sort.SliceStable(checks, func(i, j int) bool { return checks[i].Name < checks[j].Name })
 	return checks
+}
+
+// prodDomainCheck proves the base domain reached production. The gitops
+// chart derives the ArgoCD ingress hostname from global.domain and hands it
+// to bootstrap through helm.valuesObject; the committed values carry only
+// the placeholder, so when the Terraform root Application lacks the
+// parameter ArgoCD self-heals its own Ingress to argocd.example.com
+// (docs/project_notes/bugs.md 2026-09-13). The check reuses the Applications
+// already read: no second request, still read-only.
+func prodDomainCheck(apps []argoApp, start time.Time) Check {
+	var root *argoApp
+	for i := range apps {
+		if apps[i].Metadata.Name == prodRootApp {
+			root = &apps[i]
+			break
+		}
+	}
+	if root == nil {
+		return FailCheck(ProdDomainCheck, start,
+			fmt.Sprintf("root Application %s not found in namespace argocd", prodRootApp),
+			"the Terraform module creates it; check the context points at production")
+	}
+
+	var findings []string
+	value, found := helmParameter(*root, prodDomainParameter)
+	switch {
+	case !found:
+		findings = append(findings, fmt.Sprintf("root Application %s has no helm parameter %s (the chart placeholder %s wins)", prodRootApp, prodDomainParameter, prodDomainPlaceholder))
+	case value == "" || strings.HasSuffix(value, prodDomainPlaceholder):
+		findings = append(findings, fmt.Sprintf("root Application %s helm parameter %s is the placeholder %s", prodRootApp, prodDomainParameter, prodDomainPlaceholder))
+	}
+	for _, app := range apps {
+		findings = append(findings, placeholderFindings(app, prodDomainPlaceholder)...)
+	}
+
+	detail := fmt.Sprintf("%s %s=%q", prodRootApp, prodDomainParameter, value)
+	if len(findings) == 0 {
+		return PassCheck(ProdDomainCheck, start, detail)
+	}
+	return FailCheck(ProdDomainCheck, start, detail, append(findings, prodDomainApplyHint)...)
+}
+
+// helmParameter returns the named helm parameter from spec.source or any
+// spec.sources[] entry of an Application.
+func helmParameter(app argoApp, name string) (string, bool) {
+	for _, src := range argoAppHelmSources(app) {
+		if src.Helm == nil {
+			continue
+		}
+		for _, p := range src.Helm.Parameters {
+			if p.Name == name {
+				return p.Value, true
+			}
+		}
+	}
+	return "", false
+}
+
+// placeholderFindings lists every Helm input of an Application that embeds
+// the placeholder, with the field it sits in.
+func placeholderFindings(app argoApp, placeholder string) []string {
+	var findings []string
+	for i, src := range argoAppHelmSources(app) {
+		if src.Helm == nil {
+			continue
+		}
+		prefix := "spec.source.helm"
+		if app.Spec.Source == nil {
+			prefix = fmt.Sprintf("spec.sources[%d].helm", i)
+		}
+		report := func(field string) {
+			findings = append(findings, fmt.Sprintf("%s: %s.%s contains %s", app.Metadata.Name, prefix, field, placeholder))
+		}
+		if strings.Contains(src.Helm.Values, placeholder) {
+			report("values")
+		}
+		if strings.Contains(string(src.Helm.ValuesObject), placeholder) {
+			report("valuesObject")
+		}
+		for _, p := range src.Helm.Parameters {
+			if strings.Contains(p.Value, placeholder) {
+				report("parameters[" + p.Name + "]")
+			}
+		}
+	}
+	return findings
+}
+
+// argoAppHelmSources flattens spec.source and spec.sources into one list.
+func argoAppHelmSources(app argoApp) []argoAppSource {
+	if app.Spec.Source != nil {
+		return append([]argoAppSource{*app.Spec.Source}, app.Spec.Sources...)
+	}
+	return app.Spec.Sources
 }
 
 // prodUnreachableMarkers extend unreachableMarkers with what a tailnet path

@@ -115,6 +115,13 @@ type argoApp struct {
 	Metadata struct {
 		Name string `json:"name"`
 	} `json:"metadata"`
+	// Spec carries only the Helm inputs of each source: what verify prod
+	// inspects for the Terraform-injected global.domain and for chart
+	// placeholders that reached production (prod/argocd/domain).
+	Spec struct {
+		Source  *argoAppSource  `json:"source"`
+		Sources []argoAppSource `json:"sources"`
+	} `json:"spec"`
 	Status struct {
 		Sync struct {
 			Status string `json:"status"`
@@ -141,6 +148,19 @@ type argoApp struct {
 			} `json:"health"`
 		} `json:"resources"`
 	} `json:"status"`
+}
+
+// argoAppSource is one spec.source / spec.sources[] entry, reduced to its
+// Helm inputs. valuesObject stays raw: the check only searches it for text.
+type argoAppSource struct {
+	Helm *struct {
+		Values       string          `json:"values"`
+		ValuesObject json.RawMessage `json:"valuesObject"`
+		Parameters   []struct {
+			Name  string `json:"name"`
+			Value string `json:"value"`
+		} `json:"parameters"`
+	} `json:"helm"`
 }
 
 // ArgoCDApps (level 2) reads every Application in the argocd namespace and

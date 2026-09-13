@@ -178,7 +178,11 @@ kubectl get secret gitops-secrets -n argocd -o yaml
    `var.base_fqdn` as the Helm parameter `global.domain`. The domain is never
    committed; the gitops chart derives the ArgoCD ingress hostname from it and
    hands it to the `bootstrap` child via `helm.valuesObject` (bootstrap installs
-   the CMP, so it cannot read `configuration/` itself)
+   the CMP, so it cannot read `configuration/` itself). A change to this module
+   or its templates is not live until `task tf:apply:component COMPONENT=gitops-bootstrap`
+   runs; until then the committed placeholder `example.com` wins and the ArgoCD
+   Ingress reads `argocd.example.com`. `task verify:prod` (`prod/argocd/domain`)
+   fails while that is the case
 4. **GitOps Chart** reads metadata and deploys addons/apps
 5. **ArgoCD** manages all subsequent deployments
 

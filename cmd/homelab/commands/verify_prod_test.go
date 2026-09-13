@@ -99,7 +99,8 @@ func TestVerifyProdUsageErrors(t *testing.T) {
 }
 
 func TestVerifyProdResult(t *testing.T) {
-	const healthy = `{"items":[{"metadata":{"name":"cilium"},"status":{"sync":{"status":"Synced"},"health":{"status":"Healthy"},"operationState":{"phase":"Succeeded"}}}]}`
+	// The root gitops Application must carry global.domain (prod/argocd/domain).
+	const healthy = `{"items":[{"metadata":{"name":"gitops"},"spec":{"source":{"helm":{"parameters":[{"name":"global.domain","value":"REPLACEME-domain.com"}]}}},"status":{"sync":{"status":"Synced"},"health":{"status":"Healthy"},"operationState":{"phase":"Succeeded"}}},{"metadata":{"name":"cilium"},"status":{"sync":{"status":"Synced"},"health":{"status":"Healthy"},"operationState":{"phase":"Succeeded"}}}]}`
 	const degraded = `{"items":[{"metadata":{"name":"plex"},"status":{"sync":{"status":"Synced"},"health":{"status":"Degraded"},"operationState":{"phase":"Succeeded"}}}]}`
 
 	tests := []struct {

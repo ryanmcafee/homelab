@@ -258,6 +258,12 @@ These are documented errors with known solutions:
 - **Root Cause**: the tehcyx/kind provider exposes `kind_config.containerd_config_patches` as a `list(string)` attribute, not a nested block; the module had never been validated in CI.
 - **Solution**: `containerd_config_patches = var.containerd_config_patches`.
 
+### 2026-09-13 - Production ArgoCD Ingress rendered `argocd.example.com` after PR #265
+- **Issue**: `ingress.networking.k8s.io/argocd-server` in homelab switched to host `argocd.example.com` (the external-dns annotation, `extraTls` and `notifications.argocdUrl` too), so `argocd.<DOMAIN>` stopped resolving to ArgoCD
+- **Root Cause**: PR #265 moved the ArgoCD hostname out of `charts/bootstrap/values-homelab.yaml`: the gitops chart now derives it from `global.domain`, which only `terragrunt/modules/gitops-bootstrap` injects into the root `gitops` Application as a helm parameter (`templates/bootstrap-app.yaml.tpl`). That module was never re-applied, the live root Application had no `helm.parameters`, the committed placeholder `example.com` won, and ArgoCD self-healed its own Ingress to it. Nothing in the repo or CI can see the root Application, so nothing failed
+- **Solution**: Human step, once: `task tf:plan:component COMPONENT=gitops-bootstrap`, review that the only change is the `global.domain` parameter on the root Application, then `task tf:apply:component COMPONENT=gitops-bootstrap`; ArgoCD re-renders bootstrap → argocd and the Ingress returns to `argocd.<DOMAIN>`. `homelab verify prod` gained `prod/argocd/domain`: fails when the root Application lacks `global.domain`, when it is the placeholder, or when any Application's Helm inputs (`values`, `valuesObject`, `parameters`) still contain `example.com`, naming the Applications. It fired on the live cluster with exactly this diagnosis (PR #274)
+- **Prevention**: A change to `terragrunt/modules/gitops-bootstrap` (module, `bootstrap-app.yaml.tpl`, inputs) is not live until the component is applied; say so in the PR and run `task verify:prod` after the apply. Observed alongside: nine `*-config` Applications carried a stale `Failed` operation from 95c459d (children synced with `iscsi.portal: ""` before their parents handed down the portal; the API server rejected the immutable PV change), all Synced/Healthy since — a sync clears it
+
 ## Tips
 
 - Keep descriptions under 2-3 lines
