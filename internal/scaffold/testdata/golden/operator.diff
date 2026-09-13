@@ -1,0 +1,443 @@
+diff --git a/charts/addons/templates/demo-operator.yaml b/charts/addons/templates/demo-operator.yaml
+new file mode 100644
+--- /dev/null
++++ b/charts/addons/templates/demo-operator.yaml
+@@ -0,0 +1,57 @@
++{{- /*
++demo-operator (operator pattern), scaffolded by:
++  homelab scaffold app demo-operator --pattern operator --chart-repo https://charts.example.com/demo --chart-version 1.0.0 --crd-group demo.example.com --crd-kinds Widget,Gadget --huge-crds
++Chart, version, values and smoke URL come from the `demo-operator:` block of
++configuration/templates/helm-addons.tmpl; charts/addons/values.yaml only holds
++placeholders. See docs/apps/demo-operator.md.
++*/}}
++{{- $app := index .Values "demo-operator" }}
++{{- if $app.enabled }}
++{{- /*
++The chart installs the demo.example.com CRDs (tests/gitops/crd-providers.yaml), so
++every custom resource of that group must sync after this Application
++(rule gitops/<env>/crd-order): put them in a later wave or a later parent.
++*/}}
++---
++apiVersion: argoproj.io/v1alpha1
++kind: Application
++metadata:
++  name: demo-operator
++  namespace: argocd
++  annotations:
++    argocd.argoproj.io/sync-wave: "10"
++  finalizers:
++    - resources-finalizer.argocd.argoproj.io
++spec:
++  project: default
++  source:
++    repoURL: {{ $app.chart.repo }}
++    chart: {{ $app.chart.name }}
++    targetRevision: {{ $app.chart.version | quote }}
++    helm:
++      releaseName: demo-operator
++      {{- with $app.values }}
++      values: |
++        {{- toYaml . | nindent 8 }}
++      {{- end }}
++  destination:
++    server: https://kubernetes.default.svc
++    namespace: {{ $app.namespace }}
++
++  syncPolicy:
++    {{- if $.Values.global.automatedSync }}
++    automated:
++      prune: true
++      selfHeal: true
++    {{- end }}
++    syncOptions:
++      - CreateNamespace=true
++      - ServerSideApply=true
++    retry:
++      limit: 5
++      backoff:
++        duration: 5s
++        factor: 2
++        maxDuration: 3m
++{{- include "homelab.smokeJob" (dict "name" "demo-operator" "namespace" $app.namespace "smoke" $app.smoke "wave" "10" "image" $.Values.global.images.curl) }}
++{{- end }}
+diff --git a/charts/addons/values.yaml b/charts/addons/values.yaml
+--- a/charts/addons/values.yaml
++++ b/charts/addons/values.yaml
+@@ -7,3 +7,29 @@
+ cloudnative-pg:
+   enabled: false
+   namespace: cloudnative-pg
++
++# ============================================================================
++# demo-operator - operator (scaffolded)
++# homelab scaffold app demo-operator --pattern operator --chart-repo https://charts.example.com/demo --chart-version 1.0.0 --crd-group demo.example.com --crd-kinds Widget,Gadget --huge-crds
++# Sync Wave: 10; installs the demo.example.com CRDs (tests/gitops/crd-providers.yaml)
++# ============================================================================
++# Placeholders only: configuration/templates/helm-addons.tmpl generates the real
++# values for every environment (the CMP in homelab, values-localdev.yaml in Kind).
++
++demo-operator:
++  enabled: false
++  namespace: demo-operator
++
++  # ArgoCD source: repoURL (no oci:// scheme for OCI registries), chart name and
++  # version. configuration/versions.yaml charts.demo-operator is the only place to bump it.
++  chart:
++    name: demo-operator
++    repo: https://charts.example.com/demo
++    # Placeholder; configuration/versions.yaml charts.demo-operator wins at render time.
++    version: "1.0.0"
++
++  # Handed verbatim to the upstream chart (spec.source.helm.values).
++  values: {}
++
++  smoke:
++    enabled: false
+diff --git a/charts/bootstrap/files/health/demo.example.com_Gadget.lua b/charts/bootstrap/files/health/demo.example.com_Gadget.lua
+new file mode 100644
+--- /dev/null
++++ b/charts/bootstrap/files/health/demo.example.com_Gadget.lua
+@@ -0,0 +1,31 @@
++-- Gadget (demo.example.com), scaffolded by `homelab scaffold app demo-operator`:
++-- Healthy once the controller reports condition Ready=True, Degraded on
++-- Ready=False, Progressing until it reports either. Adapt it when the operator
++-- reports health differently (status.phase, observedGeneration, ...).
++-- "" is truthy in Lua, so fall back explicitly instead of relying on `or`.
++local function messageOr(condition, fallback)
++  if condition.message ~= nil and condition.message ~= "" then
++    return condition.message
++  end
++  return fallback
++end
++
++hs = {}
++hs.status = "Progressing"
++hs.message = "Waiting for Gadget to report a Ready condition"
++if obj.status ~= nil and obj.status.conditions ~= nil then
++  for _, condition in ipairs(obj.status.conditions) do
++    if condition.type == "Ready" then
++      if condition.status == "True" then
++        hs.status = "Healthy"
++        hs.message = messageOr(condition, "Gadget is Ready")
++      elseif condition.status == "False" then
++        hs.status = "Degraded"
++        hs.message = messageOr(condition, "Gadget is not Ready")
++      else
++        hs.message = messageOr(condition, "Ready condition is Unknown")
++      end
++    end
++  end
++end
++return hs
+diff --git a/charts/bootstrap/files/health/demo.example.com_Widget.lua b/charts/bootstrap/files/health/demo.example.com_Widget.lua
+new file mode 100644
+--- /dev/null
++++ b/charts/bootstrap/files/health/demo.example.com_Widget.lua
+@@ -0,0 +1,31 @@
++-- Widget (demo.example.com), scaffolded by `homelab scaffold app demo-operator`:
++-- Healthy once the controller reports condition Ready=True, Degraded on
++-- Ready=False, Progressing until it reports either. Adapt it when the operator
++-- reports health differently (status.phase, observedGeneration, ...).
++-- "" is truthy in Lua, so fall back explicitly instead of relying on `or`.
++local function messageOr(condition, fallback)
++  if condition.message ~= nil and condition.message ~= "" then
++    return condition.message
++  end
++  return fallback
++end
++
++hs = {}
++hs.status = "Progressing"
++hs.message = "Waiting for Widget to report a Ready condition"
++if obj.status ~= nil and obj.status.conditions ~= nil then
++  for _, condition in ipairs(obj.status.conditions) do
++    if condition.type == "Ready" then
++      if condition.status == "True" then
++        hs.status = "Healthy"
++        hs.message = messageOr(condition, "Widget is Ready")
++      elseif condition.status == "False" then
++        hs.status = "Degraded"
++        hs.message = messageOr(condition, "Widget is not Ready")
++      else
++        hs.message = messageOr(condition, "Ready condition is Unknown")
++      end
++    end
++  end
++end
++return hs
+diff --git a/configuration/templates/helm-addons.tmpl b/configuration/templates/helm-addons.tmpl
+--- a/configuration/templates/helm-addons.tmpl
++++ b/configuration/templates/helm-addons.tmpl
+@@ -15,3 +15,48 @@
+ {{- if $localdev }}
+   replicaCount: 1
+ {{- end }}
++
++# ============================================================================
++# demo-operator - operator (scaffolded)
++# homelab scaffold app demo-operator --pattern operator --chart-repo https://charts.example.com/demo --chart-version 1.0.0 --crd-group demo.example.com --crd-kinds Widget,Gadget --huge-crds
++# Sync Wave: 10; installs the demo.example.com CRDs (tests/gitops/crd-providers.yaml)
++# ============================================================================
++
++demo-operator:
++  enabled: true
++  namespace: demo-operator
++
++  # ArgoCD source: repoURL (no oci:// scheme for OCI registries), chart name and
++  # version. configuration/versions.yaml charts.demo-operator is the only place to bump it.
++  chart:
++    name: demo-operator
++    repo: https://charts.example.com/demo
++    version: "{{ index .Versions.Charts "demo-operator" }}"
++
++  # Handed verbatim to the upstream chart (spec.source.helm.values): rename the
++  # keys to what the chart's own values.yaml expects.
++  values:
++{{- if $localdev }}
++    # Kind sizing: one replica, small footprint
++    replicaCount: 1
++    resources:
++      requests:
++        cpu: 50m
++        memory: 64Mi
++      limits:
++        cpu: 250m
++        memory: 256Mi
++{{- else }}
++    resources:
++      requests:
++        cpu: 100m
++        memory: 128Mi
++      limits:
++        cpu: 500m
++        memory: 512Mi
++{{- end }}
++
++  # PostSync smoke hook (charts/addons/templates/_smoke.tpl): curl the
++  # in-cluster Service after sync; expect lists the accepted HTTP codes.
++  smoke:
++    enabled: false
+diff --git a/configuration/versions.yaml b/configuration/versions.yaml
+--- a/configuration/versions.yaml
++++ b/configuration/versions.yaml
+@@ -5,6 +5,8 @@
+   cloudnative-pg: "0.28.3"
+   sonarr: "25.6.3"
+   unifi-port-forward: "1.1.x"
++  # renovate: datasource=helm depName=demo-operator registryUrl=https://charts.example.com/demo
++  demo-operator: "1.0.0"
+ images:
+   curl: "8.22.0"
+ tools:
+diff --git a/docs/apps/demo-operator.md b/docs/apps/demo-operator.md
+new file mode 100644
+--- /dev/null
++++ b/docs/apps/demo-operator.md
+@@ -0,0 +1,40 @@
++# demo-operator
++
++Pattern: operator (operator), parent chart `charts/addons`. Scaffolded with:
++
++```bash
++homelab scaffold app demo-operator --pattern operator --chart-repo https://charts.example.com/demo --chart-version 1.0.0 --crd-group demo.example.com --crd-kinds Widget,Gadget --huge-crds
++```
++
++## Generated
++
++| Path | Purpose |
++|------|---------|
++| `charts/addons/templates/demo-operator.yaml` | ArgoCD Application(s): demo-operator |
++| `charts/addons/values.yaml` | placeholder values block |
++| `charts/bootstrap/files/health/demo.example.com_Gadget.lua` | ArgoCD health Lua |
++| `charts/bootstrap/files/health/demo.example.com_Widget.lua` | ArgoCD health Lua |
++| `configuration/templates/helm-addons.tmpl` | values for every environment (version, sizing, hostname, smoke URL) |
++| `configuration/versions.yaml` | chart version with its Renovate marker |
++| `tests/e2e/demo-operator/chainsaw-test.yaml` | chainsaw e2e test |
++| `tests/gitops/crd-providers.yaml` | CRD provider for demo.example.com |
++| `tests/gitops/huge-crd-charts.yaml` | requires ServerSideApply (oversized CRDs) |
++| `tests/health/demo.example.com_Gadget/` | health Lua fixtures |
++| `tests/health/demo.example.com_Widget/` | health Lua fixtures |
++| `tests/schemas/sources.yaml` | CRD schema source (`task schemas:vendor`) |
++
++## Before the first PR
++
++- [ ] Adapt the `values:` block in `configuration/templates/helm-addons.tmpl` to the chart's own values
++- [ ] `task schemas:vendor -- --only demo-operator` before rendering any demo.example.com resource; add `helmArgs` in `tests/schemas/sources.yaml` if the chart gates its CRDs behind a value
++- [ ] Check the Ready-condition health Lua fits how the operator reports status (`task test:health`)
++- [ ] Seed any Secret 1Password provides in homelab in `localdev/fakes/secrets.yaml`
++- [ ] Replace this checklist with what the app does and how to operate it
++
++## Verify
++
++```bash
++task verify:text                                   # level 0
++task localdev:up && task verify:text LEVEL=2       # Kind: Healthy + Succeeded, e2e
++task test:e2e -- --test-dir tests/e2e/demo-operator
++```
+diff --git a/tests/e2e/demo-operator/chainsaw-test.yaml b/tests/e2e/demo-operator/chainsaw-test.yaml
+new file mode 100644
+--- /dev/null
++++ b/tests/e2e/demo-operator/chainsaw-test.yaml
+@@ -0,0 +1,31 @@
++---
++# Scaffolded by `homelab scaffold app demo-operator`; see tests/e2e/README.md.
++apiVersion: chainsaw.kyverno.io/v1alpha1
++kind: Test
++metadata:
++  name: demo-operator
++spec:
++  description: >-
++    The demo-operator Application is Healthy and its last sync Succeeded.
++  steps:
++    - name: applications-healthy
++      description: The ArgoCD Applications behind this test are Healthy and their last sync Succeeded.
++      try:
++        - assert:
++            resource:
++              apiVersion: argoproj.io/v1alpha1
++              kind: Application
++              metadata:
++                name: demo-operator
++                namespace: argocd
++              status:
++                health:
++                  status: Healthy
++                operationState:
++                  phase: Succeeded
++      catch:
++        - describe:
++            apiVersion: argoproj.io/v1alpha1
++            kind: Application
++            name: demo-operator
++            namespace: argocd
+diff --git a/tests/gitops/crd-providers.yaml b/tests/gitops/crd-providers.yaml
+--- a/tests/gitops/crd-providers.yaml
++++ b/tests/gitops/crd-providers.yaml
+@@ -6,6 +6,8 @@
+     app: argo-workflows
+     skipKinds:
+       - Application
++  # demo-operator (scaffolded): its chart installs the demo.example.com CRDs.
++  demo.example.com: demo-operator
+
+ # Namespaces the cluster always provides.
+ systemNamespaces:
+diff --git a/tests/gitops/huge-crd-charts.yaml b/tests/gitops/huge-crd-charts.yaml
+--- a/tests/gitops/huge-crd-charts.yaml
++++ b/tests/gitops/huge-crd-charts.yaml
+@@ -3,4 +3,5 @@
+ charts:
+   - cert-manager
+   - cloudnative-pg
++  - demo-operator
+   - traefik-external
+diff --git a/tests/health/demo.example.com_Gadget/degraded.yaml b/tests/health/demo.example.com_Gadget/degraded.yaml
+new file mode 100644
+--- /dev/null
++++ b/tests/health/demo.example.com_Gadget/degraded.yaml
+@@ -0,0 +1,13 @@
++# expect: Degraded
++# message: reconcile failed
++apiVersion: demo.example.com/v1
++kind: Gadget
++metadata:
++  name: example
++  namespace: demo-operator
++status:
++  conditions:
++    - type: Ready
++      status: "False"
++      message: "reconcile failed: example error"
++      lastTransitionTime: "2026-09-13T00:00:00Z"
+diff --git a/tests/health/demo.example.com_Gadget/healthy.yaml b/tests/health/demo.example.com_Gadget/healthy.yaml
+new file mode 100644
+--- /dev/null
++++ b/tests/health/demo.example.com_Gadget/healthy.yaml
+@@ -0,0 +1,12 @@
++# expect: Healthy
++# message: Gadget is Ready
++apiVersion: demo.example.com/v1
++kind: Gadget
++metadata:
++  name: example
++  namespace: demo-operator
++status:
++  conditions:
++    - type: Ready
++      status: "True"
++      lastTransitionTime: "2026-09-13T00:00:00Z"
+diff --git a/tests/health/demo.example.com_Gadget/progressing.yaml b/tests/health/demo.example.com_Gadget/progressing.yaml
+new file mode 100644
+--- /dev/null
++++ b/tests/health/demo.example.com_Gadget/progressing.yaml
+@@ -0,0 +1,7 @@
++# expect: Progressing
++# message: Waiting for Gadget
++apiVersion: demo.example.com/v1
++kind: Gadget
++metadata:
++  name: example
++  namespace: demo-operator
+diff --git a/tests/health/demo.example.com_Widget/degraded.yaml b/tests/health/demo.example.com_Widget/degraded.yaml
+new file mode 100644
+--- /dev/null
++++ b/tests/health/demo.example.com_Widget/degraded.yaml
+@@ -0,0 +1,13 @@
++# expect: Degraded
++# message: reconcile failed
++apiVersion: demo.example.com/v1
++kind: Widget
++metadata:
++  name: example
++  namespace: demo-operator
++status:
++  conditions:
++    - type: Ready
++      status: "False"
++      message: "reconcile failed: example error"
++      lastTransitionTime: "2026-09-13T00:00:00Z"
+diff --git a/tests/health/demo.example.com_Widget/healthy.yaml b/tests/health/demo.example.com_Widget/healthy.yaml
+new file mode 100644
+--- /dev/null
++++ b/tests/health/demo.example.com_Widget/healthy.yaml
+@@ -0,0 +1,12 @@
++# expect: Healthy
++# message: Widget is Ready
++apiVersion: demo.example.com/v1
++kind: Widget
++metadata:
++  name: example
++  namespace: demo-operator
++status:
++  conditions:
++    - type: Ready
++      status: "True"
++      lastTransitionTime: "2026-09-13T00:00:00Z"
+diff --git a/tests/health/demo.example.com_Widget/progressing.yaml b/tests/health/demo.example.com_Widget/progressing.yaml
+new file mode 100644
+--- /dev/null
++++ b/tests/health/demo.example.com_Widget/progressing.yaml
+@@ -0,0 +1,7 @@
++# expect: Progressing
++# message: Waiting for Widget
++apiVersion: demo.example.com/v1
++kind: Widget
++metadata:
++  name: example
++  namespace: demo-operator
+diff --git a/tests/schemas/sources.yaml b/tests/schemas/sources.yaml
+--- a/tests/schemas/sources.yaml
++++ b/tests/schemas/sources.yaml
+@@ -6,3 +6,12 @@
+       repo: https://cloudnative-pg.github.io/charts
+       name: cloudnative-pg
+     kinds: [Cluster]
++
++  # demo-operator (scaffolded): run `task schemas:vendor -- --only demo-operator`. Add
++  # helmArgs (e.g. ["--set", "crds.create=true"]) if the chart gates its CRDs.
++  - name: demo-operator
++    versionKey: demo-operator
++    chart:
++      repo: https://charts.example.com/demo
++      name: demo-operator
++    kinds: [Widget, Gadget]

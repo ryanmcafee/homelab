@@ -111,7 +111,7 @@ type renderPassOptions struct {
 
 // bindRenderFlags registers the render flags on a command.
 func bindRenderFlags(cmd *cobra.Command, o *renderPassOptions) {
-	cmd.Flags().StringVar(&o.envList, "env", "all", "Environments to verify (all, localdev, homelab, or a comma-separated list)")
+	cmd.Flags().StringVar(&o.envList, "env", "all", "Environments to verify (all, localdev, homelab, homelab-preview, or a comma-separated list)")
 	cmd.Flags().StringArrayVar(&o.charts, "chart", nil, "Restrict to a chart directory name (repeatable)")
 	cmd.Flags().StringVar(&o.outDir, "out-dir", "", "Directory for rendered manifests. Reused as-is and never pruned, so stale files from a previous run with a wider --chart or --env survive; prefer a fresh directory (default: a temp dir removed on exit)")
 	cmd.Flags().BoolVar(&o.keep, "keep", false, "Keep the render directory instead of deleting it")

@@ -1,0 +1,474 @@
+---
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: cnpg-restore
+spec:
+  description: >-
+    CloudNativePG restore drill. A throwaway S3 endpoint (versitygw, POSIX backend on an
+    emptyDir) receives the WAL archive and a base backup of Cluster drill-src through the
+    Barman Cloud Plugin (ObjectStore drill-store). Cluster drill-restore is then bootstrapped
+    from that object store only, and the marker rows written before the backup must come back
+    unchanged. Everything lives in the chainsaw test namespace and is deleted on cleanup.
+    Run with task test:drill (warm Kind loop) or task drill:restore (end to end).
+  steps:
+    - name: operators-healthy
+      description: >-
+        The cloudnative-pg and cnpg-barman-cloud Applications are Healthy and Succeeded and
+        both Deployments in cnpg-system are Available.
+      try:
+        - assert:
+            resource:
+              apiVersion: argoproj.io/v1alpha1
+              kind: Application
+              metadata:
+                name: cloudnative-pg
+                namespace: argocd
+              status:
+                health:
+                  status: Healthy
+                operationState:
+                  phase: Succeeded
+        - assert:
+            resource:
+              apiVersion: argoproj.io/v1alpha1
+              kind: Application
+              metadata:
+                name: cnpg-barman-cloud
+                namespace: argocd
+              status:
+                health:
+                  status: Healthy
+                operationState:
+                  phase: Succeeded
+        - assert:
+            resource:
+              apiVersion: apps/v1
+              kind: Deployment
+              metadata:
+                namespace: cnpg-system
+                labels:
+                  app.kubernetes.io/name: cloudnative-pg
+              status:
+                (conditions[?type == 'Available']):
+                  - status: 'True'
+        - assert:
+            resource:
+              apiVersion: apps/v1
+              kind: Deployment
+              metadata:
+                namespace: cnpg-system
+                labels:
+                  app.kubernetes.io/name: plugin-barman-cloud
+              status:
+                (conditions[?type == 'Available']):
+                  - status: 'True'
+      catch:
+        - describe:
+            apiVersion: argoproj.io/v1alpha1
+            kind: Application
+            name: cloudnative-pg
+            namespace: argocd
+        - describe:
+            apiVersion: argoproj.io/v1alpha1
+            kind: Application
+            name: cnpg-barman-cloud
+            namespace: argocd
+        - describe:
+            apiVersion: apps/v1
+            kind: Deployment
+            namespace: cnpg-system
+
+    - name: object-store
+      description: >-
+        versitygw serves S3 on :7070 from an emptyDir whose bucket directory (cnpg-drill) an
+        init container creates; ObjectStore drill-store points the plugin at it.
+      try:
+        # Throwaway credentials for a gateway that exists only inside this test namespace.
+        - apply:
+            resource:
+              apiVersion: v1
+              kind: Secret
+              metadata:
+                name: drill-s3
+              type: Opaque
+              stringData:
+                ACCESS_KEY_ID: drill
+                ACCESS_SECRET_KEY: drill-throwaway-key
+        - apply:
+            resource:
+              apiVersion: apps/v1
+              kind: Deployment
+              metadata:
+                name: versitygw
+                labels:
+                  app.kubernetes.io/name: versitygw
+              spec:
+                replicas: 1
+                selector:
+                  matchLabels:
+                    app.kubernetes.io/name: versitygw
+                template:
+                  metadata:
+                    labels:
+                      app.kubernetes.io/name: versitygw
+                  spec:
+                    securityContext:
+                      runAsNonRoot: true
+                      runAsUser: 10001
+                      runAsGroup: 10001
+                      fsGroup: 10001
+                      seccompProfile:
+                        type: RuntimeDefault
+                    initContainers:
+                      # posix backend: every top-level directory is a bucket.
+                      - name: bucket
+                        image: ($values.versitygwImage)
+                        command: ["/bin/sh", "-c", "mkdir -p /data/cnpg-drill"]
+                        resources:
+                          requests:
+                            cpu: 10m
+                            memory: 16Mi
+                          limits:
+                            cpu: 100m
+                            memory: 32Mi
+                        securityContext:
+                          allowPrivilegeEscalation: false
+                          readOnlyRootFilesystem: true
+                          capabilities:
+                            drop: [ALL]
+                        volumeMounts:
+                          - name: data
+                            mountPath: /data
+                    containers:
+                      - name: versitygw
+                        image: ($values.versitygwImage)
+                        # Global flags precede the backend subcommand.
+                        args: ["--port", ":7070", "--health", "/health", "posix", "/data"]
+                        env:
+                          - name: ROOT_ACCESS_KEY_ID
+                            valueFrom:
+                              secretKeyRef:
+                                name: drill-s3
+                                key: ACCESS_KEY_ID
+                          - name: ROOT_SECRET_ACCESS_KEY
+                            valueFrom:
+                              secretKeyRef:
+                                name: drill-s3
+                                key: ACCESS_SECRET_KEY
+                        ports:
+                          - name: s3
+                            containerPort: 7070
+                        readinessProbe:
+                          httpGet:
+                            path: /health
+                            port: s3
+                          periodSeconds: 5
+                        resources:
+                          requests:
+                            cpu: 50m
+                            memory: 64Mi
+                          limits:
+                            cpu: 500m
+                            memory: 256Mi
+                        securityContext:
+                          allowPrivilegeEscalation: false
+                          readOnlyRootFilesystem: true
+                          capabilities:
+                            drop: [ALL]
+                        volumeMounts:
+                          - name: data
+                            mountPath: /data
+                          - name: tmp
+                            mountPath: /tmp
+                    volumes:
+                      - name: data
+                        emptyDir: {}
+                      - name: tmp
+                        emptyDir: {}
+        - apply:
+            resource:
+              apiVersion: v1
+              kind: Service
+              metadata:
+                name: versitygw
+              spec:
+                selector:
+                  app.kubernetes.io/name: versitygw
+                ports:
+                  - name: s3
+                    port: 7070
+                    targetPort: s3
+        - assert:
+            resource:
+              apiVersion: apps/v1
+              kind: Deployment
+              metadata:
+                name: versitygw
+              status:
+                (conditions[?type == 'Available']):
+                  - status: 'True'
+        - apply:
+            resource:
+              apiVersion: barmancloud.cnpg.io/v1
+              kind: ObjectStore
+              metadata:
+                name: drill-store
+              spec:
+                configuration:
+                  destinationPath: s3://cnpg-drill/
+                  endpointURL: (join('', ['http://versitygw.', $namespace, '.svc.cluster.local:7070']))
+                  s3Credentials:
+                    accessKeyId:
+                      name: drill-s3
+                      key: ACCESS_KEY_ID
+                    secretAccessKey:
+                      name: drill-s3
+                      key: ACCESS_SECRET_KEY
+                  wal:
+                    compression: gzip
+                  data:
+                    compression: gzip
+                instanceSidecarConfiguration:
+                  resources:
+                    requests:
+                      cpu: 50m
+                      memory: 64Mi
+                    limits:
+                      cpu: 500m
+                      memory: 256Mi
+      catch:
+        - events: {}
+        - describe:
+            apiVersion: apps/v1
+            kind: Deployment
+            name: versitygw
+        - podLogs:
+            selector: app.kubernetes.io/name=versitygw
+            tail: 100
+
+    - name: source-cluster
+      description: >-
+        Cluster drill-src (1 instance, local-path 1Gi) archives its WAL through the plugin and
+        reaches "Cluster in healthy state" with ContinuousArchiving True.
+      try:
+        - apply:
+            resource:
+              apiVersion: postgresql.cnpg.io/v1
+              kind: Cluster
+              metadata:
+                name: drill-src
+              spec:
+                instances: 1
+                storage:
+                  size: 1Gi
+                  storageClass: local-path
+                resources:
+                  requests:
+                    cpu: 100m
+                    memory: 256Mi
+                  limits:
+                    cpu: "1"
+                    memory: 512Mi
+                plugins:
+                  - name: barman-cloud.cloudnative-pg.io
+                    isWALArchiver: true
+                    parameters:
+                      barmanObjectName: drill-store
+        - assert:
+            resource:
+              apiVersion: postgresql.cnpg.io/v1
+              kind: Cluster
+              metadata:
+                name: drill-src
+              status:
+                phase: Cluster in healthy state
+                readyInstances: 1
+                (conditions[?type == 'ContinuousArchiving']):
+                  - status: 'True'
+      catch:
+        - events: {}
+        - describe:
+            apiVersion: postgresql.cnpg.io/v1
+            kind: Cluster
+            name: drill-src
+        - describe:
+            apiVersion: v1
+            kind: Pod
+            selector: cnpg.io/cluster=drill-src
+        - podLogs:
+            selector: cnpg.io/cluster=drill-src
+            container: postgres
+            tail: 100
+        - podLogs:
+            selector: cnpg.io/cluster=drill-src
+            container: plugin-barman-cloud
+            tail: 100
+        - podLogs:
+            namespace: cnpg-system
+            selector: app.kubernetes.io/name=plugin-barman-cloud
+            tail: 100
+        - podLogs:
+            namespace: cnpg-system
+            selector: app.kubernetes.io/name=cloudnative-pg
+            tail: 100
+
+    - name: seed-marker
+      description: >-
+        Writes 1000 rows and a marker unique to this run (it embeds the random test namespace)
+        into database app on the drill-src primary, then switches WAL so it is archived.
+      try:
+        - script:
+            timeout: 2m
+            content: |
+              set -eu
+              primary=$(kubectl get clusters.postgresql.cnpg.io drill-src -n "$NAMESPACE" \
+                -o jsonpath='{.status.currentPrimary}')
+              marker="restore-drill $NAMESPACE"
+              kubectl exec -n "$NAMESPACE" "$primary" -c postgres -- psql -v ON_ERROR_STOP=1 -d app -c "
+                CREATE TABLE drill_marker (id int PRIMARY KEY, marker text NOT NULL);
+                INSERT INTO drill_marker VALUES (0, '$marker');
+                INSERT INTO drill_marker SELECT g, md5(g::text) FROM generate_series(1, 1000) AS g;
+                SELECT pg_switch_wal();"
+              echo "seeded 1001 rows on $primary, marker '$marker'"
+      catch:
+        - podLogs:
+            selector: cnpg.io/cluster=drill-src
+            container: postgres
+            tail: 100
+
+    - name: backup
+      description: An on-demand Backup (method plugin) of drill-src reaches phase completed.
+      try:
+        - apply:
+            resource:
+              apiVersion: postgresql.cnpg.io/v1
+              kind: Backup
+              metadata:
+                name: drill-backup
+              spec:
+                cluster:
+                  name: drill-src
+                method: plugin
+                pluginConfiguration:
+                  name: barman-cloud.cloudnative-pg.io
+        - assert:
+            resource:
+              apiVersion: postgresql.cnpg.io/v1
+              kind: Backup
+              metadata:
+                name: drill-backup
+              status:
+                phase: completed
+      catch:
+        - events: {}
+        - describe:
+            apiVersion: postgresql.cnpg.io/v1
+            kind: Backup
+            name: drill-backup
+        - describe:
+            apiVersion: barmancloud.cnpg.io/v1
+            kind: ObjectStore
+            name: drill-store
+        - podLogs:
+            selector: cnpg.io/cluster=drill-src
+            container: plugin-barman-cloud
+            tail: 200
+        - podLogs:
+            selector: app.kubernetes.io/name=versitygw
+            tail: 100
+
+    - name: restore-cluster
+      description: >-
+        Cluster drill-restore is bootstrapped with recovery from the drill-src server in the
+        object store (externalClusters + plugin) and reaches "Cluster in healthy state".
+      try:
+        - apply:
+            resource:
+              apiVersion: postgresql.cnpg.io/v1
+              kind: Cluster
+              metadata:
+                name: drill-restore
+              spec:
+                instances: 1
+                storage:
+                  size: 1Gi
+                  storageClass: local-path
+                resources:
+                  requests:
+                    cpu: 100m
+                    memory: 256Mi
+                  limits:
+                    cpu: "1"
+                    memory: 512Mi
+                bootstrap:
+                  recovery:
+                    source: drill-src
+                externalClusters:
+                  - name: drill-src
+                    plugin:
+                      name: barman-cloud.cloudnative-pg.io
+                      parameters:
+                        barmanObjectName: drill-store
+                        serverName: drill-src
+        - assert:
+            resource:
+              apiVersion: postgresql.cnpg.io/v1
+              kind: Cluster
+              metadata:
+                name: drill-restore
+              status:
+                phase: Cluster in healthy state
+                readyInstances: 1
+      catch:
+        - events: {}
+        - describe:
+            apiVersion: postgresql.cnpg.io/v1
+            kind: Cluster
+            name: drill-restore
+        - describe:
+            apiVersion: v1
+            kind: Pod
+            selector: cnpg.io/cluster=drill-restore
+        - podLogs:
+            selector: cnpg.io/cluster=drill-restore
+            tail: 200
+        - podLogs:
+            namespace: cnpg-system
+            selector: app.kubernetes.io/name=plugin-barman-cloud
+            tail: 100
+        - podLogs:
+            namespace: cnpg-system
+            selector: app.kubernetes.io/name=cloudnative-pg
+            tail: 100
+
+    - name: verify-marker
+      description: >-
+        The restored primary returns the same marker and all 1001 rows; any difference fails
+        the drill.
+      try:
+        - script:
+            timeout: 2m
+            content: |
+              set -eu
+              primary=$(kubectl get clusters.postgresql.cnpg.io drill-restore -n "$NAMESPACE" \
+                -o jsonpath='{.status.currentPrimary}')
+              q() { kubectl exec -n "$NAMESPACE" "$primary" -c postgres -- psql -v ON_ERROR_STOP=1 -d app -tAc "$1"; }
+              want="restore-drill $NAMESPACE"
+              got=$(q "SELECT marker FROM drill_marker WHERE id = 0")
+              rows=$(q "SELECT count(*) FROM drill_marker")
+              echo "restored primary $primary: marker '$got', $rows rows"
+              if [ "$got" != "$want" ]; then
+                echo "marker mismatch: want '$want', got '$got'"
+                exit 1
+              fi
+              if [ "$rows" != "1001" ]; then
+                echo "row count mismatch: want 1001, got $rows"
+                exit 1
+              fi
+              echo "restore drill passed: backup of drill-src restored into drill-restore with identical data"
+      catch:
+        - podLogs:
+            selector: cnpg.io/cluster=drill-restore
+            container: postgres
+            tail: 100

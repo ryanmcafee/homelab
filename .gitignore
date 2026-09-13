@@ -78,10 +78,12 @@ talosconfig
 .beads/*.db-shm
 .beads/*.db-wal
 
-# Claude (ignore local settings, allow shared commands and skills)
+# Claude (ignore local settings, allow shared commands, skills and the shared
+# settings.json that registers the level-0 PostToolUse hook; settings.local.json stays ignored)
 .claude/*
 !.claude/commands/
 !.claude/skills/
+!.claude/settings.json
 
 # mise
 .mise.local.toml

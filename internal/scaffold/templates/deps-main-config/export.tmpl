@@ -1,0 +1,22 @@
+[[- template "blockHeader" . ]]
+# Waves: [[ .Name ]]-dependencies [[ .DepsWave ]] < [[ .Name ]] [[ .Wave ]] < [[ .Name ]]-config [[ .ConfigWave ]]
+
+[[ .Name ]]:
+  enabled: true
+  namespace: [[ .Namespace ]]
+[[- template "chartValues" . ]]
+    version: "{{ index .Versions.Charts "[[ .Name ]]" }}"
+
+  # Handed verbatim to the upstream chart (spec.source.helm.values): rename the
+  # keys to what the chart's own values.yaml expects.
+  values:
+[[- template "genericResources" . ]]
+
+  # Derived values for charts/[[ .Name ]]-config, handed down through the
+  # [[ .Name ]]-config Application's helm.valuesObject (ADR-010). Never put them
+  # in charts/[[ .Name ]]-config/values-homelab.yaml.
+  config:
+    ingress:
+      host: {{ .Values.[[ .HostnameKey ]].Value }}
+      className: {{ .Values.INGRESS_CLASS_INTERNAL.Value }}
+[[- template "smokeValues" . ]]

@@ -29,6 +29,8 @@ charts:
   local-path-provisioner: "0.0.37"
   # renovate: datasource=helm depName=cloudnative-pg registryUrl=https://cloudnative-pg.github.io/charts
   cloudnative-pg: "0.28.3"
+  # renovate: datasource=helm depName=plugin-barman-cloud registryUrl=https://cloudnative-pg.github.io/charts
+  plugin-barman-cloud: "0.8.0"
   # renovate: datasource=helm depName=argo-workflows registryUrl=https://argoproj.github.io/argo-helm
   argo-workflows: "1.0.18"
   # renovate: datasource=helm depName=plex-media-server registryUrl=https://raw.githubusercontent.com/plexinc/pms-docker/gh-pages
@@ -67,13 +69,16 @@ charts:
   external-dns-webhook-unifi: "v0.8.2"
   # renovate: datasource=github-releases depName=lukaszraczylo/traefikoidc
   traefik-oidc: "v1.0.32"
-  unifi-port-forward: "1.1.x"
+  # renovate: datasource=helm depName=port-forwarding registryUrl=https://ryanmcafee.github.io/port-forwarding-controller
+  unifi-port-forward: "1.1.1"
 images:
-  homelab-cmp: "0.1.19"
+  homelab-cmp: "0.1.20"
   # renovate: datasource=docker depName=curlimages/curl
   curl: "8.22.0"
   # renovate: datasource=docker depName=kindest/node
   kind-node: "v1.36.1"
+  # renovate: datasource=docker depName=versity/versitygw
+  versitygw: "v1.8.0"
 tools:
   # renovate: datasource=github-releases depName=siderolabs/talos
   talos: "v1.14.0"

@@ -1,0 +1,23 @@
+---
+# Chainsaw configuration for the restore drills (tests/drills).
+# Run with: task test:drill  (= chainsaw test --config tests/drills/.chainsaw.yaml tests/drills
+#            --values <file with the images from configuration/versions.yaml>)
+# A drill boots PostgreSQL twice and moves a base backup through an object store, so the
+# timeouts are generous and drills run one at a time.
+apiVersion: chainsaw.kyverno.io/v1alpha2
+kind: Configuration
+metadata:
+  name: homelab-restore-drills
+spec:
+  timeouts:
+    apply: 2m
+    assert: 15m
+    cleanup: 5m
+    delete: 5m
+    error: 2m
+    exec: 10m
+  execution:
+    failFast: true
+    parallel: 1
+  cleanup:
+    skipDelete: false

@@ -1,0 +1,11 @@
+# Fixture: a trimmed configuration/versions.yaml. It deliberately carries no
+# Renovate markers: the repository's custom manager matches any path ending in
+# configuration/versions.yaml, and a bump here would only break the goldens.
+charts:
+  cloudnative-pg: "0.28.3"
+  sonarr: "25.6.3"
+  unifi-port-forward: "1.1.x"
+images:
+  curl: "8.22.0"
+tools:
+  kubernetes: "v1.37.0"

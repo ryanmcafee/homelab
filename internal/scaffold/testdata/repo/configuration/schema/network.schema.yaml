@@ -1,0 +1,14 @@
+# Fixture network keys.
+keys:
+  DOMAIN:
+    description: Base domain
+    required: true
+
+  INGRESS_CLASS_INTERNAL:
+    description: Internal IngressClass
+    default: "internal"
+
+  # Computed hostnames — derived from DOMAIN
+  GRAFANA_HOSTNAME:
+    description: Grafana dashboard hostname
+    const: "grafana.{{.DOMAIN}}"

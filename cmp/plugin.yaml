@@ -8,23 +8,66 @@ spec:
   lockRepo: false
   generate:
     command: [sh, -c]
+    # POSIX sh (alpine ash); no bash-isms. Plugin env arrives as ARGOCD_ENV_<NAME>:
+    #   ENVIRONMENT, FORMAT   config set and export template (homelab, helm-addons|helm-apps)
+    #   PREVIEW_PR            optional pull request number (digits) -> preview mode
+    #   PREVIEW_APPS          optional comma-separated apps ([a-z0-9,-]), needs PREVIEW_PR
+    # PREVIEW_* come from the `previews` ApplicationSet (charts/gitops) and switch
+    # charts/applications to preview mode (templates/_preview.tpl,
+    # docs/runbooks/previews.md). Any failure exits non-zero so ArgoCD reports a
+    # manifest generation error instead of applying a partial render.
     args:
       - |
+        set -eu
+
         CONFIG_ROOT="../../configuration"
         if [ ! -d "$CONFIG_ROOT" ]; then
           echo "ERROR: Config root not found at $CONFIG_ROOT (CWD: $(pwd))" >&2
           exit 1
         fi
 
+        PREVIEW_PR="${ARGOCD_ENV_PREVIEW_PR:-}"
+        PREVIEW_APPS="${ARGOCD_ENV_PREVIEW_APPS:-}"
+        case "$PREVIEW_PR" in
+          *[!0-9]*)
+            echo "ERROR: PREVIEW_PR must be a pull request number (digits only), got '$PREVIEW_PR'" >&2
+            exit 1
+            ;;
+        esac
+        case "$PREVIEW_APPS" in
+          *[!a-z0-9,-]*)
+            echo "ERROR: PREVIEW_APPS may only contain a-z, 0-9, ',' and '-', got '$PREVIEW_APPS'" >&2
+            exit 1
+            ;;
+        esac
+        if [ -z "$PREVIEW_PR" ] && [ -n "$PREVIEW_APPS" ]; then
+          echo "ERROR: PREVIEW_APPS is set but PREVIEW_PR is empty" >&2
+          exit 1
+        fi
+
+        # One values file per generation: allowConcurrency lets several
+        # Applications render at once in this sidecar, so a fixed /tmp path would
+        # hand one Application another's values.
+        VALUES_FILE="$(mktemp)"
+        trap 'rm -f "$VALUES_FILE"' EXIT
+
         homelab config export \
           --set "$ARGOCD_ENV_ENVIRONMENT" \
           --format "$ARGOCD_ENV_FORMAT" \
           --env-file /config/homelab.yaml \
           --config-root "$CONFIG_ROOT" \
-          --stdout > /tmp/generated-values.yaml
+          --stdout > "$VALUES_FILE"
+
+        set -- -f values.yaml -f "$VALUES_FILE"
+        if [ -n "$PREVIEW_PR" ]; then
+          set -- "$@" --set-string "global.preview.pr=$PREVIEW_PR"
+          if [ -n "$PREVIEW_APPS" ]; then
+            # --set-string splits on commas; escape them so the list stays one value.
+            set -- "$@" --set-string "global.preview.apps=$(printf '%s' "$PREVIEW_APPS" | sed 's/,/\\,/g')"
+          fi
+        fi
 
         helm template "$ARGOCD_APP_NAME" . \
           --namespace "$ARGOCD_APP_NAMESPACE" \
           --include-crds \
-          -f values.yaml \
-          -f /tmp/generated-values.yaml
+          "$@"

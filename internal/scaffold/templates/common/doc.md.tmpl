@@ -1,0 +1,36 @@
+# [[ .Name ]]
+
+Pattern: [[ .PatternTitle ]] ([[ .Pattern ]]), parent chart `charts/[[ .Tier ]]`. Scaffolded with:
+
+```bash
+[[ .Command ]]
+```
+
+## Generated
+
+| Path | Purpose |
+|------|---------|
+[[- range .DocRows ]]
+| `[[ .Path ]]` | [[ .Purpose ]] |
+[[- end ]]
+
+## Before the first PR
+
+- [ ] Adapt the `values:` block in `configuration/templates/[[ .ExportFile ]]` to the chart's own values
+[[- if .Smoke ]]
+- [ ] Check that `smoke.url` (`[[ .SmokeURL ]]`) names the chart's Service and port
+[[- end ]]
+[[- if .CRDGroup ]]
+- [ ] `task schemas:vendor -- --only [[ .Name ]]` before rendering any [[ .CRDGroup ]] resource; add `helmArgs` in `tests/schemas/sources.yaml` if the chart gates its CRDs behind a value
+- [ ] Check the Ready-condition health Lua fits how the operator reports status (`task test:health`)
+[[- end ]]
+- [ ] Seed any Secret 1Password provides in homelab in `localdev/fakes/secrets.yaml`
+- [ ] Replace this checklist with what the app does and how to operate it
+
+## Verify
+
+```bash
+task verify:text                                   # level 0
+task localdev:up && task verify:text LEVEL=2       # Kind: Healthy + Succeeded, e2e
+task test:e2e -- --test-dir tests/e2e/[[ .Name ]]
+```

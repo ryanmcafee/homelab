@@ -38,6 +38,21 @@
  *             namespace events and failing pod describe/logs for every
  *             Application that is not Healthy/Succeeded. Never throws on
  *             missing fields; stdout only.
+ *   report    Markdown "Kind preview (level 2)" report (issue #261 item 17,
+ *             posted by tilt-ci.yml as the sticky PR comment `kind-preview`):
+ *             the pass/fail line and failing checks of the level-2 JSON
+ *             (--verify-json; missing or partial JSON is reported, not
+ *             fatal), an Application table (health, last operation, vs main)
+ *             and, for every Application that is not Synced, `argocd app diff
+ *             <app> --exit-code=false`. The root Application tracks GitHub
+ *             main while every app was synced from the working tree with
+ *             --local, so that diff is exactly PR head vs main; argocd prints
+ *             `diff <live> <target>` (live = PR, target = main), which the
+ *             report inverts so `-` is main and `+` is the PR. Diffs share
+ *             one byte budget (--max-diff-bytes, 0 = unlimited); small diffs
+ *             stay whole, large ones are cut at a line boundary with a note.
+ *             When ArgoCD is not reachable (localdev:ci failed early) the
+ *             report says so and still exits 0.
  *
  * Automated sync is OFF in localdev (ARGOCD_AUTOMATED_SYNC=false): `argocd app
  * sync --local` refuses automated apps, and the whole point of the loop is to
@@ -64,9 +79,12 @@
  *   deno run ... scripts/localdev-argocd.ts sync [--warm] [--only a,b] [--timeout 40m] [--dry-run]
  *   deno run ... scripts/localdev-argocd.ts wait [--require-synced] [--exclude a,b] [--timeout 20m]
  *   deno run ... scripts/localdev-argocd.ts diagnose
+ *   deno run ... scripts/localdev-argocd.ts report [--out kind-report.md] [--verify-json verify-level2.json]
+ *                                                  [--max-diff-bytes 50000] [--no-diff]
  *
- * Exit codes: 0 = success; 1 = install/sync/wait failed (diagnostics printed);
- *             2 = argument error.
+ * Exit codes: 0 = success (report: a report was written, whatever it says);
+ *             1 = install/sync/wait failed (diagnostics printed), report could
+ *             not write its output; 2 = argument error.
  */
 
 import { parse as parseYaml } from "jsr:@std/yaml@^1";
@@ -81,12 +99,17 @@ const green = (s: string) => `\x1b[32m${s}\x1b[0m`;
 const red = (s: string) => `\x1b[31m${s}\x1b[0m`;
 const yellow = (s: string) => `\x1b[33m${s}\x1b[0m`;
 
+/** `report` may print the Markdown on stdout, so it moves every log line to stderr. */
+let logToStderr = false;
+const emit = (line: string) =>
+  logToStderr ? console.error(line) : console.log(line);
+
 const log = {
-  info: (msg: string) => console.log(`${cyan("INFO")}  ${msg}`),
-  ok: (msg: string) => console.log(`${green("OK")}    ${msg}`),
-  warn: (msg: string) => console.log(`${yellow("WARN")}  ${msg}`),
+  info: (msg: string) => emit(`${cyan("INFO")}  ${msg}`),
+  ok: (msg: string) => emit(`${green("OK")}    ${msg}`),
+  warn: (msg: string) => emit(`${yellow("WARN")}  ${msg}`),
   error: (msg: string) => console.error(`${red("ERROR")} ${msg}`),
-  dry: (msg: string) => console.log(`${yellow("DRY")}   ${msg}`),
+  dry: (msg: string) => emit(`${yellow("DRY")}   ${msg}`),
 };
 
 // ============================================================================
@@ -389,6 +412,23 @@ export function appState(app: Application): AppState {
 }
 
 /**
+ * Parents whose operation is still Running: ArgoCD holds a sync wave open on
+ * them, and their remaining child Applications only appear once that wave's
+ * resources are Healthy (e.g. traefik's wave 7 before the wave-8 children).
+ * When nothing else is selected (`--warm`, `--only`) the sync loop must keep
+ * polling for those children instead of ending; otherwise the final pass waits
+ * forever on a parent whose later children nobody syncs. Sorted by name.
+ */
+export function parentsAwaitingWaves(apps: Application[]): string[] {
+  return apps
+    .filter((a) =>
+      isParentApp(a) && a.status?.operationState?.phase === "Running"
+    )
+    .map((a) => a.metadata.name)
+    .sort();
+}
+
+/**
  * Apps not done and not being waited on whose tier key is LOWER than the tier
  * currently being waited on. They belong to an earlier subtree (e.g. a parent
  * created wave-8 children while we waited on another parent's wave-12 child),
@@ -670,9 +710,603 @@ export function formatTable(headers: string[], rows: string[][]): string {
 }
 
 // ============================================================================
+// report: pure functions (unit-tested)
+// ============================================================================
+export const REPORT_TITLE = "Kind preview (level 2)";
+export const DEFAULT_MAX_DIFF_BYTES = 50_000;
+/** Failing checks printed in full; the rest are counted. */
+export const REPORT_MAX_FAILING_CHECKS = 25;
+export const REPORT_MAX_FINDINGS = 15;
+export const REPORT_MAX_FINDING_CHARS = 400;
+export const REPORT_MAX_CELL_CHARS = 80;
+/**
+ * KUBECTL_EXTERNAL_DIFF for `argocd app diff`: unified format, which GitHub
+ * renders as a coloured ```diff block (argocd's default is plain `diff`).
+ */
+export const DIFF_TOOL = "diff -u";
+
+/** One check of `homelab verify all --json` (internal/verify/types.go). */
+export interface VerifyCheck {
+  name: string;
+  status: string;
+  duration_ms?: number;
+  detail?: string;
+  findings?: string[];
+}
+
+export interface VerifyResult {
+  level?: number;
+  checks: VerifyCheck[];
+  pass?: boolean;
+  duration_ms?: number;
+}
+
+export type VerifyInput =
+  | { ok: true; result: VerifyResult }
+  | { ok: false; reason: string };
+
+/** `argocd app diff` of one Application, already inverted to main → PR. */
+export interface AppDiff {
+  app: string;
+  diff: string;
+  /** Set when argocd could not produce the diff (e.g. path absent on main). */
+  error?: string;
+  /** Set by truncateDiffs when the diff was cut. */
+  originalBytes?: number;
+  omittedLines?: number;
+}
+
+export interface StatusRow {
+  app: string;
+  health: string;
+  operation: string;
+  vsMain: string;
+}
+
+export interface ReportInput {
+  /** null: `kubectl get applications` failed (no cluster / no ArgoCD). */
+  apps: Application[] | null;
+  appsError?: string;
+  verify: VerifyInput;
+  /** Already truncated (truncateDiffs). */
+  diffs: AppDiff[];
+  /** Why no diffs were taken (--no-diff, ArgoCD API not reachable). */
+  diffNote?: string;
+  meta?: { sha?: string; runUrl?: string };
+}
+
+const utf8 = new TextEncoder();
+
+function byteLength(s: string): number {
+  return utf8.encode(s).length;
+}
+
+function firstLine(s: string): string {
+  return s.split("\n").map((l) => l.trim()).find((l) => l.length > 0) ?? "";
+}
+
+function clip(s: string, max: number): string {
+  return s.length <= max ? s : `${s.slice(0, max - 1)}…`;
+}
+
+/** Text safe inside a Markdown table cell (no pipes, newlines or HTML). */
+export function mdCell(s: string): string {
+  return s
+    .replace(/\r?\n/g, " ")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll("|", "\\|")
+    .trim();
+}
+
+/** A code fence longer than any backtick run inside `content`. */
+export function fenceFor(content: string): string {
+  let longest = 0;
+  for (const m of content.matchAll(/`+/g)) {
+    longest = Math.max(longest, m[0].length);
+  }
+  return "`".repeat(Math.max(3, longest + 1));
+}
+
+/**
+ * The JSON object in a captured `task verify` stdout: the whole text, or the
+ * lines from the first `{` line to the last `}` line (task appends its own
+ * failure line after the JSON; the tilt-ci.yml Summary step strips it the
+ * same way with sed). null when there is no parsable object.
+ */
+export function extractJsonObject(text: string): unknown | null {
+  try {
+    return JSON.parse(text);
+  } catch {
+    // fall through to the line-based extraction
+  }
+  const lines = text.split("\n");
+  const start = lines.findIndex((l) => l.startsWith("{"));
+  let end = -1;
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (lines[i].startsWith("}")) {
+      end = i;
+      break;
+    }
+  }
+  if (start < 0 || end < start) return null;
+  try {
+    return JSON.parse(lines.slice(start, end + 1).join("\n"));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Level-2 JSON as captured by tilt-ci.yml (`task verify LEVEL=2 | tee
+ * verify-level2.json`). text null = the file does not exist. Never throws:
+ * a missing or cut-short file becomes a reason the report prints.
+ */
+export function parseVerifyJson(
+  text: string | null,
+  source = "verify-level2.json",
+): VerifyInput {
+  if (text === null) {
+    return {
+      ok: false,
+      reason:
+        `\`${source}\` was not written: the Kind loop failed before \`task verify LEVEL=2\` ran (see the job log)`,
+    };
+  }
+  if (!text.trim()) {
+    return {
+      ok: false,
+      reason:
+        `\`${source}\` is empty: \`task verify LEVEL=2\` produced no JSON (see the job log)`,
+    };
+  }
+  const obj = extractJsonObject(text) as Partial<VerifyResult> | null;
+  if (
+    obj === null || typeof obj !== "object" || !Array.isArray(obj.checks)
+  ) {
+    return {
+      ok: false,
+      reason:
+        `\`${source}\` is not a complete level-2 result (the verify step was probably cut short; see the job log)`,
+    };
+  }
+  const checks = obj.checks.filter((c): c is VerifyCheck =>
+    c !== null && typeof c === "object" && typeof c.name === "string"
+  );
+  return { ok: true, result: { ...obj, checks } as VerifyResult };
+}
+
+/** Applications in tree order (tier key from the root, then name). */
+export function treeOrder(apps: Application[]): Application[] {
+  const byName = indexApps(apps);
+  return apps
+    .map((a) => ({ a, key: tierKey(a, byName) }))
+    .sort((x, y) =>
+      compareTierKey(x.key, y.key) ||
+      x.a.metadata.name.localeCompare(y.a.metadata.name)
+    )
+    .map(({ a }) => a);
+}
+
+/** Names of the Applications to diff: every one not Synced, in tree order. */
+export function appsToDiff(apps: Application[]): string[] {
+  return treeOrder(apps)
+    .filter((a) => a.status?.sync?.status !== "Synced")
+    .map((a) => a.metadata.name);
+}
+
+/** Resources, added and removed lines of an inverted `argocd app diff`. */
+export function diffStats(
+  diff: string,
+): { resources: number; added: number; removed: number } {
+  let resources = 0;
+  let added = 0;
+  let removed = 0;
+  for (const line of diff.split("\n")) {
+    if (/^===== .* =+$/.test(line)) resources++;
+    else if (line.startsWith("+")) added++;
+    else if (line.startsWith("-")) removed++;
+  }
+  return { resources, added, removed };
+}
+
+/**
+ * One table row per Application, in tree order. vs main: Synced → "same as
+ * main"; otherwise the sync status plus what the diff found, when one was
+ * taken (`diffs` keyed by app name).
+ */
+export function statusRows(
+  apps: Application[],
+  diffs: Map<string, AppDiff> = new Map(),
+): StatusRow[] {
+  return treeOrder(apps).map((a) => {
+    const st = a.status ?? {};
+    const phase = st.operationState?.phase;
+    const msg = firstLine(st.operationState?.message ?? "");
+    let operation = phase ?? "-";
+    if (phase && phase !== "Succeeded" && msg) {
+      operation = clip(`${phase}: ${msg}`, REPORT_MAX_CELL_CHARS);
+    }
+    const sync = st.sync?.status;
+    let vsMain: string;
+    if (sync === "Synced") {
+      vsMain = "same as main";
+    } else {
+      vsMain = sync === "OutOfSync" ? "differs" : (sync ?? "Unknown");
+      const d = diffs.get(a.metadata.name);
+      if (d?.error !== undefined) vsMain += " · diff unavailable";
+      else if (d && !d.diff.trim()) vsMain += " · no resource diff";
+      else if (d) {
+        const s = diffStats(d.diff);
+        vsMain += ` · +${s.added} -${s.removed}${
+          d.originalBytes !== undefined ? " (truncated)" : ""
+        }`;
+      }
+    }
+    return {
+      app: a.metadata.name,
+      health: st.health?.status ?? "Unknown",
+      operation,
+      vsMain,
+    };
+  });
+}
+
+/**
+ * Turn `argocd app diff` output (unified format, `diff <live> <target>`) into
+ * main → PR: in the Kind loop the live objects are the PR (synced with
+ * --local) and the target is GitHub main. Hunk headers swap their ranges,
+ * `-`/`+` swap, and the `---`/`+++` file headers (temp paths with
+ * timestamps) are dropped; argocd's `===== group/Kind ns/name ======` line
+ * names the resource. Within each run of changed lines main's (`-`) lines
+ * are emitted before the PR's (`+`), the order `diff -u` itself uses. Hunk
+ * line counts are tracked, so content that happens to start with `--- ` is
+ * never mistaken for a header.
+ */
+export function invertUnifiedDiff(text: string): string {
+  const out: string[] = [];
+  let minus: string[] = [];
+  let plus: string[] = [];
+  const flush = () => {
+    out.push(...minus, ...plus);
+    minus = [];
+    plus = [];
+  };
+  let oldLeft = 0;
+  let newLeft = 0;
+  for (const line of text.split("\n")) {
+    if (oldLeft > 0 || newLeft > 0) {
+      const c = line[0];
+      if (c === "-") {
+        oldLeft--;
+        plus.push(`+${line.slice(1)}`);
+        continue;
+      }
+      if (c === "+") {
+        newLeft--;
+        minus.push(`-${line.slice(1)}`);
+        continue;
+      }
+      flush();
+      if (c === " " || line === "") {
+        oldLeft--;
+        newLeft--;
+        out.push(line);
+        continue;
+      }
+      if (c === "\\") {
+        out.push(line);
+        continue;
+      }
+      // Not hunk content after all: resynchronise on this line.
+      oldLeft = 0;
+      newLeft = 0;
+    }
+    flush();
+    const h = /^@@ -(\d+)(,\d+)? \+(\d+)(,\d+)? @@(.*)$/.exec(line);
+    if (h) {
+      oldLeft = h[2] === undefined ? 1 : Number(h[2].slice(1));
+      newLeft = h[4] === undefined ? 1 : Number(h[4].slice(1));
+      out.push(`@@ -${h[3]}${h[4] ?? ""} +${h[1]}${h[2] ?? ""} @@${h[5]}`);
+      continue;
+    }
+    if (line.startsWith("--- ") || line.startsWith("+++ ")) continue;
+    if (line.startsWith("\\")) continue;
+    out.push(line);
+  }
+  flush();
+  return out.join("\n");
+}
+
+/** The readable message of an argocd CLI error (JSON log lines or text). */
+export function argocdErrorMessage(text: string): string {
+  for (const raw of text.split("\n")) {
+    const line = raw.trim();
+    if (!line) continue;
+    if (line.startsWith("{")) {
+      try {
+        const o = JSON.parse(line) as { msg?: unknown; level?: unknown };
+        if (typeof o.msg === "string" && o.msg.trim()) {
+          if (
+            o.level === undefined || o.level === "fatal" || o.level === "error"
+          ) {
+            return o.msg.trim();
+          }
+          continue;
+        }
+      } catch {
+        // not JSON: use the raw line
+      }
+    }
+    return line;
+  }
+  return "";
+}
+
+/**
+ * Result of `argocd app diff <app> --exit-code=false`: 0 = no error (diff
+ * possibly empty); 1 = "diff found" (only without --exit-code=false, kept for
+ * safety); anything else (argocd's generic 20, 127 = no CLI) is an error.
+ */
+export function classifyDiffResult(
+  app: string,
+  code: number,
+  stdout: string,
+  stderr: string,
+): AppDiff {
+  if (code === 0 || (code === 1 && stdout.trim())) {
+    return { app, diff: invertUnifiedDiff(stdout).trim() };
+  }
+  return {
+    app,
+    diff: "",
+    error: argocdErrorMessage(stderr) || argocdErrorMessage(stdout) ||
+      `argocd app diff exited ${code}`,
+  };
+}
+
+/** The longest prefix of whole lines of `text` that fits in `maxBytes`. */
+function cutAtLine(
+  text: string,
+  maxBytes: number,
+): { text: string; omittedLines: number } {
+  const lines = text.split("\n");
+  let used = 0;
+  let kept = 0;
+  for (const line of lines) {
+    const cost = byteLength(line) + (kept > 0 ? 1 : 0);
+    if (used + cost > maxBytes) break;
+    used += cost;
+    kept++;
+  }
+  return {
+    text: lines.slice(0, kept).join("\n"),
+    omittedLines: lines.length - kept,
+  };
+}
+
+/**
+ * Fit every diff into one shared byte budget (the sticky comment must stay
+ * under GitHub's 65536-character limit). Water-filling: diffs are served
+ * smallest first, each getting at most an equal share of what is left, so
+ * small diffs stay whole and only the big ones are cut, at a line boundary.
+ * Cut diffs carry originalBytes/omittedLines for the note. maxBytes <= 0
+ * means unlimited. Order is preserved; the input is not mutated.
+ */
+export function truncateDiffs(diffs: AppDiff[], maxBytes: number): AppDiff[] {
+  const sizes = diffs.map((d) => byteLength(d.diff));
+  const total = sizes.reduce((a, b) => a + b, 0);
+  if (maxBytes <= 0 || total <= maxBytes) return diffs.map((d) => ({ ...d }));
+  const order = sizes.map((_, i) => i).sort((a, b) => sizes[a] - sizes[b]);
+  const budget = new Array<number>(diffs.length).fill(0);
+  let remaining = maxBytes;
+  let left = diffs.length;
+  for (const i of order) {
+    const share = Math.floor(remaining / left);
+    budget[i] = Math.min(sizes[i], share);
+    remaining -= budget[i];
+    left--;
+  }
+  return diffs.map((d, i) => {
+    if (budget[i] >= sizes[i]) return { ...d };
+    const cut = cutAtLine(d.diff, budget[i]);
+    return {
+      ...d,
+      diff: cut.text,
+      originalBytes: sizes[i],
+      omittedLines: cut.omittedLines,
+    };
+  });
+}
+
+function fenced(content: string, lang = ""): string {
+  const f = fenceFor(content);
+  return `${f}${lang}\n${content}\n${f}`;
+}
+
+function verifyLine(v: VerifyInput): string {
+  if (!v.ok) return `**Level 2:** no result · ${v.reason}`;
+  const r = v.result;
+  const count = (s: string) => r.checks.filter((c) => c.status === s).length;
+  const verdict = r.pass === true
+    ? "PASS ✅"
+    : r.pass === false
+    ? "FAIL ❌"
+    : "UNKNOWN";
+  const level = r.level !== undefined && r.level !== 2
+    ? ` (level ${r.level}, not 2)`
+    : "";
+  const took = typeof r.duration_ms === "number"
+    ? ` · ${formatDuration(r.duration_ms)}`
+    : "";
+  return `**Level 2:** ${verdict}${level} · ${r.checks.length} checks: ${
+    count("pass")
+  } pass, ${count("fail")} fail, ${count("skip")} skip${took}`;
+}
+
+function failingChecksSection(v: VerifyInput): string[] {
+  if (!v.ok) return [];
+  const failing = v.result.checks.filter((c) => c.status === "fail");
+  if (failing.length === 0) return [];
+  const out = [`### Failing checks (${failing.length})`, ""];
+  for (const c of failing.slice(0, REPORT_MAX_FAILING_CHECKS)) {
+    const findings = c.findings ?? [];
+    const body = [
+      ...(c.detail ? [c.detail.trim()] : []),
+      ...findings.slice(0, REPORT_MAX_FINDINGS).map((f) =>
+        `- ${clip(f.trim(), REPORT_MAX_FINDING_CHARS)}`
+      ),
+      ...(findings.length > REPORT_MAX_FINDINGS
+        ? [`… ${findings.length - REPORT_MAX_FINDINGS} more finding(s)`]
+        : []),
+    ].join("\n");
+    out.push(`#### \`${c.name}\``, "");
+    if (body) out.push(fenced(body, "text"), "");
+  }
+  if (failing.length > REPORT_MAX_FAILING_CHECKS) {
+    out.push(
+      `… ${
+        failing.length - REPORT_MAX_FAILING_CHECKS
+      } more failing check(s): see the \`verify-level2\` artifact.`,
+      "",
+    );
+  }
+  return out;
+}
+
+function diffSection(input: ReportInput): string[] {
+  const out = ["### Diffs vs main", ""];
+  if (input.diffNote) return [...out, input.diffNote, ""];
+  if (input.diffs.length === 0) {
+    return [
+      ...out,
+      "Every Application is Synced with `main`: nothing ArgoCD deploys in Kind changes.",
+      "",
+    ];
+  }
+  for (const d of input.diffs) {
+    const name = mdCell(d.app);
+    if (d.error !== undefined) {
+      out.push(
+        `<details><summary><code>${name}</code> · diff unavailable</summary>`,
+        "",
+        fenced(d.error, "text"),
+        "",
+        "Typical cause: the Application or its path does not exist on `main` yet (new in this PR).",
+        "",
+        "</details>",
+        "",
+      );
+      continue;
+    }
+    if (!d.diff.trim() && d.originalBytes === undefined) {
+      out.push(
+        `<details><summary><code>${name}</code> · OutOfSync, no resource diff</summary>`,
+        "",
+        "`argocd app diff` shows nothing: only fields ArgoCD ignores differ, or only Secrets (never diffed).",
+        "",
+        "</details>",
+        "",
+      );
+      continue;
+    }
+    const s = diffStats(d.diff);
+    const cut = d.originalBytes !== undefined;
+    out.push(
+      `<details><summary><code>${name}</code> · ${s.resources} resource(s) · +${s.added} -${s.removed}${
+        cut ? " · truncated" : ""
+      }</summary>`,
+      "",
+      fenced(d.diff, "diff"),
+      "",
+    );
+    if (cut) {
+      out.push(
+        `Truncated: showing ${
+          byteLength(d.diff)
+        } of ${d.originalBytes} bytes (${d.omittedLines} line(s) omitted). Full diff: \`task localdev:report -- --max-diff-bytes 0\` against a local Kind loop, or \`argocd app diff ${d.app}\`.`,
+        "",
+      );
+    }
+    out.push("</details>", "");
+  }
+  return out;
+}
+
+/** The Markdown report (sticky PR comment `kind-preview` + job summary). */
+export function renderReport(input: ReportInput): string {
+  const out: string[] = [`## ${REPORT_TITLE}`, "", verifyLine(input.verify)];
+  const meta: string[] = [];
+  if (input.meta?.sha) meta.push(`Commit \`${input.meta.sha.slice(0, 12)}\``);
+  if (input.meta?.runUrl) meta.push(`[workflow run](${input.meta.runUrl})`);
+  if (meta.length > 0) out.push("", meta.join(" · "));
+  out.push("");
+
+  if (input.apps === null) {
+    out.push(
+      `> **ArgoCD was not reachable** (${
+        mdCell(input.appsError ?? "unknown error")
+      }). \`task localdev:ci\` failed before ArgoCD was up, so there is no Application table and no diff; see the job log.`,
+      "",
+    );
+    out.push(...failingChecksSection(input.verify));
+    return out.join("\n").trimEnd() + "\n";
+  }
+
+  out.push(
+    "Every Application was synced from this PR's working tree (`argocd app sync --local`) while the root Application `gitops` tracks GitHub `main`, so **vs main** is this PR against `main` as ArgoCD sees it: in the diffs `-` is `main` and `+` is this PR. Child Applications are compared using their live (PR) spec, so a change to a child's chart version or values shows up on its parent's diff (the `Application` resource), not on the child.",
+    "",
+  );
+
+  if (input.apps.length === 0) {
+    out.push(
+      "No Applications in namespace `argocd`: the root Application was never applied (see the job log).",
+      "",
+    );
+  } else {
+    const byApp = new Map(input.diffs.map((d) => [d.app, d]));
+    const rows = statusRows(input.apps, byApp);
+    const healthy = rows.filter((r) => r.health === "Healthy").length;
+    const differ = input.apps.filter((a) =>
+      a.status?.sync?.status !== "Synced"
+    ).length;
+    out.push(
+      `${rows.length} Applications · ${healthy} Healthy · ${
+        rows.length - healthy
+      } not Healthy · ${differ} not Synced with main`,
+      "",
+      "| Application | Health | Last operation | vs main |",
+      "|---|---|---|---|",
+      ...rows.map((r) =>
+        `| ${mdCell(r.app)} | ${mdCell(r.health)} | ${mdCell(r.operation)} | ${
+          mdCell(r.vsMain)
+        } |`
+      ),
+      "",
+    );
+  }
+
+  out.push(...failingChecksSection(input.verify));
+  if (input.apps.length > 0) out.push(...diffSection(input));
+  out.push(
+    "<sub>Generated by <code>task localdev:report</code> on the Kind loop. Kubernetes Secrets are never diffed.</sub>",
+  );
+  return out.join("\n").trimEnd() + "\n";
+}
+
+// ============================================================================
 // CLI args
 // ============================================================================
-export type Command = "install" | "sync" | "wait" | "diagnose";
+export type Command = "install" | "sync" | "wait" | "diagnose" | "report";
+
+const COMMANDS: readonly Command[] = [
+  "install",
+  "sync",
+  "wait",
+  "diagnose",
+  "report",
+];
 
 export interface Args {
   command: Command | null;
@@ -688,12 +1322,28 @@ export interface Args {
   server: string | null;
   /** --local-port: preferred local port for the port-forward. */
   localPort: number | null;
+  /** report --out: Markdown file (null = stdout). */
+  out: string | null;
+  /** report --verify-json: level-2 JSON captured from `task verify LEVEL=2`. */
+  verifyJson: string | null;
+  /** report --max-diff-bytes: shared diff budget (0 = unlimited). */
+  maxDiffBytes: number;
+  /** report --no-diff: table and checks only, no `argocd app diff`. */
+  noDiff: boolean;
 }
 
 export function parsePort(s: string): number {
   const n = Number(s);
   if (!Number.isInteger(n) || n < 1 || n > 65535) {
     throw new Error(`invalid port "${s}" (1-65535)`);
+  }
+  return n;
+}
+
+export function parseByteCount(s: string): number {
+  const n = Number(s);
+  if (!/^\d+$/.test(s.trim()) || !Number.isSafeInteger(n)) {
+    throw new Error(`invalid byte count "${s}" (a non-negative integer)`);
   }
   return n;
 }
@@ -715,6 +1365,10 @@ export function parseArgs(argv: string[]): Args {
     repoRoot: null,
     server: null,
     localPort: null,
+    out: null,
+    verifyJson: null,
+    maxDiffBytes: DEFAULT_MAX_DIFF_BYTES,
+    noDiff: false,
   };
   const valueOf = (i: number, flag: string): string => {
     const v = argv[i + 1];
@@ -749,16 +1403,24 @@ export function parseArgs(argv: string[]): Args {
       args.localPort = parsePort(valueOf(i++, a));
     } else if (a.startsWith("--local-port=")) {
       args.localPort = parsePort(a.slice("--local-port=".length));
-    } else if (a.startsWith("-")) {
+    } else if (a === "--out") args.out = valueOf(i++, a);
+    else if (a.startsWith("--out=")) args.out = a.slice("--out=".length);
+    else if (a === "--verify-json") args.verifyJson = valueOf(i++, a);
+    else if (a.startsWith("--verify-json=")) {
+      args.verifyJson = a.slice("--verify-json=".length);
+    } else if (a === "--max-diff-bytes") {
+      args.maxDiffBytes = parseByteCount(valueOf(i++, a));
+    } else if (a.startsWith("--max-diff-bytes=")) {
+      args.maxDiffBytes = parseByteCount(a.slice("--max-diff-bytes=".length));
+    } else if (a === "--no-diff") args.noDiff = true;
+    else if (a.startsWith("-")) {
       throw new Error(`Unknown argument: ${a}`);
     } else if (args.command === null) {
-      if (
-        a === "install" || a === "sync" || a === "wait" || a === "diagnose"
-      ) {
-        args.command = a;
+      if ((COMMANDS as readonly string[]).includes(a)) {
+        args.command = a as Command;
       } else {
         throw new Error(
-          `Unknown command: ${a} (expected install, sync, wait or diagnose)`,
+          `Unknown command: ${a} (expected install, sync, wait, diagnose or report)`,
         );
       }
     } else {
@@ -788,6 +1450,13 @@ Commands:
                                                                   (task localdev:wait)
   diagnose   Print conditions, unhealthy resources, events and failing pod logs for
              every Application that is not Healthy/Succeeded.  (task localdev:diagnose)
+  report     Markdown "${REPORT_TITLE}": level-2 pass/fail and failing checks
+             (--verify-json), Application table (health, last operation, vs main)
+             and \`argocd app diff <app> --exit-code=false\` of every Application
+             that is not Synced. The root app tracks GitHub main and everything
+             was synced with --local, so the diff is PR head vs main (\`-\` main,
+             \`+\` PR). Exits 0 whenever a report was written, also when ArgoCD
+             is unreachable (the report says so).            (task localdev:report)
 
 Flags:
   --help, -h            Show this help and exit 0
@@ -805,11 +1474,20 @@ Flags:
   --local-port <n>      install/sync: preferred local port for the kubectl
                         port-forward (default ${DEFAULT_LOCAL_PORT}; the next free port is
                         used if it is taken)
-  --server <host:port>  install/sync: talk to this ArgoCD API directly and skip
-                        the port-forward
+  --server <host:port>  install/sync/report: talk to this ArgoCD API directly and
+                        skip the port-forward
+  --out <file>          report: write the Markdown here (default: stdout; logs
+                        always go to stderr)
+  --verify-json <file>  report: level-2 JSON (\`task verify LEVEL=2 | tee <file>\`); a
+                        trailing task error line is tolerated, a missing or cut
+                        file is reported
+  --max-diff-bytes <n>  report: byte budget shared by all diffs (default
+                        ${DEFAULT_MAX_DIFF_BYTES}; 0 = unlimited). Small diffs stay whole, big
+                        ones are cut at a line boundary with a note
+  --no-diff             report: skip \`argocd app diff\` (no port-forward)
 
 Connection:
-  kubectl --context ${KUBE_CONTEXT}. install and sync spawn
+  kubectl --context ${KUBE_CONTEXT}. install, sync and report spawn
   \`kubectl port-forward -n ${ARGOCD_NAMESPACE} ${ARGOCD_SERVICE} <local-port>:${ARGOCD_SERVICE_PORT} --address 127.0.0.1\`,
   wait for http://127.0.0.1:<local-port>/healthz, run every argocd command with
   --server 127.0.0.1:<local-port> --plaintext --insecure --grpc-web, and kill
@@ -820,9 +1498,11 @@ Connection:
   context can never point at another cluster.
 
 Exit codes:
-  0  Success
+  0  Success (report: a report was written, even one that says ArgoCD was
+     unreachable or the level-2 JSON is missing)
   1  Install failed, a sync tier failed or timed out, wait timed out (diagnose
-     output is printed first), or the cluster is unreachable
+     output is printed first), the cluster is unreachable, or report could not
+     write --out
   2  Argument error
 `,
   );
@@ -839,11 +1519,12 @@ interface RunResult {
 
 async function run(
   cmd: string[],
-  opts: { cwd?: string; quiet?: boolean } = {},
+  opts: { cwd?: string; quiet?: boolean; env?: Record<string, string> } = {},
 ): Promise<RunResult> {
   const p = new Deno.Command(cmd[0], {
     args: cmd.slice(1),
     cwd: opts.cwd,
+    env: opts.env,
     stdout: "piped",
     stderr: "piped",
   });
@@ -1608,7 +2289,29 @@ async function syncLoop(args: Args, repoRoot: string): Promise<number> {
     let apps = selectApps(await listApplications(), opts);
     if (active.size === 0) {
       const tier = nextTier(apps, done);
-      if (!tier) break;
+      if (!tier) {
+        // No next tier yet, but a parent may still be holding a wave open:
+        // its later children appear only after that wave is Healthy. Keep
+        // polling until they show up or every parent's operation settles.
+        const waiting = parentsAwaitingWaves(apps);
+        if (waiting.length === 0) break;
+        if (Date.now() >= deadline) {
+          return await fail(
+            `sync timed out after ${
+              formatDuration(timeoutMs)
+            } waiting for the remaining child Applications of: ${
+              waiting.join(", ")
+            }`,
+          );
+        }
+        log.info(
+          `[${formatDuration(Date.now() - start)}] waiting for ${
+            waiting.join(", ")
+          } to create their next wave`,
+        );
+        await sleep(POLL_INTERVAL_MS);
+        continue;
+      }
       tiersRun++;
       log.info(
         `tier ${formatTierKey(tier.key)}: ${
@@ -2097,6 +2800,123 @@ async function cmdDiagnose(): Promise<number> {
 }
 
 // ============================================================================
+// report
+// ============================================================================
+async function readVerifyInput(path: string | null): Promise<VerifyInput> {
+  if (path === null) {
+    return {
+      ok: false,
+      reason:
+        "no level-2 JSON given (`--verify-json <file>` from `task verify LEVEL=2 | tee <file>`)",
+    };
+  }
+  let text: string | null;
+  try {
+    text = await Deno.readTextFile(path);
+  } catch (err) {
+    if (!(err instanceof Deno.errors.NotFound)) throw err;
+    text = null;
+  }
+  return parseVerifyJson(text, path);
+}
+
+/** `argocd app diff <app>`, inverted to main → PR. Never throws. */
+async function diffApp(name: string): Promise<AppDiff> {
+  await ensureArgocdReachable();
+  const r = await run(argocd("app", "diff", name, "--exit-code=false"), {
+    env: { KUBECTL_EXTERNAL_DIFF: DIFF_TOOL },
+  });
+  const d = classifyDiffResult(name, r.code, r.stdout, r.stderr);
+  if (d.error !== undefined) log.warn(`${name}: diff unavailable: ${d.error}`);
+  else log.ok(`${name}: ${diffStats(d.diff).resources} resource(s) differ`);
+  return d;
+}
+
+/** Commit and run link when running in GitHub Actions. */
+function githubMeta(): ReportInput["meta"] {
+  const env = (k: string) => Deno.env.get(k)?.trim() || undefined;
+  const server = env("GITHUB_SERVER_URL");
+  const repo = env("GITHUB_REPOSITORY");
+  const runId = env("GITHUB_RUN_ID");
+  return {
+    // On pull_request GITHUB_SHA is the merge commit; the workflow passes
+    // the PR head as PR_HEAD_SHA.
+    sha: env("PR_HEAD_SHA") ?? env("GITHUB_SHA"),
+    runUrl: server && repo && runId
+      ? `${server}/${repo}/actions/runs/${runId}`
+      : undefined,
+  };
+}
+
+async function cmdReport(args: Args): Promise<number> {
+  logToStderr = true;
+  const verify = await readVerifyInput(args.verifyJson);
+  if (!verify.ok) log.warn(verify.reason);
+
+  let apps: Application[] | null = null;
+  let appsError: string | undefined;
+  try {
+    apps = await listApplications();
+    log.info(
+      `${apps.length} Application(s) in ${KUBE_CONTEXT}/${ARGOCD_NAMESPACE}`,
+    );
+  } catch (err) {
+    appsError = firstLine(err instanceof Error ? err.message : String(err));
+    log.warn(`ArgoCD not reachable: ${appsError}`);
+  }
+
+  let diffs: AppDiff[] = [];
+  let diffNote: string | undefined;
+  if (apps !== null) {
+    const targets = appsToDiff(apps);
+    if (args.noDiff) {
+      diffNote = "Diffs skipped (`--no-diff`).";
+    } else if (targets.length > 0) {
+      log.info(
+        `argocd app diff for ${targets.length} app(s): ${targets.join(", ")}`,
+      );
+      try {
+        diffs = await withArgocdServer(args, async () => {
+          await login(false);
+          const out: AppDiff[] = [];
+          for (const name of targets) out.push(await diffApp(name));
+          return out;
+        });
+      } catch (err) {
+        const why = firstLine(err instanceof Error ? err.message : String(err));
+        log.warn(`no diffs: ${why}`);
+        diffNote = `Diffs unavailable: the ArgoCD API was not reachable (${
+          mdCell(why)
+        }).`;
+      }
+    }
+  }
+
+  const markdown = renderReport({
+    apps,
+    appsError,
+    verify,
+    diffs: truncateDiffs(diffs, args.maxDiffBytes),
+    diffNote,
+    meta: githubMeta(),
+  });
+  if (args.out === null) {
+    await Deno.stdout.write(utf8.encode(markdown));
+    return 0;
+  }
+  try {
+    await Deno.writeTextFile(args.out, markdown);
+  } catch (err) {
+    log.error(
+      `cannot write ${args.out}: ${err instanceof Error ? err.message : err}`,
+    );
+    return 1;
+  }
+  log.ok(`report written to ${args.out} (${byteLength(markdown)} bytes)`);
+  return 0;
+}
+
+// ============================================================================
 // Main
 // ============================================================================
 async function main(): Promise<number> {
@@ -2113,22 +2933,23 @@ async function main(): Promise<number> {
     return 0;
   }
   if (args.command === null) {
-    log.error("missing command (install, sync, wait or diagnose)");
+    log.error("missing command (install, sync, wait, diagnose or report)");
     console.error("Run with --help for usage.");
     return 2;
   }
-  const repoRoot = args.repoRoot
-    ? resolve(args.repoRoot)
-    : await findRepoRoot();
+  const repoRoot = async () =>
+    args.repoRoot ? resolve(args.repoRoot) : await findRepoRoot();
   switch (args.command) {
     case "install":
-      return await cmdInstall(args, repoRoot);
+      return await cmdInstall(args, await repoRoot());
     case "sync":
-      return await cmdSync(args, repoRoot);
+      return await cmdSync(args, await repoRoot());
     case "wait":
       return await cmdWait(args);
     case "diagnose":
       return await cmdDiagnose();
+    case "report":
+      return await cmdReport(args);
   }
 }
 

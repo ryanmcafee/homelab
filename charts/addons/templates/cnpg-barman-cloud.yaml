@@ -1,0 +1,50 @@
+{{- if and (index .Values "cloudnative-pg" "enabled") (index .Values "cnpg-barman-cloud" "enabled") }}
+---
+# Barman Cloud Plugin for CloudNativePG: the supported backup/restore path
+# (the operator's native barmanObjectStore is deprecated and goes away in
+# CloudNativePG 1.31). It installs the ObjectStore CRD
+# (objectstores.barmancloud.cnpg.io) and a gRPC plugin Deployment next to the
+# operator in cnpg-system; its TLS comes from cert-manager (wave 0), so it
+# syncs after both cert-manager and cloudnative-pg (wave 10).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cnpg-barman-cloud
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "11"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: {{ index .Values "cnpg-barman-cloud" "chart" "repo" }}
+    chart: {{ index .Values "cnpg-barman-cloud" "chart" "name" }}
+    targetRevision: {{ index .Values "cnpg-barman-cloud" "chart" "version" }}
+    helm:
+      releaseName: cnpg-barman-cloud
+      values: |
+        {{- with index .Values "cnpg-barman-cloud" "replicaCount" }}
+        replicaCount: {{ . }}
+        {{- end }}
+
+        {{- if index .Values "cnpg-barman-cloud" "resources" }}
+        resources:
+          {{- toYaml (index .Values "cnpg-barman-cloud" "resources") | nindent 10 }}
+        {{- end }}
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: {{ index .Values "cnpg-barman-cloud" "namespace" }}
+
+  syncPolicy:
+    {{- if .Values.global.automatedSync }}
+    automated:
+      prune: true
+      selfHeal: true
+    {{- end }}
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+{{- end }}

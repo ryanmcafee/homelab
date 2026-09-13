@@ -10,22 +10,36 @@
  *   deno test scripts/localdev-argocd_test.ts
  */
 
-import { assert, assertEquals, assertThrows } from "jsr:@std/assert@^1";
 import {
+  assert,
+  assertEquals,
+  assertStringIncludes,
+  assertThrows,
+} from "jsr:@std/assert@^1";
+import {
+  type AppDiff,
   type Application,
   appState,
+  appsToDiff,
+  argocdErrorMessage,
   candidatePorts,
+  classifyDiffResult,
   compareTierKey,
   countManifests,
   DEFAULT_LOCAL_PORT,
+  DEFAULT_MAX_DIFF_BYTES,
   degradedChildHint,
+  diffStats,
   discoverable,
   emptyRenderDecision,
   escapeHelmKey,
+  extractJsonObject,
+  fenceFor,
   finalPassDecision,
   findFreePort,
   hasComparisonError,
   indexApps,
+  invertUnifiedDiff,
   isAppComplete,
   isAutomated,
   isOperationInProgress,
@@ -33,20 +47,31 @@ import {
   isReady,
   isTierComplete,
   manifestsArgs,
+  mdCell,
   nextTier,
   parentOf,
   parentResyncDecision,
+  parentsAwaitingWaves,
   parseArgs,
+  parseByteCount,
   parsePort,
+  parseVerifyJson,
   parseWave,
   pendingChildren,
   portForwardCmd,
+  renderReport,
+  REPORT_MAX_FINDINGS,
+  REPORT_TITLE,
   selectApps,
   serverFlags,
   setFileArgs,
   sourceKind,
+  statusRows,
   syncArgs,
   tierKey,
+  treeOrder,
+  truncateDiffs,
+  type VerifyInput,
 } from "./localdev-argocd.ts";
 
 // ----------------------------------------------------------------------------
@@ -965,4 +990,659 @@ Deno.test("finalPassDecision: Running parents are waited on, never terminated; o
     "resync",
   );
   assertEquals(finalPassDecision(app({ name: "never-synced" })), "resync");
+});
+
+// ============================================================================
+// report (issue #261 item 17)
+// ============================================================================
+
+// `kubectl get applications.argoproj.io -n argocd -o json` after a Kind loop
+// run on a PR: ArgoCD v3 tracking-id annotations, a healthy out-of-sync
+// parent, a Degraded child with a Failed operation, a child that is the same
+// as main, a Running parent and an app whose path does not exist on main.
+const REPORT_APPS_JSON = `{
+  "apiVersion": "v1",
+  "kind": "List",
+  "items": [
+    {
+      "metadata": {
+        "name": "traefik",
+        "namespace": "argocd",
+        "annotations": {
+          "argocd.argoproj.io/sync-wave": "1",
+          "argocd.argoproj.io/tracking-id": "addons:argoproj.io/Application:argocd/traefik"
+        }
+      },
+      "spec": { "source": { "chart": "traefik", "repoURL": "https://traefik.github.io/charts" } },
+      "status": {
+        "health": { "status": "Degraded", "message": "Deployment traefik: 0/1 available" },
+        "sync": { "status": "OutOfSync" },
+        "operationState": {
+          "phase": "Failed",
+          "message": "one or more objects failed to apply | reason: Deployment.apps \\"traefik\\" is invalid: spec.template.spec.containers[0].ports[0].containerPort: must be between 1 and 65535\\nsecond line"
+        }
+      }
+    },
+    {
+      "metadata": {
+        "name": "gitops",
+        "namespace": "argocd",
+        "annotations": { "argocd.argoproj.io/sync-wave": "0" }
+      },
+      "spec": { "source": { "path": "charts/gitops", "targetRevision": "main" } },
+      "status": {
+        "health": { "status": "Healthy" },
+        "sync": { "status": "OutOfSync" },
+        "operationState": { "phase": "Succeeded", "message": "successfully synced (all tasks run)" },
+        "resources": [{ "kind": "Application", "name": "addons" }]
+      }
+    },
+    {
+      "metadata": {
+        "name": "cilium",
+        "namespace": "argocd",
+        "annotations": {
+          "argocd.argoproj.io/sync-wave": "-5",
+          "argocd.argoproj.io/tracking-id": "addons:argoproj.io/Application:argocd/cilium"
+        }
+      },
+      "spec": { "source": { "chart": "cilium", "repoURL": "https://helm.cilium.io/" } },
+      "status": {
+        "health": { "status": "Healthy" },
+        "sync": { "status": "Synced" },
+        "operationState": { "phase": "Succeeded" }
+      }
+    },
+    {
+      "metadata": {
+        "name": "addons",
+        "namespace": "argocd",
+        "annotations": {
+          "argocd.argoproj.io/sync-wave": "2",
+          "argocd.argoproj.io/tracking-id": "gitops:argoproj.io/Application:argocd/addons"
+        }
+      },
+      "spec": { "source": { "path": "charts/addons", "targetRevision": "main" } },
+      "status": {
+        "health": { "status": "Healthy" },
+        "sync": { "status": "OutOfSync" },
+        "operationState": { "phase": "Succeeded" },
+        "resources": [{ "kind": "Application", "name": "cilium" }, { "kind": "Application", "name": "traefik" }]
+      }
+    },
+    {
+      "metadata": {
+        "name": "applications",
+        "namespace": "argocd",
+        "annotations": {
+          "argocd.argoproj.io/sync-wave": "3",
+          "argocd.argoproj.io/tracking-id": "gitops:argoproj.io/Application:argocd/applications"
+        }
+      },
+      "spec": { "source": { "path": "charts/applications", "targetRevision": "main" } },
+      "status": {
+        "health": { "status": "Progressing" },
+        "sync": { "status": "Synced" },
+        "operationState": { "phase": "Running", "message": "waiting for healthy state of argoproj.io/Application/agent-readonly" }
+      }
+    },
+    {
+      "metadata": {
+        "name": "agent-readonly",
+        "namespace": "argocd",
+        "annotations": {
+          "argocd.argoproj.io/sync-wave": "1",
+          "argocd.argoproj.io/tracking-id": "applications:argoproj.io/Application:argocd/agent-readonly"
+        }
+      },
+      "spec": { "source": { "path": "charts/agent-readonly", "targetRevision": "main" } },
+      "status": {
+        "health": { "status": "Healthy" },
+        "sync": { "status": "Unknown" },
+        "operationState": { "phase": "Succeeded" },
+        "conditions": [{ "type": "ComparisonError", "message": "charts/agent-readonly: app path does not exist" }]
+      }
+    }
+  ]
+}`;
+
+const reportApps = (JSON.parse(REPORT_APPS_JSON) as { items: Application[] })
+  .items;
+
+// `task verify LEVEL=2 | tee verify-level2.json` on a failing run: the JSON
+// object, then task's own failure line.
+const VERIFY_FINDINGS = Array.from(
+  { length: REPORT_MAX_FINDINGS + 5 },
+  (_, i) => `Deployment traefik/traefik: finding ${i + 1}`,
+);
+const VERIFY_LEVEL2_TEXT = `${
+  JSON.stringify(
+    {
+      level: 2,
+      checks: [
+        { name: "argocd/cilium", status: "pass", duration_ms: 3 },
+        {
+          name: "argocd/traefik",
+          status: "fail",
+          duration_ms: 4,
+          detail: "health Degraded, operation Failed",
+          findings: VERIFY_FINDINGS,
+        },
+        { name: "e2e/traefik", status: "skip", duration_ms: 0 },
+        { name: "render/localdev/addons", status: "pass", duration_ms: 120 },
+      ],
+      pass: false,
+      duration_ms: 431_000,
+    },
+    null,
+    2,
+  )
+}\ntask: Failed to run task "verify": exit status 1\n`;
+
+// Raw `argocd app diff addons --exit-code=false` with KUBECTL_EXTERNAL_DIFF=
+// "diff -u": argocd runs `diff <live> <target>`, so `-` is the PR (live in
+// Kind) and `+` is main (the target revision).
+const RAW_ADDONS_DIFF = `
+===== argoproj.io/Application argocd/traefik ======
+--- /tmp/argocd-diff123/traefik-live.yaml\t2026-09-13 10:00:00.000000000 +0000
++++ /tmp/argocd-diff123/traefik\t2026-09-13 10:00:00.000000000 +0000
+@@ -10,6 +10,6 @@ spec:
+     helm:
+       valuesObject:
+         ports:
+-          web: 8081
++          web: 8080
+     chart: traefik
+-    targetRevision: 39.1.0
++    targetRevision: 39.0.9
+@@ -30 +30 @@
+--- a line whose content starts with three dashes
++--- the same on main
+===== /ConfigMap traefik/new-in-pr ======
+--- /tmp/argocd-diff123/new-in-pr-live.yaml\t2026-09-13 10:00:00.000000000 +0000
++++ /tmp/argocd-diff123/new-in-pr\t2026-09-13 10:00:00.000000000 +0000
+@@ -1,3 +0,0 @@
+-apiVersion: v1
+-kind: ConfigMap
+-data: {}
+`;
+
+function diffOf(app: string, lines: number, width = 40): AppDiff {
+  const body = Array.from(
+    { length: lines },
+    (_, i) => `+  line-${i}: ${"x".repeat(width)}`,
+  );
+  return {
+    app,
+    diff: [`===== /ConfigMap ns/${app} ======`, ...body].join("\n"),
+  };
+}
+
+const bytes = (s: string) => new TextEncoder().encode(s).length;
+
+Deno.test("parseArgs: report flags and their defaults", () => {
+  const d = parseArgs(["report"]);
+  assertEquals(d.command, "report");
+  assertEquals(d.out, null);
+  assertEquals(d.verifyJson, null);
+  assertEquals(d.maxDiffBytes, DEFAULT_MAX_DIFF_BYTES);
+  assertEquals(d.noDiff, false);
+  const a = parseArgs([
+    "report",
+    "--out",
+    "kind-report.md",
+    "--verify-json=verify-level2.json",
+    "--max-diff-bytes",
+    "1000",
+    "--no-diff",
+    "--local-port",
+    "19000",
+  ]);
+  assertEquals(a.out, "kind-report.md");
+  assertEquals(a.verifyJson, "verify-level2.json");
+  assertEquals(a.maxDiffBytes, 1000);
+  assert(a.noDiff);
+  assertEquals(a.localPort, 19000);
+  assertEquals(parseArgs(["report", "--max-diff-bytes=0"]).maxDiffBytes, 0);
+});
+
+Deno.test("parseArgs: a bad --max-diff-bytes is an argument error", () => {
+  assertThrows(
+    () => parseArgs(["report", "--max-diff-bytes", "-1"]),
+    Error,
+    "invalid byte count",
+  );
+  assertThrows(
+    () => parseArgs(["report", "--max-diff-bytes=lots"]),
+    Error,
+    "invalid byte count",
+  );
+  assertThrows(() => parseByteCount("1.5"), Error, "invalid byte count");
+  assertEquals(parseByteCount("50000"), 50000);
+  assertThrows(() => parseArgs(["report", "--out"]), Error, "requires a value");
+});
+
+Deno.test("extractJsonObject: whole text, or the object before task's trailing error line", () => {
+  assertEquals(extractJsonObject('{"a":1}'), { a: 1 });
+  assertEquals(
+    extractJsonObject(
+      '{\n  "a": 1\n}\ntask: Failed to run task "verify": exit status 1\n',
+    ),
+    { a: 1 },
+  );
+  assertEquals(extractJsonObject("no json here"), null);
+  assertEquals(extractJsonObject('{\n  "a": [1,\n'), null);
+});
+
+Deno.test("parseVerifyJson: a failing level-2 run with task's trailing error line", () => {
+  const v = parseVerifyJson(VERIFY_LEVEL2_TEXT);
+  assert(v.ok);
+  assertEquals(v.result.level, 2);
+  assertEquals(v.result.pass, false);
+  assertEquals(v.result.checks.length, 4);
+});
+
+Deno.test("parseVerifyJson: missing, empty and cut-short files become reasons, never throws", () => {
+  const missing = parseVerifyJson(null, "verify-level2.json");
+  assert(!missing.ok);
+  assertStringIncludes(missing.reason, "was not written");
+  const empty = parseVerifyJson("  \n");
+  assert(!empty.ok);
+  assertStringIncludes(empty.reason, "is empty");
+  const partial = parseVerifyJson(VERIFY_LEVEL2_TEXT.slice(0, 200));
+  assert(!partial.ok);
+  assertStringIncludes(partial.reason, "cut short");
+  const noChecks = parseVerifyJson('{"level":2,"pass":true}');
+  assert(!noChecks.ok);
+});
+
+Deno.test("parseVerifyJson: malformed check entries are dropped", () => {
+  const v = parseVerifyJson(
+    '{"level":2,"pass":true,"checks":[null,{"status":"pass"},{"name":"x","status":"pass"}]}',
+  );
+  assert(v.ok);
+  assertEquals(v.result.checks.map((c) => c.name), ["x"]);
+});
+
+Deno.test("treeOrder / appsToDiff: tree order; every app not Synced is diffed", () => {
+  assertEquals(treeOrder(reportApps).map((a) => a.metadata.name), [
+    "gitops",
+    "addons",
+    "cilium",
+    "traefik",
+    "applications",
+    "agent-readonly",
+  ]);
+  assertEquals(appsToDiff(reportApps), [
+    "gitops",
+    "addons",
+    "traefik",
+    "agent-readonly",
+  ]);
+});
+
+Deno.test("statusRows: health, last operation and vs main per Application", () => {
+  const addonsDiff = classifyDiffResult("addons", 0, RAW_ADDONS_DIFF, "");
+  const diffs = new Map<string, AppDiff>([
+    ["gitops", { app: "gitops", diff: "" }],
+    ["addons", addonsDiff],
+    [
+      "agent-readonly",
+      { app: "agent-readonly", diff: "", error: "app path does not exist" },
+    ],
+  ]);
+  const rows = statusRows(reportApps, diffs);
+  const by = new Map(rows.map((r) => [r.app, r]));
+  assertEquals(rows.map((r) => r.app)[0], "gitops");
+  assertEquals(by.get("gitops"), {
+    app: "gitops",
+    health: "Healthy",
+    operation: "Succeeded",
+    vsMain: "differs · no resource diff",
+  });
+  assertEquals(by.get("addons")!.vsMain, "differs · +6 -3");
+  assertEquals(by.get("cilium")!.vsMain, "same as main");
+  assertEquals(by.get("applications")!.health, "Progressing");
+  assert(by.get("applications")!.operation.startsWith("Running: waiting for"));
+  // Failed operation: first line of the message, clipped to the cell width.
+  const traefik = by.get("traefik")!;
+  assertEquals(traefik.health, "Degraded");
+  assert(traefik.operation.startsWith("Failed: one or more objects"));
+  assert(traefik.operation.length <= 80 && traefik.operation.endsWith("…"));
+  assert(!traefik.operation.includes("second line"));
+  // No diff taken for traefik (not in the map): the sync status alone.
+  assertEquals(traefik.vsMain, "differs");
+  assertEquals(
+    by.get("agent-readonly")!.vsMain,
+    "Unknown · diff unavailable",
+  );
+});
+
+Deno.test("statusRows: fieldless apps never throw", () => {
+  assertEquals(statusRows([{ metadata: { name: "bare" } }]), [
+    { app: "bare", health: "Unknown", operation: "-", vsMain: "Unknown" },
+  ]);
+});
+
+Deno.test("invertUnifiedDiff: main becomes `-`, the PR `+`; temp-file headers dropped", () => {
+  const inv = invertUnifiedDiff(RAW_ADDONS_DIFF);
+  const lines = inv.split("\n");
+  assert(!lines.some((l) => l.includes("/tmp/argocd-diff")));
+  assert(lines.includes("-          web: 8080"));
+  assert(lines.includes("+          web: 8081"));
+  assert(lines.includes("-    targetRevision: 39.0.9"));
+  assert(lines.includes("+    targetRevision: 39.1.0"));
+  // Hunk ranges swap; a missing count stays missing.
+  assert(lines.includes("@@ -10,6 +10,6 @@ spec:"));
+  assert(lines.includes("@@ -30 +30 @@"));
+  // Content that starts with "--- " inside a hunk is content, not a header.
+  assert(lines.includes("+-- a line whose content starts with three dashes"));
+  assert(lines.includes("---- the same on main"));
+  // A resource only the PR has: every line is an addition.
+  assert(lines.includes("@@ -0,0 +1,3 @@"));
+  assert(lines.includes("+kind: ConfigMap"));
+  assert(lines.includes("===== /ConfigMap traefik/new-in-pr ======"));
+});
+
+Deno.test("invertUnifiedDiff: context lines and no-newline markers are kept", () => {
+  const raw =
+    "@@ -1,3 +1,3 @@\n a: 1\n-b: live\n\\ No newline at end of file\n+b: main\n c: 3\n";
+  assertEquals(
+    invertUnifiedDiff(raw),
+    "@@ -1,3 +1,3 @@\n a: 1\n+b: live\n\\ No newline at end of file\n-b: main\n c: 3\n",
+  );
+  assertEquals(invertUnifiedDiff(""), "");
+});
+
+Deno.test("invertUnifiedDiff: within a changed run, main's lines come before the PR's", () => {
+  const raw = "@@ -1,3 +1,2 @@\n-a: live\n-b: live\n+a: main\n c: 1";
+  assertEquals(
+    invertUnifiedDiff(raw),
+    "@@ -1,2 +1,3 @@\n-a: main\n+a: live\n+b: live\n c: 1",
+  );
+  // A hunk that ends on a changed line is flushed too.
+  assertEquals(
+    invertUnifiedDiff("@@ -1 +1 @@\n-x: live\n+x: main"),
+    "@@ -1 +1 @@\n-x: main\n+x: live",
+  );
+});
+
+Deno.test("diffStats: resources and +/- lines of an inverted diff", () => {
+  const inv = invertUnifiedDiff(RAW_ADDONS_DIFF);
+  assertEquals(diffStats(inv), { resources: 2, added: 6, removed: 3 });
+  assertEquals(diffStats(""), { resources: 0, added: 0, removed: 0 });
+});
+
+Deno.test("argocdErrorMessage: the msg of argocd's JSON fatal line, or the first text line", () => {
+  assertEquals(
+    argocdErrorMessage(
+      '{"level":"info","msg":"connecting"}\n{"level":"fatal","msg":"rpc error: code = Unknown desc = charts/agent-readonly: app path does not exist","time":"2026-09-13T10:00:00Z"}\n',
+    ),
+    "rpc error: code = Unknown desc = charts/agent-readonly: app path does not exist",
+  );
+  assertEquals(
+    argocdErrorMessage("\nargocd: command not found\n"),
+    "argocd: command not found",
+  );
+  assertEquals(argocdErrorMessage(""), "");
+});
+
+Deno.test("classifyDiffResult: 0 and 1-with-output are diffs, anything else an error", () => {
+  const ok = classifyDiffResult("addons", 0, RAW_ADDONS_DIFF, "");
+  assertEquals(ok.error, undefined);
+  assert(ok.diff.startsWith("===== argoproj.io/Application argocd/traefik"));
+  assertEquals(classifyDiffResult("x", 0, "", ""), { app: "x", diff: "" });
+  assertEquals(
+    classifyDiffResult("x", 1, RAW_ADDONS_DIFF, "").error,
+    undefined,
+  );
+  const err = classifyDiffResult(
+    "agent-readonly",
+    20,
+    "",
+    '{"level":"fatal","msg":"app path does not exist"}',
+  );
+  assertEquals(err, {
+    app: "agent-readonly",
+    diff: "",
+    error: "app path does not exist",
+  });
+  assertEquals(
+    classifyDiffResult("y", 127, "", "").error,
+    "argocd app diff exited 127",
+  );
+});
+
+Deno.test("truncateDiffs: under the budget nothing changes", () => {
+  const diffs = [diffOf("a", 3), diffOf("b", 5)];
+  const out = truncateDiffs(diffs, 100_000);
+  assertEquals(out, diffs);
+  assert(out[0] !== diffs[0], "returns copies");
+  assertEquals(truncateDiffs(diffs, 0), diffs, "0 = unlimited");
+});
+
+Deno.test("truncateDiffs: a big diff is cut at a line boundary; small diffs stay whole", () => {
+  const small = diffOf("small", 3);
+  const big = diffOf("big", 5000); // ~260 KB
+  const tiny = { app: "tiny", diff: "" };
+  const budget = 20_000;
+  const out = truncateDiffs([big, small, tiny], budget);
+  assertEquals(out.map((d) => d.app), ["big", "small", "tiny"]);
+  assertEquals(out[1], small);
+  assertEquals(out[2], tiny);
+  const cut = out[0];
+  assertEquals(cut.originalBytes, bytes(big.diff));
+  assert(bytes(cut.diff) <= budget - bytes(small.diff));
+  assert(bytes(cut.diff) > budget - bytes(small.diff) - 200, "budget is used");
+  assert(big.diff.startsWith(cut.diff + "\n"), "whole lines only");
+  assertEquals(
+    cut.omittedLines,
+    big.diff.split("\n").length - cut.diff.split("\n").length,
+  );
+  const total = out.reduce((n, d) => n + bytes(d.diff), 0);
+  assert(total <= budget);
+  // The input is not mutated.
+  assertEquals(big.originalBytes, undefined);
+});
+
+Deno.test("truncateDiffs: two big diffs share the budget equally", () => {
+  const out = truncateDiffs([diffOf("a", 2000), diffOf("b", 3000)], 10_000);
+  for (const d of out) {
+    assert(d.originalBytes !== undefined);
+    assert(bytes(d.diff) <= 5_000 && bytes(d.diff) > 4_900);
+  }
+});
+
+Deno.test("truncateDiffs: the budget counts UTF-8 bytes, not characters", () => {
+  const d = {
+    app: "u",
+    diff: Array.from({ length: 100 }, () => "+ é€漢字").join("\n"),
+  };
+  const out = truncateDiffs([d], 300);
+  assert(bytes(out[0].diff) <= 300);
+  assert(out[0].diff.length < 300, "multi-byte characters cost more than 1");
+});
+
+Deno.test("mdCell / fenceFor: table cells and code fences cannot be broken out of", () => {
+  assertEquals(mdCell("a | b\nc <x> & y"), "a \\| b c &lt;x&gt; &amp; y");
+  assertEquals(fenceFor("plain"), "```");
+  assertEquals(fenceFor("has ``` inside"), "````");
+  assertEquals(fenceFor("has ````` inside"), "``````");
+});
+
+function fullReport(maxDiffBytes = DEFAULT_MAX_DIFF_BYTES): string {
+  const verify = parseVerifyJson(VERIFY_LEVEL2_TEXT);
+  const diffs = truncateDiffs([
+    { app: "gitops", diff: "" },
+    classifyDiffResult("addons", 0, RAW_ADDONS_DIFF, ""),
+    diffOf("traefik", 5000),
+    { app: "agent-readonly", diff: "", error: "app path does not exist" },
+  ], maxDiffBytes);
+  return renderReport({
+    apps: reportApps,
+    verify,
+    diffs,
+    meta: {
+      sha: "0123456789abcdef0123",
+      runUrl: "https://github.com/o/r/actions/runs/1",
+    },
+  });
+}
+
+Deno.test("renderReport: title, pass/fail line, table, failing checks and one collapsed diff per app", () => {
+  const md = fullReport();
+  assert(md.startsWith(`## ${REPORT_TITLE}\n`));
+  assertStringIncludes(
+    md,
+    "**Level 2:** FAIL ❌ · 4 checks: 2 pass, 1 fail, 1 skip · 7m11s",
+  );
+  assertStringIncludes(
+    md,
+    "Commit `0123456789ab` · [workflow run](https://github.com/o/r/actions/runs/1)",
+  );
+  assertStringIncludes(md, "on its parent's diff");
+  assertStringIncludes(
+    md,
+    "| Application | Health | Last operation | vs main |",
+  );
+  assertStringIncludes(md, "| cilium | Healthy | Succeeded | same as main |");
+  assertStringIncludes(
+    md,
+    "| addons | Healthy | Succeeded | differs · +6 -3 |",
+  );
+  assertStringIncludes(
+    md,
+    "| traefik | Degraded | Failed: one or more objects failed to apply \\| reason:",
+  );
+  assertStringIncludes(
+    md,
+    "6 Applications · 4 Healthy · 2 not Healthy · 4 not Synced with main",
+  );
+  // Failing checks: the detail and the capped findings.
+  assertStringIncludes(md, "### Failing checks (1)");
+  assertStringIncludes(md, "#### `argocd/traefik`");
+  assertStringIncludes(md, "health Degraded, operation Failed");
+  assertStringIncludes(
+    md,
+    `- Deployment traefik/traefik: finding ${REPORT_MAX_FINDINGS}\n`,
+  );
+  assert(!md.includes(`finding ${REPORT_MAX_FINDINGS + 1}\n`));
+  assertStringIncludes(md, "… 5 more finding(s)");
+  assert(!md.includes("argocd/cilium"), "passing checks are not listed");
+  // Diffs.
+  assertStringIncludes(
+    md,
+    "<details><summary><code>addons</code> · 2 resource(s) · +6 -3</summary>",
+  );
+  assertStringIncludes(
+    md,
+    "```diff\n===== argoproj.io/Application argocd/traefik ======",
+  );
+  assertStringIncludes(md, "<code>gitops</code> · OutOfSync, no resource diff");
+  assertStringIncludes(md, "<code>agent-readonly</code> · diff unavailable");
+  assertStringIncludes(md, "<code>traefik</code> · 1 resource(s)");
+  assertStringIncludes(md, "· truncated</summary>");
+  assertStringIncludes(
+    md,
+    "line(s) omitted). Full diff: `task localdev:report -- --max-diff-bytes 0`",
+  );
+  assertEquals(md.split("<details>").length - 1, 4);
+  assertEquals(md.split("</details>").length - 1, 4);
+});
+
+Deno.test("renderReport: a huge diff keeps the comment under GitHub's 65536-character limit", () => {
+  const md = fullReport();
+  assert(md.length < 65_536, `report is ${md.length} characters`);
+  const unlimited = fullReport(0);
+  assert(unlimited.length > 200_000, "0 = unlimited keeps the full diff");
+  assert(!unlimited.includes("Truncated:"));
+});
+
+Deno.test("renderReport: missing verify JSON is reported, the rest still renders", () => {
+  const md = renderReport({
+    apps: reportApps,
+    verify: parseVerifyJson(null, "verify-level2.json"),
+    diffs: [],
+    diffNote: "Diffs skipped (`--no-diff`).",
+  });
+  assertStringIncludes(
+    md,
+    "**Level 2:** no result · `verify-level2.json` was not written",
+  );
+  assert(!md.includes("### Failing checks"));
+  assertStringIncludes(md, "| gitops | Healthy | Succeeded | differs |");
+  assertStringIncludes(md, "### Diffs vs main\n\nDiffs skipped (`--no-diff`).");
+});
+
+Deno.test("renderReport: ArgoCD not reachable (localdev:ci failed early) says so instead of failing", () => {
+  const verify: VerifyInput = parseVerifyJson(null);
+  const md = renderReport({
+    apps: null,
+    appsError:
+      'kubectl get applications failed: error: context "kind-homelab-localdev" does not exist',
+    verify,
+    diffs: [],
+  });
+  assertStringIncludes(md, "**ArgoCD was not reachable**");
+  assertStringIncludes(md, "`task localdev:ci` failed before ArgoCD was up");
+  assert(!md.includes("| Application |"));
+  assert(!md.includes("### Diffs vs main"));
+  assert(md.endsWith("\n") && !md.endsWith("\n\n"));
+});
+
+Deno.test("renderReport: every app Synced means nothing changes vs main; no Applications is explained", () => {
+  const synced = reportApps.map((a) => ({
+    ...a,
+    status: { ...a.status, sync: { status: "Synced" } },
+  }));
+  const pass = parseVerifyJson(
+    '{"level":2,"pass":true,"duration_ms":1500,"checks":[{"name":"a","status":"pass"}]}',
+  );
+  const md = renderReport({ apps: synced, verify: pass, diffs: [] });
+  assertStringIncludes(
+    md,
+    "**Level 2:** PASS ✅ · 1 checks: 1 pass, 0 fail, 0 skip · 2s",
+  );
+  assertStringIncludes(md, "Every Application is Synced with `main`");
+  const none = renderReport({ apps: [], verify: pass, diffs: [] });
+  assertStringIncludes(none, "No Applications in namespace `argocd`");
+  assert(!none.includes("### Diffs vs main"));
+});
+
+Deno.test("renderReport: diff content with backtick fences cannot close the code block", () => {
+  const md = renderReport({
+    apps: reportApps,
+    verify: parseVerifyJson(null),
+    diffs: [{
+      app: "gitops",
+      diff: "+  readme: |\n+    ```sh\n+    task up\n+    ```",
+    }],
+  });
+  assertStringIncludes(md, "````diff\n+  readme: |");
+});
+
+Deno.test("parentsAwaitingWaves: only parents with a Running operation, sorted", () => {
+  const mk = (
+    name: string,
+    phase: string | undefined,
+    parent: boolean,
+  ): Application =>
+    ({
+      metadata: { name },
+      status: {
+        operationState: phase ? { phase } : undefined,
+        resources: parent
+          ? [{ kind: "Application", name: `${name}-child` }]
+          : [],
+      },
+    }) as unknown as Application;
+  const apps = [
+    mk("traefik-external", "Running", false), // not a parent
+    mk("addons", "Running", true), // holding wave 7 open
+    mk("gitops", "Succeeded", true), // settled
+    mk("applications", "Running", true),
+    mk("bootstrap", undefined, true), // never synced
+  ];
+  assertEquals(parentsAwaitingWaves(apps), ["addons", "applications"]);
+  assertEquals(parentsAwaitingWaves([mk("gitops", "Succeeded", true)]), []);
 });

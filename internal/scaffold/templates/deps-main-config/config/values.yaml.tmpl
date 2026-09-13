@@ -1,0 +1,21 @@
+# [[ .Name ]]-config values: objects that need the main chart (its Service, its
+# CRDs), synced after [[ .Name ]] (wave [[ .ConfigWave ]]). Scaffolded by
+# `homelab scaffold app [[ .Name ]]`.
+#
+# global.domain, ingress.host and ingress.className are placeholders: the
+# [[ .Name ]]-config Application in charts/[[ .Tier ]] passes the real values through
+# helm.valuesObject (ADR-010).
+
+global:
+  domain: example.com
+
+namespace: [[ .Namespace ]]
+
+ingress:
+  enabled: true
+  host: [[ .Name ]].example.com
+  className: internal
+  # The Service the upstream chart creates for release [[ .Name ]].
+  service:
+    name: [[ .Name ]]
+    port: [[ .Port ]]

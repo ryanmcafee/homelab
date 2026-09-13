@@ -7,6 +7,11 @@ metadata:
   namespace: {{ .Values.addons.namespace }}
   annotations:
     argocd.argoproj.io/sync-wave: "{{ .Values.addons.syncWave }}"
+    {{- if and .Values.notifications .Values.notifications.github }}
+    {{- range .Values.notifications.triggers }}
+    notifications.argoproj.io/subscribe.{{ . }}.github: ""
+    {{- end }}
+    {{- end }}
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:

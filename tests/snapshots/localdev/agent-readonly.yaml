@@ -1,0 +1,122 @@
+---
+# Source: agent-readonly/templates/serviceaccount.yaml
+# The identity agents authenticate as (bearer token through the Tailscale API
+# server proxy). It never runs a pod, so no token is mounted anywhere.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: agent-readonly
+  namespace: agent-access
+  labels:
+    app.kubernetes.io/name: agent-readonly
+    app.kubernetes.io/part-of: homelab
+automountServiceAccountToken: false
+
+---
+# Source: agent-readonly/templates/serviceaccount.yaml
+# Long-lived token for the ServiceAccount above. The token controller fills
+# data.token/ca.crt/namespace; the parent Application ignores /data so that is
+# not drift. Wave 1 so the ServiceAccount exists first (the controller deletes
+# token Secrets whose ServiceAccount is missing). No data is declared here, so
+# the inline-secret policy has nothing to object to.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: agent-readonly-token
+  namespace: agent-access
+  labels:
+    app.kubernetes.io/name: agent-readonly
+    app.kubernetes.io/part-of: homelab
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+    kubernetes.io/service-account.name: agent-readonly
+type: kubernetes.io/service-account-token
+
+---
+# Source: agent-readonly/templates/rbac.yaml
+# homelab-agent-readonly: what the built-in `view` role leaves out.
+# - cluster-scoped objects agents need for diagnosis (nodes, namespaces,
+#   persistentvolumes, storageclasses, ingressclasses, CRDs) and events;
+# - every custom resource in the groups this repo deploys.
+# Verbs are fixed to get/list/watch here and never read from values: this role
+# must stay read-only. Secrets are absent from both roles by construction.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: homelab-agent-readonly
+  labels:
+    app.kubernetes.io/name: agent-readonly
+    app.kubernetes.io/part-of: homelab
+rules:
+  - apiGroups: [""]
+    resources: [nodes, namespaces, persistentvolumes, events]
+    verbs: [get, list, watch]
+  - apiGroups: [events.k8s.io]
+    resources: [events]
+    verbs: [get, list, watch]
+  - apiGroups: [storage.k8s.io]
+    resources: [storageclasses]
+    verbs: [get, list, watch]
+  - apiGroups: [networking.k8s.io]
+    resources: [ingressclasses]
+    verbs: [get, list, watch]
+  - apiGroups: [apiextensions.k8s.io]
+    resources: [customresourcedefinitions]
+    verbs: [get, list, watch]
+  - apiGroups:
+      - "argoproj.io"
+      - "cert-manager.io"
+      - "traefik.io"
+      - "cilium.io"
+      - "postgresql.cnpg.io"
+      - "barmancloud.cnpg.io"
+      - "monitoring.coreos.com"
+      - "onepassword.com"
+      - "tailscale.com"
+      - "externaldns.k8s.io"
+    resources: ["*"]
+    verbs: [get, list, watch]
+
+---
+# Source: agent-readonly/templates/rbac.yaml
+# The built-in `view` ClusterRole: read on namespaced workloads, services,
+# configmaps, pods/log, ... and explicitly never Secrets.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: agent-readonly-view
+  labels:
+    app.kubernetes.io/name: agent-readonly
+    app.kubernetes.io/part-of: homelab
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: view
+subjects:
+  - kind: ServiceAccount
+    name: agent-readonly
+    namespace: agent-access
+  - kind: Group
+    apiGroup: rbac.authorization.k8s.io
+    name: "homelab:agent-readonly"
+
+---
+# Source: agent-readonly/templates/rbac.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: homelab-agent-readonly
+  labels:
+    app.kubernetes.io/name: agent-readonly
+    app.kubernetes.io/part-of: homelab
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: homelab-agent-readonly
+subjects:
+  - kind: ServiceAccount
+    name: agent-readonly
+    namespace: agent-access
+  - kind: Group
+    apiGroup: rbac.authorization.k8s.io
+    name: "homelab:agent-readonly"

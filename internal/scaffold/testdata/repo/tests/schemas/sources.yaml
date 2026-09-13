@@ -1,0 +1,8 @@
+# Fixture schema sources.
+sources:
+  - name: cloudnative-pg
+    versionKey: cloudnative-pg
+    chart:
+      repo: https://cloudnative-pg.github.io/charts
+      name: cloudnative-pg
+    kinds: [Cluster]

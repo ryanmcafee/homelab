@@ -1,0 +1,61 @@
+{{- if .Values.agentReadonly.enabled }}
+---
+# Namespace for the agent-readonly ServiceAccount and its token Secret (wave 1,
+# before the Application at wave 2). Nothing runs here, so PodSecurity is the
+# strictest level. docs/runbooks/readonly-access.md
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Values.agentReadonly.namespace }}
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+---
+# Read-only identity for agents (issue #261 item 18): ServiceAccount + token
+# Secret bound to `view` and homelab-agent-readonly. No Secrets, no write verbs.
+# Enabled in Kind too, where tests/e2e/agent-readonly proves the RBAC.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: agent-readonly
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: {{ .Values.global.repoUrl }}
+    targetRevision: {{ .Values.global.targetRevision }}
+    path: charts/agent-readonly
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-{{ .Values.global.environment }}.yaml
+      # One source of truth for the namespace: the Namespace above.
+      valuesObject:
+        namespace: {{ .Values.agentReadonly.namespace | quote }}
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: {{ .Values.agentReadonly.namespace }}
+  syncPolicy:
+    {{- if .Values.global.automatedSync }}
+    automated:
+      prune: true
+      selfHeal: true
+    {{- end }}
+    syncOptions:
+      - ServerSideApply=true
+  # The token controller writes the token into the Secret; that is not drift.
+  ignoreDifferences:
+    - group: ""
+      kind: Secret
+      name: agent-readonly-token
+      namespace: {{ .Values.agentReadonly.namespace }}
+      jsonPointers:
+        - /data
+{{- end }}

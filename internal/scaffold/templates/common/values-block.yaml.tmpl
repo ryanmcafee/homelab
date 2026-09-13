@@ -1,0 +1,22 @@
+[[- template "blockHeader" . ]]
+# Placeholders only: configuration/templates/[[ .ExportFile ]] generates the real
+# values for every environment (the CMP in homelab, values-localdev.yaml in Kind).
+
+[[ .Name ]]:
+  enabled: false
+  namespace: [[ .Namespace ]]
+[[- template "chartValues" . ]]
+    # Placeholder; configuration/versions.yaml charts.[[ .Name ]] wins at render time.
+    version: "[[ .ChartVersion ]]"
+
+  # Handed verbatim to the upstream chart (spec.source.helm.values).
+  values: {}
+[[- if eq .Pattern "deps-main-config" ]]
+
+  # Handed to charts/[[ .Name ]]-config through the [[ .Name ]]-config Application's
+  # helm.valuesObject (ADR-010).
+  config: {}
+[[- end ]]
+
+  smoke:
+    enabled: false

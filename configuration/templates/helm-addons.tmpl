@@ -462,6 +462,17 @@ tailscale-operator:
       - "tag:k8s"
 
 # ============================================================================
+# Agent Read-Only Access - ServiceAccount + ClusterRoles agents use through the
+# Tailscale API server proxy (no Secrets, no write verbs). Enabled in every
+# environment; tests/e2e/agent-readonly proves the RBAC in Kind.
+# Sync Wave: Namespace at 1, Application at 2. docs/runbooks/readonly-access.md
+# ============================================================================
+
+agentReadonly:
+  enabled: true
+  namespace: agent-access
+
+# ============================================================================
 # Local Path Provisioner - Kind storage (homelab uses democratic-csi)
 # ============================================================================
 
@@ -515,7 +526,9 @@ local-path-provisioner:
 
 # ============================================================================
 # CloudNativePG - PostgreSQL Operator
-# Sync Wave: 2 (must be before home-assistant which depends on CNPG CRDs)
+# Sync Wave: 10 inside addons; the addons tier (wave 2) finishes before the
+# applications tier (wave 3), so the CNPG CRDs exist before any consumer
+# (home-assistant, #260)
 # ============================================================================
 
 cloudnative-pg:
@@ -555,6 +568,44 @@ cloudnative-pg:
     podMonitorEnabled: true
     grafanaDashboard:
       create: false
+
+# ============================================================================
+# CloudNativePG Barman Cloud Plugin - Backup/Restore through an ObjectStore
+# Sync Wave: 11 (after cert-manager [0], which issues its TLS, and cloudnative-pg [10])
+# ============================================================================
+
+cnpg-barman-cloud:
+  # Enabled wherever cloudnative-pg is (the template requires both). The
+  # weekly restore drill (tests/drills/cnpg-restore, restore-drill.yml) backs
+  # a Kind Cluster up through it and restores it; production has no object
+  # store yet (docs/disaster-recovery.md, "Verified claims").
+  enabled: true
+  namespace: cnpg-system
+
+  chart:
+    name: plugin-barman-cloud
+    repo: https://cloudnative-pg.github.io/charts
+    version: {{ index .Versions.Charts "plugin-barman-cloud" }}
+{{- if $localdev }}
+
+  # Kind sizing
+  resources:
+    requests:
+      cpu: 25m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+{{- else }}
+
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+{{- end }}
 
 # ============================================================================
 # Cert-Manager - TLS Certificate Management
@@ -1201,7 +1252,8 @@ unifi-port-forward:
   # Needs LoadBalancer addresses to forward to and UniFi credentials from 1Password.
   enabled: {{ and $lb $onepassword }}
   namespace: port-forwarding
-  version: {{ index .Versions.Charts "unifi-port-forward" }}
+  chart:
+    version: {{ index .Versions.Charts "unifi-port-forward" }}
   onePasswordItemPath: {{ .Values.UNIFI_PORT_FORWARD_1P_PATH.Value }}
 
 # ============================================================================

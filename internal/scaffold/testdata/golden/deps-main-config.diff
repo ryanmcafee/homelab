@@ -1,0 +1,644 @@
+diff --git a/charts/addons/templates/demo-stack.yaml b/charts/addons/templates/demo-stack.yaml
+new file mode 100644
+--- /dev/null
++++ b/charts/addons/templates/demo-stack.yaml
+@@ -0,0 +1,145 @@
++{{- /*
++demo-stack (deps-main-config pattern), scaffolded by:
++  homelab scaffold app demo-stack --pattern deps-main-config --chart-repo https://charts.example.com/demo --chart-name stack --chart-version 2.0.0 --health-path /alive
++Chart, version, values and smoke URL come from the `demo-stack:` block of
++configuration/templates/helm-addons.tmpl; charts/addons/values.yaml only holds
++placeholders. See docs/apps/demo-stack.md.
++*/}}
++{{- $app := index .Values "demo-stack" }}
++{{- if $app.enabled }}
++{{- /*
++Three Applications (rule gitops/<env>/waves: -dependencies < main, -config != main):
++  wave 9  demo-stack-dependencies  charts/demo-stack-dependencies (Secrets, OnePasswordItems)
++  wave 10  demo-stack               upstream chart stack
++  wave 12  demo-stack-config        charts/demo-stack-config (Ingress; anything needing the main chart)
++Derived values reach the -config child through helm.valuesObject (ADR-010).
++*/}}
++---
++# Namespace demo-stack: nothing else renders it, and the smoke Job below
++# lands in it before the Application's CreateNamespace=true would.
++apiVersion: v1
++kind: Namespace
++metadata:
++  name: {{ $app.namespace }}
++  annotations:
++    argocd.argoproj.io/sync-wave: "-1"
++---
++# Dependencies Application: prerequisites of demo-stack (Secrets, OnePasswordItems)
++apiVersion: argoproj.io/v1alpha1
++kind: Application
++metadata:
++  name: demo-stack-dependencies
++  namespace: argocd
++  annotations:
++    argocd.argoproj.io/sync-wave: "9"
++  finalizers:
++    - resources-finalizer.argocd.argoproj.io
++spec:
++  project: default
++  source:
++    repoURL: {{ $.Values.global.repoUrl }}
++    targetRevision: {{ $.Values.global.targetRevision }}
++    path: charts/demo-stack-dependencies
++    helm:
++      valueFiles:
++        - values.yaml
++        - values-{{ $.Values.global.environment }}.yaml
++  destination:
++    server: https://kubernetes.default.svc
++    namespace: {{ $app.namespace }}
++  syncPolicy:
++    {{- if $.Values.global.automatedSync }}
++    automated:
++      prune: true
++      selfHeal: true
++    {{- end }}
++    syncOptions:
++      - CreateNamespace=true
++      - ServerSideApply=true
++      - SkipDryRunOnMissingResource=true
++---
++apiVersion: argoproj.io/v1alpha1
++kind: Application
++metadata:
++  name: demo-stack
++  namespace: argocd
++  annotations:
++    argocd.argoproj.io/sync-wave: "10"
++  finalizers:
++    - resources-finalizer.argocd.argoproj.io
++spec:
++  project: default
++  source:
++    repoURL: {{ $app.chart.repo }}
++    chart: {{ $app.chart.name }}
++    targetRevision: {{ $app.chart.version | quote }}
++    helm:
++      releaseName: demo-stack
++      {{- with $app.values }}
++      values: |
++        {{- toYaml . | nindent 8 }}
++      {{- end }}
++  destination:
++    server: https://kubernetes.default.svc
++    namespace: {{ $app.namespace }}
++
++  syncPolicy:
++    {{- if $.Values.global.automatedSync }}
++    automated:
++      prune: true
++      selfHeal: true
++    {{- end }}
++    syncOptions:
++      - CreateNamespace=true
++      - ServerSideApply=true
++    retry:
++      limit: 5
++      backoff:
++        duration: 5s
++        factor: 2
++        maxDuration: 3m
++{{- include "homelab.smokeJob" (dict "name" "demo-stack" "namespace" $app.namespace "smoke" $app.smoke "wave" "10" "image" $.Values.global.images.curl) }}
++---
++# Config Application: objects that need the main chart (its Service, its CRDs)
++apiVersion: argoproj.io/v1alpha1
++kind: Application
++metadata:
++  name: demo-stack-config
++  namespace: argocd
++  annotations:
++    argocd.argoproj.io/sync-wave: "12"
++  finalizers:
++    - resources-finalizer.argocd.argoproj.io
++spec:
++  project: default
++  source:
++    repoURL: {{ $.Values.global.repoUrl }}
++    targetRevision: {{ $.Values.global.targetRevision }}
++    path: charts/demo-stack-config
++    helm:
++      valueFiles:
++        - values.yaml
++        - values-{{ $.Values.global.environment }}.yaml
++      # Derived values (domain, hostname) come from this parent's values
++      # (configuration/ via the CMP in homelab) so the child's committed values
++      # files stay PII-free. valuesObject overrides valueFiles in ArgoCD.
++      valuesObject:
++        global:
++          domain: {{ $.Values.global.domain }}
++        {{- with $app.config }}
++        {{- toYaml . | nindent 8 }}
++        {{- end }}
++  destination:
++    server: https://kubernetes.default.svc
++    namespace: {{ $app.namespace }}
++  syncPolicy:
++    {{- if $.Values.global.automatedSync }}
++    automated:
++      prune: true
++      selfHeal: true
++    {{- end }}
++    syncOptions:
++      - CreateNamespace=true
++      - ServerSideApply=true
++      - SkipDryRunOnMissingResource=true
++{{- end }}
+diff --git a/charts/addons/values.yaml b/charts/addons/values.yaml
+--- a/charts/addons/values.yaml
++++ b/charts/addons/values.yaml
+@@ -7,3 +7,33 @@
+ cloudnative-pg:
+   enabled: false
+   namespace: cloudnative-pg
++
++# ============================================================================
++# demo-stack - dependencies + main chart + config (scaffolded)
++# homelab scaffold app demo-stack --pattern deps-main-config --chart-repo https://charts.example.com/demo --chart-name stack --chart-version 2.0.0 --health-path /alive
++# Sync Wave: 10
++# ============================================================================
++# Placeholders only: configuration/templates/helm-addons.tmpl generates the real
++# values for every environment (the CMP in homelab, values-localdev.yaml in Kind).
++
++demo-stack:
++  enabled: false
++  namespace: demo-stack
++
++  # ArgoCD source: repoURL (no oci:// scheme for OCI registries), chart name and
++  # version. configuration/versions.yaml charts.demo-stack is the only place to bump it.
++  chart:
++    name: stack
++    repo: https://charts.example.com/demo
++    # Placeholder; configuration/versions.yaml charts.demo-stack wins at render time.
++    version: "2.0.0"
++
++  # Handed verbatim to the upstream chart (spec.source.helm.values).
++  values: {}
++
++  # Handed to charts/demo-stack-config through the demo-stack-config Application's
++  # helm.valuesObject (ADR-010).
++  config: {}
++
++  smoke:
++    enabled: false
+diff --git a/charts/demo-stack-config/Chart.yaml b/charts/demo-stack-config/Chart.yaml
+new file mode 100644
+--- /dev/null
++++ b/charts/demo-stack-config/Chart.yaml
+@@ -0,0 +1,6 @@
++apiVersion: v2
++name: demo-stack-config
++description: Configuration for demo-stack that needs the main chart (Ingress), synced after it
++type: application
++version: 1.0.0
++appVersion: "1.0"
+diff --git a/charts/demo-stack-config/templates/ingress.yaml b/charts/demo-stack-config/templates/ingress.yaml
+new file mode 100644
+--- /dev/null
++++ b/charts/demo-stack-config/templates/ingress.yaml
+@@ -0,0 +1,27 @@
++{{- if .Values.ingress.enabled }}
++---
++apiVersion: networking.k8s.io/v1
++kind: Ingress
++metadata:
++  name: demo-stack
++  namespace: {{ .Values.namespace }}
++  annotations:
++    cert-manager.io/cluster-issuer: letsencrypt
++spec:
++  ingressClassName: {{ .Values.ingress.className }}
++  rules:
++    - host: {{ .Values.ingress.host }}
++      http:
++        paths:
++          - path: /
++            pathType: Prefix
++            backend:
++              service:
++                name: {{ .Values.ingress.service.name }}
++                port:
++                  number: {{ .Values.ingress.service.port }}
++  tls:
++    - secretName: demo-stack-tls
++      hosts:
++        - {{ .Values.ingress.host }}
++{{- end }}
+diff --git a/charts/demo-stack-config/values-homelab.yaml b/charts/demo-stack-config/values-homelab.yaml
+new file mode 100644
+--- /dev/null
++++ b/charts/demo-stack-config/values-homelab.yaml
+@@ -0,0 +1,5 @@
++# demo-stack-config homelab values. Committed and PII-free (ADR-010): the
++# hostname and domain arrive through the parent Application's helm.valuesObject.
++# Only non-derived settings live here.
++
++namespace: demo-stack
+diff --git a/charts/demo-stack-config/values-localdev.yaml b/charts/demo-stack-config/values-localdev.yaml
+new file mode 100644
+--- /dev/null
++++ b/charts/demo-stack-config/values-localdev.yaml
+@@ -0,0 +1,8 @@
++# demo-stack-config — local development overrides
++#
++# No overrides are needed: the hostname arrives through the parent
++# Application's helm.valuesObject, generated from configuration/ for localdev.
++# The file still has to exist: the parent Application always appends
++# values-localdev.yaml to spec.source.helm.valueFiles.
++
++namespace: demo-stack
+diff --git a/charts/demo-stack-config/values.yaml b/charts/demo-stack-config/values.yaml
+new file mode 100644
+--- /dev/null
++++ b/charts/demo-stack-config/values.yaml
+@@ -0,0 +1,21 @@
++# demo-stack-config values: objects that need the main chart (its Service, its
++# CRDs), synced after demo-stack (wave 12). Scaffolded by
++# `homelab scaffold app demo-stack`.
++#
++# global.domain, ingress.host and ingress.className are placeholders: the
++# demo-stack-config Application in charts/addons passes the real values through
++# helm.valuesObject (ADR-010).
++
++global:
++  domain: example.com
++
++namespace: demo-stack
++
++ingress:
++  enabled: true
++  host: demo-stack.example.com
++  className: internal
++  # The Service the upstream chart creates for release demo-stack.
++  service:
++    name: demo-stack
++    port: 80
+diff --git a/charts/demo-stack-dependencies/Chart.yaml b/charts/demo-stack-dependencies/Chart.yaml
+new file mode 100644
+--- /dev/null
++++ b/charts/demo-stack-dependencies/Chart.yaml
+@@ -0,0 +1,6 @@
++apiVersion: v2
++name: demo-stack-dependencies
++description: Prerequisites for demo-stack (Secrets, OnePasswordItems), synced before the main chart
++type: application
++version: 1.0.0
++appVersion: "1.0"
+diff --git a/charts/demo-stack-dependencies/templates/secrets.yaml b/charts/demo-stack-dependencies/templates/secrets.yaml
+new file mode 100644
+--- /dev/null
++++ b/charts/demo-stack-dependencies/templates/secrets.yaml
+@@ -0,0 +1,14 @@
++{{/*
++An OnePasswordItem with an empty itemPath renders but is inert, so the item
++requires its path as well as the toggle.
++*/}}
++{{- if and .Values.onePassword.enabled .Values.onePassword.itemPath }}
++---
++apiVersion: onepassword.com/v1
++kind: OnePasswordItem
++metadata:
++  name: {{ .Values.onePassword.secretName }}
++  namespace: {{ .Values.namespace }}
++spec:
++  itemPath: {{ .Values.onePassword.itemPath | quote }}
++{{- end }}
+diff --git a/charts/demo-stack-dependencies/values-homelab.yaml b/charts/demo-stack-dependencies/values-homelab.yaml
+new file mode 100644
+--- /dev/null
++++ b/charts/demo-stack-dependencies/values-homelab.yaml
+@@ -0,0 +1,8 @@
++# demo-stack-dependencies homelab values. Committed and PII-free (ADR-010):
++# 1Password item paths belong here, hostnames and addresses never do.
++
++namespace: demo-stack
++
++onePassword:
++  # Set enabled: true and itemPath: vaults/homelab/items/<item> once the item exists.
++  enabled: false
+diff --git a/charts/demo-stack-dependencies/values-localdev.yaml b/charts/demo-stack-dependencies/values-localdev.yaml
+new file mode 100644
+--- /dev/null
++++ b/charts/demo-stack-dependencies/values-localdev.yaml
+@@ -0,0 +1,9 @@
++# demo-stack-dependencies — local development overrides
++#
++# Kind has no secret store (SECRETS_PROVIDER=none), so no OnePasswordItem is
++# rendered. The file still has to exist: the parent Application always appends
++# values-localdev.yaml to spec.source.helm.valueFiles, and ArgoCD fails the
++# sync when a declared value file is missing.
++
++onePassword:
++  enabled: false
+diff --git a/charts/demo-stack-dependencies/values.yaml b/charts/demo-stack-dependencies/values.yaml
+new file mode 100644
+--- /dev/null
++++ b/charts/demo-stack-dependencies/values.yaml
+@@ -0,0 +1,12 @@
++# demo-stack-dependencies values: prerequisites synced before demo-stack
++# (wave 9 < 10). Scaffolded by `homelab scaffold app demo-stack`.
++
++namespace: demo-stack
++
++# A 1Password item the operator materialises as Secret <secretName>. Inert until
++# both enabled and itemPath are set. Localdev has no secret store
++# (SECRETS_PROVIDER=none): seed the Secret in localdev/fakes/secrets.yaml instead.
++onePassword:
++  enabled: false
++  secretName: demo-stack-credentials
++  itemPath: ""
+diff --git a/configuration/schema/network.schema.yaml b/configuration/schema/network.schema.yaml
+--- a/configuration/schema/network.schema.yaml
++++ b/configuration/schema/network.schema.yaml
+@@ -12,3 +12,8 @@
+   GRAFANA_HOSTNAME:
+     description: Grafana dashboard hostname
+     const: "grafana.{{.DOMAIN}}"
++
++  # demo-stack (scaffolded by `homelab scaffold app demo-stack`)
++  DEMO_STACK_HOSTNAME:
++    description: demo-stack hostname
++    const: "demo-stack.{{.DOMAIN}}"
+diff --git a/configuration/templates/helm-addons.tmpl b/configuration/templates/helm-addons.tmpl
+--- a/configuration/templates/helm-addons.tmpl
++++ b/configuration/templates/helm-addons.tmpl
+@@ -15,3 +15,59 @@
+ {{- if $localdev }}
+   replicaCount: 1
+ {{- end }}
++
++# ============================================================================
++# demo-stack - dependencies + main chart + config (scaffolded)
++# homelab scaffold app demo-stack --pattern deps-main-config --chart-repo https://charts.example.com/demo --chart-name stack --chart-version 2.0.0 --health-path /alive
++# Sync Wave: 10
++# ============================================================================
++# Waves: demo-stack-dependencies 9 < demo-stack 10 < demo-stack-config 12
++
++demo-stack:
++  enabled: true
++  namespace: demo-stack
++
++  # ArgoCD source: repoURL (no oci:// scheme for OCI registries), chart name and
++  # version. configuration/versions.yaml charts.demo-stack is the only place to bump it.
++  chart:
++    name: stack
++    repo: https://charts.example.com/demo
++    version: "{{ index .Versions.Charts "demo-stack" }}"
++
++  # Handed verbatim to the upstream chart (spec.source.helm.values): rename the
++  # keys to what the chart's own values.yaml expects.
++  values:
++{{- if $localdev }}
++    # Kind sizing: one replica, small footprint
++    replicaCount: 1
++    resources:
++      requests:
++        cpu: 50m
++        memory: 64Mi
++      limits:
++        cpu: 250m
++        memory: 256Mi
++{{- else }}
++    resources:
++      requests:
++        cpu: 100m
++        memory: 128Mi
++      limits:
++        cpu: 500m
++        memory: 512Mi
++{{- end }}
++
++  # Derived values for charts/demo-stack-config, handed down through the
++  # demo-stack-config Application's helm.valuesObject (ADR-010). Never put them
++  # in charts/demo-stack-config/values-homelab.yaml.
++  config:
++    ingress:
++      host: {{ .Values.DEMO_STACK_HOSTNAME.Value }}
++      className: {{ .Values.INGRESS_CLASS_INTERNAL.Value }}
++
++  # PostSync smoke hook (charts/addons/templates/_smoke.tpl): curl the
++  # in-cluster Service after sync; expect lists the accepted HTTP codes.
++  smoke:
++    enabled: true
++    url: http://demo-stack.demo-stack.svc.cluster.local:80/alive
++    expect: ["200"]
+diff --git a/configuration/versions.yaml b/configuration/versions.yaml
+--- a/configuration/versions.yaml
++++ b/configuration/versions.yaml
+@@ -5,6 +5,8 @@
+   cloudnative-pg: "0.28.3"
+   sonarr: "25.6.3"
+   unifi-port-forward: "1.1.x"
++  # renovate: datasource=helm depName=stack registryUrl=https://charts.example.com/demo
++  demo-stack: "2.0.0"
+ images:
+   curl: "8.22.0"
+ tools:
+diff --git a/docs/apps/demo-stack.md b/docs/apps/demo-stack.md
+new file mode 100644
+--- /dev/null
++++ b/docs/apps/demo-stack.md
+@@ -0,0 +1,35 @@
++# demo-stack
++
++Pattern: dependencies + main chart + config (deps-main-config), parent chart `charts/addons`. Scaffolded with:
++
++```bash
++homelab scaffold app demo-stack --pattern deps-main-config --chart-repo https://charts.example.com/demo --chart-name stack --chart-version 2.0.0 --health-path /alive
++```
++
++## Generated
++
++| Path | Purpose |
++|------|---------|
++| `charts/addons/templates/demo-stack.yaml` | ArgoCD Application(s): demo-stack-dependencies, demo-stack, demo-stack-config |
++| `charts/addons/values.yaml` | placeholder values block |
++| `charts/demo-stack-config/` | config child chart (wave 12) |
++| `charts/demo-stack-dependencies/` | dependencies child chart (wave 9) |
++| `configuration/schema/network.schema.yaml` | `DEMO_STACK_HOSTNAME` hostname key |
++| `configuration/templates/helm-addons.tmpl` | values for every environment (version, sizing, hostname, smoke URL) |
++| `configuration/versions.yaml` | chart version with its Renovate marker |
++| `tests/e2e/demo-stack/chainsaw-test.yaml` | chainsaw e2e test |
++
++## Before the first PR
++
++- [ ] Adapt the `values:` block in `configuration/templates/helm-addons.tmpl` to the chart's own values
++- [ ] Check that `smoke.url` (`http://demo-stack.demo-stack.svc.cluster.local:80/alive`) names the chart's Service and port
++- [ ] Seed any Secret 1Password provides in homelab in `localdev/fakes/secrets.yaml`
++- [ ] Replace this checklist with what the app does and how to operate it
++
++## Verify
++
++```bash
++task verify:text                                   # level 0
++task localdev:up && task verify:text LEVEL=2       # Kind: Healthy + Succeeded, e2e
++task test:e2e -- --test-dir tests/e2e/demo-stack
++```
+diff --git a/tests/e2e/demo-stack/chainsaw-test.yaml b/tests/e2e/demo-stack/chainsaw-test.yaml
+new file mode 100644
+--- /dev/null
++++ b/tests/e2e/demo-stack/chainsaw-test.yaml
+@@ -0,0 +1,159 @@
++---
++# Scaffolded by `homelab scaffold app demo-stack`; see tests/e2e/README.md.
++apiVersion: chainsaw.kyverno.io/v1alpha1
++kind: Test
++metadata:
++  name: demo-stack
++spec:
++  description: >-
++    demo-stack /alive answers through the internal Traefik with Host demo-stack.homelab.local.
++  steps:
++    - name: applications-healthy
++      description: The ArgoCD Applications behind this test are Healthy and their last sync Succeeded.
++      try:
++        - assert:
++            resource:
++              apiVersion: argoproj.io/v1alpha1
++              kind: Application
++              metadata:
++                name: demo-stack-dependencies
++                namespace: argocd
++              status:
++                health:
++                  status: Healthy
++                operationState:
++                  phase: Succeeded
++        - assert:
++            resource:
++              apiVersion: argoproj.io/v1alpha1
++              kind: Application
++              metadata:
++                name: demo-stack
++                namespace: argocd
++              status:
++                health:
++                  status: Healthy
++                operationState:
++                  phase: Succeeded
++        - assert:
++            resource:
++              apiVersion: argoproj.io/v1alpha1
++              kind: Application
++              metadata:
++                name: demo-stack-config
++                namespace: argocd
++              status:
++                health:
++                  status: Healthy
++                operationState:
++                  phase: Succeeded
++      catch:
++        - describe:
++            apiVersion: argoproj.io/v1alpha1
++            kind: Application
++            name: demo-stack-dependencies
++            namespace: argocd
++        - describe:
++            apiVersion: argoproj.io/v1alpha1
++            kind: Application
++            name: demo-stack
++            namespace: argocd
++        - describe:
++            apiVersion: argoproj.io/v1alpha1
++            kind: Application
++            name: demo-stack-config
++            namespace: argocd
++    - name: curl-demo-stack
++      description: >-
++        A curl Job must get one of [200]
++        from https://demo-stack.homelab.local/alive via traefik-internal.traefik.svc.cluster.local.
++      timeouts:
++        assert: 5m
++      try:
++        - apply:
++            resource:
++              apiVersion: batch/v1
++              kind: Job
++              metadata:
++                name: curl-demo-stack
++              spec:
++                backoffLimit: 0
++                activeDeadlineSeconds: 300
++                template:
++                  spec:
++                    restartPolicy: Never
++                    securityContext:
++                      runAsNonRoot: true
++                      runAsUser: 100
++                      seccompProfile:
++                        type: RuntimeDefault
++                    containers:
++                      - name: curl
++                        # pinned from configuration/versions.yaml images.curl
++                        image: curlimages/curl:8.22.0
++                        securityContext:
++                          allowPrivilegeEscalation: false
++                          capabilities:
++                            drop: ["ALL"]
++                        resources:
++                          requests:
++                            cpu: 10m
++                            memory: 32Mi
++                          limits:
++                            cpu: 100m
++                            memory: 64Mi
++                        env:
++                          - name: HOST
++                            value: "demo-stack.homelab.local"
++                          - name: GATEWAY
++                            value: "traefik-internal.traefik.svc.cluster.local"
++                          - name: URL_PATH
++                            value: "/alive"
++                          - name: EXPECT
++                            value: "200"
++                          - name: ATTEMPTS
++                            value: "20"
++                        command: ["sh", "-c"]
++                        args:
++                          - |
++                            set -u
++                            i=1
++                            while [ "$i" -le "$ATTEMPTS" ]; do
++                              code=$(curl -sk -o /dev/null -w '%{http_code}' -L --max-redirs 5 --max-time 20 \
++                                --connect-to "$HOST:443:$GATEWAY:443" --connect-to "$HOST:80:$GATEWAY:80" \
++                                "https://$HOST$URL_PATH")
++                              echo "attempt $i/$ATTEMPTS: HTTP $code for https://$HOST$URL_PATH via $GATEWAY"
++                              for ok in $EXPECT; do [ "$code" = "$ok" ] && exit 0; done
++                              i=$((i + 1))
++                              sleep 6
++                            done
++                            echo "giving up: last HTTP code $code, expected one of: $EXPECT"
++                            exit 1
++        - assert:
++            resource:
++              apiVersion: batch/v1
++              kind: Job
++              metadata:
++                name: curl-demo-stack
++              status:
++                succeeded: 1
++      catch:
++        - events: {}
++        - podLogs:
++            selector: job-name=curl-demo-stack
++            tail: 50
++        - describe:
++            apiVersion: argoproj.io/v1alpha1
++            kind: Application
++            name: demo-stack-dependencies
++            namespace: argocd
++        - describe:
++            apiVersion: argoproj.io/v1alpha1
++            kind: Application
++            name: demo-stack
++            namespace: argocd
++        - describe:
++            apiVersion: argoproj.io/v1alpha1
++            kind: Application
++            name: demo-stack-config
++            namespace: argocd

@@ -1,0 +1,48 @@
+# agent-readonly default values
+#
+# Read-only cluster identity for agents (issue #261 item 18,
+# docs/runbooks/readonly-access.md). Agents reach the homelab API server through
+# the Tailscale operator's API server proxy in "noauth" mode, which forwards the
+# caller's bearer token: the kube-apiserver authenticates it as this
+# ServiceAccount and RBAC below decides what it may read.
+#
+# The parent addons Application (charts/addons/templates/agent-readonly.yaml)
+# passes `namespace` through helm.valuesObject, so this chart and the Namespace
+# the addons chart creates can never disagree.
+
+enabled: true
+
+# Namespace holding the ServiceAccount and its token Secret (created by the
+# addons chart with PodSecurity "restricted"; nothing runs there).
+namespace: agent-access
+
+serviceAccount:
+  name: agent-readonly
+  # kubernetes.io/service-account-token Secret the token controller fills with
+  # a long-lived token. A human copies it into 1Password
+  # (op://homelab/k8s-agent-readonly/credential); deleting the Secret revokes it
+  # and ArgoCD recreates it with a fresh token.
+  tokenSecretName: agent-readonly-token
+
+# Group bound to the same two roles, for a future Tailscale API server proxy in
+# "auth" mode (the proxy impersonates tailnet identities into groups granted in
+# the tailnet policy file). Nothing uses it while the proxy runs in "noauth".
+group: homelab:agent-readonly
+
+clusterRole:
+  name: homelab-agent-readonly
+  # Custom-resource API groups this repo deploys. The role grants get/list/watch
+  # on every resource in each group; the verbs are fixed in the template and can
+  # never come from values. The core group ("") and "*" are refused by the
+  # template, because resources: ["*"] in the core group would include Secrets.
+  crdGroups:
+    - argoproj.io
+    - cert-manager.io
+    - traefik.io
+    - cilium.io
+    - postgresql.cnpg.io
+    - barmancloud.cnpg.io
+    - monitoring.coreos.com
+    - onepassword.com
+    - tailscale.com
+    - externaldns.k8s.io

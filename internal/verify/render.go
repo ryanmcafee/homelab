@@ -110,6 +110,13 @@ type envRender struct {
 	// inheritSpent is the time collectInherited took, so the _inherit check
 	// reports the extraction cost rather than the surrounding renders.
 	inheritSpent time.Duration
+	// charts are the charts this env renders (the pass's selection narrowed
+	// by Env.Charts); inheritOnly are the parents they need for inheritance.
+	charts      []Chart
+	inheritOnly []Chart
+	// previewArgs are the --set-string arguments of a preview env, appended
+	// to every chart the env itself renders (see Env.Preview).
+	previewArgs []string
 }
 
 // renderJob is one (env, chart) render. inheritOnly renders are parents the
@@ -198,15 +205,23 @@ func Render(ctx context.Context, opts RenderOptions) (*RenderOutput, *Result) {
 	// and writes _data.yaml plus any generated values the renders depend on.
 	var prepared []*envRender
 	for _, env := range opts.Envs {
+		envSel, envInherit := envCharts(all, charts, inheritOnly, env)
+		if len(envSel) == 0 {
+			// The selection holds none of this env's charts (for example
+			// --chart addons with homelab-preview): the env renders nothing,
+			// so it reports nothing instead of an empty render.
+			continue
+		}
 		er, check := prepareEnv(opts, env, k8sVersion)
 		res.Add(check)
 		if er == nil {
 			// Nothing can render for this env. Emit the checks an agent would
 			// look for by name as skips, so a missing name never reads as
 			// "this check does not exist".
-			res.Add(skippedEnvChecks(opts, env, charts)...)
+			res.Add(skippedEnvChecks(opts, env, envSel)...)
 			continue
 		}
+		er.charts, er.inheritOnly = envSel, envInherit
 		prepared = append(prepared, er)
 		out.Files[env.Name] = map[string]string{}
 		if !env.TwoStage {
@@ -221,12 +236,12 @@ func Render(ctx context.Context, opts RenderOptions) (*RenderOutput, *Result) {
 	for wave := 0; wave <= lastWave; wave++ {
 		var jobs []renderJob
 		for _, er := range prepared {
-			for _, c := range charts {
+			for _, c := range er.charts {
 				if renderWave(c) == wave {
 					jobs = append(jobs, renderJob{er: er, chart: c})
 				}
 			}
-			for _, c := range inheritOnly {
+			for _, c := range er.inheritOnly {
 				if renderWave(c) == wave {
 					jobs = append(jobs, renderJob{er: er, chart: c, inheritOnly: true})
 				}
@@ -342,6 +357,31 @@ func inheritOnlyParents(all, selected []Chart, filter []string) []Chart {
 		}
 	}
 	return out
+}
+
+// envCharts narrows the pass's chart selection to an env's own charts
+// (Env.Charts) and returns the parents those need rendered inherit-only. An
+// env without a restriction keeps the pass-wide selection and inherit-only
+// parents. A restricted env is treated like a --chart filter of its charts,
+// so its parents are rendered for inheritance but produce no checks.
+func envCharts(all, selected, inheritOnly []Chart, env Env) ([]Chart, []Chart) {
+	if len(env.Charts) == 0 {
+		return selected, inheritOnly
+	}
+	var (
+		mine  []Chart
+		names []string
+	)
+	for _, c := range selected {
+		if env.Renders(c.Name) {
+			mine = append(mine, c)
+			names = append(names, c.Name)
+		}
+	}
+	if len(mine) == 0 {
+		return nil, nil
+	}
+	return mine, inheritOnlyParents(all, mine, names)
 }
 
 // runWave renders one wave through the bounded worker pool and returns once
@@ -601,12 +641,53 @@ func prepareEnv(opts RenderOptions, env Env, k8sVersion string) (*envRender, Che
 			er.generated[chart] = dest
 		}
 	}
+	if env.Preview {
+		apps, err := previewAllowedApps(opts.RepoRoot)
+		if err != nil {
+			return nil, FailCheck(name, start, err.Error())
+		}
+		// Exactly what cmp/plugin.yaml passes for PREVIEW_PR/PREVIEW_APPS:
+		// --set-string splits on commas, so the list keeps them escaped.
+		er.previewArgs = []string{
+			"--set-string", "global.preview.pr=" + PreviewPR,
+			"--set-string", "global.preview.apps=" + strings.Join(apps, `\,`),
+		}
+	}
 
 	detail := fmt.Sprintf("domain=%s kubernetes=%s", domain, k8sVersion)
 	if len(er.generated) > 0 {
 		detail += fmt.Sprintf(" two-stage values=%d", len(er.generated))
 	}
+	if env.Preview {
+		detail += " preview pr=" + PreviewPR
+	}
 	return er, PassCheck(name, start, detail)
+}
+
+// previewAllowedApps reads global.preview.allowedApps from
+// charts/applications/values.yaml. A preview env renders every app a pull
+// request may ask for, so a newly allowed app is covered at level 0 without a
+// Go change.
+func previewAllowedApps(repoRoot string) ([]string, error) {
+	rel := filepath.ToSlash(filepath.Join("charts", "applications", "values.yaml"))
+	raw, err := os.ReadFile(filepath.Join(repoRoot, rel))
+	if err != nil {
+		return nil, fmt.Errorf("reading %s: %w", rel, err)
+	}
+	var v struct {
+		Global struct {
+			Preview struct {
+				AllowedApps []string `yaml:"allowedApps"`
+			} `yaml:"preview"`
+		} `yaml:"global"`
+	}
+	if err := yaml.Unmarshal(raw, &v); err != nil {
+		return nil, fmt.Errorf("parsing %s: %w", rel, err)
+	}
+	if len(v.Global.Preview.AllowedApps) == 0 {
+		return nil, fmt.Errorf("%s sets no global.preview.allowedApps, so there is no preview to render", rel)
+	}
+	return v.Global.Preview.AllowedApps, nil
 }
 
 // automatedSync reports the env's ARGOCD_AUTOMATED_SYNC platform key. It is
@@ -714,12 +795,12 @@ func valuesArgs(opts RenderOptions, er *envRender, c Chart) ([]string, string) {
 		args = append(args, "-f", base, "-f", gen)
 		sources = append(sources, base, shortPath(opts.OutDir, gen)+" (generated by config export)")
 	} else {
-		files := ValuesFiles(opts.RepoRoot, c, er.env.Name)
+		files := ValuesFiles(opts.RepoRoot, c, er.env.valuesName())
 		for _, f := range files {
 			args = append(args, "-f", f)
 		}
 		sources = append(sources, files...)
-		envValues := "values-" + er.env.Name + ".yaml"
+		envValues := "values-" + er.env.valuesName() + ".yaml"
 		if !containsSuffix(files, "/"+envValues) {
 			missing = "; " + envValues + " missing"
 		}
@@ -737,6 +818,13 @@ func valuesArgs(opts RenderOptions, er *envRender, c Chart) ([]string, string) {
 	if c.Name == "gitops" && er.env.TwoStage {
 		args = append(args, "--set", "global.domain="+er.domain)
 		detail += "; --set global.domain=" + er.domain + " (mirrors the Terraform root Application helm.parameters)"
+	}
+
+	// A preview env's own charts get the arguments the CMP adds for
+	// PREVIEW_PR/PREVIEW_APPS; an inherit-only parent renders as usual.
+	if len(er.previewArgs) > 0 && er.env.Renders(c.Name) {
+		args = append(args, er.previewArgs...)
+		detail += "; " + strings.Join(er.previewArgs, " ") + " (mirrors cmp/plugin.yaml PREVIEW_PR/PREVIEW_APPS)"
 	}
 	return args, detail
 }

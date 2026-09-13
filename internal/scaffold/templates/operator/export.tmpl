@@ -1,0 +1,13 @@
+[[- template "blockHeader" . ]]
+
+[[ .Name ]]:
+  enabled: true
+  namespace: [[ .Namespace ]]
+[[- template "chartValues" . ]]
+    version: "{{ index .Versions.Charts "[[ .Name ]]" }}"
+
+  # Handed verbatim to the upstream chart (spec.source.helm.values): rename the
+  # keys to what the chart's own values.yaml expects.
+  values:
+[[- template "genericResources" . ]]
+[[- template "smokeValues" . ]]

@@ -64,7 +64,7 @@ module "gitops_bootstrap" {
 
   # ArgoCD configuration
   argocd_namespace = "argocd"
-  argocd_version   = "5.51.0"
+  argocd_version   = "9.4.7"
 
   # Enable auto-sync
   auto_sync_enabled  = true
@@ -216,7 +216,7 @@ spec:
 | base_fqdn | Base FQDN | `string` | n/a | yes |
 | repo_url | Git repository URL | `string` | n/a | yes |
 | target_revision | Git branch/tag | `string` | "HEAD" | no |
-| argocd_version | ArgoCD chart version | `string` | "5.51.0" | no |
+| argocd_version | ArgoCD chart version | `string` | "9.4.7" | no |
 | custom_metadata | Custom metadata | `map(string)` | {} | no |
 | gitops_secrets | Sensitive data | `map(string)` | {} | no |
 | auto_sync_enabled | Enable auto-sync | `bool` | true | no |

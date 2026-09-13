@@ -41,13 +41,14 @@ var GitOpsRules = []string{
 // LoadRenderDir). repoRoot is used only to stat Application source paths.
 //
 // It always returns exactly one Check per entry in GitOpsRules, so a caller
-// can report a stable check set whether or not anything is wrong.
+// can report a stable check set whether or not anything is wrong. A rule the
+// env lists in Env.SkipGitOpsRules is reported as a skip with that detail.
 func LintGitOps(env string, rendered map[string][]Doc, reg *GitOpsRegistry, repoRoot string) []Check {
 	if reg == nil {
 		reg = &GitOpsRegistry{SystemNamespaces: DefaultSystemNamespaces}
 	}
 	g := buildGitOpsGraph(env, rendered)
-	return []Check{
+	checks := []Check{
 		g.rulePaths(repoRoot),
 		g.ruleWaves(),
 		g.ruleCRDOrder(reg),
@@ -57,6 +58,14 @@ func LintGitOps(env string, rendered map[string][]Doc, reg *GitOpsRegistry, repo
 		g.ruleSSA(reg),
 		g.ruleUniqueNames(),
 	}
+	if e, ok := EnvByName(env); ok {
+		for i, c := range checks {
+			if detail, skip := e.SkipGitOpsRules[strings.TrimPrefix(c.Name, "gitops/"+env+"/")]; skip {
+				checks[i] = SkipCheck(c.Name, detail)
+			}
+		}
+	}
+	return checks
 }
 
 // orderKey is an object's position in the app-of-apps sync order: the wave of

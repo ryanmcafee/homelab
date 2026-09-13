@@ -1,4 +1,73 @@
 ---
+# Source: gitops/templates/previews-appproject.yaml
+# AppProject for per-PR preview environments (docs/runbooks/previews.md).
+#
+# Used by the preview-pr<N> Applications the `previews` ApplicationSet
+# generates (namespace argocd) and by the <app>-pr<N> Applications they render
+# into preview-<N> (ArgoCD "apps in any namespace": sourceNamespaces below plus
+# configs.params."application.namespaces" in charts/bootstrap/values-homelab.yaml).
+# A preview can only deploy into preview-* namespaces, only from this repo and
+# the TrueCharts registry, and only the kinds a preview renders. Deliberately
+# absent: Secret, ServiceAccount, RBAC, onepassword.com (previews get no
+# 1Password items) and every other cluster-scoped kind (no CRDs or operators).
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: previews
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "11"
+spec:
+  description: Per-PR preview environments (docs/runbooks/previews.md)
+  sourceRepos:
+    - https://github.com/ryanmcafee/homelab.git
+    - oci.trueforge.org/truecharts
+  sourceNamespaces:
+    - preview-*
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: preview-*
+  clusterResourceWhitelist:
+    # The preview namespace itself (charts/applications/templates/namespaces.yaml).
+    - group: ""
+      kind: Namespace
+  namespaceResourceWhitelist:
+    # preview-pr<N> renders charts/applications in preview mode: the
+    # <app>-pr<N> Applications, the namespace's ResourceQuota and LimitRange,
+    # and one PostSync smoke Job per app (templates/_smoke.tpl).
+    - group: argoproj.io
+      kind: Application
+    - group: ""
+      kind: ResourceQuota
+    - group: ""
+      kind: LimitRange
+    - group: batch
+      kind: Job
+    # What the allowed TrueCharts apps render with preview values (helm
+    # template of each chart at its configuration/versions.yaml pin): the
+    # exportarr sidecars of sonarr/radarr/prowlarr add a ServiceMonitor.
+    # No PersistentVolumeClaim: preview storage is emptyDir only
+    # (charts/applications/templates/_preview.tpl), and the namespace quota
+    # allows zero claims.
+    - group: ""
+      kind: ConfigMap
+    - group: ""
+      kind: Service
+    - group: apps
+      kind: Deployment
+    - group: networking.k8s.io
+      kind: Ingress
+    - group: monitoring.coreos.com
+      kind: ServiceMonitor
+    # TrueCharts ingress integrations (not rendered by today's values; allowed
+    # so turning one on does not need a project change). cert-manager's
+    # ingress-shim creates the TLS Certificates itself, outside ArgoCD.
+    - group: traefik.io
+      kind: Middleware
+    - group: cert-manager.io
+      kind: Certificate
+
+---
 # Source: gitops/templates/addons.yaml
 apiVersion: argoproj.io/v1alpha1
 kind: Application
@@ -127,6 +196,11 @@ spec:
                   - hosts:
                       - argocd.REPLACEME-domain.com
                     secretName: argocd-server-tls
+            # Link target of ArgoCD notifications ({{.context.argocdUrl}}),
+            # e.g. the GitHub commit status and PR comment
+            # (docs/runbooks/readonly-access.md).
+            notifications:
+              argocdUrl: https://argocd.REPLACEME-domain.com
 
   destination:
     server: https://kubernetes.default.svc
@@ -147,3 +221,94 @@ spec:
         duration: 10s
         factor: 2
         maxDuration: 3m
+
+---
+# Source: gitops/templates/previews-applicationset.yaml
+# Per-PR preview environments (issue #261 item 16, docs/runbooks/previews.md).
+#
+# One Application preview-pr<N> per open pull request carrying every label in
+# previews.github.labels. It renders charts/applications at the PR head through
+# the CMP with PREVIEW_PR=<N> and PREVIEW_APPS=<the PR's preview:<app> labels,
+# comma-joined> (empty: the chart's defaultApps), which switches the chart to
+# preview mode (templates/_preview.tpl). Closing the PR or removing the label
+# deletes the Application; the finalizer cascades to the preview namespace.
+#
+# The ArgoCD server ingress is internal-only, so GitHub webhooks cannot reach
+# the ApplicationSet controller: it polls every requeueAfterSeconds.
+#
+# The {{ }} expressions are ApplicationSet Go templates, escaped from Helm
+# with backtick strings.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: previews
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "12"
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - pullRequest:
+        github:
+          owner: ryanmcafee
+          repo: homelab
+          labels:
+            - preview
+        requeueAfterSeconds: 300
+  template:
+    metadata:
+      name: 'preview-pr{{.number}}'
+      namespace: argocd
+      labels:
+        homelab.ryanmcafee.com/preview-pr: '{{.number}}'
+      annotations:
+        argocd.argoproj.io/sync-wave: "0"
+      finalizers:
+        - resources-finalizer.argocd.argoproj.io
+    spec:
+      project: previews
+      source:
+        repoURL: https://github.com/ryanmcafee/homelab.git
+        targetRevision: '{{.head_sha}}'
+        path: charts/applications
+        plugin:
+          name: homelab-config-helm-v1.0
+          env:
+            - name: ENVIRONMENT
+              value: homelab
+            - name: FORMAT
+              value: helm-apps
+            - name: PREVIEW_PR
+              value: '{{.number}}'
+            # Every "preview:<app>" label, prefix stripped, comma-joined. The
+            # CMP rejects anything but [a-z0-9,-]; the chart rejects apps
+            # outside global.preview.allowedApps.
+            - name: PREVIEW_APPS
+              value: '{{- $apps := list }}{{- range .labels }}{{- if hasPrefix "preview:" . }}{{- $apps = append $apps (trimPrefix "preview:" . | lower) }}{{- end }}{{- end }}{{ join "," $apps }}'
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: 'preview-{{.number}}'
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
+          - ServerSideApply=true
+        # Same PodSecurity level as the Namespace the chart renders in preview
+        # mode (charts/applications/templates/namespaces.yaml). baseline, not
+        # restricted: flaresolverr runs as root with CHOWN/SETUID/SETGID/
+        # FOWNER/DAC_OVERRIDE, all inside the baseline set.
+        managedNamespaceMetadata:
+          labels:
+            pod-security.kubernetes.io/enforce: baseline
+            pod-security.kubernetes.io/audit: baseline
+            pod-security.kubernetes.io/warn: baseline
+            homelab.ryanmcafee.com/preview-pr: '{{.number}}'
+        retry:
+          limit: 5
+          backoff:
+            duration: 10s
+            factor: 2
+            maxDuration: 3m

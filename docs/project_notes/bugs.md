@@ -172,6 +172,46 @@ Each entry should include:
 - **Solution**: Rewritten: `env:` pins with `# renovate:` markers mirroring `versions.yaml`, the cluster comes from `task localdev:kind` (node image from `images.kind-node`), and `kind-argocd` is required with a 45-minute timeout
 - **Prevention**: Every pinned tool in a workflow carries a Renovate marker; `docs/runbooks/verification.md` "Tooling" lists the files that must agree
 
+### 2026-09-13 - gitops-test skill still carried prod-mutating commands and the production domain
+- **Issue**: After ADR-009 "retired" Tiers 3–4, `.claude/skills/gitops-test/SKILL.md` still contained complete `kubectl apply` / `kubectl patch application ... targetRevision` / `argocd app sync --force` recipes against the live cluster (marked human-only), plus a webhook section naming the production ArgoCD hostname
+- **Root Cause**: The skill was annotated rather than rewritten; an agent following a code block does not read the banner above it
+- **Solution**: Rewritten around the verification contract (level-0 hook, Kind levels 1–2, PR claim, read-only production via `homelab-readonly`); every apply/patch/sync/repoint command and the domain removed (issue #261 item 22, ADR-014)
+- **Prevention**: `pr-contract.yml` and the hook make the contract executable; agents read production only through the read-only context
+
+### 2026-09-13 - `localdev:sync --warm` / `--only` could hang forever on a fresh cluster
+- **Issue**: On a fresh Kind cluster `task drill:restore` (and `task localdev:warm`) sometimes never finished: the sync loop ended, and the final pass waited indefinitely on `addons`, whose operation stayed Running
+- **Root Cause**: `syncLoop` in `scripts/localdev-argocd.ts` ended as soon as nothing was active and `nextTier` found no unsynced Application. A parent still holding a sync wave open (e.g. traefik's wave 7) creates its later-wave children only after that wave is Healthy, so they appeared after the loop had already stopped and nobody synced them. A full sync hid it because applications-tier work kept the loop busy
+- **Solution**: Before ending, the loop checks `parentsAwaitingWaves` (parents whose operation is Running) and keeps polling until their next children appear or the operations settle, bounded by the sync timeout (issue #261, found by the restore drill)
+- **Prevention**: Unit test for `parentsAwaitingWaves`; the weekly `restore-drill.yml` runs `sync --warm` on a fresh runner every week
+
+### 2026-09-13 - `task test:e2e` ran chainsaw against the current kube context
+- **Issue**: `test:e2e` invoked `chainsaw test` without `--kube-context`, so a workstation whose current context was production would have created test namespaces, Jobs and a CNPG Cluster there — against ADR-009, which every other localdev script honours by pinning `kind-homelab-localdev`
+- **Solution**: `--kube-context kind-homelab-localdev` on `test:e2e` and `test:drill` (level 2's `homelab verify all --level 2` already passed it)
+- **Prevention**: Every task that mutates a cluster names the Kind context explicitly
+
+### 2026-09-13 - Chart versions in production silently diverged from `configuration/versions.yaml`
+- **Issue**: `versions.yaml` is documented as the single source of truth and Renovate bumps it, but four homelab Applications rendered other versions: `renovate` 46.49.0 (versions.yaml 46.106.12), `argocd` (argo-cd) 9.4.7 (9.5.17), `onepassword-operator` (connect) 1.16.0 (onepassword-connect 2.4.1) and `port-forwarding-controller` 1.1.1 (`unifi-port-forward: "1.1.x"`). The Kind loop installs ArgoCD from `versions.yaml`, so CI tested a different ArgoCD than production runs, and Renovate's "bumps" of those keys never reached the cluster
+- **Root Cause**: `helm-apps.tmpl` never emitted the renovate chart version, so the `charts/applications/values.yaml` placeholder shipped; `charts/bootstrap` is rendered with plain Helm (Terraform root Application), not the CMP, so `versions.yaml` cannot reach its pins at all; nothing compared rendered versions with `versions.yaml`
+- **Solution**: New level-0 check `versions/<env>`: every chart-sourced Application must render a version present in `versions.yaml`, unless listed with a reason in `tests/gitops/version-drift.yaml`. The renovate template now emits its version (production Renovate moves to 46.106.12 on merge) and the port-forward pin is exact. The two bootstrap drifts are registered, not aligned: aligning them upgrades production ArgoCD and 1Password Connect (a major version) and is the owner's decision
+- **Prevention**: The check fails on any new silent drift and on stale registry entries
+
+### 2026-09-13 - Renovate automerge rules would let GitHub merge before CI ran
+- **Issue**: The patch rule and the GitHub Actions rule in `.github/renovate.json5` set `platformAutomerge: true`, while the `main` ruleset requires no status checks: had repository auto-merge ever been enabled, GitHub would have merged those PRs the moment they were mergeable, before any workflow finished. Latent only because the repository has `allow_auto_merge: false`. The patch rule's `matchCurrentVersion: '!/^0/'` also let `v0.x` versions through
+- **Root Cause**: Platform automerge delegates the "checks passed" decision to branch protection, which has no required checks here
+- **Solution**: `platformAutomerge: false` everywhere, so Renovate merges itself only when every status is green (including the Kind loop and the new `upgrade/automerge-gate`); `matchCurrentVersion: '!/^v?0\\./'` (issue #261 item 19, ADR-014)
+- **Prevention**: Any new automerge rule keeps `platformAutomerge: false` until the ruleset lists required checks
+
+### 2026-09-13 - CMP shared one `/tmp/generated-values.yaml` across concurrent renders and rendered base values after a failed export
+- **Issue**: `cmp/plugin.yaml` wrote every `config export` to the fixed path `/tmp/generated-values.yaml` while the plugin declares `allowConcurrency: true`, so two Applications generating at once (addons and applications on every refresh) could render with each other's values; and without `set -e` a failed `homelab config export` still ran `helm template` with only the chart's base values
+- **Root Cause**: The generate script predates concurrent generation and treated the export as best effort
+- **Solution**: `set -eu`, a per-render `mktemp` file removed by a `trap`, and a non-zero exit when the export fails (issue #261 item 16, the same change that forwards the preview parameters)
+- **Prevention**: `sh -n`/`dash -n` plus a fake-binary run of the script; the CMP parity test (`task test:cmp-parity`) exercises the image
+
+### 2026-09-13 - ADR-011 still said CloudNativePG is off in Kind
+- **Issue**: ADR-011's Kind sizing list said "cloudnative-pg and argo-workflows off" after ADR-012 turned cloudnative-pg on in Kind for the CNPG e2e test
+- **Solution**: Annotated ADR-011 with the later decisions (ADR-012, ADR-014) instead of rewriting history
+- **Prevention**: When a later ADR reverses part of an earlier one, add a pointer to the earlier entry in the same PR
+
 ### Known Common Errors (from CLAUDE.md)
 
 These are documented errors with known solutions:

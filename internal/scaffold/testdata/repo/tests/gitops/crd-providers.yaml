@@ -1,0 +1,14 @@
+# Fixture CRD providers.
+---
+providers:
+  postgresql.cnpg.io: cloudnative-pg
+  argoproj.io:
+    app: argo-workflows
+    skipKinds:
+      - Application
+
+# Namespaces the cluster always provides.
+systemNamespaces:
+  - argocd
+  - default
+  - kube-system

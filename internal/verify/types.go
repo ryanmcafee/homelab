@@ -153,12 +153,69 @@ type Env struct {
 	// applications parents (mirrors the CMP). When false those parents render
 	// with values.yaml + values-<Name>.yaml (mirrors plain-Helm ArgoCD mode).
 	TwoStage bool
+	// ValuesEnv, when set, replaces Name as the values-file suffix
+	// (values-<ValuesEnv>.yaml) for charts that are not rendered two-stage.
+	ValuesEnv string
+	// Charts restricts the env to these chart directory names; empty renders
+	// every chart. A parent a selected chart inherits values from is still
+	// rendered, inherit-only (no checks, no snapshot).
+	Charts []string
+	// Preview renders the env's Charts in per-PR preview mode, mirroring
+	// cmp/plugin.yaml with PREVIEW_PR/PREVIEW_APPS set: --set-string
+	// global.preview.pr=PreviewPR and global.preview.apps=<every
+	// global.preview.allowedApps entry of charts/applications/values.yaml>.
+	Preview bool
+	// SkipGitOpsRules maps a gitops rule id to the detail of the skip check
+	// the env reports instead of running that rule.
+	SkipGitOpsRules map[string]string
 }
+
+// PreviewPR is the pull request number the homelab-preview env renders.
+const PreviewPR = "123"
 
 // Envs lists the level-0 environments in render order.
 var Envs = []Env{
 	{Name: "localdev", ConfigSet: "localdev", EnvFile: "configuration/environments/localdev.yaml", TwoStage: false},
 	{Name: "homelab", ConfigSet: "homelab", EnvFile: "configuration/environments/homelab.yaml.example", TwoStage: true},
+	// The applications chart as the preview-pr<N> Application of the
+	// `previews` ApplicationSet renders it (charts/gitops, docs/runbooks/previews.md).
+	{
+		Name: "homelab-preview", ConfigSet: "homelab", EnvFile: "configuration/environments/homelab.yaml.example",
+		TwoStage: true, ValuesEnv: "homelab", Charts: []string{"applications"}, Preview: true,
+		SkipGitOpsRules: map[string]string{
+			"repo-secrets": "provided by the homelab env: a preview renders no repository Secret and pulls its OCI charts through the ones the homelab applications render creates",
+		},
+	},
+}
+
+// Renders reports whether the env renders the named chart.
+func (e Env) Renders(chart string) bool {
+	if len(e.Charts) == 0 {
+		return true
+	}
+	for _, c := range e.Charts {
+		if c == chart {
+			return true
+		}
+	}
+	return false
+}
+
+// valuesName is the suffix of the env's values-<name>.yaml files.
+func (e Env) valuesName() string {
+	if e.ValuesEnv != "" {
+		return e.ValuesEnv
+	}
+	return e.Name
+}
+
+// EnvNames lists the name of every level-0 environment, in render order.
+func EnvNames() []string {
+	names := make([]string, 0, len(Envs))
+	for _, e := range Envs {
+		names = append(names, e.Name)
+	}
+	return names
 }
 
 // EnvByName looks up an Env.
@@ -180,7 +237,7 @@ func ParseEnvs(list string) ([]Env, error) {
 	for _, n := range splitComma(list) {
 		e, ok := EnvByName(n)
 		if !ok {
-			return nil, fmt.Errorf("unknown environment %q (want one of localdev, homelab)", n)
+			return nil, fmt.Errorf("unknown environment %q (want one of %s)", n, strings.Join(EnvNames(), ", "))
 		}
 		out = append(out, e)
 	}

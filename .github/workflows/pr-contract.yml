@@ -1,0 +1,145 @@
+name: PR contract
+
+# Verification claim (issue #261 item 22, docs/runbooks/verification.md "Agent
+# contract"). Every pull request states in its description the level-0 result
+# its author saw: `task verify:claim` prints a `<!-- verify-level0 -->` block.
+# This workflow re-runs level 0 on the PR head and fails when the claim is
+# missing or disagrees with it (same check names, no pass<->fail difference,
+# same overall result; skip<->pass is reported, not failed).
+#
+# The PR body reaches the script only through `env:` (PR_BODY). It is never
+# expanded inside a `run:` script: the body is attacker-controlled text and
+# `${{ }}` in a script is a shell-injection vector.
+#
+# Skipped for Renovate (renovate/* heads: a bot writes no claim; upgrade.yml
+# gates bumps) and for drafts (runs again on ready_for_review). No paths
+# filter: the claim is part of every pull request.
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened, ready_for_review]
+
+concurrency:
+  group: pr-contract-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+# Same pins as verify.yml's level-0 job, each with a Renovate marker so bumps
+# land here too. HELM_VERSION must match configuration/versions.yaml
+# `tools.helm`: the snapshot checks are byte-exact.
+env:
+  # renovate: datasource=golang-version depName=go
+  GO_VERSION: '1.25'
+  # renovate: datasource=github-releases depName=helm/helm
+  HELM_VERSION: 'v4.3.0'
+  # renovate: datasource=github-releases depName=yannh/kubeconform
+  KUBECONFORM_VERSION: 'v0.7.0'
+  # renovate: datasource=github-releases depName=open-policy-agent/conftest
+  CONFTEST_VERSION: '0.70.0'
+  # renovate: datasource=github-releases depName=FairwindsOps/pluto
+  PLUTO_VERSION: '5.24.3'
+  # renovate: datasource=github-releases depName=go-task/task
+  TASK_VERSION: 'v3.46.4'
+
+jobs:
+  claim:
+    name: Verification claim matches level 0
+    if: github.event.pull_request.draft == false && !startsWith(github.head_ref, 'renovate/')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      # Sticky comment only.
+      pull-requests: write
+    steps:
+      # The claim is made on the PR head, so compare against the head, not the
+      # merge commit (verify.yml verifies the merge result).
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5
+        with:
+          version: ${{ env.HELM_VERSION }}
+
+      - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
+        with:
+          deno-version: v2.x
+
+      - name: Install kubeconform, conftest, pluto, task
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/bin"
+          export PATH="$HOME/bin:$PATH"
+          curl -sSL --retry 5 --retry-all-errors --retry-delay 3 "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz" | tar -xz -C "$HOME/bin" kubeconform
+          curl -sSL --retry 5 --retry-all-errors --retry-delay 3 "https://github.com/open-policy-agent/conftest/releases/download/v${CONFTEST_VERSION}/conftest_${CONFTEST_VERSION}_Linux_x86_64.tar.gz" | tar -xz -C "$HOME/bin" conftest
+          curl -sSL --retry 5 --retry-all-errors --retry-delay 3 "https://github.com/FairwindsOps/pluto/releases/download/v${PLUTO_VERSION}/pluto_${PLUTO_VERSION}_linux_amd64.tar.gz" | tar -xz -C "$HOME/bin" pluto
+          go install "github.com/go-task/task/v3/cmd/task@${TASK_VERSION}"
+          echo "$HOME/bin" >> "$GITHUB_PATH"
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - name: Cache kubeconform core schemas
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ~/.cache/homelab-kubeconform
+          key: kubeconform-${{ hashFiles('configuration/versions.yaml') }}
+
+      # A failing level 0 is not a contract failure by itself (an honest claim
+      # can say "fail"; verify.yml gates that), so this step never fails.
+      - name: task verify (level 0 on the PR head)
+        run: |
+          set +e
+          task verify > verify-level0.raw
+          echo "task verify exited $?"
+          # task prints its own failure line after the JSON; keep only the object.
+          sed -n '/^{/,/^}/p' verify-level0.raw > verify-level0.json
+          if ! jq -e . verify-level0.json >/dev/null 2>&1; then
+            cat verify-level0.raw
+            echo "::error::level 0 produced no JSON result; see the log above."
+          fi
+          exit 0
+
+      - name: Compare with the claim in the PR description
+        id: compare
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set +e
+          deno run --allow-read --allow-env=PR_BODY scripts/verify-claim.ts compare \
+            --actual verify-level0.json --ref "${HEAD_SHA:0:7}" > claim-result.md
+          rc=$?
+          cat claim-result.md >> "$GITHUB_STEP_SUMMARY"
+          echo "rc=$rc" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Upload level-0 JSON
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: verify-claim-level0
+          path: verify-level0.json
+          retention-days: 14
+          if-no-files-found: ignore
+
+      # Fork PRs get a read-only GITHUB_TOKEN; the job summary still carries
+      # the verdict there.
+      - name: Sticky comment with the verdict
+        if: always() && steps.compare.outputs.rc != '' && github.event.pull_request.head.repo.full_name == github.repository
+        continue-on-error: true
+        uses: marocchino/sticky-pull-request-comment@5770ad5eb8f42dd2c4f34da00c94c5381e49af88 # v3.0.5
+        with:
+          header: verify-claim
+          path: claim-result.md
+
+      - name: Fail on a missing or mismatched claim
+        if: steps.compare.outputs.rc != '0'
+        run: |
+          echo "::error::The level-0 claim in the PR description is missing or does not match CI. Run 'task verify:claim' on the PR head and paste its output into the Verification section (see the job summary)."
+          exit 1

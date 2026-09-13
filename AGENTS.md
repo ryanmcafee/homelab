@@ -89,32 +89,42 @@ The `/gitops-test` skill MUST be invoked automatically in these scenarios:
 
 | Trigger Condition | Action |
 |-------------------|--------|
-| Modified `charts/**/*`, `configuration/**`, `tests/**` | Run `task verify:text` (level 0) before commit; fix every finding |
-| ArgoCD accessibility issue | Use tiered debugging approach |
-| ArgoCD sync failures | Validate templates and dry-run |
-| After committing GitOps changes | Push, open the PR, and read the `verify.yml` (level 0) and `tilt-ci` checks |
-| Before creating GitOps PRs | Paste the `task verify` JSON summary in the PR body |
+| Edit/Write/MultiEdit of `charts/**` or `configuration/**` | Automatic: the PostToolUse hook (`.claude/settings.json` → `scripts/claude-verify-hook.ts`) runs level 0 and returns failures as feedback; fix every finding before the next step |
+| Modified `tests/**`, `localdev/**`, `internal/verify/**` (not watched by the hook) | Run `task verify:text` (level 0); fix every finding |
+| ArgoCD sync failure or unhealthy Application on Kind | `task localdev:diagnose`, fix, `task localdev:sync -- --only <app>`, `task verify:text LEVEL=2` |
+| ArgoCD or production question | Read-only only: `task verify:prod`, `task prod:status`, `task prod:diff -- <app>` (`docs/runbooks/readonly-access.md`) |
+| Before creating or updating a GitOps PR | `task verify:claim` → paste the block into the PR body's Verification section |
+| After pushing | `gh pr checks --watch`: `verify.yml` (level 0), `pr-contract.yml` (claim = CI), `tilt-ci.yml` (Kind level 2 + report), `upgrade.yml` (version bumps) |
 
 **Do NOT wait for explicit `/gitops-test` command** - invoke proactively when conditions match.
 
 ### Validation Flow After Chart Changes
 
 ```
-1. Make changes to charts/**, configuration/** or tests/**
-2. Run `task verify:text` (level 0: render, kubeconform, gitops graph, snapshots, policy)
-3. If the render changed on purpose: `task test:snapshot -- --update`
-4. Level 1 on Kind: `task localdev:kind && task verify:text LEVEL=1`
+1. Edit charts/** or configuration/**: the PostToolUse hook runs level 0 after every edit
+   (silent on pass; failures come back as feedback). Edits to tests/**, localdev/** or
+   internal/verify/** are not watched: run `task verify:text` yourself.
+   HOMELAB_VERIFY_HOOK=off only for a long mechanical edit series, then `task verify:text`.
+2. If the render changed on purpose: review the diff, `task test:snapshot -- --update`
+3. Level 1 on Kind: `task localdev:kind && task verify:text LEVEL=1`
    (server-side dry run of every localdev chart: dryrun/localdev/<chart>)
-5. Level 2 on Kind: `task localdev:up && task verify:text LEVEL=2`
+4. Level 2 on Kind: `task localdev:up && task verify:text LEVEL=2`
    (every Application Healthy + Succeeded, chainsaw e2e: argocd/<app>, e2e/<test>);
-   `task localdev:diagnose` on failure, `task localdev:sync -- --only <app>` to re-sync one
-6. Commit (the pre-commit hook re-runs level 0)
-7. Push to a feature branch and create the PR with the `task verify` JSON summary
-8. Watch `gh pr checks` (verify.yml level 0 + tilt-ci.yml kind-argocd level 2);
-   never apply to or repoint production to test
+   `task localdev:diagnose` on failure, `task localdev:sync -- --only <app>` to re-sync one,
+   `task localdev:report` for the working tree vs main
+5. Commit (the pre-commit hook re-runs level 0)
+6. `task verify:claim` on the final tree; paste the block into the PR body (Verification section)
+7. Push to a feature branch, create the PR, `gh pr checks --watch`:
+   verify.yml (level 0), pr-contract.yml (the claim matches CI's level 0 on the head),
+   tilt-ci.yml kind-argocd (level 2 + sticky Kind report), upgrade.yml for version bumps.
+   Refresh the claim after any push that changes the result.
+8. Optional preview on the homelab cluster: ask the maintainer to add the `preview` and
+   `preview:<app>` labels (docs/runbooks/previews.md)
+9. After merge, observe production read-only: `task verify:prod`, `task prod:status`,
+   `task prod:diff -- <app>`. Never apply to, patch, sync or repoint production
 ```
 
-Agents may mutate only Kind clusters (ADR-009). Production is verified through merge -> ArgoCD -> CI/notifications.
+Agents may mutate only Kind clusters (ADR-009). Production is verified through merge -> ArgoCD -> CI/notifications, and read through the `homelab-readonly` context only.
 
 ## Installed Subagents (VoltAgent)
 

@@ -1,0 +1,12 @@
+# expect: Healthy
+# message: [[ .Kind ]] is Ready
+apiVersion: [[ .Group ]]/[[ .Version ]]
+kind: [[ .Kind ]]
+metadata:
+  name: example
+  namespace: [[ .Namespace ]]
+status:
+  conditions:
+    - type: Ready
+      status: "True"
+      lastTransitionTime: "2026-09-13T00:00:00Z"

@@ -1,0 +1,9 @@
+# Applications Chart - Default Values (fixture)
+
+global:
+  environment: homelab
+  domain: example.com
+
+sonarr:
+  enabled: true
+  namespace: media

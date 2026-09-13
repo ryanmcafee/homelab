@@ -1,0 +1,9 @@
+apiVersion: v2
+name: agent-readonly
+description: >-
+  Read-only Kubernetes identity for agents (issue #261 item 18): ServiceAccount + long-lived token Secret,
+  bound to the built-in view ClusterRole and to homelab-agent-readonly (get/list/watch on cluster-scoped
+  objects and the custom-resource groups this repo deploys). No Secrets, no write verbs.
+type: application
+version: 1.0.0
+appVersion: "1.0"

@@ -1,0 +1,9 @@
+# Addons Chart - Default Values (fixture)
+
+global:
+  environment: homelab
+  domain: example.com
+
+cloudnative-pg:
+  enabled: false
+  namespace: cloudnative-pg

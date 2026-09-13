@@ -1,0 +1,31 @@
+-- [[ .Kind ]] ([[ .Group ]]), scaffolded by `homelab scaffold app [[ .App ]]`:
+-- Healthy once the controller reports condition Ready=True, Degraded on
+-- Ready=False, Progressing until it reports either. Adapt it when the operator
+-- reports health differently (status.phase, observedGeneration, ...).
+-- "" is truthy in Lua, so fall back explicitly instead of relying on `or`.
+local function messageOr(condition, fallback)
+  if condition.message ~= nil and condition.message ~= "" then
+    return condition.message
+  end
+  return fallback
+end
+
+hs = {}
+hs.status = "Progressing"
+hs.message = "Waiting for [[ .Kind ]] to report a Ready condition"
+if obj.status ~= nil and obj.status.conditions ~= nil then
+  for _, condition in ipairs(obj.status.conditions) do
+    if condition.type == "Ready" then
+      if condition.status == "True" then
+        hs.status = "Healthy"
+        hs.message = messageOr(condition, "[[ .Kind ]] is Ready")
+      elseif condition.status == "False" then
+        hs.status = "Degraded"
+        hs.message = messageOr(condition, "[[ .Kind ]] is not Ready")
+      else
+        hs.message = messageOr(condition, "Ready condition is Unknown")
+      end
+    end
+  end
+end
+return hs

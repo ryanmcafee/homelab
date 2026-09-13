@@ -1,0 +1,374 @@
+diff --git a/charts/addons/templates/demo-oci.yaml b/charts/addons/templates/demo-oci.yaml
+new file mode 100644
+--- /dev/null
++++ b/charts/addons/templates/demo-oci.yaml
+@@ -0,0 +1,85 @@
++{{- /*
++demo-oci (helm pattern), scaffolded by:
++  homelab scaffold app demo-oci --pattern helm --tier addons --chart-repo oci://ghcr.io/example/charts --chart-version 0.1.0 --wave 11
++Chart, version, values and smoke URL come from the `demo-oci:` block of
++configuration/templates/helm-addons.tmpl; charts/addons/values.yaml only holds
++placeholders. See docs/apps/demo-oci.md.
++*/}}
++{{- $app := index .Values "demo-oci" }}
++{{- if $app.enabled }}
++{{- /*
++One Application with the upstream chart and a PostSync smoke hook; there is no
++demo-oci-config child. Add charts/demo-oci-config (and a demo-oci-config
++Application in a different wave) only when the app needs objects the upstream
++chart cannot render, e.g. a static PV for existing data (see sonarr).
++*/}}
++---
++# Namespace demo-oci: nothing else renders it, and the smoke Job below
++# lands in it before the Application's CreateNamespace=true would.
++apiVersion: v1
++kind: Namespace
++metadata:
++  name: {{ $app.namespace }}
++  annotations:
++    argocd.argoproj.io/sync-wave: "-1"
++---
++# ArgoCD repository credential for the OCI registry (anonymous pull). ArgoCD only
++# pulls OCI charts from a registry it has a repository Secret for
++# (rule gitops/<env>/repo-secrets).
++apiVersion: v1
++kind: Secret
++metadata:
++  name: demo-oci-oci
++  namespace: argocd
++  labels:
++    argocd.argoproj.io/secret-type: repository
++  annotations:
++    argocd.argoproj.io/sync-wave: "-1"
++stringData:
++  name: demo-oci
++  type: helm
++  url: {{ $app.chart.repo }}
++  enableOCI: "true"
++---
++apiVersion: argoproj.io/v1alpha1
++kind: Application
++metadata:
++  name: demo-oci
++  namespace: argocd
++  annotations:
++    argocd.argoproj.io/sync-wave: "11"
++  finalizers:
++    - resources-finalizer.argocd.argoproj.io
++spec:
++  project: default
++  source:
++    repoURL: {{ $app.chart.repo }}
++    chart: {{ $app.chart.name }}
++    targetRevision: {{ $app.chart.version | quote }}
++    helm:
++      releaseName: demo-oci
++      {{- with $app.values }}
++      values: |
++        {{- toYaml . | nindent 8 }}
++      {{- end }}
++  destination:
++    server: https://kubernetes.default.svc
++    namespace: {{ $app.namespace }}
++
++  syncPolicy:
++    {{- if $.Values.global.automatedSync }}
++    automated:
++      prune: true
++      selfHeal: true
++    {{- end }}
++    syncOptions:
++      - CreateNamespace=true
++      - ServerSideApply=true
++    retry:
++      limit: 5
++      backoff:
++        duration: 5s
++        factor: 2
++        maxDuration: 3m
++{{- include "homelab.smokeJob" (dict "name" "demo-oci" "namespace" $app.namespace "smoke" $app.smoke "wave" "11" "image" $.Values.global.images.curl) }}
++{{- end }}
+diff --git a/charts/addons/values.yaml b/charts/addons/values.yaml
+--- a/charts/addons/values.yaml
++++ b/charts/addons/values.yaml
+@@ -7,3 +7,29 @@
+ cloudnative-pg:
+   enabled: false
+   namespace: cloudnative-pg
++
++# ============================================================================
++# demo-oci - upstream Helm chart (scaffolded)
++# homelab scaffold app demo-oci --pattern helm --tier addons --chart-repo oci://ghcr.io/example/charts --chart-version 0.1.0 --wave 11
++# Sync Wave: 11
++# ============================================================================
++# Placeholders only: configuration/templates/helm-addons.tmpl generates the real
++# values for every environment (the CMP in homelab, values-localdev.yaml in Kind).
++
++demo-oci:
++  enabled: false
++  namespace: demo-oci
++
++  # ArgoCD source: repoURL (no oci:// scheme for OCI registries), chart name and
++  # version. configuration/versions.yaml charts.demo-oci is the only place to bump it.
++  chart:
++    name: demo-oci
++    repo: ghcr.io/example/charts
++    # Placeholder; configuration/versions.yaml charts.demo-oci wins at render time.
++    version: "0.1.0"
++
++  # Handed verbatim to the upstream chart (spec.source.helm.values).
++  values: {}
++
++  smoke:
++    enabled: false
+diff --git a/configuration/schema/network.schema.yaml b/configuration/schema/network.schema.yaml
+--- a/configuration/schema/network.schema.yaml
++++ b/configuration/schema/network.schema.yaml
+@@ -12,3 +12,8 @@
+   GRAFANA_HOSTNAME:
+     description: Grafana dashboard hostname
+     const: "grafana.{{.DOMAIN}}"
++
++  # demo-oci (scaffolded by `homelab scaffold app demo-oci`)
++  DEMO_OCI_HOSTNAME:
++    description: demo-oci hostname
++    const: "demo-oci.{{.DOMAIN}}"
+diff --git a/configuration/templates/helm-addons.tmpl b/configuration/templates/helm-addons.tmpl
+--- a/configuration/templates/helm-addons.tmpl
++++ b/configuration/templates/helm-addons.tmpl
+@@ -15,3 +15,65 @@
+ {{- if $localdev }}
+   replicaCount: 1
+ {{- end }}
++
++# ============================================================================
++# demo-oci - upstream Helm chart (scaffolded)
++# homelab scaffold app demo-oci --pattern helm --tier addons --chart-repo oci://ghcr.io/example/charts --chart-version 0.1.0 --wave 11
++# Sync Wave: 11
++# ============================================================================
++
++demo-oci:
++  enabled: true
++  namespace: demo-oci
++
++  # ArgoCD source: repoURL (no oci:// scheme for OCI registries), chart name and
++  # version. configuration/versions.yaml charts.demo-oci is the only place to bump it.
++  chart:
++    name: demo-oci
++    repo: ghcr.io/example/charts
++    version: "{{ index .Versions.Charts "demo-oci" }}"
++
++  # Handed verbatim to the upstream chart (spec.source.helm.values), in the
++  # `helm create` layout most charts follow: rename the keys to what the
++  # chart's own values.yaml expects.
++  values:
++{{- if $localdev }}
++    # Kind sizing: one replica, small footprint
++    replicaCount: 1
++    resources:
++      requests:
++        cpu: 50m
++        memory: 64Mi
++      limits:
++        cpu: 250m
++        memory: 256Mi
++{{- else }}
++    resources:
++      requests:
++        cpu: 100m
++        memory: 128Mi
++      limits:
++        cpu: 500m
++        memory: 512Mi
++{{- end }}
++    ingress:
++      enabled: true
++      className: {{ .Values.INGRESS_CLASS_INTERNAL.Value }}
++      annotations:
++        cert-manager.io/cluster-issuer: letsencrypt
++      hosts:
++        - host: {{ .Values.DEMO_OCI_HOSTNAME.Value }}
++          paths:
++            - path: /
++              pathType: Prefix
++      tls:
++        - secretName: demo-oci-tls
++          hosts:
++            - {{ .Values.DEMO_OCI_HOSTNAME.Value }}
++
++  # PostSync smoke hook (charts/addons/templates/_smoke.tpl): curl the
++  # in-cluster Service after sync; expect lists the accepted HTTP codes.
++  smoke:
++    enabled: true
++    url: http://demo-oci.demo-oci.svc.cluster.local:80/
++    expect: ["200"]
+diff --git a/configuration/versions.yaml b/configuration/versions.yaml
+--- a/configuration/versions.yaml
++++ b/configuration/versions.yaml
+@@ -5,6 +5,8 @@
+   cloudnative-pg: "0.28.3"
+   sonarr: "25.6.3"
+   unifi-port-forward: "1.1.x"
++  # renovate: datasource=docker depName=ghcr.io/example/charts/demo-oci
++  demo-oci: "0.1.0"
+ images:
+   curl: "8.22.0"
+ tools:
+diff --git a/docs/apps/demo-oci.md b/docs/apps/demo-oci.md
+new file mode 100644
+--- /dev/null
++++ b/docs/apps/demo-oci.md
+@@ -0,0 +1,33 @@
++# demo-oci
++
++Pattern: upstream Helm chart (helm), parent chart `charts/addons`. Scaffolded with:
++
++```bash
++homelab scaffold app demo-oci --pattern helm --tier addons --chart-repo oci://ghcr.io/example/charts --chart-version 0.1.0 --wave 11
++```
++
++## Generated
++
++| Path | Purpose |
++|------|---------|
++| `charts/addons/templates/demo-oci.yaml` | ArgoCD Application(s): demo-oci |
++| `charts/addons/values.yaml` | placeholder values block |
++| `configuration/schema/network.schema.yaml` | `DEMO_OCI_HOSTNAME` hostname key |
++| `configuration/templates/helm-addons.tmpl` | values for every environment (version, sizing, hostname, smoke URL) |
++| `configuration/versions.yaml` | chart version with its Renovate marker |
++| `tests/e2e/demo-oci/chainsaw-test.yaml` | chainsaw e2e test |
++
++## Before the first PR
++
++- [ ] Adapt the `values:` block in `configuration/templates/helm-addons.tmpl` to the chart's own values
++- [ ] Check that `smoke.url` (`http://demo-oci.demo-oci.svc.cluster.local:80/`) names the chart's Service and port
++- [ ] Seed any Secret 1Password provides in homelab in `localdev/fakes/secrets.yaml`
++- [ ] Replace this checklist with what the app does and how to operate it
++
++## Verify
++
++```bash
++task verify:text                                   # level 0
++task localdev:up && task verify:text LEVEL=2       # Kind: Healthy + Succeeded, e2e
++task test:e2e -- --test-dir tests/e2e/demo-oci
++```
+diff --git a/tests/e2e/demo-oci/chainsaw-test.yaml b/tests/e2e/demo-oci/chainsaw-test.yaml
+new file mode 100644
+--- /dev/null
++++ b/tests/e2e/demo-oci/chainsaw-test.yaml
+@@ -0,0 +1,115 @@
++---
++# Scaffolded by `homelab scaffold app demo-oci`; see tests/e2e/README.md.
++apiVersion: chainsaw.kyverno.io/v1alpha1
++kind: Test
++metadata:
++  name: demo-oci
++spec:
++  description: >-
++    demo-oci / answers through the internal Traefik with Host demo-oci.homelab.local.
++  steps:
++    - name: applications-healthy
++      description: The ArgoCD Applications behind this test are Healthy and their last sync Succeeded.
++      try:
++        - assert:
++            resource:
++              apiVersion: argoproj.io/v1alpha1
++              kind: Application
++              metadata:
++                name: demo-oci
++                namespace: argocd
++              status:
++                health:
++                  status: Healthy
++                operationState:
++                  phase: Succeeded
++      catch:
++        - describe:
++            apiVersion: argoproj.io/v1alpha1
++            kind: Application
++            name: demo-oci
++            namespace: argocd
++    - name: curl-demo-oci
++      description: >-
++        A curl Job must get one of [200]
++        from https://demo-oci.homelab.local/ via traefik-internal.traefik.svc.cluster.local.
++      timeouts:
++        assert: 5m
++      try:
++        - apply:
++            resource:
++              apiVersion: batch/v1
++              kind: Job
++              metadata:
++                name: curl-demo-oci
++              spec:
++                backoffLimit: 0
++                activeDeadlineSeconds: 300
++                template:
++                  spec:
++                    restartPolicy: Never
++                    securityContext:
++                      runAsNonRoot: true
++                      runAsUser: 100
++                      seccompProfile:
++                        type: RuntimeDefault
++                    containers:
++                      - name: curl
++                        # pinned from configuration/versions.yaml images.curl
++                        image: curlimages/curl:8.22.0
++                        securityContext:
++                          allowPrivilegeEscalation: false
++                          capabilities:
++                            drop: ["ALL"]
++                        resources:
++                          requests:
++                            cpu: 10m
++                            memory: 32Mi
++                          limits:
++                            cpu: 100m
++                            memory: 64Mi
++                        env:
++                          - name: HOST
++                            value: "demo-oci.homelab.local"
++                          - name: GATEWAY
++                            value: "traefik-internal.traefik.svc.cluster.local"
++                          - name: URL_PATH
++                            value: "/"
++                          - name: EXPECT
++                            value: "200"
++                          - name: ATTEMPTS
++                            value: "20"
++                        command: ["sh", "-c"]
++                        args:
++                          - |
++                            set -u
++                            i=1
++                            while [ "$i" -le "$ATTEMPTS" ]; do
++                              code=$(curl -sk -o /dev/null -w '%{http_code}' -L --max-redirs 5 --max-time 20 \
++                                --connect-to "$HOST:443:$GATEWAY:443" --connect-to "$HOST:80:$GATEWAY:80" \
++                                "https://$HOST$URL_PATH")
++                              echo "attempt $i/$ATTEMPTS: HTTP $code for https://$HOST$URL_PATH via $GATEWAY"
++                              for ok in $EXPECT; do [ "$code" = "$ok" ] && exit 0; done
++                              i=$((i + 1))
++                              sleep 6
++                            done
++                            echo "giving up: last HTTP code $code, expected one of: $EXPECT"
++                            exit 1
++        - assert:
++            resource:
++              apiVersion: batch/v1
++              kind: Job
++              metadata:
++                name: curl-demo-oci
++              status:
++                succeeded: 1
++      catch:
++        - events: {}
++        - podLogs:
++            selector: job-name=curl-demo-oci
++            tail: 50
++        - describe:
++            apiVersion: argoproj.io/v1alpha1
++            kind: Application
++            name: demo-oci
++            namespace: argocd

@@ -39,6 +39,57 @@ global:
   images:
     curl: "8.22.0"
 
+  # Per-PR preview mode (docs/runbooks/previews.md, templates/_preview.tpl).
+  # Off while pr is empty. Never set pr/apps in a values file: the CMP passes
+  # them with --set-string from the PREVIEW_PR / PREVIEW_APPS plugin env of the
+  # preview-pr<N> Application that the `previews` ApplicationSet
+  # (charts/gitops/templates/previews-applicationset.yaml) generates per
+  # labelled pull request. In preview mode the chart renders only the selected
+  # apps as <app>-pr<N> Applications in namespace preview-<N> (project
+  # previews), with ephemeral storage (every persistence entry, config
+  # included, is an emptyDir: config is lost when a preview pod restarts and a
+  # torn-down preview leaves no PV or TrueNAS dataset), no *-config children
+  # and a quota'd namespace.
+  preview:
+    # Pull request number (digits). Empty = normal render.
+    pr: ""
+    # Comma-separated apps from the PR's preview:<app> labels. Empty = defaultApps.
+    apps: ""
+    # Apps a preview may run. Every entry's template must use the
+    # homelab.preview.* helpers; the others never render in preview mode.
+    allowedApps:
+      - sonarr
+      - radarr
+      - prowlarr
+      - nzbget
+      - tautulli
+      - lazylibrarian
+      - flaresolverr
+    defaultApps:
+      - sonarr
+    # ResourceQuota of the preview namespace. Sized for every allowedApp at
+    # once (their limits sum to ~6 CPU / ~9.3Gi) plus the smoke Jobs. The two
+    # zero storage entries make "a preview claims no volume" an admission-time
+    # guarantee, not only a template convention.
+    quota:
+      requests.cpu: "4"
+      requests.memory: 8Gi
+      limits.cpu: "12"
+      limits.memory: 16Gi
+      persistentvolumeclaims: "0"
+      requests.storage: "0"
+      pods: "30"
+      services.loadbalancers: "0"
+      services.nodeports: "0"
+    # LimitRange defaults for containers that set no resources.
+    limitRange:
+      defaultLimits:
+        cpu: 500m
+        memory: 512Mi
+      defaultRequests:
+        cpu: 50m
+        memory: 64Mi
+
   # Default storage class for persistent volumes
   storageClass: democratic-csi-nfs
 

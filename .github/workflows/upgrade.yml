@@ -1,0 +1,384 @@
+name: Upgrade verification
+
+# Renovate-aware upgrade verification (issue #261 item 19). Level 0 renders this
+# repository's charts only; an Application that points at an upstream chart
+# (spec.source.chart + inline values) is checked as an Application object, so a
+# chart bump is one changed targetRevision line. This workflow shows what the
+# bump actually deploys.
+#
+#   upgrade     `homelab verify upgrade` renders every upstream chart whose
+#               Application chart source differs between the base branch and
+#               this PR, at both sides, and diffs the normalised manifests. The
+#               runner then regenerates the localdev values and re-vendors the
+#               CRD schemas in its own working tree and re-runs the level-0
+#               render + kubeconform for homelab and localdev, proving every
+#               custom resource still validates against the new CRDs. Nothing is
+#               committed. The report is the sticky `upgrade-diff` comment. On
+#               renovate/* heads the job sets the `upgrade/automerge-gate`
+#               commit status: success only when no rendered manifest changed
+#               and revalidation passed. Renovate (platformAutomerge false)
+#               automerges only when every status is green.
+#   regenerate  renovate/* heads only, and only when the regeneration bot's
+#               GitHub App secrets (HOMELAB_BOT_APP_ID, HOMELAB_BOT_PRIVATE_KEY)
+#               exist; otherwise a notice. Regenerates the committed localdev
+#               values, tests/schemas and tests/snapshots and pushes one commit
+#               as homelab-regen-bot with an App token. Unlike GITHUB_TOKEN, an
+#               App-token push triggers the other workflows, and renovate.json5
+#               lists the author in gitIgnoredAuthors so Renovate keeps managing
+#               the branch. This supersedes the verify.yml "no auto-commit"
+#               stance for this bot only; human PRs are never committed to.
+
+on:
+  pull_request:
+    paths:
+      - 'configuration/versions.yaml'
+      - 'charts/**'
+      - '.github/workflows/upgrade.yml'
+
+concurrency:
+  group: upgrade-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+# Same pins and Renovate markers as verify.yml. helm must match
+# configuration/versions.yaml tools.helm: the regenerated snapshots are
+# byte-exact.
+env:
+  # renovate: datasource=golang-version depName=go
+  GO_VERSION: '1.25'
+  # renovate: datasource=github-releases depName=helm/helm
+  HELM_VERSION: 'v4.3.0'
+  # renovate: datasource=github-releases depName=yannh/kubeconform
+  KUBECONFORM_VERSION: 'v0.7.0'
+  # renovate: datasource=github-releases depName=FairwindsOps/pluto
+  PLUTO_VERSION: '5.24.3'
+  # renovate: datasource=github-releases depName=go-task/task
+  TASK_VERSION: 'v3.46.4'
+  REGEN_BOT_NAME: homelab-regen-bot
+  REGEN_BOT_EMAIL: homelab-regen-bot@users.noreply.github.com
+
+jobs:
+  upgrade:
+    name: Upstream chart diff and CRD revalidation
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      # The sticky upgrade-diff comment.
+      pull-requests: write
+      # upgrade/automerge-gate on renovate/* head commits.
+      statuses: write
+    steps:
+      # Full history: verify upgrade checks the base branch out into a
+      # temporary git worktree.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5
+        with:
+          version: ${{ env.HELM_VERSION }}
+
+      - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
+        with:
+          deno-version: v2.x
+
+      - name: Install kubeconform, pluto, task
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/bin"
+          curl -sSL --retry 5 --retry-all-errors --retry-delay 3 "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz" | tar -xz -C "$HOME/bin" kubeconform
+          curl -sSL --retry 5 --retry-all-errors --retry-delay 3 "https://github.com/FairwindsOps/pluto/releases/download/v${PLUTO_VERSION}/pluto_${PLUTO_VERSION}_linux_amd64.tar.gz" | tar -xz -C "$HOME/bin" pluto
+          go install "github.com/go-task/task/v3/cmd/task@${TASK_VERSION}"
+          echo "$HOME/bin" >> "$GITHUB_PATH"
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - name: Cache kubeconform core schemas
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ~/.cache/homelab-kubeconform
+          key: kubeconform-${{ hashFiles('configuration/versions.yaml') }}
+
+      # The checkout is the PR merge commit, so base..HEAD is exactly this
+      # PR's change. The report is bounded to fit one PR comment; the JSON
+      # carries every diff line up to --max-diff-lines per check.
+      - name: Upstream manifest diff
+        id: upgrade
+        env:
+          BASE: ${{ github.base_ref }}
+        run: |
+          set +e
+          task verify:upgrade -- --base "origin/${BASE}" --json \
+            --report upgrade-report.md --report-max-bytes 50000 > upgrade.raw.json
+          code=$?
+          set -e
+          # task prints its own failure line after the JSON; keep only the object.
+          sed -n '/^{/,/^}/p' upgrade.raw.json > upgrade.json
+          if ! jq -e '.checks' upgrade.json > /dev/null 2>&1; then
+            echo "::error::verify upgrade produced no JSON result (exit ${code})"
+            echo '{"pass":false,"checks":[]}' > upgrade.json
+          fi
+          [ -f upgrade-report.md ] || printf '## Upstream chart upgrade diff\n\nverify upgrade did not complete (exit %s); see the job log.\n' "$code" > upgrade-report.md
+          echo "pass=$(jq -r '.pass' upgrade.json)" >> "$GITHUB_OUTPUT"
+
+      # Proves the custom resources this repo renders still validate against
+      # the CRDs of the bumped charts. The regeneration happens in the
+      # runner's tree only: localdev values first (they embed chart versions
+      # and feed the localdev render), then the CRD schemas.
+      - name: Re-vendor CRD schemas and revalidate every custom resource
+        id: revalidate
+        if: always() && steps.upgrade.conclusion != 'skipped'
+        run: |
+          set +e
+          ok=true
+          task config:export:localdev || ok=false
+          task schemas:vendor || ok=false
+          go run ./cmd/homelab verify render --env homelab,localdev --json > revalidate.raw.json
+          sed -n '/^{/,/^}/p' revalidate.raw.json > revalidate.json
+          if ! jq -e '.pass == true' revalidate.json > /dev/null 2>&1; then
+            ok=false
+          fi
+          jq -e '.checks' revalidate.json > /dev/null 2>&1 || echo '{"pass":false,"checks":[]}' > revalidate.json
+          set -e
+          {
+            echo
+            echo '## CRD revalidation'
+            echo
+            echo 'The runner regenerated the localdev values (`task config:export:localdev`), re-vendored `tests/schemas` from this branch'"'"'s `versions.yaml` (`task schemas:vendor`) and re-ran `homelab verify render --env homelab,localdev` (helm lint skipped by nothing, kubeconform against the new CRD schemas, pluto). Nothing was committed.'
+            echo
+            if [ "$ok" = true ]; then
+              echo "**Result:** PASS ($(jq '.checks | length' revalidate.json) checks)"
+            else
+              echo "**Result:** FAIL"
+              echo
+              jq -r '.checks[] | select(.status == "fail") | "- `\(.name)`: \(.detail // "")" + ((.findings // [])[:10] | map("\n  - " + (.[:300])) | join(""))' revalidate.json
+            fi
+            changed="$(git status --porcelain -- tests/schemas charts/addons/values-localdev.yaml charts/applications/values-localdev.yaml | head -40)"
+            if [ -n "$changed" ]; then
+              echo
+              echo 'Files this bump needs regenerated and committed (`task config:export:localdev`, `task schemas:vendor`, `task test:snapshot -- --update`):'
+              echo
+              echo '```'
+              echo "$changed"
+              echo '```'
+            fi
+          } >> upgrade-report.md
+          echo "pass=$ok" >> "$GITHUB_OUTPUT"
+
+      # success only when every upgrade/* check passed with an "unchanged"
+      # detail (upgrade/base aside) and revalidation passed. A manifest diff,
+      # a skipped comparison or a failed render all block automerge.
+      - name: Automerge gate decision
+        id: gate
+        if: always()
+        env:
+          REVALIDATED: ${{ steps.revalidate.outputs.pass }}
+        run: |
+          state=failure
+          if ! jq -e '(.checks | length) > 0' upgrade.json > /dev/null 2>&1; then
+            description="upgrade verification did not complete - automerge blocked"
+          elif ! jq -e '[.checks[] | select(.name | startswith("upgrade/")) | select(.name != "upgrade/base")]
+                         | all(.status == "pass" and (.detail | startswith("unchanged")))' upgrade.json > /dev/null; then
+            description="rendered manifests changed - human review required, automerge blocked"
+          elif [ "$REVALIDATED" != "true" ]; then
+            description="CRD revalidation failed - automerge blocked"
+          else
+            state=success
+            description="no rendered manifest changes"
+          fi
+          echo "state=$state" >> "$GITHUB_OUTPUT"
+          echo "description=$description" >> "$GITHUB_OUTPUT"
+          {
+            echo
+            echo "**Automerge gate** (\`upgrade/automerge-gate\`, set on renovate/* branches): \`${state}\` - ${description}."
+          } >> upgrade-report.md
+          head -c 900000 upgrade-report.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Set upgrade/automerge-gate on the head commit
+        if: >-
+          always() && startsWith(github.head_ref, 'renovate/') &&
+          github.event.pull_request.head.repo.full_name == github.repository
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ github.event.pull_request.head.sha }}
+          STATE: ${{ steps.gate.outputs.state || 'failure' }}
+          DESCRIPTION: ${{ steps.gate.outputs.description || 'upgrade verification did not complete - automerge blocked' }}
+          TARGET: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh api --method POST "repos/${GITHUB_REPOSITORY}/statuses/${SHA}" \
+            -f state="$STATE" -f context=upgrade/automerge-gate \
+            -f description="$DESCRIPTION" -f target_url="$TARGET" > /dev/null
+          echo "upgrade/automerge-gate=${STATE} on ${SHA}"
+
+      - name: Sticky comment with the upgrade report
+        if: >-
+          always() && hashFiles('upgrade-report.md') != '' &&
+          github.event.pull_request.head.repo.full_name == github.repository
+        uses: marocchino/sticky-pull-request-comment@5770ad5eb8f42dd2c4f34da00c94c5381e49af88 # v3.0.5
+        with:
+          header: upgrade-diff
+          path: upgrade-report.md
+
+      - name: Upload the upgrade report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: upgrade-report
+          path: |
+            upgrade-report.md
+            upgrade.json
+            revalidate.json
+          if-no-files-found: ignore
+          retention-days: 14
+
+      # A manifest diff is information, not a failure; a render that fails at
+      # head or a custom resource that no longer validates is.
+      - name: Fail on a failed upgrade check or revalidation
+        if: always()
+        env:
+          UPGRADE_PASS: ${{ steps.upgrade.outputs.pass }}
+          REVALIDATED: ${{ steps.revalidate.outputs.pass }}
+        run: |
+          ok=true
+          if [ "$UPGRADE_PASS" != "true" ]; then
+            jq -r '.checks[]? | select(.status == "fail") | "\(.name): \(.detail // "")"' upgrade.json
+            echo "::error::verify upgrade failed: an upstream chart or this repository does not render at the PR head."
+            ok=false
+          fi
+          if [ "$REVALIDATED" != "true" ]; then
+            echo "::error::CRD revalidation failed: see the CRD revalidation section of the report."
+            ok=false
+          fi
+          [ "$ok" = true ]
+
+  regenerate:
+    name: Regenerate snapshots, schemas and localdev values (Renovate)
+    if: >-
+      startsWith(github.head_ref, 'renovate/') &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # GITHUB_TOKEN stays read-only; the push uses the App token.
+    permissions:
+      contents: read
+    steps:
+      # Secrets cannot appear in a job-level `if`, so presence is checked here.
+      - name: Check for the regeneration bot credentials
+        id: bot
+        env:
+          APP_ID: ${{ secrets.HOMELAB_BOT_APP_ID }}
+          PRIVATE_KEY: ${{ secrets.HOMELAB_BOT_PRIVATE_KEY }}
+        run: |
+          if [ -z "$APP_ID" ] || [ -z "$PRIVATE_KEY" ]; then
+            echo "::notice title=Regeneration bot not configured::HOMELAB_BOT_APP_ID and HOMELAB_BOT_PRIVATE_KEY are not set, so nothing is regenerated. Run task config:export:localdev, task schemas:vendor and task test:snapshot -- --update locally, or configure the bot (docs/runbooks/verification.md, Renovate bumps)."
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # app-id is deprecated in favour of client-id in v3 but still accepted;
+      # switch the input when the secret holds the App's client ID.
+      - name: Mint a GitHub App token
+        id: app-token
+        if: steps.bot.outputs.enabled == 'true'
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.HOMELAB_BOT_APP_ID }}
+          private-key: ${{ secrets.HOMELAB_BOT_PRIVATE_KEY }}
+          permission-contents: write
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        if: steps.bot.outputs.enabled == 'true'
+        with:
+          ref: ${{ github.head_ref }}
+          token: ${{ steps.app-token.outputs.token }}
+          fetch-depth: 2
+
+      # Loop guard: the bot's own push triggers this workflow again. Also skip
+      # when the branch moved past the commit this run was triggered for; the
+      # run for the newer commit regenerates.
+      - name: Loop guard
+        id: guard
+        if: steps.bot.outputs.enabled == 'true'
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          run=true
+          if [ "$(git rev-parse HEAD)" != "$HEAD_SHA" ]; then
+            echo "::notice::The branch moved past ${HEAD_SHA}; the run for the newer commit regenerates."
+            run=false
+          elif [ "$(git log -1 --format=%ae)" = "$REGEN_BOT_EMAIL" ]; then
+            echo "::notice::The head commit is already the regeneration bot's; nothing to do."
+            run=false
+          fi
+          echo "run=$run" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        if: steps.guard.outputs.run == 'true'
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5
+        if: steps.guard.outputs.run == 'true'
+        with:
+          version: ${{ env.HELM_VERSION }}
+
+      - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
+        if: steps.guard.outputs.run == 'true'
+        with:
+          deno-version: v2.x
+
+      - name: Install task
+        if: steps.guard.outputs.run == 'true'
+        run: |
+          go install "github.com/go-task/task/v3/cmd/task@${TASK_VERSION}"
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      # Order matters: the localdev render reads the committed localdev values,
+      # so they are regenerated before the snapshots.
+      - name: Regenerate
+        if: steps.guard.outputs.run == 'true'
+        run: |
+          task config:export:localdev
+          task schemas:vendor
+          task test:snapshot -- --update
+
+      - name: Commit and push as the regeneration bot
+        if: steps.guard.outputs.run == 'true'
+        env:
+          BRANCH: ${{ github.head_ref }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          paths="tests/snapshots tests/schemas charts/addons/values-localdev.yaml charts/applications/values-localdev.yaml"
+          # shellcheck disable=SC2086
+          if [ -z "$(git status --porcelain -- $paths)" ]; then
+            echo "::notice::Snapshots, schemas and localdev values are already current."
+            exit 0
+          fi
+          other="$(git status --porcelain | awk '{print $2}' | while read -r f; do
+            case "$f" in tests/snapshots/*|tests/schemas/*|charts/addons/values-localdev.yaml|charts/applications/values-localdev.yaml) ;; *) echo "$f" ;; esac
+          done)"
+          if [ -n "$other" ]; then
+            echo "::warning::Regeneration also touched files outside its scope; they are not committed: ${other}"
+          fi
+          # shellcheck disable=SC2086
+          git add -A -- $paths
+          git -c user.name="$REGEN_BOT_NAME" -c user.email="$REGEN_BOT_EMAIL" commit \
+            -m "chore(deps): regenerate snapshots, schemas and localdev values" \
+            -m "Generated by .github/workflows/upgrade.yml (job regenerate) for ${HEAD_SHA}."
+          if ! git push origin "HEAD:refs/heads/${BRANCH}"; then
+            remote="$(git ls-remote origin "refs/heads/${BRANCH}" | awk '{print $1}')"
+            if [ "$remote" != "$HEAD_SHA" ]; then
+              echo "::notice::${BRANCH} moved during regeneration (now ${remote}); the run for that commit regenerates."
+              exit 0
+            fi
+            echo "::error::Pushing the regenerated files to ${BRANCH} failed."
+            exit 1
+          fi
+          git log -1 --stat --format='%H %an <%ae>%n%s'

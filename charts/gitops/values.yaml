@@ -217,3 +217,51 @@ ignoreDifferences: []
 # Health check configuration
 healthChecks:
   enabled: true
+
+# ============================================================================
+# ArgoCD Notifications (deploy status on the merged PR)
+# ============================================================================
+
+notifications:
+  # Subscribe the bootstrap, addons and applications Applications to the
+  # GitHub notifier: commit status argocd/<app> on the synced revision plus one
+  # upserted comment per Application on the PR that produced it. The notifier
+  # itself is configured by charts/bootstrap (argocd.notificationsGithub.enabled);
+  # both flags stay false until the GitHub App and its 1Password item exist
+  # (docs/runbooks/readonly-access.md). Flip the bootstrap flag first.
+  github: false
+  # Triggers defined in charts/bootstrap argocd.notificationsGithub.notifications.
+  triggers:
+    - on-deployed
+    - on-sync-failed
+    - on-health-degraded
+
+# ============================================================================
+# Per-PR Preview Environments (issue #261 item 16)
+# ============================================================================
+
+previews:
+  # Renders the `previews` AppProject and ApplicationSet
+  # (templates/previews-*.yaml). Homelab only (values-homelab.yaml): Kind has
+  # no GitHub pull-request flow and syncs from the working tree.
+  # docs/runbooks/previews.md
+  enabled: false
+  # After the applications parent (homelab wave 10), whose truecharts-oci
+  # repository Secret the preview Applications pull through.
+  appProjectSyncWave: "11"
+  applicationSetSyncWave: "12"
+  github:
+    owner: ryanmcafee
+    repo: homelab
+    # A pull request gets a preview while it carries every label listed here.
+    labels:
+      - preview
+    # Optional Secret in namespace argocd holding a GitHub token. The repo is
+    # public, so anonymous requests work (60/hour; polling every 300s uses
+    # about 12). Empty name = anonymous.
+    tokenSecret:
+      name: ""
+      key: token
+  # Poll interval in seconds: GitHub webhooks cannot reach the internal-only
+  # ArgoCD ingress.
+  requeueAfterSeconds: 300

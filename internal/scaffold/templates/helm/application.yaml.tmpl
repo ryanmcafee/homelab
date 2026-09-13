@@ -1,0 +1,11 @@
+[[- template "appHeader" . ]]
+{{- /*
+One Application with the upstream chart and a PostSync smoke hook; there is no
+[[ .Name ]]-config child. Add charts/[[ .Name ]]-config (and a [[ .Name ]]-config
+Application in a different wave) only when the app needs objects the upstream
+chart cannot render, e.g. a static PV for existing data (see sonarr).
+*/}}
+[[- template "namespace" . ]]
+[[- template "repoSecret" . ]]
+[[- template "mainApp" . ]]
+{{- end }}

@@ -1,0 +1,6 @@
+# Fixture huge-CRD charts.
+---
+charts:
+  - cert-manager
+  - cloudnative-pg
+  - traefik-external

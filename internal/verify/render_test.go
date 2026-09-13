@@ -327,6 +327,11 @@ func TestRenderValuesArgsPerEnv(t *testing.T) {
 	// The inherited file holds exactly the valuesObject, marshalled
 	// deterministically, and the per-env check accounts for it.
 	for _, env := range Envs {
+		// homelab-preview renders only charts/applications, so it never
+		// inherits values for an addons child.
+		if !env.Renders("tailscale-config") {
+			continue
+		}
 		raw, err := os.ReadFile(filepath.Join(outDir, env.Name, "_inherited", "tailscale-config.yaml"))
 		if err != nil {
 			t.Fatalf("%s inherited file: %v", env.Name, err)
@@ -915,6 +920,11 @@ func TestPerEnvKubeconformCacheDirs(t *testing.T) {
 	})
 
 	for _, env := range Envs {
+		// homelab-preview renders only charts/applications: no addons, no
+		// kubeconform run for this chart filter.
+		if !env.Renders("addons") {
+			continue
+		}
 		want := "-cache " + filepath.Join(cacheDir, env.Name)
 		if _, ok := fr.find("kubeconform", want); !ok {
 			t.Errorf("no kubeconform invocation with %q; recorded:\n%s", want, fr.dump())
@@ -1528,13 +1538,17 @@ func TestRenderAllChartsForBothEnvs(t *testing.T) {
 	if len(out.Charts) < 20 {
 		t.Fatalf("expected the repo's chart set, got %d", len(out.Charts))
 	}
+	expected := ExpectedSnapshots(Envs, out.Charts)
 	for _, env := range Envs {
-		if len(out.Files[env.Name]) != len(out.Charts) {
-			t.Errorf("env %s: rendered %d files, want %d", env.Name, len(out.Files[env.Name]), len(out.Charts))
+		if len(out.Files[env.Name]) != len(expected[env.Name]) {
+			t.Errorf("env %s: rendered %d files, want %d", env.Name, len(out.Files[env.Name]), len(expected[env.Name]))
 		}
 	}
 	for _, c := range out.Charts {
 		for _, env := range Envs {
+			if !env.Renders(c.Name) {
+				continue
+			}
 			got := checkByName(t, res, "render/"+env.Name+"/"+c.Name)
 			if got.Status != StatusPass {
 				t.Errorf("render/%s/%s: status %s", env.Name, c.Name, got.Status)

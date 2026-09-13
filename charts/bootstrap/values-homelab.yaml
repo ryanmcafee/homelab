@@ -93,3 +93,109 @@ argocd:
         limits:
           cpu: 100m
           memory: 128Mi
+
+    # Read-only API account for agents (issue #261 item 18,
+    # docs/runbooks/readonly-access.md): API key only (no UI login), bound to
+    # the built-in role:readonly (get on applications, projects, clusters,
+    # repositories, logs; never sync, exec or delete). A human generates its
+    # token with `argocd account generate-token --account agent` and stores it
+    # in 1Password; `task prod:diff` reads it from there.
+    configs:
+      cm:
+        accounts.agent: apiKey
+      rbac:
+        policy.csv: |
+          g, agent, role:readonly
+      # Per-PR previews (issue #261 item 16, docs/runbooks/previews.md): the
+      # controller and server also reconcile Applications in preview-*
+      # namespaces ("apps in any namespace"). Only the `previews` AppProject
+      # (charts/gitops) accepts them (sourceNamespaces: preview-*).
+      params:
+        application.namespaces: "preview-*"
+
+  # GitHub deploy notifications (issue #261 item 18): commit status
+  # argocd/<app> on the synced revision and one upserted comment per
+  # Application on the PR that produced it. OFF until the GitHub App and its
+  # 1Password item exist (docs/runbooks/readonly-access.md): when on, the
+  # OnePasswordItem must resolve or it goes Degraded and takes the bootstrap
+  # Application with it. templates/argocd.yaml merges `notifications` into
+  # argocd.values.notifications only when enabled, and
+  # templates/argocd-notifications-secret.yaml renders the OnePasswordItem.
+  # The subscriptions are a second flag, notifications.github in
+  # charts/gitops/values-homelab.yaml; flip this one first.
+  notificationsGithub:
+    enabled: false
+    # 1Password item whose fields become the argocd-notifications-secret keys
+    # github-appID, github-installationID and github-privateKey.
+    onePasswordItemPath: "vaults/homelab/items/argocd-notifications-github"
+    notifications:
+      secret:
+        # The OnePasswordItem produces argocd-notifications-secret.
+        create: false
+      notifiers:
+        service.github: |
+          appID: $github-appID
+          installationID: $github-installationID
+          privateKey: $github-privateKey
+      templates:
+        template.app-deployed: |
+          message: |
+            {{.app.metadata.name}} is Synced and Healthy in homelab.
+          github:
+            revisionPath: "{{.app.status.operationState.syncResult.revision}}"
+            status:
+              state: success
+              label: "argocd/{{.app.metadata.name}}"
+              targetURL: "{{.context.argocdUrl}}/applications/{{.app.metadata.name}}?operation=true"
+            pullRequestComment:
+              commentTag: "argocd/{{.app.metadata.name}}"
+              content: |
+                :white_check_mark: **argocd/{{.app.metadata.name}}** deployed `{{.app.status.operationState.syncResult.revision}}` to homelab (operation {{.app.status.operationState.phase}}, health {{.app.status.health.status}}).
+                Details (tailnet only): {{.context.argocdUrl}}/applications/{{.app.metadata.name}}?operation=true
+        template.app-sync-failed: |
+          message: |
+            {{.app.metadata.name}} failed to sync in homelab.
+          github:
+            revisionPath: "{{.app.status.sync.revision}}"
+            status:
+              state: error
+              label: "argocd/{{.app.metadata.name}}"
+              targetURL: "{{.context.argocdUrl}}/applications/{{.app.metadata.name}}?operation=true"
+            pullRequestComment:
+              commentTag: "argocd/{{.app.metadata.name}}"
+              content: |
+                :x: **argocd/{{.app.metadata.name}}** failed to sync `{{.app.status.sync.revision}}` to homelab (operation {{.app.status.operationState.phase}}): {{.app.status.operationState.message}}
+                Details (tailnet only): {{.context.argocdUrl}}/applications/{{.app.metadata.name}}?operation=true
+        template.app-health-degraded: |
+          message: |
+            {{.app.metadata.name}} is Degraded in homelab.
+          github:
+            revisionPath: "{{.app.status.sync.revision}}"
+            status:
+              state: failure
+              label: "argocd/{{.app.metadata.name}}"
+              targetURL: "{{.context.argocdUrl}}/applications/{{.app.metadata.name}}"
+            pullRequestComment:
+              commentTag: "argocd/{{.app.metadata.name}}"
+              content: |
+                :warning: **argocd/{{.app.metadata.name}}** is Degraded at `{{.app.status.sync.revision}}` in homelab: {{.app.status.health.message}}
+                Details (tailnet only): {{.context.argocdUrl}}/applications/{{.app.metadata.name}}
+      triggers:
+        trigger.on-deployed: |
+          - description: Application is synced and healthy. Triggered once per commit.
+            oncePer: app.status.operationState?.syncResult?.revision
+            send:
+              - app-deployed
+            when: app.status.operationState != nil and app.status.operationState.phase in ['Succeeded'] and app.status.health.status == 'Healthy'
+        trigger.on-sync-failed: |
+          - description: Application syncing has failed. Triggered once per commit.
+            oncePer: app.status.sync.revision
+            send:
+              - app-sync-failed
+            when: app.status.operationState != nil and app.status.operationState.phase in ['Error', 'Failed']
+        trigger.on-health-degraded: |
+          - description: Application has degraded. Triggered once per commit.
+            oncePer: app.status.sync.revision
+            send:
+              - app-health-degraded
+            when: app.status.health.status == 'Degraded'

@@ -1,4 +1,5 @@
-{{- if .Values.flaresolverr.enabled }}
+{{- if include "homelab.preview.appEnabled" (dict "root" . "app" "flaresolverr") }}
+{{- if not (include "homelab.preview.enabled" .) }}
 ---
 # FlareSolverr Config: deploys static PV+PVC for flaresolverr persistent storage
 apiVersion: argoproj.io/v1alpha1
@@ -36,18 +37,19 @@ spec:
       - CreateNamespace=true
       - ServerSideApply=true
       - SkipDryRunOnMissingResource=true
+{{- end }}
 ---
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: flaresolverr
-  namespace: argocd
+  name: {{ include "homelab.preview.appName" (dict "root" . "app" "flaresolverr") }}
+  namespace: {{ include "homelab.preview.appNamespace" . }}
   annotations:
     argocd.argoproj.io/sync-wave: "12"
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
-  project: default
+  project: {{ include "homelab.preview.project" . }}
   source:
     repoURL: oci.trueforge.org/truecharts
     chart: {{ .Values.flaresolverr.chart.name }}
@@ -62,12 +64,12 @@ spec:
 
         {{- if .Values.flaresolverr.persistence }}
         persistence:
-          {{- toYaml .Values.flaresolverr.persistence | nindent 10 }}
+          {{- include "homelab.preview.persistence" (dict "root" . "persistence" .Values.flaresolverr.persistence) | nindent 10 }}
         {{- end }}
 
         {{- if .Values.flaresolverr.ingress }}
         ingress:
-          {{- toYaml .Values.flaresolverr.ingress | nindent 10 }}
+          {{- include "homelab.preview.hosts" (dict "root" . "text" (toYaml .Values.flaresolverr.ingress)) | nindent 10 }}
         {{- end }}
 
         {{- if .Values.flaresolverr.TZ }}
@@ -81,7 +83,7 @@ spec:
 
   destination:
     server: https://kubernetes.default.svc
-    namespace: {{ .Values.flaresolverr.namespace }}
+    namespace: {{ include "homelab.preview.destNamespace" (dict "root" . "namespace" .Values.flaresolverr.namespace) }}
 
   # Ignore TrueCharts dynamic fields and Kubernetes defaults
   ignoreDifferences:
@@ -109,5 +111,5 @@ spec:
         duration: 5s
         factor: 2
         maxDuration: 3m
-{{- include "homelab.smokeJob" (dict "name" "flaresolverr" "namespace" .Values.flaresolverr.namespace "smoke" .Values.flaresolverr.smoke "wave" "12" "image" .Values.global.images.curl) }}
+{{- include "homelab.smokeJob" (dict "name" "flaresolverr" "namespace" (include "homelab.preview.destNamespace" (dict "root" . "namespace" .Values.flaresolverr.namespace)) "smoke" (include "homelab.preview.smoke" (dict "root" . "smoke" .Values.flaresolverr.smoke "namespace" .Values.flaresolverr.namespace) | fromYaml) "wave" "12" "image" .Values.global.images.curl) }}
 {{- end }}

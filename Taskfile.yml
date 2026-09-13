@@ -91,6 +91,11 @@ tasks:
     cmds:
       - deno run --allow-net --allow-run --allow-env --allow-read --allow-write scripts/localdev-argocd.ts diagnose {{.CLI_ARGS}}
 
+  localdev:report:
+    desc: Markdown report of the Kind loop (Application table, level-2 summary, argocd app diff vs main); tilt-ci.yml posts it on PRs
+    cmds:
+      - deno run --allow-net --allow-run --allow-env --allow-read --allow-write scripts/localdev-argocd.ts report {{.CLI_ARGS}}
+
   localdev:ui:
     desc: "ArgoCD UI at http://localhost:8080 via kubectl port-forward (Docker Desktop cannot deliver the NodePort through Cilium; admin password: task k8s:argocd-password)"
     cmds:
@@ -691,7 +696,7 @@ tasks:
   test:e2e:
     desc: Declarative Kind e2e tests (chainsaw) against the running localdev cluster (task test:e2e -- --test-dir tests/e2e/plex)
     cmds:
-      - chainsaw test --config tests/e2e/.chainsaw.yaml tests/e2e {{.CLI_ARGS}}
+      - chainsaw test --kube-context kind-homelab-localdev --config tests/e2e/.chainsaw.yaml tests/e2e {{.CLI_ARGS}}
 
   test:health:
     desc: Exercise every ArgoCD health Lua in charts/bootstrap/files/health against the fixtures in tests/health
@@ -723,6 +728,46 @@ tasks:
     cmds:
       - deno run --allow-net --allow-run --allow-env --allow-read --allow-write scripts/crd-schemas-vendor.ts --check
 
+  verify:upgrade:
+    desc: Render every upstream chart at a base ref and at the working tree and diff the manifests (task verify:upgrade -- --base origin/main)
+    cmds:
+      - go run ./cmd/homelab verify upgrade {{.CLI_ARGS}}
+
+  verify:prod:
+    desc: Read-only Application health of the homelab cluster through the homelab-readonly context (docs/runbooks/readonly-access.md)
+    cmds:
+      - go run ./cmd/homelab verify prod {{.CLI_ARGS}}
+
+  verify:claim:
+    desc: Print the level-0 verification claim block for a PR body (CI re-runs level 0 and compares it)
+    silent: true
+    cmds:
+      - go run ./cmd/homelab verify all --level 0 --json {{.CLI_ARGS}} | deno run --allow-read scripts/verify-claim.ts render
+
+  test:drill:
+    desc: CloudNativePG backup/restore drill (chainsaw, tests/drills) against the running Kind loop
+    cmds:
+      - yq -n '.versitygwImage = "docker.io/versity/versitygw:" + (load("configuration/versions.yaml") | .images.versitygw)' > "${TMPDIR:-/tmp}/homelab-drill-values.yaml"
+      - chainsaw test --kube-context kind-homelab-localdev --config tests/drills/.chainsaw.yaml tests/drills --values "${TMPDIR:-/tmp}/homelab-drill-values.yaml" {{.CLI_ARGS}}
+
+  drill:restore:
+    desc: "Restore drill end to end (what restore-drill.yml runs weekly): Kind -> ArgoCD -> operators (sync --warm) -> tests/drills"
+    cmds:
+      - task: localdev:kind
+      - task: localdev:argocd
+      - deno run --allow-net --allow-run --allow-env --allow-read --allow-write scripts/localdev-argocd.ts sync --warm
+      - task: test:drill
+
+  scaffold:
+    desc: Scaffold a new app (task scaffold -- app <name> --pattern operator|helm|deps-main-config [--dry-run])
+    cmds:
+      - go run ./cmd/homelab scaffold {{.CLI_ARGS}}
+
+  test:scaffold:
+    desc: Scaffold one app per pattern into a temporary copy of the repo and prove level 0 passes there
+    cmds:
+      - deno run --allow-read --allow-write --allow-run --allow-env scripts/scaffold-selftest.ts {{.CLI_ARGS}}
+
   # ==========================================================================
   # Kubernetes Operations
   # ==========================================================================
@@ -739,6 +784,21 @@ tasks:
       - >
         kubectl -n argocd get secret argocd-initial-admin-secret
         -o jsonpath='{.data.password}' | base64 -d
+
+  prod:kubeconfig:
+    desc: Write ~/.kube/homelab-readonly.yaml (read-only ServiceAccount token from 1Password via the Tailscale API server proxy)
+    cmds:
+      - deno run --allow-net --allow-run --allow-env --allow-read --allow-write scripts/prod-readonly.ts kubeconfig {{.CLI_ARGS}}
+
+  prod:status:
+    desc: Read-only ArgoCD Application table of the homelab cluster (context homelab-readonly)
+    cmds:
+      - deno run --allow-net --allow-run --allow-env --allow-read --allow-write scripts/prod-readonly.ts status {{.CLI_ARGS}}
+
+  prod:diff:
+    desc: Read-only argocd app diff against the homelab ArgoCD (read-only agent account; task prod:diff -- <app>)
+    cmds:
+      - deno run --allow-net --allow-run --allow-env --allow-read --allow-write scripts/prod-readonly.ts diff {{.CLI_ARGS}}
 
   # ==========================================================================
   # CI/CD Testing

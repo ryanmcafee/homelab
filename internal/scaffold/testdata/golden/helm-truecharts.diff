@@ -1,0 +1,398 @@
+diff --git a/.github/renovate.json5 b/.github/renovate.json5
+--- a/.github/renovate.json5
++++ b/.github/renovate.json5
+@@ -10,6 +10,7 @@
+       groupName: 'TrueCharts applications',
+       matchPackageNames: [
+         'oci.trueforge.org/truecharts/sonarr',
++        'oci.trueforge.org/truecharts/demo-web',
+       ],
+       matchDatasources: [
+         'docker',
+diff --git a/charts/applications/templates/demo-web.yaml b/charts/applications/templates/demo-web.yaml
+new file mode 100644
+--- /dev/null
++++ b/charts/applications/templates/demo-web.yaml
+@@ -0,0 +1,91 @@
++{{- /*
++demo-web (helm pattern), scaffolded by:
++  homelab scaffold app demo-web --pattern helm --chart-repo oci://oci.trueforge.org/truecharts --chart-version 2.0.0 --port 8080 --health-path /healthz --expect 200,401
++Chart, version, values and smoke URL come from the `demo-web:` block of
++configuration/templates/helm-apps.tmpl; charts/applications/values.yaml only holds
++placeholders. See docs/apps/demo-web.md.
++*/}}
++{{- $app := index .Values "demo-web" }}
++{{- /*
++Preview mode (templates/_preview.tpl, docs/runbooks/previews.md): the app renders
++in a PR preview only once it is listed in global.preview.allowedApps; the
++helpers then rename it, move it to preview-<pr>, rewrite its hosts and give it
++fresh storage.
++*/}}
++{{- if include "homelab.preview.appEnabled" (dict "root" . "app" "demo-web") }}
++{{- $preview := include "homelab.preview.enabled" . }}
++{{- $values := $app.values }}
++{{- if and $preview $values (hasKey $values "persistence") }}
++{{- $values = omit $values "persistence" }}
++{{- $_ := set $values "persistence" (include "homelab.preview.persistence" (dict "root" . "persistence" $app.values.persistence) | fromYaml) }}
++{{- end }}
++{{- $smoke := include "homelab.preview.smoke" (dict "root" . "smoke" $app.smoke "namespace" $app.namespace) | fromYaml }}
++{{- /*
++One Application with the upstream chart and a PostSync smoke hook; there is no
++demo-web-config child. Add charts/demo-web-config (and a demo-web-config
++Application in a different wave) only when the app needs objects the upstream
++chart cannot render, e.g. a static PV for existing data (see sonarr).
++*/}}
++{{- if not $preview }}
++---
++# Namespace demo-web: nothing else renders it, and the smoke Job below
++# lands in it before the Application's CreateNamespace=true would.
++apiVersion: v1
++kind: Namespace
++metadata:
++  name: {{ $app.namespace }}
++  annotations:
++    argocd.argoproj.io/sync-wave: "-1"
++{{- end }}
++---
++apiVersion: argoproj.io/v1alpha1
++kind: Application
++metadata:
++  name: {{ include "homelab.preview.appName" (dict "root" $ "app" "demo-web") }}
++  namespace: {{ include "homelab.preview.appNamespace" $ }}
++  annotations:
++    argocd.argoproj.io/sync-wave: "13"
++  finalizers:
++    - resources-finalizer.argocd.argoproj.io
++spec:
++  project: {{ include "homelab.preview.project" $ }}
++  source:
++    repoURL: {{ $app.chart.repo }}
++    chart: {{ $app.chart.name }}
++    targetRevision: {{ $app.chart.version | quote }}
++    helm:
++      releaseName: demo-web
++      {{- with $values }}
++      values: |
++        {{- include "homelab.preview.hosts" (dict "root" $ "text" (toYaml .)) | nindent 8 }}
++      {{- end }}
++  destination:
++    server: https://kubernetes.default.svc
++    namespace: {{ include "homelab.preview.destNamespace" (dict "root" $ "namespace" $app.namespace) }}
++
++  # Ignore TrueCharts dynamic fields and Kubernetes defaults
++  ignoreDifferences:
++    - group: apps
++      kind: Deployment
++      jqPathExpressions:
++        - .spec.template.metadata.annotations | to_entries | map(select(.key | startswith("checksum/"))) | from_entries
++      jsonPointers:
++        - /spec/template/spec/hostUsers
++
++  syncPolicy:
++    {{- if $.Values.global.automatedSync }}
++    automated:
++      prune: true
++      selfHeal: true
++    {{- end }}
++    syncOptions:
++      - CreateNamespace=true
++      - ServerSideApply=true
++    retry:
++      limit: 5
++      backoff:
++        duration: 5s
++        factor: 2
++        maxDuration: 3m
++{{- include "homelab.smokeJob" (dict "name" "demo-web" "namespace" (include "homelab.preview.destNamespace" (dict "root" $ "namespace" $app.namespace)) "smoke" $smoke "wave" "13" "image" $.Values.global.images.curl) }}
++{{- end }}
+diff --git a/charts/applications/values.yaml b/charts/applications/values.yaml
+--- a/charts/applications/values.yaml
++++ b/charts/applications/values.yaml
+@@ -7,3 +7,29 @@
+ sonarr:
+   enabled: true
+   namespace: media
++
++# ============================================================================
++# demo-web - upstream Helm chart (scaffolded)
++# homelab scaffold app demo-web --pattern helm --chart-repo oci://oci.trueforge.org/truecharts --chart-version 2.0.0 --port 8080 --health-path /healthz --expect 200,401
++# Sync Wave: 13
++# ============================================================================
++# Placeholders only: configuration/templates/helm-apps.tmpl generates the real
++# values for every environment (the CMP in homelab, values-localdev.yaml in Kind).
++
++demo-web:
++  enabled: false
++  namespace: demo-web
++
++  # ArgoCD source: repoURL (no oci:// scheme for OCI registries), chart name and
++  # version. configuration/versions.yaml charts.demo-web is the only place to bump it.
++  chart:
++    name: demo-web
++    repo: oci.trueforge.org/truecharts
++    # Placeholder; configuration/versions.yaml charts.demo-web wins at render time.
++    version: "2.0.0"
++
++  # Handed verbatim to the upstream chart (spec.source.helm.values).
++  values: {}
++
++  smoke:
++    enabled: false
+diff --git a/configuration/schema/applications.schema.yaml b/configuration/schema/applications.schema.yaml
+--- a/configuration/schema/applications.schema.yaml
++++ b/configuration/schema/applications.schema.yaml
+@@ -11,3 +11,8 @@
+   SONARR_HOSTNAME:
+     description: Sonarr hostname
+     const: "sonarr.{{.DOMAIN}}"
++
++  # demo-web (scaffolded by `homelab scaffold app demo-web`)
++  DEMO_WEB_HOSTNAME:
++    description: demo-web hostname
++    const: "demo-web.{{.DOMAIN}}"
+diff --git a/configuration/templates/helm-apps.tmpl b/configuration/templates/helm-apps.tmpl
+--- a/configuration/templates/helm-apps.tmpl
++++ b/configuration/templates/helm-apps.tmpl
+@@ -16,3 +16,71 @@
+     main:
+       hosts:
+         - host: {{ .Values.SONARR_HOSTNAME.Value }}
++
++# ============================================================================
++# demo-web - upstream Helm chart (scaffolded)
++# homelab scaffold app demo-web --pattern helm --chart-repo oci://oci.trueforge.org/truecharts --chart-version 2.0.0 --port 8080 --health-path /healthz --expect 200,401
++# Sync Wave: 13
++# ============================================================================
++
++demo-web:
++  enabled: true
++  namespace: demo-web
++
++  # ArgoCD source: repoURL (no oci:// scheme for OCI registries), chart name and
++  # version. configuration/versions.yaml charts.demo-web is the only place to bump it.
++  chart:
++    name: demo-web
++    repo: oci.trueforge.org/truecharts
++    version: "{{ index .Versions.Charts "demo-web" }}"
++
++  # Handed verbatim to the upstream chart (spec.source.helm.values), in the
++  # TrueCharts common-library layout (compare the sonarr block).
++  values:
++    workload:
++      main:
++        podSpec:
++{{- if $localdev }}
++          # Kind nodes run the host architecture (arm64 on Apple Silicon). Drop the
++          # TrueCharts common default kubernetes.io/arch=amd64 pin; null deletes the
++          # key when helm merges values, so the pod schedules on any node.
++          nodeSelector:
++            kubernetes.io/arch: null
++{{- end }}
++          containers:
++            main:
++              resources:
++                requests:
++                  cpu: 100m
++                  memory: 128Mi
++                limits:
++                  cpu: 500m
++                  memory: 512Mi
++    persistence:
++      config:
++        enabled: true
++        storageClass: {{ .Values.STORAGE_CLASS_ISCSI.Value }}
++        size: 1Gi
++    ingress:
++      main:
++        enabled: true
++        ingressClassName: {{ .Values.INGRESS_CLASS_INTERNAL.Value }}
++        annotations:
++          cert-manager.io/cluster-issuer: letsencrypt
++        hosts:
++          - host: {{ .Values.DEMO_WEB_HOSTNAME.Value }}
++            paths:
++              - path: /
++                pathType: Prefix
++        tls:
++          - secretName: demo-web-tls
++            hosts:
++              - {{ .Values.DEMO_WEB_HOSTNAME.Value }}
++    TZ: {{ .Values.TIMEZONE.Value }}
++
++  # PostSync smoke hook (charts/applications/templates/_smoke.tpl): curl the
++  # in-cluster Service after sync; expect lists the accepted HTTP codes.
++  smoke:
++    enabled: true
++    url: http://demo-web.demo-web.svc.cluster.local:8080/healthz
++    expect: ["200", "401"]
+diff --git a/configuration/versions.yaml b/configuration/versions.yaml
+--- a/configuration/versions.yaml
++++ b/configuration/versions.yaml
+@@ -5,6 +5,8 @@
+   cloudnative-pg: "0.28.3"
+   sonarr: "25.6.3"
+   unifi-port-forward: "1.1.x"
++  # renovate: datasource=docker depName=oci.trueforge.org/truecharts/demo-web
++  demo-web: "2.0.0"
+ images:
+   curl: "8.22.0"
+ tools:
+diff --git a/docs/apps/demo-web.md b/docs/apps/demo-web.md
+new file mode 100644
+--- /dev/null
++++ b/docs/apps/demo-web.md
+@@ -0,0 +1,34 @@
++# demo-web
++
++Pattern: upstream Helm chart (helm), parent chart `charts/applications`. Scaffolded with:
++
++```bash
++homelab scaffold app demo-web --pattern helm --chart-repo oci://oci.trueforge.org/truecharts --chart-version 2.0.0 --port 8080 --health-path /healthz --expect 200,401
++```
++
++## Generated
++
++| Path | Purpose |
++|------|---------|
++| `.github/renovate.json5` | TrueCharts Renovate group |
++| `charts/applications/templates/demo-web.yaml` | ArgoCD Application(s): demo-web |
++| `charts/applications/values.yaml` | placeholder values block |
++| `configuration/schema/applications.schema.yaml` | `DEMO_WEB_HOSTNAME` hostname key |
++| `configuration/templates/helm-apps.tmpl` | values for every environment (version, sizing, hostname, smoke URL) |
++| `configuration/versions.yaml` | chart version with its Renovate marker |
++| `tests/e2e/demo-web/chainsaw-test.yaml` | chainsaw e2e test |
++
++## Before the first PR
++
++- [ ] Adapt the `values:` block in `configuration/templates/helm-apps.tmpl` to the chart's own values
++- [ ] Check that `smoke.url` (`http://demo-web.demo-web.svc.cluster.local:8080/healthz`) names the chart's Service and port
++- [ ] Seed any Secret 1Password provides in homelab in `localdev/fakes/secrets.yaml`
++- [ ] Replace this checklist with what the app does and how to operate it
++
++## Verify
++
++```bash
++task verify:text                                   # level 0
++task localdev:up && task verify:text LEVEL=2       # Kind: Healthy + Succeeded, e2e
++task test:e2e -- --test-dir tests/e2e/demo-web
++```
+diff --git a/tests/e2e/demo-web/chainsaw-test.yaml b/tests/e2e/demo-web/chainsaw-test.yaml
+new file mode 100644
+--- /dev/null
++++ b/tests/e2e/demo-web/chainsaw-test.yaml
+@@ -0,0 +1,115 @@
++---
++# Scaffolded by `homelab scaffold app demo-web`; see tests/e2e/README.md.
++apiVersion: chainsaw.kyverno.io/v1alpha1
++kind: Test
++metadata:
++  name: demo-web
++spec:
++  description: >-
++    demo-web /healthz answers through the internal Traefik with Host demo-web.homelab.local.
++  steps:
++    - name: applications-healthy
++      description: The ArgoCD Applications behind this test are Healthy and their last sync Succeeded.
++      try:
++        - assert:
++            resource:
++              apiVersion: argoproj.io/v1alpha1
++              kind: Application
++              metadata:
++                name: demo-web
++                namespace: argocd
++              status:
++                health:
++                  status: Healthy
++                operationState:
++                  phase: Succeeded
++      catch:
++        - describe:
++            apiVersion: argoproj.io/v1alpha1
++            kind: Application
++            name: demo-web
++            namespace: argocd
++    - name: curl-demo-web
++      description: >-
++        A curl Job must get one of [200, 401]
++        from https://demo-web.homelab.local/healthz via traefik-internal.traefik.svc.cluster.local.
++      timeouts:
++        assert: 5m
++      try:
++        - apply:
++            resource:
++              apiVersion: batch/v1
++              kind: Job
++              metadata:
++                name: curl-demo-web
++              spec:
++                backoffLimit: 0
++                activeDeadlineSeconds: 300
++                template:
++                  spec:
++                    restartPolicy: Never
++                    securityContext:
++                      runAsNonRoot: true
++                      runAsUser: 100
++                      seccompProfile:
++                        type: RuntimeDefault
++                    containers:
++                      - name: curl
++                        # pinned from configuration/versions.yaml images.curl
++                        image: curlimages/curl:8.22.0
++                        securityContext:
++                          allowPrivilegeEscalation: false
++                          capabilities:
++                            drop: ["ALL"]
++                        resources:
++                          requests:
++                            cpu: 10m
++                            memory: 32Mi
++                          limits:
++                            cpu: 100m
++                            memory: 64Mi
++                        env:
++                          - name: HOST
++                            value: "demo-web.homelab.local"
++                          - name: GATEWAY
++                            value: "traefik-internal.traefik.svc.cluster.local"
++                          - name: URL_PATH
++                            value: "/healthz"
++                          - name: EXPECT
++                            value: "200 401"
++                          - name: ATTEMPTS
++                            value: "20"
++                        command: ["sh", "-c"]
++                        args:
++                          - |
++                            set -u
++                            i=1
++                            while [ "$i" -le "$ATTEMPTS" ]; do
++                              code=$(curl -sk -o /dev/null -w '%{http_code}' -L --max-redirs 5 --max-time 20 \
++                                --connect-to "$HOST:443:$GATEWAY:443" --connect-to "$HOST:80:$GATEWAY:80" \
++                                "https://$HOST$URL_PATH")
++                              echo "attempt $i/$ATTEMPTS: HTTP $code for https://$HOST$URL_PATH via $GATEWAY"
++                              for ok in $EXPECT; do [ "$code" = "$ok" ] && exit 0; done
++                              i=$((i + 1))
++                              sleep 6
++                            done
++                            echo "giving up: last HTTP code $code, expected one of: $EXPECT"
++                            exit 1
++        - assert:
++            resource:
++              apiVersion: batch/v1
++              kind: Job
++              metadata:
++                name: curl-demo-web
++              status:
++                succeeded: 1
++      catch:
++        - events: {}
++        - podLogs:
++            selector: job-name=curl-demo-web
++            tail: 50
++        - describe:
++            apiVersion: argoproj.io/v1alpha1
++            kind: Application
++            name: demo-web
++            namespace: argocd
