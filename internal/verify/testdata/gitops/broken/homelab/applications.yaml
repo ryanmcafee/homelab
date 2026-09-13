@@ -1,0 +1,22 @@
+# A second Application named demo in argocd: two parents now fight over the
+# same object (rule unique-names).
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: demo
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "12"
+spec:
+  project: default
+  source:
+    repoURL: https://example.com/charts
+    chart: demo
+    targetRevision: "1.0.0"
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: kube-system
+  syncPolicy:
+    syncOptions:
+      - ServerSideApply=true

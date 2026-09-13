@@ -136,3 +136,5 @@ charts/*-config/values-homelab.generated.yaml
 PII.md
 .serena/project.yml
 .serena/project.yml
+.superpowers/
+.cache/

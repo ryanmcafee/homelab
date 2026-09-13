@@ -199,59 +199,7 @@ jobs:
           echo "=== Application Details ==="
           kubectl get applications -n argocd -o yaml
 
-  # ============================================================================
-  # Job: Helm Chart Validation
-  # ============================================================================
-  helm-lint:
-    name: Helm Chart Linting
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-
-      - name: Install Helm
-        uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5
-        with:
-          version: 'latest'
-
-      - name: Lint Helm charts
-        run: |
-          # Lint each chart directory if it exists and has a Chart.yaml
-          for chart in charts/*/; do
-            if [ -f "${chart}Chart.yaml" ]; then
-              echo "Linting chart: $chart"
-              helm lint "$chart" || exit 1
-            fi
-          done
-
-      - name: Template charts with localdev values
-        run: |
-          # Template charts to ensure they render correctly with localdev values
-          for chart in charts/*/; do
-            if [ -f "${chart}Chart.yaml" ]; then
-              chart_name=$(basename "$chart")
-              echo "Templating chart: $chart_name"
-
-              # Check if localdev values exist
-              if [ -f "${chart}values-localdev.yaml" ]; then
-                helm template "$chart_name" "$chart" \
-                  --values "${chart}values-localdev.yaml" \
-                  --debug \
-                  > /tmp/"${chart_name}-localdev.yaml" || exit 1
-                echo "✓ Successfully templated $chart_name with localdev values"
-              fi
-            fi
-          done
-
-      - name: Upload templated manifests
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: helm-templates
-          path: /tmp/*.yaml
-          retention-days: 7
+  # Helm lint/template/kubeconform moved to .github/workflows/verify.yml (task verify).
 
   # ============================================================================
   # Job: YAML Validation

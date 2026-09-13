@@ -1,0 +1,56 @@
+# CRD providers for `homelab verify gitops` (rule gitops/<env>/crd-order).
+#
+# Each entry maps a Kubernetes API group to the ArgoCD Application that
+# installs that group's CustomResourceDefinitions. The linter then requires
+# every rendered custom resource in the group to sync strictly after that
+# Application, comparing (parent wave, wave) pairs.
+#
+# Two forms are accepted:
+#   <apiGroup>: <application name>
+#   <apiGroup>:
+#     app: <default application name>
+#     kinds:      { <Kind>: <application name> }   # per-kind override
+#     skipKinds:  [ <Kind>, ... ]                  # not ordered at all
+---
+providers:
+  cert-manager.io: cert-manager
+  traefik.io: traefik-external
+  onepassword.com: onepassword-operator
+  tailscale.com: tailscale-operator
+  cilium.io: cilium
+  postgresql.cnpg.io: cloudnative-pg
+  monitoring.coreos.com: kube-prometheus-stack
+  # external-dns ships crds/dnsendpoint.yaml inside the chart (verified against
+  # external-dns 1.21.1, the version pinned in configuration/versions.yaml), so
+  # every Application using that chart installs the DNSEndpoint CRD: helm and
+  # ArgoCD apply a chart's crds/ directory unless told otherwise, and none of
+  # these Applications sets spec.source.helm.skipCrds. The chart has no
+  # crd.create value in this version — the crds/ directory is unconditional.
+  # external-dns-cloudflare-crd is the DNSEndpoint consumer (sources: [crd]),
+  # so it is named here; it and external-dns-cloudflare share wave 4.
+  externaldns.k8s.io: external-dns-cloudflare-crd
+  deviceplugin.intel.com: intel-device-plugins-operator
+  nvidia.com: nvidia-gpu-operator
+  snapshot.storage.k8s.io: democratic-csi
+
+  # argoproj.io carries both the app-of-apps control plane and Argo Workflows
+  # custom resources. Application/AppProject/ApplicationSet CRDs come from the
+  # ArgoCD install that is already running when these manifests are applied,
+  # so they are exempt; Workflow-family resources are provided by the
+  # argo-workflows Application and are ordered normally.
+  argoproj.io:
+    app: argo-workflows
+    skipKinds:
+      - Application
+      - AppProject
+      - ApplicationSet
+
+# Namespaces the cluster always provides. An Application may target one of
+# these without a rendered Namespace or CreateNamespace=true
+# (rule gitops/<env>/namespaces).
+systemNamespaces:
+  - argocd
+  - default
+  - kube-node-lease
+  - kube-public
+  - kube-system

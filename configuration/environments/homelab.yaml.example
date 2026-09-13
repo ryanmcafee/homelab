@@ -2,7 +2,7 @@
 # Copy to homelab.yaml and fill in real values.
 # homelab.yaml is GITIGNORED — never commit it.
 
-DOMAIN: your-domain.com
+DOMAIN: REPLACEME-domain.com
 GATEWAY_IP: "192.168.1.1"
 TRUENAS_IP: "192.168.1.100"
 PROXMOX_IP: "192.168.1.250"
@@ -21,11 +21,11 @@ NFS_SHARE_ALLOW: "192.168.1.0/24"
 # Homelab LAN CIDR advertised onto the tailnet by the Tailscale Connector subnet router
 TAILSCALE_ADVERTISE_ROUTES: "192.168.1.0/24"
 BGP_PEER_IP: "192.168.1.1"
-NFS_MAPALL_USER: your-username
-ACME_EMAIL: admin@your-domain.com
-TRAEFIK_OIDC_ALLOWED_DOMAINS: your-domain.com
-DUCKDNS_SUBDOMAIN: your-subdomain
-EXTERNAL_DNS_DEFAULT_TARGET: your-subdomain.duckdns.org
+NFS_MAPALL_USER: REPLACEME-username
+ACME_EMAIL: admin@REPLACEME-domain.com
+TRAEFIK_OIDC_ALLOWED_DOMAINS: REPLACEME-domain.com
+DUCKDNS_SUBDOMAIN: REPLACEME-subdomain
+EXTERNAL_DNS_DEFAULT_TARGET: REPLACEME-subdomain.duckdns.org
 
 # GPU
 GPU_VENDOR: "nvidia"

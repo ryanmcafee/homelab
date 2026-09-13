@@ -200,6 +200,32 @@ Each decision should include:
 - iSCSI PVCs are ReadWriteOnce only (single-node mount)
 - TrueNAS iSCSI service must be enabled with portal + initiator groups
 
+### ADR-009: Level-0 static verification is the agent gate; no schema skip lists (2026-09-12)
+
+**Context:**
+- The only end-to-end verification ran against production (gitops-test Tiers 3–4 applied manifests to, or repointed, live ArgoCD Applications)
+- Pre-commit kubeconform hid eight CRD kinds behind `-skip`, so custom resources were never schema-checked
+- Autonomous agents (local and remote) need a trustworthy, fast, machine-readable check they can run on every edit
+- Issue #261 (Section A)
+
+**Decision:**
+- `homelab verify all --level 0` (`task verify`) is the mandatory gate: two-stage render of every chart for `localdev` and for `homelab.yaml.example`, `helm lint`, `kubeconform` with vendored CRD schemas and the cluster version from `versions.yaml`, `pluto`, a GitOps graph linter, golden snapshots and conftest policies; JSON summary, exit 0/1, target under 5 s
+- Level 0 never reads `configuration/environments/homelab.yaml`; the PII-free example file is the homelab input
+- CRD schemas are vendored under `tests/schemas/` from the pinned chart versions; `-skip` lists are forbidden
+- Conventions previously documented only in prose (sync-wave ordering, secret wiring, repository Secrets, ServerSideApply, finalizers, automated sync, no `:latest`, resources, hostnames) are executable checks; exceptions require an annotation with a reason
+- Agents may mutate only Kind clusters; production is verified via merge → ArgoCD → CI/notifications (the Kind loop is Section B of #261; the prod-repointing tiers are retired in Section D)
+
+**Alternatives Considered:**
+- Keep datree CRD catalog + `-skip` -> catalog lags pinned versions and hides exactly the resources most likely to break
+- Kyverno CLI for policy -> conftest is simpler to unit-test offline and to ship negative fixtures for
+- Snapshot only the parent charts -> child `*-config`/`*-dependencies` charts are where secret wiring breaks
+
+**Consequences:**
+- Every chart change needs `task test:snapshot -- --update` when the render legitimately changes; snapshot drift fails CI for every author (Renovate included), which uploads the regenerated snapshots as an artifact and comments the diff rather than committing anything
+- Operator bumps require `task schemas:vendor` (CI `schemas` job enforces it)
+- New charts must register CRD providers, huge-CRD status and known secrets in `tests/gitops/`
+- Level 0 cannot see inside upstream charts referenced by `spec.source.chart` + inline `helm.values`; those are covered by the Kind loop
+
 - **2026-02-11: ArgoCD CMP for PII removal** — Moved config generation from commit-time to ArgoCD render-time using a Config Management Plugin sidecar. Bootstrap chart breaks chicken-and-egg with 1Password operator. All committed values files sanitized to safe defaults. See `docs/plans/2026-02-11-argocd-cmp-pii-removal-design.md`.
 
 - **2026-02-13: Dual Traefik Ingress Controllers** — Split single Traefik into external (`external` IngressClass, static IP 172.16.100.200, OIDC, port forwarding) and internal (`internal` IngressClass, dynamic IP, no OIDC). Plex uses external; all other apps use internal. OIDC middleware annotations removed from internal apps. Design doc: `docs/plans/2026-02-13-dual-traefik-ingress-design.md`.

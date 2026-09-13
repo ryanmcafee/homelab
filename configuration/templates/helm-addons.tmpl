@@ -105,11 +105,11 @@ cilium-lb-ipam:
 
   bgp:
     enabled: true
-    localASN: 64512
+    localASN: {{ .Values.BGP_K8S_ASN.Value }}
     peers:
       - name: "unifi-gateway"
         address: "{{ .Values.BGP_PEER_IP.Value }}"
-        asn: 64513
+        asn: {{ .Values.BGP_ROUTER_ASN.Value }}
 
 # ============================================================================
 # Democratic-CSI - NFS Storage Provisioner

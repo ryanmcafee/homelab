@@ -6,6 +6,7 @@ ignore: |
   charts/*/templates/
   charts/*/charts/
   terragrunt/files/
+  tests/snapshots/
 
 rules:
   line-length:

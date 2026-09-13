@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"regexp"
+	"sort"
 	"strings"
 	"text/template"
 )
@@ -55,6 +56,11 @@ func ValidateValues(schema *Schema, values map[string]string) error {
 	}
 
 	if len(errs) > 0 {
+		// schema.Keys is a map, so these messages are collected in Go's
+		// randomized iteration order. The joined string ends up verbatim in
+		// the render/<env>/_config check detail, which level 0 emits as JSON
+		// and CI diffs run over run, so it has to be stable.
+		sort.Strings(errs)
 		return fmt.Errorf("validation errors:\n  %s", strings.Join(errs, "\n  "))
 	}
 	return nil
@@ -125,6 +131,9 @@ func ResolveExpressions(schema *Schema, values map[string]string) (map[string]st
 			for name := range constKeys {
 				unresolved = append(unresolved, name)
 			}
+			// constKeys is a map; sort so the message, which reaches the
+			// render/<env>/_config check detail, is the same every run.
+			sort.Strings(unresolved)
 			return nil, fmt.Errorf("circular or unresolvable expressions: %v", unresolved)
 		}
 	}

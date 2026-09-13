@@ -1,6 +1,8 @@
 package config
 
 import (
+	"sort"
+	"strings"
 	"testing"
 )
 
@@ -162,5 +164,51 @@ func TestEval(t *testing.T) {
 	}
 	if cv.Source != "const" {
 		t.Errorf("COMPUTED source = %q, want %q", cv.Source, "const")
+	}
+}
+
+// TestValidateValuesErrorOrderIsDeterministic guards the level-0 output
+// contract: the joined message reaches the render/<env>/_config check detail
+// verbatim, and CI diffs two runs of `task verify` against each other.
+func TestValidateValuesErrorOrderIsDeterministic(t *testing.T) {
+	schema := &Schema{Keys: map[string]SchemaKey{
+		"ALPHA_IP": {Required: true},
+		"BRAVO_IP": {Required: true},
+		"CHARLIE":  {Required: true},
+		"DELTA":    {Pattern: `^\d+$`},
+		"ECHO":     {Enum: []string{"a", "b"}},
+		"FOXTROT":  {Required: true},
+		"GOLF":     {Required: true},
+		"HOTEL":    {Required: true},
+		"INDIA":    {Required: true},
+		"JULIETT":  {Required: true},
+		"KILO":     {Required: true},
+		"LIMA":     {Required: true},
+		"MIKE":     {Required: true},
+		"NOVEMBER": {Required: true},
+		"OSCAR":    {Required: true},
+		"PAPA":     {Required: true},
+		"QUEBEC":   {Required: true},
+		"ROMEO":    {Required: true},
+		"SIERRA":   {Required: true},
+		"TANGO":    {Required: true},
+	}}
+	values := map[string]string{"DELTA": "nope", "ECHO": "c"}
+
+	first := ValidateValues(schema, values)
+	if first == nil {
+		t.Fatal("the fixture must fail validation for this test to mean anything")
+	}
+	for i := 0; i < 20; i++ {
+		got := ValidateValues(schema, values)
+		if got == nil || got.Error() != first.Error() {
+			t.Fatalf("run %d differs:\n--- run 0 ---\n%v\n--- run %d ---\n%v", i+1, first, i+1, got)
+		}
+	}
+
+	// The messages are sorted, which is what makes them stable.
+	lines := strings.Split(strings.TrimPrefix(first.Error(), "validation errors:\n  "), "\n  ")
+	if !sort.StringsAreSorted(lines) {
+		t.Errorf("validation messages are not sorted:\n%s", strings.Join(lines, "\n"))
 	}
 }

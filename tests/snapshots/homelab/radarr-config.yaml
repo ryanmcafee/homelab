@@ -1,0 +1,38 @@
+---
+# Source: radarr-config/templates/persistent-volume.yaml
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: radarr-config-pv
+spec:
+  capacity:
+    storage: 10Gi
+  accessModes: ["ReadWriteOnce"]
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: democratic-csi-iscsi-hdd
+  volumeMode: Filesystem
+  csi:
+    driver: org.democratic-csi.iscsi-hdd
+    fsType: ext4
+    volumeHandle: radarr-config
+    volumeAttributes:
+      interface: ""
+      iqn: iqn.2005-10.org.freenas.ctl:csi-radarr-config-homelab
+      lun: "0"
+      node_attach_driver: iscsi
+      portal: 172.16.100.150:3260
+      portals: ""
+---
+# Source: radarr-config/templates/persistent-volume.yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: radarr-config
+  namespace: media
+spec:
+  accessModes: ["ReadWriteOnce"]
+  storageClassName: democratic-csi-iscsi-hdd
+  volumeName: radarr-config-pv
+  resources:
+    requests:
+      storage: 10Gi

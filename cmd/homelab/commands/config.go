@@ -2,8 +2,10 @@ package commands
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/ryanmcafee/homelab/internal/config"
@@ -31,6 +33,12 @@ func NewConfigCmd() *cobra.Command {
 		Use:   "config",
 		Short: "Configuration management — validate, eval, export, guard",
 		Long:  `Schema-driven configuration pipeline. Centralizes all environment-specific values (IPs, domains, secrets references) and exports consumer-specific files.`,
+		// A group is not runnable. Without these, `homelab config` and
+		// `homelab config gaurd` both printed help and exited 0.
+		Args:          GroupCommandArgs,
+		RunE:          RunGroupCommand,
+		SilenceUsage:  true,
+		SilenceErrors: true,
 	}
 
 	cmd.PersistentFlags().StringVar(&configRoot, "config-root", "", "Path to configuration/ directory (default: auto-detect)")
@@ -127,6 +135,27 @@ func newConfigEvalCmd() *cobra.Command {
 	}
 }
 
+// exportTemplates maps an export format to its template file. It is the single
+// list of valid --format values, so the flag help, the usage error and the
+// stdout path cannot drift apart.
+var exportTemplates = map[string]string{
+	"helm-addons": "helm-addons.tmpl",
+	"helm-apps":   "helm-apps.tmpl",
+	"tfvars":      "tfvars.tmpl",
+	"env":         "dotenv.tmpl",
+	"json":        "json.tmpl",
+}
+
+// exportFormatList is the sorted format list for messages.
+func exportFormatList() string {
+	names := make([]string, 0, len(exportTemplates))
+	for name := range exportTemplates {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return strings.Join(names, ", ")
+}
+
 func newConfigExportCmd() *cobra.Command {
 	var format string
 	var all bool
@@ -138,10 +167,22 @@ func newConfigExportCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// Validate stdout flag usage
 			if stdout && all {
-				return fmt.Errorf("--stdout and --all are mutually exclusive")
+				return usageErrorf("--stdout and --all are mutually exclusive")
 			}
 			if stdout && format == "" {
-				return fmt.Errorf("--stdout requires --format")
+				return usageErrorf("--stdout requires --format")
+			}
+			// With neither flag no target matches below, so the command
+			// exported nothing and still exited 0.
+			if !stdout && !all && format == "" {
+				return usageErrorf("export requires --format or --all")
+			}
+			// An unknown format is a misuse, so it is rejected before any
+			// config is resolved: the caller gets the same exit 2 whether or
+			// not the environment file happens to be present.
+			templateFile, known := exportTemplates[format]
+			if format != "" && !known {
+				return usageErrorf("unknown format %q (want one of %s)", format, exportFormatList())
 			}
 
 			rc, err := loadResolvedConfig()
@@ -152,22 +193,6 @@ func newConfigExportCmd() *cobra.Command {
 			// Handle stdout mode
 			if stdout {
 				root := getConfigRoot()
-				var templateFile string
-				switch format {
-				case "helm-addons":
-					templateFile = "helm-addons.tmpl"
-				case "helm-apps":
-					templateFile = "helm-apps.tmpl"
-				case "tfvars":
-					templateFile = "tfvars.tmpl"
-				case "env":
-					templateFile = "dotenv.tmpl"
-				case "json":
-					templateFile = "json.tmpl"
-				default:
-					return fmt.Errorf("unknown format: %s", format)
-				}
-
 				tmplPath := filepath.Join(root, "templates", templateFile)
 				output, err := config.Export(rc, tmplPath)
 				if err != nil {
@@ -228,64 +253,137 @@ func newConfigExportCmd() *cobra.Command {
 	return cmd
 }
 
+// splitCommaList flattens repeated flag values that may themselves be
+// comma-separated into a single list, dropping blanks. It returns nil for an
+// empty result so callers can fall back to a default.
+func splitCommaList(values []string) []string {
+	var out []string
+	for _, v := range values {
+		for _, part := range strings.Split(v, ",") {
+			if part = strings.TrimSpace(part); part != "" {
+				out = append(out, part)
+			}
+		}
+	}
+	return out
+}
+
+// effectivePathspecs reports the pathspecs a scan will actually use, for
+// messages that have to name the scope.
+func effectivePathspecs(values []string) []string {
+	if specs := splitCommaList(values); len(specs) > 0 {
+		return specs
+	}
+	return config.DefaultGuardPathspecs
+}
+
+// guardEnvPath resolves the environment file supplying value-based guard
+// patterns, honouring the global --env-file override.
+func guardEnvPath() string {
+	if envFile != "" {
+		return envFile
+	}
+	return filepath.Join(getConfigRoot(), "environments", configSet+".yaml")
+}
+
 func newConfigGuardCmd() *cobra.Command {
-	var ciMode bool
+	var (
+		ciMode bool
+		paths  []string
+	)
 
 	cmd := &cobra.Command{
-		Use:   "guard",
-		Short: "Scan staged files for PII patterns",
+		Use:   "guard [files...]",
+		Short: "Scan files for PII patterns",
+		Long: `Scan files for values that would leak real infrastructure identity.
+
+Two detectors run together. Value-based detection compares each line against
+the literal values in the environment file, so it catches a real domain or IP
+wherever it appears. Shape-based detection flags a PII-shaped config key whose
+value is a routable host address, and needs no environment file, so a clone
+without the real values still gets protection.
+
+Files come from the arguments (the pre-commit path) or, with --ci, from the
+tracked files under configuration/. Widen the tracked scope with --paths.
+An empty scan scope in CI mode is a failure, never a pass.`,
+		// A guard failure is a finding, not a misuse: usage noise would bury
+		// the PII report in CI logs.
+		SilenceUsage: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			root := getConfigRoot()
-			envPath := filepath.Join(root, "environments", configSet+".yaml")
-
-			env, err := config.LoadEnvironment(envPath)
+			root, err := findProjectRoot()
 			if err != nil {
-				return fmt.Errorf("loading environment for guard patterns: %w", err)
+				return err
 			}
 
-			patterns := config.BuildGuardPatterns(env)
-			if len(patterns) == 0 {
-				logger.OK("No PII patterns to guard against")
-				return nil
+			envPath := guardEnvPath()
+			report, err := config.RunGuard(config.GuardOptions{
+				RepoRoot:  root,
+				Files:     args,
+				Pathspecs: splitCommaList(paths),
+				CI:        ciMode,
+				EnvPath:   envPath,
+			})
+			if errors.Is(err, config.ErrGuardNoFiles) {
+				logger.Warn(fmt.Sprintf("scan scope matched 0 files (pathspecs: %s)",
+					strings.Join(effectivePathspecs(paths), " ")))
+				return usageErrorf("guard scanned 0 files — refusing to report success; check --paths")
+			}
+			if err != nil {
+				return fmt.Errorf("running PII guard: %w", err)
 			}
 
-			// Get list of files to scan
-			var files []string
+			if report.EnvMissing {
+				logger.Warn(fmt.Sprintf("%s not found; value-based PII detection disabled, pattern-based detection (IPs, key names) still active", envPath))
+			}
+
+			mode := "staged files"
 			if ciMode {
-				// In CI mode, scan all tracked files
-				// (implementation uses git ls-files)
-				logger.Info("CI mode: scanning all tracked files")
-			} else {
-				// Scan git staged files
-				logger.Info(fmt.Sprintf("Scanning staged files for %d PII patterns", len(patterns)))
+				mode = "tracked files"
 			}
+			logger.Info(fmt.Sprintf("Scanning %d %s against %d value pattern(s) + shape rules",
+				len(report.Files), mode, report.ValuePatterns))
 
-			if len(args) > 0 {
-				files = args
-			}
-
-			found := false
-			for _, f := range files {
-				result := config.ScanFileForPII(f, patterns)
-				if len(result.Matches) > 0 {
-					found = true
-					for _, m := range result.Matches {
-						logger.Error(fmt.Sprintf("%s:%d PII detected (%s): %s",
-							f, m.Line, m.Pattern, strings.TrimSpace(m.Content)))
+			for _, result := range report.Results {
+				for _, m := range result.Matches {
+					// A template-file finding reads differently: the value may
+					// not be PII, it is simply not a documented placeholder.
+					if m.Note != "" {
+						logger.Error(fmt.Sprintf("%s:%d %s", result.File, m.Line, m.Note))
+						continue
 					}
+					logger.Error(fmt.Sprintf("%s:%d PII detected (%s): %s",
+						result.File, m.Line, m.Pattern, strings.TrimSpace(m.Content)))
 				}
 			}
-
-			if found {
-				return fmt.Errorf("PII patterns detected in files — see errors above")
+			// A file the guard could not read has not been cleared, so it
+			// fails the scan instead of counting as clean.
+			for _, u := range report.Unreadable {
+				logger.Error(fmt.Sprintf("%s: %v", u.File, u.Err))
 			}
 
-			logger.OK("No PII detected in scanned files")
+			n := report.MatchCount()
+			switch {
+			case n > 0 && len(report.Unreadable) > 0:
+				return fmt.Errorf("%d PII pattern(s) detected in %d file(s), and %d file(s) unreadable — see errors above",
+					n, len(report.Results), len(report.Unreadable))
+			case n > 0:
+				return fmt.Errorf("%d PII pattern(s) detected in %d file(s) — see errors above",
+					n, len(report.Results))
+			case len(report.Unreadable) > 0:
+				return fmt.Errorf("%d file(s) could not be read — see errors above", len(report.Unreadable))
+			}
+
+			if len(report.Files) == 0 {
+				logger.Warn("No files to scan — nothing was checked")
+				return nil
+			}
+			logger.OK(fmt.Sprintf("No PII detected in %d file(s)", len(report.Files)))
 			return nil
 		},
 	}
 
-	cmd.Flags().BoolVar(&ciMode, "ci", false, "CI mode: scan all tracked files instead of staged files")
+	cmd.Flags().BoolVar(&ciMode, "ci", false, "CI mode: derive the file list from tracked files instead of arguments")
+	cmd.Flags().StringArrayVar(&paths, "paths", nil, "Git pathspecs defining the CI scan scope (repeatable or comma-separated; default: configuration/**)")
 
 	return cmd
 }

@@ -1,0 +1,9 @@
+# flaresolverr-config — local development overrides
+#
+# No overrides are needed here:
+# volumes is empty, so no NFS PersistentVolume or PersistentVolumeClaim is
+# rendered — Kind uses local-path-provisioner instead.
+#
+# The file still has to exist. The parent Application always appends
+# values-localdev.yaml to spec.source.helm.valueFiles, and ArgoCD fails
+# the sync when a declared value file is missing.

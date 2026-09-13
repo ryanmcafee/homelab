@@ -1,0 +1,12 @@
+# Owned by the issuer Application (addons, wave 0), the same position as the
+# cert-manager Application that installs the cert-manager.io CRDs, so the CRD
+# may not exist yet when this is applied (rule crd-order).
+---
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt
+spec:
+  acme:
+    email: admin@example.com
+    server: https://acme-v02.api.letsencrypt.org/directory

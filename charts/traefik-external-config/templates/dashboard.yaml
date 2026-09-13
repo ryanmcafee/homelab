@@ -1,22 +1,32 @@
 {{- if .Values.dashboard.enabled }}
+{{- if .Values.externalDNS.enabled }}
 ---
+# Requires the externaldns.k8s.io CRDs, which only exist where external-dns is
+# deployed. Disabled in environments without it (see values-localdev.yaml).
 apiVersion: externaldns.k8s.io/v1alpha1
 kind: DNSEndpoint
 metadata:
   name: traefik-dashboard
   namespace: {{ .Values.namespace }}
+  annotations:
+    homelab.ryanmcafee.com/policy-exempt: "hostname-domain"
+    homelab.ryanmcafee.com/policy-exempt-reason: "GitHub issue #262: domain hardcoded in values-homelab.yaml; this chart's global.domain is set independently of configuration/environments/*.yaml (the centralized, PII-free level-0 domain), so the rendered hostname is correct in real deployments but never matches the level-0 placeholder domain. Remove this exemption when the chart takes DOMAIN from the config system."
 spec:
   endpoints:
     - dnsName: {{ .Values.dashboard.host }}
       recordType: A
       targets:
         - {{ .Values.dashboard.staticIP | quote }}
+{{- end }}
 ---
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
   name: traefik-dashboard-tls
   namespace: {{ .Values.namespace }}
+  annotations:
+    homelab.ryanmcafee.com/policy-exempt: "hostname-domain"
+    homelab.ryanmcafee.com/policy-exempt-reason: "GitHub issue #262: domain hardcoded in values-homelab.yaml; this chart's global.domain is set independently of configuration/environments/*.yaml (the centralized, PII-free level-0 domain), so the rendered hostname is correct in real deployments but never matches the level-0 placeholder domain. Remove this exemption when the chart takes DOMAIN from the config system."
 spec:
   secretName: traefik-dashboard-tls
   issuerRef:
@@ -41,6 +51,9 @@ kind: IngressRoute
 metadata:
   name: traefik-dashboard-redirect
   namespace: {{ .Values.namespace }}
+  annotations:
+    homelab.ryanmcafee.com/policy-exempt: "hostname-domain"
+    homelab.ryanmcafee.com/policy-exempt-reason: "GitHub issue #262: domain hardcoded in values-homelab.yaml; this chart's global.domain is set independently of configuration/environments/*.yaml (the centralized, PII-free level-0 domain), so the rendered hostname is correct in real deployments but never matches the level-0 placeholder domain. Remove this exemption when the chart takes DOMAIN from the config system."
 spec:
   entryPoints:
     - websecure

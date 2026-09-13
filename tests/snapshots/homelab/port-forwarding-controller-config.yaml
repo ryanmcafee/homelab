@@ -1,0 +1,9 @@
+---
+# Source: port-forwarding-controller-config/templates/config.yaml
+apiVersion: onepassword.com/v1
+kind: OnePasswordItem
+metadata:
+  name: unifi-credentials
+  namespace: port-forwarding
+spec:
+  itemPath: "vaults/homelab/items/unifi"

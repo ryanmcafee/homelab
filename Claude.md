@@ -79,6 +79,23 @@ Bug investigation:     debugger + kubernetes-specialist + sre-engineer
 Performance issue:     performance-engineer + postgres-pro + network-engineer
 ```
 
+## Worktrees and Toolchain Gotchas
+
+Learned while landing #261 Section A (PR #264). Each one cost real time once.
+
+| Gotcha | What to do |
+|--------|------------|
+| mise refuses a fresh git worktree ("Config files ... are not trusted") | `mise trust && mise install` right after `git worktree add`. Pinned tools (terraform, terragrunt, kind, talosctl) show as "missing" until installed; the pre-commit `terraform_fmt`/`terragrunt_fmt` hooks fail with "command not found" until then. |
+| Serena is rooted at the directory Claude Code was launched from (`--project-from-cwd`) | Launch Claude Code from the worktree you edit. `.mcp.json` (committed) and `.serena/project.yml` (committed) make Serena available in every checkout; Serena's edit tools refuse paths outside its root, so use Bash/Edit for files in another worktree. |
+| Non-interactive shells miss the mise shims | Prepend `$HOME/.local/share/mise/shims` to `PATH` (`go`, `helm`, `deno`, `task` are all mise-managed; `mise.toml` pins `go = "1.25"` and `helm = "4.2.0"`). |
+| helm version changes rendered bytes | Golden snapshots are byte-exact against `configuration/versions.yaml` `tools.helm`; keep `mise.toml`, `verify.yml` and `versions.yaml` on the same helm. |
+| `go run ./cmd/homelab` collapses child exit codes to 1 | Check exit codes with the built binary (`go build -o bin/homelab ./cmd/homelab`). |
+| Terraform warns about the plugin cache dir | `task install-tools` creates `.terraform.d/plugin-cache` (the path `mise.toml` sets in `TF_PLUGIN_CACHE_DIR`). |
+| Docker Desktop is slow to start; CMP image tags before PR #264 are linux/amd64 only | `open -a Docker` and wait; on Apple Silicon run `task test:cmp-parity -- --platform linux/amd64` for old tags. |
+| `git push` over HTTPS occasionally fails ("remote end hung up", transient DNS) | Retry with `git -c http.version=HTTP/1.1 push`. |
+| `tests/snapshots/` must stay byte-exact | yamllint and the whitespace pre-commit fixers exclude it; regenerate with `task test:snapshot -- --update`, never hand-edit. |
+| `eza`, `fd`, `bat` are not installed | Use `rg` (`rg --files` for listing). |
+
 ## Local Configuration
 
 For environment-specific settings (IP addresses, hostnames, credentials), see `CLAUDE.local.md`.
@@ -133,135 +150,106 @@ When updating helm chart versions, check these repositories:
 | Plex | https://github.com/plexinc/pms-docker/blob/master/charts/plex-media-server/Chart.yaml |
 | TrueCharts | https://github.com/trueforge-org/truecharts/tree/master/charts/stable/{chart-name}/Chart.yaml |
 
-### Current Versions (Auto-embedded from values.yaml)
+### Current Versions (Auto-embedded from configuration/versions.yaml)
 
-**Infrastructure Charts** - `charts/addons/values.yaml`:
+`configuration/versions.yaml` is the single source of truth for every chart, image and tool
+version and the only file Renovate bumps. The homelab environment receives these versions at
+render time through the CMP (`homelab config export`), so the `chart.version` values in
+`charts/*/values.yaml` are placeholders that lag this file (tracked in #263).
 
-ArgoCD:
-<!-- embedme charts/addons/values.yaml#L54-L57 -->
+<!-- embedme configuration/versions.yaml -->
 ```yaml
-chart:
-  name: argo-cd
-  repo: https://argoproj.github.io/argo-helm
-  version: "9.4.7"
-```
+# Centralized version registry — single source of truth for all chart and tool versions.
+# Update this file instead of editing individual values.yaml files.
+# Renovate/Dependabot PRs target this file only.
 
-Kubelet CSR Approver:
-<!-- embedme charts/addons/values.yaml#L263-L266 -->
-```yaml
-chart:
-  name: kubelet-csr-approver
-  repo: https://postfinance.github.io/kubelet-csr-approver
-  version: "1.2.2"
-```
+charts:
+  # renovate: datasource=helm depName=argo-cd registryUrl=https://argoproj.github.io/argo-helm
+  argocd: "9.5.17"
+  # renovate: datasource=helm depName=cilium registryUrl=https://helm.cilium.io/
+  cilium: "1.19.5"
+  # renovate: datasource=helm depName=cert-manager registryUrl=https://charts.jetstack.io
+  cert-manager: "v1.20.3"
+  # renovate: datasource=helm depName=external-dns registryUrl=https://kubernetes-sigs.github.io/external-dns/
+  external-dns: "1.21.1"
+  # renovate: datasource=helm depName=kube-prometheus-stack registryUrl=https://prometheus-community.github.io/helm-charts
+  kube-prometheus-stack: "87.1.0"
+  # renovate: datasource=helm depName=traefik registryUrl=https://traefik.github.io/charts
+  traefik: "39.0.9"
+  # renovate: datasource=helm depName=democratic-csi registryUrl=https://democratic-csi.github.io/charts/
+  democratic-csi: "0.15.1"
+  # renovate: datasource=helm depName=tailscale-operator registryUrl=https://pkgs.tailscale.com/helmcharts
+  tailscale-operator: "1.98.4"
+  # renovate: datasource=helm depName=kubelet-csr-approver registryUrl=https://postfinance.github.io/kubelet-csr-approver
+  kubelet-csr-approver: "1.2.14"
+  # renovate: datasource=helm depName=connect registryUrl=https://1password.github.io/connect-helm-charts
+  onepassword-connect: "2.4.1"
+  # renovate: datasource=docker depName=ghcr.io/spegel-org/helm-charts/spegel
+  spegel: "0.6.0"
+  # renovate: datasource=helm depName=local-path-provisioner registryUrl=https://charts.containeroo.ch
+  local-path-provisioner: "0.0.37"
+  # renovate: datasource=helm depName=cloudnative-pg registryUrl=https://cloudnative-pg.github.io/charts
+  cloudnative-pg: "0.28.3"
+  # renovate: datasource=helm depName=argo-workflows registryUrl=https://argoproj.github.io/argo-helm
+  argo-workflows: "1.0.18"
+  # renovate: datasource=helm depName=plex-media-server registryUrl=https://raw.githubusercontent.com/plexinc/pms-docker/gh-pages
+  plex-media-server: "1.6.0"
+  # renovate: datasource=docker depName=oci.trueforge.org/truecharts/sonarr
+  sonarr: "25.6.3"
+  # renovate: datasource=docker depName=oci.trueforge.org/truecharts/radarr
+  radarr: "26.7.2"
+  # renovate: datasource=docker depName=oci.trueforge.org/truecharts/prowlarr
+  prowlarr: "21.7.3"
+  # renovate: datasource=docker depName=oci.trueforge.org/truecharts/nzbget
+  nzbget: "29.4.2"
+  # renovate: datasource=docker depName=oci.trueforge.org/truecharts/tautulli
+  tautulli: "21.18.2"
+  # renovate: datasource=docker depName=oci.trueforge.org/truecharts/lazylibrarian
+  lazylibrarian: "21.18.2"
+  # renovate: datasource=docker depName=oci.trueforge.org/truecharts/home-assistant
+  home-assistant: "29.6.2"
+  # renovate: datasource=docker depName=oci.trueforge.org/truecharts/mosquitto
+  mosquitto: "17.17.2"
+  # renovate: datasource=docker depName=oci.trueforge.org/truecharts/flaresolverr
+  flaresolverr: "16.18.2"
+  # renovate: datasource=docker depName=ghcr.io/renovatebot/charts/renovate
+  renovate: "46.106.12"
+  # renovate: datasource=helm depName=gpu-operator registryUrl=https://helm.ngc.nvidia.com/nvidia
+  nvidia-gpu-operator: "v26.3.3"
+  # renovate: datasource=helm depName=intel-device-plugins-gpu registryUrl=https://intel.github.io/helm-charts
+  intel-device-plugins-gpu: "0.36.0"
+  # renovate: datasource=helm depName=intel-device-plugins-operator registryUrl=https://intel.github.io/helm-charts
+  intel-device-plugins-operator: "0.36.0"
+  # renovate: datasource=helm depName=node-feature-discovery registryUrl=https://kubernetes-sigs.github.io/node-feature-discovery/charts
+  node-feature-discovery: "0.18.3"
+  # renovate: datasource=helm depName=oauth2-proxy registryUrl=https://oauth2-proxy.github.io/manifests
+  oauth2-proxy: "10.7.0"
+  # renovate: datasource=docker depName=ghcr.io/kashalls/external-dns-unifi-webhook
+  external-dns-webhook-unifi: "v0.8.2"
+  # renovate: datasource=github-releases depName=lukaszraczylo/traefikoidc
+  traefik-oidc: "v1.0.32"
+  unifi-port-forward: "1.1.x"
+images:
+  homelab-cmp: "0.1.13"
+tools:
+  # renovate: datasource=github-releases depName=siderolabs/talos
+  talos: "v1.13.3"
+  # renovate: datasource=github-releases depName=kubernetes/kubernetes
+  kubernetes: "v1.36.1"
+  # renovate: datasource=github-releases depName=hashicorp/terraform
+  terraform: "1.15.5"
+  # renovate: datasource=github-releases depName=helm/helm
+  helm: "4.2.0"
 
-Democratic-CSI:
-<!-- embedme charts/addons/values.yaml#L287-L290 -->
-```yaml
-chart:
-  name: democratic-csi
-  repo: https://democratic-csi.github.io/charts/
-  version: 0.14.6
-```
-
-Cert-Manager:
-<!-- embedme charts/addons/values.yaml#L550-L553 -->
-```yaml
-chart:
-  name: cert-manager
-  repo: https://charts.jetstack.io
-  version: v1.16.2
-```
-
-External-DNS:
-<!-- embedme charts/addons/values.yaml#L618-L621 -->
-```yaml
-chart:
-  name: external-dns
-  repo: https://kubernetes-sigs.github.io/external-dns/
-  version: 1.15.0
-```
-
-Kube-Prometheus-Stack:
-<!-- embedme charts/addons/values.yaml#L662-L665 -->
-```yaml
-chart:
-  name: kube-prometheus-stack
-  repo: https://prometheus-community.github.io/helm-charts
-  version: 69.8.2
-```
-
-Traefik (External):
-<!-- embedme charts/addons/values.yaml#L791-L794 -->
-```yaml
-chart:
-  name: traefik
-  repo: https://traefik.github.io/charts
-  version: 39.0.0
-```
-
-**Application Charts** - `charts/applications/values.yaml`:
-
-Plex:
-<!-- embedme charts/applications/values.yaml#L64-L67 -->
-```yaml
-chart:
-  name: plex-media-server
-  repo: https://raw.githubusercontent.com/plexinc/pms-docker/gh-pages
-  version: 1.4.0
-```
-
-Sonarr:
-<!-- embedme charts/applications/values.yaml#L193-L196 -->
-```yaml
-chart:
-  name: sonarr
-  repo: https://trueforge-org.github.io/truecharts
-  version: 25.2.11
-```
-
-Radarr:
-<!-- embedme charts/applications/values.yaml#L282-L285 -->
-```yaml
-chart:
-  name: radarr
-  repo: https://trueforge-org.github.io/truecharts
-  version: 26.3.11
-```
-
-Prowlarr:
-<!-- embedme charts/applications/values.yaml#L370-L373 -->
-```yaml
-chart:
-  name: prowlarr
-  repo: https://trueforge-org.github.io/truecharts
-  version: 21.3.12
-```
-
-Home Assistant:
-<!-- embedme charts/applications/values.yaml#L658-L661 -->
-```yaml
-chart:
-  name: home-assistant
-  repo: https://trueforge-org.github.io/truecharts
-  version: 28.19.14
-```
-
-Mosquitto:
-<!-- embedme charts/applications/values.yaml#L726-L729 -->
-```yaml
-chart:
-  name: mosquitto
-  repo: https://trueforge-org.github.io/truecharts
-  version: 17.13.9
 ```
 
 ### Version Update Files
-When updating a chart version, modify these files:
-1. `charts/addons/values.yaml` - Infrastructure charts
-2. `charts/addons/values-homelab.yaml` - Homelab overrides (if different)
-3. `charts/applications/values.yaml` - Application charts
-4. `charts/applications/values-homelab.yaml` - Homelab overrides (if different)
+To update a chart, image or tool version:
+1. Edit `configuration/versions.yaml` (or let Renovate do it).
+2. If the chart ships CRDs, run `task schemas:vendor` and commit `tests/schemas/`.
+3. Run `task verify:text`, then `task test:snapshot -- --update` and commit the snapshots.
+
+Do not edit `chart.version` in `charts/*/values.yaml`; those values are overridden by the CMP in homelab.
 
 ## Project Structure
 
@@ -295,6 +283,11 @@ Run `task --list` for full list. Most commonly used:
 |---------|-------------|
 | `task localdev:up` | Start Kind + Tilt local development |
 | `task localdev:down` | Destroy local environment |
+| `task verify` | Level-0 static verification: render, kubeconform, gitops graph, snapshots, policy (JSON, < 5 s) |
+| `task verify:text` | Level-0 verification, human-readable |
+| `task test:snapshot -- --update` | Regenerate golden snapshots in `tests/snapshots/` |
+| `task test:policy` | conftest policy unit tests + negative fixtures |
+| `task schemas:vendor` | Re-vendor CRD JSON schemas from `versions.yaml` pins |
 | `task chart:lint` | Lint all Helm charts |
 | `task chart:template:addons` | Debug addons rendering |
 | `task tf:apply:component COMPONENT=X` | Apply single Terraform component |

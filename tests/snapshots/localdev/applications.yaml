@@ -1,0 +1,1284 @@
+---
+# Source: applications/templates/namespaces.yaml
+# Namespace: media
+# Created early so config charts and app deployments have a target namespace.
+# Privileged PodSecurity is required because Plex hostPath-mounts /dev/dri for
+# Intel GPU hardware transcoding. The intel-gpu-device-plugin is not yet
+# advertising gpu.intel.com/xe in node allocatable on this Talos cluster (the
+# pod is Running but the plugin scans /dev/dri/by-path which Talos may populate
+# differently), so we work around it via direct hostPath instead of the device
+# plugin's resource-based device injection. Once the device plugin advertises
+# the resource, the hostPath can be removed AND this namespace can drop back to
+# baseline.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: media
+  labels:
+    pod-security.kubernetes.io/enforce: privileged
+    pod-security.kubernetes.io/audit: privileged
+    pod-security.kubernetes.io/warn: privileged
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
+---
+# Source: applications/templates/namespaces.yaml
+# Namespace: home-automation (privileged for hostNetwork)
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: home-automation
+  labels:
+    pod-security.kubernetes.io/enforce: privileged
+    pod-security.kubernetes.io/audit: privileged
+    pod-security.kubernetes.io/warn: privileged
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
+
+---
+# Source: applications/templates/oci-repositories.yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: truecharts-oci
+  namespace: argocd
+  labels:
+    argocd.argoproj.io/secret-type: repository
+  annotations:
+    argocd.argoproj.io/sync-wave: "11"
+stringData:
+  name: truecharts
+  type: helm
+  url: oci.trueforge.org/truecharts
+  enableOCI: "true"
+
+---
+# Source: applications/templates/oci-repositories.yaml
+# OCI Repository configuration for ArgoCD
+# Single repository secret for TrueCharts OCI registry
+---
+# Source: applications/templates/flaresolverr.yaml
+# FlareSolverr Config: deploys static PV+PVC for flaresolverr persistent storage
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: flaresolverr-config
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "11"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/ryanmcafee/homelab.git
+    targetRevision: main
+    path: charts/flaresolverr-config
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-localdev.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: media
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - SkipDryRunOnMissingResource=true
+---
+# Source: applications/templates/flaresolverr.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: flaresolverr
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "12"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: oci.trueforge.org/truecharts
+    chart: flaresolverr
+    targetRevision: 16.14.17
+    helm:
+      releaseName: flaresolverr
+      values: |
+        workload:
+          main:
+            podSpec:
+              containers:
+                main:
+                  env:
+                    BROWSER_TIMEOUT: 40000
+                    CAPTCHA_SOLVER: none
+                    HEADLESS: true
+                    LOG_HTML: false
+                    LOG_LEVEL: info
+                  resources:
+                    limits:
+                      cpu: 1000m
+                      memory: 1Gi
+                    requests:
+                      cpu: 100m
+                      memory: 512Mi
+        persistence:
+          config:
+            accessModes:
+            - ReadWriteOnce
+            enabled: true
+            size: 1Gi
+            storageClass: democratic-csi-nfs
+        TZ: "UTC"
+        securityContext:
+          container:
+            readOnlyRootFilesystem: false
+            runAsGroup: 0
+            runAsNonRoot: false
+            runAsUser: 0
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: media
+
+  # Ignore TrueCharts dynamic fields and Kubernetes defaults
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      jqPathExpressions:
+        - .spec.template.metadata.annotations | to_entries | map(select(.key | startswith("checksum/"))) | from_entries
+      jsonPointers:
+        - /spec/template/spec/hostUsers
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+      - RespectIgnoreDifferences=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+
+---
+# Source: applications/templates/lazylibrarian.yaml
+# LazyLibrarian Config: deploys static PV+PVC for lazylibrarian persistent storage
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: lazylibrarian-config
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "12"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/ryanmcafee/homelab.git
+    targetRevision: main
+    path: charts/lazylibrarian-config
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-localdev.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: media
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - SkipDryRunOnMissingResource=true
+---
+# Source: applications/templates/lazylibrarian.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: lazylibrarian
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "13"
+    homelab.ryanmcafee.com/policy-exempt: "hostname-domain"
+    homelab.ryanmcafee.com/policy-exempt-reason: "GitHub issue #263: localdev renders addons/applications without the CMP domain-substitution stage (CLAUDE.md's CMP Architecture: localdev uses native Helm with values-localdev.yaml, no CMP), so this Ingress hostname stays the checked-in values.yaml placeholder here; it is never resolved or used in localdev (services are reached via NodePort). Fix is to generate values-localdev.yaml from config; remove this exemption then. In homelab this hostname is correctly domain-derived by the two-stage config-export flow, so the exemption is scoped to localdev only."
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: oci.trueforge.org/truecharts
+    chart: lazylibrarian
+    targetRevision: 21.14.20
+    helm:
+      releaseName: lazylibrarian
+      values: |
+        workload:
+          main:
+            podSpec:
+              containers:
+                main:
+                  resources:
+                    limits:
+                      cpu: 500m
+                      memory: 512Mi
+                    requests:
+                      cpu: 100m
+                      memory: 256Mi
+        persistence:
+          books:
+            enabled: true
+            mountPath: /books
+            path: /mnt/storage/books
+            server: truenas.example.com
+            type: nfs
+          config:
+            accessModes:
+            - ReadWriteOnce
+            enabled: true
+            size: 5Gi
+            storageClass: democratic-csi-nfs
+          downloads:
+            enabled: true
+            mountPath: /downloads
+            path: /mnt/storage/downloads
+            server: truenas.example.com
+            type: nfs
+        ingress:
+          main:
+            annotations:
+              cert-manager.io/cluster-issuer: letsencrypt
+              external-dns.alpha.kubernetes.io/hostname: lazylibrarian.example.com
+            enabled: true
+            hosts:
+            - host: lazylibrarian.example.com
+              paths:
+              - path: /
+                pathType: Prefix
+            ingressClassName: internal
+            tls:
+            - hosts:
+              - lazylibrarian.example.com
+              secretName: lazylibrarian-tls
+        TZ: "UTC"
+        securityContext:
+          container:
+            runAsGroup: 100
+            runAsUser: 568
+          pod:
+            fsGroup: 100
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: media
+
+  # Ignore TrueCharts dynamic fields and Kubernetes defaults
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      jqPathExpressions:
+        - .spec.template.metadata.annotations | to_entries | map(select(.key | startswith("checksum/"))) | from_entries
+      jsonPointers:
+        - /spec/template/spec/hostUsers
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+      - RespectIgnoreDifferences=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+
+---
+# Source: applications/templates/mosquitto.yaml
+# Mosquitto Config: deploys static PV+PVC for mosquitto persistent storage
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: mosquitto-config
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "13"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/ryanmcafee/homelab.git
+    targetRevision: main
+    path: charts/mosquitto-config
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-localdev.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: home-automation
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - SkipDryRunOnMissingResource=true
+---
+# Source: applications/templates/mosquitto.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: mosquitto
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "14"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: oci.trueforge.org/truecharts
+    chart: mosquitto
+    targetRevision: 17.13.9
+    helm:
+      releaseName: mosquitto
+      values: |
+        workload:
+          main:
+            podSpec:
+              containers:
+                main:
+                  resources:
+                    limits:
+                      cpu: 200m
+                      memory: 256Mi
+                    requests:
+                      cpu: 50m
+                      memory: 128Mi
+        persistence:
+          config:
+            accessModes:
+            - ReadWriteOnce
+            enabled: true
+            size: 1Gi
+            storageClass: democratic-csi-nfs
+          data:
+            accessModes:
+            - ReadWriteOnce
+            enabled: true
+            size: 1Gi
+            storageClass: democratic-csi-nfs
+          enabled: true
+          size: 128Mi
+          storageClass: local-path
+        service:
+          main:
+            ports:
+              main:
+                port: 1883
+            type: LoadBalancer
+          port: 1883
+          type: NodePort
+          websockets:
+            enabled: true
+            ports:
+              websockets:
+                enabled: true
+                port: 9001
+            type: LoadBalancer
+        mosquitto:
+          auth:
+            enabled: true
+        TZ: "UTC"
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: home-automation
+
+  # Ignore TrueCharts dynamic fields and Kubernetes defaults
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      jqPathExpressions:
+        - .spec.template.metadata.annotations | to_entries | map(select(.key | startswith("checksum/"))) | from_entries
+      jsonPointers:
+        - /spec/template/spec/hostUsers
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+      - RespectIgnoreDifferences=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+
+---
+# Source: applications/templates/nzbget.yaml
+# NZBGet Config: deploys static PV+PVC for nzbget persistent storage
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: nzbget-config
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "12"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/ryanmcafee/homelab.git
+    targetRevision: main
+    path: charts/nzbget-config
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-localdev.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: media
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - SkipDryRunOnMissingResource=true
+---
+# Source: applications/templates/nzbget.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: nzbget
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "13"
+    homelab.ryanmcafee.com/policy-exempt: "hostname-domain"
+    homelab.ryanmcafee.com/policy-exempt-reason: "GitHub issue #263: localdev renders addons/applications without the CMP domain-substitution stage (CLAUDE.md's CMP Architecture: localdev uses native Helm with values-localdev.yaml, no CMP), so this Ingress hostname stays the checked-in values.yaml placeholder here; it is never resolved or used in localdev (services are reached via NodePort). Fix is to generate values-localdev.yaml from config; remove this exemption then. In homelab this hostname is correctly domain-derived by the two-stage config-export flow, so the exemption is scoped to localdev only."
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: oci.trueforge.org/truecharts
+    chart: nzbget
+    targetRevision: 28.3.20
+    helm:
+      releaseName: nzbget
+      values: |
+        workload:
+          main:
+            podSpec:
+              containers:
+                main:
+                  resources:
+                    limits:
+                      cpu: 2000m
+                      memory: 4Gi
+                    requests:
+                      cpu: 100m
+                      memory: 1Gi
+        persistence:
+          config:
+            accessModes:
+            - ReadWriteOnce
+            enabled: true
+            size: 5Gi
+            storageClass: democratic-csi-nfs
+          downloads:
+            enabled: true
+            mountPath: /downloads
+            path: /mnt/storage/downloads
+            server: truenas.example.com
+            type: nfs
+        ingress:
+          main:
+            annotations:
+              cert-manager.io/cluster-issuer: letsencrypt
+              external-dns.alpha.kubernetes.io/hostname: nzbget.example.com
+            enabled: true
+            hosts:
+            - host: nzbget.example.com
+              paths:
+              - path: /
+                pathType: Prefix
+            ingressClassName: internal
+            tls:
+            - hosts:
+              - nzbget.example.com
+              secretName: nzbget-tls
+        TZ: "UTC"
+        securityContext:
+          container:
+            runAsGroup: 100
+            runAsUser: 568
+          pod:
+            fsGroup: 100
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: media
+
+  # Ignore TrueCharts dynamic fields and Kubernetes defaults
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      jqPathExpressions:
+        - .spec.template.metadata.annotations | to_entries | map(select(.key | startswith("checksum/"))) | from_entries
+      jsonPointers:
+        - /spec/template/spec/hostUsers
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+      - RespectIgnoreDifferences=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+
+---
+# Source: applications/templates/plex.yaml
+# Dependencies Application: deploys OnePasswordItem for Plex claim token
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: plex-config
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "11"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/ryanmcafee/homelab.git
+    targetRevision: main
+    path: charts/plex-config
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-localdev.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: media
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - SkipDryRunOnMissingResource=true
+---
+# Source: applications/templates/plex.yaml
+# Plex Application: deploys the media server
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: plex
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "12"
+    homelab.ryanmcafee.com/policy-exempt: "image-latest,hostname-domain"
+    homelab.ryanmcafee.com/policy-exempt-reason: "image-latest: upstream plexinc/pms-docker publishes no numbered release tags; tracking :latest is the documented, intentional deployment model for Plex. hostname-domain: GitHub issue #263: localdev renders addons/applications without the CMP domain-substitution stage (CLAUDE.md's CMP Architecture: localdev uses native Helm with values-localdev.yaml, no CMP), so the ingress hostname stays the checked-in values.yaml placeholder here; it is never resolved or used in localdev (services are reached via NodePort). Fix is to generate values-localdev.yaml from config; remove the hostname-domain exemption then. In homelab this hostname is correctly domain-derived by the two-stage config-export flow, so that part of the exemption is scoped to localdev only."
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://raw.githubusercontent.com/plexinc/pms-docker/gh-pages
+    chart: plex-media-server
+    targetRevision: 1.4.0
+    helm:
+      releaseName: plex
+      values: |
+        image:
+          pullPolicy: IfNotPresent
+          registry: index.docker.io
+          repository: plexinc/pms-docker
+          tag: latest
+        extraEnv:
+          ADVERTISE_IP: https://plex.example.com:443
+          CHANGE_CONFIG_DIR_OWNERSHIP: "false"
+          PLEX_GID: "100"
+          PLEX_UID: "568"
+          TZ: UTC
+        pms:
+          claimSecret:
+            key: plex-claim-token
+            name: plex
+          configExistingClaim: ""
+          storageClassName: democratic-csi-iscsi
+        extraVolumes:
+          - name: movies
+            nfs:
+              path: /mnt/storage/movies
+              server: truenas.example.com
+          - name: tv
+            nfs:
+              path: /mnt/storage/tv
+              server: truenas.example.com
+          - name: music
+            nfs:
+              path: /mnt/storage/music
+              server: truenas.example.com
+          - name: pictures
+            nfs:
+              path: /mnt/storage/pictures
+              server: truenas.example.com
+        extraVolumeMounts:
+          - mountPath: /movies
+            name: movies
+            readOnly: false
+          - mountPath: /tv
+            name: tv
+            readOnly: false
+          - mountPath: /music
+            name: music
+            readOnly: false
+          - mountPath: /pictures
+            name: pictures
+            readOnly: false
+        service:
+          externalTrafficPolicy: Local
+          port: 32400
+          type: NodePort
+        ingress:
+          annotations:
+            cert-manager.io/cluster-issuer: letsencrypt
+            external-dns.alpha.kubernetes.io/hostname: plex.example.com
+          enabled: true
+          ingressClassName: external
+          tls:
+          - hosts:
+            - plex.example.com
+            secretName: plex-tls
+          url: https://plex.example.com
+        dnsPolicy: "None"
+        dnsConfig:
+          nameservers:
+          - 8.8.8.8
+          - 8.8.4.4
+          - 10.96.0.10
+          options:
+          - name: ndots
+            value: "5"
+          searches:
+          - media.svc.cluster.local
+          - svc.cluster.local
+          - cluster.local
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: media
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+
+---
+# Source: applications/templates/prowlarr.yaml
+# Prowlarr Config: deploys static PV+PVC for prowlarr persistent storage
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: prowlarr-config
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "12"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/ryanmcafee/homelab.git
+    targetRevision: main
+    path: charts/prowlarr-config
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-localdev.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: media
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - SkipDryRunOnMissingResource=true
+---
+# Source: applications/templates/prowlarr.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: prowlarr
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "13"
+    homelab.ryanmcafee.com/policy-exempt: "hostname-domain"
+    homelab.ryanmcafee.com/policy-exempt-reason: "GitHub issue #263: localdev renders addons/applications without the CMP domain-substitution stage (CLAUDE.md's CMP Architecture: localdev uses native Helm with values-localdev.yaml, no CMP), so this Ingress hostname stays the checked-in values.yaml placeholder here; it is never resolved or used in localdev (services are reached via NodePort). Fix is to generate values-localdev.yaml from config; remove this exemption then. In homelab this hostname is correctly domain-derived by the two-stage config-export flow, so the exemption is scoped to localdev only."
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: oci.trueforge.org/truecharts
+    chart: prowlarr
+    targetRevision: 21.3.12
+    helm:
+      releaseName: prowlarr
+      values: |
+        workload:
+          main:
+            podSpec:
+              containers:
+                exportarr:
+                  resources:
+                    limits:
+                      cpu: 200m
+                      memory: 256Mi
+                    requests:
+                      cpu: 50m
+                      memory: 64Mi
+                main:
+                  resources:
+                    limits:
+                      cpu: 500m
+                      memory: 512Mi
+                    requests:
+                      cpu: 100m
+                      memory: 256Mi
+        persistence:
+          config:
+            accessModes:
+            - ReadWriteOnce
+            enabled: true
+            size: 512Mi
+            storageClass: local-path
+        ingress:
+          main:
+            annotations:
+              cert-manager.io/cluster-issuer: letsencrypt
+              external-dns.alpha.kubernetes.io/hostname: prowlarr.example.com
+            enabled: true
+            hosts:
+            - host: prowlarr.example.com
+              paths:
+              - path: /
+                pathType: Prefix
+            ingressClassName: internal
+            tls:
+            - hosts:
+              - prowlarr.example.com
+              secretName: prowlarr-tls
+        TZ: "UTC"
+        securityContext:
+          container:
+            runAsGroup: 100
+            runAsUser: 568
+          pod:
+            fsGroup: 100
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: media
+
+  # Ignore TrueCharts dynamic fields and Kubernetes defaults
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      jqPathExpressions:
+        - .spec.template.metadata.annotations | to_entries | map(select(.key | startswith("checksum/"))) | from_entries
+      jsonPointers:
+        - /spec/template/spec/hostUsers
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+      - RespectIgnoreDifferences=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+
+---
+# Source: applications/templates/radarr.yaml
+# Radarr Config: deploys static PV+PVC for radarr persistent storage
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: radarr-config
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "12"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/ryanmcafee/homelab.git
+    targetRevision: main
+    path: charts/radarr-config
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-localdev.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: media
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - SkipDryRunOnMissingResource=true
+---
+# Source: applications/templates/radarr.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: radarr
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "13"
+    homelab.ryanmcafee.com/policy-exempt: "hostname-domain"
+    homelab.ryanmcafee.com/policy-exempt-reason: "GitHub issue #263: localdev renders addons/applications without the CMP domain-substitution stage (CLAUDE.md's CMP Architecture: localdev uses native Helm with values-localdev.yaml, no CMP), so this Ingress hostname stays the checked-in values.yaml placeholder here; it is never resolved or used in localdev (services are reached via NodePort). Fix is to generate values-localdev.yaml from config; remove this exemption then. In homelab this hostname is correctly domain-derived by the two-stage config-export flow, so the exemption is scoped to localdev only."
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: oci.trueforge.org/truecharts
+    chart: radarr
+    targetRevision: 26.3.11
+    helm:
+      releaseName: radarr
+      values: |
+        workload:
+          main:
+            podSpec:
+              containers:
+                exportarr:
+                  resources:
+                    limits:
+                      cpu: 200m
+                      memory: 256Mi
+                    requests:
+                      cpu: 50m
+                      memory: 64Mi
+                main:
+                  resources:
+                    limits:
+                      cpu: 1000m
+                      memory: 1Gi
+                    requests:
+                      cpu: 200m
+                      memory: 512Mi
+        persistence:
+          config:
+            accessModes:
+            - ReadWriteOnce
+            enabled: true
+            size: 1Gi
+            storageClass: local-path
+          downloads:
+            enabled: true
+            mountPath: /downloads
+            path: /mnt/storage/downloads
+            server: truenas.example.com
+            type: nfs
+          media:
+            enabled: false
+          movies:
+            enabled: true
+            mountPath: /movies
+            path: /mnt/storage/movies
+            server: truenas.example.com
+            type: nfs
+        ingress:
+          main:
+            annotations:
+              cert-manager.io/cluster-issuer: letsencrypt
+              external-dns.alpha.kubernetes.io/hostname: radarr.example.com
+            enabled: true
+            hosts:
+            - host: radarr.example.com
+              paths:
+              - path: /
+                pathType: Prefix
+            ingressClassName: internal
+            tls:
+            - hosts:
+              - radarr.example.com
+              secretName: radarr-tls
+        TZ: "UTC"
+        securityContext:
+          container:
+            runAsGroup: 100
+            runAsUser: 568
+          pod:
+            fsGroup: 100
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: media
+
+  # Ignore TrueCharts dynamic fields and Kubernetes defaults
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      jqPathExpressions:
+        - .spec.template.metadata.annotations | to_entries | map(select(.key | startswith("checksum/"))) | from_entries
+      jsonPointers:
+        - /spec/template/spec/hostUsers
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+      - RespectIgnoreDifferences=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+
+---
+# Source: applications/templates/sonarr.yaml
+# Sonarr Config: deploys static PV+PVC for sonarr persistent storage
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: sonarr-config
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "12"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/ryanmcafee/homelab.git
+    targetRevision: main
+    path: charts/sonarr-config
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-localdev.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: media
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - SkipDryRunOnMissingResource=true
+---
+# Source: applications/templates/sonarr.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: sonarr
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "13"
+    homelab.ryanmcafee.com/policy-exempt: "hostname-domain"
+    homelab.ryanmcafee.com/policy-exempt-reason: "GitHub issue #263: localdev renders addons/applications without the CMP domain-substitution stage (CLAUDE.md's CMP Architecture: localdev uses native Helm with values-localdev.yaml, no CMP), so this Ingress hostname stays the checked-in values.yaml placeholder here; it is never resolved or used in localdev (services are reached via NodePort). Fix is to generate values-localdev.yaml from config; remove this exemption then. In homelab this hostname is correctly domain-derived by the two-stage config-export flow, so the exemption is scoped to localdev only."
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: oci.trueforge.org/truecharts
+    chart: sonarr
+    targetRevision: 25.2.11
+    helm:
+      releaseName: sonarr
+      values: |
+        workload:
+          main:
+            podSpec:
+              containers:
+                exportarr:
+                  resources:
+                    limits:
+                      cpu: 200m
+                      memory: 256Mi
+                    requests:
+                      cpu: 50m
+                      memory: 64Mi
+                main:
+                  resources:
+                    limits:
+                      cpu: 1000m
+                      memory: 1Gi
+                    requests:
+                      cpu: 200m
+                      memory: 512Mi
+        persistence:
+          config:
+            accessModes:
+            - ReadWriteOnce
+            enabled: true
+            size: 1Gi
+            storageClass: local-path
+          downloads:
+            enabled: true
+            mountPath: /downloads
+            path: /mnt/storage/downloads
+            server: truenas.example.com
+            type: nfs
+          media:
+            enabled: false
+          tv:
+            enabled: true
+            mountPath: /tv
+            path: /mnt/storage/tv
+            server: truenas.example.com
+            type: nfs
+        ingress:
+          main:
+            annotations:
+              cert-manager.io/cluster-issuer: letsencrypt
+              external-dns.alpha.kubernetes.io/hostname: sonarr.example.com
+            enabled: true
+            hosts:
+            - host: sonarr.example.com
+              paths:
+              - path: /
+                pathType: Prefix
+            ingressClassName: internal
+            tls:
+            - hosts:
+              - sonarr.example.com
+              secretName: sonarr-tls
+        TZ: "UTC"
+        securityContext:
+          container:
+            runAsGroup: 100
+            runAsUser: 568
+          pod:
+            fsGroup: 100
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: media
+
+  # Ignore TrueCharts dynamic fields and Kubernetes defaults
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      jqPathExpressions:
+        - .spec.template.metadata.annotations | to_entries | map(select(.key | startswith("checksum/"))) | from_entries
+      jsonPointers:
+        - /spec/template/spec/hostUsers
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+      - RespectIgnoreDifferences=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+
+---
+# Source: applications/templates/tautulli.yaml
+# Tautulli Config: deploys static PV+PVC for tautulli persistent storage
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: tautulli-config
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "12"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/ryanmcafee/homelab.git
+    targetRevision: main
+    path: charts/tautulli-config
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-localdev.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: media
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - SkipDryRunOnMissingResource=true
+---
+# Source: applications/templates/tautulli.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: tautulli
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "13"
+    homelab.ryanmcafee.com/policy-exempt: "hostname-domain"
+    homelab.ryanmcafee.com/policy-exempt-reason: "GitHub issue #263: localdev renders addons/applications without the CMP domain-substitution stage (CLAUDE.md's CMP Architecture: localdev uses native Helm with values-localdev.yaml, no CMP), so this Ingress hostname stays the checked-in values.yaml placeholder here; it is never resolved or used in localdev (services are reached via NodePort). Fix is to generate values-localdev.yaml from config; remove this exemption then. In homelab this hostname is correctly domain-derived by the two-stage config-export flow, so the exemption is scoped to localdev only."
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: oci.trueforge.org/truecharts
+    chart: tautulli
+    targetRevision: 21.14.16
+    helm:
+      releaseName: tautulli
+      values: |
+        workload:
+          main:
+            podSpec:
+              containers:
+                main:
+                  resources:
+                    limits:
+                      cpu: 500m
+                      memory: 512Mi
+                    requests:
+                      cpu: 100m
+                      memory: 256Mi
+        persistence:
+          config:
+            accessModes:
+            - ReadWriteOnce
+            enabled: true
+            size: 5Gi
+            storageClass: democratic-csi-nfs
+        ingress:
+          main:
+            annotations:
+              cert-manager.io/cluster-issuer: letsencrypt
+              external-dns.alpha.kubernetes.io/hostname: tautulli.example.com
+            enabled: true
+            hosts:
+            - host: tautulli.example.com
+              paths:
+              - path: /
+                pathType: Prefix
+            ingressClassName: internal
+            tls:
+            - hosts:
+              - tautulli.example.com
+              secretName: tautulli-tls
+        TZ: "UTC"
+        securityContext:
+          container:
+            runAsGroup: 100
+            runAsUser: 568
+          pod:
+            fsGroup: 100
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: media
+
+  # Ignore TrueCharts dynamic fields and Kubernetes defaults
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      jqPathExpressions:
+        - .spec.template.metadata.annotations | to_entries | map(select(.key | startswith("checksum/"))) | from_entries
+      jsonPointers:
+        - /spec/template/spec/hostUsers
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+      - RespectIgnoreDifferences=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m

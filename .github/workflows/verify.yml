@@ -1,0 +1,312 @@
+name: Verify (level 0)
+
+# Cluster-free static verification of the GitOps repository (issue #261, Section A).
+# Every job here runs without a cluster and without PII: charts are rendered with
+# configuration/environments/{localdev.yaml,homelab.yaml.example} only.
+#
+#   level-0     task verify        render + lint + kubeconform + pluto + gitops graph + snapshots + policy
+#   policy      task test:policy   Rego unit tests + negative fixtures
+#   schemas     task schemas:check vendored CRD schemas match configuration/versions.yaml
+#   cmp-parity  task test:cmp-parity  pinned homelab-cmp image == source `config export`
+#
+# Snapshot drift fails the `snapshot` job for every author. On a pull request the job
+# also regenerates the snapshots into the runner's working tree, uploads them as the
+# `snapshots-regenerated` artifact and posts a sticky comment with the manifest diff, so
+# the reviewer sees exactly what a bump changes. Nothing is committed or pushed: an
+# auto-commit made with GITHUB_TOKEN triggers no workflows, so the PR would sit with a
+# stale, green-looking status, and Renovate abandons a branch that carries foreign
+# commits (issue #261 item 19).
+
+on:
+  pull_request:
+    paths:
+      - 'charts/**'
+      - 'configuration/**'
+      - 'tests/**'
+      - 'cmd/**'
+      - 'internal/**'
+      - 'scripts/**'
+      - 'go.mod'
+      - 'go.sum'
+      - 'Taskfile.yml'
+      - 'mise.toml'
+      - '.github/workflows/verify.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'charts/**'
+      - 'configuration/**'
+      - 'tests/**'
+      - 'cmd/**'
+      - 'internal/**'
+      - 'scripts/**'
+      - 'go.mod'
+      - 'go.sum'
+      - 'Taskfile.yml'
+      - 'mise.toml'
+      - '.github/workflows/verify.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: verify-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+# Every pinned tool carries a Renovate marker so the bump lands here too. The renderer
+# in particular must match configuration/versions.yaml `tools.helm` (the single source of
+# truth for the helm version) and mise.toml, because the golden snapshots are byte-exact
+# and a different helm writes different bytes.
+env:
+  # renovate: datasource=golang-version depName=go
+  GO_VERSION: '1.25'
+  # renovate: datasource=github-releases depName=helm/helm
+  HELM_VERSION: 'v4.2.0'
+  # renovate: datasource=github-releases depName=yannh/kubeconform
+  KUBECONFORM_VERSION: 'v0.7.0'
+  # renovate: datasource=github-releases depName=open-policy-agent/conftest
+  CONFTEST_VERSION: '0.70.0'
+  # renovate: datasource=github-releases depName=FairwindsOps/pluto
+  PLUTO_VERSION: '5.24.3'
+  # renovate: datasource=github-releases depName=go-task/task
+  TASK_VERSION: 'v3.46.4'
+
+jobs:
+  level-0:
+    name: Level 0 (render, schema, gitops, snapshot, policy)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5
+        with:
+          version: ${{ env.HELM_VERSION }}
+
+      - name: Install kubeconform, conftest, pluto, task
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/bin"
+          curl -sSL --retry 5 --retry-all-errors --retry-delay 3 "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz" | tar -xz -C "$HOME/bin" kubeconform
+          curl -sSL --retry 5 --retry-all-errors --retry-delay 3 "https://github.com/open-policy-agent/conftest/releases/download/v${CONFTEST_VERSION}/conftest_${CONFTEST_VERSION}_Linux_x86_64.tar.gz" | tar -xz -C "$HOME/bin" conftest
+          curl -sSL --retry 5 --retry-all-errors --retry-delay 3 "https://github.com/FairwindsOps/pluto/releases/download/v${PLUTO_VERSION}/pluto_${PLUTO_VERSION}_linux_amd64.tar.gz" | tar -xz -C "$HOME/bin" pluto
+          go install "github.com/go-task/task/v3/cmd/task@${TASK_VERSION}"
+          echo "$HOME/bin" >> "$GITHUB_PATH"
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - name: Cache kubeconform core schemas
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ~/.cache/homelab-kubeconform
+          key: kubeconform-${{ hashFiles('configuration/versions.yaml') }}
+
+      - name: Go unit tests
+        run: go test ./...
+
+      - name: task verify (level 0)
+        id: verify
+        run: |
+          set -o pipefail
+          task verify | tee verify-level0.json
+        continue-on-error: false
+
+      - name: Summary
+        if: always()
+        run: |
+          if [ -f verify-level0.json ]; then
+            {
+              echo "## Level 0 verification"
+              echo
+              jq -r '"**Result:** \(if .pass then "PASS ✅" else "FAIL ❌" end) in \(.duration_ms) ms"' verify-level0.json
+              echo
+              echo "| Check | Status | ms | Findings |"
+              echo "|---|---|---:|---:|"
+              jq -r '.checks[] | select(.status != "pass") | "| \(.name) | \(.status) | \(.duration_ms) | \(.findings // [] | length) |"' verify-level0.json
+              echo
+              jq -r '.checks[] | select(.status == "fail") | "### \(.name)\n\(.detail // "")\n" + ((.findings // []) | map("- " + .) | join("\n"))' verify-level0.json
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload level-0 JSON
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: verify-level0
+          path: verify-level0.json
+          retention-days: 14
+
+  policy:
+    name: Policy unit tests and negative fixtures
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
+        with:
+          deno-version: v2.x
+
+      - name: Install conftest
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/bin"
+          curl -sSL --retry 5 --retry-all-errors --retry-delay 3 "https://github.com/open-policy-agent/conftest/releases/download/v${CONFTEST_VERSION}/conftest_${CONFTEST_VERSION}_Linux_x86_64.tar.gz" | tar -xz -C "$HOME/bin" conftest
+          echo "$HOME/bin" >> "$GITHUB_PATH"
+
+      - name: conftest verify
+        run: conftest verify -p tests/policy
+
+      - name: Negative and positive fixtures
+        run: deno run --allow-read --allow-run --allow-env scripts/policy-test.ts
+
+      # Every script in scripts/ is TypeScript on Deno and is the automation
+      # this repo runs; a formatting or type error there breaks a task, not a
+      # chart, so it is checked here rather than nowhere.
+      - name: TypeScript format, types and unit tests
+        run: |
+          set -euo pipefail
+          deno fmt --check scripts/
+          deno check scripts/*.ts
+          deno test scripts/
+
+  schemas:
+    name: Vendored CRD schemas are current
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5
+        with:
+          version: ${{ env.HELM_VERSION }}
+
+      - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
+        with:
+          deno-version: v2.x
+
+      - name: schemas --check
+        run: |
+          deno run --allow-net --allow-run --allow-env --allow-read --allow-write scripts/crd-schemas-vendor.ts --check \
+            || { echo "::error::tests/schemas is stale. Run 'task schemas:vendor' and commit the result."; exit 1; }
+
+  snapshot:
+    name: Golden snapshots
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      # Read-only on contents: this job never commits. pull-requests: write is
+      # for the sticky comment only.
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5
+        with:
+          version: ${{ env.HELM_VERSION }}
+
+      - name: Compare snapshots
+        id: compare
+        run: |
+          set +e
+          go run ./cmd/homelab verify snapshot --json > snapshot.json
+          echo "pass=$(jq -r .pass snapshot.json)" >> "$GITHUB_OUTPUT"
+
+      # On drift, regenerate into the working tree only, to produce the diff and
+      # the artifact. Nothing is committed: see the header comment.
+      - name: Regenerate snapshots for the diff report
+        if: steps.compare.outputs.pass != 'true'
+        id: regen
+        continue-on-error: true
+        run: |
+          set -uo pipefail
+          go run ./cmd/homelab verify snapshot --update
+          git diff --stat -- tests/snapshots > snapshot-diff.txt
+          {
+            echo '## Rendered manifests differ from `tests/snapshots`'
+            echo
+            echo '```'
+            cat snapshot-diff.txt
+            echo '```'
+            echo
+            echo '<details><summary>Manifest diff</summary>'
+            echo
+            echo '```diff'
+            git diff -- tests/snapshots | head -c 60000
+            echo '```'
+            echo '</details>'
+            echo
+            echo "To accept these changes, run \`task test:snapshot -- --update\` locally and"
+            echo "commit the result, or download the \`snapshots-regenerated\` artifact from"
+            echo "this run and commit it. This job fails until \`tests/snapshots\` matches."
+          } > snapshot-comment.md
+
+      - name: Upload regenerated snapshots
+        if: steps.compare.outputs.pass != 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: snapshots-regenerated
+          path: tests/snapshots
+          retention-days: 14
+
+      - name: Sticky comment with manifest diff
+        if: steps.compare.outputs.pass != 'true' && github.event_name == 'pull_request' && steps.regen.outcome == 'success'
+        uses: marocchino/sticky-pull-request-comment@5770ad5eb8f42dd2c4f34da00c94c5381e49af88 # v3.0.5
+        with:
+          header: snapshot-diff
+          path: snapshot-comment.md
+
+      # Drift fails the job for every author, Renovate included. renovate.json5
+      # automerges patch bumps, so a green snapshot job on a bump that changed
+      # the render would merge an unreviewed manifest change.
+      - name: Fail on snapshot drift
+        if: steps.compare.outputs.pass != 'true'
+        run: |
+          jq -r '.checks[] | select(.status=="fail") | "\(.name): \(.detail)\n" + ((.findings // []) | join("\n"))' snapshot.json
+          echo "::error::Rendered manifests differ from tests/snapshots. Run 'task test:snapshot -- --update' and commit, or download the snapshots-regenerated artifact."
+          exit 1
+
+  cmp-parity:
+    name: CMP image parity
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Not on push: cmp-image.yml builds and pushes the image from the same
+    # commit, so running here would race it and fail on a tag that is seconds
+    # away from existing. Parity on main is covered by the next pull request,
+    # or on demand with workflow_dispatch.
+    if: github.event_name != 'push'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
+        with:
+          deno-version: v2.x
+
+      # The parity check needs the base tag to tell "this PR bumped the tag,
+      # so the image does not exist yet" from "the image was never built".
+      # The explicit refspec is what guarantees the base ref exists in the
+      # shallow checkout. The base is the PR target branch (main on
+      # workflow_dispatch), not a hard-coded main.
+      - name: Fetch base ref for the tag comparison
+        env:
+          BASE: ${{ github.base_ref || 'main' }}
+        run: git fetch --no-tags --depth=1 origin "$BASE:refs/remotes/origin/$BASE"
+
+      - name: Compare pinned image against source
+        env:
+          BASE: ${{ github.base_ref || 'main' }}
+        run: |
+          deno run --allow-net --allow-run --allow-env --allow-read --allow-write \
+            scripts/cmp-parity-test.ts --base-ref "origin/$BASE"

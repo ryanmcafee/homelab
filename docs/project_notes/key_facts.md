@@ -43,15 +43,33 @@ See `CLAUDE.local.md` for IP addresses and hostnames.
 
 ## ArgoCD Sync Wave Order
 
-| Wave | Components |
-|------|------------|
-| -2 | SOPS secrets (1Password credentials) |
-| -1 | Namespaces |
-| 0 | 1Password Operator |
-| 1-2 | CSR approver, Cilium LB IPAM, Democratic-CSI |
-| 3-4 | cert-manager, external-dns |
-| 5-6 | kube-prometheus-stack, Traefik |
-| 7+ | Applications |
+ArgoCD orders waves only *within* one Application, so the app-of-apps parent
+wave dominates: every object in `addons` syncs after every object in
+`bootstrap`, whatever child wave it carries. Source of truth:
+`charts/gitops/values.yaml` (defaults, used by localdev) and
+`charts/gitops/values-homelab.yaml` (homelab overrides).
+
+Parent Applications (rendered by `charts/gitops`):
+
+| Parent Application | homelab wave | localdev wave |
+|---|---:|---:|
+| `bootstrap` | 0 | 0 |
+| `addons` | 1 | 2 |
+| `applications` | 10 | 3 |
+
+Child waves inside each parent (`argocd.argoproj.io/sync-wave` on the objects
+that parent renders):
+
+| Parent | Child wave range | Notable ordering |
+|---|---|---|
+| `bootstrap` | -3 .. 1 | -3 namespace + secret-transformer RBAC, -2 SOPS secrets, -1 credentials-transformer Job and 1Password operator, 0 homelab-environment-config, 1 ArgoCD itself |
+| `addons` | -1 .. 10 | 0 cert-manager, 1 its ClusterIssuer, 3 external-dns config, 4 external-dns, 5-8 Traefik |
+| `applications` | 10 .. 15 | each `*-config` chart before the workload that consumes it |
+
+`homelab verify gitops` enforces the conventions this table describes
+(`gitops/<env>/waves`, `gitops/<env>/crd-order`); read the rendered
+`tests/snapshots/<env>/*.yaml` for the exact wave on any one object rather than
+trusting a prose table.
 
 ## Important Taskfile Commands
 
@@ -59,6 +77,11 @@ See `CLAUDE.local.md` for IP addresses and hostnames.
 |---------|-------------|
 | `task localdev:up` | Start Kind + Tilt local development |
 | `task localdev:down` | Destroy local environment |
+| `task verify` | Level-0 static verification (render, schema, gitops graph, snapshots, policy) — JSON |
+| `task verify:text` | Same checks, human-readable |
+| `task test:snapshot -- --update` | Regenerate golden snapshots after an intended render change |
+| `task test:policy` | conftest unit tests + negative fixtures |
+| `task schemas:vendor` | Re-vendor CRD schemas after an operator bump |
 | `task chart:lint` | Lint all Helm charts |
 | `task chart:template:addons` | Debug addons rendering |
 | `task talos:recreate:node NODE=X` | Recreate Talos node |

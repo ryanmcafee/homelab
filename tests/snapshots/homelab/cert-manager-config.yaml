@@ -1,0 +1,9 @@
+---
+# Source: cert-manager-config/templates/config.yaml
+apiVersion: onepassword.com/v1
+kind: OnePasswordItem
+metadata:
+  name: cloudflare-api-token
+  namespace: cert-manager
+spec:
+  itemPath: "vaults/homelab/items/cloudflare"

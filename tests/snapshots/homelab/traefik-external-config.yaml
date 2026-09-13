@@ -1,0 +1,160 @@
+---
+# Source: traefik-external-config/templates/dashboard.yaml
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: traefik-dashboard-tls
+  namespace: traefik
+  annotations:
+    homelab.ryanmcafee.com/policy-exempt: "hostname-domain"
+    homelab.ryanmcafee.com/policy-exempt-reason: "GitHub issue #262: domain hardcoded in values-homelab.yaml; this chart's global.domain is set independently of configuration/environments/*.yaml (the centralized, PII-free level-0 domain), so the rendered hostname is correct in real deployments but never matches the level-0 placeholder domain. Remove this exemption when the chart takes DOMAIN from the config system."
+spec:
+  secretName: traefik-dashboard-tls
+  issuerRef:
+    name: letsencrypt
+    kind: ClusterIssuer
+  dnsNames:
+    - traefik.ryanmcafee.com
+---
+# Source: traefik-external-config/templates/oidc.yaml
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: auth-tls
+  namespace: traefik
+  annotations:
+    homelab.ryanmcafee.com/policy-exempt: "hostname-domain"
+    homelab.ryanmcafee.com/policy-exempt-reason: "GitHub issue #262: domain hardcoded in values-homelab.yaml; this chart's global.domain is set independently of configuration/environments/*.yaml (the centralized, PII-free level-0 domain), so the rendered hostname is correct in real deployments but never matches the level-0 placeholder domain. Remove this exemption when the chart takes DOMAIN from the config system."
+spec:
+  secretName: auth-tls
+  issuerRef:
+    name: letsencrypt
+    kind: ClusterIssuer
+  dnsNames:
+    - auth.ryanmcafee.com
+---
+# Source: traefik-external-config/templates/dashboard.yaml
+# Requires the externaldns.k8s.io CRDs, which only exist where external-dns is
+# deployed. Disabled in environments without it (see values-localdev.yaml).
+apiVersion: externaldns.k8s.io/v1alpha1
+kind: DNSEndpoint
+metadata:
+  name: traefik-dashboard
+  namespace: traefik
+  annotations:
+    homelab.ryanmcafee.com/policy-exempt: "hostname-domain"
+    homelab.ryanmcafee.com/policy-exempt-reason: "GitHub issue #262: domain hardcoded in values-homelab.yaml; this chart's global.domain is set independently of configuration/environments/*.yaml (the centralized, PII-free level-0 domain), so the rendered hostname is correct in real deployments but never matches the level-0 placeholder domain. Remove this exemption when the chart takes DOMAIN from the config system."
+spec:
+  endpoints:
+    - dnsName: traefik.ryanmcafee.com
+      recordType: A
+      targets:
+        - "172.16.100.200"
+---
+# Source: traefik-external-config/templates/oidc.yaml
+# Requires the externaldns.k8s.io CRDs, which only exist where external-dns is
+# deployed — same gate as the dashboard DNSEndpoint.
+apiVersion: externaldns.k8s.io/v1alpha1
+kind: DNSEndpoint
+metadata:
+  name: auth-dns
+  namespace: traefik
+  annotations:
+    homelab.ryanmcafee.com/policy-exempt: "hostname-domain"
+    homelab.ryanmcafee.com/policy-exempt-reason: "GitHub issue #262: domain hardcoded in values-homelab.yaml; this chart's global.domain is set independently of configuration/environments/*.yaml (the centralized, PII-free level-0 domain), so the rendered hostname is correct in real deployments but never matches the level-0 placeholder domain. Remove this exemption when the chart takes DOMAIN from the config system."
+spec:
+  endpoints:
+    - dnsName: auth.ryanmcafee.com
+      recordType: A
+      targets:
+        - "172.16.100.200"
+---
+# Source: traefik-external-config/templates/dashboard.yaml
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: traefik-dashboard-redirect
+  namespace: traefik
+  annotations:
+    homelab.ryanmcafee.com/policy-exempt: "hostname-domain"
+    homelab.ryanmcafee.com/policy-exempt-reason: "GitHub issue #262: domain hardcoded in values-homelab.yaml; this chart's global.domain is set independently of configuration/environments/*.yaml (the centralized, PII-free level-0 domain), so the rendered hostname is correct in real deployments but never matches the level-0 placeholder domain. Remove this exemption when the chart takes DOMAIN from the config system."
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - kind: Rule
+      match: Host(`traefik.ryanmcafee.com`) && Path(`/dashboard`)
+      middlewares:
+        - name: dashboard-redirect-slash
+      services:
+        - kind: TraefikService
+          name: noop@internal
+  tls:
+    secretName: traefik-dashboard-tls
+
+---
+# Source: traefik-external-config/templates/oidc.yaml
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: auth-oidc
+  namespace: traefik
+  annotations:
+    homelab.ryanmcafee.com/policy-exempt: "hostname-domain"
+    homelab.ryanmcafee.com/policy-exempt-reason: "GitHub issue #262: domain hardcoded in values-homelab.yaml; this chart's global.domain is set independently of configuration/environments/*.yaml (the centralized, PII-free level-0 domain), so the rendered hostname is correct in real deployments but never matches the level-0 placeholder domain. Remove this exemption when the chart takes DOMAIN from the config system."
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(`auth.ryanmcafee.com`)
+      kind: Rule
+      middlewares:
+        - name: oidc-auth
+      services:
+        - kind: TraefikService
+          name: noop@internal
+  tls:
+    secretName: auth-tls
+
+---
+# Source: traefik-external-config/templates/dashboard.yaml
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: dashboard-redirect-slash
+  namespace: traefik
+spec:
+  redirectRegex:
+    regex: ^(https?://[^/]+/dashboard)$
+    replacement: ${1}/
+    permanent: true
+---
+# Source: traefik-external-config/templates/oidc.yaml
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: oidc-auth
+  namespace: traefik
+spec:
+  plugin:
+    traefikoidc:
+      providerURL: "https://accounts.google.com"
+      clientID: "urn:k8s:secret:google-oauth-credentials:client_id"
+      clientSecret: "urn:k8s:secret:google-oauth-credentials:client_secret"
+      callbackURL: "/oauth2/callback"
+      logoutURL: "/oauth2/logout"
+      sessionEncryptionKey: "urn:k8s:secret:oidc-session-key:oidc-session-key"
+      scopes:
+        - openid
+        - email
+        - profile
+      allowedUserDomains:
+        - ryanmcafee.com
+      cookieDomain: ".ryanmcafee.com"
+      redis:
+        enabled: true
+        address: "oidc-redis.traefik.svc.cluster.local:6379"
+        keyPrefix: "traefikoidc:"
+        cacheMode: "hybrid"
+      logLevel: "debug"
+      forceHTTPS: true
