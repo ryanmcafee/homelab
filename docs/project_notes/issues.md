@@ -13,6 +13,11 @@ Each entry should include:
 
 ## Recent Work
 
+### 2026-09-13 - PR #276: Tailscale ACL grant for the read-only API server proxy (runbook step 2)
+- **Status**: Open (PR #276; `tailscale-acl.yml` applies on merge behind the production environment)
+- **Description**: `task prod:kubeconfig` failed because the 1Password items from `docs/runbooks/readonly-access.md` steps 3-4 (`k8s-agent-readonly`, `argocd-agent-token`) had never been created; both now exist and `task prod:kubeconfig` / `task prod:diff` work. `task verify:prod` still failed with `no such host` because the policy had no grant to `tag:k8s-operator` (step 2); this PR adds `autogroup:admin -> tag:k8s-operator tcp:443`. Also refreshed the stale `argocd.ryanmcafee.com` admin password in 1Password from `argocd-initial-admin-secret`.
+- **URL**: https://github.com/ryanmcafee/homelab/pull/276
+
 ### 2026-09-13 - Issue #261 Sections C + D: previews, read-only prod, upgrade gate, restore drill, scaffolder, agent contract
 - **Status**: Open (PR #273, single PR for items 16-22, closes #261)
 - **Description**: Label-gated per-PR previews on the homelab cluster (ApplicationSet PR generator, `preview-<N>` namespaces, AppProject `previews`); sticky Kind report with `argocd app diff` vs main on every PR; read-only production access for agents (`agent-readonly` RBAC, Tailscale API server proxy, ArgoCD `agent` account, `homelab verify prod`) and gated ArgoCD GitHub deploy notifications; `homelab verify upgrade` + `upgrade.yml` (upstream manifest diff, CRD revalidation, Renovate automerge gate, optional regeneration bot); weekly CloudNativePG restore drill in Kind (Barman Cloud Plugin + versitygw); `homelab scaffold app`; committed PostToolUse level-0 hook, PR-body claim checked by `pr-contract.yml`, gitops-test skill without prod-mutating tiers. ADR-013, ADR-014.
