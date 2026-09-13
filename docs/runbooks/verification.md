@@ -28,7 +28,8 @@ uploads its own copy as the `verify-level0` artifact.
 
 | Check name | What it proves | Fix when it fails |
 |---|---|---|
-| `render/<env>/<chart>` | `helm template --include-crds` succeeds for every chart in `charts/` with the values ArgoCD would use. `homelab` renders through the same two-stage path as the CMP (`config export` from `homelab.yaml.example` → helm); `localdev` renders with `values.yaml` + `values-localdev.yaml`. | Read the helm error in `findings`. |
+| `render/<env>/<chart>` | `helm template --include-crds` succeeds for every chart in `charts/` with the values ArgoCD would use. `homelab` renders through the same two-stage path as the CMP (`config export` from `homelab.yaml.example` → helm); `localdev` renders with `values.yaml` + the committed, config-generated `values-localdev.yaml`. | Read the helm error in `findings`. |
+| `render/localdev/_committed-values` | `charts/addons/values-localdev.yaml` and `charts/applications/values-localdev.yaml` are byte-identical to `homelab config export --set localdev` from `configuration/`. | Run `task config:export:localdev` and commit the result; never hand-edit those files. |
 | `lint/<env>/<chart>` | `helm lint` reports no `[ERROR]`. | Fix the chart. Warnings do not fail. |
 | `kubeconform/<env>` | Every rendered object validates against the Kubernetes version in `configuration/versions.yaml` (`tools.kubernetes`) and the vendored CRD schemas in `tests/schemas/`. There is no `-skip` list. | A `could not find schema` finding means a new CRD kind: add it to `tests/schemas/sources.yaml` and run `task schemas:vendor`. Anything else is a real schema violation. |
 | `pluto/<env>` | No deprecated or removed apiVersions for the target Kubernetes version. | Bump the apiVersion or the chart. |

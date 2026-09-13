@@ -275,6 +275,12 @@ tilt up  # (defaults to direct)
 
 ## Development Workflow
 
+> **Note:** `charts/addons/values-localdev.yaml` and `charts/applications/values-localdev.yaml`
+> are generated, not hand-written. `task config:export:localdev` renders them from
+> `configuration/environments/localdev.yaml` + `configuration/templates/helm-{addons,apps}.tmpl`,
+> and level 0 (`task verify`, check `render/localdev/_committed-values`) fails when the
+> committed files are stale. Edit the source, regenerate, commit both.
+
 ### Typical Development Cycle
 
 ```
@@ -305,24 +311,29 @@ tilt up  # (defaults to direct)
 
 ### Example: Modify Traefik Configuration
 
-**Step 1**: Edit chart values
+**Step 1**: Edit the source, not the generated file
 
-```bash
-vim charts/addons/values-localdev.yaml
-```
-
-**Step 2**: Change Traefik resource limits
+- A config value (domain, hostname, a platform capability such as `LOAD_BALANCER_ENABLED`):
+  `vim configuration/environments/localdev.yaml`
+- A Kind sizing block (replicas, resources, retention): `vim configuration/templates/helm-addons.tmpl`
+  and change it inside the `{{ if eq .Set "localdev" }}` branch
 
 ```yaml
-traefik:
-  enabled: true
+# configuration/templates/helm-addons.tmpl, localdev branch
+traefikExternal:
   resources:
     requests:
       cpu: 100m  # Changed from 50m
       memory: 256Mi  # Changed from 128Mi
 ```
 
-**Step 3**: Save file (Tilt auto-deploys)
+**Step 2**: Regenerate the committed values file
+
+```bash
+task config:export:localdev   # rewrites charts/addons/values-localdev.yaml
+```
+
+**Step 3**: Tilt auto-deploys the regenerated file
 
 **Step 4**: Verify in Tilt UI
 
@@ -338,13 +349,16 @@ traefik:
 kubectl -n traefik get pods traefik-xxx -o yaml | grep -A 5 resources
 ```
 
-**Step 6**: Commit
+**Step 6**: Commit the source and the regenerated file together
 
 ```bash
-git add charts/addons/values-localdev.yaml
+git add configuration/templates/helm-addons.tmpl charts/addons/values-localdev.yaml
 git commit -m "Increase Traefik resource limits for local dev"
 git push
 ```
+
+`task verify` fails (`render/localdev/_committed-values`) if the committed file
+does not match the templates, so a forgotten regenerate is caught before push.
 
 ### Example: Add New Application
 
@@ -391,10 +405,10 @@ spec:
 {{- end }}
 ```
 
-**Step 2**: Enable in values
+**Step 2**: Enable in the applications template, then regenerate
 
 ```bash
-vim charts/applications/values-localdev.yaml
+vim configuration/templates/helm-apps.tmpl
 ```
 
 ```yaml
@@ -403,6 +417,10 @@ nginxDemo:
   namespace: demo
   replicas: 1
   version: "1.25"
+```
+
+```bash
+task config:export:localdev   # rewrites charts/applications/values-localdev.yaml
 ```
 
 **Step 3**: Tilt auto-deploys
@@ -441,6 +459,7 @@ helm lint charts/addons
 
 # Validate against Kubernetes API
 helm template charts/addons \
+  --values charts/addons/values.yaml \
   --values charts/addons/values-localdev.yaml | \
   kubectl apply --dry-run=client -f -
 ```

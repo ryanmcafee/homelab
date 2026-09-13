@@ -173,6 +173,12 @@ func OrphanSnapshots(expected map[string][]string, snapshotDir string, mode Orph
 // fresh render) in unified style. It returns "" when the inputs are identical
 // and truncates the body at maxDiffLines.
 func UnifiedDiff(name string, want, got []byte) string {
+	return labelledDiff(name, "snapshot", "rendered", want, got)
+}
+
+// labelledDiff is UnifiedDiff with caller-chosen ---/+++ labels, for diffs
+// whose sides are not a snapshot and a render.
+func labelledDiff(name, wantLabel, gotLabel string, want, got []byte) string {
 	if bytes.Equal(want, got) {
 		return ""
 	}
@@ -191,8 +197,8 @@ func UnifiedDiff(name string, want, got []byte) string {
 	}
 
 	var out strings.Builder
-	fmt.Fprintf(&out, "--- snapshot %s\n", name)
-	fmt.Fprintf(&out, "+++ rendered %s\n", name)
+	fmt.Fprintf(&out, "--- %s %s\n", wantLabel, name)
+	fmt.Fprintf(&out, "+++ %s %s\n", gotLabel, name)
 	for _, line := range body {
 		out.WriteString(line + "\n")
 	}

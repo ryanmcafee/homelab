@@ -79,7 +79,7 @@ spec:
         - values-localdev.yaml
       valuesObject:
         iscsi:
-          portal: ""
+          portal: "127.0.0.1:3260"
   destination:
     server: https://kubernetes.default.svc
     namespace: media
@@ -107,7 +107,7 @@ spec:
   source:
     repoURL: oci.trueforge.org/truecharts
     chart: flaresolverr
-    targetRevision: 16.14.17
+    targetRevision: 16.18.2
     helm:
       releaseName: flaresolverr
       values: |
@@ -134,9 +134,10 @@ spec:
             accessModes:
             - ReadWriteOnce
             enabled: true
+            existingClaim: flaresolverr-config
             size: 1Gi
             storageClass: democratic-csi-nfs
-        TZ: "UTC"
+        TZ: "America/New_York"
         securityContext:
           container:
             readOnlyRootFilesystem: false
@@ -197,7 +198,7 @@ spec:
         - values-localdev.yaml
       valuesObject:
         iscsi:
-          portal: ""
+          portal: "127.0.0.1:3260"
   destination:
     server: https://kubernetes.default.svc
     namespace: media
@@ -218,8 +219,6 @@ metadata:
   namespace: argocd
   annotations:
     argocd.argoproj.io/sync-wave: "13"
-    homelab.ryanmcafee.com/policy-exempt: "hostname-domain"
-    homelab.ryanmcafee.com/policy-exempt-reason: "GitHub issue #263: localdev renders addons/applications without the CMP domain-substitution stage (CLAUDE.md's CMP Architecture: localdev uses native Helm with values-localdev.yaml, no CMP), so this Ingress hostname stays the checked-in values.yaml placeholder here; it is never resolved or used in localdev (services are reached via NodePort). Fix is to generate values-localdev.yaml from config; remove this exemption then. In homelab this hostname is correctly domain-derived by the two-stage config-export flow, so the exemption is scoped to localdev only."
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
@@ -227,7 +226,7 @@ spec:
   source:
     repoURL: oci.trueforge.org/truecharts
     chart: lazylibrarian
-    targetRevision: 21.14.20
+    targetRevision: 21.18.2
     helm:
       releaseName: lazylibrarian
       values: |
@@ -247,38 +246,39 @@ spec:
           books:
             enabled: true
             mountPath: /books
-            path: /mnt/storage/books
-            server: truenas.example.com
+            path: /tmp/storage/books
+            server: truenas.homelab.local
             type: nfs
           config:
             accessModes:
             - ReadWriteOnce
             enabled: true
+            existingClaim: lazylibrarian-config
             size: 5Gi
             storageClass: democratic-csi-nfs
           downloads:
             enabled: true
             mountPath: /downloads
-            path: /mnt/storage/downloads
-            server: truenas.example.com
+            path: /tmp/storage/downloads
+            server: truenas.homelab.local
             type: nfs
         ingress:
           main:
             annotations:
               cert-manager.io/cluster-issuer: letsencrypt
-              external-dns.alpha.kubernetes.io/hostname: lazylibrarian.example.com
+              external-dns.alpha.kubernetes.io/hostname: lazylibrarian.homelab.local
             enabled: true
             hosts:
-            - host: lazylibrarian.example.com
+            - host: lazylibrarian.homelab.local
               paths:
               - path: /
                 pathType: Prefix
             ingressClassName: internal
             tls:
             - hosts:
-              - lazylibrarian.example.com
+              - lazylibrarian.homelab.local
               secretName: lazylibrarian-tls
-        TZ: "UTC"
+        TZ: "America/New_York"
         securityContext:
           container:
             runAsGroup: 100
@@ -339,7 +339,7 @@ spec:
         - values-localdev.yaml
       valuesObject:
         iscsi:
-          portal: ""
+          portal: "127.0.0.1:3260"
   destination:
     server: https://kubernetes.default.svc
     namespace: home-automation
@@ -367,7 +367,7 @@ spec:
   source:
     repoURL: oci.trueforge.org/truecharts
     chart: mosquitto
-    targetRevision: 17.13.9
+    targetRevision: 17.17.2
     helm:
       releaseName: mosquitto
       values: |
@@ -388,36 +388,43 @@ spec:
             accessModes:
             - ReadWriteOnce
             enabled: true
+            existingClaim: mosquitto-config
+            mountPath: /mosquitto/config
             size: 1Gi
             storageClass: democratic-csi-nfs
+          configinc:
+            enabled: true
+            existingClaim: mosquitto-configinc
+            mountPath: /mosquitto/configinc
           data:
             accessModes:
             - ReadWriteOnce
             enabled: true
+            existingClaim: mosquitto-data
+            mountPath: /mosquitto/data
             size: 1Gi
             storageClass: democratic-csi-nfs
-          enabled: true
-          size: 128Mi
-          storageClass: local-path
         service:
           main:
             ports:
               main:
                 port: 1883
-            type: LoadBalancer
-          port: 1883
-          type: NodePort
+                protocol: tcp
+                targetPort: 1883
+            type: NodePort
           websockets:
             enabled: true
             ports:
               websockets:
                 enabled: true
                 port: 9001
-            type: LoadBalancer
+                protocol: tcp
+                targetPort: 9001
+            type: NodePort
         mosquitto:
           auth:
             enabled: true
-        TZ: "UTC"
+        TZ: "America/New_York"
 
   destination:
     server: https://kubernetes.default.svc
@@ -472,7 +479,7 @@ spec:
         - values-localdev.yaml
       valuesObject:
         iscsi:
-          portal: ""
+          portal: "127.0.0.1:3260"
   destination:
     server: https://kubernetes.default.svc
     namespace: media
@@ -493,8 +500,6 @@ metadata:
   namespace: argocd
   annotations:
     argocd.argoproj.io/sync-wave: "13"
-    homelab.ryanmcafee.com/policy-exempt: "hostname-domain"
-    homelab.ryanmcafee.com/policy-exempt-reason: "GitHub issue #263: localdev renders addons/applications without the CMP domain-substitution stage (CLAUDE.md's CMP Architecture: localdev uses native Helm with values-localdev.yaml, no CMP), so this Ingress hostname stays the checked-in values.yaml placeholder here; it is never resolved or used in localdev (services are reached via NodePort). Fix is to generate values-localdev.yaml from config; remove this exemption then. In homelab this hostname is correctly domain-derived by the two-stage config-export flow, so the exemption is scoped to localdev only."
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
@@ -502,7 +507,7 @@ spec:
   source:
     repoURL: oci.trueforge.org/truecharts
     chart: nzbget
-    targetRevision: 28.3.20
+    targetRevision: 29.4.2
     helm:
       releaseName: nzbget
       values: |
@@ -513,7 +518,7 @@ spec:
                 main:
                   resources:
                     limits:
-                      cpu: 2000m
+                      cpu: 1000m
                       memory: 4Gi
                     requests:
                       cpu: 100m
@@ -523,31 +528,32 @@ spec:
             accessModes:
             - ReadWriteOnce
             enabled: true
+            existingClaim: nzbget-config
             size: 5Gi
             storageClass: democratic-csi-nfs
           downloads:
             enabled: true
             mountPath: /downloads
-            path: /mnt/storage/downloads
-            server: truenas.example.com
+            path: /tmp/storage/downloads
+            server: truenas.homelab.local
             type: nfs
         ingress:
           main:
             annotations:
               cert-manager.io/cluster-issuer: letsencrypt
-              external-dns.alpha.kubernetes.io/hostname: nzbget.example.com
+              external-dns.alpha.kubernetes.io/hostname: nzbget.homelab.local
             enabled: true
             hosts:
-            - host: nzbget.example.com
+            - host: nzbget.homelab.local
               paths:
               - path: /
                 pathType: Prefix
             ingressClassName: internal
             tls:
             - hosts:
-              - nzbget.example.com
+              - nzbget.homelab.local
               secretName: nzbget-tls
-        TZ: "UTC"
+        TZ: "America/New_York"
         securityContext:
           container:
             runAsGroup: 100
@@ -608,7 +614,7 @@ spec:
         - values-localdev.yaml
       valuesObject:
         iscsi:
-          portal: ""
+          portal: "127.0.0.1:3260"
   destination:
     server: https://kubernetes.default.svc
     namespace: media
@@ -630,8 +636,8 @@ metadata:
   namespace: argocd
   annotations:
     argocd.argoproj.io/sync-wave: "12"
-    homelab.ryanmcafee.com/policy-exempt: "image-latest,hostname-domain"
-    homelab.ryanmcafee.com/policy-exempt-reason: "image-latest: upstream plexinc/pms-docker publishes no numbered release tags; tracking :latest is the documented, intentional deployment model for Plex. hostname-domain: GitHub issue #263: localdev renders addons/applications without the CMP domain-substitution stage (CLAUDE.md's CMP Architecture: localdev uses native Helm with values-localdev.yaml, no CMP), so the ingress hostname stays the checked-in values.yaml placeholder here; it is never resolved or used in localdev (services are reached via NodePort). Fix is to generate values-localdev.yaml from config; remove the hostname-domain exemption then. In homelab this hostname is correctly domain-derived by the two-stage config-export flow, so that part of the exemption is scoped to localdev only."
+    homelab.ryanmcafee.com/policy-exempt: "image-latest"
+    homelab.ryanmcafee.com/policy-exempt-reason: "Upstream plexinc/pms-docker publishes no numbered release tags; tracking :latest is the documented, intentional deployment model for Plex."
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
@@ -639,7 +645,7 @@ spec:
   source:
     repoURL: https://raw.githubusercontent.com/plexinc/pms-docker/gh-pages
     chart: plex-media-server
-    targetRevision: 1.4.0
+    targetRevision: 1.6.0
     helm:
       releaseName: plex
       values: |
@@ -649,34 +655,41 @@ spec:
           repository: plexinc/pms-docker
           tag: latest
         extraEnv:
-          ADVERTISE_IP: https://plex.example.com:443
+          ADVERTISE_IP: https://plex.homelab.local:443
           CHANGE_CONFIG_DIR_OWNERSHIP: "false"
           PLEX_GID: "100"
           PLEX_UID: "568"
-          TZ: UTC
+          TZ: America/New_York
         pms:
           claimSecret:
             key: plex-claim-token
             name: plex
-          configExistingClaim: ""
+          configExistingClaim: plex-config-iscsi
+          resources:
+            limits:
+              cpu: 1000m
+              memory: 1Gi
+            requests:
+              cpu: 100m
+              memory: 512Mi
           storageClassName: democratic-csi-iscsi
         extraVolumes:
           - name: movies
             nfs:
-              path: /mnt/storage/movies
-              server: truenas.example.com
+              path: /tmp/storage/movies
+              server: truenas.homelab.local
           - name: tv
             nfs:
-              path: /mnt/storage/tv
-              server: truenas.example.com
+              path: /tmp/storage/tv
+              server: truenas.homelab.local
           - name: music
             nfs:
-              path: /mnt/storage/music
-              server: truenas.example.com
+              path: /tmp/storage/music
+              server: truenas.homelab.local
           - name: pictures
             nfs:
-              path: /mnt/storage/pictures
-              server: truenas.example.com
+              path: /tmp/storage/pictures
+              server: truenas.homelab.local
         extraVolumeMounts:
           - mountPath: /movies
             name: movies
@@ -697,14 +710,20 @@ spec:
         ingress:
           annotations:
             cert-manager.io/cluster-issuer: letsencrypt
-            external-dns.alpha.kubernetes.io/hostname: plex.example.com
+            external-dns.alpha.kubernetes.io/hostname: plex.homelab.local
+            external-dns.alpha.kubernetes.io/target: homelab-dev.duckdns.org
           enabled: true
+          hosts:
+          - host: plex.homelab.local
+            paths:
+            - path: /
+              pathType: Prefix
           ingressClassName: external
           tls:
           - hosts:
-            - plex.example.com
+            - plex.homelab.local
             secretName: plex-tls
-          url: https://plex.example.com
+          url: https://plex.homelab.local
         dnsPolicy: "None"
         dnsConfig:
           nameservers:
@@ -762,7 +781,7 @@ spec:
         - values-localdev.yaml
       valuesObject:
         iscsi:
-          portal: ""
+          portal: "127.0.0.1:3260"
   destination:
     server: https://kubernetes.default.svc
     namespace: media
@@ -783,8 +802,6 @@ metadata:
   namespace: argocd
   annotations:
     argocd.argoproj.io/sync-wave: "13"
-    homelab.ryanmcafee.com/policy-exempt: "hostname-domain"
-    homelab.ryanmcafee.com/policy-exempt-reason: "GitHub issue #263: localdev renders addons/applications without the CMP domain-substitution stage (CLAUDE.md's CMP Architecture: localdev uses native Helm with values-localdev.yaml, no CMP), so this Ingress hostname stays the checked-in values.yaml placeholder here; it is never resolved or used in localdev (services are reached via NodePort). Fix is to generate values-localdev.yaml from config; remove this exemption then. In homelab this hostname is correctly domain-derived by the two-stage config-export flow, so the exemption is scoped to localdev only."
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
@@ -792,7 +809,7 @@ spec:
   source:
     repoURL: oci.trueforge.org/truecharts
     chart: prowlarr
-    targetRevision: 21.3.12
+    targetRevision: 21.7.3
     helm:
       releaseName: prowlarr
       values: |
@@ -821,25 +838,26 @@ spec:
             accessModes:
             - ReadWriteOnce
             enabled: true
-            size: 512Mi
-            storageClass: local-path
+            existingClaim: prowlarr-config
+            size: 1Gi
+            storageClass: democratic-csi-nfs
         ingress:
           main:
             annotations:
               cert-manager.io/cluster-issuer: letsencrypt
-              external-dns.alpha.kubernetes.io/hostname: prowlarr.example.com
+              external-dns.alpha.kubernetes.io/hostname: prowlarr.homelab.local
             enabled: true
             hosts:
-            - host: prowlarr.example.com
+            - host: prowlarr.homelab.local
               paths:
               - path: /
                 pathType: Prefix
             ingressClassName: internal
             tls:
             - hosts:
-              - prowlarr.example.com
+              - prowlarr.homelab.local
               secretName: prowlarr-tls
-        TZ: "UTC"
+        TZ: "America/New_York"
         securityContext:
           container:
             runAsGroup: 100
@@ -900,7 +918,7 @@ spec:
         - values-localdev.yaml
       valuesObject:
         iscsi:
-          portal: ""
+          portal: "127.0.0.1:3260"
   destination:
     server: https://kubernetes.default.svc
     namespace: media
@@ -921,8 +939,6 @@ metadata:
   namespace: argocd
   annotations:
     argocd.argoproj.io/sync-wave: "13"
-    homelab.ryanmcafee.com/policy-exempt: "hostname-domain"
-    homelab.ryanmcafee.com/policy-exempt-reason: "GitHub issue #263: localdev renders addons/applications without the CMP domain-substitution stage (CLAUDE.md's CMP Architecture: localdev uses native Helm with values-localdev.yaml, no CMP), so this Ingress hostname stays the checked-in values.yaml placeholder here; it is never resolved or used in localdev (services are reached via NodePort). Fix is to generate values-localdev.yaml from config; remove this exemption then. In homelab this hostname is correctly domain-derived by the two-stage config-export flow, so the exemption is scoped to localdev only."
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
@@ -930,7 +946,7 @@ spec:
   source:
     repoURL: oci.trueforge.org/truecharts
     chart: radarr
-    targetRevision: 26.3.11
+    targetRevision: 26.7.2
     helm:
       releaseName: radarr
       values: |
@@ -959,39 +975,38 @@ spec:
             accessModes:
             - ReadWriteOnce
             enabled: true
-            size: 1Gi
-            storageClass: local-path
+            existingClaim: radarr-config
+            size: 10Gi
+            storageClass: democratic-csi-nfs
           downloads:
             enabled: true
             mountPath: /downloads
-            path: /mnt/storage/downloads
-            server: truenas.example.com
+            path: /tmp/storage/downloads
+            server: truenas.homelab.local
             type: nfs
-          media:
-            enabled: false
           movies:
             enabled: true
             mountPath: /movies
-            path: /mnt/storage/movies
-            server: truenas.example.com
+            path: /tmp/storage/movies
+            server: truenas.homelab.local
             type: nfs
         ingress:
           main:
             annotations:
               cert-manager.io/cluster-issuer: letsencrypt
-              external-dns.alpha.kubernetes.io/hostname: radarr.example.com
+              external-dns.alpha.kubernetes.io/hostname: radarr.homelab.local
             enabled: true
             hosts:
-            - host: radarr.example.com
+            - host: radarr.homelab.local
               paths:
               - path: /
                 pathType: Prefix
             ingressClassName: internal
             tls:
             - hosts:
-              - radarr.example.com
+              - radarr.homelab.local
               secretName: radarr-tls
-        TZ: "UTC"
+        TZ: "America/New_York"
         securityContext:
           container:
             runAsGroup: 100
@@ -1052,7 +1067,7 @@ spec:
         - values-localdev.yaml
       valuesObject:
         iscsi:
-          portal: ""
+          portal: "127.0.0.1:3260"
   destination:
     server: https://kubernetes.default.svc
     namespace: media
@@ -1073,8 +1088,6 @@ metadata:
   namespace: argocd
   annotations:
     argocd.argoproj.io/sync-wave: "13"
-    homelab.ryanmcafee.com/policy-exempt: "hostname-domain"
-    homelab.ryanmcafee.com/policy-exempt-reason: "GitHub issue #263: localdev renders addons/applications without the CMP domain-substitution stage (CLAUDE.md's CMP Architecture: localdev uses native Helm with values-localdev.yaml, no CMP), so this Ingress hostname stays the checked-in values.yaml placeholder here; it is never resolved or used in localdev (services are reached via NodePort). Fix is to generate values-localdev.yaml from config; remove this exemption then. In homelab this hostname is correctly domain-derived by the two-stage config-export flow, so the exemption is scoped to localdev only."
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
@@ -1082,7 +1095,7 @@ spec:
   source:
     repoURL: oci.trueforge.org/truecharts
     chart: sonarr
-    targetRevision: 25.2.11
+    targetRevision: 25.6.3
     helm:
       releaseName: sonarr
       values: |
@@ -1111,39 +1124,38 @@ spec:
             accessModes:
             - ReadWriteOnce
             enabled: true
-            size: 1Gi
-            storageClass: local-path
+            existingClaim: sonarr-config
+            size: 10Gi
+            storageClass: democratic-csi-nfs
           downloads:
             enabled: true
             mountPath: /downloads
-            path: /mnt/storage/downloads
-            server: truenas.example.com
+            path: /tmp/storage/downloads
+            server: truenas.homelab.local
             type: nfs
-          media:
-            enabled: false
           tv:
             enabled: true
             mountPath: /tv
-            path: /mnt/storage/tv
-            server: truenas.example.com
+            path: /tmp/storage/tv
+            server: truenas.homelab.local
             type: nfs
         ingress:
           main:
             annotations:
               cert-manager.io/cluster-issuer: letsencrypt
-              external-dns.alpha.kubernetes.io/hostname: sonarr.example.com
+              external-dns.alpha.kubernetes.io/hostname: sonarr.homelab.local
             enabled: true
             hosts:
-            - host: sonarr.example.com
+            - host: sonarr.homelab.local
               paths:
               - path: /
                 pathType: Prefix
             ingressClassName: internal
             tls:
             - hosts:
-              - sonarr.example.com
+              - sonarr.homelab.local
               secretName: sonarr-tls
-        TZ: "UTC"
+        TZ: "America/New_York"
         securityContext:
           container:
             runAsGroup: 100
@@ -1204,7 +1216,7 @@ spec:
         - values-localdev.yaml
       valuesObject:
         iscsi:
-          portal: ""
+          portal: "127.0.0.1:3260"
   destination:
     server: https://kubernetes.default.svc
     namespace: media
@@ -1225,8 +1237,6 @@ metadata:
   namespace: argocd
   annotations:
     argocd.argoproj.io/sync-wave: "13"
-    homelab.ryanmcafee.com/policy-exempt: "hostname-domain"
-    homelab.ryanmcafee.com/policy-exempt-reason: "GitHub issue #263: localdev renders addons/applications without the CMP domain-substitution stage (CLAUDE.md's CMP Architecture: localdev uses native Helm with values-localdev.yaml, no CMP), so this Ingress hostname stays the checked-in values.yaml placeholder here; it is never resolved or used in localdev (services are reached via NodePort). Fix is to generate values-localdev.yaml from config; remove this exemption then. In homelab this hostname is correctly domain-derived by the two-stage config-export flow, so the exemption is scoped to localdev only."
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
@@ -1234,7 +1244,7 @@ spec:
   source:
     repoURL: oci.trueforge.org/truecharts
     chart: tautulli
-    targetRevision: 21.14.16
+    targetRevision: 21.18.2
     helm:
       releaseName: tautulli
       values: |
@@ -1255,25 +1265,26 @@ spec:
             accessModes:
             - ReadWriteOnce
             enabled: true
+            existingClaim: tautulli-config
             size: 5Gi
             storageClass: democratic-csi-nfs
         ingress:
           main:
             annotations:
               cert-manager.io/cluster-issuer: letsencrypt
-              external-dns.alpha.kubernetes.io/hostname: tautulli.example.com
+              external-dns.alpha.kubernetes.io/hostname: tautulli.homelab.local
             enabled: true
             hosts:
-            - host: tautulli.example.com
+            - host: tautulli.homelab.local
               paths:
               - path: /
                 pathType: Prefix
             ingressClassName: internal
             tls:
             - hosts:
-              - tautulli.example.com
+              - tautulli.homelab.local
               secretName: tautulli-tls
-        TZ: "UTC"
+        TZ: "America/New_York"
         securityContext:
           container:
             runAsGroup: 100

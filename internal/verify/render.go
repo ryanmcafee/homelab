@@ -85,6 +85,9 @@ type inheritedValues struct {
 // read by the renders of the next wave.
 type envRender struct {
 	env Env
+	// rc is the env's resolved configuration, kept so the committed-values
+	// check can re-export the templates without resolving twice.
+	rc *config.ResolvedConfig
 	// domain is the env's resolved DOMAIN. Two-stage envs hand it to the
 	// gitops chart with --set, mirroring the Terraform root Application.
 	domain string
@@ -206,6 +209,9 @@ func Render(ctx context.Context, opts RenderOptions) (*RenderOutput, *Result) {
 		}
 		prepared = append(prepared, er)
 		out.Files[env.Name] = map[string]string{}
+		if !env.TwoStage {
+			res.Add(committedValuesCheck(opts, er))
+		}
 	}
 
 	var mu sync.Mutex
@@ -571,6 +577,7 @@ func prepareEnv(opts RenderOptions, env Env, k8sVersion string) (*envRender, Che
 
 	er := &envRender{
 		env:         env,
+		rc:          rc,
 		domain:      domain,
 		generated:   map[string]string{},
 		inherited:   map[string]inheritedValues{},
@@ -599,6 +606,54 @@ func prepareEnv(opts RenderOptions, env Env, k8sVersion string) (*envRender, Che
 		detail += fmt.Sprintf(" two-stage values=%d", len(er.generated))
 	}
 	return er, PassCheck(name, start, detail)
+}
+
+// committedValuesCheck proves that the values-<env>.yaml a plain-Helm env
+// commits for each two-stage parent is byte-identical to what `config export`
+// renders from configuration/ for that env (issue #263). Two-stage envs
+// generate those values at render time and commit nothing to compare, so they
+// get no such check. The chart path follows DiscoverCharts: charts/<name>.
+func committedValuesCheck(opts RenderOptions, er *envRender) Check {
+	start := time.Now()
+	env := er.env
+	name := fmt.Sprintf("render/%s/_committed-values", env.Name)
+
+	var (
+		files    []string
+		findings []string
+		stale    int
+	)
+	for _, chart := range sortedKeys(TwoStageCharts) {
+		format := TwoStageCharts[chart]
+		rel := filepath.ToSlash(filepath.Join("charts", chart, "values-"+env.Name+".yaml"))
+		files = append(files, rel)
+
+		tmpl := filepath.Join(opts.RepoRoot, "configuration", "templates", format+".tmpl")
+		want, err := config.Export(er.rc, tmpl)
+		if err != nil {
+			stale++
+			findings = append(findings, fmt.Sprintf("%s: exporting %s for %s: %v", rel, format, env.ConfigSet, err))
+			continue
+		}
+		got, err := os.ReadFile(filepath.Join(opts.RepoRoot, rel))
+		if err != nil {
+			stale++
+			findings = append(findings, fmt.Sprintf("%s: %v", rel, err))
+			continue
+		}
+		if diff := labelledDiff(rel, "committed", "config export", got, []byte(want)); diff != "" {
+			stale++
+			findings = append(findings, diff)
+		}
+	}
+
+	export := fmt.Sprintf("`homelab config export --set %s`", env.ConfigSet)
+	if stale > 0 {
+		detail := fmt.Sprintf("%d of %d committed values file(s) differ from %s; run `task config:export:%s` and commit the result, never hand-edit them",
+			stale, len(files), export, env.Name)
+		return FailCheck(name, start, detail, findings...)
+	}
+	return PassCheck(name, start, strings.Join(files, ", ")+" match "+export)
 }
 
 // resolveEnvConfig runs the config pipeline for one level-0 environment. It

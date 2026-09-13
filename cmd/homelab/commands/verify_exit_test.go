@@ -342,3 +342,52 @@ func TestExportFormatListMatchesTheTemplateMap(t *testing.T) {
 		}
 	}
 }
+
+// TestExportTargetsAreSetAware pins the output-path contract of
+// `config export`: homelab outputs carry PII and stay in gitignored
+// *.generated.* files, while every other set writes the committed
+// values-<set>.yaml that ArgoCD and Tilt read directly (issue #263).
+func TestExportTargetsAreSetAware(t *testing.T) {
+	tests := []struct {
+		set  string
+		want map[string]string
+	}{
+		{
+			set: "homelab",
+			want: map[string]string{
+				"helm-addons": "charts/addons/values-homelab.generated.yaml",
+				"helm-apps":   "charts/applications/values-homelab.generated.yaml",
+				"tfvars":      "terragrunt/environments/homelab/env.generated.tfvars",
+				"env":         ".env.generated",
+				"json":        "configuration/resolved.json",
+			},
+		},
+		{
+			set: "localdev",
+			want: map[string]string{
+				"helm-addons": "charts/addons/values-localdev.yaml",
+				"helm-apps":   "charts/applications/values-localdev.yaml",
+				"tfvars":      "terragrunt/environments/localdev/env.generated.tfvars",
+				"env":         ".env.localdev.generated",
+				"json":        "configuration/resolved.localdev.json",
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.set, func(t *testing.T) {
+			targets := exportTargets(tc.set)
+			if len(targets) != len(exportTemplates) {
+				t.Fatalf("exportTargets(%q) has %d entries, exportTemplates has %d; the two lists must cover the same formats", tc.set, len(targets), len(exportTemplates))
+			}
+			for _, target := range targets {
+				if tmpl, ok := exportTemplates[target.format]; !ok || tmpl != target.template {
+					t.Errorf("format %q maps to template %q in exportTargets but %q in exportTemplates", target.format, target.template, tmpl)
+				}
+				if got, want := target.output, tc.want[target.format]; got != want {
+					t.Errorf("exportTargets(%q)[%s] = %q, want %q", tc.set, target.format, got, want)
+				}
+			}
+		})
+	}
+}

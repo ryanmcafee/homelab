@@ -154,8 +154,9 @@ When updating helm chart versions, check these repositories:
 
 `configuration/versions.yaml` is the single source of truth for every chart, image and tool
 version and the only file Renovate bumps. The homelab environment receives these versions at
-render time through the CMP (`homelab config export`), so the `chart.version` values in
-`charts/*/values.yaml` are placeholders that lag this file (tracked in #263).
+render time through the CMP (`homelab config export`) and localdev through the committed, generated
+`charts/*/values-localdev.yaml` (`task config:export:localdev`), so the `chart.version` values in
+`charts/*/values.yaml` are placeholders that both environments override.
 
 <!-- embedme configuration/versions.yaml -->
 ```yaml
@@ -230,7 +231,7 @@ charts:
   traefik-oidc: "v1.0.32"
   unifi-port-forward: "1.1.x"
 images:
-  homelab-cmp: "0.1.13"
+  homelab-cmp: "0.1.17"
 tools:
   # renovate: datasource=github-releases depName=siderolabs/talos
   talos: "v1.13.3"
@@ -288,6 +289,7 @@ Run `task --list` for full list. Most commonly used:
 | `task test:snapshot -- --update` | Regenerate golden snapshots in `tests/snapshots/` |
 | `task test:policy` | conftest policy unit tests + negative fixtures |
 | `task schemas:vendor` | Re-vendor CRD JSON schemas from `versions.yaml` pins |
+| `task config:export:localdev` | Regenerate the committed localdev parent values from `configuration/` |
 | `task chart:lint` | Lint all Helm charts |
 | `task chart:template:addons` | Debug addons rendering |
 | `task tf:apply:component COMPONENT=X` | Apply single Terraform component |
@@ -338,7 +340,7 @@ The homelab environment uses an ArgoCD Config Management Plugin (CMP) sidecar to
 
 - **Bootstrap chart** deploys: SOPS secrets, 1Password operator, homelab-environment-config secret
 - **CMP sidecar** runs `homelab config export --stdout` piped into `helm template`
-- **Localdev** continues using native Helm with `values-localdev.yaml` (no CMP)
+- **Localdev** uses native Helm with `values-localdev.yaml`, which is generated from the same templates (`homelab config export --set localdev`, `task config:export:localdev`) and committed; level 0 fails when it is stale (no CMP)
 - **Child `*-config`/`*-dependencies` charts** stay on plain `helm.valueFiles`; anything derived from `configuration/` (domain, hostnames, IPs, iSCSI portal, e-mail) reaches them via the parent Application's `helm.valuesObject`, so their committed `values-homelab.yaml` carries no PII. Level 0 mirrors this by feeding each child the `valuesObject` extracted from the rendered parent (ADR-010)
 - Decisions: `docs/project_notes/decisions.md` (entry "2026-02-11: ArgoCD CMP for PII removal" and ADR-010; the original design doc was removed in c4daa10 once implemented)
 

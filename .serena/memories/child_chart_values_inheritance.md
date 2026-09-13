@@ -6,8 +6,9 @@ Child `charts/*-config`, `*-dependencies`, `cert-manager-cluster-issuer`, `duckd
 Anything derived from `configuration/` (DOMAIN, *_HOSTNAME, ISCSI_TARGET_PORTAL, TRAEFIK_STATIC_IP, ACME_EMAIL,
 DUCKDNS_SUBDOMAIN, TRAEFIK_OIDC_ALLOWED_DOMAINS) reaches a child through the parent Application's
 `spec.source.helm.valuesObject`, built from the parent's `.Values` (CMP-generated in homelab via
-`configuration/templates/helm-addons.tmpl` / `helm-apps.tmpl`; `values-localdev.yaml` in localdev). ArgoCD precedence:
-valueFiles < valuesObject.
+`configuration/templates/helm-addons.tmpl` / `helm-apps.tmpl`; in localdev the committed `values-localdev.yaml`, which is
+generated from those same templates with `task config:export:localdev` — see `localdev_values_generated.md`). ArgoCD
+precedence: valueFiles < valuesObject.
 
 - iSCSI charts: child `values.yaml` has `iscsi.portal: ""`; `templates/persistent-volume.yaml` merges it into each
   volume's `csi.volumeAttributes.portal`; parent passes `valuesObject.iscsi.portal` from `global.iscsi.portal`.
@@ -25,6 +26,7 @@ the last `-f`; `gitops` in homelab gets `--set global.domain=<DOMAIN>`. Check na
 PII guard scope: `configuration/**` + `charts/**/values-homelab.yaml`; shape detection also understands Helm-style keys
 (host, hostname, portal, staticIP, email, domain, list items under dnsZones/allowedDomains/hosts).
 
-Adding a new child chart: put derived values in the parent's export template + base values, pass them via `valuesObject`
-in the parent template, keep the child's `values-homelab.yaml` PII-free. Never add a `homelab.ryanmcafee.com/policy-exempt`
+Adding a new child chart: put derived values in the parent's export template + base values (the localdev file is
+regenerated from the template, never edited), pass them via `valuesObject` in the parent template, keep the child's
+`values-homelab.yaml` PII-free. Never add a `homelab.ryanmcafee.com/policy-exempt`
 for hostname-domain citing #262 — the mechanism above is the fix.
