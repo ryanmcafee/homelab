@@ -800,6 +800,12 @@ tasks:
     cmds:
       - go run ./cmd/homelab config export --set {{.ENV | default "homelab"}} --format {{.FORMAT}}
 
+  config:export:localdev:
+    desc: Regenerate charts/{addons,applications}/values-localdev.yaml from configuration/ (committed; level 0 fails when stale)
+    cmds:
+      - go run ./cmd/homelab config export --set localdev --format helm-addons
+      - go run ./cmd/homelab config export --set localdev --format helm-apps
+
   config:guard:
     desc: Scan tracked configuration and chart homelab values files for PII
     # --ci is not optional here: without it (and without file arguments) the
@@ -808,7 +814,7 @@ tasks:
       - go run ./cmd/homelab config guard --set {{.ENV | default "homelab"}} --ci
 
   config:export:hook:
-    desc: Export config and stage generated files (used by pre-commit)
+    desc: Re-export localdev values and the gitignored homelab outputs (used by pre-commit)
     cmds:
       - deno run --allow-read --allow-write --allow-run --allow-env scripts/config-export-hook.ts
 

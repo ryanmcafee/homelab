@@ -1,17 +1,8 @@
-# Addons Chart - Local Development Overrides
-# Phase 0.5: Local Development Environment
+# Addons Chart - localdev Environment Values
 #
-# This file provides overrides for the addons Helm chart to support
-# local development with Kind cluster. It disables production-only
-# components and configures lightweight alternatives.
-#
-# Key changes from production:
-# - No external-dns (not needed for local .test domains)
-# - No 1Password operator (use local secrets)
-# - No democratic-csi (use local-path-provisioner)
-# - Reduced resource requests for all components
-# - Self-signed certificates instead of Let's Encrypt
-# - NodePort services (no LoadBalancer IPs needed)
+# GENERATED FILE — do not edit. Source: configuration/templates/helm-addons.tmpl
+# rendered with configuration/environments/localdev.yaml.
+# Regenerate: homelab config export --set localdev --format helm-addons
 
 # ============================================================================
 # Global Configuration
@@ -21,154 +12,476 @@ global:
   # Environment identifier
   environment: localdev
 
-  # Use local-path storage class (provided by local-path-provisioner)
+  # Base domain for ingress resources
+  domain: homelab.local
+
+  # Default storage class for persistent volumes
   storageClass: local-path
 
-  # Domain for local development (use .test for local-only domains)
-  domain: homelab.test
-
-  # Disable external DNS management
+  # Enable external DNS management
   externalDNS: false
 
-  # Disable external load balancing
+  # Enable external load balancing
   loadBalancer: false
 
+  # Git repository for SOPS secrets
+  repoUrl: https://github.com/ryanmcafee/homelab.git
+  targetRevision: main
+
+  # iSCSI target portal handed to the *-config child charts (grafana-config,
+  # prometheus-config) through the parent Application's helm.valuesObject.
+  iscsi:
+    portal: "127.0.0.1:3260"
+
 # ============================================================================
-# external-dns - Disabled for Local Dev
+# SOPS Secrets - Encrypted secrets for GitOps
+# Sync Wave: -2 (FIRST - deploys 1Password credentials before operator)
 # ============================================================================
 
-external-dns:
+sops-secrets:
+  enabled: true
+
+# ============================================================================
+# ArgoCD - MOVED to charts/bootstrap/ at sync wave 1
+# ============================================================================
+
+argocd:
   enabled: false
-  # Not needed for local development
-  # Access services via NodePort or port-forward instead
 
 # ============================================================================
-# 1Password Operator - Disabled for Local Dev
+# Kubelet CSR Approver - Automatic Kubelet Certificate Approval
+# Sync Wave: 1 (early infrastructure component)
 # ============================================================================
 
-1password-operator:
+kubelet-csr-approver:
+  enabled: true
+  namespace: kube-system
+
+  chart:
+    name: kubelet-csr-approver
+    repo: https://postfinance.github.io/kubelet-csr-approver
+    version: "1.2.14"
+
+  # IP prefixes allowed for kubelet serving certificates
+  # Must include all node IPs in the cluster
+  providerIpPrefixes:
+    - "127.0.0.0/8"
+
+  # Regex pattern for valid node names (Talos generates names like talos-xxx-yyy)
+  providerRegex: "^talos-[a-z0-9]{3}-[a-z0-9]{3}$"
+
+  # Bypass DNS resolution check for SAN names (Talos node names aren't in DNS)
+  bypassDnsResolution: true
+
+  # Maximum certificate validity (365 days)
+  maxExpirationSeconds: 31536000
+
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+    limits:
+      cpu: 100m
+      memory: 128Mi
+
+# ============================================================================
+# Cilium - CNI (Visibility Only - actual install via Talos inline)
+# Sync Wave: 0
+# ============================================================================
+
+cilium:
   enabled: false
-  # Use Kubernetes Secrets directly in local dev
-  # No external secret management needed
+  chart:
+    version: "1.19.5"  # Must match Taskfile cilium:render version
 
 # ============================================================================
-# democratic-csi - Disabled for Local Dev
+# Cilium LB IPAM - LoadBalancer IP Management + BGP
+# Sync Wave: 1
+# ============================================================================
+
+cilium-lb-ipam:
+  # LB IPAM is a Cilium feature and only useful where LoadBalancer addresses exist.
+  enabled: false
+
+  lbipam:
+    addresses:
+      - "127.0.0.100-127.0.0.200"
+
+  # Control Plane VIP - Only advertised by control-plane nodes
+  # This creates a dedicated IP pool with restricted node selector
+  controlPlaneVIP: "127.0.0.1"
+
+  bgp:
+    enabled: true
+    localASN: 64512
+    peers:
+      - name: "unifi-gateway"
+        address: "127.0.0.1"
+        asn: 64513
+
+# ============================================================================
+# Democratic-CSI - NFS Storage Provisioner
+# Sync Wave: 2
 # ============================================================================
 
 democratic-csi:
   enabled: false
-  # Not needed - we use local-path-provisioner instead
-  # No NFS or iSCSI storage in local Kind cluster
+  namespace: democratic-csi
+
+  chart:
+    name: democratic-csi
+    repo: https://democratic-csi.github.io/charts/
+    version: 0.15.1
+
+  driver: freenas-api-nfs
+
+  truenas:
+    # Use IP address instead of hostname since internal DNS is not resolvable from cluster
+    endpoint: https://127.0.0.1
+    allowInsecure: true  # Required when using IP (no valid TLS cert for IP)
+    apiKey: ""  # Populated from 1Password secret
+    # 1Password vault path for TrueNAS API key (creates secret: truenas-api-key)
+    onePasswordItemPath: vaults/homelab/items/truenas
+
+  nfs:
+    shareHost: 127.0.0.1
+    shareAllow: 127.0.0.0/8
+    parent: storage/k8s
+
+  storageClasses:
+    - name: local-path
+      defaultClass: true
+      reclaimPolicy: Retain
+      volumeBindingMode: Immediate
+      allowVolumeExpansion: true
+      parameters:
+        fsType: nfs
+
+  resources:
+    controller:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        cpu: 200m
+        memory: 256Mi
+    node:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        cpu: 200m
+        memory: 256Mi
 
 # ============================================================================
-# Tailscale Operator - Disabled for Local Dev
+# Democratic-CSI SSD - NFS Storage Provisioner (SSD-backed)
+# Sync Wave: 2
+# ============================================================================
+
+democratic-csi-ssd:
+  enabled: false
+  namespace: democratic-csi
+
+  chart:
+    name: democratic-csi
+    repo: https://democratic-csi.github.io/charts/
+    version: 0.15.1
+
+  driver: freenas-api-nfs
+
+  truenas:
+    # Use IP address instead of hostname since internal DNS is not resolvable from cluster
+    endpoint: https://127.0.0.1
+    allowInsecure: true  # Required when using IP (no valid TLS cert for IP)
+    apiKey: ""  # Populated from 1Password secret
+    onePasswordItemPath: vaults/homelab/items/truenas
+
+  nfs:
+    shareHost: 127.0.0.1
+    shareAllow: 127.0.0.0/8
+    parent: ssd/k8s
+
+  storageClasses:
+    - name: local-path
+      defaultClass: false
+      reclaimPolicy: Retain
+      volumeBindingMode: Immediate
+      allowVolumeExpansion: true
+      parameters:
+        fsType: nfs
+
+  resources:
+    controller:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        cpu: 200m
+        memory: 256Mi
+    node:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        cpu: 200m
+        memory: 256Mi
+
+# ============================================================================
+# Democratic-CSI iSCSI - Block Storage Provisioner (SSD-backed)
+# Sync Wave: 2 (same as NFS instances, reuses truenas-api-key secret)
+# ============================================================================
+
+democratic-csi-iscsi:
+  enabled: false
+  namespace: democratic-csi
+
+  chart:
+    name: democratic-csi
+    repo: https://democratic-csi.github.io/charts/
+    version: 0.15.1
+
+  driver: freenas-api-iscsi
+
+  truenas:
+    # Use IP address instead of hostname since internal DNS is not resolvable from cluster
+    endpoint: https://127.0.0.1
+    allowInsecure: true  # Required when using IP (no valid TLS cert for IP)
+    apiKey: ""  # Populated from 1Password secret
+    onePasswordItemPath: vaults/homelab/items/truenas
+
+  iscsi:
+    targetPortal: "127.0.0.1:3260"
+    datasetParent: ssd/iscsi
+    snapshotsParent: ssd/iscsi-snapshots
+    portalGroupId: 1
+    initiatorGroupId: 1
+
+  storageClasses:
+    - name: democratic-csi-iscsi
+      defaultClass: false
+      reclaimPolicy: Retain
+      volumeBindingMode: Immediate
+      allowVolumeExpansion: true
+      parameters:
+        fsType: ext4
+
+  resources:
+    controller:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        cpu: 200m
+        memory: 256Mi
+    node:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        cpu: 200m
+        memory: 256Mi
+
+# ============================================================================
+# Democratic-CSI iSCSI HDD - Block Storage Provisioner (HDD-backed)
+# Sync Wave: 2 (same as other instances, reuses truenas-api-key secret)
+# ============================================================================
+
+democratic-csi-iscsi-hdd:
+  enabled: false
+  namespace: democratic-csi
+
+  chart:
+    name: democratic-csi
+    repo: https://democratic-csi.github.io/charts/
+    version: 0.15.1
+
+  driver: freenas-api-iscsi
+
+  truenas:
+    # Use IP address instead of hostname since internal DNS is not resolvable from cluster
+    endpoint: https://127.0.0.1
+    allowInsecure: true  # Required when using IP (no valid TLS cert for IP)
+    apiKey: ""  # Populated from 1Password secret
+    onePasswordItemPath: vaults/homelab/items/truenas
+
+  iscsi:
+    targetPortal: "127.0.0.1:3260"
+    datasetParent: storage/k8s
+    snapshotsParent: storage/k8s-iscsi-snapshots
+    portalGroupId: 1
+    initiatorGroupId: 1
+
+  storageClasses:
+    - name: local-path
+      defaultClass: false
+      reclaimPolicy: Retain
+      volumeBindingMode: Immediate
+      allowVolumeExpansion: true
+      parameters:
+        fsType: ext4
+
+  resources:
+    controller:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        cpu: 200m
+        memory: 256Mi
+    node:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        cpu: 200m
+        memory: 256Mi
+
+# ============================================================================
+# Tailscale Operator - Tailnet subnet router (homelab advertiser)
+# Sync Wave: operator at 2, config (operator-oauth OnePasswordItem) at 1
 # ============================================================================
 
 tailscale-operator:
+  # The operator OAuth client comes from 1Password (operator-oauth secret).
   enabled: false
-  # Localdev (consumer leg) is Phase 2; homelab is the advertiser in Phase 1
+  namespace: tailscale
+  hostname: tailscale-operator-homelab
+
+  chart:
+    name: tailscale-operator
+    repo: https://pkgs.tailscale.com/helmcharts
+    version: "1.98.4"
+
+  # 1Password vault path for the operator OAuth client (creates secret: operator-oauth)
+  onePasswordItemPath: vaults/homelab/items/tailscale-operator-oauth
+
+  # Connector subnet-router config — consumed by the Connector in Plan 03.
+  # CIDR is PII, routed through the CMP config key (not a committed literal).
+  connector:
+    advertiseRoutes:
+      - "127.0.0.0/24"
+    tags:
+      - "tag:k8s"
 
 # ============================================================================
-# local-path-provisioner - Enabled for Local Dev
+# Local Path Provisioner - Kind storage (homelab uses democratic-csi)
 # ============================================================================
 
 local-path-provisioner:
   enabled: true
-  # This is deployed directly in Tiltfile, but we document it here
-  # for clarity about storage configuration
+  namespace: local-path-storage
+
+  chart:
+    name: local-path-provisioner
+    repo: https://charts.containeroo.ch
+    version: 0.0.37
+
+  # The class every STORAGE_CLASS_* key points at when STORAGE_PROVIDER is local-path.
+  storageClass:
+    name: local-path
+    defaultClass: true
 
 # ============================================================================
-# Traefik External Ingress Controller
+# 1Password Operator - Secret Management
+# Sync Wave: 2
 # ============================================================================
 
-traefikExternal:
-  enabled: true
+1password-operator:
+  enabled: false
+  namespace: onepassword-operator
 
-  service:
-    type: NodePort
+  chart:
+    name: connect
+    repo: https://1password.github.io/connect-helm-charts
+    version: 2.4.1
 
-  ports:
-    web:
-      nodePort: 30080
-    websecure:
-      nodePort: 30443
+  connect:
+    credentialsJson: ""
+    host: op-connect.homelab.local
 
-  globalArguments:
-    - --global.checknewversion=false
-    - --global.sendanonymoususage=false
+  resources:
+    operator:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        cpu: 200m
+        memory: 256Mi
+    connect:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+
+# ============================================================================
+# CloudNativePG - PostgreSQL Operator
+# Sync Wave: 2 (must be before home-assistant which depends on CNPG CRDs)
+# ============================================================================
+
+cloudnative-pg:
+  # Kind sizing: nothing in localdev consumes CNPG (home-assistant is off there).
+  enabled: false
+  namespace: cnpg-system
+
+  chart:
+    name: cloudnative-pg
+    repo: https://cloudnative-pg.github.io/charts
+    version: 0.28.3
 
   resources:
     requests:
-      cpu: 50m
-      memory: 128Mi
-    limits:
-      cpu: 200m
+      cpu: 100m
       memory: 256Mi
-
-  ingressRoute:
-    dashboard:
-      enabled: true
-
-  # Handed to the traefik-external-config child via helm.valuesObject.
-  # Uses the config DOMAIN for localdev (homelab.local) so the level-0
-  # hostname-domain policy passes.
-  config:
-    dashboard:
-      host: traefik.homelab.local
-      staticIP: "127.0.0.200"
-    oidc:
-      host: auth.homelab.local
-      allowedDomains:
-        - homelab.local
-
-# ============================================================================
-# Traefik Internal Ingress Controller
-# ============================================================================
-
-traefikInternal:
-  enabled: true
-
-  service:
-    type: NodePort
-
-  ports:
-    web:
-      nodePort: 30081
-    websecure:
-      nodePort: 30444
-
-  globalArguments:
-    - --global.checknewversion=false
-    - --global.sendanonymoususage=false
-
-  resources:
-    requests:
-      cpu: 50m
-      memory: 128Mi
     limits:
-      cpu: 200m
-      memory: 256Mi
+      cpu: 500m
+      memory: 512Mi
 
-  ingressRoute:
-    dashboard:
-      enabled: true
-
-  # Handed to the traefik-internal-config child via helm.valuesObject.
-  config:
-    dashboard:
-      host: traefik-internal.homelab.local
+  monitoring:
+    podMonitorEnabled: true
+    grafanaDashboard:
+      create: false
 
 # ============================================================================
-# cert-manager
+# Cert-Manager - TLS Certificate Management
+# Sync Wave: 3
 # ============================================================================
 
 cert-manager:
   enabled: true
+  namespace: cert-manager
 
-  # Install CRDs
+  chart:
+    name: cert-manager
+    repo: https://charts.jetstack.io
+    version: v1.20.3
+
   installCRDs: true
 
-  # Reduce resource requests
+  # Production Let's Encrypt
+  letsencrypt:
+    enabled: true
+    email: test@homelab.local
+    server: https://acme-v02.api.letsencrypt.org/directory
+
+  cloudflare:
+    enabled: true
+    email: test@homelab.local
+    apiToken: ""
+    onePasswordItemPath: vaults/homelab/items/cloudflare
+
+  # DNS zones for certificate issuance
+  dnsZones:
+    - homelab.local
+
+  # Custom DNS resolvers for ACME DNS-01 challenge verification
+  dns01RecursiveNameservers:
+    - "1.1.1.1:53"
+    - "8.8.8.8:53"
+    - "8.8.4.4:53"
+
+  # Kind sizing
   resources:
     requests:
       cpu: 10m
@@ -195,63 +508,159 @@ cert-manager:
         cpu: 100m
         memory: 128Mi
 
-  # Use self-signed certificates for local dev
-  # In production, this would be Let's Encrypt
-  selfSigned:
-    enabled: true
+# ============================================================================
+# External-DNS - Automatic DNS Record Management
+# Sync Wave: 4
+# ============================================================================
 
-  # Handed to the cert-manager-cluster-issuer child via helm.valuesObject.
-  # Placeholder addresses on the config DOMAIN for localdev (homelab.local).
-  letsencrypt:
-    email: test@homelab.local
+external-dns:
+  enabled: false
+  namespace: external-dns
+
+  chart:
+    name: external-dns
+    repo: https://kubernetes-sigs.github.io/external-dns/
+    version: 1.21.1
+
+  provider: cloudflare
+
+  # Only watch ingress resources for Cloudflare DNS
+  # CRD source has its own dedicated deployment (external-dns-cloudflare-crd)
+  # Ingress class filtering (--ingress-class=external) is applied in the template
+  # to ensure only external ingresses (e.g., Plex) publish to Cloudflare
+  sources:
+    - ingress
 
   cloudflare:
-    email: test@homelab.local
+    apiToken: ""
+    proxied: true
+    onePasswordItemPath: vaults/homelab/items/cloudflare
 
-  dnsZones:
+  domainFilters:
     - homelab.local
 
+  annotationFilter: external-dns.alpha.kubernetes.io/hostname
+
+  # Default target for all DNS records - use DuckDNS for dynamic IP
+  # This creates CNAME records pointing to the DDNS hostname
+  defaultTarget: homelab-dev.duckdns.org
+
+  resources:
+    requests:
+      cpu: 20m
+      memory: 64Mi
+    limits:
+      cpu: 100m
+      memory: 128Mi
+
 # ============================================================================
-# kube-prometheus-stack (Monitoring)
+# External-DNS UniFi - Internal DNS Management (Split DNS)
+# Sync Wave: 4
+# ============================================================================
+
+external-dns-unifi:
+  enabled: false
+  namespace: external-dns-unifi
+
+  chart:
+    version: "1.21.1"
+
+  webhook:
+    version: "v0.8.2"
+
+  unifi:
+    host: "https://127.0.0.1"
+
+  # Uses existing UniFi credentials (needs api_key field added)
+  onePasswordItemPath: vaults/homelab/items/unifi
+
+  domainFilters:
+    - homelab.local
+
+  resources:
+    requests:
+      cpu: 20m
+      memory: 64Mi
+    limits:
+      cpu: 100m
+      memory: 128Mi
+
+# ============================================================================
+# Kube-Prometheus-Stack - Monitoring and Alerting
+# Sync Wave: 5
 # ============================================================================
 
 kube-prometheus-stack:
   enabled: true
+  namespace: monitoring
 
-  # Prometheus configuration
+  chart:
+    name: kube-prometheus-stack
+    repo: https://prometheus-community.github.io/helm-charts
+    version: 87.1.0
+
   prometheus:
-    prometheusSpec:
-      # Short retention for local dev (save disk space)
-      retention: 1d
-      retentionSize: "4GB"
+    # Kind sizing: short retention, small volume
+    retention: 1d
+    retentionSize: 4GB
+    storageClass: local-path
+    storageSize: 5Gi
 
-      # Reduce resource requests
-      resources:
-        requests:
-          cpu: 100m
-          memory: 256Mi
-        limits:
-          cpu: 500m
-          memory: 512Mi
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
 
-      # Use local-path storage
-      storageSpec:
-        volumeClaimTemplate:
-          spec:
-            storageClassName: local-path
-            accessModes: ["ReadWriteOnce"]
-            resources:
-              requests:
-                storage: 5Gi
+    # Avoid scheduling on GPU nodes — keep GPU resources for media workloads
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+            - matchExpressions:
+                - key: nvidia.com/gpu.present
+                  operator: NotIn
+                  values:
+                    - "true"
 
-  # Grafana configuration
+    serviceMonitors:
+      enabled: true
+
   grafana:
     enabled: true
+    # With a secret store the password comes from 1Password; without one a
+    # fixed dev password is the only way to log in.
+    adminPassword: "admin"
 
-    # Simple admin password for local dev
-    adminPassword: admin
+    # Run as apps:users (568:100) to match NFS PVC permissions
+    securityContext:
+      runAsUser: 568
+      runAsGroup: 100
+      fsGroup: 100
 
-    # Reduce resource requests
+    persistence:
+      enabled: true
+      # The static iSCSI claim (grafana-config chart) only exists with democratic-csi;
+      # otherwise the chart provisions a dynamic claim in storageClass.
+      existingClaim: ""
+      storageClass: local-path
+      size: 1Gi
+
+    ingress:
+      enabled: true
+      ingressClassName: internal
+      annotations:
+        cert-manager.io/cluster-issuer: letsencrypt
+        external-dns.alpha.kubernetes.io/hostname: grafana.homelab.local
+      hosts:
+        - grafana.homelab.local
+      tls:
+        - secretName: grafana-tls
+          hosts:
+            - grafana.homelab.local
+
     resources:
       requests:
         cpu: 50m
@@ -260,54 +669,464 @@ kube-prometheus-stack:
         cpu: 200m
         memory: 256Mi
 
-    # Use local-path storage for dashboards
-    persistence:
-      enabled: true
-      storageClassName: local-path
-      size: 1Gi
-
-  # Alertmanager - disabled for local dev
+  # Alertmanager and node-exporter are not useful in Kind (no alert routes, containerised nodes).
   alertmanager:
     enabled: false
+    storage:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: local-path
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 10Gi
 
-  # Node exporter - disabled (not useful in Kind)
-  nodeExporter:
-    enabled: false
-
-  # Kube-state-metrics with reduced resources
-  kubeStateMetrics:
     resources:
       requests:
-        cpu: 10m
-        memory: 32Mi
+        cpu: 50m
+        memory: 128Mi
       limits:
-        cpu: 100m
+        cpu: 200m
+        memory: 256Mi
+
+  nodeExporter:
+    enabled: false
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: 200m
         memory: 128Mi
 
-  # Disable default ServiceMonitor for resources we don't have
-  defaultRules:
-    create: true
-    rules:
-      kubeControllerManager: false  # Not accessible in Kind
-      kubeScheduler: false          # Not accessible in Kind
-      kubeProxy: false              # Not needed in Kind
-      etcd: false                   # Not accessible in Kind
+  kubeStateMetrics:
+    enabled: true
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        cpu: 200m
+        memory: 256Mi
 
 # ============================================================================
-# Additional Notes
+# Traefik External - External Ingress Controller
+# Sync Wave: 6
 # ============================================================================
 
-# This configuration provides a minimal but functional addon stack for
-# local development. It includes:
-#
-# ✓ Traefik for ingress (NodePort mode)
-# ✓ cert-manager for TLS (self-signed certs)
-# ✓ Prometheus + Grafana for monitoring (lightweight)
-# ✓ local-path-provisioner for storage
-#
-# Excluded from local dev:
-# ✗ external-dns (not needed for .test domains)
-# ✗ 1Password operator (use direct Secrets)
-# ✗ democratic-csi (use local-path instead)
-# ✗ Node exporter (not useful in containerized nodes)
-# ✗ Alertmanager (not needed for local testing)
+traefikExternal:
+  enabled: true
+  namespace: traefik
+
+  chart:
+    name: traefik
+    repo: https://traefik.github.io/charts
+    version: 39.0.9
+
+  service:
+    type: NodePort
+    spec:
+      externalTrafficPolicy: Cluster
+
+  ports:
+    web:
+      port: 8000
+      exposedPort: 80
+      expose:
+        default: true
+      http:
+        redirections:
+          entryPoint:
+            to: websecure
+            scheme: https
+            permanent: true
+    websecure:
+      port: 8443
+      exposedPort: 443
+      expose:
+        default: true
+      asDefault: true
+      http:
+        tls:
+          enabled: true
+      transport:
+        respondingTimeouts:
+          readTimeout: 0
+          writeTimeout: 0
+          idleTimeout: 600s
+    traefik:
+      port: 9000
+      expose:
+        default: true
+
+  # Global arguments moved to additionalArguments in v39+
+  additionalArguments:
+    - --global.checknewversion=false
+    - --global.sendanonymoususage=false
+
+  # OIDC Plugin for authentication (replaces oauth2-proxy)
+  experimental:
+    plugins:
+      traefikoidc:
+        moduleName: github.com/lukaszraczylo/traefikoidc
+        version: v1.0.32
+
+  # OIDC middleware configuration (client credentials and session key are 1Password items)
+  oidc:
+    enabled: false
+    providerURL: "https://accounts.google.com"
+    # Use path format - plugin constructs full URL from request host
+    callbackURL: "/oauth2/callback"
+    logoutURL: "/oauth2/logout"
+    scopes:
+      - openid
+      - profile
+      - email
+    allowedDomains:
+      - homelab.local
+    sessionEncryptionKeyPath: vaults/homelab/items/oidc-session-key
+    googleOAuthPath: vaults/homelab/items/google-oauth
+
+  # Volume mounts for OIDC secrets
+  volumes: []
+
+  env: []
+
+  # Persistence disabled - ACME removed
+  persistence:
+    enabled: false
+
+  ingressRoute:
+    dashboard:
+      enabled: true
+      matchRule: Host(`traefik.homelab.local`)
+      entryPoints: ["websecure"]
+      tls:
+        secretName: traefik-dashboard-tls
+
+  # Kind sizing: one replica on a single node, no HPA
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+
+  deployment:
+    replicas: 1
+
+  topologySpreadConstraints: []
+
+  autoscaling:
+    enabled: false
+
+  cloudflare:
+    enabled: false
+    onePasswordItemPath: vaults/homelab/items/cloudflare
+
+  # Values handed to the traefik-external-config child chart through the
+  # traefik-external-config Application's helm.valuesObject. The child's
+  # committed values-homelab.yaml carries no hostnames, IPs or domains.
+  config:
+    dashboard:
+      host: traefik.homelab.local
+      staticIP: "127.0.0.200"
+    oidc:
+      host: auth.homelab.local
+      allowedDomains:
+        - homelab.local
+
+# ============================================================================
+# Traefik Internal - Internal Ingress Controller
+# Sync Wave: 6
+# ============================================================================
+
+traefikInternal:
+  enabled: true
+  namespace: traefik
+
+  chart:
+    name: traefik
+    repo: https://traefik.github.io/charts
+    version: 39.0.9
+
+  service:
+    type: NodePort
+    spec:
+      externalTrafficPolicy: Cluster
+    # No static IP - Cilium LB IPAM assigns dynamically
+    # No port forwarding - internal only
+
+  ports:
+    web:
+      port: 8000
+      exposedPort: 80
+      expose:
+        default: true
+      http:
+        redirections:
+          entryPoint:
+            to: websecure
+            scheme: https
+            permanent: true
+    websecure:
+      port: 8443
+      exposedPort: 443
+      expose:
+        default: true
+      asDefault: true
+      http:
+        tls:
+          enabled: true
+      transport:
+        respondingTimeouts:
+          readTimeout: 0
+          writeTimeout: 0
+          idleTimeout: 600s
+    traefik:
+      port: 9000
+      expose:
+        default: true
+
+  additionalArguments:
+    - --global.checknewversion=false
+    - --global.sendanonymoususage=false
+
+  env: []
+
+  persistence:
+    enabled: false
+
+  ingressRoute:
+    dashboard:
+      enabled: true
+      matchRule: Host(`traefik-internal.homelab.local`)
+      entryPoints: ["websecure"]
+      tls:
+        secretName: traefik-internal-dashboard-tls
+
+  # Kind sizing: one replica on a single node, no HPA
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+
+  deployment:
+    replicas: 1
+
+  topologySpreadConstraints: []
+
+  autoscaling:
+    enabled: false
+
+  # Values handed to the traefik-internal-config child chart through the
+  # traefik-internal-config Application's helm.valuesObject.
+  config:
+    dashboard:
+      host: traefik-internal.homelab.local
+
+# ============================================================================
+# UniFi Port Forwarding Controller - Automatic Port Forwards
+# Sync Wave: 6-7
+# ============================================================================
+
+unifi-port-forward:
+  # Needs LoadBalancer addresses to forward to and UniFi credentials from 1Password.
+  enabled: false
+  namespace: port-forwarding
+  version: 1.1.x
+  onePasswordItemPath: vaults/homelab/items/unifi
+
+# ============================================================================
+# OAuth2-Proxy - Zero-Trust Authentication (DISABLED - replaced by Traefik OIDC plugin)
+# Sync Wave: 6-8
+# ============================================================================
+
+oauth2-proxy:
+  enabled: false
+  namespace: oauth2-proxy
+
+  chart:
+    version: "10.7.0"
+
+  # 1Password paths for secrets
+  googleOAuthPath: vaults/homelab/items/google-oauth
+  cookieSecretPath: vaults/homelab/items/oauth2-proxy-cookie
+
+  # Allowed email domains for authentication
+  emailDomains:
+    - "homelab.local"
+
+  # Cookie and whitelist domains
+  cookieDomains:
+    - ".homelab.local"
+  whitelistDomains:
+    - ".homelab.local"
+
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+
+# ============================================================================
+# NVIDIA GPU Operator - GPU Support for Kubernetes
+# Sync Wave: 0 (must deploy before Plex which requires RuntimeClass nvidia)
+# ============================================================================
+
+nvidia-gpu-operator:
+  enabled: false
+  namespace: gpu-operator
+
+  chart:
+    version: "v26.3.3"
+
+  # Note: Driver and toolkit are provided by Talos system extensions
+  # (siderolabs/nonfree-kmod-nvidia and siderolabs/nvidia-container-toolkit)
+  # GPU Operator only manages device plugin, monitoring, and feature discovery
+
+# ============================================================================
+# Intel GPU Device Plugin - GPU Support for Kubernetes (Intel)
+# Sync Wave: 10 (same as NVIDIA GPU operator, mutually exclusive via GPU_VENDOR)
+# ============================================================================
+
+intel-gpu-device-plugin:
+  enabled: false
+  namespace: intel-device-plugins
+
+  chart:
+    name: intel-device-plugins-gpu
+    repo: https://intel.github.io/helm-charts
+    version: "0.36.0"
+
+# ============================================================================
+# Intel Device Plugins Operator - installs CRDs + reconciler for GpuDevicePlugin
+# Sync Wave: 9 (before the intel-gpu-device-plugin chart at wave 10)
+# Gated on GPU_VENDOR=intel — operator only matters when the Intel plugin is on.
+# ============================================================================
+
+intel-device-plugins-operator:
+  enabled: false
+  namespace: intel-device-plugins
+
+  chart:
+    name: intel-device-plugins-operator
+    repo: https://intel.github.io/helm-charts
+    version: "0.36.0"
+
+# ============================================================================
+# NodeFeatureDiscovery - hardware feature labeling
+# Sync Wave: 9 (before intel-gpu-device-plugin / nvidia-gpu-operator at wave 10)
+# Always enabled regardless of GPU_VENDOR — it is a general-purpose label source
+# and the prerequisite for the Intel GPU device plugin's NodeFeatureRule match.
+# ============================================================================
+
+node-feature-discovery:
+  enabled: true
+  namespace: node-feature-discovery
+
+  chart:
+    name: node-feature-discovery
+    repo: https://kubernetes-sigs.github.io/node-feature-discovery/charts
+    version: "0.18.3"
+
+# ============================================================================
+# Argo Workflows - Workflow Orchestration
+# Sync Wave: 7 (after core infrastructure)
+# ============================================================================
+
+argo-workflows:
+  # Kind sizing: not part of the localdev component set.
+  enabled: false
+  namespace: argo-workflows
+
+  chart:
+    name: argo-workflows
+    repo: https://argoproj.github.io/argo-helm
+    version: "1.0.18"
+
+  server:
+    authMode: server
+
+    ingress:
+      enabled: true
+      ingressClassName: internal
+      annotations:
+        cert-manager.io/cluster-issuer: letsencrypt
+        external-dns.alpha.kubernetes.io/hostname: workflows.homelab.local
+      hosts:
+        - workflows.homelab.local
+      paths:
+        - /
+      pathType: Prefix
+      tls:
+        - secretName: argo-workflows-tls
+          hosts:
+            - workflows.homelab.local
+
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        cpu: 200m
+        memory: 256Mi
+
+  controller:
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+
+    workflowDefaults:
+      spec:
+        ttlStrategy:
+          secondsAfterCompletion: 86400
+          secondsAfterSuccess: 43200
+          secondsAfterFailure: 172800
+
+  # Ingress verification workflow configuration
+  # NOTE: Consumed by the argo-workflows-config child chart (CronWorkflow) via
+  # the argo-workflows-config Application's helm.valuesObject, not by the
+  # upstream argo-workflows chart.
+  ingressVerification:
+    enabled: true
+    schedule: "0 0 * * *"
+    # List of ingresses to verify - all require authentication
+    ingresses:
+      - name: traefik
+        url: https://traefik.homelab.local/dashboard/
+        expectAuth: true
+      - name: argocd
+        url: https://argocd.homelab.local
+        expectAuth: true
+      - name: grafana
+        url: https://grafana.homelab.local
+        expectAuth: true
+      - name: plex
+        url: https://plex.homelab.local
+        expectAuth: true
+      - name: sonarr
+        url: https://sonarr.homelab.local
+        expectAuth: true
+      - name: radarr
+        url: https://radarr.homelab.local
+        expectAuth: true
+      - name: prowlarr
+        url: https://prowlarr.homelab.local
+        expectAuth: true
+      - name: homeassistant
+        url: https://homeassistant.homelab.local
+        expectAuth: true
+      - name: auth
+        url: https://auth.homelab.local
+        expectAuth: true

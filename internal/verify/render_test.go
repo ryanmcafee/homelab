@@ -1554,3 +1554,139 @@ func TestRenderInheritFindingsAreDeterministic(t *testing.T) {
 		}
 	}
 }
+
+// TestCommittedValuesCheck covers render/<env>/_committed-values: the
+// values-localdev.yaml files committed for the two-stage parents must be
+// exactly what `config export --set localdev` renders (issue #263). The
+// templates and config come from the real worktree; the committed files are
+// staged in a scratch root so a stale or missing copy can be simulated.
+func TestCommittedValuesCheck(t *testing.T) {
+	root := testRepoRoot(t)
+	env := Envs[0]
+	if env.Name != "localdev" || env.TwoStage {
+		t.Fatalf("Envs[0] = %+v, want the plain-Helm localdev env", env)
+	}
+	rc, err := resolveEnvConfig(root, env)
+	if err != nil {
+		t.Fatalf("resolving %s config: %v", env.Name, err)
+	}
+
+	stage := func(t *testing.T, mutate func(dir string)) string {
+		t.Helper()
+		dir := t.TempDir()
+		for _, rel := range []string{
+			"configuration/templates/helm-addons.tmpl",
+			"configuration/templates/helm-apps.tmpl",
+			"charts/addons/values-localdev.yaml",
+			"charts/applications/values-localdev.yaml",
+		} {
+			data, err := os.ReadFile(filepath.Join(root, rel))
+			if err != nil {
+				t.Fatalf("reading %s: %v", rel, err)
+			}
+			dest := filepath.Join(dir, rel)
+			if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(dest, data, 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if mutate != nil {
+			mutate(dir)
+		}
+		return dir
+	}
+	addons := filepath.Join("charts", "addons", "values-localdev.yaml")
+
+	tests := []struct {
+		name         string
+		mutate       func(dir string)
+		wantStatus   Status
+		wantDetail   []string
+		wantFindings []string
+	}{
+		{
+			name:       "committed files identical to the export pass",
+			wantStatus: StatusPass,
+			wantDetail: []string{"charts/addons/values-localdev.yaml", "charts/applications/values-localdev.yaml", "match `homelab config export --set localdev`"},
+		},
+		{
+			name: "a hand-edited file fails with a diff and the regenerate command",
+			mutate: func(dir string) {
+				p := filepath.Join(dir, addons)
+				data, _ := os.ReadFile(p)
+				edited := strings.Replace(string(data), "domain: homelab.local", "domain: hand-edited.test", 1)
+				if edited == string(data) {
+					t.Fatal("fixture no longer contains the localdev domain line")
+				}
+				if err := os.WriteFile(p, []byte(edited), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			},
+			wantStatus:   StatusFail,
+			wantDetail:   []string{"1 of 2 committed values file(s) differ", "task config:export:localdev", "never hand-edit"},
+			wantFindings: []string{"--- committed charts/addons/values-localdev.yaml", "+++ config export charts/addons/values-localdev.yaml", "-  domain: hand-edited.test", "+  domain: homelab.local"},
+		},
+		{
+			name: "a missing file fails and names it",
+			mutate: func(dir string) {
+				if err := os.Remove(filepath.Join(dir, addons)); err != nil {
+					t.Fatal(err)
+				}
+			},
+			wantStatus:   StatusFail,
+			wantDetail:   []string{"1 of 2 committed values file(s) differ"},
+			wantFindings: []string{"charts/addons/values-localdev.yaml: open "},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := stage(t, tc.mutate)
+			c := committedValuesCheck(RenderOptions{RepoRoot: dir}, &envRender{env: env, rc: rc})
+			if c.Name != "render/localdev/_committed-values" {
+				t.Errorf("check name = %q", c.Name)
+			}
+			if c.Status != tc.wantStatus {
+				t.Fatalf("status = %s (%s), want %s; findings: %v", c.Status, c.Detail, tc.wantStatus, c.Findings)
+			}
+			for _, want := range tc.wantDetail {
+				if !strings.Contains(c.Detail, want) {
+					t.Errorf("detail %q missing %q", c.Detail, want)
+				}
+			}
+			joined := strings.Join(c.Findings, "\n")
+			for _, want := range tc.wantFindings {
+				if !strings.Contains(joined, want) {
+					t.Errorf("findings missing %q:\n%s", want, joined)
+				}
+			}
+		})
+	}
+}
+
+// TestRenderEmitsCommittedValuesCheckForPlainHelmEnvsOnly: the check exists
+// for localdev (plain Helm, committed values) and not for homelab, whose
+// parent values are generated at render time and never committed.
+func TestRenderEmitsCommittedValuesCheckForPlainHelmEnvsOnly(t *testing.T) {
+	root := testRepoRoot(t)
+	_, res := Render(context.Background(), RenderOptions{
+		RepoRoot:   root,
+		OutDir:     t.TempDir(),
+		Envs:       Envs,
+		Charts:     []string{"addons"},
+		SkipLint:   true,
+		SkipSchema: true,
+		Runner:     &fakeRunner{},
+	})
+	c := checkByName(t, res, "render/localdev/_committed-values")
+	if c.Status != StatusPass {
+		t.Errorf("render/localdev/_committed-values: %s (%s)\n%s", c.Status, c.Detail, strings.Join(c.Findings, "\n"))
+	}
+	for _, other := range res.Checks {
+		if other.Name == "render/homelab/_committed-values" {
+			t.Errorf("homelab must not get a committed-values check; it generates its parent values at render time")
+		}
+	}
+}

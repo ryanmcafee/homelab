@@ -1,14 +1,8 @@
-# Applications Chart - Local Development Overrides
-# Phase 0.5: Local Development Environment
+# Applications Chart - localdev Environment Values
 #
-# This file provides overrides for the applications Helm chart to support
-# local development with Kind cluster. It configures applications with:
-# - Reduced resource requests (Kind has limited resources)
-# - No GPU requirements (no NVIDIA hardware in Kind)
-# - Local storage class (local-path-provisioner)
-# - Simplified configurations without external dependencies
-#
-# Applications can be selectively enabled/disabled for testing
+# GENERATED FILE — do not edit. Source: configuration/templates/helm-apps.tmpl
+# rendered with configuration/environments/localdev.yaml.
+# Regenerate: homelab config export --set localdev --format helm-apps
 
 # ============================================================================
 # Global Configuration
@@ -18,309 +12,1022 @@ global:
   # Environment identifier
   environment: localdev
 
-  # Use local-path storage class
+  # Base domain for ingress resources
+  domain: homelab.local
+
+  # Git repository for local charts
+  repoUrl: https://github.com/ryanmcafee/homelab.git
+  targetRevision: main
+
+  # Default storage class for persistent volumes
   storageClass: local-path
 
-  # Domain for local development
-  domain: homelab.test
+  # Default ingress classes
+  ingressClassNameExternal: external
+  ingressClassNameInternal: internal
 
-  # Default ingress class
-  ingressClassName: traefik
-
-  # Timezone
+  # Timezone for applications
   timezone: America/New_York
+
+  # iSCSI target portal (IP:port) handed to the *-config child charts via
+  # helm.valuesObject
+  iscsi:
+    portal: "127.0.0.1:3260"
+
+  # Media storage configuration (multiple NFS paths)
+  media:
+    nfsServer: truenas.homelab.local
+    movies: /tmp/storage/movies
+    tv: /tmp/storage/tv
+    music: /tmp/storage/music
+    pictures: /tmp/storage/pictures
+    documents: /tmp/storage/documents
+    downloads: /tmp/storage/downloads
+    books: /tmp/storage/books
 
 # ============================================================================
 # Plex Media Server
+# Sync Wave: 1 (core media service)
 # ============================================================================
 
 plex:
   enabled: true
+  namespace: media
 
-  # No GPU in local development
-  resources:
-    requests:
-      cpu: 100m
-      memory: 512Mi
-    limits:
-      cpu: 1000m
-      memory: 1Gi
-      # GPU removed for local dev
-      # nvidia.com/gpu: 0
+  # Official Plex helm chart
+  chart:
+    name: plex-media-server
+    repo: https://raw.githubusercontent.com/plexinc/pms-docker/gh-pages
+    version: 1.6.0
 
-  # Minimal storage for testing
+  image:
+    registry: index.docker.io
+    repository: plexinc/pms-docker
+    tag: latest
+    pullPolicy: IfNotPresent
+
+  # GPU vendor selection (from GPU_VENDOR config flag)
+  gpu:
+    vendor: "none"
+
+  # Plex configuration
+  pms:
+    configExistingClaim: "plex-config-iscsi"
+    storageClassName: democratic-csi-iscsi
+    # Plex claim token from 1Password
+    claimSecret:
+      name: plex
+      key: plex-claim-token
+    # Kind sizing
+    resources:
+      requests:
+        cpu: 100m
+        memory: 512Mi
+      limits:
+        cpu: 1000m
+        memory: 1Gi
+    # NOTE: gpu.intel.com/xe resource limit intentionally NOT set yet.
+    # The intel-gpu-device-plugin DaemonSet is Running on talos-lz1-3u1 but is
+    # not advertising gpu.intel.com/xe in node allocatable (plugin logs cut off
+    # after "GPU (i915/xe) resource share count = 1" with no advertisement
+    # events; likely Talos /dev/dri/by-path layout incompatibility). Plex gets
+    # /dev/dri via the hostPath mount in plex.yaml's Intel branch and uses the
+    # GPU directly via the xe driver. Re-add the resource limit once the
+    # device plugin actually advertises the resource.
+
+  # Persistence configuration
   persistence:
     config:
       enabled: true
       storageClass: local-path
-      size: 1Gi
-    # Media storage disabled in local dev (too large)
-    media:
-      enabled: false
+      size: 100Gi
+      accessMode: ReadWriteOnce
 
-  # Use NodePort for web UI access
+    # Transcode directory (ephemeral for performance)
+    transcode:
+      enabled: true
+      storageClass: ""
+      accessMode: ReadWriteOnce
+      size: 20Gi
+      # Use emptyDir for better performance
+      emptyDir:
+        enabled: true
+        medium: Memory
+        sizeLimit: 10Gi
+
+  # Service configuration
   service:
     type: NodePort
     port: 32400
+    externalTrafficPolicy: Local
 
-  # Disable transcoding (no GPU)
-  env:
-    PLEX_CLAIM: ""  # No claim token needed for local dev
-    ADVERTISE_IP: "http://localhost:32400/"
+  # Extra volumes for media storage via NFS
+  extraVolumes:
+    - name: movies
+      nfs:
+        server: truenas.homelab.local
+        path: /tmp/storage/movies
+    - name: tv
+      nfs:
+        server: truenas.homelab.local
+        path: /tmp/storage/tv
+    - name: music
+      nfs:
+        server: truenas.homelab.local
+        path: /tmp/storage/music
+    - name: pictures
+      nfs:
+        server: truenas.homelab.local
+        path: /tmp/storage/pictures
+  # NOTE: dev-dri volume + mount for Intel GPU is added by the Plex application
+  # chart template (charts/applications/templates/plex.yaml) based on
+  # .Values.plex.gpu.vendor == "intel". Don't append it here, or the structured-
+  # merge diff against the rendered StatefulSet fails with "duplicate entries
+  # for key [name=\"dev-dri\"]".
+
+  extraVolumeMounts:
+    - name: movies
+      mountPath: /movies
+      readOnly: false
+    - name: tv
+      mountPath: /tv
+      readOnly: false
+    - name: music
+      mountPath: /music
+      readOnly: false
+    - name: pictures
+      mountPath: /pictures
+      readOnly: false
+  # (dev-dri mount is also added by plex.yaml — see note above.)
+
+  # Ingress configuration
+  ingress:
+    enabled: true
+    ingressClassName: external
+    url: "https://plex.homelab.local"
+    annotations:
+      cert-manager.io/cluster-issuer: letsencrypt
+      external-dns.alpha.kubernetes.io/hostname: plex.homelab.local
+      external-dns.alpha.kubernetes.io/target: homelab-dev.duckdns.org
+    hosts:
+      - host: plex.homelab.local
+        paths:
+          - path: /
+            pathType: Prefix
+    tls:
+      - secretName: plex-tls
+        hosts:
+          - plex.homelab.local
+
+  # Environment variables
+  extraEnv:
+    TZ: America/New_York
+    ADVERTISE_IP: https://plex.homelab.local:443
+    PLEX_UID: "568"
+    PLEX_GID: "100"
+    CHANGE_CONFIG_DIR_OWNERSHIP: "false"
 
 # ============================================================================
-# Sonarr (TV Show Management)
+# Sonarr - TV Show Management
+# Sync Wave: 2
 # ============================================================================
 
 sonarr:
   enabled: true
+  namespace: media
 
-  # Reduced resources
-  resources:
-    requests:
-      cpu: 50m
-      memory: 256Mi
-    limits:
-      cpu: 200m
-      memory: 512Mi
+  # TrueCharts helm chart (OCI registry)
+  chart:
+    name: sonarr
+    repo: oci://oci.trueforge.org/truecharts/sonarr
+    version: 25.6.3
 
-  # Minimal storage
+  # TrueCharts uses common library pattern
+  workload:
+    main:
+      podSpec:
+        containers:
+          main:
+            resources:
+              requests:
+                cpu: 200m
+                memory: 512Mi
+              limits:
+                cpu: 1000m
+                memory: 1Gi
+          exportarr:
+            resources:
+              requests:
+                cpu: 50m
+                memory: 64Mi
+              limits:
+                cpu: 200m
+                memory: 256Mi
+
   persistence:
     config:
       enabled: true
-      storageClass: local-path
-      size: 1Gi
-    # Media storage disabled
-    media:
-      enabled: false
+      existingClaim: "sonarr-config"
 
-  # Use NodePort
-  service:
-    type: NodePort
-    port: 8989
+    # TV storage via NFS
+    tv:
+      enabled: true
+      type: nfs
+      server: truenas.homelab.local
+      path: /tmp/storage/tv
+      mountPath: /tv
+
+    # Downloads storage via NFS
+    downloads:
+      enabled: true
+      type: nfs
+      server: truenas.homelab.local
+      path: /tmp/storage/downloads
+      mountPath: /downloads
+
+  ingress:
+    main:
+      enabled: true
+      ingressClassName: internal
+      annotations:
+        cert-manager.io/cluster-issuer: letsencrypt
+        external-dns.alpha.kubernetes.io/hostname: sonarr.homelab.local
+      hosts:
+        - host: sonarr.homelab.local
+          paths:
+            - path: /
+              pathType: Prefix
+      tls:
+        - secretName: sonarr-tls
+          hosts:
+            - sonarr.homelab.local
+
+  TZ: America/New_York
+  securityContext:
+    container:
+      runAsUser: 568
+      runAsGroup: 100
+    pod:
+      fsGroup: 100
 
 # ============================================================================
-# Radarr (Movie Management)
+# Radarr - Movie Management
+# Sync Wave: 2
 # ============================================================================
 
 radarr:
   enabled: true
+  namespace: media
 
-  # Reduced resources
-  resources:
-    requests:
-      cpu: 50m
-      memory: 256Mi
-    limits:
-      cpu: 200m
-      memory: 512Mi
+  # TrueCharts helm chart (OCI registry)
+  chart:
+    name: radarr
+    repo: oci://oci.trueforge.org/truecharts/radarr
+    version: 26.7.2
 
-  # Minimal storage
+  workload:
+    main:
+      podSpec:
+        containers:
+          main:
+            resources:
+              requests:
+                cpu: 200m
+                memory: 512Mi
+              limits:
+                cpu: 1000m
+                memory: 1Gi
+          exportarr:
+            resources:
+              requests:
+                cpu: 50m
+                memory: 64Mi
+              limits:
+                cpu: 200m
+                memory: 256Mi
+
   persistence:
     config:
       enabled: true
-      storageClass: local-path
-      size: 1Gi
-    # Media storage disabled
-    media:
-      enabled: false
+      existingClaim: "radarr-config"
 
-  # Use NodePort
-  service:
-    type: NodePort
-    port: 7878
+    # Movies storage via NFS
+    movies:
+      enabled: true
+      type: nfs
+      server: truenas.homelab.local
+      path: /tmp/storage/movies
+      mountPath: /movies
+
+    # Downloads storage via NFS
+    downloads:
+      enabled: true
+      type: nfs
+      server: truenas.homelab.local
+      path: /tmp/storage/downloads
+      mountPath: /downloads
+
+  ingress:
+    main:
+      enabled: true
+      ingressClassName: internal
+      annotations:
+        cert-manager.io/cluster-issuer: letsencrypt
+        external-dns.alpha.kubernetes.io/hostname: radarr.homelab.local
+      hosts:
+        - host: radarr.homelab.local
+          paths:
+            - path: /
+              pathType: Prefix
+      tls:
+        - secretName: radarr-tls
+          hosts:
+            - radarr.homelab.local
+
+  TZ: America/New_York
+  securityContext:
+    container:
+      runAsUser: 568
+      runAsGroup: 100
+    pod:
+      fsGroup: 100
 
 # ============================================================================
-# Prowlarr (Indexer Manager)
+# Prowlarr - Indexer Manager
+# Sync Wave: 2
 # ============================================================================
 
 prowlarr:
   enabled: true
+  namespace: media
 
-  # Reduced resources (lightweight application)
-  resources:
-    requests:
-      cpu: 50m
-      memory: 128Mi
-    limits:
-      cpu: 200m
-      memory: 256Mi
+  # TrueCharts helm chart (OCI registry)
+  chart:
+    name: prowlarr
+    repo: oci://oci.trueforge.org/truecharts/prowlarr
+    version: 21.7.3
 
-  # Minimal storage
+  workload:
+    main:
+      podSpec:
+        containers:
+          main:
+            resources:
+              requests:
+                cpu: 100m
+                memory: 256Mi
+              limits:
+                cpu: 500m
+                memory: 512Mi
+          exportarr:
+            resources:
+              requests:
+                cpu: 50m
+                memory: 64Mi
+              limits:
+                cpu: 200m
+                memory: 256Mi
+
   persistence:
     config:
       enabled: true
-      storageClass: local-path
-      size: 512Mi
+      existingClaim: "prowlarr-config"
 
-  # Use NodePort
-  service:
-    type: NodePort
-    port: 9696
+  ingress:
+    main:
+      enabled: true
+      ingressClassName: internal
+      annotations:
+        cert-manager.io/cluster-issuer: letsencrypt
+        external-dns.alpha.kubernetes.io/hostname: prowlarr.homelab.local
+      hosts:
+        - host: prowlarr.homelab.local
+          paths:
+            - path: /
+              pathType: Prefix
+      tls:
+        - secretName: prowlarr-tls
+          hosts:
+            - prowlarr.homelab.local
+
+  TZ: America/New_York
+  securityContext:
+    container:
+      runAsUser: 568
+      runAsGroup: 100
+    pod:
+      fsGroup: 100
 
 # ============================================================================
-# Home Assistant
+# NZBGet - Usenet Downloader
+# Sync Wave: 13
+# ============================================================================
+
+nzbget:
+  enabled: true
+  namespace: media
+
+  # TrueCharts helm chart (OCI registry)
+  chart:
+    name: nzbget
+    repo: oci://oci.trueforge.org/truecharts/nzbget
+    version: 29.4.2
+
+  workload:
+    main:
+      podSpec:
+        containers:
+          main:
+            # NOTE: nzbget v26 made `MainDir` and `ScriptDir` REQUIRED and
+            # renamed the bundled 7-zip from /usr/bin/7za to /usr/bin/7z.
+            # nzbget v26 rejects the dotted `-o Section.Key=value` CLI
+            # override syntax, so we cannot pass these as args from the chart.
+            # The PVC at /config/nzbget.conf is hand-fixed (lines 11/71/1533).
+            resources:
+              # Bumped from 256Mi/1Gi → 512Mi/2Gi → 1Gi/4Gi as nzbget v26 kept
+              # OOMing on smaller limits. At 1Gi: dead in 7s during startup.
+              # At 2Gi: survives ~88s into active unrar of large files before
+              # OOMKill. v26's par2 + unpack subsystems hold the entire output
+              # buffer in memory while extracting, so peaks track the largest
+              # file in the archive set (4K BluRay REMUX easily exceeds 2Gi).
+              requests:
+                cpu: 100m
+                memory: 1Gi
+              limits:
+                cpu: 1000m
+                memory: 4Gi
+
+  persistence:
+    config:
+      enabled: true
+      existingClaim: "nzbget-config"
+
+    # Downloads storage via NFS
+    downloads:
+      enabled: true
+      type: nfs
+      server: truenas.homelab.local
+      path: /tmp/storage/downloads
+      mountPath: /downloads
+
+  ingress:
+    main:
+      enabled: true
+      ingressClassName: internal
+      annotations:
+        cert-manager.io/cluster-issuer: letsencrypt
+        external-dns.alpha.kubernetes.io/hostname: nzbget.homelab.local
+      hosts:
+        - host: nzbget.homelab.local
+          paths:
+            - path: /
+              pathType: Prefix
+      tls:
+        - secretName: nzbget-tls
+          hosts:
+            - nzbget.homelab.local
+
+  TZ: America/New_York
+  securityContext:
+    container:
+      runAsUser: 568
+      runAsGroup: 100
+    pod:
+      fsGroup: 100
+
+# ============================================================================
+# Tautulli - Plex Monitoring
+# Sync Wave: 13
+# ============================================================================
+
+tautulli:
+  enabled: true
+  namespace: media
+
+  # TrueCharts helm chart (OCI registry)
+  chart:
+    name: tautulli
+    repo: oci://oci.trueforge.org/truecharts/tautulli
+    version: 21.18.2
+
+  workload:
+    main:
+      podSpec:
+        containers:
+          main:
+            resources:
+              requests:
+                cpu: 100m
+                memory: 256Mi
+              limits:
+                cpu: 500m
+                memory: 512Mi
+
+  persistence:
+    config:
+      enabled: true
+      existingClaim: "tautulli-config"
+
+  ingress:
+    main:
+      enabled: true
+      ingressClassName: internal
+      annotations:
+        cert-manager.io/cluster-issuer: letsencrypt
+        external-dns.alpha.kubernetes.io/hostname: tautulli.homelab.local
+      hosts:
+        - host: tautulli.homelab.local
+          paths:
+            - path: /
+              pathType: Prefix
+      tls:
+        - secretName: tautulli-tls
+          hosts:
+            - tautulli.homelab.local
+
+  TZ: America/New_York
+  securityContext:
+    container:
+      runAsUser: 568
+      runAsGroup: 100
+    pod:
+      fsGroup: 100
+
+# ============================================================================
+# LazyLibrarian - Ebook Management
+# Sync Wave: 13
+# ============================================================================
+
+lazylibrarian:
+  enabled: true
+  namespace: media
+
+  # TrueCharts helm chart (OCI registry)
+  chart:
+    name: lazylibrarian
+    repo: oci://oci.trueforge.org/truecharts/lazylibrarian
+    version: 21.18.2
+
+  workload:
+    main:
+      podSpec:
+        containers:
+          main:
+            resources:
+              requests:
+                cpu: 100m
+                memory: 256Mi
+              limits:
+                cpu: 500m
+                memory: 512Mi
+
+  persistence:
+    config:
+      enabled: true
+      existingClaim: "lazylibrarian-config"
+
+    # Books storage via NFS
+    books:
+      enabled: true
+      type: nfs
+      server: truenas.homelab.local
+      path: /tmp/storage/books
+      mountPath: /books
+
+    # Downloads storage via NFS
+    downloads:
+      enabled: true
+      type: nfs
+      server: truenas.homelab.local
+      path: /tmp/storage/downloads
+      mountPath: /downloads
+
+  ingress:
+    main:
+      enabled: true
+      ingressClassName: internal
+      annotations:
+        cert-manager.io/cluster-issuer: letsencrypt
+        external-dns.alpha.kubernetes.io/hostname: lazylibrarian.homelab.local
+      hosts:
+        - host: lazylibrarian.homelab.local
+          paths:
+            - path: /
+              pathType: Prefix
+      tls:
+        - secretName: lazylibrarian-tls
+          hosts:
+            - lazylibrarian.homelab.local
+
+  TZ: America/New_York
+  securityContext:
+    container:
+      runAsUser: 568
+      runAsGroup: 100
+    pod:
+      fsGroup: 100
+
+# ============================================================================
+# Home Assistant - Home Automation Hub
+# Sync Wave: 3
 # ============================================================================
 
 homeassistant:
-  # Disabled by default in local dev (requires host network for discovery)
   enabled: false
+  namespace: home-automation
 
-  # If enabled, use minimal resources
-  resources:
-    requests:
-      cpu: 100m
-      memory: 256Mi
-    limits:
-      cpu: 500m
-      memory: 512Mi
+  # TrueCharts helm chart (OCI registry)
+  chart:
+    name: home-assistant
+    repo: oci://oci.trueforge.org/truecharts/home-assistant
+    version: 29.6.2
 
-  # Minimal storage
+  workload:
+    main:
+      podSpec:
+        hostNetwork: true
+        containers:
+          main:
+            resources:
+              requests:
+                cpu: 500m
+                memory: 1Gi
+              limits:
+                cpu: 2000m
+                memory: 2Gi
+
+  podOptions:
+    dnsPolicy: ClusterFirstWithHostNet
+
   persistence:
     config:
       enabled: true
-      storageClass: local-path
-      size: 1Gi
+      existingClaim: "homeassistant-config"
 
-  # Note: Home Assistant typically requires hostNetwork for device discovery
-  # This doesn't work well in Kind, so it's disabled by default
-  hostNetwork: false
+  ingress:
+    main:
+      enabled: true
+      ingressClassName: internal
+      annotations:
+        cert-manager.io/cluster-issuer: letsencrypt
+        external-dns.alpha.kubernetes.io/hostname: homeassistant.homelab.local
+      hosts:
+        - host: homeassistant.homelab.local
+          paths:
+            - path: /
+              pathType: Prefix
+      tls:
+        - secretName: homeassistant-tls
+          hosts:
+            - homeassistant.homelab.local
+
+  TZ: America/New_York
 
 # ============================================================================
-# Mosquitto (MQTT Broker)
+# Mosquitto - MQTT Broker
+# Sync Wave: 3
 # ============================================================================
 
 mosquitto:
   enabled: true
+  namespace: home-automation
 
-  # Minimal resources (very lightweight)
-  resources:
-    requests:
-      cpu: 10m
-      memory: 32Mi
-    limits:
-      cpu: 100m
-      memory: 128Mi
+  # TrueCharts helm chart (OCI registry)
+  chart:
+    name: mosquitto
+    repo: oci://oci.trueforge.org/truecharts/mosquitto
+    version: 17.17.2
 
-  # Small storage for retained messages
-  persistence:
-    enabled: true
-    storageClass: local-path
-    size: 128Mi
+  workload:
+    main:
+      podSpec:
+        containers:
+          main:
+            resources:
+              requests:
+                cpu: 50m
+                memory: 128Mi
+              limits:
+                cpu: 200m
+                memory: 256Mi
 
-  # Use NodePort
-  service:
-    type: NodePort
-    port: 1883
-
-  # Allow anonymous connections for local testing
-  auth:
-    enabled: false
-
-# ============================================================================
-# qBittorrent (Download Client) - Optional
-# ============================================================================
-
-qbittorrent:
-  enabled: false  # Disabled by default, enable for testing
-
-  # Reduced resources
-  resources:
-    requests:
-      cpu: 100m
-      memory: 256Mi
-    limits:
-      cpu: 500m
-      memory: 512Mi
-
-  # Minimal storage
   persistence:
     config:
       enabled: true
-      storageClass: local-path
-      size: 512Mi
-    downloads:
+      existingClaim: "mosquitto-config"
+      mountPath: /mosquitto/config
+
+    data:
       enabled: true
-      storageClass: local-path
-      size: 5Gi
+      existingClaim: "mosquitto-data"
+      mountPath: /mosquitto/data
 
-  # Use NodePort
+    configinc:
+      enabled: true
+      existingClaim: "mosquitto-configinc"
+      mountPath: /mosquitto/configinc
+
   service:
-    type: NodePort
-    port: 8080
+    main:
+      type: NodePort
+      ports:
+        main:
+          port: 1883
+          targetPort: 1883
+          protocol: tcp
+    websockets:
+      enabled: true
+      type: NodePort
+      ports:
+        websockets:
+          enabled: true
+          port: 9001
+          targetPort: 9001
+          protocol: tcp
+
+  # Authentication configuration
+  mosquitto:
+    auth:
+      enabled: true
+
+  TZ: America/New_York
 
 # ============================================================================
-# Jellyfin (Alternative Media Server) - Optional
+# FlareSolverr - Cloudflare Protection Bypass Proxy
+# Sync Wave: 12 (before Prowlarr at wave 13)
 # ============================================================================
 
-jellyfin:
-  enabled: false  # Disabled by default (alternative to Plex)
+flaresolverr:
+  enabled: true
+  namespace: media
 
-  # No GPU
-  resources:
-    requests:
-      cpu: 100m
-      memory: 512Mi
-    limits:
-      cpu: 1000m
-      memory: 1Gi
+  # TrueCharts helm chart (OCI registry)
+  chart:
+    name: flaresolverr
+    repo: oci://oci.trueforge.org/truecharts/flaresolverr
+    version: 16.18.2
 
-  # Minimal storage
+  workload:
+    main:
+      podSpec:
+        containers:
+          main:
+            env:
+              BROWSER_TIMEOUT: 40000
+              HEADLESS: true
+              LOG_LEVEL: info
+              LOG_HTML: false
+              CAPTCHA_SOLVER: none
+            resources:
+              requests:
+                cpu: 100m
+                memory: 512Mi
+              limits:
+                cpu: 1000m
+                memory: 1Gi
+
   persistence:
     config:
       enabled: true
-      storageClass: local-path
-      size: 1Gi
-    media:
-      enabled: false
+      existingClaim: "flaresolverr-config"
 
-  # Use NodePort
-  service:
-    type: NodePort
-    port: 8096
+  TZ: America/New_York
+  securityContext:
+    container:
+      readOnlyRootFilesystem: false
+      runAsNonRoot: false
+      runAsUser: 0
+      runAsGroup: 0
 
 # ============================================================================
-# Renovate (Dependency Updates)
+# DuckDNS - Dynamic DNS Updater
+# Sync Wave: 1 (early infrastructure)
 # ============================================================================
+
+duckdns:
+  # Publishes the public address to DuckDNS with a token held in 1Password.
+  enabled: false
+  namespace: duckdns
+
+  # DuckDNS subdomain (without .duckdns.org)
+  subdomain: homelab-dev
+
+  # 1Password vault path for DuckDNS token
+  # The secret should have a field named "token"
+  onePasswordItemPath: vaults/homelab/items/duckdns
+
+# ============================================================================
+# Renovate - Automated Dependency Updates
+# Sync Wave: 12
+# ============================================================================
+# Only the platform-dependent values live here; helm merges them over
+# charts/applications/values.yaml. The GitHub token is a 1Password item, so
+# Renovate only runs where there is a secret store.
 
 renovate:
-  # Disabled in local development. Renovate reads its GitHub credentials from
-  # the renovate-token Secret, which the renovate-config chart only produces
-  # from 1Password; localdev provisions no such Secret, so the CronJob would
-  # never start.
   enabled: false
+  config:
+    gitAuthor: "Renovate Bot <renovate@homelab.local>"
 
 # ============================================================================
-# Additional Configuration Notes
+# ArgoCD - Self-Management
+# Sync Wave: 5 (LAST - after all applications for stability)
 # ============================================================================
 
-# Resource Allocation Summary for Enabled Apps:
-# - Plex:      100m CPU,  512Mi RAM  (largest)
-# - Sonarr:     50m CPU,  256Mi RAM
-# - Radarr:     50m CPU,  256Mi RAM
-# - Prowlarr:   50m CPU,  128Mi RAM
-# - Mosquitto:  10m CPU,   32Mi RAM  (smallest)
-# ─────────────────────────────────────────────
-# Total:      ~260m CPU, ~1.2Gi RAM
-#
-# This should run comfortably on a development machine with Docker Desktop
-# configured for 4GB+ RAM allocation.
+argocd:
+  enabled: true
+  namespace: argocd
 
-# Storage Summary for Enabled Apps:
-# - Plex:      1Gi
-# - Sonarr:    1Gi
-# - Radarr:    1Gi
-# - Prowlarr: 512Mi
-# - Mosquitto: 128Mi
-# ─────────────────────────
-# Total:     ~3.6Gi
-#
-# Additional storage is used by monitoring stack (Prometheus + Grafana: ~6Gi)
-# Ensure your Docker Desktop has sufficient disk space allocated (20GB+ recommended)
+  # Chart source - must match bootstrap version
+  chart:
+    name: argo-cd
+    repo: https://argoproj.github.io/argo-helm
+    version: "9.5.17"
 
-# Access URLs (when using NodePort):
-# All services accessible via localhost:<nodePort>
-# Specific ports are defined in service.port above
-#
-# For ingress-based access, services will be available at:
-# - https://<app>.homelab.test (requires /etc/hosts entry pointing to 127.0.0.1)
+  # ArgoCD server configuration
+  values:
+    # Enable App of Apps health status progression
+    configs:
+      cm:
+        # ArgoCD base URL - required for OAuth redirects and API calls
+        url: https://argocd.homelab.local
+        # Enable ksops plugin for SOPS decryption
+        kustomize.buildOptions: "--enable-alpha-plugins --enable-exec"
+        resource.customizations.health.argoproj.io_Application: |
+          hs = {}
+          hs.status = "Progressing"
+          hs.message = ""
+          if obj.status ~= nil then
+            if obj.status.health ~= nil then
+              hs.status = obj.status.health.status
+              if obj.status.health.message ~= nil then
+                hs.message = obj.status.health.message
+              end
+            end
+          end
+          return hs
+        # Custom health check for Ingress - treat as Healthy even without loadBalancer address
+        # This prevents circular dependency during initial sync when Traefik isn't deployed yet
+        resource.customizations.health.networking.k8s.io_Ingress: |
+          hs = {}
+          hs.status = "Healthy"
+          hs.message = ""
+          if obj.status ~= nil then
+            if obj.status.loadBalancer ~= nil then
+              if obj.status.loadBalancer.ingress ~= nil then
+                hs.message = "Load balancer ingress configured"
+              else
+                hs.message = "Waiting for load balancer (non-blocking)"
+              end
+            end
+          end
+          return hs
+      # Enable insecure mode - required for Traefik TLS termination
+      # Traefik terminates TLS and forwards HTTP to ArgoCD backend
+      params:
+        server.insecure: "true"
+
+    server:
+      # HA configuration - 3 replicas spread across different hosts
+      replicas: 3
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: argocd-server
+
+      # Ingress for web UI
+      ingress:
+        enabled: true
+        ingressClassName: internal
+        hostname: argocd.homelab.local
+        tls: true
+        annotations:
+          cert-manager.io/cluster-issuer: letsencrypt
+          external-dns.alpha.kubernetes.io/hostname: argocd.homelab.local
+          # Tell Traefik to use HTTP when connecting to backend (ArgoCD serves HTTP on 8080)
+          traefik.ingress.kubernetes.io/service.serversscheme: http
+
+      # Resource limits
+      resources:
+        requests:
+          cpu: 100m
+          memory: 256Mi
+        limits:
+          cpu: 500m
+          memory: 512Mi
+
+    controller:
+      resources:
+        requests:
+          cpu: 250m
+          memory: 512Mi
+        limits:
+          cpu: 1000m
+          memory: 1Gi
+
+    repoServer:
+      # HA configuration - 2 replicas spread across different hosts
+      replicas: 2
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: argocd-repo-server
+
+      resources:
+        requests:
+          cpu: 100m
+          memory: 256Mi
+        limits:
+          cpu: 500m
+          memory: 512Mi
+
+      # SOPS/ksops configuration for decrypting secrets
+      env:
+        - name: XDG_CONFIG_HOME
+          value: /.config
+        - name: SOPS_AGE_KEY_FILE
+          value: /.config/sops/age/keys.txt
+      # Mount age key and custom tools
+      volumes:
+        - name: custom-tools
+          emptyDir: {}
+        - name: sops-age
+          secret:
+            secretName: sops-age-key
+        - name: cmp-tmp
+          emptyDir: {}
+        - name: homelab-config
+          secret:
+            secretName: homelab-environment-config
+            optional: true
+      volumeMounts:
+        - name: custom-tools
+          mountPath: /usr/local/bin/ksops
+          subPath: ksops
+        - name: custom-tools
+          mountPath: /usr/local/bin/kustomize
+          subPath: kustomize
+        - name: sops-age
+          mountPath: /.config/sops/age
+      # Init container to install ksops
+      initContainers:
+        - name: install-ksops
+          image: viaductoss/ksops:v4.3.2
+          command: ["/bin/sh", "-c"]
+          args:
+            - echo "Installing KSOPS...";
+              cp /usr/local/bin/ksops /custom-tools/ksops;
+              cp /usr/local/bin/kustomize /custom-tools/kustomize;
+              echo "Done.";
+          volumeMounts:
+            - name: custom-tools
+              mountPath: /custom-tools
+      # CMP sidecar for homelab config plugin
+      extraContainers:
+        - name: homelab-cmp
+          image: ghcr.io/ryanmcafee/homelab-cmp:0.1.18
+          command: [/var/run/argocd/argocd-cmp-server]
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 999
+          env:
+            - name: ARGOCD_EXEC_TIMEOUT
+              value: "90"
+          volumeMounts:
+            - mountPath: /var/run/argocd
+              name: var-files
+            - mountPath: /home/argocd/cmp-server/plugins
+              name: plugins
+            - mountPath: /tmp
+              name: cmp-tmp
+            - mountPath: /config/homelab.yaml
+              name: homelab-config
+              subPath: homelab.yaml
+              readOnly: true
+
+    applicationSet:
+      # HA configuration - 2 replicas
+      replicas: 2
+      resources:
+        requests:
+          cpu: 50m
+          memory: 128Mi
+        limits:
+          cpu: 200m
+          memory: 256Mi
+
+    notifications:
+      enabled: true
+      resources:
+        requests:
+          cpu: 50m
+          memory: 64Mi
+        limits:
+          cpu: 100m
+          memory: 128Mi

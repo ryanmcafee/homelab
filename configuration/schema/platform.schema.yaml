@@ -1,0 +1,47 @@
+# Platform capabilities — which infrastructure layers the target cluster provides.
+#
+# The defaults describe homelab (Talos on Proxmox: Cilium, BGP load balancers,
+# external DNS, TrueNAS storage, 1Password). configuration/environments/localdev.yaml
+# flips them for Kind, and configuration/templates/helm-*.tmpl switch the
+# dependent components on these keys instead of on the environment name, so a
+# future set can turn one capability at a time.
+keys:
+  CNI_PROVIDER:
+    description: CNI the cluster runs (cilium enables the Cilium and cilium-lb-ipam Applications; kindnet is Kind's default)
+    required: true
+    default: cilium
+    enum:
+      - cilium
+      - kindnet
+
+  LOAD_BALANCER_ENABLED:
+    description: Whether Services of type LoadBalancer get an address (Cilium LB IPAM + BGP); false renders NodePort Services and disables port forwarding
+    required: true
+    default: "true"
+    enum:
+      - "true"
+      - "false"
+
+  EXTERNAL_DNS_ENABLED:
+    description: Whether DNS records are published outside the cluster (external-dns, external-dns-unifi, duckdns)
+    required: true
+    default: "true"
+    enum:
+      - "true"
+      - "false"
+
+  STORAGE_PROVIDER:
+    description: Dynamic storage provisioner (democratic-csi against TrueNAS, or local-path-provisioner for Kind)
+    required: true
+    default: democratic-csi
+    enum:
+      - democratic-csi
+      - local-path
+
+  SECRETS_PROVIDER:
+    description: External secret store (onepassword deploys the 1Password operator and everything that reads its items; none runs without one)
+    required: true
+    default: onepassword
+    enum:
+      - onepassword
+      - none

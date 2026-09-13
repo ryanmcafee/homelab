@@ -119,6 +119,8 @@ configuration/environments/staging.yaml
 *.generated.yml
 .env.generated
 configuration/resolved.json
+.env.*.generated
+configuration/resolved.*.json
 
 # Environment-specific Helm values (contain PII — generated at runtime by CMP)
 charts/addons/values-homelab.yaml

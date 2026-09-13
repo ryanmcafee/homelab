@@ -146,6 +146,41 @@ var exportTemplates = map[string]string{
 	"json":        "json.tmpl",
 }
 
+// exportTarget is one (format, template, output file) triple of `config export`.
+type exportTarget struct {
+	format   string
+	template string
+	output   string
+}
+
+// exportTargets returns where each format is written for a set, relative to
+// the project root. homelab is rendered at sync time by the ArgoCD CMP, so its
+// outputs carry PII and land in gitignored *.generated.* files that are only a
+// local preview. Every other set is committed: its helm values are written to
+// the plain values-<set>.yaml that ArgoCD (plain-Helm mode), Tilt and level 0
+// read directly, and level 0 fails when that file is stale (issue #263).
+func exportTargets(set string) []exportTarget {
+	helmValues := func(chart string) string {
+		if set == "homelab" {
+			return fmt.Sprintf("charts/%s/values-homelab.generated.yaml", chart)
+		}
+		return fmt.Sprintf("charts/%s/values-%s.yaml", chart, set)
+	}
+	perSet := func(base, ext string) string {
+		if set == "homelab" {
+			return base + ext
+		}
+		return base + "." + set + ext
+	}
+	return []exportTarget{
+		{"helm-addons", "helm-addons.tmpl", helmValues("addons")},
+		{"helm-apps", "helm-apps.tmpl", helmValues("applications")},
+		{"tfvars", "tfvars.tmpl", "terragrunt/environments/" + set + "/env.generated.tfvars"},
+		{"env", "dotenv.tmpl", perSet(".env", ".generated")},
+		{"json", "json.tmpl", perSet("configuration/resolved", ".json")},
+	}
+}
+
 // exportFormatList is the sorted format list for messages.
 func exportFormatList() string {
 	names := make([]string, 0, len(exportTemplates))
@@ -208,21 +243,7 @@ func newConfigExportCmd() *cobra.Command {
 				return fmt.Errorf("finding project root: %w", err)
 			}
 
-			type exportTarget struct {
-				format   string
-				template string
-				output   string
-			}
-
-			targets := []exportTarget{
-				{"helm-addons", "helm-addons.tmpl", "charts/addons/values-homelab.generated.yaml"},
-				{"helm-apps", "helm-apps.tmpl", "charts/applications/values-homelab.generated.yaml"},
-				{"tfvars", "tfvars.tmpl", "terragrunt/environments/homelab/env.generated.tfvars"},
-				{"env", "dotenv.tmpl", ".env.generated"},
-				{"json", "json.tmpl", "configuration/resolved.json"},
-			}
-
-			for _, t := range targets {
+			for _, t := range exportTargets(rc.Set) {
 				if !all && t.format != format {
 					continue
 				}

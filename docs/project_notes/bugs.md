@@ -107,6 +107,12 @@ Each entry should include:
 - **Prevention**: When a Tilt-driven install gets slower (new CRDs, bigger charts), check `Step 1 - N.NNs (Deploying)` in the Tilt CI log against the upsert timeout before blaming the chart
 - **PR**: #268
 
+### 2026-09-12 - Hand-written localdev values carried dead keys and a mismatched domain
+- **Issue**: `charts/{addons,applications}/values-localdev.yaml` set `global.domain: homelab.test` while `configuration/environments/localdev.yaml` and `charts/gitops/values-localdev.yaml` said `homelab.local`, so Ingress hostnames never matched the gitops chart. Most override keys (kube-prometheus-stack `prometheusSpec`, traefik `ports.*.nodePort`/`globalArguments`, `cert-manager.selfSigned`, app-level `resources`/`service` for TrueCharts apps, `persistence.media`) were never read by the chart templates, so the intended Kind trims were no-ops, and Prometheus/Grafana asked for the `democratic-csi-nfs` storage class that does not exist in Kind. Chart versions lagged `versions.yaml` and stale blocks (qbittorrent, jellyfin, 1password-operator) lingered
+- **Root Cause**: The file was maintained by hand next to the templates it duplicated; nothing compared it with `configuration/` or with what the Application templates actually consume
+- **Solution**: Generate both files from `configuration/templates/helm-{addons,apps}.tmpl` with `homelab config export --set localdev` (`task config:export:localdev`) and commit them; environment differences became capability keys in `platform.schema.yaml` (ADR-011, issue #263)
+- **Prevention**: Level-0 check `render/localdev/_committed-values` fails with a diff when the committed files differ from the export; the pre-commit `config-export` hook regenerates them on any `configuration/**` change. Never hand-edit `values-localdev.yaml`
+
 ### Known Common Errors (from CLAUDE.md)
 
 These are documented errors with known solutions:

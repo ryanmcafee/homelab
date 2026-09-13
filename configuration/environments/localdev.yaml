@@ -25,3 +25,16 @@ ACME_EMAIL: test@homelab.local
 TRAEFIK_OIDC_ALLOWED_DOMAINS: homelab.local
 DUCKDNS_SUBDOMAIN: homelab-dev
 EXTERNAL_DNS_DEFAULT_TARGET: homelab-dev.duckdns.org
+
+# Kind provides none of the homelab platform layers (see schema/platform.schema.yaml):
+# kindnet CNI, no LoadBalancer addresses, no external DNS, local-path storage, no
+# secret store. The helm templates switch on these keys, so the generated
+# charts/{addons,applications}/values-localdev.yaml stays Kind-safe.
+CNI_PROVIDER: kindnet
+LOAD_BALANCER_ENABLED: "false"
+EXTERNAL_DNS_ENABLED: "false"
+STORAGE_PROVIDER: local-path
+SECRETS_PROVIDER: none
+STORAGE_CLASS_NFS: local-path
+STORAGE_CLASS_ISCSI: local-path
+STORAGE_CLASS_SSD: local-path

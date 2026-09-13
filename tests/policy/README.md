@@ -84,23 +84,11 @@ Current exemptions in the rendered repo:
   intentionally tracked at `:latest` for automatic updates in this homelab).
   Unconditional (both envs); currently moot since `home-assistant.enabled` is
   `false` by default.
-- `charts/addons/templates/{kube-prometheus-stack,traefik-external,traefik-internal}.yaml`
-  and `charts/applications/templates/{sonarr,radarr,prowlarr,nzbget,tautulli,
-  lazylibrarian,plex,homeassistant}.yaml` — exempt from `hostname-domain`
-  **only when `.Values.global.environment == "localdev"`**
-  (`{{- if eq .Values.global.environment "localdev" }}`): per **GitHub issue
-  #263**, `addons`/`applications` never go through the CMP domain-substitution
-  stage for localdev (CLAUDE.md's CMP Architecture documents this as
-  intentional — localdev uses native Helm with `values-localdev.yaml`, no
-  CMP), so these Applications' inline Ingress/IngressRoute hostnames stay the
-  checked-in `values.yaml` placeholder there. In homelab, the same objects
-  ARE checked (no exemption rendered) because the two-stage config-export
-  flow correctly derives their hostname from `DOMAIN` — verified by
-  rendering both envs: `policy/homelab` shows these 11 objects with no
-  `policy-exempt` annotation and still passing; `policy/localdev` shows the
-  annotation present. `plex` and `homeassistant` combine this with their
-  unconditional `image-latest` exemption above (one shared reason per env
-  branch); see those two templates for the exact conditional structure.
+
+There is no per-environment `hostname-domain` exemption: localdev renders
+`addons`/`applications` from the config-generated, committed
+`charts/*/values-localdev.yaml` (`task config:export:localdev`, issue #263), so
+its Ingress/IngressRoute hostnames derive from `DOMAIN` exactly as homelab's do.
 
 ## Running
 

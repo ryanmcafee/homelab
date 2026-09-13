@@ -43,13 +43,8 @@ metadata:
   namespace: argocd
   annotations:
     argocd.argoproj.io/sync-wave: "12"
-    {{- if eq .Values.global.environment "localdev" }}
-    homelab.ryanmcafee.com/policy-exempt: "image-latest,hostname-domain"
-    homelab.ryanmcafee.com/policy-exempt-reason: "image-latest: upstream plexinc/pms-docker publishes no numbered release tags; tracking :latest is the documented, intentional deployment model for Plex. hostname-domain: GitHub issue #263: localdev renders addons/applications without the CMP domain-substitution stage (CLAUDE.md's CMP Architecture: localdev uses native Helm with values-localdev.yaml, no CMP), so the ingress hostname stays the checked-in values.yaml placeholder here; it is never resolved or used in localdev (services are reached via NodePort). Fix is to generate values-localdev.yaml from config; remove the hostname-domain exemption then. In homelab this hostname is correctly domain-derived by the two-stage config-export flow, so that part of the exemption is scoped to localdev only."
-    {{- else }}
     homelab.ryanmcafee.com/policy-exempt: "image-latest"
     homelab.ryanmcafee.com/policy-exempt-reason: "Upstream plexinc/pms-docker publishes no numbered release tags; tracking :latest is the documented, intentional deployment model for Plex."
-    {{- end }}
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:

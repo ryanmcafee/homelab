@@ -6,11 +6,14 @@
  * Auto-bumps the CMP image patch version when CMP-related files are staged.
  * Intended for use as a pre-commit hook or manual invocation.
  *
- * Checks staged files — skips if no CMP-related files are staged.
+ * Checks staged files — skips if no CMP-related files are staged, or if the
+ * tag already differs from HEAD (the bump for this commit happened on an
+ * earlier pre-commit pass, so a second pass must not bump again).
  * Reads current version from configuration/versions.yaml.
  * Increments patch: 0.1.0 -> 0.1.1
  * Updates versions.yaml and hardcoded CMP image tags.
- * Stages all modified files.
+ * Re-exports the committed localdev parent values (the tag is part of them)
+ * and regenerates the golden snapshots, then stages all modified files.
  */
 
 const cyan = (s: string) => `\x1b[36m${s}\x1b[0m`;
@@ -55,6 +58,30 @@ async function readCurrentVersion(): Promise<string> {
   ]);
 }
 
+/**
+ * Read the CMP version committed at HEAD, or null when there is none (fresh
+ * repository). Used to detect a bump that already happened for this commit.
+ */
+async function readHeadVersion(): Promise<string | null> {
+  try {
+    const head = await run(["git", "show", "HEAD:configuration/versions.yaml"]);
+    const p = new Deno.Command("yq", {
+      args: [".images.homelab-cmp", "-"],
+      stdin: "piped",
+      stdout: "piped",
+      stderr: "piped",
+    }).spawn();
+    const writer = p.stdin.getWriter();
+    await writer.write(new TextEncoder().encode(head));
+    await writer.close();
+    const output = await p.output();
+    if (!output.success) return null;
+    return new TextDecoder().decode(output.stdout).trim();
+  } catch {
+    return null;
+  }
+}
+
 /** Increment patch version: 0.1.0 -> 0.1.1 */
 function bumpPatch(version: string): string {
   const parts = version.replace(/^"/, "").replace(/"$/, "").split(".");
@@ -97,6 +124,23 @@ async function main() {
   }
 
   const currentVersion = await readCurrentVersion();
+
+  // pre-commit aborts the commit when a hook modifies files, so a bump is
+  // always followed by a second pass with the same CMP files staged. If the
+  // working tree already carries a tag HEAD does not have, that second pass
+  // must leave it alone or every commit would bump twice.
+  if (!force) {
+    const headVersion = await readHeadVersion();
+    if (headVersion !== null && headVersion !== currentVersion) {
+      console.log(
+        cyan(
+          `INFO: CMP version already bumped in this commit (${headVersion} -> ${currentVersion}), skipping.`,
+        ),
+      );
+      Deno.exit(0);
+    }
+  }
+
   const newVersion = bumpPatch(currentVersion);
 
   console.log(cyan(`CMP version bump: ${currentVersion} -> ${newVersion}`));
@@ -131,6 +175,38 @@ async function main() {
   // pre-commit hook could not catch it because charts/** was not part of the
   // originally staged set. CI then failed on a commit that passed locally.
   if (updatedFiles.length > 1) {
+    // The committed charts/*/values-localdev.yaml are rendered from the same
+    // templates that carry the CMP tag, and level 0 fails (and so does
+    // `verify snapshot`) while they are stale, so they come before snapshots.
+    console.log(cyan("Re-exporting the committed localdev values..."));
+    for (const format of ["helm-addons", "helm-apps"]) {
+      try {
+        await run([
+          "go",
+          "run",
+          "./cmd/homelab",
+          "config",
+          "export",
+          "--set",
+          "localdev",
+          "--format",
+          format,
+        ]);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        console.error(red(
+          `ERROR: config export --set localdev --format ${format} failed after the version bump.\n` +
+            "Fix the export, then run: task config:export:localdev\n" +
+            message,
+        ));
+        Deno.exit(1);
+      }
+    }
+    updatedFiles.push(
+      "charts/addons/values-localdev.yaml",
+      "charts/applications/values-localdev.yaml",
+    );
+
     console.log(cyan("Regenerating golden snapshots for the new image tag..."));
     try {
       await run([

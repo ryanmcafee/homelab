@@ -1007,6 +1007,26 @@ func (ps patternSources) contains(path string) bool {
 	return false
 }
 
+// dropSetName removes the environment's own name from the value patterns. The
+// set name is the stem of the environment file (localdev.yaml -> localdev) and
+// is written all over the repository on purpose: schema comments, task names,
+// values-<set>.yaml file names, docs. A value that merely equals it (localdev
+// uses it as NFS_MAPALL_USER) cannot name real infrastructure, so hunting for
+// it only produces false positives on prose that mentions the environment.
+func dropSetName(patterns []string, envPath string) []string {
+	set := strings.TrimSuffix(filepath.Base(envPath), filepath.Ext(envPath))
+	if set == "" {
+		return patterns
+	}
+	out := patterns[:0:0]
+	for _, p := range patterns {
+		if p != set {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
 // GuardOptions configures a scan.
 type GuardOptions struct {
 	// RepoRoot is the repository root that pathspecs resolve against.
@@ -1084,7 +1104,7 @@ func RunGuard(opts GuardOptions) (*GuardReport, error) {
 		env, err := LoadEnvironment(opts.EnvPath)
 		switch {
 		case err == nil:
-			patterns = BuildGuardPatterns(env)
+			patterns = dropSetName(BuildGuardPatterns(env), opts.EnvPath)
 		case errors.Is(err, fs.ErrNotExist):
 			report.EnvMissing = true
 		default:

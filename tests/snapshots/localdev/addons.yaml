@@ -84,7 +84,7 @@ spec:
   source:
     repoURL: https://charts.jetstack.io
     chart: cert-manager
-    targetRevision: v1.16.2
+    targetRevision: v1.20.3
     helm:
       releaseName: cert-manager
       values: |
@@ -212,7 +212,7 @@ spec:
       # valueFiles in ArgoCD.
       valuesObject:
         global:
-          domain: homelab.test
+          domain: homelab.local
         letsencrypt:
           server: https://acme-v02.api.letsencrypt.org/directory
           email: test@homelab.local
@@ -257,7 +257,7 @@ spec:
       # via the CMP in homelab) so the child's committed values stay PII-free.
       valuesObject:
         iscsi:
-          portal: ""
+          portal: "127.0.0.1:3260"
   destination:
     server: https://kubernetes.default.svc
     namespace: monitoring
@@ -279,8 +279,6 @@ metadata:
   namespace: argocd
   annotations:
     argocd.argoproj.io/sync-wave: "9"
-    homelab.ryanmcafee.com/policy-exempt: "hostname-domain"
-    homelab.ryanmcafee.com/policy-exempt-reason: "GitHub issue #263: localdev renders addons/applications without the CMP domain-substitution stage (CLAUDE.md's CMP Architecture: localdev uses native Helm with values-localdev.yaml, no CMP), so Grafana's ingress hostname stays the checked-in values.yaml placeholder here; it is never resolved or used in localdev (services are reached via NodePort). Fix is to generate values-localdev.yaml from config; remove this exemption then. In homelab this hostname is correctly domain-derived by the two-stage config-export flow, so the exemption is scoped to localdev only."
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
@@ -288,36 +286,45 @@ spec:
   source:
     repoURL: https://prometheus-community.github.io/helm-charts
     chart: kube-prometheus-stack
-    targetRevision: 69.8.2
+    targetRevision: 87.1.0
     helm:
       releaseName: kube-prometheus-stack
       values: |
         prometheus:
           prometheusSpec:
-            retention: 30d
-            retentionSize: 50GB
+            retention: 1d
+            retentionSize: 4GB
 
             resources:
               limits:
-                cpu: 2000m
-                memory: 4Gi
-              requests:
                 cpu: 500m
-                memory: 2Gi
+                memory: 512Mi
+              requests:
+                cpu: 100m
+                memory: 256Mi
 
             storageSpec:
               volumeClaimTemplate:
                 spec:
-                  storageClassName: democratic-csi-nfs
+                  storageClassName: local-path
                   accessModes:
                     - ReadWriteOnce
                   resources:
                     requests:
-                      storage: 100Gi
+                      storage: 5Gi
 
             serviceMonitorSelectorNilUsesHelmValues: false
             podMonitorSelectorNilUsesHelmValues: false
             ruleSelectorNilUsesHelmValues: false
+            affinity:
+              nodeAffinity:
+                requiredDuringSchedulingIgnoredDuringExecution:
+                  nodeSelectorTerms:
+                  - matchExpressions:
+                    - key: nvidia.com/gpu.present
+                      operator: NotIn
+                      values:
+                      - "true"
 
         grafana:
           enabled: true
@@ -326,19 +333,19 @@ spec:
 
           persistence:
             enabled: true
-            storageClassName: democratic-csi-nfs
+            storageClassName: local-path
             size: 1Gi
           ingress:
             enabled: true
-            ingressClassName: traefik
+            ingressClassName: internal
             annotations:
               cert-manager.io/cluster-issuer: letsencrypt
-              external-dns.alpha.kubernetes.io/hostname: grafana.example.com
+              external-dns.alpha.kubernetes.io/hostname: grafana.homelab.local
             hosts:
-              - grafana.example.com
+              - grafana.homelab.local
             tls:
               - hosts:
-                - grafana.example.com
+                - grafana.homelab.local
                 secretName: grafana-tls
 
           resources:
@@ -368,11 +375,11 @@ spec:
           enabled: true
           resources:
             limits:
-              cpu: 100m
-              memory: 128Mi
+              cpu: 200m
+              memory: 256Mi
             requests:
-              cpu: 10m
-              memory: 32Mi
+              cpu: 50m
+              memory: 128Mi
 
   destination:
     server: https://kubernetes.default.svc
@@ -416,10 +423,15 @@ spec:
   source:
     repoURL: https://postfinance.github.io/kubelet-csr-approver
     chart: kubelet-csr-approver
-    targetRevision: 1.2.2
+    targetRevision: 1.2.14
     helm:
       releaseName: kubelet-csr-approver
       values: |
+        providerIpPrefixes:
+          - 127.0.0.0/8
+        providerRegex: "^talos-[a-z0-9]{3}-[a-z0-9]{3}$"
+        maxExpirationSeconds: "31536000"
+        bypassDnsResolution: true
         resources:
           limits:
             cpu: 100m
@@ -457,7 +469,7 @@ spec:
   source:
     repoURL: https://charts.containeroo.ch
     chart: local-path-provisioner
-    targetRevision: 0.0.30
+    targetRevision: 0.0.37
     helm:
       releaseName: local-path-provisioner
       values: |
@@ -514,7 +526,7 @@ spec:
   source:
     repoURL: https://kubernetes-sigs.github.io/node-feature-discovery/charts
     chart: node-feature-discovery
-    targetRevision: 0.18.0
+    targetRevision: 0.18.3
     helm:
       releaseName: node-feature-discovery
       values: |
@@ -592,7 +604,7 @@ spec:
       # via the CMP in homelab) so the child's committed values stay PII-free.
       valuesObject:
         iscsi:
-          portal: ""
+          portal: "127.0.0.1:3260"
   destination:
     server: https://kubernetes.default.svc
     namespace: monitoring
@@ -711,8 +723,6 @@ metadata:
   annotations:
     # Sync wave 6: After traefik-external-dependencies (wave 5) creates secrets
     argocd.argoproj.io/sync-wave: "6"
-    homelab.ryanmcafee.com/policy-exempt: "hostname-domain"
-    homelab.ryanmcafee.com/policy-exempt-reason: "GitHub issue #263: localdev renders addons/applications without the CMP domain-substitution stage (CLAUDE.md's CMP Architecture: localdev uses native Helm with values-localdev.yaml, no CMP), so the dashboard IngressRoute matchRule stays the checked-in values.yaml placeholder here; it is never resolved or used in localdev (services are reached via NodePort). Fix is to generate values-localdev.yaml from config; remove this exemption then. In homelab this hostname is correctly domain-derived by the two-stage config-export flow, so the exemption is scoped to localdev only."
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
@@ -720,7 +730,7 @@ spec:
   source:
     repoURL: https://traefik.github.io/charts
     chart: traefik
-    targetRevision: 39.0.0
+    targetRevision: 39.0.9
     helm:
       releaseName: traefik-external
       values: |
@@ -730,7 +740,7 @@ spec:
           isDefaultClass: false
 
         deployment:
-          replicas: 2
+          replicas: 1
 
         service:
           type: NodePort
@@ -774,9 +784,18 @@ spec:
                 idleTimeout: 600s
                 readTimeout: 0
                 writeTimeout: 0
+          traefik:
+            port: 9000
+            expose:
+              default: true
         additionalArguments:
           - --global.checknewversion=false
           - --global.sendanonymoususage=false
+        experimental:
+          plugins:
+            traefikoidc:
+              moduleName: github.com/lukaszraczylo/traefikoidc
+              version: v1.0.32
 
         env:
           []
@@ -790,9 +809,11 @@ spec:
         ingressRoute:
           dashboard:
             enabled: true
-            matchRule: Host(`traefik.example.com`)
+            matchRule: Host(`traefik.homelab.local`)
             entryPoints:
               - websecure
+            tls:
+              secretName: traefik-dashboard-tls
 
         resources:
           limits:
@@ -801,25 +822,6 @@ spec:
           requests:
             cpu: 50m
             memory: 128Mi
-        topologySpreadConstraints:
-          - labelSelector:
-              matchLabels:
-                app.kubernetes.io/instance: traefik-external
-                app.kubernetes.io/name: traefik
-            maxSkew: 1
-            topologyKey: kubernetes.io/hostname
-            whenUnsatisfiable: DoNotSchedule
-        autoscaling:
-          enabled: true
-          minReplicas: 2
-          maxReplicas: 3
-          metrics:
-            - resource:
-                name: cpu
-                target:
-                  averageUtilization: 80
-                  type: Utilization
-              type: Resource
 
   destination:
     server: https://kubernetes.default.svc
@@ -870,7 +872,7 @@ spec:
       # valueFiles in ArgoCD.
       valuesObject:
         global:
-          domain: homelab.test
+          domain: homelab.local
         dashboard:
           host: traefik.homelab.local
           staticIP: 127.0.0.200
@@ -933,8 +935,6 @@ metadata:
   namespace: argocd
   annotations:
     argocd.argoproj.io/sync-wave: "6"
-    homelab.ryanmcafee.com/policy-exempt: "hostname-domain"
-    homelab.ryanmcafee.com/policy-exempt-reason: "GitHub issue #263: localdev renders addons/applications without the CMP domain-substitution stage (CLAUDE.md's CMP Architecture: localdev uses native Helm with values-localdev.yaml, no CMP), so the dashboard IngressRoute matchRule stays the checked-in values.yaml placeholder here; it is never resolved or used in localdev (services are reached via NodePort). Fix is to generate values-localdev.yaml from config; remove this exemption then. In homelab this hostname is correctly domain-derived by the two-stage config-export flow, so the exemption is scoped to localdev only."
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
@@ -942,7 +942,7 @@ spec:
   source:
     repoURL: https://traefik.github.io/charts
     chart: traefik
-    targetRevision: 39.0.0
+    targetRevision: 39.0.9
     helm:
       releaseName: traefik-internal
       values: |
@@ -952,7 +952,7 @@ spec:
           isDefaultClass: false
 
         deployment:
-          replicas: 2
+          replicas: 1
 
         service:
           type: NodePort
@@ -994,6 +994,10 @@ spec:
                 idleTimeout: 600s
                 readTimeout: 0
                 writeTimeout: 0
+          traefik:
+            port: 9000
+            expose:
+              default: true
         additionalArguments:
           - --global.checknewversion=false
           - --global.sendanonymoususage=false
@@ -1009,9 +1013,11 @@ spec:
         ingressRoute:
           dashboard:
             enabled: true
-            matchRule: Host(`traefik-internal.example.com`)
+            matchRule: Host(`traefik-internal.homelab.local`)
             entryPoints:
               - websecure
+            tls:
+              secretName: traefik-internal-dashboard-tls
 
         resources:
           limits:
@@ -1020,25 +1026,6 @@ spec:
           requests:
             cpu: 50m
             memory: 128Mi
-        topologySpreadConstraints:
-          - labelSelector:
-              matchLabels:
-                app.kubernetes.io/instance: traefik-internal
-                app.kubernetes.io/name: traefik
-            maxSkew: 1
-            topologyKey: kubernetes.io/hostname
-            whenUnsatisfiable: DoNotSchedule
-        autoscaling:
-          enabled: true
-          minReplicas: 2
-          maxReplicas: 3
-          metrics:
-            - resource:
-                name: cpu
-                target:
-                  averageUtilization: 80
-                  type: Utilization
-              type: Resource
 
   destination:
     server: https://kubernetes.default.svc
@@ -1086,7 +1073,7 @@ spec:
       # values files stay PII-free. valuesObject overrides valueFiles in ArgoCD.
       valuesObject:
         global:
-          domain: homelab.test
+          domain: homelab.local
         dashboard:
           host: traefik-internal.homelab.local
   destination:
