@@ -81,6 +81,12 @@ env:
   TILT_VERSION: '0.37.3'
   # renovate: datasource=github-releases depName=go-task/task
   TASK_VERSION: 'v3.46.4'
+  # renovate: datasource=github-releases depName=yannh/kubeconform
+  KUBECONFORM_VERSION: 'v0.7.0'
+  # renovate: datasource=github-releases depName=open-policy-agent/conftest
+  CONFTEST_VERSION: '0.70.0'
+  # renovate: datasource=github-releases depName=FairwindsOps/pluto
+  PLUTO_VERSION: '5.24.3'
   # Every kubectl/argocd call in the scripts pins this context (ADR-009).
   KIND_CONTEXT: kind-homelab-localdev
 
@@ -109,11 +115,15 @@ jobs:
 
       # kubectl is published on dl.k8s.io, not on the kubernetes/kubernetes
       # release page; the Renovate marker still tracks that repository's tags.
-      - name: Install kind, kubectl, argocd, chainsaw, tilt, task
+      - name: Install kind, kubectl, argocd, chainsaw, tilt, task, kubeconform, conftest, pluto
         run: |
           set -euo pipefail
           mkdir -p "$HOME/bin"
           export PATH="$HOME/bin:$PATH"
+          # level 2 includes level 0, which needs kubeconform, conftest and pluto (same pins as verify.yml)
+          curl -sSL --retry 5 --retry-all-errors --retry-delay 3 "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz" | tar -xz -C "$HOME/bin" kubeconform
+          curl -sSL --retry 5 --retry-all-errors --retry-delay 3 "https://github.com/open-policy-agent/conftest/releases/download/v${CONFTEST_VERSION}/conftest_${CONFTEST_VERSION}_Linux_x86_64.tar.gz" | tar -xz -C "$HOME/bin" conftest
+          curl -sSL --retry 5 --retry-all-errors --retry-delay 3 "https://github.com/FairwindsOps/pluto/releases/download/v${PLUTO_VERSION}/pluto_${PLUTO_VERSION}_linux_amd64.tar.gz" | tar -xz -C "$HOME/bin" pluto
           curl -sSL --retry 5 --retry-all-errors --retry-delay 3 -o "$HOME/bin/kind" "https://github.com/kubernetes-sigs/kind/releases/download/${KIND_VERSION}/kind-linux-amd64"
           curl -sSL --retry 5 --retry-all-errors --retry-delay 3 -o "$HOME/bin/kubectl" "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl"
           curl -sSL --retry 5 --retry-all-errors --retry-delay 3 -o "$HOME/bin/argocd" "https://github.com/argoproj/argo-cd/releases/download/${ARGOCD_VERSION}/argocd-linux-amd64"
@@ -135,6 +145,12 @@ jobs:
       # effort: the cache may grow to several GB and GitHub evicts entries past
       # the 10 GB per-repository budget; every hosts.toml lists the upstream as
       # a fallback, so an empty or evicted cache only costs pull time.
+      - name: Cache kubeconform core schemas
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ~/.cache/homelab-kubeconform
+          key: kubeconform-${{ hashFiles('configuration/versions.yaml') }}
+
       - name: Registry pull-through cache (best effort)
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
@@ -158,7 +174,9 @@ jobs:
       - name: Summary
         if: always()
         run: |
-          if [ -f verify-level2.json ]; then
+          # task prints its own failure line after the JSON; keep only the object.
+          if [ -f verify-level2.json ] && sed -n '/^{/,/^}/p' verify-level2.json > verify-level2.clean.json && jq -e . verify-level2.clean.json >/dev/null 2>&1; then
+            mv verify-level2.clean.json verify-level2.json
             {
               echo "## Level 2 verification (Kind)"
               echo

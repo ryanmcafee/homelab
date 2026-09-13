@@ -37,3 +37,26 @@ Pieces
 
 Gotchas: Traefik NodePorts must not use 30080 (ArgoCD); `sops-secrets`/1Password are disabled in
 `charts/bootstrap/values-localdev.yaml`; never regenerate snapshots from a subagent in a shared worktree.
+
+Runtime gotchas learned on the first real runs (all handled by the scripts/templates now):
+- Docker Desktop (macOS) host port mappings never complete a TCP handshake through Cilium (bad TCP
+  checksums, pod netns TcpInCsumErrors grows per SYN). The CLI uses its own `kubectl port-forward`
+  (127.0.0.1:18080); humans use `task localdev:ui` / `task localdev:traefik`. Linux Docker is fine.
+- A `--local` sync with ZERO manifests makes ArgoCD sync from Git instead. The orchestrator renders
+  first (`argocd app manifests --local`); empty local + empty Git → plain sync (22 child charts render
+  nothing in localdev by design); empty local + non-empty Git → hard error. That is why the
+  `bootstrap` Application is disabled in `charts/gitops/values-localdev.yaml`.
+- ArgoCD v3 tracks children with the `argocd.argoproj.io/tracking-id` annotation, not the instance
+  label; tiers are the full wave path from the root (`gitops [0] › addons [0,2] › cilium [0,2,-5]`).
+- Kind ships its own local-path-provisioner (same Deployment name as the containeroo chart, immutable
+  selector): `localdev-kind.ts up` deletes it (plus `standard` StorageClass and its RBAC) first.
+- TrueCharts common pins `podOptions.nodeSelector.kubernetes.io/arch: amd64`; the Kind branch of
+  `helm-apps.tmpl` sets `workload.main.podSpec.nodeSelector.kubernetes.io/arch: null` (helm deletes
+  the key) so pods schedule on Apple Silicon.
+- `argocd login` sends a TLS ClientHello even with `--plaintext`, which kills a kubectl port-forward;
+  the script logs in with `--skip-test-tls`.
+- Smoke hooks follow redirects (`curl -L`); lazylibrarian `/` → 303 → `/authors`.
+- e2e Jobs on `curlimages/curl` need `runAsUser: 100` next to `runAsNonRoot: true` (non-numeric image user).
+- A parent whose child goes Degraded mid-wave gets operation Failed ("retried 5 times"); the
+  orchestrator re-syncs failed parents once their children are done and waits for Succeeded so the
+  PostSync smoke hooks run. Full loop on a warm cache: ~15 min on an M-series Mac.
