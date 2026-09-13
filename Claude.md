@@ -150,135 +150,24 @@ When updating helm chart versions, check these repositories:
 | Plex | https://github.com/plexinc/pms-docker/blob/master/charts/plex-media-server/Chart.yaml |
 | TrueCharts | https://github.com/trueforge-org/truecharts/tree/master/charts/stable/{chart-name}/Chart.yaml |
 
-### Current Versions (Auto-embedded from values.yaml)
+### Current Versions (Auto-embedded from configuration/versions.yaml)
 
-**Infrastructure Charts** - `charts/addons/values.yaml` (ArgoCD: `charts/bootstrap/values.yaml`):
+`configuration/versions.yaml` is the single source of truth for every chart, image and tool
+version and the only file Renovate bumps. The homelab environment receives these versions at
+render time through the CMP (`homelab config export`), so the `chart.version` values in
+`charts/*/values.yaml` are placeholders that lag this file (tracked in #263).
 
-ArgoCD:
-<!-- embedme charts/bootstrap/values.yaml#L53-L56 -->
 ```yaml
-chart:
-  name: argo-cd
-  repo: https://argoproj.github.io/argo-helm
-  version: "9.4.7"
-```
-
-Kubelet CSR Approver:
-<!-- embedme charts/addons/values.yaml#L114-L117 -->
-```yaml
-chart:
-  name: kubelet-csr-approver
-  repo: https://postfinance.github.io/kubelet-csr-approver
-  version: "1.2.2"
-```
-
-Democratic-CSI:
-<!-- embedme charts/addons/values.yaml#L138-L141 -->
-```yaml
-chart:
-  name: democratic-csi
-  repo: https://democratic-csi.github.io/charts/
-  version: 0.14.6
-```
-
-Cert-Manager:
-<!-- embedme charts/addons/values.yaml#L401-L404 -->
-```yaml
-chart:
-  name: cert-manager
-  repo: https://charts.jetstack.io
-  version: v1.16.2
-```
-
-External-DNS:
-<!-- embedme charts/addons/values.yaml#L469-L472 -->
-```yaml
-chart:
-  name: external-dns
-  repo: https://kubernetes-sigs.github.io/external-dns/
-  version: 1.15.0
-```
-
-Kube-Prometheus-Stack:
-<!-- embedme charts/addons/values.yaml#L513-L516 -->
-```yaml
-chart:
-  name: kube-prometheus-stack
-  repo: https://prometheus-community.github.io/helm-charts
-  version: 69.8.2
-```
-
-Traefik (External):
-<!-- embedme charts/addons/values.yaml#L642-L645 -->
-```yaml
-chart:
-  name: traefik
-  repo: https://traefik.github.io/charts
-  version: 39.0.0
-```
-
-**Application Charts** - `charts/applications/values.yaml`:
-
-Plex:
-<!-- embedme charts/applications/values.yaml#L64-L67 -->
-```yaml
-chart:
-  name: plex-media-server
-  repo: https://raw.githubusercontent.com/plexinc/pms-docker/gh-pages
-  version: 1.4.0
-```
-
-Sonarr:
-<!-- embedme charts/applications/values.yaml#L224-L227 -->
-```yaml
-chart:
-  name: sonarr
-  repo: https://trueforge-org.github.io/truecharts
-  version: 25.2.11
-```
-
-Radarr:
-<!-- embedme charts/applications/values.yaml#L313-L316 -->
-```yaml
-chart:
-  name: radarr
-  repo: https://trueforge-org.github.io/truecharts
-  version: 26.3.11
-```
-
-Prowlarr:
-<!-- embedme charts/applications/values.yaml#L401-L404 -->
-```yaml
-chart:
-  name: prowlarr
-  repo: https://trueforge-org.github.io/truecharts
-  version: 21.3.12
-```
-
-Home Assistant:
-<!-- embedme charts/applications/values.yaml#L705-L708 -->
-```yaml
-chart:
-  name: home-assistant
-  repo: https://trueforge-org.github.io/truecharts
-  version: 28.19.14
-```
-
-Mosquitto:
-<!-- embedme charts/applications/values.yaml#L773-L776 -->
-```yaml
-chart:
-  name: mosquitto
-  repo: https://trueforge-org.github.io/truecharts
-  version: 17.13.9
+<!-- embedme configuration/versions.yaml -->
 ```
 
 ### Version Update Files
-When updating a chart version, modify these files:
-1. `charts/addons/values.yaml` - Infrastructure charts
-2. `charts/addons/values-homelab.yaml` - Homelab overrides (if different)
-3. `charts/applications/values.yaml` - Application charts
-4. `charts/applications/values-homelab.yaml` - Homelab overrides (if different)
+To update a chart, image or tool version:
+1. Edit `configuration/versions.yaml` (or let Renovate do it).
+2. If the chart ships CRDs, run `task schemas:vendor` and commit `tests/schemas/`.
+3. Run `task verify:text`, then `task test:snapshot -- --update` and commit the snapshots.
+
+Do not edit `chart.version` in `charts/*/values.yaml`; those values are overridden by the CMP in homelab.
 
 ## Project Structure
 
