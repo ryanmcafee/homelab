@@ -1574,6 +1574,41 @@ func TestScanFileForPIIShapeHelmListKeys(t *testing.T) {
 			content: "hosts:\n  - host: sonarr.ryanmcafee.com\n    paths: [/]\n",
 			want:    []string{"host (real hostname)"},
 		},
+		{
+			name:    "a flow list spanning lines",
+			content: "cloudflare:\n  dnsZones: [\n    example.com,\n    ryanmcafee.com,\n  ]\n",
+			want:    []string{"dnsZones[] (real hostname)"},
+		},
+		{
+			name:    "a flow list spanning lines reports each line once and closes at the bracket",
+			content: "dnsZones: [ryanmcafee.com,\n  a.ryanmcafee.com, b.ryanmcafee.com]\nscopes: [\n  ryanmcafee.com]\n",
+			want:    []string{"dnsZones[] (real hostname)", "dnsZones[] (real hostname)"},
+		},
+		{
+			name:    "a flow mapping item is judged by its keys",
+			content: "hosts:\n  - {host: radarr.ryanmcafee.com, paths: [/]}\n",
+			want:    []string{"host (real hostname)"},
+		},
+		{
+			name:    "a flow mapping item is judged in any list",
+			content: "rules:\n  - {host: radarr.ryanmcafee.com}\n",
+			want:    []string{"host (real hostname)"},
+		},
+		{
+			name:    "a flow list inside a flow mapping item",
+			content: "tls:\n  - {hosts: [plex.ryanmcafee.com], secretName: plex-tls}\n",
+			want:    []string{"hosts[] (real hostname)"},
+		},
+		{
+			name:    "a flow mapping on the key line",
+			content: "dashboard: {enabled: true, host: traefik.ryanmcafee.com}\n",
+			want:    []string{"host (real hostname)"},
+		},
+		{
+			name:    "a flow mapping with placeholder values and safe keys is clean",
+			content: "hosts:\n  - {host: plex.homelab.test, paths: [/]}\nsource: {repoUrl: https://github.com/x/y, host: 0.0.0.0}\n",
+			want:    nil,
+		},
 	}
 
 	for _, tc := range tests {

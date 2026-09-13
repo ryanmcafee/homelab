@@ -298,11 +298,14 @@ func renderWave(c Chart) int {
 }
 
 // inheritOnlyParents lists the parents a --chart filter left out that a
-// selected chart may inherit values from. Only gitops, addons and
-// applications emit path-based Applications: gitops deploys the other
-// parents, addons and applications deploy the children. bootstrap deploys no
-// chart from this repository, so it is never needed on another chart's
-// behalf. Without a filter there is nothing to add.
+// selected chart may inherit values from, directly or through another
+// parent. Only gitops, addons and applications emit path-based Applications:
+// gitops deploys the other parents, addons and applications deploy the
+// children. A child selection therefore needs addons and applications, and
+// gitops as well, because addons and applications may themselves inherit
+// from gitops and would otherwise render without the values they hand down.
+// bootstrap deploys no chart from this repository, so it is never needed on
+// another chart's behalf. Without a filter there is nothing to add.
 func inheritOnlyParents(all, selected []Chart, filter []string) []Chart {
 	if len(filter) == 0 {
 		return nil
@@ -318,6 +321,9 @@ func inheritOnlyParents(all, selected []Chart, filter []string) []Chart {
 		default:
 			needChildParents = true
 		}
+	}
+	if needChildParents {
+		needGitops = true
 	}
 	var out []Chart
 	for _, c := range all {

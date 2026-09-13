@@ -482,9 +482,9 @@ func TestRenderInheritOnlyParentsUnderChartFilter(t *testing.T) {
 		t.Fatalf("expected pass, got:\n%s", buf.String())
 	}
 
-	// Both child-deploying parents render inherit-only; gitops is not needed
-	// because no selected chart is deployed by it, and bootstrap never is.
-	for _, parent := range []string{"addons", "applications"} {
+	// Both child-deploying parents render inherit-only, and so does gitops,
+	// which may hand them values; bootstrap never deploys a chart from here.
+	for _, parent := range []string{"gitops", "addons", "applications"} {
 		if _, ok := fr.find("helm", "template "+parent+" "); !ok {
 			t.Errorf("%s was not rendered for inheritance; recorded:\n%s", parent, fr.dump())
 		}
@@ -503,10 +503,8 @@ func TestRenderInheritOnlyParentsUnderChartFilter(t *testing.T) {
 			}
 		}
 	}
-	for _, parent := range []string{"gitops", "bootstrap"} {
-		if cmd, ok := fr.find("helm", "template "+parent+" "); ok {
-			t.Errorf("%s is not needed for a child-only selection: %s", parent, cmd.line())
-		}
+	if cmd, ok := fr.find("helm", "template bootstrap "); ok {
+		t.Errorf("bootstrap is not needed for a child-only selection: %s", cmd.line())
 	}
 	if len(out.Charts) != 1 || out.Charts[0].Name != "tailscale-config" {
 		t.Errorf("RenderOutput.Charts = %v, want only tailscale-config", out.Charts)
@@ -537,6 +535,60 @@ func TestRenderInheritOnlyParentsUnderChartFilter(t *testing.T) {
 	}
 	if childIdx < 0 || parentIdx < 0 || parentIdx > childIdx {
 		t.Errorf("parents must render before children (last parent at %d, child at %d):\n%s", parentIdx, childIdx, fr.dump())
+	}
+}
+
+func TestRenderInheritOnlyParentsChainThroughGitops(t *testing.T) {
+	root := testRepoRoot(t)
+	outDir := t.TempDir()
+	// gitops hands addons a value and addons hands tailscale-config one. With
+	// only the child selected, addons must still render with what gitops gave
+	// it, or the child inherits values computed from the wrong inputs.
+	addonsValues := "        global:\n          domain: example.com\n"
+	fr := &fakeRunner{manifests: map[string]string{
+		"gitops": cannedManifest("gitops") + applicationManifest("addons", "charts/addons", addonsValues),
+		"addons": cannedManifest("addons") + applicationManifest("tailscale", "charts/tailscale-config", tailscaleValuesObject),
+	}}
+
+	_, res := Render(context.Background(), RenderOptions{
+		RepoRoot:   root,
+		OutDir:     outDir,
+		Envs:       []Env{Envs[1]},
+		Charts:     []string{"tailscale-config"},
+		SkipLint:   true,
+		SkipSchema: true,
+		Runner:     fr,
+	})
+	if !res.Pass {
+		var buf strings.Builder
+		res.WriteText(&buf)
+		t.Fatalf("expected pass, got:\n%s", buf.String())
+	}
+
+	inheritedAddons := filepath.Join(outDir, "homelab", "_inherited", "addons.yaml")
+	if _, ok := fr.find("helm", "template addons ", "-f "+inheritedAddons); !ok {
+		t.Errorf("inherit-only addons did not receive the values gitops hands it; recorded:\n%s", fr.dump())
+	}
+	inheritedChild := filepath.Join(outDir, "homelab", "_inherited", "tailscale-config.yaml")
+	if _, ok := fr.find("helm", "template tailscale-config ", "-f "+inheritedChild); !ok {
+		t.Errorf("tailscale-config did not receive the inherited values; recorded:\n%s", fr.dump())
+	}
+	if c := checkByName(t, res, "render/homelab/_inherit"); c.Detail != "values inherited from parent Applications: 2" {
+		t.Errorf("render/homelab/_inherit detail = %q", c.Detail)
+	}
+
+	// gitops renders before addons, or addons could not have seen its values.
+	gitopsIdx, addonsIdx := -1, -1
+	for i, c := range fr.cmds {
+		switch line := c.line(); {
+		case strings.HasPrefix(line, "helm template gitops "):
+			gitopsIdx = i
+		case strings.HasPrefix(line, "helm template addons "):
+			addonsIdx = i
+		}
+	}
+	if gitopsIdx < 0 || addonsIdx < 0 || gitopsIdx > addonsIdx {
+		t.Errorf("gitops must render before addons (gitops at %d, addons at %d):\n%s", gitopsIdx, addonsIdx, fr.dump())
 	}
 }
 
@@ -1460,10 +1512,11 @@ func TestRenderAllChartsForBothEnvs(t *testing.T) {
 	}
 }
 
-// TestRenderInheritFindingsAreDeterministic renders with two inherit-only
-// parents failing in the same wave and requires the render/<env>/_inherit
-// findings to read identically on every run: they arrive in goroutine
-// completion order and must be re-ordered by chart before they are reported.
+// TestRenderInheritFindingsAreDeterministic renders with every inherit-only
+// parent failing and requires the render/<env>/_inherit findings to read
+// identically on every run: within a wave they arrive in goroutine completion
+// order and must be re-ordered by chart before they are reported, so the
+// sequence is wave order (gitops first) and chart order inside a wave.
 func TestRenderInheritFindingsAreDeterministic(t *testing.T) {
 	root := testRepoRoot(t)
 	var first []string
@@ -1480,13 +1533,19 @@ func TestRenderInheritFindingsAreDeterministic(t *testing.T) {
 			Runner:     fr,
 		})
 		c := checkByName(t, res, "render/homelab/_inherit")
-		if c.Status != StatusFail || len(c.Findings) < 2 {
-			t.Fatalf("expected a failing _inherit check with findings for both parents, got %s %q", c.Status, c.Findings)
+		if c.Status != StatusFail || len(c.Findings) < 3 {
+			t.Fatalf("expected a failing _inherit check with findings for every parent, got %s %q", c.Status, c.Findings)
 		}
 		if i == 0 {
 			first = c.Findings
-			if !strings.HasPrefix(first[0], "addons:") {
-				t.Fatalf("findings must be ordered by chart, got first %q", first[0])
+			var order []string
+			for _, f := range first {
+				if chart, _, ok := strings.Cut(f, ": inherit-only render failed"); ok {
+					order = append(order, chart)
+				}
+			}
+			if want := "gitops addons applications"; strings.Join(order, " ") != want {
+				t.Fatalf("findings must be ordered by wave then chart: got %q, want %q", order, want)
 			}
 			continue
 		}
