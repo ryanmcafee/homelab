@@ -30,6 +30,17 @@ global:
   # ArgoCD project to use for all applications
   project: default
 
+  # Whether the child Applications sync automatically. Each child's
+  # syncPolicy.automated block below is only rendered when this is true, so
+  # localdev (values-localdev.yaml) can leave every Application manual for
+  # `argocd app sync --local` (ARGOCD_AUTOMATED_SYNC in configuration/).
+  automatedSync: true
+
+  # Images shared by the chart family (PostSync smoke Jobs in addons and
+  # applications). Placeholder; configuration/versions.yaml images.curl wins.
+  images:
+    curl: "8.22.0"
+
 # ============================================================================
 # Bootstrap Application (Prerequisites)
 # ============================================================================

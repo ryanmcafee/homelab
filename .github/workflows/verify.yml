@@ -6,6 +6,7 @@ name: Verify (level 0)
 #
 #   level-0     task verify        render + lint + kubeconform + pluto + gitops graph + snapshots + policy
 #   policy      task test:policy   Rego unit tests + negative fixtures
+#               task test:health   ArgoCD health Lua (charts/bootstrap/files/health) against tests/health
 #   schemas     task schemas:check vendored CRD schemas match configuration/versions.yaml
 #   cmp-parity  task test:cmp-parity  pinned homelab-cmp image == source `config export`
 #
@@ -71,6 +72,8 @@ env:
   PLUTO_VERSION: '5.24.3'
   # renovate: datasource=github-releases depName=go-task/task
   TASK_VERSION: 'v3.46.4'
+  # renovate: datasource=github-releases depName=argoproj/argo-cd
+  ARGOCD_VERSION: 'v3.5.2'
 
 jobs:
   level-0:
@@ -151,18 +154,28 @@ jobs:
         with:
           deno-version: v2.x
 
-      - name: Install conftest
+      # argocd is pinned to configuration/versions.yaml tools.argocd: the health
+      # fixtures are evaluated with `argocd admin settings resource-overrides
+      # health`, the same code path the controller runs.
+      - name: Install conftest, argocd, task
         run: |
           set -euo pipefail
           mkdir -p "$HOME/bin"
           curl -sSL --retry 5 --retry-all-errors --retry-delay 3 "https://github.com/open-policy-agent/conftest/releases/download/v${CONFTEST_VERSION}/conftest_${CONFTEST_VERSION}_Linux_x86_64.tar.gz" | tar -xz -C "$HOME/bin" conftest
+          curl -sSL --retry 5 --retry-all-errors --retry-delay 3 -o "$HOME/bin/argocd" "https://github.com/argoproj/argo-cd/releases/download/${ARGOCD_VERSION}/argocd-linux-amd64"
+          curl -sSL --retry 5 --retry-all-errors --retry-delay 3 "https://github.com/go-task/task/releases/download/${TASK_VERSION}/task_linux_amd64.tar.gz" | tar -xz -C "$HOME/bin" task
+          chmod +x "$HOME/bin"/*
           echo "$HOME/bin" >> "$GITHUB_PATH"
+          argocd version --client
 
       - name: conftest verify
         run: conftest verify -p tests/policy
 
       - name: Negative and positive fixtures
         run: deno run --allow-read --allow-run --allow-env scripts/policy-test.ts
+
+      - name: ArgoCD health Lua fixtures
+        run: task test:health
 
       # Every script in scripts/ is TypeScript on Deno and is the automation
       # this repo runs; a formatting or type error there breaks a task, not a

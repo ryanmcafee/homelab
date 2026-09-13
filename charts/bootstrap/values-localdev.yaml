@@ -1,18 +1,31 @@
 # bootstrap — local development overrides
 #
-# This file carries no overrides, which is not the same as the chart doing
-# nothing in localdev. With the defaults from values.yaml, localdev still
-# deploys the 1Password Connect operator and the homelab-environment-config
-# OnePasswordItem, and that item still points at the production vault
-# (vaults/homelab/items/homelab-environment-config). Without Connect
-# credentials in Kind it simply never resolves.
+# Kind + ArgoCD loop (issue #261, Section B). Nothing the bootstrap chart
+# deploys in homelab applies to Kind:
 #
-# Only ArgoCD self-management is genuinely off here: Kind installs ArgoCD
-# directly rather than having it manage itself.
-#
-# Section B replaces the 1Password path in localdev with a fake secret source;
-# until then this is the honest description of what localdev bootstraps.
+# - There is no 1Password Connect and no SOPS age key, so the SOPS secrets,
+#   the 1Password operator and the homelab-environment-config OnePasswordItem
+#   are off. The Secrets and StorageClasses the other charts reference are
+#   seeded as fakes instead (localdev/fakes, applied by `task localdev:fakes`),
+#   and the OnePasswordItem CRD is installed from there so any item that still
+#   renders is at least accepted by the API server.
+# - ArgoCD is installed directly by scripts/localdev-argocd.ts, not by the
+#   argocd Application (self-management stays off).
+# - Automated sync is off everywhere so `argocd app sync --local` can push the
+#   working tree without ArgoCD reverting it to Git (ARGOCD_AUTOMATED_SYNC).
 #
 # The file has to exist regardless. The parent Application always appends
 # values-localdev.yaml to spec.source.helm.valueFiles, and ArgoCD fails the
 # sync when a declared value file is missing.
+
+global:
+  automatedSync: false
+
+sops-secrets:
+  enabled: false
+
+1password-operator:
+  enabled: false
+
+homelab-environment-config:
+  enabled: false

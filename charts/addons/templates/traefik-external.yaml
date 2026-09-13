@@ -33,9 +33,11 @@ spec:
     server: https://kubernetes.default.svc
     namespace: traefik
   syncPolicy:
+    {{- if .Values.global.automatedSync }}
     automated:
       prune: true
       selfHeal: true
+    {{- end }}
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
@@ -204,9 +206,11 @@ spec:
     namespace: {{ .Values.traefikExternal.namespace }}
 
   syncPolicy:
+    {{- if .Values.global.automatedSync }}
     automated:
       prune: true
       selfHeal: true
+    {{- end }}
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
@@ -301,9 +305,11 @@ spec:
     server: https://kubernetes.default.svc
     namespace: traefik
   syncPolicy:
+    {{- if .Values.global.automatedSync }}
     automated:
       prune: true
       selfHeal: true
+    {{- end }}
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true

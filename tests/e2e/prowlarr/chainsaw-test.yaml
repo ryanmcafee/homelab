@@ -1,0 +1,137 @@
+---
+# Generated shape shared by every HTTP e2e test; see tests/e2e/README.md.
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: prowlarr
+spec:
+  description: >-
+    Prowlarr /ping answers through the internal Traefik with Host prowlarr.homelab.local.
+  steps:
+    - name: applications-healthy
+      description: The ArgoCD Applications behind this test are Healthy and their last sync Succeeded.
+      try:
+        - assert:
+            resource:
+              apiVersion: argoproj.io/v1alpha1
+              kind: Application
+              metadata:
+                name: prowlarr
+                namespace: argocd
+              status:
+                health:
+                  status: Healthy
+                operationState:
+                  phase: Succeeded
+        - assert:
+            resource:
+              apiVersion: argoproj.io/v1alpha1
+              kind: Application
+              metadata:
+                name: prowlarr-config
+                namespace: argocd
+              status:
+                health:
+                  status: Healthy
+                operationState:
+                  phase: Succeeded
+      catch:
+        - describe:
+            apiVersion: argoproj.io/v1alpha1
+            kind: Application
+            name: prowlarr
+            namespace: argocd
+        - describe:
+            apiVersion: argoproj.io/v1alpha1
+            kind: Application
+            name: prowlarr-config
+            namespace: argocd
+    - name: curl-prowlarr
+      description: >-
+        A curl Job must get one of [200]
+        from https://prowlarr.homelab.local/ping via traefik-internal.traefik.svc.cluster.local.
+      timeouts:
+        assert: 5m
+      try:
+        - apply:
+            resource:
+              apiVersion: batch/v1
+              kind: Job
+              metadata:
+                name: curl-prowlarr
+              spec:
+                backoffLimit: 0
+                activeDeadlineSeconds: 300
+                template:
+                  spec:
+                    restartPolicy: Never
+                    securityContext:
+                      runAsNonRoot: true
+                      runAsUser: 100
+                      seccompProfile:
+                        type: RuntimeDefault
+                    containers:
+                      - name: curl
+                        # pinned from configuration/versions.yaml images.curl
+                        image: curlimages/curl:8.22.0
+                        securityContext:
+                          allowPrivilegeEscalation: false
+                          capabilities:
+                            drop: ["ALL"]
+                        resources:
+                          requests:
+                            cpu: 10m
+                            memory: 32Mi
+                          limits:
+                            cpu: 100m
+                            memory: 64Mi
+                        env:
+                          - name: HOST
+                            value: "prowlarr.homelab.local"
+                          - name: GATEWAY
+                            value: "traefik-internal.traefik.svc.cluster.local"
+                          - name: URL_PATH
+                            value: "/ping"
+                          - name: EXPECT
+                            value: "200"
+                          - name: ATTEMPTS
+                            value: "20"
+                        command: ["sh", "-c"]
+                        args:
+                          - |
+                            set -u
+                            i=1
+                            while [ "$i" -le "$ATTEMPTS" ]; do
+                              code=$(curl -sk -o /dev/null -w '%{http_code}' -L --max-redirs 5 --max-time 20 \
+                                --connect-to "$HOST:443:$GATEWAY:443" --connect-to "$HOST:80:$GATEWAY:80" \
+                                "https://$HOST$URL_PATH")
+                              echo "attempt $i/$ATTEMPTS: HTTP $code for https://$HOST$URL_PATH via $GATEWAY"
+                              for ok in $EXPECT; do [ "$code" = "$ok" ] && exit 0; done
+                              i=$((i + 1))
+                              sleep 6
+                            done
+                            echo "giving up: last HTTP code $code, expected one of: $EXPECT"
+                            exit 1
+        - assert:
+            resource:
+              apiVersion: batch/v1
+              kind: Job
+              metadata:
+                name: curl-prowlarr
+              status:
+                succeeded: 1
+      catch:
+        - events: {}
+        - podLogs:
+            selector: job-name=curl-prowlarr
+            tail: 50
+        - describe:
+            apiVersion: argoproj.io/v1alpha1
+            kind: Application
+            name: prowlarr
+            namespace: argocd
+        - describe:
+            apiVersion: argoproj.io/v1alpha1
+            kind: Application
+            name: prowlarr-config
+            namespace: argocd

@@ -17,10 +17,10 @@ kubectl = "1.36.3"
 # source of truth (it is the Renovate-tracked one); change it and these two
 # together.
 helm = "4.2.0"
-kind = "0.31.0"
+kind = "0.33.0"          # configuration/versions.yaml tools.kind is the source of truth
 talosctl = "1.13.8"
 tilt = "0.37.3"
-argocd = "latest"
+argocd = "3.5.2"        # configuration/versions.yaml tools.argocd is the source of truth
 argo = "latest"          # Argo Workflows CLI
 
 # Configuration Management (Python via pipx)
@@ -47,14 +47,14 @@ deno = "latest"
 kubeconform = "latest"    # Kubernetes manifest schema validation
 conftest = "latest"       # Policy-as-code (Rego) over rendered manifests
 pluto = "latest"          # Detect deprecated apiVersions ahead of upgrades
+"aqua:kyverno/chainsaw" = "0.2.15"  # Declarative Kind e2e tests (task test:e2e); versions.yaml tools.chainsaw
 
 # Secrets Management
 op = "latest"          # 1Password CLI for secrets management
 age = "latest"         # Modern encryption tool for SOPS
 sops = "latest"        # Secrets OPerationS - encrypted secrets management
 
-# Optional Tools (uncomment if needed)
-# stern = "latest"       # Multi-pod log streaming
+stern = "latest"         # Multi-pod log streaming (task localdev:logs)
 
 [env]
 # Terraform plugin cache

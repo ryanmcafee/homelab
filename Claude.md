@@ -231,7 +231,11 @@ charts:
   traefik-oidc: "v1.0.32"
   unifi-port-forward: "1.1.x"
 images:
-  homelab-cmp: "0.1.18"
+  homelab-cmp: "0.1.19"
+  # renovate: datasource=docker depName=curlimages/curl
+  curl: "8.22.0"
+  # renovate: datasource=docker depName=kindest/node
+  kind-node: "v1.36.1"
 tools:
   # renovate: datasource=github-releases depName=siderolabs/talos
   talos: "v1.13.3"
@@ -241,6 +245,12 @@ tools:
   terraform: "1.15.5"
   # renovate: datasource=github-releases depName=helm/helm
   helm: "4.2.0"
+  # renovate: datasource=github-releases depName=kubernetes-sigs/kind
+  kind: "v0.33.0"
+  # renovate: datasource=github-releases depName=kyverno/chainsaw
+  chainsaw: "v0.2.15"
+  # renovate: datasource=github-releases depName=argoproj/argo-cd
+  argocd: "v3.5.2"
 
 ```
 
@@ -282,10 +292,17 @@ Run `task --list` for full list. Most commonly used:
 
 | Command | Description |
 |---------|-------------|
-| `task localdev:up` | Start Kind + Tilt local development |
-| `task localdev:down` | Destroy local environment |
+| `task localdev:up` | Kind (Cilium, registry caches, fakes) + ArgoCD + every Application synced from the working tree |
+| `task localdev:warm` | Same with only bootstrap + addons synced; `task localdev:sync` later for applications |
+| `task localdev:sync` | Re-sync the working tree into Kind (`-- --only a,b`, `-- --warm`, `-- --dry-run`) |
+| `task localdev:wait` / `task localdev:diagnose` | Wait for every Application to be Healthy / dump conditions, events and pod logs |
+| `task localdev:ci` | Non-interactive loop CI runs: kind, argocd, sync, wait, e2e |
+| `task localdev:down` | Delete the Kind cluster (`-- --purge-cache` also removes the registry caches) |
 | `task verify` | Level-0 static verification: render, kubeconform, gitops graph, snapshots, policy (JSON, < 5 s) |
 | `task verify:text` | Level-0 verification, human-readable |
+| `task verify LEVEL=1` / `LEVEL=2` | + server-side dry run on Kind (`dryrun/localdev/<chart>`) / + Application health and chainsaw e2e (`argocd/<app>`, `e2e/<test>`) |
+| `task test:e2e` | chainsaw suite in `tests/e2e/` against the running Kind loop (`-- --test-dir tests/e2e/<name>`) |
+| `task test:health` | ArgoCD health Lua fixtures in `tests/health/` (no cluster) |
 | `task test:snapshot -- --update` | Regenerate golden snapshots in `tests/snapshots/` |
 | `task test:policy` | conftest policy unit tests + negative fixtures |
 | `task schemas:vendor` | Re-vendor CRD JSON schemas from `versions.yaml` pins |
@@ -340,9 +357,12 @@ The homelab environment uses an ArgoCD Config Management Plugin (CMP) sidecar to
 
 - **Bootstrap chart** deploys: SOPS secrets, 1Password operator, homelab-environment-config secret
 - **CMP sidecar** runs `homelab config export --stdout` piped into `helm template`
-- **Localdev** uses native Helm with `values-localdev.yaml`, which is generated from the same templates (`homelab config export --set localdev`, `task config:export:localdev`) and committed; level 0 fails when it is stale (no CMP)
+- **Localdev** uses native Helm with `values-localdev.yaml`, which is generated from the same templates (`homelab config export --set localdev`, `task config:export:localdev`) and committed; level 0 fails when it is stale (no CMP). Kind differences are capability keys in `platform.schema.yaml` (`ARGOCD_AUTOMATED_SYNC=false`, `MEDIA_PROVIDER=ephemeral`, `CERT_ISSUER=selfsigned`, `STORAGE_PROVIDER=local-path`, `SECRETS_PROVIDER=none`), never environment-name branches (ADR-011, ADR-012)
 - **Child `*-config`/`*-dependencies` charts** stay on plain `helm.valueFiles`; anything derived from `configuration/` (domain, hostnames, IPs, iSCSI portal, e-mail) reaches them via the parent Application's `helm.valuesObject`, so their committed `values-homelab.yaml` carries no PII. Level 0 mirrors this by feeding each child the `valuesObject` extracted from the rendered parent (ADR-010)
 - Decisions: `docs/project_notes/decisions.md` (entry "2026-02-11: ArgoCD CMP for PII removal" and ADR-010; the original design doc was removed in c4daa10 once implemented)
+
+### Kind + ArgoCD loop (localdev)
+`task localdev:up` creates Kind (`homelab-localdev`, context `kind-homelab-localdev`, Cilium CNI, registry pull-through caches, fakes from `localdev/fakes/`), installs ArgoCD from `versions.yaml` with the health Lua in `charts/bootstrap/files/health/`, applies the root `gitops` Application (GitHub `main`) and syncs **every Application from the working tree** with `argocd app sync --local`, tier by tier. That requires automated sync off in localdev (`ARGOCD_AUTOMATED_SYNC=false`), so after a local sync every Application is `OutOfSync` against `main` by design: `task localdev:wait`, `task verify LEVEL=2` and the e2e tests judge `Healthy` + `operationState.phase == Succeeded`, never sync status. PostSync smoke Jobs (`smoke-<app>`, `<app>.smoke {enabled,url,expect}`) make an operation succeed only when the endpoint answers. `task localdev:diagnose` prints conditions, events and failing pod logs; `task localdev:sync -- --only <app>` re-syncs one app. CI runs the same loop in `.github/workflows/tilt-ci.yml` (`kind-argocd`, required). Every script pins the Kind context (ADR-009); details in `docs/local-development.md` and ADR-012.
 
 ### Common Errors & Solutions
 | Error | Cause | Solution |

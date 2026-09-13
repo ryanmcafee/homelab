@@ -1,0 +1,21 @@
+---
+# Chainsaw configuration for the localdev (Kind + ArgoCD) e2e suite.
+# Run with: task test:e2e  (= chainsaw test --config tests/e2e/.chainsaw.yaml tests/e2e)
+# Report format/path are left to CLI flags so `homelab verify all --level 2` can choose them.
+apiVersion: chainsaw.kyverno.io/v1alpha2
+kind: Configuration
+metadata:
+  name: homelab-localdev-e2e
+spec:
+  timeouts:
+    apply: 2m
+    assert: 10m
+    cleanup: 2m
+    delete: 2m
+    error: 2m
+    exec: 5m
+  execution:
+    failFast: false
+    parallel: 4
+  cleanup:
+    skipDelete: false

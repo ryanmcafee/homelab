@@ -68,6 +68,107 @@ stringData:
   url: ghcr.io/spegel-org/helm-charts
   enableOCI: "true"
 ---
+# Source: addons/templates/kube-prometheus-stack.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: smoke-grafana
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: smoke-grafana
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation,HookSucceeded
+    argocd.argoproj.io/sync-wave: "9"
+spec:
+  backoffLimit: 2
+  activeDeadlineSeconds: 600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: smoke-grafana
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: curl
+          image: curlimages/curl:8.22.0
+          env:
+            - name: URL
+              value: "http://kube-prometheus-stack-grafana.monitoring.svc.cluster.local:80/api/health"
+          command: ["sh", "-c"]
+          args:
+            - |
+              code=$(curl -sL --max-redirs 5 -o /dev/null -w '%{http_code}' --retry 30 --retry-delay 10 --retry-all-errors --max-time 20 "$URL")
+              echo "smoke grafana: $URL -> HTTP $code"
+              case "$code" in 200) exit 0;; *) exit 1;; esac
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 100
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            seccompProfile:
+              type: RuntimeDefault
+---
+# Source: addons/templates/kube-prometheus-stack.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: smoke-prometheus
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: smoke-prometheus
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation,HookSucceeded
+    argocd.argoproj.io/sync-wave: "9"
+spec:
+  backoffLimit: 2
+  activeDeadlineSeconds: 600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: smoke-prometheus
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: curl
+          image: curlimages/curl:8.22.0
+          env:
+            - name: URL
+              value: "http://kube-prometheus-stack-prometheus.monitoring.svc.cluster.local:9090/-/ready"
+          command: ["sh", "-c"]
+          args:
+            - |
+              code=$(curl -sL --max-redirs 5 -o /dev/null -w '%{http_code}' --retry 30 --retry-delay 10 --retry-all-errors --max-time 20 "$URL")
+              echo "smoke prometheus: $URL -> HTTP $code"
+              case "$code" in 200) exit 0;; *) exit 1;; esac
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 100
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            seccompProfile:
+              type: RuntimeDefault
+
+---
 # Source: addons/templates/cert-manager.yaml
 apiVersion: argoproj.io/v1alpha1
 kind: Application
@@ -124,9 +225,6 @@ spec:
     namespace: cert-manager
 
   syncPolicy:
-    automated:
-      prune: true
-      selfHeal: true
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
@@ -178,9 +276,6 @@ spec:
     server: https://kubernetes.default.svc
     namespace: cert-manager
   syncPolicy:
-    automated:
-      prune: true
-      selfHeal: true
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
@@ -213,6 +308,10 @@ spec:
       valuesObject:
         global:
           domain: homelab.local
+        # Self-signed issuer under the same name where there is no public
+        # domain (CERT_ISSUER=selfsigned).
+        selfSigned:
+          enabled: true
         letsencrypt:
           server: https://acme-v02.api.letsencrypt.org/directory
           email: test@homelab.local
@@ -224,12 +323,148 @@ spec:
     server: https://kubernetes.default.svc
     namespace: cert-manager
   syncPolicy:
-    automated:
-      prune: true
-      selfHeal: true
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
+
+---
+# Source: addons/templates/cilium.yaml
+# Cilium CNI - Adopted, never installed, by ArgoCD
+#
+# homelab: Talos installs Cilium from inline manifests rendered with the same
+# values (task render). Kind: scripts/localdev-kind.ts installs it with
+# `helm upgrade --install` from charts/addons/values-localdev.yaml
+# cilium.values before ArgoCD exists. In both cases this Application adopts
+# the release: the values below are the ones the installer used (identical
+# values → no diff), automated.prune is false and the Application carries no
+# resources-finalizer (see the app-automated / app-finalizer exemption).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cilium
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+    argocd.argoproj.io/compare-options: IgnoreExtraneous
+    homelab.ryanmcafee.com/policy-exempt: "app-automated,app-finalizer"
+    homelab.ryanmcafee.com/policy-exempt-reason: "Cilium CNI is installed outside ArgoCD (Talos inline manifests in homelab, scripts/localdev-kind.ts in Kind). This Application only adopts it: it must not prune/self-heal resources the installer manages directly (app-automated), and it must NOT carry resources-finalizer.argocd.argoproj.io (app-finalizer) — deleting this Application must never cascade-delete the running CNI."
+spec:
+  project: default
+  source:
+    repoURL: https://helm.cilium.io/
+    chart: cilium
+    targetRevision: 1.19.5
+    helm:
+      releaseName: cilium
+      # Values must match what installed the release for an accurate diff
+      # (cilium.values in the environment values file).
+      values: |
+        hubble:
+          enabled: false
+        image:
+          pullPolicy: IfNotPresent
+        ipam:
+          mode: kubernetes
+        kubeProxyReplacement: false
+        operator:
+          replicas: 1
+          resources:
+            limits:
+              cpu: 500m
+              memory: 512Mi
+            requests:
+              cpu: 50m
+              memory: 128Mi
+        resources:
+          limits:
+            cpu: 1000m
+            memory: 1Gi
+          requests:
+            cpu: 100m
+            memory: 256Mi
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: kube-system
+
+  syncPolicy:
+    syncOptions:
+      - ServerSideApply=true
+      - Validate=false
+      - RespectIgnoreDifferences=true
+      - ApplyOutOfSyncOnly=true
+
+  # Ignore all differences since we're just tracking, not managing
+  ignoreDifferences:
+    - group: "*"
+      kind: "*"
+      jsonPointers:
+        - /metadata/annotations
+        - /metadata/labels
+    # Ignore auto-generated TLS secrets managed by Cilium (cilium-ca, hubble-*-certs)
+    - group: ""
+      kind: Secret
+      jsonPointers:
+        - /data
+        - /metadata/annotations
+        - /metadata/labels
+
+---
+# Source: addons/templates/cloudnative-pg.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cloudnative-pg
+  namespace: argocd
+  annotations:
+    # Sync wave 8 - deploys after kube-prometheus-stack (wave 7) for monitoring integration
+    argocd.argoproj.io/sync-wave: "10"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://cloudnative-pg.github.io/charts
+    chart: cloudnative-pg
+    targetRevision: 0.28.3
+    helm:
+      releaseName: cloudnative-pg
+      values: |
+        replicaCount: 1
+        resources:
+          limits:
+            cpu: 250m
+            memory: 256Mi
+          requests:
+            cpu: 50m
+            memory: 128Mi
+        monitoring:
+          grafanaDashboard:
+            create: false
+          podMonitorEnabled: true
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: cnpg-system
+
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+      - RespectIgnoreDifferences=true
+
+  # Ignore differences in webhook configurations
+  ignoreDifferences:
+    - group: admissionregistration.k8s.io
+      kind: ValidatingWebhookConfiguration
+      jsonPointers:
+        - /webhooks/0/clientConfig/caBundle
+        - /webhooks/1/clientConfig/caBundle
+    - group: admissionregistration.k8s.io
+      kind: MutatingWebhookConfiguration
+      jsonPointers:
+        - /webhooks/0/clientConfig/caBundle
 
 ---
 # Source: addons/templates/grafana-config.yaml
@@ -262,9 +497,6 @@ spec:
     server: https://kubernetes.default.svc
     namespace: monitoring
   syncPolicy:
-    automated:
-      prune: true
-      selfHeal: true
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
@@ -386,9 +618,6 @@ spec:
     namespace: monitoring
 
   syncPolicy:
-    automated:
-      prune: true
-      selfHeal: true
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
@@ -406,7 +635,6 @@ spec:
       kind: MutatingWebhookConfiguration
       jqPathExpressions:
         - .webhooks[].clientConfig.caBundle
-
 ---
 # Source: addons/templates/kubelet-csr-approver.yaml
 apiVersion: argoproj.io/v1alpha1
@@ -445,9 +673,6 @@ spec:
     namespace: kube-system
 
   syncPolicy:
-    automated:
-      prune: true
-      selfHeal: true
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
@@ -490,9 +715,6 @@ spec:
     namespace: local-path-storage
 
   syncPolicy:
-    automated:
-      prune: true
-      selfHeal: true
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
@@ -570,9 +792,6 @@ spec:
     namespace: node-feature-discovery
 
   syncPolicy:
-    automated:
-      prune: true
-      selfHeal: true
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
@@ -609,9 +828,6 @@ spec:
     server: https://kubernetes.default.svc
     namespace: monitoring
   syncPolicy:
-    automated:
-      prune: true
-      selfHeal: true
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
@@ -672,9 +888,6 @@ spec:
     namespace: spegel
 
   syncPolicy:
-    automated:
-      prune: true
-      selfHeal: true
     syncOptions:
       - ServerSideApply=true
       - ApplyOutOfSyncOnly=true
@@ -706,9 +919,6 @@ spec:
     server: https://kubernetes.default.svc
     namespace: traefik
   syncPolicy:
-    automated:
-      prune: true
-      selfHeal: true
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
@@ -828,9 +1038,6 @@ spec:
     namespace: traefik
 
   syncPolicy:
-    automated:
-      prune: true
-      selfHeal: true
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
@@ -884,9 +1091,6 @@ spec:
     server: https://kubernetes.default.svc
     namespace: traefik
   syncPolicy:
-    automated:
-      prune: true
-      selfHeal: true
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
@@ -919,9 +1123,6 @@ spec:
     server: https://kubernetes.default.svc
     namespace: traefik
   syncPolicy:
-    automated:
-      prune: true
-      selfHeal: true
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
@@ -1032,9 +1233,6 @@ spec:
     namespace: traefik
 
   syncPolicy:
-    automated:
-      prune: true
-      selfHeal: true
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
@@ -1080,9 +1278,6 @@ spec:
     server: https://kubernetes.default.svc
     namespace: traefik
   syncPolicy:
-    automated:
-      prune: true
-      selfHeal: true
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true

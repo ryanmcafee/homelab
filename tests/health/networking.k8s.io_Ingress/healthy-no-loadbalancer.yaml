@@ -1,0 +1,22 @@
+# expect: Healthy
+# message: Waiting for load balancer
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: grafana
+  namespace: monitoring
+spec:
+  ingressClassName: internal
+  rules:
+    - host: grafana.homelab.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: grafana
+                port:
+                  number: 80
+status:
+  loadBalancer: {}

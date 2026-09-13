@@ -42,9 +42,11 @@ spec:
     namespace: {{ index .Values "cert-manager" "namespace" }}
 
   syncPolicy:
+    {{- if .Values.global.automatedSync }}
     automated:
       prune: true
       selfHeal: true
+    {{- end }}
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
@@ -95,9 +97,11 @@ spec:
     server: https://kubernetes.default.svc
     namespace: cert-manager
   syncPolicy:
+    {{- if .Values.global.automatedSync }}
     automated:
       prune: true
       selfHeal: true
+    {{- end }}
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
@@ -129,6 +133,10 @@ spec:
       valuesObject:
         global:
           domain: {{ .Values.global.domain }}
+        # Self-signed issuer under the same name where there is no public
+        # domain (CERT_ISSUER=selfsigned).
+        selfSigned:
+          enabled: {{ index .Values "cert-manager" "selfSigned" | default false }}
         letsencrypt:
           server: {{ index .Values "cert-manager" "letsencrypt" "server" }}
           email: {{ index .Values "cert-manager" "letsencrypt" "email" }}
@@ -144,9 +152,11 @@ spec:
     server: https://kubernetes.default.svc
     namespace: cert-manager
   syncPolicy:
+    {{- if .Values.global.automatedSync }}
     automated:
       prune: true
       selfHeal: true
+    {{- end }}
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true

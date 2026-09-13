@@ -1,0 +1,15 @@
+# expect: Degraded
+# message: item not found
+apiVersion: onepassword.com/v1
+kind: OnePasswordItem
+metadata:
+  name: truenas-api-key
+  namespace: democratic-csi
+spec:
+  itemPath: vaults/homelab/items/truenas-api-key
+status:
+  conditions:
+    - type: Ready
+      status: "False"
+      message: "Failed to retrieve item: item not found"
+      lastTransitionTime: "2026-09-12T00:00:00Z"

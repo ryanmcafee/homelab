@@ -75,10 +75,17 @@ trusting a prose table.
 
 | Command | Description |
 |---------|-------------|
-| `task localdev:up` | Start Kind + Tilt local development |
-| `task localdev:down` | Destroy local environment |
+| `task localdev:up` | Kind (Cilium, registry caches, fakes) + ArgoCD + every Application synced from the working tree |
+| `task localdev:warm` | Same, but only bootstrap + addons synced (operators and CRDs up) |
+| `task localdev:sync` | Re-sync the working tree (`-- --only a,b`, `-- --warm`, `-- --dry-run`) |
+| `task localdev:wait` / `localdev:diagnose` | Block until every Application is Healthy / dump conditions, events, pod logs |
+| `task localdev:ci` | Non-interactive full loop: kind, argocd, sync, wait, e2e (what CI runs) |
+| `task localdev:down` | Delete the Kind cluster (`-- --purge-cache` also removes the registry caches) |
 | `task verify` | Level-0 static verification (render, schema, gitops graph, snapshots, policy) — JSON |
 | `task verify:text` | Same checks, human-readable |
+| `task verify LEVEL=1` / `LEVEL=2` | + server-side dry run on Kind / + ArgoCD Application health + chainsaw e2e |
+| `task test:e2e` | chainsaw suite in `tests/e2e/` against the running Kind loop |
+| `task test:health` | ArgoCD health Lua fixtures in `tests/health/` (no cluster) |
 | `task test:snapshot -- --update` | Regenerate golden snapshots after an intended render change |
 | `task test:policy` | conftest unit tests + negative fixtures |
 | `task schemas:vendor` | Re-vendor CRD schemas after an operator bump |
@@ -94,11 +101,35 @@ trusting a prose table.
 
 | Feature | localdev | homelab |
 |---------|----------|---------|
-| Kubernetes | Kind | Talos Linux |
-| Storage | local-path-provisioner | Democratic-CSI NFS |
+| Kubernetes | Kind, 1 control-plane + 2 workers | Talos Linux |
+| CNI | Cilium (installed by `scripts/localdev-kind.ts`, adopted by the `cilium` Application) | Cilium + BGP |
+| Storage | local-path + `democratic-csi-*` StorageClass aliases (fakes) | Democratic-CSI NFS/iSCSI |
+| Media | `emptyDir` (`MEDIA_PROVIDER=ephemeral`) | TrueNAS NFS |
 | Load Balancer | disabled/NodePort | Cilium LB IPAM + BGP |
-| Secrets | Fake/disabled | 1Password + SOPS |
+| TLS | self-signed `letsencrypt` ClusterIssuer (`CERT_ISSUER=selfsigned`) | Let's Encrypt DNS-01 |
+| Secrets | seeded fakes (`localdev/fakes/secrets.yaml`) | 1Password + SOPS |
+| ArgoCD sync | manual, `argocd app sync --local` (`ARGOCD_AUTOMATED_SYNC=false`) | automated (prune + selfHeal) |
 | GPU | None | NVIDIA (see CLAUDE.local.md) |
+
+## Localdev (Kind + ArgoCD loop)
+
+| Fact | Value |
+|------|-------|
+| Kind cluster / kube context | `homelab-localdev` / `kind-homelab-localdev` (every script pins the context) |
+| Node image | `kindest/node:<images.kind-node>` from `configuration/versions.yaml`, passed by the script, not in `localdev/kind-config.yaml` |
+| Domain | `homelab.local` (`configuration/environments/localdev.yaml` `DOMAIN`) |
+| ArgoCD | namespace `argocd`, root Application `gitops` (`localdev/argocd/gitops-app.yaml`, GitHub `main`), chart `charts.argocd`, values `localdev/values/argocd-values.yaml` |
+| ArgoCD UI | http://localhost:8080, `admin` / `argocd-initial-admin-secret`. Linux: NodePort 30080 mapped by Kind. macOS: `task localdev:ui` (`kubectl port-forward` to `argocd-server`); the script logs the CLI in through its own port-forward on `127.0.0.1:18080` (`--local-port`) with `--plaintext --insecure --grpc-web` |
+| Host ports | 8080 ArgoCD; 9080 / 9443 Traefik internal; 10350 Tilt. On Linux 8080/9080/9443 are the Kind `extraPortMappings` (30080, 80, 443). On macOS the mappings never complete a TCP handshake with Cilium (Docker Desktop bad TCP checksums, bugs.md 2026-09-13): use `task localdev:ui` and `task localdev:traefik` (port-forwards) |
+| Reaching apps from the host | `task localdev:traefik` then `curl -sk -H 'Host: <app>.homelab.local' https://localhost:9443/...`; from a pod, the Traefik Service directly |
+| NodePorts | 30080 ArgoCD; 31883 / 31901 mosquitto (MQTT / WebSocket); 30021 spegel (hostPort 30020); direct-mode Tilt Traefik 30080 / 30443 (no ArgoCD in that mode) |
+| Registry caches | containers `kind-registry-<name>` for docker.io, ghcr.io, quay.io, registry.k8s.io, lscr.io on the `kind` network; blobs in `~/.cache/homelab-kind-registry` (`HOMELAB_KIND_CACHE_DIR`), restored in CI with `actions/cache` key `kind-registry-<hash>` |
+| Fakes | `localdev/fakes/` (StorageClass aliases, Namespaces + Secrets, OnePasswordItem CRD), applied by `task localdev:kind` / `localdev:fakes` |
+| Health Lua | `charts/bootstrap/files/health/<group>_<kind>.lua`, fixtures `tests/health/<group>_<kind>/*.yaml` |
+| e2e | `tests/e2e/<name>/chainsaw-test.yaml`, config `tests/e2e/.chainsaw.yaml` (4 parallel, assert 10m) |
+| Reaching apps | in-cluster through `traefik-internal.traefik.svc.cluster.local` (or `traefik-external`) port 443 with `Host: <app>.homelab.local`; from the host, port-forward the Traefik Service |
+| CI | `.github/workflows/tilt-ci.yml`: `kind-argocd` (required, 45 min, artifact `verify-level2`), `kind-direct`, `yaml-lint` |
+| Expected state | every Application `OutOfSync` against `main` after a local sync; `Healthy` + `Succeeded` is the contract |
 
 ## Important URLs (Production)
 

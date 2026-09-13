@@ -1,37 +1,49 @@
 # Homelab Local Development Environment - Tiltfile
-# Last updated: 2026-01-23
-# Phase 0.5: Local Development Environment (Kind + Tilt)
+# Last updated: 2026-09-12 (issue #261 Section B: Kind + ArgoCD loop)
 #
-# This Tiltfile supports two modes:
-# 1. direct:  Deploy Helm charts directly via Tilt (fastest iteration)
-# 2. argocd:  Deploy via ArgoCD (realistic GitOps simulation)
+# Two modes:
+#   direct:  Tilt installs a few Helm charts straight into Kind (fastest
+#            iteration on a single chart; no ArgoCD).
+#   argocd:  Tilt wraps the Taskfile loop — `task localdev:argocd` installs
+#            ArgoCD + the root Application, `task localdev:sync` pushes the
+#            working tree into every Application (argocd app sync --local) and
+#            re-runs whenever ../charts or ../configuration change,
+#            `task localdev:wait` (manual) blocks until everything is Healthy.
 #
-# Usage:
-#   tilt up                    # Start in direct mode (default)
-#   tilt up -- --mode=argocd   # Start in ArgoCD mode
-#   tilt down                  # Tear down all resources
+# Usage (run from this directory, or `task localdev:tilt` / `task localdev:tilt:argocd`):
+#   tilt up                      # direct mode (default)
+#   tilt up -- --mode=argocd     # ArgoCD mode
+#   TILT_MODE=argocd tilt up     # same, via the environment
+#   tilt down                    # tear down Tilt-managed resources
+#
+# Prerequisite for both modes: the Kind cluster (task localdev:kind).
 
 # ============================================================================
 # Load Extensions
 # ============================================================================
 
-# Load Helm extension for helm_resource function
 load('ext://helm_resource', 'helm_resource', 'helm_repo')
 
 # ============================================================================
 # Configuration
 # ============================================================================
 
-# Use environment variable for mode selection (more reliable in CI)
-mode = os.getenv("TILT_MODE", "direct")  # "direct" or "argocd"
+# `tilt up -- --mode=argocd` (Tiltfile args) wins; TILT_MODE is the fallback so
+# CI and shell aliases can pick the mode without touching the command line.
+config.define_string("mode", args=False, usage="direct (default) or argocd")
+cfg = config.parse()
+mode = cfg.get("mode", os.getenv("TILT_MODE", "direct"))
+if mode not in ["direct", "argocd"]:
+    fail("unknown mode %r: use --mode=direct or --mode=argocd" % mode)
 
-# Detect CI environment (GitHub Actions sets CI=true)
-is_ci = os.getenv("CI", "false").lower() == "true"
+# Every kubectl call below pins the Kind context (ADR-009: agents mutate only
+# Kind). Tilt only guards its own k8s resources, not local_resource commands,
+# and the current kubectl context may well be production.
+KUBECTL = "kubectl --context kind-homelab-localdev"
 
 print("=" * 60)
 print("Homelab Local Development")
 print("Mode: %s" % mode)
-print("CI: %s" % is_ci)
 print("=" * 60)
 
 # helm_resource apply commands are bounded by Tilt's k8s upsert timeout
@@ -42,126 +54,63 @@ print("=" * 60)
 update_settings(k8s_upsert_timeout_secs=120)
 
 # ============================================================================
-# Prerequisites - Storage
-# ============================================================================
-
-# Deploy local-path-provisioner for persistent storage
-# This provides a simple local storage class for development
-local_resource(
-    "local-path-provisioner",
-    cmd="""
-    kubectl apply -f https://raw.githubusercontent.com/rancher/local-path-provisioner/v0.0.26/deploy/local-path-storage.yaml
-    """,
-    deps=[],
-    labels=["infrastructure"],
-)
-
-# Set local-path as the default storage class
-local_resource(
-    "default-storage-class",
-    cmd="""
-    kubectl patch storageclass local-path -p '{"metadata": {"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}'
-    """,
-    resource_deps=["local-path-provisioner"],
-    labels=["infrastructure"],
-)
-
-# ============================================================================
-# ArgoCD Mode - GitOps Deployment
+# ArgoCD Mode - the Taskfile loop, driven by Tilt
 # ============================================================================
 
 if mode == "argocd":
-    print("Deploying in ArgoCD mode - realistic GitOps simulation")
+    print("Deploying in ArgoCD mode - every Application synced from the working tree")
 
-    # Select values file based on environment (CI uses different config without hostPath mounts)
-    argocd_values_file = "../localdev/values/argocd-values-ci.yaml" if is_ci else "../localdev/values/argocd-values.yaml"
-
-    # Install ArgoCD using Helm
+    # helm upgrade --install argo-cd (version from configuration/versions.yaml,
+    # health Lua from charts/bootstrap/files/health) + root Application + CLI
+    # login. Idempotent, so re-triggering is safe.
     local_resource(
         "argocd-install",
-        cmd="""
-        helm repo add argo https://argoproj.github.io/argo-helm 2>/dev/null || true
-        helm repo update argo
-        helm upgrade --install argocd argo/argo-cd \
-            --namespace argocd --create-namespace \
-            --values %s \
-            --wait --timeout 5m
-        """ % argocd_values_file,
-        resource_deps=["local-path-provisioner"],
+        cmd="task localdev:argocd",
+        dir="..",
         labels=["argocd"],
     )
 
-    # Configure ArgoCD server with port forwarding
-    # Note: Commented out because k8s_resource fails during Tiltfile load
-    # The argocd-server workload doesn't exist until after helm install completes
-    # Port forwarding can be done manually: kubectl port-forward -n argocd svc/argocd-server 8080:443
-    # k8s_resource(
-    #     workload="argocd-server",
-    #     new_name="argocd-ui",
-    #     port_forwards=["8080:8080"],
-    #     labels=["argocd"],
-    #     resource_deps=["argocd-install"],
-    # )
+    # Sync every Application from the working tree, wave by wave. Re-runs on
+    # any change under charts/ or configuration/ (the generated
+    # values-homelab.generated.yaml files are runtime CMP output, not input).
+    local_resource(
+        "argocd-sync",
+        cmd="task localdev:sync",
+        dir="..",
+        resource_deps=["argocd-install"],
+        deps=["../charts", "../configuration"],
+        ignore=[
+            "../charts/**/values-homelab.generated.yaml",
+            "../charts/**/charts/",
+            "../charts/**/Chart.lock",
+        ],
+        trigger_mode=TRIGGER_MODE_AUTO,
+        labels=["argocd"],
+    )
 
-    # Deploy the gitops Application (App of Apps pattern)
-    # This creates the root ArgoCD Application that manages all other apps
-    # Note: This only works in local development where charts are mounted via hostPath
-    if not is_ci:
-        local_resource(
-            "gitops-app",
-            cmd="""
-            kubectl apply -f - <<EOF
-apiVersion: argoproj.io/v1alpha1
-kind: Application
-metadata:
-  name: gitops
-  namespace: argocd
-  finalizers:
-    - resources-finalizer.argocd.argoproj.io
-spec:
-  project: default
-  source:
-    repoURL: file://../charts  # Local path for development
-    targetRevision: HEAD
-    path: gitops
-    helm:
-      valueFiles:
-        - values.yaml
-        - values-localdev.yaml
-  destination:
-    server: https://kubernetes.default.svc
-    namespace: argocd
-  syncPolicy:
-    automated:
-      prune: true
-      selfHeal: true
-    syncOptions:
-      - CreateNamespace=true
-EOF
-            """,
-            resource_deps=["argocd-install"],
-            labels=["argocd"],
-        )
+    # Block until every Application is Healthy with a Succeeded operation;
+    # dumps conditions, events and pod logs on failure. Manual: run it when
+    # you want a verdict, not after every sync.
+    local_resource(
+        "argocd-wait",
+        cmd="task localdev:wait",
+        dir="..",
+        resource_deps=["argocd-sync"],
+        auto_init=False,
+        trigger_mode=TRIGGER_MODE_MANUAL,
+        labels=["argocd"],
+    )
 
-        # Watch chart directories for changes
-        # When files change, trigger ArgoCD sync
-        watch_file("../charts/gitops")
-        watch_file("../charts/addons")
-        watch_file("../charts/applications")
-
-        # Helper to trigger ArgoCD sync on chart changes
-        local_resource(
-            "argocd-sync",
-            cmd="""
-            kubectl -n argocd patch app gitops --type merge -p '{"operation": {"initiatedBy": {"username": "tilt"}, "info": [{"name": "Reason", "value": "Chart files changed"}]}}'
-            """,
-            resource_deps=["gitops-app"],
-            labels=["argocd"],
-            auto_init=False,
-            trigger_mode=TRIGGER_MODE_MANUAL,
-        )
-    else:
-        print("CI mode: Skipping gitops-app (requires local chart mount)")
+    # Same diagnostics without waiting.
+    local_resource(
+        "argocd-diagnose",
+        cmd="task localdev:diagnose",
+        dir="..",
+        resource_deps=["argocd-install"],
+        auto_init=False,
+        trigger_mode=TRIGGER_MODE_MANUAL,
+        labels=["argocd"],
+    )
 
 # ============================================================================
 # Direct Mode - Direct Helm Deployment
@@ -169,6 +118,27 @@ EOF
 
 if mode == "direct":
     print("Deploying in direct mode - fast iteration for development")
+
+    # ========================================================================
+    # Prerequisites - Storage
+    # ========================================================================
+
+    # local-path-provisioner for persistent storage. Direct mode only: in
+    # ArgoCD mode the local-path-provisioner addon installs it.
+    local_resource(
+        "local-path-provisioner",
+        cmd=KUBECTL + " apply -f https://raw.githubusercontent.com/rancher/local-path-provisioner/v0.0.26/deploy/local-path-storage.yaml",
+        deps=[],
+        labels=["infrastructure"],
+    )
+
+    # Set local-path as the default storage class
+    local_resource(
+        "default-storage-class",
+        cmd=KUBECTL + """ patch storageclass local-path -p '{"metadata": {"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}'""",
+        resource_deps=["local-path-provisioner"],
+        labels=["infrastructure"],
+    )
 
     # ========================================================================
     # Core Addons
@@ -301,9 +271,11 @@ local_resource(
     echo "              Password: admin"
     echo ""
     echo "Quick Commands:"
-    echo "  kubectl get pods --all-namespaces    # View all pods"
-    echo "  tilt trigger argocd-sync             # Force ArgoCD sync (argocd mode)"
-    echo "  tilt enable kube-prometheus-stack    # Enable monitoring"
+    echo "  kubectl --context kind-homelab-localdev get pods -A   # View all pods"
+    echo "  tilt trigger argocd-sync             # Re-sync the working tree (argocd mode)"
+    echo "  tilt trigger argocd-wait             # Wait for every Application to be Healthy (argocd mode)"
+    echo "  tilt trigger argocd-diagnose         # Conditions, events, failing pod logs (argocd mode)"
+    echo "  tilt enable kube-prometheus-stack    # Enable monitoring (direct mode)"
     echo ""
     echo "======================================"
     """,
@@ -315,7 +287,7 @@ local_resource(
 # Cluster status check
 local_resource(
     "cluster-status",
-    cmd="kubectl cluster-info",
+    cmd=KUBECTL + " cluster-info",
     labels=["info"],
     auto_init=True,
     trigger_mode=TRIGGER_MODE_MANUAL,
@@ -324,10 +296,8 @@ local_resource(
 # Quick cleanup helper
 local_resource(
     "cleanup-failed-pods",
-    cmd="""
-    kubectl get pods --all-namespaces --field-selector=status.phase=Failed -o json | \
-    kubectl delete -f - 2>/dev/null || echo "No failed pods to clean"
-    """,
+    cmd=KUBECTL + " get pods --all-namespaces --field-selector=status.phase=Failed -o json | " +
+        KUBECTL + ' delete -f - 2>/dev/null || echo "No failed pods to clean"',
     labels=["utils"],
     auto_init=False,
     trigger_mode=TRIGGER_MODE_MANUAL,

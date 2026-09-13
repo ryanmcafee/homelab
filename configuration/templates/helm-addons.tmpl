@@ -11,6 +11,7 @@
 {{- $cilium := eq .Values.CNI_PROVIDER.Value "cilium" -}}
 {{- $csi := eq .Values.STORAGE_PROVIDER.Value "democratic-csi" -}}
 {{- $onepassword := eq .Values.SECRETS_PROVIDER.Value "onepassword" -}}
+{{- $automated := eq .Values.ARGOCD_AUTOMATED_SYNC.Value "true" -}}
 # Addons Chart - {{ .Set }} Environment Values
 #
 # GENERATED FILE — do not edit. Source: configuration/templates/helm-addons.tmpl
@@ -40,6 +41,14 @@ global:
   # Git repository for SOPS secrets
   repoUrl: https://github.com/ryanmcafee/homelab.git
   targetRevision: main
+
+  # Whether every Application syncs automatically (prune + selfHeal). Off where
+  # the working tree is pushed with `argocd app sync --local` (ARGOCD_AUTOMATED_SYNC).
+  automatedSync: {{ $automated }}
+
+  # Images shared by the chart's own templates (PostSync smoke Jobs).
+  images:
+    curl: "{{ index .Versions.Images "curl" }}"
 
   # iSCSI target portal handed to the *-config child charts (grafana-config,
   # prometheus-config) through the parent Application's helm.valuesObject.
@@ -98,14 +107,90 @@ kubelet-csr-approver:
       memory: 128Mi
 
 # ============================================================================
-# Cilium - CNI (Visibility Only - actual install via Talos inline)
+# Cilium - CNI (adopted, not installed, by the Application)
 # Sync Wave: 0
+# homelab: Talos installs Cilium from inline manifests rendered with these values.
+# Kind: scripts/localdev-kind.ts installs it with `helm upgrade --install` from
+# cilium.values below. Either way the Application only adopts the release.
 # ============================================================================
 
 cilium:
   enabled: {{ $cilium }}
   chart:
     version: "{{ .Versions.Charts.cilium }}"  # Must match Taskfile cilium:render version
+
+  # Helm values of the installed release. They must match what installed Cilium
+  # (Talos inline manifests / localdev-kind.ts) or the Application shows a diff.
+  values:
+{{- if $localdev }}
+    # Kind: no BGP, no L2 announcements, no Hubble; kube-proxy stays in place
+    # and the API server is reached through the default Service.
+    ipam:
+      mode: kubernetes
+    kubeProxyReplacement: false
+    operator:
+      replicas: 1
+      resources:
+        requests:
+          cpu: 50m
+          memory: 128Mi
+        limits:
+          cpu: 500m
+          memory: 512Mi
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 1000m
+        memory: 1Gi
+    hubble:
+      enabled: false
+    image:
+      pullPolicy: IfNotPresent
+{{- else }}
+    ipam:
+      mode: kubernetes
+    kubeProxyReplacement: true
+    k8sServiceHost: localhost
+    k8sServicePort: 7445
+    securityContext:
+      capabilities:
+        ciliumAgent:
+          - CHOWN
+          - KILL
+          - NET_ADMIN
+          - NET_RAW
+          - IPC_LOCK
+          - SYS_ADMIN
+          - SYS_RESOURCE
+          - DAC_OVERRIDE
+          - FOWNER
+          - SETGID
+          - SETUID
+        cleanCiliumState:
+          - NET_ADMIN
+          - SYS_ADMIN
+          - SYS_RESOURCE
+    cgroup:
+      autoMount:
+        enabled: false
+      hostRoot: /sys/fs/cgroup
+    l2announcements:
+      enabled: true
+    externalIPs:
+      enabled: true
+    bgpControlPlane:
+      enabled: true
+    hubble:
+      relay:
+        enabled: true
+      ui:
+        enabled: true
+    bandwidthManager:
+      enabled: true
+      bbr: true
+{{- end }}
 
 # ============================================================================
 # Cilium LB IPAM - LoadBalancer IP Management + BGP
@@ -434,14 +519,28 @@ local-path-provisioner:
 # ============================================================================
 
 cloudnative-pg:
-  # Kind sizing: nothing in localdev consumes CNPG (home-assistant is off there).
-  enabled: {{ not $localdev }}
+  # Kind runs the operator too, so the CNPG e2e test (tests/e2e/cloudnative-pg)
+  # and future consumers (#260) work against local-path volumes.
+  enabled: true
   namespace: cnpg-system
 
   chart:
     name: cloudnative-pg
     repo: https://cloudnative-pg.github.io/charts
     version: {{ index .Versions.Charts "cloudnative-pg" }}
+{{- if $localdev }}
+
+  # Kind sizing: one operator replica, small footprint
+  replicaCount: 1
+
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 250m
+      memory: 256Mi
+{{- else }}
 
   resources:
     requests:
@@ -450,6 +549,7 @@ cloudnative-pg:
     limits:
       cpu: 500m
       memory: 512Mi
+{{- end }}
 
   monitoring:
     podMonitorEnabled: true
@@ -471,6 +571,12 @@ cert-manager:
     version: {{ index .Versions.Charts "cert-manager" }}
 
   installCRDs: true
+
+  # When true the letsencrypt ClusterIssuer (cert-manager-cluster-issuer child
+  # chart) is a self-signed issuer under the same name, so every
+  # cert-manager.io/cluster-issuer: letsencrypt annotation keeps working on a
+  # cluster without a public domain (CERT_ISSUER).
+  selfSigned: {{ eq .Values.CERT_ISSUER.Value "selfsigned" }}
 
   # Production Let's Encrypt
   letsencrypt:
@@ -765,6 +871,19 @@ kube-prometheus-stack:
       limits:
         cpu: 200m
         memory: 256Mi
+
+  # PostSync smoke hooks (charts/addons/templates/_smoke.tpl): curl the
+  # in-cluster Services after sync; expect lists the accepted HTTP codes.
+  # Service names follow the chart's <release>-grafana / <release>-prometheus.
+  smoke:
+    grafana:
+      enabled: true
+      url: http://kube-prometheus-stack-grafana.monitoring.svc.cluster.local:80/api/health
+      expect: ["200"]
+    prometheus:
+      enabled: true
+      url: http://kube-prometheus-stack-prometheus.monitoring.svc.cluster.local:9090/-/ready
+      expect: ["200"]
 
 # ============================================================================
 # Traefik External - External Ingress Controller

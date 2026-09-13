@@ -335,6 +335,107 @@ spec:
               memory: "128Mi"
               cpu: "100m"
 ---
+# Source: addons/templates/kube-prometheus-stack.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: smoke-grafana
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: smoke-grafana
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation,HookSucceeded
+    argocd.argoproj.io/sync-wave: "9"
+spec:
+  backoffLimit: 2
+  activeDeadlineSeconds: 600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: smoke-grafana
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: curl
+          image: curlimages/curl:8.22.0
+          env:
+            - name: URL
+              value: "http://kube-prometheus-stack-grafana.monitoring.svc.cluster.local:80/api/health"
+          command: ["sh", "-c"]
+          args:
+            - |
+              code=$(curl -sL --max-redirs 5 -o /dev/null -w '%{http_code}' --retry 30 --retry-delay 10 --retry-all-errors --max-time 20 "$URL")
+              echo "smoke grafana: $URL -> HTTP $code"
+              case "$code" in 200) exit 0;; *) exit 1;; esac
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 100
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            seccompProfile:
+              type: RuntimeDefault
+---
+# Source: addons/templates/kube-prometheus-stack.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: smoke-prometheus
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: smoke-prometheus
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation,HookSucceeded
+    argocd.argoproj.io/sync-wave: "9"
+spec:
+  backoffLimit: 2
+  activeDeadlineSeconds: 600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: smoke-prometheus
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: curl
+          image: curlimages/curl:8.22.0
+          env:
+            - name: URL
+              value: "http://kube-prometheus-stack-prometheus.monitoring.svc.cluster.local:9090/-/ready"
+          command: ["sh", "-c"]
+          args:
+            - |
+              code=$(curl -sL --max-redirs 5 -o /dev/null -w '%{http_code}' --retry 30 --retry-delay 10 --retry-all-errors --max-time 20 "$URL")
+              echo "smoke prometheus: $URL -> HTTP $code"
+              case "$code" in 200) exit 0;; *) exit 1;; esac
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 100
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            seccompProfile:
+              type: RuntimeDefault
+
+---
 # Source: addons/templates/argo-workflows.yaml
 # Argo Workflows - Workflow Orchestration Engine
 # Sync Wave: 9 (after traefik-config for OIDC middleware)
@@ -640,6 +741,10 @@ spec:
       valuesObject:
         global:
           domain: REPLACEME-domain.com
+        # Self-signed issuer under the same name where there is no public
+        # domain (CERT_ISSUER=selfsigned).
+        selfSigned:
+          enabled: false
         letsencrypt:
           server: https://acme-v02.api.letsencrypt.org/directory
           email: admin@REPLACEME-domain.com
@@ -660,11 +765,15 @@ spec:
 
 ---
 # Source: addons/templates/cilium.yaml
-# Cilium CNI - Visibility Only Application
-# NOTE: Actual Cilium installation is managed via Talos inline manifests
-# This ArgoCD Application provides visibility into the Cilium deployment
-# without managing it (automated.prune is false; see the app-automated
-# exemption below for why the block exists but never prunes/deletes).
+# Cilium CNI - Adopted, never installed, by ArgoCD
+#
+# homelab: Talos installs Cilium from inline manifests rendered with the same
+# values (task render). Kind: scripts/localdev-kind.ts installs it with
+# `helm upgrade --install` from charts/addons/values-localdev.yaml
+# cilium.values before ArgoCD exists. In both cases this Application adopts
+# the release: the values below are the ones the installer used (identical
+# values → no diff), automated.prune is false and the Application carries no
+# resources-finalizer (see the app-automated / app-finalizer exemption).
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -674,7 +783,7 @@ metadata:
     argocd.argoproj.io/sync-wave: "0"
     argocd.argoproj.io/compare-options: IgnoreExtraneous
     homelab.ryanmcafee.com/policy-exempt: "app-automated,app-finalizer"
-    homelab.ryanmcafee.com/policy-exempt-reason: "Cilium CNI is installed by Talos inline manifests, not by ArgoCD. This Application is visibility-only: it must not prune/self-heal resources Talos manages directly (app-automated), and it must NOT carry resources-finalizer.argocd.argoproj.io (app-finalizer) — deleting this Application must never cascade-delete the running CNI."
+    homelab.ryanmcafee.com/policy-exempt-reason: "Cilium CNI is installed outside ArgoCD (Talos inline manifests in homelab, scripts/localdev-kind.ts in Kind). This Application only adopts it: it must not prune/self-heal resources the installer manages directly (app-automated), and it must NOT carry resources-finalizer.argocd.argoproj.io (app-finalizer) — deleting this Application must never cascade-delete the running CNI."
 spec:
   project: default
   source:
@@ -683,49 +792,50 @@ spec:
     targetRevision: 1.19.5
     helm:
       releaseName: cilium
-      # Values must match inline bootstrap for accurate diff
+      # Values must match what installed the release for an accurate diff
+      # (cilium.values in the environment values file).
       values: |
-        ipam:
-          mode: kubernetes
-        kubeProxyReplacement: true
-        k8sServiceHost: localhost
-        k8sServicePort: 7445
-        securityContext:
-          capabilities:
-            ciliumAgent:
-              - CHOWN
-              - KILL
-              - NET_ADMIN
-              - NET_RAW
-              - IPC_LOCK
-              - SYS_ADMIN
-              - SYS_RESOURCE
-              - DAC_OVERRIDE
-              - FOWNER
-              - SETGID
-              - SETUID
-            cleanCiliumState:
-              - NET_ADMIN
-              - SYS_ADMIN
-              - SYS_RESOURCE
+        bandwidthManager:
+          bbr: true
+          enabled: true
+        bgpControlPlane:
+          enabled: true
         cgroup:
           autoMount:
             enabled: false
           hostRoot: /sys/fs/cgroup
-        l2announcements:
-          enabled: true
         externalIPs:
-          enabled: true
-        bgpControlPlane:
           enabled: true
         hubble:
           relay:
             enabled: true
           ui:
             enabled: true
-        bandwidthManager:
+        ipam:
+          mode: kubernetes
+        k8sServiceHost: localhost
+        k8sServicePort: 7445
+        kubeProxyReplacement: true
+        l2announcements:
           enabled: true
-          bbr: true
+        securityContext:
+          capabilities:
+            ciliumAgent:
+            - CHOWN
+            - KILL
+            - NET_ADMIN
+            - NET_RAW
+            - IPC_LOCK
+            - SYS_ADMIN
+            - SYS_RESOURCE
+            - DAC_OVERRIDE
+            - FOWNER
+            - SETGID
+            - SETUID
+            cleanCiliumState:
+            - NET_ADMIN
+            - SYS_ADMIN
+            - SYS_RESOURCE
 
   destination:
     server: https://kubernetes.default.svc
@@ -733,7 +843,7 @@ spec:
 
   syncPolicy:
     automated:
-      prune: false  # Don't prune - Talos manages some resources
+      prune: false  # Don't prune - the installer manages some resources
       selfHeal: true
     syncOptions:
       - ServerSideApply=true
@@ -1860,7 +1970,6 @@ spec:
       kind: MutatingWebhookConfiguration
       jqPathExpressions:
         - .webhooks[].clientConfig.caBundle
-
 ---
 # Source: addons/templates/kubelet-csr-approver.yaml
 apiVersion: argoproj.io/v1alpha1

@@ -1,0 +1,98 @@
+---
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: argocd-apps
+spec:
+  description: >-
+    The root Applications exist and every ArgoCD Application in namespace argocd is Healthy
+    with its last operation Succeeded. The list of child Applications is discovered at run
+    time so new apps are covered without editing this test.
+  steps:
+    - name: root-applications-healthy
+      description: gitops, addons and applications are Healthy and Succeeded (bootstrap is not created in localdev).
+      try:
+        - assert:
+            resource:
+              apiVersion: argoproj.io/v1alpha1
+              kind: Application
+              metadata:
+                name: gitops
+                namespace: argocd
+              status:
+                health:
+                  status: Healthy
+                operationState:
+                  phase: Succeeded
+        - assert:
+            resource:
+              apiVersion: argoproj.io/v1alpha1
+              kind: Application
+              metadata:
+                name: addons
+                namespace: argocd
+              status:
+                health:
+                  status: Healthy
+                operationState:
+                  phase: Succeeded
+        - assert:
+            resource:
+              apiVersion: argoproj.io/v1alpha1
+              kind: Application
+              metadata:
+                name: applications
+                namespace: argocd
+              status:
+                health:
+                  status: Healthy
+                operationState:
+                  phase: Succeeded
+      catch:
+        - describe:
+            apiVersion: argoproj.io/v1alpha1
+            kind: Application
+            namespace: argocd
+    - name: every-application-healthy
+      description: >-
+        Lists every Application (name, sync, health, operation phase) and fails with the
+        offending names when any one is not Healthy or its last operation did not Succeed.
+      try:
+        - script:
+            timeout: 2m
+            content: |
+              set -eu
+              json=$(kubectl get applications.argoproj.io -n argocd -o json)
+              total=$(printf '%s' "$json" | jq '.items | length')
+              if [ "$total" -eq 0 ]; then
+                echo "no Applications in namespace argocd (run task localdev:up)"
+                exit 1
+              fi
+              printf 'NAME\tSYNC\tHEALTH\tOPERATION\n'
+              printf '%s' "$json" | jq -r '.items[]
+                | [.metadata.name,
+                   (.status.sync.status // "-"),
+                   (.status.health.status // "-"),
+                   (.status.operationState.phase // "-")]
+                | @tsv'
+              bad=$(printf '%s' "$json" | jq -r '.items[]
+                | select((.status.health.status // "") != "Healthy"
+                         or (.status.operationState.phase // "") != "Succeeded")
+                | "\(.metadata.name): health=\(.status.health.status // "unknown")"
+                  + " op=\(.status.operationState.phase // "none")"
+                  + " \((.status.conditions // []) | map(.message) | join("; "))"')
+              if [ -n "$bad" ]; then
+                echo "Applications not Healthy/Succeeded:"
+                echo "$bad"
+                exit 1
+              fi
+              echo "all $total Applications are Healthy and their last operation Succeeded"
+      catch:
+        - describe:
+            apiVersion: argoproj.io/v1alpha1
+            kind: Application
+            namespace: argocd
+        - podLogs:
+            namespace: argocd
+            selector: app.kubernetes.io/name=argocd-application-controller
+            tail: 100

@@ -45,3 +45,27 @@ keys:
     enum:
       - onepassword
       - none
+
+  ARGOCD_AUTOMATED_SYNC:
+    description: Whether every Application carries syncPolicy.automated (prune + selfHeal); false leaves Applications manual so a working tree can be pushed with `argocd app sync --local` without ArgoCD reverting it to Git
+    required: true
+    default: "true"
+    enum:
+      - "true"
+      - "false"
+
+  MEDIA_PROVIDER:
+    description: Where the media libraries and download directories are mounted from (nfs mounts the TrueNAS exports; ephemeral gives every app an emptyDir so Kind runs without a file server)
+    required: true
+    default: nfs
+    enum:
+      - nfs
+      - ephemeral
+
+  CERT_ISSUER:
+    description: How the letsencrypt ClusterIssuer signs certificates (letsencrypt uses ACME with the Cloudflare DNS-01 solver; selfsigned issues untrusted certificates for clusters without a public domain)
+    required: true
+    default: letsencrypt
+    enum:
+      - letsencrypt
+      - selfsigned

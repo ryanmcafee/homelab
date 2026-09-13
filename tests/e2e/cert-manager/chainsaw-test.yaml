@@ -1,0 +1,104 @@
+---
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: cert-manager
+spec:
+  description: >-
+    cert-manager and its config/issuer Applications are Healthy and the Certificate
+    traefik-dashboard-tls in namespace traefik (from the traefik-external-config chart) is Ready.
+  steps:
+    - name: applications-healthy
+      description: cert-manager, cert-manager-config and cert-manager-cluster-issuer are Healthy and Succeeded.
+      try:
+        - assert:
+            resource:
+              apiVersion: argoproj.io/v1alpha1
+              kind: Application
+              metadata:
+                name: cert-manager
+                namespace: argocd
+              status:
+                health:
+                  status: Healthy
+                operationState:
+                  phase: Succeeded
+        - assert:
+            resource:
+              apiVersion: argoproj.io/v1alpha1
+              kind: Application
+              metadata:
+                name: cert-manager-config
+                namespace: argocd
+              status:
+                health:
+                  status: Healthy
+                operationState:
+                  phase: Succeeded
+        - assert:
+            resource:
+              apiVersion: argoproj.io/v1alpha1
+              kind: Application
+              metadata:
+                name: cert-manager-cluster-issuer
+                namespace: argocd
+              status:
+                health:
+                  status: Healthy
+                operationState:
+                  phase: Succeeded
+      catch:
+        - describe:
+            apiVersion: argoproj.io/v1alpha1
+            kind: Application
+            name: cert-manager
+            namespace: argocd
+        - describe:
+            apiVersion: argoproj.io/v1alpha1
+            kind: Application
+            name: cert-manager-config
+            namespace: argocd
+        - describe:
+            apiVersion: argoproj.io/v1alpha1
+            kind: Application
+            name: cert-manager-cluster-issuer
+            namespace: argocd
+    - name: dashboard-certificate-ready
+      description: Certificate traefik-dashboard-tls in namespace traefik has condition Ready=True.
+      try:
+        - assert:
+            resource:
+              apiVersion: cert-manager.io/v1
+              kind: Certificate
+              metadata:
+                name: traefik-dashboard-tls
+                namespace: traefik
+              spec:
+                secretName: traefik-dashboard-tls
+              status:
+                (conditions[?type == 'Ready']):
+                  - status: 'True'
+        - assert:
+            resource:
+              apiVersion: v1
+              kind: Secret
+              metadata:
+                name: traefik-dashboard-tls
+                namespace: traefik
+              type: kubernetes.io/tls
+      catch:
+        - describe:
+            apiVersion: cert-manager.io/v1
+            kind: Certificate
+            name: traefik-dashboard-tls
+            namespace: traefik
+        - describe:
+            apiVersion: cert-manager.io/v1
+            kind: CertificateRequest
+            namespace: traefik
+        - events:
+            namespace: traefik
+        - podLogs:
+            namespace: cert-manager
+            selector: app.kubernetes.io/name=cert-manager
+            tail: 100

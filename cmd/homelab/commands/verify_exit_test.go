@@ -72,6 +72,36 @@ func TestVerifyExitCodes(t *testing.T) {
 			wantCode: ExitUsage,
 			wantMsg:  "--parallel",
 		},
+		{
+			name:     "a level above 2 is a usage error",
+			args:     []string{"verify", "all", "--level", "3"},
+			wantCode: ExitUsage,
+			wantMsg:  "--level must be 0, 1 or 2",
+		},
+		{
+			name:     "a negative level is a usage error",
+			args:     []string{"verify", "all", "--level", "-1"},
+			wantCode: ExitUsage,
+			wantMsg:  "--level must be 0, 1 or 2",
+		},
+		{
+			name:     "level 1 without the localdev environment is a usage error",
+			args:     []string{"verify", "all", "--level", "1", "--env", "homelab"},
+			wantCode: ExitUsage,
+			wantMsg:  "localdev",
+		},
+		{
+			name:     "level 2 without the localdev environment is a usage error",
+			args:     []string{"verify", "all", "--level", "2", "--env", "homelab"},
+			wantCode: ExitUsage,
+			wantMsg:  "localdev",
+		},
+		{
+			name:     "a bad environment on level 1 is still a usage error",
+			args:     []string{"verify", "all", "--level", "1", "--env", "nope"},
+			wantCode: ExitUsage,
+			wantMsg:  "unknown environment",
+		},
 	}
 
 	for _, tc := range tests {
@@ -97,6 +127,28 @@ func TestVerifyExitCodes(t *testing.T) {
 				t.Errorf("expected usage output, got:\n%s", printed)
 			}
 		})
+	}
+}
+
+// TestVerifyAllHelpDescribesEveryLevel pins the operator-facing contract:
+// the three levels and the two cluster flags are documented in --help.
+func TestVerifyAllHelpDescribesEveryLevel(t *testing.T) {
+	err, printed := runVerifySubcommand(t, "verify", "all", "--help")
+	if err != nil {
+		t.Fatalf("--help must not error, got %v", err)
+	}
+	for _, want := range []string{
+		"Level 0", "Level 1", "Level 2",
+		"--kube-context", "kind-homelab-localdev",
+		"--e2e-dir", "tests/e2e",
+		"dryrun/localdev", "argocd/", "e2e/",
+	} {
+		if !strings.Contains(printed, want) {
+			t.Errorf("verify all --help does not mention %q:\n%s", want, printed)
+		}
+	}
+	if strings.Contains(printed, "not available yet") {
+		t.Error("the levels are available now; the placeholder wording must go")
 	}
 }
 

@@ -98,9 +98,11 @@ spec:
     namespace: {{ index .Values "democratic-csi-iscsi" "namespace" }}
 
   syncPolicy:
+    {{- if .Values.global.automatedSync }}
     automated:
       prune: true
       selfHeal: true
+    {{- end }}
     syncOptions:
       - ServerSideApply=true
       - ApplyOutOfSyncOnly=true

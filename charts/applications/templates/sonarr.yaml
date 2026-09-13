@@ -27,9 +27,11 @@ spec:
     server: https://kubernetes.default.svc
     namespace: {{ .Values.sonarr.namespace }}
   syncPolicy:
+    {{- if .Values.global.automatedSync }}
     automated:
       prune: true
       selfHeal: true
+    {{- end }}
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
@@ -91,9 +93,11 @@ spec:
         - /spec/template/spec/hostUsers
 
   syncPolicy:
+    {{- if .Values.global.automatedSync }}
     automated:
       prune: true
       selfHeal: true
+    {{- end }}
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
@@ -105,4 +109,5 @@ spec:
         duration: 5s
         factor: 2
         maxDuration: 3m
+{{- include "homelab.smokeJob" (dict "name" "sonarr" "namespace" .Values.sonarr.namespace "smoke" .Values.sonarr.smoke "wave" "13" "image" .Values.global.images.curl) }}
 {{- end }}

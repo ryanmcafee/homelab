@@ -29,9 +29,11 @@ spec:
     server: https://kubernetes.default.svc
     namespace: {{ (index .Values "kube-prometheus-stack").namespace }}
   syncPolicy:
+    {{- if .Values.global.automatedSync }}
     automated:
       prune: true
       selfHeal: true
+    {{- end }}
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true

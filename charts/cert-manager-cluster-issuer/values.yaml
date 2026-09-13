@@ -3,6 +3,14 @@
 global:
   domain: example.com
 
+# Self-signed issuer: renders the `letsencrypt` ClusterIssuer with
+# `spec.selfSigned: {}` instead of the ACME spec, so every
+# cert-manager.io/cluster-issuer: letsencrypt reference keeps working on a
+# cluster without a public domain. The addons parent sets it from
+# CERT_ISSUER (configuration/) through helm.valuesObject.
+selfSigned:
+  enabled: false
+
 # Cloudflare DNS-01 solver
 cloudflare:
   enabled: true

@@ -30,9 +30,11 @@ spec:
     namespace: {{ index .Values "local-path-provisioner" "namespace" }}
 
   syncPolicy:
+    {{- if .Values.global.automatedSync }}
     automated:
       prune: true
       selfHeal: true
+    {{- end }}
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true

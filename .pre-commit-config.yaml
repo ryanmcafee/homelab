@@ -14,7 +14,7 @@ repos:
         entry: task verify:text
         language: system
         pass_filenames: false
-        files: ^(charts/|configuration/|tests/(schemas|policy|gitops|snapshots)/|internal/verify/|cmd/homelab/commands/verify)
+        files: ^(charts/|configuration/|tests/(schemas|policy|gitops|snapshots|health|e2e)/|localdev/|internal/verify/|cmd/homelab/commands/verify)
 
       - id: config-guard
         name: PII Guard

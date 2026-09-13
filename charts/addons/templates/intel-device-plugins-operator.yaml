@@ -57,9 +57,11 @@ spec:
     namespace: {{ index .Values "intel-device-plugins-operator" "namespace" }}
 
   syncPolicy:
+    {{- if .Values.global.automatedSync }}
     automated:
       prune: true
       selfHeal: true
+    {{- end }}
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true

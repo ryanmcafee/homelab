@@ -7,6 +7,19 @@ package homelab.lib
 # data, so a file containing `domain: example.com` exposes data.domain.
 domain := data.domain
 
+# automated_sync_required reports whether every Application must carry
+# syncPolicy.automated (app-automated). The renderer writes
+# `argocd_automated_sync: <bool>` into _data.yaml from the env's
+# ARGOCD_AUTOMATED_SYNC platform key; localdev sets it false because its
+# Applications are synced from the working tree with `argocd app sync
+# --local`, which an automated Application would immediately revert. Absent
+# key (older _data.yaml, fixture data) keeps the strict policy.
+default automated_sync_required := true
+
+automated_sync_required := false if {
+	data.argocd_automated_sync == false
+}
+
 # exempt_rules returns the set of rule ids an object is exempt from, read
 # from the annotations:
 #

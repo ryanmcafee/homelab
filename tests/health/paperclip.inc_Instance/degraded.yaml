@@ -1,0 +1,12 @@
+# expect: Degraded
+# message: database unreachable
+apiVersion: paperclip.inc/v1alpha1
+kind: Instance
+metadata:
+  name: paperclip
+  namespace: paperclip
+spec:
+  replicas: 1
+status:
+  phase: Failed
+  message: database unreachable

@@ -69,7 +69,11 @@ charts:
   traefik-oidc: "v1.0.32"
   unifi-port-forward: "1.1.x"
 images:
-  homelab-cmp: "0.1.18"
+  homelab-cmp: "0.1.19"
+  # renovate: datasource=docker depName=curlimages/curl
+  curl: "8.22.0"
+  # renovate: datasource=docker depName=kindest/node
+  kind-node: "v1.36.1"
 tools:
   # renovate: datasource=github-releases depName=siderolabs/talos
   talos: "v1.13.3"
@@ -79,3 +83,9 @@ tools:
   terraform: "1.15.5"
   # renovate: datasource=github-releases depName=helm/helm
   helm: "4.2.0"
+  # renovate: datasource=github-releases depName=kubernetes-sigs/kind
+  kind: "v0.33.0"
+  # renovate: datasource=github-releases depName=kyverno/chainsaw
+  chainsaw: "v0.2.15"
+  # renovate: datasource=github-releases depName=argoproj/argo-cd
+  argocd: "v3.5.2"

@@ -9,6 +9,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/ryanmcafee/homelab/internal/config"
 )
 
 // fakeCmd is one recorded invocation.
@@ -742,7 +744,7 @@ func TestRenderWritesFilesAndData(t *testing.T) {
 	if err != nil {
 		t.Fatalf("_data.yaml: %v", err)
 	}
-	for _, want := range []string{"env: homelab", "domain: REPLACEME-domain.com", "kubernetes_version: "} {
+	for _, want := range []string{"env: homelab", "domain: REPLACEME-domain.com", "kubernetes_version: ", "argocd_automated_sync: true\n"} {
 		if !strings.Contains(string(raw), want) {
 			t.Errorf("_data.yaml missing %q; got:\n%s", want, string(raw))
 		}
@@ -754,6 +756,35 @@ func TestRenderWritesFilesAndData(t *testing.T) {
 	}
 	if !strings.Contains(string(localRaw), "domain: homelab.local") {
 		t.Errorf("localdev _data.yaml missing localdev domain; got:\n%s", string(localRaw))
+	}
+	// localdev syncs Applications from the working tree with `argocd app sync
+	// --local`, which needs automated sync off; the policy reads this key to
+	// skip app-automated for that env (ARGOCD_AUTOMATED_SYNC=false).
+	if !strings.Contains(string(localRaw), "argocd_automated_sync: false\n") {
+		t.Errorf("localdev _data.yaml missing argocd_automated_sync: false; got:\n%s", string(localRaw))
+	}
+}
+
+func TestAutomatedSyncFlagDefaultsToTrue(t *testing.T) {
+	// A config set without the platform key (or an older schema) must keep
+	// the strict policy: the flag only relaxes app-automated when it is
+	// explicitly "false".
+	cases := []struct {
+		name string
+		vals map[string]config.ConfigValue
+		want bool
+	}{
+		{"missing", map[string]config.ConfigValue{}, true},
+		{"true", map[string]config.ConfigValue{"ARGOCD_AUTOMATED_SYNC": {Value: "true"}}, true},
+		{"false", map[string]config.ConfigValue{"ARGOCD_AUTOMATED_SYNC": {Value: "false"}}, false},
+		{"other", map[string]config.ConfigValue{"ARGOCD_AUTOMATED_SYNC": {Value: "no"}}, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := automatedSync(&config.ResolvedConfig{Values: tc.vals}); got != tc.want {
+				t.Errorf("automatedSync(%v) = %v, want %v", tc.vals, got, tc.want)
+			}
+		})
 	}
 }
 

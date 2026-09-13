@@ -113,6 +113,65 @@ Each entry should include:
 - **Solution**: Generate both files from `configuration/templates/helm-{addons,apps}.tmpl` with `homelab config export --set localdev` (`task config:export:localdev`) and commit them; environment differences became capability keys in `platform.schema.yaml` (ADR-011, issue #263)
 - **Prevention**: Level-0 check `render/localdev/_committed-values` fails with a diff when the committed files differ from the export; the pre-commit `config-export` hook regenerates them on any `configuration/**` change. Never hand-edit `values-localdev.yaml`
 
+### 2026-09-13 - Tilt `--mode=argocd` flag was silently ignored
+- **Issue**: `tilt up -- --mode=argocd` (documented in the Tiltfile, `docs/local-development.md` and the Taskfile) always started direct mode; only `TILT_MODE=argocd` in the environment switched modes
+- **Root Cause**: `localdev/Tiltfile` read `os.getenv("TILT_MODE", "direct")` and never called `config.define_string`/`config.parse()`, so Tiltfile arguments were dropped
+- **Solution**: `config.define_string("mode")` + `config.parse()`, with `TILT_MODE` as the fallback and a `fail()` on unknown values (issue #261 Section B)
+- **Prevention**: `task localdev:tilt:argocd` is the documented entry point; `kind-direct` and `kind-argocd` in `tilt-ci.yml` exercise both paths
+
+### 2026-09-13 - ArgoCD mode root Application pointed at `file://../charts` and a hostPath that was never mounted
+- **Issue**: In ArgoCD mode nothing ever synced: the root Application had `repoURL: file://../charts`, and the ArgoCD values mounted a repo-server hostPath `/charts` that no Kind node provided (`kind-config.yaml` had no `extraMounts`), so the repo server could not even resolve the path. The CI job hid this with `continue-on-error: true`
+- **Root Cause**: ArgoCD fetches git and Helm repositories over the network; a relative `file://` URL is not a repository, and a hostPath inside a Kind node only exists if Kind mounts it from the host
+- **Solution**: The root Application (`localdev/argocd/gitops-app.yaml`) points at GitHub `main`; every Application is synced from the working tree with `argocd app sync --local` by `scripts/localdev-argocd.ts sync`; the hostPath volume, `file://` repository entry and `argocd-values-ci.yaml` are gone; the CI job is required (ADR-012)
+- **Prevention**: `task verify LEVEL=2` and the `kind-argocd` job fail on any Application that is not Healthy/Succeeded
+
+### 2026-09-13 - NodePort 30080 claimed by both ArgoCD and Traefik
+- **Issue**: Kind maps container port 30080 to host 8080 for the ArgoCD UI, but the direct-mode Tiltfile Traefik and the old hand-written addons values also asked for NodePort 30080; running Traefik and ArgoCD in one cluster would have failed the second Service with "provided port is already allocated"
+- **Root Cause**: One NodePort range shared by two components with no single place listing the reservations
+- **Solution**: ArgoCD keeps 30080 (`localdev/values/argocd-values.yaml`); the Traefik Applications get dynamic NodePorts in localdev; mosquitto is pinned to 31883/31901 and spegel to 30021. Direct-mode Tilt Traefik keeps 30080 because ArgoCD is absent in that mode
+- **Prevention**: The reserved ports are listed in `docs/project_notes/key_facts.md` "Localdev"; regenerate the localdev values and check `nodePort` before pinning a new one
+
+### 2026-09-13 - Localdev Applications referenced PVCs and NFS servers that do not exist in Kind
+- **Issue**: Plex rendered `configExistingClaim: <PLEX_CONFIG_PVC>` and every TrueCharts app rendered `persistence.config.existingClaim: <APP>_CONFIG_PVC` regardless of environment, so in Kind the pods waited forever on PVCs nothing creates; media and download mounts were `nfs: server: <TRUENAS_HOSTNAME>` (127.0.0.1 in localdev) and failed to mount
+- **Root Cause**: `helm-apps.tmpl` assumed democratic-csi and a TrueNAS NFS export everywhere; storage and media were not capability keys
+- **Solution**: When `STORAGE_PROVIDER` is not `democratic-csi` the templates render a dynamic claim (`storageClassName`/`storageClass: <STORAGE_CLASS_ISCSI>` + `size: 1Gi`); a new `MEDIA_PROVIDER` key (`nfs`|`ephemeral`) renders the media/download volumes as `emptyDir` in localdev; `localdev/fakes/storageclasses.yaml` aliases the `democratic-csi-*` classes to local-path for anything that still names them
+- **Prevention**: Level 2 (`argocd/<app>`, `e2e/<app>`) fails when a pod stays Pending; new storage references go behind a capability key
+
+### 2026-09-13 - Mosquitto NodePort Service rendered without an explicit nodePort
+- **Issue**: With `LOAD_BALANCER_ENABLED=false` mosquitto's Services became `type: NodePort` but carried no `nodePort`, which the TrueCharts common library rejects, so the Application never synced in Kind
+- **Root Cause**: The template only flipped `type`; TrueCharts requires a fixed port for NodePort Services
+- **Solution**: `helm-apps.tmpl` sets `nodePort: 31883` (MQTT) and `31901` (WebSocket) when the load balancer is off
+- **Prevention**: `tests/e2e/mosquitto` connects to the Service; the ports are reserved in `key_facts.md`
+
+### 2026-09-13 - Dead `argocd:` block in `helm-apps.tmpl`
+- **Issue**: `helm-apps.tmpl` emitted a large `argocd:` values block (chart, CMP sidecar, server config) that no template in `charts/applications` reads; it only made the generated `values-localdev.yaml` longer and suggested ArgoCD was configured there
+- **Root Cause**: Left over from before the bootstrap chart took over ArgoCD (ADR on the CMP, 2026-02-11)
+- **Solution**: Removed; ArgoCD is configured by `charts/bootstrap/templates/argocd.yaml` (homelab) and `localdev/values/argocd-values.yaml` (Kind)
+- **Prevention**: `internal/config/contract_test.go` only checks keys, not consumers; when adding a values block, name the template that reads it in a comment
+
+### 2026-09-13 - Root Tiltfile pointed at a `plan.md` that does not exist
+- **Issue**: The welcome message listed `Plan: plan.md`; the file was never committed
+- **Solution**: Replaced with `docs/local-development.md`
+- **Prevention**: Prefer links to files under `docs/`; `rg --files` before adding a path to a banner
+
+### 2026-09-13 - `charts/gitops/values-localdev.yaml` tracked `HEAD` while the root Application tracked `main`
+- **Issue**: Child Applications rendered by the gitops chart carried `targetRevision: HEAD`, the root Application `main`, so a plain `argocd app sync` on a child could resolve a different revision than its parent, and the three hard-coded `syncPolicy.automated` blocks in the file would have reverted any `--local` sync
+- **Root Cause**: The localdev overrides predated the local-sync design and were never compared with the root Application
+- **Solution**: `global.targetRevision: main`, `global.automatedSync: false`, the automated blocks removed (ARGOCD_AUTOMATED_SYNC, ADR-012)
+- **Prevention**: `localdev/argocd/gitops-app.yaml` and the values file both state the revision in a comment; the `app-automated` policy is skipped only when `_data.yaml` says `argocd_automated_sync: false`
+
+### 2026-09-13 - Kind + Cilium on Docker Desktop (macOS): host port mappings never complete a TCP handshake
+- **Issue**: With Cilium as the Kind CNI, none of the `extraPortMappings` in `localdev/kind-config.yaml` (30080→8080 for ArgoCD, 80→9080, 443→9443) worked from macOS: `curl localhost:8080` hung, the ArgoCD CLI login timed out, yet in-cluster traffic and `kubectl port-forward` were fine
+- **Root Cause**: Docker Desktop's port forwarder emits packets with bad TCP checksums. With kindnet the kernel path skipped validation, so it went unnoticed; Cilium's BPF endpoint delivery hands the packet to the pod, which validates it and drops every SYN (`TcpInCsumErrors` in the pod netns grows by 3 per SYN; verified with `conntrack` and `cilium monitor`)
+- **Solution**: `scripts/localdev-argocd.ts` owns a `kubectl port-forward` to `argocd-server` (default `127.0.0.1:18080`, `--local-port` to change) instead of the NodePort; for humans `task localdev:ui` port-forwards the ArgoCD UI to http://localhost:8080 and `task localdev:traefik` port-forwards Traefik internal to 9080/9443. The NodePort and the Kind mappings stay for Linux Docker, where they work
+- **Prevention**: Never rely on Kind host port mappings from macOS; e2e and smoke checks run in-cluster, and every host-side access goes through `kubectl port-forward`
+
+### 2026-09-13 - `tilt-ci.yml` pinned its own Kind node image and let the ArgoCD job fail silently
+- **Issue**: The workflow created Kind with `kindest/node:v1.32.0` and `kubectl v1.32.0` (versions.yaml said v1.36.1), installed the latest `argocd` and `tilt` unpinned, and marked the ArgoCD-mode job `continue-on-error: true`, so nothing it did could fail a pull request
+- **Root Cause**: Tool versions hard-coded in the workflow with no Renovate markers and no link to `configuration/versions.yaml`
+- **Solution**: Rewritten: `env:` pins with `# renovate:` markers mirroring `versions.yaml`, the cluster comes from `task localdev:kind` (node image from `images.kind-node`), and `kind-argocd` is required with a 45-minute timeout
+- **Prevention**: Every pinned tool in a workflow carries a Renovate marker; `docs/runbooks/verification.md` "Tooling" lists the files that must agree
+
 ### Known Common Errors (from CLAUDE.md)
 
 These are documented errors with known solutions:
@@ -123,6 +182,23 @@ These are documented errors with known solutions:
 | "Unable to find valid certification path" | TrueNAS TLS not trusted | Democratic-CSI uses allowInsecure |
 | "dry run failed" | Server-side apply conflicts | Add ServerSideApply=true to syncOptions |
 | Ingress "Progressing" forever | No LoadBalancer IP | Custom health check marks Ingress Healthy |
+
+### 2026-09-13 - TrueCharts apps unschedulable on Apple Silicon Kind (`kubernetes.io/arch: amd64`)
+- **Issue**: flaresolverr (and every TrueCharts app) stayed Pending in Kind on an arm64 Mac: "2 node(s) didn't match Pod's node affinity/selector"
+- **Root Cause**: the TrueCharts common library defaults `podOptions.nodeSelector` to `kubernetes.io/arch: amd64`; Kind nodes run the host architecture and the images are multi-arch
+- **Solution**: `helm-apps.tmpl` renders `workload.main.podSpec.nodeSelector.kubernetes.io/arch: null` under the Kind sizing branch (helm deletes the key on merge); homelab output is unchanged
+- **Prevention**: `task localdev:up` on an arm64 machine is the check; CI runners are amd64 and never hit it
+
+### 2026-09-13 - Kind's bundled local-path-provisioner collided with the chart-managed one
+- **Issue**: the `local-path-provisioner` addon Application failed to sync in Kind: `Deployment.apps "local-path-provisioner" is invalid: spec.selector ... field is immutable`
+- **Root Cause**: every Kind cluster ships rancher local-path-provisioner in `local-path-storage` with the same Deployment name as the containeroo chart, and the selector differs
+- **Solution**: `scripts/localdev-kind.ts up` deletes Kind's bundled Deployment, `standard` StorageClass and its RBAC after the nodes are Ready; the addon then owns the provisioner (Namespace and ConfigMap are adopted by server-side apply)
+- **Prevention**: anything Kind pre-installs that a chart also installs must be removed by `localdev-kind.ts`, not fought over by ArgoCD
+
+### 2026-09-13 - PostSync smoke hook failed on an app whose root redirects
+- **Issue**: `smoke-lazylibrarian` failed with HTTP 303 (`/` → `/home` → `/authors`)
+- **Solution**: the `homelab.smokeJob` curl follows up to 5 redirects; the expected codes apply to the final response
+- **Prevention**: e2e Jobs (`tests/e2e`) already used `-L`; the two helper copies must stay byte-identical
 
 ## Tips
 

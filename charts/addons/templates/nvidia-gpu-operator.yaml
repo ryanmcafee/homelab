@@ -162,9 +162,11 @@ spec:
     namespace: {{ index .Values "nvidia-gpu-operator" "namespace" }}
 
   syncPolicy:
+    {{- if .Values.global.automatedSync }}
     automated:
       prune: true
       selfHeal: true
+    {{- end }}
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true

@@ -1,196 +1,103 @@
-# ArgoCD Configuration for Local Development
-# Phase 0.5: Local Development Environment
+---
+# ArgoCD values for the Kind localdev loop (issue #261 Section B).
 #
-# This configuration provides a lightweight ArgoCD installation
-# optimized for local development with Kind cluster.
+# Installed by scripts/localdev-argocd.ts install (task localdev:argocd):
+#   helm upgrade --install argocd argo-cd --repo https://argoproj.github.io/argo-helm \
+#     --version <configuration/versions.yaml charts.argocd> -n argocd -f this-file \
+#     --set-file 'configs.cm.resource\.customizations\.health\.<group>_<kind>=<lua>' ...
+#   where <lua> is charts/bootstrap/files/health/<group>_<kind>.lua.
+# The health Lua is NOT listed here on purpose: the script injects every file in
+# charts/bootstrap/files/health at install time so localdev and homelab
+# (charts/bootstrap/templates/argocd.yaml) share one copy.
 #
-# Features:
-# - Reduced resource requests for local dev
-# - NodePort service for easy access (localhost:8080)
-# - Disabled unnecessary components
-# - Self-signed certificates for local use
-# - Simple admin authentication
-
-# ============================================================================
-# Global Configuration
-# ============================================================================
+# Every Application is synced from the working tree with `argocd app sync
+# --local`, so there is no file:// repo, no hostPath chart mount and no CI
+# variant of this file any more. Key names verified against
+# `helm show values argo-cd --version 9.5.17`.
 
 global:
-  # Use local-path storage class for ArgoCD data
+  # Not read by the argo-cd chart itself (it creates no PVCs); kept so any
+  # subchart or future persistence lands on the Kind default class.
   storageClass: local-path
 
-# ============================================================================
-# API Server Configuration
-# ============================================================================
+configs:
+  params:
+    # Plain HTTP on the NodePort; `argocd login localhost:8080 --plaintext`.
+    server.insecure: true
+  cm:
+    # Poll the repo often: the loop compares the working tree, not GitHub, so
+    # a fresher comparison only makes the OutOfSync marker more accurate.
+    timeout.reconciliation: 30s
+    kustomize.buildOptions: "--enable-alpha-plugins --enable-exec"
+    exec.enabled: "true"
+  rbac:
+    # Single admin user for localdev; the CLI logs in with the initial secret.
+    policy.default: role:admin
 
 server:
-  # Reduce resource requests for local development
-  resources:
-    requests:
-      cpu: 50m
-      memory: 128Mi
-    limits:
-      cpu: 200m
-      memory: 256Mi
-
-  # Use NodePort for easy access from host machine
   service:
     type: NodePort
+    # Kind maps containerPort 30080 -> host 8080 (localdev/kind-config.yaml).
+    # That host mapping works with Docker Engine on Linux but NOT with Docker
+    # Desktop + Cilium: the Desktop host-port proxy forwards packets with bad
+    # TCP checksums, kindnet tolerated them, Cilium's BPF delivery drops them
+    # (every SYN lost, "gRPC connection not ready"). scripts/localdev-argocd.ts
+    # therefore never uses it; it spawns
+    #   kubectl --context kind-homelab-localdev port-forward -n argocd svc/argocd-server 18080:80
+    # for the CLI, and the UI can be reached the same way:
+    #   kubectl --context kind-homelab-localdev port-forward -n argocd svc/argocd-server 8080:80
+    #   open http://localhost:8080
     nodePortHttp: 30080
-
-  # Disable TLS for local development
-  extraArgs:
-    - --insecure
-
-  # Allow any Git repository (local development)
-  config:
-    repositories: |
-      - url: https://github.com
-        type: git
-      - url: file://../charts
-        type: git
-        name: local-charts
-
-# ============================================================================
-# Repo Server Configuration
-# ============================================================================
-
-repoServer:
-  # Reduce resource requests
   resources:
     requests:
       cpu: 50m
       memory: 128Mi
     limits:
-      cpu: 200m
-      memory: 256Mi
-
-  # Mount local charts directory for development
-  # This allows testing chart changes without pushing to Git
-  volumes:
-    - name: charts
-      hostPath:
-        path: /charts
-        type: Directory
-
-  volumeMounts:
-    - name: charts
-      mountPath: /charts
-
-# ============================================================================
-# Application Controller Configuration
-# ============================================================================
+      cpu: 500m
+      memory: 512Mi
 
 controller:
-  # Reduce resource requests
   resources:
     requests:
       cpu: 100m
       memory: 256Mi
     limits:
+      cpu: "1"
+      memory: 1Gi
+
+repoServer:
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
       cpu: 500m
       memory: 512Mi
 
-  # Enable application status badge
-  metrics:
-    enabled: true
-    serviceMonitor:
-      enabled: false  # Disable ServiceMonitor for local dev
-
-# ============================================================================
-# Redis Configuration
-# ============================================================================
-
 redis:
-  # Reduce resource requests for Redis
   resources:
     requests:
-      cpu: 50m
+      cpu: 25m
       memory: 64Mi
     limits:
       cpu: 200m
       memory: 128Mi
 
-# ============================================================================
-# Dex (SSO/OAuth) - Disabled for Local Dev
-# ============================================================================
-
-dex:
-  # Disable Dex for local development (use admin account)
-  enabled: false
-
-# ============================================================================
-# Notifications Controller - Disabled for Local Dev
-# ============================================================================
-
-notifications:
-  # Disable notifications for local development
-  enabled: false
-
-# ============================================================================
-# ApplicationSet Controller - Enabled with Reduced Resources
-# ============================================================================
-
 applicationSet:
-  # Keep ApplicationSet enabled but with reduced resources
   enabled: true
   resources:
     requests:
-      cpu: 50m
+      cpu: 25m
       memory: 64Mi
     limits:
       cpu: 200m
       memory: 128Mi
 
-# ============================================================================
-# Configuration Management Plugins
-# ============================================================================
+dex:
+  enabled: false
 
-configs:
-  # Secret for admin password (use default, override via CLI if needed)
-  secret:
-    # Admin password will be auto-generated on install
-    # Retrieve with: kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d
-    createSecret: true
-
-  # ArgoCD CM configuration
-  cm:
-    # Set timeout for operations
-    timeout.reconciliation: 30s
-
-    # Enable local development features
-    exec.enabled: "true"
-
-    # Disable analytics
-    ga.trackingid: ""
-
-  # RBAC configuration (permissive for local dev)
-  rbac:
-    policy.default: role:admin
-
-# ============================================================================
-# High Availability - Disabled for Local Dev
-# ============================================================================
-
-# Run single replicas for all components (not HA)
-# This reduces resource usage significantly
+notifications:
+  enabled: false
 
 redis-ha:
   enabled: false
-
-# ============================================================================
-# Ingress - Disabled (using NodePort)
-# ============================================================================
-
-ingress:
-  enabled: false
-
-# ============================================================================
-# Additional Configuration
-# ============================================================================
-
-# Disable service account token auto-mount for security
-automountServiceAccountToken: false
-
-# Create service account
-createAggregateRoles: true
