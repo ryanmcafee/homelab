@@ -8,7 +8,11 @@ global:
   # Environment identifier
   environment: homelab
 
-  # Base domain for ingress resources
+  # Placeholder only. The real base domain never lives in git: Terraform
+  # (terragrunt/modules/gitops-bootstrap) injects it into the root gitops
+  # Application as a helm parameter (`helm.parameters` global.domain) and the
+  # bootstrap template derives the ArgoCD ingress hostname from it. Level 0
+  # mirrors this with --set global.domain=<config DOMAIN>.
   domain: example.com
 
   # Git repository containing chart sources

@@ -1324,3 +1324,455 @@ func TestLineMatchesPatternRespectsTokenBoundaries(t *testing.T) {
 		})
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Helm values keys (charts/**/values-homelab.yaml)
+// ---------------------------------------------------------------------------
+
+// scanShapeFixture writes content under filename in a temp dir and scans it
+// by shape, failing the test on any error.
+func scanShapeFixture(t *testing.T, filename, content string) GuardResult {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), filename)
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := ScanFileForPIIShape(path)
+	if err != nil {
+		t.Fatalf("ScanFileForPIIShape: %v", err)
+	}
+	return res
+}
+
+// patternsOf lists the Pattern of every match, in report order.
+func patternsOf(res GuardResult) []string {
+	var out []string
+	for _, m := range res.Matches {
+		out = append(out, m.Pattern)
+	}
+	return out
+}
+
+func TestScanFileForPIIShapeHelmKeys(t *testing.T) {
+	tests := []struct {
+		name    string
+		content string
+		want    []string // exact Pattern of every expected match, in order
+	}{
+		// --- hits: the shapes the child charts' values-homelab.yaml carried ---
+		{
+			name:    "nested host with a real hostname",
+			content: "dashboard:\n  enabled: true\n  host: traefik.ryanmcafee.com\n",
+			want:    []string{"host (real hostname)"},
+		},
+		{
+			name:    "iSCSI portal with a port is judged on its address",
+			content: "volumes:\n  - name: config\n    csi:\n      volumeAttributes:\n        portal: \"172.16.100.150:3260\"\n",
+			want:    []string{"portal (routable host IP)"},
+		},
+		{
+			name:    "camelCase staticIP",
+			content: "dashboard:\n  staticIP: \"172.16.100.200\"\n",
+			want:    []string{"staticIP (routable host IP)"},
+		},
+		{
+			name:    "mailbox on email is judged on its domain",
+			content: "letsencrypt:\n  email: admin@ryanmcafee.com\n",
+			want:    []string{"email (real hostname)"},
+		},
+		{
+			name:    "domain under global",
+			content: "global:\n  domain: ryanmcafee.com\n",
+			want:    []string{"domain (real hostname)"},
+		},
+		{
+			name:    "hostname deep inside an ingress block",
+			content: "argocd:\n  values:\n    server:\n      ingress:\n        enabled: true\n        hostname: argocd.ryanmcafee.com\n",
+			want:    []string{"hostname (real hostname)"},
+		},
+		{
+			name:    "an annotation ending in /hostname is judged as hostname",
+			content: "annotations:\n  external-dns.alpha.kubernetes.io/hostname: argocd.ryanmcafee.com\n",
+			want:    []string{"external-dns.alpha.kubernetes.io/hostname (real hostname)"},
+		},
+		{
+			name:    "a URL wrapping a real address on host",
+			content: "unifi:\n  host: \"https://172.16.100.1\"\n",
+			want:    []string{"host (routable host IP)"},
+		},
+		{
+			name:    "a dotted subdomain names a real host",
+			content: "duckdns:\n  subdomain: home.ryanmcafee.com\n",
+			want:    []string{"subdomain (real hostname)"},
+		},
+		{
+			name:    "targetPortal, loadBalancerIP and externalIP",
+			content: "storage:\n  targetPortal: \"172.16.100.150:3260\"\nservice:\n  loadBalancerIP: 172.16.100.201\n  externalIP: 172.16.100.202\n",
+			want:    []string{"targetPortal (routable host IP)", "loadBalancerIP (routable host IP)", "externalIP (routable host IP)"},
+		},
+		{
+			name:    "a host key inside a list of maps",
+			content: "ingress:\n  hosts:\n    - host: sonarr.ryanmcafee.com\n      paths:\n        - path: /\n",
+			want:    []string{"host (real hostname)"},
+		},
+		{
+			name:    "inline comment and quotes are stripped",
+			content: "oidc:\n  host: 'auth.ryanmcafee.com' # SSO front door\n",
+			want:    []string{"host (real hostname)"},
+		},
+		{
+			name:    "several leaks are all reported in line order",
+			content: "global:\n  domain: ryanmcafee.com\ndashboard:\n  host: traefik.ryanmcafee.com\n  staticIP: \"172.16.100.200\"\n",
+			want:    []string{"domain (real hostname)", "host (real hostname)", "staticIP (routable host IP)"},
+		},
+
+		// --- misses: placeholders, reserved names and keys outside the set ---
+		{
+			name:    "the documentation domain",
+			content: "global:\n  domain: example.com\n",
+			want:    nil,
+		},
+		{
+			name:    "a reserved test suffix",
+			content: "dashboard:\n  host: traefik.homelab.test\n",
+			want:    nil,
+		},
+		{
+			name:    "a reserved local suffix and a REPLACEME marker",
+			content: "dashboard:\n  host: traefik.homelab.local\noidc:\n  host: auth.REPLACEME-domain.com\n",
+			want:    nil,
+		},
+		{
+			name:    "repoUrl, providerURL, server and url are not PII keys",
+			content: "repoUrl: https://github.com/ryanmcafee/homelab\noidc:\n  providerURL: https://accounts.google.com\nletsencrypt:\n  server: https://acme-v02.api.letsencrypt.org/directory\nurl: https://grafana.ryanmcafee.com\n",
+			want:    nil,
+		},
+		{
+			name:    "description prose naming a host is not a value",
+			content: "description: reachable at truenas.ryanmcafee.com\n",
+			want:    nil,
+		},
+		{
+			name:    "empty and quoted-empty values",
+			content: "volumes:\n  - csi:\n      volumeAttributes:\n        portal: \"\"\n        portals: ''\nemail:\n",
+			want:    nil,
+		},
+		{
+			name:    "loopback, unspecified and the localdev static address",
+			content: "dashboard:\n  staticIP: \"127.0.0.200\"\nlistener:\n  address: 0.0.0.0\nunifi:\n  host: https://127.0.0.1\n",
+			want:    nil,
+		},
+		{
+			name:    "a bare DuckDNS label is not a hostname by shape",
+			content: "duckdns:\n  subdomain: ryanmcafee\n",
+			want:    nil, // value-based detection (DUCKDNS_SUBDOMAIN) covers it when the env file is present
+		},
+		{
+			name:    "a key that only opens a nested block carries no value",
+			content: "host:\n  name: x\nportal:\n  enabled: true\n",
+			want:    nil,
+		},
+		{
+			name:    "a key:value token without a space is not a mapping",
+			content: "cmd: host:traefik.ryanmcafee.com\n",
+			want:    nil,
+		},
+		{
+			name:    "markdown table rows and JSON strings are not key/value lines",
+			content: "| host | traefik.ryanmcafee.com |\n{\"host\": \"traefik.ryanmcafee.com\"}\n",
+			want:    nil,
+		},
+		{
+			name:    "a comment naming a host is skipped",
+			content: "# host: traefik.ryanmcafee.com\ndashboard:\n  # portal: 172.16.100.150:3260\n  enabled: true\n",
+			want:    nil,
+		},
+
+		// --- the two rules never both fire on one line ---
+		{
+			name:    "a SCREAMING key is decided by the config rule alone",
+			content: "DOMAIN: ryanmcafee.com\nIP: 172.16.100.1\nHOST: traefik.ryanmcafee.com\n",
+			// DOMAIN is PII-shaped for the config rule; the bare IP and HOST
+			// are not, and the Helm rule does not second-guess them.
+			want: []string{"DOMAIN (real hostname)"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := patternsOf(scanShapeFixture(t, "values-homelab.yaml", tc.content))
+			if strings.Join(got, "\n") != strings.Join(tc.want, "\n") {
+				t.Fatalf("patterns = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestScanFileForPIIShapeHelmListKeys(t *testing.T) {
+	tests := []struct {
+		name    string
+		content string
+		want    []string
+	}{
+		{
+			name:    "a real zone under dnsZones",
+			content: "cloudflare:\n  dnsZones:\n    - ryanmcafee.com\n",
+			want:    []string{"dnsZones[] (real hostname)"},
+		},
+		{
+			name:    "every item is judged and reported in order",
+			content: "oidc:\n  allowedDomains:\n    - example.com\n    - ryanmcafee.com\n    - \"home.ryanmcafee.com\"\n",
+			want:    []string{"allowedDomains[] (real hostname)", "allowedDomains[] (real hostname)"},
+		},
+		{
+			name:    "items at the same column as the key",
+			content: "dnsZones:\n- ryanmcafee.com\n",
+			want:    []string{"dnsZones[] (real hostname)"},
+		},
+		{
+			name:    "a hosts list opened by a list item, as in ingress extraTls",
+			content: "extraTls:\n  - hosts:\n      - argocd.ryanmcafee.com\n    secretName: argocd-server-tls\n",
+			want:    []string{"hosts[] (real hostname)"},
+		},
+		{
+			name:    "portals as a list of addresses with ports",
+			content: "portals:\n  - 172.16.100.150:3260\n  - 172.16.100.151:3260\n",
+			want:    []string{"portals[] (routable host IP)", "portals[] (routable host IP)"},
+		},
+		{
+			name:    "a flow-style list on the key line",
+			content: "oidc:\n  allowedDomains: [example.com, ryanmcafee.com]\n",
+			want:    []string{"allowedDomains[] (real hostname)"},
+		},
+		{
+			name:    "the list closes at the next key",
+			content: "dnsZones:\n  - example.com\nscopes:\n  - ryanmcafee.com\n",
+			want:    nil,
+		},
+		{
+			name:    "the list closes when a shallower item follows",
+			content: "a:\n  dnsZones:\n    - example.com\n- ryanmcafee.com\n",
+			want:    nil,
+		},
+		{
+			name:    "items under a key outside the list set are not judged",
+			content: "oidc:\n  scopes:\n    - openid\n    - ryanmcafee.com\n",
+			want:    nil,
+		},
+		{
+			name:    "placeholder and reserved items are clean",
+			content: "dnsZones:\n  - example.com\n  - homelab.local\n  - REPLACEME-domain.com\nallowedDomains: [homelab.test]\nportals: []\n",
+			want:    nil,
+		},
+		{
+			name:    "blank and comment lines do not close the list",
+			content: "dnsZones:\n  # primary zone\n\n  - ryanmcafee.com\n",
+			want:    []string{"dnsZones[] (real hostname)"},
+		},
+		{
+			name:    "a list of maps is judged by the key rule, not the list rule",
+			content: "hosts:\n  - host: sonarr.ryanmcafee.com\n    paths: [/]\n",
+			want:    []string{"host (real hostname)"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := patternsOf(scanShapeFixture(t, "values-homelab.yaml", tc.content))
+			if strings.Join(got, "\n") != strings.Join(tc.want, "\n") {
+				t.Fatalf("patterns = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestScanTemplateFileHelmKeysRequirePlaceholders(t *testing.T) {
+	// In a template the Helm rule inverts exactly as the config rule does:
+	// a documented placeholder passes, anything else is reported by Note.
+	tests := []struct {
+		name     string
+		content  string
+		wantKeys []string
+		wantVals []string
+	}{
+		{
+			name:    "documented placeholders on Helm keys pass",
+			content: "global:\n  domain: example.com\ndashboard:\n  host: traefik.REPLACEME-domain.com\n  staticIP: \"192.168.1.200\"\nletsencrypt:\n  email: admin@example.com\nvolumes:\n  - csi:\n      volumeAttributes:\n        portal: \"192.168.1.100:3260\"\ndnsZones:\n  - example.com\n  - homelab.local\n",
+		},
+		{
+			name:     "a real hostname pasted into a template",
+			content:  "dashboard:\n  host: traefik.ryanmcafee.com\n",
+			wantKeys: []string{"host"},
+			wantVals: []string{"traefik.ryanmcafee.com"},
+		},
+		{
+			name:     "an address outside the documentation subnet",
+			content:  "volumes:\n  - csi:\n      volumeAttributes:\n        portal: \"172.16.100.150:3260\"\n",
+			wantKeys: []string{"portal"},
+			wantVals: []string{"172.16.100.150:3260"},
+		},
+		{
+			name:     "a real zone in a list",
+			content:  "dnsZones:\n  - example.com\n  - ryanmcafee.com\n",
+			wantKeys: []string{"dnsZones[]"},
+			wantVals: []string{"ryanmcafee.com"},
+		},
+		{
+			name:     "a bare label, which shape detection cannot see in a plain file",
+			content:  "duckdns:\n  subdomain: ryanmcafee\n",
+			wantKeys: []string{"subdomain"},
+			wantVals: []string{"ryanmcafee"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			res := scanShapeFixture(t, "values-homelab.yaml.example", tc.content)
+			if len(res.Matches) != len(tc.wantKeys) {
+				t.Fatalf("got %d match(es) %+v, want %d for %v", len(res.Matches), res.Matches, len(tc.wantKeys), tc.wantKeys)
+			}
+			for i, key := range tc.wantKeys {
+				m := res.Matches[i]
+				if want := key + " (non-placeholder value in example file)"; m.Pattern != want {
+					t.Errorf("match[%d].Pattern = %q, want %q", i, m.Pattern, want)
+				}
+				if want := "non-placeholder value in example file (" + tc.wantVals[i] + ")"; m.Note != want {
+					t.Errorf("match[%d].Note = %q, want %q", i, m.Note, want)
+				}
+			}
+		})
+	}
+}
+
+func TestRunGuardHelmValuesAreDeterministic(t *testing.T) {
+	// No environment file: only the shape rules run, over files handed in
+	// out of order, with the config rule and the Helm rule both firing.
+	dir := t.TempDir()
+	for name, body := range map[string]string{
+		"charts/b/values-homelab.yaml": "global:\n  domain: ryanmcafee.com\ndashboard:\n  host: traefik.ryanmcafee.com\n  staticIP: \"172.16.100.200\"\ndnsZones:\n  - ryanmcafee.com\n",
+		"charts/a/values-homelab.yaml": "volumes:\n  - csi:\n      volumeAttributes:\n        portal: \"172.16.100.150:3260\"\n",
+		"configuration/x.yaml":         "TRUENAS_IP: 172.16.100.150\nhost: truenas.ryanmcafee.com\n",
+	} {
+		path := filepath.Join(dir, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	render := func() string {
+		report, err := RunGuard(GuardOptions{
+			RepoRoot: dir,
+			Files:    []string{"configuration/x.yaml", "charts/b/values-homelab.yaml", "charts/a/values-homelab.yaml"},
+		})
+		if err != nil {
+			t.Fatalf("RunGuard: %v", err)
+		}
+		var sb strings.Builder
+		for _, res := range report.Results {
+			for _, m := range res.Matches {
+				fmt.Fprintf(&sb, "%s:%d:%s\n", res.File, m.Line, m.Pattern)
+			}
+		}
+		return sb.String()
+	}
+
+	want := strings.Join([]string{
+		"charts/a/values-homelab.yaml:4:portal (routable host IP)",
+		"charts/b/values-homelab.yaml:2:domain (real hostname)",
+		"charts/b/values-homelab.yaml:4:host (real hostname)",
+		"charts/b/values-homelab.yaml:5:staticIP (routable host IP)",
+		"charts/b/values-homelab.yaml:7:dnsZones[] (real hostname)",
+		"configuration/x.yaml:1:TRUENAS_IP (routable host IP)",
+		"configuration/x.yaml:2:host (real hostname)",
+		"",
+	}, "\n")
+	first := render()
+	if first != want {
+		t.Fatalf("report:\n%s\nwant:\n%s", first, want)
+	}
+	for i := 0; i < 9; i++ {
+		if got := render(); got != first {
+			t.Fatalf("run %d differs from run 0:\n--- run 0 ---\n%s--- run %d ---\n%s", i+1, first, i+1, got)
+		}
+	}
+}
+
+func TestDefaultGuardScopeCoversChartHomelabValues(t *testing.T) {
+	// The child charts' values-homelab.yaml files are committed and rendered
+	// in production without the CMP, so they must be guarded by default, not
+	// only when someone remembers --paths.
+	want := []string{"configuration/**", "charts/**/values-homelab.yaml"}
+	if strings.Join(DefaultGuardPathspecs, " ") != strings.Join(want, " ") {
+		t.Fatalf("DefaultGuardPathspecs = %v, want %v", DefaultGuardPathspecs, want)
+	}
+
+	calls := withTrackedFiles(t, []string{
+		"configuration/environments/localdev.yaml",
+		"charts/traefik-external-config/values-homelab.yaml",
+		"charts/sonarr-config/values-homelab.yaml",
+	}, nil)
+	files, err := ListGuardFiles("/repo", nil)
+	if err != nil {
+		t.Fatalf("ListGuardFiles: %v", err)
+	}
+	if got := strings.Join((*calls)[0], " "); got != strings.Join(want, " ") {
+		t.Fatalf("lister pathspecs = %q, want %q", got, want)
+	}
+	wantFiles := []string{
+		"charts/sonarr-config/values-homelab.yaml",
+		"charts/traefik-external-config/values-homelab.yaml",
+		"configuration/environments/localdev.yaml",
+	}
+	if strings.Join(files, " ") != strings.Join(wantFiles, " ") {
+		t.Fatalf("files = %v, want %v", files, wantFiles)
+	}
+}
+
+// TestScanFileForPIIShapeHelmRuleEdges pins the edge cases found in review:
+// a CIDR is a network and never a host, a flow list is reported once per
+// line, in-cluster .svc names identify nothing outside the cluster, and a
+// quoted annotation key is judged like an unquoted one.
+func TestScanFileForPIIShapeHelmRuleEdges(t *testing.T) {
+	tests := []struct {
+		name    string
+		content string
+		want    []string
+	}{
+		{
+			name:    "CIDR under ip or address is a network, not a host",
+			content: "ip: 172.16.100.0/24\naddress: 10.0.0.0/8\n",
+			want:    nil,
+		},
+		{
+			name:    "flow list with two real hostnames is one finding",
+			content: "dnsZones: [ryanmcafee.com, \"x.ryanmcafee.com\"]\n",
+			want:    []string{"dnsZones[] (real hostname)"},
+		},
+		{
+			name:    "in-cluster .svc names are reserved",
+			content: "host: oauth2-proxy.oauth2-proxy.svc\naddress: alertmanager.monitoring.svc:9093\n",
+			want:    nil,
+		},
+		{
+			name:    "quoted annotation key is judged by its last segment",
+			content: "annotations:\n  \"external-dns.alpha.kubernetes.io/hostname\": plex.ryanmcafee.com\n",
+			want:    []string{"external-dns.alpha.kubernetes.io/hostname (real hostname)"},
+		},
+		{
+			name:    "single-quoted key too",
+			content: "  'host': traefik.ryanmcafee.com\n",
+			want:    []string{"host (real hostname)"},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := patternsOf(scanShapeFixture(t, "values-homelab.yaml", tc.content))
+			if strings.Join(got, "\n") != strings.Join(tc.want, "\n") {
+				t.Fatalf("patterns:\n got %q\nwant %q", got, tc.want)
+			}
+		})
+	}
+}

@@ -146,6 +146,8 @@ spec:
       valueFiles:
         - values.yaml
         - values-homelab.yaml
+      valuesObject:
+        subdomain: "REPLACEME-subdomain"
   destination:
     server: https://kubernetes.default.svc
     namespace: duckdns
@@ -179,6 +181,9 @@ spec:
       valueFiles:
         - values.yaml
         - values-homelab.yaml
+      valuesObject:
+        iscsi:
+          portal: "192.168.1.100:3260"
   destination:
     server: https://kubernetes.default.svc
     namespace: media
@@ -295,6 +300,9 @@ spec:
       valueFiles:
         - values.yaml
         - values-homelab.yaml
+      valuesObject:
+        iscsi:
+          portal: "192.168.1.100:3260"
   destination:
     server: https://kubernetes.default.svc
     namespace: media
@@ -433,6 +441,9 @@ spec:
       valueFiles:
         - values.yaml
         - values-homelab.yaml
+      valuesObject:
+        iscsi:
+          portal: "192.168.1.100:3260"
   destination:
     server: https://kubernetes.default.svc
     namespace: home-automation
@@ -570,6 +581,9 @@ spec:
       valueFiles:
         - values.yaml
         - values-homelab.yaml
+      valuesObject:
+        iscsi:
+          portal: "192.168.1.100:3260"
   destination:
     server: https://kubernetes.default.svc
     namespace: media
@@ -702,6 +716,9 @@ spec:
       valueFiles:
         - values.yaml
         - values-homelab.yaml
+      valuesObject:
+        iscsi:
+          portal: "192.168.1.100:3260"
   destination:
     server: https://kubernetes.default.svc
     namespace: media
@@ -875,6 +892,9 @@ spec:
       valueFiles:
         - values.yaml
         - values-homelab.yaml
+      valuesObject:
+        iscsi:
+          portal: "192.168.1.100:3260"
   destination:
     server: https://kubernetes.default.svc
     namespace: media
@@ -1009,6 +1029,9 @@ spec:
       valueFiles:
         - values.yaml
         - values-homelab.yaml
+      valuesObject:
+        iscsi:
+          portal: "192.168.1.100:3260"
   destination:
     server: https://kubernetes.default.svc
     namespace: media
@@ -1200,7 +1223,7 @@ spec:
               "$schema": "https://docs.renovatebot.com/renovate-schema.json",
               "platform": "github",
               "repositories": ["ryanmcafee/homelab"],
-              "gitAuthor": "Renovate Bot <renovate@ryanmcafee.com>",
+              "gitAuthor": "Renovate Bot <renovate@REPLACEME-domain.com>",
               "onboarding": false,
               "requireConfig": "optional"
             }
@@ -1253,6 +1276,9 @@ spec:
       valueFiles:
         - values.yaml
         - values-homelab.yaml
+      valuesObject:
+        iscsi:
+          portal: "192.168.1.100:3260"
   destination:
     server: https://kubernetes.default.svc
     namespace: media
@@ -1399,6 +1425,9 @@ spec:
       valueFiles:
         - values.yaml
         - values-homelab.yaml
+      valuesObject:
+        iscsi:
+          portal: "192.168.1.100:3260"
   destination:
     server: https://kubernetes.default.svc
     namespace: media

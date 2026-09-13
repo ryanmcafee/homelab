@@ -339,7 +339,8 @@ The homelab environment uses an ArgoCD Config Management Plugin (CMP) sidecar to
 - **Bootstrap chart** deploys: SOPS secrets, 1Password operator, homelab-environment-config secret
 - **CMP sidecar** runs `homelab config export --stdout` piped into `helm template`
 - **Localdev** continues using native Helm with `values-localdev.yaml` (no CMP)
-- Design doc: `docs/plans/2026-02-11-argocd-cmp-pii-removal-design.md`
+- **Child `*-config`/`*-dependencies` charts** stay on plain `helm.valueFiles`; anything derived from `configuration/` (domain, hostnames, IPs, iSCSI portal, e-mail) reaches them via the parent Application's `helm.valuesObject`, so their committed `values-homelab.yaml` carries no PII. Level 0 mirrors this by feeding each child the `valuesObject` extracted from the rendered parent (ADR-010)
+- Decisions: `docs/project_notes/decisions.md` (entry "2026-02-11: ArgoCD CMP for PII removal" and ADR-010; the original design doc was removed in c4daa10 once implemented)
 
 ### Common Errors & Solutions
 | Error | Cause | Solution |

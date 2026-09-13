@@ -118,13 +118,22 @@ every failing check with its findings.
 
 ## PII guard
 
-`homelab config guard` runs in pre-commit (staged files under `configuration/`) and in CI
-(`--ci`: every tracked YAML/JSON/Markdown file under `configuration/`, including
-`environments/homelab.yaml.example`). Real values come from the gitignored
-`environments/homelab.yaml` when present; without it the guard still applies shape rules
-(routable IPs on `*_IP`/`*_VIP` keys, real-looking hostnames and mailboxes on domain keys).
-Example/template files are held to a closed placeholder allowlist (`192.168.1.0/24`,
-`REPLACEME` / `REPLACEME-*` labels, `example.com`, loopback, `.local`): any other value on a PII-shaped key
-fails. A new placeholder convention must be added to the allowlist in
-`internal/config/guard.go`. Widen the scope with `--paths` (issue #262 will add
-`charts/**/values-homelab.yaml`).
+`homelab config guard` runs in pre-commit (staged files matching the default scope) and in
+CI (`--ci`: every tracked YAML/JSON/Markdown file in scope). The default scope is
+`configuration/**` plus `charts/**/values-homelab.yaml` (the committed child-chart values,
+which must stay PII-free because derived values reach children through the parent
+Application's `helm.valuesObject`, see ADR-010). Real values come from the gitignored
+`environments/homelab.yaml` when present; without it the guard still applies shape rules:
+
+- config keys: routable IPs on `*_IP`/`*_VIP` keys, real-looking hostnames and mailboxes on
+  domain keys;
+- Helm-style keys (`host`, `hostname`, `domain`, `portal`, `staticIP`, `ip`, `address`,
+  `email`, `subdomain`, ...): routable host IPs (with or without a port, so
+  `172.16.100.150:3260` is caught) and real-looking hostnames or mailboxes;
+- list items under `dnsZones`, `allowedDomains`, `hosts`, `dnsNames`, `portals`.
+
+Keys that legitimately carry public hosts (`repoUrl`, `server`, `providerURL`, `url`) are
+not checked. Example/template files are held to a closed placeholder allowlist
+(`192.168.1.0/24`, `REPLACEME` / `REPLACEME-*` labels, `example.com`, loopback, `.local`):
+any other value on a PII-shaped key fails. A new placeholder convention must be added to
+the allowlist in `internal/config/guard.go`. Widen or narrow the scope with `--paths`.

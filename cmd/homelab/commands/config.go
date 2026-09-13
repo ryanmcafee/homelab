@@ -299,12 +299,16 @@ func newConfigGuardCmd() *cobra.Command {
 
 Two detectors run together. Value-based detection compares each line against
 the literal values in the environment file, so it catches a real domain or IP
-wherever it appears. Shape-based detection flags a PII-shaped config key whose
-value is a routable host address, and needs no environment file, so a clone
-without the real values still gets protection.
+wherever it appears. Shape-based detection needs no environment file, so a
+clone without the real values still gets protection: it flags a PII-shaped
+configuration key (DOMAIN, *_IP, *_HOSTNAME, ...) and a Helm values key
+(domain, host, hostname, portal, staticIP, email, ..., plus list items under
+dnsZones, allowedDomains, hosts, ...) whose value is a routable host address or
+a real hostname, domain or mailbox.
 
 Files come from the arguments (the pre-commit path) or, with --ci, from the
-tracked files under configuration/. Widen the tracked scope with --paths.
+tracked files under configuration/ and every charts/*/values-homelab.yaml.
+Widen the tracked scope with --paths.
 An empty scan scope in CI mode is a failure, never a pass.`,
 		// A guard failure is a finding, not a misuse: usage noise would bury
 		// the PII report in CI logs.
@@ -383,7 +387,7 @@ An empty scan scope in CI mode is a failure, never a pass.`,
 	}
 
 	cmd.Flags().BoolVar(&ciMode, "ci", false, "CI mode: derive the file list from tracked files instead of arguments")
-	cmd.Flags().StringArrayVar(&paths, "paths", nil, "Git pathspecs defining the CI scan scope (repeatable or comma-separated; default: configuration/**)")
+	cmd.Flags().StringArrayVar(&paths, "paths", nil, "Git pathspecs defining the CI scan scope (repeatable or comma-separated; default: configuration/** charts/**/values-homelab.yaml)")
 
 	return cmd
 }

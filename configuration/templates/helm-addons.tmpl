@@ -26,6 +26,11 @@ global:
   repoUrl: https://github.com/ryanmcafee/homelab.git
   targetRevision: main
 
+  # iSCSI target portal handed to the *-config child charts (grafana-config,
+  # prometheus-config) through the parent Application's helm.valuesObject.
+  iscsi:
+    portal: "{{ .Values.ISCSI_TARGET_PORTAL.Value }}"
+
 # ============================================================================
 # SOPS Secrets - Encrypted secrets for GitOps
 # Sync Wave: -2 (FIRST - deploys 1Password credentials before operator)
@@ -823,6 +828,18 @@ traefikExternal:
     enabled: true
     onePasswordItemPath: {{ .Values.TRAEFIK_CLOUDFLARE_1P_PATH.Value }}
 
+  # Values handed to the traefik-external-config child chart through the
+  # traefik-external-config Application's helm.valuesObject. The child's
+  # committed values-homelab.yaml carries no hostnames, IPs or domains.
+  config:
+    dashboard:
+      host: {{ .Values.TRAEFIK_HOSTNAME.Value }}
+      staticIP: "{{ .Values.TRAEFIK_STATIC_IP.Value }}"
+    oidc:
+      host: {{ .Values.AUTH_HOSTNAME.Value }}
+      allowedDomains:
+        - {{ .Values.TRAEFIK_OIDC_ALLOWED_DOMAINS.Value }}
+
 # ============================================================================
 # Traefik Internal - Internal Ingress Controller
 # Sync Wave: 6
@@ -923,6 +940,12 @@ traefikInternal:
           target:
             type: Utilization
             averageUtilization: 80
+
+  # Values handed to the traefik-internal-config child chart through the
+  # traefik-internal-config Application's helm.valuesObject.
+  config:
+    dashboard:
+      host: {{ .Values.TRAEFIK_INTERNAL_HOSTNAME.Value }}
 
 # ============================================================================
 # UniFi Port Forwarding Controller - Automatic Port Forwards
@@ -1088,10 +1111,12 @@ argo-workflows:
           secondsAfterFailure: 172800
 
   # Ingress verification workflow configuration
-  # NOTE: Disabled due to tpl() double-templating issues in upstream chart
+  # NOTE: Consumed by the argo-workflows-config child chart (CronWorkflow) via
+  # the argo-workflows-config Application's helm.valuesObject, not by the
+  # upstream argo-workflows chart.
   ingressVerification:
-    enabled: false
-    schedule: "*/5 * * * *"
+    enabled: true
+    schedule: "0 0 * * *"
     # List of ingresses to verify - all require authentication
     ingresses:
       - name: traefik

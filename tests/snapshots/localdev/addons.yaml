@@ -206,6 +206,20 @@ spec:
       valueFiles:
         - values.yaml
         - values-localdev.yaml
+      # Derived values (domain, ACME e-mail, DNS zones) come from this parent's
+      # cert-manager values (configuration/ via the CMP in homelab) so the
+      # child's committed values files stay PII-free. valuesObject overrides
+      # valueFiles in ArgoCD.
+      valuesObject:
+        global:
+          domain: homelab.test
+        letsencrypt:
+          server: https://acme-v02.api.letsencrypt.org/directory
+          email: test@homelab.local
+          dnsZones:
+            - homelab.local
+        cloudflare:
+          email: test@homelab.local
   destination:
     server: https://kubernetes.default.svc
     namespace: cert-manager
@@ -239,6 +253,11 @@ spec:
       valueFiles:
         - values.yaml
         - values-localdev.yaml
+      # The iSCSI portal comes from this parent's global values (configuration/
+      # via the CMP in homelab) so the child's committed values stay PII-free.
+      valuesObject:
+        iscsi:
+          portal: ""
   destination:
     server: https://kubernetes.default.svc
     namespace: monitoring
@@ -569,6 +588,11 @@ spec:
       valueFiles:
         - values.yaml
         - values-localdev.yaml
+      # The iSCSI portal comes from this parent's global values (configuration/
+      # via the CMP in homelab) so the child's committed values stay PII-free.
+      valuesObject:
+        iscsi:
+          portal: ""
   destination:
     server: https://kubernetes.default.svc
     namespace: monitoring
@@ -840,6 +864,20 @@ spec:
       valueFiles:
         - values.yaml
         - values-localdev.yaml
+      # Derived values (domain, hostnames, static IP, allowed domains) come from
+      # this parent's values (configuration/ via the CMP in homelab) so the
+      # child's committed values files stay PII-free. valuesObject overrides
+      # valueFiles in ArgoCD.
+      valuesObject:
+        global:
+          domain: homelab.test
+        dashboard:
+          host: traefik.homelab.local
+          staticIP: 127.0.0.200
+        oidc:
+          allowedDomains:
+          - homelab.local
+          host: auth.homelab.local
   destination:
     server: https://kubernetes.default.svc
     namespace: traefik
@@ -1043,6 +1081,14 @@ spec:
       valueFiles:
         - values.yaml
         - values-localdev.yaml
+      # Derived values (domain, dashboard hostname) come from this parent's
+      # values (configuration/ via the CMP in homelab) so the child's committed
+      # values files stay PII-free. valuesObject overrides valueFiles in ArgoCD.
+      valuesObject:
+        global:
+          domain: homelab.test
+        dashboard:
+          host: traefik-internal.homelab.local
   destination:
     server: https://kubernetes.default.svc
     namespace: traefik

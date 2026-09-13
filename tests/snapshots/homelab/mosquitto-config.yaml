@@ -20,7 +20,7 @@ spec:
       iqn: iqn.2005-10.org.freenas.ctl:csi-mosquitto-config-homelab
       lun: "0"
       node_attach_driver: iscsi
-      portal: 172.16.100.150:3260
+      portal: 192.168.1.100:3260
       portals: ""
 ---
 # Source: mosquitto-config/templates/persistent-volume.yaml
@@ -44,7 +44,7 @@ spec:
       iqn: iqn.2005-10.org.freenas.ctl:csi-mosquitto-data-homelab
       lun: "0"
       node_attach_driver: iscsi
-      portal: 172.16.100.150:3260
+      portal: 192.168.1.100:3260
       portals: ""
 ---
 # Source: mosquitto-config/templates/persistent-volume.yaml
@@ -68,7 +68,7 @@ spec:
       iqn: iqn.2005-10.org.freenas.ctl:csi-mosquitto-configinc-homelab
       lun: "0"
       node_attach_driver: iscsi
-      portal: 172.16.100.150:3260
+      portal: 192.168.1.100:3260
       portals: ""
 ---
 # Source: mosquitto-config/templates/persistent-volume.yaml

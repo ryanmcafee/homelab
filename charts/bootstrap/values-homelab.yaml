@@ -36,17 +36,15 @@ argocd:
               app.kubernetes.io/name: argocd-server
 
       # Ingress for web UI
+      # hostname, the external-dns hostname annotation and extraTls are NOT set
+      # here: the gitops parent Application derives them from global.domain and
+      # passes them via spec.source.helm.valuesObject (see
+      # charts/gitops/templates/bootstrap.yaml). Never commit the real domain.
       ingress:
         enabled: true
         ingressClassName: internal
-        hostname: argocd.ryanmcafee.com
         annotations:
           cert-manager.io/cluster-issuer: letsencrypt
-          external-dns.alpha.kubernetes.io/hostname: argocd.ryanmcafee.com
-        extraTls:
-          - hosts:
-              - argocd.ryanmcafee.com
-            secretName: argocd-server-tls
 
       # Production resource limits
       resources:

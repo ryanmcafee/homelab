@@ -196,7 +196,12 @@ Level 0 reads only configuration/environments/localdev.yaml and
 configuration/environments/homelab.yaml.example, so it never touches real
 homelab values. The addons and applications parents render two-stage for
 homelab (config export -> helm template), mirroring the ArgoCD config
-management plugin.
+management plugin. Parents render before children, and a child chart receives
+the helm.valuesObject its parent Application passes it as an extra values
+file (<out>/<env>/_inherited/<chart>.yaml), so derived values such as the
+domain and the iSCSI portal reach children exactly as they do in ArgoCD. The
+gitops chart gets --set global.domain=<DOMAIN> for homelab, mirroring the
+helm parameter the Terraform root Application injects.
 
 Exit status: 0 when every check passes, 1 when a check fails, 2 on a usage
 error.`,

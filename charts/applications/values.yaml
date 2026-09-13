@@ -39,6 +39,11 @@ global:
   # Timezone for applications
   timezone: UTC
 
+  # iSCSI target portal (IP:port) handed to the *-config child charts via
+  # helm.valuesObject; provided by configuration/ (ISCSI_TARGET_PORTAL)
+  iscsi:
+    portal: ""
+
   # Media storage configuration (multiple NFS paths)
   media:
     nfsServer: truenas.example.com
@@ -919,7 +924,7 @@ renovate:
     platform: github
     repositories:
       - ryanmcafee/homelab
-    gitAuthor: "Renovate Bot <renovate@ryanmcafee.com>"
+    gitAuthor: "Renovate Bot <renovate@example.com>"
     onboarding: false
     requireConfig: "optional"
 

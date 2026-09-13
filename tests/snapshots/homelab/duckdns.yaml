@@ -36,7 +36,7 @@ spec:
                   fi
               env:
                 - name: DUCKDNS_SUBDOMAIN
-                  value: "ryanmcafee"
+                  value: "REPLACEME-subdomain"
                 - name: DUCKDNS_TOKEN
                   valueFrom:
                     secretKeyRef:

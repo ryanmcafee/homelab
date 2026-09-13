@@ -93,6 +93,13 @@ Each entry should include:
 - **Solution**: Baked ksops binaries into the `homelab-cmp` image via multi-stage Docker build (`COPY --from=ksops`). Changed init container to use the CMP image with `/bin/cp` instead of the ksops image with `/bin/sh`. Bumped CMP image to 0.1.4
 - **Prevention**: Added Renovate guardrail to disable auto-merge for `viaductoss/ksops` docker updates. Future ksops version bumps require manual testing. Consider that any dependency could switch to distroless at any time
 
+### 2026-09-12 - Child values-homelab.yaml carried PII; .gitignore note claimed they were PII-free
+- **Issue**: ~20 committed `charts/*/values-homelab.yaml` (traefik-*-config, cert-manager-cluster-issuer, the 12 iSCSI `*-config` charts, duckdns, bootstrap) contained the production domain, hostnames, TrueNAS iSCSI portal IP, Traefik static IP, ACME e-mail and DuckDNS subdomain. The `.gitignore` comment asserted these files "carry only 1Password item paths / namespaces — no PII", and level 0 needed 9 `hostname-domain` policy exemptions to pass
+- **Root Cause**: Child Applications render with plain `helm.valueFiles`, never through the CMP, so the 2026-02-11 PII removal only sanitized the parent charts. The PII guard scanned only `configuration/`, so the leak was invisible to pre-commit and CI
+- **Solution**: Parent Applications pass derived values to children via `helm.valuesObject` (ADR-010); child `values-homelab.yaml` reduced to non-derived settings; bootstrap hostname derived from a Terraform-injected `global.domain`; `.gitignore` note rewritten; exemptions removed
+- **Prevention**: `homelab config guard` default scope is now `configuration/**` + `charts/**/values-homelab.yaml`, with shape rules for Helm-style keys (`host`, `portal`, `staticIP`, `email`, `dnsZones` items), so a real hostname, routable IP or mailbox in any child values file fails pre-commit and CI. Never add a `configuration/`-derived value to a child `values-homelab.yaml`; add it to the parent's export template and `valuesObject` instead
+- **PR**: #265 (GitHub issue #262)
+
 ### Known Common Errors (from CLAUDE.md)
 
 These are documented errors with known solutions:

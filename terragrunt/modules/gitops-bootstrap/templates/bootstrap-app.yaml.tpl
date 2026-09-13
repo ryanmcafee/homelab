@@ -16,6 +16,11 @@ spec:
       valueFiles:
         - values.yaml
         - values-${environment}.yaml
+      # The base domain never lives in git: Terraform injects it here and the
+      # gitops chart derives the bootstrap (ArgoCD) hostname from global.domain.
+      parameters:
+        - name: global.domain
+          value: ${base_fqdn}
   destination:
     server: https://kubernetes.default.svc
     namespace: ${namespace}

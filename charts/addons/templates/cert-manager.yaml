@@ -122,6 +122,24 @@ spec:
       valueFiles:
         - values.yaml
         - values-{{ .Values.global.environment }}.yaml
+      # Derived values (domain, ACME e-mail, DNS zones) come from this parent's
+      # cert-manager values (configuration/ via the CMP in homelab) so the
+      # child's committed values files stay PII-free. valuesObject overrides
+      # valueFiles in ArgoCD.
+      valuesObject:
+        global:
+          domain: {{ .Values.global.domain }}
+        letsencrypt:
+          server: {{ index .Values "cert-manager" "letsencrypt" "server" }}
+          email: {{ index .Values "cert-manager" "letsencrypt" "email" }}
+          {{- with (index .Values "cert-manager" "dnsZones") }}
+          dnsZones:
+            {{- toYaml . | nindent 12 }}
+          {{- else }}
+          dnsZones: []
+          {{- end }}
+        cloudflare:
+          email: {{ index .Values "cert-manager" "cloudflare" "email" }}
   destination:
     server: https://kubernetes.default.svc
     namespace: cert-manager

@@ -20,6 +20,9 @@ spec:
       valueFiles:
         - values.yaml
         - values-{{ .Values.global.environment }}.yaml
+      valuesObject:
+        iscsi:
+          portal: {{ .Values.global.iscsi.portal | quote }}
   destination:
     server: https://kubernetes.default.svc
     namespace: {{ .Values.flaresolverr.namespace }}

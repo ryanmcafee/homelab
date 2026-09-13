@@ -109,6 +109,18 @@ traefikExternal:
     dashboard:
       enabled: true
 
+  # Handed to the traefik-external-config child via helm.valuesObject.
+  # Uses the config DOMAIN for localdev (homelab.local) so the level-0
+  # hostname-domain policy passes.
+  config:
+    dashboard:
+      host: traefik.homelab.local
+      staticIP: "127.0.0.200"
+    oidc:
+      host: auth.homelab.local
+      allowedDomains:
+        - homelab.local
+
 # ============================================================================
 # Traefik Internal Ingress Controller
 # ============================================================================
@@ -140,6 +152,11 @@ traefikInternal:
   ingressRoute:
     dashboard:
       enabled: true
+
+  # Handed to the traefik-internal-config child via helm.valuesObject.
+  config:
+    dashboard:
+      host: traefik-internal.homelab.local
 
 # ============================================================================
 # cert-manager
@@ -182,6 +199,17 @@ cert-manager:
   # In production, this would be Let's Encrypt
   selfSigned:
     enabled: true
+
+  # Handed to the cert-manager-cluster-issuer child via helm.valuesObject.
+  # Placeholder addresses on the config DOMAIN for localdev (homelab.local).
+  letsencrypt:
+    email: test@homelab.local
+
+  cloudflare:
+    email: test@homelab.local
+
+  dnsZones:
+    - homelab.local
 
 # ============================================================================
 # kube-prometheus-stack (Monitoring)

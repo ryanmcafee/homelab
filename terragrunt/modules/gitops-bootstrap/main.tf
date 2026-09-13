@@ -123,6 +123,7 @@ resource "kubectl_manifest" "bootstrap_app" {
     target_revision = var.target_revision
     path            = var.gitops_chart_path
     environment     = var.environment
+    base_fqdn       = var.base_fqdn
     auto_sync       = var.auto_sync_enabled
     auto_prune      = var.auto_prune_enabled
     self_heal       = var.self_heal_enabled

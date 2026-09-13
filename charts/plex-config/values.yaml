@@ -11,3 +11,9 @@ onePasswordItemPath: ""
 
 # Persistent storage for Plex config (iSCSI block storage for SQLite)
 volumes: []
+
+# iSCSI target portal shared by every entry in volumes. The parent Application
+# passes ISCSI_TARGET_PORTAL from configuration/ via helm.valuesObject;
+# never commit a real portal here.
+iscsi:
+  portal: ""

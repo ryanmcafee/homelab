@@ -1,10 +1,11 @@
 # traefik-internal-config homelab values
-
-global:
-  domain: ryanmcafee.com
+#
+# The dashboard hostname and global.domain are not set here. The
+# traefik-internal-config Application in charts/addons passes them through
+# helm.valuesObject from configuration/ (via the CMP), so this committed file
+# stays PII-free.
 
 namespace: traefik
 
 dashboard:
   enabled: true
-  host: traefik-internal.ryanmcafee.com

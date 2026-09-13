@@ -27,6 +27,11 @@ global:
   # Timezone for applications
   timezone: {{ .Values.TIMEZONE.Value }}
 
+  # iSCSI target portal (IP:port) handed to the *-config child charts via
+  # helm.valuesObject
+  iscsi:
+    portal: "{{ .Values.ISCSI_TARGET_PORTAL.Value }}"
+
   # Media storage configuration (multiple NFS paths)
   media:
     nfsServer: {{ .Values.TRUENAS_HOSTNAME.Value }}
@@ -841,6 +846,17 @@ duckdns:
   # 1Password vault path for DuckDNS token
   # The secret should have a field named "token"
   onePasswordItemPath: {{ .Values.DUCKDNS_1P_PATH.Value }}
+
+# ============================================================================
+# Renovate - Automated Dependency Updates
+# Sync Wave: 12
+# ============================================================================
+# Only the domain-derived value lives here; helm merges it over
+# charts/applications/values.yaml.
+
+renovate:
+  config:
+    gitAuthor: "Renovate Bot <renovate@{{ .Values.DOMAIN.Value }}>"
 
 # ============================================================================
 # ArgoCD - Self-Management

@@ -2,5 +2,6 @@
 
 namespace: duckdns
 
-# DuckDNS subdomain (without .duckdns.org)
-subdomain: ryanmcafee
+# The DuckDNS subdomain is not set here: the parent Application
+# (charts/applications/templates/duckdns.yaml) passes DUCKDNS_SUBDOMAIN from
+# configuration/ via helm.valuesObject.

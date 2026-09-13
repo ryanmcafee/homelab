@@ -801,7 +801,7 @@ tasks:
       - go run ./cmd/homelab config export --set {{.ENV | default "homelab"}} --format {{.FORMAT}}
 
   config:guard:
-    desc: Scan every tracked configuration file for PII patterns
+    desc: Scan tracked configuration and chart homelab values files for PII
     # --ci is not optional here: without it (and without file arguments) the
     # guard resolves an empty scan scope, checks nothing and exits 0.
     cmds:

@@ -225,9 +225,18 @@ func IsPIIKey(key string) bool {
 // ---------------------------------------------------------------------------
 
 // DefaultGuardPathspecs is the CI scan scope. It mirrors the pre-commit hook's
-// `files: ^configuration/` pattern so the hook and CI agree on what is guarded.
-// Widen it explicitly with --paths rather than changing this default.
-var DefaultGuardPathspecs = []string{"configuration/**"}
+// `files: ^(configuration/|charts/[^/]+/values-homelab\.yaml$)` pattern so the
+// hook and CI agree on what is guarded.
+//
+// The chart files are in scope because they are committed and rendered into
+// the production environment without passing through the CMP: a child
+// `*-config` chart reads them through plain helm.valueFiles, so anything
+// derived from configuration/ (domain, hostnames, addresses, mailboxes) must
+// reach it through the parent Application's helm.valuesObject instead, and a
+// real value pasted into one of these files is a leak the same as one pasted
+// into configuration/. Widen the scope explicitly with --paths rather than
+// changing this default.
+var DefaultGuardPathspecs = []string{"configuration/**", "charts/**/values-homelab.yaml"}
 
 // guardScanExtensions are the file types the guard knows how to read. Anything
 // else (templates, binaries, .example files) is out of scope.
@@ -333,6 +342,9 @@ var configKeyLine = regexp.MustCompile(`^\s*([A-Z][A-Z0-9_]*)\s*:\s*(\S.*)$`)
 var reservedHostSuffixes = []string{
 	".local", ".localhost", ".localdomain", ".internal", ".intranet",
 	".test", ".invalid", ".example", ".example.com", ".example.org", ".example.net",
+	// Kubernetes in-cluster service names (<svc>.<ns>.svc, with or without
+	// .cluster.local) never leave the cluster and identify nothing outside it.
+	".svc",
 }
 
 // placeholderHosts are exact hostnames used as documentation placeholders.
@@ -550,11 +562,128 @@ func isRealHostname(v string) bool {
 	return true
 }
 
+// ---------------------------------------------------------------------------
+// Helm values keys
+// ---------------------------------------------------------------------------
+
+// chartPIIKeys are the lowercase and camelCase Helm values keys whose scalar
+// value names a host, address or mailbox. They are the keys the child charts'
+// values-homelab.yaml files hand to ingresses, iSCSI volumes, cluster issuers
+// and OIDC middleware, which is where the production identity used to live.
+// Keys are compared lowercased, so `staticIP`, `staticip` and `StaticIP` are
+// the same entry.
+//
+// The set is closed on purpose. `repoUrl`, `server`, `providerURL`, `url` and
+// `description` legitimately carry github.com, letsencrypt.org and
+// accounts.google.com, so they are not here: a key earns an entry only when
+// every real value it can hold would identify this installation.
+var chartPIIKeys = map[string]bool{
+	"domain":         true,
+	"host":           true,
+	"hostname":       true,
+	"portal":         true,
+	"portals":        true,
+	"targetportal":   true,
+	"staticip":       true,
+	"ip":             true,
+	"address":        true,
+	"email":          true,
+	"dnsname":        true,
+	"subdomain":      true,
+	"loadbalancerip": true,
+	"externalip":     true,
+}
+
+// chartPIIListKeys are the Helm values keys whose value is a list of hosts or
+// domains rather than one scalar: each bare `- item` nested under them is
+// judged on its own. A flow-style list on the same line (`dnsZones: [a, b]`)
+// is judged item by item too.
+var chartPIIListKeys = map[string]bool{
+	"dnszones":           true,
+	"alloweddomains":     true,
+	"alloweduserdomains": true,
+	"hosts":              true,
+	"dnsnames":           true,
+	"portals":            true,
+}
+
+// chartKeyLine matches a `key: value` line in Helm values, optionally as a
+// list item (`- host: value`), capturing the indentation, the key and the
+// value. The value is optional so a key opening a nested block or a list
+// (`dnsZones:`) matches too. A key may be an annotation name such as
+// external-dns.alpha.kubernetes.io/hostname; only its last path segment is
+// looked up, so that form is judged as `hostname`. The key may be quoted, as
+// annotation names often are.
+var chartKeyLine = regexp.MustCompile(`^(\s*)(?:-\s+)?["']?([A-Za-z][A-Za-z0-9_./-]*)["']?\s*:(?:\s+(.*?))?\s*$`)
+
+// chartListItemLine matches a bare YAML sequence item, capturing the
+// indentation and the item.
+var chartListItemLine = regexp.MustCompile(`^(\s*)-\s+(\S.*?)\s*$`)
+
+// chartKeyName reduces a key as written to the name looked up in the key
+// sets: lowercased, and for an annotation-style key only the segment after
+// the last slash.
+func chartKeyName(key string) string {
+	if i := strings.LastIndex(key, "/"); i >= 0 {
+		key = key[i+1:]
+	}
+	return strings.ToLower(key)
+}
+
+// isScreamingKey reports whether a key is SCREAMING_SNAKE, the shape of a
+// configuration/ key. Such a key belongs to the config rule (IsPIIKey)
+// whichever way that rule decides, so the Helm rule never second-guesses it.
+func isScreamingKey(key string) bool {
+	return key == strings.ToUpper(key)
+}
+
+// flowListItems splits a flow-style YAML sequence (`[a, b]`) into its items,
+// each stripped of quotes. A value that is not a flow sequence yields nil.
+func flowListItems(value string) []string {
+	v := strings.TrimSpace(value)
+	if len(v) < 2 || v[0] != '[' || v[len(v)-1] != ']' {
+		return nil
+	}
+	var items []string
+	for _, item := range strings.Split(v[1:len(v)-1], ",") {
+		if item = stripValue(item); item != "" {
+			items = append(items, item)
+		}
+	}
+	return items
+}
+
+// classifyHostValue reports what kind of real infrastructure a Helm value
+// names, or "" when it is safe to commit. The value is reduced with hostOf
+// first, so an iSCSI portal with a port (`172.16.100.150:3260`) or a URL
+// wrapping an address (`https://172.16.100.1`) is judged on its address.
+func classifyHostValue(value string) string {
+	// A CIDR names a network, not a host. The config rule never flags one
+	// (isRoutableHostIP cannot parse it) and isExamplePlaceholder handles it
+	// on its own, so this rule agrees rather than reducing it to its address.
+	if _, _, err := net.ParseCIDR(strings.TrimSpace(value)); err == nil {
+		return ""
+	}
+	switch {
+	case isRoutableHostIP(hostOf(value)):
+		return "routable host IP"
+	case isRealHostname(value):
+		return "real hostname"
+	}
+	return ""
+}
+
 // ScanFileForPIIShape reports PII-shaped keys whose value looks like real
 // infrastructure: a routable host address, or a hostname, domain or mailbox
 // outside the placeholder and allowlisted sets. It needs no resolved config,
 // so it keeps working in a clone without the real environment file, where
 // value-based detection is impossible.
+//
+// Two key rules run over the same line loop. A SCREAMING_SNAKE key is a
+// configuration/ key and is judged by IsPIIKey exactly as before; any other
+// key is a Helm values key and is judged by chartPIIKeys, or, for a bare
+// `- item` nested under one of chartPIIListKeys, by that list. Each line is
+// decided by one rule, so a line is never reported twice.
 //
 // In a template file the test inverts: every PII-shaped key must carry a
 // documented placeholder, and anything else is reported. See IsTemplateFile.
@@ -569,48 +698,137 @@ func ScanFileForPIIShape(path string) (GuardResult, error) {
 	}
 	defer f.Close()
 
+	// judge decides one value on one key and records the finding. In a
+	// template file the value is judged against the closed placeholder set
+	// rather than by shape, so a real value pasted into it is reported even
+	// when it is neither an address nor a hostname (a real username, say).
+	judge := func(lineNum int, line, key, value string) {
+		if template {
+			if isExamplePlaceholder(value) {
+				return
+			}
+			result.Matches = append(result.Matches, GuardMatch{
+				Line:    lineNum,
+				Pattern: key + " (non-placeholder value in example file)",
+				Content: line,
+				Note:    fmt.Sprintf("non-placeholder value in example file (%s)", value),
+			})
+			return
+		}
+		kind := classifyHostValue(value)
+		if kind == "" {
+			return
+		}
+		result.Matches = append(result.Matches, GuardMatch{
+			Line:    lineNum,
+			Pattern: key + " (" + kind + ")",
+			Content: line,
+		})
+	}
+
+	// The list the scanner is inside, if any: the key as written (for the
+	// Pattern) and the column of that key. Items belong to the list while they
+	// sit at or right of that column; the first key line, or a shallower item,
+	// closes it. Blank and comment lines are transparent.
+	var (
+		listKey    string
+		listIndent int
+	)
+
 	scanner := bufio.NewScanner(f)
 	lineNum := 0
 	for scanner.Scan() {
 		lineNum++
 		line := scanner.Text()
-		m := configKeyLine.FindStringSubmatch(line)
-		if m == nil || !IsPIIKey(m[1]) {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
 			continue
 		}
-		value := stripValue(m[2])
 
-		// A template file is judged against the closed placeholder set rather
-		// than by shape, so a real value pasted into it is reported even when
-		// it is neither an address nor a hostname (a real username, say).
-		if template {
-			if isExamplePlaceholder(value) {
+		// Config rule: a SCREAMING_SNAKE key with an inline value.
+		if m := configKeyLine.FindStringSubmatch(line); m != nil {
+			listKey = ""
+			if !IsPIIKey(m[1]) {
 				continue
 			}
+			value := stripValue(m[2])
+
+			if template {
+				if isExamplePlaceholder(value) {
+					continue
+				}
+				result.Matches = append(result.Matches, GuardMatch{
+					Line:    lineNum,
+					Pattern: m[1] + " (non-placeholder value in example file)",
+					Content: line,
+					Note:    fmt.Sprintf("non-placeholder value in example file (%s)", value),
+				})
+				continue
+			}
+
+			var kind string
+			switch {
+			case isRoutableHostIP(value):
+				kind = "routable host IP"
+			case isRealHostname(value):
+				kind = "real hostname"
+			default:
+				continue
+			}
+
 			result.Matches = append(result.Matches, GuardMatch{
 				Line:    lineNum,
-				Pattern: m[1] + " (non-placeholder value in example file)",
+				Pattern: m[1] + " (" + kind + ")",
 				Content: line,
-				Note:    fmt.Sprintf("non-placeholder value in example file (%s)", value),
 			})
 			continue
 		}
 
-		var kind string
-		switch {
-		case isRoutableHostIP(value):
-			kind = "routable host IP"
-		case isRealHostname(value):
-			kind = "real hostname"
-		default:
+		// Helm rule: a `key: value` line, possibly itself a list item.
+		if m := chartKeyLine.FindStringSubmatch(line); m != nil {
+			listKey = ""
+			indent, key, value := len(m[1]), m[2], stripValue(m[3])
+			if isScreamingKey(key) {
+				continue
+			}
+			name := chartKeyName(key)
+			switch {
+			case chartPIIListKeys[name] && value == "":
+				// The list opens here; its items follow on their own lines.
+				listKey = key
+				listIndent = indent
+				if strings.HasPrefix(trimmed, "-") {
+					listIndent += 2 // the key sits after the `- ` marker
+				}
+			case chartPIIListKeys[name]:
+				// A flow list sits on one line, and a line is reported once:
+				// stop at the first item that produces a finding.
+				before := len(result.Matches)
+				for _, item := range flowListItems(m[3]) {
+					judge(lineNum, line, key+"[]", item)
+					if len(result.Matches) > before {
+						break
+					}
+				}
+			case chartPIIKeys[name] && value != "":
+				judge(lineNum, line, key, value)
+			}
 			continue
 		}
 
-		result.Matches = append(result.Matches, GuardMatch{
-			Line:    lineNum,
-			Pattern: m[1] + " (" + kind + ")",
-			Content: line,
-		})
+		// A bare item inside an open list.
+		if m := chartListItemLine.FindStringSubmatch(line); m != nil && listKey != "" {
+			if len(m[1]) < listIndent {
+				listKey = ""
+				continue
+			}
+			judge(lineNum, line, listKey+"[]", stripValue(m[2]))
+			continue
+		}
+
+		// Anything else (a block scalar line, a flow-mapping line, prose)
+		// closes the list.
+		listKey = ""
 	}
 	if err := scanner.Err(); err != nil {
 		return result, err

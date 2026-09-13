@@ -84,20 +84,6 @@ Current exemptions in the rendered repo:
   intentionally tracked at `:latest` for automatic updates in this homelab).
   Unconditional (both envs); currently moot since `home-assistant.enabled` is
   `false` by default.
-- `charts/traefik-external-config/templates/{dashboard,oidc}.yaml` and
-  `charts/traefik-internal-config/templates/dashboard.yaml` — the dashboard/
-  OIDC DNSEndpoint, Certificate and IngressRoute objects are exempt from
-  `hostname-domain` per **GitHub issue #262**: these charts hardcode their own
-  `global.domain` in `values-homelab.yaml` instead of taking `DOMAIN` from the
-  centralized config system, so their hostnames are correct in real
-  deployments but can never match the level-0 placeholder domain. Remove
-  these exemptions once #262 is fixed. Unconditional (both envs — the gap
-  exists in both).
-- `charts/bootstrap/templates/argocd.yaml` — the `argocd` Application is
-  exempt from `hostname-domain`, same **GitHub issue #262** class: its inline
-  `spec.source.helm.values` sets the ArgoCD server hostname from this chart's
-  own `values-homelab.yaml`, not the centralized config. Unconditional (both
-  envs).
 - `charts/addons/templates/{kube-prometheus-stack,traefik-external,traefik-internal}.yaml`
   and `charts/applications/templates/{sonarr,radarr,prowlarr,nzbget,tautulli,
   lazylibrarian,plex,homeassistant}.yaml` — exempt from `hostname-domain`
