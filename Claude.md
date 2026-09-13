@@ -157,8 +157,90 @@ version and the only file Renovate bumps. The homelab environment receives these
 render time through the CMP (`homelab config export`), so the `chart.version` values in
 `charts/*/values.yaml` are placeholders that lag this file (tracked in #263).
 
-```yaml
 <!-- embedme configuration/versions.yaml -->
+```yaml
+# Centralized version registry — single source of truth for all chart and tool versions.
+# Update this file instead of editing individual values.yaml files.
+# Renovate/Dependabot PRs target this file only.
+
+charts:
+  # renovate: datasource=helm depName=argo-cd registryUrl=https://argoproj.github.io/argo-helm
+  argocd: "9.5.17"
+  # renovate: datasource=helm depName=cilium registryUrl=https://helm.cilium.io/
+  cilium: "1.19.5"
+  # renovate: datasource=helm depName=cert-manager registryUrl=https://charts.jetstack.io
+  cert-manager: "v1.20.3"
+  # renovate: datasource=helm depName=external-dns registryUrl=https://kubernetes-sigs.github.io/external-dns/
+  external-dns: "1.21.1"
+  # renovate: datasource=helm depName=kube-prometheus-stack registryUrl=https://prometheus-community.github.io/helm-charts
+  kube-prometheus-stack: "87.1.0"
+  # renovate: datasource=helm depName=traefik registryUrl=https://traefik.github.io/charts
+  traefik: "39.0.9"
+  # renovate: datasource=helm depName=democratic-csi registryUrl=https://democratic-csi.github.io/charts/
+  democratic-csi: "0.15.1"
+  # renovate: datasource=helm depName=tailscale-operator registryUrl=https://pkgs.tailscale.com/helmcharts
+  tailscale-operator: "1.98.4"
+  # renovate: datasource=helm depName=kubelet-csr-approver registryUrl=https://postfinance.github.io/kubelet-csr-approver
+  kubelet-csr-approver: "1.2.14"
+  # renovate: datasource=helm depName=connect registryUrl=https://1password.github.io/connect-helm-charts
+  onepassword-connect: "2.4.1"
+  # renovate: datasource=docker depName=ghcr.io/spegel-org/helm-charts/spegel
+  spegel: "0.6.0"
+  # renovate: datasource=helm depName=local-path-provisioner registryUrl=https://charts.containeroo.ch
+  local-path-provisioner: "0.0.37"
+  # renovate: datasource=helm depName=cloudnative-pg registryUrl=https://cloudnative-pg.github.io/charts
+  cloudnative-pg: "0.28.3"
+  # renovate: datasource=helm depName=argo-workflows registryUrl=https://argoproj.github.io/argo-helm
+  argo-workflows: "1.0.18"
+  # renovate: datasource=helm depName=plex-media-server registryUrl=https://raw.githubusercontent.com/plexinc/pms-docker/gh-pages
+  plex-media-server: "1.6.0"
+  # renovate: datasource=docker depName=oci.trueforge.org/truecharts/sonarr
+  sonarr: "25.6.3"
+  # renovate: datasource=docker depName=oci.trueforge.org/truecharts/radarr
+  radarr: "26.7.2"
+  # renovate: datasource=docker depName=oci.trueforge.org/truecharts/prowlarr
+  prowlarr: "21.7.3"
+  # renovate: datasource=docker depName=oci.trueforge.org/truecharts/nzbget
+  nzbget: "29.4.2"
+  # renovate: datasource=docker depName=oci.trueforge.org/truecharts/tautulli
+  tautulli: "21.18.2"
+  # renovate: datasource=docker depName=oci.trueforge.org/truecharts/lazylibrarian
+  lazylibrarian: "21.18.2"
+  # renovate: datasource=docker depName=oci.trueforge.org/truecharts/home-assistant
+  home-assistant: "29.6.2"
+  # renovate: datasource=docker depName=oci.trueforge.org/truecharts/mosquitto
+  mosquitto: "17.17.2"
+  # renovate: datasource=docker depName=oci.trueforge.org/truecharts/flaresolverr
+  flaresolverr: "16.18.2"
+  # renovate: datasource=docker depName=ghcr.io/renovatebot/charts/renovate
+  renovate: "46.106.12"
+  # renovate: datasource=helm depName=gpu-operator registryUrl=https://helm.ngc.nvidia.com/nvidia
+  nvidia-gpu-operator: "v26.3.3"
+  # renovate: datasource=helm depName=intel-device-plugins-gpu registryUrl=https://intel.github.io/helm-charts
+  intel-device-plugins-gpu: "0.36.0"
+  # renovate: datasource=helm depName=intel-device-plugins-operator registryUrl=https://intel.github.io/helm-charts
+  intel-device-plugins-operator: "0.36.0"
+  # renovate: datasource=helm depName=node-feature-discovery registryUrl=https://kubernetes-sigs.github.io/node-feature-discovery/charts
+  node-feature-discovery: "0.18.3"
+  # renovate: datasource=helm depName=oauth2-proxy registryUrl=https://oauth2-proxy.github.io/manifests
+  oauth2-proxy: "10.7.0"
+  # renovate: datasource=docker depName=ghcr.io/kashalls/external-dns-unifi-webhook
+  external-dns-webhook-unifi: "v0.8.2"
+  # renovate: datasource=github-releases depName=lukaszraczylo/traefikoidc
+  traefik-oidc: "v1.0.32"
+  unifi-port-forward: "1.1.x"
+images:
+  homelab-cmp: "0.1.13"
+tools:
+  # renovate: datasource=github-releases depName=siderolabs/talos
+  talos: "v1.13.3"
+  # renovate: datasource=github-releases depName=kubernetes/kubernetes
+  kubernetes: "v1.36.1"
+  # renovate: datasource=github-releases depName=hashicorp/terraform
+  terraform: "1.15.5"
+  # renovate: datasource=github-releases depName=helm/helm
+  helm: "4.2.0"
+
 ```
 
 ### Version Update Files
