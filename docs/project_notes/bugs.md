@@ -270,3 +270,9 @@ These are documented errors with known solutions:
 - Focus on the lesson learned, not just the fix
 - Include enough context for future reference
 - Clean out very old entries periodically (6+ months)
+
+### 2026-09-13 - `homelab verify prod` failed a placeholder Application as "never synced"
+- **Issue**: `task verify:prod` reported `prod/argocd/traefik-internal-dependencies` as FAIL with "no sync operation recorded (the Application has never been synced)" although the Application was Synced and Healthy
+- **Root Cause**: `charts/traefik-internal-dependencies` renders only a comment in homelab (placeholder for the dependencies -> main -> config pattern), so ArgoCD has nothing to apply and never records an operation; `evaluateArgoApp` treated an empty `operationState` as never-synced regardless of whether the Application has resources
+- **Solution**: `evaluateArgoApp` (internal/verify/cluster.go) passes an Application that is Synced, Healthy, has zero `status.resources` and no operation, with `detail` ending in `(no resources: nothing to sync)`; the never-synced finding stays for Applications that do have resources (table test `TestEvaluateArgoAppWithoutResources`, both prod and Kind rules)
+- **Prevention**: Any new placeholder child chart behaves the same way; the check now documents this in `docs/runbooks/verification.md`
