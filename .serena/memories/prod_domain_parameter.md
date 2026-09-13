@@ -8,7 +8,7 @@ derives the ArgoCD ingress hostname / external-dns annotation / extraTls /
 (bootstrap installs the CMP, so it cannot render through it). Level 0 mirrors the
 parameter with `--set global.domain=<DOMAIN>` (`internal/verify/render.go`).
 
-Gotcha (2026-09-13, PR #274): editing the module does nothing until a human runs
+Gotcha (2026-09-13, PR #275): editing the module does nothing until a human runs
 `task tf:apply:component COMPONENT=gitops-bootstrap`. Without the parameter the
 committed placeholder `example.com` wins and ArgoCD self-heals its own Ingress to
 `argocd.example.com`. `homelab verify prod` check `prod/argocd/domain`
