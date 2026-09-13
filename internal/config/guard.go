@@ -596,8 +596,9 @@ var chartPIIKeys = map[string]bool{
 
 // chartPIIListKeys are the Helm values keys whose value is a list of hosts or
 // domains rather than one scalar: each bare `- item` nested under them is
-// judged on its own. A flow-style list on the same line (`dnsZones: [a, b]`)
-// is judged item by item too.
+// judged on its own. A flow-style list (`dnsZones: [a, b]`, on one line or
+// spanning several) is judged item by item too, as is a list inside a flow
+// mapping (`- {hosts: [a], secretName: x}`).
 var chartPIIListKeys = map[string]bool{
 	"dnszones":           true,
 	"alloweddomains":     true,
@@ -644,14 +645,26 @@ func flowListItems(value string) []string {
 	if len(v) < 2 || v[0] != '[' || v[len(v)-1] != ']' {
 		return nil
 	}
+	return splitFlowItems(v[1 : len(v)-1])
+}
+
+// splitFlowItems splits the body of a flow-style sequence (the text between
+// `[` and `]`, or one line of a sequence that spans lines) into its items,
+// each stripped of quotes.
+func splitFlowItems(body string) []string {
 	var items []string
-	for _, item := range strings.Split(v[1:len(v)-1], ",") {
+	for _, item := range strings.Split(body, ",") {
 		if item = stripValue(item); item != "" {
 			items = append(items, item)
 		}
 	}
 	return items
 }
+
+// flowMapPair matches one `key: value` pair inside a flow mapping
+// (`{host: a, paths: [/]}`). A value runs to the next comma or brace, or is
+// one whole bracketed flow list, so a list-valued key is judged item by item.
+var flowMapPair = regexp.MustCompile(`([A-Za-z][A-Za-z0-9_./-]*)\s*:\s*(\[[^\]]*\]|"[^"]*"|'[^']*'|[^,{}]+)`)
 
 // classifyHostValue reports what kind of real infrastructure a Helm value
 // names, or "" when it is safe to commit. The value is reduced with hostOf
@@ -726,13 +739,54 @@ func ScanFileForPIIShape(path string) (GuardResult, error) {
 		})
 	}
 
+	// judgeItems judges the items of a flow list on key. The list sits on one
+	// line and a line is reported once, so it stops at the first finding.
+	judgeItems := func(lineNum int, line, key string, items []string) {
+		before := len(result.Matches)
+		for _, item := range items {
+			judge(lineNum, line, key+"[]", item)
+			if len(result.Matches) > before {
+				return
+			}
+		}
+	}
+
+	// judgeFlowMapping judges every `key: value` pair of a flow mapping
+	// (`- {host: a, paths: [/]}`) by the same key sets as the block form,
+	// stopping at the first finding so a line is reported once.
+	judgeFlowMapping := func(lineNum int, line, mapping string) {
+		before := len(result.Matches)
+		for _, pair := range flowMapPair.FindAllStringSubmatch(mapping, -1) {
+			key, raw := pair[1], pair[2]
+			if isScreamingKey(key) {
+				continue
+			}
+			name := chartKeyName(key)
+			switch {
+			case chartPIIListKeys[name]:
+				judgeItems(lineNum, line, key, flowListItems(raw))
+			case chartPIIKeys[name]:
+				if value := stripValue(raw); value != "" {
+					judge(lineNum, line, key, value)
+				}
+			}
+			if len(result.Matches) > before {
+				return
+			}
+		}
+	}
+
 	// The list the scanner is inside, if any: the key as written (for the
 	// Pattern) and the column of that key. Items belong to the list while they
 	// sit at or right of that column; the first key line, or a shallower item,
 	// closes it. Blank and comment lines are transparent.
+	//
+	// flowKey is the list key whose flow sequence opened on an earlier line
+	// (`dnsZones: [`) and has not reached its closing bracket yet.
 	var (
 		listKey    string
 		listIndent int
+		flowKey    string
 	)
 
 	scanner := bufio.NewScanner(f)
@@ -742,6 +796,17 @@ func ScanFileForPIIShape(path string) (GuardResult, error) {
 		line := scanner.Text()
 		trimmed := strings.TrimSpace(line)
 		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+
+		// The rest of a flow list that opened on an earlier line: every line
+		// up to the closing bracket carries items.
+		if flowKey != "" {
+			body, _, closed := strings.Cut(trimmed, "]")
+			judgeItems(lineNum, line, flowKey, splitFlowItems(body))
+			if closed {
+				flowKey = ""
+			}
 			continue
 		}
 
@@ -792,6 +857,13 @@ func ScanFileForPIIShape(path string) (GuardResult, error) {
 				continue
 			}
 			name := chartKeyName(key)
+			raw := strings.TrimSpace(m[3])
+			if strings.HasPrefix(raw, "{") {
+				// A flow mapping value (`dashboard: {host: a}`) is judged by
+				// the keys inside it.
+				judgeFlowMapping(lineNum, line, raw)
+				continue
+			}
 			switch {
 			case chartPIIListKeys[name] && value == "":
 				// The list opens here; its items follow on their own lines.
@@ -800,34 +872,38 @@ func ScanFileForPIIShape(path string) (GuardResult, error) {
 				if strings.HasPrefix(trimmed, "-") {
 					listIndent += 2 // the key sits after the `- ` marker
 				}
+			case chartPIIListKeys[name] && strings.HasPrefix(raw, "[") && !strings.Contains(raw, "]"):
+				// The flow list opens here and continues on the following
+				// lines; whatever items share this line are judged now.
+				flowKey = key
+				judgeItems(lineNum, line, key, splitFlowItems(raw[1:]))
 			case chartPIIListKeys[name]:
-				// A flow list sits on one line, and a line is reported once:
-				// stop at the first item that produces a finding.
-				before := len(result.Matches)
-				for _, item := range flowListItems(m[3]) {
-					judge(lineNum, line, key+"[]", item)
-					if len(result.Matches) > before {
-						break
-					}
-				}
+				judgeItems(lineNum, line, key, flowListItems(raw))
 			case chartPIIKeys[name] && value != "":
 				judge(lineNum, line, key, value)
 			}
 			continue
 		}
 
-		// A bare item inside an open list.
-		if m := chartListItemLine.FindStringSubmatch(line); m != nil && listKey != "" {
-			if len(m[1]) < listIndent {
-				listKey = ""
+		// A bare item: a flow mapping (`- {host: a, paths: [/]}`) is judged by
+		// its own keys whichever list it sits in; a scalar belongs to the open
+		// list, if any.
+		if m := chartListItemLine.FindStringSubmatch(line); m != nil {
+			if strings.HasPrefix(m[2], "{") {
+				judgeFlowMapping(lineNum, line, m[2])
 				continue
 			}
-			judge(lineNum, line, listKey+"[]", stripValue(m[2]))
-			continue
+			if listKey != "" {
+				if len(m[1]) < listIndent {
+					listKey = ""
+					continue
+				}
+				judge(lineNum, line, listKey+"[]", stripValue(m[2]))
+				continue
+			}
 		}
 
-		// Anything else (a block scalar line, a flow-mapping line, prose)
-		// closes the list.
+		// Anything else (a block scalar line, prose) closes the list.
 		listKey = ""
 	}
 	if err := scanner.Err(); err != nil {
