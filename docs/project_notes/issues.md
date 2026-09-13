@@ -13,6 +13,11 @@ Each entry should include:
 
 ## Recent Work
 
+### 2026-09-13 - verify prod: pass Applications whose chart renders no resources
+- **Status**: Open (PR pending)
+- **Description**: First end-to-end `task verify:prod` after PR #276 (ACL grant) and enabling HTTPS certificates on the tailnet: 56 pass, 10 fail. Nine `*-config` Applications carry a stale Failed operation from 2026-09-13 01:25 UTC (revision 95c459d, PV iSCSI portal rendered empty before the gitops-bootstrap re-apply; live PVs untouched, now Synced at 699acf3, a re-sync clears it). The tenth, `traefik-internal-dependencies`, is a comment-only placeholder chart that ArgoCD never syncs; `evaluateArgoApp` now passes Synced + Healthy + zero resources instead of reporting "never synced".
+- **URL**: (PR pending)
+
 ### 2026-09-13 - PR #276: Tailscale ACL grant for the read-only API server proxy (runbook step 2)
 - **Status**: Open (PR #276; `tailscale-acl.yml` applies on merge behind the production environment)
 - **Description**: `task prod:kubeconfig` failed because the 1Password items from `docs/runbooks/readonly-access.md` steps 3-4 (`k8s-agent-readonly`, `argocd-agent-token`) had never been created; both now exist and `task prod:kubeconfig` / `task prod:diff` work. `task verify:prod` still failed with `no such host` because the policy had no grant to `tag:k8s-operator` (step 2); this PR adds `autogroup:admin -> tag:k8s-operator tcp:443`. Also refreshed the stale `argocd.ryanmcafee.com` admin password in 1Password from `argocd-initial-admin-secret`.

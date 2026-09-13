@@ -2,11 +2,13 @@ package verify
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // clusterCmd is one recorded kubectl or chainsaw invocation.
@@ -330,7 +332,10 @@ const argoAppsJSON = `{
       "metadata": {"name": "sonarr", "namespace": "argocd"},
       "status": {
         "sync": {"status": "Synced"},
-        "health": {"status": "Healthy"}
+        "health": {"status": "Healthy"},
+        "resources": [
+          {"kind": "Deployment", "namespace": "media", "name": "sonarr", "health": {"status": "Healthy"}}
+        ]
       }
     }
   ]
@@ -723,6 +728,84 @@ func TestHasYAMLDocument(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := hasYAMLDocument([]byte(tc.in)); got != tc.want {
 				t.Errorf("hasYAMLDocument(%q) = %v, want %v", tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
+// An Application whose chart renders no resources (charts/traefik-internal-
+// dependencies in homelab is a comment-only placeholder) never gets a sync
+// operation: ArgoCD has nothing to apply, so operationState stays empty while
+// sync is Synced and health is Healthy. That is a pass, not "never synced".
+// The never-synced finding stays for Applications that do have resources.
+func TestEvaluateArgoAppWithoutResources(t *testing.T) {
+	const emptyApp = `{
+  "apiVersion": "v1",
+  "kind": "List",
+  "items": [
+    {
+      "metadata": {"name": "traefik-internal-dependencies", "namespace": "argocd"},
+      "status": {"sync": {"status": "Synced"}, "health": {"status": "Healthy"}, "resources": []}
+    },
+    {
+      "metadata": {"name": "no-resources-field", "namespace": "argocd"},
+      "status": {"sync": {"status": "Synced"}, "health": {"status": "Healthy"}}
+    },
+    {
+      "metadata": {"name": "has-resources", "namespace": "argocd"},
+      "status": {
+        "sync": {"status": "Synced"}, "health": {"status": "Healthy"},
+        "resources": [{"kind": "ConfigMap", "namespace": "traefik", "name": "x", "health": {"status": "Healthy"}}]
+      }
+    },
+    {
+      "metadata": {"name": "empty-but-outofsync", "namespace": "argocd"},
+      "status": {"sync": {"status": "OutOfSync"}, "health": {"status": "Healthy"}, "resources": []}
+    },
+    {
+      "metadata": {"name": "empty-but-missing", "namespace": "argocd"},
+      "status": {"sync": {"status": "Synced"}, "health": {"status": "Missing"}, "resources": []}
+    }
+  ]
+}`
+	var list argoAppList
+	if err := json.Unmarshal([]byte(emptyApp), &list); err != nil {
+		t.Fatal(err)
+	}
+	byName := map[string]argoApp{}
+	for _, app := range list.Items {
+		byName[app.Metadata.Name] = app
+	}
+
+	tests := []struct {
+		name       string
+		rules      argoAppRules
+		app        string
+		wantStatus Status
+		wantDetail string
+		wantHint   bool
+	}{
+		{"prod: empty Synced Healthy passes", prodAppRules(true), "traefik-internal-dependencies", StatusPass, "no resources", false},
+		{"prod: resources field absent counts as empty", prodAppRules(true), "no-resources-field", StatusPass, "no resources", false},
+		{"prod: resources without an operation still fails", prodAppRules(true), "has-resources", StatusFail, "", true},
+		{"prod: empty but OutOfSync fails", prodAppRules(true), "empty-but-outofsync", StatusFail, "", true},
+		{"prod: empty but not Healthy fails", prodAppRules(true), "empty-but-missing", StatusFail, "", true},
+		{"kind: empty Synced Healthy passes", kindAppRules, "traefik-internal-dependencies", StatusPass, "no resources", false},
+		{"kind: resources without an operation still fails", kindAppRules, "has-resources", StatusFail, "", true},
+		{"kind: empty but OutOfSync fails even without requireSynced", kindAppRules, "empty-but-outofsync", StatusFail, "", true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			c := evaluateArgoApp(byName[tc.app], time.Now(), tc.rules)
+			if c.Status != tc.wantStatus {
+				t.Fatalf("status = %s, want %s (%+v)", c.Status, tc.wantStatus, c)
+			}
+			if tc.wantDetail != "" && !strings.Contains(c.Detail, tc.wantDetail) {
+				t.Errorf("detail %q should mention %q", c.Detail, tc.wantDetail)
+			}
+			joined := strings.Join(c.Findings, "\n")
+			if got := strings.Contains(joined, "no sync operation recorded"); got != tc.wantHint {
+				t.Errorf("never-synced hint present = %v, want %v (findings %q)", got, tc.wantHint, c.Findings)
 			}
 		})
 	}
