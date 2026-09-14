@@ -800,6 +800,21 @@ tasks:
     cmds:
       - deno run --allow-net --allow-run --allow-env --allow-read --allow-write scripts/prod-readonly.ts diff {{.CLI_ARGS}}
 
+  tailscale:dns:status:
+    desc: Tailnet DNS settings (MagicDNS, global nameservers, split DNS) through the Tailscale API (docs/runbooks/tailscale-dns.md)
+    cmds:
+      - deno run --allow-net --allow-run --allow-env --allow-read scripts/tailscale-dns.ts status {{.CLI_ARGS}}
+
+  tailscale:dns:apply:
+    desc: Split DNS for DOMAIN -> GATEWAY_IP on the tailnet so private hostnames resolve off-LAN (task tailscale:dns:apply -- --dry-run)
+    cmds:
+      - deno run --allow-net --allow-run --allow-env --allow-read scripts/tailscale-dns.ts apply {{.CLI_ARGS}}
+
+  tailscale:dns:remove:
+    desc: Clear the tailnet split DNS entry for DOMAIN (task tailscale:dns:remove -- --dry-run)
+    cmds:
+      - deno run --allow-net --allow-run --allow-env --allow-read scripts/tailscale-dns.ts remove {{.CLI_ARGS}}
+
   # ==========================================================================
   # CI/CD Testing
   # ==========================================================================
