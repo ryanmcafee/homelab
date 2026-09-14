@@ -65,6 +65,9 @@ import {
   parseVerifyJson,
   parseWave,
   pendingChildren,
+  podHasRestarted,
+  podNeedsDiagnosis,
+  type PodSummary,
   portForwardCmd,
   renderReport,
   REPORT_MAX_FINDINGS,
@@ -2030,4 +2033,63 @@ Deno.test("resourceLines: a Healthy app (failed operation) lists only resources 
     "Secret argocd/nohealth: -",
   ]);
   assertEquals(resourceLines(app({ name: "bare", health: "Progressing" })), []);
+});
+
+Deno.test("podNeedsDiagnosis: Running pods with a crash-looping, restarted or not-ready container are diagnosed", () => {
+  const running = (
+    statuses: Array<
+      { ready?: boolean; restartCount?: number; waiting?: string }
+    >,
+  ): PodSummary => ({
+    metadata: { name: "p" },
+    status: {
+      phase: "Running",
+      containerStatuses: statuses.map((s) => ({
+        name: "c",
+        ready: s.ready,
+        restartCount: s.restartCount,
+        state: s.waiting ? { waiting: { reason: s.waiting } } : {},
+      })),
+    },
+  });
+  assertEquals(
+    podNeedsDiagnosis(running([{ ready: true, restartCount: 0 }])),
+    false,
+  );
+  assertEquals(
+    podNeedsDiagnosis(running([{ ready: false, restartCount: 0 }])),
+    true,
+  );
+  assertEquals(
+    podNeedsDiagnosis(running([{ ready: true, restartCount: 3 }])),
+    true,
+  );
+  assertEquals(
+    podNeedsDiagnosis(
+      running([{ ready: false, restartCount: 0, waiting: "CrashLoopBackOff" }]),
+    ),
+    true,
+  );
+  assertEquals(
+    podNeedsDiagnosis({
+      metadata: { name: "p" },
+      status: { phase: "Pending" },
+    }),
+    true,
+  );
+  assertEquals(
+    podNeedsDiagnosis({
+      metadata: { name: "p" },
+      status: { phase: "Succeeded" },
+    }),
+    false,
+  );
+  assertEquals(
+    podHasRestarted(running([{ ready: true, restartCount: 2 }])),
+    true,
+  );
+  assertEquals(
+    podHasRestarted(running([{ ready: true, restartCount: 0 }])),
+    false,
+  );
 });

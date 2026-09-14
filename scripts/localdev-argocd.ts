@@ -2886,9 +2886,47 @@ function tail(text: string, n: number): string {
   return lines.slice(Math.max(0, lines.length - n)).join("\n");
 }
 
-interface PodSummary {
+interface ContainerStatusSummary {
+  name?: string;
+  ready?: boolean;
+  restartCount?: number;
+  state?: { waiting?: { reason?: string }; terminated?: { reason?: string } };
+}
+
+export interface PodSummary {
   metadata?: { name?: string; namespace?: string };
-  status?: { phase?: string };
+  status?: {
+    phase?: string;
+    containerStatuses?: ContainerStatusSummary[];
+    initContainerStatuses?: ContainerStatusSummary[];
+  };
+}
+
+/**
+ * Whether diagnose should dump a pod: any phase other than Running/Succeeded,
+ * or a Running pod with a container that is not ready, has restarted, or is
+ * waiting (CrashLoopBackOff keeps the pod phase at Running, which is exactly
+ * the pod whose logs explain a Progressing workload).
+ */
+export function podNeedsDiagnosis(pod: PodSummary): boolean {
+  const phase = pod.status?.phase ?? "Unknown";
+  if (phase !== "Running" && phase !== "Succeeded") return true;
+  if (phase === "Succeeded") return false;
+  const all = [
+    ...(pod.status?.initContainerStatuses ?? []),
+    ...(pod.status?.containerStatuses ?? []),
+  ];
+  return all.some((c) =>
+    c.ready === false || (c.restartCount ?? 0) > 0 || !!c.state?.waiting
+  );
+}
+
+/** True when a container of the pod has restarted (a --previous log exists). */
+export function podHasRestarted(pod: PodSummary): boolean {
+  return [
+    ...(pod.status?.initContainerStatuses ?? []),
+    ...(pod.status?.containerStatuses ?? []),
+  ].some((c) => (c.restartCount ?? 0) > 0);
 }
 
 /** A managed resource `kubectl describe` can name; group is "" for core kinds. */
@@ -3019,7 +3057,7 @@ async function diagnosePods(ns: string): Promise<void> {
   for (const pod of items) {
     const phase = pod.status?.phase ?? "Unknown";
     const name = pod.metadata?.name;
-    if (!name || phase === "Running" || phase === "Succeeded") continue;
+    if (!name || !podNeedsDiagnosis(pod)) continue;
     console.log(`\n--- pod ${ns}/${name} (${phase}): describe tail ---`);
     const d = await run(kubectl("describe", "pod", name, "-n", ns));
     console.log(d.code === 0 ? tail(d.stdout, DESCRIBE_TAIL) : d.stderr.trim());
@@ -3037,6 +3075,25 @@ async function diagnosePods(ns: string): Promise<void> {
       ),
     );
     console.log((l.code === 0 ? l.stdout : l.stderr).trim() || "(no logs)");
+    if (podHasRestarted(pod)) {
+      // A crash-looping container is usually Waiting with an empty current
+      // log; the previous run is the one that failed.
+      console.log(
+        `\n--- pod ${ns}/${name}: logs --previous --tail=${LOGS_TAIL} --all-containers ---`,
+      );
+      const p = await run(
+        kubectl(
+          "logs",
+          name,
+          "-n",
+          ns,
+          "--previous",
+          `--tail=${LOGS_TAIL}`,
+          "--all-containers",
+        ),
+      );
+      console.log((p.code === 0 ? p.stdout : p.stderr).trim() || "(no logs)");
+    }
   }
 }
 
