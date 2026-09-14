@@ -63,6 +63,15 @@ spec:
             name: paperclip-database
             namespace: argocd
         - describe:
+            apiVersion: paperclip.inc/v1alpha1
+            kind: Instance
+            name: paperclip
+            namespace: paperclip
+        - podLogs:
+            namespace: paperclip-operator
+            selector: app.kubernetes.io/name=paperclip-operator
+            tail: 100
+        - describe:
             apiVersion: argoproj.io/v1alpha1
             kind: Application
             name: paperclip

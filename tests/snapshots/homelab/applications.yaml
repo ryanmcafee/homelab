@@ -1241,6 +1241,12 @@ spec:
         crds:
           install: true
           keep: true
+        # Chart 0.19.1 turns on --leader-elect but grants no RBAC on
+        # coordination.k8s.io leases, so the manager never wins the election,
+        # never starts its controllers and still reports Ready (Instances stay
+        # without status forever). One replica needs no election.
+        leaderElection:
+          enabled: false
         metrics:
           enabled: true
           serviceMonitor:

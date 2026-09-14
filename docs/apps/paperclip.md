@@ -1,4 +1,4 @@
-# paperclip
+`paperclip.inc` CRDs + controller; `leaderElection.enabled: false` because chart 0.19.1 grants no RBAC on `coordination.k8s.io` leases while enabling `--leader-elect` (the manager never becomes leader, never reconciles, yet reports Ready) |# paperclip
 
 [Paperclip](https://paperclip.ing/) is an open-source AI agent orchestration platform (org charts,
 budgets, governance and coordination for teams of AI agents). It runs through the official
