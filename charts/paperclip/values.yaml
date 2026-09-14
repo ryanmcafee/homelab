@@ -74,6 +74,12 @@ ingress:
 security:
   networkPolicy:
     enabled: true
+  # The operator adds a privileged "selinux-relabel" init container (chcon on the
+  # data volume) unless told not to. It is rejected by the namespace's PodSecurity
+  # baseline admission (no pod is ever created and the Instance stays
+  # Provisioning) and is pointless here: Talos does not enforce SELinux on
+  # containers and the volume is NFS in homelab, local-path in Kind.
+  seLinuxRelabel: false
 
 # Instance metrics stay off: enabling them makes the operator inject an OTEL
 # preload (NODE_OPTIONS --import ./server/dist/instrumentation.js) that crashes

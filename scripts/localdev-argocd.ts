@@ -2891,7 +2891,107 @@ interface PodSummary {
   status?: { phase?: string };
 }
 
-async function diagnoseNamespace(ns: string): Promise<void> {
+/** A managed resource `kubectl describe` can name; group is "" for core kinds. */
+export interface DescribeTarget {
+  group: string;
+  kind: string;
+  ns: string;
+  name: string;
+}
+
+/** The namespace a resource lives in: its own, else the app's destination. */
+function resourceNamespace(r: AppResource, app: Application): string {
+  return r.namespace ?? app.spec?.destination?.namespace ?? "";
+}
+
+/** ArgoCD omits health for kinds it cannot assess; that counts as not Healthy. */
+function resourceNotHealthy(r: AppResource): boolean {
+  return r.health?.status !== "Healthy";
+}
+
+/** `<group/>kind ns/name: <health or "-">[ — message]` for one resource. */
+export function formatResource(r: AppResource, app: Application): string {
+  const ns = resourceNamespace(r, app);
+  const msg = r.health?.message ? ` — ${r.health.message}` : "";
+  return `${r.group ? `${r.group}/` : ""}${r.kind ?? "?"} ${
+    ns ? `${ns}/` : ""
+  }${r.name ?? "?"}: ${r.health?.status ?? "-"}${msg}`;
+}
+
+/**
+ * Resource lines for the diagnose output: every managed resource when the
+ * Application itself is not Healthy (ArgoCD may omit per-resource health, so
+ * the reader still sees what the app manages), otherwise only those that are
+ * not Healthy.
+ */
+export function resourceLines(app: Application): string[] {
+  const all = (app.status?.resources ?? []).filter((r) => r != null);
+  const shown = app.status?.health?.status === "Healthy"
+    ? all.filter(resourceNotHealthy)
+    : all;
+  return shown.map((r) => formatResource(r, app));
+}
+
+/**
+ * Namespaces to diagnose for the unhealthy Applications: every destination
+ * namespace plus the namespace of every resource that is not Healthy (child
+ * Applications excluded), de-duplicated; `argocd` last, so an unhealthy
+ * parent's events do not bury the workload namespaces.
+ */
+export function diagnoseNamespaces(unhealthy: Application[]): string[] {
+  const seen = new Set<string>();
+  for (const app of unhealthy) {
+    const dest = app.spec?.destination?.namespace;
+    if (dest) seen.add(dest);
+    for (const r of app.status?.resources ?? []) {
+      if (!r || r.kind === "Application" || !resourceNotHealthy(r)) continue;
+      const ns = resourceNamespace(r, app);
+      if (ns) seen.add(ns);
+    }
+  }
+  const others = [...seen].filter((ns) => ns !== ARGOCD_NAMESPACE).sort();
+  return seen.has(ARGOCD_NAMESPACE) ? [...others, ARGOCD_NAMESPACE] : others;
+}
+
+/**
+ * Resources worth a `kubectl describe`: not Healthy (or without health), in a
+ * non-core API group other than argoproj.io, de-duplicated. The describe
+ * shows a custom resource's own status conditions and events, which the
+ * Application's health line alone hides.
+ */
+export function describeTargets(unhealthy: Application[]): DescribeTarget[] {
+  const seen = new Set<string>();
+  const out: DescribeTarget[] = [];
+  for (const app of unhealthy) {
+    for (const r of app.status?.resources ?? []) {
+      if (!r?.group || r.group === "argoproj.io" || !r.kind || !r.name) {
+        continue;
+      }
+      if (!resourceNotHealthy(r)) continue;
+      const t = {
+        group: r.group,
+        kind: r.kind,
+        ns: resourceNamespace(r, app),
+        name: r.name,
+      };
+      const key = `${t.group}/${t.kind} ${t.ns}/${t.name}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(t);
+    }
+  }
+  return out;
+}
+
+/** `kubectl describe <kind>.<group> <name> [-n <ns>]` arguments for a target. */
+export function describeArgs(t: DescribeTarget): string[] {
+  const resource = t.group ? `${t.kind.toLowerCase()}.${t.group}` : t.kind;
+  return t.ns
+    ? ["describe", resource, t.name, "-n", t.ns]
+    : ["describe", resource, t.name];
+}
+
+async function diagnoseEvents(ns: string): Promise<void> {
   console.log(`\n--- namespace ${ns}: last ${EVENTS_TAIL} events ---`);
   const ev = await run(
     kubectl("get", "events", "-n", ns, "--sort-by=.lastTimestamp"),
@@ -2901,7 +3001,9 @@ async function diagnoseNamespace(ns: string): Promise<void> {
       ? tail(ev.stdout, EVENTS_TAIL) || "(no events)"
       : `(kubectl get events failed: ${ev.stderr.trim()})`,
   );
+}
 
+async function diagnosePods(ns: string): Promise<void> {
   const pods = await run(kubectl("get", "pods", "-n", ns, "-o", "json"));
   if (pods.code !== 0) {
     console.log(`(kubectl get pods failed: ${pods.stderr.trim()})`);
@@ -2938,6 +3040,64 @@ async function diagnoseNamespace(ns: string): Promise<void> {
   }
 }
 
+/** Workloads table: a StatefulSet at READY 0/1 with no pod shows up here. */
+async function diagnoseWorkloads(ns: string): Promise<void> {
+  console.log(`\n--- namespace ${ns}: statefulsets, deployments, jobs ---`);
+  const w = await run(
+    kubectl("get", "statefulsets,deployments,jobs", "-n", ns),
+  );
+  console.log((w.code === 0 ? w.stdout : w.stderr).trim() || "(none)");
+}
+
+async function describeResources(targets: DescribeTarget[]): Promise<void> {
+  for (const t of targets) {
+    console.log(
+      `\n--- ${t.group}/${t.kind} ${t.ns}/${t.name}: describe tail ---`,
+    );
+    const d = await run(kubectl(...describeArgs(t)));
+    console.log(
+      (d.code === 0 ? tail(d.stdout, DESCRIBE_TAIL) : d.stderr.trim()) ||
+        "(no output)",
+    );
+  }
+}
+
+async function diagnoseNamespace(
+  ns: string,
+  targets: DescribeTarget[],
+): Promise<void> {
+  await diagnoseEvents(ns);
+  await diagnosePods(ns);
+  await diagnoseWorkloads(ns);
+  await describeResources(targets.filter((t) => t.ns === ns));
+}
+
+function printApplication(app: Application): void {
+  const st = app.status ?? {};
+  console.log(`\n=== ${app.metadata.name} ===`);
+  console.log(
+    `  health: ${st.health?.status ?? "-"}  sync: ${
+      st.sync?.status ?? "-"
+    }  operation: ${st.operationState?.phase ?? "-"}`,
+  );
+  if (st.health?.message) {
+    console.log(`  health message: ${st.health.message}`);
+  }
+  if (st.operationState?.message) {
+    console.log(`  operation message: ${st.operationState.message}`);
+  }
+  for (const c of st.conditions ?? []) {
+    console.log(`  condition ${c?.type ?? "?"}: ${c?.message ?? ""}`);
+  }
+  const lines = resourceLines(app);
+  if (lines.length > 0) {
+    console.log("  resources:");
+    for (const line of lines) console.log(`    ${line}`);
+  } else if ((st.resources ?? []).length === 0) {
+    console.log("  resources: (none reported)");
+  }
+}
+
 async function cmdDiagnose(): Promise<number> {
   let apps: Application[];
   try {
@@ -2954,48 +3114,11 @@ async function cmdDiagnose(): Promise<number> {
     log.ok("every Application is Healthy with a Succeeded operation");
     return 0;
   }
-  const namespaces = new Set<string>();
-  for (const app of unhealthy) {
-    const st = app.status ?? {};
-    console.log(`\n=== ${app.metadata.name} ===`);
-    console.log(
-      `  health: ${st.health?.status ?? "-"}  sync: ${
-        st.sync?.status ?? "-"
-      }  operation: ${st.operationState?.phase ?? "-"}`,
-    );
-    if (st.health?.message) {
-      console.log(`  health message: ${st.health.message}`);
-    }
-    if (st.operationState?.message) {
-      console.log(`  operation message: ${st.operationState.message}`);
-    }
-    for (const c of st.conditions ?? []) {
-      console.log(`  condition ${c?.type ?? "?"}: ${c?.message ?? ""}`);
-    }
-    const bad = (st.resources ?? []).filter((r) =>
-      r && r.health && r.health.status !== "Healthy"
-    );
-    if (bad.length > 0) {
-      console.log("  resources not Healthy:");
-      for (const r of bad) {
-        const ns = r.namespace ?? app.spec?.destination?.namespace ?? "";
-        console.log(
-          `    ${r.group ? `${r.group}/` : ""}${r.kind ?? "?"} ${
-            ns ? `${ns}/` : ""
-          }${r.name ?? "?"}: ${r.health?.status ?? "?"}${
-            r.health?.message ? ` — ${r.health.message}` : ""
-          }`,
-        );
-        if (ns && r.kind !== "Application") namespaces.add(ns);
-      }
-    }
-    if (namespaces.size === 0 && app.spec?.destination?.namespace) {
-      namespaces.add(app.spec.destination.namespace);
-    }
-  }
-  for (const ns of [...namespaces].sort()) {
+  for (const app of unhealthy) printApplication(app);
+  const targets = describeTargets(unhealthy);
+  for (const ns of diagnoseNamespaces(unhealthy)) {
     try {
-      await diagnoseNamespace(ns);
+      await diagnoseNamespace(ns, targets);
     } catch (err) {
       log.warn(
         `diagnose ${ns}: ${err instanceof Error ? err.message : String(err)}`,

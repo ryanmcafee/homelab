@@ -62,6 +62,7 @@ spec:
   security:
     networkPolicy:
       enabled: true
+    seLinuxRelabel: false
   observability:
     metrics:
       enabled: false

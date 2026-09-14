@@ -69,6 +69,7 @@ spec:
   security:
     networkPolicy:
       enabled: {{ .Values.security.networkPolicy.enabled }}
+    seLinuxRelabel: {{ .Values.security.seLinuxRelabel }}
   observability:
     metrics:
       enabled: {{ .Values.observability.metrics.enabled }}

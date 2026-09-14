@@ -29,6 +29,9 @@ import {
   DEFAULT_LOCAL_PORT,
   DEFAULT_MAX_DIFF_BYTES,
   degradedChildHint,
+  describeArgs,
+  describeTargets,
+  diagnoseNamespaces,
   diffStats,
   discoverable,
   emptyRenderDecision,
@@ -66,6 +69,7 @@ import {
   renderReport,
   REPORT_MAX_FINDINGS,
   REPORT_TITLE,
+  resourceLines,
   selectApps,
   serverFlags,
   setFileArgs,
@@ -1853,4 +1857,177 @@ Deno.test("parentsAwaitingWaves: only parents with a Running operation, sorted",
   ];
   assertEquals(parentsAwaitingWaves(apps), ["addons", "applications"]);
   assertEquals(parentsAwaitingWaves([mk("gitops", "Succeeded", true)]), []);
+});
+
+// ----------------------------------------------------------------------------
+// diagnose: namespaces, resource lines, describe targets
+// ----------------------------------------------------------------------------
+
+// PR #280's CI run: `applications` and `gitops` Progressing on their child
+// Applications (destination argocd), `paperclip` Progressing/Succeeded on its
+// single resource, an Instance whose per-resource health ArgoCD omitted.
+function unhealthyApps(): Application[] {
+  const applications = app({ name: "applications", health: "Progressing" });
+  applications.status!.resources = [
+    { group: "argoproj.io", kind: "Application", name: "paperclip" },
+    {
+      group: "argoproj.io",
+      kind: "Application",
+      name: "sonarr",
+      health: { status: "Healthy" },
+    },
+  ];
+  const gitops = app({ name: "gitops", health: "Progressing" });
+  gitops.status!.resources = [
+    {
+      group: "argoproj.io",
+      kind: "Application",
+      name: "applications",
+      health: { status: "Progressing" },
+    },
+  ];
+  const paperclip = app({
+    name: "paperclip",
+    health: "Progressing",
+    phase: "Succeeded",
+  });
+  paperclip.spec!.destination = { namespace: "paperclip" };
+  paperclip.status!.resources = [
+    {
+      group: "paperclip.inc",
+      kind: "Instance",
+      namespace: "paperclip",
+      name: "paperclip",
+    },
+  ];
+  return [applications, gitops, paperclip];
+}
+
+Deno.test("diagnoseNamespaces: every unhealthy app's destination namespace, workload namespaces before argocd", () => {
+  assertEquals(diagnoseNamespaces(unhealthyApps()), ["paperclip", "argocd"]);
+});
+
+Deno.test("diagnoseNamespaces: unhealthy resource namespaces are added, Healthy ones and child Applications are not", () => {
+  const a = app({ name: "media", health: "Degraded" });
+  a.spec!.destination = { namespace: "media" };
+  a.status!.resources = [
+    { kind: "Secret", namespace: "shared", name: "s" }, // no health → included
+    {
+      kind: "Deployment",
+      group: "apps",
+      namespace: "media-dl",
+      name: "d",
+      health: { status: "Degraded" },
+    },
+    {
+      kind: "Service",
+      namespace: "healthy-ns",
+      name: "svc",
+      health: { status: "Healthy" },
+    },
+    {
+      group: "argoproj.io",
+      kind: "Application",
+      namespace: "child-ns",
+      name: "child",
+      health: { status: "Progressing" },
+    },
+  ];
+  assertEquals(diagnoseNamespaces([a]), ["media", "media-dl", "shared"]);
+  assertEquals(diagnoseNamespaces([a, a]), ["media", "media-dl", "shared"]);
+  assertEquals(diagnoseNamespaces([]), []);
+});
+
+Deno.test("describeTargets: custom resources only — Applications and core kinds excluded, missing health included", () => {
+  const apps = unhealthyApps();
+  apps[2].status!.resources!.push(
+    { kind: "ConfigMap", namespace: "paperclip", name: "cm" },
+    {
+      group: "postgresql.cnpg.io",
+      kind: "Cluster",
+      namespace: "paperclip",
+      name: "db",
+      health: { status: "Healthy" },
+    },
+    {
+      group: "apps",
+      kind: "StatefulSet",
+      namespace: "paperclip",
+      name: "operator",
+      health: { status: "Progressing", message: "0/1" },
+    },
+  );
+  assertEquals(describeTargets(apps), [
+    {
+      group: "paperclip.inc",
+      kind: "Instance",
+      ns: "paperclip",
+      name: "paperclip",
+    },
+    { group: "apps", kind: "StatefulSet", ns: "paperclip", name: "operator" },
+  ]);
+  assertEquals(describeTargets([apps[2], apps[2]]).length, 2);
+  assertEquals(describeTargets([]), []);
+});
+
+Deno.test("describeTargets: a resource without its own namespace falls back to the destination", () => {
+  const a = app({ name: "x", health: "Progressing" });
+  a.spec!.destination = { namespace: "x-ns" };
+  a.status!.resources = [{ group: "g.io", kind: "Thing", name: "t" }];
+  assertEquals(describeTargets([a]), [
+    { group: "g.io", kind: "Thing", ns: "x-ns", name: "t" },
+  ]);
+});
+
+Deno.test("describeArgs: kind.group singular form, namespaced or not", () => {
+  assertEquals(
+    describeArgs({
+      group: "paperclip.inc",
+      kind: "Instance",
+      ns: "paperclip",
+      name: "paperclip",
+    }),
+    ["describe", "instance.paperclip.inc", "paperclip", "-n", "paperclip"],
+  );
+  assertEquals(
+    describeArgs({ group: "", kind: "Node", ns: "", name: "worker-1" }),
+    ["describe", "Node", "worker-1"],
+  );
+});
+
+Deno.test("resourceLines: a not-Healthy app lists every resource, health or not", () => {
+  const [, , paperclip] = unhealthyApps();
+  assertEquals(resourceLines(paperclip), [
+    "paperclip.inc/Instance paperclip/paperclip: -",
+  ]);
+  paperclip.status!.resources!.push({
+    group: "apps",
+    kind: "StatefulSet",
+    namespace: "paperclip",
+    name: "operator",
+    health: { status: "Progressing", message: "Waiting for 1 pods" },
+  });
+  assertEquals(resourceLines(paperclip), [
+    "paperclip.inc/Instance paperclip/paperclip: -",
+    "apps/StatefulSet paperclip/operator: Progressing — Waiting for 1 pods",
+  ]);
+});
+
+Deno.test("resourceLines: a Healthy app (failed operation) lists only resources that are not Healthy", () => {
+  const a = app({ name: "h", health: "Healthy", phase: "Failed" });
+  a.status!.resources = [
+    { kind: "ConfigMap", name: "ok", health: { status: "Healthy" } },
+    {
+      kind: "Job",
+      group: "batch",
+      name: "smoke",
+      health: { status: "Degraded" },
+    },
+    { kind: "Secret", name: "nohealth" },
+  ];
+  assertEquals(resourceLines(a), [
+    "batch/Job argocd/smoke: Degraded",
+    "Secret argocd/nohealth: -",
+  ]);
+  assertEquals(resourceLines(app({ name: "bare", health: "Progressing" })), []);
 });
