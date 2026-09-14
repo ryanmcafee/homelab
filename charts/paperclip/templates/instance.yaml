@@ -12,6 +12,10 @@ spec:
   image:
     repository: {{ .Values.image.repository }}
     tag: {{ .Values.image.tag | quote }}
+  {{- with .Values.extraEnv }}
+  env:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
   deployment:
     mode: {{ .Values.deployment.mode }}
     exposure: {{ .Values.deployment.exposure }}

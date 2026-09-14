@@ -13,6 +13,9 @@ spec:
   image:
     repository: ghcr.io/paperclipai/paperclip
     tag: "2026.831.1"
+  env:
+    - name: PAPERCLIP_AUTH_BASE_URL_MODE
+      value: explicit
   deployment:
     mode: authenticated
     exposure: public

@@ -103,3 +103,14 @@ probes:
   startup:
     failureThreshold: 60
     periodSeconds: 5
+
+# Extra environment for the server (spec.env). PAPERCLIP_AUTH_BASE_URL_MODE is
+# required: the operator's onboarding quickstart (`paperclipai onboard --yes`)
+# writes auth.baseUrlMode=auto into the instance config file, and the app
+# (2026.831+) refuses to start an authenticated public instance unless the mode
+# is explicit ("authenticated public exposure requires auth.baseUrlMode=explicit").
+# The env var wins over the file; the public base URL itself comes from the
+# PAPERCLIP_PUBLIC_URL the operator sets from spec.deployment.publicURL.
+extraEnv:
+  - name: PAPERCLIP_AUTH_BASE_URL_MODE
+    value: explicit
