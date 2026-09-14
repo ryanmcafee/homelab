@@ -375,9 +375,15 @@ async function fetchGithubCRDs(
         encodeURIComponent(ref)
       }`;
     log.info(`[${source.name}] GET ${apiUrl}`);
-    const res = await fetch(apiUrl, {
-      headers: { "User-Agent": "homelab-crd-schemas-vendor" },
-    });
+    // Unauthenticated calls share a 60/hour per-IP budget that shared CI
+    // runners exhaust (403 Forbidden); a token raises it to 5000/hour. The
+    // raw file downloads below need no auth.
+    const headers: Record<string, string> = {
+      "User-Agent": "homelab-crd-schemas-vendor",
+    };
+    const token = Deno.env.get("GITHUB_TOKEN");
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+    const res = await fetch(apiUrl, { headers });
     if (!res.ok) {
       throw new Error(
         `GitHub contents API failed for source "${source.name}" (${apiUrl}): ${res.status} ${res.statusText}`,

@@ -37,17 +37,20 @@ import {
   fenceFor,
   finalPassDecision,
   findFreePort,
+  gitRefForRevision,
   hasComparisonError,
   indexApps,
   invertUnifiedDiff,
   isAppComplete,
   isAutomated,
+  isNewEmptyApp,
   isOperationInProgress,
   isParentApp,
   isReady,
   isTierComplete,
   manifestsArgs,
   mdCell,
+  mentionsMissingPath,
   nextTier,
   parentOf,
   parentResyncDecision,
@@ -793,6 +796,149 @@ Deno.test("emptyRenderDecision: nothing locally but manifests in Git → error",
   // ArgoCD would silently apply the Git revision (bootstrap in localdev).
   assertEquals(emptyRenderDecision(0, 7), "error");
   assertEquals(emptyRenderDecision(0, null), "error");
+});
+
+Deno.test("emptyRenderDecision: table with the path-in-Git flag", () => {
+  // paperclip-dependencies on PR #280: new on the branch, renders nothing in
+  // localdev, absent from origin/main. `argocd app manifests` printed nothing
+  // (git = 0) yet the plain sync failed with "app path does not exist".
+  const cases: Array<
+    [number, number | null, boolean, ReturnType<typeof emptyRenderDecision>]
+  > = [
+    [3, null, true, "local"],
+    [1, 0, false, "local"], // local manifests win whatever Git has
+    [0, 0, true, "empty"], // existing case: nothing on either side
+    [0, 0, false, "new-empty"], // new chart, nothing to deploy: no sync
+    [0, null, false, "new-empty"], // Git render failed, but git says absent
+    [0, 7, true, "error"], // existing case: Git would be applied
+    [0, 7, false, "error"], // manifests from somewhere: fail closed
+    [0, null, true, "error"], // existing case: unknown, fail closed
+  ];
+  for (const [local, git, inGit, want] of cases) {
+    assertEquals(
+      emptyRenderDecision(local, git, inGit),
+      want,
+      `local=${local} git=${git} pathInGit=${inGit}`,
+    );
+  }
+});
+
+Deno.test("gitRefForRevision: branches resolve against origin, SHAs as is", () => {
+  assertEquals(gitRefForRevision("main"), "origin/main");
+  assertEquals(gitRefForRevision("feat/paperclip"), "origin/feat/paperclip");
+  assertEquals(gitRefForRevision("origin/main"), "origin/main");
+  assertEquals(gitRefForRevision(undefined), "origin/HEAD");
+  assertEquals(gitRefForRevision(""), "origin/HEAD");
+  assertEquals(gitRefForRevision("HEAD"), "origin/HEAD");
+  assertEquals(
+    gitRefForRevision("8d8eb0c1afccbdc4ecffad639e5b3e2ac327dde6"),
+    "8d8eb0c1afccbdc4ecffad639e5b3e2ac327dde6",
+  );
+  assertEquals(gitRefForRevision("8d8eb0c"), "8d8eb0c");
+  assertEquals(gitRefForRevision("v1.2.3"), "origin/v1.2.3");
+});
+
+Deno.test("mentionsMissingPath: ArgoCD's repo-server wording", () => {
+  assert(
+    mentionsMissingPath(
+      "rpc error: code = Unknown desc = Manifest generation error (cached): charts/paperclip-dependencies: app path does not exist",
+    ),
+  );
+  assert(!mentionsMissingPath(""));
+  assert(!mentionsMissingPath("another operation is already in progress"));
+});
+
+/** The Application ArgoCD shows for a skipped new chart (PR #280 job log). */
+function newEmptyApp(name: string): Application {
+  return {
+    metadata: { name, namespace: "argocd" },
+    spec: {
+      source: { path: `charts/${name}`, targetRevision: "main" },
+      destination: { namespace: "argocd" },
+    },
+    status: {
+      sync: { status: "Unknown" },
+      health: { status: "Healthy" },
+      resources: [],
+      conditions: [{
+        type: "ComparisonError",
+        message:
+          `Failed to load target state: failed to generate manifest for source 1 of 1: rpc error: code = Unknown desc = Manifest generation error (cached): charts/${name}: app path does not exist`,
+      }],
+    },
+  };
+}
+
+Deno.test("isNewEmptyApp: Healthy, no operation, no resources, path missing on the target", () => {
+  const a = newEmptyApp("paperclip-dependencies");
+  assert(isNewEmptyApp(a));
+  // Any of the four legs missing → not the new-chart case.
+  assert(
+    !isNewEmptyApp({
+      ...a,
+      status: { ...a.status, health: { status: "Missing" } },
+    }),
+  );
+  assert(
+    !isNewEmptyApp({
+      ...a,
+      status: { ...a.status, operationState: { phase: "Error" } },
+    }),
+  );
+  assert(
+    !isNewEmptyApp({
+      ...a,
+      status: { ...a.status, resources: [{ kind: "ConfigMap" }] },
+    }),
+  );
+  assert(
+    !isNewEmptyApp({
+      ...a,
+      status: {
+        ...a.status,
+        conditions: [{ type: "ComparisonError", message: "some other error" }],
+      },
+    }),
+  );
+  assert(!isNewEmptyApp({ ...a, status: { ...a.status, conditions: [] } }));
+  assert(!isNewEmptyApp({ metadata: { name: "bare" } }));
+  // An ordinary empty child chart (plain-synced) is not it either.
+  assert(
+    !isNewEmptyApp(
+      app({ name: "x", health: "Healthy", phase: "Succeeded", sync: "Synced" }),
+    ),
+  );
+});
+
+Deno.test("isReady: a new chart's Application counts as ready, even with --require-synced", () => {
+  const a = newEmptyApp("paperclip-dependencies");
+  assert(isReady(a, false));
+  assert(isReady(a, true));
+});
+
+Deno.test("appsToDiff / statusRows: a new chart's Application is not diffed and is labelled", () => {
+  const a = newEmptyApp("paperclip-dependencies");
+  const synced = app({
+    name: "s",
+    health: "Healthy",
+    phase: "Succeeded",
+    sync: "Synced",
+  });
+  const differs = app({
+    name: "d",
+    health: "Healthy",
+    phase: "Succeeded",
+    sync: "OutOfSync",
+  });
+  assertEquals(appsToDiff([a, synced, differs]), ["d"]);
+  const rows = statusRows([a, differs]);
+  assertEquals(rows.find((r) => r.app === "paperclip-dependencies"), {
+    app: "paperclip-dependencies",
+    health: "Healthy",
+    operation: "- (new chart, nothing to sync)",
+    vsMain: "not on main",
+  });
+  assertEquals(rows.find((r) => r.app === "d")!.vsMain, "differs");
 });
 
 Deno.test("syncArgs: plain option drops --local for a git-path app", () => {

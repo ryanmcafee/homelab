@@ -11,7 +11,9 @@ spec:
     internal Traefik with Host paperclip.homelab.local.
   steps:
     - name: applications-healthy
-      description: paperclip-operator, paperclip-dependencies, paperclip-database and paperclip are Healthy and their last sync Succeeded.
+      description: >-
+        paperclip-operator, paperclip-database and paperclip are Healthy and their last sync Succeeded
+        (paperclip-dependencies only exists where a secret store does; Kind seeds its Secrets).
       try:
         - assert:
             resource:
@@ -25,16 +27,6 @@ spec:
                   status: Healthy
                 operationState:
                   phase: Succeeded
-        - assert:
-            resource:
-              apiVersion: argoproj.io/v1alpha1
-              kind: Application
-              metadata:
-                name: paperclip-dependencies
-                namespace: argocd
-              status:
-                health:
-                  status: Healthy
         - assert:
             resource:
               apiVersion: argoproj.io/v1alpha1

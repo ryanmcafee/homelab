@@ -9,13 +9,13 @@ Postgres (ADR-015). Issue #260.
 ## Applications
 
 All four are rendered by `charts/applications/templates/paperclip.yaml`, gated on
-`paperclip.enabled`, and never part of a PR preview. They run in both environments (Kind included).
+`paperclip.enabled`, and never part of a PR preview. They run in both environments (Kind included), except `paperclip-dependencies`, which only exists where a secret store does (`SECRETS_PROVIDER=onepassword`, like renovate and duckdns): Kind seeds its two Secrets from `localdev/fakes/secrets.yaml` instead.
 
 | Wave | Application | Source | What it deploys |
 |---|---|---|---|
 | 10 | Namespaces `paperclip-operator`, `paperclip` | inline (PodSecurity `baseline`) | targets for the other Applications |
 | 11 | `paperclip-operator` | OCI chart `ghcr.io/paperclipinc/charts/paperclip-operator` 0.19.1 (repository Secret `paperclipinc-oci`), `ServerSideApply=true`, CRDs kept | `paperclip.inc` CRDs + controller |
-| 12 | `paperclip-dependencies` | `charts/paperclip-dependencies` | `OnePasswordItem`s `paperclip-auth`, `paperclip-api-keys` (homelab only; Kind seeds both Secrets from `localdev/fakes/secrets.yaml`) |
+| 12 | `paperclip-dependencies` (secret store only) | `charts/paperclip-dependencies` | `OnePasswordItem`s `paperclip-auth`, `paperclip-api-keys` (the Application is not rendered without a secret store; Kind seeds both Secrets from `localdev/fakes/secrets.yaml`) |
 | 13 | `paperclip-database` | `charts/paperclip-database` | CloudNativePG `Cluster` `paperclip-db`: 1 instance, image `ghcr.io/cloudnative-pg/postgresql:17.11` (`images.cloudnative-pg-postgresql`), `STORAGE_CLASS_SSD` / 10Gi (local-path / 1Gi in Kind), PodMonitor on. CNPG generates Secret `paperclip-db-app`; its `uri` key is the app's `DATABASE_URL` |
 | 14 | `paperclip` | `charts/paperclip` | `paperclip.inc/v1alpha1` `Instance` `paperclip` + PostSync smoke Job `smoke-paperclip` |
 

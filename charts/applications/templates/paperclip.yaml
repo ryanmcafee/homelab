@@ -4,7 +4,7 @@ paperclip-operator with its database on the existing CloudNativePG operator.
 Four Applications in one sync order (rule gitops/<env>/waves: -dependencies < main):
   wave 10  Namespaces paperclip-operator, paperclip
   wave 11  paperclip-operator      OCI chart ghcr.io/paperclipinc/charts/paperclip-operator (CRDs + controller)
-  wave 12  paperclip-dependencies  charts/paperclip-dependencies (OnePasswordItems -> Secrets paperclip-auth, paperclip-api-keys)
+  wave 12  paperclip-dependencies  charts/paperclip-dependencies (OnePasswordItems -> Secrets paperclip-auth, paperclip-api-keys; secret store only)
   wave 13  paperclip-database      charts/paperclip-database (postgresql.cnpg.io Cluster paperclip-db -> Secret paperclip-db-app)
   wave 14  paperclip               charts/paperclip (paperclip.inc Instance) + PostSync smoke Job
 Every value comes from the `paperclip:` block of configuration/templates/helm-apps.tmpl;
@@ -117,8 +117,10 @@ spec:
 ---
 # Dependencies Application: the 1Password items the Instance reads
 # (paperclip-auth: BETTER_AUTH_SECRET + ADMIN_PASSWORD; paperclip-api-keys:
-# ANTHROPIC_API_KEY, ...). Renders nothing without a secret store; localdev
-# seeds both Secrets in localdev/fakes/secrets.yaml.
+# ANTHROPIC_API_KEY, ...). Only where a secret store exists (SECRETS_PROVIDER,
+# like renovate and duckdns): without one the chart would render nothing, and
+# localdev seeds both Secrets in localdev/fakes/secrets.yaml instead.
+{{- if $pc.dependencies.onePassword.enabled }}
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -157,6 +159,7 @@ spec:
       - CreateNamespace=true
       - ServerSideApply=true
       - SkipDryRunOnMissingResource=true
+{{- end }}
 ---
 # Database Application: a CloudNativePG Cluster (the operator is the
 # cloudnative-pg addon). CNPG generates Secret paperclip-db-app whose `uri`

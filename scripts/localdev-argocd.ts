@@ -23,7 +23,11 @@
  *             their children. Git-path apps are rendered first with `argocd
  *             app manifests --local`; when that yields nothing they are
  *             synced plainly if Git renders nothing either (empty app →
- *             Synced/Healthy) and refused if Git has manifests (ArgoCD
+ *             Synced/Healthy), left alone when their path does not exist
+ *             on the target revision at all (`git cat-file -e
+ *             origin/<rev>:<path>`: a chart new on this branch with nothing
+ *             to deploy here; any sync would fail with "app path does not
+ *             exist") and refused if Git has manifests (ArgoCD
  *             would silently sync the Git revision instead). Apps
  *             that still carry an automated sync policy are not synced
  *             (ArgoCD does that) but are waited for. A tier
@@ -577,28 +581,85 @@ export function manifestsArgs(app: Application, repoRoot: string): string[] {
   return ["app", "manifests", app.metadata.name, ...sync.slice(i, i + 4)];
 }
 
-export type EmptyRenderDecision = "local" | "empty" | "error";
+export type EmptyRenderDecision = "local" | "empty" | "new-empty" | "error";
 
 /**
  * What to do with a git-path app given how many manifests the working tree
- * renders (localCount) and, when that is zero, how many Git renders
- * (gitCount; null when the Git render could not be obtained).
+ * renders (localCount), when that is zero how many Git renders (gitCount;
+ * null when the Git render could not be obtained), and whether the app's
+ * source path exists at all on the Git target revision (pathInGit).
  *
- *   local > 0             → "local": normal `argocd app sync --local`.
- *   local = 0, git = 0    → "empty": plain `argocd app sync` (no --local); an
- *                           empty Application becomes Synced/Healthy. Many
- *                           child charts render nothing in localdev by design.
- *   local = 0, git > 0    → "error": ArgoCD would silently apply the Git
- *                           revision (the bootstrap-in-localdev case).
- *   local = 0, git = null → "error": fail closed rather than guess.
+ *   local > 0                     → "local": normal `argocd app sync --local`.
+ *   local = 0, git = 0, in Git    → "empty": plain `argocd app sync` (no
+ *                                   --local); an empty Application becomes
+ *                                   Synced/Healthy. Many child charts render
+ *                                   nothing in localdev by design.
+ *   local = 0, git ≤ 0, not in Git → "new-empty": the chart is new on this
+ *                                   branch and has nothing to deploy here. No
+ *                                   sync at all: a plain sync generates from
+ *                                   Git, where the path is absent, and fails
+ *                                   with ComparisonError "app path does not
+ *                                   exist" (git = 0 because `argocd app
+ *                                   manifests` printed nothing for it).
+ *   local = 0, git > 0            → "error": ArgoCD would silently apply the
+ *                                   Git revision (the bootstrap-in-localdev
+ *                                   case), wherever the path lives.
+ *   local = 0, git = null, in Git → "error": fail closed rather than guess.
  */
 export function emptyRenderDecision(
   localCount: number,
   gitCount: number | null,
+  pathInGit = true,
 ): EmptyRenderDecision {
   if (localCount > 0) return "local";
+  if (gitCount !== null && gitCount > 0) return "error";
+  if (!pathInGit) return "new-empty";
   if (gitCount === 0) return "empty";
   return "error";
+}
+
+/**
+ * ArgoCD's repo-server wording when an Application's source path is absent
+ * from the target revision (ComparisonError "Manifest generation error:
+ * charts/<x>: app path does not exist"). The fallback signal for
+ * pathInGitRevision when git itself cannot answer.
+ */
+export const MISSING_PATH_SIGNAL = "app path does not exist";
+
+export function mentionsMissingPath(text: string): boolean {
+  return text.includes(MISSING_PATH_SIGNAL);
+}
+
+/**
+ * The local git ref that stands for an Application's spec.source.targetRevision:
+ * a SHA is used as is; a branch or tag name (or the empty/HEAD default, which
+ * ArgoCD resolves against the remote) becomes `origin/<name>`, since the
+ * clone's own `main` may be behind or absent in a worktree while
+ * `origin/main` is what the root Application points at.
+ */
+export function gitRefForRevision(targetRevision: string | undefined): string {
+  const rev = (targetRevision ?? "").trim();
+  if (rev === "" || rev === "HEAD") return "origin/HEAD";
+  if (/^[0-9a-f]{7,40}$/i.test(rev)) return rev;
+  if (rev.startsWith("origin/")) return rev;
+  return `origin/${rev}`;
+}
+
+/**
+ * A new chart's Application after the loop skipped it: Healthy with no
+ * operation and no resources, and a ComparisonError saying its path does not
+ * exist on the target revision. `wait`, `diagnose` and `report` treat it as
+ * complete; `verify --level 2` does the same (internal/verify/cluster.go).
+ */
+export function isNewEmptyApp(app: Application): boolean {
+  const st = app.status;
+  if (!st) return false;
+  if (st.health?.status !== "Healthy") return false;
+  if (st.operationState?.phase || st.operationState?.message) return false;
+  if ((st.resources ?? []).length > 0) return false;
+  return (st.conditions ?? []).some((c) =>
+    c?.type === "ComparisonError" && mentionsMissingPath(c.message ?? "")
+  );
 }
 
 /** Number of non-empty YAML documents in a multi-document stream. */
@@ -630,8 +691,14 @@ export function selectApps(
   return out;
 }
 
-/** `wait` readiness: Healthy + Succeeded (+ Synced with --require-synced). */
+/**
+ * `wait` readiness: Healthy + Succeeded (+ Synced with --require-synced). A
+ * new chart's Application (isNewEmptyApp) is ready too: nothing can be
+ * synced to it until the chart exists on the target revision, so it never
+ * gets an operation and can never be Synced.
+ */
 export function isReady(app: Application, requireSynced: boolean): boolean {
+  if (isNewEmptyApp(app)) return true;
   const health = app.status?.health?.status;
   const phase = app.status?.operationState?.phase;
   if (health !== "Healthy" || phase !== "Succeeded") return false;
@@ -891,8 +958,10 @@ export function treeOrder(apps: Application[]): Application[] {
 
 /** Names of the Applications to diff: every one not Synced, in tree order. */
 export function appsToDiff(apps: Application[]): string[] {
+  // A new chart's Application has no target to diff against: its path is
+  // absent from main, so `argocd app diff` could only report that error.
   return treeOrder(apps)
-    .filter((a) => a.status?.sync?.status !== "Synced")
+    .filter((a) => a.status?.sync?.status !== "Synced" && !isNewEmptyApp(a))
     .map((a) => a.metadata.name);
 }
 
@@ -932,6 +1001,9 @@ export function statusRows(
     let vsMain: string;
     if (sync === "Synced") {
       vsMain = "same as main";
+    } else if (isNewEmptyApp(a)) {
+      operation = "- (new chart, nothing to sync)";
+      vsMain = "not on main";
     } else {
       vsMain = sync === "OutOfSync" ? "differs" : (sync ?? "Unknown");
       const d = diffs.get(a.metadata.name);
@@ -1577,6 +1649,30 @@ async function findRepoRoot(): Promise<string> {
   return r.stdout.trim();
 }
 
+/**
+ * Whether `path` exists in the tree of `ref` (`git cat-file -e <ref>:<path>`
+ * in the local clone): true/false when git answers, null when it cannot
+ * (unknown ref, e.g. `origin/main` never fetched, or git missing). A path
+ * that is on disk but not in the ref is exactly the "new chart" case; git
+ * says "exists on disk, but not in '<ref>'" for it.
+ */
+async function pathInGitRevision(
+  repoRoot: string,
+  ref: string,
+  path: string,
+): Promise<boolean | null> {
+  const clean = normalize(path).replace(/^\.\//, "").replace(/\/+$/, "");
+  if (clean === "" || clean === ".") return null;
+  const r = await run(["git", "cat-file", "-e", `${ref}:${clean}`], {
+    cwd: repoRoot,
+  });
+  if (r.code === 0) return true;
+  if (/does not exist in|exists on disk, but not in/.test(r.stderr)) {
+    return false;
+  }
+  return null;
+}
+
 function kubectl(...args: string[]): string[] {
   return ["kubectl", "--context", KUBE_CONTEXT, ...args];
 }
@@ -2028,7 +2124,9 @@ async function syncOne(
           fmtCmd(argocd(...manifestsArgs(app, repoRoot)))
         }  # if this renders nothing and \`argocd app manifests ${name}\` (Git) renders nothing too: ${
           fmtCmd(argocd(...syncArgs(app, repoRoot, { plain: true })))
-        }; nothing locally but something in Git: error`,
+        }; nothing locally and the path absent from ${
+          gitRefForRevision(app.spec?.source?.targetRevision)
+        }: no sync (new chart); nothing locally but something in Git: error`,
       );
     }
     log.dry(fmtCmd(cmd));
@@ -2051,6 +2149,8 @@ async function syncOne(
     }
     const localCount = countManifests(m.stdout);
     let gitCount: number | null = null;
+    let pathInGit = true;
+    const rev = app.spec?.source?.targetRevision;
     if (localCount === 0) {
       // Many child charts legitimately render nothing in localdev. Whether
       // this one does depends on what Git would render instead.
@@ -2061,8 +2161,36 @@ async function syncOne(
           `${name}: Git render failed: ${(g.stderr || g.stdout).trim()}`,
         );
       }
+      // A chart that is new on this branch does not exist on the target
+      // revision at all: `argocd app manifests` prints nothing for it (exit
+      // 0), and any sync without --local would fail with "app path does
+      // not exist". Ask git; fall back to that wording from the Git render.
+      const ref = gitRefForRevision(rev);
+      const inGit = await pathInGitRevision(
+        repoRoot,
+        ref,
+        app.spec?.source?.path ?? "",
+      );
+      pathInGit = inGit ?? !mentionsMissingPath(g.stderr + g.stdout);
+      if (inGit === null) {
+        log.warn(
+          `${name}: could not check ${ref}:${app.spec?.source?.path} with git (is origin fetched?); relying on ArgoCD's Git render`,
+        );
+      }
     }
-    const decision = emptyRenderDecision(localCount, gitCount);
+    const decision = emptyRenderDecision(localCount, gitCount, pathInGit);
+    if (decision === "new-empty") {
+      // Nothing to deploy from the working tree and no chart on the target
+      // revision to fall back to: every sync would fail. Leave the
+      // Application alone; ArgoCD keeps it Healthy with a ComparisonError,
+      // which wait/report/verify recognise (isNewEmptyApp).
+      log.info(
+        `sync ${name} (new chart with nothing to deploy in localdev; skipped until it exists on ${
+          rev ?? "the target revision"
+        })`,
+      );
+      return { ok: true, detail: "", skipped: "new-empty" };
+    }
     if (decision === "error") {
       return {
         ok: false,
@@ -2273,6 +2401,13 @@ async function syncLoop(args: Args, repoRoot: string): Promise<number> {
       return `argocd app sync ${app.metadata.name} failed:\n${r.detail}`;
     }
     if (r.skipped) row.result = r.skipped;
+    if (r.skipped === "new-empty") {
+      // No operation was issued and none ever will be: the Application is
+      // done as far as this run is concerned (it stays Healthy, no operation).
+      row.finishedAt = Date.now();
+      done.add(app.metadata.name);
+      active.delete(app.metadata.name);
+    }
     return null;
   };
 

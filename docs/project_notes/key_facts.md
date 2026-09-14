@@ -132,7 +132,7 @@ trusting a prose table.
 | CI | `.github/workflows/tilt-ci.yml`: `kind-argocd` (required, 45 min, artifact `verify-level2`), `kind-direct`, `yaml-lint` |
 | Expected state | every Application `OutOfSync` against `main` after a local sync; `Healthy` + `Succeeded` is the contract |
 | Restore drill | `tests/drills/cnpg-restore` (`task drill:restore`, weekly `restore-drill.yml`, failures open an issue labelled `restore-drill`); S3 fake `versity/versitygw` (`images.versitygw`), Barman Cloud Plugin addon `cnpg-barman-cloud` (`charts.plugin-barman-cloud`) in `cnpg-system` |
-| `paperclip` | runs in Kind (all four Applications); Secrets `paperclip-auth` and `paperclip-api-keys` seeded by `localdev/fakes/secrets.yaml`, CNPG `Cluster` `paperclip-db` on `local-path` / 1Gi, `PAPERCLIP_ADMIN_EMAIL=admin@homelab.local`; e2e `tests/e2e/paperclip` |
+| `paperclip` | runs in Kind (operator, database, Instance; the `paperclip-dependencies` Application only renders with a secret store); Secrets `paperclip-auth` and `paperclip-api-keys` seeded by `localdev/fakes/secrets.yaml`, CNPG `Cluster` `paperclip-db` on `local-path` / 1Gi, `PAPERCLIP_ADMIN_EMAIL=admin@homelab.local`; e2e `tests/e2e/paperclip` |
 
 ## Verification contract (issue #261 Sections C/D)
 

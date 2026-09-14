@@ -567,6 +567,14 @@ spec:
 # Single repository secret for TrueCharts OCI registry
 
 ---
+# Source: applications/templates/paperclip.yaml
+# Dependencies Application: the 1Password items the Instance reads
+# (paperclip-auth: BETTER_AUTH_SECRET + ADMIN_PASSWORD; paperclip-api-keys:
+# ANTHROPIC_API_KEY, ...). Only where a secret store exists (SECRETS_PROVIDER,
+# like renovate and duckdns): without one the chart would render nothing, and
+# localdev seeds both Secrets in localdev/fakes/secrets.yaml instead.
+
+---
 # Source: applications/templates/flaresolverr.yaml
 # FlareSolverr Config: deploys static PV+PVC for flaresolverr persistent storage
 apiVersion: argoproj.io/v1alpha1
@@ -1140,48 +1148,6 @@ spec:
         duration: 5s
         factor: 2
         maxDuration: 3m
-
----
-# Source: applications/templates/paperclip.yaml
-# Dependencies Application: the 1Password items the Instance reads
-# (paperclip-auth: BETTER_AUTH_SECRET + ADMIN_PASSWORD; paperclip-api-keys:
-# ANTHROPIC_API_KEY, ...). Renders nothing without a secret store; localdev
-# seeds both Secrets in localdev/fakes/secrets.yaml.
-apiVersion: argoproj.io/v1alpha1
-kind: Application
-metadata:
-  name: paperclip-dependencies
-  namespace: argocd
-  annotations:
-    argocd.argoproj.io/sync-wave: "12"
-  finalizers:
-    - resources-finalizer.argocd.argoproj.io
-spec:
-  project: default
-  source:
-    repoURL: https://github.com/ryanmcafee/homelab.git
-    targetRevision: main
-    path: charts/paperclip-dependencies
-    helm:
-      valueFiles:
-        - values.yaml
-        - values-localdev.yaml
-      # 1Password paths come from configuration/ (secrets.schema.yaml) through
-      # this parent, so the child's committed values stay environment-free.
-      valuesObject:
-        namespace: paperclip
-        onePassword:
-          apiKeysItemPath: vaults/homelab/items/paperclip-api-keys
-          authItemPath: vaults/homelab/items/paperclip-auth
-          enabled: false
-  destination:
-    server: https://kubernetes.default.svc
-    namespace: paperclip
-  syncPolicy:
-    syncOptions:
-      - CreateNamespace=true
-      - ServerSideApply=true
-      - SkipDryRunOnMissingResource=true
 
 ---
 # Source: applications/templates/paperclip.yaml
