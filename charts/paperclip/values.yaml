@@ -19,11 +19,17 @@ image:
   repository: ghcr.io/paperclipai/paperclip
   tag: ""
 
-# authenticated + public: every request must carry an allowed hostname; the
-# operator always adds the in-cluster Service names for its own bootstrap Job.
+# authenticated + private: sign-in required, reachable only through the internal
+# Traefik (LAN/tailnet), every request must carry an allowed hostname (the
+# operator always adds the in-cluster Service names for its own bootstrap Job).
+# `public` exposure is not possible with this operator: app 2026.831+ then
+# requires auth.baseUrlMode=explicit, and the operator's onboarding quickstart
+# (`paperclipai onboard --yes`) forces trusted-local defaults, drops the public
+# URL and rejects explicit mode without one, so the init container never
+# writes the config file. Revisit when the operator onboards non-interactively.
 deployment:
   mode: authenticated
-  exposure: public
+  exposure: private
 
 # external: DATABASE_URL comes from the CloudNativePG-generated Secret of
 # charts/paperclip-database (key uri = postgresql://paperclip:<pw>@paperclip-db-rw:5432/paperclip).
@@ -104,13 +110,8 @@ probes:
     failureThreshold: 60
     periodSeconds: 5
 
-# Extra environment for the server (spec.env). PAPERCLIP_AUTH_BASE_URL_MODE is
-# required: the operator's onboarding quickstart (`paperclipai onboard --yes`)
-# writes auth.baseUrlMode=auto into the instance config file, and the app
-# (2026.831+) refuses to start an authenticated public instance unless the mode
-# is explicit ("authenticated public exposure requires auth.baseUrlMode=explicit").
-# The env var wins over the file; the public base URL itself comes from the
-# PAPERCLIP_PUBLIC_URL the operator sets from spec.deployment.publicURL.
-extraEnv:
-  - name: PAPERCLIP_AUTH_BASE_URL_MODE
-    value: explicit
+# Extra environment for the server and the onboarding init container (spec.env;
+# both receive it). Do not set PAPERCLIP_AUTH_BASE_URL_MODE=explicit here: the
+# onboarding quickstart honours it but drops the public URL, then fails its own
+# "auth.baseUrlMode=explicit requires auth.publicBaseUrl" check.
+extraEnv: []

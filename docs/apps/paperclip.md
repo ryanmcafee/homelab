@@ -21,11 +21,11 @@ All four are rendered by `charts/applications/templates/paperclip.yaml`, gated o
 
 The `Instance`: image `ghcr.io/paperclipai/paperclip` at `images.paperclip` (2026.831.1);
 `database.mode: external` with `externalURLSecretRef {paperclip-db-app, uri}`;
-`deployment.mode: authenticated`, `exposure: public`, `publicURL: https://paperclip.<domain>`;
+`deployment.mode: authenticated`, `exposure: private` (the instance sits behind the internal Traefik only; `public` cannot be onboarded by operator 0.19.1 with app 2026.831+, see the values comment), `publicURL: https://paperclip.<domain>`;
 admin bootstrapped once from `PAPERCLIP_ADMIN_EMAIL` + `ADMIN_PASSWORD`, `disableSignUp: true`;
 Ingress class `internal` with cert-manager `letsencrypt` and external-dns, TLS Secret `paperclip-tls`;
 Service `paperclip` port 3100, health path `/api/health`; the operator's default NetworkPolicy stays
-enabled; `security.seLinuxRelabel: false` (the operator's default privileged relabel init container is rejected by the namespace's PodSecurity baseline, and chcon has no purpose on Talos or NFS); `PAPERCLIP_AUTH_BASE_URL_MODE=explicit` via `spec.env` (the onboarding quickstart writes `auth.baseUrlMode: auto` and the app refuses an authenticated public instance in that mode); Instance metrics off (the OTEL preload and collector do not exist here); persistence 10Gi
+enabled; `security.seLinuxRelabel: false` (the operator's default privileged relabel init container is rejected by the namespace's PodSecurity baseline, and chcon has no purpose on Talos or NFS); Instance metrics off (the OTEL preload and collector do not exist here); persistence 10Gi
 on `STORAGE_CLASS_NFS`. The smoke Job curls
 `http://paperclip.paperclip.svc.cluster.local:3100/api/health`.
 

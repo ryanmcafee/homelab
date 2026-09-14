@@ -2921,6 +2921,14 @@ export function podNeedsDiagnosis(pod: PodSummary): boolean {
   );
 }
 
+/** Init and regular container names of a pod, init containers first. */
+export function containerNames(pod: PodSummary): string[] {
+  return [
+    ...(pod.status?.initContainerStatuses ?? []),
+    ...(pod.status?.containerStatuses ?? []),
+  ].map((c) => c.name ?? "").filter((n) => n !== "");
+}
+
 /** True when a container of the pod has restarted (a --previous log exists). */
 export function podHasRestarted(pod: PodSummary): boolean {
   return [
@@ -3075,6 +3083,41 @@ async function diagnosePods(ns: string): Promise<void> {
       ),
     );
     console.log((l.code === 0 ? l.stdout : l.stderr).trim() || "(no logs)");
+    if (l.code !== 0) {
+      // --all-containers fails as a whole while a pod is still initializing
+      // (the main container "is waiting to start"); the init container that
+      // is crash-looping still has logs, so ask for each container by name.
+      for (const c of containerNames(pod)) {
+        console.log(
+          `\n--- pod ${ns}/${name} container ${c}: logs --tail=${LOGS_TAIL} ---`,
+        );
+        const one = await run(
+          kubectl("logs", name, "-n", ns, "-c", c, `--tail=${LOGS_TAIL}`),
+        );
+        console.log(
+          (one.code === 0 ? one.stdout : one.stderr).trim() || "(no logs)",
+        );
+        if ((one.code !== 0 || !one.stdout.trim()) && podHasRestarted(pod)) {
+          const prev = await run(
+            kubectl(
+              "logs",
+              name,
+              "-n",
+              ns,
+              "-c",
+              c,
+              "--previous",
+              `--tail=${LOGS_TAIL}`,
+            ),
+          );
+          if (prev.code === 0 && prev.stdout.trim()) {
+            console.log(
+              `--- (previous run of ${c}) ---\n${prev.stdout.trim()}`,
+            );
+          }
+        }
+      }
+    }
     if (podHasRestarted(pod)) {
       // A crash-looping container is usually Waiting with an empty current
       // log; the previous run is the one that failed.
