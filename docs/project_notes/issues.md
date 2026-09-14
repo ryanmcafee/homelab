@@ -14,7 +14,7 @@ Each entry should include:
 ## Recent Work
 
 ### 2026-09-13 - Tailscale split DNS for the homelab domain (private hostnames from mobile)
-- **Status**: Open (PR pending; ACL applies on merge, then human steps 2-3 of the runbook)
+- **Status**: PR #278 merged 2026-09-14 (script, tasks, runbook); the ACL grant follows in its own PR (`tailscale-acl.yml` applies it on merge), then runbook steps 2-3 (OAuth client in 1Password, `task tailscale:dns:apply`)
 - **Description**: Phones on the tailnet could not resolve `argocd.<domain>` because those records live only on the UniFi gateway. Adds the ACL grant `autogroup:member -> <GATEWAY_IP>/32 udp:53,tcp:53`, `scripts/tailscale-dns.ts` + `task tailscale:dns:{status,apply,remove}` (idempotent split-DNS PATCH via the Tailscale API, OAuth client `op://homelab/tailscale-dns-oauth` with the `dns` scope) and `docs/runbooks/tailscale-dns.md`. The gateway is addressed as GATEWAY_IP inside the advertised /24; its other VLAN address is not routed onto the tailnet.
 - **URL**: https://github.com/ryanmcafee/homelab/pull/278
 
