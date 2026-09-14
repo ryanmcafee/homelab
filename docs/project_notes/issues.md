@@ -75,7 +75,7 @@ Each entry should include:
 
 ## Pending/In Progress
 
-- **2026-09-13** - Issue #260: Paperclip via paperclip-operator + CloudNativePG (4 Applications), PR pending — https://github.com/ryanmcafee/homelab/issues/260
+- **2026-09-13** - Issue #260: Paperclip via paperclip-operator + CloudNativePG (4 Applications) — PR #280 open, level 2 runs in CI (`kind-argocd`) — https://github.com/ryanmcafee/homelab/pull/280
 - **2026-09-13** - PR #275: `prod/argocd/domain` check + docs for the ArgoCD Ingress rendering `argocd.example.com` (root `gitops` Application never received `global.domain` after #265). Blocked on the human `task tf:apply:component COMPONENT=gitops-bootstrap` — https://github.com/ryanmcafee/homelab/pull/275
 
 ## Tips
