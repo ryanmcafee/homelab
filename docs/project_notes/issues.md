@@ -13,6 +13,11 @@ Each entry should include:
 
 ## Recent Work
 
+### 2026-09-13 - Tailscale split DNS for the homelab domain (private hostnames from mobile)
+- **Status**: Open (PR pending; ACL applies on merge, then human steps 2-3 of the runbook)
+- **Description**: Phones on the tailnet could not resolve `argocd.<domain>` because those records live only on the UniFi gateway. Adds the ACL grant `autogroup:member -> <GATEWAY_IP>/32 udp:53,tcp:53`, `scripts/tailscale-dns.ts` + `task tailscale:dns:{status,apply,remove}` (idempotent split-DNS PATCH via the Tailscale API, OAuth client `op://homelab/tailscale-dns-oauth` with the `dns` scope) and `docs/runbooks/tailscale-dns.md`. The gateway is addressed as GATEWAY_IP inside the advertised /24; its other VLAN address is not routed onto the tailnet.
+- **URL**: https://github.com/ryanmcafee/homelab/pull/278
+
 ### 2026-09-13 - verify prod: pass Applications whose chart renders no resources
 - **Status**: Open (PR #277)
 - **Description**: First end-to-end `task verify:prod` after PR #276 (ACL grant) and enabling HTTPS certificates on the tailnet: 56 pass, 10 fail. Nine `*-config` Applications carry a stale Failed operation from 2026-09-13 01:25 UTC (revision 95c459d, PV iSCSI portal rendered empty before the gitops-bootstrap re-apply; live PVs untouched, now Synced at 699acf3, a re-sync clears it). The tenth, `traefik-internal-dependencies`, is a comment-only placeholder chart that ArgoCD never syncs; `evaluateArgoApp` now passes Synced + Healthy + zero resources instead of reporting "never synced".
