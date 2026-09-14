@@ -203,6 +203,15 @@ spec:
       - CreateNamespace=true
       - ServerSideApply=true
       - SkipDryRunOnMissingResource=true
+    # The Cluster CRD comes from the cloudnative-pg addon; if a sync lands before
+    # the CRD is served the apply fails with "no matches for kind Cluster" and
+    # this retries until the operator is up.
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
 ---
 # Instance Application: the paperclip.inc/v1alpha1 Instance in external
 # database mode. Health comes from charts/bootstrap/files/health/
@@ -246,5 +255,13 @@ spec:
       - CreateNamespace=true
       - ServerSideApply=true
       - SkipDryRunOnMissingResource=true
+    # The Instance CRD comes from paperclip-operator (wave 11); retry covers a
+    # sync that lands before the CRD is served or the database Secret exists.
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
 {{- include "homelab.smokeJob" (dict "name" "paperclip" "namespace" $pc.namespace "smoke" $pc.smoke "wave" "14" "image" .Values.global.images.curl) }}
 {{- end }}

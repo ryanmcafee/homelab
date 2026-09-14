@@ -34,7 +34,12 @@
  *             is complete when every app is Healthy with a Succeeded operation
  *             or is a parent whose Running operation waits on child
  *             Applications. Newly created children are discovered every poll.
- *             Failed/Error operations are retried 3x with 15 s backoff.
+ *             A later subtree (applications [0,3]) is not started while a
+ *             lower parent (addons [0,2]) still holds a wave open: its
+ *             remaining children (cloudnative-pg, wave 10) do not exist yet,
+ *             and in homelab ArgoCD itself starts applications only once
+ *             addons is Healthy. Failed/Error operations are retried 3x with
+ *             15 s backoff.
  *   wait      Poll until every Application is Healthy with a Succeeded
  *             operation (--require-synced also demands Synced). Runs diagnose
  *             and exits 1 on timeout.
@@ -430,6 +435,42 @@ export function parentsAwaitingWaves(apps: Application[]): string[] {
     )
     .map((a) => a.metadata.name)
     .sort();
+}
+
+/** True when `prefix` is a prefix of `key` (a key is a prefix of itself). */
+export function isTierKeyPrefix(prefix: TierKey, key: TierKey): boolean {
+  if (prefix.length > key.length) return false;
+  for (let i = 0; i < prefix.length; i++) {
+    if (prefix[i] !== key[i]) return false;
+  }
+  return true;
+}
+
+/**
+ * The awaiting parent (parentsAwaitingWaves, keyed by tierKey) that must
+ * settle before `tier` may start: one whose key is strictly lower than the
+ * tier and not a prefix of it. A parent holding a wave open never blocks its
+ * own subtree (those are exactly the children this loop syncs for it) and the
+ * root [0] is a prefix of everything, so it never blocks; but addons [0,2]
+ * Running blocks applications [0,3] and every [0,3,…] tier. Without this the
+ * loop moved on to applications while addons' later children (cloudnative-pg
+ * at wave 10) did not exist yet, and paperclip-database failed on a missing
+ * CNPG CRD. In homelab ArgoCD starts applications only once addons is Healthy
+ * (gitops waves); this mirrors that. Returns the lowest such parent (by key,
+ * then name), or null.
+ */
+export function tierBlockedBy(
+  tier: TierKey,
+  awaiting: Array<{ name: string; key: TierKey }>,
+): string | null {
+  const blocking = awaiting
+    .filter(({ key }) =>
+      compareTierKey(key, tier) < 0 && !isTierKeyPrefix(key, tier)
+    )
+    .sort((x, y) =>
+      compareTierKey(x.key, y.key) || x.name.localeCompare(y.name)
+    );
+  return blocking[0]?.name ?? null;
 }
 
 /**
@@ -2443,6 +2484,37 @@ async function syncLoop(args: Args, repoRoot: string): Promise<number> {
           `[${formatDuration(Date.now() - start)}] waiting for ${
             waiting.join(", ")
           } to create their next wave`,
+        );
+        await sleep(POLL_INTERVAL_MS);
+        continue;
+      }
+      // A lower parent still holding a wave open (addons Running while we
+      // would start applications): its later children do not exist yet, so
+      // wait for it to settle instead of moving on to a later subtree.
+      const byNameNow = indexApps(apps);
+      const blocker = tierBlockedBy(
+        tier.key,
+        parentsAwaitingWaves(apps).map((name) => ({
+          name,
+          key: tierKey(byNameNow.get(name)!, byNameNow),
+        })),
+      );
+      if (blocker !== null) {
+        if (Date.now() >= deadline) {
+          return await fail(
+            `sync timed out after ${
+              formatDuration(timeoutMs)
+            } waiting for ${blocker} to finish its waves before ${
+              formatTierKey(tier.key)
+            }`,
+          );
+        }
+        log.info(
+          `[${
+            formatDuration(Date.now() - start)
+          }] waiting for ${blocker} to finish its waves before tier ${
+            formatTierKey(tier.key)
+          }`,
         );
         await sleep(POLL_INTERVAL_MS);
         continue;

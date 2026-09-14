@@ -48,6 +48,7 @@ import {
   isParentApp,
   isReady,
   isTierComplete,
+  isTierKeyPrefix,
   manifestsArgs,
   mdCell,
   mentionsMissingPath,
@@ -71,6 +72,7 @@ import {
   sourceKind,
   statusRows,
   syncArgs,
+  tierBlockedBy,
   tierKey,
   treeOrder,
   truncateDiffs,
@@ -1026,6 +1028,66 @@ Deno.test("discoverable: nothing when every pending app is in the current or a h
     ]),
     [],
   );
+});
+
+Deno.test("isTierKeyPrefix: a key is a prefix of itself and of its descendants only", () => {
+  assert(isTierKeyPrefix([0], [0]));
+  assert(isTierKeyPrefix([0], [0, 2, 9]));
+  assert(isTierKeyPrefix([0, 2], [0, 2, -5]));
+  assert(!isTierKeyPrefix([0, 2], [0, 3]));
+  assert(!isTierKeyPrefix([0, 2], [0, 3, 11]));
+  assert(!isTierKeyPrefix([0, 2, 9], [0, 2]));
+});
+
+Deno.test("tierBlockedBy: addons holding a wave open blocks the applications subtree", () => {
+  // CI on PR #280: after addons' wave-6 children completed, its wave 7+
+  // children did not exist yet, so nextTier moved on to applications [0,3]
+  // and paperclip-database failed on a CNPG CRD that cloudnative-pg (addons
+  // wave 10) had not installed. addons [0,2] Running must block [0,3] and
+  // every tier under it.
+  const awaiting = [{ name: "addons", key: [0, 2] }];
+  assertEquals(tierBlockedBy([0, 3], awaiting), "addons");
+  assertEquals(tierBlockedBy([0, 3, 11], awaiting), "addons");
+});
+
+Deno.test("tierBlockedBy: a parent never blocks its own subtree nor itself", () => {
+  const awaiting = [{ name: "addons", key: [0, 2] }];
+  assertEquals(tierBlockedBy([0, 2, 7], awaiting), null);
+  assertEquals(tierBlockedBy([0, 2, -5], awaiting), null);
+  assertEquals(tierBlockedBy([0, 2], awaiting), null);
+});
+
+Deno.test("tierBlockedBy: the root gitops holding a wave open blocks nothing", () => {
+  const awaiting = [{ name: "gitops", key: [0] }];
+  assertEquals(tierBlockedBy([0, 0], awaiting), null);
+  assertEquals(tierBlockedBy([0, 2], awaiting), null);
+  assertEquals(tierBlockedBy([0, 3, 11], awaiting), null);
+});
+
+Deno.test("tierBlockedBy: a parent with a higher key does not block a lower tier", () => {
+  // applications [0,3] Running while addons creates a wave-9 child [0,2,9]:
+  // that child belongs to an earlier subtree and must be synced now.
+  const awaiting = [{ name: "applications", key: [0, 3] }];
+  assertEquals(tierBlockedBy([0, 2, 9], awaiting), null);
+  assertEquals(tierBlockedBy([0, 2], awaiting), null);
+});
+
+Deno.test("tierBlockedBy: with several awaiting parents the lowest one is returned", () => {
+  const awaiting = [
+    { name: "gitops", key: [0] },
+    { name: "addons", key: [0, 2] },
+    { name: "bootstrap", key: [0, 0] },
+  ];
+  assertEquals(tierBlockedBy([0, 3], awaiting), "bootstrap");
+  // Same key: sorted by name.
+  assertEquals(
+    tierBlockedBy([0, 3], [
+      { name: "zeta", key: [0, 2] },
+      { name: "alpha", key: [0, 2] },
+    ]),
+    "alpha",
+  );
+  assertEquals(tierBlockedBy([0, 3], []), null);
 });
 
 Deno.test("pendingChildren: children of a parent that are not done", () => {
