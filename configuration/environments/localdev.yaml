@@ -25,6 +25,7 @@ ACME_EMAIL: test@homelab.local
 TRAEFIK_OIDC_ALLOWED_DOMAINS: homelab.local
 DUCKDNS_SUBDOMAIN: homelab-dev
 EXTERNAL_DNS_DEFAULT_TARGET: homelab-dev.duckdns.org
+PAPERCLIP_ADMIN_EMAIL: admin@homelab.local
 
 # Kind provides almost none of the homelab platform layers (see
 # schema/platform.schema.yaml): Cilium is installed by scripts/localdev-kind.ts

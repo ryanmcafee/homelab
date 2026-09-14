@@ -122,3 +122,17 @@ sources:
     # The ObjectStore CRD is a template gated by .Values.crds.create (default true), so
     # `helm show crds` is empty and the `helm template --include-crds` fallback applies.
     kinds: [ObjectStore]
+
+  - name: paperclip-operator
+    versionKey: paperclip-operator
+    # paperclip-operator is published ONLY as an OCI artifact (no https index), so
+    # `chart.repo` is an oci:// registry path and the script runs
+    # `helm pull oci://.../paperclip-operator` instead of `--repo`. Its CRDs are
+    # templates under templates/crds/ gated by .Values.crds.install (default true), so
+    # `helm show crds` is empty and the `helm template --include-crds` fallback applies.
+    # Only Instance is rendered by this repo (PaperclipClusterDefaults and
+    # PaperclipSelfConfig are not), so only Instance is vendored.
+    chart:
+      repo: oci://ghcr.io/paperclipinc/charts
+      name: paperclip-operator
+    kinds: [Instance]

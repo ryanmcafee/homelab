@@ -1,0 +1,10 @@
+# paperclip — local development overrides
+#
+# Nothing to override: the parent passes paperclip.homelab.local, local-path
+# storage and Kind sizing through helm.valuesObject; the letsencrypt
+# ClusterIssuer is self-signed in Kind (CERT_ISSUER=selfsigned) under the same
+# name. The file still has to exist: the parent Application always appends
+# values-localdev.yaml to spec.source.helm.valueFiles, and ArgoCD fails the
+# sync when a declared value file is missing.
+
+namespace: paperclip

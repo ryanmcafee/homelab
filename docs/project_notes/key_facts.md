@@ -65,6 +65,7 @@ that parent renders):
 | `bootstrap` | -3 .. 1 | -3 namespace + secret-transformer RBAC, -2 SOPS secrets, -1 credentials-transformer Job and 1Password operator, 0 homelab-environment-config, 1 ArgoCD itself |
 | `addons` | -1 .. 10 | 0 cert-manager, 1 its ClusterIssuer, 3 external-dns config, 4 external-dns, 5-8 Traefik |
 | `applications` | 10 .. 15 | each `*-config` chart before the workload that consumes it |
+| `applications` (Paperclip, `paperclip.yaml`) | 10 .. 14 | 10 Namespaces `paperclip-operator` + `paperclip`, 11 `paperclip-operator` (OCI chart, ServerSideApply), 12 `paperclip-dependencies` (OnePasswordItems), 13 `paperclip-database` (CloudNativePG `Cluster` `paperclip-db`), 14 `paperclip` (`Instance` + smoke Job) |
 
 `homelab verify gitops` enforces the conventions this table describes
 (`gitops/<env>/waves`, `gitops/<env>/crd-order`); read the rendered
@@ -131,6 +132,7 @@ trusting a prose table.
 | CI | `.github/workflows/tilt-ci.yml`: `kind-argocd` (required, 45 min, artifact `verify-level2`), `kind-direct`, `yaml-lint` |
 | Expected state | every Application `OutOfSync` against `main` after a local sync; `Healthy` + `Succeeded` is the contract |
 | Restore drill | `tests/drills/cnpg-restore` (`task drill:restore`, weekly `restore-drill.yml`, failures open an issue labelled `restore-drill`); S3 fake `versity/versitygw` (`images.versitygw`), Barman Cloud Plugin addon `cnpg-barman-cloud` (`charts.plugin-barman-cloud`) in `cnpg-system` |
+| `paperclip` | runs in Kind (all four Applications); Secrets `paperclip-auth` and `paperclip-api-keys` seeded by `localdev/fakes/secrets.yaml`, CNPG `Cluster` `paperclip-db` on `local-path` / 1Gi, `PAPERCLIP_ADMIN_EMAIL=admin@homelab.local`; e2e `tests/e2e/paperclip` |
 
 ## Verification contract (issue #261 Sections C/D)
 
@@ -158,6 +160,7 @@ trusting a prose table.
 - Sonarr: `https://sonarr.{domain}`
 - Radarr: `https://radarr.{domain}`
 - Home Assistant: `https://homeassistant.{domain}`
+- Paperclip: `https://paperclip.{domain}`
 
 (Replace `{domain}` with actual domain from CLAUDE.local.md)
 
@@ -170,6 +173,9 @@ trusting a prose table.
 | Cloudflare DNS token | `op://homelab/cloudflare-api-token/credential` |
 | Google OAuth | `op://homelab/google-oauth-client-id/credential` |
 | UniFi credentials | `op://homelab/unifi-admin/credential` |
+| Paperclip auth secret | `op://homelab/paperclip-auth/BETTER_AUTH_SECRET` |
+| Paperclip admin password | `op://homelab/paperclip-auth/ADMIN_PASSWORD` |
+| Paperclip Anthropic API key | `op://homelab/paperclip-api-keys/ANTHROPIC_API_KEY` |
 
 ## Tips
 

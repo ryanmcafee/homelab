@@ -1876,3 +1876,105 @@ func TestGuardDoesNotHuntTheSetName(t *testing.T) {
 		})
 	}
 }
+
+func TestLineMatchesPatternForgeOwner(t *testing.T) {
+	const owner = "ryanmcafee"
+	tests := []struct {
+		name    string
+		line    string
+		pattern string
+		want    bool
+	}{
+		// The owner segment of a public code-forge URL is not a finding.
+		{name: "repository URL in gitops values", line: "  repoUrl: https://github.com/ryanmcafee/homelab.git", pattern: owner, want: false},
+		{name: "GitHub Pages Helm repository in a renovate comment", line: "  # renovate: datasource=helm depName=port-forwarding registryUrl=https://ryanmcafee.github.io/port-forwarding-controller", pattern: owner, want: false},
+		{name: "repository URL without .git", line: `repo_url = "https://github.com/ryanmcafee/homelab"`, pattern: owner, want: false},
+		{name: "owner URL at the end of the token", line: "see https://github.com/ryanmcafee", pattern: owner, want: false},
+		{name: "owner repository named .git", line: "https://github.com/ryanmcafee.git", pattern: owner, want: false},
+		{name: "SSH clone URL", line: "git@github.com:ryanmcafee/homelab.git", pattern: owner, want: false},
+		{name: "pages host with a port", line: "https://ryanmcafee.github.io:443/charts", pattern: owner, want: false},
+		{name: "host is matched case-insensitively", line: "https://GitHub.com/ryanmcafee/homelab", pattern: owner, want: false},
+		{name: "GitLab repository", line: "https://gitlab.com/ryanmcafee/homelab.git", pattern: owner, want: false},
+		{name: "GitLab pages", line: "https://ryanmcafee.gitlab.io/homelab", pattern: owner, want: false},
+
+		// The same value anywhere else is still a finding.
+		{name: "bare value", line: "mapall: ryanmcafee", pattern: owner, want: true},
+		{name: "value as a hostname label", line: "host: ryanmcafee.duckdns.org", pattern: owner, want: true},
+		{name: "value as a subdomain of a pages host", line: "https://sub.ryanmcafee.github.io/", pattern: owner, want: true},
+		{name: "value before a look-alike pages domain", line: "https://ryanmcafee.github.io.example.com/", pattern: owner, want: true},
+		{name: "another owner and the value elsewhere on the line", line: "https://github.com/other-owner/x # maintained by ryanmcafee", pattern: owner, want: true},
+		{name: "value before another owner on the same line", line: "ryanmcafee: https://github.com/other-owner/x", pattern: owner, want: true},
+		{name: "value inside the repository segment", line: "https://github.com/other-owner/ryanmcafee", pattern: owner, want: true},
+		{name: "owner that merely starts with the value", line: "https://github.com/ryanmcafee-other/x", pattern: owner, want: true},
+		{name: "look-alike host", line: "https://notgithub.com/ryanmcafee/x", pattern: owner, want: true},
+		{name: "forge subdomain is not the forge", line: "https://api.github.com/ryanmcafee/x", pattern: owner, want: true},
+		{name: "a domain is never an owner", line: "https://github.com/ryanmcafee.com/x", pattern: "ryanmcafee.com", want: true},
+		{name: "a mailbox is never an owner", line: "https://github.com/admin@ryanmcafee.com", pattern: "admin@ryanmcafee.com", want: true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := lineMatchesPattern(tc.line, tc.pattern); got != tc.want {
+				t.Errorf("lineMatchesPattern(%q, %q) = %v, want %v", tc.line, tc.pattern, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestRunGuardForgeOwnerURLsAreNotFindings(t *testing.T) {
+	dir := t.TempDir()
+	// The owner name reaches the pattern set through any PII-shaped key that
+	// happens to hold it: the NFS user and a dynamic-DNS label are both such keys.
+	env := filepath.Join(dir, "homelab.yaml")
+	if err := os.WriteFile(env, []byte("NFS_MAPALL_USER: ryanmcafee\nDUCKDNS_SUBDOMAIN: ryanmcafee\nDOMAIN: ryanmcafee.com\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		name    string
+		content string
+		want    int
+	}{
+		{
+			name: "the committed forge URLs pass",
+			content: "  # renovate: datasource=helm depName=port-forwarding registryUrl=https://ryanmcafee.github.io/port-forwarding-controller\n" +
+				"  repoUrl: https://github.com/ryanmcafee/homelab.git\n",
+			want: 0,
+		},
+		{
+			name:    "the same value outside a forge URL fails",
+			content: "mapall: ryanmcafee\n",
+			want:    1,
+		},
+		{
+			name:    "another owner with the value elsewhere on the line fails",
+			content: "repoUrl: https://github.com/other-owner/x # ryanmcafee\n",
+			want:    1,
+		},
+		{
+			// Both the domain and its first label are reported: neither is an
+			// owner, since the value holds a dot and the label is followed by one.
+			name:    "the domain inside a forge URL still fails",
+			content: "repoUrl: https://github.com/ryanmcafee.com/x\n",
+			want:    2,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			f := filepath.Join(t.TempDir(), "values-homelab.yaml")
+			if err := os.WriteFile(f, []byte(tc.content), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			report, err := RunGuard(GuardOptions{RepoRoot: dir, Files: []string{f}, EnvPath: env})
+			if err != nil {
+				t.Fatalf("RunGuard: %v", err)
+			}
+			if report.EnvMissing || report.ValuePatterns == 0 {
+				t.Fatalf("value patterns must be active: EnvMissing=%v ValuePatterns=%d", report.EnvMissing, report.ValuePatterns)
+			}
+			if n := report.MatchCount(); n != tc.want {
+				t.Errorf("MatchCount() = %d, want %d; results: %+v", n, tc.want, report.Results)
+			}
+		})
+	}
+}

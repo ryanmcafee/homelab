@@ -1343,7 +1343,7 @@ func TestLintGitOpsEmitsEveryRuleOnce(t *testing.T) {
 		"waves":        "3 Applications, 0 sibling wave comparisons",
 		"crd-order":    "0 custom resources ordered against 2 CRD providers",
 		"repo-secrets": "0 OCI chart sources, 0 repository Secrets",
-		"secret-refs":  "0 secret references, 0 rendered producers",
+		"secret-refs":  "0 secret references, 0 rendered producers, 0 seeded by localdev/fakes",
 		"namespaces":   "3 Application destination namespaces, 0 rendered Namespaces",
 		"ssa":          "0 of 3 Applications require ServerSideApply",
 		"unique-names": "3 distinct Applications, 3 distinct source paths",
@@ -1376,6 +1376,136 @@ metadata:
 	}
 	if want := "skipped 1 object(s) from charts no Application references: orphan"; !strings.Contains(got.Detail, want) {
 		t.Errorf("crd-order detail must disclose the skip, got %q", got.Detail)
+	}
+}
+
+// seededSecretRefRender is a deployed chart whose CronJob consumes Secret
+// paperclip/paperclip-auth, which nothing renders: only a seeded Secret can
+// satisfy it.
+var seededSecretRefRender = map[string]string{
+	"gitops": gitopsParents,
+	"addons": appDoc("paperclip", "3", "charts/paperclip", "paperclip"),
+	"paperclip": `
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: paperclip
+  namespace: paperclip
+spec:
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+            - name: c
+              envFrom:
+                - secretRef:
+                    name: paperclip-auth
+`,
+}
+
+// writeSeededFakes writes <root>/localdev/fakes/secrets.yaml seeding the
+// given Secrets (as "namespace/name") the way scripts/localdev-kind.ts fakes
+// applies them to Kind.
+func writeSeededFakes(t *testing.T, root string, secrets ...string) {
+	t.Helper()
+	dir := filepath.Join(root, "localdev", "fakes")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	var body strings.Builder
+	body.WriteString("---\napiVersion: v1\nkind: Namespace\nmetadata:\n  name: paperclip\n")
+	for _, s := range secrets {
+		ns, name, _ := strings.Cut(s, "/")
+		body.WriteString("---\napiVersion: v1\nkind: Secret\nmetadata:\n  name: " + name +
+			"\n  namespace: " + ns + "\ntype: Opaque\nstringData:\n  token: localdev\n")
+	}
+	if err := os.WriteFile(filepath.Join(dir, "secrets.yaml"), []byte(body.String()), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestSecretRefsCountSeededFakesForLocaldevOnly: the Secrets
+// localdev/fakes/*.yaml seeds into Kind are producers for the localdev
+// render (Env.SeededSecretsDir) and nothing else — homelab gets them from
+// 1Password and must keep failing until an OnePasswordItem renders.
+func TestSecretRefsCountSeededFakesForLocaldevOnly(t *testing.T) {
+	tests := []struct {
+		name       string
+		env        string
+		seeded     []string
+		wantStatus Status
+		wantDetail string
+		wantFind   string
+	}{
+		{
+			name:       "localdev passes when the fakes seed the referenced Secret",
+			env:        "localdev",
+			seeded:     []string{"paperclip/paperclip-auth", "paperclip/paperclip-api-keys"},
+			wantStatus: StatusPass,
+			wantDetail: "1 secret references, 0 rendered producers, 2 seeded by localdev/fakes",
+		},
+		{
+			name:       "homelab ignores the fakes",
+			env:        "homelab",
+			seeded:     []string{"paperclip/paperclip-auth"},
+			wantStatus: StatusFail,
+			wantDetail: "1 secret references, 0 rendered producers",
+			wantFind:   "paperclip/paperclip-auth",
+		},
+		{
+			name:       "localdev fails when the fake lives in another namespace",
+			env:        "localdev",
+			seeded:     []string{"media/paperclip-auth"},
+			wantStatus: StatusFail,
+			wantDetail: "1 secret references, 0 rendered producers, 1 seeded by localdev/fakes",
+			wantFind:   "or seed it in localdev/fakes/ for localdev",
+		},
+		{
+			name:       "localdev without a fakes directory discloses zero seeded",
+			env:        "localdev",
+			wantStatus: StatusFail,
+			wantDetail: "1 secret references, 0 rendered producers, 0 seeded by localdev/fakes",
+			wantFind:   "paperclip/paperclip-auth",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			root := fakeRepoRoot(t, "bootstrap", "addons", "applications", "paperclip")
+			if len(tc.seeded) > 0 {
+				writeSeededFakes(t, root, tc.seeded...)
+			}
+			rendered := map[string][]Doc{}
+			for chart, src := range seededSecretRefRender {
+				rendered[chart] = mustDocs(t, chart, tc.env, src)
+			}
+			got := checksByRule(t, LintGitOps(tc.env, rendered, testRegistry(), root))["secret-refs"]
+			if got.Status != tc.wantStatus {
+				t.Fatalf("status %s, want %s (detail=%q findings=%v)", got.Status, tc.wantStatus, got.Detail, got.Findings)
+			}
+			if got.Detail != tc.wantDetail {
+				t.Errorf("detail = %q, want %q", got.Detail, tc.wantDetail)
+			}
+			if tc.wantFind != "" && !containsSubstring(got.Findings, tc.wantFind) {
+				t.Errorf("findings %v do not mention %q", got.Findings, tc.wantFind)
+			}
+		})
+	}
+}
+
+func TestSecretRefsReportBrokenSeededFakes(t *testing.T) {
+	root := fakeRepoRoot(t, "bootstrap", "addons", "applications")
+	dir := filepath.Join(root, "localdev", "fakes")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "secrets.yaml"), []byte("a: [b\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rendered := map[string][]Doc{"gitops": mustDocs(t, "gitops", "localdev", gitopsParents)}
+	got := checksByRule(t, LintGitOps("localdev", rendered, testRegistry(), root))["secret-refs"]
+	if got.Status != StatusFail || !containsSubstring(got.Findings, "localdev/fakes: ") {
+		t.Fatalf("a fakes file that does not parse must fail secret-refs, got %s %v", got.Status, got.Findings)
 	}
 }
 

@@ -366,6 +366,31 @@ Each decision should include:
 - Production still has no object store, so production databases are not backed up until one exists; the drill proves the mechanism, not a production backup
 - Every agent edit under `charts/` or `configuration/` costs one level-0 run (`HOMELAB_VERIFY_HOOK=off` disables it); PR bodies must carry a current claim
 
+### ADR-015: Paperclip runs on a CloudNativePG external database, not the operator-managed Postgres (2026-09-13)
+
+**Context:**
+- Issue #260 deploys Paperclip (AI agent orchestration) through the official `paperclip-operator`; its `Instance` CRD offers three database modes (`managed`, `external`, `embedded`) and upstream recommends `external` for production
+- The `cloudnative-pg` addon (with the Barman Cloud Plugin, drilled weekly in Kind since ADR-014) has been deployed in both environments since ADR-012, but no `postgresql.cnpg.io/Cluster` existed in the repository yet
+- The app needs `BETTER_AUTH_SECRET`, an admin password and provider API keys that must never land in git, and a `DATABASE_URL` with credentials
+- The `Instance` CRD exceeds the client-side-apply limit, and the operator's chart is OCI-only
+
+**Decision:**
+- Four ArgoCD Applications in `charts/applications` (`paperclip.yaml`, gated on `paperclip.enabled`, never previewable): Namespaces (wave 10), `paperclip-operator` OCI chart with `ServerSideApply` and kept CRDs (11), `paperclip-dependencies` `OnePasswordItem`s (12), `paperclip-database` CloudNativePG `Cluster` `paperclip-db` (13), `paperclip` `Instance` in `external` mode plus a PostSync smoke Job (14)
+- The `Instance` reads `DATABASE_URL` from the CNPG-generated Secret `paperclip-db-app` (`externalURLSecretRef {paperclip-db-app, uri}`), so no database credential touches git or 1Password; the Postgres image is pinned in `versions.yaml` (`images.cloudnative-pg-postgresql`) rather than following the operator default
+- Auth and API keys come from two 1Password items whose field names equal the Secret keys the operator expects; the admin is bootstrapped once from `PAPERCLIP_ADMIN_EMAIL` (required config key) and sign-up is disabled
+- The whole stack runs in the Kind loop (level 2): CloudNativePG is on in localdev and `localdev/fakes/secrets.yaml` seeds the two Secrets
+
+**Alternatives Considered:**
+- Operator `managed` database mode -> a single `postgres:17-alpine` StatefulSet the upstream docs call "suitable for development", with no backup or HA path; CNPG gives both once an object store exists
+- `embedded` PGlite -> in-process database with no operational story at all
+- Addons tier instead of applications tier -> rejected: Paperclip is a user workload, and the CNPG addon (parent wave 1/2) already precedes the applications parent (wave 10/3), so ordering needs no tier change
+
+**Consequences:**
+- First `postgresql.cnpg.io/Cluster` in the repository; `paperclip-db-app` is registered in `tests/gitops/known-secrets.yaml` as produced by the operator at runtime, and `paperclip.inc` joins `crd-providers.yaml` / `huge-crd-charts.yaml` with a vendored `Instance` schema
+- The stack runs in Kind on every PR: the app image is about 1.5 GB compressed; the registry pull-through cache absorbs repeat runs, the first CI run pays the pull once
+- No production database backup until an S3-compatible object store exists (follow-up: `ScheduledBackup` + `ObjectStore`); Paperclip's PVC-backed app-native backups are the interim safety net
+- `PAPERCLIP_ADMIN_EMAIL` must exist in the gitignored `homelab.yaml` and in the `homelab-environment-config` 1Password document before the CMP can render; Instance metrics stay off until an OTEL collector exists
+
 - **2026-02-11: ArgoCD CMP for PII removal** — Moved config generation from commit-time to ArgoCD render-time using a Config Management Plugin sidecar. Bootstrap chart breaks chicken-and-egg with 1Password operator. All committed values files sanitized to safe defaults. The design doc (`docs/plans/2026-02-11-argocd-cmp-pii-removal-design.md`) was removed in c4daa10 once implemented; the mechanism is documented in `Claude.md` "CMP Architecture" and extended to child charts by ADR-010.
 
 - **2026-02-13: Dual Traefik Ingress Controllers** — Split single Traefik into external (`external` IngressClass, static IP 172.16.100.200, OIDC, port forwarding) and internal (`internal` IngressClass, dynamic IP, no OIDC). Plex uses external; all other apps use internal. OIDC middleware annotations removed from internal apps. Design doc: `docs/plans/2026-02-13-dual-traefik-ingress-design.md`.

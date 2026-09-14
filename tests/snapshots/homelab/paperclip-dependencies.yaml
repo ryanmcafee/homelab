@@ -1,0 +1,19 @@
+---
+# Source: paperclip-dependencies/templates/secrets.yaml
+apiVersion: onepassword.com/v1
+kind: OnePasswordItem
+metadata:
+  name: paperclip-auth
+  namespace: paperclip
+spec:
+  itemPath: "vaults/homelab/items/paperclip-auth"
+
+---
+# Source: paperclip-dependencies/templates/secrets.yaml
+apiVersion: onepassword.com/v1
+kind: OnePasswordItem
+metadata:
+  name: paperclip-api-keys
+  namespace: paperclip
+spec:
+  itemPath: "vaults/homelab/items/paperclip-api-keys"

@@ -28,6 +28,10 @@ Platform differences are capability keys (ADR-011): localdev renders with
 The remaining gap is Secrets that homelab gets from 1Password. Seeding them by
 name is the chosen shim: explicit, reviewable, and no fake operator to maintain.
 TLS Secrets are never seeded; the self-signed ClusterIssuer creates them.
+Level 0 (`gitops/localdev/secret-refs`) counts the `kind: Secret` objects in
+this directory as producers for the localdev render, so a `*SecretRef` to a
+seeded Secret passes here and still fails for homelab until an
+OnePasswordItem renders it.
 
 ## Adding an entry
 

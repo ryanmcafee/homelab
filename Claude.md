@@ -145,6 +145,7 @@ When updating helm chart versions, check these repositories:
 | democratic-csi | https://github.com/democratic-csi/charts/blob/master/stable/democratic-csi/Chart.yaml |
 | 1password-connect | https://github.com/1Password/connect-helm-charts/blob/main/charts/connect/Chart.yaml |
 | cloudnative-pg | https://github.com/cloudnative-pg/charts/blob/main/charts/cloudnative-pg/Chart.yaml |
+| paperclip-operator | https://github.com/paperclipinc/paperclip-operator/blob/main/charts/paperclip-operator/Chart.yaml |
 | kubelet-csr-approver | https://github.com/postfinance/kubelet-csr-approver/blob/main/charts/kubelet-csr-approver/Chart.yaml |
 | oauth2-proxy | https://github.com/oauth2-proxy/manifests/blob/main/helm/oauth2-proxy/Chart.yaml |
 | nvidia-gpu-operator | https://github.com/NVIDIA/gpu-operator/blob/main/deployments/gpu-operator/Chart.yaml |
@@ -234,14 +235,20 @@ charts:
   traefik-oidc: "v1.0.32"
   # renovate: datasource=helm depName=port-forwarding registryUrl=https://ryanmcafee.github.io/port-forwarding-controller
   unifi-port-forward: "1.1.1"
+  # renovate: datasource=docker depName=ghcr.io/paperclipinc/charts/paperclip-operator
+  paperclip-operator: "0.19.1"
 images:
-  homelab-cmp: "0.1.20"
+  homelab-cmp: "0.1.23"
   # renovate: datasource=docker depName=curlimages/curl
   curl: "8.22.0"
   # renovate: datasource=docker depName=kindest/node
   kind-node: "v1.36.1"
   # renovate: datasource=docker depName=versity/versitygw
   versitygw: "v1.8.0"
+  # renovate: datasource=docker depName=ghcr.io/paperclipai/paperclip
+  paperclip: "2026.831.1"
+  # renovate: datasource=docker depName=ghcr.io/cloudnative-pg/postgresql
+  cloudnative-pg-postgresql: "17.11"
 tools:
   # renovate: datasource=github-releases depName=siderolabs/talos
   talos: "v1.14.0"

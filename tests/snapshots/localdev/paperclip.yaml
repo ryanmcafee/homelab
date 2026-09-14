@@ -1,0 +1,80 @@
+---
+# Source: paperclip/templates/instance.yaml
+# Paperclip Instance. paperclip-operator turns it into a StatefulSet, Service
+# (port 3100), ConfigMap, PVC, ServiceAccount, NetworkPolicy, Ingress and a
+# one-time admin bootstrap Job. Health for ArgoCD comes from
+# charts/bootstrap/files/health/paperclip.inc_Instance.lua.
+apiVersion: paperclip.inc/v1alpha1
+kind: Instance
+metadata:
+  name: paperclip
+  namespace: paperclip
+spec:
+  image:
+    repository: ghcr.io/paperclipai/paperclip
+    tag: "2026.831.1"
+  deployment:
+    mode: authenticated
+    exposure: public
+    publicURL: https://paperclip.homelab.local
+    allowedHostnames:
+      - paperclip.homelab.local
+  database:
+    mode: external
+    externalURLSecretRef:
+      name: paperclip-db-app
+      key: uri
+  auth:
+    secretRef:
+      name: paperclip-auth
+      key: BETTER_AUTH_SECRET
+    disableSignUp: true
+    adminUser:
+      email: admin@homelab.local
+      name: "Admin"
+      passwordSecretRef:
+        name: paperclip-auth
+        key: ADMIN_PASSWORD
+  adapters:
+    apiKeysSecretRef:
+      name: paperclip-api-keys
+  storage:
+    persistence:
+      enabled: true
+      size: 1Gi
+      storageClass: local-path
+  networking:
+    service:
+      type: ClusterIP
+      port: 3100
+    ingress:
+      enabled: true
+      ingressClassName: internal
+      annotations:
+        cert-manager.io/cluster-issuer: letsencrypt
+        external-dns.alpha.kubernetes.io/hostname: paperclip.homelab.local
+      hosts:
+        - paperclip.homelab.local
+      tls:
+        - hosts:
+            - paperclip.homelab.local
+          secretName: paperclip-tls
+  security:
+    networkPolicy:
+      enabled: true
+  observability:
+    metrics:
+      enabled: false
+    logging:
+      level: info
+  resources:
+    limits:
+      cpu: "2"
+      memory: 2Gi
+    requests:
+      cpu: 250m
+      memory: 512Mi
+  probes:
+    startup:
+      failureThreshold: 60
+      periodSeconds: 5

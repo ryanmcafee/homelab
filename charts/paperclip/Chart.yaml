@@ -1,0 +1,6 @@
+apiVersion: v2
+name: paperclip
+description: Paperclip AI agent orchestration platform - a paperclip.inc Instance run by paperclip-operator
+type: application
+version: 1.0.0
+appVersion: "1.0"

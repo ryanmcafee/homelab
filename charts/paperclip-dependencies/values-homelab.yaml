@@ -1,0 +1,7 @@
+# paperclip-dependencies homelab values. Committed and PII-free (ADR-010): the
+# 1Password paths and the toggle come from the parent Application's
+# helm.valuesObject (configuration/schema/secrets.schema.yaml), so nothing is
+# overridden here. The file still has to exist: the parent always lists
+# values-homelab.yaml in spec.source.helm.valueFiles.
+
+namespace: paperclip

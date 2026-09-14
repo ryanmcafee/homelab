@@ -1065,3 +1065,91 @@ renovate:
     limits:
       cpu: 2000m
       memory: 2Gi
+
+# ============================================================================
+# Paperclip - AI agent orchestration (paperclip-operator + CloudNativePG)
+# Sync Waves: 10 namespaces, 11 paperclip-operator, 12 paperclip-dependencies,
+# 13 paperclip-database, 14 paperclip (issue #260, docs/apps/paperclip.md)
+# ============================================================================
+# Placeholders only. The real values (hostname, admin e-mail, 1Password paths,
+# storage classes, versions) come from configuration/templates/helm-apps.tmpl:
+# the CMP renders them for homelab and `task config:export:localdev` writes
+# values-localdev.yaml.
+
+paperclip:
+  enabled: false
+  namespace: paperclip
+  hostname: paperclip.example.com
+
+  # paperclip-operator: OCI chart (repoURL without oci://), CRDs + controller.
+  # configuration/versions.yaml charts.paperclip-operator is the only pin.
+  operator:
+    namespace: paperclip-operator
+    chart:
+      name: paperclip-operator
+      repo: ghcr.io/paperclipinc/charts
+      version: "0.19.1"
+    serviceMonitor:
+      enabled: true
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: 500m
+        memory: 256Mi
+
+  # charts/paperclip-dependencies: OnePasswordItems -> Secrets paperclip-auth
+  # (BETTER_AUTH_SECRET, ADMIN_PASSWORD) and paperclip-api-keys
+  # (ANTHROPIC_API_KEY, ...). Inert without a secret store.
+  dependencies:
+    onePassword:
+      enabled: false
+      authItemPath: ""
+      apiKeysItemPath: ""
+
+  # charts/paperclip-database: CloudNativePG Cluster paperclip-db.
+  # imageName is pinned from configuration/versions.yaml images.cloudnative-pg-postgresql.
+  database:
+    instances: 1
+    imageName: ""
+    storageClass: ""
+    storageSize: 10Gi
+    resources:
+      requests:
+        cpu: 250m
+        memory: 512Mi
+      limits:
+        cpu: "1"
+        memory: 1Gi
+
+  # charts/paperclip: the paperclip.inc Instance. image.tag is pinned from
+  # configuration/versions.yaml images.paperclip (the operator refuses an
+  # Instance without a tag).
+  instance:
+    image:
+      repository: ghcr.io/paperclipai/paperclip
+      tag: ""
+    admin:
+      email: ""
+      name: Admin
+    ingress:
+      className: internal
+    persistence:
+      size: 10Gi
+      storageClass: ""
+    resources:
+      requests:
+        cpu: 500m
+        memory: 1Gi
+      limits:
+        cpu: "2"
+        memory: 2Gi
+
+  # PostSync smoke hook (templates/_smoke.tpl): the operator's health path on
+  # the Instance Service; the in-cluster Service name is always an allowed
+  # hostname in authenticated mode.
+  smoke:
+    enabled: true
+    url: http://paperclip.paperclip.svc.cluster.local:3100/api/health
+    expect: ["200"]

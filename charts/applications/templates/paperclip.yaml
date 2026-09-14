@@ -1,0 +1,247 @@
+{{- /*
+Paperclip (issue #260, docs/apps/paperclip.md): AI agent orchestration run by
+paperclip-operator with its database on the existing CloudNativePG operator.
+Four Applications in one sync order (rule gitops/<env>/waves: -dependencies < main):
+  wave 10  Namespaces paperclip-operator, paperclip
+  wave 11  paperclip-operator      OCI chart ghcr.io/paperclipinc/charts/paperclip-operator (CRDs + controller)
+  wave 12  paperclip-dependencies  charts/paperclip-dependencies (OnePasswordItems -> Secrets paperclip-auth, paperclip-api-keys)
+  wave 13  paperclip-database      charts/paperclip-database (postgresql.cnpg.io Cluster paperclip-db -> Secret paperclip-db-app)
+  wave 14  paperclip               charts/paperclip (paperclip.inc Instance) + PostSync smoke Job
+Every value comes from the `paperclip:` block of configuration/templates/helm-apps.tmpl;
+charts/applications/values.yaml only holds placeholders. Derived values reach the
+three child charts through helm.valuesObject (ADR-010), so their committed values
+files carry no hostname, e-mail or address.
+Never part of a preview (docs/runbooks/previews.md): an operator, CRDs and
+1Password items are cluster-level concerns.
+*/}}
+{{- $pc := .Values.paperclip }}
+{{- if and $pc.enabled (not (include "homelab.preview.enabled" .)) }}
+---
+# Namespace for the paperclip-operator controller. The chart runs it non-root
+# (uid 65532) with every capability dropped, so baseline is enough.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ $pc.operator.namespace }}
+  labels:
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/audit: baseline
+    pod-security.kubernetes.io/warn: baseline
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
+---
+# Namespace for the Paperclip Instance and its CloudNativePG Cluster. Both run
+# non-root; created here so the wave-14 smoke Job has a target before
+# CreateNamespace=true would create it.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ $pc.namespace }}
+  labels:
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/audit: baseline
+    pod-security.kubernetes.io/warn: baseline
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
+---
+# OCI Repository: ArgoCD only pulls OCI charts from a registry it has a
+# repository Secret for (rule gitops/<env>/repo-secrets). Anonymous pull.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: paperclipinc-oci
+  namespace: argocd
+  labels:
+    argocd.argoproj.io/secret-type: repository
+  annotations:
+    argocd.argoproj.io/sync-wave: "11"
+stringData:
+  name: paperclipinc
+  type: helm
+  url: {{ $pc.operator.chart.repo }}
+  enableOCI: "true"
+---
+# Operator Application: CRDs (instances, paperclipclusterdefaults,
+# paperclipselfconfigs in paperclip.inc) and the controller. The CRDs are
+# chart templates gated by crds.install and kept on uninstall (crds.keep). The
+# Instance CRD is far past the 256 KiB client-side-apply limit, so
+# ServerSideApply=true is mandatory (tests/gitops/huge-crd-charts.yaml).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: paperclip-operator
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "11"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: {{ $pc.operator.chart.repo }}
+    chart: {{ $pc.operator.chart.name }}
+    targetRevision: {{ $pc.operator.chart.version | quote }}
+    helm:
+      releaseName: paperclip-operator
+      values: |
+        crds:
+          install: true
+          keep: true
+        metrics:
+          enabled: true
+          serviceMonitor:
+            enabled: {{ $pc.operator.serviceMonitor.enabled }}
+        {{- if $pc.operator.resources }}
+        resources:
+          {{- toYaml $pc.operator.resources | nindent 10 }}
+        {{- end }}
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: {{ $pc.operator.namespace }}
+  syncPolicy:
+    {{- if .Values.global.automatedSync }}
+    automated:
+      prune: true
+      selfHeal: true
+    {{- end }}
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+---
+# Dependencies Application: the 1Password items the Instance reads
+# (paperclip-auth: BETTER_AUTH_SECRET + ADMIN_PASSWORD; paperclip-api-keys:
+# ANTHROPIC_API_KEY, ...). Renders nothing without a secret store; localdev
+# seeds both Secrets in localdev/fakes/secrets.yaml.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: paperclip-dependencies
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "12"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: {{ .Values.global.repoUrl }}
+    targetRevision: {{ .Values.global.targetRevision }}
+    path: charts/paperclip-dependencies
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-{{ .Values.global.environment }}.yaml
+      # 1Password paths come from configuration/ (secrets.schema.yaml) through
+      # this parent, so the child's committed values stay environment-free.
+      valuesObject:
+        namespace: {{ $pc.namespace }}
+        onePassword:
+          {{- toYaml $pc.dependencies.onePassword | nindent 10 }}
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: {{ $pc.namespace }}
+  syncPolicy:
+    {{- if .Values.global.automatedSync }}
+    automated:
+      prune: true
+      selfHeal: true
+    {{- end }}
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - SkipDryRunOnMissingResource=true
+---
+# Database Application: a CloudNativePG Cluster (the operator is the
+# cloudnative-pg addon). CNPG generates Secret paperclip-db-app whose `uri`
+# key is the DATABASE_URL the Instance reads, so no credential is ever
+# written by us. ArgoCD's built-in Cluster health check makes wave 14 wait
+# for a ready database.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: paperclip-database
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "13"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: {{ .Values.global.repoUrl }}
+    targetRevision: {{ .Values.global.targetRevision }}
+    path: charts/paperclip-database
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-{{ .Values.global.environment }}.yaml
+      # Storage class, size, image pin and sizing are environment facts
+      # (configuration/) and reach the child through this parent (ADR-010).
+      valuesObject:
+        namespace: {{ $pc.namespace }}
+        {{- toYaml $pc.database | nindent 8 }}
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: {{ $pc.namespace }}
+  syncPolicy:
+    {{- if .Values.global.automatedSync }}
+    automated:
+      prune: true
+      selfHeal: true
+    {{- end }}
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - SkipDryRunOnMissingResource=true
+---
+# Instance Application: the paperclip.inc/v1alpha1 Instance in external
+# database mode. Health comes from charts/bootstrap/files/health/
+# paperclip.inc_Instance.lua (status.phase Running = Healthy).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: paperclip
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "14"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: {{ .Values.global.repoUrl }}
+    targetRevision: {{ .Values.global.targetRevision }}
+    path: charts/paperclip
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-{{ .Values.global.environment }}.yaml
+      # Hostname, admin e-mail, image tag, ingress class and storage classes
+      # come from configuration/ through this parent (ADR-010); never put them
+      # in charts/paperclip/values-homelab.yaml.
+      valuesObject:
+        namespace: {{ $pc.namespace }}
+        hostname: {{ $pc.hostname }}
+        {{- toYaml $pc.instance | nindent 8 }}
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: {{ $pc.namespace }}
+  syncPolicy:
+    {{- if .Values.global.automatedSync }}
+    automated:
+      prune: true
+      selfHeal: true
+    {{- end }}
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - SkipDryRunOnMissingResource=true
+{{- include "homelab.smokeJob" (dict "name" "paperclip" "namespace" $pc.namespace "smoke" $pc.smoke "wave" "14" "image" .Values.global.images.curl) }}
+{{- end }}

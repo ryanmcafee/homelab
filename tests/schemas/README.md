@@ -35,14 +35,18 @@ standalone draft-07 JSON Schema file.
 
 Two source types are supported:
 
-- **`chart`**: `helm pull --repo <repo> <name> --version <v> --untar`, then
+- **`chart`**: `helm pull --repo <repo> <name> --version <v> --untar` (or, when `repo` is an
+  `oci://` registry path such as `oci://ghcr.io/paperclipinc/charts`,
+  `helm pull oci://<registry>/<name> --version <v> --untar` — OCI registries take the chart as
+  a single reference and have no `--repo` index), then
   `helm show crds` (covers CRDs shipped in a chart's special `crds/` directory). If any
   requested kind is still missing, it falls back to
   `helm template --include-crds --kube-version <k8s-version> [...helmArgs]` and pulls out
   every `kind: CustomResourceDefinition` document — this is what's needed for charts that
   template their CRDs under `templates/` gated by a value (cert-manager's
   `crds.enabled`, external-dns's `crd.create`, tailscale-operator's `installCRDs`,
-  cloudnative-pg's `crds.create`, argo-cd's ungated `templates/crds/*.yaml`).
+  cloudnative-pg's `crds.create`, paperclip-operator's `crds.install`, argo-cd's ungated
+  `templates/crds/*.yaml`).
 - **`github`**: fetches raw CRD YAML files directly from an upstream GitHub repo at a
   ref derived from the pinned chart version (`ref: "v{version}"`, `"argo-workflows-{version}"`,
   etc.), for projects whose Helm chart doesn't ship (or doesn't ship the real, non-minified)
@@ -101,7 +105,9 @@ instruction (which files are `added`, `changed`, or `removed`) until someone run
 ## Adding a new kind or chart
 
 1. Add (or extend) an entry in `sources.yaml`: `name`, `versionKey` (must match a key
-   under `charts:` in `configuration/versions.yaml`), either `chart: {repo, name}` or
+   under `charts:` in `configuration/versions.yaml`), either `chart: {repo, name}` (`repo` is
+   an https index URL or an `oci://` registry path — e.g. paperclip-operator is OCI-only:
+   `repo: oci://ghcr.io/paperclipinc/charts`, `name: paperclip-operator`) or
    `github: {repo, ref, paths}`, an optional `helmArgs` list (`--set`/`--values` flags
    needed to get the CRD templates to render, e.g. `crds.enabled=true`), and the list of
    `kinds` to vendor.

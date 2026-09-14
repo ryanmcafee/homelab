@@ -278,21 +278,23 @@ async function fetchChartCRDs(
   const chart = source.chart!;
   const tmpDir = await Deno.makeTempDir({ prefix: "crd-vendor-chart-" });
   try {
-    log.info(
-      `[${source.name}] helm pull --repo ${chart.repo} ${chart.name} --version ${version}`,
-    );
-    const pull = await run([
+    // OCI registries (oci://ghcr.io/org/charts) take the chart as a single
+    // reference and reject --repo; classic https indexes need --repo <url> <name>.
+    const chartRef: string[] = chart.repo.startsWith("oci://")
+      ? [`${chart.repo.replace(/\/+$/, "")}/${chart.name}`]
+      : ["--repo", chart.repo, chart.name];
+    const pullCmd = [
       "helm",
       "pull",
-      "--repo",
-      chart.repo,
-      chart.name,
+      ...chartRef,
       "--version",
       version,
       "--untar",
       "-d",
       tmpDir,
-    ]);
+    ];
+    log.info(`[${source.name}] ${pullCmd.slice(0, -2).join(" ")}`);
+    const pull = await run(pullCmd);
     if (pull.code !== 0) {
       throw new Error(
         `helm pull failed for source "${source.name}" (${chart.repo} ${chart.name}@${version}):\n${pull.stderr}`,

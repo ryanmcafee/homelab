@@ -1,0 +1,32 @@
+---
+# CloudNativePG Cluster for Paperclip. The operator (cloudnative-pg addon,
+# cnpg-system) creates the StatefulSet-like pods, the -rw/-ro/-r Services and
+# the Secret <name>-app whose `uri` key the paperclip Instance reads as
+# DATABASE_URL, so no database credential is ever templated here.
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: {{ .Values.name }}
+  namespace: {{ .Values.namespace }}
+spec:
+  instances: {{ .Values.instances }}
+  {{- with .Values.imageName }}
+  imageName: {{ . | quote }}
+  {{- end }}
+  primaryUpdateStrategy: unsupervised
+  storage:
+    {{- with .Values.storageClass }}
+    storageClass: {{ . }}
+    {{- end }}
+    size: {{ .Values.storageSize }}
+  bootstrap:
+    initdb:
+      database: {{ .Values.database }}
+      owner: {{ .Values.owner }}
+  resources:
+    {{- toYaml .Values.resources | nindent 4 }}
+  monitoring:
+    enablePodMonitor: {{ .Values.monitoring.enablePodMonitor }}
+  postgresql:
+    parameters:
+      {{- toYaml .Values.postgresql.parameters | nindent 6 }}

@@ -45,6 +45,8 @@ TRAEFIK_GOOGLE_OAUTH_PATH: vaults/homelab/items/google-oauth
 TRAEFIK_CLOUDFLARE_1P_PATH: vaults/homelab/items/cloudflare
 UNIFI_PORT_FORWARD_1P_PATH: vaults/homelab/items/unifi
 DUCKDNS_1P_PATH: vaults/homelab/items/duckdns
+PAPERCLIP_AUTH_1P_PATH: vaults/homelab/items/paperclip-auth
+PAPERCLIP_API_KEYS_1P_PATH: vaults/homelab/items/paperclip-api-keys
 
 # PVC names (defaults)
 PLEX_CONFIG_PVC: plex-config-iscsi
