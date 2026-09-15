@@ -1108,7 +1108,7 @@ paperclip:
       authItemPath: ""
       apiKeysItemPath: ""
 
-  # charts/paperclip-database: CloudNativePG Cluster paperclip-db.
+  # charts/paperclip-database: CloudNativePG Cluster paperclip-postgres.
   # imageName is pinned from configuration/versions.yaml images.cloudnative-pg-postgresql.
   database:
     instances: 1

@@ -38,8 +38,8 @@ See `CLAUDE.local.md` for IP addresses and hostnames.
 - Backend: TrueNAS RAIDZ3 (~220 TB raw) + SSD mirror pool
 - Storage Classes:
   - `democratic-csi-nfs` (default) - NFS on HDD pool
-  - `democratic-csi-ssd` - NFS on SSD pool
-  - `democratic-csi-iscsi` - iSCSI block storage on SSD pool (for SQLite workloads)
+  - `democratic-csi-ssd` - NFS on SSD pool (`STORAGE_CLASS_SSD`; files appear owned by the mapall user, unusable for PostgreSQL)
+  - `democratic-csi-iscsi` - iSCSI block storage on SSD pool (`STORAGE_CLASS_ISCSI_SSD`; SQLite and PostgreSQL workloads, e.g. `paperclip-postgres`)
 
 ## ArgoCD Sync Wave Order
 
@@ -65,7 +65,7 @@ that parent renders):
 | `bootstrap` | -3 .. 1 | -3 namespace + secret-transformer RBAC, -2 SOPS secrets, -1 credentials-transformer Job and 1Password operator, 0 homelab-environment-config, 1 ArgoCD itself |
 | `addons` | -1 .. 10 | 0 cert-manager, 1 its ClusterIssuer, 3 external-dns config, 4 external-dns, 5-8 Traefik |
 | `applications` | 10 .. 15 | each `*-config` chart before the workload that consumes it |
-| `applications` (Paperclip, `paperclip.yaml`) | 10 .. 14 | 10 Namespaces `paperclip-operator` + `paperclip`, 11 `paperclip-operator` (OCI chart, ServerSideApply), 12 `paperclip-dependencies` (OnePasswordItems), 13 `paperclip-database` (CloudNativePG `Cluster` `paperclip-db`), 14 `paperclip` (`Instance` + smoke Job) |
+| `applications` (Paperclip, `paperclip.yaml`) | 10 .. 14 | 10 Namespaces `paperclip-operator` + `paperclip`, 11 `paperclip-operator` (OCI chart, ServerSideApply), 12 `paperclip-dependencies` (OnePasswordItems), 13 `paperclip-database` (CloudNativePG `Cluster` `paperclip-postgres`), 14 `paperclip` (`Instance` + smoke Job) |
 
 `homelab verify gitops` enforces the conventions this table describes
 (`gitops/<env>/waves`, `gitops/<env>/crd-order`); read the rendered
@@ -134,7 +134,7 @@ trusting a prose table.
 | Expected state | every Application `Synced` (tree equals the pushed head) after a local sync; `OutOfSync` = unpushed local changes or the `main` fallback; `Healthy` + `Succeeded` is the contract, sync status never decides |
 | Report base | `task localdev:report -- --base <ref>` (default `main`, CI passes the PR base) diffs every git-path Application with `argocd app diff --revision <base>` |
 | Restore drill | `tests/drills/cnpg-restore` (`task drill:restore`, weekly `restore-drill.yml`, failures open an issue labelled `restore-drill`); S3 fake `versity/versitygw` (`images.versitygw`), Barman Cloud Plugin addon `cnpg-barman-cloud` (`charts.plugin-barman-cloud`) in `cnpg-system` |
-| `paperclip` | runs in Kind (operator, database, Instance; the `paperclip-dependencies` Application only renders with a secret store); Secrets `paperclip-auth` and `paperclip-api-keys` (placeholder `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `CLAUDE_CODE_OAUTH_TOKEN`) seeded by `localdev/fakes/secrets.yaml`, CNPG `Cluster` `paperclip-db` on `local-path` / 1Gi, `PAPERCLIP_ADMIN_EMAIL=admin@homelab.local`; e2e `tests/e2e/paperclip` |
+| `paperclip` | runs in Kind (operator, database, Instance; the `paperclip-dependencies` Application only renders with a secret store); Secrets `paperclip-auth` and `paperclip-api-keys` (placeholder `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `CLAUDE_CODE_OAUTH_TOKEN`) seeded by `localdev/fakes/secrets.yaml`, CNPG `Cluster` `paperclip-postgres` on `local-path` / 1Gi, `PAPERCLIP_ADMIN_EMAIL=admin@homelab.local`; e2e `tests/e2e/paperclip` |
 
 ## Verification contract (issue #261 Sections C/D)
 

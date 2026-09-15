@@ -7,7 +7,7 @@
 apiVersion: postgresql.cnpg.io/v1
 kind: Cluster
 metadata:
-  name: paperclip-db
+  name: paperclip-postgres
   namespace: paperclip
 spec:
   instances: 1

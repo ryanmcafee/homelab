@@ -31,7 +31,7 @@ spec:
   database:
     mode: external
     externalURLSecretRef:
-      name: paperclip-db-app
+      name: paperclip-postgres-app
       key: uri
   auth:
     secretRef:

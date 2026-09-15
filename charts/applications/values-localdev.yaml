@@ -992,11 +992,14 @@ paperclip:
       authItemPath: vaults/homelab/items/paperclip-auth
       apiKeysItemPath: vaults/homelab/items/paperclip-api-keys
 
-  # charts/paperclip-database: CloudNativePG Cluster paperclip-db. The image is
+  # charts/paperclip-database: CloudNativePG Cluster paperclip-postgres. The image is
   # pinned (CNPG guidance) so an operator bump never upgrades Postgres by itself.
   database:
     instances: 1
     imageName: "ghcr.io/cloudnative-pg/postgresql:17.11"
+    # Block storage: PostgreSQL refuses a data directory whose files are not
+    # owned by uid 26, which is what every file on the NFS classes looks like
+    # (mapall). STORAGE_CLASS_SSD is NFS on the SSD pool; this is iSCSI on it.
     storageClass: local-path
     # Kind sizing: local-path volume, small footprint
     storageSize: 1Gi

@@ -23,9 +23,14 @@ keys:
     default: "democratic-csi-iscsi-hdd"
 
   STORAGE_CLASS_SSD:
-    description: StorageClass name for iSCSI SSD volumes
+    description: StorageClass name for NFS volumes on the SSD pool (files appear owned by the NFS mapall user, so not for databases)
     required: true
     default: "democratic-csi-ssd"
+
+  STORAGE_CLASS_ISCSI_SSD:
+    description: StorageClass name for iSCSI (block, ext4) volumes on the SSD pool; ownership-sensitive data such as PostgreSQL and SQLite
+    required: true
+    default: "democratic-csi-iscsi"
 
   INGRESS_CLASS_EXTERNAL:
     description: IngressClass name for externally-facing services

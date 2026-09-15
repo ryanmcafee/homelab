@@ -1158,7 +1158,7 @@ spec:
 ---
 # Source: applications/templates/paperclip.yaml
 # Database Application: a CloudNativePG Cluster (the operator is the
-# cloudnative-pg addon). CNPG generates Secret paperclip-db-app whose `uri`
+# cloudnative-pg addon). CNPG generates Secret paperclip-postgres-app whose `uri`
 # key is the DATABASE_URL the Instance reads, so no credential is ever
 # written by us. ArgoCD's built-in Cluster health check makes wave 14 wait
 # for a ready database.

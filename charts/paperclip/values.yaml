@@ -32,9 +32,9 @@ deployment:
   exposure: private
 
 # external: DATABASE_URL comes from the CloudNativePG-generated Secret of
-# charts/paperclip-database (key uri = postgresql://paperclip:<pw>@paperclip-db-rw:5432/paperclip).
+# charts/paperclip-database (key uri = postgresql://paperclip:<pw>@paperclip-postgres-rw:5432/paperclip).
 database:
-  secretName: paperclip-db-app
+  secretName: paperclip-postgres-app
   secretKey: uri
 
 # BETTER_AUTH_SECRET lives in the paperclip-auth Secret
@@ -90,7 +90,7 @@ ingress:
 
 # The operator's default policy: ingress on the service port from any source,
 # egress to DNS, TCP 443 (LLM APIs), OTLP 4317/4318 and, in external database
-# mode, TCP 5432. That already covers Traefik -> app and app -> paperclip-db-rw.
+# mode, TCP 5432. That already covers Traefik -> app and app -> paperclip-postgres-rw.
 security:
   networkPolicy:
     enabled: true
