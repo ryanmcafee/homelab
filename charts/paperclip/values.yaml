@@ -42,7 +42,13 @@ database:
 auth:
   secretName: paperclip-auth
   secretKey: BETTER_AUTH_SECRET
-  disableSignUp: true
+  # TEMPORARILY false: the operator's admin bootstrap Job registers the admin
+  # through the e-mail/password sign-up API, which PAPERCLIP_AUTH_DISABLE_SIGN_UP
+  # blocks for everyone, first user included (EMAIL_PASSWORD_SIGN_UP_DISABLED;
+  # bugs.md 2026-09-15, upstream paperclipinc/paperclip-operator issue). Flip back
+  # to true in a follow-up PR as soon as the Instance reports status.bootstrap;
+  # the Job short-circuits afterwards and never re-registers.
+  disableSignUp: false
 
 # One-time admin bootstrap (spec.auth.adminUser): e-mail from PAPERCLIP_ADMIN_EMAIL
 # through the parent, password from the ADMIN_PASSWORD key of the same Secret.
