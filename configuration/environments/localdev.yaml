@@ -47,3 +47,4 @@ CERT_ISSUER: selfsigned
 STORAGE_CLASS_NFS: local-path
 STORAGE_CLASS_ISCSI: local-path
 STORAGE_CLASS_SSD: local-path
+STORAGE_CLASS_ISCSI_SSD: local-path

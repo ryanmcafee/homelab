@@ -8,7 +8,12 @@ namespace: paperclip
 # Cluster name. CNPG derives everything else from it: Services <name>-rw /
 # <name>-ro / <name>-r and the generated Secret <name>-app (username, password,
 # dbname, host, port, uri, jdbc-uri) that the Instance reads as DATABASE_URL.
-name: paperclip-db
+# Cluster name = Secret <name>-app, Services <name>-rw/-ro/-r and PVC prefix.
+# Was paperclip-db: its first bootstrap ran on the NFS class and initdb failed
+# with "data directory has wrong ownership" (bugs.md 2026-09-15); the rename
+# lets ArgoCD prune that Cluster (CNPG removes its PVC) and bootstrap this one
+# on iSCSI with no manual step in production.
+name: paperclip-postgres
 
 # 1 to start; 2 once HA is wanted (automatic failover, primaryUpdateStrategy
 # unsupervised switches the primary during upgrades).

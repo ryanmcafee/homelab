@@ -5,7 +5,7 @@ Four Applications in one sync order (rule gitops/<env>/waves: -dependencies < ma
   wave 10  Namespaces paperclip-operator, paperclip
   wave 11  paperclip-operator      OCI chart ghcr.io/paperclipinc/charts/paperclip-operator (CRDs + controller)
   wave 12  paperclip-dependencies  charts/paperclip-dependencies (OnePasswordItems -> Secrets paperclip-auth, paperclip-api-keys; secret store only)
-  wave 13  paperclip-database      charts/paperclip-database (postgresql.cnpg.io Cluster paperclip-db -> Secret paperclip-db-app)
+  wave 13  paperclip-database      charts/paperclip-database (postgresql.cnpg.io Cluster paperclip-postgres -> Secret paperclip-db-app)
   wave 14  paperclip               charts/paperclip (paperclip.inc Instance) + PostSync smoke Job
 Every value comes from the `paperclip:` block of configuration/templates/helm-apps.tmpl;
 charts/applications/values.yaml only holds placeholders. Derived values reach the
@@ -168,7 +168,7 @@ spec:
 {{- end }}
 ---
 # Database Application: a CloudNativePG Cluster (the operator is the
-# cloudnative-pg addon). CNPG generates Secret paperclip-db-app whose `uri`
+# cloudnative-pg addon). CNPG generates Secret paperclip-postgres-app whose `uri`
 # key is the DATABASE_URL the Instance reads, so no credential is ever
 # written by us. ArgoCD's built-in Cluster health check makes wave 14 wait
 # for a ready database.

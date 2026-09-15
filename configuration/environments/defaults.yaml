@@ -12,6 +12,7 @@ K8S_SERVICE_CIDR: "10.96.0.0/12"
 STORAGE_CLASS_NFS: democratic-csi-nfs
 STORAGE_CLASS_ISCSI: democratic-csi-iscsi-hdd
 STORAGE_CLASS_SSD: democratic-csi-ssd
+STORAGE_CLASS_ISCSI_SSD: democratic-csi-iscsi
 INGRESS_CLASS_EXTERNAL: external
 INGRESS_CLASS_INTERNAL: internal
 TIMEZONE: "America/New_York"

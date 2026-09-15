@@ -6,7 +6,7 @@ metadata:
   name: paperclip
 spec:
   description: >-
-    The four Paperclip Applications are Healthy, the CloudNativePG Cluster paperclip-db is
+    The four Paperclip Applications are Healthy, the CloudNativePG Cluster paperclip-postgres is
     healthy, the Instance reports phase Running, and /api/health answers 200 through the
     internal Traefik with Host paperclip.homelab.local.
   steps:
@@ -77,14 +77,14 @@ spec:
             name: paperclip
             namespace: argocd
     - name: database-and-instance-ready
-      description: Cluster paperclip-db is "Cluster in healthy state" and Instance paperclip is Running.
+      description: Cluster paperclip-postgres is "Cluster in healthy state" and Instance paperclip is Running.
       try:
         - assert:
             resource:
               apiVersion: postgresql.cnpg.io/v1
               kind: Cluster
               metadata:
-                name: paperclip-db
+                name: paperclip-postgres
                 namespace: paperclip
               status:
                 phase: Cluster in healthy state
@@ -104,7 +104,7 @@ spec:
         - describe:
             apiVersion: postgresql.cnpg.io/v1
             kind: Cluster
-            name: paperclip-db
+            name: paperclip-postgres
             namespace: paperclip
         - describe:
             apiVersion: paperclip.inc/v1alpha1
