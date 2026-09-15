@@ -123,7 +123,7 @@ spec:
 ---
 # Dependencies Application: the 1Password items the Instance reads
 # (paperclip-auth: BETTER_AUTH_SECRET + ADMIN_PASSWORD; paperclip-api-keys:
-# ANTHROPIC_API_KEY, ...). Only where a secret store exists (SECRETS_PROVIDER,
+# CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY, ...). Only where a secret store exists (SECRETS_PROVIDER,
 # like renovate and duckdns): without one the chart would render nothing, and
 # localdev seeds both Secrets in localdev/fakes/secrets.yaml instead.
 {{- if $pc.dependencies.onePassword.enabled }}

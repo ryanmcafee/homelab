@@ -1101,7 +1101,7 @@ paperclip:
 
   # charts/paperclip-dependencies: OnePasswordItems -> Secrets paperclip-auth
   # (BETTER_AUTH_SECRET, ADMIN_PASSWORD) and paperclip-api-keys
-  # (ANTHROPIC_API_KEY, ...). Inert without a secret store.
+  # (CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY, ...). Inert without a secret store.
   dependencies:
     onePassword:
       enabled: false

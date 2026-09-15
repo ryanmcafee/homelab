@@ -12,7 +12,16 @@ spec:
   image:
     repository: {{ .Values.image.repository }}
     tag: {{ .Values.image.tag | quote }}
-  {{- with .Values.extraEnv }}
+  {{- $secretEnv := list }}
+  {{- if .Values.adapters.apiKeysSecretName }}
+  {{- range .Values.adapters.extraSecretEnv }}
+  {{- $secretEnv = append $secretEnv (dict "name" . "valueFrom" (dict "secretKeyRef" (dict "name" $.Values.adapters.apiKeysSecretName "key" . "optional" true))) }}
+  {{- end }}
+  {{- end }}
+  {{- $env := concat $secretEnv (.Values.extraEnv | default list) }}
+  {{- with $env }}
+  # Optional keys of the adapter Secret (subscription tokens the operator does
+  # not inject itself) followed by extraEnv; both containers receive spec.env.
   env:
     {{- toYaml . | nindent 4 }}
   {{- end }}

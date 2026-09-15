@@ -13,5 +13,6 @@ onePassword:
   enabled: false
   # Secret paperclip-auth: fields BETTER_AUTH_SECRET and ADMIN_PASSWORD
   authItemPath: ""
-  # Secret paperclip-api-keys: fields ANTHROPIC_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY (any subset)
+  # Secret paperclip-api-keys: fields CLAUDE_CODE_OAUTH_TOKEN (Claude subscription, `claude setup-token`)
+  # or ANTHROPIC_API_KEY, plus optional OPENAI_API_KEY, GEMINI_API_KEY (docs/apps/paperclip.md)
   apiKeysItemPath: ""
