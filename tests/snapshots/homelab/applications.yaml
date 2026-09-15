@@ -1424,7 +1424,7 @@ spec:
           className: internal
         persistence:
           size: 10Gi
-          storageClass: democratic-csi-nfs
+          storageClass: democratic-csi-iscsi
         resources:
           limits:
             cpu: "2"

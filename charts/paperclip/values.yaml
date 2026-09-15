@@ -98,7 +98,7 @@ security:
   # data volume) unless told not to. It is rejected by the namespace's PodSecurity
   # baseline admission (no pod is ever created and the Instance stays
   # Provisioning) and is pointless here: Talos does not enforce SELinux on
-  # containers and the volume is NFS in homelab, local-path in Kind.
+  # containers and the volume is iSCSI/ext4 in homelab, local-path in Kind.
   seLinuxRelabel: false
 
 # Instance metrics stay off: enabling them makes the operator inject an OTEL
