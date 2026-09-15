@@ -99,4 +99,4 @@ tools:
   # renovate: datasource=github-releases depName=kyverno/chainsaw
   chainsaw: "v0.2.15"
   # renovate: datasource=github-releases depName=argoproj/argo-cd
-  argocd: "v3.5.2"
+  argocd: "v3.5.3"
