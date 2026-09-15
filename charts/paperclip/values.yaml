@@ -76,6 +76,16 @@ persistence:
   size: 10Gi
   storageClass: ""
 
+# Pod scheduling for the server StatefulSet AND the operator's one-shot admin
+# bootstrap Job (operator 0.19.1 copies availability.nodeSelector and
+# tolerations to that Job, but not affinity). The Job mounts the same
+# ReadWriteOnce data volume as the server although it only talks HTTP, so on
+# block storage (iSCSI) it must land on the server's node or it stays in
+# ContainerCreating with a Multi-Attach error. Homelab selects one labelled node
+# (kubectl label node <name> paperclip.homelab/pin=true); Kind sets nothing.
+availability:
+  nodeSelector: {}
+
 service:
   type: ClusterIP
   port: 3100

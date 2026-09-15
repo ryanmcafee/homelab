@@ -32,6 +32,23 @@ and `codex` CLIs keep their logins in `/paperclip/.claude` and `/paperclip/.code
 `paperclip-api-keys` as optional environment variables, see [Agent credentials](#agent-credentials-subscriptions-or-api-keys).
 The smoke Job curls `http://paperclip.paperclip.svc.cluster.local:3100/api/health`.
 
+## Node pin
+
+The operator's one-shot admin bootstrap Job mounts the same `ReadWriteOnce` data volume as the
+server although it only calls the HTTP API, and operator 0.19.1 copies only
+`availability.nodeSelector` and `tolerations` (not affinity) to that Job. On iSCSI the Job pod
+therefore has to run on the server's node or it sits in `ContainerCreating` with
+`Multi-Attach error`. Homelab pins both to one labelled node (`availability.nodeSelector`
+from `helm-apps.tmpl`); Kind sets nothing. Exactly one node carries the label:
+
+```bash
+kubectl label node <node> paperclip.homelab/pin=true
+# to move: label the new node, remove the label from the old one, then
+kubectl -n paperclip rollout restart statefulset paperclip
+```
+
+The pin goes away once upstream drops the volume from the Job or gives it pod affinity.
+
 ## Configuration keys
 
 | Key | File | Value |

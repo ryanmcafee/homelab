@@ -47,6 +47,9 @@ spec:
   adapters:
     apiKeysSecretRef:
       name: paperclip-api-keys
+  availability:
+    nodeSelector:
+      paperclip.homelab/pin: "true"
   storage:
     persistence:
       enabled: true

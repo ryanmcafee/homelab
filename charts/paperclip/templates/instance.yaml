@@ -54,6 +54,11 @@ spec:
     apiKeysSecretRef:
       name: {{ .Values.adapters.apiKeysSecretName }}
   {{- end }}
+  {{- with .Values.availability.nodeSelector }}
+  availability:
+    nodeSelector:
+      {{- toYaml . | nindent 6 }}
+  {{- end }}
   storage:
     persistence:
       enabled: {{ .Values.persistence.enabled }}

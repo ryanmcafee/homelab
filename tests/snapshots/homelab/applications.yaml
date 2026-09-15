@@ -1417,6 +1417,9 @@ spec:
         admin:
           email: admin@REPLACEME-domain.com
           name: Admin
+        availability:
+          nodeSelector:
+            paperclip.homelab/pin: "true"
         image:
           repository: ghcr.io/paperclipai/paperclip
           tag: 2026.831.1
