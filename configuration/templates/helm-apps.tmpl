@@ -1235,7 +1235,10 @@ paperclip:
 {{- else }}
       size: 10Gi
 {{- end }}
-      storageClass: {{ .Values.STORAGE_CLASS_NFS.Value }}
+      # Block storage, like the database: the server asserts that its secrets
+      # directory (/paperclip/instances/default/secrets) is owned by uid 1000,
+      # which no file on the NFS classes is (mapall). bugs.md 2026-09-15.
+      storageClass: {{ .Values.STORAGE_CLASS_ISCSI_SSD.Value }}
     resources:
 {{- if $localdev }}
       requests:

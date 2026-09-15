@@ -1026,6 +1026,9 @@ paperclip:
       className: internal
     persistence:
       size: 1Gi
+      # Block storage, like the database: the server asserts that its secrets
+      # directory (/paperclip/instances/default/secrets) is owned by uid 1000,
+      # which no file on the NFS classes is (mapall). bugs.md 2026-09-15.
       storageClass: local-path
     resources:
       requests:
