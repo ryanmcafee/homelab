@@ -59,13 +59,15 @@ adapters:
   apiKeysSecretName: paperclip-api-keys
   # Further keys of the same Secret exposed to the server and the onboarding
   # init container as optional environment variables (spec.env), for the CLIs
-  # bundled in the image that read something other than an API key:
-  # CLAUDE_CODE_OAUTH_TOKEN is the one-year token of `claude setup-token`, which
-  # bills a Claude Pro/Max/Team subscription instead of the API (Claude Code
-  # prefers ANTHROPIC_API_KEY when both are set, so keep exactly one in the
-  # 1Password item). A key missing from the Secret is simply unset. Codex needs
-  # nothing here: its ChatGPT login lives in ~/.codex/auth.json, and HOME
-  # (/paperclip) is the persistent data volume (docs/apps/paperclip.md).
+  # bundled in the image that read something other than an API key. Both
+  # credential kinds work side by side (docs/apps/paperclip.md):
+  #   ANTHROPIC_API_KEY / OPENAI_API_KEY  API billing; injected by the operator
+  #   CLAUDE_CODE_OAUTH_TOKEN             Claude subscription (`claude setup-token`)
+  # Claude Code prefers ANTHROPIC_API_KEY when both are set. Codex reads its key
+  # from ~/.codex/auth.json (`codex login --with-api-key` or a ChatGPT device
+  # login), never from the host environment; HOME (/paperclip) is the persistent
+  # data volume, so that file survives restarts. A key missing from the Secret
+  # is simply unset.
   extraSecretEnv:
     - CLAUDE_CODE_OAUTH_TOKEN
 
