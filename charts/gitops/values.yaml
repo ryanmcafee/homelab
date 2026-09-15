@@ -211,8 +211,17 @@ applications:
 # ArgoCD Application Options
 # ============================================================================
 
-# Ignore differences in certain fields (reduces noise)
-ignoreDifferences: []
+# Applied to the bootstrap, addons and applications Applications, whose
+# resources are child Applications. ArgoCD appends
+# post-delete-finalizer.argocd.argoproj.io (+ /cleanup) to the live spec of
+# every child whose chart ships a Helm post-delete hook (node-feature-discovery,
+# spegel); those finalizers exist only in the cluster, so without this the
+# parent reports the child OutOfSync forever (bugs.md 2026-09-14).
+ignoreDifferences:
+  - group: argoproj.io
+    kind: Application
+    jqPathExpressions:
+      - '.metadata.finalizers[]? | select(startswith("post-delete-finalizer.argocd.argoproj.io"))'
 
 # Health check configuration
 healthChecks:

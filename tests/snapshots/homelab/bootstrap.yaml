@@ -530,15 +530,15 @@ spec:
 
   # Ignore differences in fields that change frequently
   ignoreDifferences:
-    # Initial admin secret is generated and should not be overwritten
-    - group: ""
-      kind: Secret
+    # Initial admin secret is generated and should not be overwritten. Core
+    # kinds carry no `group: ""`: the API server drops it and the bootstrap
+    # parent would report this Application OutOfSync forever.
+    - kind: Secret
       name: argocd-initial-admin-secret
       jsonPointers:
         - /data
     # Webhook secret is generated
-    - group: ""
-      kind: Secret
+    - kind: Secret
       name: argocd-secret
       jsonPointers:
         - /data/webhook.github.secret

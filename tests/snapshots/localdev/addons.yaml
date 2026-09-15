@@ -224,9 +224,10 @@ spec:
     syncOptions:
       - ServerSideApply=true
   # The token controller writes the token into the Secret; that is not drift.
+  # Core kinds carry no `group: ""` (the API server drops it, which made the
+  # addons parent report this Application OutOfSync forever).
   ignoreDifferences:
-    - group: ""
-      kind: Secret
+    - kind: Secret
       name: agent-readonly-token
       namespace: agent-access
       jsonPointers:
@@ -467,9 +468,11 @@ spec:
       jsonPointers:
         - /metadata/annotations
         - /metadata/labels
-    # Ignore auto-generated TLS secrets managed by Cilium (cilium-ca, hubble-*-certs)
-    - group: ""
-      kind: Secret
+    # Ignore auto-generated TLS secrets managed by Cilium (cilium-ca, hubble-*-certs).
+    # No `group: ""` for core kinds: the API server drops the empty string, so
+    # the live Application never matched the rendered one and the addons parent
+    # stayed OutOfSync (bugs.md 2026-09-14).
+    - kind: Secret
       jsonPointers:
         - /data
         - /metadata/annotations

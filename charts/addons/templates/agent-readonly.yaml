@@ -51,9 +51,10 @@ spec:
     syncOptions:
       - ServerSideApply=true
   # The token controller writes the token into the Secret; that is not drift.
+  # Core kinds carry no `group: ""` (the API server drops it, which made the
+  # addons parent report this Application OutOfSync forever).
   ignoreDifferences:
-    - group: ""
-      kind: Secret
+    - kind: Secret
       name: agent-readonly-token
       namespace: {{ .Values.agentReadonly.namespace }}
       jsonPointers:
