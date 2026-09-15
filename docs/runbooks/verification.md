@@ -96,13 +96,15 @@ an agent. The context is overridable with `-- --kube-context <name>`.
 `task verify LEVEL=2` runs level 1, then reads every ArgoCD Application in namespace
 `argocd` and runs the chainsaw suite in `tests/e2e/` (`-- --e2e-dir` overrides). It does
 not sync anything: run `task localdev:up` (or `task localdev:ci`, which also waits for
-health and runs e2e once) first. A local sync leaves every Application `OutOfSync` against
-GitHub `main` by design, so sync status is deliberately not part of the contract; health
-and the last operation are.
+health and runs e2e once) first. Every Application tracks the PR head (`task localdev:argocd
+-- --revision <ref>` / `LOCALDEV_REVISION`, default the upstream branch of HEAD, `main` when
+the branch is not pushed), so after a local sync `Synced` means the working tree equals the
+pushed head; a local branch may be ahead of its push, so sync status is deliberately not
+part of the contract; health and the last operation are.
 
 | Check name | What it proves | Fix when it fails |
 |---|---|---|
-| `argocd/<app>` | `status.health.status == Healthy` and `status.operationState.phase == Succeeded`. `detail` is `sync=<status> health=<status> op=<phase>`; `findings` lists condition messages and every resource whose health is not Healthy (`kind/ns/name: status message`). An Application whose chart renders no resources (a placeholder `*-dependencies` chart) never gets an operation; `Synced` + `Healthy` with zero resources passes with `detail` ending in `(no resources: nothing to sync)`. A chart that is new on the branch and renders nothing in localdev is left alone by `task localdev:sync` (its path is absent from `main`, so any sync would fail); `Healthy` with zero resources, no operation and a `ComparisonError` containing `app path does not exist` passes with `detail` ending in `(new chart: nothing to sync until it exists on the target revision)` — in Kind only, `verify prod` keeps failing it. | `task localdev:diagnose` prints conditions, events and failing pod logs; `task localdev:sync -- --only <app>` re-syncs one Application from the working tree. |
+| `argocd/<app>` | `status.health.status == Healthy` and `status.operationState.phase == Succeeded`. `detail` is `sync=<status> health=<status> op=<phase>`; `findings` lists condition messages and every resource whose health is not Healthy (`kind/ns/name: status message`). An Application whose chart renders no resources (a placeholder `*-dependencies` chart) never gets an operation; `Synced` + `Healthy` with zero resources passes with `detail` ending in `(no resources: nothing to sync)`. A chart that is new on the branch and renders nothing in localdev is left alone by `task localdev:sync` when its path is absent from the tracked revision (only on the `main` fallback for an unpushed branch, since any sync would fail); `Healthy` with zero resources, no operation and a `ComparisonError` containing `app path does not exist` passes with `detail` ending in `(new chart: nothing to sync until it exists on the target revision)` — in Kind only, `verify prod` keeps failing it. | `task localdev:diagnose` prints conditions, events and failing pod logs; `task localdev:sync -- --only <app>` re-syncs one Application from the working tree. |
 | `argocd/apps` | (Only on failure.) At least one Application exists in `argocd`. | `task localdev:up` installs the root `gitops` Application and syncs the tree. |
 | `e2e/<test>` | The chainsaw test `tests/e2e/<test>/chainsaw-test.yaml` passed; `findings` names the failed steps. | `task test:e2e -- --test-dir tests/e2e/<test>` reproduces it with full output; every test has a `catch:` that dumps events, pod logs and the Application. |
 | `e2e/chainsaw` | (Only on failure or skip.) chainsaw ran and wrote a JSON report; `skip` means chainsaw is not installed. | Read the stderr tail in `findings`; `mise install` for the skip. |
@@ -125,10 +127,12 @@ readiness endpoint; mosquitto has `enabled: false` (no HTTP). A failing smoke Jo
 
 On pull requests `kind-argocd` then runs `task localdev:report` and posts the result as the
 sticky comment `kind-preview`: the level-2 verdict and failing checks, a table of every
-Application (health, last operation, vs main) and one collapsed `argocd app diff` per
-Application that is not Synced. The root `gitops` Application tracks GitHub `main` while
-the tree was synced with `--local`, so each diff is this PR against `main` (`-` main, `+`
-PR); a child Application's chart or values change shows on its parent's diff. The same
+Application (health, sync, last operation, vs the base branch) and one collapsed
+`argocd app diff <app> --revision <base>` per git-path Application (`-- --base <ref>`,
+default `main`; CI passes the PR's base branch). Every Application tracks the PR head and
+the tree was synced with `--local`, so each diff is this PR against its base (`-` base, `+`
+PR); chart-sourced Applications are compared on their parent, and a child Application's
+chart or values change shows on its parent's diff. The same
 Markdown lands in the job summary and in the `verify-level2` artifact (`kind-report.md`).
 The step never decides the check, and fork PRs get the summary but no comment. Locally,
 `task localdev:report -- --out kind-report.md --verify-json verify-level2.json` prints the

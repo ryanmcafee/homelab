@@ -119,7 +119,7 @@ trusting a prose table.
 | Kind cluster / kube context | `homelab-localdev` / `kind-homelab-localdev` (every script pins the context) |
 | Node image | `kindest/node:<images.kind-node>` from `configuration/versions.yaml`, passed by the script, not in `localdev/kind-config.yaml` |
 | Domain | `homelab.local` (`configuration/environments/localdev.yaml` `DOMAIN`) |
-| ArgoCD | namespace `argocd`, root Application `gitops` (`localdev/argocd/gitops-app.yaml`, GitHub `main`), chart `charts.argocd`, values `localdev/values/argocd-values.yaml` |
+| ArgoCD | namespace `argocd`, root Application `gitops` (`localdev/argocd/gitops-app.yaml`; its placeholder `main` is replaced by the PR head at install), chart `charts.argocd`, values `localdev/values/argocd-values.yaml` |
 | ArgoCD UI | http://localhost:8080, `admin` / `argocd-initial-admin-secret`. Linux: NodePort 30080 mapped by Kind. macOS: `task localdev:ui` (`kubectl port-forward` to `argocd-server`); the script logs the CLI in through its own port-forward on `127.0.0.1:18080` (`--local-port`) with `--plaintext --insecure --grpc-web` |
 | Host ports | 8080 ArgoCD; 9080 / 9443 Traefik internal; 10350 Tilt. On Linux 8080/9080/9443 are the Kind `extraPortMappings` (30080, 80, 443). On macOS the mappings never complete a TCP handshake with Cilium (Docker Desktop bad TCP checksums, bugs.md 2026-09-13): use `task localdev:ui` and `task localdev:traefik` (port-forwards) |
 | Reaching apps from the host | `task localdev:traefik` then `curl -sk -H 'Host: <app>.homelab.local' https://localhost:9443/...`; from a pod, the Traefik Service directly |
@@ -130,9 +130,11 @@ trusting a prose table.
 | e2e | `tests/e2e/<name>/chainsaw-test.yaml`, config `tests/e2e/.chainsaw.yaml` (4 parallel, assert 10m) |
 | Reaching apps | in-cluster through `traefik-internal.traefik.svc.cluster.local` (or `traefik-external`) port 443 with `Host: <app>.homelab.local`; from the host, port-forward the Traefik Service |
 | CI | `.github/workflows/tilt-ci.yml`: `kind-argocd` (required, 45 min, artifact `verify-level2`), `kind-direct`, `yaml-lint` |
-| Expected state | every Application `OutOfSync` against `main` after a local sync; `Healthy` + `Succeeded` is the contract |
+| Tracked revision | `task localdev:argocd -- --revision <ref>` / `LOCALDEV_REVISION`; default the upstream branch of HEAD, `main` (with a warning) when the branch is not pushed. Flows root → `addons`/`applications` via `helm.valuesObject.global.targetRevision` → every git-path child. CI sets it to the PR head SHA (same-repo PRs; `github.sha` on push) |
+| Expected state | every Application `Synced` (tree equals the pushed head) after a local sync; `OutOfSync` = unpushed local changes or the `main` fallback; `Healthy` + `Succeeded` is the contract, sync status never decides |
+| Report base | `task localdev:report -- --base <ref>` (default `main`, CI passes the PR base) diffs every git-path Application with `argocd app diff --revision <base>` |
 | Restore drill | `tests/drills/cnpg-restore` (`task drill:restore`, weekly `restore-drill.yml`, failures open an issue labelled `restore-drill`); S3 fake `versity/versitygw` (`images.versitygw`), Barman Cloud Plugin addon `cnpg-barman-cloud` (`charts.plugin-barman-cloud`) in `cnpg-system` |
-| `paperclip` | runs in Kind (operator, database, Instance; the `paperclip-dependencies` Application only renders with a secret store); Secrets `paperclip-auth` and `paperclip-api-keys` seeded by `localdev/fakes/secrets.yaml`, CNPG `Cluster` `paperclip-db` on `local-path` / 1Gi, `PAPERCLIP_ADMIN_EMAIL=admin@homelab.local`; e2e `tests/e2e/paperclip` |
+| `paperclip` | runs in Kind (operator, database, Instance; the `paperclip-dependencies` Application only renders with a secret store); Secrets `paperclip-auth` and `paperclip-api-keys` (key `CLAUDE_CODE_OAUTH_TOKEN`, a placeholder) seeded by `localdev/fakes/secrets.yaml`, CNPG `Cluster` `paperclip-db` on `local-path` / 1Gi, `PAPERCLIP_ADMIN_EMAIL=admin@homelab.local`; e2e `tests/e2e/paperclip` |
 
 ## Verification contract (issue #261 Sections C/D)
 
@@ -175,7 +177,7 @@ trusting a prose table.
 | UniFi credentials | `op://homelab/unifi-admin/credential` |
 | Paperclip auth secret | `op://homelab/paperclip-auth/BETTER_AUTH_SECRET` |
 | Paperclip admin password | `op://homelab/paperclip-auth/ADMIN_PASSWORD` |
-| Paperclip Anthropic API key | `op://homelab/paperclip-api-keys/ANTHROPIC_API_KEY` |
+| Paperclip Claude credential | `op://homelab/paperclip-api-keys/CLAUDE_CODE_OAUTH_TOKEN` (subscription token from `claude setup-token`; or `ANTHROPIC_API_KEY`, never both: the key wins and bills the API). Codex uses the ChatGPT login in `/paperclip/.codex/auth.json` on the PVC (`docs/apps/paperclip.md`) |
 
 ## Tips
 

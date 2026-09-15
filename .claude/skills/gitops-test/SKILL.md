@@ -149,10 +149,13 @@ task localdev:up   && task verify:text LEVEL=2   # + argocd/<app> Healthy+Succee
 
 - `task localdev:sync -- --only <app>` re-syncs one Application from the working tree after an edit.
 - `task localdev:diagnose` prints conditions, events and failing pod logs.
-- `task localdev:report` renders the Kind report (Application table, level-2 summary, `argocd app diff` of
-  the working tree against `main`); `tilt-ci.yml` posts the same report as the sticky `kind-preview` comment.
-- Every Application is `OutOfSync` against GitHub `main` after a local sync (automated sync is off in
-  localdev); the contract judges health and the last operation, never sync status.
+- `task localdev:report -- --base main` renders the Kind report (Application table, level-2 summary,
+  `argocd app diff <app> --revision main` of every git-path Application); `tilt-ci.yml` posts the same
+  report as the sticky `kind-preview` comment.
+- Every Application tracks the PR head (`task localdev:argocd -- --revision <ref>` / `LOCALDEV_REVISION`,
+  default the upstream branch of HEAD, `main` when unpushed) and is synced from the working tree
+  (automated sync is off in localdev): `Synced` means the tree equals the pushed head; the contract
+  still judges health and the last operation, never sync status.
 - One test: `task test:e2e -- --test-dir tests/e2e/<app>`; health Lua: `task test:health`.
 
 ## The claim in the PR body

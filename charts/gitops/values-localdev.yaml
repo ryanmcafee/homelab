@@ -1,9 +1,10 @@
 # GitOps Umbrella Chart - Local Development Overrides
 #
 # Kind + ArgoCD loop (issue #261, Section B). The root `gitops` Application
-# (localdev/argocd/gitops-app.yaml) points at GitHub main, but every
-# Application is synced from the working tree with `argocd app sync --local`
-# (task localdev:sync). That only works while no Application syncs
+# (localdev/argocd/gitops-app.yaml) is installed at the PR head
+# (scripts/localdev-argocd.ts install --revision / LOCALDEV_REVISION), and
+# every Application is synced from the working tree with `argocd app sync
+# --local` (task localdev:sync). That only works while no Application syncs
 # automatically: an automated Application would revert the local sync to Git
 # on its next reconciliation. So nothing here carries syncPolicy.automated,
 # and the generated charts/{addons,applications}/values-localdev.yaml set
@@ -26,8 +27,10 @@ global:
   # ArgoCD will pull from this repository
   repoUrl: https://github.com/ryanmcafee/homelab.git
 
-  # Same revision the root Application uses (localdev/argocd/gitops-app.yaml),
-  # so a plain `argocd app sync` without --local resolves the same commit.
+  # Placeholder. `install` sets helm.valuesObject.global.targetRevision on the
+  # root Application to the PR head, which overrides this value here and, via
+  # the valuesObject the gitops templates hand to addons and applications,
+  # the same placeholder in their generated values-localdev.yaml.
   targetRevision: main
 
   # Manual sync only: see the header comment.

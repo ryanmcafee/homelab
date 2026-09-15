@@ -16,22 +16,27 @@ import {
   assertStringIncludes,
   assertThrows,
 } from "jsr:@std/assert@^1";
+import { parse as parseYaml } from "jsr:@std/yaml@^1";
 import {
   type AppDiff,
   type Application,
   appState,
   appsToDiff,
   argocdErrorMessage,
+  branchFromUpstream,
   candidatePorts,
+  chooseRevision,
   classifyDiffResult,
   compareTierKey,
   countManifests,
+  DEFAULT_BASE,
   DEFAULT_LOCAL_PORT,
   DEFAULT_MAX_DIFF_BYTES,
   degradedChildHint,
   describeArgs,
   describeTargets,
   diagnoseNamespaces,
+  diffArgs,
   diffStats,
   discoverable,
   emptyRenderDecision,
@@ -70,6 +75,7 @@ import {
   type PodSummary,
   portForwardCmd,
   renderReport,
+  renderRootApp,
   REPORT_MAX_FINDINGS,
   REPORT_TITLE,
   resourceLines,
@@ -929,25 +935,179 @@ Deno.test("appsToDiff / statusRows: a new chart's Application is not diffed and 
   const a = newEmptyApp("paperclip-dependencies");
   const synced = app({
     name: "s",
+    path: "charts/s",
     health: "Healthy",
     phase: "Succeeded",
     sync: "Synced",
   });
   const differs = app({
     name: "d",
+    path: "charts/d",
     health: "Healthy",
     phase: "Succeeded",
     sync: "OutOfSync",
   });
-  assertEquals(appsToDiff([a, synced, differs]), ["d"]);
+  // Every git-path app is diffed against the base whatever its sync status
+  // (Synced now means "the tree equals the pushed head", not "same as main").
+  assertEquals(appsToDiff([a, synced, differs]), ["d", "s"]);
   const rows = statusRows([a, differs]);
   assertEquals(rows.find((r) => r.app === "paperclip-dependencies"), {
     app: "paperclip-dependencies",
     health: "Healthy",
+    sync: "Unknown",
     operation: "- (new chart, nothing to sync)",
     vsMain: "not on main",
   });
-  assertEquals(rows.find((r) => r.app === "d")!.vsMain, "differs");
+  // No diff taken for d: the row says so instead of guessing from sync status.
+  assertEquals(rows.find((r) => r.app === "d")!.vsMain, "not diffed");
+  assertEquals(rows.find((r) => r.app === "d")!.sync, "OutOfSync");
+});
+
+Deno.test("appsToDiff: chart-sourced Applications are never diffed (no git revision to render)", () => {
+  assertEquals(appsToDiff([gitops, cilium]), ["gitops"]);
+  const [row] = statusRows([cilium]);
+  assertEquals(row.vsMain, "chart (compared on its parent)");
+});
+
+Deno.test("diffArgs: every diff is taken against the base revision", () => {
+  assertEquals(diffArgs("addons", "main"), [
+    "app",
+    "diff",
+    "addons",
+    "--revision",
+    "main",
+    "--exit-code=false",
+  ]);
+  assertEquals(DEFAULT_BASE, "main");
+});
+
+// ----------------------------------------------------------------------------
+// install --revision: which Git revision the root Application tracks
+// ----------------------------------------------------------------------------
+Deno.test("branchFromUpstream: strips the remote, keeps slashes in the branch name", () => {
+  assertEquals(branchFromUpstream("origin/feat/paperclip"), "feat/paperclip");
+  assertEquals(branchFromUpstream("origin/main"), "main");
+  assertEquals(branchFromUpstream("upstream/renovate/x"), "renovate/x");
+  assertEquals(branchFromUpstream("  origin/main\n"), "main");
+  assertEquals(branchFromUpstream(""), null);
+  assertEquals(branchFromUpstream("main"), null);
+  assertEquals(branchFromUpstream("origin/"), null);
+});
+
+Deno.test("chooseRevision: flag, then env, then the upstream branch, then main", () => {
+  assertEquals(
+    chooseRevision({ flag: "abc1234", env: "x", upstream: "origin/y" }),
+    { revision: "abc1234", source: "flag" },
+  );
+  assertEquals(
+    chooseRevision({ flag: null, env: " feat/z ", upstream: "origin/y" }),
+    { revision: "feat/z", source: "env" },
+  );
+  assertEquals(
+    chooseRevision({ flag: null, env: undefined, upstream: "origin/y" }),
+    { revision: "y", source: "upstream" },
+  );
+  assertEquals(
+    chooseRevision({ flag: null, env: "", upstream: "origin/main" }),
+    { revision: "main", source: "upstream" },
+  );
+  assertEquals(
+    chooseRevision({ flag: null, env: undefined, upstream: null }),
+    { revision: "main", source: "default" },
+  );
+  // A flag that is only whitespace counts as absent.
+  assertEquals(
+    chooseRevision({ flag: "  ", env: undefined, upstream: null }),
+    { revision: "main", source: "default" },
+  );
+});
+
+const ROOT_APP_FIXTURE = `# Root Application for the Kind localdev loop.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: gitops
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/ryanmcafee/homelab.git
+    targetRevision: main
+    path: charts/gitops
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-localdev.yaml
+      valuesObject:
+        global:
+          targetRevision: main
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+`;
+
+// deno-lint-ignore no-explicit-any
+type Loose = any;
+
+Deno.test("renderRootApp: targetRevision and helm.valuesObject.global.targetRevision follow the revision", () => {
+  const sha = "0d96cfd31fb10e66d4fe0628a142edd17c7dd9f9";
+  const out = parseYaml(renderRootApp(ROOT_APP_FIXTURE, sha)) as Loose;
+  assertEquals(out.spec.source.targetRevision, sha);
+  assertEquals(out.spec.source.helm.valuesObject.global.targetRevision, sha);
+  // Everything else survives untouched.
+  assertEquals(out.metadata.name, "gitops");
+  assertEquals(out.spec.source.path, "charts/gitops");
+  assertEquals(out.spec.source.helm.valueFiles, [
+    "values.yaml",
+    "values-localdev.yaml",
+  ]);
+  assertEquals(out.spec.syncPolicy.syncOptions, [
+    "CreateNamespace=true",
+    "ServerSideApply=true",
+  ]);
+  assertEquals(out.metadata.annotations["argocd.argoproj.io/sync-wave"], "0");
+
+  const branch = parseYaml(
+    renderRootApp(ROOT_APP_FIXTURE, "feat/paperclip"),
+  ) as Loose;
+  assertEquals(branch.spec.source.targetRevision, "feat/paperclip");
+  assertEquals(
+    branch.spec.source.helm.valuesObject.global.targetRevision,
+    "feat/paperclip",
+  );
+});
+
+Deno.test("renderRootApp: creates helm.valuesObject.global when the manifest has no helm block", () => {
+  const bare = `apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: gitops
+spec:
+  source:
+    repoURL: https://github.com/ryanmcafee/homelab.git
+    targetRevision: main
+    path: charts/gitops
+`;
+  const out = parseYaml(renderRootApp(bare, "feat/x")) as Loose;
+  assertEquals(out.spec.source.targetRevision, "feat/x");
+  assertEquals(
+    out.spec.source.helm.valuesObject.global.targetRevision,
+    "feat/x",
+  );
+  // A manifest without spec.source is refused rather than silently patched.
+  assertThrows(
+    () => renderRootApp("apiVersion: v1\nkind: ConfigMap\n", "main"),
+    Error,
+    "spec.source",
+  );
 });
 
 Deno.test("syncArgs: plain option drops --local for a git-path app", () => {
@@ -1244,7 +1404,7 @@ const REPORT_APPS_JSON = `{
         "namespace": "argocd",
         "annotations": { "argocd.argoproj.io/sync-wave": "0" }
       },
-      "spec": { "source": { "path": "charts/gitops", "targetRevision": "main" } },
+      "spec": { "source": { "path": "charts/gitops", "targetRevision": "0d96cfd31fb10e66d4fe0628a142edd17c7dd9f9" } },
       "status": {
         "health": { "status": "Healthy" },
         "sync": { "status": "OutOfSync" },
@@ -1419,6 +1579,33 @@ Deno.test("parseArgs: report flags and their defaults", () => {
   assert(a.noDiff);
   assertEquals(a.localPort, 19000);
   assertEquals(parseArgs(["report", "--max-diff-bytes=0"]).maxDiffBytes, 0);
+  // report --base: the revision every diff is taken against (default: main,
+  // resolved at run time so the env var can still override).
+  assertEquals(d.base, null);
+  assertEquals(parseArgs(["report", "--base", "release"]).base, "release");
+  assertEquals(parseArgs(["report", "--base=main"]).base, "main");
+  assertThrows(
+    () => parseArgs(["report", "--base"]),
+    Error,
+    "requires a value",
+  );
+});
+
+Deno.test("parseArgs: install --revision", () => {
+  assertEquals(parseArgs(["install"]).revision, null);
+  assertEquals(
+    parseArgs(["install", "--revision", "feat/paperclip"]).revision,
+    "feat/paperclip",
+  );
+  assertEquals(
+    parseArgs(["install", "--revision=abc1234"]).revision,
+    "abc1234",
+  );
+  assertThrows(
+    () => parseArgs(["install", "--revision"]),
+    Error,
+    "requires a value",
+  );
 });
 
 Deno.test("parseArgs: a bad --max-diff-bytes is an argument error", () => {
@@ -1479,7 +1666,7 @@ Deno.test("parseVerifyJson: malformed check entries are dropped", () => {
   assertEquals(v.result.checks.map((c) => c.name), ["x"]);
 });
 
-Deno.test("treeOrder / appsToDiff: tree order; every app not Synced is diffed", () => {
+Deno.test("treeOrder / appsToDiff: tree order; every git-path app is diffed, whatever its sync status", () => {
   assertEquals(treeOrder(reportApps).map((a) => a.metadata.name), [
     "gitops",
     "addons",
@@ -1488,19 +1675,23 @@ Deno.test("treeOrder / appsToDiff: tree order; every app not Synced is diffed", 
     "applications",
     "agent-readonly",
   ]);
+  // cilium and traefik are chart sources (no git revision to render at the
+  // base) and are compared on their parent's diff instead; applications is
+  // Synced but still diffed against the base.
   assertEquals(appsToDiff(reportApps), [
     "gitops",
     "addons",
-    "traefik",
+    "applications",
     "agent-readonly",
   ]);
 });
 
-Deno.test("statusRows: health, last operation and vs main per Application", () => {
+Deno.test("statusRows: health, sync, last operation and vs base per Application", () => {
   const addonsDiff = classifyDiffResult("addons", 0, RAW_ADDONS_DIFF, "");
   const diffs = new Map<string, AppDiff>([
     ["gitops", { app: "gitops", diff: "" }],
     ["addons", addonsDiff],
+    ["applications", { app: "applications", diff: "", error: "boom" }],
     [
       "agent-readonly",
       { app: "agent-readonly", diff: "", error: "app path does not exist" },
@@ -1509,33 +1700,62 @@ Deno.test("statusRows: health, last operation and vs main per Application", () =
   const rows = statusRows(reportApps, diffs);
   const by = new Map(rows.map((r) => [r.app, r]));
   assertEquals(rows.map((r) => r.app)[0], "gitops");
+  // An empty diff against the base is "same as main", whatever the sync status.
   assertEquals(by.get("gitops"), {
     app: "gitops",
     health: "Healthy",
+    sync: "OutOfSync",
     operation: "Succeeded",
-    vsMain: "differs · no resource diff",
+    vsMain: "same as main",
   });
   assertEquals(by.get("addons")!.vsMain, "differs · +6 -3");
-  assertEquals(by.get("cilium")!.vsMain, "same as main");
+  assertEquals(by.get("cilium")!.vsMain, "chart (compared on its parent)");
+  assertEquals(by.get("cilium")!.sync, "Synced");
   assertEquals(by.get("applications")!.health, "Progressing");
   assert(by.get("applications")!.operation.startsWith("Running: waiting for"));
+  assertEquals(by.get("applications")!.vsMain, "diff unavailable");
   // Failed operation: first line of the message, clipped to the cell width.
   const traefik = by.get("traefik")!;
   assertEquals(traefik.health, "Degraded");
   assert(traefik.operation.startsWith("Failed: one or more objects"));
   assert(traefik.operation.length <= 80 && traefik.operation.endsWith("…"));
   assert(!traefik.operation.includes("second line"));
-  // No diff taken for traefik (not in the map): the sync status alone.
-  assertEquals(traefik.vsMain, "differs");
+  // traefik is a chart source (no git revision to render at the base).
+  assertEquals(traefik.vsMain, "chart (compared on its parent)");
+  // The base's missing-path error means the chart is new in this PR.
+  assertEquals(by.get("agent-readonly")!.vsMain, "not on main");
+  assertEquals(by.get("agent-readonly")!.sync, "Unknown");
+  // Another base name flows into the labels.
+  const rel = statusRows(reportApps, diffs, "release");
+  assertEquals(rel.find((r) => r.app === "gitops")!.vsMain, "same as release");
   assertEquals(
-    by.get("agent-readonly")!.vsMain,
-    "Unknown · diff unavailable",
+    rel.find((r) => r.app === "agent-readonly")!.vsMain,
+    "not on release",
   );
+});
+
+Deno.test("statusRows: a truncated diff keeps its marker", () => {
+  const diffs = new Map<string, AppDiff>([
+    ["addons", {
+      app: "addons",
+      diff: "===== v1/ConfigMap a/b ======\n-x\n+y",
+      originalBytes: 5000,
+      omittedLines: 9,
+    }],
+  ]);
+  const row = statusRows(reportApps, diffs).find((r) => r.app === "addons")!;
+  assertEquals(row.vsMain, "differs · +1 -1 (truncated)");
 });
 
 Deno.test("statusRows: fieldless apps never throw", () => {
   assertEquals(statusRows([{ metadata: { name: "bare" } }]), [
-    { app: "bare", health: "Unknown", operation: "-", vsMain: "Unknown" },
+    {
+      app: "bare",
+      health: "Unknown",
+      sync: "Unknown",
+      operation: "-",
+      vsMain: "chart (compared on its parent)",
+    },
   ]);
 });
 
@@ -1716,22 +1936,36 @@ Deno.test("renderReport: title, pass/fail line, table, failing checks and one co
     "Commit `0123456789ab` · [workflow run](https://github.com/o/r/actions/runs/1)",
   );
   assertStringIncludes(md, "on its parent's diff");
+  // The head every Application tracks comes from the live root Application.
+  assertStringIncludes(md, "tracks `0d96cfd31fb1`");
+  assertStringIncludes(md, "`argocd app diff --revision main`");
   assertStringIncludes(
     md,
-    "| Application | Health | Last operation | vs main |",
-  );
-  assertStringIncludes(md, "| cilium | Healthy | Succeeded | same as main |");
-  assertStringIncludes(
-    md,
-    "| addons | Healthy | Succeeded | differs · +6 -3 |",
+    "| Application | Health | Sync | Last operation | vs main |",
   );
   assertStringIncludes(
     md,
-    "| traefik | Degraded | Failed: one or more objects failed to apply \\| reason:",
+    "| cilium | Healthy | Synced | Succeeded | chart (compared on its parent) |",
   );
   assertStringIncludes(
     md,
-    "6 Applications · 4 Healthy · 2 not Healthy · 4 not Synced with main",
+    "| gitops | Healthy | OutOfSync | Succeeded | same as main |",
+  );
+  assertStringIncludes(
+    md,
+    "| addons | Healthy | OutOfSync | Succeeded | differs · +6 -3 |",
+  );
+  assertStringIncludes(
+    md,
+    "| traefik | Degraded | OutOfSync | Failed: one or more objects failed to apply \\| reason:",
+  );
+  assertStringIncludes(
+    md,
+    "| agent-readonly | Healthy | Unknown | Succeeded | not on main |",
+  );
+  assertStringIncludes(
+    md,
+    "6 Applications · 4 Healthy · 2 not Healthy · 4 not Synced with `0d96cfd31fb1`",
   );
   // Failing checks: the detail and the capped findings.
   assertStringIncludes(md, "### Failing checks (1)");
@@ -1753,16 +1987,46 @@ Deno.test("renderReport: title, pass/fail line, table, failing checks and one co
     md,
     "```diff\n===== argoproj.io/Application argocd/traefik ======",
   );
-  assertStringIncludes(md, "<code>gitops</code> · OutOfSync, no resource diff");
-  assertStringIncludes(md, "<code>agent-readonly</code> · diff unavailable");
+  // An empty diff against the base is "same as main" in the table and gets
+  // no collapsed block: the sync status no longer says anything about main.
+  assert(!md.includes("<code>gitops</code>"));
+  assert(!md.includes("no resource diff"));
+  // A path absent from the base is labelled like the table, not as an error.
+  assertStringIncludes(md, "<code>agent-readonly</code> · not on main");
+  assertStringIncludes(
+    md,
+    "does not exist on `main`: everything it deploys is new in this PR",
+  );
+  assert(!md.includes("diff unavailable"));
   assertStringIncludes(md, "<code>traefik</code> · 1 resource(s)");
   assertStringIncludes(md, "· truncated</summary>");
   assertStringIncludes(
     md,
     "line(s) omitted). Full diff: `task localdev:report -- --max-diff-bytes 0`",
   );
-  assertEquals(md.split("<details>").length - 1, 4);
-  assertEquals(md.split("</details>").length - 1, 4);
+  assertStringIncludes(md, "or `argocd app diff traefik --revision main`");
+  assertEquals(md.split("<details>").length - 1, 3);
+  assertEquals(md.split("</details>").length - 1, 3);
+});
+
+Deno.test("renderReport: --base names the branch everywhere", () => {
+  const md = renderReport({
+    apps: reportApps,
+    verify: parseVerifyJson(null),
+    diffs: [
+      { app: "gitops", diff: "" },
+      { app: "agent-readonly", diff: "", error: "app path does not exist" },
+    ],
+    base: "release",
+  });
+  assertStringIncludes(md, "| vs release |");
+  assertStringIncludes(md, "### Diffs vs release");
+  assertStringIncludes(md, "`argocd app diff --revision release`");
+  assertStringIncludes(md, "| same as release |");
+  assertStringIncludes(md, "| not on release |");
+  assertStringIncludes(md, "<code>agent-readonly</code> · not on release");
+  assertStringIncludes(md, "does not exist on `release`: everything");
+  assert(!md.includes("vs main"));
 });
 
 Deno.test("renderReport: a huge diff keeps the comment under GitHub's 65536-character limit", () => {
@@ -1785,7 +2049,10 @@ Deno.test("renderReport: missing verify JSON is reported, the rest still renders
     "**Level 2:** no result · `verify-level2.json` was not written",
   );
   assert(!md.includes("### Failing checks"));
-  assertStringIncludes(md, "| gitops | Healthy | Succeeded | differs |");
+  assertStringIncludes(
+    md,
+    "| gitops | Healthy | OutOfSync | Succeeded | not diffed |",
+  );
   assertStringIncludes(md, "### Diffs vs main\n\nDiffs skipped (`--no-diff`).");
 });
 
@@ -1805,7 +2072,7 @@ Deno.test("renderReport: ArgoCD not reachable (localdev:ci failed early) says so
   assert(md.endsWith("\n") && !md.endsWith("\n\n"));
 });
 
-Deno.test("renderReport: every app Synced means nothing changes vs main; no Applications is explained", () => {
+Deno.test("renderReport: every diff empty means nothing changes vs main; no Applications is explained", () => {
   const synced = reportApps.map((a) => ({
     ...a,
     status: { ...a.status, sync: { status: "Synced" } },
@@ -1813,12 +2080,19 @@ Deno.test("renderReport: every app Synced means nothing changes vs main; no Appl
   const pass = parseVerifyJson(
     '{"level":2,"pass":true,"duration_ms":1500,"checks":[{"name":"a","status":"pass"}]}',
   );
-  const md = renderReport({ apps: synced, verify: pass, diffs: [] });
+  // Diffs were taken (empty ones) for every git-path app: nothing differs.
+  const md = renderReport({
+    apps: synced,
+    verify: pass,
+    diffs: appsToDiff(synced).map((app) => ({ app, diff: "" })),
+  });
   assertStringIncludes(
     md,
     "**Level 2:** PASS ✅ · 1 checks: 1 pass, 0 fail, 0 skip · 2s",
   );
-  assertStringIncludes(md, "Every Application is Synced with `main`");
+  assertStringIncludes(md, "0 not Synced with `0d96cfd31fb1`");
+  assertStringIncludes(md, "No Application differs from `main`");
+  assert(!md.includes("<details>"));
   const none = renderReport({ apps: [], verify: pass, diffs: [] });
   assertStringIncludes(none, "No Applications in namespace `argocd`");
   assert(!none.includes("### Diffs vs main"));

@@ -38,6 +38,13 @@ spec:
       {{- if .Values.global.environment }}
         - values-{{ .Values.global.environment }}.yaml
       {{- end }}
+      # The Kind loop installs the root Application at the PR head
+      # (scripts/localdev-argocd.ts install --revision); the child's own
+      # values-localdev.yaml says main, so the revision is handed down here
+      # (ADR-010: derived values reach children via helm.valuesObject).
+      valuesObject:
+        global:
+          targetRevision: {{ .Values.global.targetRevision }}
     {{- end }}
 
   destination:

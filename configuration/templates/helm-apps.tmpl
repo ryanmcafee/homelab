@@ -31,6 +31,9 @@ global:
 
   # Git repository for local charts
   repoUrl: https://github.com/ryanmcafee/homelab.git
+  # homelab: main is what production tracks. localdev: a placeholder that the
+  # parent Application overrides through helm.valuesObject with the PR head
+  # (scripts/localdev-argocd.ts install --revision).
   targetRevision: main
 
   # Whether every Application syncs automatically (prune + selfHeal). Off where
@@ -1176,7 +1179,7 @@ paperclip:
 
   # charts/paperclip-dependencies: 1Password items -> Secrets paperclip-auth
   # (BETTER_AUTH_SECRET, ADMIN_PASSWORD) and paperclip-api-keys
-  # (ANTHROPIC_API_KEY, ...). Field names in 1Password must equal these keys.
+  # (CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY, ...). Field names in 1Password must equal these keys.
   dependencies:
     onePassword:
       enabled: {{ $onepassword }}

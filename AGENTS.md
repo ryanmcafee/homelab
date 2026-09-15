@@ -111,7 +111,7 @@ The `/gitops-test` skill MUST be invoked automatically in these scenarios:
 4. Level 2 on Kind: `task localdev:up && task verify:text LEVEL=2`
    (every Application Healthy + Succeeded, chainsaw e2e: argocd/<app>, e2e/<test>);
    `task localdev:diagnose` on failure, `task localdev:sync -- --only <app>` to re-sync one,
-   `task localdev:report` for the working tree vs main
+   `task localdev:report -- --base main` for this branch vs main (Applications track the PR head)
 5. Commit (the pre-commit hook re-runs level 0)
 6. `task verify:claim` on the final tree; paste the block into the PR body (Verification section)
 7. Push to a feature branch, create the PR, `gh pr checks --watch`:

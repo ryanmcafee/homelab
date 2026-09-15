@@ -225,14 +225,19 @@ type argoAppRules struct {
 	// newChartPasses accepts an Application whose source path does not exist
 	// on the target revision (ComparisonError "app path does not exist") when
 	// it is Healthy with no resources and no operation: in Kind that is a
-	// chart new on the branch that renders nothing in localdev, which
+	// chart new on the branch that renders nothing in localdev and is absent
+	// from the target revision (main when the branch is not pushed), which
 	// `task localdev:sync` deliberately leaves alone (ADR-012). In production
 	// a missing path is a real fault.
 	newChartPasses bool
 }
 
-// kindAppRules: in Kind every Application is OutOfSync against main by design
-// (ADR-012), so only health and the last operation count.
+// kindAppRules: Applications in Kind track the PR head (scripts/localdev-argocd.ts
+// install --revision), so Synced means the working tree equals the pushed head.
+// Sync status still does not count (ADR-012): a local branch may be ahead of
+// its push or unpushed (then the root falls back to main), and every
+// Application is synced from the working tree with --local either way. Only
+// health and the last operation decide.
 var kindAppRules = argoAppRules{
 	prefix:          "argocd",
 	noOperationHint: "no sync operation recorded (run task localdev:sync)",
@@ -296,7 +301,8 @@ func evaluateArgoApp(app argoApp, start time.Time, rules argoAppRules) Check {
 		return PassCheck(name, start, detail+" (no resources: nothing to sync)")
 	}
 	// A chart that is new on the branch and renders nothing in localdev has
-	// no target state at all (its path is absent from main), so the sync loop
+	// no target state at all (its path is absent from the target revision:
+	// main when the branch is not pushed), so the sync loop
 	// skips it and ArgoCD reports a ComparisonError with Healthy, no resources
 	// and no operation. Only the Kind rules accept that.
 	if rules.newChartPasses && isNewChartApp(app) {

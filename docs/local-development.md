@@ -178,11 +178,11 @@ On Linux the Kind port mapping (NodePort 30080 to host 8080) serves the UI direc
 | Task | What it does | Script |
 |------|--------------|--------|
 | `task localdev:kind` | Create the cluster (`kindest/node:<images.kind-node>`, `localdev/kind-config.yaml`), start the registry caches, write `hosts.toml` into every node, install Cilium, wait for Ready nodes, apply the fakes. Idempotent. | `scripts/localdev-kind.ts up` |
-| `task localdev:argocd` | `helm upgrade --install argo-cd` at `charts.argocd` from `versions.yaml` with `localdev/values/argocd-values.yaml` plus one `--set-file` per health script in `charts/bootstrap/files/health/`, apply the root Application `localdev/argocd/gitops-app.yaml`, log the `argocd` CLI in through its own `kubectl port-forward` to `argocd-server`. Idempotent. | `scripts/localdev-argocd.ts install` |
-| `task localdev:sync` | Sync every Application from the working tree, tier by tier (parent wave, then own wave): git-path apps with `argocd app sync --local <path> --local-repo-root <repo>`, chart apps with a plain `argocd app sync`. A later parent's subtree (applications) is not started until every lower parent (addons) has finished creating and settling its waves, mirroring ArgoCD's own ordering in homelab where applications only starts once addons is Healthy. `-- --warm` stops after addons (the bootstrap Application is not created in localdev); `-- --only a,b` limits it; `-- --dry-run` prints the commands. Failed operations retry 3 times. A git-path app that renders nothing locally is synced plainly when `main` renders nothing either (empty app → Synced/Healthy) and skipped altogether when its path does not exist on `main` yet (`git cat-file -e origin/main:<path>`: a new chart with nothing to deploy in localdev; `wait`, `report` and `verify LEVEL=2` treat it as complete). | `scripts/localdev-argocd.ts sync` |
+| `task localdev:argocd` | `helm upgrade --install argo-cd` at `charts.argocd` from `versions.yaml` with `localdev/values/argocd-values.yaml` plus one `--set-file` per health script in `charts/bootstrap/files/health/`, apply the root Application `localdev/argocd/gitops-app.yaml` with its placeholder `main` replaced by the PR head (`-- --revision <ref>` or `LOCALDEV_REVISION`; default: the upstream branch of HEAD, or `main` with a warning when the branch is not pushed), log the `argocd` CLI in through its own `kubectl port-forward` to `argocd-server`. Idempotent. | `scripts/localdev-argocd.ts install` |
+| `task localdev:sync` | Sync every Application from the working tree, tier by tier (parent wave, then own wave): git-path apps with `argocd app sync --local <path> --local-repo-root <repo>`, chart apps with a plain `argocd app sync`. A later parent's subtree (applications) is not started until every lower parent (addons) has finished creating and settling its waves, mirroring ArgoCD's own ordering in homelab where applications only starts once addons is Healthy. `-- --warm` stops after addons (the bootstrap Application is not created in localdev); `-- --only a,b` limits it; `-- --dry-run` prints the commands. Failed operations retry 3 times. A git-path app that renders nothing locally is synced plainly when the tracked revision renders nothing either (empty app → Synced/Healthy) and skipped altogether when its path does not exist on that revision (`git cat-file -e origin/<rev>:<path>`, the `new-empty` case: only reachable when the root fell back to `main` because the branch is not pushed; `wait`, `report` and `verify LEVEL=2` treat it as complete). | `scripts/localdev-argocd.ts sync` |
 | `task localdev:wait` | Poll until every Application is Healthy with a Succeeded operation (default 20 min); on timeout run diagnose and exit 1. `-- --require-synced` also demands Synced (off by default, see below). | `scripts/localdev-argocd.ts wait` |
 | `task localdev:diagnose` | For every Application that is not Healthy/Succeeded: conditions, operation message, every managed resource with its health (`-` when ArgoCD reports none), then per namespace (each unhealthy Application's destination plus its unhealthy resources' namespaces, `argocd` last) the recent events, describe + logs of pods not Running, a statefulsets/deployments/jobs table and `kubectl describe` of each unhealthy custom resource. | `scripts/localdev-argocd.ts diagnose` |
-| `task localdev:report` | Markdown report of the loop: level-2 verdict (`-- --verify-json verify-level2.json`), a table of every Application (health, last operation, vs `main`) and one `argocd app diff` per Application that is not Synced (`-` main, `+` working tree). `-- --out <file>`, `--no-diff`, `--max-diff-bytes 0` for full diffs. Read-only; CI posts it on PRs as the `kind-preview` comment. | `scripts/localdev-argocd.ts report` |
+| `task localdev:report` | Markdown report of the loop: level-2 verdict (`-- --verify-json verify-level2.json`), a table of every Application (health, sync, last operation, vs the base branch) and one `argocd app diff <app> --revision <base>` per git-path Application (`-- --base <ref>`, default `main`; `-` base, `+` this PR; chart-sourced Applications are compared on their parent). `-- --out <file>`, `--no-diff`, `--max-diff-bytes 0` for full diffs. Read-only; CI posts it on PRs as the `kind-preview` comment with `--base` set to the PR's base branch. | `scripts/localdev-argocd.ts report` |
 | `task drill:restore` | kind + argocd + `sync --warm` + `test:drill`: the CloudNativePG backup/restore drill in `tests/drills/` (`.github/workflows/restore-drill.yml` runs it weekly). `task test:drill` alone on a warm cluster. | |
 | `task localdev:up` | kind + argocd + sync. | |
 | `task localdev:warm` | kind + argocd + `sync --warm`: operators and CRDs up, applications left for a later `task localdev:sync`. | |
@@ -221,24 +221,38 @@ task localdev:traefik   # Traefik internal on http://localhost:9080 and https://
 Everything that matters (smoke hooks, e2e tests, `task verify LEVEL=2`) runs in-cluster
 and is unaffected.
 
-### Why every Application shows OutOfSync
+### Which revision the Applications track
 
-The root Application (`localdev/argocd/gitops-app.yaml`) points at GitHub `main` because
-ArgoCD needs a repository to compare against, but nothing is synced from it: `task
-localdev:sync` pushes the working tree with `argocd app sync --local`. ArgoCD then
-compares the live state with `main` and reports `OutOfSync` for anything that differs
-(which is everything your branch changed, plus the whole tree when your branch is ahead).
-That is correct and harmless.
+The root Application (`localdev/argocd/gitops-app.yaml`) carries a placeholder `main` in
+`spec.source.targetRevision` and `spec.source.helm.valuesObject.global.targetRevision`;
+`task localdev:argocd` replaces both with the PR head before applying it: `-- --revision
+<ref>` or `LOCALDEV_REVISION`, else the upstream branch of HEAD (`feat/paperclip` when that is
+what HEAD tracks), else `main` with a warning when the branch has never been pushed. The
+`gitops` chart hands `global.targetRevision` to `addons` and `applications` through
+`helm.valuesObject` (helm sources only; homelab's CMP path is untouched), and their templates
+already give every git-path child `global.targetRevision`, so all three tiers track the same
+revision. CI (`tilt-ci.yml`, job `kind-argocd`) checks out the PR head SHA for same-repo PRs
+and sets `LOCALDEV_REVISION` to it (`github.sha` on a push to `main`); fork PRs fall back to
+`main`.
+
+Nothing is synced from that revision: `task localdev:sync` pushes the working tree with
+`argocd app sync --local`. ArgoCD then compares the live state with the tracked revision, so
+`Synced` means the working tree equals the pushed head and `OutOfSync` means local changes
+that are not pushed yet (or, on the `main` fallback, everything the branch changed). A chart
+that is new on the branch exists on the tracked revision, so it renders and diffs like any
+other; the `new-empty` special case in `sync` (path absent from the revision) only applies on
+the `main` fallback.
 
 It only works because **automated sync is off in localdev** (`ARGOCD_AUTOMATED_SYNC=false`
 renders `global.automatedSync: false`, so no Application carries `syncPolicy.automated`):
 an automated Application would revert the local sync to Git on its next reconciliation,
-and `argocd app sync --local` refuses such Applications outright. This is why `task
-localdev:wait` and `task verify LEVEL=2` judge `health` + `operationState.phase` and never
-`sync.status`.
+and `argocd app sync --local` refuses such Applications outright. `task localdev:wait` and
+`task verify LEVEL=2` still judge `health` + `operationState.phase` and never `sync.status`,
+because a local branch may be ahead of its push or not pushed at all.
 
-To see what a plain Git sync would do, `argocd app diff <app>` compares live state against
-`main`; to sync one Application from the tree again, `task localdev:sync -- --only <app>`.
+To see what this PR changes against its base, `task localdev:report -- --base main` runs
+`argocd app diff <app> --revision main` for every git-path Application (`-` base, `+` PR);
+to sync one Application from the tree again, `task localdev:sync -- --only <app>`.
 
 ### Fakes
 
@@ -486,7 +500,7 @@ task localdev:ui                # keep running: port-forward to argocd-server on
 argocd login localhost:8080 --plaintext --insecure --grpc-web --username admin \
   --password "$(kubectl --context kind-homelab-localdev -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d)"
 argocd app get <app>            # the script's own port-forward (127.0.0.1:18080) lives only while it runs
-argocd app diff <app>           # live vs GitHub main (expect differences after a local sync)
+argocd app diff <app> --revision main   # this PR vs main (task localdev:report -- --base main does this for every app)
 argocd app sync <app> --local charts/<path> --local-repo-root . --prune   # what task localdev:sync runs
 ```
 
@@ -601,9 +615,12 @@ script retries for 2 minutes through its own `kubectl port-forward` on `127.0.0.
 Check `kubectl --context kind-homelab-localdev -n argocd get pods` and that nothing else
 listens on 18080 (or pass `--local-port`).
 
-**Symptom**: every Application `Unknown`: the root Application cannot fetch GitHub `main`
-(offline). The local sync still works for children once the root app has been synced
-once; run `task localdev:sync -- --only gitops` when back online.
+**Symptom**: every Application `Unknown` with a ComparisonError: the root Application cannot
+fetch the revision it tracks (offline, or the branch was never pushed and the install fell
+back to `main`, or the revision was pushed after the install). Push the branch and re-run
+`task localdev:argocd -- --revision <branch>` (or set `LOCALDEV_REVISION`); the local sync
+still works for children once the root app has been synced once, so `task localdev:sync --
+--only gitops` is enough when back online.
 
 ### Storage Issues
 
