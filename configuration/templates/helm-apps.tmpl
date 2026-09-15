@@ -1255,6 +1255,15 @@ paperclip:
         cpu: "2"
         memory: 2Gi
 {{- end }}
+{{- if not $localdev }}
+    # Pin the server and the operator's admin bootstrap Job to one labelled
+    # node: the Job mounts the ReadWriteOnce iSCSI data volume too, and only
+    # nodeSelector/tolerations reach it (charts/paperclip values.yaml).
+    # kubectl label node <name> paperclip.homelab/pin=true
+    availability:
+      nodeSelector:
+        paperclip.homelab/pin: "true"
+{{- end }}
 
   # PostSync smoke hook (charts/applications/templates/_smoke.tpl): the
   # operator's health path on the Instance Service (port 3100).
