@@ -37,7 +37,7 @@ spec:
     secretRef:
       name: paperclip-auth
       key: BETTER_AUTH_SECRET
-    disableSignUp: true
+    disableSignUp: false
     adminUser:
       email: admin@REPLACEME-domain.com
       name: "Admin"
