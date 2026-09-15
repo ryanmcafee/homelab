@@ -16,11 +16,16 @@ name: Verify (Kind, levels 1-2)
 # Application, e2e test or dry run fails the pull request. Its Job Summary lists
 # every non-passing check and the verify-level2 artifact carries the full JSON.
 #
+# kind-argocd checks out the PR head commit (not the merge ref, which ArgoCD
+# cannot fetch) and installs the root Application at that SHA
+# (LOCALDEV_REVISION), so every Application in Kind tracks the PR head while
+# the working tree is synced into it with --local. Fork PRs keep the default
+# checkout and the loop falls back to main.
+#
 # On pull requests kind-argocd also runs `task localdev:report` (issue #261
 # item 17): the Application table, the failing level-2 checks and `argocd app
-# diff` of every Application that is not Synced. The root Application tracks
-# GitHub main while everything was synced from the PR's working tree, so that
-# diff is exactly this PR vs main. The report goes to the Job Summary, the
+# diff --revision <base>` of every git-path Application, so each diff is this
+# PR vs its base branch. The report goes to the Job Summary, the
 # verify-level2 artifact (kind-report.md) and, for same-repository PRs (fork
 # tokens cannot comment), the sticky comment `kind-preview`. The report step is
 # continue-on-error: it never decides the check.
@@ -112,8 +117,27 @@ jobs:
       # for the kind-preview sticky comment only.
       contents: read
       pull-requests: write
+    env:
+      # The revision scripts/localdev-argocd.ts install gives the root
+      # Application: the PR head for same-repository PRs, the pushed commit on
+      # main. Empty (fork PRs) falls back to the upstream branch, then main.
+      LOCALDEV_REVISION: >-
+        ${{ (github.event_name == 'pull_request'
+             && github.event.pull_request.head.repo.full_name == github.repository
+             && github.event.pull_request.head.sha)
+          || (github.event_name == 'push' && github.sha)
+          || '' }}
     steps:
+      # Same-repository PRs test the head commit itself: it is the commit ArgoCD
+      # is told to track (LOCALDEV_REVISION), and GitHub's merge ref is not
+      # fetchable by ArgoCD. Fork PRs keep the default (merge) checkout.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: >-
+            ${{ (github.event_name == 'pull_request'
+                 && github.event.pull_request.head.repo.full_name == github.repository
+                 && github.event.pull_request.head.sha)
+              || '' }}
 
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
@@ -210,7 +234,8 @@ jobs:
             } >> "$GITHUB_STEP_SUMMARY"
           fi
 
-      # PR head vs main as ArgoCD sees it. Tolerates a missing or partial
+      # PR head vs its base branch as ArgoCD sees it (argocd app diff
+      # --revision <base>). Tolerates a missing or partial
       # verify-level2.json and an unreachable ArgoCD (it says so in the
       # report). !cancelled() rather than always(): a run superseded by a newer
       # push must not spend its grace period posting a stale comment.
@@ -220,7 +245,7 @@ jobs:
         continue-on-error: true
         run: |
           set -euo pipefail
-          task localdev:report -- --out kind-report.md --verify-json verify-level2.json
+          task localdev:report -- --out kind-report.md --verify-json verify-level2.json --base "${{ github.base_ref || 'main' }}"
           tee -a "$GITHUB_STEP_SUMMARY" < kind-report.md > /dev/null
         env:
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}

@@ -208,6 +208,8 @@ jobs:
           deno-version: v2.x
 
       - name: schemas --check
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           deno run --allow-net --allow-run --allow-env --allow-read --allow-write scripts/crd-schemas-vendor.ts --check \
             || { echo "::error::tests/schemas is stale. Run 'task schemas:vendor' and commit the result."; exit 1; }

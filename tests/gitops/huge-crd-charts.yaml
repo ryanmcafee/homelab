@@ -23,6 +23,8 @@ charts:
   - intel-device-plugins-operator
   - kube-prometheus-stack
   - nvidia-gpu-operator
+  # the Instance CRD alone is several hundred KiB of OpenAPI schema
+  - paperclip-operator
   - tailscale-operator
   - traefik-external
   - traefik-internal

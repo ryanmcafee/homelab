@@ -1,0 +1,9 @@
+# paperclip-database — local development overrides
+#
+# Nothing to override: the parent passes local-path storage, a 1Gi volume and
+# Kind sizing through helm.valuesObject. The file still has to exist: the
+# parent Application always appends values-localdev.yaml to
+# spec.source.helm.valueFiles, and ArgoCD fails the sync when a declared value
+# file is missing.
+
+namespace: paperclip

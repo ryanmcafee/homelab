@@ -31,6 +31,9 @@ global:
 
   # Git repository for local charts
   repoUrl: https://github.com/ryanmcafee/homelab.git
+  # homelab: main is what production tracks. localdev: a placeholder that the
+  # parent Application overrides through helm.valuesObject with the PR head
+  # (scripts/localdev-argocd.ts install --revision).
   targetRevision: main
 
   # Whether every Application syncs automatically (prune + selfHeal). Off where
@@ -1141,3 +1144,115 @@ renovate:
     version: {{ .Versions.Charts.renovate }}
   config:
     gitAuthor: "Renovate Bot <renovate@{{ .Values.DOMAIN.Value }}>"
+
+# ============================================================================
+# Paperclip - AI agent orchestration (paperclip-operator + CloudNativePG)
+# Sync Waves: 10 namespaces, 11 paperclip-operator, 12 paperclip-dependencies,
+# 13 paperclip-database, 14 paperclip (issue #260, docs/apps/paperclip.md)
+# ============================================================================
+# Runs wherever CloudNativePG runs (both environments). The two 1Password
+# items only render with a secret store; Kind seeds the same Secrets from
+# localdev/fakes/secrets.yaml. Derived values reach the three child charts
+# through the parent Applications' helm.valuesObject (ADR-010).
+
+paperclip:
+  enabled: true
+  namespace: paperclip
+  hostname: {{ .Values.PAPERCLIP_HOSTNAME.Value }}
+
+  # paperclip-operator: OCI chart (repoURL without oci://), CRDs + controller.
+  operator:
+    namespace: paperclip-operator
+    chart:
+      name: paperclip-operator
+      repo: ghcr.io/paperclipinc/charts
+      version: "{{ index .Versions.Charts "paperclip-operator" }}"
+    serviceMonitor:
+      enabled: true
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: 500m
+        memory: 256Mi
+
+  # charts/paperclip-dependencies: 1Password items -> Secrets paperclip-auth
+  # (BETTER_AUTH_SECRET, ADMIN_PASSWORD) and paperclip-api-keys
+  # (CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY, ...). Field names in 1Password must equal these keys.
+  dependencies:
+    onePassword:
+      enabled: {{ $onepassword }}
+      authItemPath: {{ .Values.PAPERCLIP_AUTH_1P_PATH.Value }}
+      apiKeysItemPath: {{ .Values.PAPERCLIP_API_KEYS_1P_PATH.Value }}
+
+  # charts/paperclip-database: CloudNativePG Cluster paperclip-db. The image is
+  # pinned (CNPG guidance) so an operator bump never upgrades Postgres by itself.
+  database:
+    instances: 1
+    imageName: "ghcr.io/cloudnative-pg/postgresql:{{ index .Versions.Images "cloudnative-pg-postgresql" }}"
+    storageClass: {{ .Values.STORAGE_CLASS_SSD.Value }}
+{{- if $localdev }}
+    # Kind sizing: local-path volume, small footprint
+    storageSize: 1Gi
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: "1"
+        memory: 512Mi
+{{- else }}
+    storageSize: 10Gi
+    resources:
+      requests:
+        cpu: 250m
+        memory: 512Mi
+      limits:
+        cpu: "1"
+        memory: 1Gi
+{{- end }}
+
+  # charts/paperclip: the paperclip.inc Instance (external database mode,
+  # authenticated, public exposure behind the internal Traefik).
+  instance:
+    image:
+      repository: ghcr.io/paperclipai/paperclip
+      tag: "{{ index .Versions.Images "paperclip" }}"
+    # Bootstrapped once by the operator's admin-seed Job; the password is the
+    # ADMIN_PASSWORD field of the paperclip-auth item.
+    admin:
+      email: {{ .Values.PAPERCLIP_ADMIN_EMAIL.Value }}
+      name: Admin
+    ingress:
+      className: {{ .Values.INGRESS_CLASS_INTERNAL.Value }}
+    persistence:
+{{- if $localdev }}
+      size: 1Gi
+{{- else }}
+      size: 10Gi
+{{- end }}
+      storageClass: {{ .Values.STORAGE_CLASS_NFS.Value }}
+    resources:
+{{- if $localdev }}
+      requests:
+        cpu: 250m
+        memory: 512Mi
+      limits:
+        cpu: "2"
+        memory: 2Gi
+{{- else }}
+      requests:
+        cpu: 500m
+        memory: 1Gi
+      limits:
+        cpu: "2"
+        memory: 2Gi
+{{- end }}
+
+  # PostSync smoke hook (charts/applications/templates/_smoke.tpl): the
+  # operator's health path on the Instance Service (port 3100).
+  smoke:
+    enabled: true
+    url: http://paperclip.paperclip.svc.cluster.local:3100/api/health
+    expect: ["200"]

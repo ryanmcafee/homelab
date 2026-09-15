@@ -20,6 +20,13 @@ spec:
       valueFiles:
         - values.yaml
         - values-localdev.yaml
+      # The Kind loop installs the root Application at the PR head
+      # (scripts/localdev-argocd.ts install --revision); the child's own
+      # values-localdev.yaml says main, so the revision is handed down here
+      # (ADR-010: derived values reach children via helm.valuesObject).
+      valuesObject:
+        global:
+          targetRevision: main
 
   destination:
     server: https://kubernetes.default.svc
@@ -36,6 +43,11 @@ spec:
         duration: 10s
         factor: 2
         maxDuration: 3m
+  ignoreDifferences:
+    - group: argoproj.io
+      jqPathExpressions:
+      - .metadata.finalizers[]? | select(startswith("post-delete-finalizer.argocd.argoproj.io"))
+      kind: Application
 
 ---
 # Source: gitops/templates/applications.yaml
@@ -59,6 +71,13 @@ spec:
       valueFiles:
         - values.yaml
         - values-localdev.yaml
+      # The Kind loop installs the root Application at the PR head
+      # (scripts/localdev-argocd.ts install --revision); the child's own
+      # values-localdev.yaml says main, so the revision is handed down here
+      # (ADR-010: derived values reach children via helm.valuesObject).
+      valuesObject:
+        global:
+          targetRevision: main
 
   destination:
     server: https://kubernetes.default.svc
@@ -74,3 +93,8 @@ spec:
         duration: 5s
         factor: 2
         maxDuration: 3m
+  ignoreDifferences:
+    - group: argoproj.io
+      jqPathExpressions:
+      - .metadata.finalizers[]? | select(startswith("post-delete-finalizer.argocd.argoproj.io"))
+      kind: Application

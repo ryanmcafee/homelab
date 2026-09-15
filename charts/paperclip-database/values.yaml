@@ -1,0 +1,46 @@
+# paperclip-database values: one postgresql.cnpg.io/v1 Cluster (wave 13, after
+# the cloudnative-pg addon, before the paperclip Instance at 14).
+# Storage class, size, image pin and sizing arrive through the parent
+# Application's helm.valuesObject from configuration/ (ADR-010).
+
+namespace: paperclip
+
+# Cluster name. CNPG derives everything else from it: Services <name>-rw /
+# <name>-ro / <name>-r and the generated Secret <name>-app (username, password,
+# dbname, host, port, uri, jdbc-uri) that the Instance reads as DATABASE_URL.
+name: paperclip-db
+
+# 1 to start; 2 once HA is wanted (automatic failover, primaryUpdateStrategy
+# unsupervised switches the primary during upgrades).
+instances: 1
+
+# Pinned Postgres image (configuration/versions.yaml images.cloudnative-pg-postgresql).
+# Empty falls back to the operator's default image.
+imageName: ""
+
+storageClass: ""
+storageSize: 10Gi
+
+# Database and owner created by bootstrap.initdb on first start. Paperclip needs
+# no extensions (docs.paperclip.ing/reference/deploy/database), so there is no
+# postInitApplicationSQL.
+database: paperclip
+owner: paperclip
+
+resources:
+  requests:
+    cpu: 250m
+    memory: 512Mi
+  limits:
+    cpu: "1"
+    memory: 1Gi
+
+# PodMonitor for kube-prometheus-stack (the cloudnative-pg addon enables the
+# operator side; this is the per-Cluster switch).
+monitoring:
+  enablePodMonitor: true
+
+postgresql:
+  parameters:
+    max_connections: "100"
+    shared_buffers: 128MB

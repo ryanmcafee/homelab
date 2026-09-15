@@ -1,0 +1,205 @@
+---
+# Paperclip (issue #260); see tests/e2e/README.md and docs/apps/paperclip.md.
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: paperclip
+spec:
+  description: >-
+    The four Paperclip Applications are Healthy, the CloudNativePG Cluster paperclip-db is
+    healthy, the Instance reports phase Running, and /api/health answers 200 through the
+    internal Traefik with Host paperclip.homelab.local.
+  steps:
+    - name: applications-healthy
+      description: >-
+        paperclip-operator, paperclip-database and paperclip are Healthy and their last sync Succeeded
+        (paperclip-dependencies only exists where a secret store does; Kind seeds its Secrets).
+      try:
+        - assert:
+            resource:
+              apiVersion: argoproj.io/v1alpha1
+              kind: Application
+              metadata:
+                name: paperclip-operator
+                namespace: argocd
+              status:
+                health:
+                  status: Healthy
+                operationState:
+                  phase: Succeeded
+        - assert:
+            resource:
+              apiVersion: argoproj.io/v1alpha1
+              kind: Application
+              metadata:
+                name: paperclip-database
+                namespace: argocd
+              status:
+                health:
+                  status: Healthy
+                operationState:
+                  phase: Succeeded
+        - assert:
+            resource:
+              apiVersion: argoproj.io/v1alpha1
+              kind: Application
+              metadata:
+                name: paperclip
+                namespace: argocd
+              status:
+                health:
+                  status: Healthy
+                operationState:
+                  phase: Succeeded
+      catch:
+        - describe:
+            apiVersion: argoproj.io/v1alpha1
+            kind: Application
+            name: paperclip-operator
+            namespace: argocd
+        - describe:
+            apiVersion: argoproj.io/v1alpha1
+            kind: Application
+            name: paperclip-database
+            namespace: argocd
+        - describe:
+            apiVersion: paperclip.inc/v1alpha1
+            kind: Instance
+            name: paperclip
+            namespace: paperclip
+        - podLogs:
+            namespace: paperclip-operator
+            selector: app.kubernetes.io/name=paperclip-operator
+            tail: 100
+        - describe:
+            apiVersion: argoproj.io/v1alpha1
+            kind: Application
+            name: paperclip
+            namespace: argocd
+    - name: database-and-instance-ready
+      description: Cluster paperclip-db is "Cluster in healthy state" and Instance paperclip is Running.
+      try:
+        - assert:
+            resource:
+              apiVersion: postgresql.cnpg.io/v1
+              kind: Cluster
+              metadata:
+                name: paperclip-db
+                namespace: paperclip
+              status:
+                phase: Cluster in healthy state
+                readyInstances: 1
+        - assert:
+            resource:
+              apiVersion: paperclip.inc/v1alpha1
+              kind: Instance
+              metadata:
+                name: paperclip
+                namespace: paperclip
+              status:
+                phase: Running
+      catch:
+        - events:
+            namespace: paperclip
+        - describe:
+            apiVersion: postgresql.cnpg.io/v1
+            kind: Cluster
+            name: paperclip-db
+            namespace: paperclip
+        - describe:
+            apiVersion: paperclip.inc/v1alpha1
+            kind: Instance
+            name: paperclip
+            namespace: paperclip
+        - podLogs:
+            namespace: paperclip
+            selector: app.kubernetes.io/name=paperclip
+            tail: 100
+        - podLogs:
+            namespace: paperclip-operator
+            selector: app.kubernetes.io/name=paperclip-operator
+            tail: 100
+    - name: curl-paperclip
+      description: >-
+        A curl Job must get 200 from https://paperclip.homelab.local/api/health via
+        traefik-internal.traefik.svc.cluster.local.
+      timeouts:
+        assert: 5m
+      try:
+        - apply:
+            resource:
+              apiVersion: batch/v1
+              kind: Job
+              metadata:
+                name: curl-paperclip
+              spec:
+                backoffLimit: 0
+                activeDeadlineSeconds: 300
+                template:
+                  spec:
+                    restartPolicy: Never
+                    securityContext:
+                      runAsNonRoot: true
+                      runAsUser: 100
+                      seccompProfile:
+                        type: RuntimeDefault
+                    containers:
+                      - name: curl
+                        # pinned from configuration/versions.yaml images.curl
+                        image: curlimages/curl:8.22.0
+                        securityContext:
+                          allowPrivilegeEscalation: false
+                          capabilities:
+                            drop: ["ALL"]
+                        resources:
+                          requests:
+                            cpu: 10m
+                            memory: 32Mi
+                          limits:
+                            cpu: 100m
+                            memory: 64Mi
+                        env:
+                          - name: HOST
+                            value: "paperclip.homelab.local"
+                          - name: GATEWAY
+                            value: "traefik-internal.traefik.svc.cluster.local"
+                          - name: URL_PATH
+                            value: "/api/health"
+                          - name: EXPECT
+                            value: "200"
+                          - name: ATTEMPTS
+                            value: "20"
+                        command: ["sh", "-c"]
+                        args:
+                          - |
+                            set -u
+                            i=1
+                            while [ "$i" -le "$ATTEMPTS" ]; do
+                              code=$(curl -sk -o /dev/null -w '%{http_code}' -L --max-redirs 5 --max-time 20 \
+                                --connect-to "$HOST:443:$GATEWAY:443" --connect-to "$HOST:80:$GATEWAY:80" \
+                                "https://$HOST$URL_PATH")
+                              echo "attempt $i/$ATTEMPTS: HTTP $code for https://$HOST$URL_PATH via $GATEWAY"
+                              for ok in $EXPECT; do [ "$code" = "$ok" ] && exit 0; done
+                              i=$((i + 1))
+                              sleep 6
+                            done
+                            echo "giving up: last HTTP code $code, expected one of: $EXPECT"
+                            exit 1
+        - assert:
+            resource:
+              apiVersion: batch/v1
+              kind: Job
+              metadata:
+                name: curl-paperclip
+              status:
+                succeeded: 1
+      catch:
+        - events: {}
+        - podLogs:
+            selector: job-name=curl-paperclip
+            tail: 50
+        - describe:
+            apiVersion: paperclip.inc/v1alpha1
+            kind: Instance
+            name: paperclip
+            namespace: paperclip

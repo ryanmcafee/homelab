@@ -46,6 +46,37 @@ metadata:
     argocd.argoproj.io/sync-wave: "10"
 
 ---
+# Source: applications/templates/paperclip.yaml
+# Namespace for the paperclip-operator controller. The chart runs it non-root
+# (uid 65532) with every capability dropped, so baseline is enough.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: paperclip-operator
+  labels:
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/audit: baseline
+    pod-security.kubernetes.io/warn: baseline
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
+
+---
+# Source: applications/templates/paperclip.yaml
+# Namespace for the Paperclip Instance and its CloudNativePG Cluster. Both run
+# non-root; created here so the wave-14 smoke Job has a target before
+# CreateNamespace=true would create it.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: paperclip
+  labels:
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/audit: baseline
+    pod-security.kubernetes.io/warn: baseline
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
+
+---
 # Source: applications/templates/renovate.yaml
 # Namespace for Renovate resources
 apiVersion: v1
@@ -70,6 +101,25 @@ stringData:
   name: truecharts
   type: helm
   url: oci.trueforge.org/truecharts
+  enableOCI: "true"
+
+---
+# Source: applications/templates/paperclip.yaml
+# OCI Repository: ArgoCD only pulls OCI charts from a registry it has a
+# repository Secret for (rule gitops/<env>/repo-secrets). Anonymous pull.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: paperclipinc-oci
+  namespace: argocd
+  labels:
+    argocd.argoproj.io/secret-type: repository
+  annotations:
+    argocd.argoproj.io/sync-wave: "11"
+stringData:
+  name: paperclipinc
+  type: helm
+  url: ghcr.io/paperclipinc/charts
   enableOCI: "true"
 
 ---
@@ -226,6 +276,57 @@ spec:
               code=$(curl -sL --max-redirs 5 -o /dev/null -w '%{http_code}' --retry 30 --retry-delay 10 --retry-all-errors --max-time 20 "$URL")
               echo "smoke nzbget: $URL -> HTTP $code"
               case "$code" in 200|401) exit 0;; *) exit 1;; esac
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 100
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            seccompProfile:
+              type: RuntimeDefault
+
+---
+# Source: applications/templates/paperclip.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: smoke-paperclip
+  namespace: paperclip
+  labels:
+    app.kubernetes.io/name: smoke-paperclip
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation,HookSucceeded
+    argocd.argoproj.io/sync-wave: "14"
+spec:
+  backoffLimit: 2
+  activeDeadlineSeconds: 600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: smoke-paperclip
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: curl
+          image: curlimages/curl:8.22.0
+          env:
+            - name: URL
+              value: "http://paperclip.paperclip.svc.cluster.local:3100/api/health"
+          command: ["sh", "-c"]
+          args:
+            - |
+              code=$(curl -sL --max-redirs 5 -o /dev/null -w '%{http_code}' --retry 30 --retry-delay 10 --retry-all-errors --max-time 20 "$URL")
+              echo "smoke paperclip: $URL -> HTTP $code"
+              case "$code" in 200) exit 0;; *) exit 1;; esac
           resources:
             requests:
               cpu: 10m
@@ -1105,6 +1206,245 @@ spec:
       - ServerSideApply=true
       - ApplyOutOfSyncOnly=true
       - RespectIgnoreDifferences=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+
+---
+# Source: applications/templates/paperclip.yaml
+# Operator Application: CRDs (instances, paperclipclusterdefaults,
+# paperclipselfconfigs in paperclip.inc) and the controller. The CRDs are
+# chart templates gated by crds.install and kept on uninstall (crds.keep). The
+# Instance CRD is far past the 256 KiB client-side-apply limit, so
+# ServerSideApply=true is mandatory (tests/gitops/huge-crd-charts.yaml).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: paperclip-operator
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "11"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: ghcr.io/paperclipinc/charts
+    chart: paperclip-operator
+    targetRevision: "0.19.1"
+    helm:
+      releaseName: paperclip-operator
+      values: |
+        crds:
+          install: true
+          keep: true
+        # Chart 0.19.1 turns on --leader-elect but grants no RBAC on
+        # coordination.k8s.io leases, so the manager never wins the election,
+        # never starts its controllers and still reports Ready (Instances stay
+        # without status forever). One replica needs no election.
+        leaderElection:
+          enabled: false
+        metrics:
+          enabled: true
+          serviceMonitor:
+            enabled: true
+        resources:
+          limits:
+            cpu: 500m
+            memory: 256Mi
+          requests:
+            cpu: 100m
+            memory: 128Mi
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: paperclip-operator
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+
+---
+# Source: applications/templates/paperclip.yaml
+# Dependencies Application: the 1Password items the Instance reads
+# (paperclip-auth: BETTER_AUTH_SECRET + ADMIN_PASSWORD; paperclip-api-keys:
+# CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY, ...). Only where a secret store exists (SECRETS_PROVIDER,
+# like renovate and duckdns): without one the chart would render nothing, and
+# localdev seeds both Secrets in localdev/fakes/secrets.yaml instead.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: paperclip-dependencies
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "12"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/ryanmcafee/homelab.git
+    targetRevision: main
+    path: charts/paperclip-dependencies
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-homelab.yaml
+      # 1Password paths come from configuration/ (secrets.schema.yaml) through
+      # this parent, so the child's committed values stay environment-free.
+      valuesObject:
+        namespace: paperclip
+        onePassword:
+          apiKeysItemPath: vaults/homelab/items/paperclip-api-keys
+          authItemPath: vaults/homelab/items/paperclip-auth
+          enabled: true
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: paperclip
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - SkipDryRunOnMissingResource=true
+
+---
+# Source: applications/templates/paperclip.yaml
+# Database Application: a CloudNativePG Cluster (the operator is the
+# cloudnative-pg addon). CNPG generates Secret paperclip-db-app whose `uri`
+# key is the DATABASE_URL the Instance reads, so no credential is ever
+# written by us. ArgoCD's built-in Cluster health check makes wave 14 wait
+# for a ready database.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: paperclip-database
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "13"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/ryanmcafee/homelab.git
+    targetRevision: main
+    path: charts/paperclip-database
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-homelab.yaml
+      # Storage class, size, image pin and sizing are environment facts
+      # (configuration/) and reach the child through this parent (ADR-010).
+      valuesObject:
+        namespace: paperclip
+        imageName: ghcr.io/cloudnative-pg/postgresql:17.11
+        instances: 1
+        resources:
+          limits:
+            cpu: "1"
+            memory: 1Gi
+          requests:
+            cpu: 250m
+            memory: 512Mi
+        storageClass: democratic-csi-ssd
+        storageSize: 10Gi
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: paperclip
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - SkipDryRunOnMissingResource=true
+    # The Cluster CRD comes from the cloudnative-pg addon; if a sync lands before
+    # the CRD is served the apply fails with "no matches for kind Cluster" and
+    # this retries until the operator is up.
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+
+---
+# Source: applications/templates/paperclip.yaml
+# Instance Application: the paperclip.inc/v1alpha1 Instance in external
+# database mode. Health comes from charts/bootstrap/files/health/
+# paperclip.inc_Instance.lua (status.phase Running = Healthy).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: paperclip
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "14"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/ryanmcafee/homelab.git
+    targetRevision: main
+    path: charts/paperclip
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-homelab.yaml
+      # Hostname, admin e-mail, image tag, ingress class and storage classes
+      # come from configuration/ through this parent (ADR-010); never put them
+      # in charts/paperclip/values-homelab.yaml.
+      valuesObject:
+        namespace: paperclip
+        hostname: paperclip.REPLACEME-domain.com
+        admin:
+          email: admin@REPLACEME-domain.com
+          name: Admin
+        image:
+          repository: ghcr.io/paperclipai/paperclip
+          tag: 2026.831.1
+        ingress:
+          className: internal
+        persistence:
+          size: 10Gi
+          storageClass: democratic-csi-nfs
+        resources:
+          limits:
+            cpu: "2"
+            memory: 2Gi
+          requests:
+            cpu: 500m
+            memory: 1Gi
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: paperclip
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - SkipDryRunOnMissingResource=true
+    # The Instance CRD comes from paperclip-operator (wave 11); retry covers a
+    # sync that lands before the CRD is served or the database Secret exists.
     retry:
       limit: 5
       backoff:

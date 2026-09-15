@@ -1,0 +1,96 @@
+---
+# Paperclip Instance. paperclip-operator turns it into a StatefulSet, Service
+# (port 3100), ConfigMap, PVC, ServiceAccount, NetworkPolicy, Ingress and a
+# one-time admin bootstrap Job. Health for ArgoCD comes from
+# charts/bootstrap/files/health/paperclip.inc_Instance.lua.
+apiVersion: paperclip.inc/v1alpha1
+kind: Instance
+metadata:
+  name: {{ .Values.name }}
+  namespace: {{ .Values.namespace }}
+spec:
+  image:
+    repository: {{ .Values.image.repository }}
+    tag: {{ .Values.image.tag | quote }}
+  {{- $secretEnv := list }}
+  {{- if .Values.adapters.apiKeysSecretName }}
+  {{- range .Values.adapters.extraSecretEnv }}
+  {{- $secretEnv = append $secretEnv (dict "name" . "valueFrom" (dict "secretKeyRef" (dict "name" $.Values.adapters.apiKeysSecretName "key" . "optional" true))) }}
+  {{- end }}
+  {{- end }}
+  {{- $env := concat $secretEnv (.Values.extraEnv | default list) }}
+  {{- with $env }}
+  # Optional keys of the adapter Secret (subscription tokens the operator does
+  # not inject itself) followed by extraEnv; both containers receive spec.env.
+  env:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  deployment:
+    mode: {{ .Values.deployment.mode }}
+    exposure: {{ .Values.deployment.exposure }}
+    publicURL: https://{{ .Values.hostname }}
+    allowedHostnames:
+      - {{ .Values.hostname }}
+  database:
+    mode: external
+    externalURLSecretRef:
+      name: {{ .Values.database.secretName }}
+      key: {{ .Values.database.secretKey }}
+  auth:
+    secretRef:
+      name: {{ .Values.auth.secretName }}
+      key: {{ .Values.auth.secretKey }}
+    disableSignUp: {{ .Values.auth.disableSignUp }}
+    {{- if .Values.admin.email }}
+    adminUser:
+      email: {{ .Values.admin.email }}
+      name: {{ .Values.admin.name | quote }}
+      passwordSecretRef:
+        name: {{ .Values.auth.secretName }}
+        key: {{ .Values.admin.passwordKey }}
+    {{- end }}
+  {{- if .Values.adapters.apiKeysSecretName }}
+  adapters:
+    apiKeysSecretRef:
+      name: {{ .Values.adapters.apiKeysSecretName }}
+  {{- end }}
+  storage:
+    persistence:
+      enabled: {{ .Values.persistence.enabled }}
+      size: {{ .Values.persistence.size }}
+      {{- with .Values.persistence.storageClass }}
+      storageClass: {{ . }}
+      {{- end }}
+  networking:
+    service:
+      type: {{ .Values.service.type }}
+      port: {{ .Values.service.port }}
+    {{- if .Values.ingress.enabled }}
+    ingress:
+      enabled: true
+      ingressClassName: {{ .Values.ingress.className }}
+      annotations:
+        cert-manager.io/cluster-issuer: {{ .Values.ingress.clusterIssuer }}
+        external-dns.alpha.kubernetes.io/hostname: {{ .Values.hostname }}
+      hosts:
+        - {{ .Values.hostname }}
+      tls:
+        - hosts:
+            - {{ .Values.hostname }}
+          secretName: {{ .Values.ingress.tlsSecretName }}
+    {{- end }}
+  security:
+    networkPolicy:
+      enabled: {{ .Values.security.networkPolicy.enabled }}
+    seLinuxRelabel: {{ .Values.security.seLinuxRelabel }}
+  observability:
+    metrics:
+      enabled: {{ .Values.observability.metrics.enabled }}
+    logging:
+      level: {{ .Values.observability.logging.level }}
+  resources:
+    {{- toYaml .Values.resources | nindent 4 }}
+  probes:
+    startup:
+      failureThreshold: {{ .Values.probes.startup.failureThreshold }}
+      periodSeconds: {{ .Values.probes.startup.periodSeconds }}

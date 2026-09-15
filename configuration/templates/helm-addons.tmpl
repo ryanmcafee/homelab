@@ -40,6 +40,9 @@ global:
 
   # Git repository for SOPS secrets
   repoUrl: https://github.com/ryanmcafee/homelab.git
+  # homelab: main is what production tracks. localdev: a placeholder that the
+  # parent Application overrides through helm.valuesObject with the PR head
+  # (scripts/localdev-argocd.ts install --revision).
   targetRevision: main
 
   # Whether every Application syncs automatically (prune + selfHeal). Off where

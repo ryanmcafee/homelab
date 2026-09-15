@@ -642,8 +642,14 @@ charts/
     └── templates/
         ├── plex.yaml
         ├── sonarr.yaml
+        ├── paperclip.yaml     # 4 Applications: operator, 1Password items, CNPG Cluster, Instance
         └── ...
 ```
+
+Paperclip is the four-Application pattern for an operator-backed app with its own database:
+`paperclip-operator` (OCI chart, CRDs) < `paperclip-dependencies` (OnePasswordItems) <
+`paperclip-database` (CloudNativePG `Cluster`) < `paperclip` (the `Instance`), waves 10-14 inside
+`applications` (ADR-015, `docs/apps/paperclip.md`).
 
 ### Sync Waves
 

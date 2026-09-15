@@ -11,7 +11,12 @@
  *             configuration/versions.yaml (charts.argocd) with
  *             localdev/values/argocd-values.yaml plus one --set-file per health
  *             Lua in charts/bootstrap/files/health, apply the root Application
- *             (localdev/argocd/gitops-app.yaml) and log the argocd CLI in
+ *             (localdev/argocd/gitops-app.yaml) with its targetRevision set
+ *             to the PR head (--revision, else LOCALDEV_REVISION, else the
+ *             upstream branch of HEAD, else main with a warning; the same
+ *             value goes into helm.valuesObject.global.targetRevision, which
+ *             the gitops chart hands to addons/applications so every
+ *             git-path Application tracks it) and log the argocd CLI in
  *             through a kubectl port-forward. Idempotent.
  *   sync      Walk the Application tree tier by tier and sync each app from the
  *             working tree (`argocd app sync --local`; chart apps sync from
@@ -23,14 +28,23 @@
  *             their children. Git-path apps are rendered first with `argocd
  *             app manifests --local`; when that yields nothing they are
  *             synced plainly if Git renders nothing either (empty app →
- *             Synced/Healthy) and refused if Git has manifests (ArgoCD
+ *             Synced/Healthy), left alone when their path does not exist
+ *             on the target revision at all (`git cat-file -e
+ *             origin/<rev>:<path>`: a chart new on this branch with nothing
+ *             to deploy here; any sync would fail with "app path does not
+ *             exist") and refused if Git has manifests (ArgoCD
  *             would silently sync the Git revision instead). Apps
  *             that still carry an automated sync policy are not synced
  *             (ArgoCD does that) but are waited for. A tier
  *             is complete when every app is Healthy with a Succeeded operation
  *             or is a parent whose Running operation waits on child
  *             Applications. Newly created children are discovered every poll.
- *             Failed/Error operations are retried 3x with 15 s backoff.
+ *             A later subtree (applications [0,3]) is not started while a
+ *             lower parent (addons [0,2]) still holds a wave open: its
+ *             remaining children (cloudnative-pg, wave 10) do not exist yet,
+ *             and in homelab ArgoCD itself starts applications only once
+ *             addons is Healthy. Failed/Error operations are retried 3x with
+ *             15 s backoff.
  *   wait      Poll until every Application is Healthy with a Succeeded
  *             operation (--require-synced also demands Synced). Runs diagnose
  *             and exits 1 on timeout.
@@ -42,21 +56,25 @@
  *             posted by tilt-ci.yml as the sticky PR comment `kind-preview`):
  *             the pass/fail line and failing checks of the level-2 JSON
  *             (--verify-json; missing or partial JSON is reported, not
- *             fatal), an Application table (health, last operation, vs main)
- *             and, for every Application that is not Synced, `argocd app diff
- *             <app> --exit-code=false`. The root Application tracks GitHub
- *             main while every app was synced from the working tree with
- *             --local, so that diff is exactly PR head vs main; argocd prints
- *             `diff <live> <target>` (live = PR, target = main), which the
- *             report inverts so `-` is main and `+` is the PR. Diffs share
- *             one byte budget (--max-diff-bytes, 0 = unlimited); small diffs
- *             stay whole, large ones are cut at a line boundary with a note.
- *             When ArgoCD is not reachable (localdev:ci failed early) the
- *             report says so and still exits 0.
+ *             fatal), an Application table (health, sync, last operation, vs
+ *             <base>) and, for every git-path Application, `argocd app diff
+ *             <app> --revision <base> --exit-code=false` (--base, else
+ *             LOCALDEV_BASE, else main: the PR base). Every Application
+ *             tracks the PR head and was synced from the working tree with
+ *             --local, so Synced means the tree equals the pushed head, and
+ *             the diff is exactly PR head vs base; argocd prints `diff <live>
+ *             <target>` (live = PR, target = base), which the report inverts
+ *             so `-` is the base and `+` is the PR. Chart-sourced apps
+ *             (Helm repos) have no git revision to render and are compared
+ *             on their parent's diff. Diffs share one byte budget
+ *             (--max-diff-bytes, 0 = unlimited); small diffs stay whole,
+ *             large ones are cut at a line boundary with a note. When ArgoCD
+ *             is not reachable (localdev:ci failed early) the report says so
+ *             and still exits 0.
  *
  * Automated sync is OFF in localdev (ARGOCD_AUTOMATED_SYNC=false): `argocd app
  * sync --local` refuses automated apps, and the whole point of the loop is to
- * sync the working tree, not GitHub main.
+ * sync the working tree, not whatever GitHub has.
  *
  * ArgoCD API access never depends on the Kind host-port mapping. Docker
  * Desktop's host-port proxy forwards packets with bad TCP checksums; kindnet
@@ -75,11 +93,11 @@
  * Usage:
  *   task localdev:argocd | localdev:sync | localdev:wait | localdev:diagnose
  *   deno run ... scripts/localdev-argocd.ts --help
- *   deno run ... scripts/localdev-argocd.ts install [--dry-run] [--local-port 18080 | --server host:port]
+ *   deno run ... scripts/localdev-argocd.ts install [--revision <ref>] [--dry-run] [--local-port 18080 | --server host:port]
  *   deno run ... scripts/localdev-argocd.ts sync [--warm] [--only a,b] [--timeout 40m] [--dry-run]
  *   deno run ... scripts/localdev-argocd.ts wait [--require-synced] [--exclude a,b] [--timeout 20m]
  *   deno run ... scripts/localdev-argocd.ts diagnose
- *   deno run ... scripts/localdev-argocd.ts report [--out kind-report.md] [--verify-json verify-level2.json]
+ *   deno run ... scripts/localdev-argocd.ts report [--base main] [--out kind-report.md] [--verify-json verify-level2.json]
  *                                                  [--max-diff-bytes 50000] [--no-diff]
  *
  * Exit codes: 0 = success (report: a report was written, whatever it says);
@@ -87,7 +105,10 @@
  *             not write its output; 2 = argument error.
  */
 
-import { parse as parseYaml } from "jsr:@std/yaml@^1";
+import {
+  parse as parseYaml,
+  stringify as stringifyYaml,
+} from "jsr:@std/yaml@^1";
 import { expandGlob } from "jsr:@std/fs@^1/expand-glob";
 import { join, normalize, resolve } from "jsr:@std/path@^1";
 
@@ -129,6 +150,15 @@ export const ROOT_APP = "gitops";
 export const VERSIONS_YAML = "configuration/versions.yaml";
 export const ARGOCD_VALUES = "localdev/values/argocd-values.yaml";
 export const ROOT_APP_MANIFEST = "localdev/argocd/gitops-app.yaml";
+/**
+ * The branch every `report` diff is taken against (`argocd app diff
+ * --revision <base>`): the PR base. `--base` / LOCALDEV_BASE override it.
+ */
+export const DEFAULT_BASE = "main";
+/** install: the Git revision the root Application tracks (`--revision`). */
+export const REVISION_ENV = "LOCALDEV_REVISION";
+/** report: the base branch every diff is taken against (`--base`). */
+export const BASE_ENV = "LOCALDEV_BASE";
 export const HEALTH_LUA_DIR = "charts/bootstrap/files/health";
 export const SYNC_WAVE_ANNOTATION = "argocd.argoproj.io/sync-wave";
 export const PARENT_LABEL = "app.kubernetes.io/instance";
@@ -428,6 +458,42 @@ export function parentsAwaitingWaves(apps: Application[]): string[] {
     .sort();
 }
 
+/** True when `prefix` is a prefix of `key` (a key is a prefix of itself). */
+export function isTierKeyPrefix(prefix: TierKey, key: TierKey): boolean {
+  if (prefix.length > key.length) return false;
+  for (let i = 0; i < prefix.length; i++) {
+    if (prefix[i] !== key[i]) return false;
+  }
+  return true;
+}
+
+/**
+ * The awaiting parent (parentsAwaitingWaves, keyed by tierKey) that must
+ * settle before `tier` may start: one whose key is strictly lower than the
+ * tier and not a prefix of it. A parent holding a wave open never blocks its
+ * own subtree (those are exactly the children this loop syncs for it) and the
+ * root [0] is a prefix of everything, so it never blocks; but addons [0,2]
+ * Running blocks applications [0,3] and every [0,3,…] tier. Without this the
+ * loop moved on to applications while addons' later children (cloudnative-pg
+ * at wave 10) did not exist yet, and paperclip-database failed on a missing
+ * CNPG CRD. In homelab ArgoCD starts applications only once addons is Healthy
+ * (gitops waves); this mirrors that. Returns the lowest such parent (by key,
+ * then name), or null.
+ */
+export function tierBlockedBy(
+  tier: TierKey,
+  awaiting: Array<{ name: string; key: TierKey }>,
+): string | null {
+  const blocking = awaiting
+    .filter(({ key }) =>
+      compareTierKey(key, tier) < 0 && !isTierKeyPrefix(key, tier)
+    )
+    .sort((x, y) =>
+      compareTierKey(x.key, y.key) || x.name.localeCompare(y.name)
+    );
+  return blocking[0]?.name ?? null;
+}
+
 /**
  * Apps not done and not being waited on whose tier key is LOWER than the tier
  * currently being waited on. They belong to an earlier subtree (e.g. a parent
@@ -577,28 +643,159 @@ export function manifestsArgs(app: Application, repoRoot: string): string[] {
   return ["app", "manifests", app.metadata.name, ...sync.slice(i, i + 4)];
 }
 
-export type EmptyRenderDecision = "local" | "empty" | "error";
+export type EmptyRenderDecision = "local" | "empty" | "new-empty" | "error";
 
 /**
  * What to do with a git-path app given how many manifests the working tree
- * renders (localCount) and, when that is zero, how many Git renders
- * (gitCount; null when the Git render could not be obtained).
+ * renders (localCount), when that is zero how many Git renders (gitCount;
+ * null when the Git render could not be obtained), and whether the app's
+ * source path exists at all on the Git target revision (pathInGit).
  *
- *   local > 0             → "local": normal `argocd app sync --local`.
- *   local = 0, git = 0    → "empty": plain `argocd app sync` (no --local); an
- *                           empty Application becomes Synced/Healthy. Many
- *                           child charts render nothing in localdev by design.
- *   local = 0, git > 0    → "error": ArgoCD would silently apply the Git
- *                           revision (the bootstrap-in-localdev case).
- *   local = 0, git = null → "error": fail closed rather than guess.
+ *   local > 0                     → "local": normal `argocd app sync --local`.
+ *   local = 0, git = 0, in Git    → "empty": plain `argocd app sync` (no
+ *                                   --local); an empty Application becomes
+ *                                   Synced/Healthy. Many child charts render
+ *                                   nothing in localdev by design.
+ *   local = 0, git ≤ 0, not in Git → "new-empty": the chart is new on this
+ *                                   branch and has nothing to deploy here. No
+ *                                   sync at all: a plain sync generates from
+ *                                   Git, where the path is absent, and fails
+ *                                   with ComparisonError "app path does not
+ *                                   exist" (git = 0 because `argocd app
+ *                                   manifests` printed nothing for it).
+ *   local = 0, git > 0            → "error": ArgoCD would silently apply the
+ *                                   Git revision (the bootstrap-in-localdev
+ *                                   case), wherever the path lives.
+ *   local = 0, git = null, in Git → "error": fail closed rather than guess.
  */
 export function emptyRenderDecision(
   localCount: number,
   gitCount: number | null,
+  pathInGit = true,
 ): EmptyRenderDecision {
   if (localCount > 0) return "local";
+  if (gitCount !== null && gitCount > 0) return "error";
+  if (!pathInGit) return "new-empty";
   if (gitCount === 0) return "empty";
   return "error";
+}
+
+/**
+ * ArgoCD's repo-server wording when an Application's source path is absent
+ * from the target revision (ComparisonError "Manifest generation error:
+ * charts/<x>: app path does not exist"). The fallback signal for
+ * pathInGitRevision when git itself cannot answer.
+ */
+export const MISSING_PATH_SIGNAL = "app path does not exist";
+
+export function mentionsMissingPath(text: string): boolean {
+  return text.includes(MISSING_PATH_SIGNAL);
+}
+
+/**
+ * The local git ref that stands for an Application's spec.source.targetRevision:
+ * a SHA is used as is; a branch or tag name (or the empty/HEAD default, which
+ * ArgoCD resolves against the remote) becomes `origin/<name>`, since the
+ * clone's own `main` may be behind or absent in a worktree while
+ * `origin/main` is what the root Application points at.
+ */
+export function gitRefForRevision(targetRevision: string | undefined): string {
+  const rev = (targetRevision ?? "").trim();
+  if (rev === "" || rev === "HEAD") return "origin/HEAD";
+  if (/^[0-9a-f]{7,40}$/i.test(rev)) return rev;
+  if (rev.startsWith("origin/")) return rev;
+  return `origin/${rev}`;
+}
+
+/**
+ * The branch name of an upstream ref as `git rev-parse --abbrev-ref
+ * --symbolic-full-name @{upstream}` prints it (`origin/feat/x` → `feat/x`).
+ * null when there is no remote prefix or no branch after it.
+ */
+export function branchFromUpstream(upstream: string): string | null {
+  const s = upstream.trim();
+  const slash = s.indexOf("/");
+  if (slash <= 0 || slash === s.length - 1) return null;
+  return s.slice(slash + 1);
+}
+
+export type RevisionSource = "flag" | "env" | "upstream" | "default";
+
+/**
+ * Which Git revision the root Application tracks (install --revision):
+ * the flag, else the LOCALDEV_REVISION environment variable, else the
+ * upstream branch of HEAD (what ArgoCD can fetch from GitHub), else `main`.
+ * Blank values count as absent.
+ */
+export function chooseRevision(opts: {
+  flag: string | null;
+  env: string | undefined;
+  upstream: string | null;
+}): { revision: string; source: RevisionSource } {
+  const flag = opts.flag?.trim();
+  if (flag) return { revision: flag, source: "flag" };
+  const env = opts.env?.trim();
+  if (env) return { revision: env, source: "env" };
+  const branch = opts.upstream === null
+    ? null
+    : branchFromUpstream(opts.upstream);
+  if (branch) return { revision: branch, source: "upstream" };
+  return { revision: DEFAULT_BASE, source: "default" };
+}
+
+/**
+ * The root Application manifest (localdev/argocd/gitops-app.yaml) with
+ * spec.source.targetRevision and spec.source.helm.valuesObject.global.
+ * targetRevision set to `revision`: the first is what ArgoCD compares
+ * against, the second is what the gitops chart hands down to addons and
+ * applications (whose own templates pass it to every git-path child), so
+ * the whole tree tracks one revision. Comments are not preserved (kubectl
+ * never sees them anyway).
+ */
+export function renderRootApp(manifestText: string, revision: string): string {
+  const doc = parseYaml(manifestText) as Record<string, unknown> | null;
+  const spec = doc?.spec as Record<string, unknown> | undefined;
+  const source = spec?.source as Record<string, unknown> | undefined;
+  if (!doc || !source || typeof source !== "object") {
+    throw new Error(
+      `${ROOT_APP_MANIFEST}: no spec.source to set the revision on`,
+    );
+  }
+  source.targetRevision = revision;
+  const helm =
+    (typeof source.helm === "object" && source.helm !== null
+      ? source.helm
+      : {}) as Record<string, unknown>;
+  source.helm = helm;
+  const valuesObject =
+    (typeof helm.valuesObject === "object" && helm.valuesObject !== null
+      ? helm.valuesObject
+      : {}) as Record<string, unknown>;
+  helm.valuesObject = valuesObject;
+  const global = (typeof valuesObject.global === "object" &&
+      valuesObject.global !== null
+    ? valuesObject.global
+    : {}) as Record<string, unknown>;
+  valuesObject.global = global;
+  global.targetRevision = revision;
+  return stringifyYaml(doc, { lineWidth: -1 });
+}
+
+/**
+ * A new chart's Application after the loop skipped it: Healthy with no
+ * operation and no resources, and a ComparisonError saying its path does not
+ * exist on the target revision. `wait`, `diagnose` and `report` treat it as
+ * complete; `verify --level 2` does the same (internal/verify/cluster.go).
+ */
+export function isNewEmptyApp(app: Application): boolean {
+  const st = app.status;
+  if (!st) return false;
+  if (st.health?.status !== "Healthy") return false;
+  if (st.operationState?.phase || st.operationState?.message) return false;
+  if ((st.resources ?? []).length > 0) return false;
+  return (st.conditions ?? []).some((c) =>
+    c?.type === "ComparisonError" && mentionsMissingPath(c.message ?? "")
+  );
 }
 
 /** Number of non-empty YAML documents in a multi-document stream. */
@@ -630,8 +827,14 @@ export function selectApps(
   return out;
 }
 
-/** `wait` readiness: Healthy + Succeeded (+ Synced with --require-synced). */
+/**
+ * `wait` readiness: Healthy + Succeeded (+ Synced with --require-synced). A
+ * new chart's Application (isNewEmptyApp) is ready too: nothing can be
+ * synced to it until the chart exists on the target revision, so it never
+ * gets an operation and can never be Synced.
+ */
 export function isReady(app: Application, requireSynced: boolean): boolean {
+  if (isNewEmptyApp(app)) return true;
   const health = app.status?.health?.status;
   const phase = app.status?.operationState?.phase;
   if (health !== "Healthy" || phase !== "Succeeded") return false;
@@ -745,11 +948,14 @@ export type VerifyInput =
   | { ok: true; result: VerifyResult }
   | { ok: false; reason: string };
 
-/** `argocd app diff` of one Application, already inverted to main → PR. */
+/**
+ * `argocd app diff <app> --revision <base>` of one Application, already
+ * inverted to base → PR.
+ */
 export interface AppDiff {
   app: string;
   diff: string;
-  /** Set when argocd could not produce the diff (e.g. path absent on main). */
+  /** Set when argocd could not produce the diff (e.g. path absent on the base). */
   error?: string;
   /** Set by truncateDiffs when the diff was cut. */
   originalBytes?: number;
@@ -759,7 +965,10 @@ export interface AppDiff {
 export interface StatusRow {
   app: string;
   health: string;
+  /** status.sync.status: Synced = the working tree equals the pushed head. */
+  sync: string;
   operation: string;
+  /** What the diff against the base branch found. */
   vsMain: string;
 }
 
@@ -772,7 +981,21 @@ export interface ReportInput {
   diffs: AppDiff[];
   /** Why no diffs were taken (--no-diff, ArgoCD API not reachable). */
   diffNote?: string;
+  /** The branch every diff was taken against (default DEFAULT_BASE). */
+  base?: string;
   meta?: { sha?: string; runUrl?: string };
+}
+
+/** The revision the root Application tracks, as ArgoCD has it. */
+export function headRevision(apps: Application[]): string | undefined {
+  const rev = apps.find((a) => a.metadata?.name === ROOT_APP)?.spec?.source
+    ?.targetRevision?.trim();
+  return rev || undefined;
+}
+
+/** A SHA shortened for prose; branch names stay whole. */
+function shortRevision(rev: string): string {
+  return /^[0-9a-f]{40}$/i.test(rev) ? rev.slice(0, 12) : rev;
 }
 
 const utf8 = new TextEncoder();
@@ -889,11 +1112,23 @@ export function treeOrder(apps: Application[]): Application[] {
     .map(({ a }) => a);
 }
 
-/** Names of the Applications to diff: every one not Synced, in tree order. */
+/**
+ * Names of the Applications to diff against the base: every git-path
+ * Application in tree order. Sync status says nothing about the base (every
+ * Application tracks the PR head), so Synced apps are diffed too. Chart
+ * sources (a Helm repo, e.g. cilium) have no git revision to render at the
+ * base and are compared on their parent's diff instead; a new chart's
+ * Application that was never synced has no target at all (isNewEmptyApp).
+ */
 export function appsToDiff(apps: Application[]): string[] {
   return treeOrder(apps)
-    .filter((a) => a.status?.sync?.status !== "Synced")
+    .filter((a) => sourceKind(a) === "local" && !isNewEmptyApp(a))
     .map((a) => a.metadata.name);
+}
+
+/** argocd arguments (after the binary) that diff one Application against `base`. */
+export function diffArgs(name: string, base: string): string[] {
+  return ["app", "diff", name, "--revision", base, "--exit-code=false"];
 }
 
 /** Resources, added and removed lines of an inverted `argocd app diff`. */
@@ -912,13 +1147,17 @@ export function diffStats(
 }
 
 /**
- * One table row per Application, in tree order. vs main: Synced → "same as
- * main"; otherwise the sync status plus what the diff found, when one was
- * taken (`diffs` keyed by app name).
+ * One table row per Application, in tree order. `sync` is ArgoCD's sync
+ * status against the head every Application tracks; `vsMain` is what the
+ * diff against `base` found (`diffs` keyed by app name): empty → same as
+ * the base, an error naming a missing path → the chart is not on the base
+ * (new in this PR), any other error → unavailable, no entry → not diffed.
+ * Chart sources are compared on their parent's diff.
  */
 export function statusRows(
   apps: Application[],
   diffs: Map<string, AppDiff> = new Map(),
+  base: string = DEFAULT_BASE,
 ): StatusRow[] {
   return treeOrder(apps).map((a) => {
     const st = a.status ?? {};
@@ -928,25 +1167,31 @@ export function statusRows(
     if (phase && phase !== "Succeeded" && msg) {
       operation = clip(`${phase}: ${msg}`, REPORT_MAX_CELL_CHARS);
     }
-    const sync = st.sync?.status;
     let vsMain: string;
-    if (sync === "Synced") {
-      vsMain = "same as main";
+    const d = diffs.get(a.metadata.name);
+    if (isNewEmptyApp(a)) {
+      operation = "- (new chart, nothing to sync)";
+      vsMain = `not on ${base}`;
+    } else if (d === undefined) {
+      vsMain = sourceKind(a) === "local"
+        ? "not diffed"
+        : "chart (compared on its parent)";
+    } else if (d.error !== undefined) {
+      vsMain = mentionsMissingPath(d.error)
+        ? `not on ${base}`
+        : "diff unavailable";
+    } else if (!d.diff.trim() && d.originalBytes === undefined) {
+      vsMain = `same as ${base}`;
     } else {
-      vsMain = sync === "OutOfSync" ? "differs" : (sync ?? "Unknown");
-      const d = diffs.get(a.metadata.name);
-      if (d?.error !== undefined) vsMain += " · diff unavailable";
-      else if (d && !d.diff.trim()) vsMain += " · no resource diff";
-      else if (d) {
-        const s = diffStats(d.diff);
-        vsMain += ` · +${s.added} -${s.removed}${
-          d.originalBytes !== undefined ? " (truncated)" : ""
-        }`;
-      }
+      const s = diffStats(d.diff);
+      vsMain = `differs · +${s.added} -${s.removed}${
+        d.originalBytes !== undefined ? " (truncated)" : ""
+      }`;
     }
     return {
       app: a.metadata.name,
       health: st.health?.status ?? "Unknown",
+      sync: st.sync?.status ?? "Unknown",
       operation,
       vsMain,
     };
@@ -1175,36 +1420,35 @@ function failingChecksSection(v: VerifyInput): string[] {
   return out;
 }
 
-function diffSection(input: ReportInput): string[] {
-  const out = ["### Diffs vs main", ""];
+function diffSection(input: ReportInput, base: string): string[] {
+  const out = [`### Diffs vs ${base}`, ""];
   if (input.diffNote) return [...out, input.diffNote, ""];
-  if (input.diffs.length === 0) {
+  // Empty diffs are "same as <base>" in the table; only errors and real
+  // differences get a collapsed block.
+  const shown = input.diffs.filter((d) =>
+    d.error !== undefined || d.diff.trim() || d.originalBytes !== undefined
+  );
+  if (shown.length === 0) {
     return [
       ...out,
-      "Every Application is Synced with `main`: nothing ArgoCD deploys in Kind changes.",
+      `No Application differs from \`${base}\`: nothing ArgoCD deploys in Kind changes.`,
       "",
     ];
   }
-  for (const d of input.diffs) {
+  for (const d of shown) {
     const name = mdCell(d.app);
     if (d.error !== undefined) {
+      const missing = mentionsMissingPath(d.error);
       out.push(
-        `<details><summary><code>${name}</code> · diff unavailable</summary>`,
+        `<details><summary><code>${name}</code> · ${
+          missing ? `not on ${base}` : "diff unavailable"
+        }</summary>`,
         "",
         fenced(d.error, "text"),
         "",
-        "Typical cause: the Application or its path does not exist on `main` yet (new in this PR).",
-        "",
-        "</details>",
-        "",
-      );
-      continue;
-    }
-    if (!d.diff.trim() && d.originalBytes === undefined) {
-      out.push(
-        `<details><summary><code>${name}</code> · OutOfSync, no resource diff</summary>`,
-        "",
-        "`argocd app diff` shows nothing: only fields ArgoCD ignores differ, or only Secrets (never diffed).",
+        missing
+          ? `The Application's path does not exist on \`${base}\`: everything it deploys is new in this PR.`
+          : `Typical cause: the Application or its path does not exist on \`${base}\` yet (new in this PR).`,
         "",
         "</details>",
         "",
@@ -1225,7 +1469,7 @@ function diffSection(input: ReportInput): string[] {
       out.push(
         `Truncated: showing ${
           byteLength(d.diff)
-        } of ${d.originalBytes} bytes (${d.omittedLines} line(s) omitted). Full diff: \`task localdev:report -- --max-diff-bytes 0\` against a local Kind loop, or \`argocd app diff ${d.app}\`.`,
+        } of ${d.originalBytes} bytes (${d.omittedLines} line(s) omitted). Full diff: \`task localdev:report -- --max-diff-bytes 0\` against a local Kind loop, or \`argocd app diff ${d.app} --revision ${base}\`.`,
         "",
       );
     }
@@ -1254,8 +1498,11 @@ export function renderReport(input: ReportInput): string {
     return out.join("\n").trimEnd() + "\n";
   }
 
+  const base = input.base?.trim() || DEFAULT_BASE;
+  const head = headRevision(input.apps);
+  const headLabel = head ? `\`${shortRevision(head)}\`` : "the PR head";
   out.push(
-    "Every Application was synced from this PR's working tree (`argocd app sync --local`) while the root Application `gitops` tracks GitHub `main`, so **vs main** is this PR against `main` as ArgoCD sees it: in the diffs `-` is `main` and `+` is this PR. Child Applications are compared using their live (PR) spec, so a change to a child's chart version or values shows up on its parent's diff (the `Application` resource), not on the child.",
+    `Every Application tracks ${headLabel} (the root Application \`gitops\` \`spec.source.targetRevision\`, handed down the tree) and was synced from this PR's working tree (\`argocd app sync --local\`), so **Sync** \`Synced\` means the tree equals the pushed head. **vs ${base}** is \`argocd app diff --revision ${base}\`: this PR against \`${base}\` as ArgoCD sees it, \`-\` is \`${base}\` and \`+\` is this PR. Child Applications are compared using their live (PR) spec, so a change to a child's chart version or values shows up on its parent's diff (the \`Application\` resource), not on the child.`,
     "",
   );
 
@@ -1266,29 +1513,27 @@ export function renderReport(input: ReportInput): string {
     );
   } else {
     const byApp = new Map(input.diffs.map((d) => [d.app, d]));
-    const rows = statusRows(input.apps, byApp);
+    const rows = statusRows(input.apps, byApp, base);
     const healthy = rows.filter((r) => r.health === "Healthy").length;
-    const differ = input.apps.filter((a) =>
-      a.status?.sync?.status !== "Synced"
-    ).length;
+    const differ = rows.filter((r) => r.sync !== "Synced").length;
     out.push(
       `${rows.length} Applications · ${healthy} Healthy · ${
         rows.length - healthy
-      } not Healthy · ${differ} not Synced with main`,
+      } not Healthy · ${differ} not Synced with ${headLabel}`,
       "",
-      "| Application | Health | Last operation | vs main |",
-      "|---|---|---|---|",
+      `| Application | Health | Sync | Last operation | vs ${mdCell(base)} |`,
+      "|---|---|---|---|---|",
       ...rows.map((r) =>
-        `| ${mdCell(r.app)} | ${mdCell(r.health)} | ${mdCell(r.operation)} | ${
-          mdCell(r.vsMain)
-        } |`
+        `| ${mdCell(r.app)} | ${mdCell(r.health)} | ${mdCell(r.sync)} | ${
+          mdCell(r.operation)
+        } | ${mdCell(r.vsMain)} |`
       ),
       "",
     );
   }
 
   out.push(...failingChecksSection(input.verify));
-  if (input.apps.length > 0) out.push(...diffSection(input));
+  if (input.apps.length > 0) out.push(...diffSection(input, base));
   out.push(
     "<sub>Generated by <code>task localdev:report</code> on the Kind loop. Kubernetes Secrets are never diffed.</sub>",
   );
@@ -1330,6 +1575,10 @@ export interface Args {
   maxDiffBytes: number;
   /** report --no-diff: table and checks only, no `argocd app diff`. */
   noDiff: boolean;
+  /** install --revision: the Git revision the root Application tracks. */
+  revision: string | null;
+  /** report --base: the branch every diff is taken against. */
+  base: string | null;
 }
 
 export function parsePort(s: string): number {
@@ -1369,6 +1618,8 @@ export function parseArgs(argv: string[]): Args {
     verifyJson: null,
     maxDiffBytes: DEFAULT_MAX_DIFF_BYTES,
     noDiff: false,
+    revision: null,
+    base: null,
   };
   const valueOf = (i: number, flag: string): string => {
     const v = argv[i + 1];
@@ -1413,6 +1664,11 @@ export function parseArgs(argv: string[]): Args {
     } else if (a.startsWith("--max-diff-bytes=")) {
       args.maxDiffBytes = parseByteCount(a.slice("--max-diff-bytes=".length));
     } else if (a === "--no-diff") args.noDiff = true;
+    else if (a === "--revision") args.revision = valueOf(i++, a);
+    else if (a.startsWith("--revision=")) {
+      args.revision = a.slice("--revision=".length);
+    } else if (a === "--base") args.base = valueOf(i++, a);
+    else if (a.startsWith("--base=")) args.base = a.slice("--base=".length);
     else if (a.startsWith("-")) {
       throw new Error(`Unknown argument: ${a}`);
     } else if (args.command === null) {
@@ -1441,7 +1697,8 @@ Usage:
 Commands:
   install    helm upgrade --install argo-cd (version: ${VERSIONS_YAML} charts.argocd,
              values: ${ARGOCD_VALUES}, health Lua: ${HEALTH_LUA_DIR}/*.lua),
-             apply ${ROOT_APP_MANIFEST}, log the argocd CLI in.
+             apply ${ROOT_APP_MANIFEST} with targetRevision set to the
+             PR head (--revision, see below), log the argocd CLI in.
              Idempotent.                                        (task localdev:argocd)
   sync       Sync every Application from the working tree, tier by tier
              (argocd app sync --local for git-path apps, plain sync for chart apps).
@@ -1451,15 +1708,24 @@ Commands:
   diagnose   Print conditions, unhealthy resources, events and failing pod logs for
              every Application that is not Healthy/Succeeded.  (task localdev:diagnose)
   report     Markdown "${REPORT_TITLE}": level-2 pass/fail and failing checks
-             (--verify-json), Application table (health, last operation, vs main)
-             and \`argocd app diff <app> --exit-code=false\` of every Application
-             that is not Synced. The root app tracks GitHub main and everything
-             was synced with --local, so the diff is PR head vs main (\`-\` main,
-             \`+\` PR). Exits 0 whenever a report was written, also when ArgoCD
-             is unreachable (the report says so).            (task localdev:report)
+             (--verify-json), Application table (health, sync, last operation,
+             vs <base>) and \`argocd app diff <app> --revision <base>
+             --exit-code=false\` of every git-path Application. Every app tracks
+             the PR head and was synced with --local, so the diff is PR head vs
+             the base branch (\`-\` base, \`+\` PR). Exits 0 whenever a report was
+             written, also when ArgoCD is unreachable (the report says so).
+                                                                (task localdev:report)
 
 Flags:
   --help, -h            Show this help and exit 0
+  --revision <ref>      install: the Git revision the root Application (and, via
+                        helm.valuesObject.global.targetRevision, every git-path
+                        Application) tracks. Default: $${REVISION_ENV}, else the
+                        upstream branch of HEAD (git rev-parse @{upstream}), else
+                        ${DEFAULT_BASE} with a warning (push the branch first). CI passes the
+                        PR head SHA
+  --base <ref>          report: the branch every diff is taken against (default
+                        $${BASE_ENV}, else ${DEFAULT_BASE}; CI passes the PR base)
   --dry-run             install/sync: print the exact commands and exit 0 without
                         touching the cluster (sync lists Applications when a cluster
                         is reachable, otherwise plans the root app only)
@@ -1469,7 +1735,8 @@ Flags:
   --only <a,b>          sync: only these Applications (still in tier order)
   --repo-root <dir>     sync: working tree to sync from (default: git toplevel of cwd)
   --require-synced      wait: also require status.sync.status == Synced (off by
-                        default: --local syncs are OutOfSync against GitHub by design)
+                        default: OutOfSync only means the working tree differs
+                        from the pushed head, e.g. uncommitted changes)
   --exclude <a,b>       wait: ignore these Applications
   --local-port <n>      install/sync: preferred local port for the kubectl
                         port-forward (default ${DEFAULT_LOCAL_PORT}; the next free port is
@@ -1543,6 +1810,39 @@ async function run(
   }
 }
 
+/** Like run, feeding `input` on stdin (kubectl apply -f -). */
+async function runWithStdin(
+  cmd: string[],
+  input: string,
+  opts: { cwd?: string } = {},
+): Promise<RunResult> {
+  const p = new Deno.Command(cmd[0], {
+    args: cmd.slice(1),
+    cwd: opts.cwd,
+    stdin: "piped",
+    stdout: "piped",
+    stderr: "piped",
+  });
+  let child: Deno.ChildProcess;
+  try {
+    child = p.spawn();
+  } catch (err) {
+    if (err instanceof Deno.errors.NotFound) {
+      return { stdout: "", stderr: `${cmd[0]}: command not found`, code: 127 };
+    }
+    throw err;
+  }
+  const writer = child.stdin.getWriter();
+  await writer.write(utf8.encode(input));
+  await writer.close();
+  const out = await child.output();
+  return {
+    stdout: new TextDecoder().decode(out.stdout),
+    stderr: new TextDecoder().decode(out.stderr),
+    code: out.code,
+  };
+}
+
 /** Run with inherited stdio (streams helm/argocd output to the terminal). */
 async function runInherit(cmd: string[], cwd?: string): Promise<number> {
   const p = new Deno.Command(cmd[0], {
@@ -1575,6 +1875,30 @@ async function findRepoRoot(): Promise<string> {
     throw new Error(`git rev-parse --show-toplevel failed:\n${r.stderr}`);
   }
   return r.stdout.trim();
+}
+
+/**
+ * Whether `path` exists in the tree of `ref` (`git cat-file -e <ref>:<path>`
+ * in the local clone): true/false when git answers, null when it cannot
+ * (unknown ref, e.g. `origin/main` never fetched, or git missing). A path
+ * that is on disk but not in the ref is exactly the "new chart" case; git
+ * says "exists on disk, but not in '<ref>'" for it.
+ */
+async function pathInGitRevision(
+  repoRoot: string,
+  ref: string,
+  path: string,
+): Promise<boolean | null> {
+  const clean = normalize(path).replace(/^\.\//, "").replace(/\/+$/, "");
+  if (clean === "" || clean === ".") return null;
+  const r = await run(["git", "cat-file", "-e", `${ref}:${clean}`], {
+    cwd: repoRoot,
+  });
+  if (r.code === 0) return true;
+  if (/does not exist in|exists on disk, but not in/.test(r.stderr)) {
+    return false;
+  }
+  return null;
 }
 
 function kubectl(...args: string[]): string[] {
@@ -1937,23 +2261,67 @@ async function helmInstallCmd(repoRoot: string): Promise<string[]> {
   ];
 }
 
+/** The rendered root Application is fed on stdin (renderRootApp). */
 function applyRootAppCmd(): string[] {
-  return kubectl(
-    "apply",
-    "--server-side",
-    "--force-conflicts",
-    "-f",
-    ROOT_APP_MANIFEST,
+  return kubectl("apply", "--server-side", "--force-conflicts", "-f", "-");
+}
+
+/** `git rev-parse --abbrev-ref --symbolic-full-name @{upstream}`, or null. */
+async function upstreamOfHead(repoRoot: string): Promise<string | null> {
+  const r = await run(
+    ["git", "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"],
+    { cwd: repoRoot },
   );
+  if (r.code !== 0) return null;
+  const s = r.stdout.trim();
+  return s ? s : null;
+}
+
+/**
+ * The Git revision the root Application tracks (chooseRevision), with the
+ * reason logged. Without a flag, an environment variable or an upstream
+ * branch, ArgoCD would compare against main and every chart new on this
+ * branch would show as "app path does not exist": say so.
+ */
+async function resolveRevision(
+  args: Args,
+  repoRoot: string,
+): Promise<string> {
+  const upstream = args.revision || Deno.env.get(REVISION_ENV)?.trim()
+    ? null
+    : await upstreamOfHead(repoRoot);
+  const { revision, source } = chooseRevision({
+    flag: args.revision,
+    env: Deno.env.get(REVISION_ENV),
+    upstream,
+  });
+  const why = {
+    flag: "--revision",
+    env: REVISION_ENV,
+    upstream: `upstream of HEAD, ${upstream}`,
+    default: "no upstream branch",
+  }[source];
+  if (source === "default") {
+    log.warn(
+      `HEAD has no upstream branch: the root Application tracks ${DEFAULT_BASE}, so ArgoCD compares against ${DEFAULT_BASE} and a chart new on this branch shows "app path does not exist". Push the branch and re-run: task localdev:argocd -- --revision <branch>`,
+    );
+  }
+  log.info(`root Application ${ROOT_APP} tracks ${revision} (${why})`);
+  return revision;
 }
 
 async function cmdInstall(args: Args, repoRoot: string): Promise<number> {
   const helm = await helmInstallCmd(repoRoot);
   const apply = applyRootAppCmd();
+  const revision = await resolveRevision(args, repoRoot);
   if (args.dryRun) {
     log.dry(`(cwd ${repoRoot})`);
     log.dry(fmtCmd(helm));
-    log.dry(fmtCmd(apply));
+    log.dry(
+      `${
+        fmtCmd(apply)
+      }  # stdin: ${ROOT_APP_MANIFEST} with spec.source.targetRevision and helm.valuesObject.global.targetRevision = ${revision}`,
+    );
     dryRunConnection(args);
     await login(true);
     return 0;
@@ -1965,8 +2333,14 @@ async function cmdInstall(args: Args, repoRoot: string): Promise<number> {
     return 1;
   }
   log.ok("ArgoCD installed");
-  log.info(`applying root Application from ${ROOT_APP_MANIFEST}`);
-  const r = await run(apply, { cwd: repoRoot });
+  log.info(
+    `applying root Application from ${ROOT_APP_MANIFEST} at ${revision}`,
+  );
+  const manifest = renderRootApp(
+    await Deno.readTextFile(join(repoRoot, ROOT_APP_MANIFEST)),
+    revision,
+  );
+  const r = await runWithStdin(apply, manifest, { cwd: repoRoot });
   if (r.code !== 0) {
     log.error(`kubectl apply failed:\n${r.stderr.trim()}`);
     return 1;
@@ -2028,7 +2402,9 @@ async function syncOne(
           fmtCmd(argocd(...manifestsArgs(app, repoRoot)))
         }  # if this renders nothing and \`argocd app manifests ${name}\` (Git) renders nothing too: ${
           fmtCmd(argocd(...syncArgs(app, repoRoot, { plain: true })))
-        }; nothing locally but something in Git: error`,
+        }; nothing locally and the path absent from ${
+          gitRefForRevision(app.spec?.source?.targetRevision)
+        }: no sync (new chart); nothing locally but something in Git: error`,
       );
     }
     log.dry(fmtCmd(cmd));
@@ -2051,6 +2427,8 @@ async function syncOne(
     }
     const localCount = countManifests(m.stdout);
     let gitCount: number | null = null;
+    let pathInGit = true;
+    const rev = app.spec?.source?.targetRevision;
     if (localCount === 0) {
       // Many child charts legitimately render nothing in localdev. Whether
       // this one does depends on what Git would render instead.
@@ -2061,8 +2439,36 @@ async function syncOne(
           `${name}: Git render failed: ${(g.stderr || g.stdout).trim()}`,
         );
       }
+      // A chart that is new on this branch does not exist on the target
+      // revision at all: `argocd app manifests` prints nothing for it (exit
+      // 0), and any sync without --local would fail with "app path does
+      // not exist". Ask git; fall back to that wording from the Git render.
+      const ref = gitRefForRevision(rev);
+      const inGit = await pathInGitRevision(
+        repoRoot,
+        ref,
+        app.spec?.source?.path ?? "",
+      );
+      pathInGit = inGit ?? !mentionsMissingPath(g.stderr + g.stdout);
+      if (inGit === null) {
+        log.warn(
+          `${name}: could not check ${ref}:${app.spec?.source?.path} with git (is origin fetched?); relying on ArgoCD's Git render`,
+        );
+      }
     }
-    const decision = emptyRenderDecision(localCount, gitCount);
+    const decision = emptyRenderDecision(localCount, gitCount, pathInGit);
+    if (decision === "new-empty") {
+      // Nothing to deploy from the working tree and no chart on the target
+      // revision to fall back to: every sync would fail. Leave the
+      // Application alone; ArgoCD keeps it Healthy with a ComparisonError,
+      // which wait/report/verify recognise (isNewEmptyApp).
+      log.info(
+        `sync ${name} (new chart with nothing to deploy in localdev; skipped until it exists on ${
+          rev ?? "the target revision"
+        })`,
+      );
+      return { ok: true, detail: "", skipped: "new-empty" };
+    }
     if (decision === "error") {
       return {
         ok: false,
@@ -2273,6 +2679,13 @@ async function syncLoop(args: Args, repoRoot: string): Promise<number> {
       return `argocd app sync ${app.metadata.name} failed:\n${r.detail}`;
     }
     if (r.skipped) row.result = r.skipped;
+    if (r.skipped === "new-empty") {
+      // No operation was issued and none ever will be: the Application is
+      // done as far as this run is concerned (it stays Healthy, no operation).
+      row.finishedAt = Date.now();
+      done.add(app.metadata.name);
+      active.delete(app.metadata.name);
+    }
     return null;
   };
 
@@ -2308,6 +2721,37 @@ async function syncLoop(args: Args, repoRoot: string): Promise<number> {
           `[${formatDuration(Date.now() - start)}] waiting for ${
             waiting.join(", ")
           } to create their next wave`,
+        );
+        await sleep(POLL_INTERVAL_MS);
+        continue;
+      }
+      // A lower parent still holding a wave open (addons Running while we
+      // would start applications): its later children do not exist yet, so
+      // wait for it to settle instead of moving on to a later subtree.
+      const byNameNow = indexApps(apps);
+      const blocker = tierBlockedBy(
+        tier.key,
+        parentsAwaitingWaves(apps).map((name) => ({
+          name,
+          key: tierKey(byNameNow.get(name)!, byNameNow),
+        })),
+      );
+      if (blocker !== null) {
+        if (Date.now() >= deadline) {
+          return await fail(
+            `sync timed out after ${
+              formatDuration(timeoutMs)
+            } waiting for ${blocker} to finish its waves before ${
+              formatTierKey(tier.key)
+            }`,
+          );
+        }
+        log.info(
+          `[${
+            formatDuration(Date.now() - start)
+          }] waiting for ${blocker} to finish its waves before tier ${
+            formatTierKey(tier.key)
+          }`,
         );
         await sleep(POLL_INTERVAL_MS);
         continue;
@@ -2679,12 +3123,158 @@ function tail(text: string, n: number): string {
   return lines.slice(Math.max(0, lines.length - n)).join("\n");
 }
 
-interface PodSummary {
-  metadata?: { name?: string; namespace?: string };
-  status?: { phase?: string };
+interface ContainerStatusSummary {
+  name?: string;
+  ready?: boolean;
+  restartCount?: number;
+  state?: { waiting?: { reason?: string }; terminated?: { reason?: string } };
 }
 
-async function diagnoseNamespace(ns: string): Promise<void> {
+export interface PodSummary {
+  metadata?: { name?: string; namespace?: string };
+  status?: {
+    phase?: string;
+    containerStatuses?: ContainerStatusSummary[];
+    initContainerStatuses?: ContainerStatusSummary[];
+  };
+}
+
+/**
+ * Whether diagnose should dump a pod: any phase other than Running/Succeeded,
+ * or a Running pod with a container that is not ready, has restarted, or is
+ * waiting (CrashLoopBackOff keeps the pod phase at Running, which is exactly
+ * the pod whose logs explain a Progressing workload).
+ */
+export function podNeedsDiagnosis(pod: PodSummary): boolean {
+  const phase = pod.status?.phase ?? "Unknown";
+  if (phase !== "Running" && phase !== "Succeeded") return true;
+  if (phase === "Succeeded") return false;
+  const all = [
+    ...(pod.status?.initContainerStatuses ?? []),
+    ...(pod.status?.containerStatuses ?? []),
+  ];
+  return all.some((c) =>
+    c.ready === false || (c.restartCount ?? 0) > 0 || !!c.state?.waiting
+  );
+}
+
+/** Init and regular container names of a pod, init containers first. */
+export function containerNames(pod: PodSummary): string[] {
+  return [
+    ...(pod.status?.initContainerStatuses ?? []),
+    ...(pod.status?.containerStatuses ?? []),
+  ].map((c) => c.name ?? "").filter((n) => n !== "");
+}
+
+/** True when a container of the pod has restarted (a --previous log exists). */
+export function podHasRestarted(pod: PodSummary): boolean {
+  return [
+    ...(pod.status?.initContainerStatuses ?? []),
+    ...(pod.status?.containerStatuses ?? []),
+  ].some((c) => (c.restartCount ?? 0) > 0);
+}
+
+/** A managed resource `kubectl describe` can name; group is "" for core kinds. */
+export interface DescribeTarget {
+  group: string;
+  kind: string;
+  ns: string;
+  name: string;
+}
+
+/** The namespace a resource lives in: its own, else the app's destination. */
+function resourceNamespace(r: AppResource, app: Application): string {
+  return r.namespace ?? app.spec?.destination?.namespace ?? "";
+}
+
+/** ArgoCD omits health for kinds it cannot assess; that counts as not Healthy. */
+function resourceNotHealthy(r: AppResource): boolean {
+  return r.health?.status !== "Healthy";
+}
+
+/** `<group/>kind ns/name: <health or "-">[ — message]` for one resource. */
+export function formatResource(r: AppResource, app: Application): string {
+  const ns = resourceNamespace(r, app);
+  const msg = r.health?.message ? ` — ${r.health.message}` : "";
+  return `${r.group ? `${r.group}/` : ""}${r.kind ?? "?"} ${
+    ns ? `${ns}/` : ""
+  }${r.name ?? "?"}: ${r.health?.status ?? "-"}${msg}`;
+}
+
+/**
+ * Resource lines for the diagnose output: every managed resource when the
+ * Application itself is not Healthy (ArgoCD may omit per-resource health, so
+ * the reader still sees what the app manages), otherwise only those that are
+ * not Healthy.
+ */
+export function resourceLines(app: Application): string[] {
+  const all = (app.status?.resources ?? []).filter((r) => r != null);
+  const shown = app.status?.health?.status === "Healthy"
+    ? all.filter(resourceNotHealthy)
+    : all;
+  return shown.map((r) => formatResource(r, app));
+}
+
+/**
+ * Namespaces to diagnose for the unhealthy Applications: every destination
+ * namespace plus the namespace of every resource that is not Healthy (child
+ * Applications excluded), de-duplicated; `argocd` last, so an unhealthy
+ * parent's events do not bury the workload namespaces.
+ */
+export function diagnoseNamespaces(unhealthy: Application[]): string[] {
+  const seen = new Set<string>();
+  for (const app of unhealthy) {
+    const dest = app.spec?.destination?.namespace;
+    if (dest) seen.add(dest);
+    for (const r of app.status?.resources ?? []) {
+      if (!r || r.kind === "Application" || !resourceNotHealthy(r)) continue;
+      const ns = resourceNamespace(r, app);
+      if (ns) seen.add(ns);
+    }
+  }
+  const others = [...seen].filter((ns) => ns !== ARGOCD_NAMESPACE).sort();
+  return seen.has(ARGOCD_NAMESPACE) ? [...others, ARGOCD_NAMESPACE] : others;
+}
+
+/**
+ * Resources worth a `kubectl describe`: not Healthy (or without health), in a
+ * non-core API group other than argoproj.io, de-duplicated. The describe
+ * shows a custom resource's own status conditions and events, which the
+ * Application's health line alone hides.
+ */
+export function describeTargets(unhealthy: Application[]): DescribeTarget[] {
+  const seen = new Set<string>();
+  const out: DescribeTarget[] = [];
+  for (const app of unhealthy) {
+    for (const r of app.status?.resources ?? []) {
+      if (!r?.group || r.group === "argoproj.io" || !r.kind || !r.name) {
+        continue;
+      }
+      if (!resourceNotHealthy(r)) continue;
+      const t = {
+        group: r.group,
+        kind: r.kind,
+        ns: resourceNamespace(r, app),
+        name: r.name,
+      };
+      const key = `${t.group}/${t.kind} ${t.ns}/${t.name}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(t);
+    }
+  }
+  return out;
+}
+
+/** `kubectl describe <kind>.<group> <name> [-n <ns>]` arguments for a target. */
+export function describeArgs(t: DescribeTarget): string[] {
+  const resource = t.group ? `${t.kind.toLowerCase()}.${t.group}` : t.kind;
+  return t.ns
+    ? ["describe", resource, t.name, "-n", t.ns]
+    : ["describe", resource, t.name];
+}
+
+async function diagnoseEvents(ns: string): Promise<void> {
   console.log(`\n--- namespace ${ns}: last ${EVENTS_TAIL} events ---`);
   const ev = await run(
     kubectl("get", "events", "-n", ns, "--sort-by=.lastTimestamp"),
@@ -2694,7 +3284,9 @@ async function diagnoseNamespace(ns: string): Promise<void> {
       ? tail(ev.stdout, EVENTS_TAIL) || "(no events)"
       : `(kubectl get events failed: ${ev.stderr.trim()})`,
   );
+}
 
+async function diagnosePods(ns: string): Promise<void> {
   const pods = await run(kubectl("get", "pods", "-n", ns, "-o", "json"));
   if (pods.code !== 0) {
     console.log(`(kubectl get pods failed: ${pods.stderr.trim()})`);
@@ -2710,7 +3302,7 @@ async function diagnoseNamespace(ns: string): Promise<void> {
   for (const pod of items) {
     const phase = pod.status?.phase ?? "Unknown";
     const name = pod.metadata?.name;
-    if (!name || phase === "Running" || phase === "Succeeded") continue;
+    if (!name || !podNeedsDiagnosis(pod)) continue;
     console.log(`\n--- pod ${ns}/${name} (${phase}): describe tail ---`);
     const d = await run(kubectl("describe", "pod", name, "-n", ns));
     console.log(d.code === 0 ? tail(d.stdout, DESCRIBE_TAIL) : d.stderr.trim());
@@ -2728,6 +3320,118 @@ async function diagnoseNamespace(ns: string): Promise<void> {
       ),
     );
     console.log((l.code === 0 ? l.stdout : l.stderr).trim() || "(no logs)");
+    if (l.code !== 0) {
+      // --all-containers fails as a whole while a pod is still initializing
+      // (the main container "is waiting to start"); the init container that
+      // is crash-looping still has logs, so ask for each container by name.
+      for (const c of containerNames(pod)) {
+        console.log(
+          `\n--- pod ${ns}/${name} container ${c}: logs --tail=${LOGS_TAIL} ---`,
+        );
+        const one = await run(
+          kubectl("logs", name, "-n", ns, "-c", c, `--tail=${LOGS_TAIL}`),
+        );
+        console.log(
+          (one.code === 0 ? one.stdout : one.stderr).trim() || "(no logs)",
+        );
+        if ((one.code !== 0 || !one.stdout.trim()) && podHasRestarted(pod)) {
+          const prev = await run(
+            kubectl(
+              "logs",
+              name,
+              "-n",
+              ns,
+              "-c",
+              c,
+              "--previous",
+              `--tail=${LOGS_TAIL}`,
+            ),
+          );
+          if (prev.code === 0 && prev.stdout.trim()) {
+            console.log(
+              `--- (previous run of ${c}) ---\n${prev.stdout.trim()}`,
+            );
+          }
+        }
+      }
+    }
+    if (podHasRestarted(pod)) {
+      // A crash-looping container is usually Waiting with an empty current
+      // log; the previous run is the one that failed.
+      console.log(
+        `\n--- pod ${ns}/${name}: logs --previous --tail=${LOGS_TAIL} --all-containers ---`,
+      );
+      const p = await run(
+        kubectl(
+          "logs",
+          name,
+          "-n",
+          ns,
+          "--previous",
+          `--tail=${LOGS_TAIL}`,
+          "--all-containers",
+        ),
+      );
+      console.log((p.code === 0 ? p.stdout : p.stderr).trim() || "(no logs)");
+    }
+  }
+}
+
+/** Workloads table: a StatefulSet at READY 0/1 with no pod shows up here. */
+async function diagnoseWorkloads(ns: string): Promise<void> {
+  console.log(`\n--- namespace ${ns}: statefulsets, deployments, jobs ---`);
+  const w = await run(
+    kubectl("get", "statefulsets,deployments,jobs", "-n", ns),
+  );
+  console.log((w.code === 0 ? w.stdout : w.stderr).trim() || "(none)");
+}
+
+async function describeResources(targets: DescribeTarget[]): Promise<void> {
+  for (const t of targets) {
+    console.log(
+      `\n--- ${t.group}/${t.kind} ${t.ns}/${t.name}: describe tail ---`,
+    );
+    const d = await run(kubectl(...describeArgs(t)));
+    console.log(
+      (d.code === 0 ? tail(d.stdout, DESCRIBE_TAIL) : d.stderr.trim()) ||
+        "(no output)",
+    );
+  }
+}
+
+async function diagnoseNamespace(
+  ns: string,
+  targets: DescribeTarget[],
+): Promise<void> {
+  await diagnoseEvents(ns);
+  await diagnosePods(ns);
+  await diagnoseWorkloads(ns);
+  await describeResources(targets.filter((t) => t.ns === ns));
+}
+
+function printApplication(app: Application): void {
+  const st = app.status ?? {};
+  console.log(`\n=== ${app.metadata.name} ===`);
+  console.log(
+    `  health: ${st.health?.status ?? "-"}  sync: ${
+      st.sync?.status ?? "-"
+    }  operation: ${st.operationState?.phase ?? "-"}`,
+  );
+  if (st.health?.message) {
+    console.log(`  health message: ${st.health.message}`);
+  }
+  if (st.operationState?.message) {
+    console.log(`  operation message: ${st.operationState.message}`);
+  }
+  for (const c of st.conditions ?? []) {
+    console.log(`  condition ${c?.type ?? "?"}: ${c?.message ?? ""}`);
+  }
+  const lines = resourceLines(app);
+  if (lines.length > 0) {
+    console.log("  resources:");
+    for (const line of lines) console.log(`    ${line}`);
+  } else if ((st.resources ?? []).length === 0) {
+    console.log("  resources: (none reported)");
   }
 }
 
@@ -2747,48 +3451,11 @@ async function cmdDiagnose(): Promise<number> {
     log.ok("every Application is Healthy with a Succeeded operation");
     return 0;
   }
-  const namespaces = new Set<string>();
-  for (const app of unhealthy) {
-    const st = app.status ?? {};
-    console.log(`\n=== ${app.metadata.name} ===`);
-    console.log(
-      `  health: ${st.health?.status ?? "-"}  sync: ${
-        st.sync?.status ?? "-"
-      }  operation: ${st.operationState?.phase ?? "-"}`,
-    );
-    if (st.health?.message) {
-      console.log(`  health message: ${st.health.message}`);
-    }
-    if (st.operationState?.message) {
-      console.log(`  operation message: ${st.operationState.message}`);
-    }
-    for (const c of st.conditions ?? []) {
-      console.log(`  condition ${c?.type ?? "?"}: ${c?.message ?? ""}`);
-    }
-    const bad = (st.resources ?? []).filter((r) =>
-      r && r.health && r.health.status !== "Healthy"
-    );
-    if (bad.length > 0) {
-      console.log("  resources not Healthy:");
-      for (const r of bad) {
-        const ns = r.namespace ?? app.spec?.destination?.namespace ?? "";
-        console.log(
-          `    ${r.group ? `${r.group}/` : ""}${r.kind ?? "?"} ${
-            ns ? `${ns}/` : ""
-          }${r.name ?? "?"}: ${r.health?.status ?? "?"}${
-            r.health?.message ? ` — ${r.health.message}` : ""
-          }`,
-        );
-        if (ns && r.kind !== "Application") namespaces.add(ns);
-      }
-    }
-    if (namespaces.size === 0 && app.spec?.destination?.namespace) {
-      namespaces.add(app.spec.destination.namespace);
-    }
-  }
-  for (const ns of [...namespaces].sort()) {
+  for (const app of unhealthy) printApplication(app);
+  const targets = describeTargets(unhealthy);
+  for (const ns of diagnoseNamespaces(unhealthy)) {
     try {
-      await diagnoseNamespace(ns);
+      await diagnoseNamespace(ns, targets);
     } catch (err) {
       log.warn(
         `diagnose ${ns}: ${err instanceof Error ? err.message : String(err)}`,
@@ -2820,10 +3487,10 @@ async function readVerifyInput(path: string | null): Promise<VerifyInput> {
   return parseVerifyJson(text, path);
 }
 
-/** `argocd app diff <app>`, inverted to main → PR. Never throws. */
-async function diffApp(name: string): Promise<AppDiff> {
+/** `argocd app diff <app> --revision <base>`, inverted to base → PR. Never throws. */
+async function diffApp(name: string, base: string): Promise<AppDiff> {
   await ensureArgocdReachable();
-  const r = await run(argocd("app", "diff", name, "--exit-code=false"), {
+  const r = await run(argocd(...diffArgs(name, base)), {
     env: { KUBECTL_EXTERNAL_DIFF: DIFF_TOOL },
   });
   const d = classifyDiffResult(name, r.code, r.stdout, r.stderr);
@@ -2865,21 +3532,27 @@ async function cmdReport(args: Args): Promise<number> {
     log.warn(`ArgoCD not reachable: ${appsError}`);
   }
 
+  const base = args.base?.trim() || Deno.env.get(BASE_ENV)?.trim() ||
+    DEFAULT_BASE;
   let diffs: AppDiff[] = [];
   let diffNote: string | undefined;
   if (apps !== null) {
     const targets = appsToDiff(apps);
+    const head = headRevision(apps);
+    if (head) log.info(`Applications track ${head}; diffs against ${base}`);
     if (args.noDiff) {
       diffNote = "Diffs skipped (`--no-diff`).";
     } else if (targets.length > 0) {
       log.info(
-        `argocd app diff for ${targets.length} app(s): ${targets.join(", ")}`,
+        `argocd app diff --revision ${base} for ${targets.length} app(s): ${
+          targets.join(", ")
+        }`,
       );
       try {
         diffs = await withArgocdServer(args, async () => {
           await login(false);
           const out: AppDiff[] = [];
-          for (const name of targets) out.push(await diffApp(name));
+          for (const name of targets) out.push(await diffApp(name, base));
           return out;
         });
       } catch (err) {
@@ -2898,6 +3571,7 @@ async function cmdReport(args: Args): Promise<number> {
     verify,
     diffs: truncateDiffs(diffs, args.maxDiffBytes),
     diffNote,
+    base,
     meta: githubMeta(),
   });
   if (args.out === null) {

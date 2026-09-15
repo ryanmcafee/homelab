@@ -2,12 +2,23 @@
 # Root Application for the Kind localdev loop (applied by
 # scripts/localdev-argocd.ts install, task localdev:argocd).
 #
-# It points at GitHub main so ArgoCD has a repo to compare against, but nothing
-# is ever synced from there: `scripts/localdev-argocd.ts sync` pushes the
-# working tree into every Application with `argocd app sync --local`, which
-# refuses apps with an automated sync policy. Hence NO `automated` block here
-# (and ARGOCD_AUTOMATED_SYNC=false in the localdev values for every child).
-# OutOfSync against GitHub after a local sync is expected.
+# The two `main` values below are placeholders: `install` parses this file,
+# sets spec.source.targetRevision AND helm.valuesObject.global.targetRevision
+# to the resolved revision (--revision / LOCALDEV_REVISION: the PR head SHA in
+# CI, the upstream branch of HEAD locally, main only when the branch is not
+# pushed) and applies the result from stdin. charts/gitops hands that
+# global.targetRevision down to addons and applications through
+# helm.valuesObject, so every Application in Kind tracks the PR head, not
+# GitHub main.
+#
+# Every Application is still synced from the working tree with
+# `scripts/localdev-argocd.ts sync` (`argocd app sync --local`), which refuses
+# apps with an automated sync policy. Hence NO `automated` block here (and
+# ARGOCD_AUTOMATED_SYNC=false in the localdev values for every child). Synced
+# after a local sync means the working tree equals the pushed head; OutOfSync
+# means it is ahead of (or differs from) that push.
+# `task localdev:report -- --base main` compares the live state with the base
+# branch (`argocd app diff --revision <base>`).
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -27,6 +38,9 @@ spec:
       valueFiles:
         - values.yaml
         - values-localdev.yaml
+      valuesObject:
+        global:
+          targetRevision: main
   destination:
     server: https://kubernetes.default.svc
     namespace: argocd

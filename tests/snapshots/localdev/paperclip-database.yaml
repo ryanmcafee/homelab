@@ -1,0 +1,35 @@
+---
+# Source: paperclip-database/templates/cluster.yaml
+# CloudNativePG Cluster for Paperclip. The operator (cloudnative-pg addon,
+# cnpg-system) creates the StatefulSet-like pods, the -rw/-ro/-r Services and
+# the Secret <name>-app whose `uri` key the paperclip Instance reads as
+# DATABASE_URL, so no database credential is ever templated here.
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: paperclip-db
+  namespace: paperclip
+spec:
+  instances: 1
+  imageName: "ghcr.io/cloudnative-pg/postgresql:17.11"
+  primaryUpdateStrategy: unsupervised
+  storage:
+    storageClass: local-path
+    size: 1Gi
+  bootstrap:
+    initdb:
+      database: paperclip
+      owner: paperclip
+  resources:
+    limits:
+      cpu: "1"
+      memory: 512Mi
+    requests:
+      cpu: 100m
+      memory: 256Mi
+  monitoring:
+    enablePodMonitor: true
+  postgresql:
+    parameters:
+      max_connections: "100"
+      shared_buffers: 128MB

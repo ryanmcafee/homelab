@@ -112,6 +112,11 @@ spec:
         duration: 5s
         factor: 2
         maxDuration: 3m
+  ignoreDifferences:
+    - group: argoproj.io
+      jqPathExpressions:
+      - .metadata.finalizers[]? | select(startswith("post-delete-finalizer.argocd.argoproj.io"))
+      kind: Application
 
 ---
 # Source: gitops/templates/applications.yaml
@@ -157,6 +162,11 @@ spec:
         duration: 5s
         factor: 2
         maxDuration: 3m
+  ignoreDifferences:
+    - group: argoproj.io
+      jqPathExpressions:
+      - .metadata.finalizers[]? | select(startswith("post-delete-finalizer.argocd.argoproj.io"))
+      kind: Application
 
 ---
 # Source: gitops/templates/bootstrap.yaml
@@ -221,6 +231,11 @@ spec:
         duration: 10s
         factor: 2
         maxDuration: 3m
+  ignoreDifferences:
+    - group: argoproj.io
+      jqPathExpressions:
+      - .metadata.finalizers[]? | select(startswith("post-delete-finalizer.argocd.argoproj.io"))
+      kind: Application
 
 ---
 # Source: gitops/templates/previews-applicationset.yaml

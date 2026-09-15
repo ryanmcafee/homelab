@@ -38,7 +38,8 @@ var GitOpsRules = []string{
 // LintGitOps turns the repo's GitOps conventions into executable checks over
 // one environment's rendered manifests. rendered maps a chart directory name
 // to the objects it produced (as written by the renderer and read back by
-// LoadRenderDir). repoRoot is used only to stat Application source paths.
+// LoadRenderDir). repoRoot is used to stat Application source paths and to
+// read the env's Env.SeededSecretsDir, when it has one.
 //
 // It always returns exactly one Check per entry in GitOpsRules, so a caller
 // can report a stable check set whether or not anything is wrong. A rule the
@@ -53,7 +54,7 @@ func LintGitOps(env string, rendered map[string][]Doc, reg *GitOpsRegistry, repo
 		g.ruleWaves(),
 		g.ruleCRDOrder(reg),
 		g.ruleRepoSecrets(),
-		g.ruleSecretRefs(reg),
+		g.ruleSecretRefs(reg, repoRoot),
 		g.ruleNamespaces(reg),
 		g.ruleSSA(reg),
 		g.ruleUniqueNames(),
@@ -596,7 +597,12 @@ type secretRef struct {
 // with an empty spec.itemPath is reported, not counted — because a producer
 // that cannot produce is indistinguishable from a missing one at sync time,
 // and this is the only rule that looks at secret wiring at all.
-func (g *gitopsGraph) ruleSecretRefs(reg *GitOpsRegistry) Check {
+//
+// An env with Env.SeededSecretsDir (localdev) also counts the core Secrets in
+// that directory's YAML files as producers: they are applied to the cluster
+// outside ArgoCD, so a render that references one really finds it. repoRoot
+// locates that directory.
+func (g *gitopsGraph) ruleSecretRefs(reg *GitOpsRegistry, repoRoot string) Check {
 	start := time.Now()
 
 	var findings []string
@@ -618,6 +624,26 @@ func (g *gitopsGraph) ruleSecretRefs(reg *GitOpsRegistry) Check {
 			producers[ns+"/"+name] = true
 		}
 	}
+
+	// Secrets seeded outside ArgoCD are kept apart from rendered producers
+	// so the detail can disclose each count.
+	seededDir := ""
+	if e, ok := EnvByName(g.env); ok {
+		seededDir = e.SeededSecretsDir
+	}
+	seeded := map[string]bool{}
+	if seededDir != "" {
+		docs, err := loadSeededDocs(repoRoot, seededDir)
+		if err != nil {
+			report(fmt.Sprintf("%s: %v", seededDir, err))
+		}
+		for _, d := range docs {
+			if d.Kind() == "Secret" && d.Group() == "" && d.Namespace() != "" && d.Name() != "" {
+				seeded[d.Namespace()+"/"+d.Name()] = true
+			}
+		}
+	}
+
 	for _, d := range g.docs {
 		if !g.chartInGraph(d.Chart) {
 			continue
@@ -682,17 +708,56 @@ func (g *gitopsGraph) ruleSecretRefs(reg *GitOpsRegistry) Check {
 				r.owner.ID(), r.name, r.where))
 			continue
 		}
-		if producers[r.ns+"/"+r.name] || reg.KnownSecret(r.ns, r.name) {
+		if producers[r.ns+"/"+r.name] || seeded[r.ns+"/"+r.name] || reg.KnownSecret(r.ns, r.name) {
 			continue
 		}
+		hint := fmt.Sprintf("register it in %s/known-secrets.yaml if it is created outside the rendered charts", GitOpsRegistryDir)
+		if seededDir != "" {
+			hint += fmt.Sprintf(", or seed it in %s/ for %s", seededDir, g.env)
+		}
 		report(fmt.Sprintf(
-			"%s: references Secret %s/%s at %s, which no rendered Secret, OnePasswordItem or Certificate produces (register it in %s/known-secrets.yaml if it is created outside the rendered charts)",
-			r.owner.ID(), r.ns, r.name, r.where, GitOpsRegistryDir))
+			"%s: references Secret %s/%s at %s, which no rendered Secret, OnePasswordItem or Certificate produces (%s)",
+			r.owner.ID(), r.ns, r.name, r.where, hint))
 	}
 
 	detail := fmt.Sprintf("%d secret references, %d rendered producers", checked, len(producers))
+	if seededDir != "" {
+		detail += fmt.Sprintf(", %d seeded by %s", len(seeded), seededDir)
+	}
 	detail += skipped.detail("reference(s)")
 	return g.result("secret-refs", start, detail, findings)
+}
+
+// loadSeededDocs parses every *.yaml file directly under <repoRoot>/<dir>
+// (multi-document). A missing directory yields no docs and no error: test
+// repo layouts and fresh checkouts need not have one. A file that fails to
+// parse is an error, because a broken seed file silently un-produces every
+// Secret in it.
+func loadSeededDocs(repoRoot, dir string) ([]Doc, error) {
+	abs := filepath.Join(repoRoot, filepath.FromSlash(dir))
+	entries, err := os.ReadDir(abs)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	var docs []Doc
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".yaml") {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(abs, e.Name()))
+		if err != nil {
+			return docs, err
+		}
+		parsed, err := ParseMultiDoc(e.Name(), "", data)
+		if err != nil {
+			return docs, err
+		}
+		docs = append(docs, parsed...)
+	}
+	return docs, nil
 }
 
 // skipTally counts objects skipped per chart so a rule can disclose what it

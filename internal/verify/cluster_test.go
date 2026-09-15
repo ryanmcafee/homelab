@@ -810,3 +810,105 @@ func TestEvaluateArgoAppWithoutResources(t *testing.T) {
 		})
 	}
 }
+
+// TestEvaluateArgoAppNewChart: a chart that is new on the branch and renders
+// nothing in localdev is skipped by `task localdev:sync` (its path is absent
+// from main, so any sync would fail); ArgoCD leaves it Healthy with zero
+// resources, no operation and a ComparisonError "app path does not exist".
+// The Kind rules pass it; the production rules keep failing it (a missing
+// path in production is a real fault), as does anything that is not exactly
+// that shape under either rule set.
+func TestEvaluateArgoAppNewChart(t *testing.T) {
+	const missingPath = "Failed to load target state: failed to generate manifest for source 1 of 1: rpc error: code = Unknown desc = Manifest generation error (cached): charts/paperclip-dependencies: app path does not exist"
+	const apps = `{
+  "apiVersion": "v1",
+  "kind": "List",
+  "items": [
+    {
+      "metadata": {"name": "paperclip-dependencies", "namespace": "argocd"},
+      "status": {
+        "sync": {"status": "Unknown"}, "health": {"status": "Healthy"}, "resources": [],
+        "conditions": [{"type": "ComparisonError", "message": "` + missingPath + `"}]
+      }
+    },
+    {
+      "metadata": {"name": "other-comparison-error", "namespace": "argocd"},
+      "status": {
+        "sync": {"status": "Unknown"}, "health": {"status": "Healthy"}, "resources": [],
+        "conditions": [{"type": "ComparisonError", "message": "Failed to load target state: rpc error: code = Unknown desc = helm template failed"}]
+      }
+    },
+    {
+      "metadata": {"name": "missing-path-with-resources", "namespace": "argocd"},
+      "status": {
+        "sync": {"status": "Unknown"}, "health": {"status": "Healthy"},
+        "resources": [{"kind": "ConfigMap", "namespace": "x", "name": "y", "health": {"status": "Healthy"}}],
+        "conditions": [{"type": "ComparisonError", "message": "` + missingPath + `"}]
+      }
+    },
+    {
+      "metadata": {"name": "missing-path-with-failed-op", "namespace": "argocd"},
+      "status": {
+        "sync": {"status": "Unknown"}, "health": {"status": "Healthy"}, "resources": [],
+        "operationState": {"phase": "Error", "message": "ComparisonError: ` + missingPath + `"},
+        "conditions": [{"type": "ComparisonError", "message": "` + missingPath + `"}]
+      }
+    },
+    {
+      "metadata": {"name": "missing-path-not-healthy", "namespace": "argocd"},
+      "status": {
+        "sync": {"status": "Unknown"}, "health": {"status": "Missing"}, "resources": [],
+        "conditions": [{"type": "ComparisonError", "message": "` + missingPath + `"}]
+      }
+    }
+  ]
+}`
+	var list argoAppList
+	if err := json.Unmarshal([]byte(apps), &list); err != nil {
+		t.Fatal(err)
+	}
+	byName := map[string]argoApp{}
+	for _, app := range list.Items {
+		byName[app.Metadata.Name] = app
+	}
+
+	const newChartDetail = "(new chart: nothing to sync until it exists on the target revision)"
+	tests := []struct {
+		name        string
+		rules       argoAppRules
+		app         string
+		wantStatus  Status
+		wantFinding string
+	}{
+		{"kind: new chart passes", kindAppRules, "paperclip-dependencies", StatusPass, ""},
+		{"kind: another ComparisonError still fails", kindAppRules, "other-comparison-error", StatusFail, "ComparisonError: Failed to load target state: rpc error"},
+		{"kind: missing path but resources fails", kindAppRules, "missing-path-with-resources", StatusFail, "no sync operation recorded (run task localdev:sync)"},
+		{"kind: missing path with a failed operation fails", kindAppRules, "missing-path-with-failed-op", StatusFail, "operation Error: ComparisonError"},
+		{"kind: missing path but not Healthy fails", kindAppRules, "missing-path-not-healthy", StatusFail, "ComparisonError: " + missingPath},
+		{"prod: new chart fails (missing path is a fault)", prodAppRules(false), "paperclip-dependencies", StatusFail, "ComparisonError: " + missingPath},
+		{"prod requireSynced: new chart fails", prodAppRules(true), "paperclip-dependencies", StatusFail, "sync status Unknown (want Synced)"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			c := evaluateArgoApp(byName[tc.app], time.Now(), tc.rules)
+			if c.Status != tc.wantStatus {
+				t.Fatalf("status = %s, want %s (%+v)", c.Status, tc.wantStatus, c)
+			}
+			if tc.wantStatus == StatusPass {
+				if !strings.HasSuffix(c.Detail, newChartDetail) {
+					t.Errorf("detail %q should end with %q", c.Detail, newChartDetail)
+				}
+				if len(c.Findings) != 0 {
+					t.Errorf("a passing check carries no findings, got %q", c.Findings)
+				}
+				return
+			}
+			if strings.Contains(c.Detail, "new chart") {
+				t.Errorf("a failing check must not claim the new-chart pass: %q", c.Detail)
+			}
+			if joined := strings.Join(c.Findings, "\n"); !strings.Contains(joined, tc.wantFinding) {
+				t.Errorf("findings %q should mention %q", c.Findings, tc.wantFinding)
+			}
+		})
+	}
+}

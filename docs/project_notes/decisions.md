@@ -288,7 +288,7 @@ Each decision should include:
 - Issue #261 Section B, items 9-15
 
 **Decision:**
-- The root `gitops` Application (`localdev/argocd/gitops-app.yaml`) points at GitHub `main`, but every Application is synced from the working tree with `argocd app sync --local`, tier by tier (parent wave, then own wave) by `scripts/localdev-argocd.ts sync`; `wait` and `verify --level 2` judge `health` + `operationState.phase`, never `sync.status`
+- The root `gitops` Application (`localdev/argocd/gitops-app.yaml`) points at GitHub `main` (superseded by the 2026-09-14 amendment below: it now tracks the PR head), but every Application is synced from the working tree with `argocd app sync --local`, tier by tier (parent wave, then own wave) by `scripts/localdev-argocd.ts sync`; `wait` and `verify --level 2` judge `health` + `operationState.phase`, never `sync.status`
 - Automated sync is a capability key, `ARGOCD_AUTOMATED_SYNC` (default `"true"`, localdev `"false"`): every Application template wraps `automated:` in `{{ if .Values.global.automatedSync }}`, the generated localdev values set it false, `_data.yaml` carries it and the `app-automated` policy is skipped when it is false. Without this `--local` is refused and self-heal would revert the tree to Git
 - Kind's other gaps are capability keys too (`MEDIA_PROVIDER` nfs|ephemeral, `CERT_ISSUER` letsencrypt|selfsigned, alongside `STORAGE_PROVIDER`, `SECRETS_PROVIDER`, `LOAD_BALANCER_ENABLED`, `EXTERNAL_DNS_ENABLED`), never environment-name branches; what a key cannot express is a cluster-side fake in `localdev/fakes/` (StorageClass aliases on local-path, seeded Secrets by name, the OnePasswordItem CRD)
 - Cilium is the CNI in Kind: `scripts/localdev-kind.ts` installs it from the `cilium.values` block of the generated localdev values at `charts.cilium`, and the `cilium` Application adopts the release as a no-op
@@ -304,12 +304,20 @@ Each decision should include:
 - kindnet -> the `cilium` Application and every Cilium object (NetworkPolicy enforcement, future LB IPAM) would be untestable in Kind
 
 **Consequences:**
-- After a local sync every Application is `OutOfSync` against `main` by design; tooling and docs must never treat that as a failure
+- After a local sync every Application is `OutOfSync` against `main` by design; tooling and docs must never treat that as a failure (amended 2026-09-14: the Applications track the PR head, so `Synced` is the normal state and `OutOfSync` means unpushed local changes; sync status still never decides a check)
 - Localdev never exercises automated sync (prune/selfHeal); the homelab snapshots and the `app-automated` policy still cover it
 - A new app needs a `smoke:` block, a seeded Secret if 1Password provides one, a chainsaw test, and health Lua + fixtures for any new CR kind; `localdev/fakes/README.md` and `tests/e2e/README.md` hold the recipes
 - CI takes up to 45 minutes and the cache is best-effort (several GB, evicted at the repository budget); `hosts.toml` falls back to the upstream
 - Kind host port mappings (30080→8080, 80→9080, 443→9443) work on Linux only: Docker Desktop on macOS forwards packets with bad TCP checksums that Cilium's BPF delivery lets the pod validate and drop. The ArgoCD script therefore uses its own `kubectl port-forward` (default `127.0.0.1:18080`), `task localdev:ui` / `task localdev:traefik` expose the UI (8080) and Traefik (9080/9443) from macOS, and every check that matters (smoke hooks, e2e) runs in-cluster (see bugs.md, 2026-09-13)
 - `tools.kind`, `tools.argocd`, `tools.chainsaw`, `images.kind-node`, `images.curl` join `versions.yaml` and are mirrored in `mise.toml` and `tilt-ci.yml`
+
+**Amendment (2026-09-14): the Kind loop tracks the PR head, not `main`**
+- Problem: with every Application declaring `targetRevision: main`, ArgoCD compared the Kind deploy against a revision that did not contain the PR (new charts needed the `new-empty` / `ComparisonError` special case), and the `kind-preview` report on PR #280 listed all 44 Applications, `paperclip` included, as "same as main" because it ran before ArgoCD re-compared against Git (bugs.md 2026-09-14)
+- `task localdev:argocd -- --revision <ref>` (env `LOCALDEV_REVISION`) rewrites the placeholder `main` in the root Application's `spec.source.targetRevision` and `spec.source.helm.valuesObject.global.targetRevision`; the default is the upstream branch of HEAD, and `main` with a warning when HEAD has no upstream. The `gitops` chart hands `global.targetRevision` to `addons` and `applications` through `helm.valuesObject` (helm sources only, so homelab's CMP path is unchanged; ADR-010), and their templates already give every git-path child `global.targetRevision`, so all three tiers track the head
+- Applications are still synced from the working tree with `--local` and automated sync stays off: `Synced` now means the tree equals the pushed head, `OutOfSync` means unpushed local changes (or the `main` fallback). Health + last operation remain the contract; the `new-empty` case and `isNewChartApp` remain for the fallback only
+- `task localdev:report -- --base <ref>` (default `main`; CI passes the PR base branch) runs `argocd app diff <app> --revision <base>` for every git-path Application (chart-sourced ones are compared on their parent), so the `kind-preview` comment keeps its diffs (`-` base, `+` PR) and its table gains a Sync column
+- `tilt-ci.yml` (`kind-argocd`) checks out the PR head SHA for same-repo PRs, the commit ArgoCD is told to track (the merge ref is not fetchable by ArgoCD), and sets `LOCALDEV_REVISION` to it (`github.sha` on push to `main`); fork PRs keep the default checkout and fall back to `main`
+- Alternative rejected: keep `main` and filter the report — the Applications would still declare a revision that does not contain the PR, and every new chart would keep needing the ComparisonError exception
 
 ### ADR-013: Real-hardware feedback without mutating production: label-gated previews, read-only agent access, deploy notifications (2026-09-13)
 
@@ -365,6 +373,31 @@ Each decision should include:
 - The regeneration bot, the automerge path and the drill's issue reporting need GitHub-side setup (App + secrets; repository labels are created on first use)
 - Production still has no object store, so production databases are not backed up until one exists; the drill proves the mechanism, not a production backup
 - Every agent edit under `charts/` or `configuration/` costs one level-0 run (`HOMELAB_VERIFY_HOOK=off` disables it); PR bodies must carry a current claim
+
+### ADR-015: Paperclip runs on a CloudNativePG external database, not the operator-managed Postgres (2026-09-13)
+
+**Context:**
+- Issue #260 deploys Paperclip (AI agent orchestration) through the official `paperclip-operator`; its `Instance` CRD offers three database modes (`managed`, `external`, `embedded`) and upstream recommends `external` for production
+- The `cloudnative-pg` addon (with the Barman Cloud Plugin, drilled weekly in Kind since ADR-014) has been deployed in both environments since ADR-012, but no `postgresql.cnpg.io/Cluster` existed in the repository yet
+- The app needs `BETTER_AUTH_SECRET`, an admin password and provider API keys that must never land in git, and a `DATABASE_URL` with credentials
+- The `Instance` CRD exceeds the client-side-apply limit, and the operator's chart is OCI-only
+
+**Decision:**
+- Four ArgoCD Applications in `charts/applications` (`paperclip.yaml`, gated on `paperclip.enabled`, never previewable): Namespaces (wave 10), `paperclip-operator` OCI chart with `ServerSideApply` and kept CRDs (11), `paperclip-dependencies` `OnePasswordItem`s (12), `paperclip-database` CloudNativePG `Cluster` `paperclip-db` (13), `paperclip` `Instance` in `external` mode plus a PostSync smoke Job (14)
+- The `Instance` reads `DATABASE_URL` from the CNPG-generated Secret `paperclip-db-app` (`externalURLSecretRef {paperclip-db-app, uri}`), so no database credential touches git or 1Password; the Postgres image is pinned in `versions.yaml` (`images.cloudnative-pg-postgresql`) rather than following the operator default
+- Auth and API keys come from two 1Password items whose field names equal the Secret keys the operator expects; the admin is bootstrapped once from `PAPERCLIP_ADMIN_EMAIL` (required config key) and sign-up is disabled
+- The whole stack runs in the Kind loop (level 2): CloudNativePG is on in localdev and `localdev/fakes/secrets.yaml` seeds the two Secrets
+
+**Alternatives Considered:**
+- Operator `managed` database mode -> a single `postgres:17-alpine` StatefulSet the upstream docs call "suitable for development", with no backup or HA path; CNPG gives both once an object store exists
+- `embedded` PGlite -> in-process database with no operational story at all
+- Addons tier instead of applications tier -> rejected: Paperclip is a user workload, and the CNPG addon (parent wave 1/2) already precedes the applications parent (wave 10/3), so ordering needs no tier change
+
+**Consequences:**
+- First `postgresql.cnpg.io/Cluster` in the repository; `paperclip-db-app` is registered in `tests/gitops/known-secrets.yaml` as produced by the operator at runtime, and `paperclip.inc` joins `crd-providers.yaml` / `huge-crd-charts.yaml` with a vendored `Instance` schema
+- The stack runs in Kind on every PR: the app image is about 1.5 GB compressed; the registry pull-through cache absorbs repeat runs, the first CI run pays the pull once
+- No production database backup until an S3-compatible object store exists (follow-up: `ScheduledBackup` + `ObjectStore`); Paperclip's PVC-backed app-native backups are the interim safety net
+- `PAPERCLIP_ADMIN_EMAIL` must exist in the gitignored `homelab.yaml` and in the `homelab-environment-config` 1Password document before the CMP can render; Instance metrics stay off until an OTEL collector exists
 
 - **2026-02-11: ArgoCD CMP for PII removal** — Moved config generation from commit-time to ArgoCD render-time using a Config Management Plugin sidecar. Bootstrap chart breaks chicken-and-egg with 1Password operator. All committed values files sanitized to safe defaults. The design doc (`docs/plans/2026-02-11-argocd-cmp-pii-removal-design.md`) was removed in c4daa10 once implemented; the mechanism is documented in `Claude.md` "CMP Architecture" and extended to child charts by ADR-010.
 

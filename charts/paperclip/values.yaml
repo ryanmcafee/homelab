@@ -1,0 +1,131 @@
+# paperclip values: one paperclip.inc/v1alpha1 Instance (wave 14, after the
+# operator at 11, the 1Password items at 12 and the CloudNativePG Cluster at 13).
+# Hostname, admin e-mail, image tag, ingress class and storage class arrive
+# through the parent Application's helm.valuesObject from configuration/
+# (ADR-010); nothing environment-specific lives in this chart.
+
+namespace: paperclip
+
+# Instance name = StatefulSet, Service and ConfigMap name.
+name: paperclip
+
+# Public hostname (PAPERCLIP_HOSTNAME); publicURL, allowedHostnames, the Ingress
+# host and the certificate are all derived from it.
+hostname: ""
+
+# The operator refuses an Instance without a tag or digest (no :latest); the
+# tag is pinned in configuration/versions.yaml images.paperclip.
+image:
+  repository: ghcr.io/paperclipai/paperclip
+  tag: ""
+
+# authenticated + private: sign-in required, reachable only through the internal
+# Traefik (LAN/tailnet), every request must carry an allowed hostname (the
+# operator always adds the in-cluster Service names for its own bootstrap Job).
+# `public` exposure is not possible with this operator: app 2026.831+ then
+# requires auth.baseUrlMode=explicit, and the operator's onboarding quickstart
+# (`paperclipai onboard --yes`) forces trusted-local defaults, drops the public
+# URL and rejects explicit mode without one, so the init container never
+# writes the config file. Revisit when the operator onboards non-interactively.
+deployment:
+  mode: authenticated
+  exposure: private
+
+# external: DATABASE_URL comes from the CloudNativePG-generated Secret of
+# charts/paperclip-database (key uri = postgresql://paperclip:<pw>@paperclip-db-rw:5432/paperclip).
+database:
+  secretName: paperclip-db-app
+  secretKey: uri
+
+# BETTER_AUTH_SECRET lives in the paperclip-auth Secret
+# (charts/paperclip-dependencies in homelab, localdev/fakes in Kind).
+auth:
+  secretName: paperclip-auth
+  secretKey: BETTER_AUTH_SECRET
+  disableSignUp: true
+
+# One-time admin bootstrap (spec.auth.adminUser): e-mail from PAPERCLIP_ADMIN_EMAIL
+# through the parent, password from the ADMIN_PASSWORD key of the same Secret.
+# An empty e-mail renders no adminUser (the first human to log in claims the instance).
+admin:
+  email: ""
+  name: Admin
+  passwordKey: ADMIN_PASSWORD
+
+# LLM credentials. The operator injects the provider keys it knows
+# (ANTHROPIC_API_KEY, OPENAI_API_KEY) from this Secret as optional environment
+# variables; empty name = no adapter keys.
+adapters:
+  apiKeysSecretName: paperclip-api-keys
+  # Further keys of the same Secret exposed to the server and the onboarding
+  # init container as optional environment variables (spec.env), for the CLIs
+  # bundled in the image that read something other than an API key. Both
+  # credential kinds work side by side (docs/apps/paperclip.md):
+  #   ANTHROPIC_API_KEY / OPENAI_API_KEY  API billing; injected by the operator
+  #   CLAUDE_CODE_OAUTH_TOKEN             Claude subscription (`claude setup-token`)
+  # Claude Code prefers ANTHROPIC_API_KEY when both are set. Codex reads its key
+  # from ~/.codex/auth.json (`codex login --with-api-key` or a ChatGPT device
+  # login), never from the host environment; HOME (/paperclip) is the persistent
+  # data volume, so that file survives restarts. A key missing from the Secret
+  # is simply unset.
+  extraSecretEnv:
+    - CLAUDE_CODE_OAUTH_TOKEN
+
+persistence:
+  enabled: true
+  size: 10Gi
+  storageClass: ""
+
+service:
+  type: ClusterIP
+  port: 3100
+
+# Ingress on the hostname; className comes from INGRESS_CLASS_INTERNAL through
+# the parent. The letsencrypt ClusterIssuer is self-signed in Kind under the same name.
+ingress:
+  enabled: true
+  className: internal
+  clusterIssuer: letsencrypt
+  tlsSecretName: paperclip-tls
+
+# The operator's default policy: ingress on the service port from any source,
+# egress to DNS, TCP 443 (LLM APIs), OTLP 4317/4318 and, in external database
+# mode, TCP 5432. That already covers Traefik -> app and app -> paperclip-db-rw.
+security:
+  networkPolicy:
+    enabled: true
+  # The operator adds a privileged "selinux-relabel" init container (chcon on the
+  # data volume) unless told not to. It is rejected by the namespace's PodSecurity
+  # baseline admission (no pod is ever created and the Instance stays
+  # Provisioning) and is pointless here: Talos does not enforce SELinux on
+  # containers and the volume is NFS in homelab, local-path in Kind.
+  seLinuxRelabel: false
+
+# Instance metrics stay off: enabling them makes the operator inject an OTEL
+# preload (NODE_OPTIONS --import ./server/dist/instrumentation.js) that crashes
+# images without instrumentation, and point at a collector this cluster lacks.
+observability:
+  metrics:
+    enabled: false
+  logging:
+    level: info
+
+resources:
+  requests:
+    cpu: 500m
+    memory: 1Gi
+  limits:
+    cpu: "2"
+    memory: 2Gi
+
+# Migrations run at startup; give the first boot up to 5 minutes.
+probes:
+  startup:
+    failureThreshold: 60
+    periodSeconds: 5
+
+# Extra environment for the server and the onboarding init container (spec.env;
+# both receive it). Do not set PAPERCLIP_AUTH_BASE_URL_MODE=explicit here: the
+# onboarding quickstart honours it but drops the public URL, then fails its own
+# "auth.baseUrlMode=explicit requires auth.publicBaseUrl" check.
+extraEnv: []

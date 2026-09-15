@@ -1,0 +1,7 @@
+# paperclip-database homelab values. Committed and PII-free (ADR-010): storage
+# class, size and the image pin come from the parent Application's
+# helm.valuesObject, so nothing is overridden here. The file still has to
+# exist: the parent always lists values-homelab.yaml in
+# spec.source.helm.valueFiles.
+
+namespace: paperclip

@@ -222,13 +222,49 @@ type argoAppRules struct {
 	noOperationHint string
 	// requireSynced also fails an Application whose sync status is not Synced.
 	requireSynced bool
+	// newChartPasses accepts an Application whose source path does not exist
+	// on the target revision (ComparisonError "app path does not exist") when
+	// it is Healthy with no resources and no operation: in Kind that is a
+	// chart new on the branch that renders nothing in localdev and is absent
+	// from the target revision (main when the branch is not pushed), which
+	// `task localdev:sync` deliberately leaves alone (ADR-012). In production
+	// a missing path is a real fault.
+	newChartPasses bool
 }
 
-// kindAppRules: in Kind every Application is OutOfSync against main by design
-// (ADR-012), so only health and the last operation count.
+// kindAppRules: Applications in Kind track the PR head (scripts/localdev-argocd.ts
+// install --revision), so Synced means the working tree equals the pushed head.
+// Sync status still does not count (ADR-012): a local branch may be ahead of
+// its push or unpushed (then the root falls back to main), and every
+// Application is synced from the working tree with --local either way. Only
+// health and the last operation decide.
 var kindAppRules = argoAppRules{
 	prefix:          "argocd",
 	noOperationHint: "no sync operation recorded (run task localdev:sync)",
+	newChartPasses:  true,
+}
+
+// missingPathSignal is the repo-server wording in the ComparisonError of an
+// Application whose spec.source.path is absent from the target revision.
+const missingPathSignal = "app path does not exist"
+
+// isNewChartApp reports whether the Application is Healthy with no resources,
+// no operation and a ComparisonError saying its path does not exist: the
+// Application of a chart that is new on the branch and has nothing to deploy
+// in localdev (scripts/localdev-argocd.ts isNewEmptyApp is the same predicate).
+func isNewChartApp(app argoApp) bool {
+	if app.Status.Health.Status != "Healthy" || len(app.Status.Resources) != 0 {
+		return false
+	}
+	if op := app.Status.OperationState; op != nil && (op.Phase != "" || op.Message != "") {
+		return false
+	}
+	for _, cond := range app.Status.Conditions {
+		if cond.Type == "ComparisonError" && strings.Contains(cond.Message, missingPathSignal) {
+			return true
+		}
+	}
+	return false
 }
 
 // argoAppCheck evaluates one Application of the Kind cluster.
@@ -263,6 +299,14 @@ func evaluateArgoApp(app argoApp, start time.Time, rules argoAppRules) Check {
 	if health == "Healthy" && phase == "" && opMessage == "" &&
 		len(app.Status.Resources) == 0 && app.Status.Sync.Status == "Synced" {
 		return PassCheck(name, start, detail+" (no resources: nothing to sync)")
+	}
+	// A chart that is new on the branch and renders nothing in localdev has
+	// no target state at all (its path is absent from the target revision:
+	// main when the branch is not pushed), so the sync loop
+	// skips it and ArgoCD reports a ComparisonError with Healthy, no resources
+	// and no operation. Only the Kind rules accept that.
+	if rules.newChartPasses && isNewChartApp(app) {
+		return PassCheck(name, start, detail+" (new chart: nothing to sync until it exists on the target revision)")
 	}
 
 	var findings []string

@@ -20,6 +20,9 @@ providers:
   cilium.io: cilium
   postgresql.cnpg.io: cloudnative-pg
   barmancloud.cnpg.io: cnpg-barman-cloud
+  # paperclip-operator ships its CRDs as chart templates (crds.install); the
+  # paperclip Application (wave 14) renders the Instance after it (wave 11).
+  paperclip.inc: paperclip-operator
   monitoring.coreos.com: kube-prometheus-stack
   # external-dns ships crds/dnsendpoint.yaml inside the chart (verified against
   # external-dns 1.21.1, the version pinned in configuration/versions.yaml), so

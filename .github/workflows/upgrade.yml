@@ -134,6 +134,8 @@ jobs:
       - name: Re-vendor CRD schemas and revalidate every custom resource
         id: revalidate
         if: always() && steps.upgrade.conclusion != 'skipped'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           set +e
           ok=true
@@ -344,6 +346,8 @@ jobs:
       # so they are regenerated before the snapshots.
       - name: Regenerate
         if: steps.guard.outputs.run == 'true'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           task config:export:localdev
           task schemas:vendor

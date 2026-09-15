@@ -143,6 +143,10 @@ func wordByteAt(s string, i int) bool {
 // A boundary is required only on a side where the pattern's own edge is a word
 // byte, exactly as \b works. That keeps a deliberately open-ended pattern such
 // as a subnet prefix ("172.16.100.") matching every address under it.
+//
+// An occurrence that is the owner segment of a public code-forge URL is not a
+// match (see isForgeOwnerAt); the search carries on past it, so the same
+// value elsewhere on the line is still found.
 func lineMatchesPattern(line, pattern string) bool {
 	if pattern == "" {
 		return false
@@ -159,10 +163,82 @@ func lineMatchesPattern(line, pattern string) bool {
 		end := start + len(pattern)
 		leftOK := !needLeft || !wordByteAt(line, start-1)
 		rightOK := !needRight || !wordByteAt(line, end)
-		if leftOK && rightOK {
+		if leftOK && rightOK && !isForgeOwnerAt(line, start, end) {
 			return true
 		}
 		off = start + 1
+	}
+	return false
+}
+
+// forgeHosts are the public code forges whose URLs name an account owner:
+// the repository form `<host>/<owner>/<repo>` (also `<host>:<owner>/<repo>`
+// in an SSH clone URL) and the pages form `<owner>.<pages>`.
+//
+// This repository is public and lives under its owner's account, so the
+// owner name is written on purpose in `global.repoUrl`, in the templates
+// that render it and in a `registryUrl=https://<owner>.github.io/...`
+// Renovate comment. When a config value (a username, a dynamic-DNS label)
+// equals that owner name, hunting for it inside those URLs reports a value
+// that is public by definition and blocks every commit touching the file.
+var forgeHosts = []struct{ host, pages string }{
+	{"github.com", "github.io"},
+	{"gitlab.com", "gitlab.io"},
+}
+
+// isURLTokenByte reports whether c can continue a hostname or URL path
+// segment: word bytes plus the dot and hyphen a DNS label or repository name
+// may contain. Anything else ends the token.
+func isURLTokenByte(c byte) bool {
+	return isWordByte(c) || c == '.' || c == '-'
+}
+
+// urlTokenByteAt reports whether the byte at index i of s continues a URL
+// token; out of range counts as a token end.
+func urlTokenByteAt(s string, i int) bool {
+	return i >= 0 && i < len(s) && isURLTokenByte(s[i])
+}
+
+// isForgeOwnerAt reports whether line[start:end] is exactly the owner
+// segment of a public code-forge URL: `<host>/<owner>` followed by `/`,
+// `.git` or the end of the token, or `<owner>.<pages>` with the owner as the
+// host label directly before the pages domain. Only a single label can be an
+// owner, so a value holding a dot (a domain, a mailbox, an address) is never
+// excused, and a hostname that merely starts with the owner
+// (`<owner>.example.com`) or an owner that merely starts with the value
+// (`<host>/<value>-other/`) is not one either.
+func isForgeOwnerAt(line string, start, end int) bool {
+	if strings.Contains(line[start:end], ".") {
+		return false
+	}
+	before, after := line[:start], line[end:]
+	for _, forge := range forgeHosts {
+		// Repository form: the host, one separator, then the owner.
+		for _, sep := range []string{"/", ":"} {
+			prefix := forge.host + sep
+			if len(before) < len(prefix) || !strings.EqualFold(before[len(before)-len(prefix):], prefix) {
+				continue
+			}
+			if urlTokenByteAt(before, len(before)-len(prefix)-1) {
+				continue // a longer host, such as notgithub.com
+			}
+			rest := strings.TrimPrefix(after, ".git")
+			if strings.HasPrefix(rest, "/") || !urlTokenByteAt(rest, 0) {
+				return true
+			}
+		}
+		// Pages form: the owner is the whole label before the pages domain.
+		suffix := "." + forge.pages
+		if urlTokenByteAt(before, len(before)-1) {
+			continue // a deeper label, such as sub.<owner>.github.io
+		}
+		if len(after) < len(suffix) || !strings.EqualFold(after[:len(suffix)], suffix) {
+			continue
+		}
+		rest := after[len(suffix):]
+		if strings.HasPrefix(rest, "/") || strings.HasPrefix(rest, ":") || !urlTokenByteAt(rest, 0) {
+			return true
+		}
 	}
 	return false
 }

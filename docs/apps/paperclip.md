@@ -1,0 +1,184 @@
+`paperclip.inc` CRDs + controller; `leaderElection.enabled: false` because chart 0.19.1 grants no RBAC on `coordination.k8s.io` leases while enabling `--leader-elect` (the manager never becomes leader, never reconciles, yet reports Ready) |# paperclip
+
+[Paperclip](https://paperclip.ing/) is an open-source AI agent orchestration platform (org charts,
+budgets, governance and coordination for teams of AI agents). It runs through the official
+[paperclip-operator](https://github.com/paperclipinc/paperclip-operator); its database is a
+CloudNativePG `Cluster` on the existing `cloudnative-pg` addon, not the operator's built-in
+Postgres (ADR-015). Issue #260.
+
+## Applications
+
+All four are rendered by `charts/applications/templates/paperclip.yaml`, gated on
+`paperclip.enabled`, and never part of a PR preview. They run in both environments (Kind included), except `paperclip-dependencies`, which only exists where a secret store does (`SECRETS_PROVIDER=onepassword`, like renovate and duckdns): Kind seeds its two Secrets from `localdev/fakes/secrets.yaml` instead.
+
+| Wave | Application | Source | What it deploys |
+|---|---|---|---|
+| 10 | Namespaces `paperclip-operator`, `paperclip` | inline (PodSecurity `baseline`) | targets for the other Applications |
+| 11 | `paperclip-operator` | OCI chart `ghcr.io/paperclipinc/charts/paperclip-operator` 0.19.1 (repository Secret `paperclipinc-oci`), `ServerSideApply=true`, CRDs kept | `paperclip.inc` CRDs + controller |
+| 12 | `paperclip-dependencies` (secret store only) | `charts/paperclip-dependencies` | `OnePasswordItem`s `paperclip-auth`, `paperclip-api-keys` (the Application is not rendered without a secret store; Kind seeds both Secrets from `localdev/fakes/secrets.yaml`) |
+| 13 | `paperclip-database` | `charts/paperclip-database` | CloudNativePG `Cluster` `paperclip-db`: 1 instance, image `ghcr.io/cloudnative-pg/postgresql:17.11` (`images.cloudnative-pg-postgresql`), `STORAGE_CLASS_SSD` / 10Gi (local-path / 1Gi in Kind), PodMonitor on. CNPG generates Secret `paperclip-db-app`; its `uri` key is the app's `DATABASE_URL` |
+| 14 | `paperclip` | `charts/paperclip` | `paperclip.inc/v1alpha1` `Instance` `paperclip` + PostSync smoke Job `smoke-paperclip` |
+
+The `Instance`: image `ghcr.io/paperclipai/paperclip` at `images.paperclip` (2026.831.1);
+`database.mode: external` with `externalURLSecretRef {paperclip-db-app, uri}`;
+`deployment.mode: authenticated`, `exposure: private` (the instance sits behind the internal Traefik only; `public` cannot be onboarded by operator 0.19.1 with app 2026.831+, see the values comment), `publicURL: https://paperclip.<domain>`;
+admin bootstrapped once from `PAPERCLIP_ADMIN_EMAIL` + `ADMIN_PASSWORD`, `disableSignUp: true`;
+Ingress class `internal` with cert-manager `letsencrypt` and external-dns, TLS Secret `paperclip-tls`;
+Service `paperclip` port 3100, health path `/api/health`; the operator's default NetworkPolicy stays
+enabled; `security.seLinuxRelabel: false` (the operator's default privileged relabel init container is rejected by the namespace's PodSecurity baseline, and chcon has no purpose on Talos or NFS); Instance metrics off (the OTEL preload and collector do not exist here); persistence 10Gi
+on `STORAGE_CLASS_NFS` (the volume is `/paperclip`, the container's `HOME`, so the bundled `claude`
+and `codex` CLIs keep their logins in `/paperclip/.claude` and `/paperclip/.codex` across restarts);
+`adapters.extraSecretEnv` (default `[CLAUDE_CODE_OAUTH_TOKEN]`) exposes further keys of
+`paperclip-api-keys` as optional environment variables, see [Agent credentials](#agent-credentials-subscriptions-or-api-keys).
+The smoke Job curls `http://paperclip.paperclip.svc.cluster.local:3100/api/health`.
+
+## Configuration keys
+
+| Key | File | Value |
+|---|---|---|
+| `PAPERCLIP_HOSTNAME` | `configuration/schema/applications.schema.yaml` | `const: paperclip.{{.DOMAIN}}` |
+| `PAPERCLIP_ADMIN_EMAIL` | `applications.schema.yaml` (required) | gitignored `homelab.yaml` **and** the `homelab-environment-config` 1Password document; `admin@homelab.local` in localdev |
+| `PAPERCLIP_AUTH_1P_PATH` | `secrets.schema.yaml` + `defaults.yaml` | `vaults/homelab/items/paperclip-auth` |
+| `PAPERCLIP_API_KEYS_1P_PATH` | `secrets.schema.yaml` + `defaults.yaml` | `vaults/homelab/items/paperclip-api-keys` |
+| `charts.paperclip-operator`, `images.paperclip`, `images.cloudnative-pg-postgresql` | `configuration/versions.yaml` | Renovate-managed pins |
+
+## Secrets
+
+1Password field names must equal the Secret keys the operator reads.
+
+| Secret (namespace `paperclip`) | 1Password item | Fields | Consumed by |
+|---|---|---|---|
+| `paperclip-auth` | `op://homelab/paperclip-auth` | `BETTER_AUTH_SECRET`, `ADMIN_PASSWORD` | `spec.auth.secretRef`, `spec.auth.adminUser.passwordSecretRef` |
+| `paperclip-api-keys` | `op://homelab/paperclip-api-keys` | one of `CLAUDE_CODE_OAUTH_TOKEN` (subscription) or `ANTHROPIC_API_KEY`; optional `OPENAI_API_KEY`, `GEMINI_API_KEY` | `spec.adapters.apiKeysSecretRef` (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`) + the chart's `adapters.extraSecretEnv` (`CLAUDE_CODE_OAUTH_TOKEN`) |
+| `paperclip-db-app` | none (generated by CloudNativePG) | `uri` and friends | `spec.database.externalURLSecretRef` |
+
+## Agent credentials: API keys or subscriptions
+
+The image bundles the Claude Code and Codex CLIs (`@anthropic-ai/claude-code`, `@openai/codex`),
+runs as uid 1000 with `HOME=/paperclip`, and `/paperclip` is the persistent data volume (PVC
+`paperclip-data`), so `~/.claude` and `~/.codex` survive restarts. The operator's
+`spec.adapters.apiKeysSecretRef` injects `ANTHROPIC_API_KEY` and `OPENAI_API_KEY` (optional
+`secretKeyRef`s) from `paperclip-api-keys`; the chart's `adapters.extraSecretEnv` (default
+`[CLAUDE_CODE_OAUTH_TOKEN]`) turns each listed key of the same Secret into an optional `spec.env`
+entry for the server and the onboarding init container, so a missing key is simply unset. Both
+kinds of credential work, alone or side by side; the 1Password item carries whichever you use.
+
+### API keys (API billing)
+
+- **Anthropic**: put `ANTHROPIC_API_KEY` in the 1Password item. The `claude_local` adapter reads it
+  from the server environment; Claude Code ranks it above `CLAUDE_CODE_OAUTH_TOKEN`, so an API key
+  in the item wins over a subscription token.
+- **OpenAI**: put `OPENAI_API_KEY` in the 1Password item, then seed Codex once inside the pod. The
+  `codex_local` adapter pins every agent to its own `CODEX_HOME` with `OPENAI_API_KEY=""` so an
+  agent can never spend against the host environment: Codex reads the key from `auth.json`, never
+  from the process environment.
+
+  ```bash
+  kubectl -n paperclip exec paperclip-0 -- sh -c 'printenv OPENAI_API_KEY | codex login --with-api-key'
+  ```
+
+  This writes `/paperclip/.codex/auth.json` on the PVC, which Paperclip symlinks into each agent's
+  managed home. To give a single agent its own key instead, set `OPENAI_API_KEY` in that agent's
+  adapter env in the Paperclip UI; Paperclip then writes a per-agent `auth.json` with only that key.
+
+### Subscriptions (Claude Pro/Max/Team, ChatGPT)
+
+**Claude (`claude_local`)**: a subscription OAuth token. On a workstation logged into the
+subscribed account:
+
+```bash
+claude setup-token      # opens the browser, prints a one-year token, saves nothing
+```
+
+Store the token as field `CLAUDE_CODE_OAUTH_TOKEN` of the 1Password item and leave
+`ANTHROPIC_API_KEY` out of it (an API key would take precedence and bill the API). Renew the
+token yearly. Alternative: log in inside the pod, which writes `/paperclip/.claude/.credentials.json`
+on the PVC; such logins expire and are renewed with `/login`, and `/status` shows which credential
+is active. Paperclip's "Test Environment" button on the agent reports the auth mode it detected.
+
+```bash
+kubectl -n paperclip exec -it paperclip-0 -- claude   # choose the Claude account login, paste the code the browser shows
+```
+
+**Codex (`codex_local`)**: a ChatGPT login lives in `~/.codex/auth.json`, Codex refreshes it
+automatically and Paperclip symlinks the file into each agent's managed `CODEX_HOME`. Seed it once
+inside the pod (device-code login must be enabled in the ChatGPT account's security settings; the
+CLI prints a code to enter in the browser):
+
+```bash
+kubectl -n paperclip exec -it paperclip-0 -- codex login --device-auth
+```
+
+Or log in on a workstation and copy the file:
+
+```bash
+kubectl -n paperclip exec paperclip-0 -- mkdir -p /paperclip/.codex
+kubectl -n paperclip cp ~/.codex/auth.json paperclip-0:/paperclip/.codex/auth.json
+```
+
+Leave `OPENAI_API_KEY` out of the item when Codex should bill the subscription: a per-agent key
+overrides the host login. The operator's NetworkPolicy already allows egress on TCP 443, which the
+logins and the models need. `auth.json` is a credential; never commit or share it.
+
+**Caveat**: Anthropic's April 2026 policy excludes third-party harnesses that use subscription OAuth
+from subscription quota. Paperclip's `claude_local` adapter runs the official `claude` CLI as a
+subprocess, which the Paperclip community reads as covered
+([paperclipai/paperclip#2698](https://github.com/paperclipai/paperclip/discussions/2698)), and the
+`setup-token` documentation says the token "authenticates with your Claude subscription". Anthropic
+may change this: if subscription requests start failing or drawing extra-usage credits, switch the
+item to `ANTHROPIC_API_KEY`.
+
+Kind seeds all three keys as placeholders in `localdev/fakes/secrets.yaml` so every env wiring is
+exercised; no agent runs there.
+
+## Operate
+
+- **First login**: open `https://paperclip.<domain>` and sign in with `PAPERCLIP_ADMIN_EMAIL` and
+  the `ADMIN_PASSWORD` field of `paperclip-auth`. Self-service sign-up is disabled.
+- **Rotate `BETTER_AUTH_SECRET`**: edit the field in the 1Password item; the operator's
+  `OnePasswordItem` sync updates the Secret. Then restart the workload, which invalidates every
+  session:
+
+  ```bash
+  kubectl -n paperclip rollout restart statefulset paperclip
+  ```
+
+- **Reset the admin password**: the bootstrap Job runs once, so for an existing admin change the
+  password in the app UI. The `ADMIN_PASSWORD` value in 1Password only matters before the first
+  bootstrap or for a fresh database.
+- **Bump the image**: Renovate opens a PR on `images.paperclip`; `upgrade.yml` posts the rendered
+  diff and the Kind loop proves the rollout. Never edit the chart files by hand.
+- **Database (CloudNativePG)**:
+
+  ```bash
+  kubectl -n paperclip get cluster paperclip-db
+  kubectl cnpg status paperclip-db        # if the kubectl-cnpg plugin is installed
+  ```
+
+  Failover is automatic once `instances: 2`. Production has no object store yet, so there is no
+  CNPG `ScheduledBackup`; Paperclip's app-native backups (`spec.backup.appNative`, on by default,
+  PVC-backed) are the interim safety net.
+
+## Verify
+
+Level 0 uses the vendored `tests/schemas/paperclip.inc/instance_v1alpha1.json`, the registries
+`tests/gitops/{crd-providers,huge-crd-charts,known-secrets}.yaml`, the e2e test
+`tests/e2e/paperclip` and the health Lua `charts/bootstrap/files/health/paperclip.inc_Instance.lua`
+(`Running` = Healthy, `Failed`/`Error` = Degraded, anything else Progressing).
+
+```bash
+task verify:text                                   # level 0
+task localdev:up && task verify:text LEVEL=2       # Kind: Healthy + Succeeded, e2e
+task test:e2e -- --test-dir tests/e2e/paperclip
+# after merge, read-only:
+task verify:prod && task prod:status
+task prod:diff -- paperclip
+```
+
+## Follow-ups
+
+- CNPG `ScheduledBackup` + `ObjectStore` for `paperclip-db` once an S3-compatible target exists in production
+- `spec.adapters.cloudSandbox` (in-cluster agent sandboxes) and inference proxy
+- Google OAuth login (`spec.auth.google`) reusing the `google-oauth` 1Password item
+- Scale CNPG to 2 instances and the Instance to `workload: Deployment` + object storage for HA
+- Instance metrics once an OTEL collector exists in the cluster

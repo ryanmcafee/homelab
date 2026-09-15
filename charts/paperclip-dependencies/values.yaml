@@ -1,0 +1,18 @@
+# paperclip-dependencies values: 1Password items the Paperclip Instance reads
+# (wave 12 < paperclip 14). Item paths arrive through the parent Application's
+# helm.valuesObject from configuration/ (PAPERCLIP_AUTH_1P_PATH,
+# PAPERCLIP_API_KEYS_1P_PATH); nothing here is environment-specific.
+
+namespace: paperclip
+
+# Each OnePasswordItem needs the toggle and its own path: an item with an empty
+# itemPath renders but is inert (the operator has nothing to fetch). Localdev
+# has no secret store (SECRETS_PROVIDER=none) and seeds the same Secrets in
+# localdev/fakes/secrets.yaml.
+onePassword:
+  enabled: false
+  # Secret paperclip-auth: fields BETTER_AUTH_SECRET and ADMIN_PASSWORD
+  authItemPath: ""
+  # Secret paperclip-api-keys: fields CLAUDE_CODE_OAUTH_TOKEN (Claude subscription, `claude setup-token`)
+  # or ANTHROPIC_API_KEY, plus optional OPENAI_API_KEY, GEMINI_API_KEY (docs/apps/paperclip.md)
+  apiKeysItemPath: ""

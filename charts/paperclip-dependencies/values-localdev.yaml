@@ -1,0 +1,10 @@
+# paperclip-dependencies — local development overrides
+#
+# Kind has no secret store (SECRETS_PROVIDER=none), so the parent passes
+# onePassword.enabled: false and no OnePasswordItem is rendered; the Secrets
+# paperclip-auth and paperclip-api-keys are seeded by localdev/fakes/secrets.yaml.
+# The file still has to exist: the parent Application always appends
+# values-localdev.yaml to spec.source.helm.valueFiles, and ArgoCD fails the
+# sync when a declared value file is missing.
+
+namespace: paperclip

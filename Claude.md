@@ -145,6 +145,7 @@ When updating helm chart versions, check these repositories:
 | democratic-csi | https://github.com/democratic-csi/charts/blob/master/stable/democratic-csi/Chart.yaml |
 | 1password-connect | https://github.com/1Password/connect-helm-charts/blob/main/charts/connect/Chart.yaml |
 | cloudnative-pg | https://github.com/cloudnative-pg/charts/blob/main/charts/cloudnative-pg/Chart.yaml |
+| paperclip-operator | https://github.com/paperclipinc/paperclip-operator/blob/main/charts/paperclip-operator/Chart.yaml |
 | kubelet-csr-approver | https://github.com/postfinance/kubelet-csr-approver/blob/main/charts/kubelet-csr-approver/Chart.yaml |
 | oauth2-proxy | https://github.com/oauth2-proxy/manifests/blob/main/helm/oauth2-proxy/Chart.yaml |
 | nvidia-gpu-operator | https://github.com/NVIDIA/gpu-operator/blob/main/deployments/gpu-operator/Chart.yaml |
@@ -234,14 +235,20 @@ charts:
   traefik-oidc: "v1.0.32"
   # renovate: datasource=helm depName=port-forwarding registryUrl=https://ryanmcafee.github.io/port-forwarding-controller
   unifi-port-forward: "1.1.1"
+  # renovate: datasource=docker depName=ghcr.io/paperclipinc/charts/paperclip-operator
+  paperclip-operator: "0.19.1"
 images:
-  homelab-cmp: "0.1.20"
+  homelab-cmp: "0.1.24"
   # renovate: datasource=docker depName=curlimages/curl
   curl: "8.22.0"
   # renovate: datasource=docker depName=kindest/node
   kind-node: "v1.36.1"
   # renovate: datasource=docker depName=versity/versitygw
   versitygw: "v1.8.0"
+  # renovate: datasource=docker depName=ghcr.io/paperclipai/paperclip
+  paperclip: "2026.831.1"
+  # renovate: datasource=docker depName=ghcr.io/cloudnative-pg/postgresql
+  cloudnative-pg-postgresql: "17.11"
 tools:
   # renovate: datasource=github-releases depName=siderolabs/talos
   talos: "v1.14.0"
@@ -305,7 +312,7 @@ Run `task --list` for full list. Most commonly used:
 | `task localdev:wait` / `task localdev:diagnose` | Wait for every Application to be Healthy / dump conditions, events and pod logs |
 | `task localdev:ci` | Non-interactive loop CI runs: kind, argocd, sync, wait, e2e |
 | `task localdev:down` | Delete the Kind cluster (`-- --purge-cache` also removes the registry caches) |
-| `task localdev:report` | Markdown report of the Kind loop: Application table, level-2 verdict, `argocd app diff` vs `main` (the `kind-preview` PR comment) |
+| `task localdev:report` | Markdown report of the Kind loop: Application table, level-2 verdict, `argocd app diff --revision <base>` vs the base branch (`-- --base main`; the `kind-preview` PR comment) |
 | `task verify` | Level-0 static verification: render, kubeconform, gitops graph, snapshots, policy (JSON, < 5 s); the committed PostToolUse hook runs it after every agent edit under `charts/` or `configuration/` |
 | `task verify:text` | Level-0 verification, human-readable |
 | `task verify LEVEL=1` / `LEVEL=2` | + server-side dry run on Kind (`dryrun/localdev/<chart>`) / + Application health and chainsaw e2e (`argocd/<app>`, `e2e/<test>`) |
@@ -375,7 +382,7 @@ The homelab environment uses an ArgoCD Config Management Plugin (CMP) sidecar to
 - Decisions: `docs/project_notes/decisions.md` (entry "2026-02-11: ArgoCD CMP for PII removal" and ADR-010; the original design doc was removed in c4daa10 once implemented)
 
 ### Kind + ArgoCD loop (localdev)
-`task localdev:up` creates Kind (`homelab-localdev`, context `kind-homelab-localdev`, Cilium CNI, registry pull-through caches, fakes from `localdev/fakes/`), installs ArgoCD from `versions.yaml` with the health Lua in `charts/bootstrap/files/health/`, applies the root `gitops` Application (GitHub `main`) and syncs **every Application from the working tree** with `argocd app sync --local`, tier by tier. That requires automated sync off in localdev (`ARGOCD_AUTOMATED_SYNC=false`), so after a local sync every Application is `OutOfSync` against `main` by design: `task localdev:wait`, `task verify LEVEL=2` and the e2e tests judge `Healthy` + `operationState.phase == Succeeded`, never sync status. PostSync smoke Jobs (`smoke-<app>`, `<app>.smoke {enabled,url,expect}`) make an operation succeed only when the endpoint answers. `task localdev:diagnose` prints conditions, events and failing pod logs; `task localdev:sync -- --only <app>` re-syncs one app; `task localdev:report` prints the Application table and `argocd app diff` vs `main`. CI runs the same loop in `.github/workflows/tilt-ci.yml` (`kind-argocd`, required) and posts that report as the sticky PR comment `kind-preview`. Every script pins the Kind context (ADR-009); details in `docs/local-development.md` and ADR-012.
+`task localdev:up` creates Kind (`homelab-localdev`, context `kind-homelab-localdev`, Cilium CNI, registry pull-through caches, fakes from `localdev/fakes/`), installs ArgoCD from `versions.yaml` with the health Lua in `charts/bootstrap/files/health/`, applies the root `gitops` Application at the PR head (`-- --revision <ref>` / `LOCALDEV_REVISION`; default the upstream branch of HEAD, `main` with a warning when the branch is not pushed; the `gitops` chart hands the revision to `addons`/`applications` via `helm.valuesObject.global.targetRevision`) and syncs **every Application from the working tree** with `argocd app sync --local`, tier by tier. That requires automated sync off in localdev (`ARGOCD_AUTOMATED_SYNC=false`). After a local sync `Synced` means the tree equals the pushed head and `OutOfSync` means unpushed local changes; `task localdev:wait`, `task verify LEVEL=2` and the e2e tests judge `Healthy` + `operationState.phase == Succeeded`, never sync status. PostSync smoke Jobs (`smoke-<app>`, `<app>.smoke {enabled,url,expect}`) make an operation succeed only when the endpoint answers. `task localdev:diagnose` prints conditions, events and failing pod logs; `task localdev:sync -- --only <app>` re-syncs one app; `task localdev:report -- --base main` prints the Application table and `argocd app diff --revision main` per git-path app. CI runs the same loop in `.github/workflows/tilt-ci.yml` (`kind-argocd`, required; it checks out the PR head SHA and sets `LOCALDEV_REVISION` to it) and posts that report as the sticky PR comment `kind-preview`. Every script pins the Kind context (ADR-009); details in `docs/local-development.md` and ADR-012.
 
 ### Previews and read-only production (ADR-013)
 - **Previews:** a maintainer labels a PR `preview` (+ `preview:<app>` per app); the `previews` ApplicationSet renders `charts/applications` at the PR head through the CMP in preview mode (`global.preview.*`): Applications `<app>-pr<N>` in namespace `preview-<N>`, AppProject `previews`, hosts `<app>-pr<N>.<domain>`, ephemeral (`emptyDir`) storage; closing or unlabelling deletes it. Level 0 renders it as env `homelab-preview`. `docs/runbooks/previews.md`

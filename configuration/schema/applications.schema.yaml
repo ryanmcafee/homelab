@@ -92,6 +92,14 @@ keys:
     description: Ecowitt exporter hostname
     const: "ecowitt.{{.DOMAIN}}"
 
+  PAPERCLIP_HOSTNAME:
+    description: Paperclip hostname
+    const: "paperclip.{{.DOMAIN}}"
+
+  PAPERCLIP_ADMIN_EMAIL:
+    description: Login e-mail of the Paperclip admin the operator bootstraps once (spec.auth.adminUser); PII, set per environment
+    required: true
+
   # PVC names — per-app persistent volume claims
   PLEX_CONFIG_PVC:
     description: PVC name for Plex config

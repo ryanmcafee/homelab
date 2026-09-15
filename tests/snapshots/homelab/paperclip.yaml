@@ -1,0 +1,90 @@
+---
+# Source: paperclip/templates/instance.yaml
+# Paperclip Instance. paperclip-operator turns it into a StatefulSet, Service
+# (port 3100), ConfigMap, PVC, ServiceAccount, NetworkPolicy, Ingress and a
+# one-time admin bootstrap Job. Health for ArgoCD comes from
+# charts/bootstrap/files/health/paperclip.inc_Instance.lua.
+apiVersion: paperclip.inc/v1alpha1
+kind: Instance
+metadata:
+  name: paperclip
+  namespace: paperclip
+spec:
+  image:
+    repository: ghcr.io/paperclipai/paperclip
+    tag: "2026.831.1"
+  # Optional keys of the adapter Secret (subscription tokens the operator does
+  # not inject itself) followed by extraEnv; both containers receive spec.env.
+  env:
+    - name: CLAUDE_CODE_OAUTH_TOKEN
+      valueFrom:
+        secretKeyRef:
+          key: CLAUDE_CODE_OAUTH_TOKEN
+          name: paperclip-api-keys
+          optional: true
+  deployment:
+    mode: authenticated
+    exposure: private
+    publicURL: https://paperclip.REPLACEME-domain.com
+    allowedHostnames:
+      - paperclip.REPLACEME-domain.com
+  database:
+    mode: external
+    externalURLSecretRef:
+      name: paperclip-db-app
+      key: uri
+  auth:
+    secretRef:
+      name: paperclip-auth
+      key: BETTER_AUTH_SECRET
+    disableSignUp: true
+    adminUser:
+      email: admin@REPLACEME-domain.com
+      name: "Admin"
+      passwordSecretRef:
+        name: paperclip-auth
+        key: ADMIN_PASSWORD
+  adapters:
+    apiKeysSecretRef:
+      name: paperclip-api-keys
+  storage:
+    persistence:
+      enabled: true
+      size: 10Gi
+      storageClass: democratic-csi-nfs
+  networking:
+    service:
+      type: ClusterIP
+      port: 3100
+    ingress:
+      enabled: true
+      ingressClassName: internal
+      annotations:
+        cert-manager.io/cluster-issuer: letsencrypt
+        external-dns.alpha.kubernetes.io/hostname: paperclip.REPLACEME-domain.com
+      hosts:
+        - paperclip.REPLACEME-domain.com
+      tls:
+        - hosts:
+            - paperclip.REPLACEME-domain.com
+          secretName: paperclip-tls
+  security:
+    networkPolicy:
+      enabled: true
+    seLinuxRelabel: false
+  observability:
+    metrics:
+      enabled: false
+    logging:
+      level: info
+  resources:
+    limits:
+      cpu: "2"
+      memory: 2Gi
+    requests:
+      cpu: 500m
+      memory: 1Gi
+  probes:
+    startup:
+      failureThreshold: 60
+      periodSeconds: 5

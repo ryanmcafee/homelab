@@ -168,6 +168,11 @@ type Env struct {
 	// SkipGitOpsRules maps a gitops rule id to the detail of the skip check
 	// the env reports instead of running that rule.
 	SkipGitOpsRules map[string]string
+	// SeededSecretsDir, relative to the repo root, holds multi-document YAML
+	// files applied to the env's cluster outside ArgoCD (localdev/fakes).
+	// The secret-refs rule counts every core `Secret` in them, in its own
+	// metadata.namespace, as a producer. Empty means nothing is seeded.
+	SeededSecretsDir string
 }
 
 // PreviewPR is the pull request number the homelab-preview env renders.
@@ -175,7 +180,9 @@ const PreviewPR = "123"
 
 // Envs lists the level-0 environments in render order.
 var Envs = []Env{
-	{Name: "localdev", ConfigSet: "localdev", EnvFile: "configuration/environments/localdev.yaml", TwoStage: false},
+	// localdev renders with SECRETS_PROVIDER=none; `scripts/localdev-kind.ts
+	// fakes` seeds the Secrets 1Password provides in homelab (localdev/fakes/README.md).
+	{Name: "localdev", ConfigSet: "localdev", EnvFile: "configuration/environments/localdev.yaml", TwoStage: false, SeededSecretsDir: "localdev/fakes"},
 	{Name: "homelab", ConfigSet: "homelab", EnvFile: "configuration/environments/homelab.yaml.example", TwoStage: true},
 	// The applications chart as the preview-pr<N> Application of the
 	// `previews` ApplicationSet renders it (charts/gitops, docs/runbooks/previews.md).
