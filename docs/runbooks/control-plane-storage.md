@@ -82,6 +82,22 @@ ssh root@172.16.100.250 'qm config 101 | grep scsi0'    # expect cp-storage:vm-1
 ssh root@172.16.100.250 'qm start 101'
 ```
 
+`scripts/cp-storage-migrate.ts` automates exactly this step — one node at a time, with the checks
+below as gates between nodes. It does not touch step 1 or step 3.
+
+```bash
+task cp:migrate:status            # read-only: which nodes are still on vm-storage
+task cp:migrate -- --dry-run      # every ssh/talosctl/kubectl command it would run, in order
+task cp:migrate -- --yes          # the real thing; --only cp-2 restricts it to one node
+```
+
+It refuses to start without `--yes`, takes the etcd snapshot itself (`--snapshot-dir`,
+`--skip-snapshot`), throttles with `--bwlimit` (default 200000), polls `qm status` instead of
+`qm wait` and never issues `qm stop` unless `--force-stop` is passed, and stops the whole run at the
+first failure. Its etcd gate reads "matching RAFT INDEX" as "within `--raft-tolerance` (default 10)
+of the highest", because the three members are queried at slightly different moments on a cluster
+that keeps writing.
+
 Then wait for the cluster to be whole again **before the next node**:
 
 ```bash
@@ -125,6 +141,10 @@ three once you have started.
 Read-only, safe for agents:
 
 ```bash
+# every control-plane disk on cp-storage, etcd healthy, /readyz ok, the VIP held by one node
+deno run --allow-net --allow-run --allow-env --allow-read --allow-write \
+  scripts/cp-storage-migrate.ts verify [--prometheus-url http://127.0.0.1:9091]
+
 # etcd is healthy and now scraped
 talosctl -n 172.16.100.11,172.16.100.12,172.16.100.13 etcd status
 kubectl --context admin@homelab -n monitoring port-forward svc/kube-prometheus-stack-prometheus 9091:9090 &
