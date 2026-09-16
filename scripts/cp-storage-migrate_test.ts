@@ -18,6 +18,7 @@ import {
   failingGates,
   filterNodes,
   findDatastore,
+  findKubeNode,
   formatDuration,
   type Gate,
   isNodeReady,
@@ -492,19 +493,27 @@ Deno.test("parsePvesmStatus ignores the header and a disabled datastore's non-nu
 // kubectl
 // ----------------------------------------------------------------------------
 
-const KUBECTL_NODES = `NAME       STATUS     ROLES           AGE    VERSION
-cp-1       Ready      control-plane   412d   v1.34.1
-cp-2       NotReady   control-plane   412d   v1.34.1
-cp-3       Ready      control-plane   412d   v1.34.1
-worker-1   Ready      <none>          412d   v1.34.1
+const KUBECTL_NODES =
+  `NAME            STATUS     ROLES           AGE    VERSION   INTERNAL-IP     EXTERNAL-IP   OS-IMAGE          KERNEL-VERSION   CONTAINER-RUNTIME
+talos-og0-md2   Ready      control-plane   158d   v1.32.0   172.16.100.11   <none>        Talos (v1.12.2)   6.18.5-talos     containerd://2.1.6
+talos-71y-z3h   NotReady   control-plane   158d   v1.32.0   172.16.100.12   <none>        Talos (v1.12.2)   6.18.5-talos     containerd://2.1.6
+talos-eml-39s   Ready      control-plane   158d   v1.32.0   172.16.100.13   <none>        Talos (v1.12.2)   6.18.5-talos     containerd://2.1.6
+talos-lz1-3u1   Ready      <none>          158d   v1.32.0   172.16.100.21   <none>        Talos (v1.12.2)   6.18.5-talos     containerd://2.1.6
 `;
 
-Deno.test("parseKubectlNodes and isNodeReady read the node table", () => {
+Deno.test("isNodeReady matches on internal IP, not the Proxmox VM name", () => {
   const rows = parseKubectlNodes(KUBECTL_NODES);
   assertEquals(rows.length, 4);
-  assertEquals(isNodeReady(rows, "cp-1"), true);
-  assertEquals(isNodeReady(rows, "cp-2"), false);
-  assertEquals(isNodeReady(rows, "cp-9"), false);
+  assertEquals(rows[0].name, "talos-og0-md2");
+  assertEquals(rows[0].internalIP, "172.16.100.11");
+  assertEquals(isNodeReady(rows, "172.16.100.11"), true);
+  assertEquals(isNodeReady(rows, "172.16.100.12"), false);
+  // An IP with no node at all is not Ready.
+  assertEquals(isNodeReady(rows, "172.16.100.99"), false);
+  // The regression this test exists for: Kubernetes never knows a node by its
+  // Proxmox VM name, so matching on "cp-1" could never settle.
+  assertEquals(isNodeReady(rows, "cp-1"), false);
+  assertEquals(findKubeNode(rows, "172.16.100.13")?.name, "talos-eml-39s");
 });
 
 Deno.test("isReadyzOk only accepts a trailing ok", () => {
@@ -738,6 +747,8 @@ Deno.test("the talosctl and kubectl argv match the runbook", () => {
     "admin@homelab",
     "get",
     "nodes",
+    "-o",
+    "wide",
   ]);
 });
 

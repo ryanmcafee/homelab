@@ -509,22 +509,32 @@ export function findDatastore(
 export interface KubeNodeRow {
   name: string;
   status: string;
+  /** INTERNAL-IP from `-o wide`; "" when the column is absent. */
+  internalIP: string;
 }
 
-/** `kubectl get nodes` -> NAME and STATUS. */
+/** `kubectl get nodes -o wide` -> NAME, STATUS and INTERNAL-IP. */
 export function parseKubectlNodes(text: string): KubeNodeRow[] {
   const rows: KubeNodeRow[] = [];
   for (const line of text.split("\n")) {
     const f = line.trim().split(/\s+/);
     if (f.length < 2 || f[0] === "NAME" || f[0] === "") continue;
-    rows.push({ name: f[0], status: f[1] });
+    // NAME STATUS ROLES AGE VERSION INTERNAL-IP ...
+    rows.push({ name: f[0], status: f[1], internalIP: f[5] ?? "" });
   }
   return rows;
 }
 
-export function isNodeReady(rows: KubeNodeRow[], name: string): boolean {
-  const row = rows.find((r) => r.name === name);
-  return row?.status === "Ready";
+/** Find a node by its internal IP; see kubectlNodesArgv for why not by name. */
+export function findKubeNode(
+  rows: KubeNodeRow[],
+  ip: string,
+): KubeNodeRow | undefined {
+  return rows.find((r) => r.internalIP === ip);
+}
+
+export function isNodeReady(rows: KubeNodeRow[], ip: string): boolean {
+  return findKubeNode(rows, ip)?.status === "Ready";
 }
 
 /** `kubectl get --raw /readyz` -> "ok". */
@@ -627,6 +637,11 @@ export const kubectlNodesArgv = (context: string): string[] => [
   context,
   "get",
   "nodes",
+  // -o wide for INTERNAL-IP: Kubernetes knows a node by its Talos hostname
+  // (talos-og0-md2), never by the Proxmox VM name (cp-1), so the IP is the
+  // only reliable join between a NodeSpec and its Kubernetes node.
+  "-o",
+  "wide",
 ];
 
 /** The etcd snapshot file name for a run started at `at`. */
@@ -1478,10 +1493,13 @@ function postGates(
       name: `${node.name} Ready in kubectl get nodes`,
       ok: state.kubeNodes === null
         ? null
-        : isNodeReady(state.kubeNodes, node.name),
-      detail: state.kubeNodes === null
-        ? "kubectl get nodes not read"
-        : state.kubeNodes.find((r) => r.name === node.name)?.status ?? "absent",
+        : isNodeReady(state.kubeNodes, node.ip),
+      detail: state.kubeNodes === null ? "kubectl get nodes not read" : (() => {
+        const row = findKubeNode(state.kubeNodes, node.ip);
+        return row
+          ? `${row.name} ${row.status}`
+          : `no node with internal IP ${node.ip}`;
+      })(),
     },
     {
       name: `VIP ${cfg.vip} held by exactly one node`,

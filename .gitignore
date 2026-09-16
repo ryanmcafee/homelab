@@ -146,3 +146,8 @@ PII.md
 .serena/project.yml
 .superpowers/
 .cache/
+
+# etcd snapshots (scripts/cp-storage-migrate.ts --snapshot-dir). An etcd
+# snapshot contains every Kubernetes Secret in plaintext - never commit one.
+etcd-snapshots/
+*.snapshot

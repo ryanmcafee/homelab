@@ -456,13 +456,14 @@ tasks:
       TF_ARGS: '{{.TF_ARGS | default ""}}'
 
   tf:plan:component:
-    desc: Run Terragrunt plan for a specific component
+    desc: Run Terragrunt plan for a specific component (TF_ARGS='-target=...' to narrow it)
     dir: terragrunt/environments/{{.ENV}}/{{.COMPONENT}}
     cmds:
-      - op run --env-file={{.ROOT_DIR}}/.env.op -- terragrunt plan
+      - op run --env-file={{.ROOT_DIR}}/.env.op -- terragrunt plan {{.TF_ARGS}}
     vars:
       ENV: '{{.ENV | default "homelab"}}'
       COMPONENT: '{{.COMPONENT}}'
+      TF_ARGS: '{{.TF_ARGS | default ""}}'
 
   tf:apply:
     desc: Run Terragrunt apply for environment (auto-syncs rendered files from 1Password)
@@ -475,13 +476,14 @@ tasks:
       ENV: '{{.ENV | default "homelab"}}'
 
   tf:apply:component:
-    desc: Run Terragrunt apply for a specific component
+    desc: Run Terragrunt apply for a specific component (TF_ARGS='-target=...' to apply one resource at a time)
     dir: terragrunt/environments/{{.ENV}}/{{.COMPONENT}}
     cmds:
-      - op run --env-file={{.ROOT_DIR}}/.env.op -- terragrunt apply --non-interactive --auto-approve
+      - op run --env-file={{.ROOT_DIR}}/.env.op -- terragrunt apply --non-interactive --auto-approve {{.TF_ARGS}}
     vars:
       ENV: '{{.ENV | default "homelab"}}'
       COMPONENT: '{{.COMPONENT}}'
+      TF_ARGS: '{{.TF_ARGS | default ""}}'
 
   tf:destroy:
     desc: Destroy infrastructure (use with caution)
