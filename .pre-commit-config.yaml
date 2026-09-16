@@ -21,8 +21,8 @@ repos:
         entry: go run ./cmd/homelab config guard --set homelab --
         language: system
         pass_filenames: true
-        types_or: [yaml, json, markdown]
-        files: ^(configuration/|charts/[^/]+/values-homelab\.yaml$)
+        types_or: [yaml, json, markdown, ts]
+        files: ^(configuration/|charts/[^/]+/values-homelab\.yaml$|scripts/)
         exclude: |
           (?x)(
             ^configuration/environments/homelab\.yaml$|

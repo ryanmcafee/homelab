@@ -698,7 +698,10 @@ func TestHasScannableExtension(t *testing.T) {
 		{path: "notes.md.sample", want: true},
 		{path: "configuration/templates/helm-addons.tmpl", want: false},
 		{path: "configuration/environments/.gitkeep", want: false},
-		{path: "scripts/run.ts", want: false},
+		// scripts/ is guarded, so a Deno script is scannable: several hardcoded
+		// real addresses, hostnames and a username while .ts was out of scope.
+		{path: "scripts/run.ts", want: true},
+		{path: "scripts/run_test.ts", want: true},
 		{path: "binary.example", want: false},
 	}
 
@@ -1738,8 +1741,14 @@ func TestRunGuardHelmValuesAreDeterministic(t *testing.T) {
 func TestDefaultGuardScopeCoversChartHomelabValues(t *testing.T) {
 	// The child charts' values-homelab.yaml files are committed and rendered
 	// in production without the CMP, so they must be guarded by default, not
-	// only when someone remembers --paths.
-	want := []string{"configuration/**", "charts/**/values-homelab.yaml"}
+	// only when someone remembers --paths. scripts/ is in scope for the same
+	// reason: a Deno script hardcoding a real address leaks exactly as much,
+	// and several did while scripts/ was out of scope.
+	want := []string{
+		"configuration/**",
+		"charts/**/values-homelab.yaml",
+		"scripts/**",
+	}
 	if strings.Join(DefaultGuardPathspecs, " ") != strings.Join(want, " ") {
 		t.Fatalf("DefaultGuardPathspecs = %v, want %v", DefaultGuardPathspecs, want)
 	}
@@ -1896,10 +1905,16 @@ func TestLineMatchesPatternForgeOwner(t *testing.T) {
 		{name: "host is matched case-insensitively", line: "https://GitHub.com/ryanmcafee/homelab", pattern: owner, want: false},
 		{name: "GitLab repository", line: "https://gitlab.com/ryanmcafee/homelab.git", pattern: owner, want: false},
 		{name: "GitLab pages", line: "https://ryanmcafee.gitlab.io/homelab", pattern: owner, want: false},
+		{name: "GHCR image reference", line: `const IMAGE_REPO = "ghcr.io/ryanmcafee/homelab-cmp";`, pattern: owner, want: false},
+		{name: "GHCR image with a tag", line: "image: ghcr.io/ryanmcafee/homelab-cmp:0.1.25", pattern: owner, want: false},
+		{name: "GHCR owner at the end of the token", line: "see ghcr.io/ryanmcafee", pattern: owner, want: false},
 
 		// The same value anywhere else is still a finding.
 		{name: "bare value", line: "mapall: ryanmcafee", pattern: owner, want: true},
 		{name: "value as a hostname label", line: "host: ryanmcafee.duckdns.org", pattern: owner, want: true},
+		{name: "registry host has no pages form", line: "url: https://ryanmcafee.ghcr.io/x", pattern: owner, want: true},
+		{name: "real domain is not excused by the registry entry", line: "host: truenas.ryanmcafee.com", pattern: "ryanmcafee.com", want: true},
+		{name: "look-alike registry host", line: "https://notghcr.io/ryanmcafee/x", pattern: owner, want: true},
 		{name: "value as a subdomain of a pages host", line: "https://sub.ryanmcafee.github.io/", pattern: owner, want: true},
 		{name: "value before a look-alike pages domain", line: "https://ryanmcafee.github.io.example.com/", pattern: owner, want: true},
 		{name: "another owner and the value elsewhere on the line", line: "https://github.com/other-owner/x # maintained by ryanmcafee", pattern: owner, want: true},
@@ -1974,6 +1989,81 @@ func TestRunGuardForgeOwnerURLsAreNotFindings(t *testing.T) {
 			}
 			if n := report.MatchCount(); n != tc.want {
 				t.Errorf("MatchCount() = %d, want %d; results: %+v", n, tc.want, report.Results)
+			}
+		})
+	}
+}
+
+// TestShapeRulesNeedALiteralInCodeFiles pins the distinction that lets
+// scripts/ be guarded at all: in YAML `host: foo.bar` is a value, but in
+// TypeScript it is a property assignment naming an identifier. Judging the
+// identifier blocked a commit over `host: args.proxmoxHost`.
+func TestShapeRulesNeedALiteralInCodeFiles(t *testing.T) {
+	tests := []struct {
+		name    string
+		file    string
+		content string
+		want    int
+	}{
+		{
+			name:    "identifier in a flow mapping is not a hostname",
+			file:    "run.ts",
+			content: "  ssh: { user: args.sshUser, host: args.proxmoxHost },\n",
+			want:    0,
+		},
+		{
+			name:    "identifier as a block value is not a hostname",
+			file:    "run.ts",
+			content: "  host: args.proxmoxHost,\n",
+			want:    0,
+		},
+		{
+			name:    "a real hostname in a string literal is still caught",
+			file:    "run.ts",
+			content: "  host: \"truenas.acme-corp.net\",\n",
+			want:    1,
+		},
+		{
+			name:    "a routable address in a string literal is still caught",
+			file:    "run.ts",
+			content: "  host: \"203.0.113.9\",\n",
+			want:    1,
+		},
+		{
+			name:    "a literal in a flow mapping is still caught",
+			file:    "run.ts",
+			content: "  ssh: { user: u, host: \"truenas.acme-corp.net\" },\n",
+			want:    1,
+		},
+		{
+			name:    "a SCREAMING_SNAKE key needs a literal too",
+			file:    "run.ts",
+			content: "  PROXMOX_IP: args.proxmoxHost,\n",
+			want:    0,
+		},
+		{
+			// The quoting rule must not leak into YAML, where an unquoted
+			// scalar is the normal way to write a value.
+			name:    "yaml still judges an unquoted value",
+			file:    "values-homelab.yaml",
+			content: "host: truenas.acme-corp.net\n",
+			want:    1,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(dir, tc.file)
+			if err := os.WriteFile(path, []byte(tc.content), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			res, err := ScanFileForPIIShape(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(res.Matches) != tc.want {
+				t.Fatalf("matches = %d, want %d (%v)", len(res.Matches), tc.want, res.Matches)
 			}
 		})
 	}

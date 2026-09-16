@@ -91,8 +91,9 @@ task cp:migrate -- --dry-run      # every ssh/talosctl/kubectl command it would 
 task cp:migrate -- --yes          # the real thing; --only cp-2 restricts it to one node
 ```
 
-It refuses to start without `--yes`, takes the etcd snapshot itself (`--snapshot-dir`,
-`--skip-snapshot`), throttles with `--bwlimit` (default 200000), polls `qm status` instead of
+It refuses to start without `--yes`, takes the etcd snapshot itself (`--snapshot-dir`, default
+`./etcd-snapshots`, gitignored because **an etcd snapshot contains every Kubernetes Secret in
+plaintext** — treat those files as credentials; `--skip-snapshot` to skip), throttles with `--bwlimit` (default 200000), polls `qm status` instead of
 `qm wait` and never issues `qm stop` unless `--force-stop` is passed, and stops the whole run at the
 first failure. Its etcd gate reads "matching RAFT INDEX" as "within `--raft-tolerance` (default 10)
 of the highest", because the three members are queried at slightly different moments on a cluster
@@ -129,10 +130,30 @@ terragrunt apply -target='talos_machine_configuration_apply.controlplane["cp-1"]
 # verify etcd + VIP + readyz as above, then cp-2, then cp-3
 ```
 
-The provider's default apply mode lets Talos choose; an `cluster.etcd.extraArgs` change restarts
-etcd on that node rather than rebooting it. `heartbeat-interval` and `election-timeout` must end up
-identical on all three members — a half-finished rollout is the one state to avoid, so complete all
-three once you have started.
+**Applying the config does not restart etcd — you must reboot the node.** Verified on 2026-09-16:
+after `talos_machine_configuration_apply`, `talosctl get machineconfig` shows the new `extraArgs`,
+but `talosctl services etcd` shows no restart and the metrics port stays closed, so etcd keeps
+running with the old timeouts. `talosctl service etcd restart` is refused ("service \"etcd\" doesn't
+support restart operation via API") because etcd is managed by the machine-config controller. Reboot
+each node after its apply:
+
+```bash
+talosctl -n 172.16.100.11 reboot
+# then poll until the member is back, the API is up and the metrics port answers:
+talosctl -n 172.16.100.11,172.16.100.12,172.16.100.13 etcd status
+kubectl --context admin@homelab get --raw /readyz
+ssh root@172.16.100.250 'curl -s -o /dev/null -w "%{http_code}\n" http://172.16.100.11:2381/metrics'  # 200
+```
+
+Each node came back inside 40 s and `/readyz` never stopped returning `ok`, because the VIP moves to
+a surviving node. Confirm the tuning is really live rather than merely configured:
+
+```bash
+talosctl -n 172.16.100.11 logs etcd | grep -o 'heartbeat-interval=[0-9]*\|election-timeout=[0-9]*'
+```
+
+`heartbeat-interval` and `election-timeout` must end up identical on all three members — a
+half-finished rollout is the one state to avoid, so complete all three once you have started.
 
 **4. Let ArgoCD pick up the monitoring change** (an ordinary addons sync; no manual step).
 

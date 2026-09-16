@@ -14,7 +14,14 @@
  *
  * Safe by default: runs in dry-run mode unless --execute is passed.
  * Supports phase-by-phase execution for controlled migration.
+ *
+ * No real hostname is hardcoded here: --api-url defaults to
+ * https://<TRUENAS_HOSTNAME>, read at runtime from the gitignored
+ * configuration/environments/homelab.yaml (see scripts/tailscale-dns.ts and
+ * scripts/prod-readonly.ts for the pattern).
  */
+
+import { parse as parseYaml } from "jsr:@std/yaml@^1";
 
 const VERSION = "2.0.0";
 
@@ -25,6 +32,70 @@ const red = (s: string) => `\x1b[31m${s}\x1b[0m`;
 const yellow = (s: string) => `\x1b[33m${s}\x1b[0m`;
 const bold = (s: string) => `\x1b[1m${s}\x1b[0m`;
 const dim = (s: string) => `\x1b[2m${s}\x1b[0m`;
+
+// --- Defaults from the environment values (no hardcoded PII) ---
+
+/** Gitignored environment values; absent on a fresh clone. */
+export const HOMELAB_ENV_FILE = "configuration/environments/homelab.yaml";
+
+const DNS_NAME =
+  /^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$/;
+
+/** Raised for invalid invocations; main prints it and exits 1. */
+export class UsageError extends Error {}
+
+/**
+ * A trimmed, lower-cased string value from the environment YAML, or null when
+ * the file does not parse, the key is missing, empty or a REPLACEME
+ * placeholder. Callers check the shape they need.
+ */
+export function envFileValue(text: string, key: string): string | null {
+  let parsed: unknown;
+  try {
+    parsed = parseYaml(text);
+  } catch {
+    return null;
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return null;
+  }
+  const value = (parsed as Record<string, unknown>)[key];
+  if (typeof value !== "string") return null;
+  const v = value.trim().toLowerCase();
+  if (!v || v.includes("replaceme")) return null;
+  return v;
+}
+
+/** One key of the environment file, or null when the file is unreadable. */
+async function envValue(key: string): Promise<string | null> {
+  try {
+    return envFileValue(await Deno.readTextFile(HOMELAB_ENV_FILE), key);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * --api-url, else $TRUENAS_API_URL, else https://<TRUENAS_HOSTNAME>.
+ *
+ * TRUENAS_HOSTNAME is a derived key (const "truenas.{{.DOMAIN}}" in
+ * configuration/schema/network.schema.yaml), so the environment file usually
+ * carries only DOMAIN: the key is used when present and derived otherwise,
+ * the same way prod-readonly.ts derives argocd.<DOMAIN>.
+ */
+async function resolveApiUrl(flag: string | undefined): Promise<string> {
+  if (flag) return flag;
+  const env = Deno.env.get("TRUENAS_API_URL")?.trim();
+  if (env) return env;
+  const host = await envValue("TRUENAS_HOSTNAME");
+  if (host && DNS_NAME.test(host)) return `https://${host}`;
+  const domain = await envValue("DOMAIN");
+  if (domain && DNS_NAME.test(domain)) return `https://truenas.${domain}`;
+  throw new UsageError(
+    "cannot determine the TrueNAS API URL: pass --api-url https://truenas.example.com, " +
+      `set TRUENAS_API_URL, or fill TRUENAS_HOSTNAME (or DOMAIN) in ${HOMELAB_ENV_FILE}`,
+  );
+}
 
 // --- Types ---
 
@@ -332,6 +403,9 @@ interface Options {
   verifySsl: boolean;
 }
 
+/** parseArgs result: --api-url's default is resolved later (resolveApiUrl). */
+type ParsedOptions = Omit<Options, "apiUrl"> & { apiUrl?: string };
+
 function printHelp(): void {
   console.log(`
 ${bold("truenas-iscsi-migrate")} v${VERSION}
@@ -354,7 +428,9 @@ ${bold("OPTIONS:")}
   --skip-nfs-cleanup      Skip NFS orphan cleanup
   --timeout <ms>          Wait timeout (default: 300000)
   --verbose               Debug output
-  --api-url <url>         TrueNAS API URL (default: env TRUENAS_API_URL or https://truenas.ryanmcafee.com)
+  --api-url <url>         TrueNAS API URL (default: env TRUENAS_API_URL, else
+                          https://<TRUENAS_HOSTNAME> (truenas.<DOMAIN>)
+                          from ${HOMELAB_ENV_FILE})
   --verify-ssl            Enable SSL verification (default: disabled)
 
 ${bold("PHASES:")}
@@ -370,7 +446,8 @@ ${bold("PHASES:")}
 
 ${bold("ENVIRONMENT:")}
   TRUENAS_API_KEY     TrueNAS API key (required)
-  TRUENAS_API_URL     TrueNAS API base URL (optional)
+  TRUENAS_API_URL     TrueNAS API base URL (optional; else https://<TRUENAS_HOSTNAME>
+                      from ${HOMELAB_ENV_FILE})
 
 ${bold("EXAMPLES:")}
   # Preview all changes (safe)
@@ -384,8 +461,8 @@ ${bold("EXAMPLES:")}
 `);
 }
 
-function parseArgs(args: string[]): Options {
-  const opts: Options = {
+function parseArgs(args: string[]): ParsedOptions {
+  const opts: ParsedOptions = {
     help: false,
     dryRun: true,
     execute: false,
@@ -396,7 +473,7 @@ function parseArgs(args: string[]): Options {
     skipNfsCleanup: false,
     timeout: 300000,
     verbose: false,
-    apiUrl: Deno.env.get("TRUENAS_API_URL") || "https://truenas.ryanmcafee.com",
+    apiUrl: undefined,
     verifySsl: false,
   };
 
@@ -1762,9 +1839,9 @@ async function phaseVerify(opts: Options): Promise<PhaseResult> {
 // --- Main ---
 
 async function main(): Promise<void> {
-  const opts = parseArgs(Deno.args);
+  const parsed = parseArgs(Deno.args);
 
-  if (opts.help) {
+  if (parsed.help) {
     printHelp();
     Deno.exit(0);
   }
@@ -1777,6 +1854,11 @@ async function main(): Promise<void> {
     console.error("Set it directly or use: op run --env-file=.env.op -- ...");
     Deno.exit(1);
   }
+
+  const opts: Options = {
+    ...parsed,
+    apiUrl: await resolveApiUrl(parsed.apiUrl),
+  };
 
   console.log(bold(`\ntruenas-iscsi-migrate v${VERSION}\n`));
   console.log(cyan(`INFO: TrueNAS API: ${opts.apiUrl}`));
@@ -1991,4 +2073,10 @@ function printResults(results: PhaseResult[]): void {
   }
 }
 
-main();
+main().catch((err) => {
+  if (err instanceof UsageError) {
+    console.error(red(`ERROR: ${err.message}`));
+    Deno.exit(1);
+  }
+  throw err;
+});
