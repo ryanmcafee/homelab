@@ -14,7 +14,7 @@ The module handles:
 ## Architecture
 
 ### High Availability Setup (Recommended)
-- **Control Plane**: 2+ nodes for HA (etcd quorum)
+- **Control Plane**: 3+ nodes for HA (etcd quorum — 2 nodes tolerate 0 failures, see below)
 - **Workers**: 3+ nodes for workload distribution
 - **Cluster Endpoint**: VIP or load balancer for API access
 
@@ -201,6 +201,54 @@ module "talos_cluster_custom" {
 }
 ```
 
+### Dedicated control-plane storage and etcd tuning
+
+etcd's write-ahead log lives on the Talos `EPHEMERAL` partition of the control
+plane's system disk, so that disk's fsync latency *is* the cluster's control
+plane latency. `control_plane_datastore_id` puts the control-plane system disks
+on their own Proxmox datastore while workers stay on `datastore_id`; when it is
+`null` both fall back to `datastore_id`.
+
+```hcl
+module "talos_cluster" {
+  source = "../../modules/talos-cluster"
+
+  # ... basic configuration ...
+
+  datastore_id               = "vm-storage" # workers (shared ZFS mirror)
+  control_plane_datastore_id = "cp-storage" # control planes (dedicated NVMe)
+
+  # etcd tuning for VM-hosted control planes.
+  # Defaults are heartbeat-interval=100ms / election-timeout=1000ms, which assume
+  # a dedicated low-latency disk. On virtualised storage a routine 100-500 ms
+  # fsync stall makes etcd log "leader failed to send out heartbeat on time" and
+  # can cost a raft term. Upstream requires election-timeout >= 10x
+  # heartbeat-interval; 250/2500 absorbs the routine stalls without hiding a real
+  # member failure for long. `listen-metrics-urls` exposes etcd's metrics on
+  # :2381 for a Prometheus `kubeEtcd` scrape. Talos documents
+  # `cluster.etcd.extraArgs` in the v1alpha1 config reference.
+  controlplane_config_patches = [
+    yamlencode({
+      cluster = {
+        etcd = {
+          extraArgs = {
+            "heartbeat-interval"  = "250"
+            "election-timeout"    = "2500"
+            "listen-metrics-urls" = "http://0.0.0.0:2381"
+          }
+        }
+      }
+    })
+  ]
+}
+```
+
+**Caveat:** `proxmox_virtual_environment_vm.controlplane` has
+`lifecycle { ignore_changes = [disk, ...] }`, so changing
+`control_plane_datastore_id` on control planes that already exist produces no
+plan diff. It governs newly created VMs; migrating existing ones is a manual
+`qm move-disk` per node (see `docs/runbooks/control-plane-storage.md`).
+
 ## Cluster Endpoint (VIP)
 
 The cluster endpoint can be:
@@ -277,6 +325,8 @@ See `variables.tf` for comprehensive documentation.
 | control_plane_nodes | Control plane config | `map(object)` | yes |
 | worker_nodes | Worker config | `map(object)` | yes |
 | talos_image_id | Talos image from module | `string` | yes |
+| datastore_id | Proxmox datastore for VM disks | `string` | yes |
+| control_plane_datastore_id | Dedicated Proxmox datastore for control-plane system disks (etcd lives on the Talos EPHEMERAL partition of this disk); `null` falls back to `datastore_id` | `string` | no |
 | network_gateway | Network gateway | `string` | yes |
 
 ## Outputs

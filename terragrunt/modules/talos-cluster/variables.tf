@@ -92,6 +92,12 @@ variable "datastore_id" {
   type        = string
 }
 
+variable "control_plane_datastore_id" {
+  description = "Dedicated Proxmox datastore for control-plane system disks — etcd lives on the Talos EPHEMERAL partition of this disk, so isolating it from worker I/O keeps etcd's fsync path off a shared device (ADR-016). Null falls back to datastore_id."
+  type        = string
+  default     = null
+}
+
 variable "snippets_datastore_id" {
   description = "Proxmox datastore for cloud-init snippets (must support snippets content type)"
   type        = string

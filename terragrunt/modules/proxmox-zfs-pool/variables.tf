@@ -2,6 +2,12 @@
 # Proxmox Resource Pool Configuration
 # =============================================================================
 
+variable "create_resource_pool" {
+  description = "Create the Proxmox resource pool named pool_name; set false for additional storage-only instances"
+  type        = bool
+  default     = true
+}
+
 variable "pool_name" {
   description = "Name of the Proxmox resource pool"
   type        = string

@@ -23,6 +23,7 @@ locals {
 
   # Storage configuration
   vm_storage_pool  = "vm-storage" # ZFS pool managed by Terraform
+  cp_storage_pool  = "cp-storage" # Dedicated NVMe datastore for control-plane (etcd) system disks
   iso_storage_pool = "local"
 
   # Network configuration
