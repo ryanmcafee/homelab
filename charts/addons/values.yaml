@@ -644,6 +644,13 @@ kube-prometheus-stack:
         cpu: 200m
         memory: 256Mi
 
+  # etcd scrape: Talos exposes etcd metrics on <control-plane IP>:2381 when
+  # cluster.etcd.extraArgs.listen-metrics-urls is set (terragrunt talos-cluster).
+  # endpoints are the control-plane node IPs; enabled: false disables the scrape (Kind).
+  kubeEtcd:
+    enabled: false
+    endpoints: []
+
   # PostSync smoke hooks (charts/addons/templates/_smoke.tpl): curl the
   # in-cluster Services after sync; expect lists the accepted HTTP codes.
   # Service names follow the chart's <release>-grafana / <release>-prometheus.

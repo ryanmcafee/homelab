@@ -727,6 +727,39 @@ spec:
               cpu: 50m
               memory: 128Mi
 
+        # etcd scrape (Talos exposes etcd metrics on <control-plane IP>:2381 once
+        # cluster.etcd.extraArgs.listen-metrics-urls is set). Kind has no reachable
+        # etcd metrics endpoint, so the scrape is disabled there instead of leaving
+        # a permanently down target behind.
+        kubeEtcd:
+          enabled: false
+
+        # Control-plane alerts. The chart's own defaultRules cover etcd once it is
+        # scraped; these three cover the symptom (apiserver 5xx), the cause (slow
+        # control-plane disk) and the blind spot (etcd metrics missing again).
+        # Prometheus $labels templating is escaped so Helm leaves it untouched.
+        additionalPrometheusRulesMap:
+          homelab-control-plane:
+            groups:
+              - name: homelab-control-plane
+                rules:
+                  - alert: KubeAPIServerErrorsHigh
+                    expr: 'sum(rate(apiserver_request_total{code=~"5.."}[5m])) > 0.5'
+                    for: 2m
+                    labels:
+                      severity: critical
+                    annotations:
+                      summary: 'kube-apiserver is returning 5xx (etcd/lease trouble)'
+                      description: 'kube-apiserver has been serving more than 0.5 5xx responses per second for 2m. Usually etcd fsync stalls on the control-plane disk; see docs/runbooks/control-plane-storage.md.'
+                  - alert: NodeDiskWriteLatencyHigh
+                    expr: 'rate(node_disk_write_time_seconds_total{device="sda"}[5m]) / rate(node_disk_writes_completed_total{device="sda"}[5m]) > 0.05'
+                    for: 10m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: 'Average sda write latency on {{ $labels.instance }} is above 50ms'
+                      description: 'The system disk of {{ $labels.instance }} has averaged more than 50ms per write for 10m. On the control planes this starves etcd fsync; see docs/runbooks/control-plane-storage.md.'
+
   destination:
     server: https://kubernetes.default.svc
     namespace: monitoring
