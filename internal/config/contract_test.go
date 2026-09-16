@@ -32,12 +32,6 @@ var consumedOutsideTemplates = map[string]string{
 		"piiKeyPrefixes), scanned by `task config:guard`; the value is never " +
 		"rendered to a template",
 
-	"CP2_IP": "resolved dynamically via workerIPConfigKey() in " +
-		"cmd/homelab/commands/talos.go for `task talos:recreate:node NODE=cp-2`",
-
-	"CP3_IP": "resolved dynamically via workerIPConfigKey() in " +
-		"cmd/homelab/commands/talos.go for `task talos:recreate:node NODE=cp-3`",
-
 	"WORKER1_IP": "read directly as rc.Values[\"WORKER1_IP\"] in " +
 		"cmd/homelab/commands/verify.go (GPU node check), and dynamically via " +
 		"workerIPConfigKey() in talos.go for `task talos:recreate:node NODE=worker-1`",
