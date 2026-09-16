@@ -731,8 +731,26 @@ spec:
         # cluster.etcd.extraArgs.listen-metrics-urls is set). Kind has no reachable
         # etcd metrics endpoint, so the scrape is disabled there instead of leaving
         # a permanently down target behind.
+        #
+        # The chart's own kubeEtcd path cannot reach an external etcd here. It
+        # points a selector-less Service at an Endpoints object built from
+        # kubeEtcd.endpoints, and ArgoCD's resource.exclusions drop Endpoints and
+        # EndpointSlice cluster-wide, so that object is rendered and then never
+        # applied: the Service stays empty and nothing is scraped. Talos also runs
+        # etcd as a host service with no Kubernetes pod, so the selector form
+        # cannot work either. The addresses therefore go into a static scrape
+        # config, which needs no Endpoints object at all.
+        #
+        # kubeEtcd.enabled stays true because the chart gates its etcd alert rules
+        # (etcdHighFsyncDurations, etcdHighNumberOfLeaderChanges, ...) on it; only
+        # the unusable Service and ServiceMonitor are turned off. The job name must
+        # contain "etcd" because those rules match job=~".*etcd.*".
         kubeEtcd:
-          enabled: false
+          enabled: true
+          service:
+            enabled: false
+          serviceMonitor:
+            enabled: false
 
         # Control-plane alerts. The chart's own defaultRules cover etcd once it is
         # scraped; these three cover the symptom (apiserver 5xx), the cause (slow

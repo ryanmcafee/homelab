@@ -806,7 +806,7 @@ kube-prometheus-stack:
   # listen-metrics-urls). Kind runs etcd inside the control-plane container with
   # no reachable metrics endpoint, so the scrape is off there.
   kubeEtcd:
-    enabled: false
+    port: 2381
     endpoints: []
 
   # PostSync smoke hooks (charts/addons/templates/_smoke.tpl): curl the

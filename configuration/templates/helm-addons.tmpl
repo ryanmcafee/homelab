@@ -930,11 +930,10 @@ kube-prometheus-stack:
   # listen-metrics-urls). Kind runs etcd inside the control-plane container with
   # no reachable metrics endpoint, so the scrape is off there.
   kubeEtcd:
+    port: 2381
 {{- if $localdev }}
-    enabled: false
     endpoints: []
 {{- else }}
-    enabled: true
     endpoints:
       - {{ .Values.CP1_IP.Value }}
       - {{ .Values.CP2_IP.Value }}
