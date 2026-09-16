@@ -67,7 +67,36 @@ task tf:apply:component COMPONENT=proxmox-zfs-pool-cp     # plan first: 1 to add
 ssh root@172.16.100.250 'zpool list cp-storage; zfs get compression,atime,recordsize cp-storage'
 ```
 
-**2. Move one control-plane disk, with the VM stopped.**
+**2. Apply the etcd tuning — one node at a time, before any disk moves.**
+
+This comes before the disk move on purpose. While a disk is moving its VM is stopped, so only two
+of three etcd members are live and quorum needs both of them — and both still keep their WAL on
+`vm-storage`, the pool the copy is reading 5 GB from. Stock etcd timeouts (100 ms heartbeat,
+1000 ms election) have no headroom for the routine multi-hundred-millisecond stalls this pool
+produces under load, and a spurious election between exactly two members is how a migration turns
+into an outage. Applying 250/2500 first removes that risk, and `listen-metrics-urls` gives you
+etcd fsync metrics to watch while the disks move.
+
+The patches are rendered by the `talos-cluster` component but applied to the running nodes by
+`talos_machine_configuration_apply` in **`talos-cluster-config`**, which is `for_each` over all three
+control planes. A plain apply would restart all three etcd members at once and drop quorum, so
+target one node per apply:
+
+```bash
+cd terragrunt/environments/homelab/talos-cluster        # regenerate the machine configs
+terragrunt apply                                         # output-only change; VMs untouched (disk/initialization ignored)
+
+cd ../talos-cluster-config
+terragrunt apply -target='talos_machine_configuration_apply.controlplane["cp-1"]'
+# verify etcd + VIP + readyz as above, then cp-2, then cp-3
+```
+
+The provider's default apply mode lets Talos choose; an `cluster.etcd.extraArgs` change restarts
+etcd on that node rather than rebooting it. `heartbeat-interval` and `election-timeout` must end up
+identical on all three members — a half-finished rollout is the one state to avoid, so complete all
+three once you have started.
+
+**3. Move one control-plane disk, with the VM stopped.**
 
 The copy reads ~5 GB from `vm-storage` — the very pool whose saturation causes the outage, and the
 two control planes still on it are serving the API while you do this. Throttle the copy and do it
@@ -83,7 +112,7 @@ ssh root@172.16.100.250 'qm start 101'
 ```
 
 `scripts/cp-storage-migrate.ts` automates exactly this step — one node at a time, with the checks
-below as gates between nodes. It does not touch step 1 or step 3.
+below as gates between nodes. It does not touch step 1 or step 2.
 
 ```bash
 task cp:migrate:status            # read-only: which nodes are still on vm-storage
@@ -112,27 +141,6 @@ down loses quorum and the API with it.
 
 Terraform state still records the old datastore for those disks. That is harmless — `disk` is
 ignored, so nothing will act on it — and it self-corrects if a control plane is ever recreated.
-
-**3. Apply the etcd tuning — one node at a time.**
-
-The patches are rendered by the `talos-cluster` component but applied to the running nodes by
-`talos_machine_configuration_apply` in **`talos-cluster-config`**, which is `for_each` over all three
-control planes. A plain apply would restart all three etcd members at once and drop quorum, so
-target one node per apply:
-
-```bash
-cd terragrunt/environments/homelab/talos-cluster        # regenerate the machine configs
-terragrunt apply                                         # output-only change; VMs untouched (disk/initialization ignored)
-
-cd ../talos-cluster-config
-terragrunt apply -target='talos_machine_configuration_apply.controlplane["cp-1"]'
-# verify etcd + VIP + readyz as above, then cp-2, then cp-3
-```
-
-The provider's default apply mode lets Talos choose; an `cluster.etcd.extraArgs` change restarts
-etcd on that node rather than rebooting it. `heartbeat-interval` and `election-timeout` must end up
-identical on all three members — a half-finished rollout is the one state to avoid, so complete all
-three once you have started.
 
 **4. Let ArgoCD pick up the monitoring change** (an ordinary addons sync; no manual step).
 

@@ -6,8 +6,8 @@
  * Moves the three Talos control-plane VM system disks from the shared Proxmox
  * datastore `vm-storage` to the dedicated NVMe pool `cp-storage`, one node at a
  * time, with verification gates between nodes. This automates the "Migration"
- * section (step 2) of docs/runbooks/control-plane-storage.md; read that runbook
- * first. Step 1 (create the datastore, terragrunt) and step 3 (the etcd
+ * section (step 3) of docs/runbooks/control-plane-storage.md; read that runbook
+ * first. Step 1 (create the datastore, terragrunt) and step 2 (the etcd
  * `extraArgs` tuning, terragrunt, one node per apply) stay manual.
  *
  * This is the one script in this repository that writes to production, so it is
@@ -1808,7 +1808,8 @@ async function cmdMigrate(cfg: Config): Promise<number> {
   }
   log.warn(
     `the etcd tuning (heartbeat-interval/election-timeout/listen-metrics-urls) is NOT part of ` +
-      `this script: apply it separately with terragrunt, one node per apply — ${RUNBOOK} step 3`,
+      `this script and should already be applied: it is ${RUNBOOK} step 2, before any disk moves, ` +
+      `because a stopped VM leaves only two etcd members and stock timeouts have no headroom`,
   );
   log.info(`then: task cp:migrate:status and the Verify section of ${RUNBOOK}`);
   return 0;
@@ -1893,7 +1894,7 @@ async function cmdVerify(cfg: Config): Promise<number> {
     );
   }
   log.warn(
-    `the etcd tuning is applied separately via terragrunt (${RUNBOOK} step 3); ` +
+    `the etcd tuning is applied separately via terragrunt (${RUNBOOK} step 2, before the move); ` +
       "a migrated disk alone does not set heartbeat-interval/election-timeout",
   );
 
@@ -1964,7 +1965,7 @@ Flags:
 
 Every mutating command goes through one function that cannot run while --dry-run is set, and only
 one qm move-disk is ever in flight (a sequential loop plus a runtime assertion). The etcd extraArgs
-tuning is NOT done here: apply it with terragrunt, one node per apply (${RUNBOOK} step 3).
+tuning is NOT done here: apply it with terragrunt, one node per apply (${RUNBOOK} step 2).
 Agents run status, verify and --dry-run only (ADR-009).
 Exit codes: 0 success, 1 a gate or command failed, 2 usage error.`,
   );
