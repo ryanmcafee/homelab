@@ -16,7 +16,7 @@ Each entry should include:
 ### 2026-09-15 - Sporadic Kubernetes API loss root-caused: etcd fsync on the shared VM pool
 - **Status**: PR open (branch `fix/apiserver-etcd-stability`); migration is a human step, `docs/runbooks/control-plane-storage.md`
 - **Description**: The API dropped for tens of seconds at a time because the three control-plane VM disks shared the ZFS mirror `vm-storage` with every worker disk; a worker image unpack (~6.5 GB) stalled etcd WAL fsync up to 48 s, leases expired and the Talos VIP moved. Fix: dedicated NVMe pool `cp-storage` for the control planes, etcd `heartbeat-interval=250`/`election-timeout=2500`, etcd metrics on :2381 with a `kubeEtcd` scrape and three alerts, plus `scripts/apiserver-stress.ts` (`task apiserver:probe` / `task apiserver:stress`). ADR-016. Measured: the API server sustains 742 req/s of concurrent reads with zero errors, so capacity was never the problem. Also found: the Proxmox root filesystem is 100 % full from an unmanaged failing `vzdump` job, and the unused Cilium LB pool `control-plane-vip` could let a labelled Service hijack the API VIP
-- **URL**: (PR link)
+- **URL**: https://github.com/ryanmcafee/homelab/pull/288
 
 ### 2026-09-13 - Tailscale split DNS for the homelab domain (private hostnames from mobile)
 - **Status**: PR #278 merged 2026-09-14 (script, tasks, runbook); the ACL grant follows in its own PR (`tailscale-acl.yml` applies it on merge), then runbook steps 2-3 (OAuth client in 1Password, `task tailscale:dns:apply`)
