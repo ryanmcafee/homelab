@@ -1,0 +1,157 @@
+---
+# Log and backup retention for the Proxmox host (7 days).
+# Idempotent: safe to re-run. See defaults/main.yml for the why.
+
+- name: Ensure the journald drop-in directory exists
+  ansible.builtin.file:
+    path: /etc/systemd/journald.conf.d
+    state: directory
+    mode: '0755'
+
+- name: Configure journald retention and size caps
+  ansible.builtin.copy:
+    dest: /etc/systemd/journald.conf.d/10-retention.conf
+    mode: '0644'
+    content: |
+      # Managed by ansible/roles/proxmox_log_retention (homelab repo).
+      # /var/log/journal lives on the 67G pve-root LVM, which filled to 100%
+      # in April 2026 and stayed there for five months. RuntimeMaxUse caps the
+      # journal held in RAM under /run/log/journal.
+      [Journal]
+      MaxRetentionSec={{ proxmox_journal_max_retention }}
+      MaxFileSec={{ proxmox_journal_max_file_sec }}
+      SystemMaxUse={{ proxmox_journal_system_max_use }}
+      SystemKeepFree={{ proxmox_journal_system_keep_free }}
+      RuntimeMaxUse={{ proxmox_journal_runtime_max_use }}
+  notify: Restart journald
+
+- name: Apply the journald drop-in before vacuuming
+  ansible.builtin.meta: flush_handlers
+
+- name: Vacuum journals older than the retention window
+  ansible.builtin.command:
+    cmd: "journalctl --vacuum-time={{ proxmox_journal_max_retention }}"
+  register: journal_vacuum
+  changed_when: "'Deleted archived journal' in journal_vacuum.stderr"
+
+- name: Set the global logrotate frequency
+  ansible.builtin.lineinfile:
+    path: /etc/logrotate.conf
+    regexp: '^(daily|weekly|monthly)$'
+    line: "{{ proxmox_logrotate_frequency }}"
+    state: present
+
+- name: Set the global logrotate retention count
+  ansible.builtin.lineinfile:
+    path: /etc/logrotate.conf
+    regexp: '^rotate\s+\d+$'
+    line: "rotate {{ proxmox_logrotate_count }}"
+    state: present
+
+# Listing a path in two logrotate configs makes logrotate skip that file
+# entirely ("duplicate log entry ... skipping"), so this deliberately covers
+# only logs no other config owns. /var/log/pveproxy/access.log belongs to
+# /etc/logrotate.d/pve (already daily + rotate 7) and /var/log/pve/*.log are
+# pvedaemon task logs that the task-log UI reads.
+- name: Configure logrotate for the Proxmox logs nothing else rotates
+  ansible.builtin.copy:
+    dest: /etc/logrotate.d/homelab-pve-retention
+    mode: '0644'
+    content: |
+      # Managed by ansible/roles/proxmox_log_retention (homelab repo).
+      # Deliberately excludes /var/log/pveproxy/access.log (owned by
+      # /etc/logrotate.d/pve) and /var/log/pve/*.log (pvedaemon task logs):
+      # a path listed twice is skipped by logrotate, not rotated twice.
+      /var/log/pveam.log /var/log/vzdump/*.log {
+          {{ proxmox_logrotate_frequency }}
+          rotate {{ proxmox_logrotate_count }}
+          missingok
+          notifempty
+          compress
+          delaycompress
+          copytruncate
+          su root root
+      }
+  register: pve_logrotate
+
+- name: Verify the logrotate configuration parses with no duplicate entries
+  ansible.builtin.command:
+    cmd: logrotate -d /etc/logrotate.conf
+  register: logrotate_check
+  changed_when: false
+  failed_when: >-
+    logrotate_check.rc != 0 or
+    'duplicate log entry' in logrotate_check.stderr
+
+- name: Find backup archives older than the retention window
+  ansible.builtin.find:
+    paths: "{{ proxmox_dump_dir }}"
+    age: "{{ proxmox_dump_retention_days }}d"
+    patterns: ['*.vma.zst', '*.vma', '*.tar.zst', '*.tmp', '*.dat', '*.log']
+    file_type: file
+  register: stale_dumps
+  when: proxmox_dump_retention_days | int > 0
+
+- name: Remove backup archives older than the retention window
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: absent
+  loop: "{{ stale_dumps.files | default([]) }}"
+  loop_control:
+    label: "{{ item.path | basename }}"
+
+# vzdump only prunes after a *successful* run, so a job that always fails never
+# prunes. Bounding retention here means the policy applies the moment the job
+# is pointed somewhere with room.
+- name: Read the current vzdump job configuration
+  ansible.builtin.command:
+    cmd: "pvesh get /cluster/backup/{{ proxmox_backup_job_id }} --output-format json"
+  register: backup_job_current
+  changed_when: false
+  failed_when: false
+  when: proxmox_backup_job_manage | bool
+
+# `pvesh get` returns prune-backups as an object ({"keep-daily": "7"}), while
+# `pvesh set` takes the "keep-daily=7" string form. Normalise both to a sorted
+# k=v list so the comparison is real and the task stays idempotent.
+- name: Normalise the current and desired prune policies for comparison
+  ansible.builtin.set_fact:
+    backup_prune_current: >-
+      {%- set p = (backup_job_current.stdout | from_json)['prune-backups'] | default({}) -%}
+      {%- set out = [] -%}
+      {%- for k in p.keys() | sort -%}{{ out.append(k ~ '=' ~ p[k]) or '' }}{%- endfor -%}
+      {{ out | join(',') }}
+    backup_prune_desired: >-
+      {%- set out = [] -%}
+      {%- for kv in proxmox_backup_job_prune.split(',') -%}{{ out.append(kv | trim) or '' }}{%- endfor -%}
+      {{ out | sort | join(',') }}
+    backup_enabled_current: >-
+      {{ (backup_job_current.stdout | from_json).get('enabled', 1) | int }}
+  when:
+    - proxmox_backup_job_manage | bool
+    - backup_job_current.rc == 0
+
+- name: Bound the vzdump job retention and enabled state
+  ansible.builtin.command:
+    cmd: >-
+      pvesh set /cluster/backup/{{ proxmox_backup_job_id }}
+      --prune-backups {{ proxmox_backup_job_prune }}
+      --enabled {{ 1 if proxmox_backup_job_enabled | bool else 0 }}
+  changed_when: true
+  when:
+    - proxmox_backup_job_manage | bool
+    - backup_job_current.rc == 0
+    - >-
+      backup_prune_current != backup_prune_desired
+      or backup_enabled_current | int
+        != (1 if proxmox_backup_job_enabled | bool else 0)
+
+- name: Report root filesystem usage after retention is applied
+  ansible.builtin.command:
+    cmd: df -h /
+  register: root_usage
+  changed_when: false
+
+- name: Show root filesystem usage
+  ansible.builtin.debug:
+    msg: "{{ root_usage.stdout_lines }}"

@@ -1,0 +1,22 @@
+---
+# Log and backup retention on the Proxmox host (7 days).
+#
+# The root filesystem (67 GB pve-root LVM) reached 100% in April 2026 because
+# the vzdump job `dev-daily-backup` wrote full VM images to `local`, which is
+# that same volume. Every backup since failed, nothing was ever pruned (vzdump
+# prunes only after a successful run), postfix could not queue mail, and the
+# journal grew unbounded. This playbook makes the retention policy explicit and
+# re-runnable.
+#
+#   ansible-playbook playbooks/proxmox-log-retention.yml
+#   ansible-playbook playbooks/proxmox-log-retention.yml --check --diff
+#
+# See docs/runbooks/control-plane-storage.md ("Host housekeeping").
+
+- name: Proxmox log and backup retention
+  hosts: proxmox
+  gather_facts: true
+  become: true
+
+  roles:
+    - role: proxmox_log_retention

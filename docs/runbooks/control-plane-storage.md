@@ -194,17 +194,51 @@ limit of the machine running the test, not of the cluster.
 
 ## Host housekeeping
 
-Found during the investigation, outside this repository's control, worth fixing on the host:
+### Root filesystem and log retention (fixed 2026-09-16)
 
-- **Proxmox root filesystem 100 % full.** An unmanaged `vzdump` job `dev-daily-backup` (all VMs,
-  storage `local`, 03:00 local) has failed every day since at least 2026-08-07
-  (`vma_queue_write: write error - Broken pipe`) and left 59 G in `/var/lib/vz/dump`. Postfix can no
-  longer queue mail. Either delete the job (`pvesh delete /cluster/backup/dev-daily-backup`) or point
-  it at TrueNAS, then prune the dump directory. There is no
-  `terragrunt/environments/homelab/proxmox-backup-policy` instance, which is why Terraform does not
-  know about this job.
+The Proxmox root filesystem was **100 % full, with zero bytes free**, and had been since April.
+
+The `vzdump` job `dev-daily-backup` backs up every VM to `local`, which is the 67 GB `pve-root` LVM
+itself. A full set of VM images is around 60 GB, so it filled the volume on 2026-04-13 and every run
+since failed with `vma_queue_write: write error - Broken pipe`. Because vzdump prunes only **after** a
+successful run, its `keep-daily=3,keep-weekly=2` policy never executed: 59 GB of April archives and
+1421 daily failure logs accumulated. Postfix could not queue mail either.
+
+Fixed and codified in `ansible/roles/proxmox_log_retention` (playbook
+`ansible/playbooks/proxmox-log-retention.yml`), which is idempotent and safe to re-run:
+
+```bash
+cd ansible && ansible-playbook -i inventory/homelab.yml playbooks/proxmox-log-retention.yml
+```
+
+| Setting | Value |
+|---|---|
+| journald | `MaxRetentionSec=7day`, `SystemMaxUse=1G`, `SystemKeepFree=8G`, `RuntimeMaxUse=256M` |
+| logrotate (global) | `daily`, `rotate 7` |
+| logrotate (`pveam.log`, `vzdump/*.log`) | `daily`, `rotate 7` |
+| `/var/lib/vz/dump` | anything older than 7 days pruned |
+| `dev-daily-backup` | `prune-backups keep-daily=7`, **disabled** |
+
+Result: root went from 100 % (0 B free) to **11 % used, 57 GB free**; the journal dropped from 241 MB
+on disk to 12 KB, and the runtime journal from 2.5 GB of RAM to 223 MB.
+
+**The backup job is intentionally left disabled.** It has produced nothing since April, and `local`
+is the only Proxmox storage that accepts backups. Before re-enabling it, give it a destination with
+room — TrueNAS over NFS is the right answer; `vm-storage` is acceptable **only after** the control
+planes have moved to `cp-storage`, because a nightly multi-GB write to `vm-storage` is precisely the
+burst that stalls etcd. Re-enable with `proxmox_backup_job_enabled: true` once that is true.
+
+Two notes: the logrotate config deliberately does not list `/var/log/pveproxy/access.log` (owned by
+`/etc/logrotate.d/pve`, already daily with 7 rotations) or `/var/log/pve/*.log` (pvedaemon task logs)
+— a path listed in two logrotate configs is **skipped entirely**, not rotated twice. And 157 old
+undeliverable failure mails remain in the postfix queue; they are harmless and small (~4.5 MB).
+
+### Still open
+
 - **`~/.talos/config` lists only two endpoints** (.11 and .12). Add 172.16.100.13.
 - **Unused Cilium LB pool `control-plane-vip`** (`charts/addons/templates/cilium-lb-ipam.yaml`) holds
   172.16.100.10, the API VIP. No Service carries the `cilium.io/pool: control-plane-vip` label today,
   but one that did would announce the API VIP from a worker over L2 and break the API. It is unused —
   consider removing it.
+- There is no `terragrunt/environments/homelab/proxmox-backup-policy` instance, which is why
+  Terraform never knew about the backup job. The module exists if you want it managed.
