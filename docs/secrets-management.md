@@ -126,7 +126,7 @@ The 1Password Operator requires initial credentials to connect to the 1Password 
    ```bash
    # Add to .envrc
    export TF_VAR_onepassword_credentials_json="$(cat ~/.op/1password-credentials.json)"
-   export OP_CONNECT_HOST="https://1password-connect.ryanmcafee.com"
+   export OP_CONNECT_HOST="https://1password-connect.<DOMAIN>"  # DOMAIN from configuration/environments/homelab.yaml
    export OP_CONNECT_TOKEN="<your-connect-token>"
    export OP_SERVICE_ACCOUNT_TOKEN="<your-service-account-token>"
 
@@ -221,13 +221,13 @@ cp .envrc.example .envrc
 
 ## GitHub Actions Secrets
 
-Set these secrets in your GitHub repository settings:
+Set these secrets in your GitHub repository settings. `<DOMAIN>` and `<PROXMOX_IP>` below are placeholders resolved from `configuration/environments/homelab.yaml` (gitignored).
 
 | Secret Name | Description | Example |
 |------------|-------------|---------|
-| `OP_CONNECT_HOST` | 1Password Connect URL | `https://1password-connect.ryanmcafee.com` |
+| `OP_CONNECT_HOST` | 1Password Connect URL | `https://1password-connect.<DOMAIN>` |
 | `OP_CONNECT_TOKEN` | Connect API token | `<from-1password-connect-setup>` |
-| `PROXMOX_API_URL` | Proxmox API endpoint | `https://172.16.100.250:8006/api2/json` |
+| `PROXMOX_API_URL` | Proxmox API endpoint | `https://<PROXMOX_IP>:8006/api2/json` |
 | `PROXMOX_API_TOKEN_ID` | Proxmox token ID | `root@pam!terraform` |
 | `PROXMOX_API_TOKEN_SECRET` | Proxmox token secret | `<from-proxmox-ui>` |
 

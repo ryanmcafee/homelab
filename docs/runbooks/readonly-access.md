@@ -124,7 +124,7 @@ at the internal `argocd.<domain>` (tailnet only).
 
 1. Create a GitHub App under the repository owner: no webhook. Grant **Commit statuses: read &
    write**, **Pull requests: read & write**, **Contents: read-only** and **Metadata: read-only**.
-   Install it on `ryanmcafee/homelab` only and generate a private key.
+   Install it on `github.com/ryanmcafee/homelab` only and generate a private key.
 2. Create the 1Password item `argocd-notifications-github` in vault `homelab`
    (`vaults/homelab/items/argocd-notifications-github`) with three fields whose labels are exactly
    `github-appID`, `github-installationID` and `github-privateKey` (the full PEM). The 1Password

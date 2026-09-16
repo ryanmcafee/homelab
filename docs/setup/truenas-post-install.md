@@ -4,6 +4,8 @@ Automated configuration of TrueNAS after VM installation via Ansible playbooks.
 
 ## Prerequisites
 
+Addresses below are `<KEY>` placeholders resolved from `configuration/environments/homelab.yaml` (gitignored); `<TRUENAS_IP>` is the TrueNAS server and `<NFS_SHARE_ALLOW>` the CIDR allowed to mount its shares.
+
 - TrueNAS VM deployed via Terraform (`task terragrunt:apply:truenas`)
 - TrueNAS initial setup completed (admin password configured)
 - SSH access to TrueNAS (optional, API is preferred)
@@ -13,7 +15,7 @@ Automated configuration of TrueNAS after VM installation via Ansible playbooks.
 
 After the TrueNAS VM boots:
 
-1. Access TrueNAS Web UI at `https://172.16.100.50`
+1. Access TrueNAS Web UI at `https://<TRUENAS_IP>`
 2. Complete initial setup wizard
 3. Set admin password
 4. Configure network if needed (should auto-configure via DHCP/static)
@@ -82,7 +84,7 @@ The Ansible playbook configures:
 
 | Share | Path | Access |
 |-------|------|--------|
-| Kubernetes | `/mnt/storage/k8s` | 172.16.100.0/24 |
+| Kubernetes | `/mnt/storage/k8s` | <NFS_SHARE_ALLOW> |
 
 ### Services
 
@@ -123,7 +125,7 @@ From a Talos node or workstation:
 mkdir -p /mnt/test
 
 # Mount NFS share
-mount -t nfs 172.16.100.50:/mnt/storage/k8s /mnt/test
+mount -t nfs <TRUENAS_IP>:/mnt/storage/k8s /mnt/test
 
 # Verify write access
 touch /mnt/test/test-file
@@ -169,11 +171,11 @@ kubectl delete pvc test-pvc
 
 ```bash
 # Verify TrueNAS is reachable
-ping 172.16.100.50
+ping <TRUENAS_IP>
 
 # Test API endpoint
 curl -k -H "Authorization: Bearer $TRUENAS_API_KEY" \
-  https://172.16.100.50/api/v2.0/system/info
+  https://<TRUENAS_IP>/api/v2.0/system/info
 ```
 
 ### NFS Mount Failed
@@ -181,10 +183,10 @@ curl -k -H "Authorization: Bearer $TRUENAS_API_KEY" \
 ```bash
 # Check NFS service on TrueNAS
 curl -k -H "Authorization: Bearer $TRUENAS_API_KEY" \
-  https://172.16.100.50/api/v2.0/service | jq '.[] | select(.service=="nfs")'
+  https://<TRUENAS_IP>/api/v2.0/service | jq '.[] | select(.service=="nfs")'
 
 # Check exports
-showmount -e 172.16.100.50
+showmount -e <TRUENAS_IP>
 ```
 
 ### Pool Not Visible

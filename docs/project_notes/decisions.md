@@ -133,45 +133,45 @@ Each decision should include:
 - Containers run as UID 568 (apps) with GID 100 (users) per TrueCharts convention
 - Democratic-CSI provisions NFS shares with mapall for k8s PVC datasets
 - Media datasets (movies, tv, downloads, etc.) use direct NFS mounts, not CSI
-- Initial setup used `rmcafee:users` for media shares and `apps:users` for k8s — causing permission mismatches when containers accessed media NFS mounts
+- Initial setup used `<NFS_MAPALL_USER>:users` for media shares and `apps:users` for k8s — causing permission mismatches when containers accessed media NFS mounts
 
 **Decision:**
 - ALL NFS shares use `mapall_user: apps, mapall_group: users` (568:100)
 - ALL datasets owned by `apps:users` (568:100) with mode 770
 - Single permission model for both CSI-provisioned and direct NFS mounts
-- SMB access still works via group `users` (GID 100) shared between `rmcafee` and `apps`
+- SMB access still works via group `users` (GID 100) shared between `<NFS_MAPALL_USER>` and `apps`
 
 **Alternatives Considered:**
-- Keep `rmcafee:users` for media, `apps:users` for k8s → Split model, confusing, permission bugs
+- Keep `<NFS_MAPALL_USER>:users` for media, `apps:users` for k8s → Split model, confusing, permission bugs
 - Use `maproot` instead of `mapall` → Only maps UID 0, non-root containers get denied
 
 **Consequences:**
 - All media apps (NZBGet, Sonarr, Radarr, etc.) can access NFS mounts consistently
 - SMB clients (desktop) still have access via group membership
-- Dataset ownership is `apps` not `rmcafee` — SMB writes will appear as `apps` user
+- Dataset ownership is `apps` not `<NFS_MAPALL_USER>` — SMB writes will appear as `apps` user
 - Script `truenas-nfs-mapall.ts --all --fix-permissions` applies the full fix
 
-### ADR-007: Split NFS Permission Model — apps:users for K8s, rmcafee:users for Media (2026-02-09)
+### ADR-007: Split NFS Permission Model — apps:users for K8s, <NFS_MAPALL_USER>:users for Media (2026-02-09)
 
 **Context:**
 - ADR-006 unified all datasets to apps:users (568:100)
-- Personal datasets (media, backups, documents) are better owned by rmcafee for SMB access
+- Personal datasets (media, backups, documents) are better owned by <NFS_MAPALL_USER> for SMB access
 - K8s workloads only need k8s datasets as apps:users
 
 **Decision:**
 - K8s datasets: apps:users (568:100) ownership + NFS mapall
-- Media/personal datasets: rmcafee:users ownership + NFS mapall
+- Media/personal datasets: <NFS_MAPALL_USER>:users ownership + NFS mapall
 - Mode 770 on all datasets (group users gets rwx)
 - truenas-nfs-mapall.ts updated with split k8s/media behavior
 
 **Alternatives Considered:**
 - Keep unified apps:users (ADR-006) -> SMB files appear as apps, not personal user
-- Use rmcafee for everything -> K8s pods would need reconfiguration
+- Use <NFS_MAPALL_USER> for everything -> K8s pods would need reconfiguration
 
 **Consequences:**
-- SMB access shows files as rmcafee (natural for desktop browsing)
+- SMB access shows files as <NFS_MAPALL_USER> (natural for desktop browsing)
 - K8s pods still access media via group users (GID 100) with mode 770
-- NFS-created files from K8s pods will be owned by rmcafee (via mapall)
+- NFS-created files from K8s pods will be owned by <NFS_MAPALL_USER> (via mapall)
 - Two permission models to maintain (documented in script flags)
 
 ### ADR-008: iSCSI Block Storage for SQLite Workloads (2026-02-09)
@@ -401,7 +401,7 @@ Each decision should include:
 
 - **2026-02-11: ArgoCD CMP for PII removal** — Moved config generation from commit-time to ArgoCD render-time using a Config Management Plugin sidecar. Bootstrap chart breaks chicken-and-egg with 1Password operator. All committed values files sanitized to safe defaults. The design doc (`docs/plans/2026-02-11-argocd-cmp-pii-removal-design.md`) was removed in c4daa10 once implemented; the mechanism is documented in `Claude.md` "CMP Architecture" and extended to child charts by ADR-010.
 
-- **2026-02-13: Dual Traefik Ingress Controllers** — Split single Traefik into external (`external` IngressClass, static IP 172.16.100.200, OIDC, port forwarding) and internal (`internal` IngressClass, dynamic IP, no OIDC). Plex uses external; all other apps use internal. OIDC middleware annotations removed from internal apps. Design doc: `docs/plans/2026-02-13-dual-traefik-ingress-design.md`.
+- **2026-02-13: Dual Traefik Ingress Controllers** — Split single Traefik into external (`external` IngressClass, static IP <TRAEFIK_STATIC_IP>, OIDC, port forwarding) and internal (`internal` IngressClass, dynamic IP, no OIDC). Plex uses external; all other apps use internal. OIDC middleware annotations removed from internal apps. Design doc: `docs/plans/2026-02-13-dual-traefik-ingress-design.md`.
 
 ### ADR-016: etcd gets its own disk; the control planes leave the shared VM pool (2026-09-15)
 

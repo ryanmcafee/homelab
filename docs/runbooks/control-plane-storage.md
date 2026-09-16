@@ -9,6 +9,10 @@ leases expired and the Talos layer-2 VIP moved. ADR-016 has the decision; `docs/
 Agents never run any of this: every step below mutates production (ADR-009). An agent may run the
 read-only checks in [Verify](#verify) and [Diagnose a recurrence](#diagnose-a-recurrence).
 
+Every address in the commands below is a `<KEY>` placeholder — `PROXMOX_IP`, `CP_VIP` and
+`CP1_IP`/`CP2_IP`/`CP3_IP` — whose real value comes from the gitignored
+`configuration/environments/homelab.yaml` (`task config:eval` prints them all).
+
 ## How it fits together
 
 | Piece | Where | What it does |
@@ -28,7 +32,7 @@ the alternative (adding the NVMe as a SLOG to `vm-storage` instead) are recorded
 - The target device is `/dev/disk/by-id/nvme-Samsung_SSD_990_PRO_1TB_S6Z1NU0XC45503Z`. **`zpool create -f`
   wipes it.** Confirm it is unused first — no partitions, no LVM PV, no ZFS label:
   ```bash
-  ssh root@172.16.100.250 'lsblk /dev/nvme0n1; pvs; blkid /dev/nvme0n1*; zpool import'
+  ssh root@<PROXMOX_IP> 'lsblk /dev/nvme0n1; pvs; blkid /dev/nvme0n1*; zpool import'
   ```
   Expect: no partition rows, no PV on `nvme0n1`, no `blkid` output, and `zpool import` not offering a
   pool from it. If any of those show data, **stop** and pick another device.
@@ -36,17 +40,17 @@ the alternative (adding the NVMe as a SLOG to `vm-storage` instead) are recorded
   investigation because of an unmanaged daily `vzdump` job; see [Host housekeeping](#host-housekeeping).
 - Take an etcd snapshot and keep it off-cluster:
   ```bash
-  talosctl -n 172.16.100.11 etcd snapshot /tmp/etcd-$(date -u +%Y%m%dT%H%M%SZ).snapshot
+  talosctl -n <CP1_IP> etcd snapshot /tmp/etcd-$(date -u +%Y%m%dT%H%M%SZ).snapshot
   ```
 - Know which node holds the VIP, so you can watch it move:
   ```bash
-  talosctl -n 172.16.100.11,172.16.100.12,172.16.100.13 get addresses | rg 172.16.100.10/
+  talosctl -n <CP1_IP>,<CP2_IP>,<CP3_IP> get addresses | rg <CP_VIP>/
   ```
 - Start a probe in another terminal and leave it running through the whole migration:
   ```bash
   task apiserver:probe -- --context admin@homelab \
-    --endpoint https://172.16.100.11:6443 --endpoint https://172.16.100.12:6443 \
-    --endpoint https://172.16.100.13:6443 --duration 60m --json /tmp/migration-probe.json
+    --endpoint https://<CP1_IP>:6443 --endpoint https://<CP2_IP>:6443 \
+    --endpoint https://<CP3_IP>:6443 --duration 60m --json /tmp/migration-probe.json
   ```
 
 ## Migration
@@ -64,7 +68,7 @@ removing `disk` from `ignore_changes`.
 
 ```bash
 task tf:apply:component COMPONENT=proxmox-zfs-pool-cp     # plan first: 1 to add, no resource pool
-ssh root@172.16.100.250 'zpool list cp-storage; zfs get compression,atime,recordsize cp-storage'
+ssh root@<PROXMOX_IP> 'zpool list cp-storage; zfs get compression,atime,recordsize cp-storage'
 ```
 
 **2. Move one control-plane disk, with the VM stopped.**
@@ -75,11 +79,11 @@ when the cluster is quiet. Stopping the VM first keeps the moving node's own etc
 the other two hold quorum.
 
 ```bash
-# cp-1 = VM 101 (172.16.100.11), cp-2 = 102 (.12), cp-3 = 103 (.13)
-ssh root@172.16.100.250 'qm shutdown 101 && qm wait 101'
-ssh root@172.16.100.250 'qm move-disk 101 scsi0 cp-storage --delete 1 --bwlimit 200000'
-ssh root@172.16.100.250 'qm config 101 | grep scsi0'    # expect cp-storage:vm-101-disk-0
-ssh root@172.16.100.250 'qm start 101'
+# cp-1 = VM 101 (<CP1_IP>), cp-2 = 102 (<CP2_IP>), cp-3 = 103 (<CP3_IP>)
+ssh root@<PROXMOX_IP> 'qm shutdown 101 && qm wait 101'
+ssh root@<PROXMOX_IP> 'qm move-disk 101 scsi0 cp-storage --delete 1 --bwlimit 200000'
+ssh root@<PROXMOX_IP> 'qm config 101 | grep scsi0'    # expect cp-storage:vm-101-disk-0
+ssh root@<PROXMOX_IP> 'qm start 101'
 ```
 
 `scripts/cp-storage-migrate.ts` automates exactly this step — one node at a time, with the checks
@@ -102,8 +106,8 @@ that keeps writing.
 Then wait for the cluster to be whole again **before the next node**:
 
 ```bash
-talosctl -n 172.16.100.11,172.16.100.12,172.16.100.13 etcd status   # 3 members, matching RAFT INDEX, no ERRORS
-talosctl -n 172.16.100.11,172.16.100.12,172.16.100.13 get addresses | rg 172.16.100.10/
+talosctl -n <CP1_IP>,<CP2_IP>,<CP3_IP> etcd status   # 3 members, matching RAFT INDEX, no ERRORS
+talosctl -n <CP1_IP>,<CP2_IP>,<CP3_IP> get addresses | rg <CP_VIP>/
 kubectl --context admin@homelab get --raw '/readyz?verbose' | tail -3
 ```
 
@@ -138,18 +142,18 @@ support restart operation via API") because etcd is managed by the machine-confi
 each node after its apply:
 
 ```bash
-talosctl -n 172.16.100.11 reboot
+talosctl -n <CP1_IP> reboot
 # then poll until the member is back, the API is up and the metrics port answers:
-talosctl -n 172.16.100.11,172.16.100.12,172.16.100.13 etcd status
+talosctl -n <CP1_IP>,<CP2_IP>,<CP3_IP> etcd status
 kubectl --context admin@homelab get --raw /readyz
-ssh root@172.16.100.250 'curl -s -o /dev/null -w "%{http_code}\n" http://172.16.100.11:2381/metrics'  # 200
+ssh root@<PROXMOX_IP> 'curl -s -o /dev/null -w "%{http_code}\n" http://<CP1_IP>:2381/metrics'  # 200
 ```
 
 Each node came back inside 40 s and `/readyz` never stopped returning `ok`, because the VIP moves to
 a surviving node. Confirm the tuning is really live rather than merely configured:
 
 ```bash
-talosctl -n 172.16.100.11 logs etcd | grep -o 'heartbeat-interval=[0-9]*\|election-timeout=[0-9]*'
+talosctl -n <CP1_IP> logs etcd | grep -o 'heartbeat-interval=[0-9]*\|election-timeout=[0-9]*'
 ```
 
 `heartbeat-interval` and `election-timeout` must end up identical on all three members — a
@@ -167,7 +171,7 @@ deno run --allow-net --allow-run --allow-env --allow-read --allow-write \
   scripts/cp-storage-migrate.ts verify [--prometheus-url http://127.0.0.1:9091]
 
 # etcd is healthy and now scraped
-talosctl -n 172.16.100.11,172.16.100.12,172.16.100.13 etcd status
+talosctl -n <CP1_IP>,<CP2_IP>,<CP3_IP> etcd status
 kubectl --context admin@homelab -n monitoring port-forward svc/kube-prometheus-stack-prometheus 9091:9090 &
 curl -s 'http://127.0.0.1:9091/api/v1/query?query=up{job="kube-etcd"}' | jq '.data.result[].value[1]'   # three 1s
 
@@ -176,7 +180,7 @@ curl -s --data-urlencode 'query=histogram_quantile(0.99, sum by (le) (rate(etcd_
   http://127.0.0.1:9091/api/v1/query | jq -r '.data.result[].value[1]'                                  # want < 0.05
 
 # CP VMs should no longer stall on I/O (was 0.25-0.30 "full avg300" before)
-ssh root@172.16.100.250 'for v in 101 102 103; do cat /sys/fs/cgroup/qemu.slice/$v.scope/io.pressure; done'
+ssh root@<PROXMOX_IP> 'for v in 101 102 103; do cat /sys/fs/cgroup/qemu.slice/$v.scope/io.pressure; done'
 ```
 
 The probe you left running should report zero failures and no outage window. A successful migration
@@ -204,8 +208,8 @@ minutes. All are read-only.
 
 | Question | Command | Reads as |
 |----------|---------|----------|
-| Is it the VIP or the API? | `task apiserver:probe -- --duration 2m --endpoint https://172.16.100.11:6443 --endpoint https://172.16.100.12:6443 --endpoint https://172.16.100.13:6443` | The VIP failing while the three node IPs answer = VIP failover, not an API outage |
-| Is etcd stalling on disk? | `talosctl -n 172.16.100.13 logs etcd \| rg -i "slow fdatasync\|heartbeat on time"` | Any multi-second `slow fdatasync` = storage, not Kubernetes |
+| Is it the VIP or the API? | `task apiserver:probe -- --duration 2m --endpoint https://<CP1_IP>:6443 --endpoint https://<CP2_IP>:6443 --endpoint https://<CP3_IP>:6443` | The VIP failing while the three node IPs answer = VIP failover, not an API outage |
+| Is etcd stalling on disk? | `talosctl -n <CP3_IP> logs etcd \| rg -i "slow fdatasync\|heartbeat on time"` | Any multi-second `slow fdatasync` = storage, not Kubernetes |
 | Who is writing? | Prometheus `sum by (instance) (rate(node_disk_written_bytes_total{device="sda"}[5m])) * 300 / 1048576` | GB-scale bursts on a worker = an image unpack or a media write |
 | Did leases expire? | `kubectl -n kube-system logs kube-controller-manager-<node> --previous \| rg leaderelection` | `failed to renew lease` = downstream symptom, never the cause |
 
@@ -276,9 +280,9 @@ undeliverable failure mails remain in the postfix queue; they are harmless and s
 
 ### Still open
 
-- **`~/.talos/config` lists only two endpoints** (.11 and .12). Add 172.16.100.13.
+- **`~/.talos/config` lists only two endpoints** (`<CP1_IP>` and `<CP2_IP>`). Add `<CP3_IP>`.
 - **Unused Cilium LB pool `control-plane-vip`** (`charts/addons/templates/cilium-lb-ipam.yaml`) holds
-  172.16.100.10, the API VIP. No Service carries the `cilium.io/pool: control-plane-vip` label today,
+  `<CP_VIP>`, the API VIP. No Service carries the `cilium.io/pool: control-plane-vip` label today,
   but one that did would announce the API VIP from a worker over L2 and break the API. It is unused —
   consider removing it.
 - There is no `terragrunt/environments/homelab/proxmox-backup-policy` instance, which is why

@@ -32,6 +32,11 @@ var consumedOutsideTemplates = map[string]string{
 		"piiKeyPrefixes), scanned by `task config:guard`; the value is never " +
 		"rendered to a template",
 
+	"IPMI_IP": "PII guard pattern source only: the BMC address appears in " +
+		"docs/hardware-setup.md and docs/architecture.md as <IPMI_IP>, and the " +
+		"key exists so the guard can catch it being pasted back in; nothing " +
+		"renders it",
+
 	"WORKER1_IP": "read directly as rc.Values[\"WORKER1_IP\"] in " +
 		"cmd/homelab/commands/verify.go (GPU node check), and dynamically via " +
 		"workerIPConfigKey() in talos.go for `task talos:recreate:node NODE=worker-1`",

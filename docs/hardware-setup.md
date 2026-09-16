@@ -2,6 +2,8 @@
 
 This document provides comprehensive hardware configuration instructions for the homelab, including BIOS settings, HBA configuration, cable management, and troubleshooting.
 
+Addresses written as `<KEY>` (`<PROXMOX_IP>`, `<GATEWAY_IP>`, ...) are placeholders resolved from `configuration/environments/homelab.yaml`, which is gitignored.
+
 ## Table of Contents
 
 - [Hardware Overview](#hardware-overview)
@@ -49,8 +51,8 @@ This document provides comprehensive hardware configuration instructions for the
 │  └──────────────────────────────────────────────────────────┘  │
 │                                                                  │
 │  Network:                                                        │
-│  ├─ 1GbE Port 1: IPMI (172.16.100.26)                           │
-│  ├─ 10GbE Port 1: Proxmox Management (172.16.100.250)           │
+│  ├─ 1GbE Port 1: IPMI (<IPMI_IP>)                               │
+│  ├─ 10GbE Port 1: Proxmox Management (<PROXMOX_IP>)             │
 │  └─ 10GbE Port 2: (Available)                                   │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -440,8 +442,8 @@ iface enp1s0 inet manual
 # Bridge for VMs (VLAN 100)
 auto vmbr0
 iface vmbr0 inet static
-    address 172.16.100.250/24
-    gateway 172.16.100.1
+    address <PROXMOX_IP>/24
+    gateway <GATEWAY_IP>
     bridge-ports enp1s0
     bridge-stp off
     bridge-fd 0
@@ -523,7 +525,7 @@ reboot
 **Access IPMI Web UI**:
 
 1. Connect to IPMI network (separate from main network)
-2. Navigate to `http://172.16.100.26` (or DHCP-assigned IP)
+2. Navigate to `http://<IPMI_IP>` (or DHCP-assigned IP)
 3. Login with default credentials
 
 ### Network Configuration
@@ -532,9 +534,9 @@ reboot
 
 1. Navigate to **Configuration** → **Network**
 2. Configure:
-   - IP Address: `172.16.100.26`
+   - IP Address: `<IPMI_IP>`
    - Subnet Mask: `255.255.255.0`
-   - Gateway: `172.16.100.1`
+   - Gateway: `<GATEWAY_IP>`
    - VLAN: (optional) Dedicated IPMI VLAN
 3. Save and reboot IPMI
 
@@ -564,10 +566,10 @@ reboot
 
 ```bash
 # SSH to IPMI (if enabled) or use ipmitool from another host
-ipmitool -I lanplus -H 172.16.100.26 -U ADMIN -P <password> sensor thresh FAN1 lower 200 300 400
-ipmitool -I lanplus -H 172.16.100.26 -U ADMIN -P <password> sensor thresh FAN2 lower 200 300 400
-ipmitool -I lanplus -H 172.16.100.26 -U ADMIN -P <password> sensor thresh FAN3 lower 200 300 400
-ipmitool -I lanplus -H 172.16.100.26 -U ADMIN -P <password> sensor thresh FAN4 lower 200 300 400
+ipmitool -I lanplus -H <IPMI_IP> -U ADMIN -P <password> sensor thresh FAN1 lower 200 300 400
+ipmitool -I lanplus -H <IPMI_IP> -U ADMIN -P <password> sensor thresh FAN2 lower 200 300 400
+ipmitool -I lanplus -H <IPMI_IP> -U ADMIN -P <password> sensor thresh FAN3 lower 200 300 400
+ipmitool -I lanplus -H <IPMI_IP> -U ADMIN -P <password> sensor thresh FAN4 lower 200 300 400
 ```
 
 **Reference**: [IPMI Fan Threshold Guide](https://calvin.me/quick-how-to-decrease-ipmi-fan-threshold/)

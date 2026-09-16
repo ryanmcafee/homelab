@@ -1748,6 +1748,7 @@ func TestDefaultGuardScopeCoversChartHomelabValues(t *testing.T) {
 		"configuration/**",
 		"charts/**/values-homelab.yaml",
 		"scripts/**",
+		"docs/**",
 	}
 	if strings.Join(DefaultGuardPathspecs, " ") != strings.Join(want, " ") {
 		t.Fatalf("DefaultGuardPathspecs = %v, want %v", DefaultGuardPathspecs, want)

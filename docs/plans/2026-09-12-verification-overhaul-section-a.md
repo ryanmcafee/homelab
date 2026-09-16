@@ -186,7 +186,7 @@ Rules (one `Check` each, name `gitops/<env>/<rule>`, all findings listed):
 - `container-resources`: every container in Deployment/StatefulSet/DaemonSet/Job/CronJob/Pod sets `resources.requests` and `resources.limits` (cpu+memory).
 - `inline-secret`: `Secret` objects may only carry keys `name,url,type,enableOCI,project,insecure` (repository secrets) — anything else is an inline secret.
 - `hostname-domain`: every Ingress host, IngressRoute `Host(...)` match, Certificate `dnsNames[]`, and DNSEndpoint `dnsName` ends with `.` + `data.domain` (from `_data.yaml`).
-- Exemptions: annotation `homelab.ryanmcafee.com/policy-exempt: "<rule-id>[,<rule-id>]"` with a sibling `homelab.ryanmcafee.com/policy-exempt-reason`. Cilium's visibility-only Application is exempt from `app-automated`.
+- Exemptions: annotation `homelab.<DOMAIN>/policy-exempt: "<rule-id>[,<rule-id>]"` with a sibling `homelab.<DOMAIN>/policy-exempt-reason`. Cilium's visibility-only Application is exempt from `app-automated`.
 
 - [ ] **Step 1:** Write `*_test.rego` unit tests and the negative fixtures first; `conftest verify -p tests/policy` → FAIL (rules undefined).
 - [ ] **Step 2:** Implement rules; `conftest verify -p tests/policy` → PASS.

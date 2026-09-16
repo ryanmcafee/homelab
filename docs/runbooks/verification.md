@@ -57,7 +57,7 @@ claim disagrees (see "Agent contract" below); `verify.yml` uploads its own copy 
 | `gitops/<env>/unique-names` | No duplicate Application `namespace/name`. | Rename. |
 | `versions/<env>` | Every chart-sourced Application (`spec.source.chart` or `spec.sources[].chart`) renders the `targetRevision` that `configuration/versions.yaml` `charts:` pins for it (key mapped by chart name, Renovate `depName` or Application name; exact string match; a chart with no mapped key must equal some `charts:` value). Drift listed with a reason in `tests/gitops/version-drift.yaml` is allowed; an entry whose revision no longer renders, whose drift was fixed, or (full render only, `versions/registry`) that matches no Application fails. | Make the export template emit `chart.version` from `.Versions.Charts`, or register the drift with a reason; remove stale entries. |
 | `snapshot/<env>/<chart>` | The render is byte-identical to `tests/snapshots/<env>/<chart>.yaml`. | Review the diff; if intended run `task test:snapshot -- --update` and commit. |
-| `policy/<env>` | conftest policies in `tests/policy/` pass (finalizers, sync waves, SSA, automated sync, no `:latest`, resources on every container, no inline secrets, hostnames under the configured domain). | Fix the chart, or add `homelab.ryanmcafee.com/policy-exempt: "<rule-id>"` plus `homelab.ryanmcafee.com/policy-exempt-reason` on the object. |
+| `policy/<env>` | conftest policies in `tests/policy/` pass (finalizers, sync waves, SSA, automated sync, no `:latest`, resources on every container, no inline secrets, hostnames under the configured domain). | Fix the chart, or add `homelab.<DOMAIN>/policy-exempt: "<rule-id>"` plus `homelab.<DOMAIN>/policy-exempt-reason` on the object. |
 
 Level 0 renders a third environment, `homelab-preview`: the homelab two-stage render of
 `charts/applications` alone in preview mode (`global.preview.pr=123`, every app in
@@ -375,7 +375,7 @@ Application's `helm.valuesObject`, see ADR-010). Real values come from the gitig
   domain keys;
 - Helm-style keys (`host`, `hostname`, `domain`, `portal`, `staticIP`, `ip`, `address`,
   `email`, `subdomain`, ...): routable host IPs (with or without a port, so
-  `172.16.100.150:3260` is caught) and real-looking hostnames or mailboxes;
+  the iSCSI portal `<TRUENAS_IP>:3260` is caught) and real-looking hostnames or mailboxes;
 - list items under `dnsZones`, `allowedDomains`, `hosts`, `dnsNames`, `portals`.
 
 Keys that legitimately carry public hosts (`repoUrl`, `server`, `providerURL`, `url`) are

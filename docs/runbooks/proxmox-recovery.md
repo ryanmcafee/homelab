@@ -28,12 +28,16 @@ This runbook provides step-by-step procedures for recovering from Proxmox failur
 ### Prerequisites
 
 Before any incident, ensure you have:
-- [ ] Access to IPMI (172.16.100.26)
+- [ ] Access to IPMI (<IPMI_IP>)
 - [ ] Proxmox installation media (USB)
 - [ ] Backup storage accessible (TrueNAS or external)
 - [ ] Git repository access (infrastructure code)
 - [ ] Root password or SSH key
 - [ ] Network access to VLAN 100
+
+Addresses and hostnames below are `<KEY>` placeholders — `PROXMOX_IP`, `GATEWAY_IP` and `DOMAIN` —
+resolved from the gitignored `configuration/environments/homelab.yaml` (`task config:eval` prints
+them). Keep a printed copy with the recovery media: that file is not on a freshly installed host.
 
 ---
 
@@ -45,7 +49,7 @@ Before any incident, ensure you have:
 
 ```bash
 # SSH to Proxmox
-ssh root@172.16.100.250
+ssh root@<PROXMOX_IP>
 
 # Backup Proxmox configuration
 tar -czf /root/proxmox-config-$(date +%Y%m%d).tar.gz \
@@ -119,13 +123,13 @@ qm list > /tmp/pre-change-vms.txt
 # Check if Proxmox is responsive
 
 # Via network
-ping 172.16.100.250
+ping <PROXMOX_IP>
 
 # SSH test
-ssh root@172.16.100.250
+ssh root@<PROXMOX_IP>
 
 # Web UI test
-# https://172.16.100.250:8006
+# https://<PROXMOX_IP>:8006
 ```
 
 **Determine Impact**:
@@ -165,7 +169,7 @@ ssh root@172.16.100.250
 
 ```bash
 # SSH to Proxmox
-ssh root@172.16.100.250
+ssh root@<PROXMOX_IP>
 
 # Restart Proxmox services
 systemctl restart pveproxy
@@ -276,7 +280,7 @@ eject /dev/sdX
 
 **Step 2: Boot from USB**
 
-1. Connect to IPMI: https://172.16.100.26
+1. Connect to IPMI: https://<IPMI_IP>
 2. Insert USB drive (or mount ISO via IPMI virtual media)
 3. Reboot server
 4. Enter boot menu (F11 on Supermicro)
@@ -292,9 +296,9 @@ eject /dev/sdX
 5. **Administration Password**: Set root password
 6. **Network Configuration**:
    - Management Interface: `enp1s0`
-   - Hostname (FQDN): `proxmox.ryanmcafee.com`
-   - IP Address: `172.16.100.250/24`
-   - Gateway: `172.16.100.1`
+   - Hostname (FQDN): `proxmox.<DOMAIN>`
+   - IP Address: `<PROXMOX_IP>/24`
+   - Gateway: `<GATEWAY_IP>`
    - DNS Server: `1.1.1.1`
 7. Confirm installation
 8. Reboot after installation
@@ -303,7 +307,7 @@ eject /dev/sdX
 
 ```bash
 # SSH to new Proxmox installation
-ssh root@172.16.100.250
+ssh root@<PROXMOX_IP>
 
 # Update system
 apt update
@@ -448,7 +452,7 @@ See [disaster-recovery.md](../disaster-recovery.md#scenario-6-complete-homelab-l
 After any recovery procedure:
 
 **Proxmox**:
-- [ ] Can access web UI (https://172.16.100.250:8006)
+- [ ] Can access web UI (https://<PROXMOX_IP>:8006)
 - [ ] Can SSH to Proxmox
 - [ ] All VMs are listed in web UI
 - [ ] ZFS pools are healthy: `zpool status`
@@ -491,7 +495,7 @@ qm status <vmid>
 
 # Network
 ip addr show vmbr0
-ping 172.16.100.1
+ping <GATEWAY_IP>
 ping 8.8.8.8
 
 # Kubernetes (if Talos cluster running)
@@ -660,6 +664,6 @@ cat /etc/network/interfaces
 systemctl restart networking
 
 # Test connectivity
-ping 172.16.100.1
+ping <GATEWAY_IP>
 ping 8.8.8.8
 ```

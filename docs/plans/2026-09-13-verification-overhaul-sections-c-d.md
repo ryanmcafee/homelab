@@ -12,8 +12,8 @@ CloudNativePG restore drill, an app scaffolder, and the verification contract wi
 **Spec:** https://github.com/ryanmcafee/homelab/issues/261 (Sections C and D) + ADR-009..012 in
 `docs/project_notes/decisions.md`. Sections A (PR #264) and B (PR #270) are merged.
 
-**Worktree:** `/Users/ryanmcafee/Projects/homelab-issue-261-cd`, branch `feat/issue-261-sections-c-d`,
-branched from `origin/main` (68abdbf). Never touch `/Users/ryanmcafee/Projects/homelab` (the main checkout).
+**Worktree:** `$HOME/Projects/homelab-issue-261-cd`, branch `feat/issue-261-sections-c-d`,
+branched from `origin/main` (68abdbf). Never touch `$HOME/Projects/homelab` (the main checkout).
 
 ## Global Constraints
 
@@ -110,7 +110,7 @@ branched from `origin/main` (68abdbf). Never touch `/Users/ryanmcafee/Projects/h
 
 - [ ] **P1 ApplicationSet + AppProject** (homelab only, `previews.enabled`, false in base/localdev). ApplicationSet `previews`
   (`argocd`, `goTemplate: true`, `goTemplateOptions: ["missingkey=error"]`) with a `pullRequest.github` generator
-  (`owner: ryanmcafee`, `repo: homelab`, `labels: [preview]`, `requeueAfterSeconds: 300`, optional `tokenRef` from
+  (`owner`/`repo` = `github.com/ryanmcafee/homelab`, `labels: [preview]`, `requeueAfterSeconds: 300`, optional `tokenRef` from
   `previews.github.tokenSecret` — the repo is public, anonymous works). Template: Application `preview-pr{{.number}}` in
   `argocd`, project `previews`, finalizer, sync-wave, source `global.repoUrl` @ `{{.head_sha}}`, path `charts/applications`,
   plugin `homelab-config-helm-v1.0` env `ENVIRONMENT=homelab`, `FORMAT=helm-apps`, `PREVIEW_PR={{.number}}`,

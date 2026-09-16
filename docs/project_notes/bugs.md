@@ -32,19 +32,19 @@ Each entry should include:
 - **Prevention**: When using CRD source with external-dns, verify RBAC includes `externaldns.k8s.io` API group
 
 ### 2026-01-28 - Traefik dashboard using self-signed certificate instead of Let's Encrypt
-- **Issue**: Traefik dashboard at traefik.ryanmcafee.com showing self-signed certificate despite cert-manager Certificate existing
+- **Issue**: Traefik dashboard at traefik.<DOMAIN> showing self-signed certificate despite cert-manager Certificate existing
 - **Root Cause**: ArgoCD `ignoreDifferences` rule on IngressRoute `.spec` was preventing TLS configuration from being applied
 - **Solution**: Removed the ignoreDifferences rule for traefik-dashboard IngressRoute, allowing helm chart TLS settings to sync
 - **Prevention**: Avoid blanket ignoreDifferences on `.spec` - use specific field paths instead
 
 ### 2026-01-28 - Traefik dashboard 404 at /dashboard without trailing slash
-- **Issue**: https://traefik.ryanmcafee.com/dashboard returns 404, but /dashboard/ works
+- **Issue**: https://traefik.<DOMAIN>/dashboard returns 404, but /dashboard/ works
 - **Root Cause**: Traefik's internal dashboard API requires a trailing slash on the path
 - **Solution**: Added `dashboard-redirect-slash` Middleware and IngressRoute to redirect `/dashboard` to `/dashboard/`
 - **Prevention**: Expected Traefik behavior - dashboard paths need trailing slash or redirect middleware
 
 ### 2026-01-28 - ArgoCD returning 500/Bad Gateway errors
-- **Issue**: https://argocd.ryanmcafee.com returning "Bad Gateway" error, unable to access ArgoCD web UI
+- **Issue**: https://argocd.<DOMAIN> returning "Bad Gateway" error, unable to access ArgoCD web UI
 - **Root Cause**: TLS termination mismatch - Traefik ingress had `serversscheme: http` annotation but ingress backend port was 443. The argo-cd helm chart uses port 80 when `configs.params.server.insecure: "true"` but defaults to 443 otherwise
 - **Solution**: Added `configs.params.server.insecure: "true"` to ArgoCD values, which tells helm chart to use HTTP port 80 for ingress backend
 - **Prevention**: When using TLS termination at ingress (Traefik), always set `server.insecure: true` in ArgoCD config. Use Puppeteer browser validation, not just curl, to verify ingress accessibility
@@ -58,14 +58,14 @@ Each entry should include:
 
 ### 2026-02-09 - NFS permission denied on media direct mounts (downloads, movies, tv, etc.)
 - **Issue**: NZBGet (and potentially other media apps) couldn't write to `/mnt/storage/downloads` via direct NFS mount
-- **Root Cause**: PRs #83-86 fixed k8s CSI-provisioned NFS shares to use `mapall=apps:users`, but direct media NFS shares (movies, tv, downloads, books, etc.) were still using `mapall=rmcafee:users`. Dataset ownership was `rmcafee`, not `apps` (UID 568). The `truenas-nfs-mapall.ts` script only targeted k8s paths by default.
+- **Root Cause**: PRs #83-86 fixed k8s CSI-provisioned NFS shares to use `mapall=apps:users`, but direct media NFS shares (movies, tv, downloads, books, etc.) were still using `mapall=<NFS_MAPALL_USER>:users`. Dataset ownership was `<NFS_MAPALL_USER>`, not `apps` (UID 568). The `truenas-nfs-mapall.ts` script only targeted k8s paths by default.
 - **Solution**:
   1. Extended `truenas-nfs-mapall.ts` to include media datasets in `--fix-permissions` when `--all` is used
   2. Ran `truenas-nfs-mapall.ts --all --fix-permissions` to update all 7 media NFS shares to `mapall=apps:users` and set all 11 datasets to `uid=568 gid=100 mode=770`
-  3. Updated Ansible defaults: `truenas_media_nfs_mapall_user` and `truenas_dataset_owner_user` changed from `rmcafee` to `apps`
+  3. Updated Ansible defaults: `truenas_media_nfs_mapall_user` and `truenas_dataset_owner_user` changed from `<NFS_MAPALL_USER>` to `apps`
   4. Fixed Ansible `set_dataset_permissions.yml` traverse flag from `false` to `true`
 - **Prevention**: Use a single permission model (apps:users 568:100) for all NFS shares. Always run with `--all` when fixing permissions. See ADR-006.
-- **Update (2026-02-09)**: ADR-006 partially reversed per ADR-007 — media datasets moved back to `rmcafee:users`, k8s datasets remain `apps:users`. Script now supports split k8s/media model with `--media-mapall-user` and `--media-perm-user` flags.
+- **Update (2026-02-09)**: ADR-006 partially reversed per ADR-007 — media datasets moved back to `<NFS_MAPALL_USER>:users`, k8s datasets remain `apps:users`. Script now supports split k8s/media model with `--media-mapall-user` and `--media-perm-user` flags.
 
 ### 2026-02-09 - Plex SQLite database locking errors on NFS
 - **Issue**: Plex stores SQLite databases on NFS-backed PVC (`democratic-csi-ssd`). SQLite relies on POSIX file locking (`fcntl()`) which is unreliable over NFS, causing `Sqlite3: Sleeping for 200ms to retry busy DB` errors and restart loops
@@ -74,7 +74,7 @@ Each entry should include:
 - **Prevention**: Use iSCSI (block storage) instead of NFS for any application that relies on SQLite or POSIX file locking
 
 ### 2026-02-14 - LoadBalancer VIPs unreachable when L2 lease on control-plane node
-- **Issue**: Plex, traefik-external, and other services with L2 leases on control-plane nodes were unreachable from outside the cluster. `172.16.100.200` returned connection refused/timeout while `172.16.100.104` (on worker node) worked fine
+- **Issue**: Plex, traefik-external, and other services with L2 leases on control-plane nodes were unreachable from outside the cluster. `<TRAEFIK_STATIC_IP>` returned connection refused/timeout while an address in the LB pool (on worker node) worked fine
 - **Root Cause**: Proxmox VMs hosting control-plane nodes block gratuitous ARP for VIPs. Cilium L2 announcements from control-plane nodes never reach the external network, so clients can't resolve the VIP MAC address
 - **Solution**: Added `nodeSelector` with `matchExpressions` (`node-role.kubernetes.io/control-plane` DoesNotExist) to `CiliumL2AnnouncementPolicy` to restrict L2 announcements to worker nodes only
 - **Prevention**: Always exclude control-plane nodes from L2 announcement policies in Proxmox-hosted clusters. If services become unreachable, check which node holds the L2 lease (`kubectl get leases -n kube-system | rg cilium-l2announce`)
@@ -344,7 +344,7 @@ These are documented errors with known solutions:
 - **Prevention**: For a new Instance with `adminUser`, deploy with `disableSignUp: false` first and flip it after `status.bootstrap` appears; do not trust the operator README on this combination until the upstream fix lands
 
 ### 2026-09-15 - Sporadic Kubernetes API loss: etcd WAL fsync stalled by worker I/O on the shared ZFS pool
-- **Issue**: `kubectl` against `https://172.16.100.10:6443` failed for tens of seconds at a time, sporadically, for months. On 2026-09-15 the API returned 1283 5xx in one hour (04:21-04:41Z), kube-controller-manager, kube-scheduler and cilium-operator lost their leader leases and restarted (23-29 restarts each over 157 days), and the Talos layer-2 VIP was dropped and re-elected twice (11 s and 36 s with no VIP at all). Nothing in the cluster looked broken afterwards, which is why it went undiagnosed
+- **Issue**: `kubectl` against `https://<CP_VIP>:6443` failed for tens of seconds at a time, sporadically, for months. On 2026-09-15 the API returned 1283 5xx in one hour (04:21-04:41Z), kube-controller-manager, kube-scheduler and cilium-operator lost their leader leases and restarted (23-29 restarts each over 157 days), and the Talos layer-2 VIP was dropped and re-elected twice (11 s and 36 s with no VIP at all). Nothing in the cluster looked broken afterwards, which is why it went undiagnosed
 - **Root Cause**: The three control-plane VM system disks lived on the Proxmox ZFS mirror `vm-storage` (2x Crucial CT1000P310SSD8, QLC) together with every worker system disk. etcd stores its write-ahead log on the Talos EPHEMERAL partition of that disk. A single worker image unpack saturated the pool: on 04:17-04:22Z worker-2 wrote 6459 MB and on 04:32-04:37Z worker-1 wrote 6503 MB unpacking `ghcr.io/paperclipai/paperclip:2026.831.1` (1.6 GB compressed; Talos keeps unpacked layers for Spegel, roughly doubling the bytes). etcd `slow fdatasync` went from ~1 ms to 2.5 s, 32.97 s, 47.08 s and 48.11 s on all three members at once; raft heartbeats were missed, ReadIndex timed out, and every 5 s Lease PUT/GET through KubePrism (127.0.0.1:7445) hit its deadline. Leader-election loss, kubelet `Failed to ensure lease exists` and the VIP move are all downstream of that one fsync. Chronic even at baseline: `leader failed to send out heartbeat on time; leader is overloaded likely from slow disk` a few times an hour, and the control-plane VM cgroups showed `io.pressure full avg300 = 0.25-0.30` against 0.00 for an idle worker
 - **Solution**: Control-plane system disks moved to a dedicated single-device ZFS pool `cp-storage` on the previously unused Samsung 990 PRO NVMe (new `terragrunt/environments/homelab/proxmox-zfs-pool-cp`; `control_plane_datastore_id` on the `talos-cluster` module), so etcd's fsync path never shares a device with worker I/O. etcd tuned for virtualised disks (`cluster.etcd.extraArgs`: `heartbeat-interval=250`, `election-timeout=2500`) and told to publish metrics (`listen-metrics-urls=http://0.0.0.0:2381`); kube-prometheus-stack now scrapes `kubeEtcd` on the three control-plane IPs and ships alerts for API 5xx, disk write latency and a missing etcd scrape. `scripts/apiserver-stress.ts` (`task apiserver:probe` / `task apiserver:stress`) probes the VIP and each control plane side by side so a VIP failover is never again mistaken for an API outage. ADR-016, `docs/runbooks/control-plane-storage.md`
 - **Prevention**: Never let etcd share a physical device with bulk workload I/O, however fast the device looks; consumer QLC SSDs in a mirror collapse under a multi-GB sequential write while a single etcd fsync is waiting. A Kubernetes API that "disappears" with healthy pods afterwards is a storage-latency symptom: check `talosctl logs etcd` for `slow fdatasync` before suspecting the network, Cilium or the API server. etcd was not scraped at all, so none of this was visible in Grafana for months - a control-plane component with no metrics is an outage you will diagnose twice

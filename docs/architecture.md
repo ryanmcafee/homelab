@@ -439,15 +439,17 @@ See [networking.md](./networking.md) for complete details.
 
 ### Network Topology
 
+Addresses below are `<KEY>` placeholders resolved from `configuration/environments/homelab.yaml` (gitignored).
+
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                    UniFi Dream Machine                           │
-│                    172.16.100.1                                  │
+│                    <GATEWAY_IP>                                  │
 │                    BGP ASN: 64513                                │
 └─────────────────┬───────────────────────────────────────────────┘
                   │
                   │ VLAN 100 (Homelab)
-                  │ 172.16.100.0/24
+                  │ <NFS_SHARE_ALLOW>
                   │
     ┌─────────────┼─────────────┬─────────────┬─────────────┐
     │             │             │             │             │
@@ -469,14 +471,14 @@ See [networking.md](./networking.md) for complete details.
 
 | Device/Service | IP Address | Notes |
 |----------------|------------|-------|
-| UniFi Controller | 172.16.100.1 | Gateway + BGP peer |
-| IPMI | 172.16.100.26 | Out-of-band management |
-| Proxmox | 172.16.100.250 | Hypervisor management |
+| UniFi Controller | <GATEWAY_IP> | Gateway + BGP peer |
+| IPMI | <IPMI_IP> | Out-of-band management |
+| Proxmox | <PROXMOX_IP> | Hypervisor management |
 | TrueNAS | DHCP | Storage VM |
 | Talos Control Plane 1 | DHCP | K8s master |
 | Talos Control Plane 2 | DHCP | K8s master |
 | Talos Worker 1-3 | DHCP | K8s workers |
-| MetalLB Pool | 172.16.100.100-200 | Service load balancer IPs |
+| MetalLB Pool | <LB_POOL_START>-<LB_POOL_END> | Service load balancer IPs |
 
 ### BGP Configuration
 

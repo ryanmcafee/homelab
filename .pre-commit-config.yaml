@@ -22,7 +22,7 @@ repos:
         language: system
         pass_filenames: true
         types_or: [yaml, json, markdown, ts]
-        files: ^(configuration/|charts/[^/]+/values-homelab\.yaml$|scripts/)
+        files: ^(configuration/|charts/[^/]+/values-homelab\.yaml$|scripts/|docs/)
         exclude: |
           (?x)(
             ^configuration/environments/homelab\.yaml$|
