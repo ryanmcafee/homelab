@@ -2002,6 +2002,15 @@ spec:
                       operator: NotIn
                       values:
                       - "true"
+            # Static etcd targets; see the kubeEtcd comment below for why this is
+            # not the chart's Endpoints-based path.
+            additionalScrapeConfigs:
+              - job_name: kube-etcd
+                static_configs:
+                  - targets:
+                      - "192.168.1.11:2381"
+                      - "192.168.1.12:2381"
+                      - "192.168.1.13:2381"
 
         grafana:
           enabled: true
@@ -2087,19 +2096,26 @@ spec:
         # cluster.etcd.extraArgs.listen-metrics-urls is set). Kind has no reachable
         # etcd metrics endpoint, so the scrape is disabled there instead of leaving
         # a permanently down target behind.
+        #
+        # The chart's own kubeEtcd path cannot reach an external etcd here. It
+        # points a selector-less Service at an Endpoints object built from
+        # kubeEtcd.endpoints, and ArgoCD's resource.exclusions drop Endpoints and
+        # EndpointSlice cluster-wide, so that object is rendered and then never
+        # applied: the Service stays empty and nothing is scraped. Talos also runs
+        # etcd as a host service with no Kubernetes pod, so the selector form
+        # cannot work either. The addresses therefore go into a static scrape
+        # config, which needs no Endpoints object at all.
+        #
+        # kubeEtcd.enabled stays true because the chart gates its etcd alert rules
+        # (etcdHighFsyncDurations, etcdHighNumberOfLeaderChanges, ...) on it; only
+        # the unusable Service and ServiceMonitor are turned off. The job name must
+        # contain "etcd" because those rules match job=~".*etcd.*".
         kubeEtcd:
           enabled: true
-          endpoints:
-            - 192.168.1.11
-            - 192.168.1.12
-            - 192.168.1.13
           service:
-            enabled: true
-            port: 2381
-            targetPort: 2381
+            enabled: false
           serviceMonitor:
-            enabled: true
-            scheme: http
+            enabled: false
 
         # Control-plane alerts. The chart's own defaultRules cover etcd once it is
         # scraped; these three cover the symptom (apiserver 5xx), the cause (slow
