@@ -1,0 +1,36 @@
+---
+# Log and backup retention on the Proxmox host.
+#
+# Why this role exists: /var/log and /var/lib/vz both live on the 67 GB
+# pve-root LVM. The `dev-daily-backup` vzdump job targeted `local` (that same
+# volume) with no destination large enough for a full set of VM images; it
+# filled the root filesystem to 100% on 2026-04-13 and every run since failed
+# with "No space left on device". Postfix could not queue mail, and the journal
+# had grown unbounded. See docs/runbooks/control-plane-storage.md.
+
+# Journal retention. The runtime journal (/run/log/journal) is RAM, so it gets
+# its own, smaller cap.
+proxmox_journal_max_retention: 7day
+proxmox_journal_max_file_sec: 1day
+proxmox_journal_system_max_use: 1G
+proxmox_journal_system_keep_free: 8G
+proxmox_journal_runtime_max_use: 256M
+
+# Global logrotate policy (/etc/logrotate.conf).
+proxmox_logrotate_frequency: daily
+proxmox_logrotate_count: 7
+
+# Prune anything older than this from the vzdump target directory. Set to 0 to
+# disable pruning entirely.
+proxmox_dump_dir: /var/lib/vz/dump
+proxmox_dump_retention_days: 7
+
+# vzdump job. `local` cannot hold a full backup set, so the job stays disabled
+# until it points at a destination with room (TrueNAS NFS preferred; the
+# vm-storage pool is acceptable once the control planes have moved to
+# cp-storage, ADR-016 - before that, a nightly multi-GB write to vm-storage is
+# exactly the burst that stalls etcd).
+proxmox_backup_job_id: dev-daily-backup
+proxmox_backup_job_manage: true
+proxmox_backup_job_enabled: false
+proxmox_backup_job_prune: keep-daily=7

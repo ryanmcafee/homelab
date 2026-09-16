@@ -1,5 +1,5 @@
 # Homelab - Talos Kubernetes Cluster
-# Provisions Talos Linux cluster (2 control plane + 3 workers)
+# Provisions Talos Linux cluster (3 control plane + 3 workers)
 
 include "root" {
   path = find_in_parent_folders()
@@ -20,6 +20,16 @@ dependency "zfs_pool" {
   # Placeholder so `terraform validate` runs without applied state (CI).
   mock_outputs = {
     pool_id = "mock-pool"
+  }
+  mock_outputs_allowed_terraform_commands = ["validate"]
+}
+
+dependency "cp_zfs_pool" {
+  config_path = "../proxmox-zfs-pool-cp"
+
+  # Placeholder so `terraform validate` runs without applied state (CI).
+  mock_outputs = {
+    storage_id = "mock-cp-storage"
   }
   mock_outputs_allowed_terraform_commands = ["validate"]
 }
@@ -98,6 +108,14 @@ inputs = {
   pool_id        = dependency.zfs_pool.outputs.pool_id
   talos_image_id = dependency.talos_image.outputs.image_id
   datastore_id   = include.env.locals.vm_storage_pool
+
+  # Control-plane system disks live on their own NVMe datastore so etcd's fsync
+  # path never shares a device with worker I/O (ADR-016). Workers stay on
+  # vm-storage. NOTE: proxmox_virtual_environment_vm.controlplane ignores changes
+  # to `disk`, so this governs newly created control planes; migrating the three
+  # existing ones is a manual per-node `qm move-disk`
+  # (docs/runbooks/control-plane-storage.md).
+  control_plane_datastore_id = dependency.cp_zfs_pool.outputs.storage_id
 
   # Image Factory installer with system extensions (qemu-guest-agent, nfs-utils, etc.)
   # Base image for non-GPU nodes (includes nfs-utils for NFS mounts)
@@ -238,6 +256,44 @@ inputs = {
         sysctls = {
           "net.core.default_qdisc"          = "fq"
           "net.ipv4.tcp_congestion_control" = "bbr"
+        }
+      }
+    })
+  ]
+
+  # Control-plane-only patches.
+  #
+  # The module CONCATENATES these with its own generated patches
+  # (common_config_patches + controlplane_config_patches + image cache + Spegel +
+  # the module's cluster/network/etcd/VIP patch); it does not replace them.
+  # Talos applies the list in order and each patch is a strategic merge, so this
+  # adds cluster.etcd.extraArgs alongside the module's
+  # cluster.etcd.advertisedSubnets rather than overwriting the etcd section.
+  #
+  # WHY THESE VALUES
+  # etcd defaults are heartbeat-interval=100 ms and election-timeout=1000 ms,
+  # which assume a dedicated low-latency disk. This etcd runs in Proxmox VMs and
+  # logs "leader failed to send out heartbeat on time; leader is overloaded
+  # likely from slow disk" every couple of hours even at baseline. Upstream
+  # tuning guidance requires election-timeout >= 10x heartbeat-interval. 250 /
+  # 2500 tolerates the routine 100-500 ms disk stalls without masking a real
+  # member failure for long (worst case ~2.5 s before a new election, vs 1 s).
+  # This is the software half of the fix; the hardware half is cp-storage above.
+  #
+  # listen-metrics-urls exposes etcd's metrics endpoint on :2381 (plain HTTP, no
+  # client certs) so the kube-prometheus-stack `kubeEtcd` scrape can reach it —
+  # etcd is currently not scraped at all, which is why the fsync stalls went
+  # unnoticed. Talos documents cluster.etcd.extraArgs in the v1alpha1 config
+  # reference.
+  controlplane_config_patches = [
+    yamlencode({
+      cluster = {
+        etcd = {
+          extraArgs = {
+            "heartbeat-interval"  = "250"
+            "election-timeout"    = "2500"
+            "listen-metrics-urls" = "http://0.0.0.0:2381"
+          }
         }
       }
     })

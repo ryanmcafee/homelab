@@ -400,8 +400,12 @@ resource "proxmox_virtual_environment_vm" "controlplane" {
   }
 
   # System disk for Talos (Talos will install to this)
+  # etcd's write-ahead log lives on the Talos EPHEMERAL partition of this disk,
+  # so control planes get their own datastore when one is configured
+  # (control_plane_datastore_id); otherwise they share datastore_id with the
+  # workers. See ADR-016 and docs/runbooks/control-plane-storage.md.
   disk {
-    datastore_id = var.datastore_id
+    datastore_id = coalesce(var.control_plane_datastore_id, var.datastore_id)
     size         = each.value.disk_size
     interface    = "scsi0"
     iothread     = true
@@ -459,6 +463,16 @@ resource "proxmox_virtual_environment_vm" "controlplane" {
 
   lifecycle {
     ignore_changes = [
+      # CAVEAT for the cp-storage migration (ADR-016): `disk` is ignored, so
+      # flipping control_plane_datastore_id on an ALREADY-CREATED control plane
+      # produces NO plan diff — Terraform will not move the disk. The migration
+      # in docs/runbooks/control-plane-storage.md therefore moves each disk
+      # explicitly (`qm move-disk <vmid> scsi0 cp-storage --delete 1`, one node
+      # at a time) and lets this block keep the state in sync afterwards; the
+      # coalesce() above is what makes any *newly created* control plane land on
+      # cp-storage. Do not drop `disk` from this list to force a diff: the BPG
+      # provider shuts the VM down for a datastore change, and dropping it also
+      # surfaces unrelated drift on every other VM.
       disk,
       cdrom,
       # Cloud-init user_data/meta_data is only read at first boot. Talos persists

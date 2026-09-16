@@ -11,9 +11,20 @@ terraform {
 }
 
 # Proxmox resource pool for VM organization
+# Optional so a second instance of this module can add a storage-only datastore
+# (e.g. the control-plane NVMe pool) without a second resource pool.
 resource "proxmox_virtual_environment_pool" "zfs" {
+  count = var.create_resource_pool ? 1 : 0
+
   comment = var.pool_comment
   pool_id = var.pool_name
+}
+
+# The resource pool used to be unconditional; migrate the existing homelab
+# state to the indexed address without recreating the pool.
+moved {
+  from = proxmox_virtual_environment_pool.zfs
+  to   = proxmox_virtual_environment_pool.zfs[0]
 }
 
 # Validate that devices are specified when creating a ZFS pool

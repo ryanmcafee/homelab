@@ -48,6 +48,7 @@ module "zfs_pool" {
 
 | Name | Description | Type | Default | Required |
 |------|-------------|------|---------|:--------:|
+| create_resource_pool | Create the Proxmox resource pool named `pool_name` | `bool` | true | no |
 | pool_name | Name of the Proxmox resource pool | `string` | "homelab" | no |
 | pool_comment | Comment for the resource pool | `string` | "Homelab infrastructure resources" | no |
 | proxmox_node | Name of the Proxmox node | `string` | n/a | yes |
@@ -61,9 +62,46 @@ module "zfs_pool" {
 
 | Name | Description |
 |------|-------------|
-| pool_id | The ID of the created Proxmox resource pool |
+| pool_id | The ID of the created Proxmox resource pool (`null` when `create_resource_pool = false`) |
 | storage_id | The storage ID in Proxmox |
 | zfs_pool_name | The name of the ZFS pool |
+
+## Multiple instances: one resource pool, several datastores
+
+A Proxmox *resource pool* (`proxmox_virtual_environment_pool`) groups VMs for
+permissions and organisation; a Proxmox *storage* entry (`create_storage_config`)
+is a datastore backed by a ZFS pool. They are independent, and a cluster wants
+exactly one resource pool but may want several datastores.
+
+`create_resource_pool = false` makes an instance of this module storage-only: it
+creates the ZFS pool and registers the Proxmox storage, but does not try to
+create a second resource pool (which would fail — `pool_id` is unique — or fight
+the first instance over the same object). `output "pool_id"` is `null` for such
+an instance, so downstream modules must take `pool_id` from the instance that
+owns the resource pool.
+
+Example — the homelab uses two instances: `proxmox-zfs-pool` owns the `homelab`
+resource pool plus the `vm-storage` mirror, and `proxmox-zfs-pool-cp` adds the
+single-device `cp-storage` datastore for the control-plane system disks
+(see ADR-016 and `docs/runbooks/control-plane-storage.md`):
+
+```hcl
+# Storage-only instance: no second resource pool
+create_resource_pool = false
+
+create_zfs_pool = true
+zfs_pool_name   = "cp-storage"
+zfs_pool_type   = "stripe"
+zfs_devices     = ["/dev/disk/by-id/nvme-..."]
+
+create_storage_config = true
+storage_id            = "cp-storage"
+content_types         = ["images"]
+```
+
+The resource pool resource is `count`-gated with a `moved` block to
+`proxmox_virtual_environment_pool.zfs[0]`, so existing state migrates to the
+indexed address without recreating the pool.
 
 ## Notes
 

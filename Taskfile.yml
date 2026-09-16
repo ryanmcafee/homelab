@@ -800,6 +800,26 @@ tasks:
     cmds:
       - deno run --allow-net --allow-run --allow-env --allow-read --allow-write scripts/prod-readonly.ts diff {{.CLI_ARGS}}
 
+  apiserver:probe:
+    desc: Read-only availability probe of the Kubernetes API (VIP and each control plane side by side; docs/runbooks/control-plane-storage.md)
+    cmds:
+      - deno run --allow-net --allow-env --allow-read --allow-write scripts/apiserver-stress.ts probe {{.CLI_ARGS}}
+
+  apiserver:stress:
+    desc: Read-only GET load ramp against the Kubernetes API with a 1/s probe alongside (task apiserver:stress -- --concurrency 8,32,64)
+    cmds:
+      - deno run --allow-net --allow-env --allow-read --allow-write scripts/apiserver-stress.ts stress {{.CLI_ARGS}}
+
+  cp:migrate:status:
+    desc: Read-only state of the control-plane disk migration (which nodes are still on vm-storage; docs/runbooks/control-plane-storage.md)
+    cmds:
+      - deno run --allow-net --allow-run --allow-env --allow-read --allow-write scripts/cp-storage-migrate.ts status {{.CLI_ARGS}}
+
+  cp:migrate:
+    desc: Move the control-plane system disks to cp-storage one node at a time (task cp:migrate -- --dry-run, then -- --yes; docs/runbooks/control-plane-storage.md)
+    cmds:
+      - deno run --allow-net --allow-run --allow-env --allow-read --allow-write scripts/cp-storage-migrate.ts migrate {{.CLI_ARGS}}
+
   tailscale:dns:status:
     desc: Tailnet DNS settings (MagicDNS, global nameservers, split DNS) through the Tailscale API (docs/runbooks/tailscale-dns.md)
     cmds:

@@ -1,6 +1,6 @@
 output "pool_id" {
-  description = "The ID of the created Proxmox resource pool"
-  value       = proxmox_virtual_environment_pool.zfs.pool_id
+  description = "The ID of the created Proxmox resource pool (null when create_resource_pool is false)"
+  value       = var.create_resource_pool ? proxmox_virtual_environment_pool.zfs[0].pool_id : null
 }
 
 output "storage_id" {

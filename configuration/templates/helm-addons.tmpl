@@ -926,6 +926,21 @@ kube-prometheus-stack:
         cpu: 200m
         memory: 256Mi
 
+  # etcd scrape on <control-plane IP>:2381 (Talos cluster.etcd.extraArgs
+  # listen-metrics-urls). Kind runs etcd inside the control-plane container with
+  # no reachable metrics endpoint, so the scrape is off there.
+  kubeEtcd:
+{{- if $localdev }}
+    enabled: false
+    endpoints: []
+{{- else }}
+    enabled: true
+    endpoints:
+      - {{ .Values.CP1_IP.Value }}
+      - {{ .Values.CP2_IP.Value }}
+      - {{ .Values.CP3_IP.Value }}
+{{- end }}
+
   # PostSync smoke hooks (charts/addons/templates/_smoke.tpl): curl the
   # in-cluster Services after sync; expect lists the accepted HTTP codes.
   # Service names follow the chart's <release>-grafana / <release>-prometheus.
