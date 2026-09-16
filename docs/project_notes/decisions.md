@@ -403,6 +403,37 @@ Each decision should include:
 
 - **2026-02-13: Dual Traefik Ingress Controllers** — Split single Traefik into external (`external` IngressClass, static IP 172.16.100.200, OIDC, port forwarding) and internal (`internal` IngressClass, dynamic IP, no OIDC). Plex uses external; all other apps use internal. OIDC middleware annotations removed from internal apps. Design doc: `docs/plans/2026-02-13-dual-traefik-ingress-design.md`.
 
+### ADR-016: etcd gets its own disk; the control planes leave the shared VM pool (2026-09-15)
+
+**Context:**
+- The Kubernetes API at the Talos layer-2 VIP dropped out sporadically for months. On 2026-09-15 it returned 1283 5xx in an hour, three controllers lost their leader leases, and the VIP itself was dropped and re-elected twice (11 s and 36 s unreachable). `docs/project_notes/bugs.md` has the full evidence
+- Root cause: the three control-plane VM system disks shared the ZFS mirror `vm-storage` (2x Crucial CT1000P310SSD8, QLC) with every worker system disk. etcd's write-ahead log lives on the Talos EPHEMERAL partition of that disk. Unpacking one 1.6 GB container image on a worker wrote ~6.5 GB and pushed etcd `fdatasync` from ~1 ms to 48 s on all three members at once
+- Even at rest the control-plane VMs were I/O-stalled 25-30 % of the time (`io.pressure full avg300`) and etcd logged `leader failed to send out heartbeat on time` a few times an hour
+- etcd was not scraped by Prometheus at all (`up{job=~".*etcd.*"}` empty) and the repository contained no custom alert rule, so none of this was visible
+- The Proxmox host has an unused Samsung 990 PRO 1 TB NVMe (no partitions, no LVM PV, no ZFS label)
+
+**Decision:**
+- Control-plane system disks move to a new **single-device** ZFS pool `cp-storage` on that NVMe (`terragrunt/environments/homelab/proxmox-zfs-pool-cp`, a second instance of the `proxmox-zfs-pool` module with `create_resource_pool = false`). The `talos-cluster` module gains `control_plane_datastore_id`; the control-plane `disk` block uses `coalesce(var.control_plane_datastore_id, var.datastore_id)`, so workers and any other environment are unaffected
+- etcd is tuned for a virtualised disk: `cluster.etcd.extraArgs` `heartbeat-interval=250`, `election-timeout=2500` (upstream requires election >= 10x heartbeat; defaults 100/1000 assume bare metal), and `listen-metrics-urls=http://0.0.0.0:2381`
+- kube-prometheus-stack scrapes `kubeEtcd` on the three control-plane IPs in homelab (off in Kind, which has no such endpoint), which also activates the chart's built-in etcd rules (`etcdHighFsyncDurations`, `etcdHighNumberOfLeaderChanges`). Three homelab rules are added: `KubeAPIServerErrorsHigh`, `NodeDiskWriteLatencyHigh` and `EtcdMetricsAbsent` (the last guards against the scrape silently disappearing again)
+- `scripts/apiserver-stress.ts` (`task apiserver:probe`, `task apiserver:stress`) probes the VIP and each control plane side by side with read-only GETs, so a VIP failover is distinguishable from an API outage. It can never mutate the cluster: a single request function asserts the method is GET
+- Migration, gates and rollback: `docs/runbooks/control-plane-storage.md`. One control plane at a time, because a datastore change stops the VM
+
+**Alternatives Considered:**
+- **Add the NVMe as a SLOG to `vm-storage`** -> keeps mirror redundancy for the control planes and fixes sync-write latency, but leaves them sharing queue and bandwidth with worker I/O; the measured problem was 25-30 % I/O stall, not only fsync. Documented in the runbook as the fallback if the single device is unacceptable
+- **Mirror two NVMe devices for `cp-storage`** -> the right end state, but only one NVMe is free today. etcd is already replicated across three nodes, so a device loss costs one member, not the cluster; adding a second device later is a `zpool attach`
+- **Raise only the etcd timeouts** -> masks the symptom. A 48 s fsync defeats any timeout worth setting, and higher timeouts slow real failure detection
+- **Throttle worker I/O** (Proxmox per-disk `mbps` limits) -> penalises legitimate work and needs re-tuning per workload; isolation is the property actually wanted
+- **Move etcd to a separate Talos disk** (`machine.disks` + an etcd mount) -> also correct, but changes Talos partitioning on a live cluster, which is riskier than moving the VM disk the cluster already has
+
+**Consequences:**
+- The control planes run on a single physical device with no redundancy. Accepted because etcd is replicated x3 and the failure mode (one member down) is one the cluster already tolerates; an etcd snapshot before the migration and a second NVMe afterwards are the mitigations. The runbook makes the snapshot a gate
+- `zpool create -f` wipes the target device, so the runbook opens with a check that it is unused. A wrong device here destroys data
+- `proxmox-zfs-pool` now has a `count`-gated resource pool and a `moved` block; the existing homelab state migrates to `[0]` without recreating the pool
+- The migration is not zero-downtime: each control plane stops while its disk moves. Done one at a time with etcd verified between nodes, the API stays up through the VIP
+- etcd metrics exist from now on, which is how the next occurrence gets diagnosed in minutes rather than months. `EtcdMetricsAbsent` fires if that regresses
+- Unrelated findings recorded in the runbook rather than fixed here: the Proxmox root filesystem is 100 % full from an unmanaged failing `vzdump` job, and the unused Cilium LB pool `control-plane-vip` would let a labelled Service announce the API VIP from a worker
+
 ## Tips
 
 - Number decisions sequentially (ADR-001, ADR-002, etc.)

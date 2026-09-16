@@ -168,7 +168,7 @@ render time through the CMP (`homelab config export`) and localdev through the c
 
 charts:
   # renovate: datasource=helm depName=argo-cd registryUrl=https://argoproj.github.io/argo-helm
-  argocd: "9.5.17"
+  argocd: "9.7.1"
   # renovate: datasource=helm depName=cilium registryUrl=https://helm.cilium.io/
   cilium: "1.19.5"
   # renovate: datasource=helm depName=cert-manager registryUrl=https://charts.jetstack.io
@@ -238,7 +238,7 @@ charts:
   # renovate: datasource=docker depName=ghcr.io/paperclipinc/charts/paperclip-operator
   paperclip-operator: "0.19.1"
 images:
-  homelab-cmp: "0.1.24"
+  homelab-cmp: "0.1.25"
   # renovate: datasource=docker depName=curlimages/curl
   curl: "8.22.0"
   # renovate: datasource=docker depName=kindest/node
@@ -263,7 +263,7 @@ tools:
   # renovate: datasource=github-releases depName=kyverno/chainsaw
   chainsaw: "v0.2.15"
   # renovate: datasource=github-releases depName=argoproj/argo-cd
-  argocd: "v3.5.2"
+  argocd: "v3.5.3"
 
 ```
 
@@ -319,6 +319,7 @@ Run `task --list` for full list. Most commonly used:
 | `task verify:claim` | Level-0 claim block for the PR body; `pr-contract.yml` re-runs level 0 on the head and fails on a mismatch |
 | `task verify:upgrade -- --base origin/main` | Upstream chart manifests at the base ref vs the working tree (what a version bump really changes) |
 | `task verify:prod` / `task prod:status` / `task prod:diff -- <app>` | Read-only production: Application health, table, `argocd app diff` (context `homelab-readonly`, `task prod:kubeconfig` once; `docs/runbooks/readonly-access.md`) |
+| `task apiserver:probe` / `task apiserver:stress` | Read-only Kubernetes API probe and GET load ramp; probes the VIP and each control plane side by side, so a VIP failover is distinguishable from an API outage (`docs/runbooks/control-plane-storage.md`) |
 | `task drill:restore` | CloudNativePG backup/restore drill in Kind (`tests/drills/`; weekly in `restore-drill.yml`) |
 | `task scaffold -- app <name> --pattern operator\|helm\|deps-main-config` | Scaffold a new app (templates, values, schema keys, versions, child charts, e2e, health); `--dry-run` shows the diff; `task test:scaffold` proves every pattern passes level 0 |
 | `task test:e2e` | chainsaw suite in `tests/e2e/` against the running Kind loop (`-- --test-dir tests/e2e/<name>`) |
@@ -395,6 +396,7 @@ The homelab environment uses an ArgoCD Config Management Plugin (CMP) sidecar to
 | "Unable to find valid certification path" | TrueNAS TLS not trusted | Democratic-CSI uses allowInsecure |
 | "dry run failed" | Server-side apply conflicts | Add ServerSideApply=true to syncOptions |
 | Ingress "Progressing" forever | No LoadBalancer IP | Custom health check marks Ingress Healthy |
+| API unreachable for seconds, healthy afterwards | etcd fsync stalled by disk contention, leases expire, the Talos VIP moves | `talosctl -n <cp> logs etcd \| rg "slow fdatasync"`; `task apiserver:probe`; `docs/runbooks/control-plane-storage.md` |
 
 ### Debug Commands
 ```bash

@@ -28,10 +28,17 @@ See `CLAUDE.local.md` for IP addresses and hostnames.
 ## Kubernetes Cluster
 
 **Architecture:**
-- 2 Control Plane nodes (HA)
+- 3 Control Plane nodes (HA, etcd quorum)
 - 3 Worker nodes (1 with GPU)
 - Talos Linux on all nodes
 - Proxmox VE virtualization
+
+**Control plane storage (ADR-016):**
+- Control-plane system disks live on the dedicated single-device ZFS pool `cp-storage` (NVMe), never on `vm-storage`
+- etcd keeps its write-ahead log on the Talos EPHEMERAL partition of that disk; sharing a device with worker I/O stalls fsync and takes the API down
+- `vm-storage` (ZFS mirror, 2x QLC SSD) holds the worker and TrueNAS VM disks
+- etcd tuned for virtualised disks: `heartbeat-interval=250`, `election-timeout=2500`; metrics on `<cp-ip>:2381`, scraped as job `kube-etcd`
+- Migration, verification and diagnosis: `docs/runbooks/control-plane-storage.md`
 
 **Storage:**
 - Provider: Democratic-CSI with NFS and iSCSI
