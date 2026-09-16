@@ -44,6 +44,12 @@
  * Every Proxmox operation is an `ssh <--ssh-user>@<--proxmox-host> 'qm ...'`;
  * talosctl and kubectl are expected on PATH.
  *
+ * No address is hardcoded here. --nodes, --vip and --proxmox-host default to
+ * CP1_IP/CP2_IP/CP3_IP, CP_VIP and PROXMOX_IP from the gitignored
+ * configuration/environments/homelab.yaml (override the path with
+ * HOMELAB_ENV_FILE); an explicit flag always wins, and a value that neither
+ * supplies is a usage error rather than a guess.
+ *
  * Usage:
  *   task cp:migrate:status
  *   task cp:migrate -- --dry-run
@@ -55,6 +61,7 @@
 
 import { delay } from "jsr:@std/async@^1/delay";
 import { join, resolve } from "jsr:@std/path@^1";
+import { parse as parseYaml } from "jsr:@std/yaml@^1";
 
 // ============================================================================
 // Logging
@@ -76,17 +83,36 @@ const log = {
 // Constants — the facts from docs/runbooks/control-plane-storage.md
 // ============================================================================
 export const RUNBOOK = "docs/runbooks/control-plane-storage.md";
-export const DEFAULT_PROXMOX_HOST = "172.16.100.250";
 export const DEFAULT_SSH_USER = "root";
 export const DEFAULT_CONTEXT = "admin@homelab";
-/** The Talos layer-2 API VIP; it moves when a control-plane VM stops. */
-export const DEFAULT_VIP = "172.16.100.10";
 export const DEFAULT_TARGET_DATASTORE = "cp-storage";
 export const DEFAULT_SOURCE_DATASTORE = "vm-storage";
 export const DEFAULT_DISK = "scsi0";
-/** cp-1 = VM 101 (172.16.100.11), cp-2 = 102 (.12), cp-3 = 103 (.13). */
-export const DEFAULT_NODES = "cp-1=101=172.16.100.11,cp-2=102=172.16.100.12," +
-  "cp-3=103=172.16.100.13";
+/**
+ * The addresses live in the gitignored environment file, never in this
+ * repository: --nodes, --proxmox-host and --vip default to its values and the
+ * run is refused when they are missing (the same contract as
+ * scripts/tailscale-dns.ts and scripts/prod-readonly.ts).
+ */
+export const HOMELAB_ENV_FILE = "configuration/environments/homelab.yaml";
+/**
+ * The control planes, in migration order: the Proxmox object names and VMIDs
+ * (not network facts, so they can live here) paired with the
+ * configuration/schema/network.schema.yaml key holding each node's address.
+ */
+export const CP_NODE_DEFAULTS: readonly {
+  name: string;
+  vmid: number;
+  key: string;
+}[] = [
+  { name: "cp-1", vmid: 101, key: "CP1_IP" },
+  { name: "cp-2", vmid: 102, key: "CP2_IP" },
+  { name: "cp-3", vmid: 103, key: "CP3_IP" },
+];
+/** configuration key behind --vip: the Talos layer-2 API VIP. */
+export const VIP_KEY = "CP_VIP";
+/** configuration key behind --proxmox-host. */
+export const PROXMOX_HOST_KEY = "PROXMOX_IP";
 /** KiB/s. The copy reads from the pool whose saturation causes the outage. */
 export const DEFAULT_BWLIMIT = 200000;
 export const DEFAULT_SHUTDOWN_TIMEOUT = "5m";
@@ -121,6 +147,8 @@ const UNIT_MS: Record<string, number> = {
 };
 const IPV4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/;
 const NODE_NAME = /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/;
+const DNS_NAME =
+  /^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$/;
 
 /** "30s", "5m", "250ms", "1h" or plain seconds ("90") -> milliseconds. */
 export function parseDuration(raw: string, flag = "duration"): number {
@@ -186,7 +214,7 @@ export interface NodeSpec {
 }
 
 /**
- * "cp-1=101=172.16.100.11,cp-2=102=..." -> the control planes, in order. The
+ * "cp-1=101=192.0.2.11,cp-2=102=..." -> the control planes, in order. The
  * order is the migration order and is preserved.
  */
 export function parseNodeSpecs(raw: string): NodeSpec[] {
@@ -197,7 +225,7 @@ export function parseNodeSpecs(raw: string): NodeSpec[] {
         throw new UsageError(
           `--nodes entry ${
             JSON.stringify(entry)
-          } must look like name=vmid=ip (cp-1=101=172.16.100.11)`,
+          } must look like name=vmid=ip (cp-1=101=192.0.2.11)`,
         );
       }
       const [name, vmid, ip] = parts.map((p) => p.trim());
@@ -231,6 +259,44 @@ export function parseNodeSpecs(raw: string): NodeSpec[] {
     }
   }
   return specs;
+}
+
+/**
+ * A trimmed, lower-cased string value from the environment YAML, or null when
+ * the file does not parse, the key is missing, empty, a REPLACEME placeholder
+ * or not a plausible hostname/IP.
+ */
+export function envFileValue(text: string, key: string): string | null {
+  let parsed: unknown;
+  try {
+    parsed = parseYaml(text);
+  } catch {
+    return null;
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return null;
+  }
+  const value = (parsed as Record<string, unknown>)[key];
+  if (typeof value !== "string") return null;
+  const v = value.trim().toLowerCase();
+  if (!v || v.includes("replaceme")) return null;
+  if (!IPV4.test(v) && !(v.includes(".") && DNS_NAME.test(v))) return null;
+  return v;
+}
+
+/**
+ * The default --nodes spec ("cp-1=101=<CP1_IP>,...") from the environment YAML,
+ * or null when any of CP1_IP/CP2_IP/CP3_IP is missing: a partial list would
+ * quietly migrate a subset of the control planes, so it is refused instead.
+ */
+export function nodesFromEnvFile(text: string): string | null {
+  const entries: string[] = [];
+  for (const node of CP_NODE_DEFAULTS) {
+    const ip = envFileValue(text, node.key);
+    if (ip === null) return null;
+    entries.push(`${node.name}=${node.vmid}=${ip}`);
+  }
+  return entries.join(",");
 }
 
 /** --only cp-2 / --only cp-1,cp-3 -> the subset, in --nodes order. */
@@ -674,11 +740,12 @@ export interface Args {
   dryRun: boolean;
   yes: boolean;
   only?: string;
-  nodes: string;
-  proxmoxHost: string;
+  /** undefined = neither --nodes nor the environment file supplied one. */
+  nodes?: string;
+  proxmoxHost?: string;
   sshUser: string;
   context: string;
-  vip: string;
+  vip?: string;
   disk: string;
   targetDatastore: string;
   sourceDatastore: string;
@@ -718,17 +785,28 @@ const VALUE_FLAGS = new Set([
   "--prometheus-url",
 ]);
 
-/** Parses argv. Throws UsageError on anything invalid. */
-export function parseArgs(argv: string[]): Args {
+/** Defaults taken from configuration/environments/homelab.yaml. */
+export interface ArgEnv {
+  nodes?: string;
+  proxmoxHost?: string;
+  vip?: string;
+}
+
+/**
+ * Parses argv. Throws UsageError on anything invalid. Explicit flags always win
+ * over `env`, which carries the environment file's values (absent when the file
+ * is missing or the key is unset; buildConfig then refuses to guess).
+ */
+export function parseArgs(argv: string[], env: ArgEnv): Args {
   const args: Args = {
     command: "help",
     dryRun: false,
     yes: false,
-    nodes: DEFAULT_NODES,
-    proxmoxHost: DEFAULT_PROXMOX_HOST,
+    nodes: env.nodes,
+    proxmoxHost: env.proxmoxHost,
     sshUser: DEFAULT_SSH_USER,
     context: DEFAULT_CONTEXT,
-    vip: DEFAULT_VIP,
+    vip: env.vip,
     disk: DEFAULT_DISK,
     targetDatastore: DEFAULT_TARGET_DATASTORE,
     sourceDatastore: DEFAULT_SOURCE_DATASTORE,
@@ -889,6 +967,23 @@ export interface Config {
 
 /** Validates and converts the parsed flags. Pure. */
 export function buildConfig(args: Args): Config {
+  if (args.nodes === undefined) {
+    throw new UsageError(
+      `--nodes is required (or fill ${
+        CP_NODE_DEFAULTS.map((n) => n.key).join(", ")
+      } in ${HOMELAB_ENV_FILE})`,
+    );
+  }
+  if (args.proxmoxHost === undefined) {
+    throw new UsageError(
+      `--proxmox-host is required (or fill ${PROXMOX_HOST_KEY} in ${HOMELAB_ENV_FILE})`,
+    );
+  }
+  if (args.vip === undefined) {
+    throw new UsageError(
+      `--vip is required (or fill ${VIP_KEY} in ${HOMELAB_ENV_FILE})`,
+    );
+  }
   const allNodes = parseNodeSpecs(args.nodes);
   if (!IPV4.test(args.vip)) {
     throw new UsageError(`--vip must be an IPv4 address, got ${args.vip}`);
@@ -1937,7 +2032,7 @@ function printHelp(): void {
 ${DEFAULT_TARGET_DATASTORE}, one node at a time (${RUNBOOK})
 
 Usage:
-  scripts/cp-storage-migrate.ts status  [--only cp-1,cp-3] [--proxmox-host ${DEFAULT_PROXMOX_HOST}] [--context ${DEFAULT_CONTEXT}]
+  scripts/cp-storage-migrate.ts status  [--only cp-1,cp-3] [--proxmox-host <ip>] [--context ${DEFAULT_CONTEXT}]
   scripts/cp-storage-migrate.ts migrate --yes | --dry-run
                                         [--only cp-2] [--bwlimit ${DEFAULT_BWLIMIT}] [--shutdown-timeout ${DEFAULT_SHUTDOWN_TIMEOUT}]
                                         [--settle-timeout ${DEFAULT_SETTLE_TIMEOUT}] [--settle-wait ${DEFAULT_SETTLE_WAIT}] [--no-wait]
@@ -1968,9 +2063,9 @@ Flags:
                         them. Read-only commands still run so the plan reflects the real state;
                         add --no-probe to run nothing at all.
   --only <a,b>          restrict to these nodes (default all, in --nodes order)
-  --nodes <spec>        name=vmid=ip list (default ${DEFAULT_NODES})
-  --proxmox-host <ip>   default ${DEFAULT_PROXMOX_HOST}      --ssh-user <user>  default ${DEFAULT_SSH_USER}
-  --context <name>      default ${DEFAULT_CONTEXT}    --vip <ip>         default ${DEFAULT_VIP}
+  --nodes <spec>        name=vmid=ip list, e.g. cp-1=101=192.0.2.11,cp-2=102=192.0.2.12
+  --proxmox-host <ip>   no default             --ssh-user <user>  default ${DEFAULT_SSH_USER}
+  --context <name>      default ${DEFAULT_CONTEXT}    --vip <ip>         no default
   --disk <dev>          default ${DEFAULT_DISK}          --bwlimit <KiB/s>  default ${DEFAULT_BWLIMIT}
   --target-datastore    default ${DEFAULT_TARGET_DATASTORE}    --source-datastore default ${DEFAULT_SOURCE_DATASTORE}
   --shutdown-timeout    default ${DEFAULT_SHUTDOWN_TIMEOUT}            --settle-timeout   default ${DEFAULT_SETTLE_TIMEOUT}
@@ -1980,6 +2075,14 @@ Flags:
   --force-stop          after --shutdown-timeout, hard-stop the VM (off by default)
   --prometheus-url      verify only: query up{job="kube-etcd"} directly
 
+Defaults (from ${HOMELAB_ENV_FILE}, gitignored; no address is hardcoded here):
+  --nodes        ${CP_NODE_DEFAULTS.map((n) => n.key).join(", ")} (as ${
+      CP_NODE_DEFAULTS.map((n) => `${n.name}=${n.vmid}`).join(", ")
+    })
+  --vip          ${VIP_KEY}          --proxmox-host  ${PROXMOX_HOST_KEY}
+  A flag always wins over the file; a value neither flag nor file supplies is a
+  usage error, never a guess. HOMELAB_ENV_FILE overrides the path of that file.
+
 Every mutating command goes through one function that cannot run while --dry-run is set, and only
 one qm move-disk is ever in flight (a sequential loop plus a runtime assertion). The etcd extraArgs
 tuning is NOT done here: apply it with terragrunt, one node per apply (${RUNBOOK} step 3).
@@ -1988,10 +2091,30 @@ Exit codes: 0 success, 1 a gate or command failed, 2 usage error.`,
   );
 }
 
+/**
+ * The addresses from the gitignored environment file. A missing or unreadable
+ * file yields no defaults at all: buildConfig then names the flag and the key
+ * instead of falling back to an address baked into this repository.
+ */
+async function readEnvDefaults(): Promise<ArgEnv> {
+  const path = Deno.env.get("HOMELAB_ENV_FILE") ?? HOMELAB_ENV_FILE;
+  let text: string;
+  try {
+    text = await Deno.readTextFile(path);
+  } catch {
+    return {};
+  }
+  return {
+    nodes: nodesFromEnvFile(text) ?? undefined,
+    proxmoxHost: envFileValue(text, PROXMOX_HOST_KEY) ?? undefined,
+    vip: envFileValue(text, VIP_KEY) ?? undefined,
+  };
+}
+
 async function main(): Promise<number> {
   let cfg: Config;
   try {
-    const args = parseArgs(Deno.args);
+    const args = parseArgs(Deno.args, await readEnvDefaults());
     if (args.command === "help") {
       printHelp();
       return 0;

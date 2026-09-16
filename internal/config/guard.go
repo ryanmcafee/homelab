@@ -184,6 +184,13 @@ func lineMatchesPattern(line, pattern string) bool {
 var forgeHosts = []struct{ host, pages string }{
 	{"github.com", "github.io"},
 	{"gitlab.com", "gitlab.io"},
+	// Container registries keyed by the same public account name. A pinned
+	// image such as ghcr.io/<owner>/homelab-cmp names the owner for the same
+	// reason a clone URL does, and is just as public. They have no pages
+	// domain, so the pages form below is skipped for them: an empty pages
+	// value would build the suffix "." and excuse every <owner>.<anything>,
+	// including the real domain.
+	{"ghcr.io", ""},
 }
 
 // isURLTokenByte reports whether c can continue a hostname or URL path
@@ -228,6 +235,9 @@ func isForgeOwnerAt(line string, start, end int) bool {
 			}
 		}
 		// Pages form: the owner is the whole label before the pages domain.
+		if forge.pages == "" {
+			continue // registry host: no pages domain, and "." would match anything
+		}
 		suffix := "." + forge.pages
 		if urlTokenByteAt(before, len(before)-1) {
 			continue // a deeper label, such as sub.<owner>.github.io
@@ -301,8 +311,8 @@ func IsPIIKey(key string) bool {
 // ---------------------------------------------------------------------------
 
 // DefaultGuardPathspecs is the CI scan scope. It mirrors the pre-commit hook's
-// `files: ^(configuration/|charts/[^/]+/values-homelab\.yaml$)` pattern so the
-// hook and CI agree on what is guarded.
+// `files:` pattern so the hook and CI agree on what is guarded; change the two
+// together or they drift.
 //
 // The chart files are in scope because they are committed and rendered into
 // the production environment without passing through the CMP: a child
@@ -310,9 +320,20 @@ func IsPIIKey(key string) bool {
 // derived from configuration/ (domain, hostnames, addresses, mailboxes) must
 // reach it through the parent Application's helm.valuesObject instead, and a
 // real value pasted into one of these files is a leak the same as one pasted
-// into configuration/. Widen the scope explicitly with --paths rather than
-// changing this default.
-var DefaultGuardPathspecs = []string{"configuration/**", "charts/**/values-homelab.yaml"}
+// into configuration/.
+//
+// scripts/ is in scope because a Deno script is just as able to hardcode a
+// real address as a values file, and nothing rendered it through the CMP
+// either. Leaving scripts/ out hid three scripts that defaulted --api-url to
+// the real TrueNAS hostname, and a migration script that hardcoded the whole
+// control-plane topology. Scripts take these values from
+// configuration/environments/homelab.yaml at runtime instead (see
+// scripts/tailscale-dns.ts and scripts/prod-readonly.ts for the pattern).
+var DefaultGuardPathspecs = []string{
+	"configuration/**",
+	"charts/**/values-homelab.yaml",
+	"scripts/**",
+}
 
 // guardScanExtensions are the file types the guard knows how to read. Anything
 // else (templates, binaries, .example files) is out of scope.
@@ -321,6 +342,11 @@ var guardScanExtensions = map[string]bool{
 	".yml":  true,
 	".json": true,
 	".md":   true,
+	// .ts because scripts/ is in scope: a Deno script that hardcodes a real
+	// address or hostname as a flag default is a leak the same as one pasted
+	// into configuration/, and three of them did exactly that before the
+	// scope was widened.
+	".ts": true,
 }
 
 // hasScannableExtension reports whether a path is a file type the guard can
@@ -471,6 +497,18 @@ var committedSafeHosts = []string{
 	// localdev's external-dns target: a fixed fake subdomain of a real
 	// dynamic-DNS provider, committed so local development resolves.
 	"homelab-dev.duckdns.org",
+
+	// Public container registries. These name a global service, never this
+	// infrastructure, and the localdev registry pull-through caches must
+	// spell them out (scripts/localdev-kind.ts registryUpstreams, the Talos
+	// registry mirrors in terragrunt). Guarding scripts/ brought them into
+	// scope; they are public by definition.
+	"docker.io",
+	"registry-1.docker.io",
+	"ghcr.io",
+	"quay.io",
+	"gcr.io",
+	"registry.k8s.io",
 }
 
 // templateFileSuffixes mark a file whose values are placeholders by
@@ -780,6 +818,9 @@ func classifyHostValue(value string) string {
 func ScanFileForPIIShape(path string) (GuardResult, error) {
 	result := GuardResult{File: path}
 	template := IsTemplateFile(path)
+	// In a code file only a quoted literal can be a real value; see
+	// isShapeCodeFile.
+	code := isShapeCodeFile(path)
 
 	f, err := os.Open(path)
 	if err != nil {
@@ -838,6 +879,9 @@ func ScanFileForPIIShape(path string) (GuardResult, error) {
 				continue
 			}
 			name := chartKeyName(key)
+			if code && !isQuotedLiteral(raw) {
+				continue // an identifier, not a value; see isShapeCodeFile
+			}
 			switch {
 			case chartPIIListKeys[name]:
 				judgeItems(lineNum, line, key, flowListItems(raw))
@@ -892,7 +936,14 @@ func ScanFileForPIIShape(path string) (GuardResult, error) {
 			if !IsPIIKey(m[1]) {
 				continue
 			}
-			value := stripValue(m[2])
+			rawValue := m[2]
+			if code {
+				rawValue = strings.TrimSuffix(strings.TrimSpace(rawValue), ",")
+				if !isQuotedLiteral(rawValue) {
+					continue // an identifier, not a value
+				}
+			}
+			value := stripValue(rawValue)
 
 			if template {
 				if isExamplePlaceholder(value) {
@@ -928,12 +979,23 @@ func ScanFileForPIIShape(path string) (GuardResult, error) {
 		// Helm rule: a `key: value` line, possibly itself a list item.
 		if m := chartKeyLine.FindStringSubmatch(line); m != nil {
 			listKey = ""
-			indent, key, value := len(m[1]), m[2], stripValue(m[3])
+			// In a code file a trailing comma belongs to the object literal,
+			// not to the value: without stripping it "host.name", never
+			// parses as a hostname.
+			rawValue := m[3]
+			if code {
+				rawValue = strings.TrimSuffix(strings.TrimSpace(rawValue), ",")
+			}
+			indent, key, value := len(m[1]), m[2], stripValue(rawValue)
 			if isScreamingKey(key) {
 				continue
 			}
 			name := chartKeyName(key)
-			raw := strings.TrimSpace(m[3])
+			raw := strings.TrimSpace(rawValue)
+			if code && raw != "" && !strings.HasPrefix(raw, "{") &&
+				!isQuotedLiteral(raw) {
+				continue // an identifier, not a value; see isShapeCodeFile
+			}
 			if strings.HasPrefix(raw, "{") {
 				// A flow mapping value (`dashboard: {host: a}`) is judged by
 				// the keys inside it.
@@ -991,6 +1053,32 @@ func ScanFileForPIIShape(path string) (GuardResult, error) {
 
 // stripValue removes an inline comment and surrounding quotes from a YAML
 // scalar so the bare value can be classified.
+// isShapeCodeFile reports whether shape rules must see a quoted string literal
+// before they judge a `key: value` line.
+//
+// Shape detection was written for YAML and Helm values, where `host: foo.bar`
+// means the value foo.bar. In TypeScript the same line is a property
+// assignment: `host: args.proxmoxHost` names an identifier that has the shape
+// of a hostname without being one, and flagging it blocks a commit over a
+// variable reference. Only a quoted literal in a code file can be a real
+// value, so `host: "truenas.example.com"` is still judged.
+func isShapeCodeFile(path string) bool {
+	return strings.EqualFold(filepath.Ext(path), ".ts")
+}
+
+// isQuotedLiteral reports whether a raw value, as written before stripValue
+// removes the quotes, is a quoted string. A trailing comma from an object
+// literal is ignored.
+func isQuotedLiteral(raw string) bool {
+	v := strings.TrimSpace(raw)
+	v = strings.TrimSpace(strings.TrimSuffix(v, ","))
+	if len(v) < 2 {
+		return false
+	}
+	q := v[0]
+	return (q == '"' || q == '\'' || q == '`') && v[len(v)-1] == q
+}
+
 func stripValue(v string) string {
 	if i := strings.Index(v, " #"); i >= 0 {
 		v = v[:i]

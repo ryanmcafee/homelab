@@ -9,11 +9,13 @@
 
 import { assertEquals, assertThrows } from "jsr:@std/assert@^1";
 import {
+  type ArgEnv,
   buildConfig,
+  CP_NODE_DEFAULTS,
   DEFAULT_BWLIMIT,
-  DEFAULT_NODES,
   DEFAULT_RAFT_TOLERANCE,
   dfRootArgv,
+  envFileValue,
   etcdHealth,
   failingGates,
   filterNodes,
@@ -26,6 +28,7 @@ import {
   kubectlNodesArgv,
   kubectlReadyzArgv,
   needsMigration,
+  nodesFromEnvFile,
   type NodeSpec,
   parseArgs,
   parseBwlimit,
@@ -55,9 +58,20 @@ import {
   vipHolders,
 } from "./cp-storage-migrate.ts";
 
-const SSH: SshTarget = { user: "root", host: "172.16.100.250" };
-const IPS = ["172.16.100.11", "172.16.100.12", "172.16.100.13"];
-const VIP = "172.16.100.10";
+/**
+ * Every address here is RFC 5737 TEST-NET-1 (192.0.2.0/24), reserved for
+ * documentation and unroutable: no real topology belongs in this repository.
+ * The script itself reads the real addresses from the gitignored
+ * configuration/environments/homelab.yaml at run time.
+ */
+const PROXMOX_HOST = "192.0.2.250";
+const SSH: SshTarget = { user: "root", host: PROXMOX_HOST };
+const IPS = ["192.0.2.11", "192.0.2.12", "192.0.2.13"];
+const VIP = "192.0.2.10";
+/** The --nodes spec nodesFromEnvFile builds from CP1_IP/CP2_IP/CP3_IP. */
+const NODES = `cp-1=101=${IPS[0]},cp-2=102=${IPS[1]},cp-3=103=${IPS[2]}`;
+/** What readEnvDefaults hands parseArgs when the environment file is complete. */
+const ENV: ArgEnv = { nodes: NODES, proxmoxHost: PROXMOX_HOST, vip: VIP };
 
 /**
  * talosctl renders its tables with a tabwriter: every column is padded to the
@@ -120,18 +134,21 @@ const ETCD_HEALTHY = etcdTable([
 // ----------------------------------------------------------------------------
 
 Deno.test("parseNodeSpecs reads the three homelab control planes in order", () => {
-  assertEquals(parseNodeSpecs(DEFAULT_NODES), [
-    { name: "cp-1", vmid: 101, ip: "172.16.100.11" },
-    { name: "cp-2", vmid: 102, ip: "172.16.100.12" },
-    { name: "cp-3", vmid: 103, ip: "172.16.100.13" },
+  assertEquals(parseNodeSpecs(NODES), [
+    { name: "cp-1", vmid: 101, ip: "192.0.2.11" },
+    { name: "cp-2", vmid: 102, ip: "192.0.2.12" },
+    { name: "cp-3", vmid: 103, ip: "192.0.2.13" },
   ]);
 });
 
 Deno.test("parseNodeSpecs tolerates spaces and a trailing comma", () => {
-  assertEquals(parseNodeSpecs(" cp-1 = 101 = 10.0.0.1 , cp-2=102=10.0.0.2, "), [
-    { name: "cp-1", vmid: 101, ip: "10.0.0.1" },
-    { name: "cp-2", vmid: 102, ip: "10.0.0.2" },
-  ]);
+  assertEquals(
+    parseNodeSpecs(" cp-1 = 101 = 192.0.2.1 , cp-2=102=192.0.2.2, "),
+    [
+      { name: "cp-1", vmid: 101, ip: "192.0.2.1" },
+      { name: "cp-2", vmid: 102, ip: "192.0.2.2" },
+    ],
+  );
 });
 
 Deno.test("parseNodeSpecs rejects malformed entries, bad VMIDs, bad IPs and duplicates", () => {
@@ -140,15 +157,15 @@ Deno.test("parseNodeSpecs rejects malformed entries, bad VMIDs, bad IPs and dupl
       "",
       "cp-1",
       "cp-1=101",
-      "cp-1=101=10.0.0.1=x",
-      "CP1=101=10.0.0.1",
-      "cp-1=99=10.0.0.1",
-      "cp-1=abc=10.0.0.1",
-      "cp-1=101=10.0.0.300",
+      "cp-1=101=192.0.2.1=x",
+      "CP1=101=192.0.2.1",
+      "cp-1=99=192.0.2.1",
+      "cp-1=abc=192.0.2.1",
+      "cp-1=101=192.0.2.300",
       "cp-1=101=not-an-ip",
-      "cp-1=101=10.0.0.1,cp-1=102=10.0.0.2",
-      "cp-1=101=10.0.0.1,cp-2=101=10.0.0.2",
-      "cp-1=101=10.0.0.1,cp-2=102=10.0.0.1",
+      "cp-1=101=192.0.2.1,cp-1=102=192.0.2.2",
+      "cp-1=101=192.0.2.1,cp-2=101=192.0.2.2",
+      "cp-1=101=192.0.2.1,cp-2=102=192.0.2.1",
     ]
   ) {
     assertThrows(() => parseNodeSpecs(bad), UsageError, undefined, bad);
@@ -156,7 +173,7 @@ Deno.test("parseNodeSpecs rejects malformed entries, bad VMIDs, bad IPs and dupl
 });
 
 Deno.test("filterNodes keeps --nodes order and defaults to every node", () => {
-  const nodes = parseNodeSpecs(DEFAULT_NODES);
+  const nodes = parseNodeSpecs(NODES);
   assertEquals(filterNodes(nodes, undefined).map((n) => n.name), [
     "cp-1",
     "cp-2",
@@ -175,7 +192,7 @@ Deno.test("filterNodes keeps --nodes order and defaults to every node", () => {
 });
 
 Deno.test("filterNodes rejects an unknown or empty --only", () => {
-  const nodes = parseNodeSpecs(DEFAULT_NODES);
+  const nodes = parseNodeSpecs(NODES);
   assertThrows(
     () => filterNodes(nodes, "cp-4"),
     UsageError,
@@ -274,7 +291,7 @@ Deno.test("parseQmStatus reads running, stopped and paused", () => {
 Deno.test("parseEtcdStatus reads one member per node from the tabwriter table", () => {
   const members = parseEtcdStatus(ETCD_HEALTHY);
   assertEquals(members.length, 3);
-  assertEquals(members[0].node, "172.16.100.11");
+  assertEquals(members[0].node, "192.0.2.11");
   assertEquals(members[0].member, "a1b2c3d4e5f60718");
   assertEquals(members[0].raftIndex, 14876322);
   assertEquals(members[0].raftTerm, 42);
@@ -285,12 +302,12 @@ Deno.test("parseEtcdStatus reads one member per node from the tabwriter table", 
 
 Deno.test("parseEtcdStatus also reads the ID/PROTOCOL-VERSION column layout", () => {
   const text =
-    `NODE            ID                 PROTOCOL-VERSION   DB SIZE   IN USE           LEADER             RAFT INDEX   RAFT TERM   LEARNER   ERRORS
-172.16.100.11   a1b2c3d4e5f60718   3.5.0              131 MB    47 MB (35.88%)   3f9a1b2c3d4e5f60   14876322     42          false
+    `NODE         ID                 PROTOCOL-VERSION   DB SIZE   IN USE           LEADER             RAFT INDEX   RAFT TERM   LEARNER   ERRORS
+192.0.2.11   a1b2c3d4e5f60718   3.5.0              131 MB    47 MB (35.88%)   3f9a1b2c3d4e5f60   14876322     42          false
 `;
   const members = parseEtcdStatus(text);
   assertEquals(members.length, 1);
-  assertEquals(members[0].node, "172.16.100.11");
+  assertEquals(members[0].node, "192.0.2.11");
   assertEquals(members[0].member, "a1b2c3d4e5f60718");
   assertEquals(members[0].raftIndex, 14876322);
   assertEquals(members[0].errors, "");
@@ -320,7 +337,7 @@ Deno.test("etcdHealth rejects a member lagging further than --raft-tolerance", (
   assertEquals(health.problems.length, 1);
   assertEquals(
     health.problems[0],
-    `172.16.100.12 RAFT INDEX 14870001 is 6321 behind 14876322 (tolerance ${DEFAULT_RAFT_TOLERANCE})`,
+    `192.0.2.12 RAFT INDEX 14870001 is 6321 behind 14876322 (tolerance ${DEFAULT_RAFT_TOLERANCE})`,
   );
   // the same table passes with an explicit, wider tolerance
   assertEquals(etcdHealth(parseEtcdStatus(text), 3, 10_000).ok, true);
@@ -340,7 +357,7 @@ Deno.test("etcdHealth rejects a member with a non-empty ERRORS column", () => {
   const health = etcdHealth(parseEtcdStatus(text), 3);
   assertEquals(health.ok, false);
   assertEquals(health.problems, [
-    "172.16.100.13: ERRORS etcdserver: no leader",
+    "192.0.2.13: ERRORS etcdserver: no leader",
   ]);
 });
 
@@ -428,30 +445,30 @@ Deno.test("parseDfRootUsePercent ignores other mount points and unparseable outp
 // ----------------------------------------------------------------------------
 
 const ADDRESSES =
-  `NODE            NAMESPACE   TYPE            ID                      VERSION   ADDRESS             LINK
-172.16.100.11   network     AddressStatus   eth0/172.16.100.11/24   1         172.16.100.11/24    eth0
-172.16.100.12   network     AddressStatus   eth0/172.16.100.12/24   1         172.16.100.12/24    eth0
-172.16.100.12   network     AddressStatus   eth0/172.16.100.10/32   1         172.16.100.10/32    eth0
-172.16.100.13   network     AddressStatus   eth0/172.16.100.13/24   1         172.16.100.13/24    eth0
+  `NODE         NAMESPACE   TYPE            ID                   VERSION   ADDRESS         LINK
+192.0.2.11   network     AddressStatus   eth0/192.0.2.11/24   1         192.0.2.11/24   eth0
+192.0.2.12   network     AddressStatus   eth0/192.0.2.12/24   1         192.0.2.12/24   eth0
+192.0.2.12   network     AddressStatus   eth0/192.0.2.10/32   1         192.0.2.10/32   eth0
+192.0.2.13   network     AddressStatus   eth0/192.0.2.13/24   1         192.0.2.13/24   eth0
 `;
 
 Deno.test("vipHolders finds the single node carrying the API VIP as a /32", () => {
-  assertEquals(vipHolders(ADDRESSES, VIP), ["172.16.100.12"]);
+  assertEquals(vipHolders(ADDRESSES, VIP), ["192.0.2.12"]);
 });
 
 Deno.test("vipHolders returns nothing while the VIP is moving and both nodes during a split", () => {
-  const none = ADDRESSES.split("\n").filter((l) => !l.includes("100.10/32"))
+  const none = ADDRESSES.split("\n").filter((l) => !l.includes(`${VIP}/32`))
     .join("\n");
   assertEquals(vipHolders(none, VIP), []);
   const both = ADDRESSES +
-    "172.16.100.13   network     AddressStatus   eth0/172.16.100.10/32   1         172.16.100.10/32    eth0\n";
-  assertEquals(vipHolders(both, VIP), ["172.16.100.12", "172.16.100.13"]);
+    "192.0.2.13   network     AddressStatus   eth0/192.0.2.10/32   1         192.0.2.10/32   eth0\n";
+  assertEquals(vipHolders(both, VIP), ["192.0.2.12", "192.0.2.13"]);
 });
 
 Deno.test("vipHolders does not match a node IP that merely starts with the VIP", () => {
   const text =
-    `NODE            NAMESPACE   TYPE            ID                       VERSION   ADDRESS              LINK
-172.16.100.11   network     AddressStatus   eth0/172.16.100.100/24   1         172.16.100.100/24    eth0
+    `NODE         NAMESPACE   TYPE            ID                    VERSION   ADDRESS          LINK
+192.0.2.11   network     AddressStatus   eth0/192.0.2.100/24   1         192.0.2.100/24   eth0
 `;
   assertEquals(vipHolders(text, VIP), []);
 });
@@ -494,26 +511,26 @@ Deno.test("parsePvesmStatus ignores the header and a disabled datastore's non-nu
 // ----------------------------------------------------------------------------
 
 const KUBECTL_NODES =
-  `NAME            STATUS     ROLES           AGE    VERSION   INTERNAL-IP     EXTERNAL-IP   OS-IMAGE          KERNEL-VERSION   CONTAINER-RUNTIME
-talos-og0-md2   Ready      control-plane   158d   v1.32.0   172.16.100.11   <none>        Talos (v1.12.2)   6.18.5-talos     containerd://2.1.6
-talos-71y-z3h   NotReady   control-plane   158d   v1.32.0   172.16.100.12   <none>        Talos (v1.12.2)   6.18.5-talos     containerd://2.1.6
-talos-eml-39s   Ready      control-plane   158d   v1.32.0   172.16.100.13   <none>        Talos (v1.12.2)   6.18.5-talos     containerd://2.1.6
-talos-lz1-3u1   Ready      <none>          158d   v1.32.0   172.16.100.21   <none>        Talos (v1.12.2)   6.18.5-talos     containerd://2.1.6
+  `NAME            STATUS     ROLES           AGE    VERSION   INTERNAL-IP   EXTERNAL-IP   OS-IMAGE          KERNEL-VERSION   CONTAINER-RUNTIME
+talos-og0-md2   Ready      control-plane   158d   v1.32.0   192.0.2.11    <none>        Talos (v1.12.2)   6.18.5-talos     containerd://2.1.6
+talos-71y-z3h   NotReady   control-plane   158d   v1.32.0   192.0.2.12    <none>        Talos (v1.12.2)   6.18.5-talos     containerd://2.1.6
+talos-eml-39s   Ready      control-plane   158d   v1.32.0   192.0.2.13    <none>        Talos (v1.12.2)   6.18.5-talos     containerd://2.1.6
+talos-lz1-3u1   Ready      <none>          158d   v1.32.0   192.0.2.21    <none>        Talos (v1.12.2)   6.18.5-talos     containerd://2.1.6
 `;
 
 Deno.test("isNodeReady matches on internal IP, not the Proxmox VM name", () => {
   const rows = parseKubectlNodes(KUBECTL_NODES);
   assertEquals(rows.length, 4);
   assertEquals(rows[0].name, "talos-og0-md2");
-  assertEquals(rows[0].internalIP, "172.16.100.11");
-  assertEquals(isNodeReady(rows, "172.16.100.11"), true);
-  assertEquals(isNodeReady(rows, "172.16.100.12"), false);
+  assertEquals(rows[0].internalIP, "192.0.2.11");
+  assertEquals(isNodeReady(rows, "192.0.2.11"), true);
+  assertEquals(isNodeReady(rows, "192.0.2.12"), false);
   // An IP with no node at all is not Ready.
-  assertEquals(isNodeReady(rows, "172.16.100.99"), false);
+  assertEquals(isNodeReady(rows, "192.0.2.99"), false);
   // The regression this test exists for: Kubernetes never knows a node by its
   // Proxmox VM name, so matching on "cp-1" could never settle.
   assertEquals(isNodeReady(rows, "cp-1"), false);
-  assertEquals(findKubeNode(rows, "172.16.100.13")?.name, "talos-eml-39s");
+  assertEquals(findKubeNode(rows, "192.0.2.13")?.name, "talos-eml-39s");
 });
 
 Deno.test("isReadyzOk only accepts a trailing ok", () => {
@@ -570,14 +587,14 @@ Deno.test("formatDuration prints the shortest form", () => {
   assertEquals(formatDuration(250), "250ms");
 });
 
-Deno.test("buildConfig fills the homelab defaults", () => {
-  const cfg = buildConfig(parseArgs(["migrate", "--yes"]));
+Deno.test("buildConfig fills the topology from the environment file", () => {
+  const cfg = buildConfig(parseArgs(["migrate", "--yes"], ENV));
   assertEquals(cfg.command, "migrate");
   assertEquals(cfg.yes, true);
   assertEquals(cfg.dryRun, false);
-  assertEquals(cfg.ssh, { user: "root", host: "172.16.100.250" });
+  assertEquals(cfg.ssh, { user: "root", host: "192.0.2.250" });
   assertEquals(cfg.context, "admin@homelab");
-  assertEquals(cfg.vip, "172.16.100.10");
+  assertEquals(cfg.vip, "192.0.2.10");
   assertEquals(cfg.disk, "scsi0");
   assertEquals(cfg.targetDatastore, "cp-storage");
   assertEquals(cfg.sourceDatastore, "vm-storage");
@@ -599,7 +616,7 @@ Deno.test("buildConfig applies --only, --bwlimit and --dry-run", () => {
       "--bwlimit=100000",
       "--settle-wait",
       "30s",
-    ]),
+    ], ENV),
   );
   assertEquals(cfg.dryRun, true);
   assertEquals(cfg.bwlimit, 100000);
@@ -612,44 +629,139 @@ Deno.test("buildConfig applies --only, --bwlimit and --dry-run", () => {
 Deno.test("buildConfig refuses a Kind context, an identical source/target and a bad disk", () => {
   assertThrows(
     () =>
-      buildConfig(parseArgs(["status", "--context", "kind-homelab-localdev"])),
+      buildConfig(
+        parseArgs(["status", "--context", "kind-homelab-localdev"], ENV),
+      ),
     UsageError,
     "Kind context",
   );
   assertThrows(
     () =>
-      buildConfig(parseArgs(["status", "--target-datastore", "vm-storage"])),
+      buildConfig(
+        parseArgs(["status", "--target-datastore", "vm-storage"], ENV),
+      ),
     UsageError,
     "both vm-storage",
   );
   assertThrows(
-    () => buildConfig(parseArgs(["status", "--disk", "sda"])),
+    () => buildConfig(parseArgs(["status", "--disk", "sda"], ENV)),
     UsageError,
     "--disk",
   );
   assertThrows(
-    () => buildConfig(parseArgs(["status", "--vip", "172.16.100"])),
+    () => buildConfig(parseArgs(["status", "--vip", "192.0.2"], ENV)),
     UsageError,
     "--vip",
   );
 });
 
+// ----------------------------------------------------------------------------
+// the topology comes from the environment file, never from this repository
+// ----------------------------------------------------------------------------
+
+const ENV_YAML = `DOMAIN: example.test
+PROXMOX_IP: ${PROXMOX_HOST}
+CP_VIP: ${VIP}
+CP1_IP: ${IPS[0]}
+CP2_IP: ${IPS[1]}
+CP3_IP: ${IPS[2]}
+`;
+
+Deno.test("envFileValue reads an address and refuses placeholders and junk", () => {
+  assertEquals(envFileValue(ENV_YAML, "CP_VIP"), VIP);
+  assertEquals(envFileValue(ENV_YAML, "DOMAIN"), "example.test");
+  assertEquals(envFileValue(ENV_YAML, "MISSING_KEY"), null);
+  assertEquals(envFileValue("CP_VIP: REPLACEME\n", "CP_VIP"), null);
+  assertEquals(envFileValue("CP_VIP: ''\n", "CP_VIP"), null);
+  assertEquals(envFileValue("CP_VIP: 10\n", "CP_VIP"), null);
+  assertEquals(envFileValue("CP_VIP: nonsense\n", "CP_VIP"), null);
+  assertEquals(envFileValue(": : not yaml\n", "CP_VIP"), null);
+  assertEquals(envFileValue("", "CP_VIP"), null);
+});
+
+Deno.test("nodesFromEnvFile builds --nodes from the three CP keys", () => {
+  assertEquals(nodesFromEnvFile(ENV_YAML), NODES);
+  assertEquals(
+    parseNodeSpecs(nodesFromEnvFile(ENV_YAML)!).map((n) => [n.name, n.vmid]),
+    CP_NODE_DEFAULTS.map((n) => [n.name, n.vmid]),
+  );
+});
+
+Deno.test("nodesFromEnvFile refuses a partial control-plane list rather than migrating a subset", () => {
+  for (const key of ["CP1_IP", "CP2_IP", "CP3_IP"]) {
+    const partial = ENV_YAML.replace(new RegExp(`^${key}:.*$`, "m"), "");
+    assertEquals(nodesFromEnvFile(partial), null, key);
+    assertEquals(nodesFromEnvFile(ENV_YAML.replace(IPS[0], "REPLACEME")), null);
+  }
+  assertEquals(nodesFromEnvFile(""), null);
+});
+
+Deno.test("buildConfig names the flag and the config key instead of guessing an address", () => {
+  for (
+    const [env, needle] of [
+      [{}, "--nodes"],
+      [{ nodes: NODES }, "--proxmox-host"],
+      [{ nodes: NODES, proxmoxHost: PROXMOX_HOST }, "--vip"],
+    ] as [ArgEnv, string][]
+  ) {
+    const err = assertThrows(
+      () => buildConfig(parseArgs(["status"], env)),
+      UsageError,
+      needle,
+    ) as UsageError;
+    // it always says which configuration key supplies the missing value
+    assertEquals(
+      err.message.includes("configuration/environments/homelab.yaml"),
+      true,
+      err.message,
+    );
+  }
+  assertEquals(
+    assertThrows(() => buildConfig(parseArgs(["status"], {})), UsageError)
+      .message.includes("CP1_IP, CP2_IP, CP3_IP"),
+    true,
+  );
+});
+
+Deno.test("an explicit flag wins over the environment file", () => {
+  const cfg = buildConfig(parseArgs([
+    "status",
+    "--nodes",
+    "cp-9=109=192.0.2.19",
+    "--proxmox-host",
+    "proxmox.example.test",
+    "--vip",
+    "192.0.2.99",
+  ], ENV));
+  assertEquals(cfg.allNodes, [{ name: "cp-9", vmid: 109, ip: "192.0.2.19" }]);
+  assertEquals(cfg.ssh.host, "proxmox.example.test");
+  assertEquals(cfg.vip, "192.0.2.99");
+});
+
 Deno.test("parseArgs rejects unknown subcommands and flags, and treats -h as help", () => {
-  assertEquals(parseArgs(["--help"]).command, "help");
-  assertEquals(parseArgs([]).command, "help");
-  assertEquals(parseArgs(["-h", "migrate"]).command, "help");
-  assertThrows(() => parseArgs(["rollback"]), UsageError, "unknown subcommand");
+  assertEquals(parseArgs(["--help"], ENV).command, "help");
+  assertEquals(parseArgs([], ENV).command, "help");
+  assertEquals(parseArgs(["-h", "migrate"], ENV).command, "help");
   assertThrows(
-    () => parseArgs(["status", "--nope"]),
+    () => parseArgs(["rollback"], ENV),
+    UsageError,
+    "unknown subcommand",
+  );
+  assertThrows(
+    () => parseArgs(["status", "--nope"], ENV),
     UsageError,
     "unknown flag",
   );
   assertThrows(
-    () => parseArgs(["status", "--only"]),
+    () => parseArgs(["status", "--only"], ENV),
     UsageError,
     "needs a value",
   );
-  assertThrows(() => parseArgs(["status", "extra"]), UsageError, "unexpected");
+  assertThrows(
+    () => parseArgs(["status", "extra"], ENV),
+    UsageError,
+    "unexpected",
+  );
 });
 
 Deno.test("failingGates treats unknown as a failure in a real run but not in a dry run", () => {
@@ -672,7 +784,7 @@ const SSH_PREFIX = [
   "BatchMode=yes",
   "-o",
   "ConnectTimeout=10",
-  "root@172.16.100.250",
+  "root@192.0.2.250",
 ];
 
 Deno.test("qmMoveDiskArgv is exactly the runbook's move-disk command", () => {
@@ -714,21 +826,21 @@ Deno.test("the talosctl and kubectl argv match the runbook", () => {
   assertEquals(talosEtcdStatusArgv(IPS), [
     "talosctl",
     "-n",
-    "172.16.100.11,172.16.100.12,172.16.100.13",
+    "192.0.2.11,192.0.2.12,192.0.2.13",
     "etcd",
     "status",
   ]);
   assertEquals(talosAddressesArgv(IPS), [
     "talosctl",
     "-n",
-    "172.16.100.11,172.16.100.12,172.16.100.13",
+    "192.0.2.11,192.0.2.12,192.0.2.13",
     "get",
     "addresses",
   ]);
   assertEquals(talosEtcdSnapshotArgv(IPS[0], "/tmp/etcd.snapshot"), [
     "talosctl",
     "-n",
-    "172.16.100.11",
+    "192.0.2.11",
     "etcd",
     "snapshot",
     "/tmp/etcd.snapshot",
@@ -764,7 +876,7 @@ Deno.test("snapshotPath names the file after the UTC start of the run", () => {
 });
 
 Deno.test("the node list drives every per-node command", () => {
-  const nodes: NodeSpec[] = parseNodeSpecs(DEFAULT_NODES);
+  const nodes: NodeSpec[] = parseNodeSpecs(NODES);
   assertEquals(
     nodes.map((n) =>
       qmMoveDiskArgv(SSH, n.vmid, "scsi0", "cp-storage", 200000).at(-1)
