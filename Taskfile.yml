@@ -1010,6 +1010,11 @@ tasks:
     cmds:
       - embedme --verify CLAUDE.md AGENTS.md
 
+  docs:check:
+    desc: "Numbers in readme.md, docs/ and .github/homelab.svg match the repo (versions, counts, ingress inventory); -- --fix rewrites the generated regions"
+    cmds:
+      - deno run --allow-read --allow-write --allow-env scripts/docs-check.ts {{.CLI_ARGS}}
+
   # ==========================================================================
   # Phase 1 Hardware Spike (SPK-02..SPK-05 Proxmox evidence capture)
   # ==========================================================================
