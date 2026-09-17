@@ -206,18 +206,14 @@ docker run -d \
 
 ## Environment Variables
 
-Copy `.envrc.example` to `.envrc` and fill in your values:
+No direnv. `mise.toml` loads `.envrc` itself (`[env] _.file = ".envrc"`, plain `KEY=value`
+lines, no command substitution) and sets `OP_SERVICE_ACCOUNT_TOKEN` in its own `[env]` block.
+Everything a task needs from 1Password is resolved at run time: the Taskfile wraps commands in
+`op run --env-file=.env.op`, and `.env.op` maps each variable (for example `OP_CONNECT_TOKEN`)
+to an `op://homelab/...` reference. Copy `.envrc.example` to `.envrc` only for the
+non-secret paths it sets (kubeconfig, Ansible inventory).
 
-```bash
-cp .envrc.example .envrc
-# Edit .envrc with your values
-# Use direnv to auto-load: direnv allow
-```
-
-**Required Variables:**
-- `OP_CONNECT_HOST`: 1Password Connect server URL
-- `OP_CONNECT_TOKEN`: Connect API token
-- `OP_SERVICE_ACCOUNT_TOKEN`: Service account token (for local CLI)
+The short version of this page, with the bootstrap order, is `docs/secrets.md`.
 
 ## GitHub Actions Secrets
 

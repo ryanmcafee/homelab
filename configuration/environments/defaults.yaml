@@ -1,8 +1,8 @@
 # Root ConfigSet — inherited by all environments.
 # Contains non-sensitive defaults only. Override per-environment in homelab.yaml or localdev.yaml.
 
-# Network
-DOMAIN: example.com
+# Network (DOMAIN is deliberately absent: it is required per environment, and a
+# default here would let a set that forgets it render every hostname as example.com)
 BGP_K8S_ASN: "64512"
 BGP_ROUTER_ASN: "64513"
 
@@ -19,15 +19,11 @@ TIMEZONE: "America/New_York"
 
 # Infrastructure
 NFS_BASE_PATH: /mnt/storage
-NFS_MAPALL_USER: ""
-ACME_EMAIL: ""
 TRUENAS_ZONE_PARENT: storage/k8s
 TRUENAS_ZONE_SSD_PARENT: ssd/k8s
 TRUENAS_ISCSI_PARENT: ssd/iscsi
 TRUENAS_ISCSI_HDD_PARENT: storage/k8s
 TRAEFIK_OIDC_PROVIDER_URL: "https://accounts.google.com"
-DUCKDNS_SUBDOMAIN: ""
-EXTERNAL_DNS_DEFAULT_TARGET: ""
 
 # Application defaults
 MEDIA_APP_UID: "568"

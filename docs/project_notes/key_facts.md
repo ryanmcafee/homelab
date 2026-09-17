@@ -117,7 +117,7 @@ trusting a prose table.
 | TLS | self-signed `letsencrypt` ClusterIssuer (`CERT_ISSUER=selfsigned`) | Let's Encrypt DNS-01 |
 | Secrets | seeded fakes (`localdev/fakes/secrets.yaml`) | 1Password + SOPS |
 | ArgoCD sync | manual, `argocd app sync --local` (`ARGOCD_AUTOMATED_SYNC=false`) | automated (prune + selfHeal) |
-| GPU | None | NVIDIA (see CLAUDE.local.md) |
+| GPU | None | Intel Arc (`GPU_VENDOR=intel`, `gpu_vendor = "intel"` in env.hcl); the NVIDIA Quadro P2200 is installed but unused |
 
 ## Localdev (Kind + ArgoCD loop)
 

@@ -723,7 +723,7 @@ kubectl get pods -A
 
 # 2. Configure Proxmox
 cd homelab/ansible
-ansible-playbook -i inventory/hosts.yml playbooks/site.yml
+ansible-playbook -i inventory/homelab.yml playbooks/site.yml
 
 # 3. Provision infrastructure
 cd terragrunt/environments/homelab

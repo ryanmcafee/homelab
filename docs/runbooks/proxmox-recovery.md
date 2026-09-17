@@ -246,7 +246,7 @@ pvesh get /nodes/$(hostname)/status
 cd homelab/ansible
 
 # Run Proxmox configuration playbook
-ansible-playbook -i inventory/hosts.yml playbooks/proxmox-post-install.yml
+ansible-playbook -i inventory/homelab.yml playbooks/proxmox-post-install.yml
 ```
 
 **RTO**: 30 minutes
@@ -329,7 +329,7 @@ apt update
 cd homelab/ansible
 
 # Run complete Proxmox setup
-ansible-playbook -i inventory/hosts.yml playbooks/site.yml
+ansible-playbook -i inventory/homelab.yml playbooks/site.yml
 
 # This configures:
 # - ZFS pools
@@ -408,7 +408,7 @@ cd homelab
 
 # Run Ansible playbooks
 cd ansible
-ansible-playbook -i inventory/hosts.yml playbooks/site.yml
+ansible-playbook -i inventory/homelab.yml playbooks/site.yml
 ```
 
 **Step 4: Provision VMs via Terragrunt**

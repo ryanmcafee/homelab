@@ -3,6 +3,7 @@ keys:
   GPU_VENDOR:
     description: GPU vendor for hardware transcoding (none disables GPU support)
     required: true
+    default: none
     enum:
       - none
       - nvidia
