@@ -22,7 +22,7 @@
 <p align="center">A production-grade Kubernetes homelab you can fork and boot with one command.<br>
 Talos on Proxmox, ArgoCD app-of-apps, Cilium BGP to a UniFi gateway, no PII in git, and every number on this page checked by CI.</p>
 
-## Try it in 5 minutes
+## Boot it on your laptop
 
 Docker is the only requirement. The Kind loop runs the same charts production does, with fakes
 standing in for 1Password, TrueNAS and the UniFi gateway.
@@ -36,7 +36,7 @@ task localdev:down      # delete the cluster; the registry caches stay
 ArgoCD is on http://localhost:8080 (`admin`, password in `argocd-initial-admin-secret`; on macOS run
 `task localdev:ui` first). `task verify LEVEL=2` runs the 17 chainsaw suites against it.
 
-## Run it for real
+## Boot it on real hardware
 
 ```bash
 task setup                              # detects your tier: Kind loop by default, production only when asked
@@ -49,7 +49,7 @@ vault named `homelab` (`op signin`), and a **UniFi** gateway that can speak BGP.
 and PII-guarded), then `task setup -- --environment homelab` walks Ansible → Terragrunt → GitOps
 with a confirmation at each phase. Nothing reaches `terragrunt apply` without that flag.
 
-## What you get
+## The stack, layer by layer
 
 | Layer | What runs | Where |
 |---|---|---|
@@ -62,7 +62,7 @@ with a confirmation at each phase. Nothing reaches `terragrunt apply` without th
 | Network | Cilium LB IPAM + BGP ⇄ UniFi, two Traefiks (external with OIDC, internal), external-dns ×2, port-forwarding controller, Tailscale subnet router + split DNS | [`docs/networking.md`](docs/networking.md) |
 | Verify | level 0 static (< 5 s) → Kind + ArgoCD + chainsaw → PostSync smoke Jobs in production | [`tests/`](tests/) |
 
-## Apps
+## What's running on it
 
 **Media** · plex · sonarr · radarr · prowlarr · nzbget · tautulli · lazylibrarian · flaresolverr
 **Platform** · argocd · grafana · argo-workflows · paperclip · cloudnative-pg · mosquitto · renovate
@@ -70,7 +70,7 @@ with a confirmation at each phase. Nothing reaches `terragrunt apply` without th
 29 addons and 15 applications, 68 ArgoCD Applications in all. The full table with chart versions,
 ingress class and test coverage per app is generated in [`docs/applications.md`](docs/applications.md).
 
-## How it stays honest
+## Guardrails
 
 - Every PR: level 0 (render, schema, policy, golden snapshots) in seconds, then the Kind loop with 17 chainsaw suites; label `preview` and the PR gets its own namespace in production.
 - Renovate automerges non-major bumps only when the upstream chart diff passes the same gates (ADR-014).
@@ -79,7 +79,7 @@ ingress class and test coverage per app is generated in [`docs/applications.md`]
 - Weekly CloudNativePG restore drill; agents get read-only production access over Tailscale, never write.
 - etcd runs on its own NVMe pool because sharing one with the workers cost us the API server ([why](docs/runbooks/control-plane-storage.md)).
 
-## Repository map
+## Where things live
 
 ```text
 ansible/         Proxmox host roles and playbooks
