@@ -338,11 +338,18 @@ func IsPIIKey(key string) bool {
 // values the environment file currently holds, so a stale address that no key
 // resolves to is not reported - the guard raises the floor, it is not a
 // substitute for reading what you commit.
+//
+// .github/ is in scope because the README header (.github/homelab.svg) is a
+// hand-written picture of the real cluster: every hostname in it is a
+// <DOMAIN> placeholder, and the guard is what keeps it that way. The workflow
+// files and issue templates live there too, and a workflow that pins a real
+// hostname in an env: block is as public as a runbook.
 var DefaultGuardPathspecs = []string{
 	"configuration/**",
 	"charts/**/values-homelab.yaml",
 	"scripts/**",
 	"docs/**",
+	".github/**",
 }
 
 // guardScanExtensions are the file types the guard knows how to read. Anything
@@ -357,6 +364,10 @@ var guardScanExtensions = map[string]bool{
 	// into configuration/, and three of them did exactly that before the
 	// scope was widened.
 	".ts": true,
+	// .svg because .github/ is in scope: the README header is an SVG whose
+	// text nodes name hostnames, and the scan is line-based text matching, so
+	// XML needs no parser of its own.
+	".svg": true,
 }
 
 // hasScannableExtension reports whether a path is a file type the guard can

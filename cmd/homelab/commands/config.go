@@ -408,7 +408,7 @@ An empty scan scope in CI mode is a failure, never a pass.`,
 	}
 
 	cmd.Flags().BoolVar(&ciMode, "ci", false, "CI mode: derive the file list from tracked files instead of arguments")
-	cmd.Flags().StringArrayVar(&paths, "paths", nil, "Git pathspecs defining the CI scan scope (repeatable or comma-separated; default: configuration/** charts/**/values-homelab.yaml)")
+	cmd.Flags().StringArrayVar(&paths, "paths", nil, "Git pathspecs defining the CI scan scope (repeatable or comma-separated; default: "+strings.Join(config.DefaultGuardPathspecs, " ")+")")
 
 	return cmd
 }
