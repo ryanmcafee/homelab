@@ -1,10 +1,20 @@
 # Talos Linux Cluster Upgrade Runbook
 
-This runbook provides step-by-step procedures for upgrading Talos Linux nodes, Kubernetes versions, and recovering from cluster failures.
+Upgrading the Talos OS and Kubernetes on the homelab cluster, recovering from a failed
+upgrade, and validating the result.
+
+Every address is a `<KEY>` placeholder resolved from the gitignored
+`configuration/environments/homelab.yaml` (`task config:eval` prints them): `<CP_VIP>`,
+`<CP1_IP>`, `<CP2_IP>`, `<CP3_IP>`, `<WORKER1_IP>`, `<WORKER2_IP>`, `<WORKER3_IP>`. The
+cluster is **three control planes and three workers**; `worker-1` carries the Intel GPU.
+
+Agents never run any of this: every step mutates production (ADR-009). An agent may run
+the read-only checks in [Validation](#validation) and `task apiserver:probe`.
 
 ## Table of Contents
 
 - [Overview](#overview)
+- [Where the versions live](#where-the-versions-live)
 - [Pre-Upgrade Preparation](#pre-upgrade-preparation)
 - [Upgrade Procedures](#upgrade-procedures)
 - [Emergency Recovery](#emergency-recovery)
@@ -17,28 +27,33 @@ This runbook provides step-by-step procedures for upgrading Talos Linux nodes, K
 
 ## Overview
 
-### Upgrade Types
+| Upgrade Type | Risk | Downtime |
+|--------------|------|----------|
+| Talos patch version | Low | Rolling, none |
+| Talos minor version | Medium | Rolling, none |
+| Kubernetes patch | Low | Rolling, none |
+| Kubernetes minor | Medium | Rolling, brief API blips |
 
-| Upgrade Type | Frequency | Risk Level | Downtime |
-|--------------|-----------|------------|----------|
-| Talos patch version | Monthly | Low | Rolling (0 downtime) |
-| Talos minor version | Quarterly | Medium | Rolling (0 downtime) |
-| Talos major version | Annually | High | Brief (minutes) |
-| Kubernetes patch | As needed | Low | Rolling (0 downtime) |
-| Kubernetes minor | Quarterly | Medium | Rolling (0 downtime) |
-| Kubernetes major | Annually | High | Brief (minutes) |
+Upgrade one minor version at a time and check the
+[Talos support matrix](https://www.talos.dev/latest/introduction/support-matrix/) for the
+Kubernetes versions each Talos release supports.
 
-### Version Compatibility
+## Where the versions live
 
-**Current Versions**:
-- Talos: 1.7.x
-- Kubernetes: 1.30.x
+| What | Where | Notes |
+|------|-------|-------|
+| Registry (Renovate target) | `configuration/versions.yaml` `tools.talos`, `tools.kubernetes` | Single source of truth for pins; Renovate bumps only this file |
+| What the cluster runs | `terragrunt/environments/homelab/env.hcl` `talos_version`, `kubernetes_version` | Consumed by the `talos-cluster` and `talos-image*` units |
+| Installer images | `terragrunt/environments/homelab/talos-image`, `talos-image-gpu`, `talos-image-gpu-intel` | Image Factory schematics from `talos/image/schematic*.yaml`; output `factory.talos.dev/installer/<schematic_id>:<talos_version>` |
+| Machine config patches | `terragrunt/environments/homelab/talos-cluster/terragrunt.hcl` | etcd `extraArgs`, GPU patch, CSI patches from `talos/patches/` |
 
-**Upgrade Path** (one minor version at a time):
-- Talos 1.7.x → 1.8.x → 1.9.x
-- Kubernetes 1.30.x → 1.31.x → 1.32.x
+Keep `env.hcl` and `versions.yaml` on the same Talos and Kubernetes versions; level 0 does
+not check that pair, so verify it by hand before an upgrade:
 
-**Compatibility Matrix**: https://www.talos.dev/latest/introduction/support-matrix/
+```bash
+yq '.tools.talos, .tools.kubernetes' configuration/versions.yaml
+rg -n 'talos_version|kubernetes_version' terragrunt/environments/homelab/env.hcl
+```
 
 ---
 
@@ -47,259 +62,147 @@ This runbook provides step-by-step procedures for upgrading Talos Linux nodes, K
 ### Step 1: Verify Current State
 
 ```bash
-# Check Talos version on all nodes
-talosctl -n 172.16.100.51,172.16.100.52,172.16.100.53,172.16.100.54,172.16.100.55 version
+# Talos version on every node
+talosctl -n <CP1_IP>,<CP2_IP>,<CP3_IP>,<WORKER1_IP>,<WORKER2_IP>,<WORKER3_IP> version
 
-# Check Kubernetes version
+# Kubernetes version and node status
 kubectl version
-
-# Check node status
 kubectl get nodes -o wide
 
-# Check etcd health
-talosctl -n 172.16.100.51 etcd members
+# etcd quorum (three members expected)
+talosctl -n <CP1_IP> etcd members
+talosctl -n <CP1_IP> etcd status
+
+# API reachability through the VIP and each control plane side by side (read-only)
+task apiserver:probe
 ```
 
 ### Step 2: Backup etcd
 
-**Critical**: Always backup etcd before upgrades
+**Critical**: always snapshot etcd before an upgrade.
 
 ```bash
-# Create etcd snapshot
-talosctl -n 172.16.100.51 etcd snapshot /var/lib/etcd-backup-$(date +%Y%m%d-%H%M%S).db
-
-# Copy snapshot to local machine
-talosctl -n 172.16.100.51 cp /var/lib/etcd-backup-*.db ./
-
-# Upload to TrueNAS
-scp etcd-backup-*.db root@truenas:/mnt/storage/backups/kubernetes/etcd/
-
-# Verify snapshot
+talosctl -n <CP1_IP> etcd snapshot ./etcd-backup-$(date +%Y%m%d-%H%M%S).db
 ls -lh etcd-backup-*.db
 ```
 
-### Step 3: Backup Kubernetes Resources
+Copy the snapshot somewhere off the cluster (TrueNAS or the workstation). The
+CloudNativePG data (Paperclip) has its own backup path; see `docs/runbooks/verification.md`
+and the restore drill (`task drill:restore`).
+
+### Step 3: Check Cluster Health
 
 ```bash
-# Backup all Kubernetes resources
-kubectl get all -A -o yaml > k8s-backup-$(date +%Y%m%d).yaml
-
-# Backup specific namespaces
-kubectl get all -n media -o yaml > media-backup-$(date +%Y%m%d).yaml
-
-# Backup CRDs
-kubectl get crd -o yaml > crd-backup-$(date +%Y%m%d).yaml
-
-# Upload backups
-scp *-backup-*.yaml root@truenas:/mnt/storage/backups/kubernetes/
-```
-
-### Step 4: Check Cluster Health
-
-```bash
-# Check all pods are running
-kubectl get pods -A | grep -v Running
-
-# Check PVCs are bound
-kubectl get pvc -A | grep -v Bound
-
-# Check cluster events
+kubectl get pods -A | rg -v 'Running|Completed'
+kubectl get pvc -A | rg -v Bound
 kubectl get events -A --sort-by='.lastTimestamp' | tail -20
-
-# Run conformance test (optional, time-consuming)
-# sonobuoy run --wait
+kubectl -n argocd get applications | rg -v 'Synced.*Healthy'
 ```
 
-### Step 5: Notify Stakeholders
+The control planes keep etcd on the dedicated `cp-storage` NVMe pool; if `talosctl -n <CP1_IP>
+logs etcd | rg "slow fdatasync"` shows stalls before you start, read
+[control-plane-storage.md](./control-plane-storage.md) first.
 
-- [ ] Inform family members of potential service interruption
-- [ ] Schedule upgrade during low-usage window
-- [ ] Document upgrade start time
+### Step 4: Prepare Rollback Plan
 
-### Step 6: Prepare Rollback Plan
-
-- [ ] etcd backup created
-- [ ] K8s resource backup created
-- [ ] Previous Talos version documented
-- [ ] Previous K8s version documented
-- [ ] Rollback procedure reviewed
+- [ ] etcd snapshot taken and copied off the cluster
+- [ ] Current Talos and Kubernetes versions noted (`talosctl version`, `kubectl version`)
+- [ ] Previous installer image tag noted (`talosctl -n <CP1_IP> get machineconfig -o yaml | rg image:`)
+- [ ] Low-usage window chosen; household informed
 
 ---
 
 ## Upgrade Procedures
 
-### Procedure 1: Upgrade Talos (Patch Version)
+### Procedure 1: Upgrade Talos through Terragrunt (recommended)
 
-**Example**: 1.7.0 → 1.7.1
-
-**Risk**: Low
-**Downtime**: None (rolling upgrade)
-
-**Steps**:
+Declarative and repeatable: the image units build a new Image Factory installer, the
+cluster unit rolls it out.
 
 ```bash
-# 1. Upgrade control plane nodes ONE AT A TIME
-talosctl -n 172.16.100.51 upgrade --image ghcr.io/siderolabs/installer:v1.7.1 --preserve
+# 1. Bump the versions
+#    configuration/versions.yaml  tools.talos (Renovate usually does this)
+#    terragrunt/environments/homelab/env.hcl  talos_version
 
-# Wait for node to complete upgrade (5-10 minutes)
-talosctl -n 172.16.100.51 health --wait-timeout 15m
+# 2. Rebuild the installer images (one unit per schematic)
+task talos:upgrade:image                                   # talos-image
+task tf:apply:component COMPONENT=talos-image-gpu          # NVIDIA schematic (historical)
+task tf:apply:component COMPONENT=talos-image-gpu-intel    # Intel schematic (worker-1)
 
-# Verify node is ready
+# 3. Plan, then apply the cluster unit
+task tf:plan:component COMPONENT=talos-cluster
+task tf:apply:component COMPONENT=talos-cluster
+
+# 4. Verify
+talosctl -n <CP1_IP>,<CP2_IP>,<CP3_IP>,<WORKER1_IP>,<WORKER2_IP>,<WORKER3_IP> version
 kubectl get nodes
-
-# Repeat for second control plane node
-talosctl -n 172.16.100.52 upgrade --image ghcr.io/siderolabs/installer:v1.7.1 --preserve
-talosctl -n 172.16.100.52 health --wait-timeout 15m
-
-# 2. Upgrade worker nodes ONE AT A TIME
-talosctl -n 172.16.100.53 upgrade --image ghcr.io/siderolabs/installer:v1.7.1 --preserve
-talosctl -n 172.16.100.53 health --wait-timeout 15m
-
-talosctl -n 172.16.100.54 upgrade --image ghcr.io/siderolabs/installer:v1.7.1 --preserve
-talosctl -n 172.16.100.54 health --wait-timeout 15m
-
-talosctl -n 172.16.100.55 upgrade --image ghcr.io/siderolabs/installer:v1.7.1 --preserve
-talosctl -n 172.16.100.55 health --wait-timeout 15m
-
-# 3. Verify all nodes upgraded
-talosctl -n 172.16.100.51,172.16.100.52,172.16.100.53,172.16.100.54,172.16.100.55 version
-
-# 4. Verify cluster health
-kubectl get nodes
-kubectl get pods -A
 ```
 
-**Expected Behavior**:
-- Each node reboots during upgrade
-- Pods automatically migrate to healthy nodes
-- No service interruption for replicated workloads
+Every `task tf:*` command runs through `op run` with `.env.op`, so the Proxmox and Talos
+credentials come from 1Password; never call `terragrunt` by hand.
 
-**RTO**: 30-60 minutes (entire cluster)
+### Procedure 2: Upgrade Talos with talosctl (manual, one node at a time)
 
----
-
-### Procedure 2: Upgrade Talos (Minor/Major Version)
-
-**Example**: 1.7.x → 1.8.x
-
-**Risk**: Medium
-**Downtime**: Brief (seconds to minutes)
-
-**Additional Steps**:
+Use the installer image the image unit produced (`task tf:output` in
+`terragrunt/environments/homelab/talos-image*`), not a generic `ghcr.io/siderolabs/installer`
+tag: the homelab images carry the QEMU guest agent, iSCSI/NFS tools and the GPU extensions.
 
 ```bash
-# 1. Review release notes
-# https://github.com/siderolabs/talos/releases
+IMG=factory.talos.dev/installer/<schematic_id>:<talos_version>
 
-# 2. Update Talos machine config if needed
-# Check for breaking changes or new required fields
+# 1. Control planes, one at a time; wait for health between nodes
+for n in <CP1_IP> <CP2_IP> <CP3_IP>; do
+  talosctl -n "$n" upgrade --image "$IMG" --preserve
+  talosctl -n "$n" health --wait-timeout 15m
+  kubectl get nodes
+done
 
-# Edit machine configs
-vim talos/machine-config/controlplane.yaml.tpl
-vim talos/machine-config/worker.yaml.tpl
+# 2. Workers, one at a time (worker-1 uses the Intel schematic image)
+talosctl -n <WORKER1_IP> upgrade --image "$IMG_INTEL" --preserve
+talosctl -n <WORKER1_IP> health --wait-timeout 15m
+talosctl -n <WORKER2_IP> upgrade --image "$IMG" --preserve
+talosctl -n <WORKER2_IP> health --wait-timeout 15m
+talosctl -n <WORKER3_IP> upgrade --image "$IMG" --preserve
+talosctl -n <WORKER3_IP> health --wait-timeout 15m
 
-# 3. Generate new machine configs
-talosctl gen config homelab https://172.16.100.51:6443 \
-  --config-patch @talos/patches/controlplane-patch.yaml \
-  --output-types controlplane -o controlplane.yaml
-
-# 4. Apply config changes (if needed)
-talosctl -n 172.16.100.51 apply-config --file controlplane.yaml
-
-# 5. Follow Procedure 1 for upgrade
+# 3. Verify
+talosctl -n <CP1_IP>,<CP2_IP>,<CP3_IP>,<WORKER1_IP>,<WORKER2_IP>,<WORKER3_IP> version
+kubectl get nodes
+kubectl get pods -A | rg -v 'Running|Completed'
 ```
 
-**RTO**: 1-2 hours
-
----
+Each node reboots once; pods reschedule onto the remaining nodes. With three control
+planes etcd keeps quorum while one member is down, and the layer-2 VIP moves to a healthy
+control plane.
 
 ### Procedure 3: Upgrade Kubernetes
 
-**Example**: 1.30.x → 1.31.x
-
-**Risk**: Medium
-**Downtime**: None (rolling upgrade)
-
-**Prerequisites**:
-- Talos version supports target Kubernetes version
-- Check compatibility: https://www.talos.dev/latest/introduction/support-matrix/
-
-**Steps**:
-
 ```bash
-# 1. Upgrade Kubernetes via talosctl
-talosctl -n 172.16.100.51 upgrade-k8s --to 1.31.0
+# Bump configuration/versions.yaml tools.kubernetes and env.hcl kubernetes_version first
+talosctl -n <CP1_IP> upgrade-k8s --to <kubernetes_version>
 
-# This command:
-# - Upgrades control plane components
-# - Upgrades kubelet on all nodes
-# - Performs rolling upgrade (no downtime)
-# - Waits for each component to be healthy
+# Watch it roll the control plane components, then the kubelets
+kubectl get nodes -w
 
-# Monitor progress
-talosctl -n 172.16.100.51 upgrade-k8s --to 1.31.0 --verbose
-
-# 2. Verify upgrade
+# Verify
 kubectl version
-kubectl get nodes
-
-# 3. Verify all pods are running
-kubectl get pods -A
-
-# 4. Check for deprecated API usage
-kubectl get --raw /metrics | grep apiserver_requested_deprecated_apis
+kubectl get pods -A | rg -v 'Running|Completed'
+kubectl get --raw /metrics | rg apiserver_requested_deprecated_apis
 ```
 
-**Expected Behavior**:
-- Control plane components upgrade first
-- Worker nodes upgrade one at a time
-- Pods may be evicted and rescheduled
-- Short API server unavailability (< 30 seconds)
+`upgrade-k8s` talks to one control plane and upgrades every node itself; expect short API
+server unavailability while each control plane restarts. Run `task apiserver:probe`
+afterwards to confirm the VIP and each control plane answer.
 
-**RTO**: 45-90 minutes
+### Procedure 4: Recreate a node instead of upgrading it
 
----
-
-### Procedure 4: Upgrade via Terragrunt (Recommended)
-
-**Benefit**: Declarative, version-controlled, repeatable
-
-**Steps**:
+When a node is wedged, or after a schematic change that a `--preserve` upgrade cannot apply,
+recreate the VM from Terragrunt:
 
 ```bash
-# 1. Update Talos version in Terragrunt
-cd homelab/terragrunt/environments/homelab/talos-cluster
-
-# Edit terragrunt.hcl
-vim terragrunt.hcl
+task talos:recreate:node NODE=worker-2          # taint + apply for one VM
+task talos:recreate:gpu-node                     # worker-1, then `homelab verify gpu`
 ```
-
-```hcl
-locals {
-  talos_version = "v1.7.1"  # Updated from v1.7.0
-  kubernetes_version = "v1.31.0"  # Updated from v1.30.0
-}
-```
-
-```bash
-# 2. Review plan
-terragrunt plan
-
-# 3. Apply changes
-terragrunt apply
-
-# This will:
-# - Generate new Talos machine configs
-# - Upgrade all nodes (rolling)
-# - Upgrade Kubernetes
-# - Wait for health checks
-
-# 4. Verify
-kubectl get nodes
-talosctl version
-```
-
-**RTO**: 1-2 hours
 
 ---
 
@@ -307,83 +210,43 @@ talosctl version
 
 ### Scenario 1: etcd Quorum Lost
 
-**Symptoms**: Cannot access Kubernetes API, etcd members unreachable
-
-**Recovery**:
+Three members; quorum survives one failure. With two members down the API is gone.
 
 ```bash
-# 1. Check etcd status
-talosctl -n 172.16.100.51 etcd members
+# 1. Which members are up?
+talosctl -n <CP1_IP> etcd members
+talosctl -n <CP2_IP> etcd members
+talosctl -n <CP3_IP> etcd members
 
-# If majority of nodes are down, etcd quorum is lost
+# 2. If a single healthy member remains, bring the others back before anything else:
+#    reboot them (Proxmox console or `talosctl -n <ip> reboot`) and wait for them to rejoin.
 
-# 2. Restore from etcd backup
-# Download latest backup
-scp root@truenas:/mnt/storage/backups/kubernetes/etcd/etcd-backup-latest.db ./
+# 3. Only if every member is lost: restore the snapshot on one control plane
+talosctl -n <CP1_IP> bootstrap --recover-from ./etcd-backup-<stamp>.db
+talosctl -n <CP1_IP> health --wait-timeout 15m
 
-# 3. Stop all control plane nodes
-talosctl -n 172.16.100.51 shutdown
-talosctl -n 172.16.100.52 shutdown
-
-# 4. Bootstrap first control plane node with backup
-# This requires console access or recovery mode
-talosctl -n 172.16.100.51 bootstrap --recover-from /path/to/etcd-backup.db
-
-# 5. Start second control plane node
-# Boot normally, it will join cluster
-
-# 6. Verify etcd health
-talosctl -n 172.16.100.51 etcd members
+# 4. Let the other two rejoin, then verify
+talosctl -n <CP1_IP> etcd members
 ```
-
-**RTO**: 2-4 hours
-
----
 
 ### Scenario 2: Control Plane Node Won't Start After Upgrade
 
-**Symptoms**: Node stuck in boot loop or fails health checks
-
-**Recovery**:
-
 ```bash
-# 1. Check node logs
-talosctl -n 172.16.100.51 logs
+talosctl -n <CP1_IP> dmesg | tail -50
+talosctl -n <CP1_IP> services
+talosctl -n <CP1_IP> logs etcd
 
-# 2. Check service status
-talosctl -n 172.16.100.51 services
+# Roll that node back to the previous installer image
+talosctl -n <CP1_IP> upgrade --image factory.talos.dev/installer/<schematic_id>:<previous_talos_version> --preserve
 
-# 3. Rollback to previous version
-talosctl -n 172.16.100.51 upgrade --image ghcr.io/siderolabs/installer:v1.7.0 --preserve
-
-# 4. If rollback fails, reset and re-provision
-talosctl -n 172.16.100.51 reset --graceful=false --reboot
-
-# 5. Re-apply machine config
-talosctl -n 172.16.100.51 apply-config --insecure --nodes 172.16.100.51 --file controlplane.yaml
+# If it will not come back, recreate the VM from Terragrunt
+task talos:recreate:node NODE=cp-1
 ```
-
-**RTO**: 1-2 hours
-
----
 
 ### Scenario 3: Complete Cluster Failure
 
-**Symptoms**: All nodes down, cluster unrecoverable
-
-**Recovery**:
-
-**Full cluster rebuild** - see [disaster-recovery.md](../disaster-recovery.md#scenario-5-complete-cluster-loss)
-
-**High-level steps**:
-
-1. Destroy existing cluster
-2. Provision new cluster via Terragrunt
-3. Restore etcd from backup
-4. ArgoCD re-deploys applications from Git
-5. Restore PVC data from Velero backups
-
-**RTO**: 4-6 hours
+Rebuild from Terragrunt and let ArgoCD restore every workload from Git; see
+[disaster-recovery.md](../disaster-recovery.md).
 
 ---
 
@@ -391,321 +254,129 @@ talosctl -n 172.16.100.51 apply-config --insecure --nodes 172.16.100.51 --file c
 
 ### Post-Upgrade Checklist
 
-After any upgrade:
+**Cluster**
 
-**Cluster Health**:
-- [ ] All nodes in Ready state: `kubectl get nodes`
-- [ ] All pods in Running state: `kubectl get pods -A`
-- [ ] etcd healthy: `talosctl etcd members`
-- [ ] API server responsive: `kubectl version`
+- [ ] Every node Ready: `kubectl get nodes`
+- [ ] No pod outside Running/Completed: `kubectl get pods -A | rg -v 'Running|Completed'`
+- [ ] Three etcd members, no `slow fdatasync`: `talosctl -n <CP1_IP> etcd members`, `talosctl -n <CP1_IP> logs etcd | rg "slow fdatasync"`
+- [ ] VIP and every control plane answer: `task apiserver:probe`
 
-**Application Health**:
-- [ ] ArgoCD syncing: `kubectl get applications -n argocd`
-- [ ] Ingress working: `curl http://plex.<DOMAIN>`
-- [ ] Persistent volumes bound: `kubectl get pvc -A`
-- [ ] Services have IPs: `kubectl get svc -A`
+**GitOps**
 
-**Monitoring**:
-- [ ] Prometheus scraping: Check Grafana dashboards
-- [ ] No critical alerts: Check Alertmanager
-- [ ] Metrics flowing: Check Prometheus targets
+- [ ] Every Application Synced and Healthy: `task prod:status` (read-only context) or `kubectl -n argocd get applications`
+- [ ] Ingress answers: `curl -I https://plex.<DOMAIN>`
+- [ ] PVCs Bound: `kubectl get pvc -A`
+- [ ] LoadBalancer Services have addresses: `kubectl get svc -A | rg LoadBalancer`
 
-**Network**:
-- [ ] BGP peering up: Check MetalLB speaker logs
-- [ ] DNS resolving: `nslookup plex.media.svc.cluster.local`
-- [ ] Pods can reach internet: `kubectl run -it --rm curl --image=curlimages/curl --restart=Never -- curl https://google.com`
+**Network**
+
+- [ ] BGP sessions established: `kubectl -n kube-system exec ds/cilium -- cilium bgp peers`
+- [ ] In-cluster DNS: `kubectl run -it --rm dns --image=nicolaka/netshoot --restart=Never -- nslookup kubernetes.default.svc.cluster.local`
+
+**GPU (worker-1)**
+
+- [ ] `task gpu:verify` (`homelab verify gpu`, vendor from `GPU_VENDOR`)
 
 ### Validation Commands
 
 ```bash
-# Comprehensive health check
-talosctl -n 172.16.100.51 health --server=false
-
-# Check Talos services
-talosctl -n 172.16.100.51,172.16.100.52,172.16.100.53,172.16.100.54,172.16.100.55 services
-
-# Check Kubernetes components
-kubectl get componentstatuses
-
-# Check etcd
-talosctl -n 172.16.100.51 etcd members
-talosctl -n 172.16.100.51 etcd status
-
-# Check CNI (Cilium)
+talosctl -n <CP1_IP> health --server=false
+talosctl -n <CP1_IP>,<CP2_IP>,<CP3_IP>,<WORKER1_IP>,<WORKER2_IP>,<WORKER3_IP> services
+talosctl -n <CP1_IP> etcd status
 kubectl -n kube-system get pods -l k8s-app=cilium
-kubectl -n kube-system exec -it ds/cilium -- cilium status
-
-# Check all resources
-kubectl get all -A
+kubectl -n kube-system exec ds/cilium -- cilium status
 ```
 
 ---
 
 ## Rollback Procedures
 
-### Rollback Talos Version
-
-**Scenario**: Upgrade failed or introduced issues
-
-**Procedure**:
+### Rollback Talos
 
 ```bash
-# 1. Identify previous version
-# Check etcd backup filename or Git history
-
-# 2. Downgrade each node
-talosctl -n 172.16.100.51 upgrade --image ghcr.io/siderolabs/installer:v1.7.0 --preserve
-
-# Wait for health
-talosctl -n 172.16.100.51 health --wait-timeout 15m
-
-# 3. Repeat for all nodes (control plane first, then workers)
-
-# 4. Verify
-talosctl version
-kubectl get nodes
+# Previous installer image from Step 4 of the preparation
+talosctl -n <CP1_IP> upgrade --image factory.talos.dev/installer/<schematic_id>:<previous_talos_version> --preserve
+talosctl -n <CP1_IP> health --wait-timeout 15m
+# repeat per node: control planes first, then workers
 ```
 
-**RTO**: 1-2 hours
+If the rollback came from Terragrunt, revert `env.hcl` and `versions.yaml` and re-apply
+`talos-image*` and `talos-cluster` (Procedure 1) so the state matches the running cluster.
 
----
+### Rollback Kubernetes
 
-### Rollback Kubernetes Version
-
-**Note**: Kubernetes downgrades are NOT supported. Do not attempt to downgrade Kubernetes.
-
-**Alternative**: Restore cluster from etcd backup taken before upgrade
-
-```bash
-# 1. Stop all nodes
-talosctl -n <nodes> shutdown
-
-# 2. Bootstrap from pre-upgrade etcd backup
-# (Follow etcd restore procedure)
-
-# 3. Verify old Kubernetes version restored
-kubectl version
-```
-
-**RTO**: 4-6 hours
+Kubernetes downgrades are not supported. Restore the pre-upgrade etcd snapshot
+(Scenario 1, step 3) and re-run the upgrade once the cause is fixed.
 
 ---
 
 ## Troubleshooting
 
-### Issue: Node Stuck "Upgrading"
-
-**Symptoms**: Node shows "Upgrading" status indefinitely
-
-**Diagnosis**:
+### Node Stuck "Upgrading"
 
 ```bash
-# Check upgrade progress
-talosctl -n 172.16.100.51 logs
-
-# Check service status
-talosctl -n 172.16.100.51 services
+talosctl -n <WORKER2_IP> dmesg | tail -50
+talosctl -n <WORKER2_IP> services
+talosctl -n <WORKER2_IP> reboot
+# last resort: wipe and re-provision from Terragrunt
+task talos:recreate:node NODE=worker-2
 ```
 
-**Resolution**:
+### Pods Not Scheduling After Upgrade
 
 ```bash
-# Force reboot
-talosctl -n 172.16.100.51 reboot
-
-# If still stuck, reset
-talosctl -n 172.16.100.51 reset --graceful=false --reboot
-```
-
----
-
-### Issue: Pods Not Scheduling After Upgrade
-
-**Symptoms**: Pods stuck in Pending state
-
-**Diagnosis**:
-
-```bash
-# Check node status
-kubectl get nodes
-kubectl describe node talos-worker-1
-
-# Check pod events
-kubectl describe pod <pod-name> -n <namespace>
-```
-
-**Resolution**:
-
-```bash
-# Check for taints
+kubectl describe node <node>
 kubectl get nodes -o json | jq '.items[].spec.taints'
-
-# Remove taints if needed
-kubectl taint nodes talos-worker-1 node.kubernetes.io/not-ready:NoSchedule-
-
-# Check resource availability
-kubectl top nodes
-kubectl top pods -A
+kubectl describe pod <pod> -n <namespace>
 ```
 
----
+`worker-1` carries the soft taint `intel.com/gpu=true:PreferNoSchedule` by design
+(`talos/patches/gpu-passthrough-intel.yaml`); do not remove it.
 
-### Issue: etcd Unhealthy After Upgrade
-
-**Symptoms**: etcd members show unhealthy
-
-**Diagnosis**:
+### etcd Unhealthy After Upgrade
 
 ```bash
-# Check etcd status
-talosctl -n 172.16.100.51 etcd members
-talosctl -n 172.16.100.51 etcd status
-
-# Check etcd logs
-talosctl -n 172.16.100.51 logs | grep etcd
+talosctl -n <CP1_IP> etcd members
+talosctl -n <CP1_IP> etcd status
+talosctl -n <CP1_IP> logs etcd | rg -i 'slow fdatasync|leader|error'
+talosctl -n <CP1_IP> service etcd restart
 ```
 
-**Resolution**:
+Persistent `slow fdatasync` means the control-plane disk is contended again; see
+[control-plane-storage.md](./control-plane-storage.md#diagnose-a-recurrence).
+
+### Cilium Not Working
+
+Cilium is installed by the `cilium` ArgoCD Application (`charts/addons/templates/cilium.yaml`),
+not from a file you apply by hand.
 
 ```bash
-# Restart etcd service
-talosctl -n 172.16.100.51 service etcd restart
-
-# If that fails, restore from backup
-# (See Emergency Recovery - etcd Quorum Lost)
-```
-
----
-
-### Issue: CNI (Cilium) Not Working
-
-**Symptoms**: Pods cannot reach network, DNS not resolving
-
-**Diagnosis**:
-
-```bash
-# Check Cilium pods
 kubectl -n kube-system get pods -l k8s-app=cilium
-
-# Check Cilium status
-kubectl -n kube-system exec -it ds/cilium -- cilium status
-
-# Check Cilium connectivity
-kubectl -n kube-system exec -it ds/cilium -- cilium connectivity test
-```
-
-**Resolution**:
-
-```bash
-# Restart Cilium pods
+kubectl -n kube-system exec ds/cilium -- cilium status
 kubectl -n kube-system rollout restart ds/cilium
-
-# If that fails, reinstall Cilium
-kubectl delete -f talos/inline-manifests/cilium-install.yaml
-kubectl apply -f talos/inline-manifests/cilium-install.yaml
+kubectl -n argocd get application cilium
 ```
 
 ---
 
 ## References
 
-### Official Documentation
+- [Talos upgrade guide](https://www.talos.dev/latest/talos-guides/upgrading-talos/) and
+  [support matrix](https://www.talos.dev/latest/introduction/support-matrix/)
+- [Kubernetes version skew policy](https://kubernetes.io/releases/version-skew-policy/)
+- [etcd disaster recovery](https://etcd.io/docs/latest/op-guide/recovery/)
+- [control-plane-storage.md](./control-plane-storage.md), [proxmox-recovery.md](./proxmox-recovery.md),
+  [truenas-maintenance.md](./truenas-maintenance.md), [readonly-access.md](./readonly-access.md)
+- [architecture.md](../architecture.md), [disaster-recovery.md](../disaster-recovery.md),
+  [networking.md](../networking.md)
 
-- [Talos Linux Documentation](https://www.talos.dev/latest/)
-- [Talos Upgrade Guide](https://www.talos.dev/latest/talos-guides/upgrading-talos/)
-- [Kubernetes Upgrade Guide](https://kubernetes.io/docs/tasks/administer-cluster/cluster-upgrade/)
-- [etcd Disaster Recovery](https://etcd.io/docs/latest/op-guide/recovery/)
-
-### Version Compatibility
-
-- [Talos Support Matrix](https://www.talos.dev/latest/introduction/support-matrix/)
-- [Kubernetes Version Skew Policy](https://kubernetes.io/releases/version-skew-policy/)
-
-### Related Runbooks
-
-- [proxmox-recovery.md](./proxmox-recovery.md) - Proxmox recovery procedures
-- [truenas-maintenance.md](./truenas-maintenance.md) - TrueNAS maintenance
-
-### Related Documentation
-
-- [architecture.md](../architecture.md) - Architecture overview
-- [disaster-recovery.md](../disaster-recovery.md) - Complete DR strategy
-- [networking.md](../networking.md) - Network configuration
-
----
-
-**Last Updated**: 2026-01-19
-**Version**: 1.0
-**Maintainer**: homelab team
-
----
-
-## Appendix: Quick Reference Commands
-
-### Talos Commands
+## Appendix: Quick Reference
 
 ```bash
-# Version
-talosctl version
-talosctl -n <node> version
-
-# Health check
-talosctl -n <node> health
-
-# Service status
-talosctl -n <node> services
-talosctl -n <node> service <service> status
-
-# Logs
-talosctl -n <node> logs
-talosctl -n <node> logs -f  # Follow
-
-# Upgrade
-talosctl -n <node> upgrade --image <image> --preserve
-
-# Reboot
-talosctl -n <node> reboot
-
-# Shutdown
-talosctl -n <node> shutdown
-
-# Reset
-talosctl -n <node> reset
-```
-
-### etcd Commands
-
-```bash
-# Members
-talosctl -n <cp-node> etcd members
-
-# Status
-talosctl -n <cp-node> etcd status
-
-# Snapshot
-talosctl -n <cp-node> etcd snapshot /var/lib/etcd-backup.db
-
-# Forfeit leadership (graceful leader change)
-talosctl -n <cp-node> etcd forfeit-leadership
-```
-
-### Kubernetes Commands
-
-```bash
-# Version
-kubectl version
-
-# Nodes
-kubectl get nodes
-kubectl describe node <node>
-
-# Pods
-kubectl get pods -A
-kubectl describe pod <pod> -n <namespace>
-
-# Events
-kubectl get events -A --sort-by='.lastTimestamp'
-
-# Component status
-kubectl get componentstatuses
+talosctl -n <node> version | health | services | dmesg | reboot | shutdown
+talosctl -n <node> upgrade --image <installer image> --preserve
+talosctl -n <cp> etcd members | status | snapshot <file> | forfeit-leadership
+talosctl -n <cp> upgrade-k8s --to <version>
+task apiserver:probe                          # read-only VIP + per-control-plane probe
+task talos:recreate:node NODE=<name>          # destroy and recreate one VM
 ```

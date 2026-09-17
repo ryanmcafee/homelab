@@ -1,799 +1,247 @@
-# Hardware Setup and Configuration
+# Hardware
 
-This document provides comprehensive hardware configuration instructions for the homelab, including BIOS settings, HBA configuration, cable management, and troubleshooting.
+The physical host, how it is carved up, and the firmware/BMC settings that took real time to
+get right. Provisioning of everything above the metal is in
+[architecture.md#provisioning](./architecture.md#provisioning).
 
-Addresses written as `<KEY>` (`<PROXMOX_IP>`, `<GATEWAY_IP>`, ...) are placeholders resolved from `configuration/environments/homelab.yaml`, which is gitignored.
+Addresses written as `<KEY>` (`<PROXMOX_IP>`, `<IPMI_IP>`, `<GATEWAY_IP>`, `<TRUENAS_IP>`) are
+placeholders resolved from the gitignored `configuration/environments/homelab.yaml`.
 
 ## Table of Contents
 
-- [Hardware Overview](#hardware-overview)
-- [Server Specifications](#server-specifications)
-- [BIOS Configuration](#bios-configuration)
-- [HBA Card Setup](#hba-card-setup)
-- [GPU Passthrough Configuration](#gpu-passthrough-configuration)
-- [Network Interface Configuration](#network-interface-configuration)
-- [Cable Management](#cable-management)
-- [IPMI Configuration](#ipmi-configuration)
-- [Storage Drive Layout](#storage-drive-layout)
-- [Power Management](#power-management)
+- [Overview](#overview)
+- [Virtual machines](#virtual-machines)
+- [Storage layout](#storage-layout)
+- [PCI passthrough](#pci-passthrough)
+- [GPU](#gpu)
+- [HBA firmware (mixed mode for U.2 NVMe)](#hba-firmware-mixed-mode-for-u2-nvme)
+- [BIOS settings](#bios-settings)
+- [IPMI](#ipmi)
+- [Network interfaces](#network-interfaces)
+- [Power](#power)
 - [Troubleshooting](#troubleshooting)
 - [References](#references)
 
 ---
 
-## Hardware Overview
+## Overview
 
-### System Architecture
+One Supermicro server runs Proxmox VE. Every other component is a VM on it: the TrueNAS
+storage appliance with its disk controllers passed through, three Talos control planes,
+and three Talos workers (one with the Intel GPU passed through). Node sizing lives in
+`terragrunt/environments/homelab/env.hcl` (`control_plane_nodes`, `worker_nodes`).
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                  Supermicro Server Chassis                       │
-│                                                                  │
-│  ┌──────────────────────────────────────────────────────────┐  │
-│  │  Motherboard: Supermicro X11 Series                      │  │
-│  │  CPU: 24 vCPUs                                            │  │
-│  │  RAM: 256 GB DDR4 ECC                                     │  │
-│  │                                                            │  │
-│  │  PCIe Slots:                                              │  │
-│  │  ├─ Slot 1: Broadcom HBA 9400-8i (Proxmox storage)       │  │
-│  │  ├─ Slot 2: Broadcom HBA 9400-8i Mixed (TrueNAS pass)    │  │
-│  │  ├─ Slot 3: NVIDIA Quadro P2200 5GB (Plex GPU)           │  │
-│  │  └─ Slot 4: (Available)                                  │  │
-│  │                                                            │  │
-│  │  Storage:                                                 │  │
-│  │  ├─ NVMe 1: 250GB (Proxmox OS)                           │  │
-│  │  ├─ NVMe 2: 1TB (VM storage pool - ZFS mirror)           │  │
-│  │  ├─ NVMe 3: 1TB (VM storage pool - ZFS mirror)           │  │
-│  │  ├─ NVMe 4: 1TB (TrueNAS special vDev - mirror)          │  │
-│  │  ├─ NVMe 5: 1TB (TrueNAS special vDev - mirror)          │  │
-│  │  ├─ HDD 1-11: 20TB each (TrueNAS data pool - RAIDZ3)     │  │
-│  │  └─ HDD 12-16: (Available for expansion)                 │  │
-│  └──────────────────────────────────────────────────────────┘  │
-│                                                                  │
-│  Network:                                                        │
-│  ├─ 1GbE Port 1: IPMI (<IPMI_IP>)                               │
-│  ├─ 10GbE Port 1: Proxmox Management (<PROXMOX_IP>)             │
-│  └─ 10GbE Port 2: (Available)                                   │
-└─────────────────────────────────────────────────────────────────┘
+Supermicro chassis, AMD platform (AMD-Vi IOMMU), 256 GB ECC
+├─ Proxmox VE on a 250 GB NVMe
+├─ ZFS pool vm-storage   2x 1 TB NVMe mirror (Crucial P310)   worker + TrueNAS system disks
+├─ ZFS pool cp-storage   1x 1 TB NVMe (Samsung 990 PRO)       control-plane system disks (etcd)
+├─ PCI passthrough → TrueNAS VM
+│    Broadcom 9400-8i (mixed mode)         U.2 NVMe: TrueNAS pool `ssd` (2x 1 TB)
+│    AMD FCH SATA controller #1            8x 20 TB SATA
+│    AMD FCH SATA controller #2            3x 20 TB SATA      → TrueNAS pool `storage` (RAIDZ3)
+├─ PCI passthrough → worker-1
+│    Intel Arc Pro B50 (active, GPU_VENDOR=intel)
+│    NVIDIA Quadro P2200 (installed, not in use; historical)
+└─ IPMI 1 GbE (<IPMI_IP>), 10 GbE to VLAN 100 (<PROXMOX_IP>)
 ```
 
----
+The parts list with part numbers is in the
+[Google Sheets parts list](https://docs.google.com/spreadsheets/d/19JLS5aV629NgUacsKQQx_2HI5iXPV7Kn0e5kuBvYOVQ/edit?gid=0#gid=0).
 
-## Server Specifications
+## Virtual machines
 
-### Complete Parts List
+| VM | Count | vCPU | RAM | System disk | Datastore | Notes |
+|----|-------|------|-----|-------------|-----------|-------|
+| Talos control plane `cp-1..3` | 3 | 2 | 8 GB | 50 GB | `cp-storage` | etcd; Talos layer-2 VIP `<CP_VIP>` floats between them |
+| Talos `worker-1` | 1 | 8 | 50 GB | 100 GB | `vm-storage` | GPU passthrough, `gpu=true` |
+| Talos `worker-2`, `worker-3` | 2 | 4 | 50 GB | 100 GB | `vm-storage` | |
+| TrueNAS | 1 | see `terragrunt/environments/homelab/truenas` | | | `vm-storage` | HBA + SATA controllers passed through |
 
-See [Google Sheets Parts List](https://docs.google.com/spreadsheets/d/19JLS5aV629NgUacsKQQx_2HI5iXPV7Kn0e5kuBvYOVQ/edit?gid=0#gid=0) for detailed part numbers and pricing.
+Values are the `env.hcl` locals at the time of writing; the file is authoritative.
 
-### CPU and Memory
+## Storage layout
 
-| Component | Specification | Notes |
-|-----------|---------------|-------|
-| CPU | 24 vCPUs | Exact model varies |
-| RAM | 256 GB DDR4 ECC | 8x 32GB DIMMs recommended |
-| RAM Speed | 2666 MHz or higher | Match CPU supported speed |
+### Proxmox pools
 
-### Storage Devices
+| Pool | Devices | Purpose | Terragrunt unit |
+|------|---------|---------|-----------------|
+| `vm-storage` | 2x 1 TB NVMe mirror (Crucial CT1000P310SSD8, QLC), `ashift=12` | Worker and TrueNAS system disks | `proxmox-zfs-pool` |
+| `cp-storage` | 1x Samsung 990 PRO 1 TB (TLC), single device | Control-plane system disks only; no ISO/backup content | `proxmox-zfs-pool-cp` |
+| `local` | Proxmox OS NVMe | ISOs and Talos images | — |
 
-| Device | Capacity | Interface | Purpose |
-|--------|----------|-----------|---------|
-| NVMe SSD 1 | 250 GB | M.2 NVMe | Proxmox OS |
-| NVMe SSD 2-3 | 1 TB each | M.2 NVMe | Proxmox VM storage (ZFS mirror) |
-| NVMe SSD 4-5 | 1 TB each | U.2 NVMe | TrueNAS special vDev (ZFS mirror) |
-| HDD 1-11 | 20 TB each | SATA/SAS | TrueNAS data pool (RAIDZ3) |
+**Why two pools.** The three control-plane disks used to share `vm-storage` with every worker
+disk. etcd keeps its write-ahead log on the Talos EPHEMERAL partition of that disk, so one
+worker unpacking a large container image pushed etcd `fdatasync` from about 1 ms to tens of
+seconds on all three members at once, leases expired, and the VIP moved: the API "went away"
+for a while and came back on its own. Moving the control planes to their own NVMe removes
+worker I/O from etcd's fsync path. The single device is deliberate (etcd is already
+replicated across three nodes; isolation buys more than a mirror of the same class would).
+Decision: ADR-016 in `docs/project_notes/decisions.md`; migration, verification and
+rollback: [runbooks/control-plane-storage.md](./runbooks/control-plane-storage.md).
 
-**Total Raw Storage**: 250 GB + 2 TB + 2 TB + 220 TB = ~224 TB
-**Usable Storage**: ~162 TB (after RAID overhead)
+### TrueNAS pools
 
-### PCIe Cards
+Created by `ansible/playbooks/truenas-full-setup.yml` (role `truenas_storage`):
 
-| Slot | Card | Model | Purpose |
-|------|------|-------|---------|
-| 1 | HBA | Broadcom 9400-8i | Proxmox storage (HDDs) |
-| 2 | HBA | Broadcom 9400-8i Mixed Mode | TrueNAS passthrough (NVMe + HDDs) |
-| 3 | GPU | NVIDIA Quadro P2200 5GB | Plex hardware transcoding |
-| 4 | - | Available | Future expansion |
+| Pool | Devices | Serves |
+|------|---------|--------|
+| `storage` | 11x 20 TB SATA, RAIDZ3 | Media libraries over NFS; `storage/k8s` NFS volumes (`democratic-csi-nfs`); `storage/k8s` iSCSI HDD zvols (`democratic-csi-iscsi-hdd`) |
+| `ssd` | 2x 1 TB U.2 NVMe | `ssd/k8s` NFS (`democratic-csi-ssd`); `ssd/iscsi` zvols for SQLite-heavy apps (`democratic-csi-iscsi`, ADR-008) |
 
-### Cables
+Dataset parents are the `TRUENAS_ZONE_PARENT`, `TRUENAS_ZONE_SSD_PARENT`,
+`TRUENAS_ISCSI_PARENT` and `TRUENAS_ISCSI_HDD_PARENT` keys in
+`configuration/schema/infrastructure.schema.yaml`. Storage classes are described in
+[architecture.md#storage](./architecture.md#storage).
 
-#### U.2 NVMe Cables (for Mixed Mode HBA)
+## PCI passthrough
 
-| Cable MPN | Length | Quantity | From | To |
-|-----------|--------|----------|------|-----|
-| 05-50065-00 | 0.5m | 2 | HBA SFF-8643 | U.2 NVMe SFF-8639 |
-| 05-50064-00 | 1.0m | 0 | HBA SFF-8643 | U.2 NVMe SFF-8639 |
+Every passthrough device is declared in `terragrunt/environments/homelab/env.hcl` with its
+vendor:device ID, subsystem ID and IOMMU group, and mapped by the `talos-cluster` and
+`truenas` modules (the Proxmox API token is not root, so the hardware mapping is explicit):
 
-**Reference**: [Broadcom Mixed Mode Documentation](https://docs.broadcom.com/doc/12354774)
+| Device | ID | Goes to | Purpose |
+|--------|----|---------|---------|
+| Broadcom 9400-8i (LSI SAS3408) | `1000:00af` | TrueNAS | U.2 NVMe in mixed mode |
+| AMD FCH SATA controller #1 | `1022:7901` | TrueNAS | 8x 20 TB SATA |
+| AMD FCH SATA controller #2 | `1022:7901` | TrueNAS | 3x 20 TB SATA |
+| Intel Arc Pro B50 (Battlemage G21) | `8086:e212` | worker-1 | Plex transcoding (`gpu_intel_device`) |
+| NVIDIA Quadro P2200 | `10de:1c31` | worker-1 when `gpu_vendor = "nvidia"` | historical |
 
-#### SAS Cables (for HDDs)
-
-| Cable Type | Length | Quantity | From | To |
-|------------|--------|----------|------|-----|
-| SFF-8643 to SFF-8482 x4 | 0.5m | 2 | HBA SFF-8643 | 4x SATA/SAS HDDs |
-
-### Network Interfaces
-
-| Interface | Speed | Purpose | VLAN |
-|-----------|-------|---------|------|
-| IPMI | 1 GbE | Out-of-band management | Dedicated |
-| eth0 | 10 GbE | Proxmox management + VM traffic | 100 |
-| eth1 | 10 GbE | (Available) | - |
-
----
-
-## BIOS Configuration
-
-### Accessing BIOS
-
-1. Connect keyboard and monitor to server
-2. Power on server
-3. Press **Delete** key during POST
-4. Login with IPMI credentials if required
-
-### Required BIOS Settings
-
-#### Boot Settings
-
-| Setting | Value | Path |
-|---------|-------|------|
-| Boot Mode | UEFI | Boot → Boot Mode |
-| Fast Boot | Disabled | Boot → Fast Boot |
-| Boot Device | NVMe SSD 1 (250GB) | Boot → Boot Device Priority |
-
-#### CPU Configuration
-
-| Setting | Value | Path | Purpose |
-|---------|-------|------|---------|
-| Intel VT-x | Enabled | Advanced → CPU Configuration | Hardware virtualization |
-| Intel VT-d | Enabled | Advanced → CPU Configuration | IOMMU for PCIe passthrough |
-| Hyper-Threading | Enabled | Advanced → CPU Configuration | Double thread count |
-| C-States | Enabled | Advanced → CPU Configuration | Power saving |
-
-#### Memory Settings
-
-| Setting | Value | Path | Purpose |
-|---------|-------|------|---------|
-| ECC Mode | Enabled | Advanced → Memory Configuration | Error correction |
-| Memory Speed | Auto or Max | Advanced → Memory Configuration | Performance |
-
-#### PCIe Configuration
-
-| Setting | Value | Path | Purpose |
-|---------|-------|------|---------|
-| IOMMU | Enabled | Advanced → PCIe/PCI/PnP Configuration | Device passthrough |
-| ARI Support | Enabled | Advanced → PCIe/PCI/PnP Configuration | Alternative Routing-ID |
-| SR-IOV | Enabled | Advanced → PCIe/PCI/PnP Configuration | Single Root I/O Virtualization |
-| Above 4G Decoding | Enabled | Advanced → PCIe/PCI/PnP Configuration | Large BAR support (GPU) |
-| Re-Size BAR Support | Enabled | Advanced → PCIe/PCI/PnP Configuration | Modern GPU support |
-
-#### Storage Configuration
-
-| Setting | Value | Path | Purpose |
-|---------|-------|------|---------|
-| SATA Mode | AHCI | Advanced → SATA Configuration | Standard SATA mode |
-| NVMe Support | Enabled | Advanced → NVMe Configuration | Boot from NVMe |
-
-#### Power Management
-
-| Setting | Value | Path | Purpose |
-|---------|-------|------|---------|
-| Power Restore Policy | Last State | Advanced → ACPI Configuration | Auto-restart after power loss |
-| Wake on LAN | Enabled | Advanced → ACPI Configuration | Remote power-on |
-
-### IOMMU Groups
-
-After enabling VT-d and IOMMU, verify IOMMU groups in Proxmox:
+Verify the groups on the host before changing a mapping:
 
 ```bash
-# List IOMMU groups
 for d in /sys/kernel/iommu_groups/*/devices/*; do
     n=${d#*/iommu_groups/*}; n=${n%%/*}
-    printf 'IOMMU Group %s ' "$n"
-    lspci -nns "${d##*/}"
+    printf 'IOMMU Group %s ' "$n"; lspci -nns "${d##*/}"
 done
 ```
 
-**Expected Output** (example):
+A device must be alone in its group (or grouped only with its own functions, e.g. a GPU and
+its audio controller).
 
-```
-IOMMU Group 15: 01:00.0 Serial Attached SCSI controller [0107]: Broadcom / LSI SAS3008 PCI-Express Fusion-MPT SAS-3 [1000:0097] (rev 02)
-IOMMU Group 16: 02:00.0 Serial Attached SCSI controller [0107]: Broadcom / LSI SAS3008 PCI-Express Fusion-MPT SAS-3 [1000:0097] (rev 02)
-IOMMU Group 17: 03:00.0 VGA compatible controller [0300]: NVIDIA Corporation GP106GL [Quadro P2200] [10de:1c31] (rev a1)
-IOMMU Group 17: 03:00.1 Audio device [0403]: NVIDIA Corporation GP106 High Definition Audio Controller [10de:10f1] (rev a1)
-```
+## GPU
 
-**Important**: GPU and its audio device must be in same IOMMU group.
+`GPU_VENDOR` (`configuration/schema/gpu.schema.yaml`: `none | nvidia | intel`) selects the
+whole stack; `terragrunt/environments/homelab/env.hcl` `gpu_vendor` must say the same.
 
----
+| | Intel (current) | NVIDIA (historical) |
+|--|-----------------|---------------------|
+| Card | Arc Pro B50 | Quadro P2200 |
+| Talos image | `talos-image-gpu-intel` unit, `talos/image/schematic-intel.yaml` (`siderolabs/xe`, `siderolabs/mei`, `i915-ucode`) | `talos-image-gpu`, `talos/image/schematic.yaml` (`nonfree-kmod-nvidia`, `nvidia-container-toolkit`) |
+| Machine patch | `gpu_intel_config_patch` in the `talos-cluster` unit (reference copy `talos/patches/gpu-passthrough-intel.yaml`): loads `xe`, labels `intel.com/gpu=true`, soft taint `intel.com/gpu=true:PreferNoSchedule` | `talos/patches/gpu-passthrough.yaml` |
+| Kubernetes | `intel-device-plugins-operator` + `intel-gpu-device-plugin` Applications, `node-feature-discovery` | `nvidia-gpu-operator` Application |
+| Check | `task gpu:verify` (`homelab verify gpu`, vendor from config) | same |
 
-## HBA Card Setup
+Flipping the vendor is a `homelab.yaml` + `env.hcl` change followed by
+`task talos:recreate:gpu-node` (recreates worker-1 with the other image and runs the check).
 
-### Broadcom 9400-8i Configuration
+Proxmox side, common to both cards: IOMMU on (AMD-Vi is active by default on this platform;
+no `intel_iommu=on` needed), `vfio`, `vfio_iommu_type1`, `vfio_pci` in `/etc/modules`, the
+card bound to `vfio-pci` by ID in `/etc/modprobe.d/vfio.conf`, `update-initramfs -u -k all`,
+reboot, then `lspci -nnk` shows `Kernel driver in use: vfio-pci`. The VM uses `machine: q35`
+and `cpu: host`.
 
-The homelab uses two Broadcom 9400-8i HBA cards:
-1. **HBA 1**: IT mode for Proxmox storage (standard SATA/SAS)
-2. **HBA 2**: Mixed mode for TrueNAS passthrough (NVMe + SATA/SAS)
+## HBA firmware (mixed mode for U.2 NVMe)
 
-### Firmware Requirements
+The Broadcom 9400-8i only presents NVMe devices after a firmware update that enables mixed
+mode; without it the U.2 drives for the `ssd` pool are invisible.
 
-| HBA | Mode | Firmware | Purpose |
-|-----|------|----------|---------|
-| HBA 1 | IT Mode | 16.00.12.00 | Proxmox direct access to HDDs |
-| HBA 2 | Mixed Mode | 16.00.12.00 | TrueNAS NVMe + HDD support |
+| Cable MPN | Length | From | To |
+|-----------|--------|------|----|
+| 05-50065-00 | 0.5 m | HBA SFF-8643 | U.2 NVMe SFF-8639 |
+| 05-50064-00 | 1.0 m | HBA SFF-8643 | U.2 NVMe SFF-8639 |
 
-**Reference**: [Broadcom Firmware Downloads](https://docs.broadcom.com/doc/12354774)
-
-### Flashing HBA to IT Mode
-
-**Prerequisites**:
-- USB drive with FreeDOS or UEFI shell
-- sas3flash utility
-- IT mode firmware (9400_8i_IT.bin)
-
-**Procedure**:
-
-```bash
-# Boot to UEFI shell or FreeDOS
-
-# Erase existing firmware
-sas3flash -o -e 7
-
-# Flash IT mode firmware
-sas3flash -o -f 9400_8i_IT.bin
-
-# Flash BIOS (optional, needed for boot)
-sas3flash -o -b mptsas3.rom
-
-# Verify
-sas3flash -list
-
-# Reboot
-```
-
-**Expected Output**:
-
-```
-LSI Corporation SAS3 Flash Utility
-Version 16.00.00.00
-
-Adapter Selected is a LSI SAS: SAS3008(B0)
-Controller Number: 0
-Firmware Product ID: 0x002f (IT)
-Firmware Version: 16.00.12.00
-```
-
-### Enabling Mixed Mode (NVMe Support)
-
-**Only for HBA 2** (TrueNAS passthrough):
+Reference: [Broadcom 9400 mixed-mode documentation](https://docs.broadcom.com/doc/12354774).
+Flashing (IT mode, then mixed-mode NVDATA) from a UEFI shell with `sas3flash`:
 
 ```bash
-# Boot to UEFI shell
-
-# Enable mixed mode
-sas3flash -o -nvdata mixed.bin
-
-# Verify
-sas3flash -list
+sas3flash -o -e 7                 # erase
+sas3flash -o -f 9400_8i_IT.bin    # IT-mode firmware
+sas3flash -o -nvdata mixed.bin    # enable mixed mode (NVMe)
+sas3flash -list                   # expect "NVMe Support: Enabled"
 ```
 
-**Expected Output**:
+Day-to-day controller checks run from Proxmox with StorCLI, installed by the
+`proxmox_storcli` Ansible role (`ansible/playbooks/proxmox-storcli.yml`, only when
+`storcli_package_path` is set); the role also prints firmware versions for both controllers.
+The update procedure is [runbooks/hba-firmware-update.md](./runbooks/hba-firmware-update.md).
 
-```
-NVMe Support: Enabled
-Mixed Mode: Enabled
-```
+## BIOS settings
 
-### HBA Passthrough to TrueNAS
+| Area | Setting | Value |
+|------|---------|-------|
+| Boot | Mode | UEFI, fast boot off, boot device = Proxmox NVMe |
+| CPU | Virtualisation (SVM) | Enabled |
+| CPU | IOMMU (AMD-Vi) | Enabled |
+| CPU | SMT | Enabled |
+| Memory | ECC | Enabled |
+| PCIe | Above 4G decoding, Re-Size BAR, ARI, SR-IOV | Enabled (large-BAR GPU, clean IOMMU groups) |
+| SATA | Mode | AHCI (the onboard controllers are passed through as-is) |
+| Power | Restore policy | Last state; Wake on LAN on |
 
-**In Proxmox**:
+## IPMI
+
+Supermicro BMC on its own 1 GbE port at `<IPMI_IP>`. Change the default `ADMIN` password
+first, disable Telnet/SNMP v1-2/plain HTTP, and keep the BMC on a management VLAN.
+
+### Fan thresholds (Noctua fans)
+
+Noctua fans idle below Supermicro's default lower thresholds, so the BMC flags them as failed
+and ramps every fan to full speed in a loop. Lower the thresholds:
 
 ```bash
-# List PCI devices
-lspci -nnk | grep -i sas
-
-# Example output:
-# 02:00.0 Serial Attached SCSI controller [0107]: Broadcom / LSI SAS3008
-
-# Edit VM config
-vim /etc/pve/qemu-server/101.conf
-
-# Add HBA passthrough (replace 02:00 with actual address)
-hostpci0: 02:00,pcie=1,rombar=0
+ipmitool sensor thresh FAN1 lower 200 300 400
 ```
 
-**Verify in TrueNAS**:
-
-```bash
-# SSH to TrueNAS
-ssh root@truenas.local
-
-# List NVMe devices
-nvmecontrol devlist
-
-# List SAS/SATA devices
-camcontrol devlist
-```
-
----
-
-## GPU Passthrough Configuration
-
-### NVIDIA Quadro P2200 Setup
-
-**Purpose**: Hardware-accelerated transcoding for Plex
-
-**Requirements**:
-- IOMMU enabled in BIOS
-- GPU in dedicated IOMMU group
-- vfio-pci driver loaded in Proxmox
-
-### Proxmox Configuration
-
-**Edit GRUB config**:
-
-```bash
-# Edit GRUB
-vim /etc/default/grub
-
-# Add to GRUB_CMDLINE_LINUX_DEFAULT:
-GRUB_CMDLINE_LINUX_DEFAULT="quiet intel_iommu=on iommu=pt pcie_acs_override=downstream,multifunction video=efifb:off"
-
-# Update GRUB
-update-grub
-
-# Reboot
-reboot
-```
-
-**Load vfio modules**:
-
-```bash
-# Edit modules
-vim /etc/modules
-
-# Add:
-vfio
-vfio_iommu_type1
-vfio_pci
-vfio_virqfd
-
-# Update initramfs
-update-initramfs -u -k all
-
-# Reboot
-reboot
-```
-
-**Bind GPU to vfio-pci**:
-
-```bash
-# Get GPU vendor:device ID
-lspci -nn | grep NVIDIA
-
-# Example output:
-# 03:00.0 VGA compatible controller [0300]: NVIDIA Corporation GP106GL [Quadro P2200] [10de:1c31]
-# 03:00.1 Audio device [0403]: NVIDIA Corporation GP106 HDMI Audio [10de:10f1]
-
-# Edit vfio config
-vim /etc/modprobe.d/vfio.conf
-
-# Add (replace with your IDs):
-options vfio-pci ids=10de:1c31,10de:10f1
-
-# Update initramfs
-update-initramfs -u -k all
-
-# Reboot
-reboot
-
-# Verify GPU bound to vfio-pci
-lspci -nnk | grep -A 3 NVIDIA
-```
-
-**Expected Output**:
-
-```
-03:00.0 VGA compatible controller [0300]: NVIDIA Corporation GP106GL [Quadro P2200] [10de:1c31]
-    Kernel driver in use: vfio-pci
-```
-
-### Talos Worker VM Configuration
-
-**Edit Talos worker VM** (worker-1 with GPU):
-
-```bash
-# Edit VM config
-vim /etc/pve/qemu-server/103.conf
-
-# Add GPU passthrough (replace 03:00 with actual address)
-hostpci0: 03:00,pcie=1,x-vga=1
-cpu: host,hidden=1,flags=+pcid
-machine: q35
-```
-
-**In Talos**: See [Talos GPU patch](../talos/patches/gpu-passthrough.yaml) for configuration.
-
----
-
-## Network Interface Configuration
-
-### IPMI Configuration
-
-See [IPMI Configuration](#ipmi-configuration) section below.
-
-### Proxmox Network Bridge
-
-**Edit network config**:
-
-```bash
-vim /etc/network/interfaces
-```
-
-**Configuration**:
-
-```
-auto lo
-iface lo inet loopback
-
-# Physical interface
-auto enp1s0
-iface enp1s0 inet manual
-
-# Bridge for VMs (VLAN 100)
-auto vmbr0
-iface vmbr0 inet static
-    address <PROXMOX_IP>/24
-    gateway <GATEWAY_IP>
-    bridge-ports enp1s0
-    bridge-stp off
-    bridge-fd 0
-    bridge-vlan-aware yes
-    bridge-vids 100
-```
-
-**Restart networking**:
-
-```bash
-systemctl restart networking
-
-# Or reboot
-reboot
-```
-
----
-
-## Cable Management
-
-### Recommended Cable Routing
-
-```
-┌─────────────────────────────────────────────────────────┐
-│                     Rear of Server                       │
-│                                                          │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐    │
-│  │   HBA 1     │  │   HBA 2     │  │     GPU     │    │
-│  │  (Proxmox)  │  │  (TrueNAS)  │  │  (Quadro)   │    │
-│  │             │  │             │  │             │    │
-│  │ SFF-8643 x2 │  │ SFF-8643 x2 │  │ DisplayPort │    │
-│  └──────┬──────┘  └──────┬──────┘  └─────────────┘    │
-│         │                │                              │
-│         │ ┌──────────────┘                              │
-│         │ │                                             │
-│         ▼ ▼                                             │
-│  ┌─────────────────────────────────────────┐           │
-│  │         Drive Backplane                 │           │
-│  │  ┌───┐ ┌───┐ ┌───┐ ┌───┐ ┌───┐ ┌───┐  │           │
-│  │  │HDD│ │HDD│ │HDD│ │HDD│ │HDD│ │HDD│  │           │
-│  │  │1  │ │2  │ │3  │ │4  │ │5  │ │6  │  │           │
-│  │  └───┘ └───┘ └───┘ └───┘ └───┘ └───┘  │           │
-│  │  ┌───┐ ┌───┐ ┌────┐ ┌────┐ ┌────┐     │           │
-│  │  │HDD│ │HDD│ │NVMe│ │NVMe│ │NVMe│ ... │           │
-│  │  │7  │ │8  │ │ 4  │ │ 5  │ │ 6  │     │           │
-│  │  └───┘ └───┘ └────┘ └────┘ └────┘     │           │
-│  └─────────────────────────────────────────┘           │
-└─────────────────────────────────────────────────────────┘
-```
-
-### Cable Color Coding (Recommended)
-
-| Cable Type | Color | Purpose |
-|------------|-------|---------|
-| SAS HDD | Red | HBA 1 → Proxmox HDDs |
-| SAS HDD | Blue | HBA 2 → TrueNAS HDDs |
-| NVMe | Yellow | HBA 2 → TrueNAS NVMe |
-| Network | Green | Management network |
-| Power | Black | Power supply cables |
-
-### Cable Management Best Practices
-
-1. **Label Everything**: Use cable labels or colored tape
-2. **Leave Slack**: Allow for drive replacement without cable strain
-3. **Route Away from Fans**: Avoid blocking airflow
-4. **Secure with Velcro**: Don't use zip ties (hard to change)
-5. **Document**: Take photos before and after changes
-
----
-
-## IPMI Configuration
-
-### Initial Setup
-
-**Default Credentials** (Supermicro):
-- Username: `ADMIN`
-- Password: `ADMIN` (change immediately!)
-
-**Access IPMI Web UI**:
-
-1. Connect to IPMI network (separate from main network)
-2. Navigate to `http://<IPMI_IP>` (or DHCP-assigned IP)
-3. Login with default credentials
-
-### Network Configuration
-
-**Static IP Assignment**:
-
-1. Navigate to **Configuration** → **Network**
-2. Configure:
-   - IP Address: `<IPMI_IP>`
-   - Subnet Mask: `255.255.255.0`
-   - Gateway: `<GATEWAY_IP>`
-   - VLAN: (optional) Dedicated IPMI VLAN
-3. Save and reboot IPMI
-
-### Security Configuration
-
-**Change Default Password**:
-
-1. Navigate to **Configuration** → **Users**
-2. Select `ADMIN` user
-3. Click **Modify User**
-4. Set strong password
-5. Save
-
-**Disable Unused Protocols**:
-
-1. Navigate to **Configuration** → **Services**
-2. Disable:
-   - Telnet
-   - SNMP v1/v2 (use v3 if needed)
-   - HTTP (use HTTPS only)
-
-### Fan Control (Noctua Fans)
-
-**Problem**: Noctua fans spin slowly, triggering IPMI fan alerts
-
-**Solution**: Lower fan thresholds via IPMI
-
-```bash
-# SSH to IPMI (if enabled) or use ipmitool from another host
-ipmitool -I lanplus -H <IPMI_IP> -U ADMIN -P <password> sensor thresh FAN1 lower 200 300 400
-ipmitool -I lanplus -H <IPMI_IP> -U ADMIN -P <password> sensor thresh FAN2 lower 200 300 400
-ipmitool -I lanplus -H <IPMI_IP> -U ADMIN -P <password> sensor thresh FAN3 lower 200 300 400
-ipmitool -I lanplus -H <IPMI_IP> -U ADMIN -P <password> sensor thresh FAN4 lower 200 300 400
-```
-
-**Reference**: [IPMI Fan Threshold Guide](https://calvin.me/quick-how-to-decrease-ipmi-fan-threshold/)
-
-**Persist Settings** (Ansible):
-
-```yaml
-# ansible/roles/proxmox-ipmi/tasks/main.yml
-- name: Set IPMI fan thresholds
-  command: >
-    ipmitool -I lanplus -H {{ ipmi_host }} -U {{ ipmi_user }} -P {{ ipmi_pass }}
-    sensor thresh {{ item }} lower 200 300 400
-  loop:
-    - FAN1
-    - FAN2
-    - FAN3
-    - FAN4
-```
-
----
-
-## Storage Drive Layout
-
-### Physical Drive Bay Mapping
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                     Front Drive Bays                         │
-│                                                              │
-│  Row 1 (HDDs - TrueNAS Data Pool RAIDZ3):                  │
-│  ┌──────┐ ┌──────┐ ┌──────┐ ┌──────┐ ┌──────┐ ┌──────┐   │
-│  │ 20TB │ │ 20TB │ │ 20TB │ │ 20TB │ │ 20TB │ │ 20TB │   │
-│  │ HDD1 │ │ HDD2 │ │ HDD3 │ │ HDD4 │ │ HDD5 │ │ HDD6 │   │
-│  └──────┘ └──────┘ └──────┘ └──────┘ └──────┘ └──────┘   │
-│                                                              │
-│  Row 2:                                                     │
-│  ┌──────┐ ┌──────┐ ┌──────┐ ┌──────┐ ┌──────┐ ┌──────┐   │
-│  │ 20TB │ │ 20TB │ │ 1TB  │ │ 1TB  │ │ 1TB  │ │ 1TB  │   │
-│  │ HDD7 │ │ HDD8 │ │ NVMe │ │ NVMe │ │ NVMe │ │ NVMe │   │
-│  │      │ │      │ │  2   │ │  3   │ │  4   │ │  5   │   │
-│  └──────┘ └──────┘ └──────┘ └──────┘ └──────┘ └──────┘   │
-│                                                              │
-│  Internal (not hot-swap):                                   │
-│  ┌──────┐                                                   │
-│  │ 250GB│  NVMe 1 (Proxmox OS)                             │
-│  └──────┘                                                   │
-└─────────────────────────────────────────────────────────────┘
-```
-
-### Drive Purpose Summary
-
-| Drive | Capacity | Controller | Purpose |
-|-------|----------|------------|---------|
-| NVMe 1 | 250 GB | Onboard | Proxmox OS |
-| NVMe 2-3 | 1 TB | HBA 1 | Proxmox VM storage (ZFS mirror) |
-| NVMe 4-5 | 1 TB | HBA 2 | TrueNAS special vDev (ZFS mirror) |
-| HDD 1-11 | 20 TB | HBA 2 | TrueNAS data pool (RAIDZ3) |
-
----
-
-## Power Management
-
-### Power Supply Configuration
-
-| PSU | Wattage | Efficiency | Redundancy |
-|-----|---------|------------|------------|
-| PSU 1 | 1200W | Platinum | Active |
-| PSU 2 | 1200W | Platinum | Hot spare |
-
-### Power Consumption Estimates
-
-| State | Estimated Power | Components |
-|-------|-----------------|------------|
-| Idle | ~150W | All drives spun down |
-| Normal | ~250W | OS + VMs running |
-| Peak | ~400W | Heavy transcoding + backups |
-
-### UPS Configuration
-
-**Recommended UPS**: 1500 VA / 900W minimum
-
-**Runtime Estimates**:
-- Idle: ~90 minutes
-- Normal: ~45 minutes
-- Peak: ~25 minutes
-
-**Graceful Shutdown**:
-
-Configure Proxmox to monitor UPS via NUT (Network UPS Tools):
-
-```bash
-# Install NUT
-apt install nut
-
-# Configure NUT client
-vim /etc/nut/upsmon.conf
-
-# Add:
-MONITOR ups@localhost 1 monuser secret master
-SHUTDOWNCMD "/sbin/shutdown -h +0"
-```
-
----
+Reference: [calvin.me, decrease IPMI fan threshold](https://calvin.me/quick-how-to-decrease-ipmi-fan-threshold/).
+
+The `proxmox_ipmi` Ansible role (`ansible/playbooks/proxmox-ipmi-fans.yml`, part of
+`site.yml`) applies the thresholds from `ipmi_fan_thresholds` for every fan, installs
+`ipmi-fan-threshold.service` so they survive a BMC reset, and verifies them. Reference
+copies of the sensor state and the systemd unit are in `docs/reference-configs/`.
+
+## Network interfaces
+
+| Interface | Speed | Purpose |
+|-----------|-------|---------|
+| IPMI | 1 GbE | Out-of-band management, `<IPMI_IP>` |
+| 10 GbE port 1 | 10 GbE | `vmbr0`, VLAN 100, Proxmox management `<PROXMOX_IP>` and all VM traffic |
+| 10 GbE port 2 | 10 GbE | unused |
+
+The bridge is managed by the `proxmox_networking` role (`proxmox-networking.yml`): a
+VLAN-aware `vmbr0` with `<PROXMOX_IP>/24` and gateway `<GATEWAY_IP>`. The rest of the
+network (BGP, load balancer pool, ingress lanes, Tailscale) is in
+[networking.md](./networking.md).
+
+## Power
+
+Two 1200 W Platinum PSUs (one active, one hot spare). Typical draw is a few hundred watts;
+a 1500 VA UPS with NUT on Proxmox (`upsmon.conf`, `SHUTDOWNCMD "/sbin/shutdown -h +0"`)
+gives a clean shutdown on power loss. Log growth on the host is bounded by the
+`proxmox_log_retention` role (`proxmox-log-retention.yml`, journald caps + logrotate).
 
 ## Troubleshooting
 
-### Server Won't Boot
-
-**Symptoms**: No POST, black screen
-
-**Diagnosis**:
-1. Check power cables
-2. Check IPMI for error codes
-3. Remove all PCIe cards except GPU
-4. Test with minimal RAM (1 DIMM)
-5. Reset CMOS (remove battery for 30 seconds)
-
-**Resolution**:
-- Replace faulty component
-- Update BIOS if boot issues persist
-
-### HBA Not Detecting Drives
-
-**Symptoms**: Drives not visible in Proxmox or TrueNAS
-
-**Diagnosis**:
-
-```bash
-# Check HBA is detected
-lspci | grep -i sas
-
-# Check drive detection
-lsblk
-
-# Check HBA firmware
-sas3flash -list
-```
-
-**Resolution**:
-- Reseat HBA card
-- Check cable connections
-- Verify HBA firmware is correct (IT mode vs Mixed mode)
-- Test with different drive/cable
-
-### GPU Passthrough Not Working
-
-**Symptoms**: VM won't start with GPU, or GPU not visible in VM
-
-**Diagnosis**:
-
-```bash
-# Check GPU is bound to vfio-pci
-lspci -nnk | grep -A 3 NVIDIA
-
-# Check IOMMU groups
-for d in /sys/kernel/iommu_groups/*/devices/*; do
-    n=${d#*/iommu_groups/*}; n=${n%%/*}
-    printf 'IOMMU Group %s ' "$n"
-    lspci -nns "${d##*/}"
-done | grep NVIDIA
-```
-
-**Resolution**:
-- Verify IOMMU enabled in BIOS
-- Check GPU is in dedicated IOMMU group
-- Verify vfio-pci driver loaded
-- Check VM config has correct PCI address
-
-### Fan Speed Alerts (Noctua Fans)
-
-**Symptoms**: IPMI reports fan failures, fans cycling
-
-**Resolution**:
-
-See [IPMI Fan Control](#fan-control-noctua-fans) section above.
-
-### Overheating
-
-**Symptoms**: Thermal throttling, system shutdowns
-
-**Diagnosis**:
-
-```bash
-# Check temperatures
-sensors
-
-# Check IPMI sensors
-ipmitool sensor list
-```
-
-**Resolution**:
-- Clean dust from heatsinks and fans
-- Verify all fans spinning
-- Check thermal paste on CPU
-- Verify airflow is not blocked
-
----
+| Symptom | Check | Fix |
+|---------|-------|-----|
+| No POST | IPMI event log, BMC console | Reseat cards/DIMMs, clear CMOS, update BIOS |
+| HBA sees no drives | `lspci \| rg -i sas`, `sas3flash -list`, `storcli /c0 show` | Cables, firmware mode (IT vs mixed), reseat |
+| GPU not in the VM | `lspci -nnk \| rg -A3 -i 'nvidia\|arc'` shows `vfio-pci`? IOMMU group clean? | Fix `vfio.conf` IDs, BIOS IOMMU/Above 4G, VM `hostpci` address; then `task gpu:verify` |
+| Fans cycling to full speed | `ipmitool sensor list \| rg -i fan` | Re-run `task ansible:apply` (fan thresholds) |
+| Overheating / throttling | `sensors`, `ipmitool sensor list` | Dust, airflow, fan curve |
+| API drops for seconds, recovers | `talosctl -n <cp> logs etcd \| rg "slow fdatasync"`, `task apiserver:probe` | Control-plane disk contention: [control-plane-storage.md](./runbooks/control-plane-storage.md) |
 
 ## References
 
-### Hardware Documentation
-
-- [Supermicro X11 Motherboard Manual](https://www.supermicro.com/manuals/)
-- [Broadcom HBA 9400-8i Documentation](https://docs.broadcom.com/doc/12354774)
-- [NVIDIA Quadro P2200 Specs](https://www.nvidia.com/en-us/design-visualization/quadro/pascal/)
-
-### Setup Guides
-
-- [Proxmox GPU Passthrough Guide](https://pve.proxmox.com/wiki/PCI_Passthrough)
-- [HBA IT Mode Flashing Guide](https://forums.servethehome.com/index.php?threads/lsi-raid-controller-and-hba-complete-listing-plus-oem-models.599/)
-- [IPMI Fan Control Guide](https://calvin.me/quick-how-to-decrease-ipmi-fan-threshold/)
-
-### Parts Lists
-
-- [Google Sheets Parts List](https://docs.google.com/spreadsheets/d/19JLS5aV629NgUacsKQQx_2HI5iXPV7Kn0e5kuBvYOVQ/edit?gid=0#gid=0)
-
-### Related Documentation
-
-- [architecture.md](./architecture.md) - Architecture overview
-- [disaster-recovery.md](./disaster-recovery.md) - Backup procedures
-- [networking.md](./networking.md) - Network configuration
-
----
-
-**Last Updated**: 2026-01-19
-**Version**: 1.0
-**Maintainer**: homelab team
+- [Broadcom 9400-8i documentation](https://docs.broadcom.com/doc/12354774)
+- [Proxmox PCI passthrough](https://pve.proxmox.com/wiki/PCI_Passthrough)
+- [IPMI fan threshold guide](https://calvin.me/quick-how-to-decrease-ipmi-fan-threshold/)
+- [runbooks/hba-firmware-update.md](./runbooks/hba-firmware-update.md),
+  [runbooks/proxmox-recovery.md](./runbooks/proxmox-recovery.md),
+  [runbooks/truenas-maintenance.md](./runbooks/truenas-maintenance.md),
+  [runbooks/control-plane-storage.md](./runbooks/control-plane-storage.md)
+- [setup/proxmox-zfs-pool-setup.md](./setup/proxmox-zfs-pool-setup.md),
+  [setup/truenas-post-install.md](./setup/truenas-post-install.md)
+- [architecture.md](./architecture.md), [networking.md](./networking.md),
+  [disaster-recovery.md](./disaster-recovery.md)

@@ -1,976 +1,379 @@
-# Homelab Architecture Documentation
+# Architecture
 
-This document provides a comprehensive overview of the homelab architecture, design patterns, and technical implementation details.
+How the homelab is built, layer by layer, from the repository as it is today. Each section
+is the zoomed-in version of one row of the README header: one diagram, then the resources
+behind it. Versions quoted here come from `configuration/versions.yaml`; addresses are
+`<KEY>` placeholders resolved from the gitignored `configuration/environments/homelab.yaml`.
 
-## Table of Contents
+- [Provisioning](#provisioning): Ansible → Terragrunt → Talos
+- [GitOps bridge](#gitops-bridge): Terraform hands the cluster to ArgoCD
+- [Secrets and configuration](#secrets-and-configuration): SOPS, 1Password, the CMP
+- [Storage](#storage): democratic-csi, TrueNAS, CloudNativePG, Spegel
+- [Verification](#verification): levels 0-2, previews, read-only production, drills
+- [Technology stack](#technology-stack), [Design patterns](#design-patterns), [References](#references)
 
-- [Overview](#overview)
-- [Architecture Principles](#architecture-principles)
-- [Infrastructure Layers](#infrastructure-layers)
-- [Technology Stack](#technology-stack)
-- [GitOps Bridge Pattern](#gitops-bridge-pattern)
-- [Network Architecture](#network-architecture)
-- [Storage Architecture](#storage-architecture)
-- [Compute Architecture](#compute-architecture)
-- [Application Deployment](#application-deployment)
-- [Security Architecture](#security-architecture)
-- [Monitoring and Observability](#monitoring-and-observability)
-- [Disaster Recovery](#disaster-recovery)
-- [Environment Strategy](#environment-strategy)
-- [Troubleshooting](#troubleshooting)
-- [References](#references)
+Decisions are recorded as ADRs in `docs/project_notes/decisions.md` and referenced by
+number below.
 
 ---
 
-## Overview
+## Provisioning
 
-This homelab is a production-grade, GitOps-driven infrastructure platform built on enterprise technologies with a focus on automation, reliability, and zero maintenance overhead.
-
-### Design Philosophy
-
-- **Single Entrypoint**: One script to rule them all (`./scripts/setup.sh`)
-- **Zero Maintenance**: Automated updates via Renovate, self-healing via ArgoCD
-- **Family First**: Built to run forever so the answer is always "yes" to bedtime stories
-- **Production Patterns**: Uses the same patterns and tools as modern enterprises
-- **Infrastructure as Code**: Everything in Git, nothing manual
-
-### High-Level Architecture
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                              GitHub Repository                               │
-│                    (Single Source of Truth - GitOps)                        │
-├─────────────────────────────────────────────────────────────────────────────┤
-│  Renovate (Automated Updates)  │  GitHub Actions (CI/CD)  │  1Password      │
-└─────────────────────────────────────────────────────────────────────────────┘
-                                      │
-                                      ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                         Infrastructure Stack                                 │
-│                                                                              │
-│   Proxmox ──► TrueNAS Scale ──► Talos Linux ──► ArgoCD ──► Applications    │
-│  (Ansible)     (Terragrunt)    (Terragrunt)   (GitOps)     (Helm Charts)   │
-└─────────────────────────────────────────────────────────────────────────────┘
-                                      │
-                                      ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                         Software Defined Networking                          │
-│                    UniFi ←──BGP Peering──→ MetalLB                          │
-└─────────────────────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart LR
+  subgraph ansible["Ansible (ansible/playbooks/site.yml)"]
+    direction TB
+    a1[proxmox-post-install] --> a2[proxmox-ipmi-fans] --> a3[proxmox-storcli] --> a4[proxmox-networking]
+  end
+  subgraph tg["Terragrunt (terragrunt/environments/homelab, 11 units)"]
+    direction LR
+    pc[proxmox-cluster] --> zp[proxmox-zfs-pool]
+    pc --> zpc[proxmox-zfs-pool-cp]
+    zp --> tn[truenas]
+    ti[talos-image]
+    tig[talos-image-gpu]
+    tii[talos-image-gpu-intel]
+    zp --> tc[talos-cluster]
+    zpc --> tc
+    ti --> tc
+    tig --> tc
+    tii --> tc
+    tn --> tc
+    tc --> tcc[talos-cluster-config]
+    tcc --> gb[gitops-bootstrap]
+    tn --> gb
+    ug[unifi-gateway]
+  end
+  subgraph talos["Talos cluster"]
+    direction TB
+    cp["cp-1, cp-2, cp-3 on cp-storage (NVMe)\netcd, VIP <CP_VIP>"]
+    wk["worker-1 (Intel GPU), worker-2, worker-3 on vm-storage"]
+  end
+  ansible --> tg --> talos
 ```
 
-**Philosophy**: Terraform builds the runway; ArgoCD flies the plane; Renovate keeps the engines updated; BGP routes the traffic.
+**Ansible** prepares the Proxmox host. `site.yml` runs, in order, `proxmox-post-install`
+(repositories, packages, timezone), `proxmox-ipmi-fans` (Noctua fan thresholds, role
+`proxmox_ipmi`), `proxmox-storcli` (HBA tooling, only when `storcli_package_path` is set) and
+`proxmox-networking` (VLAN-aware `vmbr0`). Two more playbooks run on demand:
+`proxmox-log-retention.yml` (role `proxmox_log_retention`, journald and logrotate caps) and
+`truenas-full-setup.yml` / `truenas-setup.yml` (role `truenas_storage`, creates the TrueNAS
+pools through its API). `task ansible:apply` runs `site.yml`.
+
+**Terragrunt** builds the VMs. The eleven units under `terragrunt/environments/homelab/`
+form the DAG above; `dependency` blocks are the edges.
+
+| Unit | Depends on | Creates |
+|------|------------|---------|
+| `proxmox-cluster` | — | Provider wiring, resource pool |
+| `proxmox-zfs-pool` | proxmox-cluster | `vm-storage`: 2x NVMe mirror for worker and TrueNAS system disks |
+| `proxmox-zfs-pool-cp` | proxmox-cluster | `cp-storage`: single Samsung 990 PRO for the control-plane disks (same module, storage only; ADR-016) |
+| `truenas` | proxmox-zfs-pool | TrueNAS VM with the HBA and SATA controllers passed through |
+| `talos-image`, `talos-image-gpu`, `talos-image-gpu-intel` | — | Image Factory schematics (`talos/image/schematic*.yaml`) → `factory.talos.dev/installer/<schematic>:<talos_version>` |
+| `talos-cluster` | both pools, the three images, truenas | 3 control planes + 3 workers, machine configs with the etcd, CSI and GPU patches |
+| `talos-cluster-config` | talos-cluster | kubeconfig/talosconfig handoff |
+| `gitops-bootstrap` | talos-cluster-config, truenas | ArgoCD and the root Application ([GitOps bridge](#gitops-bridge)) |
+| `unifi-gateway` | — | FRR BGP neighbour config on the UniFi gateway ([networking.md](./networking.md)) |
+
+`task tf:plan:component COMPONENT=<unit>` / `task tf:apply:component COMPONENT=<unit>` run a
+unit through `op run` so the Proxmox and Talos credentials come from 1Password;
+`task tf:apply` runs them all. `terragrunt/environments/localdev/` has two units
+(`kind-cluster`, `gitops-bootstrap`) for the same module against Kind.
+
+**Talos** is the node OS (ADR-002): immutable, API-driven, no SSH. The cluster is three
+control planes and three workers. Control-plane system disks live on `cp-storage`, workers on
+`vm-storage`; the control planes share the Talos layer-2 VIP `<CP_VIP>` and etcd is tuned for
+virtualised disks (`heartbeat-interval=250`, `election-timeout=2500`, metrics on `:2381`,
+scraped by kube-prometheus-stack). `worker-1` carries the Intel Arc GPU (`gpu_vendor =
+"intel"` in `env.hcl`, `GPU_VENDOR=intel` in the configuration); the NVIDIA image and patch
+remain in the repo as the previous vendor. Cilium, kubelet-csr-approver and Spegel are
+rendered as Talos inline manifests (`task render`, stored in 1Password) so the cluster has a
+CNI before ArgoCD exists.
+
+**Why the pools are split.** The control planes used to share `vm-storage` with every worker
+disk; one worker unpacking a large image stalled etcd's fsync for tens of seconds on all
+three members, leases expired and the VIP moved, which looked like an API outage. ADR-016
+moved the control-plane disks to their own NVMe (PR #288) and added the etcd tuning, the
+etcd scrape and `task apiserver:probe`, which probes the VIP and each control plane side by
+side. Runbook: [runbooks/control-plane-storage.md](./runbooks/control-plane-storage.md);
+hardware detail: [hardware.md](./hardware.md).
 
 ---
 
-## Architecture Principles
+## GitOps bridge
 
-### 1. GitOps-First
+```mermaid
+flowchart TB
+  subgraph tf["terragrunt/modules/gitops-bootstrap"]
+    ns[Namespace argocd] --> key[Secret sops-age-key]
+    key --> helm["helm_release argo-cd\n+ homelab-cmp sidecar (ghcr.io/ryanmcafee/homelab-cmp:images.homelab-cmp)\n+ ksops"]
+    helm --> meta[ConfigMap gitops-metadata\nSecret gitops-secrets]
+    meta --> root[Application gitops → charts/gitops]
+  end
+  root --> boot["bootstrap (wave 0)\ncharts/bootstrap, plain Helm"]
+  root --> addons["addons (wave 1)\ncharts/addons via CMP"]
+  root --> apps["applications (wave 10)\ncharts/applications via CMP"]
+  root --> prev["AppProject previews (11)\nApplicationSet previews (12)"]
+  boot --> b1[sops-secrets -2] --> b2[onepassword-operator -1] --> b3[homelab-environment-config 0] --> b4[argocd self-manage 1]
+  addons --> a1["cilium, traefik-*, cert-manager, external-dns-*,\ndemocratic-csi-*, kube-prometheus-stack, tailscale, ... (waves -1..11)"]
+  apps --> p1["plex, *arr, nzbget, tautulli, lazylibrarian,\nflaresolverr, mosquitto, paperclip, renovate, duckdns (waves 10-15)"]
+  prev --> pr["<app>-pr<N> in preview-<N> (label-gated PRs)"]
+```
 
-Every infrastructure change flows through Git:
-- **Declarative Configuration**: All infrastructure defined in YAML/HCL
-- **Version Control**: Complete audit trail of all changes
-- **Automated Reconciliation**: ArgoCD continuously syncs desired state
-- **Single Source of Truth**: Git is the authoritative source
+Terraform builds the runway, ArgoCD flies the plane (ADR-001). `gitops-bootstrap` creates, in
+this order: the `argocd` namespace; the `sops-age-key` Secret (from
+`op://homelab/sops-age-key/private_key`); the `argo-cd` Helm release with the `homelab-cmp`
+sidecar on the repo server (image `ghcr.io/ryanmcafee/homelab-cmp`, tag from
+`configuration/versions.yaml` `images.homelab-cmp`) and ksops enabled through
+`kustomize.buildOptions`; the GitOps Bridge `gitops-metadata` ConfigMap and `gitops-secrets`
+Secret (cluster name, environment, repo, revision); and the root Application `gitops`
+pointing at `charts/gitops`. It then waits for ArgoCD and reads
+`argocd-initial-admin-secret`. From here on nothing outside Git changes the cluster.
 
-### 2. Immutable Infrastructure
+`charts/gitops` is the app-of-apps. In homelab (`values-homelab.yaml`) it renders four
+things; the sync waves below are the values production runs (the chart defaults are `addons`
+2 and `applications` 3).
 
-- **Talos Linux**: Immutable OS designed for Kubernetes
-- **Container-Native**: All applications run in containers
-- **Declarative Nodes**: Node configuration is API-driven, not SSH-based
-- **Predictable Updates**: Atomic OS upgrades with rollback capability
+| Wave | Resource | Source | How it renders |
+|------|----------|--------|----------------|
+| 0 | Application `bootstrap` | `charts/bootstrap` | plain Helm (it installs the CMP, so it cannot use it); `helm.valuesObject` injects the ArgoCD ingress host from `global.domain` |
+| -3 | Namespace `onepassword-operator`, ServiceAccount/Role/RoleBinding `secret-transformer` | bootstrap | |
+| -2 | Application `sops-secrets` | `charts/secrets/onepassword` | kustomize + ksops decrypts `onepassword-credentials.sops.yaml` with `sops-age-key` |
+| -1 | Job `onepassword-credentials-transformer` (Sync hook), Application `onepassword-operator` | bootstrap | 1Password Connect + operator (`connect` chart) |
+| 0 | OnePasswordItem `homelab-environment-config`, `argocd-notifications-secret` | bootstrap | the operator materialises the Secrets |
+| 1 | Application `argocd` | bootstrap | ArgoCD manages its own release from then on |
+| 1 | Application `addons` | `charts/addons` | CMP `homelab-config-helm-v1.0`, `FORMAT=helm-addons`; children at waves -1..11 |
+| 10 | Application `applications` | `charts/applications` | CMP, `FORMAT=helm-apps`; children at waves 10-15 |
+| 11 / 12 | AppProject `previews`, ApplicationSet `previews` | `charts/applications` | pull-request generator; PRs labelled `preview` (+ `preview:<app>`) get `<app>-pr<N>` in namespace `preview-<N>` (ADR-013) |
 
-### 3. Self-Healing
-
-- **ArgoCD Sync**: Automatically corrects drift from desired state
-- **Kubernetes Controllers**: Built-in reconciliation loops
-- **Automated Remediation**: Failed pods restart automatically
-- **Health Checks**: Liveness and readiness probes
-
-### 4. Automated Updates
-
-- **Renovate Bot**: Automatically opens PRs for dependency updates
-- **Semantic Versioning**: Patch updates auto-merge, minor/major require review
-- **Multi-Layer Updates**: Updates Helm charts, container images, Terraform providers
-- **Continuous Integration**: GitHub Actions validates all changes
-
-### 5. Scale-Out Ready
-
-- **Horizontal Scaling**: Add Proxmox nodes to cluster
-- **Distributed Storage**: Ceph/ZFS can scale across nodes
-- **Kubernetes Scaling**: Add worker nodes as needed
-- **BGP Peering**: Automatically announces new service IPs
-
-### 6. Environment Parity
-
-- **Same Charts Everywhere**: localdev, homelab use identical Helm charts
-- **Values-Based Differentiation**: Only values files differ per environment
-- **Local Development**: Full GitOps stack runs on laptop via Kind
-- **Consistent Behavior**: Reduces "works on my machine" issues
+The homelab snapshot (`tests/snapshots/homelab/`) contains 68 ArgoCD Applications plus the
+ApplicationSet; [applications.md](./applications.md) lists every one with its chart,
+version, ingress and test coverage. In localdev `bootstrap` and `previews` are disabled and
+`addons`/`applications` use plain Helm with the committed `values-localdev.yaml`; the Kind
+loop syncs the working tree with `argocd app sync --local` (ADR-012,
+[local-development.md](./local-development.md)).
 
 ---
 
-## Infrastructure Layers
+## Secrets and configuration
 
-### Layer 1: Hypervisor (Proxmox VE)
-
-**Purpose**: Bare-metal virtualization platform
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                        Proxmox VE 9.x                            │
-│                                                                  │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐         │
-│  │  TrueNAS VM  │  │ Talos CP-1   │  │ Talos CP-2   │         │
-│  │  (HBA Pass)  │  │ (K8s Master) │  │ (K8s Master) │         │
-│  └──────────────┘  └──────────────┘  └──────────────┘         │
-│                                                                  │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐         │
-│  │Talos Worker-1│  │Talos Worker-2│  │Talos Worker-3│         │
-│  │  (GPU Pass)  │  │              │  │              │         │
-│  └──────────────┘  └──────────────┘  └──────────────┘         │
-└─────────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart LR
+  op[(1Password vault homelab)] -->|op run| tf[Terragrunt]
+  tf --> age[Secret sops-age-key]
+  age --> ksops["ksops: charts/secrets/onepassword\nonepassword-credentials.sops.yaml"]
+  ksops --> creds[Secret onepassword-credentials]
+  creds --> operator[1Password Connect + operator]
+  operator --> envcfg["Secret homelab-environment-config\n(OnePasswordItem, wave 0)"]
+  operator --> appsecrets["OnePasswordItems in *-dependencies charts\n(Plex claim, API keys, Cloudflare token, ...)"]
+  envcfg -->|/config/homelab.yaml| cmp["homelab-cmp sidecar\nhomelab config export --set homelab --format helm-addons|helm-apps --stdout\n| helm template"]
+  schema["configuration/\nschema/*.schema.yaml · environments/defaults.yaml · versions.yaml · templates/*.tmpl"] --> cmp
+  cmp --> manifests[Rendered addons / applications]
+  schema -->|"task config:export:localdev"| localdev["charts/*/values-localdev.yaml (committed)"]
+  manifests -->|helm.valuesObject| child["*-config / *-dependencies child charts (no PII committed)"]
 ```
 
-**Key Features**:
-- ZFS RAID-1 mirror for VM storage (2x 1TB NVMe)
-- HBA passthrough for TrueNAS (Broadcom 9400-8i)
-- GPU passthrough for Plex (NVIDIA Quadro P2200)
-- Web UI for VM management
-- Ansible-managed post-install configuration
+**Secrets** (ADR-003). The only long-lived secret Terraform places in the cluster is the age
+key. Everything else arrives through two channels: SOPS-encrypted files decrypted by ksops
+at render time (today one file, `charts/secrets/onepassword/onepassword-credentials.sops.yaml`,
+which bootstraps the 1Password Connect server) and `OnePasswordItem` resources that the
+operator turns into Secrets (`vaults/homelab/items/<name>`). `task sops:setup` and
+`task sops:bootstrap` manage the key; `docs/secrets.md` has the day-to-day commands. The
+`argocd-notifications-secret` item feeds deploy notifications (ADR-013).
 
-**Configuration Management**: Ansible playbooks in `ansible/`
+**Configuration.** Every environment-specific value lives in `configuration/`: key
+declarations in `schema/*.schema.yaml` (applications, gpu, infrastructure, kubernetes,
+network, platform, secrets), shared defaults in `environments/defaults.yaml`, the production
+values in the gitignored `environments/homelab.yaml` (template `homelab.yaml.example`), the
+Kind values in `environments/localdev.yaml`, every chart/image/tool version in
+`versions.yaml`, and one Go template per consumer format in `templates/`
+(`helm-addons`, `helm-apps`, `tfvars`, `dotenv`, `json`). `homelab config eval` resolves
+schema defaults → defaults → environment; `export` renders a template; `guard` scans staged
+files for the real values (`task config:validate | eval | export | guard`, a pre-commit hook
+and `config-validation.yml` in CI).
 
-### Layer 2: Storage (TrueNAS Scale)
+**Production render.** The operator writes the `homelab-environment-config` Secret; the repo
+server mounts it into the `homelab-cmp` container at `/config/homelab.yaml`; for every
+Application that names plugin `homelab-config-helm-v1.0` (`cmp/plugin.yaml`, image built by
+`Dockerfile.cmp`) the sidecar runs `homelab config export --set homelab --format
+$ARGOCD_ENV_FORMAT --env-file /config/homelab.yaml --stdout` and pipes the result into
+`helm template`. No IP, hostname or e-mail is committed; the `chart.version` values in
+`charts/*/values.yaml` are placeholders overridden from `versions.yaml` at render time.
 
-**Purpose**: Enterprise storage with NFS/iSCSI provisioning
+**Localdev equivalent** (ADR-011, ADR-012). Kind has no CMP, so `task config:export:localdev`
+renders the same templates with `--set localdev` into the committed
+`charts/addons/values-localdev.yaml` and `charts/applications/values-localdev.yaml`; level 0
+fails when they are stale. Every Kind difference is a capability key in
+`configuration/schema/platform.schema.yaml`, never an environment-name branch:
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                      TrueNAS Scale 24.04.x                       │
-│                                                                  │
-│  ┌──────────────────────────────────────────────────────────┐  │
-│  │  ZFS Pool (RAIDZ3)                                        │  │
-│  │  - Data: 11x 20TB HDDs                                    │  │
-│  │  - Special vDev: 2x 1TB NVMe (metadata + small blocks)   │  │
-│  │  - Total Usable: ~160TB                                   │  │
-│  └──────────────────────────────────────────────────────────┘  │
-│                                                                  │
-│  NFS Shares → democratic-csi → Kubernetes PVCs                  │
-└─────────────────────────────────────────────────────────────────┘
-```
+| Key | homelab | localdev |
+|-----|---------|----------|
+| `CNI_PROVIDER` | cilium | cilium |
+| `LOAD_BALANCER_ENABLED` | true | false (NodePort) |
+| `EXTERNAL_DNS_ENABLED` | true | false |
+| `STORAGE_PROVIDER` | democratic-csi | local-path |
+| `MEDIA_PROVIDER` | nfs | ephemeral |
+| `CERT_ISSUER` | letsencrypt | selfsigned |
+| `SECRETS_PROVIDER` | onepassword | none (`localdev/fakes/`) |
+| `ARGOCD_AUTOMATED_SYNC` | true | false (`argocd app sync --local`) |
 
-**Key Features**:
-- RAIDZ3 for dual-disk fault tolerance
-- Special vDev for metadata acceleration
-- NFS shares for Kubernetes persistent volumes
-- Snapshots and replication for backups
-- HBA passthrough for direct disk access
-
-**Provisioning**: Terragrunt module `terragrunt/modules/truenas/`
-
-### Layer 3: Compute (Talos Linux + Kubernetes)
-
-**Purpose**: Container orchestration platform
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                    Talos Linux 1.7.x / K8s 1.30.x                │
-│                                                                  │
-│  Control Plane (2 nodes)          Workers (3 nodes)             │
-│  ┌──────────────────┐             ┌──────────────────┐         │
-│  │ talos-cp-1       │             │ talos-worker-1   │         │
-│  │ - etcd           │             │ - Plex (GPU)     │         │
-│  │ - api-server     │             │ - Media apps     │         │
-│  │ - scheduler      │             └──────────────────┘         │
-│  └──────────────────┘             ┌──────────────────┐         │
-│  ┌──────────────────┐             │ talos-worker-2   │         │
-│  │ talos-cp-2       │             │ - General apps   │         │
-│  │ - etcd           │             └──────────────────┘         │
-│  │ - api-server     │             ┌──────────────────┐         │
-│  │ - scheduler      │             │ talos-worker-3   │         │
-│  └──────────────────┘             │ - General apps   │         │
-│                                   └──────────────────┘         │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-**Key Features**:
-- Immutable OS with API-driven configuration
-- No SSH access - all changes via API
-- Minimal attack surface
-- Cilium CNI with eBPF datapath
-- GPU passthrough for hardware transcoding
-
-**Provisioning**: Terragrunt module `terragrunt/modules/talos-cluster/`
-
-### Layer 4: GitOps (ArgoCD)
-
-**Purpose**: Continuous deployment and state reconciliation
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                          ArgoCD 2.11.x                           │
-│                                                                  │
-│  ┌──────────────────────────────────────────────────────────┐  │
-│  │  App of Apps Pattern (gitops chart)                      │  │
-│  │  ├── addons (Wave 1)                                     │  │
-│  │  │   ├── MetalLB                                         │  │
-│  │  │   ├── Traefik                                         │  │
-│  │  │   ├── cert-manager                                    │  │
-│  │  │   ├── external-dns                                    │  │
-│  │  │   ├── 1password-operator                              │  │
-│  │  │   ├── kube-prometheus-stack                           │  │
-│  │  │   └── democratic-csi                                  │  │
-│  │  └── applications (Wave 2)                               │  │
-│  │      ├── Plex                                            │  │
-│  │      ├── Sonarr/Radarr/Prowlarr                          │  │
-│  │      ├── Home Assistant                                  │  │
-│  │      └── Mosquitto                                       │  │
-│  └──────────────────────────────────────────────────────────┘  │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-**Key Features**:
-- Hierarchical application management
-- Automatic sync with self-heal enabled
-- Health status monitoring
-- Sync waves for dependency ordering
-- Web UI for visualization
-
-**Bootstrap**: Terragrunt module `terragrunt/modules/gitops-bootstrap/`
+**Child charts** (ADR-010). `*-config` and `*-dependencies` charts stay on plain
+`helm.valueFiles`; anything derived from the configuration (domain, hosts, IPs, iSCSI portal,
+e-mail) reaches them through the parent Application's `helm.valuesObject`, so their
+committed `values-homelab.yaml` carries no PII. Level 0 mirrors this by feeding each child
+the `valuesObject` extracted from the rendered parent.
 
 ---
 
-## Technology Stack
+## Storage
 
-### Infrastructure Layer
+```mermaid
+flowchart LR
+  pvc[PVC] --> sc{StorageClass}
+  sc -->|democratic-csi-nfs default| nfs["democratic-csi\norg.democratic-csi.nfs"]
+  sc -->|democratic-csi-ssd| nfsssd["democratic-csi-ssd\norg.democratic-csi.nfs-ssd"]
+  sc -->|democratic-csi-iscsi| iscsi["democratic-csi-iscsi\norg.democratic-csi.iscsi"]
+  sc -->|democratic-csi-iscsi-hdd| iscsihdd["democratic-csi-iscsi-hdd\norg.democratic-csi.iscsi-hdd"]
+  nfs --> storage[("TrueNAS pool storage\nRAIDZ3, 11x 20 TB\nstorage/k8s")]
+  iscsihdd --> storage
+  nfsssd --> ssd[("TrueNAS pool ssd\n2x 1 TB NVMe\nssd/k8s, ssd/iscsi")]
+  iscsi --> ssd
+  media["Media libraries (Plex, *arr)"] -->|NFS exports, MEDIA_PROVIDER=nfs| storage
+  sc -->|Kind: local-path + democratic-csi-* aliases| lp[local-path-provisioner]
+  cnpg["CloudNativePG operator + plugin-barman-cloud"] --> pgc["Cluster paperclip-postgres\non democratic-csi-iscsi"]
+  spegel["Spegel (every node)"] -.->|OCI mirror, P2P image layers| nodes[Talos nodes]
+```
 
-| Component | Technology | Version | Purpose |
-|-----------|------------|---------|---------|
-| Hypervisor | Proxmox VE | 9.x | Bare-metal virtualization |
-| Storage | TrueNAS Scale | 24.04.x | Network-attached storage |
-| OS | Talos Linux | 1.7.x | Immutable Kubernetes OS |
-| Kubernetes | K8s | 1.30.x | Container orchestration |
-| IaC | Terraform | 1.7.x | Infrastructure provisioning |
-| IaC Wrapper | Terragrunt | 0.55.x | DRY Terraform configs |
-| Config Mgmt | Ansible | 2.16.x | Proxmox post-install |
+**democratic-csi → TrueNAS** (ADR-004, ADR-008). Four Applications from one chart
+(`charts.democratic-csi`), all in namespace `democratic-csi` at sync wave 2, each with its
+own driver name and StorageClass; the API key comes from Secret `truenas-api-key`, the
+portal is `ISCSI_TARGET_PORTAL` (`<TRUENAS_IP>:3260`).
 
-### GitOps & Deployment
+| StorageClass | Driver | TrueNAS parent | Use |
+|--------------|--------|----------------|-----|
+| `democratic-csi-nfs` (default, Retain, NFSv4) | `freenas-nfs` | `storage/k8s` (`TRUENAS_ZONE_PARENT`) | General config volumes |
+| `democratic-csi-ssd` | `freenas-nfs` | `ssd/k8s` (`TRUENAS_ZONE_SSD_PARENT`) | Fast NFS |
+| `democratic-csi-iscsi` | `freenas-api-iscsi` | `ssd/iscsi` (`TRUENAS_ISCSI_PARENT`) | SQLite-heavy apps and Postgres (block, `STORAGE_CLASS_ISCSI_SSD`) |
+| `democratic-csi-iscsi-hdd` | `freenas-api-iscsi` | `storage/k8s` (`TRUENAS_ISCSI_HDD_PARENT`) | Large block volumes |
 
-| Component | Technology | Version | Purpose |
-|-----------|------------|---------|---------|
-| GitOps | ArgoCD | 2.11.x | Continuous deployment |
-| Package Manager | Helm | 3.x | Kubernetes packages |
-| Secrets | 1Password Operator | 1.x | External secrets injection |
-| Updates | Renovate | Latest | Automated dependency updates |
+Media libraries are not PVCs: they are NFS exports of the `storage` pool mounted directly
+(`MEDIA_PROVIDER=nfs`; the permission model is ADR-006/ADR-007). Kind uses
+`local-path-provisioner` (`STORAGE_PROVIDER=local-path`) plus `democratic-csi-*` StorageClass
+aliases from `localdev/fakes/storageclasses.yaml`, so charts that name a homelab class still
+bind.
 
-### Networking
+**Databases.** `cloudnative-pg` (wave 10) and `cnpg-barman-cloud` (wave 11,
+`plugin-barman-cloud`) provide Postgres; Paperclip is the one consumer today, a
+`Cluster` in `charts/paperclip-database` on the iSCSI SSD class (ADR-015). The barman plugin
+is off by default and exercised by the restore drill ([Verification](#verification)).
 
-| Component | Technology | Version | Purpose |
-|-----------|------------|---------|---------|
-| CNI | Cilium | 1.15.x | Container networking (eBPF) |
-| Load Balancer | MetalLB | 0.14.x | Bare-metal load balancer (BGP) |
-| Ingress | Traefik | 3.x | HTTP/HTTPS ingress |
-| DNS | external-dns | 0.14.x | Automatic DNS records |
-| Router | UniFi Dream Machine | Latest | Network gateway + BGP peer |
-
-### Observability
-
-| Component | Technology | Version | Purpose |
-|-----------|------------|---------|---------|
-| Metrics | Prometheus | 2.x | Time-series metrics |
-| Dashboards | Grafana | 10.x | Visualization |
-| Alerts | Alertmanager | 0.27.x | Alert routing |
-| Service Mesh | Cilium | 1.15.x | Network observability |
-
-### Storage
-
-| Component | Technology | Version | Purpose |
-|-----------|------------|---------|---------|
-| CSI Driver | democratic-csi | Latest | Dynamic PV provisioning |
-| Filesystem | ZFS | OpenZFS 2.x | Copy-on-write filesystem |
-| Protocol | NFS | v4 | Network file sharing |
-
-### Local Development
-
-| Component | Technology | Version | Purpose |
-|-----------|------------|---------|---------|
-| Local K8s | Kind | 0.22.x | Kubernetes in Docker |
-| Dev Env | Tilt | 0.33.x | Hot reload for K8s |
-| Storage | local-path-provisioner | 0.0.26 | Local PVs for Kind |
+**Images.** Spegel (wave 0) runs on every node as a peer-to-peer OCI mirror for the
+registries it lists (docker.io, ghcr.io, quay.io, registry.k8s.io, ...), so a layer pulled
+once is served from inside the cluster afterwards; Talos keeps unpacked layers for it. Kind
+gets the same effect from pull-through registry caches started by `task localdev:kind`.
 
 ---
 
-## GitOps Bridge Pattern
+## Verification
 
-The GitOps Bridge pattern enables a smooth handoff from infrastructure provisioning (Terraform) to application management (ArgoCD).
-
-### Bridge Flow
-
-```
-┌─────────────┐
-│  Terraform  │
-│  Provisions │
-│  Cluster    │
-└──────┬──────┘
-       │
-       │ 1. Creates K8s cluster
-       │ 2. Installs ArgoCD
-       │ 3. Creates ConfigMap with metadata
-       │
-       ▼
-┌─────────────────────────────────┐
-│  GitOps Bridge ConfigMap        │
-│                                 │
-│  metadata:                      │
-│    cluster_name: homelab        │
-│    environment: homelab         │
-│    addons_repo: github.com/...  │
-│    apps_repo: github.com/...    │
-└──────┬──────────────────────────┘
-       │
-       │ 4. ArgoCD reads ConfigMap
-       │ 5. Creates Applications based on metadata
-       │
-       ▼
-┌─────────────┐
-│   ArgoCD    │
-│   Takes     │
-│   Control   │
-└──────┬──────┘
-       │
-       │ 6. Syncs applications
-       │ 7. Monitors drift
-       │ 8. Auto-heals
-       │
-       ▼
-┌─────────────┐
-│ Applications│
-│  Running    │
-└─────────────┘
+```mermaid
+flowchart LR
+  edit[Edit charts/ or configuration/] --> l0["Level 0: task verify\nrender · kubeconform · pluto · gitops graph · snapshots · policy · versions\n(< 5 s, PostToolUse hook, verify.yml)"]
+  l0 --> l1["Level 1: task verify LEVEL=1\nserver-side dry run on Kind (dryrun/localdev/<chart>)"]
+  l1 --> l2["Level 2: task verify LEVEL=2\nargocd/<app> Healthy + Succeeded · e2e/<suite> chainsaw\nPostSync smoke-<app> Jobs (tilt-ci.yml kind-argocd)"]
+  l2 --> pr["PR: verify:claim block (pr-contract.yml)\nupgrade.yml diff + CRD revalidation\nkind-preview comment"]
+  pr --> prev["Preview on real hardware\nlabel preview → <app>-pr<N> (ADR-013)"]
+  pr --> gate["Renovate: upgrade/automerge-gate\nnon-major bumps automerge when green (ADR-014)"]
+  gate --> main[main → ArgoCD syncs homelab]
+  main --> ro["Read-only production\ntask verify:prod · prod:status · prod:diff (ADR-013)"]
+  drill["Weekly restore drill\ntask drill:restore (restore-drill.yml)"] -.-> l2
 ```
 
-### Implementation
+One verification contract, three levels, all through `homelab verify` (ADR-009, ADR-014;
+every check name is in [runbooks/verification.md](./runbooks/verification.md)):
 
-**Terraform Side** (`terragrunt/modules/gitops-bootstrap/`):
-```hcl
-resource "kubernetes_namespace" "argocd" {
-  metadata {
-    name = "argocd"
-  }
-}
+| Level | Command | What it proves | Where it runs |
+|-------|---------|----------------|---------------|
+| 0 | `task verify` / `task verify:text` | Every chart renders for `localdev`, `homelab` and `homelab-preview`; manifests validate against vendored CRD schemas (`tests/schemas/`); the gitops graph is consistent; golden snapshots (`tests/snapshots/`) match byte for byte; conftest policies pass (`tests/policy/`); every rendered chart version is in `versions.yaml` | after every agent edit (`.claude/settings.json` hook), pre-commit, `verify.yml` |
+| 1 | `task verify LEVEL=1` | `kubectl apply --server-side --dry-run=server` of every localdev chart: admission webhooks, CRD versions, missing namespaces | Kind |
+| 2 | `task verify LEVEL=2` | Every Application `Healthy` with a `Succeeded` operation, and every chainsaw suite in `tests/e2e/` (17 suites) passes | Kind, `tilt-ci.yml` job `kind-argocd` |
 
-resource "helm_release" "argocd" {
-  name       = "argocd"
-  repository = "https://argoproj.github.io/argo-helm"
-  chart      = "argo-cd"
-  namespace  = kubernetes_namespace.argocd.metadata[0].name
-  version    = "5.51.6"
-}
+**Smoke Jobs.** Each application with an HTTP endpoint renders a PostSync hook Job
+`smoke-<app>` (`charts/*/templates/_smoke.tpl`, `curlimages/curl` at `images.curl`) that
+polls `<app>.smoke.url` until an expected status comes back, so a sync only reaches
+`Succeeded` when the endpoint answers. Health for custom resources comes from the Lua in
+`charts/bootstrap/files/health/` (`task test:health` evaluates it against fixtures without a
+cluster). [applications.md](./applications.md) shows which apps have a suite and a smoke Job.
 
-resource "kubernetes_config_map" "gitops_bridge" {
-  metadata {
-    name      = "gitops-bridge-metadata"
-    namespace = "argocd"
-  }
+**Pull requests.** `task verify:claim` prints the level-0 claim for the PR body and
+`pr-contract.yml` re-runs it on the head; `upgrade.yml` renders the upstream chart at the
+base ref against the PR (`task verify:upgrade -- --base origin/main`) and revalidates every
+custom resource; the Kind loop posts `task localdev:report` as the sticky `kind-preview`
+comment. A maintainer can label a PR `preview` (+ `preview:<app>`) to render it on the real
+cluster as `<app>-pr<N>` in namespace `preview-<N>` under AppProject `previews`
+(`docs/runbooks/previews.md`, ADR-013).
 
-  data = {
-    cluster_name   = var.cluster_name
-    environment    = var.environment
-    addons_repo    = var.gitops_repo_url
-    apps_repo      = var.gitops_repo_url
-    target_revision = var.gitops_target_revision
-  }
-}
+**Production is read-only for agents.** `task prod:kubeconfig` once, then
+`task verify:prod`, `task prod:status`, `task prod:diff -- <app>` through the
+`homelab-readonly` context (ServiceAccount `agent-readonly`, Tailscale API server proxy) and
+the read-only ArgoCD `agent` account (`docs/runbooks/readonly-access.md`, ADR-013).
 
-resource "kubectl_manifest" "gitops_app" {
-  yaml_body = templatefile("${path.module}/templates/gitops-application.yaml", {
-    repo_url        = var.gitops_repo_url
-    target_revision = var.gitops_target_revision
-    environment     = var.environment
-  })
-}
-```
-
-**ArgoCD Side** (`charts/gitops/`):
-```yaml
-# charts/gitops/templates/addons.yaml
-apiVersion: argoproj.io/v1alpha1
-kind: Application
-metadata:
-  name: addons
-  namespace: argocd
-  annotations:
-    argocd.argoproj.io/sync-wave: "1"
-spec:
-  project: default
-  source:
-    repoURL: '{{ .Values.repoURL }}'
-    targetRevision: '{{ .Values.targetRevision }}'
-    path: charts/addons
-    helm:
-      valueFiles:
-        - values.yaml
-        - values-{{ .Values.environment }}.yaml
-  destination:
-    server: https://kubernetes.default.svc
-    namespace: argocd
-  syncPolicy:
-    automated:
-      prune: true
-      selfHeal: true
-    syncOptions:
-      - CreateNamespace=true
-```
-
-### Benefits
-
-1. **Clear Separation**: Terraform manages infrastructure, ArgoCD manages applications
-2. **No Drift**: ArgoCD prevents manual kubectl changes from persisting
-3. **Scalability**: Easy to add new applications without touching Terraform
-4. **Rollback**: Git revert = infrastructure rollback
-5. **Audit Trail**: Every change tracked in Git
+**Drills and upgrades.** `task drill:restore` (`tests/drills/`, weekly in `restore-drill.yml`)
+backs up a CloudNativePG cluster to a throwaway `versitygw` S3 endpoint through the barman
+plugin and restores it in Kind. Renovate bumps only `configuration/versions.yaml`
+(`.github/renovate.json5`); `upgrade.yml` sets the `upgrade/automerge-gate` status on
+`renovate/*` branches and non-major bumps merge only when every check and the gate are green
+(ADR-014). `task scaffold -- app <name> --pattern operator|helm|deps-main-config` adds a new
+app with templates, schema keys, e2e and health in one step.
 
 ---
 
-## Network Architecture
-
-See [networking.md](./networking.md) for complete details.
-
-### Network Topology
-
-Addresses below are `<KEY>` placeholders resolved from `configuration/environments/homelab.yaml` (gitignored).
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                    UniFi Dream Machine                           │
-│                    <GATEWAY_IP>                                  │
-│                    BGP ASN: 64513                                │
-└─────────────────┬───────────────────────────────────────────────┘
-                  │
-                  │ VLAN 100 (Homelab)
-                  │ <NFS_SHARE_ALLOW>
-                  │
-    ┌─────────────┼─────────────┬─────────────┬─────────────┐
-    │             │             │             │             │
-┌───▼────┐  ┌────▼────┐  ┌─────▼────┐  ┌────▼────┐  ┌────▼────┐
-│Proxmox │  │TrueNAS  │  │ Talos    │  │ Talos   │  │ Talos   │
-│.250    │  │ (DHCP)  │  │ CP-1     │  │ CP-2    │  │Worker-1 │
-└────────┘  └─────────┘  └──────────┘  └─────────┘  └─────────┘
-                                │
-                                │ BGP Peering
-                                │
-                         ┌──────▼──────┐
-                         │   MetalLB   │
-                         │ 64512       │
-                         │ 100-200 IPs │
-                         └─────────────┘
-```
-
-### IP Allocation
-
-| Device/Service | IP Address | Notes |
-|----------------|------------|-------|
-| UniFi Controller | <GATEWAY_IP> | Gateway + BGP peer |
-| IPMI | <IPMI_IP> | Out-of-band management |
-| Proxmox | <PROXMOX_IP> | Hypervisor management |
-| TrueNAS | DHCP | Storage VM |
-| Talos Control Plane 1 | DHCP | K8s master |
-| Talos Control Plane 2 | DHCP | K8s master |
-| Talos Worker 1-3 | DHCP | K8s workers |
-| MetalLB Pool | <LB_POOL_START>-<LB_POOL_END> | Service load balancer IPs |
-
-### BGP Configuration
-
-- **Kubernetes ASN**: 64512 (MetalLB)
-- **Router ASN**: 64513 (UniFi)
-- **Advertisement**: MetalLB advertises service IPs to UniFi router
-- **Routing**: UniFi automatically routes traffic to correct K8s node
-
----
-
-## Storage Architecture
-
-### ZFS Pool Layout
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                      TrueNAS ZFS Pool                            │
-│                                                                  │
-│  ┌──────────────────────────────────────────────────────────┐  │
-│  │  Data vDev (RAIDZ3)                                       │  │
-│  │  ┌────┐ ┌────┐ ┌────┐ ┌────┐ ┌────┐ ┌────┐ ┌────┐ ┌────┐ │  │
-│  │  │20TB│ │20TB│ │20TB│ │20TB│ │20TB│ │20TB│ │20TB│ │20TB│ │  │
-│  │  └────┘ └────┘ └────┘ └────┘ └────┘ └────┘ └────┘ └────┘ │  │
-│  │  ┌────┐ ┌────┐ ┌────┐                                     │  │
-│  │  │20TB│ │20TB│ │20TB│  (11 drives total)                  │  │
-│  │  └────┘ └────┘ └────┘                                     │  │
-│  │  Usable: ~160TB (3-disk fault tolerance)                  │  │
-│  └──────────────────────────────────────────────────────────┘  │
-│                                                                  │
-│  ┌──────────────────────────────────────────────────────────┐  │
-│  │  Special vDev (Metadata + Small Blocks)                  │  │
-│  │  ┌────────┐ ┌────────┐                                   │  │
-│  │  │ 1TB    │ │ 1TB    │                                   │  │
-│  │  │ NVMe   │ │ NVMe   │  RAID-1 Mirror                    │  │
-│  │  └────────┘ └────────┘                                   │  │
-│  │  Stores: Metadata, blocks < 128KB                        │  │
-│  └──────────────────────────────────────────────────────────┘  │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-### Storage Provisioning
-
-**Democratic CSI** provides dynamic storage provisioning:
-
-```
-Kubernetes PVC Request
-         │
-         ▼
-Democratic CSI Controller
-         │
-         ├─── Creates NFS dataset on TrueNAS
-         ├─── Sets permissions and quotas
-         └─── Returns PV to Kubernetes
-         │
-         ▼
-Pod mounts NFS volume
-```
-
-### Storage Classes
-
-```yaml
-# Fast storage (Special vDev)
-apiVersion: storage.k8s.io/v1
-kind: StorageClass
-metadata:
-  name: truenas-nfs-fast
-provisioner: org.democratic-csi.nfs
-parameters:
-  recordSize: "128k"
-  compression: "lz4"
-  dedup: "off"
-
-# Standard storage (HDD Pool)
-apiVersion: storage.k8s.io/v1
-kind: StorageClass
-metadata:
-  name: truenas-nfs
-provisioner: org.democratic-csi.nfs
-parameters:
-  recordSize: "1M"
-  compression: "lz4"
-  dedup: "off"
-```
-
----
-
-## Compute Architecture
-
-### Resource Allocation
-
-| VM | vCPUs | RAM | Storage | Purpose |
-|----|-------|-----|---------|---------|
-| TrueNAS | 4 | 32 GB | 100 GB | Storage controller |
-| Talos CP-1 | 2 | 4 GB | 50 GB | Kubernetes master |
-| Talos CP-2 | 2 | 4 GB | 50 GB | Kubernetes master |
-| Talos Worker-1 | 6 | 64 GB | 100 GB | GPU workloads (Plex) |
-| Talos Worker-2 | 4 | 32 GB | 100 GB | General workloads |
-| Talos Worker-3 | 4 | 32 GB | 100 GB | General workloads |
-| **Total** | **22/24** | **168/256 GB** | **550 GB** | |
-
-### GPU Passthrough
-
-NVIDIA Quadro P2200 passed through to Talos Worker-1:
-
-```yaml
-# talos/patches/gpu-passthrough.yaml
-machine:
-  kernel:
-    modules:
-      - name: nvidia
-      - name: nvidia_uvm
-      - name: nvidia_drm
-      - name: nvidia_modeset
-  install:
-    extensions:
-      - siderolabs/nonfree-kmod-nvidia
-      - siderolabs/nvidia-container-toolkit
-```
-
-**Usage**: Plex uses GPU for hardware-accelerated transcoding
-
----
-
-## Application Deployment
-
-### Deployment Flow
-
-```
-Git Push
-   │
-   ▼
-GitHub Actions (CI)
-   │
-   ├─── Lint YAML
-   ├─── Validate Helm charts
-   ├─── Run Tilt CI tests
-   └─── Merge to main
-   │
-   ▼
-ArgoCD (CD)
-   │
-   ├─── Detects change
-   ├─── Syncs applications
-   ├─── Health check
-   └─── Running
-```
-
-### Application Structure
-
-```
-charts/
-├── gitops/                    # App of Apps (umbrella)
-│   ├── templates/
-│   │   ├── addons.yaml        # Sync Wave 1
-│   │   └── applications.yaml  # Sync Wave 2
-│   └── values-{env}.yaml
-├── addons/                    # Core infrastructure
-│   └── templates/
-│       ├── metallb.yaml
-│       ├── traefik.yaml
-│       └── ...
-└── applications/              # User applications
-    └── templates/
-        ├── plex.yaml
-        ├── sonarr.yaml
-        ├── paperclip.yaml     # 4 Applications: operator, 1Password items, CNPG Cluster, Instance
-        └── ...
-```
-
-Paperclip is the four-Application pattern for an operator-backed app with its own database:
-`paperclip-operator` (OCI chart, CRDs) < `paperclip-dependencies` (OnePasswordItems) <
-`paperclip-database` (CloudNativePG `Cluster`) < `paperclip` (the `Instance`), waves 10-14 inside
-`applications` (ADR-015, `docs/apps/paperclip.md`).
-
-### Sync Waves
-
-ArgoCD uses sync waves to control deployment order:
-
-1. **Wave 0**: Namespaces, CRDs
-2. **Wave 1**: Core addons (MetalLB, cert-manager, etc.)
-3. **Wave 2**: Applications (Plex, Sonarr, etc.)
-
----
-
-## Security Architecture
-
-### Defense in Depth
-
-1. **Network Layer**
-   - VLAN isolation
-   - Firewall rules on UniFi
-   - No inbound WAN connections
-   - VPN-only external access
-
-2. **Platform Layer**
-   - Immutable OS (Talos)
-   - No SSH access
-   - API-driven administration
-   - Minimal attack surface
-
-3. **Kubernetes Layer**
-   - RBAC enabled
-   - Network policies (Cilium)
-   - Pod security standards
-   - Resource quotas
-
-4. **Application Layer**
-   - Non-root containers
-   - Read-only root filesystems
-   - Secrets managed externally (1Password)
-   - TLS everywhere (cert-manager)
-
-### Secrets Management
-
-```
-1Password Vault
-      │
-      │ 1Password Connect API
-      │
-      ▼
-1Password Operator (K8s)
-      │
-      │ Syncs secrets to K8s
-      │
-      ▼
-Kubernetes Secrets
-      │
-      │ Mounted as volumes/env vars
-      │
-      ▼
-Application Pods
-```
-
-**Benefits**:
-- Secrets never stored in Git
-- Centralized secret rotation
-- Audit trail of secret access
-- External secret store (not in etcd)
-
----
-
-## Monitoring and Observability
-
-### Metrics Stack
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                    kube-prometheus-stack                         │
-│                                                                  │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐         │
-│  │  Prometheus  │  │   Grafana    │  │ Alertmanager │         │
-│  │              │  │              │  │              │         │
-│  │  Scrapes:    │  │  Dashboards: │  │  Alerts:     │         │
-│  │  - K8s API   │  │  - Cluster   │  │  - Slack     │         │
-│  │  - Nodes     │  │  - Nodes     │  │  - Email     │         │
-│  │  - Pods      │  │  - Apps      │  │  - PagerDuty │         │
-│  │  - Services  │  │  - Custom    │  │              │         │
-│  └──────────────┘  └──────────────┘  └──────────────┘         │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-### Key Metrics
-
-- **Cluster Health**: Node status, pod health, resource usage
-- **Application Metrics**: Request rates, latencies, error rates
-- **Infrastructure Metrics**: Disk usage, network traffic, temperature
-- **Business Metrics**: Media library size, transcoding sessions
-
-### Dashboards
-
-- Kubernetes Cluster Overview
-- Node Exporter Full
-- Persistent Volumes
-- ArgoCD Application Status
-- Plex Transcoding Sessions
-- Home Assistant
-
----
-
-## Disaster Recovery
-
-See [disaster-recovery.md](./disaster-recovery.md) for complete procedures.
-
-### Backup Strategy
-
-| Component | Backup Method | Frequency | Retention |
-|-----------|---------------|-----------|-----------|
-| Proxmox Config | Ansible playbooks in Git | On change | Forever (Git) |
-| TrueNAS Config | ZFS snapshots | Hourly | 7 days |
-| TrueNAS Data | ZFS replication | Daily | 30 days |
-| K8s Configs | Git repository | On push | Forever (Git) |
-| Application Data | PVC snapshots | Daily | 7 days |
-| etcd | Talos built-in backup | Hourly | 7 days |
-
-### Recovery Time Objectives
-
-| Scenario | RTO | RPO | Impact |
-|----------|-----|-----|--------|
-| Pod failure | 30 seconds | 0 | Single app |
-| Node failure | 5 minutes | 0 | Multiple apps |
-| Cluster failure | 1 hour | 1 hour | All apps |
-| Complete loss | 4 hours | 24 hours | Everything |
-
----
-
-## Environment Strategy
-
-### Environment Comparison
-
-Every difference is a capability key in `configuration/schema/platform.schema.yaml`
-(ADR-011, ADR-012); the same charts and the same ArgoCD Applications run in both.
-
-| Feature | localdev | homelab |
-|---------|----------|---------|
-| Platform | Kind (Docker), `kindest/node` at `images.kind-node` | Proxmox VMs (Talos) |
-| Nodes | 1 control-plane + 2 workers | 2 CP + 3 workers |
-| CNI | Cilium, installed by `scripts/localdev-kind.ts` and adopted by the `cilium` Application | Cilium (Talos inline manifest), BGP to UniFi |
-| Storage | local-path, plus `democratic-csi-*` StorageClass aliases (fakes) | democratic-csi (TrueNAS NFS/iSCSI) |
-| Media libraries | `emptyDir` | TrueNAS NFS exports |
-| Load Balancer | none (NodePort) | Cilium LB IPAM (BGP) |
-| DNS | none; `homelab.local` via `Host` headers in-cluster | external-dns (Cloudflare, UniFi) |
-| TLS | self-signed `letsencrypt` ClusterIssuer | Let's Encrypt (Cloudflare DNS-01) |
-| Secrets | seeded fakes (`localdev/fakes`) | 1Password + SOPS |
-| Sync | manual; working tree pushed with `argocd app sync --local` | automated (prune + selfHeal) |
-| GPU | None | NVIDIA P2200 |
-| Monitoring | kube-prometheus-stack, trimmed | Full stack |
-
-### Workflow
-
-1. **Develop Locally**: edit, `task verify:text` (level 0, seconds), `task localdev:sync`
-   into Kind, `task verify:text LEVEL=2` (every Application Healthy + chainsaw e2e)
-2. **Push to Git**: CI re-runs level 0 (`verify.yml`) and the whole Kind loop (`tilt-ci.yml`)
-3. **Deploy to Homelab**: ArgoCD syncs `main` to the homelab environment
-4. **Verify**: ArgoCD health and notifications; agents never apply to production (ADR-009)
-
----
-
-## Troubleshooting
-
-### Common Issues
-
-#### ArgoCD Application OutOfSync
-
-**Symptom**: Application shows as OutOfSync in ArgoCD UI
-
-**Diagnosis**:
-```bash
-# Check application status
-kubectl -n argocd get applications
-
-# View detailed sync status
-argocd app get <app-name>
-
-# View diff
-argocd app diff <app-name>
-```
-
-**Resolution**:
-```bash
-# Manual sync
-argocd app sync <app-name>
-
-# Hard refresh (ignore cache)
-argocd app sync <app-name> --force
-```
-
-#### Persistent Volume Not Binding
-
-**Symptom**: PVC stuck in Pending state
-
-**Diagnosis**:
-```bash
-# Check PVC status
-kubectl get pvc -A
-
-# Check PV availability
-kubectl get pv
-
-# Check democratic-csi logs
-kubectl -n democratic-csi logs -l app=democratic-csi-controller
-```
-
-**Resolution**:
-- Verify TrueNAS is accessible from cluster
-- Check NFS exports are configured
-- Verify storage class exists
-- Check CSI driver logs for errors
-
-#### MetalLB Not Advertising IPs
-
-**Symptom**: LoadBalancer services stuck in Pending
-
-**Diagnosis**:
-```bash
-# Check MetalLB speaker pods
-kubectl -n metallb-system get pods
-
-# Check BGP peering
-kubectl -n metallb-system logs -l component=speaker | grep BGP
-
-# Check IP pool configuration
-kubectl -n metallb-system get ipaddresspool
-```
-
-**Resolution**:
-- Verify BGP peer configuration on UniFi
-- Check ASN numbers match
-- Verify IP pool range is correct
-- Check router logs for BGP session
-
-#### GPU Not Available in Pod
-
-**Symptom**: Plex cannot access GPU for transcoding
-
-**Diagnosis**:
-```bash
-# Check GPU is visible on node
-kubectl get nodes -o jsonpath='{.items[*].status.capacity}'
-
-# Exec into pod and check
-kubectl -n media exec -it plex-xxx -- nvidia-smi
-```
-
-**Resolution**:
-- Verify GPU passthrough in Proxmox
-- Check Talos GPU patch is applied
-- Verify nvidia-runtime is configured
-- Check pod requests GPU in spec
-
-### Useful Commands
-
-```bash
-# View all applications across all namespaces
-kubectl get applications -A
-
-# Force ArgoCD to refresh
-argocd app get <app-name> --refresh
-
-# View pod logs across all namespaces
-kubectl logs -f -n <namespace> <pod-name>
-
-# Get all events sorted by time
-kubectl get events --all-namespaces --sort-by='.lastTimestamp'
-
-# Check resource usage
-kubectl top nodes
-kubectl top pods -A
-
-# View Talos service status
-talosctl -n <node-ip> service status
-
-# View Talos logs
-talosctl -n <node-ip> logs kubelet
-```
-
----
+## Technology stack
+
+Pinned versions are in `configuration/versions.yaml` (`tools.*`, `charts.*`, `images.*`) and
+installed by mise (`mise.toml`); this table names the pieces, the file has the numbers.
+
+| Layer | Technology | Where |
+|-------|------------|-------|
+| Hypervisor | Proxmox VE on a Supermicro AMD host | `ansible/`, [hardware.md](./hardware.md) |
+| Storage appliance | TrueNAS SCALE (pools `storage`, `ssd`) | `terragrunt/modules/truenas`, `ansible/playbooks/truenas-*.yml` |
+| Node OS / Kubernetes | Talos Linux (`tools.talos`) / Kubernetes (`tools.kubernetes`) | `terragrunt/modules/talos-cluster`, `talos/` |
+| IaC | Terraform (`tools.terraform`) via Terragrunt | `terragrunt/` |
+| Host configuration | Ansible | `ansible/` |
+| GitOps | ArgoCD (`charts.argocd`, CLI `tools.argocd`), Helm (`tools.helm`) | `charts/gitops`, `charts/bootstrap` |
+| CNI, load balancer | Cilium (`charts.cilium`) with LB IPAM + BGP to the UniFi gateway | [networking.md](./networking.md) |
+| Ingress | Traefik (`charts.traefik`) ×2: `external`, `internal`; cert-manager; external-dns (Cloudflare, UniFi) | [networking.md](./networking.md) |
+| Remote access | Tailscale operator (`charts.tailscale-operator`) | [networking.md](./networking.md) |
+| Secrets | 1Password Connect + operator (`charts.onepassword-connect`), SOPS/age via ksops | [Secrets and configuration](#secrets-and-configuration) |
+| Storage | democratic-csi (`charts.democratic-csi`), CloudNativePG (`charts.cloudnative-pg`, `charts.plugin-barman-cloud`), Spegel (`charts.spegel`) | [Storage](#storage) |
+| Observability | kube-prometheus-stack (`charts.kube-prometheus-stack`), etcd scrape, Grafana behind the internal ingress | `charts/addons/templates/kube-prometheus-stack.yaml` |
+| CLI and scripts | Go CLI `homelab` (`cmd/homelab`, `internal/`), Deno TypeScript (`scripts/`), Taskfile (ADR-005) | `Taskfile.yml` |
+| Local loop | Kind (`tools.kind`, `images.kind-node`) + ArgoCD `--local` sync, chainsaw (`tools.chainsaw`) | [local-development.md](./local-development.md) |
+| Updates | Renovate (`.github/renovate.json5`, app `renovate` in-cluster) | [Verification](#verification) |
+
+## Design patterns
+
+| Pattern | Where it shows up |
+|---------|-------------------|
+| GitOps Bridge | Terraform creates ArgoCD, metadata ConfigMap/Secret and one root Application, then steps back |
+| App of Apps | `gitops` → `bootstrap` / `addons` / `applications` / `previews`, sync waves for order (ADR-001) |
+| Environment parity by capability | Same charts and Applications in Kind and homelab; differences are `platform.schema.yaml` keys (ADR-011, ADR-012) |
+| Centralised configuration | One schema-driven pipeline (`homelab config`) feeds Helm, tfvars, dotenv and JSON; production values never committed |
+| Parent-owned derived values | Child charts get PII-derived values from `helm.valuesObject`, not from committed files (ADR-010) |
+| Executable contract | Level 0/1/2 verification, smoke hooks, previews, read-only production, drills and the Renovate gate (ADR-009, ADR-013, ADR-014) |
+| Monorepo | Infrastructure, charts, CLI, scripts, tests and docs in one repository, one PR per change |
 
 ## References
 
-### Official Documentation
-
-- [Proxmox VE Documentation](https://pve.proxmox.com/pve-docs/)
-- [TrueNAS Scale Documentation](https://www.truenas.com/docs/scale/)
-- [Talos Linux Documentation](https://www.talos.dev/latest/)
-- [Kubernetes Documentation](https://kubernetes.io/docs/)
-- [ArgoCD Documentation](https://argo-cd.readthedocs.io/)
-- [Helm Documentation](https://helm.sh/docs/)
-
-### Design Patterns
-
-- [GitOps Bridge Pattern](https://github.com/gitops-bridge-dev/gitops-bridge)
-- [App of Apps Pattern](https://argo-cd.readthedocs.io/en/stable/operator-manual/cluster-bootstrapping/)
-- [Kustomize Best Practices](https://kubectl.docs.kubernetes.io/guides/config_management/)
-
-### Community Resources
-
-- [Awesome Homelab](https://github.com/awesome-foss/awesome-sysadmin)
-- [r/homelab](https://reddit.com/r/homelab)
-- [Talos on Proxmox with OpenTofu](https://blog.stonegarden.dev/articles/2024/08/talos-proxmox-tofu/)
-
-### Related Documentation
-
-- [networking.md](./networking.md) - Network topology and BGP configuration
-- [disaster-recovery.md](./disaster-recovery.md) - Backup and recovery procedures
-- [hardware-setup.md](./hardware-setup.md) - Physical hardware configuration
-- [local-development.md](./local-development.md) - Local dev environment setup
-- [runbooks/proxmox-recovery.md](./runbooks/proxmox-recovery.md) - Proxmox disaster recovery
-- [runbooks/talos-upgrade.md](./runbooks/talos-upgrade.md) - Talos cluster upgrade procedures
-- [runbooks/truenas-maintenance.md](./runbooks/truenas-maintenance.md) - TrueNAS maintenance
-
----
-
-**Last Updated**: 2026-01-19
-**Version**: 1.0
-**Maintainer**: homelab team
+- [GitOps Bridge pattern](https://github.com/gitops-bridge-dev/gitops-bridge)
+- [Talos on Proxmox with OpenTofu (stonegarden.dev)](https://blog.stonegarden.dev/articles/2024/08/talos-proxmox-tofu/)
+- [TrueCharts Helm repository](https://github.com/truecharts/charts)
+- [Kind, Kubernetes in Docker](https://kind.sigs.k8s.io/)
+- [ArgoCD app of apps](https://argo-cd.readthedocs.io/en/stable/operator-manual/cluster-bootstrapping/),
+  [Talos](https://www.talos.dev/latest/), [Cilium](https://docs.cilium.io/),
+  [democratic-csi](https://github.com/democratic-csi/democratic-csi),
+  [CloudNativePG](https://cloudnative-pg.io/)
+- In this repo: [networking.md](./networking.md), [applications.md](./applications.md),
+  [hardware.md](./hardware.md), [local-development.md](./local-development.md),
+  [disaster-recovery.md](./disaster-recovery.md), `docs/runbooks/`,
+  `docs/project_notes/decisions.md`
