@@ -3,6 +3,12 @@
   extends: [
     'config:recommended',
   ],
+  // config:recommended leaves the pre-commit manager off; without it the revs in
+  // .pre-commit-config.yaml (yamllint, pre-commit-terraform, pre-commit-hooks)
+  // never move.
+  'pre-commit': {
+    enabled: true,
+  },
   timezone: 'America/New_York',
   schedule: [
     'after 10pm every weekday',
@@ -207,21 +213,6 @@
         'renovate',
         'dependencies',
         'major',
-      ],
-    },
-    // ksops: distroless images may break init containers — disable auto-merge
-    {
-      matchPackageNames: [
-        'viaductoss/ksops',
-      ],
-      matchDatasources: [
-        'docker',
-      ],
-      automerge: false,
-      labels: [
-        'renovate',
-        'dependencies',
-        'requires-testing',
       ],
     },
   ],

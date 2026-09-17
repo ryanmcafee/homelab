@@ -63,11 +63,7 @@ jobs:
           sops -d policy.sops.hujson > policy.hujson
           rm -f "sops-${ver}.linux.amd64" sops.checksums.txt
 
-      # gitops-acl-action stays at the floating @v1 major tag on BOTH the test
-      # and apply jobs by design (threat T-01-SC, disposition "accept"):
-      # first-party Tailscale action with no transitive package installs. The
-      # asymmetry vs the SHA-pinned checkout above is intentional, not an
-      # oversight. Do not partially SHA-pin one job and not the other.
+      # gitops-acl-action is SHA-pinned on both jobs like every other action here.
       - name: Test ACL (pull request)
         uses: tailscale/gitops-acl-action@5a4a17f5708e9bf96f4ee915a95e9f83c2eebe1a # v1
         with:

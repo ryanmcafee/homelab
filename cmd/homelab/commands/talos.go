@@ -33,6 +33,11 @@ func NewTalosCmd() *cobra.Command {
 		Use:   "talos",
 		Short: "Talos node operations",
 		Long:  `Manage Talos nodes - recreation, upgrades, etc.`,
+		// A group is not runnable; a typo must not print help and exit 0.
+		Args:          GroupCommandArgs,
+		RunE:          RunGroupCommand,
+		SilenceUsage:  true,
+		SilenceErrors: true,
 	}
 
 	cmd.AddCommand(newTalosRecreateCmd())

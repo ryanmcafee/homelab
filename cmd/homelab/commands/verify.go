@@ -329,7 +329,6 @@ func NewVerifyCmd() *cobra.Command {
 	}
 
 	cmd.AddCommand(newVerifyGPUCmd())
-	cmd.AddCommand(newVerifyCiliumCmd())
 	cmd.AddCommand(newVerifyRenderCmd())
 	cmd.AddCommand(newVerifyGitOpsCmd())
 	cmd.AddCommand(newVerifySnapshotCmd())
@@ -406,38 +405,6 @@ func newVerifyGPUCmd() *cobra.Command {
 	}
 
 	cmd.Flags().BoolVar(&statusOnly, "status-only", false, "Print GPU status summary instead of running health checks")
-
-	return cmd
-}
-
-func newVerifyCiliumCmd() *cobra.Command {
-	var phase string
-
-	cmd := &cobra.Command{
-		Use:   "cilium",
-		Short: "Verify Cilium LB migration",
-		Long:  `Verify MetalLB to Cilium LB IPAM migration`,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			utils.DryRun = DryRun
-
-			logger.Info("======================================")
-			logger.Info("  Cilium LB Migration Verification")
-			logger.Info("======================================")
-			logger.Info(fmt.Sprintf("  Phase: %s", phase))
-			logger.Info("======================================")
-			fmt.Println()
-
-			logger.Warn("Cilium verification implementation pending - feature deferred to future iteration")
-			logger.Info("Phases:")
-			logger.Info("  pre-migration  - Establish baseline")
-			logger.Info("  post-cilium    - Verify Cilium BGP")
-			logger.Info("  post-removal   - Verify MetalLB removed")
-
-			return nil
-		},
-	}
-
-	cmd.Flags().StringVar(&phase, "phase", "pre-migration", "Migration phase to verify")
 
 	return cmd
 }

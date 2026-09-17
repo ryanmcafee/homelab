@@ -6,6 +6,12 @@ on:
       - 'terragrunt/**'
       - 'ansible/**'
       - 'charts/**'
+      - 'cmd/**'
+      - 'internal/**'
+      - 'scripts/**'
+      - 'go.mod'
+      - 'go.sum'
+      - 'Dockerfile.cmp'
       - '.github/workflows/security-scan.yml'
   push:
     branches:

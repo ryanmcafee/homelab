@@ -22,7 +22,7 @@ repos:
         language: system
         pass_filenames: true
         types_or: [yaml, json, markdown, ts, svg]
-        files: ^(configuration/|charts/[^/]+/values-homelab\.yaml$|scripts/|docs/|\.github/)
+        files: ^(configuration/|charts/.*/values-homelab\.yaml$|scripts/|docs/|\.github/|Taskfile\.yml$)
         exclude: |
           (?x)(
             ^configuration/environments/homelab\.yaml$|
@@ -55,7 +55,7 @@ repos:
 
   # Terraform/Terragrunt formatting
   # v1.105.0+ supports terragrunt 0.78+ which replaced `hclfmt` with `hcl format`
-  # (our pinned terragrunt is v1.0.0 which only supports the new CLI).
+  # (mise.toml pins terragrunt 1.x, which only supports the new CLI).
   - repo: https://github.com/antonbabenko/pre-commit-terraform
     rev: v1.105.0
     hooks:

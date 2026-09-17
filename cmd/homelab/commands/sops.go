@@ -13,6 +13,11 @@ func NewSopsCmd() *cobra.Command {
 		Use:   "sops",
 		Short: "SOPS encryption management",
 		Long:  `Manage SOPS encryption keys and setup for GitOps secrets.`,
+		// A group is not runnable; a typo must not print help and exit 0.
+		Args:          GroupCommandArgs,
+		RunE:          RunGroupCommand,
+		SilenceUsage:  true,
+		SilenceErrors: true,
 	}
 
 	cmd.AddCommand(newSopsBootstrapCmd())
@@ -60,8 +65,9 @@ func newSopsBootstrapCmd() *cobra.Command {
 				logger.Info("  5. Encrypt credentials (--encrypt flag)")
 			}
 
-			logger.Warn("SOPS bootstrap implementation pending - feature deferred to future iteration")
-			return nil
+			// Not implemented: exit non-zero so nothing that chains on this
+			// command (task sops:bootstrap, docs) mistakes the plan for work.
+			return fmt.Errorf("sops bootstrap is not implemented; follow the manual steps in charts/secrets/README.md")
 		},
 	}
 
@@ -92,8 +98,7 @@ func newSopsSetupCmd() *cobra.Command {
 			}
 			logger.OK("Prerequisites OK")
 
-			logger.Warn("SOPS setup implementation pending - feature deferred to future iteration")
-			return nil
+			return fmt.Errorf("sops setup is not implemented; follow the manual steps in charts/secrets/README.md")
 		},
 	}
 

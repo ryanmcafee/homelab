@@ -2,16 +2,26 @@
 
 This directory contains SOPS-encrypted Kubernetes secrets managed via GitOps.
 
-## Quick Start (Automated)
+## Bootstrap (manual, once per repository)
+
+`homelab sops bootstrap` / `homelab sops setup` are not implemented (they exit 1 and point
+here). The steps they were meant to automate:
 
 ```bash
-# 1. Bootstrap SOPS (generates age keys, stores in 1Password, configures .sops.yaml)
-task sops:bootstrap
+# 1. Generate the age key pair and store the private key in 1Password
+age-keygen -o /tmp/sops-age.txt                    # prints "Public key: age1..."
+op item create --vault homelab --category password --title sops-age-key \
+  "private_key[password]=$(rg -v '^#' /tmp/sops-age.txt)" \
+  "public_key[text]=$(rg '^# public key:' /tmp/sops-age.txt | cut -d: -f2 | tr -d ' ')"
+rm /tmp/sops-age.txt
 
-# 2. Setup 1Password credentials (pulls from 1Password, encrypts, commits)
-task sops:setup
+# 2. Put the public key in .sops.yaml (every creation_rule's `age:` field)
 
-# 3. Apply gitops-bootstrap to provision age key in cluster
+# 3. Encrypt the 1Password Connect credentials template
+task sops:encrypt        # reads the credentials from 1Password, writes onepassword/onepassword-credentials.sops.yaml
+task sops:verify         # proves your local age key decrypts what is committed
+
+# 4. Provision the age key in the cluster (gitops-bootstrap reads op://homelab/sops-age-key)
 task tf:apply:component COMPONENT=gitops-bootstrap
 ```
 
@@ -19,11 +29,7 @@ task tf:apply:component COMPONENT=gitops-bootstrap
 
 | Task | Description |
 |------|-------------|
-| `task sops:bootstrap` | Generate age keys and store in 1Password |
-| `task sops:bootstrap:force` | Regenerate keys (overwrites existing) |
-| `task sops:setup` | Full automated setup - pull credentials, encrypt, commit |
-| `task sops:setup:dry-run` | Preview setup without making changes |
-| `task sops:encrypt` | Encrypt a template file |
+| `task sops:encrypt` | Encrypt the 1Password credentials template |
 | `task sops:decrypt` | Decrypt and view credentials (stdout) |
 | `task sops:edit` | Edit encrypted credentials in-place |
 | `task sops:rotate` | Rotate keys and re-encrypt all secrets |

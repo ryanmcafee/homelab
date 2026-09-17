@@ -55,9 +55,11 @@ on:
       - '.github/workflows/verify.yml'
   workflow_dispatch:
 
+# Superseded pushes to a PR cancel each other; pushes to main do not, so every
+# merged commit keeps its own verdict.
 concurrency:
   group: verify-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read

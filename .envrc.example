@@ -16,9 +16,8 @@
 # =============================================================================
 # 1Password CLI Authentication
 # =============================================================================
-# Required for `op run` to authenticate with 1Password
-# Create a service account at: https://developer.1password.com/docs/service-accounts
-export OP_SERVICE_ACCOUNT_TOKEN="$(cat ~/.op/op_service_account_token)"
+# OP_SERVICE_ACCOUNT_TOKEN is set by mise.toml [env] (mise loads this file
+# without running command substitutions, so it cannot be exported from here).
 
 # =============================================================================
 # Kubernetes Configuration
@@ -36,9 +35,8 @@ export TF_PLUGIN_CACHE_DIR="${HOME}/.terraform.d/plugin-cache"
 # Ansible Configuration
 # =============================================================================
 export ANSIBLE_CONFIG="${PWD}/ansible/ansible.cfg"
-export ANSIBLE_INVENTORY="${PWD}/ansible/inventory/hosts.yml"
+export ANSIBLE_INVENTORY="${PWD}/ansible/inventory/homelab.yml"
 export ANSIBLE_ROLES_PATH="${PWD}/ansible/roles:~/.ansible/roles:/usr/share/ansible/roles:/etc/ansible/roles"
-export ANSIBLE_VAULT_PASSWORD_FILE="${HOME}/.ansible_vault_password"
 
 # =============================================================================
 # Local Development

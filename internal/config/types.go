@@ -33,7 +33,7 @@ type Versions struct {
 type ConfigValue struct {
 	Key    string
 	Value  string
-	Source string // "default", "defaults.yaml", "homelab.yaml", "const"
+	Source string // "const", "defaults", "<set>" (e.g. "homelab"), "schema-default" or "unknown"; see eval.go
 }
 
 // ResolvedConfig is the output of the eval pipeline.

@@ -18,6 +18,8 @@ on:
       - 'go.sum'
       - 'Dockerfile.cmp'
       - 'cmp/**'
+      # the image tag is images.homelab-cmp; a bump alone must publish
+      - 'configuration/versions.yaml'
   pull_request:
     paths:
       - 'cmd/**'
@@ -26,6 +28,8 @@ on:
       - 'go.sum'
       - 'Dockerfile.cmp'
       - 'cmp/**'
+      # the image tag is images.homelab-cmp; a bump alone must publish
+      - 'configuration/versions.yaml'
 
 jobs:
   build:
