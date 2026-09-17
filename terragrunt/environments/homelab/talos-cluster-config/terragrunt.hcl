@@ -85,7 +85,6 @@ inputs = {
 
   # Cluster configuration
   cluster_name      = include.env.locals.cluster_name
-  cluster_endpoint  = include.env.locals.cluster_endpoint
   vip_endpoint      = include.env.locals.vip_endpoint
   bootstrap_cluster = true
 

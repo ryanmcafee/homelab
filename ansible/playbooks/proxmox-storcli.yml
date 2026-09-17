@@ -21,7 +21,7 @@
         msg: |
           StorCLI package not found at {{ storcli_package_path }}
           Please download the package from Broadcom and place it in ansible/files/
-          Expected file: storcli_007.0327.0000.0000_all.deb
+          Expected file: {{ storcli_package_path | basename }}
       when: not storcli_package_stat.stat.exists
 
   roles:

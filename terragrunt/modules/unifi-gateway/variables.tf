@@ -8,7 +8,7 @@ variable "bgp_enabled" {
 variable "bgp_description" {
   description = "Description for the BGP configuration"
   type        = string
-  default     = "MetalLB BGP Peering"
+  default     = "Cilium BGP Peering"
 }
 
 variable "bgp_local_as" {
@@ -32,7 +32,7 @@ variable "bgp_neighbors" {
 }
 
 variable "bgp_networks" {
-  description = "Networks to advertise via BGP (optional - MetalLB advertises its own)"
+  description = "Networks to advertise via BGP (optional - Cilium advertises the LoadBalancer IPs itself)"
   type        = list(string)
   default     = []
 }

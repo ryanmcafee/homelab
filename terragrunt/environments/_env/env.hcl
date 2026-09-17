@@ -12,7 +12,7 @@ locals {
   gateway     = "172.16.100.1"
   dns_servers = ["172.16.100.1"]
 
-  # MetalLB configuration
+  # LoadBalancer pool (Cilium LB IPAM; legacy metallb_* names)
   metallb_ip_start = "172.16.100.100"
   metallb_ip_end   = "172.16.100.200"
 

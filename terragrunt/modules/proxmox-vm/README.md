@@ -1,5 +1,8 @@
 # Generic Proxmox VM Module
 
+> Library module: no environment under `terragrunt/environments/` uses it today
+> (Talos nodes come from `talos-cluster`, TrueNAS from `truenas`).
+
 This module provides a flexible way to create and manage virtual machines in Proxmox with support for advanced features like PCI passthrough, cloud-init, and custom disk configurations.
 
 ## Features

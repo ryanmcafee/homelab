@@ -62,7 +62,6 @@ resource "null_resource" "backup_schedule" {
     prune_backups    = local.prune_backups
     all_vms          = local.all_vms
     vmid_list        = local.vmid_list
-    tags             = join(",", var.tags)
     mailnotification = local.mailnotification
     mailto           = local.mailto
     ssh_host         = var.proxmox_host

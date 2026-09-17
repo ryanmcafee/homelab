@@ -72,16 +72,15 @@ variable "iso_storage" {
   default     = "local"
 }
 
+# No defaults: the unit pins the release, so a stale default cannot shadow it.
 variable "truenas_iso_url" {
-  description = "URL to TrueNAS Scale ISO"
+  description = "URL to TrueNAS Scale ISO (only used when use_template = false)"
   type        = string
-  default     = "https://download.truenas.com/TrueNAS-SCALE-Dragonfish/23.10.1/TrueNAS-SCALE-23.10.1.iso"
 }
 
 variable "truenas_iso_filename" {
-  description = "Filename for the TrueNAS ISO"
+  description = "Filename for the TrueNAS ISO (only used when use_template = false)"
   type        = string
-  default     = "truenas-scale-23.10.1.iso"
 }
 
 # HBA Passthrough Configuration

@@ -37,7 +37,8 @@
   failed_when: false
 
 - name: Get current fan sensor information
-  ansible.builtin.command:
+  # shell, not command: the pipe would otherwise be passed to ipmitool as arguments
+  ansible.builtin.shell:
     cmd: ipmitool sensor list | grep -i fan
   register: current_fan_sensors
   changed_when: false

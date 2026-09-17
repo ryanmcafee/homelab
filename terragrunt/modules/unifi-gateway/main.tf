@@ -1,7 +1,8 @@
 /**
  * UniFi Gateway Module
  *
- * Provisions BGP configuration on the UniFi gateway for MetalLB integration.
+ * Provisions BGP configuration on the UniFi gateway to peer with Cilium
+ * (LB IPAM advertises the LoadBalancer IPs over BGP).
  * Uses FRRouting configuration syntax for BGP peer setup.
  */
 

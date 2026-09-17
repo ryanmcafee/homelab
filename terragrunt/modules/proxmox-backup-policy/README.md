@@ -87,7 +87,6 @@ module "infrastructure_backup" {
 | compression | Compression algorithm | `string` | "zstd" | no |
 | include_all_vms | Backup all VMs | `bool` | false | no |
 | vm_ids | Specific VM IDs to backup | `list(number)` | [] | no |
-| tags | Tags to filter VMs | `list(string)` | [] | no |
 | keep_last | Keep last N backups | `number` | null | no |
 | keep_hourly | Keep N hourly backups | `number` | null | no |
 | keep_daily | Keep N daily backups | `number` | 7 | no |

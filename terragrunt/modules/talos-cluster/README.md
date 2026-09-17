@@ -90,7 +90,6 @@ module "talos_cluster" {
 
   # Network
   network_bridge  = "vmbr0"
-  network_vlan_id = 100
   network_gateway = "172.16.100.1"
   dns_servers     = ["172.16.100.1"]
 

@@ -69,9 +69,11 @@ inputs = {
   repo_url        = include.env.locals.repo_url
   target_revision = include.env.locals.target_revision
 
-  # ArgoCD configuration
-  argocd_namespace = "argocd"
-  admin_enabled    = true
+  # ArgoCD configuration (versions from versions.yaml, as the homelab unit does)
+  argocd_namespace  = "argocd"
+  argocd_version    = yamldecode(file("${get_terragrunt_dir()}/../../../../configuration/versions.yaml"))["charts"]["argocd"]
+  cmp_image_version = yamldecode(file("${get_terragrunt_dir()}/../../../../configuration/versions.yaml"))["images"]["homelab-cmp"]
+  admin_enabled     = true
 
   # No ingress for local dev (use port-forward)
   server_ingress_enabled = false

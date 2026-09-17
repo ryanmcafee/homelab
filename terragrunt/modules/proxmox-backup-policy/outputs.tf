@@ -31,7 +31,7 @@ output "prune_backups" {
 }
 
 output "pvesh_command" {
-  description = "The pvesh command that will be executed"
+  description = "The pvesh parameters; the provisioner runs `pvesh create` for a new job and `pvesh set` when the job already exists"
   value       = "pvesh create /cluster/backup ${local.pvesh_params}"
   sensitive   = false
 }

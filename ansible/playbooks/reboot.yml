@@ -1,0 +1,16 @@
+---
+# Reboot the Proxmox host and wait for it to come back. Used after a StorCLI
+# firmware flash (roles/proxmox_storcli prints this playbook's name) and by
+# docs/runbooks/hba-firmware-update.md.
+#
+#   ansible-playbook playbooks/reboot.yml
+- name: Reboot Proxmox host
+  hosts: proxmox
+  become: true
+  gather_facts: false
+
+  tasks:
+    - name: Reboot and wait for SSH
+      ansible.builtin.reboot:
+        reboot_timeout: 600
+        msg: "Reboot requested by Ansible (playbooks/reboot.yml)"

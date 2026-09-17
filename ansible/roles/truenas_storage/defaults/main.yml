@@ -159,15 +159,13 @@ truenas_storage_pools:
     disk_type: SSD
     description: "Fast NVMe SSD pool"
 
-# ACME/Let's Encrypt Configuration
-truenas_acme_enabled: true
-truenas_acme_email: "admin@ryanmcafee.com"
-truenas_acme_dns_provider: cloudflare
-truenas_acme_domain: "{{ truenas_hostname }}"
+# ACME/Let's Encrypt and the automation user need api_url/api_user/api_password,
+# which only playbooks/truenas-full-setup.yml supplies (it also passes
+# cloudflare_token and certificate_domain), so both default to off.
+truenas_acme_enabled: false
 
 # Automation User
-truenas_automation_user_enabled: true
-truenas_automation_api_key_name: automation
+truenas_automation_user_enabled: false
 
 # Talos Image Cache Configuration
 # Serves as a local registry mirror to prevent failures from flaky external registries

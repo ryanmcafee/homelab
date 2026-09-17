@@ -350,7 +350,7 @@ resource "proxmox_virtual_environment_file" "machine_config" {
   for_each = local.all_nodes
 
   content_type = "snippets"
-  datastore_id = "local"
+  datastore_id = var.snippets_datastore_id
   node_name    = each.value.host_node
 
   source_raw {
@@ -366,7 +366,7 @@ resource "proxmox_virtual_environment_file" "meta_data" {
   for_each = local.all_nodes
 
   content_type = "snippets"
-  datastore_id = "local"
+  datastore_id = var.snippets_datastore_id
   node_name    = each.value.host_node
 
   source_raw {

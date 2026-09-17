@@ -87,7 +87,8 @@ inputs = {
   lan_network_bridge  = "vmbr0"
   lan_network_vlan_id = 10
 
-  # TrueNAS ISO
+  # TrueNAS ISO — only consumed when use_template = false (the VM is cloned
+  # from template 9000 below, so no ISO is downloaded or attached today)
   iso_storage          = include.env.locals.iso_storage_pool
   truenas_iso_url      = "https://download.sys.truenas.net/TrueNAS-SCALE-Goldeye/25.10.1/TrueNAS-SCALE-25.10.1.iso"
   truenas_iso_filename = "truenas-scale-25.10.1.iso"
@@ -107,9 +108,9 @@ inputs = {
   template_vm_id = 9000
 
   # Network for Ansible configuration
-  truenas_static_ip     = "172.16.100.150/24"
+  truenas_static_ip     = "${include.env.locals.truenas_ip}/24"
   truenas_gateway       = include.env.locals.gateway
-  truenas_hostname      = "truenas.${include.env.locals.base_fqdn}"
+  truenas_hostname      = include.env.locals.truenas_hostname
   truenas_lan_static_ip = "172.16.10.150/24"
 
   # Ansible setup (runs after VM is up)

@@ -14,6 +14,7 @@ terraform {
   source = "../../../modules//proxmox-zfs-pool"
 }
 
+# Ordering-only dependency (no outputs are read).
 dependency "proxmox_cluster" {
   config_path = "../proxmox-cluster"
 

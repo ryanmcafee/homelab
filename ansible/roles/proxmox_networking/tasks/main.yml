@@ -226,13 +226,6 @@
   ansible.builtin.debug:
     msg: "Gateway {{ homelab_gateway }} is {{ 'reachable' if gateway_ping.rc == 0 else 'not reachable' }}"
 
-- name: Create network configuration backup
-  ansible.builtin.copy:
-    src: /etc/network/interfaces
-    dest: "/etc/network/interfaces.backup.{{ ansible_date_time.epoch }}"
-    remote_src: true
-    mode: '0644'
-
 - name: Warn if network restart is needed
   ansible.builtin.debug:
     msg: |

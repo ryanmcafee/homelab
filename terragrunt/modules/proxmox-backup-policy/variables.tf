@@ -55,12 +55,6 @@ variable "vm_ids" {
   default     = []
 }
 
-variable "tags" {
-  description = "List of tags to filter VMs for backup"
-  type        = list(string)
-  default     = []
-}
-
 variable "keep_last" {
   description = "Keep the last N backups"
   type        = number
