@@ -1,0 +1,368 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1100 404" width="1100" height="404" role="img">
+<title>task setup → homelab is online. systems nominal.</title>
+<rect width="1100" height="404" fill="#0d1117"/>
+<style>
+  text{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+  .h{font-size:9.5px;fill:#8b949e;letter-spacing:.12em}
+  .n{font-size:10px;fill:#e6edf3}
+  .n2{font-size:8px;fill:#8b949e}
+  .log{font-size:11px;fill:#c9d1d9}
+  .box{fill:#161b22;stroke:#30363d;stroke-width:1.5}
+  .w{fill:none;stroke:#3d444d;stroke-width:1.6;stroke-linecap:round;stroke-dasharray:800}
+  .cur{animation:blink 1s steps(1) infinite}
+  @keyframes blink{50%{opacity:0}}
+  .type{animation:type 27s steps(14) infinite}
+  @keyframes type{0%{width:0}3%,96%{width:110px}100%{width:0}}
+  @keyframes a3{0%,3%{opacity:0}4%,96%{opacity:1}100%{opacity:0}}
+  @keyframes a5{0%,5%{opacity:0}6%,96%{opacity:1}100%{opacity:0}}
+  @keyframes a6_5{0%,6.5%{opacity:0}7.5%,96%{opacity:1}100%{opacity:0}}
+  @keyframes a8{0%,8%{opacity:0}9%,96%{opacity:1}100%{opacity:0}}
+  @keyframes a9_5{0%,9.5%{opacity:0}10.5%,96%{opacity:1}100%{opacity:0}}
+  @keyframes a11{0%,11%{opacity:0}12%,96%{opacity:1}100%{opacity:0}}
+  @keyframes a12_5{0%,12.5%{opacity:0}13.5%,96%{opacity:1}100%{opacity:0}}
+  @keyframes a14{0%,14%{opacity:0}15%,96%{opacity:1}100%{opacity:0}}
+  @keyframes a15_5{0%,15.5%{opacity:0}16.5%,96%{opacity:1}100%{opacity:0}}
+  @keyframes a17{0%,17%{opacity:0}18%,96%{opacity:1}100%{opacity:0}}
+  @keyframes a18_5{0%,18.5%{opacity:0}19.5%,96%{opacity:1}100%{opacity:0}}
+  @keyframes a20{0%,20%{opacity:0}21%,96%{opacity:1}100%{opacity:0}}
+  @keyframes a21_5{0%,21.5%{opacity:0}22.5%,96%{opacity:1}100%{opacity:0}}
+  @keyframes a23{0%,23%{opacity:0}24%,96%{opacity:1}100%{opacity:0}}
+  @keyframes a25{0%,25%{opacity:0}26%,96%{opacity:1}100%{opacity:0}}
+  @keyframes a26_5{0%,26.5%{opacity:0}27.5%,96%{opacity:1}100%{opacity:0}}
+  @keyframes a28{0%,28%{opacity:0}29%,96%{opacity:1}100%{opacity:0}}
+  @keyframes a30{0%,30%{opacity:0}31%,96%{opacity:1}100%{opacity:0}}
+  @keyframes a33{0%,33%{opacity:0}34%,96%{opacity:1}100%{opacity:0}}
+  @keyframes a36{0%,36%{opacity:0}37%,96%{opacity:1}100%{opacity:0}}
+  @keyframes a37_5{0%,37.5%{opacity:0}38.5%,96%{opacity:1}100%{opacity:0}}
+  @keyframes a39{0%,39%{opacity:0}40%,96%{opacity:1}100%{opacity:0}}
+  @keyframes a40{0%,40%{opacity:0}41%,96%{opacity:1}100%{opacity:0}}
+  @keyframes a41{0%,41%{opacity:0}42%,96%{opacity:1}100%{opacity:0}}
+  @keyframes a42{0%,42%{opacity:0}43%,96%{opacity:1}100%{opacity:0}}
+  @keyframes a43{0%,43%{opacity:0}44%,96%{opacity:1}100%{opacity:0}}
+  @keyframes a44{0%,44%{opacity:0}45%,96%{opacity:1}100%{opacity:0}}
+  @keyframes a46{0%,46%{opacity:0}47%,96%{opacity:1}100%{opacity:0}}
+  @keyframes a90{0%,90.5%{opacity:0}91.5%,96%{opacity:1}100%{opacity:0}}
+  .a3{animation:a3 27s infinite}.a5{animation:a5 27s infinite}.a6_5{animation:a6_5 27s infinite}
+  .a8{animation:a8 27s infinite}.a9_5{animation:a9_5 27s infinite}.a11{animation:a11 27s infinite}
+  .a12_5{animation:a12_5 27s infinite}.a14{animation:a14 27s infinite}.a15_5{animation:a15_5 27s infinite}
+  .a17{animation:a17 27s infinite}.a18_5{animation:a18_5 27s infinite}.a20{animation:a20 27s infinite}
+  .a21_5{animation:a21_5 27s infinite}.a23{animation:a23 27s infinite}.a25{animation:a25 27s infinite}
+  .a26_5{animation:a26_5 27s infinite}.a28{animation:a28 27s infinite}.a30{animation:a30 27s infinite}
+  .a33{animation:a33 27s infinite}.a36{animation:a36 27s infinite}.a37_5{animation:a37_5 27s infinite}
+  .a39{animation:a39 27s infinite}.a40{animation:a40 27s infinite}.a41{animation:a41 27s infinite}
+  .a42{animation:a42 27s infinite}.a43{animation:a43 27s infinite}.a44{animation:a44 27s infinite}
+  .a46{animation:a46 27s infinite}.a90{animation:a90 27s infinite}
+  @keyframes d5{0%,5%{stroke-dashoffset:800}7.5%,96%{stroke-dashoffset:0}96.1%,100%{stroke-dashoffset:800}}
+  @keyframes d6_5{0%,6.5%{stroke-dashoffset:800}9%,96%{stroke-dashoffset:0}96.1%,100%{stroke-dashoffset:800}}
+  @keyframes d8{0%,8%{stroke-dashoffset:800}10.5%,96%{stroke-dashoffset:0}96.1%,100%{stroke-dashoffset:800}}
+  @keyframes d9_5{0%,9.5%{stroke-dashoffset:800}12%,96%{stroke-dashoffset:0}96.1%,100%{stroke-dashoffset:800}}
+  @keyframes d11{0%,11%{stroke-dashoffset:800}13.5%,96%{stroke-dashoffset:0}96.1%,100%{stroke-dashoffset:800}}
+  @keyframes d12_5{0%,12.5%{stroke-dashoffset:800}15%,96%{stroke-dashoffset:0}96.1%,100%{stroke-dashoffset:800}}
+  @keyframes d14{0%,14%{stroke-dashoffset:800}16.5%,96%{stroke-dashoffset:0}96.1%,100%{stroke-dashoffset:800}}
+  @keyframes d15_5{0%,15.5%{stroke-dashoffset:800}18%,96%{stroke-dashoffset:0}96.1%,100%{stroke-dashoffset:800}}
+  @keyframes d17{0%,17%{stroke-dashoffset:800}19.5%,96%{stroke-dashoffset:0}96.1%,100%{stroke-dashoffset:800}}
+  @keyframes d18_5{0%,18.5%{stroke-dashoffset:800}21%,96%{stroke-dashoffset:0}96.1%,100%{stroke-dashoffset:800}}
+  @keyframes d20{0%,20%{stroke-dashoffset:800}22.5%,96%{stroke-dashoffset:0}96.1%,100%{stroke-dashoffset:800}}
+  @keyframes d21_5{0%,21.5%{stroke-dashoffset:800}24%,96%{stroke-dashoffset:0}96.1%,100%{stroke-dashoffset:800}}
+  @keyframes d23{0%,23%{stroke-dashoffset:800}25.5%,96%{stroke-dashoffset:0}96.1%,100%{stroke-dashoffset:800}}
+  @keyframes d25{0%,25%{stroke-dashoffset:800}27.5%,96%{stroke-dashoffset:0}96.1%,100%{stroke-dashoffset:800}}
+  @keyframes d26_5{0%,26.5%{stroke-dashoffset:800}29%,96%{stroke-dashoffset:0}96.1%,100%{stroke-dashoffset:800}}
+  @keyframes d28{0%,28%{stroke-dashoffset:800}30.5%,96%{stroke-dashoffset:0}96.1%,100%{stroke-dashoffset:800}}
+  @keyframes d30{0%,30%{stroke-dashoffset:800}32.5%,96%{stroke-dashoffset:0}96.1%,100%{stroke-dashoffset:800}}
+  @keyframes d33{0%,33%{stroke-dashoffset:800}35.5%,96%{stroke-dashoffset:0}96.1%,100%{stroke-dashoffset:800}}
+  @keyframes d39{0%,39%{stroke-dashoffset:800}40.5%,96%{stroke-dashoffset:0}96.1%,100%{stroke-dashoffset:800}}
+  @keyframes d40{0%,40%{stroke-dashoffset:800}41.5%,96%{stroke-dashoffset:0}96.1%,100%{stroke-dashoffset:800}}
+  @keyframes d41{0%,41%{stroke-dashoffset:800}42.5%,96%{stroke-dashoffset:0}96.1%,100%{stroke-dashoffset:800}}
+  @keyframes d42{0%,42%{stroke-dashoffset:800}43.5%,96%{stroke-dashoffset:0}96.1%,100%{stroke-dashoffset:800}}
+  @keyframes d43{0%,43%{stroke-dashoffset:800}44.5%,96%{stroke-dashoffset:0}96.1%,100%{stroke-dashoffset:800}}
+  @keyframes d44{0%,44%{stroke-dashoffset:800}45.5%,96%{stroke-dashoffset:0}96.1%,100%{stroke-dashoffset:800}}
+  .d5{animation:d5 27s infinite}.d6_5{animation:d6_5 27s infinite}.d8{animation:d8 27s infinite}
+  .d9_5{animation:d9_5 27s infinite}.d11{animation:d11 27s infinite}.d12_5{animation:d12_5 27s infinite}
+  .d14{animation:d14 27s infinite}.d15_5{animation:d15_5 27s infinite}.d17{animation:d17 27s infinite}
+  .d18_5{animation:d18_5 27s infinite}.d20{animation:d20 27s infinite}.d21_5{animation:d21_5 27s infinite}
+  .d23{animation:d23 27s infinite}.d25{animation:d25 27s infinite}.d26_5{animation:d26_5 27s infinite}
+  .d28{animation:d28 27s infinite}.d30{animation:d30 27s infinite}.d33{animation:d33 27s infinite}
+  .d39{animation:d39 27s infinite}.d40{animation:d40 27s infinite}.d41{animation:d41 27s infinite}
+  .d42{animation:d42 27s infinite}.d43{animation:d43 27s infinite}.d44{animation:d44 27s infinite}
+  @keyframes est{0%,32.5%{stroke:#3d444d}34%,96%{stroke:#27c93f}100%{stroke:#3d444d}}
+  .est{animation:est 27s infinite}
+  @keyframes glow{0%,33.5%{opacity:0}36%,96%{opacity:.45}100%{opacity:0}}
+  .glow{animation:glow 27s infinite}
+  /* host windows: 10 × 4.5% from 45% to 90% (1.2 s each) */
+  @keyframes h0{0%,45%{opacity:0}45.3%,49.2%{opacity:1}49.5%,100%{opacity:0}}
+  @keyframes h1{0%,49.5%{opacity:0}49.8%,53.7%{opacity:1}54%,100%{opacity:0}}
+  @keyframes h2{0%,54%{opacity:0}54.3%,58.2%{opacity:1}58.5%,100%{opacity:0}}
+  @keyframes h3{0%,58.5%{opacity:0}58.8%,62.7%{opacity:1}63%,100%{opacity:0}}
+  @keyframes h4{0%,63%{opacity:0}63.3%,67.2%{opacity:1}67.5%,100%{opacity:0}}
+  @keyframes h5{0%,67.5%{opacity:0}67.8%,71.7%{opacity:1}72%,100%{opacity:0}}
+  @keyframes h6{0%,72%{opacity:0}72.3%,76.2%{opacity:1}76.5%,100%{opacity:0}}
+  @keyframes h7{0%,76.5%{opacity:0}76.8%,80.7%{opacity:1}81%,100%{opacity:0}}
+  @keyframes h8{0%,81%{opacity:0}81.3%,85.2%{opacity:1}85.5%,100%{opacity:0}}
+  @keyframes h9{0%,85.5%{opacity:0}85.8%,95.7%{opacity:1}96%,100%{opacity:0}}
+  .h0{animation:h0 27s infinite}.h1{animation:h1 27s infinite}.h2{animation:h2 27s infinite}
+  .h3{animation:h3 27s infinite}.h4{animation:h4 27s infinite}.h5{animation:h5 27s infinite}
+  .h6{animation:h6 27s infinite}.h7{animation:h7 27s infinite}.h8{animation:h8 27s infinite}
+  .h9{animation:h9 27s infinite}
+  /* verdict badges: after the packet lands (S+2.7) until the window ends */
+  @keyframes v0{0%,47.7%{opacity:0}48%,49.2%{opacity:1}49.5%,100%{opacity:0}}
+  @keyframes v1{0%,52.2%{opacity:0}52.5%,53.7%{opacity:1}54%,100%{opacity:0}}
+  @keyframes v2{0%,56.7%{opacity:0}57%,58.2%{opacity:1}58.5%,100%{opacity:0}}
+  @keyframes v3{0%,61.2%{opacity:0}61.5%,62.7%{opacity:1}63%,100%{opacity:0}}
+  @keyframes v4{0%,65.7%{opacity:0}66%,67.2%{opacity:1}67.5%,100%{opacity:0}}
+  @keyframes v5{0%,70.2%{opacity:0}70.5%,71.7%{opacity:1}72%,100%{opacity:0}}
+  @keyframes v6{0%,74.7%{opacity:0}75%,76.2%{opacity:1}76.5%,100%{opacity:0}}
+  @keyframes v7{0%,79.2%{opacity:0}79.5%,80.7%{opacity:1}81%,100%{opacity:0}}
+  @keyframes v8{0%,83.7%{opacity:0}84%,85.2%{opacity:1}85.5%,100%{opacity:0}}
+  @keyframes v9{0%,88.2%{opacity:0}88.5%,95.7%{opacity:1}96%,100%{opacity:0}}
+  .v0{animation:v0 27s infinite}.v1{animation:v1 27s infinite}.v2{animation:v2 27s infinite}
+  .v3{animation:v3 27s infinite}.v4{animation:v4 27s infinite}.v5{animation:v5 27s infinite}
+  .v6{animation:v6 27s infinite}.v7{animation:v7 27s infinite}.v8{animation:v8 27s infinite}
+  .v9{animation:v9 27s infinite}
+  /* e2e suite counter: 17 steps of 2.65% from 45% to 90%, then 17/17 holds */
+  @keyframes c0{0%,45%{opacity:0}45.1%,47.55%{opacity:1}47.65%,100%{opacity:0}}
+  @keyframes c1{0%,47.65%{opacity:0}47.75%,50.2%{opacity:1}50.3%,100%{opacity:0}}
+  @keyframes c2{0%,50.3%{opacity:0}50.4%,52.85%{opacity:1}52.95%,100%{opacity:0}}
+  @keyframes c3{0%,52.95%{opacity:0}53.05%,55.5%{opacity:1}55.6%,100%{opacity:0}}
+  @keyframes c4{0%,55.6%{opacity:0}55.7%,58.15%{opacity:1}58.25%,100%{opacity:0}}
+  @keyframes c5{0%,58.25%{opacity:0}58.35%,60.8%{opacity:1}60.9%,100%{opacity:0}}
+  @keyframes c6{0%,60.9%{opacity:0}61%,63.45%{opacity:1}63.55%,100%{opacity:0}}
+  @keyframes c7{0%,63.55%{opacity:0}63.65%,66.1%{opacity:1}66.2%,100%{opacity:0}}
+  @keyframes c8{0%,66.2%{opacity:0}66.3%,68.75%{opacity:1}68.85%,100%{opacity:0}}
+  @keyframes c9{0%,68.85%{opacity:0}68.95%,71.4%{opacity:1}71.5%,100%{opacity:0}}
+  @keyframes c10{0%,71.5%{opacity:0}71.6%,74.05%{opacity:1}74.15%,100%{opacity:0}}
+  @keyframes c11{0%,74.15%{opacity:0}74.25%,76.7%{opacity:1}76.8%,100%{opacity:0}}
+  @keyframes c12{0%,76.8%{opacity:0}76.9%,79.35%{opacity:1}79.45%,100%{opacity:0}}
+  @keyframes c13{0%,79.45%{opacity:0}79.55%,82%{opacity:1}82.1%,100%{opacity:0}}
+  @keyframes c14{0%,82.1%{opacity:0}82.2%,84.65%{opacity:1}84.75%,100%{opacity:0}}
+  @keyframes c15{0%,84.75%{opacity:0}84.85%,87.3%{opacity:1}87.4%,100%{opacity:0}}
+  @keyframes c16{0%,87.4%{opacity:0}87.5%,89.9%{opacity:1}90%,100%{opacity:0}}
+  @keyframes c17{0%,90%{opacity:0}90.1%,96%{opacity:1}100%{opacity:0}}
+  .c0{animation:c0 27s infinite}.c1{animation:c1 27s infinite}.c2{animation:c2 27s infinite}
+  .c3{animation:c3 27s infinite}.c4{animation:c4 27s infinite}.c5{animation:c5 27s infinite}
+  .c6{animation:c6 27s infinite}.c7{animation:c7 27s infinite}.c8{animation:c8 27s infinite}
+  .c9{animation:c9 27s infinite}.c10{animation:c10 27s infinite}.c11{animation:c11 27s infinite}
+  .c12{animation:c12 27s infinite}.c13{animation:c13 27s infinite}.c14{animation:c14 27s infinite}
+  .c15{animation:c15 27s infinite}.c16{animation:c16 27s infinite}.c17{animation:c17 27s infinite}
+  /* chainsaw pulse once per host window */
+  @keyframes saw{0%,44.5%{opacity:0}
+    45.5%{opacity:.6}48%{opacity:0} 50%{opacity:.6}52.5%{opacity:0} 54.5%{opacity:.6}57%{opacity:0}
+    59%{opacity:.6}61.5%{opacity:0} 63.5%{opacity:.6}66%{opacity:0} 68%{opacity:.6}70.5%{opacity:0}
+    72.5%{opacity:.6}75%{opacity:0} 77%{opacity:.6}79.5%{opacity:0} 81.5%{opacity:.6}84%{opacity:0}
+    86%{opacity:.6}88.5%,100%{opacity:0}}
+  .saw{animation:saw 27s infinite}
+  /* final: chainsaw node turns green when 17/17 */
+  @keyframes done{0%,90%{stroke:#f0883e}90.5%,96%{stroke:#27c93f}100%{stroke:#f0883e}}
+  .done{animation:done 27s infinite}
+</style>
+
+<!-- ============ TERMINAL (left) ============ -->
+<rect x="16" y="20" width="240" height="364" rx="10" fill="#161b22" stroke="#30363d"/>
+<circle cx="34" cy="36" r="4" fill="#ff5f56"/><circle cx="48" cy="36" r="4" fill="#ffbd2e"/><circle cx="62" cy="36" r="4" fill="#27c93f"/>
+<text class="h" x="136" y="40" text-anchor="middle">homelab</text>
+<clipPath id="tc10"><rect class="type" x="28" y="48" height="22" width="0"/></clipPath>
+<text class="log" x="28" y="64" font-size="13" clip-path="url(#tc10)"><tspan fill="#58a6ff">$</tspan> task setup</text>
+<rect class="cur" x="120" y="52" width="7" height="15" fill="#e6edf3"/>
+<g class="log">
+  <text class="a3"    x="28" y="90"><tspan fill="#8b949e">›</tspan> ansible  <tspan fill="#8b949e">proxmox host ready</tspan></text>
+  <text class="a5"    x="28" y="107"><tspan fill="#8b949e">›</tspan> terragrunt <tspan fill="#8b949e">11 units · 6 nodes</tspan></text>
+  <text class="a14"   x="28" y="124"><tspan fill="#8b949e">›</tspan> gitops-bridge <tspan fill="#8b949e">initializing</tspan></text>
+  <text class="a15_5" x="28" y="141" fill="#8b949e">    argocd + homelab-cmp sidecar</text>
+  <text class="a17"   x="28" y="158" fill="#8b949e">    sops-age-key · metadata</text>
+  <text class="a20"   x="28" y="175"><tspan fill="#8b949e">›</tspan> secrets  <tspan fill="#8b949e">sops → ksops decrypt</tspan></text>
+  <text class="a21_5" x="28" y="192" fill="#8b949e">    1password operator</text>
+  <text class="a23"   x="28" y="209" fill="#8b949e">    environment-config</text>
+  <text class="a25"   x="28" y="226"><tspan fill="#8b949e">›</tspan> cmp      <tspan fill="#a371f7">export|helm template</tspan></text>
+  <text class="a26_5" x="28" y="243"><tspan fill="#8b949e">›</tspan> argocd   <tspan fill="#8b949e">68 apps synced</tspan></text>
+  <text class="a33"   x="28" y="260"><tspan fill="#8b949e">›</tspan> bgp      <tspan fill="#8b949e">64512 ⇄ 64513</tspan> <tspan fill="#27c93f">up</tspan></text>
+  <text class="a36"   x="28" y="277"><tspan fill="#8b949e">›</tspan> unifi    <tspan fill="#8b949e">kube-* forwards</tspan> <tspan fill="#27c93f">✔</tspan></text>
+  <text class="a46"   x="28" y="298"><tspan fill="#a371f7">●</tspan> plex.&lt;DOMAIN&gt; <tspan fill="#27c93f">200</tspan> <tspan fill="#8b949e">e2e ✔ smoke ✔</tspan></text>
+  <text class="h0" x="28" y="315"><tspan fill="#2dd4bf">●</tspan> grafana.&lt;DOMAIN&gt; <tspan fill="#27c93f">200</tspan> <tspan fill="#8b949e">e2e ✔ smoke ✔</tspan></text>
+  <text class="h1" x="28" y="315"><tspan fill="#2dd4bf">●</tspan> argocd.&lt;DOMAIN&gt; <tspan fill="#27c93f">200</tspan> <tspan fill="#8b949e">e2e ✔</tspan></text>
+  <text class="h2" x="28" y="315"><tspan fill="#2dd4bf">●</tspan> paperclip.&lt;DOMAIN&gt; <tspan fill="#27c93f">200</tspan> <tspan fill="#8b949e">e2e ✔ smoke ✔</tspan></text>
+  <text class="h3" x="28" y="315"><tspan fill="#2dd4bf">●</tspan> workflows.&lt;DOMAIN&gt; <tspan fill="#27c93f">200</tspan> <tspan fill="#8b949e">e2e —</tspan></text>
+  <text class="h4" x="28" y="315"><tspan fill="#2dd4bf">●</tspan> sonarr.&lt;DOMAIN&gt; <tspan fill="#27c93f">200</tspan> <tspan fill="#8b949e">e2e ✔ smoke ✔</tspan></text>
+  <text class="h5" x="28" y="315"><tspan fill="#2dd4bf">●</tspan> radarr.&lt;DOMAIN&gt; <tspan fill="#27c93f">200</tspan> <tspan fill="#8b949e">e2e ✔ smoke ✔</tspan></text>
+  <text class="h6" x="28" y="315"><tspan fill="#2dd4bf">●</tspan> prowlarr.&lt;DOMAIN&gt; <tspan fill="#27c93f">200</tspan> <tspan fill="#8b949e">e2e ✔ smoke ✔</tspan></text>
+  <text class="h7" x="28" y="315"><tspan fill="#2dd4bf">●</tspan> nzbget.&lt;DOMAIN&gt; <tspan fill="#27c93f">200</tspan> <tspan fill="#8b949e">e2e ✔ smoke ✔</tspan></text>
+  <text class="h8" x="28" y="315"><tspan fill="#2dd4bf">●</tspan> tautulli.&lt;DOMAIN&gt; <tspan fill="#27c93f">200</tspan> <tspan fill="#8b949e">e2e ✔ smoke ✔</tspan></text>
+  <text class="h9" x="28" y="315" font-size="10"><tspan fill="#2dd4bf">●</tspan> lazylibrarian.&lt;DOMAIN&gt; <tspan fill="#27c93f">200</tspan> <tspan fill="#8b949e">e2e ✔ smoke ✔</tspan></text>
+  <!-- e2e counter -->
+  <g fill="#f0883e">
+    <text class="c0"  x="28" y="335"><tspan fill="#8b949e">›</tspan> chainsaw e2e   0/17 suites</text>
+    <text class="c1"  x="28" y="335"><tspan fill="#8b949e">›</tspan> chainsaw e2e   1/17 suites</text>
+    <text class="c2"  x="28" y="335"><tspan fill="#8b949e">›</tspan> chainsaw e2e   2/17 suites</text>
+    <text class="c3"  x="28" y="335"><tspan fill="#8b949e">›</tspan> chainsaw e2e   3/17 suites</text>
+    <text class="c4"  x="28" y="335"><tspan fill="#8b949e">›</tspan> chainsaw e2e   4/17 suites</text>
+    <text class="c5"  x="28" y="335"><tspan fill="#8b949e">›</tspan> chainsaw e2e   5/17 suites</text>
+    <text class="c6"  x="28" y="335"><tspan fill="#8b949e">›</tspan> chainsaw e2e   6/17 suites</text>
+    <text class="c7"  x="28" y="335"><tspan fill="#8b949e">›</tspan> chainsaw e2e   7/17 suites</text>
+    <text class="c8"  x="28" y="335"><tspan fill="#8b949e">›</tspan> chainsaw e2e   8/17 suites</text>
+    <text class="c9"  x="28" y="335"><tspan fill="#8b949e">›</tspan> chainsaw e2e   9/17 suites</text>
+    <text class="c10" x="28" y="335"><tspan fill="#8b949e">›</tspan> chainsaw e2e  10/17 suites</text>
+    <text class="c11" x="28" y="335"><tspan fill="#8b949e">›</tspan> chainsaw e2e  11/17 suites</text>
+    <text class="c12" x="28" y="335"><tspan fill="#8b949e">›</tspan> chainsaw e2e  12/17 suites</text>
+    <text class="c13" x="28" y="335"><tspan fill="#8b949e">›</tspan> chainsaw e2e  13/17 suites</text>
+    <text class="c14" x="28" y="335"><tspan fill="#8b949e">›</tspan> chainsaw e2e  14/17 suites</text>
+    <text class="c15" x="28" y="335"><tspan fill="#8b949e">›</tspan> chainsaw e2e  15/17 suites</text>
+    <text class="c16" x="28" y="335"><tspan fill="#8b949e">›</tspan> chainsaw e2e  16/17 suites</text>
+    <text class="c17" x="28" y="335" fill="#27c93f"><tspan fill="#8b949e">›</tspan> chainsaw e2e  17/17 suites ✔</text>
+  </g>
+  <text class="a90" x="28" y="366" font-size="10.5" fill="#27c93f">✔ homelab is online. systems nominal.</text>
+</g>
+
+<!-- ============ GRAPH (right, snake) ============ -->
+<text class="h a3"    x="280"  y="28">ANSIBLE → TERRAGRUNT</text>
+<text class="h a14"   x="1080" y="92" text-anchor="end">GITOPS BRIDGE</text>
+<text class="h a18_5" x="280"  y="156">ARGOCD · BOOTSTRAP → CMP → ADDONS → APPLICATIONS</text>
+<text class="h a30"   x="1080" y="220" text-anchor="end">NETWORK · VERIFY</text>
+<text class="h a37_5" x="280"  y="300">TRAFFIC · <tspan fill="#a371f7">internet → plex</tspan> · <tspan fill="#2dd4bf">tailnet → each internal ingress</tspan></text>
+
+<!-- ROW A -->
+<g class="a3"><rect class="box" x="280" y="36" width="104" height="32" rx="6" stroke="#EE0000"/><text class="n" x="332" y="49" text-anchor="middle">proxmox host</text><text class="n2" x="332" y="61" text-anchor="middle">ansible · site.yml</text></g>
+<path class="w d5" d="M384 52 H396"/>
+<g class="a5"><rect class="box" x="396" y="36" width="104" height="32" rx="6"/><text class="n" x="448" y="49" text-anchor="middle">proxmox-cluster</text><text class="n2" x="448" y="61" text-anchor="middle">api · bridges · pools</text></g>
+<path class="w d6_5" d="M500 52 H512"/>
+<g class="a6_5"><rect class="box" x="512" y="36" width="104" height="32" rx="6"/><text class="n" x="564" y="49" text-anchor="middle">zfs-pool · -cp</text><text class="n2" x="564" y="61" text-anchor="middle">vm-storage · cp-storage</text></g>
+<path class="w d8" d="M616 52 H628"/>
+<g class="a8"><rect class="box" x="628" y="36" width="104" height="32" rx="6"/><text class="n" x="680" y="49" text-anchor="middle">truenas</text><text class="n2" x="680" y="61" text-anchor="middle">nfs · iscsi</text></g>
+<path class="w d9_5" d="M732 52 H744"/>
+<g class="a9_5"><rect class="box" x="744" y="36" width="104" height="32" rx="6"/><text class="n" x="796" y="49" text-anchor="middle">talos-cluster</text><text class="n2" x="796" y="61" text-anchor="middle">3 control planes · 3 workers</text></g>
+<path class="w d11" d="M848 52 H860"/>
+<g class="a11"><rect class="box" x="860" y="36" width="104" height="32" rx="6"/><text class="n" x="912" y="49" text-anchor="middle">cluster-config</text><text class="n2" x="912" y="61" text-anchor="middle">machine config · vip</text></g>
+<path class="w d12_5" d="M964 52 H976"/>
+<g class="a12_5"><rect class="box" x="976" y="36" width="104" height="32" rx="6"/><text class="n" x="1028" y="49" text-anchor="middle">gitops-bootstrap</text><text class="n2" x="1028" y="61" text-anchor="middle">terragrunt unit</text></g>
+
+<!-- ROW B -->
+<path class="w d14" d="M1028 68 V100"/>
+<g class="a14"><rect class="box" x="976" y="100" width="104" height="32" rx="6" stroke="#EF7B4D"/><text class="n" x="1028" y="113" text-anchor="middle">argocd · helm</text><text class="n2" x="1028" y="125" text-anchor="middle">+ homelab-cmp sidecar</text></g>
+<path class="w d15_5" d="M976 116 H964"/>
+<g class="a15_5"><rect class="box" x="860" y="100" width="104" height="32" rx="6"/><text class="n" x="912" y="113" text-anchor="middle">sops-age-key</text><text class="n2" x="912" y="125" text-anchor="middle">op://homelab/sops-age-key</text></g>
+<path class="w d17" d="M860 116 H848"/>
+<g class="a17"><rect class="box" x="744" y="100" width="104" height="32" rx="6"/><text class="n" x="796" y="113" text-anchor="middle">bridge metadata</text><text class="n2" x="796" y="125" text-anchor="middle">configmap + secret</text></g>
+<path class="w d17" d="M744 116 H732"/>
+<g class="a17"><rect class="box" x="628" y="100" width="104" height="32" rx="6"/><text class="n" x="680" y="113" text-anchor="middle">root Application</text><text class="n2" x="680" y="125" text-anchor="middle">gitops · app-of-apps</text></g>
+<path class="w d18_5" d="M628 116 H612 V148 H332 V164"/>
+
+<!-- ROW C -->
+<g class="a18_5"><rect class="box" x="280" y="164" width="104" height="32" rx="6" stroke="#EF7B4D"/><text class="n" x="332" y="177" text-anchor="middle">gitops</text><text class="n2" x="332" y="189" text-anchor="middle">root · app-of-apps</text></g>
+<path class="w d20" d="M384 180 H396"/>
+<g class="a20"><rect class="box" x="396" y="164" width="104" height="32" rx="6"/><text class="n" x="448" y="177" text-anchor="middle">sops → ksops</text><text class="n2" x="448" y="189" text-anchor="middle">decrypt with the age key</text></g>
+<path class="w d21_5" d="M500 180 H512"/>
+<g class="a21_5"><rect class="box" x="512" y="164" width="104" height="32" rx="6"/><text class="n" x="564" y="177" text-anchor="middle">1password operator</text><text class="n2" x="564" y="189" text-anchor="middle">connect + operator</text></g>
+<path class="w d23" d="M616 180 H628"/>
+<g class="a23"><rect class="box" x="628" y="164" width="104" height="32" rx="6"/><text class="n" x="680" y="177" text-anchor="middle">environment-config</text><text class="n2" x="680" y="189" text-anchor="middle">OnePasswordItem → secret</text></g>
+<path class="w d25" d="M732 180 H744"/>
+<g class="a25"><rect class="box" x="744" y="164" width="104" height="32" rx="6" stroke="#a371f7"/><text class="n" x="796" y="177" text-anchor="middle">homelab-cmp</text><text class="n2" x="796" y="189" text-anchor="middle">config export | helm template</text></g>
+<path class="w d26_5" d="M848 180 H860"/>
+<g class="a26_5"><rect class="box" x="860" y="164" width="104" height="32" rx="6"/><text class="n" x="912" y="177" text-anchor="middle">addons · 29</text><text class="n2" x="912" y="189" text-anchor="middle">rendered by cmp</text></g>
+<path class="w d28" d="M964 180 H976"/>
+<g class="a28"><rect class="box" x="976" y="164" width="104" height="32" rx="6"/><text class="n" x="1028" y="177" text-anchor="middle">applications · 15</text><text class="n2" x="1028" y="189" text-anchor="middle">rendered by cmp</text></g>
+
+<!-- ROW D : network + verify -->
+<circle class="saw" cx="332" cy="244" r="40" fill="#f0883e"/>
+<g class="a30"><rect class="box done" x="280" y="228" width="104" height="32" rx="6" stroke="#f0883e"/><text class="n" x="332" y="241" text-anchor="middle">chainsaw e2e</text><text class="n2" x="332" y="253" text-anchor="middle">kind · every PR · smoke on sync</text></g>
+<!-- graph-side counter mirrors the terminal -->
+<g class="n2" text-anchor="middle" fill="#f0883e">
+  <text class="c0"  x="332" y="272">0/17 suites</text><text class="c1"  x="332" y="272">1/17 suites</text>
+  <text class="c2"  x="332" y="272">2/17 suites</text><text class="c3"  x="332" y="272">3/17 suites</text>
+  <text class="c4"  x="332" y="272">4/17 suites</text><text class="c5"  x="332" y="272">5/17 suites</text>
+  <text class="c6"  x="332" y="272">6/17 suites</text><text class="c7"  x="332" y="272">7/17 suites</text>
+  <text class="c8"  x="332" y="272">8/17 suites</text><text class="c9"  x="332" y="272">9/17 suites</text>
+  <text class="c10" x="332" y="272">10/17 suites</text><text class="c11" x="332" y="272">11/17 suites</text>
+  <text class="c12" x="332" y="272">12/17 suites</text><text class="c13" x="332" y="272">13/17 suites</text>
+  <text class="c14" x="332" y="272">14/17 suites</text><text class="c15" x="332" y="272">15/17 suites</text>
+  <text class="c16" x="332" y="272">16/17 suites</text><text class="c17" x="332" y="272" fill="#27c93f">17/17 suites ✔</text>
+</g>
+<path class="w d30" d="M900 196 V228"/>
+<path class="w d33" d="M900 196 V212 H796 V228"/>
+<g class="a30"><rect class="box" x="860" y="228" width="80" height="32" rx="6" stroke="#58a6ff"/><text class="n" x="900" y="241" text-anchor="middle">cilium · bgp</text><text class="n2" x="900" y="253" text-anchor="middle">AS64512</text></g>
+<g class="a33"><rect class="box" x="744" y="228" width="104" height="32" rx="6" stroke="#58a6ff"/><text class="n" x="796" y="241" text-anchor="middle">port-forward ctl</text><text class="n2" x="796" y="253" text-anchor="middle">kube-* rules</text></g>
+<g class="a30"><rect class="box" x="512" y="228" width="104" height="32" rx="6" stroke-dasharray="4 3"/><text class="n" x="564" y="241" text-anchor="middle">unifi-gateway</text><text class="n2" x="564" y="253" text-anchor="middle">terragrunt · frr neighbor</text></g>
+<g class="a30"><rect class="box" x="396" y="228" width="104" height="32" rx="6" stroke="#2dd4bf"/><text class="n" x="448" y="241" text-anchor="middle">tailscale operator</text><text class="n2" x="448" y="253" text-anchor="middle">subnet router · lan /24</text></g>
+<circle class="glow" cx="1028" cy="244" r="46" fill="#27c93f"/>
+<g class="a30">
+  <rect class="box" x="976" y="222" width="104" height="44" rx="9" stroke="#e6edf3"/>
+  <text class="n" x="1028" y="240" text-anchor="middle">unifi gateway</text>
+  <text class="n2" x="1028" y="255" text-anchor="middle">AS64513 · frr · dns</text>
+</g>
+<path class="w d30 est" d="M940 244 H976"/>
+<circle r="3" fill="#58a6ff"><animateMotion dur="27s" repeatCount="indefinite" path="M940 244 H976" calcMode="linear" keyPoints="0;0;1;1;0" keyTimes="0;0.30;0.33;0.96;1"/><animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.30;0.303;0.33;0.333;1" dur="27s" repeatCount="indefinite"/></circle>
+<circle r="3" fill="#e6edf3"><animateMotion dur="27s" repeatCount="indefinite" path="M976 244 H940" calcMode="linear" keyPoints="0;0;1;1;0" keyTimes="0;0.30;0.33;0.96;1"/><animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.30;0.303;0.33;0.333;1" dur="27s" repeatCount="indefinite"/></circle>
+<path class="w d30" d="M564 260 V288 H1050 V266"/>
+<path class="w d30" d="M448 260 V288 H512" style="stroke:#2dd4bf;opacity:.6"/>
+<text class="n2 a30" x="386" y="284" text-anchor="end" fill="#2dd4bf">split dns → gateway</text>
+<text class="n2 a30" x="700" y="284" text-anchor="middle">bgp neighbor · remote-as 64512</text>
+<path class="w d33" d="M796 260 V276 H1016 V266"/>
+<circle r="3" fill="#ffbd2e"><animateMotion dur="27s" repeatCount="indefinite" path="M796 260 V276 H1016 V266" calcMode="linear" keyPoints="0;0;1;1;0" keyTimes="0;0.335;0.36;0.96;1"/><animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.335;0.338;0.36;0.363;1" dur="27s" repeatCount="indefinite"/></circle>
+<text class="n2 a36" x="1028" y="214" text-anchor="middle" fill="#27c93f">kube-plex · kube-* ✔</text>
+
+<!-- ROW E1: internet -> plex -->
+<g class="a37_5"><rect class="box" x="280" y="308" width="104" height="32" rx="6" stroke="#a371f7"/><text class="n" x="332" y="321" text-anchor="middle">plex.&lt;DOMAIN&gt;</text><text class="n2" x="332" y="333" text-anchor="middle">cloudflare → duckdns → wan</text></g>
+<path class="w d39" d="M384 324 H396"/>
+<g class="a39"><rect class="box" x="396" y="308" width="104" height="32" rx="6"/><text class="n" x="448" y="321" text-anchor="middle">unifi wan</text><text class="n2" x="448" y="333" text-anchor="middle">:443 from the internet</text></g>
+<path class="w d40" d="M500 324 H512"/>
+<g class="a40"><rect class="box" x="512" y="308" width="104" height="32" rx="6"/><text class="n" x="564" y="321" text-anchor="middle">port forward</text><text class="n2" x="564" y="333" text-anchor="middle">kube-plex → LB IP</text></g>
+<path class="w d41" d="M616 324 H628"/>
+<g class="a41"><rect class="box" x="628" y="308" width="104" height="76" rx="6" stroke="#58a6ff"/><text class="n" x="680" y="341" text-anchor="middle">bgp route</text><text class="n2" x="680" y="353" text-anchor="middle">LB IP via AS64512</text></g>
+<path class="w d42" d="M732 324 H744"/>
+<g class="a42"><rect class="box" x="744" y="308" width="104" height="32" rx="6"/><text class="n" x="796" y="321" text-anchor="middle">traefik-external</text><text class="n2" x="796" y="333" text-anchor="middle">class external · oidc</text></g>
+<path class="w d43" d="M848 324 H860"/>
+<g class="a43"><rect class="box" x="860" y="308" width="104" height="32" rx="6"/><text class="n" x="912" y="321" text-anchor="middle">service</text><text class="n2" x="912" y="333" text-anchor="middle">plex</text></g>
+<path class="w d44" d="M964 324 H976"/>
+<g class="a44"><rect class="box" x="976" y="308" width="104" height="32" rx="6"/><text class="n" x="1028" y="321" text-anchor="middle">deployment</text><text class="n2" x="1028" y="333" text-anchor="middle">plex · pod</text></g>
+<text class="n2 a46" x="1028" y="304" text-anchor="middle" fill="#f0883e">e2e ✔ · smoke ✔</text>
+
+<!-- ROW E2: tailnet -> each internal ingress -->
+<g class="a37_5"><rect class="box" x="280" y="352" width="104" height="32" rx="6" stroke="#2dd4bf"/><text class="n2" x="332" y="377" text-anchor="middle">tailnet user · magicdns</text></g>
+<path class="w d39" d="M384 368 H396"/>
+<g class="a39"><rect class="box" x="396" y="352" width="104" height="32" rx="6"/><text class="n" x="448" y="365" text-anchor="middle">split dns → unifi</text><text class="n2" x="448" y="377" text-anchor="middle">external-dns-unifi record</text></g>
+<path class="w d40" d="M500 368 H512"/>
+<g class="a40"><rect class="box" x="512" y="352" width="104" height="32" rx="6"/><text class="n" x="564" y="365" text-anchor="middle">subnet router</text><text class="n2" x="564" y="377" text-anchor="middle">tailscale connector · lan</text></g>
+<path class="w d41" d="M616 368 H628"/>
+<path class="w d42" d="M732 368 H744"/>
+<g class="a42"><rect class="box" x="744" y="352" width="104" height="32" rx="6"/><text class="n" x="796" y="365" text-anchor="middle">traefik-internal</text><text class="n2" x="796" y="377" text-anchor="middle">class internal</text></g>
+<path class="w d43" d="M848 368 H860"/>
+<g class="a43"><rect class="box" x="860" y="352" width="104" height="32" rx="6"/><text class="n" x="912" y="365" text-anchor="middle">service</text></g>
+<path class="w d44" d="M964 368 H976"/>
+<g class="a44"><rect class="box" x="976" y="352" width="104" height="32" rx="6"/><text class="n" x="1028" y="365" text-anchor="middle">deployment</text></g>
+<g class="n" text-anchor="middle">
+  <g class="h0"><text x="332" y="365">grafana.&lt;DOMAIN&gt;</text><text class="n2" x="912" y="377">grafana</text><text class="n2" x="1028" y="377">grafana · pod</text></g>
+  <g class="h1"><text x="332" y="365">argocd.&lt;DOMAIN&gt;</text><text class="n2" x="912" y="377">argocd-server</text><text class="n2" x="1028" y="377">argocd-server · pod</text></g>
+  <g class="h2"><text x="332" y="365">paperclip.&lt;DOMAIN&gt;</text><text class="n2" x="912" y="377">paperclip</text><text class="n2" x="1028" y="377">paperclip · pod</text></g>
+  <g class="h3"><text x="332" y="365">workflows.&lt;DOMAIN&gt;</text><text class="n2" x="912" y="377">argo-workflows-server</text><text class="n2" x="1028" y="377">argo-workflows · pod</text></g>
+  <g class="h4"><text x="332" y="365">sonarr.&lt;DOMAIN&gt;</text><text class="n2" x="912" y="377">sonarr</text><text class="n2" x="1028" y="377">sonarr · pod</text></g>
+  <g class="h5"><text x="332" y="365">radarr.&lt;DOMAIN&gt;</text><text class="n2" x="912" y="377">radarr</text><text class="n2" x="1028" y="377">radarr · pod</text></g>
+  <g class="h6"><text x="332" y="365">prowlarr.&lt;DOMAIN&gt;</text><text class="n2" x="912" y="377">prowlarr</text><text class="n2" x="1028" y="377">prowlarr · pod</text></g>
+  <g class="h7"><text x="332" y="365">nzbget.&lt;DOMAIN&gt;</text><text class="n2" x="912" y="377">nzbget</text><text class="n2" x="1028" y="377">nzbget · pod</text></g>
+  <g class="h8"><text x="332" y="365">tautulli.&lt;DOMAIN&gt;</text><text class="n2" x="912" y="377">tautulli</text><text class="n2" x="1028" y="377">tautulli · pod</text></g>
+  <g class="h9"><text x="332" y="365">lazylibrarian.&lt;DOMAIN&gt;</text><text class="n2" x="912" y="377">lazylibrarian</text><text class="n2" x="1028" y="377">lazylibrarian · pod</text></g>
+</g>
+<g class="n2" text-anchor="middle" fill="#f0883e">
+  <text class="v0" x="1028" y="396">e2e ✔ · smoke ✔</text>
+  <text class="v1" x="1028" y="396">e2e ✔ (argocd-apps)</text>
+  <text class="v2" x="1028" y="396">e2e ✔ · smoke ✔</text>
+  <text class="v3" x="1028" y="396" fill="#8b949e">no e2e · no smoke</text>
+  <text class="v4" x="1028" y="396">e2e ✔ · smoke ✔</text>
+  <text class="v5" x="1028" y="396">e2e ✔ · smoke ✔</text>
+  <text class="v6" x="1028" y="396">e2e ✔ · smoke ✔</text>
+  <text class="v7" x="1028" y="396">e2e ✔ · smoke ✔</text>
+  <text class="v8" x="1028" y="396">e2e ✔ · smoke ✔</text>
+  <text class="v9" x="1028" y="396">e2e ✔ · smoke ✔</text>
+</g>
+
+<!-- public packets -->
+<circle r="3.5" fill="#a371f7"><animateMotion dur="27s" repeatCount="indefinite" path="M280 324 H1080" calcMode="linear" keyPoints="0;0;1;1;0" keyTimes="0;0.375;0.46;0.96;1"/><animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.375;0.378;0.46;0.463;1" dur="27s" repeatCount="indefinite"/></circle>
+<circle r="3.5" fill="#a371f7"><animateMotion dur="27s" repeatCount="indefinite" path="M280 324 H1080" calcMode="linear" keyPoints="0;0;1;1;0" keyTimes="0;0.70;0.78;0.96;1"/><animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.70;0.703;0.78;0.783;1" dur="27s" repeatCount="indefinite"/></circle>
+<!-- tailnet packets: full traversal in the first 2.7% of each 4.5% host window -->
+<circle r="3.5" fill="#2dd4bf"><animateMotion dur="27s" repeatCount="indefinite" path="M280 368 H1080" calcMode="linear" keyPoints="0;0;1;1;0" keyTimes="0;0.450;0.477;0.96;1"/><animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.450;0.452;0.477;0.479;1" dur="27s" repeatCount="indefinite"/></circle>
+<circle r="3.5" fill="#2dd4bf"><animateMotion dur="27s" repeatCount="indefinite" path="M280 368 H1080" calcMode="linear" keyPoints="0;0;1;1;0" keyTimes="0;0.495;0.522;0.96;1"/><animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.495;0.497;0.522;0.524;1" dur="27s" repeatCount="indefinite"/></circle>
+<circle r="3.5" fill="#2dd4bf"><animateMotion dur="27s" repeatCount="indefinite" path="M280 368 H1080" calcMode="linear" keyPoints="0;0;1;1;0" keyTimes="0;0.540;0.567;0.96;1"/><animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.540;0.542;0.567;0.569;1" dur="27s" repeatCount="indefinite"/></circle>
+<circle r="3.5" fill="#2dd4bf"><animateMotion dur="27s" repeatCount="indefinite" path="M280 368 H1080" calcMode="linear" keyPoints="0;0;1;1;0" keyTimes="0;0.585;0.612;0.96;1"/><animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.585;0.587;0.612;0.614;1" dur="27s" repeatCount="indefinite"/></circle>
+<circle r="3.5" fill="#2dd4bf"><animateMotion dur="27s" repeatCount="indefinite" path="M280 368 H1080" calcMode="linear" keyPoints="0;0;1;1;0" keyTimes="0;0.630;0.657;0.96;1"/><animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.630;0.632;0.657;0.659;1" dur="27s" repeatCount="indefinite"/></circle>
+<circle r="3.5" fill="#2dd4bf"><animateMotion dur="27s" repeatCount="indefinite" path="M280 368 H1080" calcMode="linear" keyPoints="0;0;1;1;0" keyTimes="0;0.675;0.702;0.96;1"/><animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.675;0.677;0.702;0.704;1" dur="27s" repeatCount="indefinite"/></circle>
+<circle r="3.5" fill="#2dd4bf"><animateMotion dur="27s" repeatCount="indefinite" path="M280 368 H1080" calcMode="linear" keyPoints="0;0;1;1;0" keyTimes="0;0.720;0.747;0.96;1"/><animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.720;0.722;0.747;0.749;1" dur="27s" repeatCount="indefinite"/></circle>
+<circle r="3.5" fill="#2dd4bf"><animateMotion dur="27s" repeatCount="indefinite" path="M280 368 H1080" calcMode="linear" keyPoints="0;0;1;1;0" keyTimes="0;0.765;0.792;0.96;1"/><animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.765;0.767;0.792;0.794;1" dur="27s" repeatCount="indefinite"/></circle>
+<circle r="3.5" fill="#2dd4bf"><animateMotion dur="27s" repeatCount="indefinite" path="M280 368 H1080" calcMode="linear" keyPoints="0;0;1;1;0" keyTimes="0;0.810;0.837;0.96;1"/><animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.810;0.812;0.837;0.839;1" dur="27s" repeatCount="indefinite"/></circle>
+<circle r="3.5" fill="#2dd4bf"><animateMotion dur="27s" repeatCount="indefinite" path="M280 368 H1080" calcMode="linear" keyPoints="0;0;1;1;0" keyTimes="0;0.855;0.882;0.96;1"/><animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.855;0.857;0.882;0.884;1" dur="27s" repeatCount="indefinite"/></circle>
+</svg>

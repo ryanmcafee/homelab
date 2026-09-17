@@ -821,7 +821,7 @@ echo 5000 > /sys/module/zfs/parameters/zfs_resilver_min_time_ms
 
 - [architecture.md](../architecture.md) - Architecture overview
 - [disaster-recovery.md](../disaster-recovery.md) - Complete DR strategy
-- [hardware-setup.md](../hardware-setup.md) - Hardware configuration
+- [hardware.md](../hardware.md) - Hardware configuration
 
 ---
 

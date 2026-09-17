@@ -3,11 +3,19 @@ package commands
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"strings"
 
 	"github.com/ryanmcafee/homelab/internal/logger"
+	"github.com/ryanmcafee/homelab/internal/prereq"
 	"github.com/ryanmcafee/homelab/internal/utils"
 	"github.com/spf13/cobra"
+)
+
+const (
+	docProvisioning        = "docs/architecture.md#provisioning"
+	docControlPlaneStorage = "docs/runbooks/control-plane-storage.md"
+	docLocalDevelopment    = "docs/local-development.md"
 )
 
 func NewBootstrapCmd() *cobra.Command {
@@ -15,11 +23,31 @@ func NewBootstrapCmd() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "bootstrap",
-		Short: "Bootstrap the homelab environment",
-		Long:  `Installs mise, tools, validates prerequisites, and sets up the environment (localdev or homelab).`,
+		Short: "Bootstrap a tier: the Kind loop (localdev) or production (homelab)",
+		Long: `Installs mise and the pinned tools, picks a tier, checks that tier's
+prerequisites and runs its setup through the Taskfile.
+
+Tier selection: one prompt, Kind loop or production, default localdev.
+Production is suggested as the default only when configuration/environments/
+homelab.yaml exists and Proxmox answers on TCP 8006; detection never selects
+it. --environment makes the tier explicit. --yes skips the confirmations
+inside the chosen tier only: --yes without --environment is localdev, so no
+bare invocation reaches terragrunt apply.
+
+  localdev  task localdev:up, task localdev:wait, then the ArgoCD access hint
+  homelab   Proxmox installed? -> task ansible:apply -> task tf:apply
+            ENV=homelab -> GitOps takes over`,
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			utils.DryRun = DryRun
 			utils.AutoAccept = AutoAccept
+
+			// Reject a bad --environment before installing anything.
+			if environment != "" {
+				if _, err := prereq.ParseTier(environment); err != nil {
+					return NewUsageError(err)
+				}
+			}
 
 			logger.Info("======================================")
 			logger.Info("  Homelab Infrastructure Setup")
@@ -38,67 +66,97 @@ func NewBootstrapCmd() *cobra.Command {
 				return err
 			}
 
-			// Step 2: Validate prerequisites
-			logger.Info("Validating prerequisites...")
-			result, err := utils.ExecCommand("mise", "doctor")
-			if err != nil || !result.Success {
-				logger.Warn("mise doctor found some issues (may be non-critical)")
-			} else {
-				logger.OK("Prerequisites validated")
+			// Step 2: Pick the tier. Detection only sets the prompt default.
+			opts := prereq.DefaultOptions()
+			detected := prereq.DetectTier(prereqEnv, opts.HomelabConfigPath(), prereq.ProxmoxAddr(opts))
+			tier, err := prereq.ResolveTier(environment, AutoAccept, detected, promptTier)
+			if err != nil {
+				return NewUsageError(err)
 			}
+			logger.Info(fmt.Sprintf("Using environment: %s (detected default: %s)", tier, detected))
 			fmt.Println()
 
-			// Step 3: Check environment
-			logger.Info("Checking environment configuration...")
-			if os.Getenv("TF_VAR_proxmox_api_url") == "" {
-				logger.Warn("Environment variables not set")
-				logger.Info("Please copy .envrc.example to .envrc and fill in your values")
-				logger.Info("Then run: direnv allow")
-				if !utils.Confirm("Continue without environment variables?") {
-					return fmt.Errorf("aborted by user")
-				}
+			// Step 3: Check the tier's prerequisites.
+			logger.Info(fmt.Sprintf("Checking %s prerequisites...", tier))
+			results := prereq.RunChecks(prereqEnv, tier)
+			printPrereqTable(cmd.OutOrStdout(), results)
+			if failed := prereq.Failed(results); failed > 0 {
+				logger.Error(fmt.Sprintf("%d of %d prerequisite checks failed for %s", failed, len(results), tier))
+				logger.Info(fmt.Sprintf("Fix the rows marked %s above (each shows its fix), then rerun; ./bin/homelab validate -e %s rechecks them", markFail, tier))
+				return fmt.Errorf("%d prerequisite checks failed for %s", failed, tier)
 			}
-			logger.OK("Environment checked")
+			logger.OK("Prerequisites validated")
 			fmt.Println()
 
-			// Step 4: Setup Ansible vault password
-			if err := setupAnsibleVault(); err != nil {
-				logger.Warn(fmt.Sprintf("Ansible vault setup warning: %v", err))
-			}
-
-			// Step 5: Determine environment
-			if environment == "" && !AutoAccept {
-				options := []string{
-					"localdev  - Local Kind cluster (no hardware required)",
-					"homelab   - Homelab environment (Proxmox)",
+			// Step 4: Run the tier.
+			switch tier {
+			case prereq.Localdev:
+				if err := deployLocaldev(); err != nil {
+					return err
 				}
-				choice := utils.PromptSelect("Select deployment target:", options, 1)
-				if choice == 0 {
-					environment = "localdev"
-				} else {
-					environment = "homelab"
+			case prereq.Homelab:
+				if err := setupAnsibleVault(); err != nil {
+					logger.Warn(fmt.Sprintf("Ansible vault setup warning: %v", err))
 				}
-			} else if environment == "" {
-				environment = "homelab"
-			}
-			logger.Info(fmt.Sprintf("Using environment: %s", environment))
-			fmt.Println()
-
-			// Step 6: Execute deployment based on environment
-			if err := deployEnvironment(environment); err != nil {
-				return err
+				if err := deployHomelab(opts); err != nil {
+					return err
+				}
 			}
 
 			logger.OK("Setup complete!")
-			printNextSteps(environment)
+			printNextSteps(tier)
 
 			return nil
 		},
 	}
 
-	cmd.Flags().StringVarP(&environment, "environment", "e", "", "Set environment (localdev|homelab)")
+	cmd.Flags().StringVarP(&environment, "environment", "e", "", "Tier to bootstrap (localdev|homelab); default: prompt, or localdev with --yes")
 
 	return cmd
+}
+
+// tierPromptOptions lists the tiers for the prompt, localdev first, and the
+// default index for the detected tier.
+func tierPromptOptions(detected prereq.Tier) ([]string, int) {
+	options := []string{
+		"localdev  - Kind + ArgoCD loop on this machine (no hardware required)",
+		"homelab   - Production: Proxmox, Talos, Terragrunt",
+	}
+	idx := 0
+	if detected == prereq.Homelab {
+		idx = 1
+	}
+	return options, idx
+}
+
+func tierFromChoice(idx int) prereq.Tier {
+	if idx == 1 {
+		return prereq.Homelab
+	}
+	return prereq.Localdev
+}
+
+func promptTier(detected prereq.Tier) prereq.Tier {
+	options, idx := tierPromptOptions(detected)
+	return tierFromChoice(utils.PromptSelect("Select deployment target:", options, idx))
+}
+
+// runTask runs `task <args>` with stdout and stderr streamed to the terminal,
+// because the Kind loop and terragrunt run for minutes and the operator needs
+// to see progress. Honors --dry-run like utils.ExecCommand.
+func runTask(args ...string) error {
+	if DryRun {
+		logger.Warn(fmt.Sprintf("Would run: task %s", strings.Join(args, " ")))
+		return nil
+	}
+	cmd := exec.Command("task", args...)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("task %s: %w", strings.Join(args, " "), err)
+	}
+	return nil
 }
 
 func installMise() error {
@@ -185,65 +243,65 @@ func setupAnsibleVault() error {
 	return nil
 }
 
-func deployEnvironment(env string) error {
-	switch env {
-	case "localdev":
-		return deployLocaldev()
-	case "homelab":
-		return deployHomelab()
-	default:
-		return fmt.Errorf("unknown environment: %s", env)
-	}
-}
-
+// deployLocaldev runs the Kind + ArgoCD loop through the Taskfile and waits
+// until every Application is Healthy.
 func deployLocaldev() error {
-	logger.Info("Creating Kind cluster...")
-	result, err := utils.ExecCommand("task", "localdev:kind")
-	if err != nil || !result.Success {
-		return fmt.Errorf("failed to create Kind cluster: %v", err)
+	logger.Info("Phase 1: Kind + ArgoCD loop (task localdev:up)")
+	logger.Info("  Kind (Cilium, registry caches, fakes) -> ArgoCD -> every Application synced from the working tree")
+	logger.Info("  See " + docLocalDevelopment)
+	fmt.Println()
+	if err := runTask("localdev:up"); err != nil {
+		logger.Error("The Kind loop did not come up")
+		logger.Info("Inspect with: task localdev:diagnose; retry with: task localdev:up")
+		return err
 	}
-	logger.OK("Kind cluster created")
+	logger.OK("Kind cluster and ArgoCD are up")
 	fmt.Println()
 
-	logger.Info("Tilt will start in the background")
-	logger.Info("Access Tilt UI at: http://localhost:10350")
-	logger.Info("Services will be available at:")
-	logger.Info("  - ArgoCD:  http://localhost:8080")
-	logger.Info("  - Traefik: http://localhost:9080")
-	logger.Info("  - Grafana: http://localhost:3000")
+	logger.Info("Phase 2: waiting for every Application to be Healthy (task localdev:wait)")
+	if err := runTask("localdev:wait"); err != nil {
+		logger.Error("Not every Application became Healthy")
+		logger.Info("Inspect with: task localdev:diagnose; re-sync one app with: task localdev:sync -- --only <app>")
+		return err
+	}
+	logger.OK("Every Application is Healthy")
 	fmt.Println()
 
-	if utils.Confirm("Start Tilt now?") {
-		result, err = utils.ExecCommand("tilt", "up")
-		if err != nil || !result.Success {
-			logger.Warn("Failed to start Tilt. Run 'task localdev:tilt' manually")
-		}
-	} else {
-		logger.Info("Run 'task localdev:tilt' to start Tilt later")
-	}
-
+	printLocaldevAccess()
 	return nil
 }
 
-func deployHomelab() error {
-	logger.Info("Phase 1: Proxmox Installation")
-	logger.Info("This phase must be completed manually.")
-	logger.Info("See plan.md Phase 1 for detailed instructions.")
+// printLocaldevAccess prints how the loop exposes ArgoCD (docs/local-development.md).
+func printLocaldevAccess() {
+	logger.Info("ArgoCD UI: http://localhost:8080 (user admin)")
+	logger.Info("  macOS: task localdev:ui       # kubectl port-forward to argocd-server; keep it running")
+	logger.Info("  Linux: the Kind port mapping (NodePort 30080 -> host 8080) serves it directly")
+	logger.Info("  Password: task k8s:argocd-password")
+	fmt.Println()
+}
+
+// deployHomelab walks the four production phases through the Taskfile so the
+// 1Password wiring (op run, rendered-file sync) is never bypassed.
+func deployHomelab(opts prereq.Options) error {
+	logger.Info("Phase 1: Proxmox installation")
+	logger.Info("  Proxmox VE is installed by hand on the host; the rest is automated from here.")
+	logger.Info("  See " + docProvisioning)
 	fmt.Println()
 
-	if !utils.Confirm("Has Proxmox been installed and is accessible?") {
-		logger.Warn("Please install Proxmox first")
+	if !utils.Confirm("Has Proxmox been installed and is it accessible?") {
+		logger.Warn("Install Proxmox first, then rerun ./bin/homelab bootstrap -e homelab")
 		return fmt.Errorf("aborted by user")
 	}
 	logger.OK("Proxmox installation confirmed")
 	fmt.Println()
 
-	logger.Info("Phase 2: Proxmox Configuration (Ansible)")
-	if utils.Confirm("Run Ansible playbooks to configure Proxmox?") {
-		result, err := utils.ExecCommand("ansible-playbook", "playbooks/site.yml")
-		if err != nil || !result.Success {
+	logger.Info("Phase 2: Proxmox configuration (Ansible: task ansible:apply)")
+	logger.Info("  Runs ansible/playbooks/site.yml against the Proxmox host.")
+	logger.Info("  See " + docProvisioning)
+	if utils.Confirm("Run Ansible to configure Proxmox?") {
+		if err := runTask("ansible:apply"); err != nil {
 			logger.Warn("Ansible configuration failed")
-			logger.Info("Run manually: task ansible:apply")
+			logger.Info("Run manually: task ansible:apply (task ansible:dry-run previews it)")
 		} else {
 			logger.OK("Proxmox configured via Ansible")
 		}
@@ -253,16 +311,13 @@ func deployHomelab() error {
 	}
 	fmt.Println()
 
-	logger.Info("Phase 3: Infrastructure Provisioning (Terragrunt)")
-	if utils.Confirm("Run Terragrunt to provision infrastructure?") {
-		args := []string{"run", "--all", "apply"}
-		if AutoAccept {
-			args = append(args, "--non-interactive")
-		}
-		result, err := utils.ExecCommand("terragrunt", args...)
-		if err != nil || !result.Success {
+	logger.Info("Phase 3: Infrastructure provisioning (Terragrunt: task tf:apply ENV=homelab)")
+	logger.Info("  Talos VMs, the control plane VIP, TrueNAS and the bootstrap Application; secrets via op run.")
+	logger.Info("  See " + docProvisioning + " and " + docControlPlaneStorage + " (control plane disks)")
+	if utils.Confirm("Run Terragrunt to provision the infrastructure?") {
+		if err := runTask("tf:apply", "ENV=homelab"); err != nil {
 			logger.Warn("Terragrunt provisioning failed")
-			logger.Info("Run manually: task tf:apply ENV=homelab")
+			logger.Info("Run manually: task tf:apply ENV=homelab (task tf:plan ENV=homelab previews it)")
 		} else {
 			logger.OK("Infrastructure provisioned via Terragrunt")
 		}
@@ -272,20 +327,21 @@ func deployHomelab() error {
 	}
 	fmt.Println()
 
-	logger.Info("Phase 4: GitOps Bootstrap")
-	logger.Info("ArgoCD should now be deployed and managing the cluster")
+	logger.Info("Phase 4: GitOps")
+	logger.Info("  The root Application applied by Terragrunt lets ArgoCD sync bootstrap -> addons -> applications.")
+	logger.Info("  Watch it: task prod:status; verify: task verify:prod")
 	fmt.Println()
 
-	retrieveArgoCDPassword()
+	retrieveArgoCDPassword(opts)
 
 	return nil
 }
 
-func retrieveArgoCDPassword() {
+func retrieveArgoCDPassword(opts prereq.Options) {
 	logger.Info("Retrieving ArgoCD admin password...")
 	result, err := utils.ExecCommand("kubectl", "-n", "argocd", "get", "secret", "argocd-initial-admin-secret", "-o", "jsonpath={.data.password}")
 	if err != nil || !result.Success || result.Stdout == "" {
-		logger.Warn("Could not retrieve ArgoCD password (may not be deployed yet)")
+		logger.Warn("Could not retrieve ArgoCD password (may not be deployed yet); later: task k8s:argocd-password")
 		return
 	}
 
@@ -298,23 +354,27 @@ func retrieveArgoCDPassword() {
 
 	fmt.Println()
 	logger.OK(fmt.Sprintf("ArgoCD admin password: %s", strings.TrimSpace(decodeResult.Stdout)))
-	logger.Info("Access ArgoCD at: https://argocd.ryanmcafee.com")
+	if rc, err := prereq.LoadHomelabConfig(opts); err == nil {
+		if host := rc.Values["ARGOCD_HOSTNAME"].Value; host != "" {
+			logger.Info("Access ArgoCD at: https://" + host)
+		}
+	}
 	logger.Info("Username: admin")
 	fmt.Println()
 }
 
-func printNextSteps(env string) {
+func printNextSteps(tier prereq.Tier) {
 	fmt.Println()
 	logger.Info("Next steps:")
-	if env == "localdev" {
-		fmt.Println("  1. Check Tilt UI for deployment status")
-		fmt.Println("  2. Access ArgoCD to see GitOps in action")
-		fmt.Println("  3. Make changes to charts/ and see live updates")
+	if tier == prereq.Localdev {
+		fmt.Println("  1. Open the ArgoCD UI (task localdev:ui on macOS) and watch the Applications")
+		fmt.Println("  2. Edit charts/ or configuration/, then task localdev:sync to push the working tree")
+		fmt.Println("  3. task verify LEVEL=2 judges every Application and runs the e2e suite")
 		fmt.Println()
 		fmt.Println("Useful commands:")
-		fmt.Println("  task localdev:logs    - Stream logs from all pods")
-		fmt.Println("  task localdev:down    - Tear down environment")
-		fmt.Println("  task chart:lint       - Lint Helm charts")
+		fmt.Println("  task localdev:report    - Markdown report of the loop (Application table, diffs)")
+		fmt.Println("  task localdev:diagnose  - Conditions, events and pod logs of unhealthy Applications")
+		fmt.Println("  task localdev:down      - Delete the Kind cluster")
 	} else {
 		fmt.Println("  1. Verify cluster health: kubectl get nodes")
 		fmt.Println("  2. Check ArgoCD applications: kubectl get applications -n argocd")
@@ -322,8 +382,9 @@ func printNextSteps(env string) {
 		fmt.Println("  4. Access ArgoCD UI to see GitOps status")
 		fmt.Println()
 		fmt.Println("Useful commands:")
-		fmt.Println("  task k8s:status       - Show cluster status")
+		fmt.Println("  task k8s:status          - Show cluster status")
 		fmt.Println("  task k8s:argocd-password - Get ArgoCD admin password")
+		fmt.Println("  task prod:status         - Read-only ArgoCD Application table")
 	}
 	fmt.Println()
 }

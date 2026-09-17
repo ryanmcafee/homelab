@@ -9,15 +9,14 @@ tasks:
   # ==========================================================================
 
   setup:
-    desc: Full homelab setup (validates prereqs, then runs setup script)
+    desc: "Tier-aware setup: Kind loop by default, production only with -- --environment homelab (runs the prerequisite table first)"
     cmds:
-      - task: validate
-      - ./bin/homelab bootstrap
+      - go run ./cmd/homelab bootstrap {{.CLI_ARGS}}
 
   validate:
-    desc: Validate prerequisites are installed
+    desc: "Prerequisite table for a tier with a fix hint per missing row (-- --environment homelab for production)"
     cmds:
-      - ./bin/homelab validate
+      - go run ./cmd/homelab validate {{.CLI_ARGS}}
 
   install-tools:
     desc: Install required CLI tools via mise (also creates the terraform plugin cache dir mise.toml points at)
@@ -1009,6 +1008,11 @@ tasks:
     desc: Verify embedded snippets are up-to-date (CI)
     cmds:
       - embedme --verify CLAUDE.md AGENTS.md
+
+  docs:check:
+    desc: "Numbers in readme.md, docs/ and .github/homelab.svg match the repo (versions, counts, ingress inventory); -- --fix rewrites the generated regions"
+    cmds:
+      - deno run --allow-read --allow-write --allow-env scripts/docs-check.ts {{.CLI_ARGS}}
 
   # ==========================================================================
   # Phase 1 Hardware Spike (SPK-02..SPK-05 Proxmox evidence capture)

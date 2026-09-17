@@ -719,7 +719,7 @@ kubectl get pods -A
 ```bash
 # 1. Provision new hardware
 # Install Proxmox on bare metal
-# See hardware-setup.md
+# See hardware.md
 
 # 2. Configure Proxmox
 cd homelab/ansible

@@ -1,0 +1,388 @@
+name: CI autofix
+
+# When a pull-request workflow fails, triage the failure with Claude Code and,
+# when the cause lives in this repository (formatting, a stale snapshot or
+# generated file, a drifted doc number, a schema that needs re-vendoring, a
+# unit test the change broke), fix it, run the same check locally, push the
+# fix to the PR branch and wait for CI on the new head to report back. The
+# result is posted as the sticky PR comment `ci-autofix`.
+#
+# What it never does: skip, disable or quarantine a test; edit a workflow to
+# weaken a check; force-push; touch renovate/* branches (Renovate abandons a
+# branch with foreign commits); act on forks; act on a PR labelled
+# `no-autofix`; or make more than MAX_ATTEMPTS pushes to one PR.
+#
+# The push uses the homelab bot App token (a push made with GITHUB_TOKEN
+# triggers no workflows, so the fix could never be verified). Secrets:
+#   HOMELAB_BOT_APP_ID / HOMELAB_BOT_PRIVATE_KEY   the App upgrade.yml uses
+#   CLAUDE_CODE_OAUTH_TOKEN                        Claude Code subscription token
+#                                                  (or ANTHROPIC_API_KEY)
+# Without them the job logs a notice and exits green. docs/runbooks/ci-autofix.md.
+
+on:
+  workflow_run:
+    workflows:
+      - Verify (level 0)
+      - Verify (Kind, levels 1-2)
+      - PR contract
+      - Config Validation
+      - YAML Lint
+      - Ansible Lint
+      - Upgrade verification
+    types: [completed]
+
+concurrency:
+  group: ci-autofix-${{ github.event.workflow_run.head_branch }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  actions: read
+  pull-requests: read
+
+env:
+  # renovate: datasource=golang-version depName=go
+  GO_VERSION: '1.25'
+  # renovate: datasource=github-releases depName=helm/helm
+  HELM_VERSION: 'v4.3.0'
+  # renovate: datasource=github-releases depName=yannh/kubeconform
+  KUBECONFORM_VERSION: 'v0.7.0'
+  # renovate: datasource=github-releases depName=open-policy-agent/conftest
+  CONFTEST_VERSION: '0.70.0'
+  # renovate: datasource=github-releases depName=FairwindsOps/pluto
+  PLUTO_VERSION: '5.24.3'
+  # renovate: datasource=github-releases depName=go-task/task
+  TASK_VERSION: 'v3.46.4'
+  AUTOFIX_BOT_NAME: homelab-ci-autofix
+  AUTOFIX_BOT_EMAIL: homelab-ci-autofix@users.noreply.github.com
+  MAX_ATTEMPTS: '2'
+  # How long to wait for CI on the pushed fix before giving up on verification.
+  VERIFY_TIMEOUT_MINUTES: '45'
+
+jobs:
+  autofix:
+    name: Triage and fix
+    if: >-
+      github.event.workflow_run.conclusion == 'failure' &&
+      github.event.workflow_run.event == 'pull_request' &&
+      github.event.workflow_run.head_repository.full_name == github.repository &&
+      !startsWith(github.event.workflow_run.head_branch, 'renovate/')
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      # Secrets cannot appear in a job-level `if`, so presence is checked here.
+      - name: Check credentials
+        id: creds
+        env:
+          APP_ID: ${{ secrets.HOMELAB_BOT_APP_ID }}
+          PRIVATE_KEY: ${{ secrets.HOMELAB_BOT_PRIVATE_KEY }}
+          OAUTH: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          if [ -z "$APP_ID" ] || [ -z "$PRIVATE_KEY" ]; then
+            echo "::notice title=CI autofix not configured::HOMELAB_BOT_APP_ID / HOMELAB_BOT_PRIVATE_KEY are not set; nothing is fixed automatically (docs/runbooks/ci-autofix.md)."
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          elif [ -z "$OAUTH" ] && [ -z "$API_KEY" ]; then
+            echo "::notice title=CI autofix not configured::CLAUDE_CODE_OAUTH_TOKEN (or ANTHROPIC_API_KEY) is not set; nothing is fixed automatically (docs/runbooks/ci-autofix.md)."
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Mint a GitHub App token
+        id: app-token
+        if: steps.creds.outputs.enabled == 'true'
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.HOMELAB_BOT_APP_ID }}
+          private-key: ${{ secrets.HOMELAB_BOT_PRIVATE_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
+          permission-actions: read
+
+      # The PR number is needed for labels, the body (claim block) and the
+      # sticky comment. workflow_run.pull_requests is populated for same-repo
+      # PRs but not always; fall back to a lookup by head branch.
+      - name: Resolve the pull request
+        id: pr
+        if: steps.creds.outputs.enabled == 'true'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          FROM_EVENT: ${{ github.event.workflow_run.pull_requests[0].number }}
+        run: |
+          number="$FROM_EVENT"
+          if [ -z "$number" ]; then
+            number="$(gh pr list --repo "$GITHUB_REPOSITORY" --head "$HEAD_BRANCH" --state open --json number --jq '.[0].number // empty')"
+          fi
+          if [ -z "$number" ]; then
+            echo "::notice::No open pull request for $HEAD_BRANCH; nothing to fix."
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          labels="$(gh pr view "$number" --repo "$GITHUB_REPOSITORY" --json labels --jq '[.labels[].name] | join(",")')"
+          base="$(gh pr view "$number" --repo "$GITHUB_REPOSITORY" --json baseRefName --jq .baseRefName)"
+          case ",$labels," in
+            *,no-autofix,*)
+              echo "::notice::PR #$number carries the no-autofix label; skipping."
+              echo "run=false" >> "$GITHUB_OUTPUT"
+              exit 0 ;;
+          esac
+          {
+            echo "run=true"
+            echo "number=$number"
+            echo "base=$base"
+          } >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        if: steps.pr.outputs.run == 'true'
+        with:
+          ref: ${{ github.event.workflow_run.head_branch }}
+          token: ${{ steps.app-token.outputs.token }}
+          fetch-depth: 0
+
+      # Loop guard: our own push re-triggers the failing workflow and therefore
+      # this one. Allow MAX_ATTEMPTS bot commits per PR, then stand down. Also
+      # stand down when the branch already moved past the failed commit: the
+      # run for the newer commit decides.
+      - name: Loop guard
+        id: guard
+        if: steps.pr.outputs.run == 'true'
+        env:
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          BASE: ${{ steps.pr.outputs.base }}
+        run: |
+          run=true
+          if [ "$(git rev-parse HEAD)" != "$HEAD_SHA" ]; then
+            echo "::notice::The branch moved past ${HEAD_SHA}; the run for the newer commit decides."
+            run=false
+          else
+            git fetch --quiet origin "$BASE"
+            attempts="$(git log "origin/${BASE}..HEAD" --format=%ae | grep -c "^${AUTOFIX_BOT_EMAIL}$" || true)"
+            echo "bot commits on this branch so far: $attempts"
+            if [ "$attempts" -ge "$MAX_ATTEMPTS" ]; then
+              echo "::warning::CI autofix already pushed $attempts fix(es) to this PR; standing down. A human takes it from here."
+              run=false
+            fi
+          fi
+          echo "run=$run" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        if: steps.guard.outputs.run == 'true'
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5
+        if: steps.guard.outputs.run == 'true'
+        with:
+          version: ${{ env.HELM_VERSION }}
+
+      - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
+        if: steps.guard.outputs.run == 'true'
+        with:
+          deno-version: v2.x
+
+      # The same toolchain verify.yml's level-0 job uses, so `task verify`,
+      # `task test:snapshot`, `task docs:check` and friends reproduce CI here.
+      - name: Install kubeconform, conftest, pluto, task
+        if: steps.guard.outputs.run == 'true'
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/bin"
+          curl -sSL --retry 5 --retry-all-errors --retry-delay 3 "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz" | tar -xz -C "$HOME/bin" kubeconform
+          curl -sSL --retry 5 --retry-all-errors --retry-delay 3 "https://github.com/open-policy-agent/conftest/releases/download/v${CONFTEST_VERSION}/conftest_${CONFTEST_VERSION}_Linux_x86_64.tar.gz" | tar -xz -C "$HOME/bin" conftest
+          curl -sSL --retry 5 --retry-all-errors --retry-delay 3 "https://github.com/FairwindsOps/pluto/releases/download/v${PLUTO_VERSION}/pluto_${PLUTO_VERSION}_linux_amd64.tar.gz" | tar -xz -C "$HOME/bin" pluto
+          go install "github.com/go-task/task/v3/cmd/task@${TASK_VERSION}"
+          echo "$HOME/bin" >> "$GITHUB_PATH"
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      # Everything Claude reads about the failure comes from the failed run's
+      # own logs, capped so a runaway log cannot eat the context.
+      - name: Collect the failure
+        id: failure
+        if: steps.guard.outputs.run == 'true'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/ci-autofix
+          gh run view "$RUN_ID" --repo "$GITHUB_REPOSITORY" --json name,jobs --jq '
+            "workflow: \(.name)",
+            (.jobs[] | select(.conclusion == "failure") |
+              "job: \(.name)", (.steps[] | select(.conclusion == "failure") | "  failed step: \(.name)"))' \
+            > /tmp/ci-autofix/jobs.txt
+          gh run view "$RUN_ID" --repo "$GITHUB_REPOSITORY" --log-failed 2>/dev/null | tail -c 200000 > /tmp/ci-autofix/failed.log || true
+          cat /tmp/ci-autofix/jobs.txt
+          echo "log bytes: $(wc -c < /tmp/ci-autofix/failed.log)"
+
+      - name: Triage and fix with Claude Code
+        id: claude
+        if: steps.guard.outputs.run == 'true'
+        uses: anthropics/claude-code-action@3b8197d3d486006dd4af54613517f21ac6ac625e  # v1.0.227
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          github_token: ${{ steps.app-token.outputs.token }}
+          claude_args: >-
+            --max-turns 80
+            --allowedTools "Bash,Read,Edit,Write,Glob,Grep"
+          prompt: |
+            You are the CI autofix for this repository. Pull request #${{ steps.pr.outputs.number }}
+            (branch `${{ github.event.workflow_run.head_branch }}`, base `${{ steps.pr.outputs.base }}`)
+            failed the workflow "${{ github.event.workflow_run.name }}" (run ${{ github.event.workflow_run.id }},
+            ${{ github.event.workflow_run.html_url }}) on commit ${{ github.event.workflow_run.head_sha }}.
+
+            The failed jobs and steps are in /tmp/ci-autofix/jobs.txt and the failing
+            log lines in /tmp/ci-autofix/failed.log. The checkout is the PR head; the same
+            toolchain CI uses is on PATH (go, helm, deno, task, kubeconform, conftest, pluto).
+            Read CLAUDE.md and docs/runbooks/verification.md ("Reading failures from CI") first.
+
+            Do this, in order:
+
+            1. Triage. Name the failing check and its root cause in one or two sentences.
+               Decide which of these it is:
+               (a) FIXABLE HERE: the cause is in this repository's committed files and a
+                   contributor would fix it locally — formatting (`deno fmt`, gofmt,
+                   terraform fmt), a stale golden snapshot (`task test:snapshot -- --update`),
+                   stale generated localdev values (`task config:export:localdev`), CRD
+                   schemas to re-vendor (`task schemas:vendor`), a drifted doc number
+                   (`task docs:check -- --fix`), a lint finding, a unit test or policy test
+                   that the PR's own change broke, a missing version-drift registration.
+               (b) FLAKE / INFRASTRUCTURE: the job died before any test body ran (checkout,
+                   install, runner lost, network to a registry) and the log shows no
+                   assertion from this repository's checks.
+               (c) NOT FIXABLE HERE: it needs a design decision, credentials, real
+                   hardware, an upstream change, or the only "fix" would be to weaken the
+                   check.
+
+            2. For (a): make the smallest change that fixes the root cause. Then run the
+               exact check that failed locally and show it passing (`task verify`, `task
+               test:policy`, `deno test scripts/`, `go test ./...`, `task docs:check`,
+               `task config:validate`, `task verify:upgrade -- --base origin/${{ steps.pr.outputs.base }}` —
+               whichever the failing job ran). If the failing job needs a Kind cluster
+               (Verify (Kind, levels 1-2)), you cannot run it here: fix what the log proves
+               and say so.
+               If your change touched charts/, configuration/ or tests/, refresh the
+               level-0 claim in the PR body: `task verify:claim` prints the block that
+               starts with the marker in scripts/verify-claim.ts (MARKER); replace the
+               existing block in the body (read it with `gh pr view ${{ steps.pr.outputs.number }} --json body -q .body`,
+               write the new body with `gh pr edit ${{ steps.pr.outputs.number }} --body-file`).
+               Commit as the bot:
+                 git -c user.name="${{ env.AUTOFIX_BOT_NAME }}" -c user.email="${{ env.AUTOFIX_BOT_EMAIL }}" commit -m "fix(ci): <what and why, one line>" -m "Ci-Autofix-Run: ${{ github.event.workflow_run.id }}"
+               and push with `git push origin HEAD:${{ github.event.workflow_run.head_branch }}`.
+               Run the repo's pre-commit hooks if `pre-commit` is available; never bypass the
+               PII guard (`task config:guard`).
+            3. For (b): re-run only the failed jobs once: `gh run rerun ${{ github.event.workflow_run.id }} --failed`.
+               Do not push anything.
+            4. For (c): push nothing. Write the diagnosis and, when you can, a proposed patch
+               as a unified diff in the summary.
+
+            Hard rules: never skip, disable, quarantine or loosen a test or policy; never edit
+            .github/workflows/ to make a check pass; never hand-edit tests/snapshots/ (only
+            `task test:snapshot -- --update`); never change configuration/versions.yaml unless
+            the failing check is exactly a version-drift check that names it; never force-push,
+            rebase or amend; never add AI attribution or session links to commits or the PR
+            body; never put a real IP, hostname or e-mail address into a committed file.
+
+            Finally write /tmp/ci-autofix/summary.md: first line `verdict: fixed | rerun | manual`,
+            then the triage (2-6 lines), what you changed (file list) or the proposed patch,
+            and the local check output tail. Keep it under 60 lines.
+
+      # Verification is deterministic and cheap, so it runs outside Claude: if a
+      # fix was pushed, wait for every check on the new head to finish and report.
+      - name: Wait for CI on the fix
+        id: verify
+        if: steps.guard.outputs.run == 'true'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          FAILED_SHA: ${{ github.event.workflow_run.head_sha }}
+          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+        run: |
+          set -euo pipefail
+          git fetch --quiet origin "$HEAD_BRANCH"
+          new_sha="$(git rev-parse "origin/${HEAD_BRANCH}")"
+          if [ "$new_sha" = "$FAILED_SHA" ]; then
+            echo "pushed=false" >> "$GITHUB_OUTPUT"
+            echo "No fix was pushed."
+            exit 0
+          fi
+          echo "pushed=true" >> "$GITHUB_OUTPUT"
+          echo "sha=$new_sha" >> "$GITHUB_OUTPUT"
+          deadline=$(( $(date +%s) + VERIFY_TIMEOUT_MINUTES * 60 ))
+          # Give the workflows a moment to be scheduled before the first poll.
+          sleep 60
+          while :; do
+            checks="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${new_sha}/check-runs?per_page=100" --jq '.check_runs[] | select(.name != "Triage and fix") | "\(.status)\t\(.conclusion // "-")\t\(.name)"')"
+            total="$(printf '%s\n' "$checks" | grep -c . || true)"
+            pending="$(printf '%s\n' "$checks" | grep -vc '^completed' || true)"
+            if [ "$total" -gt 0 ] && [ "$pending" -eq 0 ]; then break; fi
+            if [ "$(date +%s)" -ge "$deadline" ]; then
+              echo "::warning::Timed out waiting for CI on ${new_sha} (${pending}/${total} still running)."
+              echo "result=timeout" >> "$GITHUB_OUTPUT"
+              printf '%s\n' "$checks" > /tmp/ci-autofix/checks.txt
+              exit 0
+            fi
+            sleep 30
+          done
+          printf '%s\n' "$checks" > /tmp/ci-autofix/checks.txt
+          failed="$(printf '%s\n' "$checks" | awk -F'\t' '$2 != "success" && $2 != "skipped" && $2 != "neutral"' | wc -l | tr -d ' ')"
+          if [ "$failed" -eq 0 ]; then
+            echo "result=green" >> "$GITHUB_OUTPUT"
+            echo "CI is green on ${new_sha}."
+          else
+            echo "result=red" >> "$GITHUB_OUTPUT"
+            echo "::warning::${failed} check(s) still failing on ${new_sha}."
+          fi
+
+      - name: Compose the report
+        if: steps.guard.outputs.run == 'true' && always()
+        env:
+          PUSHED: ${{ steps.verify.outputs.pushed }}
+          RESULT: ${{ steps.verify.outputs.result }}
+          SHA: ${{ steps.verify.outputs.sha }}
+          RUN_URL: ${{ github.event.workflow_run.html_url }}
+          WORKFLOW: ${{ github.event.workflow_run.name }}
+        run: |
+          {
+            echo "## CI autofix"
+            echo
+            echo "Failed: [${WORKFLOW}](${RUN_URL})"
+            echo
+            if [ -f /tmp/ci-autofix/summary.md ]; then cat /tmp/ci-autofix/summary.md; else echo "verdict: manual (no summary was written)"; fi
+            echo
+            if [ "$PUSHED" = "true" ]; then
+              case "$RESULT" in
+                green)   echo "**Verified:** CI is green on ${SHA}." ;;
+                red)     echo "**Not verified:** CI is still red on ${SHA}. Checks:"; echo; echo '```'; cat /tmp/ci-autofix/checks.txt; echo '```' ;;
+                timeout) echo "**Unverified:** CI on ${SHA} did not finish within the wait window. Checks:"; echo; echo '```'; cat /tmp/ci-autofix/checks.txt; echo '```' ;;
+                *)       echo "**Unverified:** could not read the checks on ${SHA}." ;;
+              esac
+            else
+              echo "No commit was pushed."
+            fi
+            echo
+            echo "_Posted by the ci-autofix workflow. Add the \`no-autofix\` label to opt this PR out._"
+          } > /tmp/ci-autofix/report.md
+          cat /tmp/ci-autofix/report.md
+
+      - name: Sticky PR comment
+        if: steps.guard.outputs.run == 'true' && always()
+        uses: marocchino/sticky-pull-request-comment@5770ad5eb8f42dd2c4f34da00c94c5381e49af88  # v3.0.5
+        with:
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+          number: ${{ steps.pr.outputs.number }}
+          header: ci-autofix
+          path: /tmp/ci-autofix/report.md
+
+      # The job itself is informational: a red autofix run must not hide the
+      # real failure, and a red verification is reported in the comment.
+      - name: Outcome
+        if: steps.guard.outputs.run == 'true' && always()
+        env:
+          RESULT: ${{ steps.verify.outputs.result }}
+          PUSHED: ${{ steps.verify.outputs.pushed }}
+        run: |
+          if [ "$PUSHED" = "true" ] && [ "$RESULT" != "green" ]; then
+            echo "::warning::The pushed fix did not turn CI green (${RESULT})."
+          fi

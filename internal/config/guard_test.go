@@ -702,6 +702,11 @@ func TestHasScannableExtension(t *testing.T) {
 		// real addresses, hostnames and a username while .ts was out of scope.
 		{path: "scripts/run.ts", want: true},
 		{path: "scripts/run_test.ts", want: true},
+		// .github/ is guarded, so the README header SVG is scannable: its text
+		// nodes name hostnames and must stay <DOMAIN> placeholders.
+		{path: ".github/homelab.svg", want: true},
+		{path: ".github/workflows/verify.yml", want: true},
+		{path: ".github/CODEOWNERS", want: false},
 		{path: "binary.example", want: false},
 	}
 
@@ -1743,12 +1748,15 @@ func TestDefaultGuardScopeCoversChartHomelabValues(t *testing.T) {
 	// in production without the CMP, so they must be guarded by default, not
 	// only when someone remembers --paths. scripts/ is in scope for the same
 	// reason: a Deno script hardcoding a real address leaks exactly as much,
-	// and several did while scripts/ was out of scope.
+	// and several did while scripts/ was out of scope. .github/ is in scope
+	// because the README header SVG spells out hostnames as <DOMAIN>
+	// placeholders and the guard is what keeps a real one out of it.
 	want := []string{
 		"configuration/**",
 		"charts/**/values-homelab.yaml",
 		"scripts/**",
 		"docs/**",
+		".github/**",
 	}
 	if strings.Join(DefaultGuardPathspecs, " ") != strings.Join(want, " ") {
 		t.Fatalf("DefaultGuardPathspecs = %v, want %v", DefaultGuardPathspecs, want)
@@ -1758,6 +1766,9 @@ func TestDefaultGuardScopeCoversChartHomelabValues(t *testing.T) {
 		"configuration/environments/localdev.yaml",
 		"charts/traefik-external-config/values-homelab.yaml",
 		"charts/sonarr-config/values-homelab.yaml",
+		".github/homelab.svg",
+		".github/workflows/verify.yml",
+		".github/CODEOWNERS", // excluded: not a scannable extension
 	}, nil)
 	files, err := ListGuardFiles("/repo", nil)
 	if err != nil {
@@ -1767,6 +1778,8 @@ func TestDefaultGuardScopeCoversChartHomelabValues(t *testing.T) {
 		t.Fatalf("lister pathspecs = %q, want %q", got, want)
 	}
 	wantFiles := []string{
+		".github/homelab.svg",
+		".github/workflows/verify.yml",
 		"charts/sonarr-config/values-homelab.yaml",
 		"charts/traefik-external-config/values-homelab.yaml",
 		"configuration/environments/localdev.yaml",

@@ -387,7 +387,7 @@ qm start 106
 
 **Step 1: Hardware Setup**
 
-See [hardware-setup.md](../hardware-setup.md) for complete instructions:
+See [hardware.md](../hardware.md) for complete instructions:
 
 1. Install CPU, RAM, storage devices
 2. Install PCIe cards (HBAs, GPU)
@@ -590,7 +590,7 @@ What can be improved
 
 - [architecture.md](../architecture.md) - Architecture overview
 - [disaster-recovery.md](../disaster-recovery.md) - Complete DR strategy
-- [hardware-setup.md](../hardware-setup.md) - Hardware configuration
+- [hardware.md](../hardware.md) - Hardware configuration
 
 ---
 

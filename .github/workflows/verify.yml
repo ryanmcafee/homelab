@@ -28,6 +28,9 @@ on:
       - 'cmd/**'
       - 'internal/**'
       - 'scripts/**'
+      - 'readme.md'
+      - 'docs/**'
+      - '.github/homelab.svg'
       - 'go.mod'
       - 'go.sum'
       - 'Taskfile.yml'
@@ -42,6 +45,9 @@ on:
       - 'cmd/**'
       - 'internal/**'
       - 'scripts/**'
+      - 'readme.md'
+      - 'docs/**'
+      - '.github/homelab.svg'
       - 'go.mod'
       - 'go.sum'
       - 'Taskfile.yml'
@@ -191,6 +197,13 @@ jobs:
           deno fmt --check scripts/
           deno check scripts/*.ts
           deno test scripts/
+
+      # The README badge row, the tables in docs/ and the counts drawn into
+      # .github/homelab.svg are computed from versions.yaml, the chart
+      # templates, the homelab snapshots and tests/e2e; stale numbers fail
+      # here instead of rotting. `task docs:check -- --fix` regenerates them.
+      - name: task docs:check
+        run: task docs:check
 
   schemas:
     name: Vendored CRD schemas are current

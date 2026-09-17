@@ -238,7 +238,7 @@ charts:
   # renovate: datasource=docker depName=ghcr.io/paperclipinc/charts/paperclip-operator
   paperclip-operator: "0.19.1"
 images:
-  homelab-cmp: "0.1.25"
+  homelab-cmp: "0.1.30"
   # renovate: datasource=docker depName=curlimages/curl
   curl: "8.22.0"
   # renovate: datasource=docker depName=kindest/node
@@ -280,24 +280,26 @@ Do not edit `chart.version` in `charts/*/values.yaml`; those values are overridd
 
 ```
 homelab/
+├── ansible/              # Proxmox post-install roles + playbooks (site.yml), TrueNAS setup
 ├── charts/
-│   ├── gitops/           # App-of-Apps bootstrap
-│   ├── addons/           # Infrastructure (18 templates)
-│   │   ├── values.yaml   # Base values with all chart versions
-│   │   └── values-homelab.yaml
-│   ├── applications/     # User workloads (9 templates)
-│   └── secrets/          # SOPS-encrypted secrets
+│   ├── gitops/           # App-of-Apps root: bootstrap, addons, applications, previews
+│   ├── bootstrap/        # SOPS secrets, 1Password operator, environment config, ArgoCD self-manage
+│   ├── addons/           # Infrastructure Applications (29 templates)
+│   ├── applications/     # User workloads (15 templates)
+│   ├── secrets/          # SOPS-encrypted secrets (ksops)
+│   └── *-config/, *-dependencies/, paperclip*/, duckdns*/  # child charts (ADR-010)
+├── cmd/homelab/          # Go CLI: config, verify, bootstrap, validate, scaffold
+├── internal/             # Go packages behind the CLI (config, verify, prereq, scaffold)
+├── cmp/                  # ArgoCD Config Management Plugin definition (Dockerfile.cmp)
+├── configuration/        # Schema, environments, templates, versions.yaml
 ├── scripts/              # TypeScript automation (Deno)
-│   ├── talos-node-recreate.ts
-│   ├── verify-gpu-support.ts
-│   ├── sops-bootstrap.ts
-│   └── sops-setup-onepassword.ts
 ├── terragrunt/
 │   ├── modules/          # Reusable Terraform modules
-│   └── environments/     # homelab + localdev
-├── localdev/             # Kind + Tilt configuration
-├── talos/                # Talos Linux config + image
-└── docs/                 # Architecture + runbooks
+│   └── environments/     # homelab (11 units) + localdev
+├── talos/                # Machine-config templates, patches, image schematics
+├── localdev/             # Kind config, fakes, ArgoCD values (Tiltfile is legacy)
+├── tests/                # e2e (chainsaw), drills, health, policy, schemas, snapshots
+└── docs/                 # Architecture, networking, applications, runbooks, project notes
 ```
 
 ## Taskfile Quick Reference
@@ -369,9 +371,10 @@ task tf:apply         # Apply changes
 ## ArgoCD Troubleshooting
 
 ### Sync Wave Order
-- Wave 0: Bootstrap (SOPS secrets, 1Password operator, config secret)
-- Wave 2: Addons (Core infrastructure — via CMP plugin in homelab)
-- Wave 3: Applications (User workloads — via CMP plugin in homelab)
+- Wave 0: Bootstrap (inside it: namespace/RBAC -3, `sops-secrets` -2, `1password-operator` -1, `homelab-environment-config` 0, ArgoCD self-manage 1)
+- Addons (core infrastructure — via CMP plugin in homelab): wave 1 in homelab (`charts/gitops/values-homelab.yaml`), chart default 2
+- Applications (user workloads — via CMP plugin in homelab): wave 10 in homelab, chart default 3
+- Full table: `docs/architecture.md` § GitOps bridge
 
 ### CMP Architecture
 The homelab environment uses an ArgoCD Config Management Plugin (CMP) sidecar to generate environment-specific Helm values at runtime, eliminating PII from committed files.

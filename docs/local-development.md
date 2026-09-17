@@ -10,12 +10,12 @@ here touches the homelab cluster: agents may mutate only Kind (ADR-009).
 - [Prerequisites](#prerequisites)
 - [Quick Start](#quick-start)
 - [The Kind + ArgoCD loop](#the-kind--argocd-loop)
-- [Tilt Modes](#tilt-modes)
 - [Development Workflow](#development-workflow)
 - [Testing Strategies](#testing-strategies)
 - [Debugging](#debugging)
 - [CI Integration](#ci-integration)
 - [Troubleshooting](#troubleshooting)
+- [Tilt (legacy)](#tilt-legacy)
 - [References](#references)
 
 ---
@@ -72,7 +72,7 @@ templates switch on the key, never on the environment name.
 | Feature | Production (homelab) | Local Dev (localdev) | Key |
 |---------|------------|-----------|-----|
 | Platform | Proxmox VMs (Talos) | Kind (Docker) | |
-| Nodes | 2 control-plane + 3 workers | 1 control-plane + 2 workers | `localdev/kind-config.yaml` |
+| Nodes | 3 control planes + 3 workers (Talos VMs) | 1 control-plane + 2 workers | `localdev/kind-config.yaml` |
 | CNI | Cilium (Talos inline manifest, BGP) | Cilium, installed by `scripts/localdev-kind.ts`, adopted by the `cilium` Application | `CNI_PROVIDER=cilium` |
 | Load balancer | Cilium LB IPAM + BGP | none; Services are NodePort | `LOAD_BALANCER_ENABLED=false` |
 | DNS | external-dns (Cloudflare, UniFi) | none; e2e tests send `Host: <app>.homelab.local` | `EXTERNAL_DNS_ENABLED=false`, `DOMAIN=homelab.local` |
@@ -81,7 +81,7 @@ templates switch on the key, never on the environment name.
 | TLS | Let's Encrypt (Cloudflare DNS-01) | self-signed `letsencrypt` ClusterIssuer (same name, so every reference works) | `CERT_ISSUER=selfsigned` |
 | Secrets | 1Password operator + SOPS | seeded fakes in `localdev/fakes/secrets.yaml` | `SECRETS_PROVIDER=none` |
 | Sync | automated (prune + selfHeal) | manual; the working tree is pushed with `argocd app sync --local` | `ARGOCD_AUTOMATED_SYNC=false` |
-| GPU | NVIDIA | none | |
+| GPU | Intel Arc on worker-1 (`GPU_VENDOR=intel`) | none (`GPU_VENDOR=none`) | `GPU_VENDOR` |
 
 ---
 
@@ -95,15 +95,16 @@ Everything is pinned in `mise.toml`; run `mise install` after cloning. Docker De
 | Tool | Version | Role |
 |------|---------|------|
 | Docker Desktop | 24+ with 8 GB RAM allocated | runs the Kind nodes and the registry caches |
-| kind | `configuration/versions.yaml` `tools.kind` (v0.33.0), node image `images.kind-node` | cluster |
+| kind | `configuration/versions.yaml` `tools.kind`, node image `images.kind-node` | cluster |
 | kubectl | mise | |
-| helm | `tools.helm` (4.3.0) | Cilium and ArgoCD installs; every render |
-| argocd | `tools.argocd` (v3.5.2) | `argocd app sync --local`, health fixture tests |
-| chainsaw | `tools.chainsaw` (v0.2.15) | e2e tests |
+| helm | `tools.helm` | Cilium and ArgoCD installs; every render |
+| argocd | `tools.argocd` | `argocd app sync --local`, health fixture tests |
+| chainsaw | `tools.chainsaw` | e2e tests |
 | deno | mise | every script under `scripts/` |
 | task | mise | task runner |
-| tilt | mise (0.37.3) | optional: hot-reload wrapper around the loop |
+| go | mise | the `homelab` CLI (`go run ./cmd/homelab`) |
 | yq, jq | mise | version and values extraction in the scripts |
+| tilt | mise | legacy wrapper only, see [Tilt (legacy)](#tilt-legacy) |
 
 ### System Requirements
 
@@ -186,12 +187,12 @@ On Linux the Kind port mapping (NodePort 30080 to host 8080) serves the UI direc
 | `task drill:restore` | kind + argocd + `sync --warm` + `test:drill`: the CloudNativePG backup/restore drill in `tests/drills/` (`.github/workflows/restore-drill.yml` runs it weekly). `task test:drill` alone on a warm cluster. | |
 | `task localdev:up` | kind + argocd + sync. | |
 | `task localdev:warm` | kind + argocd + `sync --warm`: operators and CRDs up, applications left for a later `task localdev:sync`. | |
-| `task localdev:ci` | kind + argocd + sync + wait + `test:e2e`. What `tilt-ci.yml` runs. | |
+| `task localdev:ci` | kind + argocd + sync + wait + `test:e2e`. What the `kind-argocd` job in `tilt-ci.yml` runs (the workflow keeps its historical file name). | |
 | `task localdev:ui` | `kubectl port-forward` to `argocd-server` so the UI is on http://localhost:8080 (needed on macOS, optional on Linux). | |
 | `task localdev:traefik` | `kubectl port-forward` to Traefik internal on localhost:9080 / 9443, for `curl -H 'Host: <app>.homelab.local'` from the host. | |
 | `task localdev:fakes` | Re-apply `localdev/fakes/`. | `scripts/localdev-kind.ts fakes` |
 | `task localdev:registry -- up\|down\|status` | Manage the pull-through caches. | `scripts/localdev-kind.ts registry` |
-| `task localdev:down` | `tilt down` (if running) and delete the cluster; `-- --purge-cache` also removes the caches and their directory. | `scripts/localdev-kind.ts down` |
+| `task localdev:down` | Delete the cluster (stops a legacy Tilt session first if one is running); `-- --purge-cache` also removes the caches and their directory. | `scripts/localdev-kind.ts down` |
 | `task test:e2e` | `chainsaw test --config tests/e2e/.chainsaw.yaml tests/e2e` (`-- --test-dir tests/e2e/<name>` for one). | |
 | `task test:health` | Evaluate every health Lua against `tests/health/` fixtures. No cluster needed. | `scripts/health-test.ts` |
 | `task verify LEVEL=1` | Level 0 + `kubectl apply --server-side --dry-run=server` of every localdev chart. | `homelab verify all --level 1` |
@@ -316,63 +317,6 @@ the release as a no-op. `tests/e2e/cilium-netpol` proves NetworkPolicy enforceme
 
 ---
 
-## Tilt Modes
-
-Tilt is optional. `localdev/Tiltfile` has two modes, selected with `tilt up --
---mode=<mode>` (Tiltfile argument, wins) or `TILT_MODE=<mode>` (environment fallback).
-Both need the Kind cluster first (`task localdev:kind`).
-
-### Direct Mode (Default)
-
-**Use Case**: fastest iteration on a single third-party chart, no ArgoCD.
-
-Tilt installs local-path-provisioner, Traefik (NodePort 30080/30443) and cert-manager
-straight into Kind with `helm_resource`; kube-prometheus-stack is defined but disabled
-(`tilt enable kube-prometheus-stack`).
-
-```bash
-tilt up                 # from localdev/, or from the repo root
-task localdev:tilt
-```
-
-### ArgoCD Mode
-
-**Use Case**: the real loop, with Tilt re-syncing on every chart change.
-
-The mode wraps the Taskfile loop in Tilt resources:
-
-| Tilt resource | Runs | Trigger |
-|---|---|---|
-| `argocd-install` | `task localdev:argocd` | on `tilt up` |
-| `argocd-sync` | `task localdev:sync` | automatically whenever `charts/` or `configuration/` change |
-| `argocd-wait` | `task localdev:wait` | manual (`tilt trigger argocd-wait`) |
-| `argocd-diagnose` | `task localdev:diagnose` | manual |
-
-```bash
-tilt up -- --mode=argocd
-task localdev:tilt:argocd
-```
-
-**Architecture**:
-
-```
-File change under charts/ or configuration/ -> Tilt triggers argocd-sync
-  -> task localdev:sync (argocd app sync --local, tier by tier) -> ArgoCD applies
-  -> tilt trigger argocd-wait for a verdict, or task verify:text LEVEL=2
-```
-
-### Switching Modes
-
-```bash
-tilt down                  # stops Tilt; the cluster and everything ArgoCD deployed stay
-tilt up -- --mode=argocd   # or plain `tilt up` for direct mode
-```
-
-Direct-mode Traefik and the ArgoCD-mode Traefik Applications both want the `traefik`
-namespace, so `task localdev:down && task localdev:kind` between modes is the clean path.
-
----
-
 ## Development Workflow
 
 > **Note:** `charts/addons/values-localdev.yaml` and `charts/applications/values-localdev.yaml`
@@ -387,7 +331,7 @@ namespace, so `task localdev:down && task localdev:kind` between modes is the cl
 1. Edit a chart template, a config template or configuration/environments/localdev.yaml
 2. task config:export:localdev          (only when configuration/ changed)
 3. task verify:text                     (level 0, seconds; task test:snapshot -- --update if intended)
-4. task localdev:sync                   (or let Tilt in ArgoCD mode do it)
+4. task localdev:sync                   (-- --only <app> for one Application)
 5. task verify:text LEVEL=2             (or task localdev:wait + task test:e2e)
 6. Commit; CI re-runs level 0 and the whole loop
 ```
@@ -504,11 +448,6 @@ argocd app diff <app> --revision main   # this PR vs main (task localdev:report 
 argocd app sync <app> --local charts/<path> --local-repo-root . --prune   # what task localdev:sync runs
 ```
 
-### Tilt UI
-
-**Access**: http://localhost:10350 (ArgoCD mode: the `argocd-*` resources carry the task logs;
-`tilt trigger argocd-sync|argocd-wait|argocd-diagnose` re-runs one).
-
 ### Kubectl
 
 ```bash
@@ -558,8 +497,8 @@ tier table printed by the script names the app and its operation phase.
 `task localdev:warm` and sync only the applications you work on with `--only`.
 
 **Ports in use**: host 8080 (ArgoCD, `task localdev:ui`), 9080/9443 (Traefik, `task
-localdev:traefik`), 10350 (Tilt); ArgoCD NodePort 30080, mosquitto NodePorts 31883/31901,
-spegel 30021.
+localdev:traefik`); ArgoCD NodePort 30080, mosquitto NodePorts 31883/31901, spegel 30021
+(and 10350 if the legacy Tilt UI is running).
 
 **`localhost:8080` or `:9080` hangs on macOS**: expected with Cilium on Docker Desktop;
 use `task localdev:ui` / `task localdev:traefik` ([Host ports on macOS](#host-ports-on-macos)).
@@ -574,8 +513,8 @@ use `task localdev:ui` / `task localdev:traefik` ([Host ports on macOS](#host-po
 
 | Job | What it runs | Required |
 |-----|--------------|----------|
-| `kind-argocd` | pinned tools from `versions.yaml` (kind, kubectl, helm, argocd, chainsaw, tilt, task, deno), `actions/cache` on `~/.cache/homelab-kind-registry`, `task localdev:ci`, `task verify LEVEL=2` (JSON to the Job Summary and the `verify-level2` artifact), `task localdev:diagnose` on every outcome, then `task localdev:report` as the sticky PR comment `kind-preview` (same-repo PRs; never decides the check). 45 minute budget. | yes |
-| `kind-direct` | `task localdev:kind -- --no-registry`, `tilt ci --timeout 15m` in direct mode, asserts the Traefik and cert-manager Deployments | |
+| `kind-argocd` | pinned tools from `versions.yaml` (kind, kubectl, helm, argocd, chainsaw, task, deno), `actions/cache` on `~/.cache/homelab-kind-registry`, `task localdev:ci`, `task verify LEVEL=2` (JSON to the Job Summary and the `verify-level2` artifact), `task localdev:diagnose` on every outcome, then `task localdev:report` as the sticky PR comment `kind-preview` (same-repo PRs; never decides the check). 45 minute budget. | yes |
+| `kind-direct` | Legacy: `task localdev:kind -- --no-registry`, `tilt ci --timeout 15m` with the direct-mode Tiltfile, asserts the Traefik and cert-manager Deployments. Kept while `localdev/Tiltfile` exists; not the loop. | |
 | `yaml-lint` | `yamllint` over `charts/`, `localdev/`, `tests/e2e`, `tests/health` | |
 
 Level 0 runs separately in `.github/workflows/verify.yml`.
@@ -632,20 +571,30 @@ kubectl --context kind-homelab-localdev -n local-path-storage get pods
 task localdev:fakes                                            # re-apply the aliases
 ```
 
-### Tilt Issues
+---
 
-**Symptom**: Tilt shows an error on `argocd-sync`: open the resource log; it is the
-`task localdev:sync` output. Fix, then `tilt trigger argocd-sync`.
+## Tilt (legacy)
+
+The loop above does not use Tilt. `localdev/Tiltfile` predates it and is kept only as a
+thin wrapper: `task localdev:tilt:argocd` (`tilt up -- --mode=argocd`) runs
+`task localdev:argocd` on start and re-runs `task localdev:sync` whenever `charts/` or
+`configuration/` change, with `argocd-wait` / `argocd-diagnose` as manual triggers
+(`tilt trigger <resource>`); plain `task localdev:tilt` (direct mode) installs
+local-path-provisioner, Traefik and cert-manager into Kind with `helm_resource` and no
+ArgoCD, which is what the `kind-direct` CI job still exercises. Both need `task localdev:kind`
+first, the direct mode conflicts with the ArgoCD-managed `traefik` namespace, and the Tilt UI
+is on http://localhost:10350. Prefer `task localdev:sync` and `task localdev:wait`;
+`tilt down` leaves the cluster and everything ArgoCD deployed in place.
 
 ---
 
 ## References
 
-- [Kind](https://kind.sigs.k8s.io/) · [ArgoCD CLI: app sync --local](https://argo-cd.readthedocs.io/en/stable/user-guide/commands/argocd_app_sync/) · [Chainsaw](https://kyverno.github.io/chainsaw/) · [Cilium](https://docs.cilium.io/) · [Tilt](https://docs.tilt.dev/) · [Taskfile](https://taskfile.dev/)
+- [Kind](https://kind.sigs.k8s.io/) · [ArgoCD CLI: app sync --local](https://argo-cd.readthedocs.io/en/stable/user-guide/commands/argocd_app_sync/) · [Chainsaw](https://kyverno.github.io/chainsaw/) · [Cilium](https://docs.cilium.io/) · [Taskfile](https://taskfile.dev/)
 - [verification runbook](./runbooks/verification.md), [architecture](./architecture.md), [networking](./networking.md)
 - `localdev/fakes/README.md`, `tests/e2e/README.md`, `tests/health/README.md`
 - ADR-009 (agents mutate only Kind), ADR-011 (capability keys), ADR-012 (this loop) in `docs/project_notes/decisions.md`
 
 ---
 
-**Last Updated**: 2026-09-13 (issue #261 Section B)
+**Last Updated**: 2026-09-16 (README redesign: Tilt demoted to legacy, node counts and GPU vendor corrected)

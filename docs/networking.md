@@ -1,21 +1,26 @@
-# Network Architecture and Configuration
+# Networking
 
-This document provides comprehensive networking documentation for the homelab, including VLAN configuration, BGP peering, MetalLB setup, and troubleshooting procedures.
+How traffic reaches the cluster and how names resolve, from the repository as it is today:
+Cilium load balancing with BGP to the UniFi gateway, two Traefik ingress lanes, two
+external-dns providers, the port-forwarding controller, and Tailscale for remote access.
 
-Addresses and hostnames are written as `<KEY>` placeholders; the real values are resolved from the gitignored `configuration/environments/homelab.yaml`. Addresses that have no configuration key and are purely illustrative use the RFC 5737 documentation range `192.0.2.0/24`.
+Addresses and hostnames are `<KEY>` placeholders resolved from the gitignored
+`configuration/environments/homelab.yaml` (`configuration/schema/network.schema.yaml`
+declares them; `task config:eval` prints them). Purely illustrative addresses use the
+RFC 5737 range `192.0.2.0/24`. Load balancing is Cilium; there is no separate load-balancer
+add-on.
 
 ## Table of Contents
 
 - [Overview](#overview)
-- [Network Topology](#network-topology)
-- [VLAN Configuration](#vlan-configuration)
-- [IP Address Allocation](#ip-address-allocation)
-- [BGP Configuration](#bgp-configuration)
-- [MetalLB Configuration](#metallb-configuration)
-- [DNS Configuration](#dns-configuration)
-- [Ingress Configuration](#ingress-configuration)
-- [Network Security](#network-security)
-- [Cilium CNI Configuration](#cilium-cni-configuration)
+- [Load balancing: Cilium LB IPAM and BGP](#load-balancing-cilium-lb-ipam-and-bgp)
+- [Ingress: two Traefiks](#ingress-two-traefiks)
+- [Ingress inventory](#ingress-inventory)
+- [DNS: external-dns](#dns-external-dns)
+- [Port forwarding](#port-forwarding)
+- [Tailscale](#tailscale)
+- [Request paths](#request-paths)
+- [Cilium CNI](#cilium-cni)
 - [Troubleshooting](#troubleshooting)
 - [References](#references)
 
@@ -23,935 +28,358 @@ Addresses and hostnames are written as `<KEY>` placeholders; the real values are
 
 ## Overview
 
-The homelab uses a software-defined networking approach with BGP routing between the Kubernetes cluster and the UniFi Dream Machine. This enables dynamic service IP advertisement and automatic traffic routing.
+```mermaid
+flowchart LR
+  inet((Internet)) -->|"plex.<DOMAIN> → CNAME <DUCKDNS_SUBDOMAIN>.duckdns.org → WAN IP"| gw
+  ts((Tailnet)) -->|subnet route via homelab-subnet-router| gw
+  subgraph unifi["UniFi gateway <GATEWAY_IP>, FRR AS64513"]
+    gw[Firewall, DHCP, DNS for <DOMAIN>, port forwards kube-*]
+  end
+  gw <-->|"BGP: LoadBalancer /32 routes"| cilium
+  subgraph cluster["Talos cluster, Cilium AS64512"]
+    cilium["CiliumLoadBalancerIPPool default\n<LB_POOL_START>-<LB_POOL_END>"]
+    cilium --> te["traefik-external\n<TRAEFIK_STATIC_IP>, class external\noidc-auth middleware"]
+    cilium --> ti["traefik-internal\nclass internal"]
+    cilium --> plexsvc["plex Service <PLEX_LB_IP>:32400"]
+    te --> plex[plex]
+    ti --> apps["argocd, grafana, workflows, paperclip,\nsonarr, radarr, prowlarr, nzbget, tautulli, lazylibrarian"]
+  end
+  cluster -->|external-dns-cloudflare, class external| cf[(Cloudflare DNS)]
+  cluster -->|external-dns-unifi-ingress, class internal| gw
+```
 
-### Key Components
-
-- **UniFi Dream Machine**: Gateway, DHCP server, BGP peer (ASN 64513)
-- **MetalLB**: Kubernetes load balancer with BGP mode (ASN 64512)
-- **Cilium**: CNI plugin with eBPF datapath
-- **Traefik**: HTTP/HTTPS ingress controller
-- **external-dns**: Automatic DNS record management (Cloudflare)
-
-### Network Design Principles
-
-1. **Separation of Concerns**: VLANs isolate homelab traffic
-2. **Dynamic Routing**: BGP enables automatic service discovery
-3. **Zero Manual DNS**: external-dns manages records automatically
-4. **High Availability**: Multiple control plane nodes for resilience
-5. **Security First**: Default-deny firewall rules, TLS everywhere
+| Component | Role | Where |
+|-----------|------|-------|
+| UniFi gateway | Router, firewall, DHCP, LAN DNS for `<DOMAIN>`, BGP peer (FRR, AS `<BGP_ROUTER_ASN>` = 64513) | `terragrunt/modules/unifi-gateway` |
+| Cilium | CNI, kube-proxy replacement, LoadBalancer IPAM, BGP speaker (AS 64512), L2 announcements | `charts/addons/templates/cilium.yaml`, `cilium-lb-ipam.yaml` |
+| Traefik ×2 | `external` lane (Internet, OIDC) and `internal` lane (LAN + tailnet) | `charts/addons/templates/traefik-external.yaml`, `traefik-internal.yaml` |
+| cert-manager | Let's Encrypt via Cloudflare DNS-01 (`CERT_ISSUER=letsencrypt`) | `charts/addons/templates/cert-manager.yaml`, `charts/cert-manager-cluster-issuer` |
+| external-dns | Cloudflare records for the external lane, UniFi records for the internal lane | `charts/addons/templates/external-dns-*.yaml` |
+| duckdns | Keeps `<DUCKDNS_SUBDOMAIN>.duckdns.org` on the current WAN address | `charts/applications/templates/duckdns.yaml`, `charts/duckdns` |
+| port-forwarding-controller | Creates UniFi port forwards from annotated Services | `charts/addons/templates/unifi-port-forward.yaml` |
+| Tailscale operator | Subnet router, API server proxy, split DNS | `charts/addons/templates/tailscale-operator.yaml`, `charts/tailscale-config` |
 
 ---
 
-## Network Topology
+## Load balancing: Cilium LB IPAM and BGP
 
-```
-                                 Internet
-                                     │
-                                     │
-                     ┌───────────────▼───────────────┐
-                     │   UniFi Dream Machine         │
-                     │   WAN: DHCP (ISP)             │
-                     │   LAN: 192.168.1.1/24 (Main)  │
-                     │   BGP ASN: 64513              │
-                     └───────────────┬───────────────┘
-                                     │
-                     ┌───────────────┴───────────────┐
-                     │                               │
-             ┌───────▼────────┐            ┌────────▼────────┐
-             │  VLAN 1 (Main) │            │ VLAN 100 (Lab)  │
-             │  192.168.1.0/24│            │<NFS_SHARE_ALLOW>│
-             │                │            │                 │
-             │  - Desktop     │            │  - Proxmox      │
-             │  - Laptop      │            │  - TrueNAS      │
-             │  - IoT devices │            │  - Talos Nodes  │
-             └────────────────┘            └─────────┬───────┘
-                                                     │
-                               ┌─────────────────────┼─────────────────────┐
-                               │                     │                     │
-                        ┌──────▼──────┐     ┌───────▼────────┐   ┌───────▼────────┐
-                        │   Proxmox   │     │  TrueNAS VM    │   │  Talos Nodes   │
-                        │ <PROXMOX_IP>│     │  (DHCP)        │   │  (DHCP)        │
-                        └─────────────┘     └────────────────┘   └────────┬───────┘
-                                                                           │
-                                                                  ┌────────▼────────┐
-                                                                  │    MetalLB      │
-                                                                  │  BGP ASN 64512  │
-                                                                  │ <LB_POOL_START> │
-                                                                  │ -<LB_POOL_END>  │
-                                                                  └─────────────────┘
-                                                                           │
-                                    ┌──────────────────────────────────────┼──────────────────┐
-                                    │                                      │                  │
-                            ┌───────▼───────────┐                ┌─────────▼─────────┐  ┌────▼─────┐
-                            │    Traefik        │                │      Plex         │  │  Other   │
-                            │ LoadBalancer      │                │  LoadBalancer     │  │ Services │
-                            │<TRAEFIK_STATIC_IP>│                │   <PLEX_LB_IP>    │  │          │
-                            └───────────────────┘                └───────────────────┘  └──────────┘
+```mermaid
+flowchart LR
+  svc["Service type=LoadBalancer\n(optional io.cilium/lb-ipam-ips: <TRAEFIK_STATIC_IP>)"] --> pool["CiliumLoadBalancerIPPool default\n<LB_POOL_START>-<LB_POOL_END>"]
+  pool --> adv["CiliumBGPAdvertisement loadbalancer-ips\n(advertisementType: Service)"]
+  adv --> bgp["CiliumBGPClusterConfig homelab-bgp\nlocalASN 64512, nodeSelector: control planes\nCiliumBGPPeerConfig unifi-gateway-peer (graceful restart)"]
+  bgp <-->|"TCP 179, /32 per Service IP"| frr["UniFi FRR AS64513\nrouter bgp 64513, neighbor <CP1_IP>/<CP2_IP>/<CP3_IP> remote-as 64512\n(unifi_bgp.this, frr-bgp-64513.conf)"]
+  pool --> l2["CiliumL2AnnouncementPolicy default\nnodeSelector: workers only (ARP on the LAN)"]
+  vip["CiliumLoadBalancerIPPool control-plane-vip\n<CP_VIP>/32, serviceSelector"] -.-> bgp
 ```
 
-### Traffic Flow
+`charts/addons/templates/cilium-lb-ipam.yaml` renders every load-balancing CR:
 
-1. **External Request**: Internet → UniFi WAN
-2. **Ingress**: UniFi → MetalLB IP (via BGP route)
-3. **Load Balancing**: MetalLB → Service endpoints
-4. **Ingress Controller**: Traefik routes by hostname
-5. **Application**: Pod serves request
+| Resource | Name | What it does |
+|----------|------|--------------|
+| `CiliumLoadBalancerIPPool` | `default` | Allocates `<LB_POOL_START>`-`<LB_POOL_END>` to `LoadBalancer` Services; a Service pins an address with `io.cilium/lb-ipam-ips` (Traefik external: `<TRAEFIK_STATIC_IP>`, Plex: `<PLEX_LB_IP>`) |
+| `CiliumLoadBalancerIPPool` | `control-plane-vip` | A one-address pool for `<CP_VIP>` selected by `serviceSelector`, so the control-plane VIP can also be advertised by BGP |
+| `CiliumBGPClusterConfig` | `homelab-bgp` | Local AS `64512`; runs on the control-plane nodes only (`nodeSelector`), peering with every entry in `cilium-lb-ipam.bgp.peers` (`<BGP_PEER_IP>` = `<GATEWAY_IP>`, AS `<BGP_ROUTER_ASN>`) |
+| `CiliumBGPPeerConfig` | `unifi-gateway-peer` | Timers and graceful restart for the session |
+| `CiliumBGPAdvertisement` | `loadbalancer-ips` | Advertises Service LoadBalancer addresses as /32 routes |
+| `CiliumL2AnnouncementPolicy` | `default` | Workers answer ARP for the pool addresses on the LAN interface, so LAN clients reach them even without the BGP route |
+
+The other end of the session is written by Terragrunt: the `unifi-gateway` unit renders
+`frr-bgp.conf.tftpl` (`router bgp 64513`, one `neighbor <node ip> remote-as 64512` per
+control plane, `soft-reconfiguration inbound`) and uploads it with the `unifi_bgp` resource
+(`task tf:apply:component COMPONENT=unifi-gateway`). Private ASNs per RFC 6996.
+
+In Kind `LOAD_BALANCER_ENABLED=false`: Services are NodePort, none of these CRs render.
 
 ---
 
-## VLAN Configuration
+## Ingress: two Traefiks
 
-### VLAN 1 (Main Network)
+Two independent Traefik releases from the same chart (`charts.traefik`) with their own
+IngressClass, so a workload is either reachable from the Internet or only from the LAN and
+tailnet, never by accident both (design: `docs/plans/2026-02-13-dual-traefik-ingress-design.md`).
 
-| Parameter | Value |
-|-----------|-------|
-| VLAN ID | 1 (default/untagged) |
-| Subnet | 192.168.1.0/24 |
-| Gateway | 192.168.1.1 (UniFi) |
-| DHCP Range | 192.168.1.100-192.168.1.200 |
-| Purpose | Main home network |
+| | `traefik-external` | `traefik-internal` |
+|--|--------------------|--------------------|
+| IngressClass | `external` (`INGRESS_CLASS_EXTERNAL`) | `internal` (`INGRESS_CLASS_INTERNAL`) |
+| Service address | `<TRAEFIK_STATIC_IP>` (`io.cilium/lb-ipam-ips`), `externalTrafficPolicy: Cluster` | from the `default` pool |
+| Reached from | Internet through the UniFi port forward `kube-*` on 80/443, and the LAN | LAN and tailnet only; no port forward, no public DNS |
+| DNS | Cloudflare (`external-dns-cloudflare`, `--ingress-class=external`) | UniFi (`external-dns-unifi-ingress`, `--ingress-class=internal`) |
+| Authentication | `Middleware oidc-auth` (`traefikoidc` plugin, `charts.traefik-oidc`): Google OIDC, `allowedDomains` from `TRAEFIK_OIDC_ALLOWED_DOMAINS`, sessions in `oidc-redis`; callback host `auth.<DOMAIN>` (`IngressRoute auth-oidc`) | none at the edge; apps authenticate themselves |
+| Dashboard | `IngressRoute` on `<TRAEFIK_HOSTNAME>` (`traefik.<DOMAIN>`) | `IngressRoute` on `<TRAEFIK_INTERNAL_HOSTNAME>` (`traefik-internal.<DOMAIN>`) |
+| Child charts | `traefik-external-dependencies` (OnePasswordItems: OAuth client, session key), `traefik-external-config` (middleware, `auth-tls` Certificate, `auth-dns` DNSEndpoint, dashboard route) | `traefik-internal-dependencies`, `traefik-internal-config` |
 
-**Devices**: Desktop, laptop, phones, smart home devices
+`oauth2-proxy` has a template in `charts/addons` but is disabled everywhere
+(`oauth2-proxy.enabled: false`); the OIDC lane is the Traefik plugin. Certificates come from
+cert-manager's `letsencrypt` ClusterIssuer (Cloudflare DNS-01); Kind uses a self-signed
+issuer of the same name (`CERT_ISSUER=selfsigned`). No Gateway API resources exist.
 
-### VLAN 100 (Homelab)
-
-| Parameter | Value |
-|-----------|-------|
-| VLAN ID | 100 |
-| Subnet | `<NFS_SHARE_ALLOW>` |
-| Gateway | `<GATEWAY_IP>` (UniFi) |
-| DHCP Range | `.50` - `.99` within `<NFS_SHARE_ALLOW>` |
-| Static IPs | `.26` within `<NFS_SHARE_ALLOW>`, `<PROXMOX_IP>` |
-| MetalLB Pool | `<LB_POOL_START>` - `<LB_POOL_END>` |
-| Purpose | Homelab infrastructure |
-
-**Devices**: Proxmox, IPMI, TrueNAS, Talos nodes, Kubernetes services
-
-### UniFi VLAN Configuration
-
-**Step 1: Create VLAN**
-
-1. Navigate to **Settings** → **Networks**
-2. Click **Create New Network**
-3. Configure:
-   - Name: `Homelab`
-   - VLAN ID: `100`
-   - Gateway IP: `<GATEWAY_IP>/24`
-   - DHCP Mode: `DHCP Server`
-   - DHCP Range: `.50` - `.99` within `<NFS_SHARE_ALLOW>`
-   - Domain Name: `<DOMAIN>`
-
-**Step 2: Enable BGP**
-
-1. Navigate to **Settings** → **Routing** → **BGP**
-2. Enable BGP
-3. Configure:
-   - AS Number: `64513`
-   - Router ID: `<GATEWAY_IP>`
-
-**Step 3: Add BGP Neighbor**
-
-1. Under BGP settings, click **Add Neighbor**
-2. Configure:
-   - Neighbor IP: `<any-talos-node-ip>` (MetalLB speaker)
-   - Remote AS: `64512`
-   - Password: (optional, not used)
-   - BFD: Disabled
-
-**Note**: MetalLB speakers run on all nodes, so BGP will establish sessions with multiple IPs.
+Every application Ingress sets `ingressClassName` from `global.ingressClassNameExternal` /
+`global.ingressClassNameInternal` in the rendered values; Plex is the only external one.
 
 ---
 
-## IP Address Allocation
+## Ingress inventory
 
-### Static IP Assignments
+Generated from `tests/snapshots/homelab/*.yaml` by `task docs:check -- --fix`
+(`scripts/docs-check.ts`); do not edit by hand. The `argocd` row comes from
+`charts/bootstrap` (plain Helm), every other one from `charts/addons` or
+`charts/applications`.
 
-| Device | IP Address | Interface | Notes |
-|--------|------------|-----------|-------|
-| UniFi Gateway | `<GATEWAY_IP>` | VLAN 100 | Gateway + BGP peer |
-| IPMI (Supermicro) | `.26` within `<NFS_SHARE_ALLOW>` | Dedicated NIC | Out-of-band management |
-| Proxmox | `<PROXMOX_IP>` | vmbr0 (VLAN 100) | Hypervisor web UI |
+<!-- docs-check:begin ingress-table -->
+| Host | Class | Kind | Application |
+| --- | --- | --- | --- |
+| `auth.<DOMAIN>` | external | IngressRoute | `auth-oidc` |
+| `plex.<DOMAIN>` | external | Ingress | `plex` |
+| `traefik.<DOMAIN>` | external | IngressRoute | `traefik-external` |
+| `argocd.<DOMAIN>` | internal | Ingress | `argocd` |
+| `grafana.<DOMAIN>` | internal | Ingress | `kube-prometheus-stack` |
+| `lazylibrarian.<DOMAIN>` | internal | Ingress | `lazylibrarian` |
+| `nzbget.<DOMAIN>` | internal | Ingress | `nzbget` |
+| `paperclip.<DOMAIN>` | internal | Ingress | `paperclip` |
+| `prowlarr.<DOMAIN>` | internal | Ingress | `prowlarr` |
+| `radarr.<DOMAIN>` | internal | Ingress | `radarr` |
+| `sonarr.<DOMAIN>` | internal | Ingress | `sonarr` |
+| `tautulli.<DOMAIN>` | internal | Ingress | `tautulli` |
+| `traefik-internal.<DOMAIN>` | internal | IngressRoute | `traefik-internal` |
+| `workflows.<DOMAIN>` | internal | Ingress | `argo-workflows` |
+<!-- docs-check:end ingress-table -->
 
-### DHCP Assignments
-
-| Device | IP Range | Notes |
-|--------|----------|-------|
-| TrueNAS | `.50`-`.99` (DHCP pool) | VM on Proxmox |
-| Talos Control Plane 1 | `.50`-`.99` (DHCP pool) | VM on Proxmox |
-| Talos Control Plane 2 | `.50`-`.99` (DHCP pool) | VM on Proxmox |
-| Talos Worker 1-3 | `.50`-`.99` (DHCP pool) | VMs on Proxmox |
-
-**DHCP Configuration**: UniFi handles DHCP with static lease options available
-
-### MetalLB IP Pool
-
-| Pool Name | IP Range | Usage |
-|-----------|----------|-------|
-| default | `<LB_POOL_START>`-`<LB_POOL_END>` | LoadBalancer services |
-
-**Total Available IPs**: 101 IPs for services
-
-### Service IP Assignments
-
-MetalLB dynamically assigns IPs from the pool. Typical allocations:
-
-| Service | IP (example) | Port | Purpose |
-|---------|--------------|------|---------|
-| Traefik | `<TRAEFIK_STATIC_IP>` | 80, 443 | HTTP/HTTPS ingress |
-| Plex | `<PLEX_LB_IP>` | 32400 | Media server |
-| ArgoCD | 192.0.2.103 | 80, 443 | GitOps UI |
-| Grafana | 192.0.2.104 | 80 | Monitoring dashboards |
-
-ArgoCD and Grafana have no reserved address key, so their rows use the RFC 5737 documentation range.
-
-**Note**: Actual IPs assigned dynamically. Use DNS names, not IPs.
+Three external hosts (Plex, the external dashboard, the OIDC callback) and eleven internal
+ones. Previews (`<app>-pr<N>.<DOMAIN>`, ADR-013) render on the same classes as their app and
+are not part of the snapshot.
 
 ---
 
-## BGP Configuration
+## DNS: external-dns
 
-### Overview
+Four `external-dns` Applications (chart `charts.external-dns`), two per lane, each with its
+own `txtOwnerId` so they never fight over records:
 
-Border Gateway Protocol (BGP) enables dynamic routing between Kubernetes (MetalLB) and the UniFi router. When a LoadBalancer service is created, MetalLB:
+| Application | Provider | Sources | Selects | Target |
+|-------------|----------|---------|---------|--------|
+| `external-dns-cloudflare` | cloudflare (`proxied` from values) | `ingress` | `--ingress-class=external` plus an `annotationFilter` | `--default-targets=<EXTERNAL_DNS_DEFAULT_TARGET>` (`<DUCKDNS_SUBDOMAIN>.duckdns.org`), so public names are **CNAMEs to the DuckDNS name**, never the LAN address |
+| `external-dns-cloudflare-crd` | cloudflare | `crd` (`DNSEndpoint`) | explicit records such as `auth-dns` from `traefik-external-config` | same default target |
+| `external-dns-unifi-ingress` | UniFi webhook (`charts.external-dns-webhook-unifi`) | `ingress`, `service` | `--ingress-class=internal` | the Ingress/Service LoadBalancer address on the LAN |
+| `external-dns-unifi-crd` | UniFi webhook | `crd` | `DNSEndpoint` records for the LAN (`charts/external-dns-config`) | as declared |
 
-1. Assigns an IP from the pool
-2. Announces the IP to BGP peers (UniFi)
-3. UniFi installs route in routing table
-4. Traffic to that IP flows to correct Kubernetes node
+The `duckdns` Application (`charts/duckdns`, token from `duckdns-dependencies`) refreshes
+`<DUCKDNS_SUBDOMAIN>.duckdns.org` with the current WAN address, which is why the Cloudflare
+records can be static CNAMEs. `EXTERNAL_DNS_ENABLED=false` in Kind renders none of this;
+e2e tests send `Host:` headers instead.
 
-### BGP Autonomous System Numbers
+Resolution therefore depends on where the client sits:
 
-| Component | ASN | Router ID |
-|-----------|-----|-----------|
-| UniFi Dream Machine | 64513 | `<GATEWAY_IP>` |
-| MetalLB (K8s) | 64512 | (node IP) |
-
-**ASN Selection**: Private ASN range (64512-65534) per RFC 6996
-
-### MetalLB BGP Configuration
-
-**File**: `charts/addons/templates/metallb.yaml`
-
-```yaml
-apiVersion: metallb.io/v1beta1
-kind: IPAddressPool
-metadata:
-  name: default
-  namespace: metallb-system
-spec:
-  addresses:
-    # LB_POOL_START and LB_POOL_END from configuration/environments/homelab.yaml
-    - <LB_POOL_START>-<LB_POOL_END>
-  autoAssign: true
----
-apiVersion: metallb.io/v1beta2
-kind: BGPPeer
-metadata:
-  name: unifi-peer
-  namespace: metallb-system
-spec:
-  myASN: 64512
-  peerASN: 64513
-  peerAddress: <GATEWAY_IP>  # from configuration/environments/homelab.yaml
-  sourceAddress:
----
-apiVersion: metallb.io/v1beta1
-kind: BGPAdvertisement
-metadata:
-  name: default
-  namespace: metallb-system
-spec:
-  ipAddressPools:
-    - default
-  aggregationLength: 32  # Advertise /32 host routes
-```
-
-### Verification
-
-**Check BGP Session Status**:
-
-```bash
-# On Kubernetes: Check MetalLB speaker logs
-kubectl -n metallb-system logs -l component=speaker | grep -i bgp
-
-# Look for: "BGP session established"
-```
-
-**On UniFi**:
-
-1. SSH to UniFi Dream Machine:
-   ```bash
-   ssh admin@<GATEWAY_IP>   # GATEWAY_IP from configuration/environments/homelab.yaml
-   ```
-
-2. Check BGP summary:
-   ```bash
-   vtysh -c "show ip bgp summary"
-   ```
-
-   Expected output:
-   ```
-   Neighbor        V    AS MsgRcvd MsgSent   TblVer  InQ OutQ  Up/Down State/PfxRcd
-   192.0.2.51      4 64512     123     456        0    0    0 01:23:45        5
-   192.0.2.52      4 64512     234     567        0    0    0 01:23:45        5
-   ```
-
-3. View advertised routes:
-   ```bash
-   vtysh -c "show ip bgp"
-   ```
-
-### Troubleshooting BGP
-
-**BGP Session Not Establishing**:
-
-1. Verify ASN numbers match
-2. Check peer IP addresses
-3. Verify firewall allows BGP (TCP port 179)
-4. Check MetalLB speaker pods are running
-5. Review speaker logs for errors
-
-**Routes Not Installed**:
-
-1. Verify IP pool configuration
-2. Check BGP advertisement configuration
-3. Verify services have LoadBalancer type
-4. Check for IP conflicts
+| Client | `plex.<DOMAIN>` resolves to | Internal names (`sonarr.<DOMAIN>`, ...) |
+|--------|-----------------------------|------------------------------------------|
+| Internet | Cloudflare → CNAME DuckDNS → WAN IP → port forward → `<TRAEFIK_STATIC_IP>` | NXDOMAIN (no public record) |
+| LAN | UniFi answers first (`external-dns-unifi`), otherwise the public CNAME; either way ends at Traefik external | UniFi → `traefik-internal` address |
+| Tailnet | Split DNS sends `<DOMAIN>` to `<GATEWAY_IP>` through the subnet router, same answers as the LAN | same as LAN |
 
 ---
 
-## MetalLB Configuration
+## Port forwarding
 
-### Architecture
+`port-forwarding-controller` (chart `unifi-port-forward`, `charts.unifi-port-forward`;
+credentials from `charts/port-forwarding-controller-config`) watches Services annotated
+`port-forwarding.<DOMAIN>/enable: "true"` and creates the matching UniFi port-forward rules,
+named with the `kube-` prefix so hand-made rules are never touched. Two Services carry the
+annotation:
 
-MetalLB runs in two components:
+| Service | Address | Ports | Purpose |
+|---------|---------|-------|---------|
+| `traefik-external` | `<TRAEFIK_STATIC_IP>` | 80, 443 | Public ingress (Plex UI, OIDC callback, dashboard) |
+| `plex` (`externalTrafficPolicy: Local`) | `<PLEX_LB_IP>` | 32400 | Plex remote access direct to the media server |
 
-1. **Controller**: Assigns IPs to LoadBalancer services
-2. **Speaker**: Announces IPs via BGP
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                     Kubernetes Cluster                       │
-│                                                              │
-│  ┌──────────────────────────────────────────────────────┐  │
-│  │  MetalLB Controller (Deployment)                     │  │
-│  │  - Watches LoadBalancer services                     │  │
-│  │  - Assigns IPs from pool                             │  │
-│  └──────────────────────────────────────────────────────┘  │
-│                                                              │
-│  ┌──────────────────────────────────────────────────────┐  │
-│  │  MetalLB Speaker (DaemonSet - runs on all nodes)     │  │
-│  │  - Establishes BGP sessions                          │  │
-│  │  - Announces service IPs                             │  │
-│  │  - Responds to ARP requests                          │  │
-│  └──────────────────────────────────────────────────────┘  │
-└─────────────────────────────────────────────────────────────┘
-```
-
-### Installation
-
-MetalLB is installed via ArgoCD from the addons chart:
-
-```yaml
-# charts/addons/templates/metallb.yaml
-apiVersion: argoproj.io/v1alpha1
-kind: Application
-metadata:
-  name: metallb
-  namespace: argocd
-  annotations:
-    argocd.argoproj.io/sync-wave: "1"
-spec:
-  project: default
-  source:
-    repoURL: https://metallb.github.io/metallb
-    chart: metallb
-    targetRevision: 0.14.8
-    helm:
-      values: |
-        controller:
-          resources:
-            requests:
-              cpu: 10m
-              memory: 64Mi
-        speaker:
-          resources:
-            requests:
-              cpu: 10m
-              memory: 64Mi
-  destination:
-    server: https://kubernetes.default.svc
-    namespace: metallb-system
-  syncPolicy:
-    automated:
-      prune: true
-      selfHeal: true
-    syncOptions:
-      - CreateNamespace=true
-```
-
-### IP Address Pool Management
-
-**Creating Additional Pools**:
-
-The ranges below are RFC 5737 documentation addresses; substitute sub-ranges of the real pool between `<LB_POOL_START>` and `<LB_POOL_END>`.
-
-```yaml
-apiVersion: metallb.io/v1beta1
-kind: IPAddressPool
-metadata:
-  name: production
-  namespace: metallb-system
-spec:
-  addresses:
-    - 192.0.2.150-192.0.2.200
-  autoAssign: false  # Require explicit pool selection
----
-apiVersion: metallb.io/v1beta1
-kind: IPAddressPool
-metadata:
-  name: development
-  namespace: metallb-system
-spec:
-  addresses:
-    - 192.0.2.100-192.0.2.149
-  autoAssign: true
-```
-
-**Using Specific Pool**:
-
-```yaml
-apiVersion: v1
-kind: Service
-metadata:
-  name: my-service
-  annotations:
-    metallb.universe.tf/address-pool: production
-spec:
-  type: LoadBalancer
-  loadBalancerIP: <an-address-from-the-pool>  # Optional: request specific IP
-  ports:
-    - port: 80
-      targetPort: 8080
-  selector:
-    app: my-app
-```
-
-### Layer 2 Mode (Alternative to BGP)
-
-If BGP is not available, MetalLB can run in Layer 2 mode:
-
-```yaml
-apiVersion: metallb.io/v1beta1
-kind: L2Advertisement
-metadata:
-  name: default
-  namespace: metallb-system
-spec:
-  ipAddressPools:
-    - default
-```
-
-**Note**: Layer 2 mode uses ARP, not BGP. Less scalable but simpler.
+Removing the annotation (or the Service) removes the rule. Nothing else is exposed: the
+internal lane, ArgoCD and the API server have no forward.
 
 ---
 
-## DNS Configuration
+## Tailscale
 
-### Overview
+The Tailscale operator (`charts.tailscale-operator`, OAuth client from
+`charts/tailscale-config` OnePasswordItem `operator-oauth`) provides three things:
 
-DNS is managed at three levels:
+| Piece | Resource | Notes |
+|-------|----------|-------|
+| Subnet router | `Connector homelab-subnet-router`, `advertiseRoutes: [<TAILSCALE_ADVERTISE_ROUTES>]` (the LAN /24) | Tailnet clients reach every LAN address, including the load-balancer pool, without a VPN concentrator |
+| API server proxy | operator `apiServerProxyConfig.mode: noauth`, hostname `tailscale-operator-homelab` | Kubernetes API over the tailnet with the caller's own credentials; the read-only agent path (`task prod:kubeconfig`, ServiceAccount `agent-readonly`, ADR-013) uses it: [runbooks/readonly-access.md](./runbooks/readonly-access.md) |
+| Split DNS | tailnet nameserver for `<DOMAIN>` = `<GATEWAY_IP>`, applied with `task tailscale:dns:apply` (`scripts/tailscale-dns.ts`) | Internal names resolve on the tailnet exactly as on the LAN: [runbooks/tailscale-dns.md](./runbooks/tailscale-dns.md) |
 
-1. **Public DNS (Cloudflare)**: External records via external-dns
-2. **Local DNS (UniFi)**: Internal VLAN resolution
-3. **Kubernetes DNS (CoreDNS)**: In-cluster service discovery
-
-### external-dns Configuration
-
-**Purpose**: Automatically creates DNS records in Cloudflare for Ingress resources
-
-**File**: `charts/addons/templates/external-dns.yaml`
-
-```yaml
-apiVersion: argoproj.io/v1alpha1
-kind: Application
-metadata:
-  name: external-dns
-  namespace: argocd
-spec:
-  source:
-    repoURL: https://kubernetes-sigs.github.io/external-dns
-    chart: external-dns
-    targetRevision: 1.14.3
-    helm:
-      values: |
-        provider: cloudflare
-        env:
-          - name: CF_API_TOKEN
-            valueFrom:
-              secretKeyRef:
-                name: cloudflare-api-token
-                key: api-token
-        domainFilters:
-          # DOMAIN from configuration/environments/homelab.yaml
-          - <DOMAIN>
-        policy: sync  # upsert-only or sync
-        txtOwnerId: homelab-k8s
-        interval: 5m
-```
-
-**How It Works**:
-
-1. Create Ingress with annotation:
-   ```yaml
-   apiVersion: networking.k8s.io/v1
-   kind: Ingress
-   metadata:
-     name: my-app
-     annotations:
-       external-dns.alpha.kubernetes.io/hostname: app.<DOMAIN>
-   spec:
-     rules:
-       - host: app.<DOMAIN>
-         http:
-           paths:
-             - path: /
-               pathType: Prefix
-               backend:
-                 service:
-                   name: my-app
-                   port:
-                     number: 80
-   ```
-
-2. external-dns creates Cloudflare DNS record:
-   ```
-   app.<DOMAIN> → A → <TRAEFIK_STATIC_IP> (Traefik LoadBalancer IP)
-   ```
-
-3. Traffic flows: Internet → Cloudflare → UniFi WAN → Traefik → Pod
-
-### Local DNS Resolution
-
-**UniFi DNS Settings**:
-
-1. Navigate to **Settings** → **Networks** → **Homelab (VLAN 100)**
-2. Configure DNS:
-   - DNS Server: `1.1.1.1` (Cloudflare)
-   - DNS Server 2: `8.8.8.8` (Google)
-   - Domain Name: `<DOMAIN>`
-
-**Static DNS Entries** (if needed):
-
-1. Navigate to **Settings** → **DNS** → **Static Entries**
-2. Add entry:
-   - Hostname: `proxmox`
-   - IP: `<PROXMOX_IP>`
-   - Domain: `<DOMAIN>`
-
-### CoreDNS (Kubernetes Internal)
-
-CoreDNS provides DNS for Kubernetes services. No configuration required.
-
-**Service DNS Format**: `<service>.<namespace>.svc.cluster.local`
-
-Example: `plex.media.svc.cluster.local`
+The tailnet ACL is SOPS-encrypted in `policy.sops.hujson` and applied by
+`.github/workflows/tailscale-acl.yml` with a dedicated ACL-only age key.
 
 ---
 
-## Ingress Configuration
+## Request paths
 
-### Traefik Ingress Controller
+### Internet → Plex
 
-Traefik routes external HTTP/HTTPS traffic to services.
-
-**Installation**: `charts/addons/templates/traefik.yaml`
-
-```yaml
-apiVersion: argoproj.io/v1alpha1
-kind: Application
-metadata:
-  name: traefik
-  namespace: argocd
-spec:
-  source:
-    repoURL: https://traefik.github.io/charts
-    chart: traefik
-    targetRevision: 26.1.0
-    helm:
-      values: |
-        service:
-          type: LoadBalancer  # MetalLB assigns IP
-          annotations:
-            metallb.universe.tf/address-pool: default
-
-        ports:
-          web:
-            port: 80
-            redirectTo:
-              port: websecure  # Force HTTPS
-          websecure:
-            port: 443
-            tls:
-              enabled: true
-
-        providers:
-          kubernetesCRD:
-            enabled: true
-          kubernetesIngress:
-            enabled: true
-
-        logs:
-          general:
-            level: INFO
-          access:
-            enabled: true
+```mermaid
+sequenceDiagram
+  participant B as Browser
+  participant CF as Cloudflare DNS
+  participant DD as DuckDNS
+  participant GW as UniFi gateway
+  participant TE as traefik-external (<TRAEFIK_STATIC_IP>)
+  participant P as plex pod
+  B->>CF: A? plex.<DOMAIN>
+  CF-->>B: CNAME <DUCKDNS_SUBDOMAIN>.duckdns.org
+  B->>DD: A? <DUCKDNS_SUBDOMAIN>.duckdns.org
+  DD-->>B: WAN IP (kept current by the duckdns app)
+  B->>GW: TLS 443
+  GW->>TE: port-forward rule kube-… → <TRAEFIK_STATIC_IP>:443 (route learned via BGP or ARP)
+  TE->>TE: Ingress plex (class external), cert from cert-manager, middleware oidc-auth
+  alt no session
+    TE-->>B: 302 auth.<DOMAIN> (IngressRoute auth-oidc) → Google OIDC → callback
+  end
+  TE->>P: HTTP 32400
+  P-->>B: Plex UI
 ```
 
-### Creating Ingress Resources
+Plex clients can also connect straight to `<PLEX_LB_IP>:32400` through the second port
+forward, which is what Plex "remote access" uses.
 
-**Example: Plex Ingress**
+### Tailnet → internal ingress
 
-```yaml
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: plex
-  namespace: media
-  annotations:
-    cert-manager.io/cluster-issuer: letsencrypt-prod
-    external-dns.alpha.kubernetes.io/hostname: plex.<DOMAIN>
-    traefik.ingress.kubernetes.io/router.tls: "true"
-spec:
-  ingressClassName: traefik
-  tls:
-    - hosts:
-        - plex.<DOMAIN>
-      secretName: plex-tls
-  rules:
-    - host: plex.<DOMAIN>
-      http:
-        paths:
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                name: plex
-                port:
-                  number: 32400
+```mermaid
+sequenceDiagram
+  participant C as Tailnet client
+  participant TS as Tailscale (split DNS)
+  participant SR as Connector homelab-subnet-router
+  participant GW as UniFi gateway <GATEWAY_IP>
+  participant TI as traefik-internal
+  participant S as sonarr pod
+  C->>TS: A? sonarr.<DOMAIN>
+  TS->>SR: forward to nameserver <GATEWAY_IP> (split DNS for <DOMAIN>)
+  SR->>GW: DNS query on the LAN
+  GW-->>C: A record written by external-dns-unifi-ingress (traefik-internal address)
+  C->>SR: TLS 443 to the pool address (subnet route <TAILSCALE_ADVERTISE_ROUTES>)
+  SR->>TI: LAN delivery (BGP route on the gateway, ARP from the L2 policy)
+  TI->>TI: Ingress sonarr (class internal), no OIDC at the edge
+  TI->>S: HTTP 8989
+  S-->>C: response
 ```
 
-**What Happens**:
-
-1. cert-manager requests TLS certificate from Let's Encrypt
-2. external-dns creates Cloudflare A record
-3. Traefik routes traffic from `plex.<DOMAIN>` to plex service
-4. TLS termination at Traefik
-
-### Middleware (Optional)
-
-Traefik supports middleware for authentication, rate limiting, etc.
-
-**Example: Basic Auth**
-
-```yaml
-apiVersion: traefik.containo.us/v1alpha1
-kind: Middleware
-metadata:
-  name: basic-auth
-  namespace: media
-spec:
-  basicAuth:
-    secret: basic-auth-credentials
----
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: protected-app
-  annotations:
-    traefik.ingress.kubernetes.io/router.middlewares: media-basic-auth@kubernetescrd
-spec:
-  # ... ingress spec
-```
+The same path serves the LAN without the first two hops. Nothing on the internal lane has a
+public record or a port forward, so the only ways in are the LAN, the tailnet, and the
+API server proxy.
 
 ---
 
-## Network Security
+## Cilium CNI
 
-### Firewall Rules
-
-**UniFi Firewall** (VLAN 100 → Internet):
-
-1. **Allow Outbound**: Homelab → Internet (HTTP, HTTPS, DNS)
-2. **Block Inbound**: Internet → Homelab (default deny)
-3. **Allow Inter-VLAN**: VLAN 1 → VLAN 100 (management access)
-4. **Block Inter-VLAN**: VLAN 100 → VLAN 1 (isolate homelab)
-
-**Example Rule Set**:
-
-| Rule | Direction | Source | Destination | Ports | Action |
-|------|-----------|--------|-------------|-------|--------|
-| 1 | LAN → WAN | VLAN 100 | Any | 80, 443 | Allow |
-| 2 | LAN → WAN | VLAN 100 | Any | 53 | Allow |
-| 3 | LAN → LAN | VLAN 1 | VLAN 100 | 22, 443 | Allow |
-| 4 | LAN → LAN | VLAN 100 | VLAN 1 | Any | Deny |
-| 5 | WAN → LAN | Any | VLAN 100 | Any | Deny |
-
-### Kubernetes Network Policies
-
-**Enable Cilium Network Policies**:
-
-```yaml
-apiVersion: cilium.io/v2
-kind: CiliumNetworkPolicy
-metadata:
-  name: allow-ingress-to-plex
-  namespace: media
-spec:
-  endpointSelector:
-    matchLabels:
-      app: plex
-  ingress:
-    - fromEndpoints:
-        - matchLabels:
-            io.kubernetes.pod.namespace: traefik
-    - toPorts:
-        - ports:
-            - port: "32400"
-              protocol: TCP
-```
-
-**Default Deny Policy**:
-
-```yaml
-apiVersion: cilium.io/v2
-kind: CiliumNetworkPolicy
-metadata:
-  name: default-deny
-  namespace: media
-spec:
-  endpointSelector: {}
-  ingress:
-    - {}  # Empty = deny all
-```
-
-### TLS Everywhere
-
-**cert-manager** automatically provisions TLS certificates:
-
-1. Ingress annotated with `cert-manager.io/cluster-issuer: letsencrypt-prod`
-2. cert-manager creates Certificate resource
-3. ACME challenge completed (HTTP-01 or DNS-01)
-4. Certificate stored in Kubernetes Secret
-5. Ingress references Secret for TLS
-
----
-
-## Cilium CNI Configuration
-
-### Overview
-
-Cilium provides container networking with eBPF for high performance and observability.
-
-**Key Features**:
-- eBPF datapath (bypasses iptables)
-- Network policies with L3-L7 filtering
-- Hubble for network observability
-- Service mesh capabilities (optional)
-
-### Installation
-
-Cilium is installed inline during Talos cluster bootstrap:
-
-**File**: `talos/inline-manifests/cilium-install.yaml`
-
-```yaml
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: cilium-install
-  namespace: kube-system
-data:
-  values.yaml: |
-    ipam:
-      mode: kubernetes
-    hubble:
-      enabled: true
-      relay:
-        enabled: true
-      ui:
-        enabled: true
-    kubeProxyReplacement: strict
-    k8sServiceHost: localhost
-    k8sServicePort: 7445
-```
-
-### Hubble Observability
-
-**Enable Port Forwarding**:
-
-```bash
-kubectl -n kube-system port-forward svc/hubble-ui 12000:80
-```
-
-**Access UI**: http://localhost:12000
-
-**CLI Usage**:
-
-```bash
-# Install Hubble CLI
-curl -L https://github.com/cilium/hubble/releases/latest/download/hubble-linux-amd64.tar.gz | tar xz
-sudo mv hubble /usr/local/bin/
-
-# View flows
-hubble observe --namespace media
-
-# View flows for specific pod
-hubble observe --pod plex
-
-# View dropped packets
-hubble observe --verdict DROPPED
-```
+Cilium is the CNI on Talos (rendered as an inline manifest by `task render` for first boot,
+then owned by the `cilium` ArgoCD Application at `charts.cilium`): eBPF datapath, kube-proxy
+replacement, network policy (`tests/e2e/cilium-netpol` proves enforcement in Kind), and the
+load-balancing CRs above. In Kind the same chart and values are installed by
+`scripts/localdev-kind.ts` and adopted by the Application on first sync.
 
 ---
 
 ## Troubleshooting
 
-### Network Connectivity Issues
-
-**Symptom**: Pods cannot reach external services
-
-**Diagnosis**:
+### BGP session down or LoadBalancer IP unreachable
 
 ```bash
-# Check pod network connectivity
-kubectl run -it --rm debug --image=nicolaka/netshoot --restart=Never -- bash
+# Cilium side: peers, advertised routes, pool allocation
+kubectl -n kube-system exec ds/cilium -- cilium bgp peers
+kubectl -n kube-system exec ds/cilium -- cilium bgp routes advertised ipv4 unicast
+kubectl get ciliumloadbalancerippools,ciliumbgpclusterconfigs,ciliumbgpadvertisements,ciliuml2announcementpolicies
+kubectl get svc -A | rg LoadBalancer
 
-# Inside pod:
-ping 1.1.1.1          # Test internet
-nslookup google.com   # Test DNS
-curl http://google.com  # Test HTTP
+# Gateway side (FRR on the UniFi gateway)
+ssh admin@<GATEWAY_IP>
+vtysh -c "show ip bgp summary"          # one established neighbor per control plane, AS 64512
+vtysh -c "show ip bgp"                  # /32 per Service address
+vtysh -c "show ip route bgp"
 ```
 
-**Resolution**:
-- Verify Cilium pods are running
-- Check DNS configuration
-- Verify firewall rules allow outbound traffic
+Illustrative `show ip bgp summary` (RFC 5737 addresses):
 
-### BGP Session Down
-
-**Symptom**: LoadBalancer services stuck in Pending
-
-**Diagnosis**:
-
-```bash
-# Check MetalLB speaker logs
-kubectl -n metallb-system logs -l component=speaker
-
-# Look for BGP errors
-kubectl -n metallb-system logs -l component=speaker | grep -i error
+```
+Neighbor        V    AS   MsgRcvd MsgSent   TblVer  InQ OutQ  Up/Down State/PfxRcd
+192.0.2.11      4 64512      123     456        0    0    0 01:23:45        5
+192.0.2.12      4 64512      234     567        0    0    0 01:23:45        5
+192.0.2.13      4 64512      345     678        0    0    0 01:23:45        5
 ```
 
-**Resolution**:
-- Verify BGP peer configuration matches on both sides
-- Check ASN numbers
-- Verify peer IP address is reachable
-- Check firewall allows TCP port 179
+Check the ASNs match (`cilium-lb-ipam.bgp` values vs `BGP_ROUTER_ASN`), that TCP 179 is
+allowed between the control planes and `<GATEWAY_IP>`, and that the FRR file uploaded by
+`unifi-gateway` lists the current control-plane addresses (`task tf:plan:component
+COMPONENT=unifi-gateway` shows drift after a node recreate).
 
-### DNS Not Resolving
-
-**Symptom**: Cannot access services by hostname
-
-**Diagnosis**:
+### Ingress not answering
 
 ```bash
-# Check CoreDNS pods
-kubectl -n kube-system get pods -l k8s-app=kube-dns
-
-# Test DNS from pod
-kubectl run -it --rm debug --image=nicolaka/netshoot --restart=Never -- nslookup plex.media.svc.cluster.local
-```
-
-**Resolution**:
-- Verify CoreDNS pods are running
-- Check CoreDNS logs for errors
-- Verify DNS service is accessible
-
-### Ingress Not Working
-
-**Symptom**: Cannot access application via Ingress
-
-**Diagnosis**:
-
-```bash
-# Check Traefik pods
-kubectl -n traefik get pods
-
-# Check Traefik service IP
-kubectl -n traefik get svc
-
-# Check Ingress resource
+kubectl -n traefik get pods,svc                      # both Traefiks Running, external has <TRAEFIK_STATIC_IP>
+kubectl get ingress -A                               # class external/internal, ADDRESS filled
+kubectl get ingressroute -A
 kubectl -n media get ingress plex -o yaml
-
-# Test from outside cluster
-curl -I http://plex.<DOMAIN>   # DOMAIN from configuration/environments/homelab.yaml
+curl -kI https://plex.<DOMAIN>                       # from outside
+curl -kI --resolve sonarr.<DOMAIN>:443:<traefik-internal address> https://sonarr.<DOMAIN>/ping   # from the LAN
+kubectl -n traefik logs deploy/traefik-external | rg -i 'oidc|error'
 ```
 
-**Resolution**:
-- Verify Traefik LoadBalancer has external IP
-- Check Ingress rules are correct
-- Verify DNS record points to Traefik IP
-- Check application pods are running
+Ingress objects show `Progressing` forever only when no LoadBalancer address arrives; the
+custom health Lua in `charts/bootstrap/files/health/` marks them Healthy otherwise.
 
-### Useful Commands
+### DNS records missing or wrong
 
 ```bash
-# View all network policies
-kubectl get networkpolicies -A
+kubectl -n external-dns logs deploy/external-dns-cloudflare | rg -i 'plex|error'
+kubectl -n external-dns-unifi logs deploy/external-dns-unifi-ingress | rg -i 'sonarr|error'
+kubectl get dnsendpoints -A
+dig +short plex.<DOMAIN>                       # CNAME to <DUCKDNS_SUBDOMAIN>.duckdns.org
+dig +short @<GATEWAY_IP> sonarr.<DOMAIN>       # LAN answer from UniFi
+kubectl -n duckdns logs -l app.kubernetes.io/name=duckdns | tail
+```
 
-# Check MetalLB IP address pools
-kubectl -n metallb-system get ipaddresspools
+An external record pointing at a LAN address means `--default-targets` is missing from the
+Cloudflare instance; an internal name resolving publicly means an Ingress is on the wrong
+class.
 
-# View BGP peers
-kubectl -n metallb-system get bgppeers
+### Port forward missing
 
-# Check Cilium status
-kubectl -n kube-system exec -it ds/cilium -- cilium status
+```bash
+kubectl -n port-forwarding get pods
+kubectl -n port-forwarding logs deploy/port-forwarding-controller | rg -i 'kube-|error'
+kubectl -n media get svc plex -o jsonpath='{.metadata.annotations}'
+```
 
-# View Cilium connectivity test
-kubectl -n kube-system exec -it ds/cilium -- cilium connectivity test
+### Tailnet cannot reach the LAN
 
-# Check service endpoints
-kubectl -n media get endpoints plex
+```bash
+kubectl -n tailscale get connector homelab-subnet-router -o yaml   # status: routes advertised and approved
+kubectl -n tailscale get pods
+tailscale status                                                  # on the client: subnet router online
+dig +short sonarr.<DOMAIN>                                        # split DNS → LAN answer
+task tailscale:dns:status
+```
+
+The subnet route must be approved in the Tailscale admin console once; on macOS never run
+`tailscale down` from a standalone app install (it strands the backend).
+
+### Pod connectivity and DNS
+
+```bash
+kubectl run -it --rm debug --image=nicolaka/netshoot --restart=Never -- bash
+#   nslookup kubernetes.default.svc.cluster.local ; curl -I https://1.1.1.1
+kubectl -n kube-system get pods -l k8s-app=cilium
+kubectl -n kube-system exec ds/cilium -- cilium status
+kubectl get ciliumnetworkpolicies,networkpolicies -A
 ```
 
 ---
 
 ## References
 
-### Official Documentation
-
-- [MetalLB Documentation](https://metallb.universe.tf/)
-- [Cilium Documentation](https://docs.cilium.io/)
-- [Traefik Documentation](https://doc.traefik.io/traefik/)
-- [external-dns Documentation](https://kubernetes-sigs.github.io/external-dns/)
-- [UniFi Dream Machine Documentation](https://help.ui.com/hc/en-us/categories/200320654-UniFi)
-
-### Guides
-
-- [BGP with MetalLB](https://metallb.universe.tf/configuration/#bgp-configuration)
-- [UniFi BGP Configuration](https://help.ui.com/hc/en-us/articles/4407211598612-UniFi-Gateway-BGP)
-- [Cilium Network Policies](https://docs.cilium.io/en/stable/security/policy/)
-
-### Related Documentation
-
-- [architecture.md](./architecture.md) - Overall architecture overview
-- [disaster-recovery.md](./disaster-recovery.md) - Backup and recovery
-- [hardware-setup.md](./hardware-setup.md) - Physical network setup
-
----
-
-**Last Updated**: 2026-01-19
-**Version**: 1.0
-**Maintainer**: homelab team
+- [Cilium LB IPAM](https://docs.cilium.io/en/stable/network/lb-ipam/), [Cilium BGP control plane](https://docs.cilium.io/en/stable/network/bgp-control-plane/), [Cilium L2 announcements](https://docs.cilium.io/en/stable/network/l2-announcements/)
+- [Traefik](https://doc.traefik.io/traefik/), [traefikoidc plugin](https://github.com/lukaszraczylo/traefikoidc)
+- [external-dns](https://kubernetes-sigs.github.io/external-dns/), [external-dns UniFi webhook](https://github.com/kashalls/external-dns-unifi-webhook)
+- [port-forwarding-controller](https://github.com/ryanmcafee/port-forwarding-controller)
+- [Tailscale Kubernetes operator](https://tailscale.com/kb/1236/kubernetes-operator), [UniFi BGP](https://help.ui.com/hc/en-us/articles/4407211598612-UniFi-Gateway-BGP)
+- In this repo: [architecture.md](./architecture.md), [applications.md](./applications.md),
+  [hardware.md](./hardware.md), [runbooks/readonly-access.md](./runbooks/readonly-access.md),
+  [runbooks/tailscale-dns.md](./runbooks/tailscale-dns.md), `docs/plans/2026-02-13-dual-traefik-ingress-design.md`
