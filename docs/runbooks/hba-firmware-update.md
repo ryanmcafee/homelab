@@ -11,6 +11,9 @@ This runbook provides step-by-step instructions for updating Broadcom 9400-8i HB
 - [x] Ansible vault credentials configured (for remote access)
 - [x] SSH access to target Proxmox host
 
+`<PROXMOX_IP>` in every command below is the Proxmox host address, resolved from the gitignored
+`configuration/environments/homelab.yaml` (`task config:eval` prints it).
+
 ### Current System State
 - **Controller Type**: Broadcom 9400-8i HBA
 - **Number of Controllers**: 2 (Card 0 and Card 1)
@@ -65,8 +68,8 @@ storcli_firmware_update: false  # Firmware flashing will be skipped
 
 #### Check Current Firmware Version
 ```bash
-ssh root@172.16.100.250 "storcli64 /c0 show all | grep -i 'firmware version'"
-ssh root@172.16.100.250 "storcli64 /c1 show all | grep -i 'firmware version'"
+ssh root@<PROXMOX_IP> "storcli64 /c0 show all | grep -i 'firmware version'"
+ssh root@<PROXMOX_IP> "storcli64 /c1 show all | grep -i 'firmware version'"
 ```
 
 Expected output:
@@ -163,7 +166,7 @@ If firmware was updated (changed status), reboot the system:
 ansible-playbook playbooks/reboot.yml
 
 # Or manually
-ssh root@172.16.100.250 "reboot"
+ssh root@<PROXMOX_IP> "reboot"
 ```
 
 **IMPORTANT**: Wait for system to fully boot before proceeding to verification.
@@ -172,20 +175,20 @@ ssh root@172.16.100.250 "reboot"
 
 #### Verify New Firmware Version
 ```bash
-ssh root@172.16.100.250 "storcli64 /c0 show all | grep -i 'firmware version'"
-ssh root@172.16.100.250 "storcli64 /c1 show all | grep -i 'firmware version'"
+ssh root@<PROXMOX_IP> "storcli64 /c0 show all | grep -i 'firmware version'"
+ssh root@<PROXMOX_IP> "storcli64 /c1 show all | grep -i 'firmware version'"
 ```
 
 #### Verify BIOS Version
 ```bash
-ssh root@172.16.100.250 "storcli64 /c0 show all | grep -i 'bios version'"
-ssh root@172.16.100.250 "storcli64 /c1 show all | grep -i 'bios version'"
+ssh root@<PROXMOX_IP> "storcli64 /c0 show all | grep -i 'bios version'"
+ssh root@<PROXMOX_IP> "storcli64 /c1 show all | grep -i 'bios version'"
 ```
 
 #### Check Controller Status
 ```bash
-ssh root@172.16.100.250 "storcli64 /c0 show all"
-ssh root@172.16.100.250 "storcli64 /c1 show all"
+ssh root@<PROXMOX_IP> "storcli64 /c0 show all"
+ssh root@<PROXMOX_IP> "storcli64 /c1 show all"
 ```
 
 Verify:
@@ -197,10 +200,10 @@ Verify:
 If using ZFS pools or VMs on these controllers:
 ```bash
 # Check ZFS pool status
-ssh root@172.16.100.250 "zpool status"
+ssh root@<PROXMOX_IP> "zpool status"
 
 # Check VM storage
-ssh root@172.16.100.250 "pvesm status"
+ssh root@<PROXMOX_IP> "pvesm status"
 ```
 
 ## Expected Outcomes
@@ -295,7 +298,7 @@ If you need to roll back to a previous firmware version:
 
 5. **Verify Rollback**:
    ```bash
-   ssh root@172.16.100.250 "storcli64 /c0 show all | grep -i firmware"
+   ssh root@<PROXMOX_IP> "storcli64 /c0 show all | grep -i firmware"
    ```
 
 ## Safety Notes

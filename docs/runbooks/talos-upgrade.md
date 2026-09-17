@@ -401,7 +401,7 @@ After any upgrade:
 
 **Application Health**:
 - [ ] ArgoCD syncing: `kubectl get applications -n argocd`
-- [ ] Ingress working: `curl http://plex.ryanmcafee.com`
+- [ ] Ingress working: `curl http://plex.<DOMAIN>`
 - [ ] Persistent volumes bound: `kubectl get pvc -A`
 - [ ] Services have IPs: `kubectl get svc -A`
 

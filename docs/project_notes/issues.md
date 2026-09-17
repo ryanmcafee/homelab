@@ -30,7 +30,7 @@ Each entry should include:
 
 ### 2026-09-13 - PR #276: Tailscale ACL grant for the read-only API server proxy (runbook step 2)
 - **Status**: Open (PR #276; `tailscale-acl.yml` applies on merge behind the production environment)
-- **Description**: `task prod:kubeconfig` failed because the 1Password items from `docs/runbooks/readonly-access.md` steps 3-4 (`k8s-agent-readonly`, `argocd-agent-token`) had never been created; both now exist and `task prod:kubeconfig` / `task prod:diff` work. `task verify:prod` still failed with `no such host` because the policy had no grant to `tag:k8s-operator` (step 2); this PR adds `autogroup:admin -> tag:k8s-operator tcp:443`. Also refreshed the stale `argocd.ryanmcafee.com` admin password in 1Password from `argocd-initial-admin-secret`.
+- **Description**: `task prod:kubeconfig` failed because the 1Password items from `docs/runbooks/readonly-access.md` steps 3-4 (`k8s-agent-readonly`, `argocd-agent-token`) had never been created; both now exist and `task prod:kubeconfig` / `task prod:diff` work. `task verify:prod` still failed with `no such host` because the policy had no grant to `tag:k8s-operator` (step 2); this PR adds `autogroup:admin -> tag:k8s-operator tcp:443`. Also refreshed the stale `argocd.<DOMAIN>` admin password in 1Password from `argocd-initial-admin-secret`.
 - **URL**: https://github.com/ryanmcafee/homelab/pull/276
 
 ### 2026-09-13 - Issue #261 Sections C + D: previews, read-only prod, upgrade gate, restore drill, scaffolder, agent contract

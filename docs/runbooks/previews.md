@@ -80,7 +80,7 @@ scope. Label a fork PR only after reading its diff. What bounds a preview:
 ## How it works
 
 - `charts/gitops/templates/previews-applicationset.yaml` (homelab only,
-  `previews.enabled`): `pullRequest.github` generator (`ryanmcafee/homelab`, label
+  `previews.enabled`): `pullRequest.github` generator (`github.com/ryanmcafee/homelab`, label
   `preview`, anonymous: the repo is public; set `previews.github.tokenSecret.name` to use a
   token Secret in `argocd`). The template renders `charts/applications` at `{{.head_sha}}`
   through plugin `homelab-config-helm-v1.0` with env `PREVIEW_PR={{.number}}` and

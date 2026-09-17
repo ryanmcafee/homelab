@@ -197,13 +197,13 @@ dashboard:
 # traefik-internal-config homelab values
 
 global:
-  domain: ryanmcafee.com
+  domain: <DOMAIN>
 
 namespace: traefik
 
 dashboard:
   enabled: true
-  host: traefik-internal.ryanmcafee.com
+  host: traefik-internal.<DOMAIN>
 ```
 
 `charts/traefik-internal-config/templates/dashboard.yaml`:
@@ -1442,7 +1442,7 @@ Record the architectural decision and update Serena memories.
 Add to `docs/project_notes/decisions.md`:
 
 ```markdown
-- **2026-02-13 — Dual Traefik Ingress Controllers**: Split single Traefik into external (`external` IngressClass, static IP 172.16.100.200, OIDC, port forwarding) and internal (`internal` IngressClass, dynamic IP, no OIDC). Plex uses external; all other apps use internal. OIDC middleware annotations removed from internal apps. Design doc: `docs/plans/2026-02-13-dual-traefik-ingress-design.md`.
+- **2026-02-13 — Dual Traefik Ingress Controllers**: Split single Traefik into external (`external` IngressClass, static IP <TRAEFIK_STATIC_IP>, OIDC, port forwarding) and internal (`internal` IngressClass, dynamic IP, no OIDC). Plex uses external; all other apps use internal. OIDC middleware annotations removed from internal apps. Design doc: `docs/plans/2026-02-13-dual-traefik-ingress-design.md`.
 ```
 
 **Step 2: Commit**

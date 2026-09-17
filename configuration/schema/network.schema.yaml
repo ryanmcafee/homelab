@@ -19,6 +19,12 @@ keys:
     required: true
     pattern: "^(?:\\d{1,3}\\.){3}\\d{1,3}$"
 
+  IPMI_IP:
+    description: Proxmox BMC/IPMI out-of-band management IP (documentation and
+      the PII guard only; no template renders it)
+    required: false
+    pattern: "^(?:\\d{1,3}\\.){3}\\d{1,3}$"
+
   CP_VIP:
     description: Kubernetes control plane virtual IP
     required: true

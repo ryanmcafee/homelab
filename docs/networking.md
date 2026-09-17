@@ -2,6 +2,8 @@
 
 This document provides comprehensive networking documentation for the homelab, including VLAN configuration, BGP peering, MetalLB setup, and troubleshooting procedures.
 
+Addresses and hostnames are written as `<KEY>` placeholders; the real values are resolved from the gitignored `configuration/environments/homelab.yaml`. Addresses that have no configuration key and are purely illustrative use the RFC 5737 documentation range `192.0.2.0/24`.
+
 ## Table of Contents
 
 - [Overview](#overview)
@@ -58,7 +60,7 @@ The homelab uses a software-defined networking approach with BGP routing between
                      │                               │
              ┌───────▼────────┐            ┌────────▼────────┐
              │  VLAN 1 (Main) │            │ VLAN 100 (Lab)  │
-             │  192.168.1.0/24│            │ 172.16.100.0/24 │
+             │  192.168.1.0/24│            │<NFS_SHARE_ALLOW>│
              │                │            │                 │
              │  - Desktop     │            │  - Proxmox      │
              │  - Laptop      │            │  - TrueNAS      │
@@ -69,22 +71,23 @@ The homelab uses a software-defined networking approach with BGP routing between
                                │                     │                     │
                         ┌──────▼──────┐     ┌───────▼────────┐   ┌───────▼────────┐
                         │   Proxmox   │     │  TrueNAS VM    │   │  Talos Nodes   │
-                        │ .100.250    │     │  (DHCP)        │   │  (DHCP)        │
+                        │ <PROXMOX_IP>│     │  (DHCP)        │   │  (DHCP)        │
                         └─────────────┘     └────────────────┘   └────────┬───────┘
                                                                            │
                                                                   ┌────────▼────────┐
                                                                   │    MetalLB      │
                                                                   │  BGP ASN 64512  │
-                                                                  │  .100.100-200   │
+                                                                  │ <LB_POOL_START> │
+                                                                  │ -<LB_POOL_END>  │
                                                                   └─────────────────┘
                                                                            │
                                     ┌──────────────────────────────────────┼──────────────────┐
                                     │                                      │                  │
-                            ┌───────▼────────┐                   ┌─────────▼─────────┐  ┌────▼─────┐
-                            │    Traefik     │                   │      Plex         │  │  Other   │
-                            │ LoadBalancer   │                   │  LoadBalancer     │  │ Services │
-                            │  .100.101      │                   │    .100.102       │  │          │
-                            └────────────────┘                   └───────────────────┘  └──────────┘
+                            ┌───────▼───────────┐                ┌─────────▼─────────┐  ┌────▼─────┐
+                            │    Traefik        │                │      Plex         │  │  Other   │
+                            │ LoadBalancer      │                │  LoadBalancer     │  │ Services │
+                            │<TRAEFIK_STATIC_IP>│                │   <PLEX_LB_IP>    │  │          │
+                            └───────────────────┘                └───────────────────┘  └──────────┘
 ```
 
 ### Traffic Flow
@@ -116,11 +119,11 @@ The homelab uses a software-defined networking approach with BGP routing between
 | Parameter | Value |
 |-----------|-------|
 | VLAN ID | 100 |
-| Subnet | 172.16.100.0/24 |
-| Gateway | 172.16.100.1 (UniFi) |
-| DHCP Range | 172.16.100.50-172.16.100.99 |
-| Static IPs | 172.16.100.26, 172.16.100.250 |
-| MetalLB Pool | 172.16.100.100-172.16.100.200 |
+| Subnet | `<NFS_SHARE_ALLOW>` |
+| Gateway | `<GATEWAY_IP>` (UniFi) |
+| DHCP Range | `.50` - `.99` within `<NFS_SHARE_ALLOW>` |
+| Static IPs | `.26` within `<NFS_SHARE_ALLOW>`, `<PROXMOX_IP>` |
+| MetalLB Pool | `<LB_POOL_START>` - `<LB_POOL_END>` |
 | Purpose | Homelab infrastructure |
 
 **Devices**: Proxmox, IPMI, TrueNAS, Talos nodes, Kubernetes services
@@ -134,10 +137,10 @@ The homelab uses a software-defined networking approach with BGP routing between
 3. Configure:
    - Name: `Homelab`
    - VLAN ID: `100`
-   - Gateway IP: `172.16.100.1/24`
+   - Gateway IP: `<GATEWAY_IP>/24`
    - DHCP Mode: `DHCP Server`
-   - DHCP Range: `172.16.100.50` - `172.16.100.99`
-   - Domain Name: `ryanmcafee.com`
+   - DHCP Range: `.50` - `.99` within `<NFS_SHARE_ALLOW>`
+   - Domain Name: `<DOMAIN>`
 
 **Step 2: Enable BGP**
 
@@ -145,7 +148,7 @@ The homelab uses a software-defined networking approach with BGP routing between
 2. Enable BGP
 3. Configure:
    - AS Number: `64513`
-   - Router ID: `172.16.100.1`
+   - Router ID: `<GATEWAY_IP>`
 
 **Step 3: Add BGP Neighbor**
 
@@ -166,18 +169,18 @@ The homelab uses a software-defined networking approach with BGP routing between
 
 | Device | IP Address | Interface | Notes |
 |--------|------------|-----------|-------|
-| UniFi Gateway | 172.16.100.1 | VLAN 100 | Gateway + BGP peer |
-| IPMI (Supermicro) | 172.16.100.26 | Dedicated NIC | Out-of-band management |
-| Proxmox | 172.16.100.250 | vmbr0 (VLAN 100) | Hypervisor web UI |
+| UniFi Gateway | `<GATEWAY_IP>` | VLAN 100 | Gateway + BGP peer |
+| IPMI (Supermicro) | `.26` within `<NFS_SHARE_ALLOW>` | Dedicated NIC | Out-of-band management |
+| Proxmox | `<PROXMOX_IP>` | vmbr0 (VLAN 100) | Hypervisor web UI |
 
 ### DHCP Assignments
 
 | Device | IP Range | Notes |
 |--------|----------|-------|
-| TrueNAS | 172.16.100.50-99 | VM on Proxmox |
-| Talos Control Plane 1 | 172.16.100.50-99 | VM on Proxmox |
-| Talos Control Plane 2 | 172.16.100.50-99 | VM on Proxmox |
-| Talos Worker 1-3 | 172.16.100.50-99 | VMs on Proxmox |
+| TrueNAS | `.50`-`.99` (DHCP pool) | VM on Proxmox |
+| Talos Control Plane 1 | `.50`-`.99` (DHCP pool) | VM on Proxmox |
+| Talos Control Plane 2 | `.50`-`.99` (DHCP pool) | VM on Proxmox |
+| Talos Worker 1-3 | `.50`-`.99` (DHCP pool) | VMs on Proxmox |
 
 **DHCP Configuration**: UniFi handles DHCP with static lease options available
 
@@ -185,7 +188,7 @@ The homelab uses a software-defined networking approach with BGP routing between
 
 | Pool Name | IP Range | Usage |
 |-----------|----------|-------|
-| default | 172.16.100.100-172.16.100.200 | LoadBalancer services |
+| default | `<LB_POOL_START>`-`<LB_POOL_END>` | LoadBalancer services |
 
 **Total Available IPs**: 101 IPs for services
 
@@ -195,10 +198,12 @@ MetalLB dynamically assigns IPs from the pool. Typical allocations:
 
 | Service | IP (example) | Port | Purpose |
 |---------|--------------|------|---------|
-| Traefik | 172.16.100.101 | 80, 443 | HTTP/HTTPS ingress |
-| Plex | 172.16.100.102 | 32400 | Media server |
-| ArgoCD | 172.16.100.103 | 80, 443 | GitOps UI |
-| Grafana | 172.16.100.104 | 80 | Monitoring dashboards |
+| Traefik | `<TRAEFIK_STATIC_IP>` | 80, 443 | HTTP/HTTPS ingress |
+| Plex | `<PLEX_LB_IP>` | 32400 | Media server |
+| ArgoCD | 192.0.2.103 | 80, 443 | GitOps UI |
+| Grafana | 192.0.2.104 | 80 | Monitoring dashboards |
+
+ArgoCD and Grafana have no reserved address key, so their rows use the RFC 5737 documentation range.
 
 **Note**: Actual IPs assigned dynamically. Use DNS names, not IPs.
 
@@ -219,7 +224,7 @@ Border Gateway Protocol (BGP) enables dynamic routing between Kubernetes (MetalL
 
 | Component | ASN | Router ID |
 |-----------|-----|-----------|
-| UniFi Dream Machine | 64513 | 172.16.100.1 |
+| UniFi Dream Machine | 64513 | `<GATEWAY_IP>` |
 | MetalLB (K8s) | 64512 | (node IP) |
 
 **ASN Selection**: Private ASN range (64512-65534) per RFC 6996
@@ -236,7 +241,8 @@ metadata:
   namespace: metallb-system
 spec:
   addresses:
-    - 172.16.100.100-172.16.100.200
+    # LB_POOL_START and LB_POOL_END from configuration/environments/homelab.yaml
+    - <LB_POOL_START>-<LB_POOL_END>
   autoAssign: true
 ---
 apiVersion: metallb.io/v1beta2
@@ -247,7 +253,7 @@ metadata:
 spec:
   myASN: 64512
   peerASN: 64513
-  peerAddress: 172.16.100.1
+  peerAddress: <GATEWAY_IP>  # from configuration/environments/homelab.yaml
   sourceAddress:
 ---
 apiVersion: metallb.io/v1beta1
@@ -276,7 +282,7 @@ kubectl -n metallb-system logs -l component=speaker | grep -i bgp
 
 1. SSH to UniFi Dream Machine:
    ```bash
-   ssh admin@172.16.100.1
+   ssh admin@<GATEWAY_IP>   # GATEWAY_IP from configuration/environments/homelab.yaml
    ```
 
 2. Check BGP summary:
@@ -287,8 +293,8 @@ kubectl -n metallb-system logs -l component=speaker | grep -i bgp
    Expected output:
    ```
    Neighbor        V    AS MsgRcvd MsgSent   TblVer  InQ OutQ  Up/Down State/PfxRcd
-   172.16.100.51   4 64512     123     456        0    0    0 01:23:45        5
-   172.16.100.52   4 64512     234     567        0    0    0 01:23:45        5
+   192.0.2.51      4 64512     123     456        0    0    0 01:23:45        5
+   192.0.2.52      4 64512     234     567        0    0    0 01:23:45        5
    ```
 
 3. View advertised routes:
@@ -389,6 +395,8 @@ spec:
 
 **Creating Additional Pools**:
 
+The ranges below are RFC 5737 documentation addresses; substitute sub-ranges of the real pool between `<LB_POOL_START>` and `<LB_POOL_END>`.
+
 ```yaml
 apiVersion: metallb.io/v1beta1
 kind: IPAddressPool
@@ -397,7 +405,7 @@ metadata:
   namespace: metallb-system
 spec:
   addresses:
-    - 172.16.100.150-172.16.100.200
+    - 192.0.2.150-192.0.2.200
   autoAssign: false  # Require explicit pool selection
 ---
 apiVersion: metallb.io/v1beta1
@@ -407,7 +415,7 @@ metadata:
   namespace: metallb-system
 spec:
   addresses:
-    - 172.16.100.100-172.16.100.149
+    - 192.0.2.100-192.0.2.149
   autoAssign: true
 ```
 
@@ -422,7 +430,7 @@ metadata:
     metallb.universe.tf/address-pool: production
 spec:
   type: LoadBalancer
-  loadBalancerIP: 172.16.100.150  # Optional: request specific IP
+  loadBalancerIP: <an-address-from-the-pool>  # Optional: request specific IP
   ports:
     - port: 80
       targetPort: 8080
@@ -486,7 +494,8 @@ spec:
                 name: cloudflare-api-token
                 key: api-token
         domainFilters:
-          - ryanmcafee.com
+          # DOMAIN from configuration/environments/homelab.yaml
+          - <DOMAIN>
         policy: sync  # upsert-only or sync
         txtOwnerId: homelab-k8s
         interval: 5m
@@ -501,10 +510,10 @@ spec:
    metadata:
      name: my-app
      annotations:
-       external-dns.alpha.kubernetes.io/hostname: app.ryanmcafee.com
+       external-dns.alpha.kubernetes.io/hostname: app.<DOMAIN>
    spec:
      rules:
-       - host: app.ryanmcafee.com
+       - host: app.<DOMAIN>
          http:
            paths:
              - path: /
@@ -518,7 +527,7 @@ spec:
 
 2. external-dns creates Cloudflare DNS record:
    ```
-   app.ryanmcafee.com → A → 172.16.100.101 (Traefik LoadBalancer IP)
+   app.<DOMAIN> → A → <TRAEFIK_STATIC_IP> (Traefik LoadBalancer IP)
    ```
 
 3. Traffic flows: Internet → Cloudflare → UniFi WAN → Traefik → Pod
@@ -531,15 +540,15 @@ spec:
 2. Configure DNS:
    - DNS Server: `1.1.1.1` (Cloudflare)
    - DNS Server 2: `8.8.8.8` (Google)
-   - Domain Name: `ryanmcafee.com`
+   - Domain Name: `<DOMAIN>`
 
 **Static DNS Entries** (if needed):
 
 1. Navigate to **Settings** → **DNS** → **Static Entries**
 2. Add entry:
    - Hostname: `proxmox`
-   - IP: `172.16.100.250`
-   - Domain: `ryanmcafee.com`
+   - IP: `<PROXMOX_IP>`
+   - Domain: `<DOMAIN>`
 
 ### CoreDNS (Kubernetes Internal)
 
@@ -612,16 +621,16 @@ metadata:
   namespace: media
   annotations:
     cert-manager.io/cluster-issuer: letsencrypt-prod
-    external-dns.alpha.kubernetes.io/hostname: plex.ryanmcafee.com
+    external-dns.alpha.kubernetes.io/hostname: plex.<DOMAIN>
     traefik.ingress.kubernetes.io/router.tls: "true"
 spec:
   ingressClassName: traefik
   tls:
     - hosts:
-        - plex.ryanmcafee.com
+        - plex.<DOMAIN>
       secretName: plex-tls
   rules:
-    - host: plex.ryanmcafee.com
+    - host: plex.<DOMAIN>
       http:
         paths:
           - path: /
@@ -637,7 +646,7 @@ spec:
 
 1. cert-manager requests TLS certificate from Let's Encrypt
 2. external-dns creates Cloudflare A record
-3. Traefik routes traffic from `plex.ryanmcafee.com` to plex service
+3. Traefik routes traffic from `plex.<DOMAIN>` to plex service
 4. TLS termination at Traefik
 
 ### Middleware (Optional)
@@ -886,7 +895,7 @@ kubectl -n traefik get svc
 kubectl -n media get ingress plex -o yaml
 
 # Test from outside cluster
-curl -I http://plex.ryanmcafee.com
+curl -I http://plex.<DOMAIN>   # DOMAIN from configuration/environments/homelab.yaml
 ```
 
 **Resolution**:

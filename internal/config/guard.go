@@ -329,10 +329,20 @@ func IsPIIKey(key string) bool {
 // control-plane topology. Scripts take these values from
 // configuration/environments/homelab.yaml at runtime instead (see
 // scripts/tailscale-dns.ts and scripts/prod-readonly.ts for the pattern).
+//
+// docs/ is in scope because a runbook is the easiest place of all to paste a
+// real address, and this repository is public: 189 occurrences across 20 files
+// were committed before it was guarded. Documentation writes them as <KEY>
+// placeholders naming the configuration key instead (see
+// docs/runbooks/tailscale-dns.md). Note the value detector only matches the
+// values the environment file currently holds, so a stale address that no key
+// resolves to is not reported - the guard raises the floor, it is not a
+// substitute for reading what you commit.
 var DefaultGuardPathspecs = []string{
 	"configuration/**",
 	"charts/**/values-homelab.yaml",
 	"scripts/**",
+	"docs/**",
 }
 
 // guardScanExtensions are the file types the guard knows how to read. Anything

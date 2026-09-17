@@ -8,6 +8,8 @@ The `proxmox-zfs-pool` module can automatically create and configure ZFS pools o
 
 ## Prerequisites
 
+Addresses below are `<KEY>` placeholders resolved from `configuration/environments/homelab.yaml` (gitignored); `<PROXMOX_IP>` is the Proxmox host.
+
 - Proxmox VE installed and accessible
 - SSH access to Proxmox node with key-based authentication
 - Drives available for ZFS pool (not in use by other storage)
@@ -17,13 +19,13 @@ The `proxmox-zfs-pool` module can automatically create and configure ZFS pools o
 SSH to your Proxmox node and list available block devices:
 
 ```bash
-ssh root@172.16.100.250 lsblk -d -o NAME,SIZE,MODEL,SERIAL
+ssh root@<PROXMOX_IP> lsblk -d -o NAME,SIZE,MODEL,SERIAL
 ```
 
 Get stable device IDs (required for Terraform):
 
 ```bash
-ssh root@172.16.100.250 ls -la /dev/disk/by-id/ | grep -v part
+ssh root@<PROXMOX_IP> ls -la /dev/disk/by-id/ | grep -v part
 ```
 
 Example output:
@@ -91,10 +93,10 @@ After applying, verify the pool:
 
 ```bash
 # Check pool status
-ssh root@172.16.100.250 zpool status vm-storage
+ssh root@<PROXMOX_IP> zpool status vm-storage
 
 # Check pool properties
-ssh root@172.16.100.250 zfs get compression,atime,recordsize vm-storage
+ssh root@<PROXMOX_IP> zfs get compression,atime,recordsize vm-storage
 
 # Verify in Proxmox UI
 # Datacenter → Storage → vm-storage should appear
@@ -106,10 +108,10 @@ ssh root@172.16.100.250 zfs get compression,atime,recordsize vm-storage
 
 ```bash
 # Test SSH connection
-ssh -i ~/.ssh/id_ed25519 root@172.16.100.250 "echo 'SSH working'"
+ssh -i ~/.ssh/id_ed25519 root@<PROXMOX_IP> "echo 'SSH working'"
 
 # Ensure key is authorized
-ssh-copy-id -i ~/.ssh/id_ed25519 root@172.16.100.250
+ssh-copy-id -i ~/.ssh/id_ed25519 root@<PROXMOX_IP>
 ```
 
 ### Pool Already Exists
@@ -118,7 +120,7 @@ The module checks for existing pools and skips creation. To recreate:
 
 ```bash
 # WARNING: This destroys all data!
-ssh root@172.16.100.250 zpool destroy vm-storage
+ssh root@<PROXMOX_IP> zpool destroy vm-storage
 
 # Then re-run Terraform
 terragrunt apply
@@ -130,10 +132,10 @@ If a drive is already in use:
 
 ```bash
 # Check what's using the drive
-ssh root@172.16.100.250 lsblk /dev/nvme0n1
+ssh root@<PROXMOX_IP> lsblk /dev/nvme0n1
 
 # Wipe partition table (WARNING: destroys data)
-ssh root@172.16.100.250 wipefs -a /dev/nvme0n1
+ssh root@<PROXMOX_IP> wipefs -a /dev/nvme0n1
 ```
 
 ### Wrong ashift Value
@@ -142,10 +144,10 @@ If you chose the wrong ashift, you must recreate the pool:
 
 ```bash
 # Check current ashift
-ssh root@172.16.100.250 zpool get ashift vm-storage
+ssh root@<PROXMOX_IP> zpool get ashift vm-storage
 
 # Recreate with correct ashift (WARNING: destroys data)
-ssh root@172.16.100.250 zpool destroy vm-storage
+ssh root@<PROXMOX_IP> zpool destroy vm-storage
 terragrunt apply
 ```
 
@@ -155,7 +157,7 @@ If you prefer manual creation:
 
 ```bash
 # SSH to Proxmox
-ssh root@172.16.100.250
+ssh root@<PROXMOX_IP>
 
 # Create mirror pool
 zpool create -f -o ashift=12 vm-storage mirror \

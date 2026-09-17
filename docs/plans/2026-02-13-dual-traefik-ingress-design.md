@@ -13,12 +13,12 @@ Deploy two independent Traefik ingress controllers — one external-facing (Plex
 |----------|--------|-----------|
 | IngressClass names | `external`, `internal` | Short, clear, descriptive |
 | Internal LB IP | Dynamic (Cilium IPAM) | Simpler; no port forwarding needed |
-| External LB IP | Static `172.16.100.200` | Unchanged from current setup |
+| External LB IP | Static `<TRAEFIK_STATIC_IP>` | Unchanged from current setup |
 | OIDC placement | External only | Plex has own auth; internal apps don't need OIDC |
 | OIDC annotations on internal apps | Removed | Internal Traefik won't have OIDC plugin |
 | Port forwarding | External only | Only Plex needs external access |
 | DNS records | Both instances | Both get external-dns records via annotations |
-| Dashboards | Both instances | `traefik.ryanmcafee.com` (external), `traefik-internal.ryanmcafee.com` (internal) |
+| Dashboards | Both instances | `traefik.<DOMAIN>` (external), `traefik-internal.<DOMAIN>` (internal) |
 | Template approach | Separate files | Matches project patterns, independent and readable |
 
 ## ArgoCD Application Structure
@@ -47,11 +47,11 @@ Both instances deploy into the `traefik` namespace.
 ### External Traefik (`traefikExternal.*`)
 
 - IngressClass: `external`
-- LoadBalancer: static IP `172.16.100.200`
-- Port forwarding: enabled (`port-forwarding.ryanmcafee.com/enable: "true"`)
+- LoadBalancer: static IP `<TRAEFIK_STATIC_IP>`
+- Port forwarding: enabled (`port-forwarding.<DOMAIN>/enable: "true"`)
 - OIDC plugin: traefikoidc v0.8.21
 - OIDC Redis: deployed (wave 7)
-- Dashboard: `traefik.ryanmcafee.com`
+- Dashboard: `traefik.<DOMAIN>`
 - Replicas: 2-5 (autoscaling)
 
 ### Internal Traefik (`traefikInternal.*`)
@@ -60,7 +60,7 @@ Both instances deploy into the `traefik` namespace.
 - LoadBalancer: dynamic IP (Cilium IPAM pool)
 - Port forwarding: disabled
 - OIDC: not installed
-- Dashboard: `traefik-internal.ryanmcafee.com`
+- Dashboard: `traefik-internal.<DOMAIN>`
 - Replicas: 2-5 (autoscaling)
 
 ## Application Ingress Mapping

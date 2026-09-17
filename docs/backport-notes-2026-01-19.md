@@ -1,7 +1,9 @@
 # Backport Notes - 2026-01-19
 
 ## Overview
-This document records the backport of StorCLI package and HBA firmware configurations from the deployed Proxmox host (172.16.100.250) to the Ansible infrastructure-as-code repository. The backport ensures that the deployed state is accurately reflected in the Ansible configuration for future deployments and updates.
+This document records the backport of StorCLI package and HBA firmware configurations from the deployed Proxmox host (`<PROXMOX_IP>`) to the Ansible infrastructure-as-code repository. The backport ensures that the deployed state is accurately reflected in the Ansible configuration for future deployments and updates.
+
+`<PROXMOX_IP>` is a placeholder resolved from `configuration/environments/homelab.yaml` (gitignored).
 
 ## Summary of Findings
 
@@ -224,13 +226,13 @@ ansible-playbook playbooks/proxmox-ipmi-fans.yml
 Verify changes on target host:
 ```bash
 # Verify StorCLI symlinks
-ssh root@172.16.100.250 "ls -la /usr/local/bin/storcli*"
+ssh root@<PROXMOX_IP> "ls -la /usr/local/bin/storcli*"
 
 # Verify firmware version
-ssh root@172.16.100.250 "storcli64 /c0 show all | grep -i firmware"
+ssh root@<PROXMOX_IP> "storcli64 /c0 show all | grep -i firmware"
 
 # Verify legacy cleanup
-ssh root@172.16.100.250 "test -f /etc/init.d/set_fan_threshold.sh && echo 'LEGACY STILL EXISTS' || echo 'Cleaned up'"
+ssh root@<PROXMOX_IP> "test -f /etc/init.d/set_fan_threshold.sh && echo 'LEGACY STILL EXISTS' || echo 'Cleaned up'"
 ```
 
 ## Risk Assessment
