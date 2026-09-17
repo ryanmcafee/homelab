@@ -39,7 +39,7 @@ env:
   # renovate: datasource=github-releases depName=open-policy-agent/conftest
   CONFTEST_VERSION: '0.70.0'
   # renovate: datasource=github-releases depName=FairwindsOps/pluto
-  PLUTO_VERSION: '5.24.3'
+  PLUTO_VERSION: '5.24.4'
   # renovate: datasource=github-releases depName=go-task/task
   TASK_VERSION: 'v3.46.4'
 
