@@ -867,8 +867,8 @@ metadata:
   annotations:
     argocd.argoproj.io/sync-wave: "0"
     argocd.argoproj.io/compare-options: IgnoreExtraneous
-    homelab.ryanmcafee.com/policy-exempt: "app-automated,app-finalizer"
-    homelab.ryanmcafee.com/policy-exempt-reason: "Cilium CNI is installed outside ArgoCD (Talos inline manifests in homelab, scripts/localdev-kind.ts in Kind). This Application only adopts it: it must not prune/self-heal resources the installer manages directly (app-automated), and it must NOT carry resources-finalizer.argocd.argoproj.io (app-finalizer) — deleting this Application must never cascade-delete the running CNI."
+    homelab.local/policy-exempt: "app-automated,app-finalizer"
+    homelab.local/policy-exempt-reason: "Cilium CNI is installed outside ArgoCD (Talos inline manifests in homelab, scripts/localdev-kind.ts in Kind). This Application only adopts it: it must not prune/self-heal resources the installer manages directly (app-automated), and it must NOT carry resources-finalizer.argocd.argoproj.io (app-finalizer) — deleting this Application must never cascade-delete the running CNI."
 spec:
   project: default
   source:

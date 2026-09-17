@@ -112,8 +112,8 @@ test_exempt_image_latest if {
 	obj := {
 		"kind": "Deployment",
 		"metadata": {"name": "app", "namespace": "ns", "annotations": {
-			"homelab.ryanmcafee.com/policy-exempt": "image-latest",
-			"homelab.ryanmcafee.com/policy-exempt-reason": "upstream publishes no numbered tags",
+			"homelab.local/policy-exempt": "image-latest",
+			"homelab.local/policy-exempt-reason": "upstream publishes no numbered tags",
 		}},
 		"spec": {"template": {"spec": {"containers": [{"name": "app", "image": "nginx:latest", "resources": good_resources}]}}},
 	}

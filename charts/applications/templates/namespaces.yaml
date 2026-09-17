@@ -15,7 +15,7 @@ metadata:
     pod-security.kubernetes.io/enforce: baseline
     pod-security.kubernetes.io/audit: baseline
     pod-security.kubernetes.io/warn: baseline
-    homelab.ryanmcafee.com/preview-pr: {{ include "homelab.preview.pr" . | quote }}
+    homelab.local/preview-pr: {{ include "homelab.preview.pr" . | quote }}
   annotations:
     argocd.argoproj.io/sync-wave: "10"
 ---

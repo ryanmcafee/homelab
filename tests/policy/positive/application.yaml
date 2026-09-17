@@ -33,8 +33,8 @@ metadata:
   namespace: argocd
   annotations:
     argocd.argoproj.io/sync-wave: "0"
-    homelab.ryanmcafee.com/policy-exempt: "app-automated"
-    homelab.ryanmcafee.com/policy-exempt-reason: "Cilium CNI is installed by Talos inline manifests; this Application is visibility-only and must not self-heal/prune."
+    homelab.local/policy-exempt: "app-automated"
+    homelab.local/policy-exempt-reason: "Cilium CNI is installed by Talos inline manifests; this Application is visibility-only and must not self-heal/prune."
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:

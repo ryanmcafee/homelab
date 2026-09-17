@@ -38,8 +38,8 @@ test_exempt_inline_secret if {
 	obj := {
 		"kind": "Secret",
 		"metadata": {"name": "leaky", "namespace": "default", "annotations": {
-			"homelab.ryanmcafee.com/policy-exempt": "inline-secret",
-			"homelab.ryanmcafee.com/policy-exempt-reason": "test fixture",
+			"homelab.local/policy-exempt": "inline-secret",
+			"homelab.local/policy-exempt-reason": "test fixture",
 		}},
 		"data": {"password": "cGFzc3dvcmQ="},
 	}

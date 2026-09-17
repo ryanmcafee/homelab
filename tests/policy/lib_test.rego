@@ -11,8 +11,8 @@ test_not_exempt_by_default if {
 
 test_exempt_with_reason if {
 	obj := {"kind": "Application", "metadata": {"name": "x", "namespace": "argocd", "annotations": {
-		"homelab.ryanmcafee.com/policy-exempt": "app-automated, image-latest",
-		"homelab.ryanmcafee.com/policy-exempt-reason": "cilium is installed by talos",
+		"homelab.local/policy-exempt": "app-automated, image-latest",
+		"homelab.local/policy-exempt-reason": "cilium is installed by talos",
 	}}}
 	is_exempt(obj, "app-automated")
 	is_exempt(obj, "image-latest")
@@ -21,7 +21,7 @@ test_exempt_with_reason if {
 
 test_exempt_requires_reason if {
 	obj := {"kind": "Application", "metadata": {"name": "x", "namespace": "argocd", "annotations": {
-		"homelab.ryanmcafee.com/policy-exempt": "app-automated",
+		"homelab.local/policy-exempt": "app-automated",
 	}}}
 	not is_exempt(obj, "app-automated")
 }
