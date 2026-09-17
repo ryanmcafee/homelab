@@ -4,7 +4,8 @@
 
 <h1 align="center">homelab</h1>
 
-<p align="center">
+<div align="center">
+
 <!-- docs-check:begin badges -->
 [![Talos](https://img.shields.io/badge/Talos-v1.14.0-FF6C2C?logo=talos&logoColor=white)](https://www.talos.dev/)
 [![Kubernetes](https://img.shields.io/badge/Kubernetes-v1.37.0-326CE5?logo=kubernetes&logoColor=white)](https://kubernetes.io/)
@@ -15,7 +16,8 @@
 <!-- docs-check:end badges -->
 [![Verify](https://github.com/ryanmcafee/homelab/actions/workflows/verify.yml/badge.svg)](https://github.com/ryanmcafee/homelab/actions/workflows/verify.yml)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-</p>
+
+</div>
 
 <p align="center">A production-grade Kubernetes homelab you can fork and boot with one command.<br>
 Talos on Proxmox, ArgoCD app-of-apps, Cilium BGP to a UniFi gateway, no PII in git, and every number on this page checked by CI.</p>
@@ -80,11 +82,16 @@ ingress class and test coverage per app is generated in [`docs/applications.md`]
 ## Repository map
 
 ```text
-ansible/         Proxmox host roles and playbooks           docs/         architecture, networking, runbooks, ADRs
-terragrunt/      modules + homelab/localdev environments    configuration/ schema, environments, versions.yaml, templates
-charts/          gitops, bootstrap, addons, applications    cmd/ internal/ the `homelab` CLI (Go)
-talos/ packer/   machine config and images                  scripts/      Deno automation the Taskfile runs
-localdev/        Kind values and fakes                      tests/        e2e (chainsaw), snapshots, policy, drills
+ansible/         Proxmox host roles and playbooks
+terragrunt/      modules + homelab/localdev environments
+talos/ packer/   machine config and images
+charts/          gitops, bootstrap, addons, applications, child charts
+configuration/   schema, environments, versions.yaml, export templates
+cmd/ internal/   the `homelab` CLI (Go)
+scripts/         Deno automation the Taskfile runs
+localdev/        Kind values and fakes
+tests/           e2e (chainsaw), snapshots, policy, drills
+docs/            architecture, networking, runbooks, ADRs
 ```
 
 ## Docs
