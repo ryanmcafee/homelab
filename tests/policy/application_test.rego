@@ -144,8 +144,8 @@ test_exempt_automated if {
 			"namespace": "argocd",
 			"annotations": {
 				"argocd.argoproj.io/sync-wave": "0",
-				"homelab.ryanmcafee.com/policy-exempt": "app-automated",
-				"homelab.ryanmcafee.com/policy-exempt-reason": "cilium is installed by talos inline manifests",
+				"homelab.local/policy-exempt": "app-automated",
+				"homelab.local/policy-exempt-reason": "cilium is installed by talos inline manifests",
 			},
 			"finalizers": ["resources-finalizer.argocd.argoproj.io"],
 		},

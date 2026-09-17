@@ -63,8 +63,8 @@ An object can be exempted from specific rules with a paired annotation:
 ```yaml
 metadata:
   annotations:
-    homelab.ryanmcafee.com/policy-exempt: "app-automated"
-    homelab.ryanmcafee.com/policy-exempt-reason: "Cilium CNI is installed by Talos inline manifests; this Application is visibility-only."
+    homelab.local/policy-exempt: "app-automated"
+    homelab.local/policy-exempt-reason: "Cilium CNI is installed by Talos inline manifests; this Application is visibility-only."
 ```
 
 Multiple rule ids are comma-separated. An exempt annotation without a reason

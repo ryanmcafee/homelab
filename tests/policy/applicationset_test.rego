@@ -23,11 +23,11 @@ good_appset := {
 	},
 }
 
-exempt_annotations(reason) := {"homelab.ryanmcafee.com/policy-exempt": "appset-project"} if {
+exempt_annotations(reason) := {"homelab.local/policy-exempt": "appset-project"} if {
 	reason == ""
 } else := {
-	"homelab.ryanmcafee.com/policy-exempt": "appset-project",
-	"homelab.ryanmcafee.com/policy-exempt-reason": reason,
+	"homelab.local/policy-exempt": "appset-project",
+	"homelab.local/policy-exempt-reason": reason,
 }
 
 test_good_appset_passes if {

@@ -9,7 +9,7 @@ metadata:
   namespace: argocd
   annotations:
     argocd.argoproj.io/sync-wave: "2"
-    homelab.ryanmcafee.com/policy-exempt: "app-finalizer"
+    homelab.local/policy-exempt: "app-finalizer"
 spec:
   project: default
   source:

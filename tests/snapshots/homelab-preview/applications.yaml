@@ -13,7 +13,7 @@ metadata:
     pod-security.kubernetes.io/enforce: baseline
     pod-security.kubernetes.io/audit: baseline
     pod-security.kubernetes.io/warn: baseline
-    homelab.ryanmcafee.com/preview-pr: "123"
+    homelab.local/preview-pr: "123"
   annotations:
     argocd.argoproj.io/sync-wave: "10"
 

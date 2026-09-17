@@ -23,8 +23,8 @@ automated_sync_required := false if {
 # exempt_rules returns the set of rule ids an object is exempt from, read
 # from the annotations:
 #
-#   homelab.ryanmcafee.com/policy-exempt: "<rule-id>[,<rule-id>...]"
-#   homelab.ryanmcafee.com/policy-exempt-reason: "<why>"
+#   homelab.local/policy-exempt: "<rule-id>[,<rule-id>...]"
+#   homelab.local/policy-exempt-reason: "<why>"
 #
 # Both annotations are required: an exempt annotation without a reason grants
 # no exemption at all.
@@ -32,9 +32,9 @@ default exempt_rules(obj) := set()
 
 exempt_rules(obj) := rules if {
 	ann := object.get(object.get(obj, "metadata", {}), "annotations", {})
-	raw := object.get(ann, "homelab.ryanmcafee.com/policy-exempt", "")
+	raw := object.get(ann, "homelab.local/policy-exempt", "")
 	raw != ""
-	reason := object.get(ann, "homelab.ryanmcafee.com/policy-exempt-reason", "")
+	reason := object.get(ann, "homelab.local/policy-exempt-reason", "")
 	reason != ""
 	rules := {trim_space(r) | some r in split(raw, ",")}
 }

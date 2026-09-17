@@ -84,8 +84,8 @@ test_exempt_hostname if {
 	obj := {
 		"kind": "Ingress",
 		"metadata": {"name": "x", "namespace": "ns", "annotations": {
-			"homelab.ryanmcafee.com/policy-exempt": "hostname-domain",
-			"homelab.ryanmcafee.com/policy-exempt-reason": "test fixture",
+			"homelab.local/policy-exempt": "hostname-domain",
+			"homelab.local/policy-exempt-reason": "test fixture",
 		}},
 		"spec": {"rules": [{"host": "app.other.com"}]},
 	}
@@ -306,8 +306,8 @@ test_inline_exempt_hostname if {
 		"kind": "Application",
 		"apiVersion": "argoproj.io/v1alpha1",
 		"metadata": {"name": "app", "namespace": "argocd", "annotations": {
-			"homelab.ryanmcafee.com/policy-exempt": "hostname-domain",
-			"homelab.ryanmcafee.com/policy-exempt-reason": "test fixture",
+			"homelab.local/policy-exempt": "hostname-domain",
+			"homelab.local/policy-exempt-reason": "test fixture",
 		}},
 		"spec": {"source": {"helm": {"values": "ingress:\n  host: app.other.com\n"}}},
 	}
