@@ -94,7 +94,7 @@ env:
   # renovate: datasource=github-releases depName=kyverno/chainsaw
   CHAINSAW_VERSION: 'v0.2.15'
   # renovate: datasource=github-releases depName=tilt-dev/tilt
-  TILT_VERSION: '0.37.3'
+  TILT_VERSION: '0.37.7'
   # renovate: datasource=github-releases depName=go-task/task
   TASK_VERSION: 'v3.46.4'
   # renovate: datasource=github-releases depName=yannh/kubeconform
