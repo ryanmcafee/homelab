@@ -8,46 +8,51 @@ terraform = "1.16.2"
 terragrunt = "1.0.8"
 packer = "latest"
 
+# Every CI workflow installs its tools from this file through jdx/mise-action
+# (`install_args` names the subset a job needs), so a pin here is the pin CI
+# runs with. Pins marked "versions.yaml" must equal configuration/versions.yaml
+# tools.* (the Renovate-tracked copy); change both together.
+
 # Kubernetes Tools
-kubectl = "1.36.3"
-# Pinned, and pinned to the same version as configuration/versions.yaml
-# `tools.helm` and .github/workflows/verify.yml HELM_VERSION. The golden
-# snapshots in tests/snapshots are byte-exact, so a different helm renders
-# different bytes and every snapshot check fails. versions.yaml is the single
-# source of truth (it is the Renovate-tracked one); change it and these two
-# together.
+kubectl = "1.37.0"        # the Kind loop's node image minor (versions.yaml images.kind-node)
+# The golden snapshots in tests/snapshots are byte-exact, so a different helm
+# renders different bytes and every snapshot check fails. versions.yaml tools.helm.
 helm = "4.3.0"
-kind = "0.33.0"          # configuration/versions.yaml tools.kind is the source of truth
+kind = "0.33.0"           # versions.yaml tools.kind
 talosctl = "1.13.8"
 tilt = "0.37.3"
-argocd = "3.5.3"        # configuration/versions.yaml tools.argocd is the source of truth
-argo = "latest"          # Argo Workflows CLI
+argocd = "3.5.3"          # versions.yaml tools.argocd
+argo = "latest"           # Argo Workflows CLI
 
-# Configuration Management (Python via pipx)
-"pipx:ansible-core" = "latest"
-"pipx:ansible-lint" = "latest"
+# Configuration Management (Python via pipx); ansible-lint.yml and the
+# pre-commit hook run these exact versions.
+"pipx:ansible-core" = "2.20.1"
+"pipx:ansible-lint" = "26.1.1"
 
 # Task Runner
-task = "latest"
+task = "3.46.4"
 
-# Go toolchain (docs/runbooks/verification.md and the CI GO_VERSION agree on
-# this minor; the level-0 CLI and its tests are built with it)
+# Go toolchain (docs/runbooks/verification.md agrees on this minor; the
+# level-0 CLI and its tests are built with it)
 go = "1.25"
 
 # Utilities
 jq = "latest"
 yq = "latest"             # YAML processor for extracting chart values
 direnv = "latest"
-deno = "latest"
-"pipx:yamllint" = "latest"
+deno = "2.6.6"            # deno fmt output is version-dependent; local and CI must match
+"pipx:yamllint" = "1.38.0"   # .pre-commit-config.yaml rev must match
 "pipx:pre-commit" = "latest"  # Git hooks framework
 "npm:embedme" = "latest"  # Living documentation - embeds code snippets into markdown
 
 # Kubernetes Validation (level-0 static verification: task verify)
-kubeconform = "latest"    # Kubernetes manifest schema validation
-conftest = "latest"       # Policy-as-code (Rego) over rendered manifests
-pluto = "latest"          # Detect deprecated apiVersions ahead of upgrades
+kubeconform = "0.7.0"     # Kubernetes manifest schema validation
+conftest = "0.70.0"       # Policy-as-code (Rego) over rendered manifests
+pluto = "5.24.4"          # Detect deprecated apiVersions ahead of upgrades
 "aqua:kyverno/chainsaw" = "0.2.15"  # Declarative Kind e2e tests (task test:e2e); versions.yaml tools.chainsaw
+
+# Security scanning (security-scan.yml)
+"pipx:checkov" = "3.3.19"
 
 # Secrets Management
 op = "latest"          # 1Password CLI for secrets management

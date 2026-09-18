@@ -68,21 +68,8 @@ permissions:
 # in particular must match configuration/versions.yaml `tools.helm` (the single source of
 # truth for the helm version) and mise.toml, because the golden snapshots are byte-exact
 # and a different helm writes different bytes.
-env:
-  # renovate: datasource=golang-version depName=go
-  GO_VERSION: '1.25'
-  # renovate: datasource=github-releases depName=helm/helm
-  HELM_VERSION: 'v4.3.0'
-  # renovate: datasource=github-releases depName=yannh/kubeconform
-  KUBECONFORM_VERSION: 'v0.7.0'
-  # renovate: datasource=github-releases depName=open-policy-agent/conftest
-  CONFTEST_VERSION: '0.70.0'
-  # renovate: datasource=github-releases depName=FairwindsOps/pluto
-  PLUTO_VERSION: '5.24.4'
-  # renovate: datasource=github-releases depName=go-task/task
-  TASK_VERSION: 'v3.46.4'
-  # renovate: datasource=github-releases depName=argoproj/argo-cd
-  ARGOCD_VERSION: 'v3.5.3'
+# Every tool comes from mise.toml through jdx/mise-action (Renovate's mise
+# manager bumps the pins there), so CI and a workstation run the same versions.
 
 jobs:
   level-0:
@@ -92,25 +79,10 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+      - name: Install go, helm, kubeconform, conftest, pluto, task from mise.toml
+        uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
         with:
-          go-version: ${{ env.GO_VERSION }}
-
-      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5
-        with:
-          version: ${{ env.HELM_VERSION }}
-
-      - name: Install kubeconform, conftest, pluto, task
-        run: |
-          set -euo pipefail
-          mkdir -p "$HOME/bin"
-          export PATH="$HOME/bin:$PATH"
-          curl -sSL --retry 5 --retry-all-errors --retry-delay 3 "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz" | tar -xz -C "$HOME/bin" kubeconform
-          curl -sSL --retry 5 --retry-all-errors --retry-delay 3 "https://github.com/open-policy-agent/conftest/releases/download/v${CONFTEST_VERSION}/conftest_${CONFTEST_VERSION}_Linux_x86_64.tar.gz" | tar -xz -C "$HOME/bin" conftest
-          curl -sSL --retry 5 --retry-all-errors --retry-delay 3 "https://github.com/FairwindsOps/pluto/releases/download/v${PLUTO_VERSION}/pluto_${PLUTO_VERSION}_linux_amd64.tar.gz" | tar -xz -C "$HOME/bin" pluto
-          go install "github.com/go-task/task/v3/cmd/task@${TASK_VERSION}"
-          echo "$HOME/bin" >> "$GITHUB_PATH"
-          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+          install_args: go helm kubeconform conftest pluto task
 
       - name: Cache kubeconform core schemas
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
@@ -162,24 +134,16 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
+      # argocd is the mise.toml pin (= configuration/versions.yaml tools.argocd):
+      # the health fixtures are evaluated with `argocd admin settings
+      # resource-overrides health`, the same code path the controller runs.
+      - name: Install go, deno, conftest, argocd, task from mise.toml
+        uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
         with:
-          deno-version: v2.x
+          install_args: go deno conftest argocd task
 
-      # argocd is pinned to configuration/versions.yaml tools.argocd: the health
-      # fixtures are evaluated with `argocd admin settings resource-overrides
-      # health`, the same code path the controller runs.
-      - name: Install conftest, argocd, task
-        run: |
-          set -euo pipefail
-          mkdir -p "$HOME/bin"
-          export PATH="$HOME/bin:$PATH"
-          curl -sSL --retry 5 --retry-all-errors --retry-delay 3 "https://github.com/open-policy-agent/conftest/releases/download/v${CONFTEST_VERSION}/conftest_${CONFTEST_VERSION}_Linux_x86_64.tar.gz" | tar -xz -C "$HOME/bin" conftest
-          curl -sSL --retry 5 --retry-all-errors --retry-delay 3 -o "$HOME/bin/argocd" "https://github.com/argoproj/argo-cd/releases/download/${ARGOCD_VERSION}/argocd-linux-amd64"
-          curl -sSL --retry 5 --retry-all-errors --retry-delay 3 "https://github.com/go-task/task/releases/download/${TASK_VERSION}/task_linux_amd64.tar.gz" | tar -xz -C "$HOME/bin" task
-          chmod +x "$HOME/bin"/*
-          echo "$HOME/bin" >> "$GITHUB_PATH"
-          argocd version --client
+      - name: Tool versions
+        run: argocd version --client
 
       - name: conftest verify
         run: conftest verify -p tests/policy
@@ -214,13 +178,10 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5
+      - name: Install helm and deno from mise.toml
+        uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
         with:
-          version: ${{ env.HELM_VERSION }}
-
-      - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
-        with:
-          deno-version: v2.x
+          install_args: helm deno
 
       - name: schemas --check
         env:
@@ -240,13 +201,10 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+      - name: Install go and helm from mise.toml
+        uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
         with:
-          go-version: ${{ env.GO_VERSION }}
-
-      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5
-        with:
-          version: ${{ env.HELM_VERSION }}
+          install_args: go helm
 
       - name: Compare snapshots
         id: compare
@@ -321,13 +279,10 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+      - name: Install go and deno from mise.toml
+        uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
         with:
-          go-version: ${{ env.GO_VERSION }}
-
-      - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
-        with:
-          deno-version: v2.x
+          install_args: go deno
 
       # The parity check needs the base tag to tell "this PR bumped the tag,
       # so the image does not exist yet" from "the image was never built".
@@ -358,29 +313,10 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+      - name: Install go, helm, deno, kubeconform, conftest, pluto, task from mise.toml
+        uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
         with:
-          go-version: ${{ env.GO_VERSION }}
-
-      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5
-        with:
-          version: ${{ env.HELM_VERSION }}
-
-      - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
-        with:
-          deno-version: v2.x
-
-      - name: Install kubeconform, conftest, pluto, task
-        run: |
-          set -euo pipefail
-          mkdir -p "$HOME/bin"
-          export PATH="$HOME/bin:$PATH"
-          curl -sSL --retry 5 --retry-all-errors --retry-delay 3 "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz" | tar -xz -C "$HOME/bin" kubeconform
-          curl -sSL --retry 5 --retry-all-errors --retry-delay 3 "https://github.com/open-policy-agent/conftest/releases/download/v${CONFTEST_VERSION}/conftest_${CONFTEST_VERSION}_Linux_x86_64.tar.gz" | tar -xz -C "$HOME/bin" conftest
-          curl -sSL --retry 5 --retry-all-errors --retry-delay 3 "https://github.com/FairwindsOps/pluto/releases/download/v${PLUTO_VERSION}/pluto_${PLUTO_VERSION}_linux_amd64.tar.gz" | tar -xz -C "$HOME/bin" pluto
-          go install "github.com/go-task/task/v3/cmd/task@${TASK_VERSION}"
-          echo "$HOME/bin" >> "$GITHUB_PATH"
-          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+          install_args: go helm deno kubeconform conftest pluto task
 
       - name: Cache kubeconform core schemas
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
