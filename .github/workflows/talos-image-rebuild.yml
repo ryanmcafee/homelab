@@ -16,9 +16,14 @@ on:
         default: 'false'
         type: boolean
 
+permissions:
+  contents: read
+  issues: write
+
 env:
-  TERRAGRUNT_VERSION: '0.55.1'
-  TERRAFORM_VERSION: '1.7.5'
+  # mise.toml points TF_PLUGIN_CACHE_DIR at a repo-local directory that does
+  # not exist on a runner; an empty value disables the cache.
+  TF_PLUGIN_CACHE_DIR: ''
 
 jobs:
   rebuild-image:
@@ -28,17 +33,12 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4
+      # The same terraform/terragrunt every other IaC workflow uses, pinned in
+      # mise.toml (terragrunt 0.55 cannot parse this repository's 1.x HCL).
+      - name: Install terraform and terragrunt from mise.toml
+        uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
         with:
-          terraform_version: ${{ env.TERRAFORM_VERSION }}
-          terraform_wrapper: false
-
-      - name: Setup Terragrunt
-        run: |
-          wget -q https://github.com/gruntwork-io/terragrunt/releases/download/v${{ env.TERRAGRUNT_VERSION }}/terragrunt_linux_amd64
-          chmod +x terragrunt_linux_amd64
-          sudo mv terragrunt_linux_amd64 /usr/local/bin/terragrunt
+          install_args: terraform terragrunt
 
       - name: Show schematic changes
         run: |

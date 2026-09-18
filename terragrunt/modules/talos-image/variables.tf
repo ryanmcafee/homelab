@@ -1,7 +1,6 @@
 variable "talos_version" {
-  description = "Talos Linux version (e.g., 'v1.6.0')"
+  description = "Talos Linux version (e.g. 'v1.12.2'); every unit sets it, no default"
   type        = string
-  default     = "v1.6.0"
 }
 
 variable "node_name" {

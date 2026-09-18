@@ -135,8 +135,7 @@ resource "proxmox_virtual_environment_vm" "this" {
     memory = var.vga_memory
   }
 
-  # Lifecycle settings
-  lifecycle {
-    ignore_changes = var.lifecycle_ignore_changes
-  }
+  # No lifecycle block: ignore_changes must be a static list, so it cannot be
+  # driven by a variable (the previous var.lifecycle_ignore_changes failed
+  # terraform validate). Callers that need it wrap this module.
 }

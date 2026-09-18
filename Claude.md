@@ -31,7 +31,7 @@ Tool routing is mandatory, not advisory. Grep/Glob/Read are fallback tools. Ever
 
 ## Subagent Routing
 
-This project has 25 specialized subagents in `.claude/agents/`. **Always delegate to the appropriate subagent** instead of doing specialized work inline. See `AGENTS.md` for the full list and coordination rules.
+The table below names the specialist roles to delegate to. Their definitions are not committed (`.claude/agents/` is gitignored and holds only the local GSD agents); when a named agent is not installed, delegate to a general-purpose subagent with the same brief. **Always delegate specialized work** instead of doing it inline. See `AGENTS.md` for coordination rules.
 
 ### When to use which subagent
 
@@ -90,7 +90,7 @@ Learned while landing #261 Section A (PR #264). Each one cost real time once.
 | Non-interactive shells miss the mise shims | Prepend `$HOME/.local/share/mise/shims` to `PATH` (`go`, `helm`, `deno`, `task` are all mise-managed; `mise.toml` pins `go = "1.25"` and `helm = "4.3.0"`). |
 | helm version changes rendered bytes | Golden snapshots are byte-exact against `configuration/versions.yaml` `tools.helm`; keep `mise.toml`, `verify.yml` and `versions.yaml` on the same helm. |
 | `go run ./cmd/homelab` collapses child exit codes to 1 | Check exit codes with the built binary (`go build -o bin/homelab ./cmd/homelab`). |
-| Terraform warns about the plugin cache dir | `task install-tools` creates `.terraform.d/plugin-cache` (the path `mise.toml` sets in `TF_PLUGIN_CACHE_DIR`). |
+| Terraform warns about the plugin cache dir | `task install-tools` creates `~/.terraform.d/plugin-cache`: the Taskfile `env:` and `.envrc` set `TF_PLUGIN_CACHE_DIR` to that path and, because `mise.toml` loads `.envrc` after its own `[env]`, it overrides the repo-local path `mise.toml` names. |
 | Docker Desktop is slow to start; CMP image tags before PR #264 are linux/amd64 only | `open -a Docker` and wait; on Apple Silicon run `task test:cmp-parity -- --platform linux/amd64` for old tags. |
 | `git push` over HTTPS occasionally fails ("remote end hung up", transient DNS) | Retry with `git -c http.version=HTTP/1.1 push`. |
 | `tests/snapshots/` must stay byte-exact | yamllint and the whitespace pre-commit fixers exclude it; regenerate with `task test:snapshot -- --update`, never hand-edit. |
@@ -111,7 +111,7 @@ All environment-specific values (IPs, domains, hostnames, usernames) are central
 | `task config:validate` | Validate schemas + environment values |
 | `task config:eval` | Print resolved config as JSON |
 | `task config:export` | Export all consumer formats |
-| `task config:guard` | Scan staged files for PII |
+| `task config:guard` | Scan every tracked file in the guard scope for PII (the pre-commit hook scans the staged ones) |
 
 ### Key Files
 - `configuration/schema/*.schema.yaml` — key declarations (committed)

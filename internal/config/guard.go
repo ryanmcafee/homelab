@@ -344,12 +344,18 @@ func IsPIIKey(key string) bool {
 // <DOMAIN> placeholder, and the guard is what keeps it that way. The workflow
 // files and issue templates live there too, and a workflow that pins a real
 // hostname in an env: block is as public as a runbook.
+//
+// Taskfile.yml is in scope because its production-facing tasks (TrueNAS,
+// Talos, the Proxmox template) address real hosts; those values now come from
+// the gitignored homelab.yaml through Taskfile vars, and the guard is what
+// keeps a literal from creeping back.
 var DefaultGuardPathspecs = []string{
 	"configuration/**",
 	"charts/**/values-homelab.yaml",
 	"scripts/**",
 	"docs/**",
 	".github/**",
+	"Taskfile.yml",
 }
 
 // guardScanExtensions are the file types the guard knows how to read. Anything
@@ -803,8 +809,8 @@ var flowMapPair = regexp.MustCompile(`([A-Za-z][A-Za-z0-9_./-]*)\s*:\s*(\[[^\]]*
 
 // classifyHostValue reports what kind of real infrastructure a Helm value
 // names, or "" when it is safe to commit. The value is reduced with hostOf
-// first, so an iSCSI portal with a port (`172.16.100.150:3260`) or a URL
-// wrapping an address (`https://172.16.100.1`) is judged on its address.
+// first, so an iSCSI portal with a port (`192.0.2.150:3260`) or a URL
+// wrapping an address (`https://192.0.2.1`) is judged on its address.
 func classifyHostValue(value string) string {
 	// A CIDR names a network, not a host. The config rule never flags one
 	// (isRoutableHostIP cannot parse it) and isExamplePlaceholder handles it

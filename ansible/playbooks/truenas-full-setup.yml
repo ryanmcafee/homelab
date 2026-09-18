@@ -18,7 +18,9 @@
     # Authentication - admin password required for initial setup
     # Note: TrueNAS 25.x uses 'truenas_admin' as the default admin username
     truenas_api_user: "truenas_admin"
-    truenas_admin_password: "{{ lookup('env', 'TRUENAS_ADMIN_PASSWORD') | default('changeme') }}"
+    # No fallback: an unset TRUENAS_ADMIN_PASSWORD must fail authentication, not
+    # silently try a well-known default.
+    truenas_admin_password: "{{ lookup('env', 'TRUENAS_ADMIN_PASSWORD') }}"
     truenas_verify_ssl: false
 
     # Proxmox connection for IP discovery

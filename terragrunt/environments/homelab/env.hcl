@@ -3,8 +3,6 @@
 # Full infrastructure deployment on Proxmox with ZFS storage
 
 locals {
-  # Inherit base configuration
-  base_config = read_terragrunt_config(find_in_parent_folders("_env/env.hcl"))
 
   # Environment-specific settings
   environment = "homelab"
@@ -32,7 +30,8 @@ locals {
   gateway     = "172.16.100.1"
   dns_servers = ["172.16.100.1"]
 
-  # MetalLB configuration
+  # LoadBalancer pool (Cilium LB IPAM; the metallb_* names are kept because
+  # gitops-bootstrap writes them into the gitops-metadata ConfigMap)
   metallb_enabled  = true
   metallb_ip_start = "172.16.100.100"
   metallb_ip_end   = "172.16.100.200"
@@ -57,7 +56,7 @@ locals {
   #
   # The image cache is deployed on TrueNAS via the truenas_storage Ansible role.
   # Run the Ansible playbook first to generate certificates and deploy the cache:
-  #   cd ansible && ansible-playbook playbooks/truenas-full-setup.yml --tags image-cache
+  #   task truenas:image-cache   (truenas-setup.yml --tags image-cache)
   #
   # After running the playbook, the CA certificate will be available at:
   #   ansible/certs/image-cache-ca.crt
@@ -146,7 +145,7 @@ locals {
   #   subsystem_id     : .planning/phases/01-hardware-spike-discovery/findings/spk-04-subsystem-id.md
   #   iommu_cmdline    : .planning/phases/01-hardware-spike-discovery/findings/spk-05-iommu-cmdline.md (AMD-Vi active, no intel_iommu flag needed)
   # Kernel driver currently bound to `xe`; Talos machine patch for Intel GPU loads `xe` + `mei` modules.
-  # INERT while active vendor is nvidia (see gpu_vendor local above). Plan 07-03 flips to "intel" under human checkpoint.
+  # Active: gpu_vendor above is "intel"; talos-cluster passes this through to worker-1.
   gpu_intel_pci_id = "0000:c3:00.0"
 
   gpu_intel_device = {
@@ -209,7 +208,7 @@ locals {
       cores     = 8
       memory    = 51200 # 50GB
       disk_size = 100
-      gpu       = true # NVIDIA Quadro P2200 for Plex transcoding
+      gpu       = true # GPU worker: Intel Arc (gpu_vendor); the NVIDIA Quadro P2200 is installed but unused
     }
     "worker-2" = {
       ip        = "172.16.100.22"

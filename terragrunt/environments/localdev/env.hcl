@@ -2,8 +2,6 @@
 # Uses Kind cluster for local development and testing
 
 locals {
-  # Inherit base configuration
-  base_config = read_terragrunt_config(find_in_parent_folders("_env/env.hcl"))
 
   # Environment-specific overrides
   environment = "localdev"
@@ -17,12 +15,6 @@ locals {
   subnet      = "10.244.0.0/16"
   gateway     = "10.244.0.1"
   dns_servers = ["8.8.8.8"]
-
-  # No MetalLB in local dev (use NodePort or LoadBalancer with kind)
-  metallb_enabled = false
-
-  # Kubernetes configuration
-  kubernetes_version = "v1.29.0"
 
   # Git repository
   repo_url        = "https://github.com/ryanmcafee/homelab"

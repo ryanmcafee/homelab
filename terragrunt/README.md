@@ -20,33 +20,37 @@ terragrunt/
 ├── .terraform-version          # Terraform version constraint
 │
 ├── modules/                    # Reusable Terraform modules
-│   ├── proxmox-zfs-pool/      # ZFS storage pool management
-│   ├── proxmox-backup-policy/ # Automated VM backups
-│   ├── proxmox-vm/            # Generic VM provisioning
+│   ├── proxmox-cluster/       # Proxmox-side DNS entries
+│   ├── proxmox-zfs-pool/      # ZFS storage pool + Proxmox datastore
+│   ├── proxmox-backup-policy/ # Automated VM backups (no environment uses it yet)
+│   ├── proxmox-vm/            # Generic VM provisioning (library module, unused)
 │   ├── truenas/               # TrueNAS VM with HBA passthrough
 │   ├── talos-image/           # Custom Talos image via Image Factory
-│   ├── talos-cluster/         # Talos Kubernetes cluster (CP + workers)
-│   ├── kind-cluster/          # Local Kind cluster for development
+│   ├── talos-cluster/         # Talos VMs and machine configs (CP + workers)
+│   ├── talos-cluster-config/  # Apply configs, bootstrap, kubeconfig
+│   ├── unifi-gateway/         # FRR BGP peer config on the UniFi gateway
+│   ├── kind-cluster/          # Kind cluster (legacy; `task localdev:up` is the loop)
 │   └── gitops-bootstrap/      # ArgoCD with GitOps Bridge pattern
 │
 └── environments/               # Environment-specific configurations
     ├── _env/
     │   └── env.hcl            # Base configuration (defaults)
     │
-    ├── localdev/              # Local development (Kind)
-    │   ├── env.hcl            # Local environment variables
+    ├── localdev/              # Kind via Terragrunt (legacy path; see task localdev:up)
+    │   ├── env.hcl
     │   ├── kind-cluster/
-    │   │   └── terragrunt.hcl
     │   └── gitops-bootstrap/
-    │       └── terragrunt.hcl
     │
-    └── homelab/               # Homelab environment (Proxmox)
+    └── homelab/               # Homelab environment (Proxmox), 11 units
         ├── env.hcl            # Homelab environment variables
-        ├── proxmox-zfs-pool/
-        ├── proxmox-backup-policy/
+        ├── proxmox-cluster/
+        ├── proxmox-zfs-pool/      # vm-storage (workers, TrueNAS)
+        ├── proxmox-zfs-pool-cp/   # cp-storage (control planes, NVMe)
         ├── truenas/
-        ├── talos-image/
+        ├── talos-image/           # + talos-image-gpu, talos-image-gpu-intel
         ├── talos-cluster/
+        ├── talos-cluster-config/
+        ├── unifi-gateway/
         └── gitops-bootstrap/
 ```
 
@@ -54,29 +58,17 @@ terragrunt/
 
 ### Prerequisites
 
-1. **Install Tools**:
+1. **Install Tools** — every pin lives in `mise.toml`:
    ```bash
-   # Terraform
-   brew install terraform  # or download from terraform.io
-
-   # Terragrunt
-   brew install terragrunt  # or download from terragrunt.gruntwork.io
-
-   # kubectl (for Kubernetes access)
-   brew install kubectl
-
-   # talosctl (for Talos cluster management)
-   brew install siderolabs/tap/talosctl
-
-   # Optional: ArgoCD CLI
-   brew install argocd
+   task install-tools      # terraform, terragrunt, kubectl, talosctl, argocd, op ...
+   task validate -- --environment homelab
    ```
 
 2. **Configure Proxmox Access**:
    ```bash
    # Create API token in Proxmox UI: Datacenter → Permissions → API Tokens
    # Then export credentials:
-   export PROXMOX_VE_ENDPOINT="https://172.16.100.250:8006"
+   export PROXMOX_VE_ENDPOINT="https://<PROXMOX_IP>:8006"
    export PROXMOX_VE_API_TOKEN="root@pam!terraform=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
    # OR use username/password:
    export PROXMOX_VE_USERNAME="root@pam"
@@ -85,30 +77,9 @@ terragrunt/
 
 ### Local Development (Kind)
 
-```bash
-# 1. Create Kind cluster
-cd terragrunt/environments/localdev/kind-cluster
-terragrunt apply
-
-# 2. Bootstrap ArgoCD
-cd ../gitops-bootstrap
-terragrunt apply
-
-# 3. Access cluster
-export KUBECONFIG=~/.kube/config
-kubectl get nodes
-
-# 4. Port-forward to ArgoCD
-kubectl port-forward svc/argocd-server -n argocd 8080:443
-
-# 5. Get ArgoCD password
-kubectl get secret argocd-initial-admin-secret -n argocd -o jsonpath='{.data.password}' | base64 -d
-
-# 6. Login to ArgoCD UI
-# URL: https://localhost:8080
-# Username: admin
-# Password: <from step 5>
-```
+The Kind loop does not go through Terragrunt: `task localdev:up` creates the cluster, installs
+ArgoCD and syncs every Application from the working tree (`docs/local-development.md`). The
+`environments/localdev` units are kept for `terragrunt run --all validate` in CI only.
 
 ### Homelab Environment (Proxmox)
 
@@ -117,88 +88,66 @@ kubectl get secret argocd-initial-admin-secret -n argocd -o jsonpath='{.data.pas
 cd terragrunt/environments/homelab/proxmox-zfs-pool
 terragrunt apply
 
-# 2. Configure backup policy
-cd ../proxmox-backup-policy
-terragrunt apply
-
-# 3. Deploy TrueNAS VM
+# 2. Deploy TrueNAS VM
 cd ../truenas
 terragrunt apply
 # Complete TrueNAS installation via Proxmox console
 # Configure ZFS pool and NFS exports in TrueNAS UI
 
-# 4. Download Talos image
-cd ../talos-image
-terragrunt apply
+# 3. Talos images, VMs, machine configs, bootstrap
+task tf:apply:component COMPONENT=talos-image          # + talos-image-gpu-intel
+task tf:apply:component COMPONENT=talos-cluster
+task tf:apply:component COMPONENT=talos-cluster-config # applies configs, bootstraps, writes the kubeconfig
 
-# 5. Deploy Talos cluster
-cd ../talos-cluster
-terragrunt apply
-# This creates VMs, applies configs, and bootstraps Kubernetes
-
-# 6. Verify cluster
-export KUBECONFIG=$(pwd)/kubeconfig
-export TALOSCONFIG=$(pwd)/talosconfig
+# 4. Verify cluster
 kubectl get nodes
 talosctl health
 
-# 7. Bootstrap ArgoCD
-cd ../gitops-bootstrap
-terragrunt apply
-
-# 8. Access ArgoCD
-kubectl port-forward svc/argocd-server -n argocd 8080:443
+# 5. Bootstrap ArgoCD (GitOps Bridge)
+task tf:apply:component COMPONENT=gitops-bootstrap
 ```
 
 ## Environment Variables
 
 Each environment is configured in `env.hcl`:
 
-| Environment | Cluster Name | Base FQDN | GPU Enabled |
-|-------------|--------------|-----------|-------------|
-| localdev | homelab-local | local | No |
-| homelab | homelab | ryanmcafee.com | Yes (worker-1) |
+| Environment | Cluster Name | Base FQDN | GPU |
+|-------------|--------------|-----------|-----|
+| localdev | homelab-local | local | none |
+| homelab | homelab | `<DOMAIN>` | Intel (worker-1) |
 
 ## Deployment Order
 
-Infrastructure components must be deployed in order due to dependencies:
+`terragrunt run --all` orders the units from their `dependency` blocks:
 
 ```
-1. proxmox-zfs-pool         # Creates resource pool
-2. proxmox-backup-policy    # Configures backups
-3. truenas                  # Deploys NAS VM (depends on zfs-pool)
-   └─ Manual: Complete TrueNAS installation and configure storage
-4. talos-image              # Downloads custom Talos image
-5. talos-cluster            # Creates Kubernetes cluster (depends on talos-image)
-6. gitops-bootstrap         # Installs ArgoCD (depends on talos-cluster)
-   └─ ArgoCD takes over: Deploys addons and applications
+proxmox-cluster
+├─ proxmox-zfs-pool ─────┬─ truenas ──────────────┐
+└─ proxmox-zfs-pool-cp ──┤                        │
+talos-image, talos-image-gpu, talos-image-gpu-intel │
+                         └─ talos-cluster ─── talos-cluster-config ─── gitops-bootstrap
+unifi-gateway (independent: FRR BGP peer config on the gateway)
+   └─ ArgoCD takes over from gitops-bootstrap: bootstrap → addons → applications
 ```
+
+`proxmox-backup-policy` is a module without a unit; the Proxmox backup job is disabled on
+purpose (`docs/runbooks/control-plane-storage.md`, host housekeeping).
 
 ### Automated Deployment (All Components)
 
 ```bash
-# Deploy all components in order
-cd terragrunt/environments/homelab
-terragrunt run --all apply --non-interactive
+task tf:plan                 # every unit, read-only
+task tf:apply                # every unit, in dependency order
 ```
 
 ## Common Operations
 
 ### Update Talos Version
 
-```bash
-# 1. Update version in env.hcl
-vim terragrunt/environments/homelab/env.hcl
-# Change: talos_version = "v1.6.1"
-
-# 2. Regenerate image
-cd terragrunt/environments/homelab/talos-image
-terragrunt apply
-
-# 3. Upgrade cluster nodes
-talosctl upgrade --nodes 172.16.100.11 --image ghcr.io/siderolabs/installer:v1.6.1
-# Repeat for each node
-```
+Follow `docs/runbooks/talos-upgrade.md`: bump `talos_version` in
+`terragrunt/environments/homelab/env.hcl`, apply the three `talos-image*` units, then upgrade the
+nodes one at a time (`task talos:upgrade:image`). `configuration/versions.yaml` `tools.talos` is
+not read by Terragrunt; keep the two in step by hand.
 
 ### Scale Workers
 
@@ -253,20 +202,15 @@ ArgoCD → Reads Metadata → Deploys Apps (charts/gitops)
 ```hcl
 # Terragrunt passes metadata
 custom_metadata = {
-  truenas_ip       = "172.16.100.50"
-  metallb_ip_range = "172.16.100.100-172.16.100.200"
+  truenas_ip       = "<TRUENAS_IP>"
+  metallb_ip_range = "<LB_POOL_START>-<LB_POOL_END>" # legacy key name; the pool is Cilium LB IPAM
 }
 ```
 
-```yaml
-# ArgoCD Applications use metadata
-spec:
-  source:
-    helm:
-      values: |
-        nfs:
-          server: {{ (lookup "v1" "ConfigMap" "argocd" "gitops-metadata").data.truenas_ip }}
-```
+Today no chart reads `gitops-metadata`: environment values reach the charts through the
+`homelab-cmp` sidecar (`configuration/` → `helm template`) and the `homelab-environment-config`
+Secret, so the ConfigMap is informational. It is kept because removing it is a production plan
+diff for no gain.
 
 ## Troubleshooting
 
@@ -274,7 +218,7 @@ spec:
 
 ```bash
 # View detailed logs
-terragrunt apply --terragrunt-log-level debug
+terragrunt apply --log-level debug
 
 # Clear cache
 rm -rf .terragrunt-cache/
@@ -290,7 +234,7 @@ terragrunt plan
 
 ```bash
 # Test Proxmox API
-curl -k https://172.16.100.250:8006/api2/json/version
+curl -k https://<PROXMOX_IP>:8006/api2/json/version
 
 # Verify credentials
 env | grep PROXMOX_VE
@@ -300,14 +244,14 @@ env | grep PROXMOX_VE
 
 ```bash
 # Check node status
-talosctl --nodes 172.16.100.11 version
-talosctl --nodes 172.16.100.11 health
+talosctl --nodes <CP1_IP> version
+talosctl --nodes <CP1_IP> health
 
 # View logs
-talosctl --nodes 172.16.100.11 logs kubelet
+talosctl --nodes <CP1_IP> logs kubelet
 
 # Restart kubelet
-talosctl --nodes 172.16.100.11 service kubelet restart
+talosctl --nodes <CP1_IP> service kubelet restart
 ```
 
 ### ArgoCD Issues
@@ -351,7 +295,7 @@ After deployment, verify:
 pvesh get /cluster/resources --type vm
 
 # TrueNAS
-curl -k https://172.16.100.50
+curl -k https://<TRUENAS_IP>
 
 # Talos Cluster
 kubectl get nodes
@@ -376,14 +320,14 @@ kubectl get configmap gitops-metadata -n argocd -o yaml
 
 After infrastructure is provisioned:
 
-1. **Deploy Core Addons** (Phase 4):
-   - MetalLB for LoadBalancer services
+1. **Deploy Core Addons** (ArgoCD `addons`, automatic after gitops-bootstrap):
+   - Cilium LB IPAM + BGP for LoadBalancer services
    - cert-manager for TLS certificates
    - external-dns for DNS automation
    - democratic-csi for TrueNAS storage
    - kube-prometheus-stack for monitoring
 
-2. **Deploy Applications** (Phase 6):
+2. **Deploy Applications** (ArgoCD `applications`):
    - Plex (with GPU transcoding)
    - Sonarr/Radarr
    - Prowlarr

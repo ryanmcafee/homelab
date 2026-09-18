@@ -64,12 +64,11 @@ dependency "talos_image_gpu_intel" {
   }
 }
 
-dependency "truenas" {
-  config_path = "../truenas"
-
-  mock_outputs = {
-    vm_id = 100
-  }
+# Ordering only: the image cache lives on TrueNAS, but no TrueNAS output is
+# read here, so a `dependency` block (which reads its state on every plan) is
+# not needed.
+dependencies {
+  paths = ["../truenas"]
 }
 
 # Configure Proxmox provider
@@ -126,8 +125,9 @@ inputs = {
   gpu_installer_image = "factory.talos.dev/installer/${dependency.talos_image_gpu.outputs.schematic_id}:${dependency.talos_image_gpu.outputs.talos_version}"
 
   # Network configuration
+  # The module tags no VLAN on the VM NICs; the bridge port carries VLAN
+  # include.env.locals.vlan_id.
   network_bridge  = "vmbr0"
-  network_vlan_id = include.env.locals.vlan_id
   network_gateway = include.env.locals.gateway
   network_cidr    = include.env.locals.subnet
   dns_servers     = include.env.locals.dns_servers
@@ -192,9 +192,9 @@ inputs = {
           extraArgs = {
             "rotate-server-certificates" = "true"
           }
-          # Disable default seccomp profile to avoid startup delays
+          # Keep the kubelet's default RuntimeDefault seccomp profile
           defaultRuntimeSeccompProfileEnabled = true
-          # Disable manifests directory which can cause delays
+          # No static-pod manifests directory (nothing here uses it)
           disableManifestsDirectory = true
           # Expose iSCSI paths from iscsi-tools extension to kubelet mount namespace
           extraMounts = [
@@ -298,11 +298,6 @@ inputs = {
       }
     })
   ]
-
-  # SSH configuration for boot args
-  proxmox_host    = include.env.locals.proxmox_host
-  ssh_user        = include.env.locals.proxmox_ssh_user
-  ssh_private_key = include.env.locals.proxmox_ssh_private_key
 
   tags = ["homelab", "talos", "kubernetes"]
 

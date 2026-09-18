@@ -5,14 +5,20 @@ on:
     paths:
       - 'configuration/**'
       - 'charts/**'
-      - 'terragrunt/**'
+      - 'cmd/**'
+      - 'internal/**'
+      - 'go.mod'
+      - 'go.sum'
   push:
     branches:
       - main
     paths:
       - 'configuration/**'
       - 'charts/**'
-      - 'terragrunt/**'
+      - 'cmd/**'
+      - 'internal/**'
+      - 'go.mod'
+      - 'go.sum'
 
 jobs:
   validate:

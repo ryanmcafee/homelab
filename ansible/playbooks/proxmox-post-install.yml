@@ -17,33 +17,11 @@
   roles:
     - role: proxmox_base
 
+  # The community post-install script used to run here, gated on the
+  # pve-no-subscription repo file. The proxmox_base role creates that file
+  # before this section runs, so the script never executed; the role does the
+  # repository work, and the script tasks are gone.
   tasks:
-    - name: Check if post-install script has already been run
-      ansible.builtin.stat:
-        path: /etc/apt/sources.list.d/pve-no-subscription.list
-      register: post_install_marker
-
-    - name: Download Proxmox post-install script
-      ansible.builtin.get_url:
-        url: "{{ proxmox_post_install_script_url }}"
-        dest: /tmp/post-pve-install.sh
-        mode: '0755'
-      when: not post_install_marker.stat.exists
-
-    - name: Execute Proxmox post-install script
-      ansible.builtin.shell: |
-        bash /tmp/post-pve-install.sh
-      args:
-        creates: /etc/apt/sources.list.d/pve-no-subscription.list
-      when: not post_install_marker.stat.exists
-      register: post_install_result
-      notify: Display post-install script output
-
-    - name: Clean up post-install script
-      ansible.builtin.file:
-        path: /tmp/post-pve-install.sh
-        state: absent
-
     - name: Update all packages (if enabled)
       ansible.builtin.apt:
         upgrade: dist
@@ -63,9 +41,4 @@
     - name: Reboot if required
       ansible.builtin.reboot:
         reboot_timeout: 300
-      when: post_install_result is changed or (apt_upgrade | default(false) | bool)
-
-  handlers:
-    - name: Display post-install script output
-      ansible.builtin.debug:
-        var: post_install_result.stdout_lines
+      when: apt_upgrade | default(false) | bool

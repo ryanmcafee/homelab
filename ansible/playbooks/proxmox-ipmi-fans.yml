@@ -39,7 +39,8 @@
 
   post_tasks:
     - name: Display fan sensor status
-      ansible.builtin.command:
+      # shell, not command: the pipe would otherwise be passed to ipmitool as arguments
+      ansible.builtin.shell:
         cmd: ipmitool sensor list | grep -i fan
       register: fan_status
       changed_when: false

@@ -1,5 +1,5 @@
 # Homelab - UniFi Gateway Configuration
-# Provisions BGP peering between UniFi and Kubernetes (MetalLB)
+# Provisions BGP peering between UniFi and Kubernetes (Cilium BGP control plane)
 
 include "root" {
   path = find_in_parent_folders()
@@ -36,7 +36,7 @@ inputs = {
   bgp_local_as    = include.env.locals.bgp_asn_unifi
   bgp_router_id   = include.env.locals.gateway
 
-  # Peer with all Kubernetes nodes (MetalLB speakers)
+  # Peer with the Kubernetes nodes (Cilium's CiliumBGPClusterConfig selects the control planes)
   bgp_neighbors = [
     for name, node in merge(
       include.env.locals.control_plane_nodes,
@@ -49,7 +49,7 @@ inputs = {
     }
   ]
 
-  # No networks to advertise - MetalLB advertises LoadBalancer IPs
+  # No networks to advertise - Cilium advertises the LoadBalancer IPs
   bgp_networks = []
 
   # Site configuration

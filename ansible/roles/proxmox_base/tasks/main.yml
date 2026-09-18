@@ -54,7 +54,7 @@
     mode: '0644'
   loop:
     - kvm
-    - kvm_intel
+    - "{{ 'kvm_amd' if 'AMD' in ansible_processor | join(' ') else 'kvm_intel' }}"
 
 - name: Load kernel modules
   community.general.modprobe:
@@ -62,8 +62,7 @@
     state: present
   loop:
     - kvm
-    - kvm_intel
-  failed_when: false
+    - "{{ 'kvm_amd' if 'AMD' in ansible_processor | join(' ') else 'kvm_intel' }}"
 
 - name: Enable and start pve-cluster service
   ansible.builtin.systemd:

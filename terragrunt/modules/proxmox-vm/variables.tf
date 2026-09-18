@@ -268,10 +268,3 @@ variable "vga_memory" {
   type        = number
   default     = 16
 }
-
-# Lifecycle
-variable "lifecycle_ignore_changes" {
-  description = "Lifecycle ignore_changes list"
-  type        = list(string)
-  default     = []
-}

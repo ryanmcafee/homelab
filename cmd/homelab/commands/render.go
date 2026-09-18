@@ -28,6 +28,11 @@ func NewRenderCmd() *cobra.Command {
 		Use:   "render",
 		Short: "Manage rendered Helm manifests in 1Password",
 		Long:  `Push, pull, and sync rendered Helm manifest files to/from 1Password Documents for cross-machine consistency.`,
+		// A group is not runnable; a typo must not print help and exit 0.
+		Args:          GroupCommandArgs,
+		RunE:          RunGroupCommand,
+		SilenceUsage:  true,
+		SilenceErrors: true,
 	}
 
 	cmd.AddCommand(newRenderPushCmd())

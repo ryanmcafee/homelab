@@ -1,11 +1,15 @@
 # Ansible Configuration for Proxmox
 
-This directory contains Ansible playbooks and roles for Phase 2: Proxmox Configuration as defined in the homelab project plan.
+This directory contains the Ansible playbooks and roles that prepare the Proxmox host (and
+bootstrap the TrueNAS VM) before Terragrunt creates the cluster; `task setup` runs `site.yml`
+as its first production phase (`docs/architecture.md#provisioning`).
 
 ## Overview
 
 The Ansible automation handles the following tasks:
-- **Post-installation configuration** - Executes community scripts and installs essential packages
+- **Post-installation configuration** - Repositories, essential packages, timezone, kernel modules (role `proxmox_base`)
+- **Log retention** - 7-day journald/logrotate/vzdump retention on the host (`proxmox-log-retention.yml`)
+- **TrueNAS** - API-driven pool, dataset, share, LAN and image-cache setup (`truenas-*.yml`, role `truenas_storage`)
 - **StorCLI installation** - Installs Broadcom StorCLI for HBA management and firmware updates
 - **IPMI fan threshold configuration** - Fixes Noctua fan cyclical spin-up on Supermicro motherboards
 - **Network configuration** - Configures VLAN-aware bridge for VM networking
@@ -27,7 +31,7 @@ The Ansible automation handles the following tasks:
    ssh root@${PROXMOX_HOST}
    ```
 
-   **Note**: You'll need the root password when running `ssh-copy-id`. After setup, Ansible will authenticate using your SSH key. The Proxmox host IP is configured in `inventory/hosts.yml` (default: 172.16.100.250).
+   **Note**: You'll need the root password when running `ssh-copy-id`. After setup, Ansible will authenticate using your SSH key. The Proxmox host IP is configured in `inventory/homelab.yml` (default: ${PROXMOX_HOST}).
 
 3. **Ansible installed** - Managed automatically via mise (see project root README), or install manually:
    ```bash
@@ -50,21 +54,29 @@ ansible/
 ├── ansible.cfg                          # Ansible configuration
 ├── requirements.yml                     # Ansible Galaxy dependencies
 ├── inventory/
-│   ├── hosts.yml                        # Proxmox host inventory
+│   ├── homelab.yml                      # Proxmox + TrueNAS inventory
 │   └── group_vars/
 │       ├── all.yml                      # Global variables
-│       └── proxmox.yml                  # Proxmox-specific variables
+│       ├── proxmox.yml                  # Proxmox-specific variables
+│       └── truenas.yml                  # TrueNAS API variables
 ├── playbooks/
 │   ├── site.yml                         # Main playbook (entry point)
 │   ├── proxmox-post-install.yml         # Post-installation tasks
 │   ├── proxmox-storcli.yml              # StorCLI installation
 │   ├── proxmox-ipmi-fans.yml            # IPMI fan configuration
-│   └── proxmox-networking.yml           # Network bridge configuration
+│   ├── proxmox-networking.yml           # Network bridge configuration
+│   ├── proxmox-log-retention.yml        # 7-day log retention
+│   ├── reboot.yml                       # Reboot the host and wait
+│   ├── truenas-setup.yml                # TrueNAS configuration (tags: lan-network, image-cache)
+│   ├── truenas-status.yml               # TrueNAS read-only status
+│   └── truenas-full-setup.yml           # TrueNAS first-boot setup (API key, pools, ACME)
 ├── roles/
-│   ├── proxmox-base/                    # Base Proxmox configuration
-│   ├── proxmox-storcli/                 # StorCLI management
-│   ├── proxmox-ipmi/                    # IPMI configuration
-│   └── proxmox-networking/              # Network configuration
+│   ├── proxmox_base/                    # Base Proxmox configuration
+│   ├── proxmox_storcli/                 # StorCLI management
+│   ├── proxmox_ipmi/                    # IPMI configuration
+│   ├── proxmox_networking/              # Network configuration
+│   ├── proxmox_log_retention/           # Log retention
+│   └── truenas_storage/                 # TrueNAS API automation
 └── files/
     ├── storcli_007.2705.0000.0000_all.deb  # StorCLI package
     └── firmware/
@@ -82,7 +94,7 @@ ansible-galaxy install -r requirements.yml
 
 ### 2. Configure Inventory
 
-Edit `inventory/hosts.yml` and update the following:
+Edit `inventory/homelab.yml` and update the following:
 - `ansible_host` - IP address of your Proxmox host
 - PCI IDs for HBA cards and GPU (if different)
 - Storage device paths (if different)
@@ -141,16 +153,16 @@ After running the playbooks, verify:
 
 ```bash
 # Check Proxmox version
-ssh root@172.16.100.250 'pveversion'
+ssh root@${PROXMOX_HOST} 'pveversion'
 
 # Check StorCLI installation
-ssh root@172.16.100.250 'storcli64 show'
+ssh root@${PROXMOX_HOST} 'storcli64 show'
 
 # Check fan sensors
-ssh root@172.16.100.250 'ipmitool sensor list | grep -i fan'
+ssh root@${PROXMOX_HOST} 'ipmitool sensor list | grep -i fan'
 
 # Check network bridge
-ssh root@172.16.100.250 'brctl show'
+ssh root@${PROXMOX_HOST} 'brctl show'
 ```
 
 ## Playbook Details
@@ -266,12 +278,12 @@ The `proxmox-storcli` role includes comprehensive HBA firmware management capabi
    ```bash
    ansible-playbook playbooks/reboot.yml
    # Or manually:
-   ssh root@172.16.100.250 "reboot"
+   ssh root@${PROXMOX_HOST} "reboot"
    ```
 
 4. **Verify Update**:
    ```bash
-   ssh root@172.16.100.250 "storcli64 /c0 show all | grep -i firmware"
+   ssh root@${PROXMOX_HOST} "storcli64 /c0 show all | grep -i firmware"
    ```
 
 ### Safety Features
@@ -293,8 +305,8 @@ For detailed firmware update procedures, troubleshooting, and rollback instructi
 |----------|---------|-------------|
 | `base_domain` | ryanmcafee.com | Base domain for homelab |
 | `homelab_vlan` | 100 | VLAN ID for homelab network |
-| `homelab_subnet` | 172.16.100.0/24 | Homelab subnet |
-| `homelab_gateway` | 172.16.100.1 | Default gateway |
+| `homelab_subnet` | <LAN_CIDR> | Homelab subnet |
+| `homelab_gateway` | <GATEWAY_IP> | Default gateway |
 | `timezone` | America/New_York | System timezone |
 
 ### Proxmox Variables (proxmox.yml)
@@ -328,10 +340,10 @@ For detailed firmware update procedures, troubleshooting, and rollback instructi
 
 ```bash
 # Test SSH connectivity
-ssh -v root@172.16.100.250
+ssh -v root@${PROXMOX_HOST}
 
 # If host key verification fails
-ssh-keygen -R 172.16.100.250
+ssh-keygen -R ${PROXMOX_HOST}
 ```
 
 ### Ansible Fails with "permission denied"
@@ -352,14 +364,14 @@ ls -la ansible/files/storcli_*.deb
 
 Verify IPMI network connectivity:
 ```bash
-ping 172.16.100.26
+ping <IPMI_IP>
 ```
 
 ### Network Configuration Changes Not Applied
 
 Network changes may require a reboot:
 ```bash
-ssh root@172.16.100.250 'reboot'
+ssh root@${PROXMOX_HOST} 'reboot'
 ```
 
 ### HBA Firmware Issues
@@ -370,14 +382,14 @@ This is expected behavior when the target firmware is already installed. No acti
 #### Firmware flash fails with permission error
 Ensure StorCLI is installed and accessible:
 ```bash
-ssh root@172.16.100.250 'which storcli64'
-ssh root@172.16.100.250 'storcli64 show'
+ssh root@${PROXMOX_HOST} 'which storcli64'
+ssh root@${PROXMOX_HOST} 'storcli64 show'
 ```
 
 #### Controller not detected
 Verify HBA is properly seated and detected:
 ```bash
-ssh root@172.16.100.250 'lspci | grep -i sas'
+ssh root@${PROXMOX_HOST} 'lspci | grep -i sas'
 ```
 
 #### Firmware version doesn't change after flash
@@ -388,12 +400,10 @@ ansible-playbook playbooks/reboot.yml
 
 For detailed firmware troubleshooting, see `docs/runbooks/hba-firmware-update.md`
 
-### Check Ansible Logs
+### Check Ansible Output
 
-Ansible logs are stored in `/var/log/ansible/` on the Proxmox host:
-```bash
-ssh root@172.16.100.250 'ls -la /var/log/ansible/'
-```
+Nothing is logged on the host (`ansible.cfg` sets no `log_path`); re-run the playbook with
+`-v` from the controller to see task output.
 
 ## Development
 
@@ -422,11 +432,14 @@ ansible-playbook playbooks/site.yml -vvv  # Very verbose
 
 ### Tags
 
-(Future enhancement - add tags to tasks for selective execution)
+`truenas-setup.yml` exposes `lan-network` and `image-cache`; the Taskfile uses them
+(`task truenas:lan-network`, `task truenas:image-cache`). The Proxmox playbooks have no tags;
+run the individual playbook instead of `site.yml`.
 
-## Integration with Project Plan
+## Where this fits
 
-This Ansible configuration implements **Phase 2: Proxmox Configuration** from `plan.md`.
+`site.yml` is the first production phase of `task setup` (Ansible → Terragrunt → GitOps); see
+`docs/architecture.md#provisioning`.
 
 **Dependencies:**
 - Phase 1 (Proxmox Installation) must be completed first

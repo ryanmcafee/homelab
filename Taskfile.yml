@@ -3,6 +3,20 @@ version: '3'
 env:
   TF_PLUGIN_CACHE_DIR: "{{.HOME}}/.terraform.d/plugin-cache"
 
+# Addresses and the domain come from the gitignored
+# configuration/environments/homelab.yaml so that no real value is committed
+# here (the PII guard scans this file). Empty when the file is absent (forks,
+# CI), which only matters for the production-facing tasks that use them.
+vars:
+  PROXMOX_IP:
+    sh: yq -r '.PROXMOX_IP // ""' configuration/environments/homelab.yaml 2>/dev/null || true
+  CP1_IP:
+    sh: yq -r '.CP1_IP // ""' configuration/environments/homelab.yaml 2>/dev/null || true
+  DOMAIN:
+    sh: yq -r '.DOMAIN // ""' configuration/environments/homelab.yaml 2>/dev/null || true
+  LAN_CIDR:
+    sh: yq -r '.NFS_SHARE_ALLOW // ""' configuration/environments/homelab.yaml 2>/dev/null || true
+
 tasks:
   # ==========================================================================
   # Setup and Prerequisites
@@ -280,13 +294,13 @@ tasks:
       - task: truenas:full-setup
       - echo "=== Verifying TrueNAS Deployment ==="
       - echo "Checking TrueNAS API accessibility..."
-      - op run --env-file={{.ROOT_DIR}}/.env.op -- sh -c 'curl -k -s --connect-timeout 10 -u "truenas_admin:$TRUENAS_ADMIN_PASSWORD" https://truenas.ryanmcafee.com/api/v2.0/system/info | jq -r ".version // \"API not accessible\""'
+      - op run --env-file={{.ROOT_DIR}}/.env.op -- sh -c 'curl -k -s --connect-timeout 10 -u "truenas_admin:$TRUENAS_ADMIN_PASSWORD" https://truenas.{{.DOMAIN}}/api/v2.0/system/info | jq -r ".version // \"API not accessible\""'
 
   truenas:check-template:
     desc: Verify TrueNAS template exists in Proxmox
     cmds:
       - |
-        if ! op run --env-file={{.ROOT_DIR}}/.env.op -- ssh root@172.16.100.250 "qm config 9000 | grep -q 'template: 1'" 2>/dev/null; then
+        if ! op run --env-file={{.ROOT_DIR}}/.env.op -- ssh root@{{.PROXMOX_IP}} "qm config 9000 | grep -q 'template: 1'" 2>/dev/null; then
           echo "ERROR: TrueNAS template (VM 9000) not found!"
           echo "Run 'task truenas:build-template' to create it manually."
           exit 1
@@ -303,7 +317,7 @@ tasks:
       - mise exec -- op run --env-file={{.ROOT_DIR}}/.env.op -- sh -c 'PKR_VAR_proxmox_username="$TF_VAR_proxmox_api_token_id" PKR_VAR_proxmox_token="$TF_VAR_proxmox_api_token_secret" PKR_VAR_truenas_admin_password="$TRUENAS_ADMIN_PASSWORD" packer build .'
       - echo ""
       - echo "=== MANUAL STEP REQUIRED ==="
-      - echo "1. Open Proxmox console{{":"}} https://172.16.100.250:8006"
+      - echo "1. Open Proxmox console{{":"}} https://{{.PROXMOX_IP}}:8006"
       - echo "2. Select VM 9000 and open Console (VNC)"
       - echo "3. Complete TrueNAS installation manually"
       - echo "4. After installation, run{{":"}} task truenas:finalize-template"
@@ -312,14 +326,14 @@ tasks:
     desc: Finalize TrueNAS template after manual installation
     cmds:
       - echo "Shutting down VM 9000..."
-      - op run --env-file={{.ROOT_DIR}}/.env.op -- ssh root@172.16.100.250 "qm shutdown 9000 --timeout 60 || true"
+      - op run --env-file={{.ROOT_DIR}}/.env.op -- ssh root@{{.PROXMOX_IP}} "qm shutdown 9000 --timeout 60 || true"
       - sleep 10
       - echo "Removing installation ISO..."
-      - op run --env-file={{.ROOT_DIR}}/.env.op -- ssh root@172.16.100.250 "qm set 9000 --delete ide2 2>/dev/null || true"
+      - op run --env-file={{.ROOT_DIR}}/.env.op -- ssh root@{{.PROXMOX_IP}} "qm set 9000 --delete ide2 2>/dev/null || true"
       - echo "Setting boot order..."
-      - op run --env-file={{.ROOT_DIR}}/.env.op -- ssh root@172.16.100.250 "qm set 9000 --boot 'order=virtio0;net0'"
+      - op run --env-file={{.ROOT_DIR}}/.env.op -- ssh root@{{.PROXMOX_IP}} "qm set 9000 --boot 'order=virtio0;net0'"
       - echo "Converting to template..."
-      - op run --env-file={{.ROOT_DIR}}/.env.op -- ssh root@172.16.100.250 "qm template 9000"
+      - op run --env-file={{.ROOT_DIR}}/.env.op -- ssh root@{{.PROXMOX_IP}} "qm template 9000"
       - echo "Template finalized successfully!"
 
   truenas:validate-template:
@@ -349,7 +363,7 @@ tasks:
       - echo "Starting TrueNAS full setup workflow..."
       - task: truenas:deploy
       - echo "TrueNAS deployment complete!"
-      - echo "Access TrueNAS at https://truenas.ryanmcafee.com"
+      - echo "Access TrueNAS at https://truenas.{{.DOMAIN}}"
 
   truenas:ansible-only:
     desc: Run Ansible setup only (for existing VM)
@@ -557,7 +571,7 @@ tasks:
         helm template kubelet-csr-approver kubelet-csr-approver/kubelet-csr-approver --version 1.2.2 \
           --namespace kube-system \
           --skip-tests \
-          --set providerIpPrefixes="{172.16.100.0/24}" \
+          --set providerIpPrefixes="{{"{"}}{{.LAN_CIDR}}{{"}"}}" \
           --set bypassDnsResolution=true \
           > terragrunt/files/kubelet-csr-approver-rendered.yaml
       - echo "kubelet-csr-approver manifests rendered to terragrunt/files/kubelet-csr-approver-rendered.yaml"
@@ -605,7 +619,7 @@ tasks:
     desc: Generate Talos machine configurations
     dir: talos
     cmds:
-      - talosctl gen config homelab https://172.16.100.11:6443
+      - talosctl gen config homelab https://{{.CP1_IP}}:6443
 
   talos:apply:
     desc: Apply Talos configuration to nodes
@@ -615,12 +629,12 @@ tasks:
   talos:bootstrap:
     desc: Bootstrap Talos cluster
     cmds:
-      - talosctl bootstrap -n 172.16.100.11
+      - talosctl bootstrap -n {{.CP1_IP}}
 
   talos:kubeconfig:
     desc: Retrieve kubeconfig from Talos
     cmds:
-      - talosctl kubeconfig -n 172.16.100.11
+      - talosctl kubeconfig -n {{.CP1_IP}}
 
   talos:upgrade:image:
     desc: Regenerate Talos image with updated extensions
@@ -963,7 +977,7 @@ tasks:
       - go run ./cmd/homelab config export --set localdev --format helm-apps
 
   config:guard:
-    desc: Scan tracked configuration and chart homelab values files for PII
+    desc: "Scan every tracked file in the guard scope for PII: configuration/, charts/**/values-homelab.yaml, scripts/, docs/, .github/, Taskfile.yml"
     # --ci is not optional here: without it (and without file arguments) the
     # guard resolves an empty scan scope, checks nothing and exits 0.
     cmds:
@@ -1021,7 +1035,7 @@ tasks:
   spk:capture:
     desc: "Phase 1 hardware spike — capture all Proxmox-side evidence in one SSH session (SPK-02, SPK-03, SPK-04, SPK-05)"
     vars:
-      PROXMOX_HOST: '{{.PROXMOX_HOST | default "root@proxmox.ryanmcafee.com"}}'
+      PROXMOX_HOST: '{{.PROXMOX_HOST | default (print "root@" .PROXMOX_IP)}}'
       OUT: ".planning/phases/01-hardware-spike-discovery/findings/proxmox-ssh-session.log"
     cmds:
       - mkdir -p $(dirname {{.OUT}})

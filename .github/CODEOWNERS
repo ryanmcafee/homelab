@@ -20,5 +20,4 @@
 
 # Critical configuration files
 /.gitignore @ryanmcafee
-/plan.md @ryanmcafee
 /Taskfile.yml @ryanmcafee

@@ -1,21 +1,33 @@
 name: Terragrunt Apply
 
-on:
-  push:
-    branches:
-      - main
-    paths:
-      - 'terragrunt/**'
+# Manual only. GitHub-hosted runners cannot reach the homelab LAN and the
+# repository has no PROXMOX_* secrets, so an automatic apply on every push to
+# main could never succeed (it failed on the plugin-cache directory before it
+# even reached the API). `task tf:apply` from a workstation is the working path
+# (ADR-009); this workflow exists for a self-hosted runner or a future secrets
+# setup and must be dispatched by hand. Tools come from mise.toml through
+# jdx/mise-action.
 
-# Apply runs only after the `production` environment approval and needs the
-# PROXMOX_* secrets plus network access to the homelab LAN, which GitHub-hosted
-# runners do not have; `task tf:apply` from a workstation is the working path
-# (ADR-009). Tools come from mise.toml through jdx/mise-action.
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "apply" to run terragrunt run --all apply against homelab'
+        required: true
+        type: string
+
+permissions:
+  contents: read
 
 jobs:
   apply:
+    if: ${{ inputs.confirm == 'apply' }}
     runs-on: ubuntu-latest
-    environment: production  # Require manual approval for production deployments
+    environment: production  # manual approval gate for production deployments
+    env:
+      # mise.toml points TF_PLUGIN_CACHE_DIR at a repo-local directory that
+      # does not exist on a runner; an empty value disables the cache.
+      TF_PLUGIN_CACHE_DIR: ''
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7

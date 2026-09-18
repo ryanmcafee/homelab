@@ -66,31 +66,6 @@ variable "onepassword_vault_id" {
   default     = ""
 }
 
-# Timeout configurations for Talos operations
-variable "config_apply_timeout" {
-  description = "Timeout for machine configuration apply operations"
-  type        = string
-  default     = "10m"
-}
-
-variable "bootstrap_timeout" {
-  description = "Timeout for cluster bootstrap operation (talosctl bootstrap equivalent)"
-  type        = string
-  default     = "10m"
-}
-
-variable "health_check_timeout" {
-  description = "Timeout for cluster health check after bootstrap"
-  type        = string
-  default     = "10m"
-}
-
-variable "kubeconfig_timeout" {
-  description = "Timeout for kubeconfig generation"
-  type        = string
-  default     = "5m"
-}
-
 variable "bootstrap_trigger" {
   description = "Trigger value that forces re-bootstrap when changed (e.g., machine secrets ID)"
   type        = string
@@ -107,12 +82,6 @@ variable "kubeconfig_path" {
   description = "Path to write the kubeconfig file (supports ~ expansion)"
   type        = string
   default     = "~/.kube/config"
-}
-
-variable "cluster_endpoint" {
-  description = "Kubernetes API endpoint (VIP) to use in kubeconfig. If set, overrides the endpoint in the generated kubeconfig."
-  type        = string
-  default     = ""
 }
 
 variable "vip_endpoint" {

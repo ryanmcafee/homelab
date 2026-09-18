@@ -15,16 +15,16 @@ variable "vip_endpoint" {
   default     = ""
 }
 
+# No defaults: the environment's env.hcl is the single source, and a missing
+# input must fail instead of silently rendering an old release.
 variable "talos_version" {
   description = "Talos Linux version"
   type        = string
-  default     = "v1.11.2"
 }
 
 variable "kubernetes_version" {
   description = "Kubernetes version"
   type        = string
-  default     = "v1.29.0"
 }
 
 # Node Configuration
@@ -148,11 +148,8 @@ variable "network_bridge" {
   default     = "vmbr0"
 }
 
-variable "network_vlan_id" {
-  description = "VLAN ID for cluster network"
-  type        = number
-  default     = null
-}
+# VLAN tagging is not applied by this module (network_device carries no
+# vlan_id); the bridge port carries the VLAN.
 
 variable "network_gateway" {
   description = "Network gateway"
@@ -167,7 +164,7 @@ variable "network_cidr" {
 variable "dns_servers" {
   description = "DNS servers for nodes"
   type        = list(string)
-  default     = ["172.16.100.1"]
+  default     = []
 }
 
 # GPU Configuration
@@ -277,23 +274,6 @@ variable "worker_config_patches" {
   description = "Configuration patches applied to worker nodes only"
   type        = list(string)
   default     = []
-}
-
-# SSH configuration for Proxmox host
-variable "proxmox_host" {
-  description = "Proxmox host IP or hostname"
-  type        = string
-}
-
-variable "ssh_user" {
-  description = "SSH user for Proxmox host"
-  type        = string
-  default     = "root"
-}
-
-variable "ssh_private_key" {
-  description = "Path to SSH private key for Proxmox host"
-  type        = string
 }
 
 # Cilium CNI Configuration
