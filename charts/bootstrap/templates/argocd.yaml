@@ -31,7 +31,8 @@ provisions from 1Password. Off, the Application renders exactly as before.
 {{- end }}
 # ArgoCD Self-Management Application
 # This allows ArgoCD to manage itself after initial bootstrap by Terraform
-# Sync Wave: 1 (after env-config at wave 0, before addons at wave 2)
+# Sync Wave: 1 (after env-config at wave 0, before addons: sync-wave 2 by
+# default, 1 in homelab)
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:

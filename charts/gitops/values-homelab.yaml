@@ -121,9 +121,6 @@ applications:
 # ignoreDifferences: inherited from values.yaml (ArgoCD's post-delete finalizers
 # on child Applications are not drift).
 
-healthChecks:
-  enabled: true
-
 # ============================================================================
 # ArgoCD Notifications
 # ============================================================================

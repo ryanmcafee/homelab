@@ -44,31 +44,10 @@ global:
   images:
     curl: "{{ index .Versions.Images "curl" }}"
 
-  # Default storage class for persistent volumes
-  storageClass: {{ .Values.STORAGE_CLASS_NFS.Value }}
-
-  # Default ingress classes
-  ingressClassNameExternal: {{ .Values.INGRESS_CLASS_EXTERNAL.Value }}
-  ingressClassNameInternal: {{ .Values.INGRESS_CLASS_INTERNAL.Value }}
-
-  # Timezone for applications
-  timezone: {{ .Values.TIMEZONE.Value }}
-
   # iSCSI target portal (IP:port) handed to the *-config child charts via
   # helm.valuesObject
   iscsi:
     portal: "{{ .Values.ISCSI_TARGET_PORTAL.Value }}"
-
-  # Media storage configuration (multiple NFS paths)
-  media:
-    nfsServer: {{ .Values.TRUENAS_HOSTNAME.Value }}
-    movies: {{ .Values.MEDIA_MOVIES_PATH.Value }}
-    tv: {{ .Values.MEDIA_TV_PATH.Value }}
-    music: {{ .Values.MEDIA_MUSIC_PATH.Value }}
-    pictures: {{ .Values.MEDIA_PICTURES_PATH.Value }}
-    documents: {{ .Values.MEDIA_DOCUMENTS_PATH.Value }}
-    downloads: {{ .Values.MEDIA_DOWNLOADS_PATH.Value }}
-    books: {{ .Values.MEDIA_BOOKS_PATH.Value }}
 
 # ============================================================================
 # Plex Media Server

@@ -171,6 +171,7 @@ spec:
       - CreateNamespace=true
       - ServerSideApply=true
       - ApplyOutOfSyncOnly=true
+      - RespectIgnoreDifferences=true
 
   # Ignore differences in dynamic fields
   ignoreDifferences:

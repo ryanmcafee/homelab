@@ -5,12 +5,13 @@ expected codes. Redirects are followed (up to 5), so an app whose root
 bounces to a landing page still counts as up when the final response matches.
 The Job lives in the app's namespace and shares the app's sync wave.
 
-Usage (inside the app's `{{- if .Values.<app>.enabled }}` block):
+Usage (inside the app's `{{- if .Values.<app>.enabled }}` block, where <app>
+is any app key of the chart holding this copy):
 
   {{ include "homelab.smokeJob" (dict
-       "name" "sonarr"
-       "namespace" .Values.sonarr.namespace
-       "smoke" .Values.sonarr.smoke
+       "name" "<app>"
+       "namespace" .Values.<app>.namespace
+       "smoke" .Values.<app>.smoke
        "wave" "13"
        "image" .Values.global.images.curl) }}
 
@@ -18,8 +19,9 @@ Values contract: `smoke: {enabled: bool, url: string, expect: ["200", ...]}`;
 expect entries are quoted strings. Renders nothing when `smoke` is nil or
 `smoke.enabled` is false.
 
-Helm cannot share named templates across charts, so this file is
-byte-identical to charts/addons/templates/_smoke.tpl. Change both together.
+Helm cannot share named templates across charts, so this file is a
+byte-identical copy in charts/addons/templates/_smoke.tpl and
+charts/applications/templates/_smoke.tpl. Change both together.
 */}}
 {{- define "homelab.smokeJob" -}}
 {{- $smoke := .smoke -}}

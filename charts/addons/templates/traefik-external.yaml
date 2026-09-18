@@ -9,7 +9,7 @@ metadata:
     argocd.argoproj.io/sync-wave: "-1"
 ---
 # Dependencies Application: deploys secrets and OnePasswordItems before traefik-external
-# Wave 5: After external-dns (wave 4) so OnePasswordItem CRDs are available
+# Wave 5: After external-dns (wave 4), which installs the DNSEndpoint CRD this chart's config child uses
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:

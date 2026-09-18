@@ -18,12 +18,6 @@ global:
   # Default storage class for persistent volumes
   storageClass: local-path
 
-  # Enable external DNS management
-  externalDNS: false
-
-  # Enable external load balancing
-  loadBalancer: false
-
   # Git repository for SOPS secrets
   repoUrl: https://github.com/ryanmcafee/homelab.git
   # homelab: main is what production tracks. localdev: a placeholder that the
@@ -191,7 +185,6 @@ democratic-csi:
     # Use IP address instead of hostname since internal DNS is not resolvable from cluster
     endpoint: https://127.0.0.1
     allowInsecure: true  # Required when using IP (no valid TLS cert for IP)
-    apiKey: ""  # Populated from 1Password secret
     # 1Password vault path for TrueNAS API key (creates secret: truenas-api-key)
     onePasswordItemPath: vaults/homelab/items/truenas
 
@@ -245,7 +238,6 @@ democratic-csi-ssd:
     # Use IP address instead of hostname since internal DNS is not resolvable from cluster
     endpoint: https://127.0.0.1
     allowInsecure: true  # Required when using IP (no valid TLS cert for IP)
-    apiKey: ""  # Populated from 1Password secret
     onePasswordItemPath: vaults/homelab/items/truenas
 
   nfs:
@@ -298,7 +290,6 @@ democratic-csi-iscsi:
     # Use IP address instead of hostname since internal DNS is not resolvable from cluster
     endpoint: https://127.0.0.1
     allowInsecure: true  # Required when using IP (no valid TLS cert for IP)
-    apiKey: ""  # Populated from 1Password secret
     onePasswordItemPath: vaults/homelab/items/truenas
 
   iscsi:
@@ -356,7 +347,6 @@ democratic-csi-iscsi-hdd:
     # Use IP address instead of hostname since internal DNS is not resolvable from cluster
     endpoint: https://127.0.0.1
     allowInsecure: true  # Required when using IP (no valid TLS cert for IP)
-    apiKey: ""  # Populated from 1Password secret
     onePasswordItemPath: vaults/homelab/items/truenas
 
   iscsi:
@@ -573,7 +563,6 @@ cert-manager:
   cloudflare:
     enabled: true
     email: test@homelab.local
-    apiToken: ""
     onePasswordItemPath: vaults/homelab/items/cloudflare
 
   # DNS zones for certificate issuance

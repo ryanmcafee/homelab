@@ -74,6 +74,10 @@ rules:
       - "onepassword.com"
       - "tailscale.com"
       - "externaldns.k8s.io"
+      - "paperclip.inc"
+      - "nvidia.com"
+      - "deviceplugin.intel.com"
+      - "snapshot.storage.k8s.io"
     resources: ["*"]
     verbs: [get, list, watch]
 
