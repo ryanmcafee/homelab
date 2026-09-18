@@ -12,10 +12,11 @@ Procedure per step: `docs/runbooks/talos-upgrade.md`, Procedure 1.
 | talosctl (mise) | 1.13.8 | — |
 | kubectl (mise) | 1.36.3 | — |
 
-`configuration/versions.yaml` was moved back to the running versions in the PR that added the
-`versions/pins` level-0 check, so the README badges and Renovate now describe reality. Each step
-below bumps `versions.yaml` **and** `env.hcl` together; the check fails on any PR where they
-differ.
+`configuration/versions.yaml` keeps the target (v1.14.0 / v1.37.0; Renovate bumps it and the
+README badges show it). The running versions live in `env.hcl` and are registered as a lag
+under `pins:` in `tests/gitops/version-drift.yaml`; level 0's `versions/pins` check fails when
+`env.hcl` carries anything other than the registered revision. Each step below moves `env.hcl`
+and the registered revision together; the last step removes the two entries.
 
 ## Rules that decide the order
 
@@ -48,7 +49,7 @@ Renovate propose the rest when a newer Talos lands.
 
 Per step, in order:
 
-1. PR: `configuration/versions.yaml` `tools.talos` / `tools.kubernetes`, `terragrunt/environments/homelab/env.hcl` `talos_version` / `kubernetes_version`, `mise.toml` `talosctl` / `kubectl` to the same minor. Level 0 must be green (`versions/pins`).
+1. PR: `terragrunt/environments/homelab/env.hcl` `talos_version` / `kubernetes_version` and the matching `revision` under `pins:` in `tests/gitops/version-drift.yaml` (delete the entry on the step that reaches the `versions.yaml` target), `mise.toml` `talosctl` / `kubectl` to the same minor. Level 0 must be green (`versions/pins`).
 2. `task tf:apply:component COMPONENT=talos-image`, `talos-image-gpu-intel` (and `talos-image-gpu` to keep the NVIDIA schematic buildable).
 3. `task tf:plan:component COMPONENT=talos-cluster` → expect only the installer image/version to change; apply; the module rolls nodes one at a time (control planes first). Between nodes: `talosctl -n <node> health --wait-timeout 15m`, `kubectl get nodes`.
 4. Kubernetes: `task tf:apply:component COMPONENT=talos-cluster-config` (or `talosctl -n <CP1_IP> upgrade-k8s --to <version>`), then `kubectl get nodes -o wide` shows the new kubelet on every node.
@@ -63,5 +64,5 @@ restore is the last resort (runbook, "Recovery").
 ## Done when
 
 `env.hcl`, `versions.yaml`, `mise.toml` and `kubectl get nodes` all say v1.14.0 / v1.37.0,
-the `versions/pins` check is green, and the README badges (rendered from `versions.yaml`)
-show the same.
+the two `pins:` entries are gone from `tests/gitops/version-drift.yaml`, and the
+`versions/pins` check is green without a registered lag.

@@ -8,6 +8,12 @@
 # Every field is mandatory. An entry whose revision no longer matches the render,
 # whose drift was fixed, or that matches no rendered Application in any
 # environment fails the check, so remove it when the drift goes away.
+#
+# `pins:` is the same contract for the versions/pins check: files outside the
+# render path (env.hcl, charts/bootstrap/values.yaml) that must carry a
+# versions.yaml value. A pin listed here may lag at `revision` (an upgrade in
+# progress); the entry fails once the pin moves or matches, so it cannot
+# outlive the upgrade.
 entries:
   - application: onepassword-operator
     chart: connect
@@ -16,3 +22,17 @@ entries:
       charts/bootstrap is rendered with plain Helm, not the CMP, so versions.yaml does not reach it;
       aligning upgrades production ArgoCD/1Password Connect — pending the owner's decision
       (docs/project_notes/bugs.md 2026-09-13)
+pins:
+  - file: terragrunt/environments/homelab/env.hcl
+    key: tools.talos
+    revision: v1.12.2
+    reason: >-
+      the cluster runs v1.12.2; the upgrade to versions.yaml's target is staged one minor at a
+      time by the owner (docs/plans/2026-09-17-talos-kubernetes-upgrade.md), each step moving
+      env.hcl and this revision together
+  - file: terragrunt/environments/homelab/env.hcl
+    key: tools.kubernetes
+    revision: v1.32.0
+    reason: >-
+      the cluster runs v1.32.0; same plan as tools.talos, Kubernetes follows each Talos step
+      within the support matrix

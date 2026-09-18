@@ -47,10 +47,12 @@ Kubernetes versions each Talos release supports.
 | Installer images | `terragrunt/environments/homelab/talos-image`, `talos-image-gpu`, `talos-image-gpu-intel` | Image Factory schematics from `talos/image/schematic*.yaml`; output `factory.talos.dev/installer/<schematic_id>:<talos_version>` |
 | Machine config patches | `terragrunt/environments/homelab/talos-cluster/terragrunt.hcl` | etcd `extraArgs`, GPU patch, CSI patches from `talos/patches/` |
 
-`versions.yaml` records what the cluster **runs**, not a target: level 0's `versions/pins`
-check fails when `env.hcl` and `versions.yaml` disagree, so a Renovate bump of `tools.talos`
-or `tools.kubernetes` stays red until the upgrade below is done and `env.hcl` carries the same
-value in the same PR. The current plan is `docs/plans/2026-09-17-talos-kubernetes-upgrade.md`.
+`versions.yaml` is the **target** (Renovate bumps it); `env.hcl` is what the cluster runs.
+Level 0's `versions/pins` check fails when the two disagree unless the lag is registered with
+a reason under `pins:` in `tests/gitops/version-drift.yaml` (file, key, the running revision).
+The entry fails again the moment `env.hcl` moves, so each upgrade step updates `env.hcl` and
+the registered revision together, and the last step deletes the entry. The current plan is
+`docs/plans/2026-09-17-talos-kubernetes-upgrade.md`.
 
 ```bash
 task verify:text | rg versions/pins

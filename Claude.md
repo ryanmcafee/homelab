@@ -238,7 +238,7 @@ charts:
   # renovate: datasource=docker depName=ghcr.io/paperclipinc/charts/paperclip-operator
   paperclip-operator: "0.19.1"
 images:
-  homelab-cmp: "0.1.30"
+  homelab-cmp: "0.1.32"
   # renovate: datasource=docker depName=curlimages/curl
   curl: "8.22.0"
   # renovate: datasource=docker depName=kindest/node
@@ -250,6 +250,10 @@ images:
   # renovate: datasource=docker depName=ghcr.io/cloudnative-pg/postgresql
   cloudnative-pg-postgresql: "17.11"
 tools:
+  # talos and kubernetes are the TARGET (Renovate bumps them). What the cluster runs is
+  # terragrunt/environments/homelab/env.hcl; while it lags, the lag is registered with a
+  # reason in tests/gitops/version-drift.yaml `pins:` or level 0 `versions/pins` fails
+  # (docs/runbooks/talos-upgrade.md, docs/plans/2026-09-17-talos-kubernetes-upgrade.md).
   # renovate: datasource=github-releases depName=siderolabs/talos
   talos: "v1.14.0"
   # renovate: datasource=github-releases depName=kubernetes/kubernetes

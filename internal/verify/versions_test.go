@@ -228,17 +228,24 @@ func TestCheckPins(t *testing.T) {
 	const envHCL = "locals {\n  talos_version      = \"v1.12.2\"\n  kubernetes_version = \"v1.32.0\"\n}\n"
 	const bootstrap = "argocd:\n  chart:\n    name: argo-cd\n    repo: https://argoproj.github.io/argo-helm\n    version: \"9.7.1\"\n  values:\n    repoServer:\n      initContainers:\n        - image: ghcr.io/ryanmcafee/homelab-cmp:0.1.31\n      extraContainers:\n        - name: homelab-cmp\n          image: ghcr.io/ryanmcafee/homelab-cmp:0.1.31\n"
 
+	const talosLag = "pins:\n  - file: terragrunt/environments/homelab/env.hcl\n    key: tools.talos\n    revision: v1.11.0\n    reason: upgrade in progress\n"
+
 	tests := []struct {
 		name       string
 		env, boot  string
+		drift      string
 		wantStatus Status
 		wantIn     string
 	}{
-		{"all pins agree", envHCL, bootstrap, StatusPass, "5 pin(s)"},
-		{"talos behind versions.yaml", strings.Replace(envHCL, "v1.12.2", "v1.11.0", 1), bootstrap, StatusFail, "tools.talos at v1.11.0"},
-		{"bootstrap argocd chart drifted", envHCL, strings.Replace(bootstrap, "9.7.1", "9.4.7", 1), StatusFail, "charts.argocd at 9.4.7"},
-		{"one cmp tag stale", envHCL, strings.Replace(bootstrap, "homelab-cmp:0.1.31\n      extraContainers", "homelab-cmp:0.1.30\n      extraContainers", 1), StatusFail, "images.homelab-cmp at 0.1.30"},
-		{"pin missing", "locals {}\n", bootstrap, StatusFail, "no pin found for tools.talos"},
+		{"all pins agree", envHCL, bootstrap, "", StatusPass, "5 pin(s)"},
+		{"talos behind versions.yaml", strings.Replace(envHCL, "v1.12.2", "v1.11.0", 1), bootstrap, "", StatusFail, "tools.talos at v1.11.0"},
+		{"registered lag passes", strings.Replace(envHCL, "v1.12.2", "v1.11.0", 1), bootstrap, talosLag, StatusPass, "1 lag behind it under a registered reason"},
+		{"registered lag at another revision still fails", strings.Replace(envHCL, "v1.12.2", "v1.10.0", 1), bootstrap, talosLag, StatusFail, "tools.talos at v1.10.0"},
+		{"stale lag entry fails once the pin matches", envHCL, bootstrap, talosLag, StatusFail, "matches nothing"},
+		{"lag entry without a reason is rejected", envHCL, bootstrap, strings.Replace(talosLag, "    reason: upgrade in progress\n", "", 1), StatusFail, "has no reason"},
+		{"bootstrap argocd chart drifted", envHCL, strings.Replace(bootstrap, "9.7.1", "9.4.7", 1), "", StatusFail, "charts.argocd at 9.4.7"},
+		{"one cmp tag stale", envHCL, strings.Replace(bootstrap, "homelab-cmp:0.1.31\n      extraContainers", "homelab-cmp:0.1.30\n      extraContainers", 1), "", StatusFail, "images.homelab-cmp at 0.1.30"},
+		{"pin missing", "locals {}\n", bootstrap, "", StatusFail, "no pin found for tools.talos"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -246,6 +253,9 @@ func TestCheckPins(t *testing.T) {
 			write(t, root, "configuration/versions.yaml", versions)
 			write(t, root, "terragrunt/environments/homelab/env.hcl", tc.env)
 			write(t, root, "charts/bootstrap/values.yaml", tc.boot)
+			if tc.drift != "" {
+				write(t, root, "tests/gitops/version-drift.yaml", tc.drift)
+			}
 			c := CheckPins(root)
 			if c.Name != "versions/pins" {
 				t.Fatalf("name = %q", c.Name)

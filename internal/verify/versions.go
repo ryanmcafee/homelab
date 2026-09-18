@@ -28,8 +28,43 @@ type VersionDrift struct {
 	Reason      string `yaml:"reason"`
 }
 
+// PinLag is one `pins:` entry of the same file: a file outside the render path
+// (see pinSources) that may carry `revision` for `key` (section.key of
+// versions.yaml) instead of the pin, because an upgrade is in progress. As with
+// VersionDrift, the entry fails once the file no longer carries `revision`.
+type PinLag struct {
+	File     string `yaml:"file"`
+	Key      string `yaml:"key"`
+	Revision string `yaml:"revision"`
+	Reason   string `yaml:"reason"`
+}
+
 type versionDriftFile struct {
 	Entries []VersionDrift `yaml:"entries"`
+	Pins    []PinLag       `yaml:"pins"`
+}
+
+// LoadPinLag reads the `pins:` list of tests/gitops/version-drift.yaml.
+func LoadPinLag(repoRoot string) ([]PinLag, error) {
+	var f versionDriftFile
+	if err := readRegistryFile(repoRoot, versionDriftFileName, &f); err != nil {
+		return nil, err
+	}
+	seen := map[string]bool{}
+	for i, e := range f.Pins {
+		for field, v := range map[string]string{"file": e.File, "key": e.Key, "revision": e.Revision, "reason": e.Reason} {
+			if strings.TrimSpace(v) == "" {
+				return nil, fmt.Errorf("%s/%s: pins entry %d has no %s (every lag must name its file, key, revision and reason)",
+					GitOpsRegistryDir, versionDriftFileName, i, field)
+			}
+		}
+		id := e.File + "#" + e.Key
+		if seen[id] {
+			return nil, fmt.Errorf("%s/%s: duplicate pins entry for %s %s", GitOpsRegistryDir, versionDriftFileName, e.File, e.Key)
+		}
+		seen[id] = true
+	}
+	return f.Pins, nil
 }
 
 // LoadVersionDrift reads tests/gitops/version-drift.yaml (strict decoding; a
@@ -233,9 +268,18 @@ func CheckPins(repoRoot string) Check {
 		return FailCheck(name, start, "loading configuration/versions.yaml", err.Error())
 	}
 	sections := map[string]map[string]string{"tools": v.Tools, "charts": v.Charts, "images": v.Images}
+	lags, err := LoadPinLag(repoRoot)
+	if err != nil {
+		return FailCheck(name, start, "loading "+GitOpsRegistryDir+"/"+versionDriftFileName, err.Error())
+	}
+	lagIndex := map[string]int{}
+	for i, l := range lags {
+		lagIndex[l.File+"#"+l.Key] = i
+	}
+	usedLag := map[int]bool{}
 
 	var findings []string
-	checked := 0
+	checked, lagging := 0, 0
 	for _, s := range pinSources {
 		body, err := os.ReadFile(filepath.Join(repoRoot, filepath.FromSlash(s.file)))
 		if err != nil {
@@ -252,15 +296,36 @@ func CheckPins(repoRoot string) Check {
 			findings = append(findings, fmt.Sprintf("%s: no pin found for %s.%s", s.file, s.section, s.key))
 			continue
 		}
+		key := s.section + "." + s.key
 		for _, m := range matches {
 			checked++
-			if m[1] != want {
-				findings = append(findings, fmt.Sprintf("%s pins %s.%s at %s, configuration/versions.yaml has %s", s.file, s.section, s.key, m[1], want))
+			if m[1] == want {
+				continue
 			}
+			if i, ok := lagIndex[s.file+"#"+key]; ok && lags[i].Revision == m[1] {
+				// A registered lag: the upgrade is in progress and documented.
+				usedLag[i] = true
+				lagging++
+				continue
+			}
+			findings = append(findings, fmt.Sprintf("%s pins %s at %s, configuration/versions.yaml has %s (register the lag with a reason in %s/%s pins: if an upgrade is pending)",
+				s.file, key, m[1], want, GitOpsRegistryDir, versionDriftFileName))
+		}
+	}
+	// A lag entry the files no longer exhibit is stale: the upgrade landed (remove
+	// it) or the pin moved somewhere else (update it).
+	for i, l := range lags {
+		if !usedLag[i] {
+			findings = append(findings, fmt.Sprintf("%s/%s pins entry %s %s at %s matches nothing: %s no longer carries that value",
+				GitOpsRegistryDir, versionDriftFileName, l.File, l.Key, l.Revision, l.File))
 		}
 	}
 	if len(findings) > 0 {
 		return FailCheck(name, start, fmt.Sprintf("%d pin(s) disagree with configuration/versions.yaml", len(findings)), findings...)
+	}
+	if lagging > 0 {
+		return PassCheck(name, start, fmt.Sprintf("%d pin(s) outside the render path checked against configuration/versions.yaml; %d lag behind it under a registered reason (%s/%s pins:)",
+			checked, lagging, GitOpsRegistryDir, versionDriftFileName))
 	}
 	return PassCheck(name, start, fmt.Sprintf("%d pin(s) outside the render path match configuration/versions.yaml", checked))
 }
