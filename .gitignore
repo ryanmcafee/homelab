@@ -12,8 +12,9 @@
 # Ansible
 *.retry
 .vault_password
-ansible/inventory/hosts.yml
-ansible/group_vars/all.yml
+# Rendered from configuration/ (task ansible:inventory); carries every address Ansible needs
+ansible/inventory/homelab.yml
+!ansible/inventory/homelab.yml.example
 
 # Local environment
 .env

@@ -8,7 +8,6 @@ This runbook provides step-by-step instructions for updating Broadcom 9400-8i HB
 ### Required Components
 - [x] StorCLI installed on target host (via `proxmox-storcli` role)
 - [x] Firmware package available in `ansible/files/firmware/hba_9400-8i/`
-- [x] Ansible vault credentials configured (for remote access)
 - [x] SSH access to target Proxmox host
 
 `<PROXMOX_IP>` in every command below is the Proxmox host address, resolved from the gitignored

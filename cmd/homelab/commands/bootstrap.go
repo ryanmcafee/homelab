@@ -95,9 +95,6 @@ bare invocation reaches terragrunt apply.
 					return err
 				}
 			case prereq.Homelab:
-				if err := setupAnsibleVault(); err != nil {
-					logger.Warn(fmt.Sprintf("Ansible vault setup warning: %v", err))
-				}
 				if err := deployHomelab(opts); err != nil {
 					return err
 				}
@@ -205,40 +202,6 @@ func installTools() error {
 	} else {
 		logger.OK("Terraform plugin cache directory created")
 	}
-
-	return nil
-}
-
-func setupAnsibleVault() error {
-	home, err := utils.HomeDir()
-	if err != nil {
-		return err
-	}
-
-	vaultPasswordFile := utils.JoinPath(home, ".ansible_vault_password")
-
-	if utils.FileExists(vaultPasswordFile) {
-		logger.OK("Ansible vault password file exists")
-		return nil
-	}
-
-	logger.Info("Creating Ansible vault password file...")
-	if DryRun {
-		logger.Warn(fmt.Sprintf("Would create Ansible vault password at %s", vaultPasswordFile))
-		return nil
-	}
-
-	result, err := utils.ExecCommand("openssl", "rand", "-base64", "32")
-	if err != nil || !result.Success {
-		return fmt.Errorf("failed to generate vault password: %v", err)
-	}
-
-	if err := os.WriteFile(vaultPasswordFile, []byte(result.Stdout), 0600); err != nil {
-		return fmt.Errorf("failed to write vault password: %v", err)
-	}
-
-	logger.OK(fmt.Sprintf("Created Ansible vault password at %s", vaultPasswordFile))
-	logger.Warn("Save this password for your records if you plan to create encrypted vault files")
 
 	return nil
 }

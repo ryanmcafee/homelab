@@ -28,6 +28,20 @@ jobs:
           cd ansible
           ansible-galaxy collection install -r requirements.yml
 
+      # The inventory is rendered from configuration/ and gitignored; lint
+      # against the same template rendered with the placeholder example so the
+      # playbooks resolve their group vars.
+      - name: Install go from mise.toml
+        uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+        with:
+          install_args: go
+
+      - name: Render the example inventory
+        run: |
+          go run ./cmd/homelab config export --set homelab \
+            --env-file configuration/environments/homelab.yaml.example \
+            --format ansible-inventory --stdout > ansible/inventory/homelab.yml
+
       - name: Run ansible-lint
         run: |
           cd ansible

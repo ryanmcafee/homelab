@@ -35,8 +35,10 @@ export TF_PLUGIN_CACHE_DIR="${HOME}/.terraform.d/plugin-cache"
 # Ansible Configuration
 # =============================================================================
 export ANSIBLE_CONFIG="${PWD}/ansible/ansible.cfg"
-export ANSIBLE_INVENTORY="${PWD}/ansible/inventory/homelab.yml"
-export ANSIBLE_ROLES_PATH="${PWD}/ansible/roles:~/.ansible/roles:/usr/share/ansible/roles:/etc/ansible/roles"
+# No ANSIBLE_INVENTORY / ANSIBLE_ROLES_PATH here: ${PWD} is whatever directory
+# the file is evaluated from, so from ansible/ they pointed at
+# ansible/ansible/... and every role lookup failed. ansible/ansible.cfg
+# carries both and the Taskfile runs every playbook from ansible/.
 
 # =============================================================================
 # Local Development

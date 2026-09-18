@@ -137,3 +137,8 @@ keys:
   OP_CONNECT_HOSTNAME:
     description: 1Password Connect hostname
     const: "op-connect.{{.DOMAIN}}"
+
+  TRUENAS_LAN_IP:
+    description: TrueNAS address on the storage LAN (VLAN 10) with prefix length, used by the Ansible inventory
+    required: false
+    pattern: "^(?:\\d{1,3}\\.){3}\\d{1,3}/\\d{1,2}$"

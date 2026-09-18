@@ -407,10 +407,11 @@ func TestExportTargetsAreSetAware(t *testing.T) {
 		{
 			set: "homelab",
 			want: map[string]string{
-				"helm-addons": "charts/addons/values-homelab.generated.yaml",
-				"helm-apps":   "charts/applications/values-homelab.generated.yaml",
-				"env":         ".env.generated",
-				"json":        "configuration/resolved.json",
+				"helm-addons":       "charts/addons/values-homelab.generated.yaml",
+				"helm-apps":         "charts/applications/values-homelab.generated.yaml",
+				"env":               ".env.generated",
+				"json":              "configuration/resolved.json",
+				"ansible-inventory": "ansible/inventory/homelab.yml",
 			},
 		},
 		{
@@ -427,8 +428,8 @@ func TestExportTargetsAreSetAware(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.set, func(t *testing.T) {
 			targets := exportTargets(tc.set)
-			if len(targets) != len(exportTemplates) {
-				t.Fatalf("exportTargets(%q) has %d entries, exportTemplates has %d; the two lists must cover the same formats", tc.set, len(targets), len(exportTemplates))
+			if len(targets) != len(tc.want) {
+				t.Fatalf("exportTargets(%q) has %d entries, want %d (ansible-inventory is homelab-only; every other format is exported for every set)", tc.set, len(targets), len(tc.want))
 			}
 			for _, target := range targets {
 				if tmpl, ok := exportTemplates[target.format]; !ok || tmpl != target.template {

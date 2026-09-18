@@ -23,21 +23,15 @@
     truenas_admin_password: "{{ lookup('env', 'TRUENAS_ADMIN_PASSWORD') }}"
     truenas_verify_ssl: false
 
-    # Proxmox connection for IP discovery
-    proxmox_host: "172.16.100.250"
+    # Proxmox connection for IP discovery. proxmox_host, truenas_static_ip,
+    # truenas_gateway, truenas_dns_servers, truenas_hostname and
+    # truenas_lan_static_ip come from the rendered inventory (truenas group
+    # vars; `task ansible:inventory`) and can still be overridden with -e.
     proxmox_user: "root"
     truenas_vm_id: "150"
 
-    # These can be overridden via -e on command line
-    truenas_static_ip: "172.16.100.150/24"
-    truenas_gateway: "172.16.100.1"
-    truenas_dns_servers:
-      - "172.16.100.1"
-    truenas_hostname: "truenas.ryanmcafee.com"
-
     # LAN Network Configuration (VLAN 10)
     truenas_lan_network_enabled: true
-    truenas_lan_static_ip: "172.16.10.150/24"
 
     # Storage pools configuration
     storage_pools:
@@ -52,8 +46,7 @@
         disk_count: 2
         description: "Fast SSD pool - 2x 1TB NVMe"
 
-    # ACME/Let's Encrypt configuration
-    acme_email: "admin@ryanmcafee.com"
+    # ACME/Let's Encrypt configuration (acme_email comes from the inventory: ACME_EMAIL)
     acme_dns_provider: cloudflare
     cloudflare_api_token: "{{ lookup('env', 'CLOUDFLARE_API_TOKEN') | default('') }}"
 
@@ -116,14 +109,14 @@
         cmd: |
           ssh -o StrictHostKeyChecking=no {{ proxmox_user }}@{{ proxmox_host }} '
             # Clear stale ARP entries for this MAC
-            arp -d 172.16.100.150 2>/dev/null || true
-            # Ping sweep DHCP range to populate ARP table
+            arp -d {{ truenas_static_ip | regex_replace('/.*', '') }} 2>/dev/null || true
+            # Ping sweep the DHCP range of the homelab subnet to populate the ARP table
             for i in $(seq 240 254); do
-              ping -c 1 -W 1 172.16.100.$i >/dev/null 2>&1 &
+              ping -c 1 -W 1 {{ homelab_subnet | regex_replace('\\.\\d+/\\d+$', '') }}.$i >/dev/null 2>&1 &
             done
             wait
             # Also ping the expected static IP
-            ping -c 2 -W 1 172.16.100.150 >/dev/null 2>&1 || true
+            ping -c 2 -W 1 {{ truenas_static_ip | regex_replace('/.*', '') }} >/dev/null 2>&1 || true
             # Now find our MAC in ARP table
             arp -a | grep -i "{{ vm_mac_address }}" | grep -oE "([0-9]{1,3}\.){3}[0-9]{1,3}" | head -1
           '
