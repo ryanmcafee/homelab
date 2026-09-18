@@ -35,10 +35,9 @@
     truenas_k8s_snapshots_dataset: storage/k8s-snapshots
     truenas_k8s_snapshots_quota: 100G
 
-    # NFS configuration
+    # NFS configuration; truenas_nfs_allowed_networks comes from the rendered
+    # inventory (NFS_SHARE_ALLOW): a play var here would override it.
     truenas_nfs_share_path: /mnt/storage/k8s
-    truenas_nfs_allowed_networks:
-      - 172.16.100.0/24
 
   pre_tasks:
     - name: Verify API key is provided

@@ -6,7 +6,7 @@ Automated configuration of TrueNAS after VM installation via Ansible playbooks.
 
 Addresses below are `<KEY>` placeholders resolved from `configuration/environments/homelab.yaml` (gitignored); `<TRUENAS_IP>` is the TrueNAS server and `<NFS_SHARE_ALLOW>` the CIDR allowed to mount its shares.
 
-- TrueNAS VM deployed via Terraform (`task terragrunt:apply:truenas`)
+- TrueNAS VM deployed via Terragrunt (`task truenas:deploy`, i.e. `task tf:apply:component COMPONENT=truenas`)
 - TrueNAS initial setup completed (admin password configured)
 - SSH access to TrueNAS (optional, API is preferred)
 - TrueNAS API key generated
@@ -60,11 +60,9 @@ Configure TrueNAS with Ansible:
 # Check TrueNAS status
 task truenas:status
 
-# Run full setup (creates datasets, NFS shares, API key)
-task truenas:setup
-
-# Or run with verbose output
-task truenas:setup -- -v
+# Run the Ansible setup against the existing VM (datasets, NFS shares, API key);
+# task truenas:setup is the full path (deploys the VM through Terragrunt first)
+task truenas:ansible-only
 ```
 
 ## What Gets Configured

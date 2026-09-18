@@ -31,7 +31,7 @@ The Ansible automation handles the following tasks:
    ssh root@${PROXMOX_HOST}
    ```
 
-   **Note**: You'll need the root password when running `ssh-copy-id`. After setup, Ansible will authenticate using your SSH key. The Proxmox host IP is configured in `inventory/homelab.yml` (default: ${PROXMOX_HOST}).
+   **Note**: You'll need the root password when running `ssh-copy-id`. After setup, Ansible will authenticate using your SSH key. The Proxmox host IP comes from `PROXMOX_IP` in `configuration/environments/homelab.yaml` and is rendered into `inventory/homelab.yml` by `task ansible:inventory`.
 
 3. **Ansible installed** - Managed automatically via mise (see project root README), or install manually:
    ```bash
@@ -110,7 +110,7 @@ rendered file.
 ### 3. Configure Variables
 
 Review and update variables in:
-- `inventory/group_vars/all.yml` - Global settings (timezone, domain, etc.)
+- `inventory/group_vars/all.yml` - Environment-independent settings (apt cache, upgrade policy); the domain, timezone and every address come from `configuration/` via `task ansible:inventory`
 - `inventory/group_vars/proxmox.yml` - Proxmox-specific settings
 
 **Important variables to review:**
@@ -313,7 +313,7 @@ For detailed firmware update procedures, troubleshooting, and rollback instructi
 |----------|---------|-------------|
 | `base_domain` | `<DOMAIN>` (rendered inventory) | Base domain for homelab |
 | `homelab_vlan` | 100 | VLAN ID for homelab network |
-| `homelab_subnet` | <LAN_CIDR> | Homelab subnet |
+| `homelab_subnet` | <NFS_SHARE_ALLOW> | Homelab subnet |
 | `homelab_gateway` | <GATEWAY_IP> | Default gateway |
 | `timezone` | America/New_York | System timezone |
 
@@ -441,7 +441,7 @@ ansible-playbook playbooks/site.yml -vvv  # Very verbose
 ### Tags
 
 `truenas-setup.yml` exposes `lan-network` and `image-cache`; the Taskfile uses them
-(`task truenas:lan-network`, `task truenas:image-cache`). The Proxmox playbooks have no tags;
+(`task truenas:configure-lan`, `task truenas:image-cache`). The Proxmox playbooks have no tags;
 run the individual playbook instead of `site.yml`.
 
 ## Where this fits

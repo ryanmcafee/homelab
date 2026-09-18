@@ -132,7 +132,7 @@ The homelab backup strategy follows the **3-2-1 rule**:
 - Kubernetes manifests
 - Talos machine configs
 
-**Storage**: GitHub (private repository)
+**Storage**: GitHub (public repository)
 
 **Frequency**: On every commit
 
@@ -142,7 +142,7 @@ The homelab backup strategy follows the **3-2-1 rule**:
 ```bash
 git clone https://github.com/username/homelab.git
 cd homelab
-./scripts/setup.sh
+task setup -- --environment homelab
 ```
 
 **RPO**: 0 (real-time)
@@ -814,7 +814,7 @@ mkdir -p "${BACKUP_DIR}"
 
 # Backup etcd
 echo "Backing up etcd..."
-talosctl -n 172.16.100.51 etcd snapshot "${BACKUP_DIR}/etcd-${BACKUP_DATE}.db"
+talosctl -n <CP1_IP> etcd snapshot "${BACKUP_DIR}/etcd-${BACKUP_DATE}.db"
 
 # Backup Kubernetes resources
 echo "Backing up Kubernetes resources..."

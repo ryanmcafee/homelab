@@ -377,6 +377,16 @@ export function expectedLiterals(f: Facts): Literal[] {
       fix: [/\b\d+ Applications\b/g, `${f.argoApplications} Applications`],
     },
     {
+      // "<N> ArgoCD Applications in all" is a separate phrase: the generic
+      // pattern above needs the digits right before "Applications".
+      file: "readme.md",
+      expect: `${f.argoApplications} ArgoCD Applications`,
+      fix: [
+        /\b\d+ ArgoCD Applications\b/g,
+        `${f.argoApplications} ArgoCD Applications`,
+      ],
+    },
+    {
       file: "readme.md",
       expect: `${n} chainsaw suites`,
       fix: [/\b\d+ chainsaw suites\b/g, `${n} chainsaw suites`],

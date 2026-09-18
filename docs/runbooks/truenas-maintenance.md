@@ -661,7 +661,7 @@ rclone copy b2:homelab-backups/storage /mnt/storage/
 
 # 3. Recreate NFS shares
 # Via TrueNAS UI or:
-midclt call sharing.nfs.create '{"path": "/mnt/storage/kubernetes", "networks": ["172.16.100.0/24"]}'
+midclt call sharing.nfs.create '{"path": "/mnt/storage/kubernetes", "networks": ["<NFS_SHARE_ALLOW>"]}'
 
 # 4. Restart NFS
 service nfsd restart
@@ -763,7 +763,7 @@ service nfsd restart
 
 # Recreate export
 midclt call sharing.nfs.query
-midclt call sharing.nfs.create '{"path": "/mnt/storage/kubernetes", "networks": ["172.16.100.0/24"]}'
+midclt call sharing.nfs.create '{"path": "/mnt/storage/kubernetes", "networks": ["<NFS_SHARE_ALLOW>"]}'
 
 # Fix permissions
 chmod 755 /mnt/storage/kubernetes
