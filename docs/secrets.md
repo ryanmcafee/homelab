@@ -13,10 +13,12 @@ key never leaves 1Password except into the cluster.
 
 ## Bootstrap order
 
-1. `task sops:bootstrap` — generate the age key pair once, store the private key in 1Password,
-   put the public key in `.sops.yaml`.
-2. `task sops:setup` — pull the 1Password Connect credentials, encrypt them into `charts/secrets/`,
-   commit.
+1. `task sops:bootstrap` — generate the age key pair once, store it as
+   `op://homelab/sops-age-key` (`private_key`, `public_key`), put the public key in every
+   creation rule of `.sops.yaml`. Re-runs reuse the stored key; `--dry-run` shows the plan.
+2. `task sops:setup` — pull the 1Password Connect credentials file and token from
+   `op://homelab/onepassword-connect`, encrypt them into `charts/secrets/`, commit
+   (`task sops:setup:dry-run` prints a redacted preview).
 3. `task tf:apply ENV=homelab` — `gitops-bootstrap` creates the `sops-age-key` Secret, installs
    ArgoCD with ksops and the CMP sidecar, applies the root Application.
 4. ArgoCD `bootstrap` chart: `sops-secrets` decrypts `onepassword-credentials` → the 1Password
@@ -30,7 +32,7 @@ See `docs/architecture.md` §3 for the diagram.
 task sops:edit      # edit an encrypted file in place
 task sops:decrypt   # print decrypted content
 task sops:verify    # prove the local key can decrypt everything committed
-task sops:rotate    # rotate the age key (updates 1Password, re-encrypts, needs a bootstrap re-apply)
+task sops:rotate    # rotate the age key: new pair in 1Password + .sops.yaml, `sops updatekeys` on every *.sops.* file, then re-apply gitops-bootstrap
 ```
 
 Rules that CI enforces:
