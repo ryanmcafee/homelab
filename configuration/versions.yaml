@@ -74,7 +74,7 @@ charts:
   # renovate: datasource=docker depName=ghcr.io/paperclipinc/charts/paperclip-operator
   paperclip-operator: "0.19.1"
 images:
-  homelab-cmp: "0.1.31"
+  homelab-cmp: "0.1.32"
   # renovate: datasource=docker depName=curlimages/curl
   curl: "8.22.0"
   # renovate: datasource=docker depName=kindest/node
@@ -86,10 +86,13 @@ images:
   # renovate: datasource=docker depName=ghcr.io/cloudnative-pg/postgresql
   cloudnative-pg-postgresql: "17.11"
 tools:
+  # talos and kubernetes are what the cluster RUNS: terragrunt/environments/homelab/env.hcl
+  # must carry the same values (level 0 `versions/pins` fails otherwise), so a Renovate bump
+  # here stays red until the upgrade is performed (docs/runbooks/talos-upgrade.md).
   # renovate: datasource=github-releases depName=siderolabs/talos
-  talos: "v1.14.0"
+  talos: "v1.12.2"
   # renovate: datasource=github-releases depName=kubernetes/kubernetes
-  kubernetes: "v1.37.0"
+  kubernetes: "v1.32.0"
   # renovate: datasource=github-releases depName=hashicorp/terraform
   terraform: "1.16.2"
   # renovate: datasource=github-releases depName=helm/helm

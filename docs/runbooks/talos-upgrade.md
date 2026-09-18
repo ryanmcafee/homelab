@@ -47,12 +47,13 @@ Kubernetes versions each Talos release supports.
 | Installer images | `terragrunt/environments/homelab/talos-image`, `talos-image-gpu`, `talos-image-gpu-intel` | Image Factory schematics from `talos/image/schematic*.yaml`; output `factory.talos.dev/installer/<schematic_id>:<talos_version>` |
 | Machine config patches | `terragrunt/environments/homelab/talos-cluster/terragrunt.hcl` | etcd `extraArgs`, GPU patch, CSI patches from `talos/patches/` |
 
-Keep `env.hcl` and `versions.yaml` on the same Talos and Kubernetes versions; level 0 does
-not check that pair, so verify it by hand before an upgrade:
+`versions.yaml` records what the cluster **runs**, not a target: level 0's `versions/pins`
+check fails when `env.hcl` and `versions.yaml` disagree, so a Renovate bump of `tools.talos`
+or `tools.kubernetes` stays red until the upgrade below is done and `env.hcl` carries the same
+value in the same PR. The current plan is `docs/plans/2026-09-17-talos-kubernetes-upgrade.md`.
 
 ```bash
-yq '.tools.talos, .tools.kubernetes' configuration/versions.yaml
-rg -n 'talos_version|kubernetes_version' terragrunt/environments/homelab/env.hcl
+task verify:text | rg versions/pins
 ```
 
 ---

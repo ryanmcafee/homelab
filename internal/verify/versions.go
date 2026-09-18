@@ -201,9 +201,74 @@ func CheckVersions(env string, docs []Doc, pins *VersionPins, drift []VersionDri
 		matched, allowed, GitOpsRegistryDir, versionDriftFileName))
 }
 
-// VersionChecks runs CheckVersions for every rendered env. complete says the
-// render covered every environment, which is when an entry that matched no
-// Application anywhere is reported (versions/registry) as stale.
+// pinSource is one committed file that pins a version outside the render path,
+// where versions/<env> cannot see it: Terragrunt inputs (what the cluster
+// runs) and the plain-Helm bootstrap chart (what ArgoCD self-manages). Each
+// pattern's first capture group is the pinned value.
+type pinSource struct {
+	file    string // repo-relative
+	pattern *regexp.Regexp
+	section string // versions.yaml section: tools, charts or images
+	key     string
+}
+
+var pinSources = []pinSource{
+	{"terragrunt/environments/homelab/env.hcl", regexp.MustCompile(`(?m)^\s*talos_version\s*=\s*"([^"]+)"`), "tools", "talos"},
+	{"terragrunt/environments/homelab/env.hcl", regexp.MustCompile(`(?m)^\s*kubernetes_version\s*=\s*"([^"]+)"`), "tools", "kubernetes"},
+	{"charts/bootstrap/values.yaml", regexp.MustCompile(`(?m)^\s*name:\s*argo-cd\s*\n(?:.*\n)?\s*version:\s*"([^"]+)"`), "charts", "argocd"},
+	{"charts/bootstrap/values.yaml", regexp.MustCompile(`ghcr\.io/ryanmcafee/homelab-cmp:([\w.-]+)`), "images", "homelab-cmp"},
+}
+
+// CheckPins (versions/pins) compares the version pins that live outside the
+// rendered manifests with configuration/versions.yaml: the Talos and
+// Kubernetes versions Terragrunt applies, the ArgoCD chart the bootstrap chart
+// self-manages, and every homelab-cmp image tag in it. Renovate bumps
+// versions.yaml alone, so without this check a bump could advertise a version
+// production never runs (the README badges are rendered from versions.yaml).
+func CheckPins(repoRoot string) Check {
+	start := time.Now()
+	const name = "versions/pins"
+	v, err := config.LoadVersions(filepath.Join(repoRoot, "configuration", "versions.yaml"))
+	if err != nil {
+		return FailCheck(name, start, "loading configuration/versions.yaml", err.Error())
+	}
+	sections := map[string]map[string]string{"tools": v.Tools, "charts": v.Charts, "images": v.Images}
+
+	var findings []string
+	checked := 0
+	for _, s := range pinSources {
+		body, err := os.ReadFile(filepath.Join(repoRoot, filepath.FromSlash(s.file)))
+		if err != nil {
+			findings = append(findings, fmt.Sprintf("%s: %v", s.file, err))
+			continue
+		}
+		want := sections[s.section][s.key]
+		if want == "" {
+			findings = append(findings, fmt.Sprintf("configuration/versions.yaml has no %s.%s (pinned by %s)", s.section, s.key, s.file))
+			continue
+		}
+		matches := s.pattern.FindAllStringSubmatch(string(body), -1)
+		if len(matches) == 0 {
+			findings = append(findings, fmt.Sprintf("%s: no pin found for %s.%s", s.file, s.section, s.key))
+			continue
+		}
+		for _, m := range matches {
+			checked++
+			if m[1] != want {
+				findings = append(findings, fmt.Sprintf("%s pins %s.%s at %s, configuration/versions.yaml has %s", s.file, s.section, s.key, m[1], want))
+			}
+		}
+	}
+	if len(findings) > 0 {
+		return FailCheck(name, start, fmt.Sprintf("%d pin(s) disagree with configuration/versions.yaml", len(findings)), findings...)
+	}
+	return PassCheck(name, start, fmt.Sprintf("%d pin(s) outside the render path match configuration/versions.yaml", checked))
+}
+
+// VersionChecks runs CheckVersions for every rendered env plus CheckPins.
+// complete says the render covered every environment, which is when an entry
+// that matched no Application anywhere is reported (versions/registry) as
+// stale.
 func VersionChecks(repoRoot string, rendered map[string]map[string][]Doc, envs []Env, complete bool) []Check {
 	start := time.Now()
 	pins, err := LoadVersionPins(repoRoot)
@@ -216,7 +281,7 @@ func VersionChecks(repoRoot string, rendered map[string]map[string][]Doc, envs [
 	}
 
 	used := map[int]bool{}
-	var checks []Check
+	checks := []Check{CheckPins(repoRoot)}
 	for _, env := range envs {
 		byChart := rendered[env.Name]
 		var docs []Doc

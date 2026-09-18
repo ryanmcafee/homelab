@@ -59,11 +59,13 @@ argocd:
   enabled: false
   namespace: argocd
 
-  # Chart source - must match bootstrap Terraform version
+  # Chart source. This chart is plain Helm (no CMP), so the version is a literal;
+  # level 0 `versions/pins` fails when it differs from configuration/versions.yaml
+  # charts.argocd, and the gitops-bootstrap Terragrunt unit reads the same key.
   chart:
     name: argo-cd
     repo: https://argoproj.github.io/argo-helm
-    version: "9.4.7"
+    version: "9.7.1"
 
   # ArgoCD server configuration
   values:
@@ -138,7 +140,7 @@ argocd:
       # Init container to install ksops (binaries baked into CMP image)
       initContainers:
         - name: install-ksops
-          image: ghcr.io/ryanmcafee/homelab-cmp:0.1.31
+          image: ghcr.io/ryanmcafee/homelab-cmp:0.1.32
           command: ["/bin/cp"]
           args: ["/usr/local/bin/ksops", "/usr/local/bin/kustomize", "/custom-tools/"]
           volumeMounts:
@@ -147,7 +149,7 @@ argocd:
       # CMP sidecar for homelab config plugin
       extraContainers:
         - name: homelab-cmp
-          image: ghcr.io/ryanmcafee/homelab-cmp:0.1.31
+          image: ghcr.io/ryanmcafee/homelab-cmp:0.1.32
           command: [/var/run/argocd/argocd-cmp-server]
           securityContext:
             runAsNonRoot: true

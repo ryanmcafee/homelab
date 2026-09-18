@@ -23,7 +23,7 @@ variable "argocd_namespace" {
 variable "argocd_version" {
   description = "ArgoCD Helm chart version - keep in sync with charts/bootstrap/values.yaml argocd.chart.version"
   type        = string
-  default     = "9.4.7"
+  default     = null # both units read configuration/versions.yaml charts.argocd
 }
 
 variable "argocd_helm_values" {
