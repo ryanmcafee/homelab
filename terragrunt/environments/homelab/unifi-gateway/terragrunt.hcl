@@ -32,7 +32,7 @@ EOF
 inputs = {
   # BGP Configuration
   bgp_enabled     = true
-  bgp_description = "MetalLB BGP Peering - Homelab K8s Cluster"
+  bgp_description = "Cilium BGP Peering - Homelab K8s Cluster"
   bgp_local_as    = include.env.locals.bgp_asn_unifi
   bgp_router_id   = include.env.locals.gateway
 

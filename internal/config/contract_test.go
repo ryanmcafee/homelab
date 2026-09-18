@@ -37,6 +37,11 @@ var consumedOutsideTemplates = map[string]string{
 		"key exists so the guard can catch it being pasted back in; nothing " +
 		"renders it",
 
+	"PROXMOX_IP": "read by internal/prereq (Proxmox reachability for the " +
+		"production tier), by the Taskfile vars (yq from homelab.yaml) for the " +
+		"TrueNAS/template tasks, and by the PII guard; never rendered to a template " +
+		"since the unused tfvars export was removed",
+
 	"WORKER1_IP": "read directly as rc.Values[\"WORKER1_IP\"] in " +
 		"cmd/homelab/commands/verify.go (GPU node check), and dynamically via " +
 		"workerIPConfigKey() in talos.go for `task talos:recreate:node NODE=worker-1`",
@@ -46,24 +51,6 @@ var consumedOutsideTemplates = map[string]string{
 
 	"WORKER3_IP": "resolved dynamically via workerIPConfigKey() in " +
 		"cmd/homelab/commands/talos.go for `task talos:recreate:node NODE=worker-3`",
-
-	"ECOWITT_HOSTNAME": "DEAD: no template or Go code reference found anywhere " +
-		"in the repository. CLAUDE.local.md still lists an ecowitt.<domain> " +
-		"hostname, suggesting an exporter integration that was never wired up. " +
-		"Flagged here for the project owner to implement or remove — not deleted " +
-		"as part of this contract-test change.",
-
-	"K8S_POD_CIDR": "DEAD: no template or Go code reference found. " +
-		"talos/machine-config/controlplane.yaml.tpl hardcodes the same literal " +
-		"(10.244.0.0/16), but that file is explicitly documented as reference-only " +
-		"with no runtime effect — the real control plane config comes from the " +
-		"terraform talos_machine_configuration data source. Flagged for the " +
-		"project owner to wire up or remove.",
-
-	"K8S_SERVICE_CIDR": "DEAD: same situation as K8S_POD_CIDR — matches the " +
-		"hardcoded 10.96.0.0/12 literal in the reference-only " +
-		"controlplane.yaml.tpl, not wired to any real output. Flagged for the " +
-		"project owner to wire up or remove.",
 }
 
 // templateRef is a single recognized expression found on one line of a

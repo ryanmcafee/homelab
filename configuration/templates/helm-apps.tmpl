@@ -126,7 +126,7 @@ plex:
 {{- if $csi }}
     # The static iSCSI claim comes from the plex-config child chart.
     configExistingClaim: "{{ .Values.PLEX_CONFIG_PVC.Value }}"
-    storageClassName: democratic-csi-iscsi
+    storageClassName: {{ .Values.STORAGE_CLASS_ISCSI_SSD.Value }}
 {{- else }}
     # No static claim without democratic-csi: the chart provisions its own
     # PVC in the configured class (STORAGE_PROVIDER).

@@ -141,7 +141,6 @@ func newConfigEvalCmd() *cobra.Command {
 var exportTemplates = map[string]string{
 	"helm-addons": "helm-addons.tmpl",
 	"helm-apps":   "helm-apps.tmpl",
-	"tfvars":      "tfvars.tmpl",
 	"env":         "dotenv.tmpl",
 	"json":        "json.tmpl",
 }
@@ -175,7 +174,6 @@ func exportTargets(set string) []exportTarget {
 	return []exportTarget{
 		{"helm-addons", "helm-addons.tmpl", helmValues("addons")},
 		{"helm-apps", "helm-apps.tmpl", helmValues("applications")},
-		{"tfvars", "tfvars.tmpl", "terragrunt/environments/" + set + "/env.generated.tfvars"},
 		{"env", "dotenv.tmpl", perSet(".env", ".generated")},
 		{"json", "json.tmpl", perSet("configuration/resolved", ".json")},
 	}
@@ -267,7 +265,7 @@ func newConfigExportCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&format, "format", "", "Export format (helm-addons, helm-apps, tfvars, env, json)")
+	cmd.Flags().StringVar(&format, "format", "", "Export format (helm-addons, helm-apps, env, json)")
 	cmd.Flags().BoolVar(&all, "all", false, "Export all formats")
 	cmd.Flags().BoolVar(&stdout, "stdout", false, "Write output to stdout instead of file (requires --format)")
 

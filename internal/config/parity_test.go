@@ -96,10 +96,11 @@ func TestParityHelmAddons(t *testing.T) {
 		}
 	}
 
-	// Verify chart versions appear in output
+	// Verify chart versions appear in output (argocd is not here: it moved to
+	// charts/bootstrap, which is plain Helm and pinned by versions/pins).
 	requiredVersions := []string{
-		"argocd", "cilium", "democratic-csi", "cert-manager",
-		"external-dns", "kube-prometheus-stack", "traefik",
+		"cilium", "democratic-csi", "cert-manager",
+		"external-dns", "kube-prometheus-stack", "traefik", "spegel",
 	}
 	for _, chart := range requiredVersions {
 		ver := rc.Versions.Charts[chart]
@@ -144,7 +145,6 @@ func TestParityHelmApps(t *testing.T) {
 		"MEDIA_TV_PATH":          rc.Values["MEDIA_TV_PATH"].Value,
 		"DUCKDNS_SUBDOMAIN":      rc.Values["DUCKDNS_SUBDOMAIN"].Value,
 		"TIMEZONE":               rc.Values["TIMEZONE"].Value,
-		"ARGOCD_HOSTNAME":        rc.Values["ARGOCD_HOSTNAME"].Value,
 	}
 
 	for key, val := range requiredValues {
@@ -154,47 +154,7 @@ func TestParityHelmApps(t *testing.T) {
 	}
 }
 
-// TestParityTfvars verifies generated tfvars contain required infrastructure values.
-func TestParityTfvars(t *testing.T) {
-	if os.Getenv("RUN_PARITY_TESTS") == "" {
-		t.Skip("Set RUN_PARITY_TESTS=1 to run parity tests (requires real config)")
-	}
-
-	projectRoot := findProjectRootForTest(t)
-	configRoot := filepath.Join(projectRoot, "configuration")
-
-	rc := loadTestConfig(t, configRoot, "homelab")
-
-	output, err := Export(rc, filepath.Join(configRoot, "templates", "tfvars.tmpl"))
-	if err != nil {
-		t.Fatalf("export failed: %v", err)
-	}
-
-	requiredValues := map[string]string{
-		"DOMAIN":     rc.Values["DOMAIN"].Value,
-		"GATEWAY_IP": rc.Values["GATEWAY_IP"].Value,
-		"TRUENAS_IP": rc.Values["TRUENAS_IP"].Value,
-		"PROXMOX_IP": rc.Values["PROXMOX_IP"].Value,
-		"CP_VIP":     rc.Values["CP_VIP"].Value,
-		"CP1_IP":     rc.Values["CP1_IP"].Value,
-	}
-
-	for key, val := range requiredValues {
-		if !strings.Contains(output, val) {
-			t.Errorf("generated tfvars output missing %s=%q", key, val)
-		}
-	}
-
-	// Verify tool versions
-	if !strings.Contains(output, rc.Versions.Tools["talos"]) {
-		t.Errorf("generated tfvars missing talos version %q", rc.Versions.Tools["talos"])
-	}
-	if !strings.Contains(output, rc.Versions.Tools["kubernetes"]) {
-		t.Errorf("generated tfvars missing kubernetes version %q", rc.Versions.Tools["kubernetes"])
-	}
-}
-
-// TestParityAllFormatsExport verifies all 5 export formats succeed.
+// TestParityAllFormatsExport verifies every export format succeeds.
 func TestParityAllFormatsExport(t *testing.T) {
 	if os.Getenv("RUN_PARITY_TESTS") == "" {
 		t.Skip("Set RUN_PARITY_TESTS=1 to run parity tests (requires real config)")
@@ -208,7 +168,6 @@ func TestParityAllFormatsExport(t *testing.T) {
 	templates := []string{
 		"helm-addons.tmpl",
 		"helm-apps.tmpl",
-		"tfvars.tmpl",
 		"dotenv.tmpl",
 		"json.tmpl",
 	}

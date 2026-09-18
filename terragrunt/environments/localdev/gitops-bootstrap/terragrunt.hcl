@@ -83,7 +83,7 @@ inputs = {
     environment     = "localdev"
     cluster_type    = "kind"
     storage_class   = "local-path"
-    metallb_enabled = "false"
+    lb_ipam_enabled = "false"
   }
 
   # Enable auto-sync

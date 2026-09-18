@@ -409,7 +409,6 @@ func TestExportTargetsAreSetAware(t *testing.T) {
 			want: map[string]string{
 				"helm-addons": "charts/addons/values-homelab.generated.yaml",
 				"helm-apps":   "charts/applications/values-homelab.generated.yaml",
-				"tfvars":      "terragrunt/environments/homelab/env.generated.tfvars",
 				"env":         ".env.generated",
 				"json":        "configuration/resolved.json",
 			},
@@ -419,7 +418,6 @@ func TestExportTargetsAreSetAware(t *testing.T) {
 			want: map[string]string{
 				"helm-addons": "charts/addons/values-localdev.yaml",
 				"helm-apps":   "charts/applications/values-localdev.yaml",
-				"tfvars":      "terragrunt/environments/localdev/env.generated.tfvars",
 				"env":         ".env.localdev.generated",
 				"json":        "configuration/resolved.localdev.json",
 			},

@@ -88,10 +88,6 @@ keys:
     description: Home Assistant hostname
     const: "homeassistant.{{.DOMAIN}}"
 
-  ECOWITT_HOSTNAME:
-    description: Ecowitt exporter hostname
-    const: "ecowitt.{{.DOMAIN}}"
-
   PAPERCLIP_HOSTNAME:
     description: Paperclip hostname
     const: "paperclip.{{.DOMAIN}}"

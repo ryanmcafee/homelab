@@ -12,9 +12,9 @@ locals {
   gateway     = "172.16.100.1"
   dns_servers = ["172.16.100.1"]
 
-  # LoadBalancer pool (Cilium LB IPAM; legacy metallb_* names)
-  metallb_ip_start = "172.16.100.100"
-  metallb_ip_end   = "172.16.100.200"
+  # LoadBalancer pool (Cilium LB IPAM + BGP)
+  lb_pool_start = "172.16.100.100"
+  lb_pool_end   = "172.16.100.200"
 
   # BGP configuration
   bgp_asn_k8s   = 64512

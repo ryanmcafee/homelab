@@ -52,6 +52,28 @@ metadata:
     argocd.argoproj.io/sync-wave: "4"
 
 ---
+# Source: addons/templates/intel-device-plugins-operator.yaml
+# Shared namespace for the Intel Device Plugins operator AND the
+# intel-gpu-device-plugin. Owned by the operator template (this file) because
+# the operator syncs at wave 9, one wave before the plugin at wave 10. The
+# plugin template intentionally does NOT declare this Namespace — declaring it
+# in both produces a "RepeatedResourceWarning" on the addons app and makes
+# ArgoCD's sync engine fight over the labels.
+#
+# Privileged PodSecurity is required because the GPU device plugin DaemonSet
+# mounts /dev/dri (a hostPath device) — baseline rejects it.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: intel-device-plugins
+  labels:
+    pod-security.kubernetes.io/enforce: privileged
+    pod-security.kubernetes.io/audit: privileged
+    pod-security.kubernetes.io/warn: privileged
+  annotations:
+    argocd.argoproj.io/sync-wave: "9"
+
+---
 # Source: addons/templates/kube-prometheus-stack.yaml
 # Namespace with privileged PodSecurity labels for node-exporter
 apiVersion: v1
@@ -83,22 +105,6 @@ metadata:
     pod-security.kubernetes.io/warn: privileged
   annotations:
     argocd.argoproj.io/sync-wave: "9"
-
----
-# Source: addons/templates/nvidia-gpu-operator.yaml
-# Namespace for GPU operator components
-# Requires privileged PodSecurity for GPU device plugin and driver containers
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: gpu-operator
-  labels:
-    pod-security.kubernetes.io/enforce: privileged
-    pod-security.kubernetes.io/audit: privileged
-    pod-security.kubernetes.io/warn: privileged
-  annotations:
-    # Wave 10: After kube-prometheus-stack (wave 9)
-    argocd.argoproj.io/sync-wave: "10"
 
 ---
 # Source: addons/templates/spegel.yaml
@@ -266,73 +272,6 @@ spec:
   ports:
     - port: 6379
       targetPort: 6379
-
----
-# Source: addons/templates/nvidia-gpu-operator.yaml
-# Talos GPU Validation Bypass DaemonSet
-# Creates validation files that the GPU device plugin waits for
-# Required because validator is disabled on Talos (driver/toolkit are pre-installed via system extensions)
-apiVersion: apps/v1
-kind: DaemonSet
-metadata:
-  name: nvidia-validation-bypass
-  namespace: gpu-operator
-  annotations:
-    argocd.argoproj.io/sync-wave: "10"
-  labels:
-    app.kubernetes.io/name: nvidia-validation-bypass
-    app.kubernetes.io/component: validation
-spec:
-  selector:
-    matchLabels:
-      app.kubernetes.io/name: nvidia-validation-bypass
-  template:
-    metadata:
-      labels:
-        app.kubernetes.io/name: nvidia-validation-bypass
-    spec:
-      nodeSelector:
-        nvidia.com/gpu: "true"
-      tolerations:
-        - key: nvidia.com/gpu
-          operator: Exists
-          effect: NoSchedule
-      containers:
-        - name: validation-bypass
-          image: busybox:1.36
-          command:
-            - sh
-            - -c
-            - |
-              # Continuously maintain validation ready files for Talos GPU nodes
-              # The operator validator deletes driver-ready during its validation loop,
-              # so we must recreate it continuously rather than just once
-              mkdir -p /run/nvidia/validations
-              while true; do
-                touch /run/nvidia/validations/driver-ready
-                touch /run/nvidia/validations/toolkit-ready
-                touch /run/nvidia/validations/cuda-ready
-                touch /run/nvidia/validations/plugin-ready
-                sleep 5
-              done
-          volumeMounts:
-            - name: run-nvidia
-              mountPath: /run/nvidia
-          resources:
-            requests:
-              cpu: 1m
-              memory: 8Mi
-            limits:
-              cpu: 10m
-              memory: 16Mi
-          securityContext:
-            runAsUser: 0
-            runAsGroup: 0
-      volumes:
-        - name: run-nvidia
-          hostPath:
-            path: /run/nvidia
-            type: DirectoryOrCreate
 
 ---
 # Source: addons/templates/traefik-external.yaml
@@ -1948,6 +1887,96 @@ spec:
       - SkipDryRunOnMissingResource=true
 
 ---
+# Source: addons/templates/intel-device-plugins-operator.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: intel-device-plugins-operator
+  namespace: argocd
+  annotations:
+    # Wave 9: before the intel-gpu-device-plugin chart at wave 10. The operator
+    # installs the deviceplugin.intel.com CRDs the plugin chart's CRs reference.
+    argocd.argoproj.io/sync-wave: "9"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://intel.github.io/helm-charts
+    chart: intel-device-plugins-operator
+    targetRevision: 0.36.0
+    helm:
+      releaseName: intel-device-plugins-operator
+      values: |
+        # Install CRDs for GpuDevicePlugin (and other device plugin CRs)
+        manager:
+          devices:
+            gpu: true
+            # Disable plugins we don't use — keeps the operator scope minimal
+            dlb: false
+            dsa: false
+            fpga: false
+            iaa: false
+            qat: false
+            sgx: false
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: intel-device-plugins
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+
+---
+# Source: addons/templates/intel-gpu-device-plugin.yaml
+# NOTE: the intel-device-plugins Namespace is owned by
+# charts/addons/templates/intel-device-plugins-operator.yaml (sync wave 9).
+# Declaring it here too produces a RepeatedResourceWarning on the addons app.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: intel-gpu-device-plugin
+  namespace: argocd
+  annotations:
+    # Wave 10: Same as NVIDIA GPU operator (mutually exclusive via GPU_VENDOR)
+    argocd.argoproj.io/sync-wave: "10"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://intel.github.io/helm-charts
+    chart: intel-device-plugins-gpu
+    targetRevision: 0.36.0
+    helm:
+      releaseName: intel-gpu-device-plugin
+      values: |
+        # Intel GPU device plugin configuration for Talos Linux
+        # Auto-detects xe kernel driver on B50 GPU
+        nodeFeatureRule: true
+        sharedDevNum: 1
+        enableMonitoring: true
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: intel-device-plugins
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+
+---
 # Source: addons/templates/kube-prometheus-stack.yaml
 apiVersion: argoproj.io/v1alpha1
 kind: Application
@@ -2302,116 +2331,6 @@ spec:
       - CreateNamespace=true
       - ServerSideApply=true
       - ApplyOutOfSyncOnly=true
-
----
-# Source: addons/templates/nvidia-gpu-operator.yaml
-apiVersion: argoproj.io/v1alpha1
-kind: Application
-metadata:
-  name: nvidia-gpu-operator
-  namespace: argocd
-  annotations:
-    # Wave 10: After kube-prometheus-stack (wave 9) for DCGM metrics integration
-    argocd.argoproj.io/sync-wave: "10"
-  finalizers:
-    - resources-finalizer.argocd.argoproj.io
-spec:
-  project: default
-  source:
-    repoURL: https://helm.ngc.nvidia.com/nvidia
-    chart: gpu-operator
-    targetRevision: v26.3.3
-    helm:
-      releaseName: nvidia-gpu-operator
-      values: |
-        # Talos Linux configuration
-        # Driver and toolkit are provided by Talos system extensions (nonfree-kmod-nvidia, nvidia-container-toolkit)
-        # GPU Operator only manages device plugin and monitoring components
-        #
-        # NOTE: The operator's validator CRD doesn't support an 'enabled' field,
-        # so the validator DaemonSet runs regardless of Helm settings. The
-        # validation-bypass DaemonSet continuously recreates the driver-ready
-        # file that the validator deletes during its failed validation loop.
-
-        driver:
-          enabled: false
-        toolkit:
-          enabled: false
-
-        # Device plugin advertises GPUs to Kubernetes scheduler
-        devicePlugin:
-          enabled: true
-
-        # DCGM Exporter for GPU metrics (Prometheus/Grafana)
-        dcgmExporter:
-          enabled: true
-
-        # GPU Feature Discovery - labels nodes with GPU properties
-        gfd:
-          enabled: true
-
-        # MIG Manager - disabled (not using Multi-Instance GPU)
-        migManager:
-          enabled: false
-
-        # Node status exporter
-        nodeStatusExporter:
-          enabled: true
-
-        # Node Feature Discovery - provided by the standalone
-        # charts/addons/templates/node-feature-discovery.yaml addon (sync wave 9),
-        # not the bundled operator instance. Disable here to avoid two NFD
-        # masters fighting over the NodeFeature/NodeFeatureRule CRDs if the user
-        # ever flips GPU_VENDOR back to "nvidia".
-        nfd:
-          enabled: false
-
-        # Validator - disabled on Talos (using validation-bypass DaemonSet instead)
-        # The validator has mount issues on Talos and is not needed since
-        # driver/toolkit are pre-installed via system extensions
-        validator:
-          enabled: false
-
-        # CDI mode disabled - Talos system extensions install drivers at host root,
-        # not /run/nvidia/driver where CDI spec generation expects them.
-        # Uses legacy envvar strategy instead.
-        cdi:
-          enabled: false
-          default: false
-
-        # Talos-specific: Tell operator that driver/toolkit are pre-installed
-        operator:
-          defaultRuntime: containerd
-
-  destination:
-    server: https://kubernetes.default.svc
-    namespace: gpu-operator
-
-  syncPolicy:
-    automated:
-      prune: true
-      selfHeal: true
-    syncOptions:
-      - CreateNamespace=true
-      - ServerSideApply=true
-      - ApplyOutOfSyncOnly=true
-
-  # Ignore differences in dynamic fields
-  ignoreDifferences:
-    - group: "*"
-      kind: "*"
-      jsonPointers:
-        - /metadata/annotations
-        - /metadata/labels
-    # ClusterPolicy: the GPU operator controller fills in many defaults
-    # (image versions, env vars, sub-component configs) that differ from
-    # what the Helm chart renders. Ignore all spec differences to prevent
-    # infinite sync loops. The validation-bypass DaemonSet handles the
-    # Talos driver validation issue independently.
-    - group: nvidia.com
-      kind: ClusterPolicy
-      jqPathExpressions:
-        - .spec
 
 ---
 # Source: addons/templates/prometheus-config.yaml

@@ -203,7 +203,7 @@ ArgoCD → Reads Metadata → Deploys Apps (charts/gitops)
 # Terragrunt passes metadata
 custom_metadata = {
   truenas_ip       = "<TRUENAS_IP>"
-  metallb_ip_range = "<LB_POOL_START>-<LB_POOL_END>" # legacy key name; the pool is Cilium LB IPAM
+  lb_pool_range    = "<LB_POOL_START>-<LB_POOL_END>" # Cilium LB IPAM pool
 }
 ```
 
