@@ -26,10 +26,9 @@ concurrency:
 permissions:
   contents: read
 
-# Same pins as verify.yml's level-0 job, each with a Renovate marker so bumps
-# land here too. HELM_VERSION must match configuration/versions.yaml
-# `tools.helm`: the snapshot checks are byte-exact.
-# Tools come from mise.toml through jdx/mise-action (same pins as verify.yml).
+# Tools come from mise.toml through jdx/mise-action (same pins as verify.yml's
+# level-0 job); mise.toml `helm` must match configuration/versions.yaml
+# `tools.helm` because the snapshot checks are byte-exact.
 
 jobs:
   claim:

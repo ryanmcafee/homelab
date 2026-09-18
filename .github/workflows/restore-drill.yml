@@ -27,6 +27,7 @@ permissions:
   contents: read
 
 # Tools come from mise.toml through jdx/mise-action (same pins as tilt-ci.yml).
+env:
   # Every kubectl/argocd/chainsaw call in the scripts pins this context (ADR-009).
   KIND_CONTEXT: kind-homelab-localdev
 

@@ -82,6 +82,7 @@ permissions:
 
 # Tools come from mise.toml through jdx/mise-action (same pins as verify.yml
 # and a workstation).
+env:
   # Every kubectl/argocd call in the scripts pins this context (ADR-009).
   KIND_CONTEXT: kind-homelab-localdev
 
