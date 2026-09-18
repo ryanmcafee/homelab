@@ -73,50 +73,7 @@ OP_SERVICE_ACCOUNT_TOKEN = '{{ exec(command="cat $HOME/.op/op_service_account_to
 # Load remaining env vars from .envrc (non-shell substitution vars only)
 _.file = ".envrc"
 
-[tasks.validate]
-description = "Validate all tools are installed and working"
-run = """
-echo "Validating mise-managed tools..."
-echo ""
-echo "Infrastructure Tools:"
-terraform version
-terragrunt --version
-packer version
-echo ""
-echo "Kubernetes Tools:"
-kubectl version --client
-helm version
-kind version
-talosctl version --client
-tilt version
-argocd version --client
-argo version --short
-echo ""
-echo "Configuration Management:"
-ansible --version
-echo ""
-echo "Task Runner:"
-task --version
-echo ""
-echo "Utilities:"
-jq --version
-yq --version
-direnv --version
-kubeconform -v
-pre-commit --version
-echo ""
-echo "Secrets Management:"
-op --version
-age --version
-sops --version
-echo ""
-echo "✓ All tools validated successfully!"
-"""
-
-[tasks.install]
-description = "Install all dependencies via mise"
-run = "mise install -y"
-
-[tasks.doctor]
-description = "Check mise and tool installation status"
-run = "mise doctor"
+# No [tasks] here: the Taskfile is the task runner. `mise run validate` used to
+# print tool versions while `task validate` runs the prerequisite table, and
+# `mise run install` / `mise run doctor` duplicated `task install-tools` /
+# `task mise:doctor`; the same name meaning two things was a trap.

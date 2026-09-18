@@ -365,11 +365,16 @@ holds the reason.
 ## PII guard
 
 `homelab config guard` runs in pre-commit (staged files matching the default scope) and in
-CI (`--ci`: every tracked YAML/JSON/Markdown file in scope). The default scope is
-`configuration/**` plus `charts/**/values-homelab.yaml` (the committed child-chart values,
-which must stay PII-free because derived values reach children through the parent
-Application's `helm.valuesObject`, see ADR-010). Real values come from the gitignored
-`environments/homelab.yaml` when present; without it the guard still applies shape rules:
+CI (`--ci`: every tracked YAML/JSON/Markdown/SVG file in scope). The default scope
+(`DefaultGuardPathspecs` in `internal/config/guard.go`, mirrored by the pre-commit hook's
+`files:` pattern) is `configuration/**`, `charts/**/values-homelab.yaml` (the committed
+child-chart values, which must stay PII-free because derived values reach children through
+the parent Application's `helm.valuesObject`, see ADR-010), `scripts/**`, `docs/**`,
+`.github/**`, `Taskfile.yml` and `ansible/**` (the inventory is rendered from
+`configuration/` and gitignored, so what is committed there carries no addresses). Real
+values come from the gitignored `environments/homelab.yaml` when present (every `*_IP`,
+`*_VIP`, `*_HOSTNAME`, `DOMAIN`, `ACME_EMAIL`, `NFS_MAPALL_USER`, ... value at least four
+characters long becomes a literal pattern); without it the guard still applies shape rules:
 
 - config keys: routable IPs on `*_IP`/`*_VIP` keys, real-looking hostnames and mailboxes on
   domain keys;
