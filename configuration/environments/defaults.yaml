@@ -42,6 +42,7 @@ UNIFI_PORT_FORWARD_1P_PATH: vaults/homelab/items/unifi
 DUCKDNS_1P_PATH: vaults/homelab/items/duckdns
 PAPERCLIP_AUTH_1P_PATH: vaults/homelab/items/paperclip-auth
 PAPERCLIP_API_KEYS_1P_PATH: vaults/homelab/items/paperclip-api-keys
+ALERTMANAGER_1P_PATH: vaults/homelab/items/alertmanager-notifications
 
 # PVC names (defaults)
 PLEX_CONFIG_PVC: plex-config-iscsi

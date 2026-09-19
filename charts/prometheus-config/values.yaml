@@ -6,3 +6,12 @@ volumes: []
 # never commit a real portal here.
 iscsi:
   portal: ""
+
+# Alertmanager notification credentials (templates/alertmanager-notifications.yaml).
+# Both values come from the parent Application's helm.valuesObject
+# (kube-prometheus-stack.alertmanager.notifications, ALERTMANAGER_1P_PATH via
+# the CMP); an empty path renders no OnePasswordItem.
+alertmanager:
+  notifications:
+    secretName: alertmanager-notifications
+    onePasswordItemPath: ""

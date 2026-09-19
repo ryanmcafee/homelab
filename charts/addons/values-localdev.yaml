@@ -766,6 +766,17 @@ kube-prometheus-stack:
   # Alertmanager and node-exporter are not useful in Kind (no alert routes, containerised nodes).
   alertmanager:
     enabled: false
+    # Notification receivers (docs/runbooks/alerting.md): critical -> Pushover
+    # high priority, warning -> Pushover low priority, info and Watchdog ->
+    # nowhere. The Pushover token and user key are the 1Password item
+    # ALERTMANAGER_1P_PATH, which the prometheus-config chart turns into Secret
+    # <secretName> in the monitoring namespace; Alertmanager mounts it and reads
+    # the *_file fields. Without a secret store nothing is mounted and every
+    # route ends in the null receiver.
+    notifications:
+      enabled: false
+      secretName: alertmanager-notifications
+      onePasswordItemPath: ""
     storage:
       volumeClaimTemplate:
         spec:

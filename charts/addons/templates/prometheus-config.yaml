@@ -25,6 +25,13 @@ spec:
       valuesObject:
         iscsi:
           portal: {{ .Values.global.iscsi.portal | quote }}
+        # The Alertmanager notification credentials: the child renders the
+        # OnePasswordItem that becomes Secret <secretName>, which the
+        # kube-prometheus-stack Application mounts into Alertmanager.
+        alertmanager:
+          notifications:
+            secretName: {{ (index .Values "kube-prometheus-stack" "alertmanager" "notifications" "secretName") | quote }}
+            onePasswordItemPath: {{ (index .Values "kube-prometheus-stack" "alertmanager" "notifications" "onePasswordItemPath") | quote }}
   destination:
     server: https://kubernetes.default.svc
     namespace: {{ (index .Values "kube-prometheus-stack").namespace }}

@@ -8,7 +8,7 @@ key never leaves 1Password except into the cluster.
 |---|---|---|
 | Age private key | `op://homelab/sops-age-key/private_key` | `gitops-bootstrap` (Terragrunt) writes it as the `sops-age-key` Secret in `argocd` |
 | Bootstrap credentials (1Password Connect token and credentials) | `charts/secrets/`, SOPS-encrypted, committed | ArgoCD decrypts them with ksops in the `bootstrap` chart |
-| Everything else (API tokens, OAuth clients, service credentials) | 1Password vault `homelab` | `OnePasswordItem` resources rendered by the `*-config` / `*-dependencies` child charts |
+| Everything else (API tokens, OAuth clients, service credentials, the Alertmanager Pushover keys) | 1Password vault `homelab` | `OnePasswordItem` resources rendered by the `*-config` / `*-dependencies` child charts (Alertmanager: `prometheus-config`, `docs/runbooks/alerting.md`) |
 | Environment values (IPs, hostnames, domain) | `configuration/environments/homelab.yaml` (gitignored) and the `homelab-environment-config` OnePasswordItem | The `homelab-cmp` sidecar at render time; nothing PII-bearing is committed |
 
 ## Bootstrap order
