@@ -41,18 +41,6 @@ permissions:
   pull-requests: read
 
 env:
-  # renovate: datasource=golang-version depName=go
-  GO_VERSION: '1.25'
-  # renovate: datasource=github-releases depName=helm/helm
-  HELM_VERSION: 'v4.3.0'
-  # renovate: datasource=github-releases depName=yannh/kubeconform
-  KUBECONFORM_VERSION: 'v0.7.0'
-  # renovate: datasource=github-releases depName=open-policy-agent/conftest
-  CONFTEST_VERSION: '0.70.0'
-  # renovate: datasource=github-releases depName=FairwindsOps/pluto
-  PLUTO_VERSION: '5.24.4'
-  # renovate: datasource=github-releases depName=go-task/task
-  TASK_VERSION: 'v3.46.4'
   AUTOFIX_BOT_NAME: homelab-ci-autofix
   AUTOFIX_BOT_EMAIL: homelab-ci-autofix@users.noreply.github.com
   MAX_ATTEMPTS: '2'
@@ -167,34 +155,14 @@ jobs:
           fi
           echo "run=$run" >> "$GITHUB_OUTPUT"
 
-      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+      # The same toolchain verify.yml's level-0 job uses (mise.toml pins), so
+      # `task verify`, `task test:snapshot`, `task docs:check` and friends
+      # reproduce CI here.
+      - name: Install go, helm, deno, kubeconform, conftest, pluto, task, yamllint from mise.toml
         if: steps.guard.outputs.run == 'true'
+        uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
         with:
-          go-version: ${{ env.GO_VERSION }}
-
-      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5
-        if: steps.guard.outputs.run == 'true'
-        with:
-          version: ${{ env.HELM_VERSION }}
-
-      - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
-        if: steps.guard.outputs.run == 'true'
-        with:
-          deno-version: v2.x
-
-      # The same toolchain verify.yml's level-0 job uses, so `task verify`,
-      # `task test:snapshot`, `task docs:check` and friends reproduce CI here.
-      - name: Install kubeconform, conftest, pluto, task
-        if: steps.guard.outputs.run == 'true'
-        run: |
-          set -euo pipefail
-          mkdir -p "$HOME/bin"
-          curl -sSL --retry 5 --retry-all-errors --retry-delay 3 "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz" | tar -xz -C "$HOME/bin" kubeconform
-          curl -sSL --retry 5 --retry-all-errors --retry-delay 3 "https://github.com/open-policy-agent/conftest/releases/download/v${CONFTEST_VERSION}/conftest_${CONFTEST_VERSION}_Linux_x86_64.tar.gz" | tar -xz -C "$HOME/bin" conftest
-          curl -sSL --retry 5 --retry-all-errors --retry-delay 3 "https://github.com/FairwindsOps/pluto/releases/download/v${PLUTO_VERSION}/pluto_${PLUTO_VERSION}_linux_amd64.tar.gz" | tar -xz -C "$HOME/bin" pluto
-          go install "github.com/go-task/task/v3/cmd/task@${TASK_VERSION}"
-          echo "$HOME/bin" >> "$GITHUB_PATH"
-          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+          install_args: go helm deno kubeconform conftest pluto task pipx:yamllint
 
       # Everything Claude reads about the failure comes from the failed run's
       # own logs, capped so a runaway log cannot eat the context.

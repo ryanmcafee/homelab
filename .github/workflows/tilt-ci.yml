@@ -80,29 +80,9 @@ concurrency:
 permissions:
   contents: read
 
+# Tools come from mise.toml through jdx/mise-action (same pins as verify.yml
+# and a workstation).
 env:
-  # renovate: datasource=golang-version depName=go
-  GO_VERSION: '1.25'
-  # renovate: datasource=github-releases depName=kubernetes-sigs/kind
-  KIND_VERSION: 'v0.33.0'
-  # renovate: datasource=github-releases depName=kubernetes/kubernetes
-  KUBECTL_VERSION: 'v1.37.0'
-  # renovate: datasource=github-releases depName=helm/helm
-  HELM_VERSION: 'v4.3.0'
-  # renovate: datasource=github-releases depName=argoproj/argo-cd
-  ARGOCD_VERSION: 'v3.5.3'
-  # renovate: datasource=github-releases depName=kyverno/chainsaw
-  CHAINSAW_VERSION: 'v0.2.15'
-  # renovate: datasource=github-releases depName=tilt-dev/tilt
-  TILT_VERSION: '0.37.3'
-  # renovate: datasource=github-releases depName=go-task/task
-  TASK_VERSION: 'v3.46.4'
-  # renovate: datasource=github-releases depName=yannh/kubeconform
-  KUBECONFORM_VERSION: 'v0.7.0'
-  # renovate: datasource=github-releases depName=open-policy-agent/conftest
-  CONFTEST_VERSION: '0.70.0'
-  # renovate: datasource=github-releases depName=FairwindsOps/pluto
-  PLUTO_VERSION: '5.24.4'
   # Every kubectl/argocd call in the scripts pins this context (ADR-009).
   KIND_CONTEXT: kind-homelab-localdev
 
@@ -141,37 +121,14 @@ jobs:
                  && github.event.pull_request.head.sha)
               || '' }}
 
-      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+      # level 2 includes level 0, so the level-0 tools come along.
+      - name: Install go, helm, deno, kind, kubectl, argocd, chainsaw, tilt, task, kubeconform, conftest, pluto from mise.toml
+        uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
         with:
-          go-version: ${{ env.GO_VERSION }}
+          install_args: go helm deno kind kubectl argocd aqua:kyverno/chainsaw tilt task kubeconform conftest pluto
 
-      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5
-        with:
-          version: ${{ env.HELM_VERSION }}
-
-      - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
-        with:
-          deno-version: v2.x
-
-      # kubectl is published on dl.k8s.io, not on the kubernetes/kubernetes
-      # release page; the Renovate marker still tracks that repository's tags.
-      - name: Install kind, kubectl, argocd, chainsaw, tilt, task, kubeconform, conftest, pluto
+      - name: Tool versions
         run: |
-          set -euo pipefail
-          mkdir -p "$HOME/bin"
-          export PATH="$HOME/bin:$PATH"
-          # level 2 includes level 0, which needs kubeconform, conftest and pluto (same pins as verify.yml)
-          curl -sSL --retry 5 --retry-all-errors --retry-delay 3 "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz" | tar -xz -C "$HOME/bin" kubeconform
-          curl -sSL --retry 5 --retry-all-errors --retry-delay 3 "https://github.com/open-policy-agent/conftest/releases/download/v${CONFTEST_VERSION}/conftest_${CONFTEST_VERSION}_Linux_x86_64.tar.gz" | tar -xz -C "$HOME/bin" conftest
-          curl -sSL --retry 5 --retry-all-errors --retry-delay 3 "https://github.com/FairwindsOps/pluto/releases/download/v${PLUTO_VERSION}/pluto_${PLUTO_VERSION}_linux_amd64.tar.gz" | tar -xz -C "$HOME/bin" pluto
-          curl -sSL --retry 5 --retry-all-errors --retry-delay 3 -o "$HOME/bin/kind" "https://github.com/kubernetes-sigs/kind/releases/download/${KIND_VERSION}/kind-linux-amd64"
-          curl -sSL --retry 5 --retry-all-errors --retry-delay 3 -o "$HOME/bin/kubectl" "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl"
-          curl -sSL --retry 5 --retry-all-errors --retry-delay 3 -o "$HOME/bin/argocd" "https://github.com/argoproj/argo-cd/releases/download/${ARGOCD_VERSION}/argocd-linux-amd64"
-          curl -sSL --retry 5 --retry-all-errors --retry-delay 3 "https://github.com/kyverno/chainsaw/releases/download/${CHAINSAW_VERSION}/chainsaw_linux_amd64.tar.gz" | tar -xz -C "$HOME/bin" chainsaw
-          curl -sSL --retry 5 --retry-all-errors --retry-delay 3 "https://github.com/tilt-dev/tilt/releases/download/v${TILT_VERSION}/tilt.${TILT_VERSION}.linux.x86_64.tar.gz" | tar -xz -C "$HOME/bin" tilt
-          curl -sSL --retry 5 --retry-all-errors --retry-delay 3 "https://github.com/go-task/task/releases/download/${TASK_VERSION}/task_linux_amd64.tar.gz" | tar -xz -C "$HOME/bin" task
-          chmod +x "$HOME/bin"/*
-          echo "$HOME/bin" >> "$GITHUB_PATH"
           kind version
           kubectl version --client
           argocd version --client
@@ -303,29 +260,13 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+      - name: Install go, helm, deno, kind, kubectl, tilt, task from mise.toml
+        uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
         with:
-          go-version: ${{ env.GO_VERSION }}
+          install_args: go helm deno kind kubectl tilt task
 
-      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5
-        with:
-          version: ${{ env.HELM_VERSION }}
-
-      - uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2.0.5
-        with:
-          deno-version: v2.x
-
-      - name: Install kind, kubectl, tilt, task
+      - name: Tool versions
         run: |
-          set -euo pipefail
-          mkdir -p "$HOME/bin"
-          export PATH="$HOME/bin:$PATH"
-          curl -sSL --retry 5 --retry-all-errors --retry-delay 3 -o "$HOME/bin/kind" "https://github.com/kubernetes-sigs/kind/releases/download/${KIND_VERSION}/kind-linux-amd64"
-          curl -sSL --retry 5 --retry-all-errors --retry-delay 3 -o "$HOME/bin/kubectl" "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl"
-          curl -sSL --retry 5 --retry-all-errors --retry-delay 3 "https://github.com/tilt-dev/tilt/releases/download/v${TILT_VERSION}/tilt.${TILT_VERSION}.linux.x86_64.tar.gz" | tar -xz -C "$HOME/bin" tilt
-          curl -sSL --retry 5 --retry-all-errors --retry-delay 3 "https://github.com/go-task/task/releases/download/${TASK_VERSION}/task_linux_amd64.tar.gz" | tar -xz -C "$HOME/bin" task
-          chmod +x "$HOME/bin"/*
-          echo "$HOME/bin" >> "$GITHUB_PATH"
           kind version
           tilt version
 
@@ -373,8 +314,10 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - name: Install yamllint
-        run: pip install yamllint
+      - name: Install yamllint from mise.toml
+        uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+        with:
+          install_args: pipx:yamllint
 
       - name: yamllint
         run: yamllint -c .yamllint charts/ localdev/ tests/e2e tests/health

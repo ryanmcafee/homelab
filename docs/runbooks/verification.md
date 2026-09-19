@@ -167,7 +167,7 @@ snapshot check fails. Three files name the helm version and must agree:
 |---|---|---|
 | `configuration/versions.yaml` | `tools.helm` | single source of truth, Renovate-tracked |
 | `mise.toml` | `helm` | the local renderer |
-| `.github/workflows/verify.yml` | `HELM_VERSION` (with a `v` prefix) | the CI renderer |
+| `mise.toml` | `helm` (every CI job installs it through `jdx/mise-action`) | the CI renderer |
 
 `kubeconform`, `conftest`, `pluto` and `deno` track `latest` in `mise.toml`; their output
 is not byte-compared, so a minor difference between a workstation and CI is tolerable. The
