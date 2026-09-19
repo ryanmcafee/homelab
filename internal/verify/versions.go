@@ -28,8 +28,43 @@ type VersionDrift struct {
 	Reason      string `yaml:"reason"`
 }
 
+// PinLag is one `pins:` entry of the same file: a file outside the render path
+// (see pinSources) that may carry `revision` for `key` (section.key of
+// versions.yaml) instead of the pin, because an upgrade is in progress. As with
+// VersionDrift, the entry fails once the file no longer carries `revision`.
+type PinLag struct {
+	File     string `yaml:"file"`
+	Key      string `yaml:"key"`
+	Revision string `yaml:"revision"`
+	Reason   string `yaml:"reason"`
+}
+
 type versionDriftFile struct {
 	Entries []VersionDrift `yaml:"entries"`
+	Pins    []PinLag       `yaml:"pins"`
+}
+
+// LoadPinLag reads the `pins:` list of tests/gitops/version-drift.yaml.
+func LoadPinLag(repoRoot string) ([]PinLag, error) {
+	var f versionDriftFile
+	if err := readRegistryFile(repoRoot, versionDriftFileName, &f); err != nil {
+		return nil, err
+	}
+	seen := map[string]bool{}
+	for i, e := range f.Pins {
+		for field, v := range map[string]string{"file": e.File, "key": e.Key, "revision": e.Revision, "reason": e.Reason} {
+			if strings.TrimSpace(v) == "" {
+				return nil, fmt.Errorf("%s/%s: pins entry %d has no %s (every lag must name its file, key, revision and reason)",
+					GitOpsRegistryDir, versionDriftFileName, i, field)
+			}
+		}
+		id := e.File + "#" + e.Key
+		if seen[id] {
+			return nil, fmt.Errorf("%s/%s: duplicate pins entry for %s %s", GitOpsRegistryDir, versionDriftFileName, e.File, e.Key)
+		}
+		seen[id] = true
+	}
+	return f.Pins, nil
 }
 
 // LoadVersionDrift reads tests/gitops/version-drift.yaml (strict decoding; a
@@ -201,9 +236,104 @@ func CheckVersions(env string, docs []Doc, pins *VersionPins, drift []VersionDri
 		matched, allowed, GitOpsRegistryDir, versionDriftFileName))
 }
 
-// VersionChecks runs CheckVersions for every rendered env. complete says the
-// render covered every environment, which is when an entry that matched no
-// Application anywhere is reported (versions/registry) as stale.
+// pinSource is one committed file that pins a version outside the render path,
+// where versions/<env> cannot see it: Terragrunt inputs (what the cluster
+// runs) and the plain-Helm bootstrap chart (what ArgoCD self-manages). Each
+// pattern's first capture group is the pinned value.
+type pinSource struct {
+	file    string // repo-relative
+	pattern *regexp.Regexp
+	section string // versions.yaml section: tools, charts or images
+	key     string
+}
+
+var pinSources = []pinSource{
+	{"terragrunt/environments/homelab/env.hcl", regexp.MustCompile(`(?m)^\s*talos_version\s*=\s*"([^"]+)"`), "tools", "talos"},
+	{"terragrunt/environments/homelab/env.hcl", regexp.MustCompile(`(?m)^\s*kubernetes_version\s*=\s*"([^"]+)"`), "tools", "kubernetes"},
+	{"charts/bootstrap/values.yaml", regexp.MustCompile(`(?m)^\s*name:\s*argo-cd\s*\n(?:.*\n)?\s*version:\s*"([^"]+)"`), "charts", "argocd"},
+	{"charts/bootstrap/values.yaml", regexp.MustCompile(`ghcr\.io/ryanmcafee/homelab-cmp:([\w.-]+)`), "images", "homelab-cmp"},
+}
+
+// CheckPins (versions/pins) compares the version pins that live outside the
+// rendered manifests with configuration/versions.yaml: the Talos and
+// Kubernetes versions Terragrunt applies, the ArgoCD chart the bootstrap chart
+// self-manages, and every homelab-cmp image tag in it. Renovate bumps
+// versions.yaml alone, so without this check a bump could advertise a version
+// production never runs (the README badges are rendered from versions.yaml).
+func CheckPins(repoRoot string) Check {
+	start := time.Now()
+	const name = "versions/pins"
+	v, err := config.LoadVersions(filepath.Join(repoRoot, "configuration", "versions.yaml"))
+	if err != nil {
+		return FailCheck(name, start, "loading configuration/versions.yaml", err.Error())
+	}
+	sections := map[string]map[string]string{"tools": v.Tools, "charts": v.Charts, "images": v.Images}
+	lags, err := LoadPinLag(repoRoot)
+	if err != nil {
+		return FailCheck(name, start, "loading "+GitOpsRegistryDir+"/"+versionDriftFileName, err.Error())
+	}
+	lagIndex := map[string]int{}
+	for i, l := range lags {
+		lagIndex[l.File+"#"+l.Key] = i
+	}
+	usedLag := map[int]bool{}
+
+	var findings []string
+	checked, lagging := 0, 0
+	for _, s := range pinSources {
+		body, err := os.ReadFile(filepath.Join(repoRoot, filepath.FromSlash(s.file)))
+		if err != nil {
+			findings = append(findings, fmt.Sprintf("%s: %v", s.file, err))
+			continue
+		}
+		want := sections[s.section][s.key]
+		if want == "" {
+			findings = append(findings, fmt.Sprintf("configuration/versions.yaml has no %s.%s (pinned by %s)", s.section, s.key, s.file))
+			continue
+		}
+		matches := s.pattern.FindAllStringSubmatch(string(body), -1)
+		if len(matches) == 0 {
+			findings = append(findings, fmt.Sprintf("%s: no pin found for %s.%s", s.file, s.section, s.key))
+			continue
+		}
+		key := s.section + "." + s.key
+		for _, m := range matches {
+			checked++
+			if m[1] == want {
+				continue
+			}
+			if i, ok := lagIndex[s.file+"#"+key]; ok && lags[i].Revision == m[1] {
+				// A registered lag: the upgrade is in progress and documented.
+				usedLag[i] = true
+				lagging++
+				continue
+			}
+			findings = append(findings, fmt.Sprintf("%s pins %s at %s, configuration/versions.yaml has %s (register the lag with a reason in %s/%s pins: if an upgrade is pending)",
+				s.file, key, m[1], want, GitOpsRegistryDir, versionDriftFileName))
+		}
+	}
+	// A lag entry the files no longer exhibit is stale: the upgrade landed (remove
+	// it) or the pin moved somewhere else (update it).
+	for i, l := range lags {
+		if !usedLag[i] {
+			findings = append(findings, fmt.Sprintf("%s/%s pins entry %s %s at %s matches nothing: %s no longer carries that value",
+				GitOpsRegistryDir, versionDriftFileName, l.File, l.Key, l.Revision, l.File))
+		}
+	}
+	if len(findings) > 0 {
+		return FailCheck(name, start, fmt.Sprintf("%d pin(s) disagree with configuration/versions.yaml", len(findings)), findings...)
+	}
+	if lagging > 0 {
+		return PassCheck(name, start, fmt.Sprintf("%d pin(s) outside the render path checked against configuration/versions.yaml; %d lag behind it under a registered reason (%s/%s pins:)",
+			checked, lagging, GitOpsRegistryDir, versionDriftFileName))
+	}
+	return PassCheck(name, start, fmt.Sprintf("%d pin(s) outside the render path match configuration/versions.yaml", checked))
+}
+
+// VersionChecks runs CheckVersions for every rendered env plus CheckPins.
+// complete says the render covered every environment, which is when an entry
+// that matched no Application anywhere is reported (versions/registry) as
+// stale.
 func VersionChecks(repoRoot string, rendered map[string]map[string][]Doc, envs []Env, complete bool) []Check {
 	start := time.Now()
 	pins, err := LoadVersionPins(repoRoot)
@@ -216,7 +346,7 @@ func VersionChecks(repoRoot string, rendered map[string]map[string][]Doc, envs [
 	}
 
 	used := map[int]bool{}
-	var checks []Check
+	checks := []Check{CheckPins(repoRoot)}
 	for _, env := range envs {
 		byChart := rendered[env.Name]
 		var docs []Doc

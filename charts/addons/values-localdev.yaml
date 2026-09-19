@@ -106,7 +106,7 @@ kubelet-csr-approver:
 cilium:
   enabled: true
   chart:
-    version: "1.19.5"  # Must match Taskfile cilium:render version
+    version: "1.19.5"  # task cilium:render reads the same key, so the inline manifest and this Application agree after the next `task render`
 
   # Helm values of the installed release. They must match what installed Cilium
   # (Talos inline manifests / localdev-kind.ts) or the Application shows a diff.

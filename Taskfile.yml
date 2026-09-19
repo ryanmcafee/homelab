@@ -542,7 +542,7 @@ tasks:
     cmds:
       - helm repo add cilium https://helm.cilium.io/ || true
       - |
-        helm template cilium cilium/cilium --version 1.18.0 \
+        helm template cilium cilium/cilium --version "$(yq -r .charts.cilium configuration/versions.yaml)" \
           --namespace kube-system \
           --set ipam.mode=kubernetes \
           --set kubeProxyReplacement=true \
@@ -568,7 +568,7 @@ tasks:
       - helm repo add kubelet-csr-approver https://postfinance.github.io/kubelet-csr-approver || true
       - helm repo update kubelet-csr-approver
       - |
-        helm template kubelet-csr-approver kubelet-csr-approver/kubelet-csr-approver --version 1.2.2 \
+        helm template kubelet-csr-approver kubelet-csr-approver/kubelet-csr-approver --version "$(yq -r .charts.kubelet-csr-approver configuration/versions.yaml)" \
           --namespace kube-system \
           --skip-tests \
           --set providerIpPrefixes="{{"{"}}{{.LAN_CIDR}}{{"}"}}" \
@@ -579,7 +579,7 @@ tasks:
   spegel:render:
     desc: Render Spegel Helm chart to YAML for inline installation (P2P image distribution)
     cmds:
-      - helm template spegel oci://ghcr.io/spegel-org/helm-charts/spegel --version v0.0.27 --namespace spegel --set spegel.containerdRegistryConfigPath=/etc/cri/conf.d/hosts --set spegel.containerdContentPath=/var/lib/containerd/io.containerd.content.v1.content --set spegel.resolveTags=true --set service.registry.hostPort=30020 --set service.registry.nodePort=30021 > terragrunt/files/spegel-rendered.yaml
+      - helm template spegel oci://ghcr.io/spegel-org/helm-charts/spegel --version "$(yq -r .charts.spegel configuration/versions.yaml)" --namespace spegel --set spegel.containerdRegistryConfigPath=/etc/cri/conf.d/hosts --set spegel.containerdContentPath=/var/lib/containerd/io.containerd.content.v1.content --set spegel.resolveTags=true --set service.registry.hostPort=30020 --set service.registry.nodePort=30021 > terragrunt/files/spegel-rendered.yaml
       - echo "Spegel manifests rendered to terragrunt/files/spegel-rendered.yaml"
 
   render:push:

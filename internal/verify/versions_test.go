@@ -169,13 +169,28 @@ func TestVersionChecksReportsUnusedEntriesOnlyForACompleteRender(t *testing.T) {
 	rendered := map[string]map[string][]Doc{"homelab": {"addons": docs}}
 	envs := []Env{{Name: "homelab"}}
 
-	checks := VersionChecks(root, rendered, envs, true)
+	// versions/pins reads files this fixture does not write; it is covered by
+	// TestCheckPins and dropped here.
+	withoutPins := func(checks []Check) []Check {
+		var out []Check
+		for _, c := range checks {
+			if c.Name != "versions/pins" {
+				out = append(out, c)
+			}
+		}
+		return out
+	}
+
+	checks := withoutPins(VersionChecks(root, rendered, envs, true))
 	if len(checks) != 2 || checks[1].Name != "versions/registry" || checks[1].Status != StatusFail ||
 		!strings.HasPrefix(checks[1].Findings[0], "gone (chart gone, revision 1.0.0): no rendered Application") {
 		t.Fatalf("complete render: %+v", checks)
 	}
-	if checks := VersionChecks(root, rendered, envs, false); len(checks) != 1 || checks[0].Status != StatusPass {
+	if checks := withoutPins(VersionChecks(root, rendered, envs, false)); len(checks) != 1 || checks[0].Status != StatusPass {
 		t.Fatalf("partial render must not judge unused entries: %+v", checks)
+	}
+	if all := VersionChecks(root, rendered, envs, true); all[0].Name != "versions/pins" {
+		t.Fatalf("versions/pins must be the first check: %+v", all)
 	}
 }
 
@@ -193,6 +208,64 @@ func TestLoadVersionDriftIsStrict(t *testing.T) {
 			_, err := LoadVersionDrift(writeVersionFixtures(t, tc.body))
 			if err == nil || !strings.Contains(err.Error(), tc.want) {
 				t.Fatalf("err = %v, want %q", err, tc.want)
+			}
+		})
+	}
+}
+
+func TestCheckPins(t *testing.T) {
+	write := func(t *testing.T, root, rel, body string) {
+		t.Helper()
+		p := filepath.Join(root, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	const versions = "charts:\n  argocd: \"9.7.1\"\nimages:\n  homelab-cmp: \"0.1.31\"\ntools:\n  talos: \"v1.12.2\"\n  kubernetes: \"v1.32.0\"\n"
+	const envHCL = "locals {\n  talos_version      = \"v1.12.2\"\n  kubernetes_version = \"v1.32.0\"\n}\n"
+	const bootstrap = "argocd:\n  chart:\n    name: argo-cd\n    repo: https://argoproj.github.io/argo-helm\n    version: \"9.7.1\"\n  values:\n    repoServer:\n      initContainers:\n        - image: ghcr.io/ryanmcafee/homelab-cmp:0.1.31\n      extraContainers:\n        - name: homelab-cmp\n          image: ghcr.io/ryanmcafee/homelab-cmp:0.1.31\n"
+
+	const talosLag = "pins:\n  - file: terragrunt/environments/homelab/env.hcl\n    key: tools.talos\n    revision: v1.11.0\n    reason: upgrade in progress\n"
+
+	tests := []struct {
+		name       string
+		env, boot  string
+		drift      string
+		wantStatus Status
+		wantIn     string
+	}{
+		{"all pins agree", envHCL, bootstrap, "", StatusPass, "5 pin(s)"},
+		{"talos behind versions.yaml", strings.Replace(envHCL, "v1.12.2", "v1.11.0", 1), bootstrap, "", StatusFail, "tools.talos at v1.11.0"},
+		{"registered lag passes", strings.Replace(envHCL, "v1.12.2", "v1.11.0", 1), bootstrap, talosLag, StatusPass, "1 lag behind it under a registered reason"},
+		{"registered lag at another revision still fails", strings.Replace(envHCL, "v1.12.2", "v1.10.0", 1), bootstrap, talosLag, StatusFail, "tools.talos at v1.10.0"},
+		{"stale lag entry fails once the pin matches", envHCL, bootstrap, talosLag, StatusFail, "matches nothing"},
+		{"lag entry without a reason is rejected", envHCL, bootstrap, strings.Replace(talosLag, "    reason: upgrade in progress\n", "", 1), StatusFail, "has no reason"},
+		{"bootstrap argocd chart drifted", envHCL, strings.Replace(bootstrap, "9.7.1", "9.4.7", 1), "", StatusFail, "charts.argocd at 9.4.7"},
+		{"one cmp tag stale", envHCL, strings.Replace(bootstrap, "homelab-cmp:0.1.31\n      extraContainers", "homelab-cmp:0.1.30\n      extraContainers", 1), "", StatusFail, "images.homelab-cmp at 0.1.30"},
+		{"pin missing", "locals {}\n", bootstrap, "", StatusFail, "no pin found for tools.talos"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			write(t, root, "configuration/versions.yaml", versions)
+			write(t, root, "terragrunt/environments/homelab/env.hcl", tc.env)
+			write(t, root, "charts/bootstrap/values.yaml", tc.boot)
+			if tc.drift != "" {
+				write(t, root, "tests/gitops/version-drift.yaml", tc.drift)
+			}
+			c := CheckPins(root)
+			if c.Name != "versions/pins" {
+				t.Fatalf("name = %q", c.Name)
+			}
+			if c.Status != tc.wantStatus {
+				t.Fatalf("status = %s, want %s (%s %v)", c.Status, tc.wantStatus, c.Detail, c.Findings)
+			}
+			all := c.Detail + " " + strings.Join(c.Findings, " ")
+			if !strings.Contains(all, tc.wantIn) {
+				t.Errorf("want %q in %q", tc.wantIn, all)
 			}
 		})
 	}
