@@ -110,6 +110,15 @@ kubelet-csr-approver:
       memory: 128Mi
 
 # ============================================================================
+# Spegel - P2P image distribution; only the chart version comes from
+# versions.yaml (the rest of charts/addons/values.yaml spegel block applies)
+# ============================================================================
+
+spegel:
+  chart:
+    version: "{{ index .Versions.Charts "spegel" }}"
+
+# ============================================================================
 # Cilium - CNI (adopted, not installed, by the Application)
 # Sync Wave: 0
 # homelab: Talos installs Cilium from inline manifests rendered with these values.
@@ -358,6 +367,9 @@ democratic-csi-iscsi:
     initiatorGroupId: 1
 
   storageClasses:
+    # The class this chart creates; STORAGE_CLASS_ISCSI_SSD names it for the
+    # consumers (helm-apps.tmpl) and maps to local-path in Kind, so it cannot
+    # be used here.
     - name: democratic-csi-iscsi
       defaultClass: false
       reclaimPolicy: Retain

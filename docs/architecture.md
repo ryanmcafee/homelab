@@ -187,7 +187,7 @@ network, platform, secrets), shared defaults in `environments/defaults.yaml`, th
 values in the gitignored `environments/homelab.yaml` (template `homelab.yaml.example`), the
 Kind values in `environments/localdev.yaml`, every chart/image/tool version in
 `versions.yaml`, and one Go template per consumer format in `templates/`
-(`helm-addons`, `helm-apps`, `tfvars`, `dotenv`, `json`). `homelab config eval` resolves
+(`helm-addons`, `helm-apps`, `env`, `json`). `homelab config eval` resolves
 schema defaults → defaults → environment; `export` renders a template; `guard` scans staged
 files for the real values (`task config:validate | eval | export | guard`, a pre-commit hook
 and `config-validation.yml` in CI).
@@ -358,7 +358,7 @@ installed by mise (`mise.toml`); this table names the pieces, the file has the n
 | GitOps Bridge | Terraform creates ArgoCD, metadata ConfigMap/Secret and one root Application, then steps back |
 | App of Apps | `gitops` → `bootstrap` / `addons` / `applications` / `previews`, sync waves for order (ADR-001) |
 | Environment parity by capability | Same charts and Applications in Kind and homelab; differences are `platform.schema.yaml` keys (ADR-011, ADR-012) |
-| Centralised configuration | One schema-driven pipeline (`homelab config`) feeds Helm, tfvars, dotenv and JSON; production values never committed |
+| Centralised configuration | One schema-driven pipeline (`homelab config`) feeds Helm values, a dotenv file and JSON; production values never committed |
 | Parent-owned derived values | Child charts get PII-derived values from `helm.valuesObject`, not from committed files (ADR-010) |
 | Executable contract | Level 0/1/2 verification, smoke hooks, previews, read-only production, drills and the Renovate gate (ADR-009, ADR-013, ADR-014) |
 | Monorepo | Infrastructure, charts, CLI, scripts, tests and docs in one repository, one PR per change |

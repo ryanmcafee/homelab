@@ -89,7 +89,7 @@ module "gitops_bootstrap" {
   custom_metadata = {
     truenas_ip       = "172.16.100.50"
     truenas_nfs_path = "/mnt/storage/kubernetes"
-    metallb_ip_range = "172.16.100.100-172.16.100.200"
+    lb_pool_range    = "<LB_POOL_START>-<LB_POOL_END>"
     cluster_issuer   = "letsencrypt-prod"
     bgp_asn_k8s      = "64512"
     bgp_asn_unifi    = "64513"
@@ -192,7 +192,7 @@ kubectl get secret gitops-secrets -n argocd -o yaml
 # Terragrunt creates metadata
 custom_metadata = {
   truenas_ip = module.truenas.ipv4_addresses[0]
-  metallb_ip_range = "172.16.100.100-172.16.100.200"
+  lb_pool_range    = "<LB_POOL_START>-<LB_POOL_END>"
 }
 ```
 

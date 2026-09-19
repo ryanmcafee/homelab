@@ -28,7 +28,7 @@ Docker is the only requirement. The Kind loop runs the same charts production do
 standing in for 1Password, TrueNAS and the UniFi gateway.
 
 ```bash
-task localdev:up        # Kind (Cilium, registry caches, fakes) → ArgoCD → all 68 Applications synced from your working tree
+task localdev:up        # Kind (Cilium, registry caches, fakes) → ArgoCD → all 69 Applications synced from your working tree
 task localdev:report    # what is Healthy, and what differs from main
 task localdev:down      # delete the cluster; the registry caches stay
 ```

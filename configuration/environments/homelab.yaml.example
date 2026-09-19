@@ -30,4 +30,4 @@ EXTERNAL_DNS_DEFAULT_TARGET: REPLACEME-subdomain.duckdns.org
 PAPERCLIP_ADMIN_EMAIL: admin@REPLACEME-domain.com
 
 # GPU
-GPU_VENDOR: "nvidia"
+GPU_VENDOR: "intel"

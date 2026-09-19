@@ -48,10 +48,11 @@ sync wave 1 in homelab). Waves inside the chart run from -1 (namespaces, reposit
 | `external-dns-unifi-crd` | `external-dns` | 1.21.1 | — | — | — |
 | `external-dns-unifi-ingress` | `external-dns` | 1.21.1 | — | — | — |
 | `grafana-config` | `charts/grafana-config` | git | — | — | — |
+| `intel-device-plugins-operator` | `intel-device-plugins-operator` | 0.36.0 | — | — | — |
+| `intel-gpu-device-plugin` | `intel-device-plugins-gpu` | 0.36.0 | — | — | — |
 | `kube-prometheus-stack` | `kube-prometheus-stack` | 87.1.0 | internal: grafana | grafana | smoke-grafana, smoke-prometheus |
 | `kubelet-csr-approver` | `kubelet-csr-approver` | 1.2.14 | — | — | — |
 | `node-feature-discovery` | `node-feature-discovery` | 0.18.3 | — | — | — |
-| `nvidia-gpu-operator` | `gpu-operator` | v26.3.3 | — | — | — |
 | `port-forwarding-controller` | `port-forwarding` | 1.1.1 | — | — | — |
 | `port-forwarding-controller-config` | `charts/port-forwarding-controller-config` | git | — | — | — |
 | `prometheus-config` | `charts/prometheus-config` | git | — | — | — |
@@ -69,11 +70,11 @@ sync wave 1 in homelab). Waves inside the chart run from -1 (namespaces, reposit
 Notes:
 
 - The homelab snapshot is rendered from `configuration/environments/homelab.yaml.example`,
-  whose `GPU_VENDOR` is `nvidia`, so it lists `nvidia-gpu-operator`. Production sets
-  `GPU_VENDOR=intel` (and `gpu_vendor = "intel"` in `terragrunt/environments/homelab/env.hcl`),
-  which swaps that Application for `intel-device-plugins-operator` and
-  `intel-gpu-device-plugin` (`charts/addons/templates/intel-*.yaml`). The two vendors are
-  mutually exclusive on the same sync wave.
+  whose `GPU_VENDOR` is `intel` like production (`gpu_vendor = "intel"` in
+  `terragrunt/environments/homelab/env.hcl`), so it lists `intel-device-plugins-operator` and
+  `intel-gpu-device-plugin`. Setting `nvidia` swaps them for `nvidia-gpu-operator`
+  (`charts/addons/templates/nvidia-gpu-operator.yaml`); the two vendors are mutually
+  exclusive on the same sync wave, and the NVIDIA path has no level-0 coverage today.
 - `local-path-provisioner` and `oauth2-proxy` have templates in `charts/addons` but render
   only where their capability keys enable them (`STORAGE_PROVIDER=local-path` in Kind; the
   OIDC lane, see networking.md).

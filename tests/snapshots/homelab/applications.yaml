@@ -1526,17 +1526,13 @@ spec:
           PLEX_GID: "100"
           PLEX_UID: "568"
           TZ: America/New_York
-        runtimeClassName: nvidia
         nodeSelector:
-          feature.node.kubernetes.io/pci-0300_10de.present: "true"
+          intel.feature.node.kubernetes.io/gpu: "true"
         pms:
           claimSecret:
             key: plex-claim-token
             name: plex
           configExistingClaim: plex-config-iscsi
-          gpu:
-            nvidia:
-              enabled: true
           resources:
             limits:
               cpu: 4000m
@@ -1562,6 +1558,10 @@ spec:
             nfs:
               path: /mnt/storage/pictures
               server: truenas.REPLACEME-domain.com
+          - name: dev-dri
+            hostPath:
+              path: /dev/dri
+              type: Directory
         extraVolumeMounts:
           - mountPath: /movies
             name: movies
@@ -1575,6 +1575,8 @@ spec:
           - mountPath: /pictures
             name: pictures
             readOnly: false
+          - name: dev-dri
+            mountPath: /dev/dri
         service:
           annotations:
             io.cilium/lb-ipam-ips: 192.168.1.103

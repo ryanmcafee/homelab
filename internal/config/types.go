@@ -49,7 +49,6 @@ type ExportFormat string
 const (
 	FormatHelmAddons ExportFormat = "helm-addons"
 	FormatHelmApps   ExportFormat = "helm-apps"
-	FormatTfvars     ExportFormat = "tfvars"
 	FormatDotenv     ExportFormat = "env"
 	FormatJSON       ExportFormat = "json"
 )

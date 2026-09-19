@@ -7,8 +7,6 @@ BGP_K8S_ASN: "64512"
 BGP_ROUTER_ASN: "64513"
 
 # Kubernetes
-K8S_POD_CIDR: "10.244.0.0/16"
-K8S_SERVICE_CIDR: "10.96.0.0/12"
 STORAGE_CLASS_NFS: democratic-csi-nfs
 STORAGE_CLASS_ISCSI: democratic-csi-iscsi-hdd
 STORAGE_CLASS_SSD: democratic-csi-ssd
