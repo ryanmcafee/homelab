@@ -111,10 +111,11 @@ kube-prometheus-stack (wave 9) runs with `crds.enabled=false` and discovers moni
 cluster-wide. ArgoCD (controller, server, repo-server, ApplicationSet, notifications;
 `charts/bootstrap/values.yaml`) and cert-manager (`charts/addons/templates/cert-manager.yaml`)
 render theirs; CloudNativePG clusters set `enablePodMonitor`. The CRD chart version in
-`configuration/versions.yaml` must match the operator kube-prometheus-stack bundles: bump
-`prometheus-operator-crds` together with `kube-prometheus-stack`, never leave the CRDs behind
-the operator (`helm show chart kube-prometheus-stack --version <v>` prints the operator
-`appVersion`; pick the `prometheus-operator-crds` release with the same one).
+`configuration/versions.yaml` must match the operator kube-prometheus-stack bundles. Renovate
+carries both in its `Monitoring stack` PR (`.github/renovate.json5`), so merge that PR as a
+pair; when bumping by hand, never leave the CRDs behind the operator (`helm show chart
+kube-prometheus-stack --version <v>` prints the operator `appVersion`; pick the
+`prometheus-operator-crds` release with the same one).
 
 ## Related
 

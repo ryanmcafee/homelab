@@ -82,10 +82,16 @@
         'helm',
       ],
     },
+    // kube-prometheus-stack and prometheus-operator-crds (the CRD-only chart the
+    // bootstrap chart installs at wave -1, ADR-018) must move in one PR: the CRD
+    // chart's appVersion has to be the operator version kube-prometheus-stack
+    // bundles, and CRDs older than the operator break the Prometheus reconcile.
+    // Grouping keeps them in one branch; the upgrade gate renders both.
     {
       groupName: 'Monitoring stack',
       matchPackageNames: [
         'kube-prometheus-stack',
+        'prometheus-operator-crds',
         'prometheus-operator',
         'grafana',
         'alertmanager',
