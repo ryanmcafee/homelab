@@ -457,7 +457,29 @@ Each decision should include:
 **Consequences:**
 - Alertmanager will not start until the 1Password item exists (its Secret volume is missing); the OnePasswordItem health script shows Degraded until then, which is the intended signal. Creating the item needs no sync
 - Every default rule with `severity: critical` now pages through Pushover. If a chart default proves noisy, the fix is a matcher route to `pushover-warning` or `null` for that alertname, recorded in the runbook, not a lower severity on the rule
-- ArgoCD and cert-manager metrics are still not scraped (their ServiceMonitor CRD arrives at wave 9, after they install), so no rule covers Application health or certificate expiry yet; a `*-config` child with the monitors is the follow-up
+- ArgoCD and cert-manager metrics were not scraped when this was written (their ServiceMonitor CRD arrived at wave 9, after they install); ADR-018 moves the CRDs to the bootstrap chart and turns those monitors on
+
+### ADR-018: The Prometheus operator CRDs are installed by the bootstrap chart, before ArgoCD (2026-09-19)
+
+**Context:**
+- kube-prometheus-stack installs the monitoring CRDs (ServiceMonitor, PodMonitor, PrometheusRule, ...) at addons wave 9. ArgoCD (bootstrap wave 1), cert-manager (wave 4) and every other early addon therefore could not render a ServiceMonitor: the sync would fail on an unknown kind, so their metrics were never scraped and ADR-017's alerting had no view of Application health or certificate expiry
+- The `gitops/<env>/crd-order` level-0 rule (tests/gitops/crd-providers.yaml) enforces exactly this ordering, so the fix has to move the provider, not bypass the rule
+
+**Decision:**
+- The CRD-only companion chart `prometheus-operator-crds` is a bootstrap Application at wave -1 (`charts/bootstrap/templates/prometheus-operator-crds.yaml`, ServerSideApply because the Prometheus CRD is several hundred KiB), pinned in `charts/bootstrap/values.yaml` and `configuration/versions.yaml` (`charts.prometheus-operator-crds`), with a `versions/pins` entry so the two cannot drift
+- kube-prometheus-stack runs with `crds.enabled: false`; `tests/gitops/crd-providers.yaml` names `prometheus-operator-crds` as the provider of `monitoring.coreos.com`
+- The CRD chart version tracks the operator version the kube-prometheus-stack chart bundles (87.1.0 bundles v0.92.0, matched by prometheus-operator-crds 30.0.0). Renovate proposes both independently; the rule is to merge them together and never let the CRDs lag the operator
+- ArgoCD (every component) and cert-manager now render ServiceMonitors; two rules join `homelab-infrastructure`: `HomelabArgoCDApplicationDegraded` and `HomelabCertificateExpiringSoon`
+
+**Alternatives Considered:**
+- **Move kube-prometheus-stack itself to an early wave** -> it needs storage (democratic-csi, wave 3) and the ingress stack for Grafana; the CRDs are the only part anything earlier depends on
+- **Vendor the CRDs into the repository** (a kustomize directory) -> the same ordering fix but with a copy to keep in sync by hand; the companion chart is maintained upstream and versioned against the operator
+- **Skip CRDs in the charts that render monitors** (`skipCrds`, `serviceMonitor.enabled: false` until wave 9) -> leaves the metrics unscraped, which is the problem
+
+**Consequences:**
+- A fresh bootstrap installs the CRDs before anything can reference them; on the running cluster the first sync hands CRD ownership from the kube-prometheus-stack release to the new Application (server-side apply, same objects), which ArgoCD reports as SharedResourceWarning until kube-prometheus-stack re-syncs with `crds.enabled: false`
+- The chart pair must be upgraded together; a Renovate PR that bumps only kube-prometheus-stack to an operator newer than the CRDs is the failure mode to watch for. `docs/runbooks/alerting.md` has the lookup
+- Kind also installs the CRDs at bootstrap (cheap, and it keeps the same render in both environments), so the addons' ServiceMonitors apply there too even though Alertmanager stays off
 
 ## Tips
 

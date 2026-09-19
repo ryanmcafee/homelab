@@ -177,6 +177,12 @@ charts:
   external-dns: "1.21.1"
   # renovate: datasource=helm depName=kube-prometheus-stack registryUrl=https://prometheus-community.github.io/helm-charts
   kube-prometheus-stack: "87.1.0"
+  # CRD-only companion chart installed by the bootstrap chart (wave -1) so ServiceMonitors can
+  # render before kube-prometheus-stack (addons wave 9). Its appVersion must be the
+  # prometheus-operator version kube-prometheus-stack bundles (87.1.0 -> v0.92.0 -> 30.0.0);
+  # bump the two together, never the CRDs behind the operator.
+  # renovate: datasource=helm depName=prometheus-operator-crds registryUrl=https://prometheus-community.github.io/helm-charts
+  prometheus-operator-crds: "30.0.0"
   # renovate: datasource=helm depName=traefik registryUrl=https://traefik.github.io/charts
   traefik: "39.0.9"
   # renovate: datasource=helm depName=democratic-csi registryUrl=https://democratic-csi.github.io/charts/
@@ -238,7 +244,7 @@ charts:
   # renovate: datasource=docker depName=ghcr.io/paperclipinc/charts/paperclip-operator
   paperclip-operator: "0.19.1"
 images:
-  homelab-cmp: "0.1.44"
+  homelab-cmp: "0.1.45"
   # renovate: datasource=docker depName=curlimages/curl
   curl: "8.22.0"
   # renovate: datasource=docker depName=kindest/node
@@ -375,7 +381,7 @@ task tf:apply         # Apply changes
 ## ArgoCD Troubleshooting
 
 ### Sync Wave Order
-- Wave 0: Bootstrap (inside it: namespace/RBAC -3, `sops-secrets` -2, `1password-operator` -1, `homelab-environment-config` 0, ArgoCD self-manage 1)
+- Wave 0: Bootstrap (inside it: namespace/RBAC -3, `sops-secrets` -2, `1password-operator` and `prometheus-operator-crds` -1, `homelab-environment-config` 0, ArgoCD self-manage 1)
 - Addons (core infrastructure — via CMP plugin in homelab): wave 1 in homelab (`charts/gitops/values-homelab.yaml`), chart default 2
 - Applications (user workloads — via CMP plugin in homelab): wave 10 in homelab, chart default 3
 - Full table: `docs/architecture.md` § GitOps bridge

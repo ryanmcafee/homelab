@@ -30,6 +30,15 @@ spec:
         {{- end }}
         resources:
           {{- toYaml (index .Values "cert-manager" "resources") | nindent 10 }}
+        # ServiceMonitor for the controller metrics; the CRD comes from the
+        # bootstrap chart's prometheus-operator-crds (wave -1), so it applies
+        # here at wave 4 and kube-prometheus-stack (wave 9) discovers it. The
+        # HomelabCertificateExpiringSoon rule reads
+        # certmanager_certificate_expiration_timestamp_seconds.
+        prometheus:
+          enabled: true
+          servicemonitor:
+            enabled: true
         webhook:
           resources:
             {{- toYaml (index .Values "cert-manager" "webhook" "resources") | nindent 12 }}

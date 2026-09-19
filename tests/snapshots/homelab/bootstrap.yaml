@@ -229,6 +229,10 @@ spec:
       releaseName: argocd
       values: |
         applicationSet:
+          metrics:
+            enabled: true
+            serviceMonitor:
+              enabled: true
           replicas: 2
           resources:
             limits:
@@ -393,6 +397,10 @@ spec:
             policy.csv: |
               g, agent, role:readonly
         controller:
+          metrics:
+            enabled: true
+            serviceMonitor:
+              enabled: true
           resources:
             limits:
               cpu: 1000m
@@ -403,6 +411,10 @@ spec:
         notifications:
           argocdUrl: https://argocd.REPLACEME-domain.com
           enabled: true
+          metrics:
+            enabled: true
+            serviceMonitor:
+              enabled: true
           resources:
             limits:
               cpu: 100m
@@ -422,7 +434,7 @@ spec:
             env:
             - name: ARGOCD_EXEC_TIMEOUT
               value: "90"
-            image: ghcr.io/ryanmcafee/homelab-cmp:0.1.44
+            image: ghcr.io/ryanmcafee/homelab-cmp:0.1.45
             name: homelab-cmp
             securityContext:
               runAsNonRoot: true
@@ -445,11 +457,15 @@ spec:
             - /custom-tools/
             command:
             - /bin/cp
-            image: ghcr.io/ryanmcafee/homelab-cmp:0.1.44
+            image: ghcr.io/ryanmcafee/homelab-cmp:0.1.45
             name: install-ksops
             volumeMounts:
             - mountPath: /custom-tools
               name: custom-tools
+          metrics:
+            enabled: true
+            serviceMonitor:
+              enabled: true
           replicas: 2
           resources:
             limits:
@@ -498,6 +514,10 @@ spec:
               secretName: argocd-server-tls
             hostname: argocd.REPLACEME-domain.com
             ingressClassName: internal
+          metrics:
+            enabled: true
+            serviceMonitor:
+              enabled: true
           replicas: 3
           resources:
             limits:
@@ -550,6 +570,49 @@ spec:
       kind: Deployment
       jsonPointers:
         - /spec/template/metadata/annotations
+
+---
+# Source: bootstrap/templates/prometheus-operator-crds.yaml
+# Prometheus operator CRDs (ServiceMonitor, PodMonitor, PrometheusRule,
+# AlertmanagerConfig, ...) installed before anything that renders them.
+# kube-prometheus-stack itself syncs at addons wave 9, far after ArgoCD (wave 1)
+# and cert-manager (wave 4); with the CRDs here at wave -1 those charts can
+# ship their ServiceMonitors and Prometheus picks them up once it exists.
+# kube-prometheus-stack runs with crds.enabled=false so only this Application
+# owns the CRDs; the chart version must carry the operator version the
+# kube-prometheus-stack chart bundles (configuration/versions.yaml).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: prometheus-operator-crds
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://prometheus-community.github.io/helm-charts
+    chart: prometheus-operator-crds
+    targetRevision: 30.0.0
+    helm:
+      releaseName: prometheus-operator-crds
+
+  destination:
+    server: https://kubernetes.default.svc
+    # CRDs are cluster-scoped; the namespace only anchors the Application.
+    namespace: argocd
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      # The Prometheus CRD alone is far past the 256 KiB client-side-apply
+      # annotation limit (tests/gitops/huge-crd-charts.yaml).
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
 
 ---
 # Source: bootstrap/templates/sops-secrets.yaml

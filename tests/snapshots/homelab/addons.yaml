@@ -654,6 +654,15 @@ spec:
           requests:
             cpu: 50m
             memory: 128Mi
+        # ServiceMonitor for the controller metrics; the CRD comes from the
+        # bootstrap chart's prometheus-operator-crds (wave -1), so it applies
+        # here at wave 4 and kube-prometheus-stack (wave 9) discovers it. The
+        # HomelabCertificateExpiringSoon rule reads
+        # certmanager_certificate_expiration_timestamp_seconds.
+        prometheus:
+          enabled: true
+          servicemonitor:
+            enabled: true
         webhook:
           resources:
             limits:
@@ -1998,6 +2007,13 @@ spec:
     helm:
       releaseName: kube-prometheus-stack
       values: |
+        # The monitoring CRDs come from the bootstrap chart's
+        # prometheus-operator-crds Application (wave -1) so ArgoCD and
+        # cert-manager can render ServiceMonitors long before this chart syncs;
+        # a second owner here would make every CRD a shared resource.
+        crds:
+          enabled: false
+
         prometheus:
           prometheusSpec:
             retention: 30d
@@ -2288,6 +2304,25 @@ spec:
                     annotations:
                       summary: 'CloudNativePG cluster {{ $labels.namespace }}/{{ $labels.cluster }} is down'
                       description: 'No instance of {{ $labels.cluster }} has reported PostgreSQL up for 5m. `kubectl -n {{ $labels.namespace }} get cluster {{ $labels.cluster }}` shows the phase; docs/disaster-recovery.md covers the restore path.'
+                  # ArgoCD and cert-manager expose these through the ServiceMonitors
+                  # their charts render (bootstrap and cert-manager values); the CRDs
+                  # they need come from prometheus-operator-crds at bootstrap wave -1.
+                  - alert: HomelabArgoCDApplicationDegraded
+                    expr: 'argocd_app_info{health_status=~"Degraded|Missing|Unknown"} == 1'
+                    for: 15m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: 'ArgoCD Application {{ $labels.name }} is {{ $labels.health_status }}'
+                      description: '{{ $labels.name }} has been {{ $labels.health_status }} for 15m. `task prod:status` lists the Applications; `task prod:diff -- {{ $labels.name }}` shows what differs from Git.'
+                  - alert: HomelabCertificateExpiringSoon
+                    expr: 'certmanager_certificate_expiration_timestamp_seconds - time() < 14 * 24 * 3600'
+                    for: 1h
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: 'Certificate {{ $labels.namespace }}/{{ $labels.name }} expires in under 14 days'
+                      description: 'cert-manager has not renewed {{ $labels.namespace }}/{{ $labels.name }} although it should renew 30 days before expiry. `kubectl -n {{ $labels.namespace }} describe certificate {{ $labels.name }}` shows the last ACME attempt.'
 
   destination:
     server: https://kubernetes.default.svc
