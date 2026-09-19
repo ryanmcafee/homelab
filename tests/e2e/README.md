@@ -29,6 +29,7 @@ task verify LEVEL=2                      # runs the same suite, reports e2e/<nam
 | `flaresolverr/` | HTTP straight to the ClusterIP Service (no Ingress) |
 | `mosquitto/` | TCP connect to `mosquitto.home-automation.svc.cluster.local:1883` |
 | `cloudnative-pg/` | 1-instance `Cluster` on `local-path` reaches "Cluster in healthy state" |
+| `paperclip/` | Applications `paperclip-operator`, `paperclip-dependencies`, `paperclip-database`, `paperclip` Healthy/Succeeded; the CNPG `Cluster/paperclip-postgres` and the `paperclip.inc` `Instance/paperclip` are ready; `curl-paperclip` Job reaches the app |
 | `cilium-netpol/` | default-deny NetworkPolicy blocks a curl Job, an allow policy lets one through |
 | `agent-readonly/` | Application Healthy, token Secret populated; `kubectl auth can-i` as ServiceAccount `agent-access/agent-readonly` and as Group `homelab:agent-readonly`: reads yes, Secrets and every write no |
 

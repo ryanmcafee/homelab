@@ -13,7 +13,7 @@
 # Every Application is synced from the working tree with `argocd app sync
 # --local`, so there is no file:// repo, no hostPath chart mount and no CI
 # variant of this file any more. Key names verified against
-# `helm show values argo-cd --version 9.5.17`.
+# `helm show values argo-cd --version <charts.argocd from configuration/versions.yaml>`.
 
 global:
   # Not read by the argo-cd chart itself (it creates no PVCs); kept so any

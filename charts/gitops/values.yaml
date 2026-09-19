@@ -3,8 +3,8 @@
 #
 # It manages three child applications:
 # 1. bootstrap (sync-wave: 0) - Prerequisites (CMP plugin, config)
-# 2. addons (sync-wave: 2) - Core cluster infrastructure
-# 3. applications (sync-wave: 3) - User-facing applications
+# 2. addons (sync-wave 2 by default, 1 in homelab) - Core cluster infrastructure
+# 3. applications (sync-wave 3 by default, 10 in homelab) - User-facing applications
 #
 # Environment-specific values should be provided via:
 # - values-localdev.yaml (local Kind development)
@@ -35,11 +35,6 @@ global:
   # localdev (values-localdev.yaml) can leave every Application manual for
   # `argocd app sync --local` (ARGOCD_AUTOMATED_SYNC in configuration/).
   automatedSync: true
-
-  # Images shared by the chart family (PostSync smoke Jobs in addons and
-  # applications). Placeholder; configuration/versions.yaml images.curl wins.
-  images:
-    curl: "8.22.0"
 
 # ============================================================================
 # Bootstrap Application (Prerequisites)
@@ -222,10 +217,6 @@ ignoreDifferences:
     kind: Application
     jqPathExpressions:
       - '.metadata.finalizers[]? | select(startswith("post-delete-finalizer.argocd.argoproj.io"))'
-
-# Health check configuration
-healthChecks:
-  enabled: true
 
 # ============================================================================
 # ArgoCD Notifications (deploy status on the merged PR)

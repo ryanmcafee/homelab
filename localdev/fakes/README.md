@@ -11,7 +11,7 @@ runs it after Cilium is up).
 | File | Provides |
 |------|----------|
 | `storageclasses.yaml` | `democratic-csi-{nfs,ssd,iscsi,iscsi-hdd}` StorageClasses backed by `rancher.io/local-path` |
-| `secrets.yaml` | Namespaces (labels mirror `charts/applications/templates/namespaces.yaml`) and every Secret a localdev-enabled app references but nothing renders (`media/plex`) |
+| `secrets.yaml` | Namespaces (labels mirror `charts/applications/templates/namespaces.yaml`) and every Secret a localdev-enabled app references but nothing renders (`media/plex`, `paperclip/paperclip-auth`, `paperclip/paperclip-api-keys`) |
 | `onepassworditem-crd.yaml` | The `onepassworditems.onepassword.com` CRD from the pinned connect chart, so a stray OnePasswordItem is accepted instead of breaking a sync |
 
 Before the fakes, `up` also deletes the local-path-provisioner Kind bundles

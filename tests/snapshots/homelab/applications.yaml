@@ -647,7 +647,7 @@ metadata:
   name: duckdns
   namespace: argocd
   annotations:
-    # Wave 2: After duckdns-dependencies (wave 1) creates the secret
+    # Wave 13: After duckdns-dependencies (wave 12) creates the secret
     argocd.argoproj.io/sync-wave: "13"
   finalizers:
     - resources-finalizer.argocd.argoproj.io

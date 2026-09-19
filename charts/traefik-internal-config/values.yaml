@@ -1,9 +1,6 @@
 # traefik-internal-config values
 # CRD-dependent resources that deploy AFTER internal Traefik
 
-global:
-  domain: example.com
-
 namespace: traefik
 
 # Dashboard configuration

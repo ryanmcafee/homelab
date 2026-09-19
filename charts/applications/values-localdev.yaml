@@ -30,31 +30,10 @@ global:
   images:
     curl: "8.22.0"
 
-  # Default storage class for persistent volumes
-  storageClass: local-path
-
-  # Default ingress classes
-  ingressClassNameExternal: external
-  ingressClassNameInternal: internal
-
-  # Timezone for applications
-  timezone: America/New_York
-
   # iSCSI target portal (IP:port) handed to the *-config child charts via
   # helm.valuesObject
   iscsi:
     portal: "127.0.0.1:3260"
-
-  # Media storage configuration (multiple NFS paths)
-  media:
-    nfsServer: truenas.homelab.local
-    movies: /tmp/storage/movies
-    tv: /tmp/storage/tv
-    music: /tmp/storage/music
-    pictures: /tmp/storage/pictures
-    documents: /tmp/storage/documents
-    downloads: /tmp/storage/downloads
-    books: /tmp/storage/books
 
 # ============================================================================
 # Plex Media Server

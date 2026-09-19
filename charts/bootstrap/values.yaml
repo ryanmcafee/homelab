@@ -13,11 +13,6 @@ global:
   # working tree without ArgoCD reverting it (ARGOCD_AUTOMATED_SYNC).
   automatedSync: true
 
-  # Images shared by the chart family (PostSync smoke Jobs). Placeholder;
-  # configuration/versions.yaml images.curl wins at render time.
-  images:
-    curl: "8.22.0"
-
 sops-secrets:
   enabled: true
 
@@ -140,7 +135,7 @@ argocd:
       # Init container to install ksops (binaries baked into CMP image)
       initContainers:
         - name: install-ksops
-          image: ghcr.io/ryanmcafee/homelab-cmp:0.1.42
+          image: ghcr.io/ryanmcafee/homelab-cmp:0.1.44
           command: ["/bin/cp"]
           args: ["/usr/local/bin/ksops", "/usr/local/bin/kustomize", "/custom-tools/"]
           volumeMounts:
@@ -149,7 +144,7 @@ argocd:
       # CMP sidecar for homelab config plugin
       extraContainers:
         - name: homelab-cmp
-          image: ghcr.io/ryanmcafee/homelab-cmp:0.1.42
+          image: ghcr.io/ryanmcafee/homelab-cmp:0.1.44
           command: [/var/run/argocd/argocd-cmp-server]
           securityContext:
             runAsNonRoot: true

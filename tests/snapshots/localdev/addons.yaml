@@ -223,6 +223,8 @@ spec:
   syncPolicy:
     syncOptions:
       - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+      - RespectIgnoreDifferences=true
   # The token controller writes the token into the Secret; that is not drift.
   # Core kinds carry no `group: ""` (the API server drops it, which made the
   # addons parent report this Application OutOfSync forever).
@@ -1061,7 +1063,7 @@ spec:
 ---
 # Source: addons/templates/traefik-external.yaml
 # Dependencies Application: deploys secrets and OnePasswordItems before traefik-external
-# Wave 5: After external-dns (wave 4) so OnePasswordItem CRDs are available
+# Wave 5: After external-dns (wave 4), which installs the DNSEndpoint CRD this chart's config child uses
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -1436,12 +1438,10 @@ spec:
       valueFiles:
         - values.yaml
         - values-localdev.yaml
-      # Derived values (domain, dashboard hostname) come from this parent's
-      # values (configuration/ via the CMP in homelab) so the child's committed
-      # values files stay PII-free. valuesObject overrides valueFiles in ArgoCD.
+      # The dashboard hostname comes from this parent's values (configuration/
+      # via the CMP in homelab) so the child's committed values files stay
+      # PII-free. valuesObject overrides valueFiles in ArgoCD.
       valuesObject:
-        global:
-          domain: homelab.local
         dashboard:
           host: traefik-internal.homelab.local
   destination:

@@ -30,11 +30,6 @@ keys:
     required: true
     const: "{{.NFS_BASE_PATH}}/pictures"
 
-  MEDIA_DOCUMENTS_PATH:
-    description: NFS path for documents
-    required: true
-    const: "{{.NFS_BASE_PATH}}/documents"
-
   MEDIA_DOWNLOADS_PATH:
     description: NFS path for downloads
     required: true

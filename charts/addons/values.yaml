@@ -43,12 +43,6 @@ global:
   # Default storage class for persistent volumes
   storageClass: democratic-csi-nfs
 
-  # Enable external DNS management
-  externalDNS: true
-
-  # Enable external load balancing
-  loadBalancer: true
-
   # iSCSI target portal handed to the *-config child charts (grafana-config,
   # prometheus-config) through the parent Application's helm.valuesObject.
   # Set from ISCSI_TARGET_PORTAL by the CMP in homelab; never commit a real one.
@@ -163,7 +157,6 @@ democratic-csi:
   truenas:
     endpoint: https://truenas.example.com
     allowInsecure: false
-    apiKey: ""  # Must be set manually or via 1Password
     # 1Password vault path for TrueNAS API key (creates secret: truenas-api-key)
     onePasswordItemPath: ""
 
@@ -222,7 +215,6 @@ democratic-csi-ssd:
   truenas:
     endpoint: https://truenas.example.com
     allowInsecure: false
-    apiKey: ""
 
   # NFS dataset configuration (SSD pool)
   nfs:
@@ -279,7 +271,6 @@ democratic-csi-iscsi:
   truenas:
     endpoint: https://truenas.example.com
     allowInsecure: false
-    apiKey: ""
 
   # iSCSI configuration
   iscsi:
@@ -338,7 +329,6 @@ democratic-csi-iscsi-hdd:
   truenas:
     endpoint: https://truenas.example.com
     allowInsecure: false
-    apiKey: ""
 
   # iSCSI configuration (HDD pool)
   iscsi:
@@ -438,7 +428,6 @@ cert-manager:
   cloudflare:
     enabled: true
     email: ""  # Cloudflare account email
-    apiToken: ""  # Provided via 1Password operator
 
   # DNS zones for certificate issuance
   dnsZones: []
@@ -497,7 +486,6 @@ external-dns:
 
   # Cloudflare configuration
   cloudflare:
-    apiToken: ""  # Provided via 1Password operator
     proxied: true  # Enable Cloudflare proxy
 
   # Domain filter

@@ -32,12 +32,6 @@ global:
   # Default storage class for persistent volumes
   storageClass: {{ .Values.STORAGE_CLASS_NFS.Value }}
 
-  # Enable external DNS management
-  externalDNS: {{ $externalDNS }}
-
-  # Enable external load balancing
-  loadBalancer: {{ $lb }}
-
   # Git repository for SOPS secrets
   repoUrl: https://github.com/ryanmcafee/homelab.git
   # homelab: main is what production tracks. localdev: a placeholder that the
@@ -249,7 +243,6 @@ democratic-csi:
     # Use IP address instead of hostname since internal DNS is not resolvable from cluster
     endpoint: https://{{ .Values.TRUENAS_IP.Value }}
     allowInsecure: true  # Required when using IP (no valid TLS cert for IP)
-    apiKey: ""  # Populated from 1Password secret
     # 1Password vault path for TrueNAS API key (creates secret: truenas-api-key)
     onePasswordItemPath: {{ .Values.DEMOCRATIC_CSI_1P_PATH.Value }}
 
@@ -303,7 +296,6 @@ democratic-csi-ssd:
     # Use IP address instead of hostname since internal DNS is not resolvable from cluster
     endpoint: https://{{ .Values.TRUENAS_IP.Value }}
     allowInsecure: true  # Required when using IP (no valid TLS cert for IP)
-    apiKey: ""  # Populated from 1Password secret
     onePasswordItemPath: {{ .Values.DEMOCRATIC_CSI_1P_PATH.Value }}
 
   nfs:
@@ -356,7 +348,6 @@ democratic-csi-iscsi:
     # Use IP address instead of hostname since internal DNS is not resolvable from cluster
     endpoint: https://{{ .Values.TRUENAS_IP.Value }}
     allowInsecure: true  # Required when using IP (no valid TLS cert for IP)
-    apiKey: ""  # Populated from 1Password secret
     onePasswordItemPath: {{ .Values.DEMOCRATIC_CSI_1P_PATH.Value }}
 
   iscsi:
@@ -414,7 +405,6 @@ democratic-csi-iscsi-hdd:
     # Use IP address instead of hostname since internal DNS is not resolvable from cluster
     endpoint: https://{{ .Values.TRUENAS_IP.Value }}
     allowInsecure: true  # Required when using IP (no valid TLS cert for IP)
-    apiKey: ""  # Populated from 1Password secret
     onePasswordItemPath: {{ .Values.DEMOCRATIC_CSI_1P_PATH.Value }}
 
   iscsi:
@@ -653,7 +643,6 @@ cert-manager:
   cloudflare:
     enabled: true
     email: {{ .Values.ACME_EMAIL.Value }}
-    apiToken: ""
     onePasswordItemPath: {{ .Values.CERT_MANAGER_1P_PATH.Value }}
 
   # DNS zones for certificate issuance

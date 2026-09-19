@@ -1,18 +1,17 @@
 # Applications Chart - Default Production Values
 # User-facing applications and services
 #
-# This chart deploys media management and home automation applications:
+# This chart deploys media management, home automation and platform applications:
 # - Plex (Media Server with GPU transcoding)
-# - Sonarr (TV Show Management)
-# - Radarr (Movie Management)
-# - Prowlarr (Indexer Manager)
-# - Home Assistant (Home Automation Hub)
-# - Mosquitto (MQTT Broker)
+# - Sonarr, Radarr, Prowlarr, NZBGet, Tautulli, LazyLibrarian, FlareSolverr (media stack)
+# - Home Assistant (Home Automation Hub) and Mosquitto (MQTT Broker)
 # - DuckDNS Updater (Dynamic DNS)
+# - Paperclip (agent platform) and Renovate (dependency updates)
+# The list of templates in templates/ is authoritative; docs/applications.md is generated from it.
 #
-# Environment-specific values should be provided via:
-# - values-localdev.yaml (local Kind development)
-# - values-homelab.yaml (homelab Talos cluster)
+# Environment-specific values come from configuration/ (ADR-011):
+# - values-localdev.yaml (committed, task config:export:localdev)
+# - values-homelab.generated.yaml (gitignored; the CMP renders it at sync time)
 
 # ============================================================================
 # Global Configuration
@@ -90,31 +89,10 @@ global:
         cpu: 50m
         memory: 64Mi
 
-  # Default storage class for persistent volumes
-  storageClass: democratic-csi-nfs
-
-  # Default ingress classes
-  ingressClassNameExternal: external
-  ingressClassNameInternal: internal
-
-  # Timezone for applications
-  timezone: UTC
-
   # iSCSI target portal (IP:port) handed to the *-config child charts via
   # helm.valuesObject; provided by configuration/ (ISCSI_TARGET_PORTAL)
   iscsi:
     portal: ""
-
-  # Media storage configuration (multiple NFS paths)
-  media:
-    nfsServer: truenas.example.com
-    movies: /mnt/storage/movies
-    tv: /mnt/storage/tv
-    music: /mnt/storage/music
-    pictures: /mnt/storage/pictures
-    documents: /mnt/storage/documents
-    downloads: /mnt/storage/downloads
-    books: /mnt/storage/books
 
 # ============================================================================
 # Plex Media Server
