@@ -80,7 +80,7 @@ Self-hosted API server for programmatic access to 1Password secrets.
 Syncs secrets from 1Password to Kubernetes Secrets automatically.
 
 **Deployment:**
-Deployed via ArgoCD in `charts/addons/templates/1password-operator.yaml`.
+Deployed via ArgoCD in `charts/bootstrap/templates/1password-operator.yaml`.
 
 **Usage in Kubernetes:**
 ```yaml
@@ -130,13 +130,12 @@ The 1Password Operator requires initial credentials to connect to the 1Password 
    export OP_CONNECT_TOKEN="<your-connect-token>"
    export OP_SERVICE_ACCOUNT_TOKEN="<your-service-account-token>"
 
-   # Load variables
-   direnv allow
+   # mise loads .envrc automatically (mise.toml [env] _.file); no direnv needed
    ```
 
 4. **Deploy Bootstrap**:
    ```bash
-   task tf:apply ENV=prod COMPONENT=gitops-bootstrap
+   task tf:apply:component ENV=homelab COMPONENT=gitops-bootstrap
    ```
 
 5. **Verify Deployment**:
@@ -154,7 +153,7 @@ The 1Password Operator requires initial credentials to connect to the 1Password 
 **Secret Rotation**: To rotate 1Password credentials:
 1. Generate new credentials in 1Password web UI
 2. Update environment variables in `.envrc`
-3. Run `task tf:apply ENV=prod COMPONENT=gitops-bootstrap`
+3. Run `task tf:apply:component ENV=homelab COMPONENT=gitops-bootstrap`
 4. Restart operator: `kubectl rollout restart deployment -n onepassword-operator`
 
 ## 1Password Vault Structure
@@ -202,7 +201,7 @@ docker run -d \
 ```
 
 3. **Or deploy via Kubernetes (preferred):**
-   See `charts/addons/templates/1password-operator.yaml` for the full deployment.
+   See `charts/bootstrap/templates/1password-operator.yaml` for the full deployment.
 
 ## Environment Variables
 
@@ -211,7 +210,8 @@ lines, no command substitution) and sets `OP_SERVICE_ACCOUNT_TOKEN` in its own `
 Everything a task needs from 1Password is resolved at run time: the Taskfile wraps commands in
 `op run --env-file=.env.op`, and `.env.op` maps each variable (for example `OP_CONNECT_TOKEN`)
 to an `op://homelab/...` reference. Copy `.envrc.example` to `.envrc` only for the
-non-secret paths it sets (kubeconfig, Ansible inventory).
+non-secret paths it sets (kubeconfig, the Terraform plugin cache and `ANSIBLE_CONFIG`; the
+inventory and roles path live in `ansible/ansible.cfg`).
 
 The short version of this page, with the bootstrap order, is `docs/secrets.md`.
 
@@ -221,11 +221,14 @@ Set these secrets in your GitHub repository settings. `<DOMAIN>` and `<PROXMOX_I
 
 | Secret Name | Description | Example |
 |------------|-------------|---------|
-| `OP_CONNECT_HOST` | 1Password Connect URL | `https://1password-connect.<DOMAIN>` |
-| `OP_CONNECT_TOKEN` | Connect API token | `<from-1password-connect-setup>` |
+| `SOPS_AGE_KEY` | Age private key for the SOPS-encrypted bootstrap secrets | `AGE-SECRET-KEY-...` |
 | `PROXMOX_API_URL` | Proxmox API endpoint | `https://<PROXMOX_IP>:8006/api2/json` |
 | `PROXMOX_API_TOKEN_ID` | Proxmox token ID | `root@pam!terraform` |
 | `PROXMOX_API_TOKEN_SECRET` | Proxmox token secret | `<from-proxmox-ui>` |
+| `TS_OAUTH_ID` / `TS_OAUTH_SECRET` / `TS_TAILNET` | Tailscale OAuth client for `tailscale-acl.yml` | `<from-tailscale-admin>` |
+| `HOMELAB_BOT_APP_ID` / `HOMELAB_BOT_PRIVATE_KEY` | GitHub App for the regeneration bot (`upgrade.yml`, `ci-autofix.yml`); see `docs/runbooks/ci-bot-app.md` | `<from-github-app>` |
+
+`OP_CONNECT_TOKEN` is a local `op run` variable (`.env.op`), not a CI secret.
 
 ## Best Practices
 

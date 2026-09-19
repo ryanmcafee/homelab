@@ -30,7 +30,7 @@
     nfs_share_body:
       path: "{{ nfs_path }}"
       comment: "{{ nfs_comment | default('NFS Share') }}"
-      networks: "{{ nfs_networks | default(['172.16.100.0/24']) }}"
+      networks: "{{ nfs_networks | default(truenas_nfs_allowed_networks) }}"
       mapall_user: "{{ nfs_mapall_user }}"
       mapall_group: "{{ nfs_mapall_group | default('users') }}"
       maproot_user: ""
@@ -43,7 +43,7 @@
     nfs_share_body:
       path: "{{ nfs_path }}"
       comment: "{{ nfs_comment | default('NFS Share') }}"
-      networks: "{{ nfs_networks | default(['172.16.100.0/24']) }}"
+      networks: "{{ nfs_networks | default(truenas_nfs_allowed_networks) }}"
       maproot_user: "{{ nfs_maproot_user | default('root') }}"
       maproot_group: "{{ nfs_maproot_group | default('wheel') }}"
       mapall_user: ""

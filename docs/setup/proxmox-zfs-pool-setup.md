@@ -36,7 +36,7 @@ nvme-Samsung_SSD_970_EVO_Plus_1TB_S4EWNX0N789012
 
 ## Step 2: Configure Terraform
 
-Edit `/terragrunt/environments/homelab/proxmox-zfs-pool/terragrunt.hcl`:
+Edit `terragrunt/environments/homelab/proxmox-zfs-pool/terragrunt.hcl`:
 
 ```hcl
 inputs = {

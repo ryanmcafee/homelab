@@ -18,6 +18,9 @@ import (
 var piiKeyPrefixes = []string{
 	"DOMAIN", "ACME_EMAIL", "NFS_MAPALL_USER", "DUCKDNS_SUBDOMAIN",
 	"EXTERNAL_DNS_DEFAULT_TARGET", "TRAEFIK_OIDC_ALLOWED_DOMAINS",
+	// The LAN CIDR: a runbook pasting the real subnet identifies the network
+	// as surely as a host address does.
+	"NFS_SHARE_ALLOW",
 }
 
 // piiKeySuffixes are config key suffixes whose values are likely PII.

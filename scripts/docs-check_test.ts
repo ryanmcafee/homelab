@@ -251,7 +251,7 @@ Deno.test("check: reports stale regions and literals, --fix rewrites what it can
   const files = new Map<string, string>([
     [
       "readme.md",
-      "<!-- docs-check:begin badges -->\nstale\n<!-- docs-check:end badges -->\n32 addons, 15 applications, 73 Applications, 2 chainsaw suites",
+      "<!-- docs-check:begin badges -->\nstale\n<!-- docs-check:end badges -->\n32 addons, 15 applications, 73 Applications, 2 chainsaw suites, 73 ArgoCD Applications in all",
     ],
     ["docs/networking.md", "no region here"],
     [
@@ -269,6 +269,7 @@ Deno.test("check: reports stale regions and literals, --fix rewrites what it can
   assert(whats.includes("docs/networking.md: region ingress-table missing"));
   assert(whats.includes('readme.md: expected "29 addons"'));
   assert(whats.includes('readme.md: expected "68 Applications"'));
+  assert(whats.includes('readme.md: expected "68 ArgoCD Applications"'));
   assert(whats.includes('.github/homelab.svg: expected "addons · 29"'));
   assertEquals(drift.filter((d) => !d.fixable).map((d) => d.what), [
     "region ingress-table missing",
@@ -277,7 +278,7 @@ Deno.test("check: reports stale regions and literals, --fix rewrites what it can
   assertStringIncludes(readme, "badge/Talos-v1.14.0-");
   assertStringIncludes(
     readme,
-    "29 addons, 15 applications, 68 Applications, 2 chainsaw suites",
+    "29 addons, 15 applications, 68 Applications, 2 chainsaw suites, 68 ArgoCD Applications in all",
   );
   assertStringIncludes(fixed.get(".github/homelab.svg")!, "addons · 29");
   // the applications.md tables were empty rows -> header only, still rewritten
@@ -293,7 +294,7 @@ Deno.test("check: in-sync input yields no drift", () => {
     new Map([
       [
         "readme.md",
-        "<!-- docs-check:begin badges -->\n\n<!-- docs-check:end badges -->\n29 addons 15 applications 68 Applications 2 chainsaw suites",
+        "<!-- docs-check:begin badges -->\n\n<!-- docs-check:end badges -->\n29 addons 15 applications 68 Applications 2 chainsaw suites 68 ArgoCD Applications in all",
       ],
       [
         "docs/networking.md",

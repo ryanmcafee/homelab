@@ -67,7 +67,7 @@ with a confirmation at each phase. Nothing reaches `terragrunt apply` without th
 **Media** · plex · sonarr · radarr · prowlarr · nzbget · tautulli · lazylibrarian · flaresolverr
 **Platform** · argocd · grafana · argo-workflows · paperclip · cloudnative-pg · mosquitto · renovate
 
-29 addons and 15 applications, 68 ArgoCD Applications in all. The full table with chart versions,
+29 addons and 15 applications, 69 ArgoCD Applications in all. The full table with chart versions,
 ingress class and test coverage per app is generated in [`docs/applications.md`](docs/applications.md).
 
 ## Guardrails

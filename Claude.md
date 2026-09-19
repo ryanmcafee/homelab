@@ -238,7 +238,7 @@ charts:
   # renovate: datasource=docker depName=ghcr.io/paperclipinc/charts/paperclip-operator
   paperclip-operator: "0.19.1"
 images:
-  homelab-cmp: "0.1.39"
+  homelab-cmp: "0.1.42"
   # renovate: datasource=docker depName=curlimages/curl
   curl: "8.22.0"
   # renovate: datasource=docker depName=kindest/node
