@@ -51,16 +51,19 @@ POD=alertmanager-kube-prometheus-stack-alertmanager-0
 # warning -> Pushover, low priority (silent)
 kubectl -n monitoring exec "$POD" -c alertmanager -- amtool --alertmanager.url=http://localhost:9093 \
   alert add DeliveryTest severity=warning namespace=monitoring \
-  --annotation=summary="Pushover low-priority delivery test" --end="$(date -u -v+2M +%Y-%m-%dT%H:%M:%SZ)"
+  --annotation='summary="Pushover low-priority delivery test"' --end="$(date -u -v+2M +%Y-%m-%dT%H:%M:%SZ)"
 # critical -> Pushover, high priority
 kubectl -n monitoring exec "$POD" -c alertmanager -- amtool --alertmanager.url=http://localhost:9093 \
   alert add DeliveryTest severity=critical namespace=monitoring \
-  --annotation=summary="Pushover high-priority delivery test" --end="$(date -u -v+2M +%Y-%m-%dT%H:%M:%SZ)"
+  --annotation='summary="Pushover high-priority delivery test"' --end="$(date -u -v+2M +%Y-%m-%dT%H:%M:%SZ)"
 # what Alertmanager did with it
 kubectl -n monitoring logs "$POD" -c alertmanager | rg -i "notify|pushover" | tail
 ```
 
-Both end after two minutes and send a resolved notification. The Alertmanager UI is not
+Both end after two minutes and send a resolved notification. The annotation value is
+double-quoted inside the single quotes because Alertmanager's UTF-8 matcher parser rejects
+unquoted values with spaces (the classic parser still accepts them, with a warning).
+Verified end to end on 2026-09-19: both notifications arrived on Pushover. The Alertmanager UI is not
 exposed; port-forward when you need it: `kubectl -n monitoring port-forward svc/kube-prometheus-stack-alertmanager 9093`.
 
 ## Silence, inspect, change
@@ -111,10 +114,11 @@ kube-prometheus-stack (wave 9) runs with `crds.enabled=false` and discovers moni
 cluster-wide. ArgoCD (controller, server, repo-server, ApplicationSet, notifications;
 `charts/bootstrap/values.yaml`) and cert-manager (`charts/addons/templates/cert-manager.yaml`)
 render theirs; CloudNativePG clusters set `enablePodMonitor`. The CRD chart version in
-`configuration/versions.yaml` must match the operator kube-prometheus-stack bundles: bump
-`prometheus-operator-crds` together with `kube-prometheus-stack`, never leave the CRDs behind
-the operator (`helm show chart kube-prometheus-stack --version <v>` prints the operator
-`appVersion`; pick the `prometheus-operator-crds` release with the same one).
+`configuration/versions.yaml` must match the operator kube-prometheus-stack bundles. Renovate
+carries both in its `Monitoring stack` PR (`.github/renovate.json5`), so merge that PR as a
+pair; when bumping by hand, never leave the CRDs behind the operator (`helm show chart
+kube-prometheus-stack --version <v>` prints the operator `appVersion`; pick the
+`prometheus-operator-crds` release with the same one).
 
 ## Related
 

@@ -468,7 +468,7 @@ Each decision should include:
 **Decision:**
 - The CRD-only companion chart `prometheus-operator-crds` is a bootstrap Application at wave -1 (`charts/bootstrap/templates/prometheus-operator-crds.yaml`, ServerSideApply because the Prometheus CRD is several hundred KiB), pinned in `charts/bootstrap/values.yaml` and `configuration/versions.yaml` (`charts.prometheus-operator-crds`), with a `versions/pins` entry so the two cannot drift
 - kube-prometheus-stack runs with `crds.enabled: false`; `tests/gitops/crd-providers.yaml` names `prometheus-operator-crds` as the provider of `monitoring.coreos.com`
-- The CRD chart version tracks the operator version the kube-prometheus-stack chart bundles (87.1.0 bundles v0.92.0, matched by prometheus-operator-crds 30.0.0). Renovate proposes both independently; the rule is to merge them together and never let the CRDs lag the operator
+- The CRD chart version tracks the operator version the kube-prometheus-stack chart bundles (87.1.0 bundles v0.92.0, matched by prometheus-operator-crds 30.0.0). Renovate groups both into the `Monitoring stack` PR (`.github/renovate.json5`) so they move together; the rule is to merge that PR as a pair and never let the CRDs lag the operator
 - ArgoCD (every component) and cert-manager now render ServiceMonitors; two rules join `homelab-infrastructure`: `HomelabArgoCDApplicationDegraded` and `HomelabCertificateExpiringSoon`
 
 **Alternatives Considered:**
@@ -478,7 +478,7 @@ Each decision should include:
 
 **Consequences:**
 - A fresh bootstrap installs the CRDs before anything can reference them; on the running cluster the first sync hands CRD ownership from the kube-prometheus-stack release to the new Application (server-side apply, same objects), which ArgoCD reports as SharedResourceWarning until kube-prometheus-stack re-syncs with `crds.enabled: false`
-- The chart pair must be upgraded together; a Renovate PR that bumps only kube-prometheus-stack to an operator newer than the CRDs is the failure mode to watch for. `docs/runbooks/alerting.md` has the lookup
+- The chart pair must be upgraded together; Renovate's `Monitoring stack` group carries both in one PR, and a hand-made bump of only kube-prometheus-stack to an operator newer than the CRDs is the failure mode to watch for. `docs/runbooks/alerting.md` has the lookup
 - Kind never creates the bootstrap Application (`charts/gitops/values-localdev.yaml`), so `scripts/localdev-argocd.ts install` installs the same CRD chart with Helm before ArgoCD; without that, cert-manager's ServiceMonitor failed to apply in the Kind loop the first time this shipped, and kube-prometheus-stack's own monitors would have too. The addons' ServiceMonitors therefore apply in Kind even though Alertmanager stays off
 
 ## Tips
