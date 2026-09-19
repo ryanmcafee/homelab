@@ -44,9 +44,6 @@ PAPERCLIP_AUTH_1P_PATH: vaults/homelab/items/paperclip-auth
 PAPERCLIP_API_KEYS_1P_PATH: vaults/homelab/items/paperclip-api-keys
 ALERTMANAGER_1P_PATH: vaults/homelab/items/alertmanager-notifications
 
-# Alerting (docs/runbooks/alerting.md)
-ALERT_SLACK_CHANNEL: "#homelab-alerts"
-
 # PVC names (defaults)
 PLEX_CONFIG_PVC: plex-config-iscsi
 SONARR_CONFIG_PVC: sonarr-config

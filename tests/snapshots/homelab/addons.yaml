@@ -2109,11 +2109,12 @@ spec:
             secrets:
               - alertmanager-notifications
 
-          # Routing (docs/runbooks/alerting.md): critical -> Pushover and Slack,
-          # warning -> Slack, everything else (info, the always-firing Watchdog
-          # and InfoInhibitor) -> null. A critical alert inhibits the warning
-          # of the same name in the same namespace. Alertmanager's own
-          # templating is escaped so Helm leaves it untouched.
+          # Routing (docs/runbooks/alerting.md): critical -> Pushover at high
+          # priority, warning -> Pushover at low priority (no sound), everything
+          # else (info, the always-firing Watchdog and InfoInhibitor) -> null.
+          # A critical alert inhibits the warning of the same name in the same
+          # namespace. Alertmanager's own templating is escaped so Helm leaves
+          # it untouched.
           config:
             global:
               resolve_timeout: 5m
@@ -2132,10 +2133,9 @@ spec:
                 - receiver: pushover-critical
                   matchers:
                     - severity = "critical"
-                  continue: true
-                - receiver: slack
+                - receiver: pushover-warning
                   matchers:
-                    - severity =~ "critical|warning"
+                    - severity = "warning"
             inhibit_rules:
               - source_matchers:
                   - severity = "critical"
@@ -2144,26 +2144,28 @@ spec:
                 equal: [alertname, namespace]
             receivers:
               - name: "null"
-              - name: slack
-                slack_configs:
-                  - api_url_file: /etc/alertmanager/secrets/alertmanager-notifications/slack_webhook_url
-                    channel: "#homelab-alerts"
-                    send_resolved: true
-                    title: '[{{ .Status | toUpper }}{{ if eq .Status "firing" }}:{{ .Alerts.Firing | len }}{{ end }}] {{ .CommonLabels.alertname }}'
-                    text: |-
-                      {{ range .Alerts }}
-                      *{{ .Labels.alertname }}* ({{ .Labels.severity }}{{ if .Labels.namespace }}, {{ .Labels.namespace }}{{ end }}): {{ .Annotations.summary }}
-                      {{ if .Annotations.description }}{{ .Annotations.description }}{{ end }}
-                      {{ end }}
+              # Pushover priorities: 1 = high (bypasses quiet hours), 0 = normal,
+              # -1 = low (no sound). Resolved notifications always go out normal.
               - name: pushover-critical
                 pushover_configs:
                   - token_file: /etc/alertmanager/secrets/alertmanager-notifications/pushover_token
                     user_key_file: /etc/alertmanager/secrets/alertmanager-notifications/pushover_user_key
                     send_resolved: true
                     priority: '{{ if eq .Status "firing" }}1{{ else }}0{{ end }}'
-                    title: '[{{ .Status | toUpper }}] {{ .CommonLabels.alertname }}'
+                    title: '[{{ .Status | toUpper }}{{ if eq .Status "firing" }}:{{ .Alerts.Firing | len }}{{ end }}] {{ .CommonLabels.alertname }}'
                     message: |-
-                      {{ range .Alerts }}{{ .Annotations.summary }}
+                      {{ range .Alerts }}{{ .Annotations.summary }}{{ if .Labels.namespace }} ({{ .Labels.namespace }}){{ end }}
+                      {{ if .Annotations.description }}{{ .Annotations.description }}{{ end }}
+                      {{ end }}
+              - name: pushover-warning
+                pushover_configs:
+                  - token_file: /etc/alertmanager/secrets/alertmanager-notifications/pushover_token
+                    user_key_file: /etc/alertmanager/secrets/alertmanager-notifications/pushover_user_key
+                    send_resolved: true
+                    priority: "-1"
+                    title: '[{{ .Status | toUpper }}{{ if eq .Status "firing" }}:{{ .Alerts.Firing | len }}{{ end }}] {{ .CommonLabels.alertname }}'
+                    message: |-
+                      {{ range .Alerts }}{{ .Annotations.summary }}{{ if .Labels.namespace }} ({{ .Labels.namespace }}){{ end }}
                       {{ end }}
 
         nodeExporter:

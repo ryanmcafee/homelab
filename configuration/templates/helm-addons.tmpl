@@ -891,16 +891,16 @@ kube-prometheus-stack:
   alertmanager:
     enabled: {{ not $localdev }}
     # Notification receivers (docs/runbooks/alerting.md): critical -> Pushover
-    # and Slack, warning -> Slack, info and Watchdog -> nowhere. The webhook and
-    # Pushover credentials are the 1Password item ALERTMANAGER_1P_PATH, which the
-    # prometheus-config chart turns into Secret <secretName> in the monitoring
-    # namespace; Alertmanager mounts it and reads the *_file fields. Without a
-    # secret store nothing is mounted and every route ends in the null receiver.
+    # high priority, warning -> Pushover low priority, info and Watchdog ->
+    # nowhere. The Pushover token and user key are the 1Password item
+    # ALERTMANAGER_1P_PATH, which the prometheus-config chart turns into Secret
+    # <secretName> in the monitoring namespace; Alertmanager mounts it and reads
+    # the *_file fields. Without a secret store nothing is mounted and every
+    # route ends in the null receiver.
     notifications:
       enabled: {{ and (not $localdev) $onepassword }}
       secretName: alertmanager-notifications
       onePasswordItemPath: "{{ if $onepassword }}{{ .Values.ALERTMANAGER_1P_PATH.Value }}{{ end }}"
-      slackChannel: "{{ .Values.ALERT_SLACK_CHANNEL.Value }}"
     storage:
       volumeClaimTemplate:
         spec:

@@ -1,18 +1,18 @@
 # Alerting: Alertmanager routes, receivers and rules
 
-Prometheus alerts reach you through Alertmanager (kube-prometheus-stack, wave 9). Critical
-alerts go to Pushover and Slack, warnings to Slack, everything else is dropped. The
-credentials live in one 1Password item; nothing secret is committed.
+Prometheus alerts reach you through Alertmanager (kube-prometheus-stack, wave 9) as Pushover
+notifications: critical at high priority, warning at low priority, everything else is dropped.
+The Pushover credentials live in one 1Password item; nothing secret is committed.
 
-| Severity | Receiver(s) | Why |
-|---|---|---|
-| `critical` | `pushover-critical` **and** `slack` | wakes you up; Slack keeps the record |
-| `warning` | `slack` | look during the day |
-| `info`, `Watchdog`, `InfoInhibitor` | `null` | the chart's heartbeat and inhibitor plumbing; never a page |
+| Severity | Receiver | Pushover priority | Why |
+|---|---|---|---|
+| `critical` | `pushover-critical` | 1 (high) while firing, 0 when resolved | wakes you up |
+| `warning` | `pushover-warning` | -1 (low, no sound) | look during the day |
+| `info`, `Watchdog`, `InfoInhibitor` | `null` | — | the chart's heartbeat and inhibitor plumbing; never a page |
 
 A `critical` alert inhibits the `warning`/`info` alert of the same `alertname` in the same
 namespace. Groups form on `alertname, namespace, severity`; a group waits 30 s, updates every
-5 m and repeats every 4 h. Resolved notifications are sent to both receivers.
+5 m and repeats every 4 h. Resolved notifications are sent for both severities.
 
 Where it is defined: `charts/addons/templates/kube-prometheus-stack.yaml` (`alertmanager.config`,
 `alertmanagerSpec.secrets`, `additionalPrometheusRulesMap`), values from
@@ -22,19 +22,18 @@ the Secret from `charts/prometheus-config/templates/alertmanager-notifications.y
 ## The 1Password item
 
 `ALERTMANAGER_1P_PATH` (default `vaults/homelab/items/alertmanager-notifications`) names one
-item with three fields. The 1Password operator turns it into Secret `alertmanager-notifications`
+item with two fields. The 1Password operator turns it into Secret `alertmanager-notifications`
 in `monitoring`; Alertmanager mounts it at `/etc/alertmanager/secrets/alertmanager-notifications/`
-and every receiver reads a `*_file` there, so the values never appear in an Application spec.
+and both receivers read the `*_file` paths there, so the values never appear in an Application
+spec.
 
 | Field | Value | Where to get it |
 |---|---|---|
-| `slack_webhook_url` | Incoming webhook URL | Slack: app *Incoming Webhooks* on the alerts channel |
 | `pushover_token` | Application API token | pushover.net: *Create an Application/API Token* |
 | `pushover_user_key` | Your user (or group) key | pushover.net dashboard |
 
-`ALERT_SLACK_CHANNEL` (default `#homelab-alerts`) is the channel Alertmanager names in the
-payload; the webhook decides the workspace. Change either key in
-`configuration/environments/homelab.yaml`.
+Change the item path in `configuration/environments/homelab.yaml` if you name the item
+differently.
 
 Until the item exists the `alertmanager-notifications` OnePasswordItem is Degraded and the
 Alertmanager pod stays Pending (its Secret volume is missing); creating the item resolves
@@ -49,16 +48,16 @@ any other. Use `task prod:kubeconfig` first if you have no admin context (the re
 
 ```bash
 POD=alertmanager-kube-prometheus-stack-alertmanager-0
-# warning -> Slack only
+# warning -> Pushover, low priority (silent)
 kubectl -n monitoring exec "$POD" -c alertmanager -- amtool --alertmanager.url=http://localhost:9093 \
   alert add DeliveryTest severity=warning namespace=monitoring \
-  --annotation=summary="Slack delivery test" --end="$(date -u -v+2M +%Y-%m-%dT%H:%M:%SZ)"
-# critical -> Pushover and Slack
+  --annotation=summary="Pushover low-priority delivery test" --end="$(date -u -v+2M +%Y-%m-%dT%H:%M:%SZ)"
+# critical -> Pushover, high priority
 kubectl -n monitoring exec "$POD" -c alertmanager -- amtool --alertmanager.url=http://localhost:9093 \
   alert add DeliveryTest severity=critical namespace=monitoring \
-  --annotation=summary="Pushover delivery test" --end="$(date -u -v+2M +%Y-%m-%dT%H:%M:%SZ)"
+  --annotation=summary="Pushover high-priority delivery test" --end="$(date -u -v+2M +%Y-%m-%dT%H:%M:%SZ)"
 # what Alertmanager did with it
-kubectl -n monitoring logs "$POD" -c alertmanager | rg -i "notify|slack|pushover" | tail
+kubectl -n monitoring logs "$POD" -c alertmanager | rg -i "notify|pushover" | tail
 ```
 
 Both end after two minutes and send a resolved notification. The Alertmanager UI is not

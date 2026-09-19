@@ -346,7 +346,7 @@ installed by mise (`mise.toml`); this table names the pieces, the file has the n
 | Remote access | Tailscale operator (`charts.tailscale-operator`) | [networking.md](./networking.md) |
 | Secrets | 1Password Connect + operator (`charts.onepassword-connect`), SOPS/age via ksops | [Secrets and configuration](#secrets-and-configuration) |
 | Storage | democratic-csi (`charts.democratic-csi`), CloudNativePG (`charts.cloudnative-pg`, `charts.plugin-barman-cloud`), Spegel (`charts.spegel`) | [Storage](#storage) |
-| Observability | kube-prometheus-stack (`charts.kube-prometheus-stack`), etcd scrape, Grafana behind the internal ingress; Alertmanager routes critical alerts to Pushover and Slack, warnings to Slack, credentials from one 1Password item (`docs/runbooks/alerting.md`) | `charts/addons/templates/kube-prometheus-stack.yaml`, `charts/prometheus-config` |
+| Observability | kube-prometheus-stack (`charts.kube-prometheus-stack`), etcd scrape, Grafana behind the internal ingress; Alertmanager pushes critical (high priority) and warning (low priority) alerts to Pushover, credentials from one 1Password item (`docs/runbooks/alerting.md`) | `charts/addons/templates/kube-prometheus-stack.yaml`, `charts/prometheus-config` |
 | CLI and scripts | Go CLI `homelab` (`cmd/homelab`, `internal/`), Deno TypeScript (`scripts/`), Taskfile (ADR-005) | `Taskfile.yml` |
 | Local loop | Kind (`tools.kind`, `images.kind-node`) + ArgoCD `--local` sync, chainsaw (`tools.chainsaw`) | [local-development.md](./local-development.md) |
 | Updates | Renovate (`.github/renovate.json5`, app `renovate` in-cluster) | [Verification](#verification) |

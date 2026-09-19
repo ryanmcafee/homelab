@@ -156,8 +156,3 @@ keys:
     description: PVC name for Grafana config
     required: true
     default: "grafana-config"
-
-  ALERT_SLACK_CHANNEL:
-    description: Slack channel Alertmanager posts warning and critical alerts to (the webhook decides the workspace; docs/runbooks/alerting.md)
-    required: true
-    default: "#homelab-alerts"
