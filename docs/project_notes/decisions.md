@@ -479,7 +479,7 @@ Each decision should include:
 **Consequences:**
 - A fresh bootstrap installs the CRDs before anything can reference them; on the running cluster the first sync hands CRD ownership from the kube-prometheus-stack release to the new Application (server-side apply, same objects), which ArgoCD reports as SharedResourceWarning until kube-prometheus-stack re-syncs with `crds.enabled: false`
 - The chart pair must be upgraded together; a Renovate PR that bumps only kube-prometheus-stack to an operator newer than the CRDs is the failure mode to watch for. `docs/runbooks/alerting.md` has the lookup
-- Kind also installs the CRDs at bootstrap (cheap, and it keeps the same render in both environments), so the addons' ServiceMonitors apply there too even though Alertmanager stays off
+- Kind never creates the bootstrap Application (`charts/gitops/values-localdev.yaml`), so `scripts/localdev-argocd.ts install` installs the same CRD chart with Helm before ArgoCD; without that, cert-manager's ServiceMonitor failed to apply in the Kind loop the first time this shipped, and kube-prometheus-stack's own monitors would have too. The addons' ServiceMonitors therefore apply in Kind even though Alertmanager stays off
 
 ## Tips
 

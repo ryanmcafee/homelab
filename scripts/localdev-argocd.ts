@@ -7,8 +7,10 @@
  * working tree, wait for health, diagnose failures (issue #261 Section B).
  *
  * Subcommands:
- *   install   helm upgrade --install argo-cd at the version pinned in
- *             configuration/versions.yaml (charts.argocd) with
+ *   install   helm upgrade --install prometheus-operator-crds (the monitoring
+ *             CRDs, charts.prometheus-operator-crds; bootstrap wave -1 in
+ *             homelab, which Kind never syncs) and then argo-cd at the
+ *             version pinned in configuration/versions.yaml (charts.argocd) with
  *             localdev/values/argocd-values.yaml plus one --set-file per health
  *             Lua in charts/bootstrap/files/health, apply the root Application
  *             (localdev/argocd/gitops-app.yaml) with its targetRevision set
@@ -146,6 +148,18 @@ export const PORT_CANDIDATES = 20;
 export const ARGOCD_RELEASE = "argocd";
 export const ARGOCD_CHART = "argo-cd";
 export const ARGOCD_HELM_REPO = "https://argoproj.github.io/argo-helm";
+/**
+ * The Prometheus operator CRDs (ServiceMonitor, PodMonitor, PrometheusRule,
+ * ...). In homelab the bootstrap chart installs them at wave -1, before ArgoCD
+ * and every addon that renders a monitor (ADR-018); Kind never creates the
+ * bootstrap Application, so `install` puts the same chart in place before
+ * ArgoCD. kube-prometheus-stack runs with crds.enabled=false everywhere.
+ */
+export const PROMETHEUS_CRDS_RELEASE = "prometheus-operator-crds";
+export const PROMETHEUS_CRDS_CHART = "prometheus-operator-crds";
+export const PROMETHEUS_CRDS_HELM_REPO =
+  "https://prometheus-community.github.io/helm-charts";
+export const PROMETHEUS_CRDS_VERSION_KEY = "prometheus-operator-crds";
 export const ROOT_APP = "gitops";
 export const VERSIONS_YAML = "configuration/versions.yaml";
 export const ARGOCD_VALUES = "localdev/values/argocd-values.yaml";
@@ -1695,7 +1709,9 @@ Usage:
     scripts/localdev-argocd.ts <command> [flags]
 
 Commands:
-  install    helm upgrade --install argo-cd (version: ${VERSIONS_YAML} charts.argocd,
+  install    helm upgrade --install prometheus-operator-crds (the monitoring CRDs,
+             ${VERSIONS_YAML} charts.prometheus-operator-crds), then argo-cd
+             (version: ${VERSIONS_YAML} charts.argocd,
              values: ${ARGOCD_VALUES}, health Lua: ${HEALTH_LUA_DIR}/*.lua),
              apply ${ROOT_APP_MANIFEST} with targetRevision set to the
              PR head (--revision, see below), log the argocd CLI in.
@@ -2203,14 +2219,53 @@ async function login(dryRun: boolean): Promise<void> {
 // ============================================================================
 // install
 // ============================================================================
-async function readArgocdChartVersion(repoRoot: string): Promise<string> {
-  const text = await Deno.readTextFile(join(repoRoot, VERSIONS_YAML));
+/** `charts.<key>` of a parsed configuration/versions.yaml, or a clear error. */
+export function chartVersionFromVersions(text: string, key: string): string {
   const doc = parseYaml(text) as { charts?: Record<string, unknown> };
-  const v = doc?.charts?.["argocd"];
+  const v = doc?.charts?.[key];
   if (typeof v !== "string" || !v.trim()) {
-    throw new Error(`${VERSIONS_YAML}: charts.argocd is not set`);
+    throw new Error(`${VERSIONS_YAML}: charts.${key} is not set`);
   }
   return v.trim();
+}
+
+async function readChartVersion(
+  repoRoot: string,
+  key: string,
+): Promise<string> {
+  return chartVersionFromVersions(
+    await Deno.readTextFile(join(repoRoot, VERSIONS_YAML)),
+    key,
+  );
+}
+
+/**
+ * `helm upgrade --install` of the Prometheus operator CRD chart, run before
+ * ArgoCD so that the ServiceMonitors the addons render (cert-manager at wave
+ * 0, kube-prometheus-stack's own at wave 9) apply in Kind exactly as they do
+ * after bootstrap wave -1 in homelab. The chart holds nothing but CRDs, so
+ * the release namespace is only an anchor.
+ */
+export function crdsInstallArgs(version: string): string[] {
+  return [
+    "helm",
+    "--kube-context",
+    KUBE_CONTEXT,
+    "upgrade",
+    "--install",
+    PROMETHEUS_CRDS_RELEASE,
+    PROMETHEUS_CRDS_CHART,
+    "--repo",
+    PROMETHEUS_CRDS_HELM_REPO,
+    "--version",
+    version,
+    "--namespace",
+    ARGOCD_NAMESPACE,
+    "--create-namespace",
+    "--wait",
+    "--timeout",
+    HELM_WAIT_TIMEOUT,
+  ];
 }
 
 async function listHealthLua(repoRoot: string): Promise<string[]> {
@@ -2228,7 +2283,7 @@ async function listHealthLua(repoRoot: string): Promise<string[]> {
 }
 
 async function helmInstallCmd(repoRoot: string): Promise<string[]> {
-  const version = await readArgocdChartVersion(repoRoot);
+  const version = await readChartVersion(repoRoot, "argocd");
   const lua = await listHealthLua(repoRoot);
   if (lua.length === 0) {
     log.warn(
@@ -2311,11 +2366,15 @@ async function resolveRevision(
 }
 
 async function cmdInstall(args: Args, repoRoot: string): Promise<number> {
+  const crds = crdsInstallArgs(
+    await readChartVersion(repoRoot, PROMETHEUS_CRDS_VERSION_KEY),
+  );
   const helm = await helmInstallCmd(repoRoot);
   const apply = applyRootAppCmd();
   const revision = await resolveRevision(args, repoRoot);
   if (args.dryRun) {
     log.dry(`(cwd ${repoRoot})`);
+    log.dry(fmtCmd(crds));
     log.dry(fmtCmd(helm));
     log.dry(
       `${
@@ -2326,6 +2385,19 @@ async function cmdInstall(args: Args, repoRoot: string): Promise<number> {
     await login(true);
     return 0;
   }
+  log.info(
+    `installing Prometheus operator CRDs chart ${
+      crds[crds.indexOf("--version") + 1]
+    } (bootstrap wave -1 in homelab; ADR-018)`,
+  );
+  const crdsCode = await runInherit(crds, repoRoot);
+  if (crdsCode !== 0) {
+    log.error(
+      `helm upgrade --install ${PROMETHEUS_CRDS_RELEASE} exited ${crdsCode}`,
+    );
+    return 1;
+  }
+  log.ok("Prometheus operator CRDs installed");
   log.info(`installing ArgoCD chart ${helm[helm.indexOf("--version") + 1]}`);
   const code = await runInherit(helm, repoRoot);
   if (code !== 0) {
