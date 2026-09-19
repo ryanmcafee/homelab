@@ -126,9 +126,17 @@ The `/gitops-test` skill MUST be invoked automatically in these scenarios:
 
 Agents may mutate only Kind clusters (ADR-009). Production is verified through merge -> ArgoCD -> CI/notifications, and read through the `homelab-readonly` context only.
 
-## Installed Subagents (VoltAgent)
+## Specialist Subagents
 
-25 specialized subagents from [VoltAgent/awesome-claude-code-subagents](https://github.com/VoltAgent/awesome-claude-code-subagents), customized with homelab project context. Installed in both `.claude/agents/` (project) and `~/.claude/agents/` (global).
+The repository ships **no** specialist agent definitions: `.claude/agents/` is untracked and
+holds only the GSD workflow agents (`gsd-*`) on machines that installed them, and
+`~/.claude/agents/` is per-user. The specialties below are the ones CLAUDE.md's routing table
+names; they come from [VoltAgent/awesome-claude-code-subagents](https://github.com/VoltAgent/awesome-claude-code-subagents)
+and are optional. When a named agent is not installed, dispatch a `general-purpose` subagent
+and put the specialty, the project context from the customization table below and the file
+scope in the prompt; never skip delegation because the agent name is missing.
+
+To install them per user: copy the agent files into `~/.claude/agents/` (not into the repo).
 
 ### Infrastructure (9 agents)
 
@@ -187,7 +195,8 @@ Agents may mutate only Kind clusters (ADR-009). Production is verified through m
 
 ### Agent-Specific Customizations
 
-These agents have additional project-specific context beyond the base homelab context:
+Project context to give these specialties (in the agent file when installed, in the prompt
+otherwise):
 
 | Agent | Customizations |
 |-------|---------------|

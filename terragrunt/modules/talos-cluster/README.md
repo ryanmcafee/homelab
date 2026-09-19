@@ -32,7 +32,7 @@ module "talos_cluster" {
   source = "../../modules/talos-cluster"
 
   cluster_name     = "homelab"
-  cluster_endpoint = "172.16.100.11"  # bootstrap endpoint (control plane node 1)
+  cluster_endpoint = "192.0.2.11"  # bootstrap endpoint (control plane node 1)
 
   talos_version      = "v1.6.0"
   kubernetes_version = "v1.29.0"
@@ -40,14 +40,14 @@ module "talos_cluster" {
   # Control plane nodes
   control_plane_nodes = {
     "cp-1" = {
-      ip        = "172.16.100.11"
+      ip        = "192.0.2.11"
       host_node = "pve"
       cores     = 4
       memory    = 8192
       disk_size = 50
     }
     "cp-2" = {
-      ip        = "172.16.100.12"
+      ip        = "192.0.2.12"
       host_node = "pve"
       cores     = 4
       memory    = 8192
@@ -58,7 +58,7 @@ module "talos_cluster" {
   # Worker nodes
   worker_nodes = {
     "worker-1" = {
-      ip        = "172.16.100.21"
+      ip        = "192.0.2.21"
       host_node = "pve"
       cores     = 4
       memory    = 16384
@@ -66,7 +66,7 @@ module "talos_cluster" {
       gpu       = false
     }
     "worker-2" = {
-      ip        = "172.16.100.22"
+      ip        = "192.0.2.22"
       host_node = "pve"
       cores     = 4
       memory    = 16384
@@ -74,7 +74,7 @@ module "talos_cluster" {
       gpu       = false
     }
     "worker-3" = {
-      ip        = "172.16.100.23"
+      ip        = "192.0.2.23"
       host_node = "pve"
       cores     = 4
       memory    = 16384
@@ -90,8 +90,8 @@ module "talos_cluster" {
 
   # Network
   network_bridge  = "vmbr0"
-  network_gateway = "172.16.100.1"
-  dns_servers     = ["172.16.100.1"]
+  network_gateway = "192.0.2.1"
+  dns_servers     = ["192.0.2.1"]
 
   # Bootstrap the cluster
   bootstrap_cluster = true
@@ -105,7 +105,7 @@ module "talos_cluster_gpu" {
   source = "../../modules/talos-cluster"
 
   cluster_name     = "homelab"
-  cluster_endpoint = "172.16.100.11"
+  cluster_endpoint = "192.0.2.11"
 
   talos_version      = "v1.6.0"
   kubernetes_version = "v1.29.0"
@@ -116,7 +116,7 @@ module "talos_cluster_gpu" {
 
   worker_nodes = {
     "worker-1" = {
-      ip        = "172.16.100.21"
+      ip        = "192.0.2.21"
       host_node = "pve"
       cores     = 8
       memory    = 32768
@@ -277,7 +277,7 @@ export TALOSCONFIG=./talosconfig
 export KUBECONFIG=./kubeconfig
 
 # Check Talos health
-talosctl health --nodes 172.16.100.11,172.16.100.12
+talosctl health --nodes 192.0.2.11,192.0.2.12
 
 # Check Kubernetes
 kubectl get nodes

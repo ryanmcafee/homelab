@@ -178,15 +178,24 @@ curl http://test.local
 
 | Name | Description | Type | Default | Required |
 |------|-------------|------|---------|:--------:|
-| cluster_name | Cluster name | `string` | "kind" | no |
-| kubeconfig_path | Kubeconfig path | `string` | "~/.kube/config" | no |
-| worker_count | Number of workers | `number` | 2 | no |
-| ingress_enabled | Enable ingress | `bool` | true | no |
-| ingress_http_port | HTTP port | `number` | 80 | no |
-| ingress_https_port | HTTPS port | `number` | 443 | no |
-| install_local_path_provisioner | Install storage | `bool` | true | no |
-| install_metrics_server | Install metrics | `bool` | true | no |
-| disable_default_cni | Disable default CNI | `bool` | false | no |
+| cluster_name | Cluster name (context `kind-<cluster_name>`) | `string` | "kind" | no |
+| kubeconfig_path | Kubeconfig path; empty falls back to `~/.kube/config` | `string` | "" | no |
+| wait_for_ready | Wait for every node to be Ready (up to 300s) after the add-ons install | `bool` | true | no |
+| api_server_address | API server listen address | `string` | "127.0.0.1" | no |
+| api_server_port | API server host port | `number` | 6443 | no |
+| pod_subnet | Pod network CIDR | `string` | "10.244.0.0/16" | no |
+| service_subnet | Service network CIDR | `string` | "10.96.0.0/12" | no |
+| disable_default_cni | Disable kindnet (install Cilium etc. yourself) | `bool` | false | no |
+| ingress_enabled | Map host ports to 80/443 on the control plane and label it `ingress-ready` | `bool` | true | no |
+| ingress_http_port | Host port for HTTP ingress | `number` | 80 | no |
+| ingress_https_port | Host port for HTTPS ingress | `number` | 443 | no |
+| worker_count | Number of worker nodes (0 = control plane only) | `number` | 2 | no |
+| control_plane_labels | Extra labels on the control plane node | `map(string)` | {} | no |
+| worker_labels | Labels on every worker node | `map(string)` | {} | no |
+| extra_mounts | Host directories mounted into every node: `{ host_path, container_path, read_only = false }` | `list(object)` | [] | no |
+| containerd_config_patches | containerd config patches (TOML strings) | `list(string)` | [] | no |
+| install_local_path_provisioner | Install local-path-provisioner and make it the default StorageClass | `bool` | true | no |
+| install_metrics_server | Install metrics-server (`--kubelet-insecure-tls`) | `bool` | true | no |
 
 ## Outputs
 
@@ -274,12 +283,12 @@ docker info | grep -i cpu
 ### Node Image Caching
 
 ```bash
-# Pre-pull node image
-docker pull kindest/node:v1.29.0
-
-# Use in module
-node_image = "kindest/node:v1.29.0"
+# Pre-pull the node image the kind provider will use
+docker pull kindest/node:<KIND_NODE_VERSION>
 ```
+
+The module has no `node_image` input; the kind provider picks the node image
+for its Kind release. Pre-pulling only saves the download on first create.
 
 ### Local Registry
 
