@@ -91,11 +91,11 @@ tools:
   # reason in tests/gitops/version-drift.yaml `pins:` or level 0 `versions/pins` fails
   # (docs/runbooks/talos-upgrade.md, docs/plans/2026-09-17-talos-kubernetes-upgrade.md).
   # renovate: datasource=github-releases depName=siderolabs/talos
-  talos: "v1.14.0"
+  talos: "v1.14.1"
   # renovate: datasource=github-releases depName=kubernetes/kubernetes
   kubernetes: "v1.37.0"
   # renovate: datasource=github-releases depName=hashicorp/terraform
-  terraform: "1.16.2"
+  terraform: "1.16.3"
   # renovate: datasource=github-releases depName=helm/helm
   helm: "4.3.0"
   # renovate: datasource=github-releases depName=kubernetes-sigs/kind
