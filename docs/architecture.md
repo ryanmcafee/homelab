@@ -114,7 +114,7 @@ flowchart TB
   root --> addons["addons (wave 1)\ncharts/addons via CMP"]
   root --> apps["applications (wave 10)\ncharts/applications via CMP"]
   root --> prev["AppProject previews (11)\nApplicationSet previews (12)"]
-  boot --> b1[sops-secrets -2] --> b2[onepassword-operator -1] --> b3[homelab-environment-config 0] --> b4[argocd self-manage 1]
+  boot --> b1[sops-secrets -2] --> b2["onepassword-operator, prometheus-operator-crds -1"] --> b3[homelab-environment-config 0] --> b4[argocd self-manage 1]
   addons --> a1["cilium, traefik-*, cert-manager, external-dns-*,\ndemocratic-csi-*, kube-prometheus-stack, tailscale, ... (waves -1..11)"]
   apps --> p1["plex, *arr, nzbget, tautulli, lazylibrarian,\nflaresolverr, mosquitto, paperclip, renovate, duckdns (waves 10-15)"]
   prev --> pr["<app>-pr<N> in preview-<N> (label-gated PRs)"]
@@ -140,6 +140,7 @@ things; the sync waves below are the values production runs (the chart defaults 
 | -3 | Namespace `onepassword-operator`, ServiceAccount/Role/RoleBinding `secret-transformer` | bootstrap | |
 | -2 | Application `sops-secrets` | `charts/secrets/onepassword` | kustomize + ksops decrypts `onepassword-credentials.sops.yaml` with `sops-age-key` |
 | -1 | Job `onepassword-credentials-transformer` (Sync hook), Application `onepassword-operator` | bootstrap | 1Password Connect + operator (`connect` chart) |
+| -1 | Application `prometheus-operator-crds` | bootstrap | ServiceMonitor/PodMonitor/PrometheusRule CRDs (`charts.prometheus-operator-crds`) before ArgoCD and cert-manager render theirs; kube-prometheus-stack runs with `crds.enabled=false` |
 | 0 | OnePasswordItem `homelab-environment-config`, `argocd-notifications-secret` | bootstrap | the operator materialises the Secrets |
 | 1 | Application `argocd` | bootstrap | ArgoCD manages its own release from then on |
 | 1 | Application `addons` | `charts/addons` | CMP `homelab-config-helm-v1.0`, `FORMAT=helm-addons`; children at waves -1..11 |

@@ -224,9 +224,9 @@ func TestCheckPins(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	const versions = "charts:\n  argocd: \"9.7.1\"\nimages:\n  homelab-cmp: \"0.1.31\"\ntools:\n  talos: \"v1.12.2\"\n  kubernetes: \"v1.32.0\"\n"
+	const versions = "charts:\n  argocd: \"9.7.1\"\n  prometheus-operator-crds: \"30.0.0\"\nimages:\n  homelab-cmp: \"0.1.31\"\ntools:\n  talos: \"v1.12.2\"\n  kubernetes: \"v1.32.0\"\n"
 	const envHCL = "locals {\n  talos_version      = \"v1.12.2\"\n  kubernetes_version = \"v1.32.0\"\n}\n"
-	const bootstrap = "argocd:\n  chart:\n    name: argo-cd\n    repo: https://argoproj.github.io/argo-helm\n    version: \"9.7.1\"\n  values:\n    repoServer:\n      initContainers:\n        - image: ghcr.io/ryanmcafee/homelab-cmp:0.1.31\n      extraContainers:\n        - name: homelab-cmp\n          image: ghcr.io/ryanmcafee/homelab-cmp:0.1.31\n"
+	const bootstrap = "prometheus-operator-crds:\n  chart:\n    name: prometheus-operator-crds\n    repo: https://prometheus-community.github.io/helm-charts\n    version: \"30.0.0\"\nargocd:\n  chart:\n    name: argo-cd\n    repo: https://argoproj.github.io/argo-helm\n    version: \"9.7.1\"\n  values:\n    repoServer:\n      initContainers:\n        - image: ghcr.io/ryanmcafee/homelab-cmp:0.1.31\n      extraContainers:\n        - name: homelab-cmp\n          image: ghcr.io/ryanmcafee/homelab-cmp:0.1.31\n"
 
 	const talosLag = "pins:\n  - file: terragrunt/environments/homelab/env.hcl\n    key: tools.talos\n    revision: v1.11.0\n    reason: upgrade in progress\n"
 
@@ -237,7 +237,7 @@ func TestCheckPins(t *testing.T) {
 		wantStatus Status
 		wantIn     string
 	}{
-		{"all pins agree", envHCL, bootstrap, "", StatusPass, "5 pin(s)"},
+		{"all pins agree", envHCL, bootstrap, "", StatusPass, "6 pin(s)"},
 		{"talos behind versions.yaml", strings.Replace(envHCL, "v1.12.2", "v1.11.0", 1), bootstrap, "", StatusFail, "tools.talos at v1.11.0"},
 		{"registered lag passes", strings.Replace(envHCL, "v1.12.2", "v1.11.0", 1), bootstrap, talosLag, StatusPass, "1 lag behind it under a registered reason"},
 		{"registered lag at another revision still fails", strings.Replace(envHCL, "v1.12.2", "v1.10.0", 1), bootstrap, talosLag, StatusFail, "tools.talos at v1.10.0"},

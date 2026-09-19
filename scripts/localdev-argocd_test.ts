@@ -25,10 +25,12 @@ import {
   argocdErrorMessage,
   branchFromUpstream,
   candidatePorts,
+  chartVersionFromVersions,
   chooseRevision,
   classifyDiffResult,
   compareTierKey,
   countManifests,
+  crdsInstallArgs,
   DEFAULT_BASE,
   DEFAULT_LOCAL_PORT,
   DEFAULT_MAX_DIFF_BYTES,
@@ -74,6 +76,8 @@ import {
   podNeedsDiagnosis,
   type PodSummary,
   portForwardCmd,
+  PROMETHEUS_CRDS_HELM_REPO,
+  PROMETHEUS_CRDS_RELEASE,
   renderReport,
   renderRootApp,
   REPORT_MAX_FINDINGS,
@@ -529,6 +533,41 @@ Deno.test("setFileArgs: one --set-file per Lua file under configs.cm, dots in th
     "--set-file",
     "configs.cm.resource\\.customizations\\.health\\.tailscale\\.com_Connector=charts/bootstrap/files/health/tailscale.com_Connector.lua",
   ]);
+});
+
+Deno.test("crdsInstallArgs: the CRD chart installs at the pinned version, before ArgoCD, and only waits", () => {
+  const args = crdsInstallArgs("30.0.0");
+  assertEquals(args.slice(0, 3), [
+    "helm",
+    "--kube-context",
+    "kind-homelab-localdev",
+  ]);
+  assertEquals(args.slice(3, 7), [
+    "upgrade",
+    "--install",
+    PROMETHEUS_CRDS_RELEASE,
+    "prometheus-operator-crds",
+  ]);
+  assertEquals(args[args.indexOf("--repo") + 1], PROMETHEUS_CRDS_HELM_REPO);
+  assertEquals(args[args.indexOf("--version") + 1], "30.0.0");
+  assert(args.includes("--wait"));
+  // nothing chart-specific: no values file, no --set-file
+  assert(!args.includes("-f") && !args.includes("--set-file"));
+});
+
+Deno.test("chartVersionFromVersions: reads charts.<key> and names the missing key", () => {
+  const text =
+    'charts:\n  argocd: "9.7.1"\n  prometheus-operator-crds: "30.0.0"\n';
+  assertEquals(
+    chartVersionFromVersions(text, "prometheus-operator-crds"),
+    "30.0.0",
+  );
+  assertEquals(chartVersionFromVersions(text, "argocd"), "9.7.1");
+  assertThrows(
+    () => chartVersionFromVersions(text, "cilium"),
+    Error,
+    "charts.cilium is not set",
+  );
 });
 
 Deno.test("setFileArgs: no Lua files means no flags", () => {

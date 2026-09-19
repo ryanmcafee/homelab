@@ -43,6 +43,20 @@ homelab-environment-config:
   enabled: true
   itemPath: "vaults/homelab/items/homelab-environment-config"
 
+# Prometheus operator CRDs, wave -1 (templates/prometheus-operator-crds.yaml):
+# ServiceMonitor/PodMonitor/PrometheusRule exist before ArgoCD (wave 1) and the
+# addons render theirs; kube-prometheus-stack (addons wave 9) runs with
+# crds.enabled=false. Plain Helm, so the version is a literal: level 0
+# `versions/pins` fails when it differs from configuration/versions.yaml
+# charts.prometheus-operator-crds, which must match the operator that
+# kube-prometheus-stack bundles.
+prometheus-operator-crds:
+  enabled: true
+  chart:
+    name: prometheus-operator-crds
+    repo: https://prometheus-community.github.io/helm-charts
+    version: "30.0.0"
+
 # ============================================================================
 # ArgoCD - Self-Management (Bootstrap -> Addon handoff)
 # Sync Wave: 1 (after env-config at wave 0, before addons at wave 2)
@@ -76,7 +90,16 @@ argocd:
         # localdev passes the same files to the ArgoCD chart with --set-file.
         # Exercise them with `task test:health` (fixtures in tests/health/).
 
+    # Metrics: every component exposes /metrics and renders a ServiceMonitor.
+    # The CRD comes from prometheus-operator-crds (wave -1, this chart), so
+    # the monitors apply at wave 1; kube-prometheus-stack (addons wave 9)
+    # discovers them cluster-wide and the HomelabArgoCDApplicationDegraded
+    # rule reads argocd_app_info (docs/runbooks/alerting.md).
     server:
+      metrics:
+        enabled: true
+        serviceMonitor:
+          enabled: true
       ingress:
         enabled: false
       resources:
@@ -88,6 +111,10 @@ argocd:
           memory: 512Mi
 
     controller:
+      metrics:
+        enabled: true
+        serviceMonitor:
+          enabled: true
       resources:
         requests:
           cpu: 1000m
@@ -97,6 +124,10 @@ argocd:
           memory: 4Gi
 
     repoServer:
+      metrics:
+        enabled: true
+        serviceMonitor:
+          enabled: true
       resources:
         requests:
           cpu: 100m
@@ -135,7 +166,7 @@ argocd:
       # Init container to install ksops (binaries baked into CMP image)
       initContainers:
         - name: install-ksops
-          image: ghcr.io/ryanmcafee/homelab-cmp:0.1.44
+          image: ghcr.io/ryanmcafee/homelab-cmp:0.1.45
           command: ["/bin/cp"]
           args: ["/usr/local/bin/ksops", "/usr/local/bin/kustomize", "/custom-tools/"]
           volumeMounts:
@@ -144,7 +175,7 @@ argocd:
       # CMP sidecar for homelab config plugin
       extraContainers:
         - name: homelab-cmp
-          image: ghcr.io/ryanmcafee/homelab-cmp:0.1.44
+          image: ghcr.io/ryanmcafee/homelab-cmp:0.1.45
           command: [/var/run/argocd/argocd-cmp-server]
           securityContext:
             runAsNonRoot: true
@@ -165,6 +196,10 @@ argocd:
               readOnly: true
 
     applicationSet:
+      metrics:
+        enabled: true
+        serviceMonitor:
+          enabled: true
       resources:
         requests:
           cpu: 50m
@@ -175,6 +210,10 @@ argocd:
 
     notifications:
       enabled: true
+      metrics:
+        enabled: true
+        serviceMonitor:
+          enabled: true
       resources:
         requests:
           cpu: 50m

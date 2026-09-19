@@ -23,7 +23,11 @@ providers:
   # paperclip-operator ships its CRDs as chart templates (crds.install); the
   # paperclip Application (wave 14) renders the Instance after it (wave 11).
   paperclip.inc: paperclip-operator
-  monitoring.coreos.com: kube-prometheus-stack
+  # The CRD-only companion chart in the bootstrap chart (wave -1) installs the
+  # monitoring CRDs; kube-prometheus-stack (addons wave 9) runs with
+  # crds.enabled=false, so ArgoCD (wave 1) and cert-manager (wave 4) can render
+  # their ServiceMonitors.
+  monitoring.coreos.com: prometheus-operator-crds
   # external-dns ships crds/dnsendpoint.yaml inside the chart (verified against
   # external-dns 1.21.1, the version pinned in configuration/versions.yaml), so
   # every Application using that chart installs the DNSEndpoint CRD: helm and

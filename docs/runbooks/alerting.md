@@ -97,13 +97,24 @@ rules live in `additionalPrometheusRulesMap`:
 | homelab-infrastructure | `HomelabNodeUnderPressure` | warning | Memory/Disk/PID pressure for 10 m |
 | homelab-infrastructure | `HomelabEtcdQuorumAtRisk` | critical | fewer than 2 etcd members up for 5 m |
 | homelab-infrastructure | `HomelabPostgresClusterDown` | critical | a CloudNativePG cluster reports no PostgreSQL up for 5 m |
+| homelab-infrastructure | `HomelabArgoCDApplicationDegraded` | warning | an Application is Degraded/Missing/Unknown for 15 m |
+| homelab-infrastructure | `HomelabCertificateExpiringSoon` | warning | a cert-manager Certificate expires in under 14 days for 1 h |
 
 Add a rule next to these (Prometheus `$labels` escaped as in the file), give it a `severity`
 label the table above routes, and run `task verify:text`: kubeconform validates the
-Application and the snapshot records the change. Metrics that are not scraped today (ArgoCD,
-cert-manager) need a ServiceMonitor before a rule on them can fire; their CRD only exists
-after wave 9, so such monitors belong in a `*-config` child, not the chart that installs the
-component.
+Application and the snapshot records the change.
+
+**Where the metrics come from.** The monitoring CRDs (ServiceMonitor, PodMonitor,
+PrometheusRule) are installed by the bootstrap chart's `prometheus-operator-crds` Application
+at wave -1, before ArgoCD (wave 1) and every addon, so any chart can render its own monitor;
+kube-prometheus-stack (wave 9) runs with `crds.enabled=false` and discovers monitors
+cluster-wide. ArgoCD (controller, server, repo-server, ApplicationSet, notifications;
+`charts/bootstrap/values.yaml`) and cert-manager (`charts/addons/templates/cert-manager.yaml`)
+render theirs; CloudNativePG clusters set `enablePodMonitor`. The CRD chart version in
+`configuration/versions.yaml` must match the operator kube-prometheus-stack bundles: bump
+`prometheus-operator-crds` together with `kube-prometheus-stack`, never leave the CRDs behind
+the operator (`helm show chart kube-prometheus-stack --version <v>` prints the operator
+`appVersion`; pick the `prometheus-operator-crds` release with the same one).
 
 ## Related
 

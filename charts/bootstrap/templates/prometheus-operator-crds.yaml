@@ -1,5 +1,5 @@
+{{- if index .Values "prometheus-operator-crds" "enabled" }}
 ---
-# Source: bootstrap/templates/prometheus-operator-crds.yaml
 # Prometheus operator CRDs (ServiceMonitor, PodMonitor, PrometheusRule,
 # AlertmanagerConfig, ...) installed before anything that renders them.
 # kube-prometheus-stack itself syncs at addons wave 9, far after ArgoCD (wave 1)
@@ -20,9 +20,9 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://prometheus-community.github.io/helm-charts
-    chart: prometheus-operator-crds
-    targetRevision: 30.0.0
+    repoURL: {{ index .Values "prometheus-operator-crds" "chart" "repo" }}
+    chart: {{ index .Values "prometheus-operator-crds" "chart" "name" }}
+    targetRevision: {{ index .Values "prometheus-operator-crds" "chart" "version" }}
     helm:
       releaseName: prometheus-operator-crds
 
@@ -32,8 +32,14 @@ spec:
     namespace: argocd
 
   syncPolicy:
+    {{- if .Values.global.automatedSync }}
+    automated:
+      prune: true
+      selfHeal: true
+    {{- end }}
     syncOptions:
       # The Prometheus CRD alone is far past the 256 KiB client-side-apply
       # annotation limit (tests/gitops/huge-crd-charts.yaml).
       - ServerSideApply=true
       - ApplyOutOfSyncOnly=true
+{{- end }}

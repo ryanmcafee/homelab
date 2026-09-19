@@ -173,7 +173,7 @@
   <text class="a21_5" x="28" y="192" fill="#8b949e">    1password operator</text>
   <text class="a23"   x="28" y="209" fill="#8b949e">    environment-config</text>
   <text class="a25"   x="28" y="226"><tspan fill="#8b949e">›</tspan> cmp      <tspan fill="#a371f7">export|helm template</tspan></text>
-  <text class="a26_5" x="28" y="243"><tspan fill="#8b949e">›</tspan> argocd   <tspan fill="#8b949e">69 apps synced</tspan></text>
+  <text class="a26_5" x="28" y="243"><tspan fill="#8b949e">›</tspan> argocd   <tspan fill="#8b949e">70 apps synced</tspan></text>
   <text class="a33"   x="28" y="260"><tspan fill="#8b949e">›</tspan> bgp      <tspan fill="#8b949e">64512 ⇄ 64513</tspan> <tspan fill="#27c93f">up</tspan></text>
   <text class="a36"   x="28" y="277"><tspan fill="#8b949e">›</tspan> unifi    <tspan fill="#8b949e">kube-* forwards</tspan> <tspan fill="#27c93f">✔</tspan></text>
   <text class="a46"   x="28" y="298"><tspan fill="#a371f7">●</tspan> plex.&lt;DOMAIN&gt; <tspan fill="#27c93f">200</tspan> <tspan fill="#8b949e">e2e ✔ smoke ✔</tspan></text>

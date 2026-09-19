@@ -177,6 +177,12 @@ charts:
   external-dns: "1.21.1"
   # renovate: datasource=helm depName=kube-prometheus-stack registryUrl=https://prometheus-community.github.io/helm-charts
   kube-prometheus-stack: "87.1.0"
+  # CRD-only companion chart installed by the bootstrap chart (wave -1) so ServiceMonitors can
+  # render before kube-prometheus-stack (addons wave 9). Its appVersion must be the
+  # prometheus-operator version kube-prometheus-stack bundles (87.1.0 -> v0.92.0 -> 30.0.0);
+  # bump the two together, never the CRDs behind the operator.
+  # renovate: datasource=helm depName=prometheus-operator-crds registryUrl=https://prometheus-community.github.io/helm-charts
+  prometheus-operator-crds: "30.0.0"
   # renovate: datasource=helm depName=traefik registryUrl=https://traefik.github.io/charts
   traefik: "39.0.9"
   # renovate: datasource=helm depName=democratic-csi registryUrl=https://democratic-csi.github.io/charts/
@@ -238,7 +244,7 @@ charts:
   # renovate: datasource=docker depName=ghcr.io/paperclipinc/charts/paperclip-operator
   paperclip-operator: "0.19.1"
 images:
-  homelab-cmp: "0.1.44"
+  homelab-cmp: "0.1.45"
   # renovate: datasource=docker depName=curlimages/curl
   curl: "8.22.0"
   # renovate: datasource=docker depName=kindest/node
@@ -375,7 +381,7 @@ task tf:apply         # Apply changes
 ## ArgoCD Troubleshooting
 
 ### Sync Wave Order
-- Wave 0: Bootstrap (inside it: namespace/RBAC -3, `sops-secrets` -2, `1password-operator` -1, `homelab-environment-config` 0, ArgoCD self-manage 1)
+- Wave 0: Bootstrap (inside it: namespace/RBAC -3, `sops-secrets` -2, `1password-operator` and `prometheus-operator-crds` -1, `homelab-environment-config` 0, ArgoCD self-manage 1)
 - Addons (core infrastructure — via CMP plugin in homelab): wave 1 in homelab (`charts/gitops/values-homelab.yaml`), chart default 2
 - Applications (user workloads — via CMP plugin in homelab): wave 10 in homelab, chart default 3
 - Full table: `docs/architecture.md` § GitOps bridge
@@ -390,7 +396,7 @@ The homelab environment uses an ArgoCD Config Management Plugin (CMP) sidecar to
 - Decisions: `docs/project_notes/decisions.md` (entry "2026-02-11: ArgoCD CMP for PII removal" and ADR-010; the original design doc was removed in c4daa10 once implemented)
 
 ### Kind + ArgoCD loop (localdev)
-`task localdev:up` creates Kind (`homelab-localdev`, context `kind-homelab-localdev`, Cilium CNI, registry pull-through caches, fakes from `localdev/fakes/`), installs ArgoCD from `versions.yaml` with the health Lua in `charts/bootstrap/files/health/`, applies the root `gitops` Application at the PR head (`-- --revision <ref>` / `LOCALDEV_REVISION`; default the upstream branch of HEAD, `main` with a warning when the branch is not pushed; the `gitops` chart hands the revision to `addons`/`applications` via `helm.valuesObject.global.targetRevision`) and syncs **every Application from the working tree** with `argocd app sync --local`, tier by tier. That requires automated sync off in localdev (`ARGOCD_AUTOMATED_SYNC=false`). After a local sync `Synced` means the tree equals the pushed head and `OutOfSync` means unpushed local changes; `task localdev:wait`, `task verify LEVEL=2` and the e2e tests judge `Healthy` + `operationState.phase == Succeeded`, never sync status. PostSync smoke Jobs (`smoke-<app>`, `<app>.smoke {enabled,url,expect}`) make an operation succeed only when the endpoint answers. `task localdev:diagnose` prints conditions, events and failing pod logs; `task localdev:sync -- --only <app>` re-syncs one app; `task localdev:report -- --base main` prints the Application table and `argocd app diff --revision main` per git-path app. CI runs the same loop in `.github/workflows/tilt-ci.yml` (`kind-argocd`, required; it checks out the PR head SHA and sets `LOCALDEV_REVISION` to it) and posts that report as the sticky PR comment `kind-preview`. Every script pins the Kind context (ADR-009); details in `docs/local-development.md` and ADR-012.
+`task localdev:up` creates Kind (`homelab-localdev`, context `kind-homelab-localdev`, Cilium CNI, registry pull-through caches, fakes from `localdev/fakes/`), installs the Prometheus operator CRDs (bootstrap wave -1 in homelab, which Kind never syncs) and then ArgoCD from `versions.yaml` with the health Lua in `charts/bootstrap/files/health/`, applies the root `gitops` Application at the PR head (`-- --revision <ref>` / `LOCALDEV_REVISION`; default the upstream branch of HEAD, `main` with a warning when the branch is not pushed; the `gitops` chart hands the revision to `addons`/`applications` via `helm.valuesObject.global.targetRevision`) and syncs **every Application from the working tree** with `argocd app sync --local`, tier by tier. That requires automated sync off in localdev (`ARGOCD_AUTOMATED_SYNC=false`). After a local sync `Synced` means the tree equals the pushed head and `OutOfSync` means unpushed local changes; `task localdev:wait`, `task verify LEVEL=2` and the e2e tests judge `Healthy` + `operationState.phase == Succeeded`, never sync status. PostSync smoke Jobs (`smoke-<app>`, `<app>.smoke {enabled,url,expect}`) make an operation succeed only when the endpoint answers. `task localdev:diagnose` prints conditions, events and failing pod logs; `task localdev:sync -- --only <app>` re-syncs one app; `task localdev:report -- --base main` prints the Application table and `argocd app diff --revision main` per git-path app. CI runs the same loop in `.github/workflows/tilt-ci.yml` (`kind-argocd`, required; it checks out the PR head SHA and sets `LOCALDEV_REVISION` to it) and posts that report as the sticky PR comment `kind-preview`. Every script pins the Kind context (ADR-009); details in `docs/local-development.md` and ADR-012.
 
 ### Previews and read-only production (ADR-013)
 - **Previews:** a maintainer labels a PR `preview` (+ `preview:<app>` per app); the `previews` ApplicationSet renders `charts/applications` at the PR head through the CMP in preview mode (`global.preview.*`): Applications `<app>-pr<N>` in namespace `preview-<N>`, AppProject `previews`, hosts `<app>-pr<N>.<domain>`, ephemeral (`emptyDir`) storage; closing or unlabelling deletes it. Level 0 renders it as env `homelab-preview`. `docs/runbooks/previews.md`

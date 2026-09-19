@@ -25,6 +25,8 @@ charts:
   - nvidia-gpu-operator
   # the Instance CRD alone is several hundred KiB of OpenAPI schema
   - paperclip-operator
+  # the Prometheus and Alertmanager CRDs alone exceed the limit several times over
+  - prometheus-operator-crds
   - tailscale-operator
   - traefik-external
   - traefik-internal

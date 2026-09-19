@@ -85,7 +85,7 @@ tasks:
       - deno run --allow-net --allow-run --allow-env --allow-read --allow-write scripts/localdev-kind.ts registry {{.CLI_ARGS | default "up"}}
 
   localdev:argocd:
-    desc: "Install ArgoCD into Kind (chart version from configuration/versions.yaml, health Lua from charts/bootstrap/files/health) and apply the root Application at the PR head (-- --revision <ref> or LOCALDEV_REVISION; default: the upstream branch of HEAD, else main)"
+    desc: "Install the Prometheus operator CRDs and ArgoCD into Kind (chart versions from configuration/versions.yaml, health Lua from charts/bootstrap/files/health) and apply the root Application at the PR head (-- --revision <ref> or LOCALDEV_REVISION; default: the upstream branch of HEAD, else main)"
     cmds:
       - deno run --allow-net --allow-run --allow-env --allow-read --allow-write scripts/localdev-argocd.ts install {{.CLI_ARGS}}
 
