@@ -51,16 +51,19 @@ POD=alertmanager-kube-prometheus-stack-alertmanager-0
 # warning -> Pushover, low priority (silent)
 kubectl -n monitoring exec "$POD" -c alertmanager -- amtool --alertmanager.url=http://localhost:9093 \
   alert add DeliveryTest severity=warning namespace=monitoring \
-  --annotation=summary="Pushover low-priority delivery test" --end="$(date -u -v+2M +%Y-%m-%dT%H:%M:%SZ)"
+  --annotation='summary="Pushover low-priority delivery test"' --end="$(date -u -v+2M +%Y-%m-%dT%H:%M:%SZ)"
 # critical -> Pushover, high priority
 kubectl -n monitoring exec "$POD" -c alertmanager -- amtool --alertmanager.url=http://localhost:9093 \
   alert add DeliveryTest severity=critical namespace=monitoring \
-  --annotation=summary="Pushover high-priority delivery test" --end="$(date -u -v+2M +%Y-%m-%dT%H:%M:%SZ)"
+  --annotation='summary="Pushover high-priority delivery test"' --end="$(date -u -v+2M +%Y-%m-%dT%H:%M:%SZ)"
 # what Alertmanager did with it
 kubectl -n monitoring logs "$POD" -c alertmanager | rg -i "notify|pushover" | tail
 ```
 
-Both end after two minutes and send a resolved notification. The Alertmanager UI is not
+Both end after two minutes and send a resolved notification. The annotation value is
+double-quoted inside the single quotes because Alertmanager's UTF-8 matcher parser rejects
+unquoted values with spaces (the classic parser still accepts them, with a warning).
+Verified end to end on 2026-09-19: both notifications arrived on Pushover. The Alertmanager UI is not
 exposed; port-forward when you need it: `kubectl -n monitoring port-forward svc/kube-prometheus-stack-alertmanager 9093`.
 
 ## Silence, inspect, change
