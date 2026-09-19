@@ -1758,6 +1758,7 @@ func TestDefaultGuardScopeCoversChartHomelabValues(t *testing.T) {
 		"docs/**",
 		".github/**",
 		"Taskfile.yml",
+		"ansible/**",
 	}
 	if strings.Join(DefaultGuardPathspecs, " ") != strings.Join(want, " ") {
 		t.Fatalf("DefaultGuardPathspecs = %v, want %v", DefaultGuardPathspecs, want)

@@ -28,29 +28,6 @@ var consumedOutsideTemplates = map[string]string{
 		`(MEDIA_MOVIES_PATH, MEDIA_TV_PATH, etc. use "{{.NFS_BASE_PATH}}/...") — ` +
 		"never directly referenced by a template",
 
-	"NFS_MAPALL_USER": "PII guard pattern source (internal/config/guard.go " +
-		"piiKeyPrefixes), scanned by `task config:guard`; the value is never " +
-		"rendered to a template",
-
-	"IPMI_IP": "PII guard pattern source only: the BMC address appears in " +
-		"docs/hardware-setup.md and docs/architecture.md as <IPMI_IP>, and the " +
-		"key exists so the guard can catch it being pasted back in; nothing " +
-		"renders it",
-
-	"PROXMOX_IP": "read by internal/prereq (Proxmox reachability for the " +
-		"production tier), by the Taskfile vars (yq from homelab.yaml) for the " +
-		"TrueNAS/template tasks, and by the PII guard; never rendered to a template " +
-		"since the unused tfvars export was removed",
-
-	"WORKER1_IP": "read directly as rc.Values[\"WORKER1_IP\"] in " +
-		"cmd/homelab/commands/verify.go (GPU node check), and dynamically via " +
-		"workerIPConfigKey() in talos.go for `task talos:recreate:node NODE=worker-1`",
-
-	"WORKER2_IP": "resolved dynamically via workerIPConfigKey() in " +
-		"cmd/homelab/commands/talos.go for `task talos:recreate:node NODE=worker-2`",
-
-	"WORKER3_IP": "resolved dynamically via workerIPConfigKey() in " +
-		"cmd/homelab/commands/talos.go for `task talos:recreate:node NODE=worker-3`",
 }
 
 // templateRef is a single recognized expression found on one line of a

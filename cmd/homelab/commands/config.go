@@ -139,10 +139,11 @@ func newConfigEvalCmd() *cobra.Command {
 // list of valid --format values, so the flag help, the usage error and the
 // stdout path cannot drift apart.
 var exportTemplates = map[string]string{
-	"helm-addons": "helm-addons.tmpl",
-	"helm-apps":   "helm-apps.tmpl",
-	"env":         "dotenv.tmpl",
-	"json":        "json.tmpl",
+	"helm-addons":       "helm-addons.tmpl",
+	"helm-apps":         "helm-apps.tmpl",
+	"env":               "dotenv.tmpl",
+	"json":              "json.tmpl",
+	"ansible-inventory": "ansible-inventory.tmpl",
 }
 
 // exportTarget is one (format, template, output file) triple of `config export`.
@@ -171,12 +172,18 @@ func exportTargets(set string) []exportTarget {
 		}
 		return base + "." + set + ext
 	}
-	return []exportTarget{
+	targets := []exportTarget{
 		{"helm-addons", "helm-addons.tmpl", helmValues("addons")},
 		{"helm-apps", "helm-apps.tmpl", helmValues("applications")},
 		{"env", "dotenv.tmpl", perSet(".env", ".generated")},
 		{"json", "json.tmpl", perSet("configuration/resolved", ".json")},
 	}
+	// Ansible only manages the production hosts; the rendered inventory is
+	// gitignored and every address Ansible needs comes from it.
+	if set == "homelab" {
+		targets = append(targets, exportTarget{"ansible-inventory", "ansible-inventory.tmpl", "ansible/inventory/homelab.yml"})
+	}
+	return targets
 }
 
 // exportFormatList is the sorted format list for messages.

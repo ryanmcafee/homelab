@@ -1,0 +1,68 @@
+# Homelab Ansible inventory — GENERATED, do not edit.
+# Source: configuration/templates/ansible-inventory.tmpl rendered with
+# configuration/environments/homelab.yaml. Regenerate: task ansible:inventory
+
+all:
+  children:
+    # Proxmox hypervisor
+    proxmox:
+      hosts:
+        proxmox-node:
+          ansible_host: 192.168.1.250
+          ansible_user: root
+          ansible_ssh_private_key_file: ~/.ssh/id_ed25519
+          ansible_python_interpreter: /usr/bin/python3
+          ipmi_host: "192.168.1.26"
+          ipmi_user: ADMIN
+
+    # TrueNAS storage server
+    truenas:
+      hosts:
+        truenas-server:
+          ansible_host: 192.168.1.100
+          ansible_user: root
+          ansible_ssh_private_key_file: ~/.ssh/id_ed25519
+          truenas_api_url: https://192.168.1.100
+      vars:
+        # truenas_api_key comes from group_vars/truenas.yml (env lookup, no address)
+        truenas_hostname: truenas.REPLACEME-domain.com
+        nfs_mapall_user: REPLACEME-username
+        truenas_static_ip: "192.168.1.100/24"
+        truenas_gateway: "192.168.1.1"
+        truenas_dns_servers:
+          - "192.168.1.1"
+        # Optional (TRUENAS_LAN_IP); empty skips the LAN interface tasks
+        truenas_lan_static_ip: "192.168.1.150/24"
+        truenas_nfs_allowed_networks:
+          - "192.168.1.0/24"
+        # truenas-full-setup.yml talks to Proxmox to (re)boot the VM
+        proxmox_host: "192.168.1.250"
+        acme_email: "admin@REPLACEME-domain.com"
+
+    # Talos Kubernetes cluster (reference only; managed through Terragrunt/talosctl)
+    talos:
+      hosts:
+        cp-1:
+          ansible_host: 192.168.1.11
+        cp-2:
+          ansible_host: 192.168.1.12
+        cp-3:
+          ansible_host: 192.168.1.13
+        worker-1:
+          ansible_host: 192.168.1.21
+        worker-2:
+          ansible_host: 192.168.1.22
+        worker-3:
+          ansible_host: 192.168.1.23
+      vars:
+        ansible_connection: local  # Talos is managed via API, not SSH
+
+  vars:
+    # Network facts every role reads (group_vars/all.yml keeps only non-PII settings)
+    base_domain: REPLACEME-domain.com
+    homelab_vlan: 100
+    homelab_subnet: 192.168.1.0/24
+    homelab_gateway: 192.168.1.1
+    dns_servers:
+      - 192.168.1.1
+    timezone: America/New_York

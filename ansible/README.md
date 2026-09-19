@@ -92,12 +92,20 @@ cd ansible
 ansible-galaxy install -r requirements.yml
 ```
 
-### 2. Configure Inventory
+### 2. Render the inventory
 
-Edit `inventory/homelab.yml` and update the following:
-- `ansible_host` - IP address of your Proxmox host
-- PCI IDs for HBA cards and GPU (if different)
-- Storage device paths (if different)
+`inventory/homelab.yml` is generated (and gitignored): every address, the domain and the
+timezone come from `configuration/environments/homelab.yaml` through
+`configuration/templates/ansible-inventory.tmpl`. Every `task ansible:*` / `task truenas:*`
+target renders it first; by hand:
+
+```bash
+task ansible:inventory
+```
+
+`inventory/homelab.yml.example` is the same template rendered from
+`homelab.yaml.example`, for reference. Change addresses in `configuration/`, never in the
+rendered file.
 
 ### 3. Configure Variables
 
@@ -303,7 +311,7 @@ For detailed firmware update procedures, troubleshooting, and rollback instructi
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `base_domain` | ryanmcafee.com | Base domain for homelab |
+| `base_domain` | `<DOMAIN>` (rendered inventory) | Base domain for homelab |
 | `homelab_vlan` | 100 | VLAN ID for homelab network |
 | `homelab_subnet` | <LAN_CIDR> | Homelab subnet |
 | `homelab_gateway` | <GATEWAY_IP> | Default gateway |

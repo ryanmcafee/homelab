@@ -221,8 +221,7 @@ resource "null_resource" "ansible_configuration" {
       CLOUDFLARE_API_TOKEN   = var.cloudflare_api_token
     }
     command = <<-EOF
-      env -u ANSIBLE_VAULT_PASSWORD_FILE mise exec -- ansible-playbook -i inventory/homelab.yml playbooks/truenas-full-setup.yml \
-        --vault-password-file=vault-password.sh \
+      mise exec -- ansible-playbook -i inventory/homelab.yml playbooks/truenas-full-setup.yml \
         -e "truenas_admin_password=${var.truenas_admin_password}" \
         -e "truenas_static_ip=${var.truenas_static_ip}" \
         -e "truenas_gateway=${var.truenas_gateway}" \

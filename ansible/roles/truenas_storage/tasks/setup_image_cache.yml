@@ -56,10 +56,38 @@
   register: local_cert_dir
   delegate_to: localhost
 
+# Reuse the CA a previous run saved under ansible/certs/ (gitignored): the
+# Talos nodes trust that CA (terragrunt image_cache_ca_cert), so regenerating
+# it on every run would silently break the mirror until the next apply.
+- name: Check for a previously saved image-cache CA
+  ansible.builtin.stat:
+    path: "{{ playbook_dir }}/../certs/{{ item }}"
+  loop:
+    - image-cache-ca.crt
+    - image-cache-ca.key
+  register: image_cache_ca_files
+  delegate_to: localhost
+
+- name: Decide whether the saved CA is reusable
+  ansible.builtin.set_fact:
+    image_cache_ca_reused: "{{ image_cache_ca_files.results | map(attribute='stat.exists') | list == [true, true] }}"
+
+- name: Reuse the saved CA
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../certs/{{ item.src }}"
+    dest: "{{ local_cert_dir.path }}/{{ item.dest }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - { src: image-cache-ca.crt, dest: ca.crt, mode: "0644" }
+    - { src: image-cache-ca.key, dest: ca.key, mode: "0600" }
+  when: image_cache_ca_reused
+  delegate_to: localhost
+
 - name: Generate CA private key
   community.crypto.openssl_privatekey:
     path: "{{ local_cert_dir.path }}/ca.key"
     size: 4096
+  when: not image_cache_ca_reused
   delegate_to: localhost
 
 - name: Generate CA CSR
@@ -75,6 +103,7 @@
       - keyCertSign
       - cRLSign
     key_usage_critical: true
+  when: not image_cache_ca_reused
   delegate_to: localhost
 
 - name: Generate CA certificate
@@ -84,6 +113,7 @@
     csr_path: "{{ local_cert_dir.path }}/ca.csr"
     provider: selfsigned
     selfsigned_not_after: "+3650d"
+  when: not image_cache_ca_reused
   delegate_to: localhost
 
 - name: Generate server private key
@@ -157,6 +187,16 @@
     dest: "{{ playbook_dir }}/../certs/image-cache-ca.crt"
     mode: "0644"
   delegate_to: localhost
+
+# The key stays local (ansible/certs is gitignored) so the next run can reuse
+# the CA instead of rotating it.
+- name: Save CA private key for reuse
+  ansible.builtin.copy:
+    src: "{{ local_cert_dir.path }}/ca.key"
+    dest: "{{ playbook_dir }}/../certs/image-cache-ca.key"
+    mode: "0600"
+  delegate_to: localhost
+  no_log: true
 
 # Note: Image cache pre-population is not performed automatically.
 # The Talos image cache server works as a pull-through cache and will

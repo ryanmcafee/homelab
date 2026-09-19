@@ -23,13 +23,14 @@ truenas_k8s_snapshots_compression: lz4
 # NFS Share Configuration for Kubernetes PVs
 truenas_nfs_share_path: "/mnt/{{ truenas_k8s_dataset }}"
 truenas_nfs_share_name: k8s
-truenas_nfs_allowed_networks:
-  - 172.16.100.0/24
+# Networks allowed on the NFS shares: the rendered inventory sets this from
+# NFS_SHARE_ALLOW (truenas group vars); an empty default exports to nobody.
+truenas_nfs_allowed_networks: []
 truenas_nfs_maproot_user: ""
 truenas_nfs_maproot_group: ""
 truenas_k8s_nfs_mapall_user: apps
 truenas_k8s_nfs_mapall_group: users
-truenas_media_nfs_mapall_user: rmcafee
+truenas_media_nfs_mapall_user: "{{ nfs_mapall_user }}"
 truenas_media_nfs_mapall_group: users
 
 # Media Datasets Configuration (no quotas for flexible usage)
@@ -88,7 +89,7 @@ truenas_groups:
     smb: true
 
 truenas_users:
-  - name: rmcafee
+  - name: "{{ nfs_mapall_user }}"
     full_name: "Ryan McAfee"
     group: users
     shell: /usr/bin/bash
@@ -108,7 +109,7 @@ truenas_users:
 # Dataset Permissions
 truenas_k8s_dataset_owner_user: apps
 truenas_k8s_dataset_owner_group: users
-truenas_dataset_owner_user: rmcafee
+truenas_dataset_owner_user: "{{ nfs_mapall_user }}"
 truenas_dataset_owner_group: users
 truenas_dataset_permissions_mode: "770"
 
@@ -141,12 +142,14 @@ truenas_iscsi_default_lun_id: 0
 truenas_api_wait_timeout: 300
 truenas_api_retry_delay: 10
 
-# Network Configuration (for automation)
-truenas_static_ip: "172.16.100.150/24"
-truenas_gateway: "172.16.100.1"
-truenas_dns_servers:
-  - "172.16.100.1"
-truenas_hostname: "truenas.ryanmcafee.com"
+# Network Configuration (for automation). No defaults: the rendered inventory
+# (configuration/templates/ansible-inventory.tmpl) supplies every value, so a
+# role run without it fails on an undefined variable instead of touching the
+# wrong address.
+truenas_static_ip: ""
+truenas_gateway: ""
+truenas_dns_servers: []
+truenas_hostname: ""
 
 # Storage Pool Definitions
 truenas_storage_pools:

@@ -208,6 +208,11 @@ tasks:
   # Ansible
   # ==========================================================================
 
+  ansible:inventory:
+    desc: "Render ansible/inventory/homelab.yml (gitignored) from configuration/ — every address Ansible needs comes from there"
+    cmds:
+      - go run ./cmd/homelab config export --set homelab --format ansible-inventory
+
   ansible:lint:
     desc: Lint Ansible playbooks
     dir: ansible
@@ -217,6 +222,7 @@ tasks:
   ansible:syntax:
     desc: Check Ansible playbook syntax
     dir: ansible
+    deps: [ansible:inventory]
     cmds:
       - ansible-playbook --syntax-check playbooks/site.yml
 
@@ -235,6 +241,7 @@ tasks:
     dir: ansible
     deps:
       - ansible:init
+      - ansible:inventory
     cmds:
       - ansible-playbook playbooks/site.yml --check --diff
 
@@ -243,6 +250,7 @@ tasks:
     dir: ansible
     deps:
       - ansible:init
+      - ansible:inventory
     cmds:
       - ansible-playbook playbooks/site.yml
 
@@ -255,14 +263,16 @@ tasks:
     dir: ansible
     deps:
       - ansible:init
+      - ansible:inventory
     cmds:
-      - op run --env-file={{.ROOT_DIR}}/.env.op -- ansible-playbook -i inventory/homelab.yml playbooks/truenas-setup.yml --vault-password-file=vault-password.sh
+      - op run --env-file={{.ROOT_DIR}}/.env.op -- ansible-playbook -i inventory/homelab.yml playbooks/truenas-setup.yml
 
   truenas:status:
     desc: Check TrueNAS configuration status
     dir: ansible
     deps:
       - ansible:init
+      - ansible:inventory
     cmds:
       - ansible-playbook -i inventory/homelab.yml playbooks/truenas-status.yml
 
@@ -271,16 +281,18 @@ tasks:
     dir: ansible
     deps:
       - ansible:init
+      - ansible:inventory
     cmds:
-      - op run --env-file={{.ROOT_DIR}}/.env.op -- ansible-playbook -i inventory/homelab.yml playbooks/truenas-setup.yml --vault-password-file=vault-password.sh --check --diff
+      - op run --env-file={{.ROOT_DIR}}/.env.op -- ansible-playbook -i inventory/homelab.yml playbooks/truenas-setup.yml --check --diff
 
   truenas:configure-lan:
     desc: Configure TrueNAS LAN network interface (VLAN 10)
     dir: ansible
     deps:
       - ansible:init
+      - ansible:inventory
     cmds:
-      - op run --env-file={{.ROOT_DIR}}/.env.op -- ansible-playbook -i inventory/homelab.yml playbooks/truenas-setup.yml --vault-password-file=vault-password.sh --tags lan-network
+      - op run --env-file={{.ROOT_DIR}}/.env.op -- ansible-playbook -i inventory/homelab.yml playbooks/truenas-setup.yml --tags lan-network
 
   # ==========================================================================
   # TrueNAS Automation (Packer + Full Setup)
@@ -370,16 +382,18 @@ tasks:
     dir: ansible
     deps:
       - ansible:init
+      - ansible:inventory
     cmds:
-      - op run --env-file={{.ROOT_DIR}}/.env.op -- ansible-playbook -i inventory/homelab.yml playbooks/truenas-full-setup.yml --vault-password-file=vault-password.sh
+      - op run --env-file={{.ROOT_DIR}}/.env.op -- ansible-playbook -i inventory/homelab.yml playbooks/truenas-full-setup.yml
 
   truenas:image-cache:
     desc: Deploy Talos image cache on TrueNAS (local registry mirror)
     dir: ansible
     deps:
       - ansible:init
+      - ansible:inventory
     cmds:
-      - op run --env-file={{.ROOT_DIR}}/.env.op -- ansible-playbook -i inventory/homelab.yml playbooks/truenas-setup.yml --vault-password-file=vault-password.sh --tags image-cache
+      - op run --env-file={{.ROOT_DIR}}/.env.op -- ansible-playbook -i inventory/homelab.yml playbooks/truenas-setup.yml --tags image-cache
 
   truenas:fix-nfs-shares:
     desc: Update existing NFS shares to use mapall (fixes PVC permissions)
@@ -483,6 +497,7 @@ tasks:
     dir: terragrunt/environments/{{.ENV}}
     deps:
       - render:sync:silent
+      - ansible:inventory
     cmds:
       - op run --env-file={{.ROOT_DIR}}/.env.op -- terragrunt run --all apply --non-interactive --auto-approve
     vars:
@@ -491,6 +506,7 @@ tasks:
   tf:apply:component:
     desc: Run Terragrunt apply for a specific component (TF_ARGS='-target=...' to apply one resource at a time)
     dir: terragrunt/environments/{{.ENV}}/{{.COMPONENT}}
+    deps: [ansible:inventory]
     cmds:
       - op run --env-file={{.ROOT_DIR}}/.env.op -- terragrunt apply --non-interactive --auto-approve {{.TF_ARGS}}
     vars:

@@ -356,6 +356,10 @@ var DefaultGuardPathspecs = []string{
 	"docs/**",
 	".github/**",
 	"Taskfile.yml",
+	// The inventory is rendered from configuration/ and gitignored; what is
+	// committed under ansible/ (group_vars, roles, playbooks) must stay free of
+	// addresses.
+	"ansible/**",
 }
 
 // guardScanExtensions are the file types the guard knows how to read. Anything
