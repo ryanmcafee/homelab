@@ -890,6 +890,17 @@ kube-prometheus-stack:
   # Alertmanager and node-exporter are not useful in Kind (no alert routes, containerised nodes).
   alertmanager:
     enabled: {{ not $localdev }}
+    # Notification receivers (docs/runbooks/alerting.md): critical -> Pushover
+    # and Slack, warning -> Slack, info and Watchdog -> nowhere. The webhook and
+    # Pushover credentials are the 1Password item ALERTMANAGER_1P_PATH, which the
+    # prometheus-config chart turns into Secret <secretName> in the monitoring
+    # namespace; Alertmanager mounts it and reads the *_file fields. Without a
+    # secret store nothing is mounted and every route ends in the null receiver.
+    notifications:
+      enabled: {{ and (not $localdev) $onepassword }}
+      secretName: alertmanager-notifications
+      onePasswordItemPath: "{{ if $onepassword }}{{ .Values.ALERTMANAGER_1P_PATH.Value }}{{ end }}"
+      slackChannel: "{{ .Values.ALERT_SLACK_CHANNEL.Value }}"
     storage:
       volumeClaimTemplate:
         spec:

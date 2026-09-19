@@ -2103,6 +2103,69 @@ spec:
                 cpu: 50m
                 memory: 128Mi
 
+            # The notification credentials Secret (prometheus-config chart, from
+            # 1Password) is mounted at /etc/alertmanager/secrets/alertmanager-notifications; the receivers read the
+            # *_file fields so no webhook or token is ever in this Application.
+            secrets:
+              - alertmanager-notifications
+
+          # Routing (docs/runbooks/alerting.md): critical -> Pushover and Slack,
+          # warning -> Slack, everything else (info, the always-firing Watchdog
+          # and InfoInhibitor) -> null. A critical alert inhibits the warning
+          # of the same name in the same namespace. Alertmanager's own
+          # templating is escaped so Helm leaves it untouched.
+          config:
+            global:
+              resolve_timeout: 5m
+            templates:
+              - /etc/alertmanager/config/*.tmpl
+            route:
+              receiver: "null"
+              group_by: [alertname, namespace, severity]
+              group_wait: 30s
+              group_interval: 5m
+              repeat_interval: 4h
+              routes:
+                - receiver: "null"
+                  matchers:
+                    - alertname =~ "Watchdog|InfoInhibitor"
+                - receiver: pushover-critical
+                  matchers:
+                    - severity = "critical"
+                  continue: true
+                - receiver: slack
+                  matchers:
+                    - severity =~ "critical|warning"
+            inhibit_rules:
+              - source_matchers:
+                  - severity = "critical"
+                target_matchers:
+                  - severity =~ "warning|info"
+                equal: [alertname, namespace]
+            receivers:
+              - name: "null"
+              - name: slack
+                slack_configs:
+                  - api_url_file: /etc/alertmanager/secrets/alertmanager-notifications/slack_webhook_url
+                    channel: "#homelab-alerts"
+                    send_resolved: true
+                    title: '[{{ .Status | toUpper }}{{ if eq .Status "firing" }}:{{ .Alerts.Firing | len }}{{ end }}] {{ .CommonLabels.alertname }}'
+                    text: |-
+                      {{ range .Alerts }}
+                      *{{ .Labels.alertname }}* ({{ .Labels.severity }}{{ if .Labels.namespace }}, {{ .Labels.namespace }}{{ end }}): {{ .Annotations.summary }}
+                      {{ if .Annotations.description }}{{ .Annotations.description }}{{ end }}
+                      {{ end }}
+              - name: pushover-critical
+                pushover_configs:
+                  - token_file: /etc/alertmanager/secrets/alertmanager-notifications/pushover_token
+                    user_key_file: /etc/alertmanager/secrets/alertmanager-notifications/pushover_user_key
+                    send_resolved: true
+                    priority: '{{ if eq .Status "firing" }}1{{ else }}0{{ end }}'
+                    title: '[{{ .Status | toUpper }}] {{ .CommonLabels.alertname }}'
+                    message: |-
+                      {{ range .Alerts }}{{ .Annotations.summary }}
+                      {{ end }}
+
         nodeExporter:
           enabled: true
           resources:
@@ -2181,6 +2244,48 @@ spec:
                     annotations:
                       summary: 'etcd metrics are not being scraped'
                       description: 'No kube-etcd target has been up for 15m, so the etcd fsync and leader-change alerts are blind. Check cluster.etcd.extraArgs.listen-metrics-urls on the control planes; see docs/runbooks/control-plane-storage.md.'
+          # Critical infrastructure alerts routed by severity (docs/runbooks/alerting.md).
+          # The chart's defaultRules already cover full disks and volumes
+          # (NodeFilesystemAlmostOutOfSpace, KubePersistentVolumeFillingUp), pods
+          # and targets; these name the homelab failures those miss or only warn
+          # about. Metrics: kube-state-metrics, the kube-etcd scrape and the
+          # CloudNativePG PodMonitor, all of which Prometheus discovers today.
+          homelab-infrastructure:
+            groups:
+              - name: homelab-infrastructure
+                rules:
+                  - alert: HomelabNodeNotReady
+                    expr: 'kube_node_status_condition{condition="Ready",status="true"} == 0'
+                    for: 5m
+                    labels:
+                      severity: critical
+                    annotations:
+                      summary: 'Node {{ $labels.node }} is NotReady'
+                      description: 'The kubelet on {{ $labels.node }} has reported NotReady for 5m. Workloads on it are being rescheduled; check the VM in Proxmox and `talosctl -n <node> health`.'
+                  - alert: HomelabNodeUnderPressure
+                    expr: 'kube_node_status_condition{condition=~"MemoryPressure|DiskPressure|PIDPressure",status="true"} == 1'
+                    for: 10m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: 'Node {{ $labels.node }} reports {{ $labels.condition }}'
+                      description: '{{ $labels.node }} has been under {{ $labels.condition }} for 10m; the kubelet is evicting pods. Check `kubectl describe node` and the workload limits.'
+                  - alert: HomelabEtcdQuorumAtRisk
+                    expr: 'count(up{job="kube-etcd"} == 1) < 2'
+                    for: 5m
+                    labels:
+                      severity: critical
+                    annotations:
+                      summary: 'Fewer than two etcd members are reachable'
+                      description: 'Only {{ $value }} of the three etcd members answered the metrics scrape for 5m. With one more loss the control plane stops; see docs/runbooks/control-plane-storage.md.'
+                  - alert: HomelabPostgresClusterDown
+                    expr: 'max by (namespace, cluster) (cnpg_collector_up) == 0'
+                    for: 5m
+                    labels:
+                      severity: critical
+                    annotations:
+                      summary: 'CloudNativePG cluster {{ $labels.namespace }}/{{ $labels.cluster }} is down'
+                      description: 'No instance of {{ $labels.cluster }} has reported PostgreSQL up for 5m. `kubectl -n {{ $labels.namespace }} get cluster {{ $labels.cluster }}` shows the phase; docs/disaster-recovery.md covers the restore path.'
 
   destination:
     server: https://kubernetes.default.svc
@@ -2361,6 +2466,13 @@ spec:
       valuesObject:
         iscsi:
           portal: "192.168.1.100:3260"
+        # The Alertmanager notification credentials: the child renders the
+        # OnePasswordItem that becomes Secret <secretName>, which the
+        # kube-prometheus-stack Application mounts into Alertmanager.
+        alertmanager:
+          notifications:
+            secretName: "alertmanager-notifications"
+            onePasswordItemPath: "vaults/homelab/items/alertmanager-notifications"
   destination:
     server: https://kubernetes.default.svc
     namespace: monitoring

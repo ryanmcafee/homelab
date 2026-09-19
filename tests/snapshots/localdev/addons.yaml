@@ -779,6 +779,40 @@ spec:
                     annotations:
                       summary: 'Average sda write latency on {{ $labels.instance }} is above 50ms'
                       description: 'The system disk of {{ $labels.instance }} has averaged more than 50ms per write for 10m. On the control planes this starves etcd fsync; see docs/runbooks/control-plane-storage.md.'
+          # Critical infrastructure alerts routed by severity (docs/runbooks/alerting.md).
+          # The chart's defaultRules already cover full disks and volumes
+          # (NodeFilesystemAlmostOutOfSpace, KubePersistentVolumeFillingUp), pods
+          # and targets; these name the homelab failures those miss or only warn
+          # about. Metrics: kube-state-metrics, the kube-etcd scrape and the
+          # CloudNativePG PodMonitor, all of which Prometheus discovers today.
+          homelab-infrastructure:
+            groups:
+              - name: homelab-infrastructure
+                rules:
+                  - alert: HomelabNodeNotReady
+                    expr: 'kube_node_status_condition{condition="Ready",status="true"} == 0'
+                    for: 5m
+                    labels:
+                      severity: critical
+                    annotations:
+                      summary: 'Node {{ $labels.node }} is NotReady'
+                      description: 'The kubelet on {{ $labels.node }} has reported NotReady for 5m. Workloads on it are being rescheduled; check the VM in Proxmox and `talosctl -n <node> health`.'
+                  - alert: HomelabNodeUnderPressure
+                    expr: 'kube_node_status_condition{condition=~"MemoryPressure|DiskPressure|PIDPressure",status="true"} == 1'
+                    for: 10m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: 'Node {{ $labels.node }} reports {{ $labels.condition }}'
+                      description: '{{ $labels.node }} has been under {{ $labels.condition }} for 10m; the kubelet is evicting pods. Check `kubectl describe node` and the workload limits.'
+                  - alert: HomelabPostgresClusterDown
+                    expr: 'max by (namespace, cluster) (cnpg_collector_up) == 0'
+                    for: 5m
+                    labels:
+                      severity: critical
+                    annotations:
+                      summary: 'CloudNativePG cluster {{ $labels.namespace }}/{{ $labels.cluster }} is down'
+                      description: 'No instance of {{ $labels.cluster }} has reported PostgreSQL up for 5m. `kubectl -n {{ $labels.namespace }} get cluster {{ $labels.cluster }}` shows the phase; docs/disaster-recovery.md covers the restore path.'
 
   destination:
     server: https://kubernetes.default.svc
@@ -992,6 +1026,13 @@ spec:
       valuesObject:
         iscsi:
           portal: "127.0.0.1:3260"
+        # The Alertmanager notification credentials: the child renders the
+        # OnePasswordItem that becomes Secret <secretName>, which the
+        # kube-prometheus-stack Application mounts into Alertmanager.
+        alertmanager:
+          notifications:
+            secretName: "alertmanager-notifications"
+            onePasswordItemPath: ""
   destination:
     server: https://kubernetes.default.svc
     namespace: monitoring

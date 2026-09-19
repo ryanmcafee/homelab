@@ -89,3 +89,16 @@ spec:
   resources:
     requests:
       storage: 10Gi
+
+---
+# Source: prometheus-config/templates/alertmanager-notifications.yaml
+apiVersion: onepassword.com/v1
+kind: OnePasswordItem
+metadata:
+  name: alertmanager-notifications
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/part-of: prometheus
+    app.kubernetes.io/component: alertmanager-notifications
+spec:
+  itemPath: "vaults/homelab/items/alertmanager-notifications"

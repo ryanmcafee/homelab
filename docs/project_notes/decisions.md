@@ -434,6 +434,30 @@ Each decision should include:
 - etcd metrics exist from now on, which is how the next occurrence gets diagnosed in minutes rather than months. `EtcdMetricsAbsent` fires if that regresses
 - Unrelated findings recorded in the runbook rather than fixed here: the Proxmox root filesystem is 100 % full from an unmanaged failing `vzdump` job, and the unused Cilium LB pool `control-plane-vip` would let a labelled Service announce the API VIP from a worker
 
+### ADR-017: Alert notifications are routed by severity to Pushover and Slack from one 1Password item (2026-09-19)
+
+**Context:**
+- Issue #42: kube-prometheus-stack ran Alertmanager with the chart's default config, so every alert (including the built-in rules ADR-016 activated) went to the `null` receiver; nothing ever reached a person
+- Receiver credentials (a Slack webhook, a Pushover token and user key) are secrets and cannot sit in `charts/addons/values-homelab.yaml` or in an Application spec; ADR-010 already routes every secret through an OnePasswordItem in a `*-config` child chart
+- Alertmanager is off in Kind (`SECRETS_PROVIDER=none`, no routes worth testing), so the design must render nothing secret-dependent there while staying one template
+
+**Decision:**
+- Routing and receivers are `alertmanager.config` inside the kube-prometheus-stack Application (`charts/addons/templates/kube-prometheus-stack.yaml`): `critical` -> `pushover-critical` **and** `slack`, `warning` -> `slack`, `info`/`Watchdog`/`InfoInhibitor` -> `null`; a critical alert inhibits the same-name warning in the same namespace
+- The credentials are one 1Password item (`ALERTMANAGER_1P_PATH`, fields `slack_webhook_url`, `pushover_token`, `pushover_user_key`). `charts/prometheus-config` renders the OnePasswordItem -> Secret `alertmanager-notifications` (wave 8), the Application mounts it through `alertmanagerSpec.secrets` and every receiver reads a `*_file`, so the Application spec carries paths, never values
+- `SECRETS_PROVIDER` drives `alertmanager.notifications.enabled` in the CMP template: without a secret store the Secret is not mounted and every route ends in `null`; in Kind Alertmanager stays disabled as before
+- Four homelab rules join the control-plane group of ADR-016 under `additionalPrometheusRulesMap`: `HomelabNodeNotReady`, `HomelabNodeUnderPressure`, `HomelabEtcdQuorumAtRisk`, `HomelabPostgresClusterDown`; the chart's `defaultRules` stay on and are routed by their own severities
+- `docs/runbooks/alerting.md` holds the routing table, the item fields, the delivery test (`amtool alert add` from inside the pod) and the local `amtool check-config` step
+
+**Alternatives Considered:**
+- **An `AlertmanagerConfig` CR (monitoring.coreos.com) in prometheus-config** -> keeps routing next to the Secret, but the operator namespaces every matcher (`namespace=monitoring`) unless the global route is configured to accept it, its CRD schema is not vendored for kubeconform, and the routing would live away from the rules it serves
+- **Pushbullet, as the issue title says** -> Alertmanager has no Pushbullet receiver; the issue's own YAML used `pushover_configs`, which is native and supports `token_file`/`user_key_file`. A Pushbullet bridge would be a webhook receiver plus a service to run; not worth it while Pushover does the job
+- **Secrets by `$(ENV)` expansion or `existingSecret` values** -> the chart does not template `alertmanager.config` from env; `*_file` fields plus `alertmanagerSpec.secrets` is the supported path and keeps the config readable in the snapshot
+
+**Consequences:**
+- Alertmanager will not start until the 1Password item exists (its Secret volume is missing); the OnePasswordItem health script shows Degraded until then, which is the intended signal. Creating the item needs no sync
+- Every default rule with `severity: critical` now pages through Pushover. If a chart default proves noisy, the fix is a matcher route to `slack` or `null` for that alertname, recorded in the runbook, not a lower severity on the rule
+- ArgoCD and cert-manager metrics are still not scraped (their ServiceMonitor CRD arrives at wave 9, after they install), so no rule covers Application health or certificate expiry yet; a `*-config` child with the monitors is the follow-up
+
 ## Tips
 
 - Number decisions sequentially (ADR-001, ADR-002, etc.)

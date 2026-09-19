@@ -1,0 +1,24 @@
+{{/*
+Alertmanager notification credentials (docs/runbooks/alerting.md): one
+1Password item with the fields slack_webhook_url, pushover_token and
+pushover_user_key becomes Secret <secretName> in the monitoring namespace,
+which the kube-prometheus-stack Application mounts into Alertmanager
+(alertmanagerSpec.secrets) and reads through the receivers' *_file fields.
+
+An OnePasswordItem with an empty itemPath renders but is inert (the operator
+has nothing to fetch), so the item is only rendered when the parent passed a
+path; without a secret store the parent also leaves the Secret unmounted.
+*/}}
+{{- if .Values.alertmanager.notifications.onePasswordItemPath }}
+---
+apiVersion: onepassword.com/v1
+kind: OnePasswordItem
+metadata:
+  name: {{ .Values.alertmanager.notifications.secretName }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    app.kubernetes.io/part-of: {{ .Chart.Name | trimSuffix "-config" }}
+    app.kubernetes.io/component: alertmanager-notifications
+spec:
+  itemPath: {{ .Values.alertmanager.notifications.onePasswordItemPath | quote }}
+{{- end }}

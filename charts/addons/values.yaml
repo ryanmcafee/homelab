@@ -591,6 +591,18 @@ kube-prometheus-stack:
   alertmanager:
     enabled: true
 
+    # Notification receivers (docs/runbooks/alerting.md). The CMP sets enabled
+    # and onePasswordItemPath from SECRETS_PROVIDER / ALERTMANAGER_1P_PATH; with
+    # enabled false every route ends in the null receiver and no Secret is
+    # mounted. secretName is the Secret the prometheus-config chart creates from
+    # the 1Password item (fields slack_webhook_url, pushover_token,
+    # pushover_user_key).
+    notifications:
+      enabled: false
+      secretName: alertmanager-notifications
+      onePasswordItemPath: ""
+      slackChannel: "#homelab-alerts"
+
     # Storage configuration
     storage:
       volumeClaimTemplate:
