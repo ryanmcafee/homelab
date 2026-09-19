@@ -2,34 +2,40 @@
 
 This directory contains SOPS-encrypted Kubernetes secrets managed via GitOps.
 
-## Bootstrap (manual, once per repository)
-
-`homelab sops bootstrap` / `homelab sops setup` are not implemented (they exit 1 and point
-here). The steps they were meant to automate:
+## Bootstrap (once per repository)
 
 ```bash
-# 1. Generate the age key pair and store the private key in 1Password
-age-keygen -o /tmp/sops-age.txt                    # prints "Public key: age1..."
-op item create --vault homelab --category password --title sops-age-key \
-  "private_key[password]=$(rg -v '^#' /tmp/sops-age.txt)" \
-  "public_key[text]=$(rg '^# public key:' /tmp/sops-age.txt | cut -d: -f2 | tr -d ' ')"
-rm /tmp/sops-age.txt
+# 1. Age key pair: generated once, stored as op://homelab/sops-age-key (fields
+#    private_key, public_key), public key written into every creation rule of
+#    .sops.yaml. Re-runs reuse the key in 1Password; --dry-run shows the plan.
+task sops:bootstrap
 
-# 2. Put the public key in .sops.yaml (every creation_rule's `age:` field)
-
-# 3. Encrypt the 1Password Connect credentials template
-task sops:encrypt        # reads the credentials from 1Password, writes onepassword/onepassword-credentials.sops.yaml
+# 2. 1Password Connect credentials: read from op://homelab/onepassword-connect
+#    (1password-credentials.json + connect_token), rendered as the
+#    onepassword-credentials Secret and encrypted into onepassword/onepassword-credentials.sops.yaml
+task sops:setup:dry-run  # redacted preview
+task sops:setup          # encrypts and commits (task sops:setup -- --help for flags)
 task sops:verify         # proves your local age key decrypts what is committed
 
-# 4. Provision the age key in the cluster (gitops-bootstrap reads op://homelab/sops-age-key)
+# 3. Provision the age key in the cluster (gitops-bootstrap reads op://homelab/sops-age-key)
 task tf:apply:component COMPONENT=gitops-bootstrap
 ```
+
+Without a Connect item in 1Password, `task sops:bootstrap` writes the gitignored
+`onepassword/onepassword-credentials.template.yaml` on a fresh repository; fill it in and run
+`task sops:encrypt`. Key rotation is `task sops:rotate`: `sops:bootstrap:force` regenerates the
+pair, overwrites the 1Password item and `.sops.yaml` (keeping any extra recipient a rule lists,
+such as the Tailscale ACL key), then re-keys every committed `*.sops.yaml` / `*.sops.hujson`
+with `sops updatekeys`; re-apply `gitops-bootstrap` afterwards.
 
 ## Available Tasks
 
 | Task | Description |
 |------|-------------|
-| `task sops:encrypt` | Encrypt the 1Password credentials template |
+| `task sops:bootstrap` | Generate/reuse the age key in 1Password and write its public key to `.sops.yaml` |
+| `task sops:bootstrap:force` | Regenerate the key pair (then `task sops:rotate`) |
+| `task sops:setup` / `task sops:setup:dry-run` | Encrypt the 1Password Connect credentials from 1Password (and commit) / redacted preview |
+| `task sops:encrypt` | Encrypt a hand-filled `onepassword-credentials.template.yaml` |
 | `task sops:decrypt` | Decrypt and view credentials (stdout) |
 | `task sops:edit` | Edit encrypted credentials in-place |
 | `task sops:rotate` | Rotate keys and re-encrypt all secrets |

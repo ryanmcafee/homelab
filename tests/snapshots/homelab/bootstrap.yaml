@@ -421,7 +421,7 @@ spec:
             env:
             - name: ARGOCD_EXEC_TIMEOUT
               value: "90"
-            image: ghcr.io/ryanmcafee/homelab-cmp:0.1.37
+            image: ghcr.io/ryanmcafee/homelab-cmp:0.1.38
             name: homelab-cmp
             securityContext:
               runAsNonRoot: true
@@ -444,7 +444,7 @@ spec:
             - /custom-tools/
             command:
             - /bin/cp
-            image: ghcr.io/ryanmcafee/homelab-cmp:0.1.37
+            image: ghcr.io/ryanmcafee/homelab-cmp:0.1.38
             name: install-ksops
             volumeMounts:
             - mountPath: /custom-tools

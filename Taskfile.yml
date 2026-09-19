@@ -891,24 +891,24 @@ tasks:
   # ==========================================================================
 
   sops:bootstrap:
-    desc: Bootstrap SOPS encryption (generate age keys, store in 1Password)
+    desc: "Bootstrap SOPS: age key in 1Password (reused when present), public key into .sops.yaml (-- --dry-run, -- --encrypt)"
     cmds:
-      - ./bin/homelab sops bootstrap
+      - go run ./cmd/homelab sops bootstrap {{.CLI_ARGS}}
 
   sops:bootstrap:force:
-    desc: Bootstrap SOPS with new keys (overwrites existing)
+    desc: Regenerate the age key pair (overwrites op://homelab/sops-age-key and .sops.yaml; follow with task sops:rotate)
     cmds:
-      - ./bin/homelab sops bootstrap --force
+      - go run ./cmd/homelab sops bootstrap --force {{.CLI_ARGS}}
 
   sops:setup:
     desc: Full automated SOPS setup - pulls credentials from 1Password, encrypts, and commits
     cmds:
-      - ./bin/homelab sops setup --commit
+      - go run ./cmd/homelab sops setup --commit {{.CLI_ARGS}}
 
   sops:setup:dry-run:
-    desc: Preview SOPS setup without making changes
+    desc: Preview SOPS setup without making changes (redacted Secret preview)
     cmds:
-      - ./bin/homelab sops setup --dry-run
+      - go run ./cmd/homelab sops setup --dry-run
 
   sops:encrypt:
     desc: Encrypt the 1Password credentials template
@@ -941,12 +941,14 @@ tasks:
     cmds:
       - task: sops:bootstrap:force
       - |
-        echo "Re-encrypting secrets with new key..."
-        for file in $(find charts/secrets -name "*.sops.yaml"); do
-          echo "Re-encrypting: $file"
+        # Every committed SOPS file, not only charts/secrets: policy.sops.hujson
+        # (Tailscale ACL) is encrypted with the same primary key.
+        echo "Re-keying every committed SOPS file with the new public key..."
+        for file in $(git ls-files '*.sops.yaml' '*.sops.hujson'); do
+          echo "Re-keying: $file"
           sops updatekeys --yes "$file"
         done
-        echo "Key rotation complete"
+        echo "Key rotation complete; run: task tf:apply:component COMPONENT=gitops-bootstrap"
 
   sops:verify:
     desc: Verify SOPS can decrypt secrets
