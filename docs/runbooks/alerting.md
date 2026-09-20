@@ -111,6 +111,8 @@ rules live in `additionalPrometheusRulesMap`:
 | homelab-infrastructure | `HomelabPostgresClusterDown` | critical | a CloudNativePG cluster reports no PostgreSQL up for 5 m |
 | homelab-infrastructure | `HomelabArgoCDApplicationDegraded` | warning | an Application is Degraded/Missing/Unknown for 15 m |
 | homelab-infrastructure | `HomelabCertificateExpiringSoon` | warning | a cert-manager Certificate expires in under 14 days for 1 h |
+| homelab-infrastructure | `HomelabClusterDNSFailing` | critical | CoreDNS answers SERVFAIL for more than 10 % of queries for 15 m ([cluster-dns.md](./cluster-dns.md)) |
+| homelab-infrastructure | `HomelabClusterDNSUpstreamDown` | critical | CoreDNS has no healthy upstream resolver for 10 m ([cluster-dns.md](./cluster-dns.md)) |
 
 Add a rule next to these (Prometheus `$labels` escaped as in the file), give it a `severity`
 label the table above routes, and run `task verify:text`: kubeconform validates the
