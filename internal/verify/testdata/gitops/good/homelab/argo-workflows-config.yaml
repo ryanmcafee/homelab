@@ -1,0 +1,53 @@
+# Child chart owned by the argo-workflows-config Application (addons, wave 3),
+# one wave after the argo-workflows CRD provider. Both verified hosts are
+# served: argocd.example.com by the Ingress in the addons parent,
+# workflows.example.com by the argo-workflows Application's Helm values. The
+# in-cluster URL and the Argo expression are not hosts to look for.
+---
+apiVersion: argoproj.io/v1alpha1
+kind: CronWorkflow
+metadata:
+  name: ingress-verification
+  namespace: argo-workflows
+spec:
+  schedule: "0 6 * * *"
+  workflowSpec:
+    entrypoint: verify-all-ingresses
+    templates:
+      - name: verify-all-ingresses
+        dag:
+          tasks:
+            - name: verify-argocd
+              template: verify-ingress
+              arguments:
+                parameters:
+                  - name: name
+                    value: "argocd"
+                  - name: url
+                    value: "https://argocd.example.com"
+            - name: verify-workflows
+              template: verify-ingress
+              arguments:
+                parameters:
+                  - name: name
+                    value: "workflows"
+                  - name: url
+                    value: "https://workflows.example.com"
+            - name: verify-server
+              template: verify-ingress
+              arguments:
+                parameters:
+                  - name: name
+                    value: "server"
+                  - name: url
+                    value: "http://argo-workflows-server.argo-workflows.svc.cluster.local:2746/"
+      - name: verify-ingress
+        inputs:
+          parameters:
+            - name: name
+            - name: url
+        container:
+          image: curlimages/curl:8.5.0
+          env:
+            - name: URL
+              value: "{{inputs.parameters.url}}"

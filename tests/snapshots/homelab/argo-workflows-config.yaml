@@ -136,16 +136,6 @@ spec:
                     value: "https://prowlarr.REPLACEME-domain.com"
                   - name: expect-auth
                     value: "true"
-            - name: verify-homeassistant
-              template: verify-ingress
-              arguments:
-                parameters:
-                  - name: name
-                    value: "homeassistant"
-                  - name: url
-                    value: "https://homeassistant.REPLACEME-domain.com"
-                  - name: expect-auth
-                    value: "true"
             - name: verify-auth
               template: verify-ingress
               arguments:

@@ -28,6 +28,8 @@ kind: IngressRoute
 metadata:
   name: traefik-dashboard-redirect
   namespace: traefik-external
+  annotations:
+    kubernetes.io/ingress.class: external
 spec:
   entryPoints:
     - websecure

@@ -285,6 +285,13 @@ inputs = {
   # etcd is currently not scraped at all, which is why the fsync stalls went
   # unnoticed. Talos documents cluster.etcd.extraArgs in the v1alpha1 config
   # reference.
+  #
+  # controllerManager / scheduler bind-address: Talos starts both with
+  # --bind-address=127.0.0.1, so the kube-prometheus-stack scrape of
+  # <control-plane IP>:10257 and :10259 is refused and KubeControllerManagerDown,
+  # KubeSchedulerDown and TargetDown fire permanently. 0.0.0.0 opens only the
+  # secure ports, which still require a token authorised for /metrics
+  # (Prometheus has one). Talos restarts the two static pods on apply; no reboot.
   controlplane_config_patches = [
     yamlencode({
       cluster = {
@@ -293,6 +300,16 @@ inputs = {
             "heartbeat-interval"  = "250"
             "election-timeout"    = "2500"
             "listen-metrics-urls" = "http://0.0.0.0:2381"
+          }
+        }
+        controllerManager = {
+          extraArgs = {
+            "bind-address" = "0.0.0.0"
+          }
+        }
+        scheduler = {
+          extraArgs = {
+            "bind-address" = "0.0.0.0"
           }
         }
       }

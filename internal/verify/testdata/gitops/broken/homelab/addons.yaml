@@ -13,6 +13,9 @@
 #   namespaces    spegel targets a namespace nothing creates
 #   ssa           cert-manager omits ServerSideApply=true
 #   unique-names  demo is also rendered by the applications parent
+#   verified-hosts
+#                 the CronWorkflow in charts/demo-dependencies verifies a
+#                 host that nothing in this environment serves
 ---
 apiVersion: argoproj.io/v1alpha1
 kind: Application

@@ -27,7 +27,6 @@ var consumedOutsideTemplates = map[string]string{
 	"NFS_BASE_PATH": "only used inside other schema keys' const expressions " +
 		`(MEDIA_MOVIES_PATH, MEDIA_TV_PATH, etc. use "{{.NFS_BASE_PATH}}/...") — ` +
 		"never directly referenced by a template",
-
 }
 
 // templateRef is a single recognized expression found on one line of a

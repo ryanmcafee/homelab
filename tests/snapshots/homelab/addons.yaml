@@ -601,9 +601,6 @@ spec:
             name: prowlarr
             url: https://prowlarr.REPLACEME-domain.com
           - expectAuth: true
-            name: homeassistant
-            url: https://homeassistant.REPLACEME-domain.com
-          - expectAuth: true
             name: auth
             url: https://auth.REPLACEME-domain.com
           schedule: 0 0 * * *
@@ -2203,6 +2200,12 @@ spec:
             requests:
               cpu: 50m
               memory: 128Mi
+
+        # No kube-proxy where Cilium replaces it: the chart's scrape Service would
+        # select nothing and KubeProxyDown would fire forever. Disabling the
+        # component also drops that rule.
+        kubeProxy:
+          enabled: false
 
         # etcd scrape (Talos exposes etcd metrics on <control-plane IP>:2381 once
         # cluster.etcd.extraArgs.listen-metrics-urls is set). Kind has no reachable

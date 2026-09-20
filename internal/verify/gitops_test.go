@@ -1171,6 +1171,210 @@ spec:
 			wantStatus: StatusFail,
 			wantFind:   "charts/shared",
 		},
+
+		// ---------------- verified-hosts ----------------
+		{
+			name:       "verified-hosts pass when an IngressRoute Host() match serves the URL",
+			rule:       "verified-hosts",
+			repoCharts: []string{"bootstrap", "addons", "applications", "wf", "routes"},
+			rendered: map[string]string{
+				"gitops": gitopsParents,
+				"addons": verifiedHostsApps + appDoc("routes", "3", "charts/routes", "traefik"),
+				"wf":     verificationCronWorkflow("https://plex.example.com", "https://grafana.example.com/login"),
+				"routes": `
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: media
+  namespace: traefik
+spec:
+  routes:
+    - match: HostRegexp(` + "`ignored.example.com`" + `) || (Host(` + "`Plex.example.com`" + `) && PathPrefix(` + "`/`" + `)) || Host("grafana.example.com")
+      kind: Rule
+`,
+			},
+			wantStatus: StatusPass,
+			wantDetail: "2 verified URLs in 1 CronWorkflows, 2 routed hosts",
+		},
+		{
+			name:       "verified-hosts pass when an Ingress rule host serves the URL",
+			rule:       "verified-hosts",
+			repoCharts: []string{"bootstrap", "addons", "applications", "wf"},
+			rendered: map[string]string{
+				"gitops": gitopsParents,
+				"addons": verifiedHostsApps + `
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: plex
+  namespace: media
+spec:
+  rules:
+    - host: plex.example.com
+    - http: {}
+`,
+				"wf": verificationCronWorkflow("https://plex.example.com"),
+			},
+			wantStatus: StatusPass,
+			wantDetail: "1 verified URLs in 1 CronWorkflows, 1 routed hosts",
+		},
+		{
+			name:       "verified-hosts pass when only another Application's inline helm.values names the host",
+			rule:       "verified-hosts",
+			repoCharts: []string{"bootstrap", "addons", "applications", "wf", "plex"},
+			rendered: map[string]string{
+				"gitops": gitopsParents,
+				"addons": verifiedHostsApps,
+				"applications": appDocHelm("plex", "1", "charts/plex", "media",
+					"      values: |\n        ingress:\n          hosts:\n            - host: plex.example.com\n"),
+				"wf": verificationCronWorkflow("https://plex.example.com"),
+			},
+			wantStatus: StatusPass,
+			wantDetail: "1 verified URLs in 1 CronWorkflows, 0 routed hosts",
+		},
+		{
+			name:       "verified-hosts pass when only another Application's valuesObject names the host",
+			rule:       "verified-hosts",
+			repoCharts: []string{"bootstrap", "addons", "applications", "wf", "plex"},
+			rendered: map[string]string{
+				"gitops": gitopsParents,
+				"addons": verifiedHostsApps,
+				"applications": appDocHelm("plex", "1", "charts/plex", "media",
+					"      valuesObject:\n        replicas: 1\n        ingress:\n          hosts:\n            - host: plex.example.com\n"),
+				"wf": verificationCronWorkflow("https://plex.example.com"),
+			},
+			wantStatus: StatusPass,
+			wantDetail: "1 verified URLs in 1 CronWorkflows, 0 routed hosts",
+		},
+		{
+			name:       "verified-hosts pass when a multi-source Application's values name the host",
+			rule:       "verified-hosts",
+			repoCharts: []string{"bootstrap", "addons", "applications", "wf"},
+			rendered: map[string]string{
+				"gitops": gitopsParents,
+				"addons": verifiedHostsApps,
+				"applications": `
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: plex
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  sources:
+    - repoURL: https://example.com/charts
+      chart: plex
+      helm:
+        valuesObject:
+          ingress:
+            url: https://plex.example.com
+  destination:
+    namespace: media
+  syncPolicy:
+    syncOptions: [CreateNamespace=true]
+`,
+				"wf": verificationCronWorkflow("https://plex.example.com"),
+			},
+			wantStatus: StatusPass,
+		},
+		{
+			// The owning Application's valuesObject is where the URL list comes
+			// from: counting it would make every listed host serve itself.
+			name:       "verified-hosts fail when only the owning Application's valuesObject names the host",
+			rule:       "verified-hosts",
+			repoCharts: []string{"bootstrap", "addons", "applications", "wf"},
+			rendered: map[string]string{
+				"gitops": gitopsParents,
+				"addons": appDoc("argo-workflows", "1", "", "argo-workflows") +
+					appDocHelm("wf", "2", "charts/wf", "argo-workflows",
+						"      valuesObject:\n        ingressVerification:\n          ingresses:\n            - name: homeassistant\n              url: https://homeassistant.example.com\n"),
+				"wf": verificationCronWorkflow("https://homeassistant.example.com"),
+			},
+			wantStatus: StatusFail,
+			wantFind:   `CronWorkflow/argo-workflows/ingress-verification: verifies https://homeassistant.example.com but no rendered Ingress, IngressRoute or Application value serves host "homeassistant.example.com"; an Application that is disabled in this environment must not be listed`,
+		},
+		{
+			name:       "verified-hosts fail when nothing serves the host",
+			rule:       "verified-hosts",
+			repoCharts: []string{"bootstrap", "addons", "applications", "wf"},
+			rendered: map[string]string{
+				"gitops":       gitopsParents,
+				"addons":       verifiedHostsApps,
+				"applications": appDoc("plex", "1", "", "media"),
+				// The same URL listed twice is one finding and one verified URL.
+				"wf": verificationCronWorkflow("https://plex.example.com", "https://homeassistant.example.com", "https://homeassistant.example.com"),
+			},
+			wantStatus: StatusFail,
+			wantFind:   `"homeassistant.example.com"`,
+			wantDetail: "2 verified URLs in 1 CronWorkflows, 0 routed hosts",
+		},
+		{
+			// The renderer renders every chart for every environment, so an
+			// Ingress in a chart no Application deploys serves nothing.
+			name:       "verified-hosts fail when the only Ingress is in a chart no Application deploys",
+			rule:       "verified-hosts",
+			repoCharts: []string{"bootstrap", "addons", "applications", "wf", "orphan"},
+			rendered: map[string]string{
+				"gitops": gitopsParents,
+				"addons": verifiedHostsApps,
+				"orphan": `
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: homeassistant
+  namespace: home
+spec:
+  rules:
+    - host: homeassistant.example.com
+`,
+				"wf": verificationCronWorkflow("https://homeassistant.example.com"),
+			},
+			wantStatus: StatusFail,
+			wantFind:   `"homeassistant.example.com"`,
+			wantDetail: "1 verified URLs in 1 CronWorkflows, 0 routed hosts",
+		},
+		{
+			name:       "verified-hosts ignores template expressions, in-cluster and non-http URLs",
+			rule:       "verified-hosts",
+			repoCharts: []string{"bootstrap", "addons", "applications", "wf"},
+			rendered: map[string]string{
+				"gitops": gitopsParents,
+				"addons": verifiedHostsApps,
+				"wf": verificationCronWorkflow(
+					"{{inputs.parameters.url}}",
+					"http://svc.ns.svc.cluster.local:80/",
+					"http://argo-server.argo-workflows.svc:2746",
+					"http://localhost:8080/healthz",
+					"ftp://files.example.com",
+					"https://%zz"),
+			},
+			wantStatus: StatusPass,
+			wantDetail: "0 verified URLs in 1 CronWorkflows, 0 routed hosts",
+		},
+		{
+			name:       "verified-hosts skips a CronWorkflow in a chart no Application deploys",
+			rule:       "verified-hosts",
+			repoCharts: []string{"bootstrap", "addons", "applications", "wf"},
+			rendered: map[string]string{
+				"gitops": gitopsParents,
+				"wf":     verificationCronWorkflow("https://homeassistant.example.com"),
+			},
+			wantStatus: StatusPass,
+			wantDetail: "0 verified URLs in 0 CronWorkflows, 0 routed hosts; skipped 1 CronWorkflow(s) from charts no Application references: wf",
+		},
+		{
+			name:       "verified-hosts pass with no CronWorkflow at all",
+			rule:       "verified-hosts",
+			repoCharts: []string{"bootstrap", "addons", "applications"},
+			rendered: map[string]string{
+				"gitops": gitopsParents,
+				"addons": appDoc("a", "1", "", "kube-system"),
+			},
+			wantStatus: StatusPass,
+			wantDetail: "0 verified URLs in 0 CronWorkflows, 0 routed hosts",
+		},
 	}
 
 	for _, tc := range tests {
@@ -1217,6 +1421,57 @@ func appDoc(name, wave, path, destNS string) string {
 		"\"\nspec:\n  source:\n" + src +
 		"  destination:\n    namespace: " + destNS +
 		"\n  syncPolicy:\n    syncOptions: [CreateNamespace=true, ServerSideApply=true]\n"
+}
+
+// appDocHelm is a path-based appDoc with extra spec.source.helm keys appended;
+// every line of helm is indented six spaces.
+func appDocHelm(name, wave, path, destNS, helm string) string {
+	const valueFiles = "      valueFiles: [values.yaml]\n"
+	return strings.Replace(appDoc(name, wave, path, destNS), valueFiles, valueFiles+helm, 1)
+}
+
+// verifiedHostsApps is the addons render the verified-hosts cases share: the
+// CRD provider and the wf Application that owns the CronWorkflow's chart.
+var verifiedHostsApps = appDoc("argo-workflows", "1", "", "argo-workflows") +
+	appDoc("wf", "2", "charts/wf", "argo-workflows")
+
+// verificationCronWorkflow renders the ingress-verification CronWorkflow the
+// way charts/argo-workflows-config does: one DAG task per URL, plus the
+// template that reads the URL back through an Argo expression.
+func verificationCronWorkflow(urls ...string) string {
+	var b strings.Builder
+	b.WriteString(`
+apiVersion: argoproj.io/v1alpha1
+kind: CronWorkflow
+metadata:
+  name: ingress-verification
+  namespace: argo-workflows
+spec:
+  schedule: "0 6 * * *"
+  workflowSpec:
+    entrypoint: verify-all-ingresses
+    templates:
+      - name: verify-ingress
+        inputs:
+          parameters:
+            - name: name
+            - name: url
+        container:
+          image: curlimages/curl
+          env:
+            - name: URL
+              value: "{{inputs.parameters.url}}"
+      - name: verify-all-ingresses
+        dag:
+          tasks:
+`)
+	for i, u := range urls {
+		fmt.Fprintf(&b, "            - name: verify-%d\n              template: verify-ingress\n"+
+			"              arguments:\n                parameters:\n"+
+			"                  - name: name\n                    value: %q\n"+
+			"                  - name: url\n                    value: %q\n", i, fmt.Sprintf("app-%d", i), u)
+	}
+	return b.String()
 }
 
 // onePasswordItem builds an OnePasswordItem. An empty namespace leaves
@@ -1339,14 +1594,15 @@ func TestLintGitOpsEmitsEveryRuleOnce(t *testing.T) {
 	// must say so. Asserting the counts stops a passing-but-empty run from
 	// looking like a clean bill of health.
 	wantDetail := map[string]string{
-		"paths":        "3 Application source paths checked",
-		"waves":        "3 Applications, 0 sibling wave comparisons",
-		"crd-order":    "0 custom resources ordered against 2 CRD providers",
-		"repo-secrets": "0 OCI chart sources, 0 repository Secrets",
-		"secret-refs":  "0 secret references, 0 rendered producers, 0 seeded by localdev/fakes",
-		"namespaces":   "3 Application destination namespaces, 0 rendered Namespaces",
-		"ssa":          "0 of 3 Applications require ServerSideApply",
-		"unique-names": "3 distinct Applications, 3 distinct source paths",
+		"paths":          "3 Application source paths checked",
+		"waves":          "3 Applications, 0 sibling wave comparisons",
+		"crd-order":      "0 custom resources ordered against 2 CRD providers",
+		"repo-secrets":   "0 OCI chart sources, 0 repository Secrets",
+		"secret-refs":    "0 secret references, 0 rendered producers, 0 seeded by localdev/fakes",
+		"namespaces":     "3 Application destination namespaces, 0 rendered Namespaces",
+		"ssa":            "0 of 3 Applications require ServerSideApply",
+		"unique-names":   "3 distinct Applications, 3 distinct source paths",
+		"verified-hosts": "0 verified URLs in 0 CronWorkflows, 0 routed hosts",
 	}
 	for rule, want := range wantDetail {
 		if got := byRule[rule].Detail; got != want {
@@ -1527,7 +1783,7 @@ func lintFixture(t *testing.T, name string, repoCharts ...string) map[string]Che
 
 func TestLintGitOpsGoodFixturePasses(t *testing.T) {
 	byRule := lintFixture(t, "good",
-		"bootstrap", "addons", "applications", "cert-manager-config", "cert-manager-cluster-issuer")
+		"bootstrap", "addons", "applications", "cert-manager-config", "cert-manager-cluster-issuer", "argo-workflows-config")
 	for _, rule := range GitOpsRules {
 		if got := byRule[rule]; got.Status != StatusPass {
 			t.Errorf("rule %s: %s %v", rule, got.Status, got.Findings)
@@ -1535,20 +1791,24 @@ func TestLintGitOpsGoodFixturePasses(t *testing.T) {
 	}
 
 	// Assert what each rule actually examined. Without this a fixture that
-	// silently stopped loading would still report eight green checks.
+	// silently stopped loading would still report nine green checks.
 	wantDetail := map[string]string{
-		"paths": "5 Application source paths checked",
-		"waves": "8 Applications, 1 sibling wave comparisons",
-		// Only the ClusterIssuer is ordered: testRegistry does not register
-		// onepassword.com, so the OnePasswordItem has no provider to follow.
-		"crd-order": "1 custom resources ordered against 2 CRD providers; skipped 1 object(s) from charts no Application references: orphan-config",
+		"paths": "6 Application source paths checked",
+		"waves": "10 Applications, 2 sibling wave comparisons",
+		// Only the ClusterIssuer and the CronWorkflow are ordered: testRegistry
+		// does not register onepassword.com, so the OnePasswordItem has no
+		// provider to follow.
+		"crd-order": "2 custom resources ordered against 2 CRD providers; skipped 1 object(s) from charts no Application references: orphan-config",
 		// The disclosure of skipped https sources is part of the contract:
 		// repo-secrets checks oci:// only.
-		"repo-secrets": "1 OCI chart sources, 1 repository Secrets; 2 https repositories not checked (public Helm repos need no Secret)",
+		"repo-secrets": "1 OCI chart sources, 1 repository Secrets; 3 https repositories not checked (public Helm repos need no Secret)",
 		"secret-refs":  "1 secret references, 2 rendered producers",
-		"namespaces":   "8 Application destination namespaces, 2 rendered Namespaces",
-		"ssa":          "1 of 8 Applications require ServerSideApply",
-		"unique-names": "8 distinct Applications, 5 distinct source paths",
+		"namespaces":   "10 Application destination namespaces, 2 rendered Namespaces",
+		"ssa":          "1 of 10 Applications require ServerSideApply",
+		"unique-names": "10 distinct Applications, 6 distinct source paths",
+		// The in-cluster URL and the Argo expression are not counted; the one
+		// routed host is the Ingress, the other URL is served by Helm values.
+		"verified-hosts": "2 verified URLs in 1 CronWorkflows, 1 routed hosts",
 	}
 	for rule, want := range wantDetail {
 		if got := byRule[rule].Detail; got != want {
@@ -1563,14 +1823,15 @@ func TestLintGitOpsBrokenFixtureFailsEveryRule(t *testing.T) {
 
 	// Each rule must fail, and must name the object the fixture broke.
 	want := map[string]string{
-		"paths":        "charts/nope",
-		"waves":        "cert-manager-config",
-		"crd-order":    "ClusterIssuer",
-		"repo-secrets": "ghcr.io/spegel-org/helm-charts",
-		"secret-refs":  "cloudflare-api-token",
-		"namespaces":   "spegel",
-		"ssa":          "cert-manager",
-		"unique-names": "demo",
+		"paths":          "charts/nope",
+		"waves":          "cert-manager-config",
+		"crd-order":      "ClusterIssuer",
+		"repo-secrets":   "ghcr.io/spegel-org/helm-charts",
+		"secret-refs":    "cloudflare-api-token",
+		"namespaces":     "spegel",
+		"ssa":            "cert-manager",
+		"unique-names":   "demo",
+		"verified-hosts": "homeassistant.example.com",
 	}
 	for _, rule := range GitOpsRules {
 		got := byRule[rule]

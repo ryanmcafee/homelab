@@ -366,3 +366,27 @@ These are documented errors with known solutions:
 - **Root Cause**: kube-prometheus-stack reaches an *external* etcd by rendering a selector-less `Service` plus a hand-built `Endpoints` object from `kubeEtcd.endpoints` (`templates/exporters/kube-etcd/{service,endpoints}.yaml`; the Service only gets a pod selector when `endpoints` is empty). ArgoCD's `resource.exclusions` in `argocd-cm` exclude `Endpoints` and `EndpointSlice` cluster-wide "to reduce the number of watched events", so that object is rendered and then never applied — the Service stays empty forever and the ServiceMonitor discovers nothing. ArgoCD's own resource list for the Application shows ConfigMap, Service, PrometheusRule and ServiceMonitor but no Endpoints. The `Endpoints` object present in the cluster was an unrelated April-dated orphan with no `subsets`. Talos compounds it: etcd runs as a host service with no Kubernetes pod, so the selector form cannot work either
 - **Solution**: The addresses become a static scrape config (`prometheus.prometheusSpec.additionalScrapeConfigs`, job `kube-etcd`), which needs no Endpoints object. `kubeEtcd.enabled` stays **true** because the chart gates its etcd alert rules on it (`rules-1.14/etcd.yaml` requires `.Values.kubeEtcd.enabled`); only the unusable `service` and `serviceMonitor` are turned off. The job name must contain "etcd" because those rules match `job=~".*etcd.*"`
 - **Prevention**: "Application Synced" does not mean every rendered object was applied — an excluded kind is skipped silently. When a scrape has no targets, check ArgoCD's per-resource list (`.status.resources`) against what the chart renders, not just the sync status. Never conclude a scrape works because the exporter answers; check `up{job=...}` on the Prometheus side. `EtcdMetricsAbsent` exists for exactly this and would have fired in 15 minutes
+
+### 2026-09-20 - `KubeJobFailed` fired for 17 days after one transient CronJob failure
+- **Issue**: `KubeJobFailed` for `renovate-29807280` and three `duckdns-updater-298075xx` Jobs, all from 2026-09-03, while every run since had succeeded
+- **Root Cause**: Neither CronJob set `ttlSecondsAfterFinished`. `failedJobsHistoryLimit` only trims a failed Job when a newer failed Job replaces it, so a single transient failure (Renovate: `Authentication failure`) leaves a failed Job, and the alert, forever
+- **Solution**: `ttlSecondsAfterFinished` on both (DuckDNS 1 h, Renovate 6 h via the upstream chart's `cronjob.ttlSecondsAfterFinished`). Jobs created before the change carry no TTL: delete them once (`kubectl -n renovate delete job renovate-29807280`, `kubectl -n duckdns delete job duckdns-updater-29807510 duckdns-updater-29807515 duckdns-updater-29807520`)
+- **Prevention**: conftest rule `cronjob-ttl` fails level 0 for a CronJob without the TTL
+
+### 2026-09-20 - `KubeProxyDown`, `KubeControllerManagerDown` and `KubeSchedulerDown` fired permanently on Talos
+- **Issue**: Three critical control-plane alerts firing although the cluster was healthy
+- **Root Cause**: Two separate causes. Cilium replaces kube-proxy (`kubeProxyReplacement: true`), so the chart's `kube-proxy` scrape Service had no endpoints and `absent(up{job="kube-proxy"})` was always true. Talos starts kube-controller-manager and kube-scheduler with `--bind-address=127.0.0.1`, so the scrape of `<control-plane IP>:10257` / `:10259` was refused
+- **Solution**: `kubeProxy.enabled` now follows the same template variable as Cilium's `kubeProxyReplacement` (off in homelab, on in Kind). `cluster.controllerManager.extraArgs` / `cluster.scheduler.extraArgs` `bind-address: 0.0.0.0` in `terragrunt/environments/homelab/talos-cluster/terragrunt.hcl`; needs `task tf:apply:component COMPONENT=talos-cluster` by a human (static pods restart, no reboot)
+- **Prevention**: When a platform removes or hides a component the monitoring chart scrapes by default, disable or re-point that scrape in the same change
+
+### 2026-09-20 - IngressRoutes without an ingress class were loaded by no Traefik
+- **Issue**: The nightly `ingress-verification` CronWorkflow failed on `auth.<DOMAIN>`: TLS handshake got `TRAEFIK DEFAULT CERT` although `auth-tls` was Ready. The `/dashboard` redirect routes of both Traefiks were dead the same way
+- **Root Cause**: Both Traefik instances run with `--providers.kubernetescrd.ingressClass=<external|internal>`. `auth-oidc`, `traefik-dashboard-redirect` and `traefik-internal-dashboard-redirect` had no `kubernetes.io/ingress.class` annotation, so neither instance loaded them. They applied cleanly and ArgoCD showed them Healthy
+- **Solution**: Annotated all three
+- **Prevention**: conftest rule `ingressroute-class` requires the annotation on every rendered IngressRoute
+
+### 2026-09-20 - `ingress-verification` checked a host of a disabled Application
+- **Issue**: The same CronWorkflow failed every night on `homeassistant.<DOMAIN>`
+- **Root Cause**: The URL list in `configuration/templates/helm-addons.tmpl` was static while Home Assistant is `enabled: false` in `helm-apps.tmpl`; nothing compared the list with what is served
+- **Solution**: Removed the entry
+- **Prevention**: Level 0 rule `gitops/<env>/verified-hosts` fails when a CronWorkflow URL's host is served by no rendered Ingress, IngressRoute or Application value

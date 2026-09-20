@@ -84,3 +84,15 @@ deny contains msg if {
 	missing_resource(c)
 	msg := sprintf("[container-resources] %s: container %s is missing resources.requests/limits for cpu and memory", [lib.id(input), c.name])
 }
+
+# cronjob-ttl: every CronJob must expire its finished Jobs. KubeJobFailed
+# fires for as long as a failed Job object exists, and failedJobsHistoryLimit
+# only trims a failed Job when a NEWER failed Job replaces it, so one transient
+# failure keeps the alert firing forever unless the Job carries a TTL.
+deny contains msg if {
+	input.kind == "CronJob"
+	not lib.is_exempt(input, "cronjob-ttl")
+	job_spec := object.get(object.get(input.spec, "jobTemplate", {}), "spec", {})
+	not is_number(object.get(job_spec, "ttlSecondsAfterFinished", null))
+	msg := sprintf("[cronjob-ttl] %s: spec.jobTemplate.spec.ttlSecondsAfterFinished is not set, so a failed Job (and its KubeJobFailed alert) never expires", [lib.id(input)])
+}

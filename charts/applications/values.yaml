@@ -1026,6 +1026,10 @@ renovate:
   # CronJob schedule (every 4 hours)
   schedule: "0 */4 * * *"
 
+  # Seconds a finished Job is kept (6h: past the next scheduled run). Without
+  # it a failed Job, and its KubeJobFailed alert, never expires.
+  ttlSecondsAfterFinished: 21600
+
   # Renovate configuration
   config:
     platform: github

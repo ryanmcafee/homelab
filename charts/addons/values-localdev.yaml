@@ -814,6 +814,12 @@ kube-prometheus-stack:
         cpu: 200m
         memory: 256Mi
 
+  # kube-proxy scrape and the KubeProxyDown rule. With Cilium as the kube-proxy
+  # replacement there is no kube-proxy DaemonSet: the scrape Service has no
+  # endpoints and KubeProxyDown (absent(up{job="kube-proxy"})) fires forever.
+  kubeProxy:
+    enabled: true
+
   # etcd scrape on <control-plane IP>:2381 (Talos cluster.etcd.extraArgs
   # listen-metrics-urls). Kind runs etcd inside the control-plane container with
   # no reachable metrics endpoint, so the scrape is off there.
@@ -1227,7 +1233,10 @@ argo-workflows:
   ingressVerification:
     enabled: true
     schedule: "0 0 * * *"
-    # List of ingresses to verify - all require authentication
+    # List of ingresses to verify - all require authentication. List only hosts
+    # an enabled Application serves: level 0 (gitops/<env>/verified-hosts) fails
+    # on a URL that no rendered Ingress, IngressRoute or Application value carries.
+    # Home Assistant is disabled (helm-apps.tmpl), so it is not listed.
     ingresses:
       - name: traefik
         url: https://traefik.homelab.local/dashboard/
@@ -1249,9 +1258,6 @@ argo-workflows:
         expectAuth: true
       - name: prowlarr
         url: https://prowlarr.homelab.local
-        expectAuth: true
-      - name: homeassistant
-        url: https://homeassistant.homelab.local
         expectAuth: true
       - name: auth
         url: https://auth.homelab.local

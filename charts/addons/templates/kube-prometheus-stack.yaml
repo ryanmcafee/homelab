@@ -212,6 +212,12 @@ spec:
             {{- toYaml (index .Values "kube-prometheus-stack" "kubeStateMetrics" "resources") | nindent 12 }}
           {{- end }}
 
+        # No kube-proxy where Cilium replaces it: the chart's scrape Service would
+        # select nothing and KubeProxyDown would fire forever. Disabling the
+        # component also drops that rule.
+        kubeProxy:
+          enabled: {{ index .Values "kube-prometheus-stack" "kubeProxy" "enabled" }}
+
         # etcd scrape (Talos exposes etcd metrics on <control-plane IP>:2381 once
         # cluster.etcd.extraArgs.listen-metrics-urls is set). Kind has no reachable
         # etcd metrics endpoint, so the scrape is disabled there instead of leaving

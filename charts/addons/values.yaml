@@ -647,6 +647,11 @@ kube-prometheus-stack:
   # The addresses become a static scrape config rather than the chart's
   # Endpoints-based kubeEtcd path, which ArgoCD cannot apply (see the template).
   # An empty endpoints list disables the scrape, which is what Kind wants.
+  # kube-proxy scrape and KubeProxyDown rule; off where Cilium replaces
+  # kube-proxy (configuration/templates/helm-addons.tmpl).
+  kubeProxy:
+    enabled: true
+
   kubeEtcd:
     endpoints: []
     port: 2381

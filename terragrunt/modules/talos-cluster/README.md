@@ -226,6 +226,8 @@ module "talos_cluster" {
   # member failure for long. `listen-metrics-urls` exposes etcd's metrics on
   # :2381 for a Prometheus `kubeEtcd` scrape. Talos documents
   # `cluster.etcd.extraArgs` in the v1alpha1 config reference.
+  # `bind-address` moves kube-controller-manager and kube-scheduler off Talos'
+  # 127.0.0.1 default so Prometheus can scrape :10257 and :10259.
   controlplane_config_patches = [
     yamlencode({
       cluster = {
@@ -234,6 +236,16 @@ module "talos_cluster" {
             "heartbeat-interval"  = "250"
             "election-timeout"    = "2500"
             "listen-metrics-urls" = "http://0.0.0.0:2381"
+          }
+        }
+        controllerManager = {
+          extraArgs = {
+            "bind-address" = "0.0.0.0"
+          }
+        }
+        scheduler = {
+          extraArgs = {
+            "bind-address" = "0.0.0.0"
           }
         }
       }

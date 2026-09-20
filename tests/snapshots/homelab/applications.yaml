@@ -1979,6 +1979,9 @@ spec:
       values: |
         cronjob:
           schedule: "0 */4 * * *"
+          # A failed Job (and its KubeJobFailed alert) otherwise outlives every
+          # later successful run; expire it after the next scheduled run.
+          ttlSecondsAfterFinished: 21600
 
         envFrom:
           - secretRef:

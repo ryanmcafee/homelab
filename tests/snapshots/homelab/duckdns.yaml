@@ -14,6 +14,11 @@ spec:
   failedJobsHistoryLimit: 3
   jobTemplate:
     spec:
+      # KubeJobFailed fires for as long as a failed Job exists, and
+      # failedJobsHistoryLimit only trims one when a newer failure replaces it.
+      # The TTL lets a transient failure clear; a lasting one keeps producing
+      # failed Jobs, so the alert keeps firing.
+      ttlSecondsAfterFinished: 3600
       template:
         spec:
           restartPolicy: OnFailure
