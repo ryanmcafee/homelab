@@ -13,6 +13,11 @@ Each entry should include:
 
 ## Recent Work
 
+### 2026-09-20 - Firing alerts root-caused: stale failed Jobs, kube-proxy, Talos bind-address, unclassed IngressRoutes
+- **Status**: PR #313 open; after merge a human runs `task tf:apply:component COMPONENT=talos-cluster` and deletes the four pre-TTL failed Jobs once
+- **Description**: `KubeJobFailed` fired 17 days after one transient failure because neither CronJob expired finished Jobs; `KubeProxyDown` because Cilium replaces kube-proxy; `KubeControllerManagerDown`/`KubeSchedulerDown` because Talos binds both to 127.0.0.1; the nightly `ingress-verification` failed on `auth` (three IngressRoutes without an ingress class are loaded by no Traefik) and on the disabled Home Assistant. Guards: conftest `cronjob-ttl` and `ingressroute-class`, level 0 `gitops/<env>/verified-hosts`. Open: no metrics-server (both Traefik HPAs read `cpu: <unknown>`), and `agent-readonly` cannot read the Alertmanager API. Details in `bugs.md` (2026-09-20)
+- **URL**: https://github.com/ryanmcafee/homelab/pull/313
+
 ### 2026-09-15 - Sporadic Kubernetes API loss root-caused: etcd fsync on the shared VM pool
 - **Status**: PR open (branch `fix/apiserver-etcd-stability`); migration is a human step, `docs/runbooks/control-plane-storage.md`
 - **Description**: The API dropped for tens of seconds at a time because the three control-plane VM disks shared the ZFS mirror `vm-storage` with every worker disk; a worker image unpack (~6.5 GB) stalled etcd WAL fsync up to 48 s, leases expired and the Talos VIP moved. Fix: dedicated NVMe pool `cp-storage` for the control planes, etcd `heartbeat-interval=250`/`election-timeout=2500`, etcd metrics on :2381 with a `kubeEtcd` scrape and three alerts, plus `scripts/apiserver-stress.ts` (`task apiserver:probe` / `task apiserver:stress`). ADR-016. Measured: the API server sustains 742 req/s of concurrent reads with zero errors, so capacity was never the problem. Also found: the Proxmox root filesystem is 100 % full from an unmanaged failing `vzdump` job, and the unused Cilium LB pool `control-plane-vip` could let a labelled Service hijack the API VIP
