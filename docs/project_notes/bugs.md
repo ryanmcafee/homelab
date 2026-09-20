@@ -400,3 +400,9 @@ These are documented errors with known solutions:
 ### 2026-09-20 - The read-only agent could not read what Alertmanager was firing
 - **Issue**: Alert triage had to be reconstructed from cluster state: `services/proxy`, `pods/exec` and `pods/portforward` were all forbidden, and neither Alertmanager nor Prometheus has an Ingress
 - **Solution**: `homelab-agent-readonly` grants `get`/`create` on `pods/exec` and `pods/portforward`. API objects stay read-only; exec is a deliberate exception (a shell can read what its container mounts), documented in `docs/runbooks/readonly-access.md`
+
+### 2026-09-20 - `kubectl auth can-i create pods/exec` tested a pod named "exec", not the subresource
+- **Issue**: After granting `pods/exec` to `agent-readonly`, the Kind e2e still reported `create pods/exec`: no. Before the grant, the same production check had answered `get pods/exec`: yes while a real exec was Forbidden
+- **Root Cause**: `can-i` parses `pods/exec` as TYPE/NAME. The old `check no ... create pods/exec` assertion passed because the account cannot create pods, so it never proved anything about exec; `get pods/log` passed the same vacuous way
+- **Solution**: `tests/e2e/agent-readonly` uses `--subresource=exec|portforward|log|attach`
+- **Prevention**: Test subresource permissions with `kubectl auth can-i <verb> pods --subresource=<name>`

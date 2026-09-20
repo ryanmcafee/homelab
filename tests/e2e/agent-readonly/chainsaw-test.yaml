@@ -101,11 +101,13 @@ spec:
                   failed=1
                 fi
               }
+              # Subresources need --subresource: `can-i create pods/exec` asks about a pod
+              # NAMED "exec" (TYPE/NAME), which made the old exec assertion pass vacuously.
               for who in "--as=$sa" "--as=agent-probe --as-group=homelab:agent-readonly"; do
                 # shellcheck disable=SC2086
                 check yes $who -- list pods -A
                 # shellcheck disable=SC2086
-                check yes $who -- get pods/log -n argocd
+                check yes $who -- get pods --subresource=log -n argocd
                 # shellcheck disable=SC2086
                 check yes $who -- get applications.argoproj.io -n argocd
                 # shellcheck disable=SC2086
@@ -127,15 +129,15 @@ spec:
                 # shellcheck disable=SC2086
                 check no $who -- patch applications.argoproj.io -n argocd
                 # shellcheck disable=SC2086
-                check yes $who -- create pods/exec -n monitoring
+                check yes $who -- create pods --subresource=exec -n monitoring
                 # shellcheck disable=SC2086
-                check yes $who -- get pods/exec -n monitoring
+                check yes $who -- get pods --subresource=exec -n monitoring
                 # shellcheck disable=SC2086
-                check yes $who -- create pods/portforward -n monitoring
+                check yes $who -- create pods --subresource=portforward -n monitoring
                 # shellcheck disable=SC2086
-                check yes $who -- get pods/portforward -n monitoring
+                check yes $who -- get pods --subresource=portforward -n monitoring
                 # shellcheck disable=SC2086
-                check no $who -- create pods/attach -n default
+                check no $who -- create pods --subresource=attach -n default
                 # shellcheck disable=SC2086
                 check no $who -- create pods -n default
                 # shellcheck disable=SC2086
