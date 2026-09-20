@@ -1,0 +1,62 @@
+{{- if index .Values "metrics-server" "enabled" }}
+---
+# metrics-server serves metrics.k8s.io: `kubectl top` and every
+# HorizontalPodAutoscaler on a Resource metric (both Traefik HPAs) read it.
+# Without it an HPA reports `cpu: <unknown>` and never scales.
+# Wave 2: after kubelet-csr-approver (wave 1), which approves the kubelet
+# serving certificates metrics-server verifies.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: metrics-server
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: {{ index .Values "metrics-server" "chart" "repo" }}
+    chart: {{ index .Values "metrics-server" "chart" "name" }}
+    targetRevision: {{ index .Values "metrics-server" "chart" "version" }}
+    helm:
+      releaseName: metrics-server
+      values: |
+        replicas: {{ index .Values "metrics-server" "replicas" }}
+
+        {{- if gt (int (index .Values "metrics-server" "replicas")) 1 }}
+        # An aggregated API with no ready backend raises KubeAggregatedAPIDown
+        # and blinds every HPA, so a node drain must leave one replica.
+        podDisruptionBudget:
+          enabled: true
+          minAvailable: 1
+        {{- end }}
+
+        # Talos signs kubelet serving certificates with the cluster CA
+        # (rotate-server-certificates + kubelet-csr-approver), which
+        # metrics-server verifies by default. Kind's kubelets self-sign, so
+        # verification is off only where KUBELET_SERVING_CERT says so.
+        {{- if index .Values "metrics-server" "kubeletInsecureTLS" }}
+        args:
+          - --kubelet-insecure-tls
+        {{- end }}
+
+        resources:
+          {{- toYaml (index .Values "metrics-server" "resources") | nindent 10 }}
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: {{ index .Values "metrics-server" "namespace" }}
+
+  syncPolicy:
+    {{- if .Values.global.automatedSync }}
+    automated:
+      prune: true
+      selfHeal: true
+    {{- end }}
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+{{- end }}

@@ -30,7 +30,6 @@ sync wave 1 in homelab). Waves inside the chart run from -1 (namespaces, reposit
 | --- | --- | --- | --- | --- | --- |
 | `agent-readonly` | `charts/agent-readonly` | git | — | agent-readonly | — |
 | `argo-workflows` | `argo-workflows` | 1.0.18 | internal: workflows | — | — |
-| `argo-workflows-config` | `charts/argo-workflows-config` | git | — | — | — |
 | `cert-manager` | `cert-manager` | v1.20.3 | — | cert-manager | — |
 | `cert-manager-cluster-issuer` | `charts/cert-manager-cluster-issuer` | git | — | — | — |
 | `cert-manager-config` | `charts/cert-manager-config` | git | — | — | — |
@@ -52,6 +51,7 @@ sync wave 1 in homelab). Waves inside the chart run from -1 (namespaces, reposit
 | `intel-gpu-device-plugin` | `intel-device-plugins-gpu` | 0.36.0 | — | — | — |
 | `kube-prometheus-stack` | `kube-prometheus-stack` | 87.1.0 | internal: grafana | grafana | smoke-grafana, smoke-prometheus |
 | `kubelet-csr-approver` | `kubelet-csr-approver` | 1.2.14 | — | — | — |
+| `metrics-server` | `metrics-server` | 3.14.0 | — | — | — |
 | `node-feature-discovery` | `node-feature-discovery` | 0.18.3 | — | — | — |
 | `port-forwarding-controller` | `port-forwarding` | 1.1.1 | — | — | — |
 | `port-forwarding-controller-config` | `charts/port-forwarding-controller-config` | git | — | — | — |

@@ -75,6 +75,15 @@ kubectl -n monitoring exec "$POD" -c alertmanager -- amtool --alertmanager.url=h
 kubectl -n monitoring exec "$POD" -c alertmanager -- amtool --alertmanager.url=http://localhost:9093 silence
 ```
 
+Agents read what is firing the same way through the read-only identity, which may `exec` and
+port-forward but not change API objects (`docs/runbooks/readonly-access.md`). Pass the kubeconfig
+explicitly, because `.envrc` pins `KUBECONFIG` to `~/.kube/config`:
+
+```bash
+kubectl --kubeconfig ~/.kube/homelab-readonly.yaml --context homelab-readonly -n monitoring \
+  exec "$POD" -c alertmanager -- amtool --alertmanager.url=http://localhost:9093 alert
+```
+
 To change routing or receivers edit `alertmanager.config` in the Application template and
 prove the result before pushing:
 

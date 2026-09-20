@@ -6,6 +6,9 @@
 {{- /* Platform differences come from configuration/schema/platform.schema.yaml keys; */ -}}
 {{- /* only Kind sizing is keyed on the set name ($localdev). */ -}}
 {{- $localdev := eq .Set "localdev" -}}
+{{- /* Cilium replaces kube-proxy on Talos; Kind keeps kube-proxy. One variable drives both the */ -}}
+{{- /* Cilium value and the kube-proxy scrape, so monitoring never expects a missing DaemonSet. */ -}}
+{{- $kubeProxyReplacement := not $localdev -}}
 {{- $lb := eq .Values.LOAD_BALANCER_ENABLED.Value "true" -}}
 {{- $externalDNS := eq .Values.EXTERNAL_DNS_ENABLED.Value "true" -}}
 {{- $cilium := eq .Values.CNI_PROVIDER.Value "cilium" -}}
@@ -104,6 +107,33 @@ kubelet-csr-approver:
       memory: 128Mi
 
 # ============================================================================
+# metrics-server - metrics.k8s.io for kubectl top and the Traefik HPAs
+# ============================================================================
+
+metrics-server:
+  enabled: true
+  namespace: kube-system
+
+  chart:
+    name: metrics-server
+    repo: https://kubernetes-sigs.github.io/metrics-server/
+    version: "{{ index .Versions.Charts "metrics-server" }}"
+
+  # Kind sizing: one replica; homelab keeps the aggregated API up through a drain.
+  replicas: {{ if $localdev }}1{{ else }}2{{ end }}
+
+  # Platform capability, not an environment branch (KUBELET_SERVING_CERT).
+  kubeletInsecureTLS: {{ eq .Values.KUBELET_SERVING_CERT.Value "self-signed" }}
+
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+
+# ============================================================================
 # Spegel - P2P image distribution; only the chart version comes from
 # versions.yaml (the rest of charts/addons/values.yaml spegel block applies)
 # ============================================================================
@@ -133,7 +163,7 @@ cilium:
     # and the API server is reached through the default Service.
     ipam:
       mode: kubernetes
-    kubeProxyReplacement: false
+    kubeProxyReplacement: {{ $kubeProxyReplacement }}
     operator:
       replicas: 1
       resources:
@@ -157,7 +187,7 @@ cilium:
 {{- else }}
     ipam:
       mode: kubernetes
-    kubeProxyReplacement: true
+    kubeProxyReplacement: {{ $kubeProxyReplacement }}
     k8sServiceHost: localhost
     k8sServicePort: 7445
     securityContext:
@@ -938,6 +968,12 @@ kube-prometheus-stack:
         cpu: 200m
         memory: 256Mi
 
+  # kube-proxy scrape and the KubeProxyDown rule. With Cilium as the kube-proxy
+  # replacement there is no kube-proxy DaemonSet: the scrape Service has no
+  # endpoints and KubeProxyDown (absent(up{job="kube-proxy"})) fires forever.
+  kubeProxy:
+    enabled: {{ not $kubeProxyReplacement }}
+
   # etcd scrape on <control-plane IP>:2381 (Talos cluster.etcd.extraArgs
   # listen-metrics-urls). Kind runs etcd inside the control-plane container with
   # no reachable metrics endpoint, so the scrape is off there.
@@ -1437,40 +1473,3 @@ argo-workflows:
           secondsAfterCompletion: 86400
           secondsAfterSuccess: 43200
           secondsAfterFailure: 172800
-
-  # Ingress verification workflow configuration
-  # NOTE: Consumed by the argo-workflows-config child chart (CronWorkflow) via
-  # the argo-workflows-config Application's helm.valuesObject, not by the
-  # upstream argo-workflows chart.
-  ingressVerification:
-    enabled: true
-    schedule: "0 0 * * *"
-    # List of ingresses to verify - all require authentication
-    ingresses:
-      - name: traefik
-        url: https://{{ .Values.TRAEFIK_HOSTNAME.Value }}/dashboard/
-        expectAuth: true
-      - name: argocd
-        url: https://{{ .Values.ARGOCD_HOSTNAME.Value }}
-        expectAuth: true
-      - name: grafana
-        url: https://{{ .Values.GRAFANA_HOSTNAME.Value }}
-        expectAuth: true
-      - name: plex
-        url: https://{{ .Values.PLEX_HOSTNAME.Value }}
-        expectAuth: true
-      - name: sonarr
-        url: https://{{ .Values.SONARR_HOSTNAME.Value }}
-        expectAuth: true
-      - name: radarr
-        url: https://{{ .Values.RADARR_HOSTNAME.Value }}
-        expectAuth: true
-      - name: prowlarr
-        url: https://{{ .Values.PROWLARR_HOSTNAME.Value }}
-        expectAuth: true
-      - name: homeassistant
-        url: https://{{ .Values.HOMEASSISTANT_HOSTNAME.Value }}
-        expectAuth: true
-      - name: auth
-        url: https://{{ .Values.AUTH_HOSTNAME.Value }}
-        expectAuth: true

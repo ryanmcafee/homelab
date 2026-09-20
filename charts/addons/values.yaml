@@ -136,6 +136,35 @@ kubelet-csr-approver:
       memory: 128Mi
 
 # ============================================================================
+# metrics-server - metrics.k8s.io for kubectl top and HorizontalPodAutoscalers
+# Sync Wave: 2 (after kubelet-csr-approver approves the kubelet serving certs)
+# ============================================================================
+
+metrics-server:
+  enabled: true
+  namespace: kube-system
+
+  # Chart source
+  chart:
+    name: metrics-server
+    repo: https://kubernetes-sigs.github.io/metrics-server/
+    version: "3.14.0"
+
+  replicas: 1
+
+  # Skip kubelet certificate verification. Only for clusters whose kubelets
+  # self-sign their serving certificate (Kind); see KUBELET_SERVING_CERT.
+  kubeletInsecureTLS: false
+
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+
+# ============================================================================
 # Democratic-CSI - NFS Storage Provisioner
 # Sync Wave: 2 (OnePasswordItem at wave 1, needs 1Password CRDs from wave 0)
 # ============================================================================
@@ -647,6 +676,11 @@ kube-prometheus-stack:
   # The addresses become a static scrape config rather than the chart's
   # Endpoints-based kubeEtcd path, which ArgoCD cannot apply (see the template).
   # An empty endpoints list disables the scrape, which is what Kind wants.
+  # kube-proxy scrape and KubeProxyDown rule; off where Cilium replaces
+  # kube-proxy (configuration/templates/helm-addons.tmpl).
+  kubeProxy:
+    enabled: true
+
   kubeEtcd:
     endpoints: []
     port: 2381
@@ -1155,15 +1189,3 @@ argo-workflows:
           secondsAfterCompletion: 86400  # 24 hours
           secondsAfterSuccess: 43200     # 12 hours
           secondsAfterFailure: 172800    # 48 hours
-
-  # Ingress verification workflow
-  # NOTE: Consumed by the argo-workflows-config child chart (CronWorkflow) via
-  # the argo-workflows-config Application's helm.valuesObject, not by the
-  # upstream argo-workflows chart. Disabled by default; homelab enables it
-  # with the ingress list derived from configuration/ by the CMP.
-  ingressVerification:
-    enabled: false
-    # Schedule: every 5 minutes
-    schedule: "*/5 * * * *"
-    # Ingresses to verify (name, url, expectAuth)
-    ingresses: []

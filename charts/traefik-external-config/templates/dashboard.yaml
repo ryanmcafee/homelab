@@ -45,6 +45,11 @@ kind: IngressRoute
 metadata:
   name: traefik-dashboard-redirect
   namespace: {{ .Values.namespace }}
+  # Both Traefik instances filter the CRD provider by ingress class
+  # (--providers.kubernetescrd.ingressClass). Without this annotation neither
+  # loads the route: it applies cleanly and then serves the default certificate.
+  annotations:
+    kubernetes.io/ingress.class: external
 spec:
   entryPoints:
     - websecure

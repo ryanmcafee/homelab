@@ -15,7 +15,7 @@ ArgoCD syncs all of this. Nothing works end to end until the human steps below a
 | Application `agent-readonly` | same file (wave 2) → `charts/agent-readonly` | Enabled in homelab **and** Kind |
 | ServiceAccount `agent-readonly` + Secret `agent-readonly-token` | `charts/agent-readonly/templates/serviceaccount.yaml` | Long-lived token (`kubernetes.io/service-account-token`) that the token controller fills |
 | ClusterRoleBinding `agent-readonly-view` → built-in `view` | `charts/agent-readonly/templates/rbac.yaml` | Read access to namespaced workloads, Services, ConfigMaps and `pods/log`. Never Secrets |
-| ClusterRole + binding `homelab-agent-readonly` | same | `get/list/watch` on nodes, namespaces, persistentvolumes, events, storageclasses, ingressclasses and CRDs, plus `*` in `argoproj.io`, `cert-manager.io`, `traefik.io`, `cilium.io`, `postgresql.cnpg.io`, `barmancloud.cnpg.io`, `monitoring.coreos.com`, `onepassword.com`, `tailscale.com`, `externaldns.k8s.io` |
+| ClusterRole + binding `homelab-agent-readonly` | same | `get/create` on `pods/exec` and `pods/portforward` (diagnosis: `amtool`, port-forward to Prometheus/Alertmanager). `get/list/watch` on nodes, namespaces, persistentvolumes, events, storageclasses, ingressclasses and CRDs, plus `*` in `argoproj.io`, `cert-manager.io`, `traefik.io`, `cilium.io`, `postgresql.cnpg.io`, `barmancloud.cnpg.io`, `monitoring.coreos.com`, `onepassword.com`, `tailscale.com`, `externaldns.k8s.io` |
 | Group `homelab:agent-readonly` | both bindings | Same roles for a future Tailscale "auth" mode (impersonation). Unused today |
 | Tailscale API server proxy | `charts/addons/templates/tailscale-operator.yaml` `apiServerProxyConfig.mode: "noauth"` | `https://tailscale-operator-homelab.<tailnet>.ts.net` forwards requests without adding authentication, so the caller's bearer token authenticates it |
 | ArgoCD account `agent` | `charts/bootstrap/values-homelab.yaml` `configs.cm."accounts.agent": apiKey`, `configs.rbac."policy.csv": g, agent, role:readonly` | API token only (no UI login). `role:readonly` can view and diff but not sync, delete or exec |
@@ -26,8 +26,14 @@ The verbs are fixed in the template and never come from values. The chart refuse
 of `""` or `*`, because `resources: ["*"]` in the core group would include Secrets.
 `tests/e2e/agent-readonly` proves in Kind, with `kubectl auth can-i --as=...`, that the
 ServiceAccount and the group can list pods, read `pods/log`, Applications, CRDs, nodes, PVs and
-Certificates, and cannot read Secrets, create ConfigMaps, delete pods, patch Applications,
-`create pods/exec` or delete CRDs.
+Certificates, can `exec` and port-forward, and cannot read Secrets, create ConfigMaps, create or
+delete pods, `attach`, patch Applications or delete CRDs.
+
+`pods/exec` and `pods/portforward` are the diagnostic channel: Alertmanager and Prometheus have no
+Ingress, so `amtool alert` (exec) or a port-forward is how an agent reads what is firing
+(`docs/runbooks/alerting.md`). API objects stay read-only, but exec is not: a shell in a container
+can read the Secrets that container mounts and change state inside it. Agents use it to inspect,
+never to change anything; revoking the token (below) closes it in one command.
 
 ## Agent commands
 
@@ -109,7 +115,8 @@ Agents do none of these. None of them is automated.
 | Tailnet access | Remove the grant | n/a |
 
 Both tokens are long-lived on purpose: an expiring token would silently break unattended agent
-checks. What limits their reach is that both identities are read-only and live only in 1Password,
+checks. What limits their reach is that both identities are read-only on API objects (the Kubernetes
+one can also exec and port-forward, see above) and live only in 1Password,
 and either can be revoked in one command. Rotate them quarterly or whenever a machine that held them
 is retired.
 

@@ -80,6 +80,9 @@ spec:
       values: |
         cronjob:
           schedule: {{ .Values.renovate.schedule | quote }}
+          # A failed Job (and its KubeJobFailed alert) otherwise outlives every
+          # later successful run; expire it after the next scheduled run.
+          ttlSecondsAfterFinished: {{ .Values.renovate.ttlSecondsAfterFinished }}
 
         envFrom:
           - secretRef:

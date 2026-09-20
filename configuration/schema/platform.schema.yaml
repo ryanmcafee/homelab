@@ -62,6 +62,14 @@ keys:
       - nfs
       - ephemeral
 
+  KUBELET_SERVING_CERT:
+    description: Who signs the kubelets' serving certificates (cluster-ca is Talos with rotate-server-certificates and kubelet-csr-approver, which metrics-server verifies; self-signed is Kind, where metrics-server must skip kubelet certificate verification)
+    required: true
+    default: cluster-ca
+    enum:
+      - cluster-ca
+      - self-signed
+
   CERT_ISSUER:
     description: How the letsencrypt ClusterIssuer signs certificates (letsencrypt uses ACME with the Cloudflare DNS-01 solver; selfsigned issues untrusted certificates for clusters without a public domain)
     required: true

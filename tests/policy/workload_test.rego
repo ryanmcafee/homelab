@@ -119,3 +119,26 @@ test_exempt_image_latest if {
 	}
 	count(deny) == 0 with input as obj
 }
+
+cronjob_with_job_spec(job_spec) := {
+	"kind": "CronJob",
+	"metadata": {"name": "job", "namespace": "ns"},
+	"spec": {"jobTemplate": {"spec": object.union(
+		{"template": {"spec": {"containers": [{"name": "app", "image": "curlimages/curl:8.19.0", "resources": good_resources}]}}},
+		job_spec,
+	)}},
+}
+
+test_cronjob_without_ttl_is_denied if {
+	some m in deny with input as cronjob_with_job_spec({})
+	startswith(m, "[cronjob-ttl]")
+}
+
+test_cronjob_with_ttl_passes if {
+	count(deny) == 0 with input as cronjob_with_job_spec({"ttlSecondsAfterFinished": 3600})
+}
+
+test_cronjob_with_non_numeric_ttl_is_denied if {
+	some m in deny with input as cronjob_with_job_spec({"ttlSecondsAfterFinished": "1h"})
+	startswith(m, "[cronjob-ttl]")
+}

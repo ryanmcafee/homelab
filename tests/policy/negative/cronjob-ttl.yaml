@@ -1,0 +1,24 @@
+# expect: cronjob-ttl
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: never-expires
+  namespace: default
+spec:
+  schedule: "*/5 * * * *"
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: worker
+              image: curlimages/curl:8.19.0
+              resources:
+                requests:
+                  cpu: 10m
+                  memory: 16Mi
+                limits:
+                  cpu: 50m
+                  memory: 32Mi

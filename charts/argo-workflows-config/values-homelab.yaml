@@ -1,8 +1,0 @@
-# Argo Workflows Config - Homelab Values
-#
-# ingressVerification (enabled, schedule, ingress URLs) is not set here. The
-# argo-workflows-config Application in charts/addons passes it through
-# helm.valuesObject from the parent's argo-workflows values (configuration/
-# via the CMP), so this committed file carries no hostnames.
-
-namespace: argo-workflows

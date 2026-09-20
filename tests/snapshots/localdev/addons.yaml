@@ -745,6 +745,12 @@ spec:
               cpu: 50m
               memory: 128Mi
 
+        # No kube-proxy where Cilium replaces it: the chart's scrape Service would
+        # select nothing and KubeProxyDown would fire forever. Disabling the
+        # component also drops that rule.
+        kubeProxy:
+          enabled: true
+
         # etcd scrape (Talos exposes etcd metrics on <control-plane IP>:2381 once
         # cluster.etcd.extraArgs.listen-metrics-urls is set). Kind has no reachable
         # etcd metrics endpoint, so the scrape is disabled there instead of leaving
@@ -950,6 +956,58 @@ spec:
   destination:
     server: https://kubernetes.default.svc
     namespace: local-path-storage
+
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+
+---
+# Source: addons/templates/metrics-server.yaml
+# metrics-server serves metrics.k8s.io: `kubectl top` and every
+# HorizontalPodAutoscaler on a Resource metric (both Traefik HPAs) read it.
+# Without it an HPA reports `cpu: <unknown>` and never scales.
+# Wave 2: after kubelet-csr-approver (wave 1), which approves the kubelet
+# serving certificates metrics-server verifies.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: metrics-server
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://kubernetes-sigs.github.io/metrics-server/
+    chart: metrics-server
+    targetRevision: 3.14.0
+    helm:
+      releaseName: metrics-server
+      values: |
+        replicas: 1
+
+        # Talos signs kubelet serving certificates with the cluster CA
+        # (rotate-server-certificates + kubelet-csr-approver), which
+        # metrics-server verifies by default. Kind's kubelets self-sign, so
+        # verification is off only where KUBELET_SERVING_CERT says so.
+        args:
+          - --kubelet-insecure-tls
+
+        resources:
+          limits:
+            cpu: 200m
+            memory: 256Mi
+          requests:
+            cpu: 50m
+            memory: 64Mi
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: kube-system
 
   syncPolicy:
     syncOptions:

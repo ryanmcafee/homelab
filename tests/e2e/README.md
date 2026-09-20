@@ -22,7 +22,7 @@ task verify LEVEL=2                      # runs the same suite, reports e2e/<nam
 | Path | Purpose |
 |------|---------|
 | `.chainsaw.yaml` | Configuration: timeouts (`assert` 10m), 4 tests in parallel, no fail-fast, cleanup on |
-| `argocd-apps/` | Root Applications asserted, then a script lists every Application and fails on any not Healthy/Succeeded |
+| `argocd-apps/` | Root Applications asserted, then a script lists every Application and fails on any not Healthy/Succeeded; `APIService/v1beta1.metrics.k8s.io` (metrics-server) is Available |
 | `cert-manager/` | `Certificate/traefik-dashboard-tls` in `traefik` is Ready |
 | `traefik/` | Both dashboards via IngressRoute (`traefik-internal.homelab.local`, `traefik.homelab.local`) |
 | `grafana/`, `plex/`, `sonarr/`, `radarr/`, `prowlarr/`, `nzbget/`, `tautulli/`, `lazylibrarian/` | HTTP through Traefik with the app's `<app>.homelab.local` host |

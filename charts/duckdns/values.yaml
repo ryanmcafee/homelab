@@ -8,6 +8,10 @@ subdomain: ""
 # CronJob schedule (default: every 5 minutes)
 schedule: "*/5 * * * *"
 
+# Seconds a finished Job is kept. Without it a failed Job, and the
+# KubeJobFailed alert it raises, outlives every later successful run.
+ttlSecondsAfterFinished: 3600
+
 # Container image
 image:
   repository: curlimages/curl
