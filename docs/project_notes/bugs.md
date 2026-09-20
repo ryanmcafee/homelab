@@ -406,3 +406,15 @@ These are documented errors with known solutions:
 - **Root Cause**: `can-i` parses `pods/exec` as TYPE/NAME. The old `check no ... create pods/exec` assertion passed because the account cannot create pods, so it never proved anything about exec; `get pods/log` passed the same vacuous way
 - **Solution**: `tests/e2e/agent-readonly` uses `--subresource=exec|portforward|log|attach`
 - **Prevention**: Test subresource permissions with `kubectl auth can-i <verb> pods --subresource=<name>`
+
+### 2026-09-20 - CPUThrottlingHigh x16 on democratic-csi: a 200m limit, not real CPU demand
+- **Issue**: 16 `CPUThrottlingHigh` alerts (severity info, so never paged) on every `csi-driver` container since June, 70-87 % of periods throttled
+- **Root Cause**: The containers idle at ~12m and run in only ~220 of the 3000 CFS periods in five minutes, but each burst wants more than the 20 ms a 200m limit allows per 100 ms period. Throttling was a quota artefact, not saturation. The 28-149 restarts on the same pods were a red herring: every sidecar died within the same minute on 2026-09-15, the API outage already fixed in PR #288
+- **Solution**: CPU limit 200m -> 1000m on `controller.driver` and `node.driver` for all four democratic-csi variants. Requests stay 50m, so scheduling and node capacity are unchanged; a limit only caps a burst
+- **Prevention**: Read `container_cpu_cfs_periods_total` before believing a throttling alert. A container throttled at near-zero usage needs a bigger limit, not more CPU
+
+### 2026-09-03 - Cluster DNS failed for 8.5 h behind a single upstream, with no alert
+- **Issue**: 66,051 SERVFAIL answers (a quarter of all DNS) between 05:40 and 15:30 UTC. external-dns crash-looped, Renovate failed seven times, three DuckDNS updates failed. Discovered 17 days later while triaging something else
+- **Root Cause**: The nodes resolve through one upstream, the gateway (`machine.network.nameservers`). It stopped answering, CoreDNS logged 62,059 broken-upstream events and had nowhere to forward. Both replicas were hit equally
+- **Solution**: Cannot be fixed by adding a public resolver: `*.<domain>` is split-horizon and Talos host DNS spreads queries rather than strictly preferring the first upstream, so internal names would resolve to public addresses while the gateway is healthy. Added detection instead: `HomelabClusterDNSUpstreamDown` (cause) and `HomelabClusterDNSFailing` (symptom), both critical. Backtested: both fire at 2026-09-03 10:00 UTC, neither fires in the last 7 days
+- **Prevention**: `TargetDown` does not cover a component that stays up and answers wrongly. Alert on the answer, not just the scrape. Options for real redundancy are in `docs/runbooks/cluster-dns.md`

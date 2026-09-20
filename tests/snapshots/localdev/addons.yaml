@@ -854,6 +854,30 @@ spec:
                     annotations:
                       summary: 'Certificate {{ $labels.namespace }}/{{ $labels.name }} expires in under 14 days'
                       description: 'cert-manager has not renewed {{ $labels.namespace }}/{{ $labels.name }} although it should renew 30 days before expiry. `kubectl -n {{ $labels.namespace }} describe certificate {{ $labels.name }}` shows the last ACME attempt.'
+                  # Cluster DNS. CoreDNS forwards to the node resolver, which has a
+                  # single upstream (the gateway). On 2026-09-03 that upstream was
+                  # unhealthy for 8.5 h: CoreDNS had nowhere to forward, answered
+                  # SERVFAIL to one query in four (66k answers), crash-looped
+                  # external-dns and failed Renovate — and nothing alerted, because
+                  # CoreDNS itself was up, so TargetDown never fired. The ratio held
+                  # 25 % through the outage against a 3 % peak in a normal week; the
+                  # rate guard keeps an idle cluster from alerting on a thin sample.
+                  - alert: HomelabClusterDNSFailing
+                    expr: 'sum(rate(coredns_dns_responses_total{rcode="SERVFAIL"}[10m])) / sum(rate(coredns_dns_responses_total[10m])) > 0.1 and sum(rate(coredns_dns_responses_total[10m])) > 1'
+                    for: 15m
+                    labels:
+                      severity: critical
+                    annotations:
+                      summary: 'CoreDNS is answering SERVFAIL for {{ $value | humanizePercentage }} of queries'
+                      description: 'More than 10 % of cluster DNS answers have been SERVFAIL for 15m, so name resolution is failing cluster-wide. Usually the upstream resolver: see HomelabClusterDNSUpstreamDown and docs/runbooks/cluster-dns.md.'
+                  - alert: HomelabClusterDNSUpstreamDown
+                    expr: 'sum(rate(coredns_forward_healthcheck_broken_total[5m])) > 0'
+                    for: 10m
+                    labels:
+                      severity: critical
+                    annotations:
+                      summary: 'CoreDNS has no healthy upstream resolver'
+                      description: 'CoreDNS has marked every upstream in the node resolver unhealthy for 10m, so it can only answer from cache and then SERVFAIL. The nodes resolve through one upstream, so this usually means the gateway is not answering DNS; docs/runbooks/cluster-dns.md.'
 
   destination:
     server: https://kubernetes.default.svc

@@ -290,20 +290,25 @@ democratic-csi:
       parameters:
         fsType: nfs
 
+  # The csi-driver containers idle at ~12m but work in short bursts, and a 200m
+  # limit is a 20 ms quota per 100 ms period: too small for a burst, so 87 % of
+  # the periods they ran in were throttled and CPUThrottlingHigh fired forever
+  # (16 alerts, one per pod). The limit only caps a burst, so raising it costs
+  # nothing; requests stay at 50m, so scheduling and node capacity are unchanged.
   resources:
     controller:
       requests:
         cpu: 50m
         memory: 128Mi
       limits:
-        cpu: 200m
+        cpu: 1000m
         memory: 256Mi
     node:
       requests:
         cpu: 50m
         memory: 128Mi
       limits:
-        cpu: 200m
+        cpu: 1000m
         memory: 256Mi
 
 # ============================================================================
@@ -342,20 +347,25 @@ democratic-csi-ssd:
       parameters:
         fsType: nfs
 
+  # The csi-driver containers idle at ~12m but work in short bursts, and a 200m
+  # limit is a 20 ms quota per 100 ms period: too small for a burst, so 87 % of
+  # the periods they ran in were throttled and CPUThrottlingHigh fired forever
+  # (16 alerts, one per pod). The limit only caps a burst, so raising it costs
+  # nothing; requests stay at 50m, so scheduling and node capacity are unchanged.
   resources:
     controller:
       requests:
         cpu: 50m
         memory: 128Mi
       limits:
-        cpu: 200m
+        cpu: 1000m
         memory: 256Mi
     node:
       requests:
         cpu: 50m
         memory: 128Mi
       limits:
-        cpu: 200m
+        cpu: 1000m
         memory: 256Mi
 
 # ============================================================================
@@ -399,20 +409,25 @@ democratic-csi-iscsi:
       parameters:
         fsType: ext4
 
+  # The csi-driver containers idle at ~12m but work in short bursts, and a 200m
+  # limit is a 20 ms quota per 100 ms period: too small for a burst, so 87 % of
+  # the periods they ran in were throttled and CPUThrottlingHigh fired forever
+  # (16 alerts, one per pod). The limit only caps a burst, so raising it costs
+  # nothing; requests stay at 50m, so scheduling and node capacity are unchanged.
   resources:
     controller:
       requests:
         cpu: 50m
         memory: 128Mi
       limits:
-        cpu: 200m
+        cpu: 1000m
         memory: 256Mi
     node:
       requests:
         cpu: 50m
         memory: 128Mi
       limits:
-        cpu: 200m
+        cpu: 1000m
         memory: 256Mi
 
 # ============================================================================
@@ -453,20 +468,25 @@ democratic-csi-iscsi-hdd:
       parameters:
         fsType: ext4
 
+  # The csi-driver containers idle at ~12m but work in short bursts, and a 200m
+  # limit is a 20 ms quota per 100 ms period: too small for a burst, so 87 % of
+  # the periods they ran in were throttled and CPUThrottlingHigh fired forever
+  # (16 alerts, one per pod). The limit only caps a burst, so raising it costs
+  # nothing; requests stay at 50m, so scheduling and node capacity are unchanged.
   resources:
     controller:
       requests:
         cpu: 50m
         memory: 128Mi
       limits:
-        cpu: 200m
+        cpu: 1000m
         memory: 256Mi
     node:
       requests:
         cpu: 50m
         memory: 128Mi
       limits:
-        cpu: 200m
+        cpu: 1000m
         memory: 256Mi
 
 # ============================================================================
