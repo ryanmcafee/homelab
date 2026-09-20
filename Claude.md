@@ -180,7 +180,8 @@ charts:
   # CRD-only companion chart installed by the bootstrap chart (wave -1) so ServiceMonitors can
   # render before kube-prometheus-stack (addons wave 9). Its appVersion must be the
   # prometheus-operator version kube-prometheus-stack bundles (87.1.0 -> v0.92.0 -> 30.0.0);
-  # bump the two together, never the CRDs behind the operator.
+  # Renovate bumps the two in one "Monitoring stack" PR (.github/renovate.json5); never
+  # move the CRDs behind the operator by hand.
   # renovate: datasource=helm depName=prometheus-operator-crds registryUrl=https://prometheus-community.github.io/helm-charts
   prometheus-operator-crds: "30.0.0"
   # renovate: datasource=helm depName=traefik registryUrl=https://traefik.github.io/charts
@@ -244,7 +245,7 @@ charts:
   # renovate: datasource=docker depName=ghcr.io/paperclipinc/charts/paperclip-operator
   paperclip-operator: "0.19.1"
 images:
-  homelab-cmp: "0.1.45"
+  homelab-cmp: "0.1.46"
   # renovate: datasource=docker depName=curlimages/curl
   curl: "8.22.0"
   # renovate: datasource=docker depName=kindest/node
