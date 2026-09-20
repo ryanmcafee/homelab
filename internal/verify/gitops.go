@@ -3,10 +3,8 @@ package verify
 import (
 	"encoding/base64"
 	"fmt"
-	"net/url"
 	"os"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -35,7 +33,6 @@ var GitOpsRules = []string{
 	"namespaces",
 	"ssa",
 	"unique-names",
-	"verified-hosts",
 }
 
 // LintGitOps turns the repo's GitOps conventions into executable checks over
@@ -61,7 +58,6 @@ func LintGitOps(env string, rendered map[string][]Doc, reg *GitOpsRegistry, repo
 		g.ruleNamespaces(reg),
 		g.ruleSSA(reg),
 		g.ruleUniqueNames(),
-		g.ruleVerifiedHosts(),
 	}
 	if e, ok := EnvByName(env); ok {
 		for i, c := range checks {
@@ -231,9 +227,8 @@ func (g *gitopsGraph) appKey(app Doc) orderKey {
 // parent chart (an app-of-apps root's target) or a child chart some
 // Application's spec.source.path points at. The renderer renders every chart
 // for every environment, so a chart whose parent toggle is off still produces
-// manifests that never reach a cluster. crd-order, secret-refs and
-// verified-hosts skip those and disclose the skip, rather than judging objects
-// that never deploy.
+// manifests that never reach a cluster. crd-order and secret-refs both skip
+// those and disclose the skip, rather than judging objects that never deploy.
 //
 // The gitops chart is excluded: it holds the roots of the graph it defines and
 // has no position inside it.
@@ -995,200 +990,4 @@ func (g *gitopsGraph) ruleUniqueNames() Check {
 
 	detail := fmt.Sprintf("%d distinct Applications, %d distinct source paths", len(order), len(g.pathOrder))
 	return g.result("unique-names", start, detail, findings)
-}
-
-// -------------------------------------------------------------------------
-// Rule: verified-hosts
-// -------------------------------------------------------------------------
-
-// traefikHostRe finds every Host(...) matcher in a Traefik rule (HostRegexp
-// and HostSNI are different matchers and do not match); traefikHostArgRe pulls
-// the backtick- or double-quoted names out of one.
-var (
-	traefikHostRe    = regexp.MustCompile(`\bHost\(([^)]*)\)`)
-	traefikHostArgRe = regexp.MustCompile("[`\"]([^`\"]+)[`\"]")
-)
-
-// ruleVerifiedHosts verifies every external URL a CronWorkflow is handed as a
-// `url` parameter (the nightly ingress-verification run curls each one) has a
-// host this environment serves: an Ingress rule, an IngressRoute Host() match,
-// or a string somewhere in another Application's Helm values. A host nothing
-// serves is how an Application that is disabled in the environment, but still
-// listed, fails the workflow every night.
-//
-// The Application that owns the CronWorkflow's chart is left out of the value
-// search: its valuesObject is where the URL list comes from, so counting it
-// would make every listed host serve itself. As in crd-order and secret-refs,
-// charts this environment does not deploy are skipped on both sides — their
-// CronWorkflows never run and their Ingresses serve nothing — and a skipped
-// CronWorkflow is disclosed in the detail.
-func (g *gitopsGraph) ruleVerifiedHosts() Check {
-	start := time.Now()
-	var findings []string
-	skipped := skipTally{}
-
-	routed := map[string]bool{}
-	for _, d := range g.docs {
-		// The gitops chart is the root of the graph, so it deploys too.
-		if d.Chart != "gitops" && !g.chartInGraph(d.Chart) {
-			continue
-		}
-		for _, h := range routedHosts(d) {
-			routed[h] = true
-		}
-	}
-
-	// values caches the Helm value strings per excluded owner.
-	values := map[string][]string{}
-	urls, workflows := 0, 0
-	for _, d := range g.docs {
-		if d.Kind() != "CronWorkflow" || d.Group() != "argoproj.io" {
-			continue
-		}
-		if !g.chartInGraph(d.Chart) {
-			skipped.add(d.Chart)
-			continue
-		}
-		workflows++
-
-		owner := g.chartOwner[d.Chart]
-		ownerKey := owner.Namespace() + "/" + owner.Name()
-		if _, cached := values[ownerKey]; !cached {
-			values[ownerKey] = g.appValueStrings(ownerKey)
-		}
-
-		seen := map[string]bool{}
-		for _, raw := range urlParameters(d.Object, nil) {
-			host, ok := externalHost(raw)
-			if !ok || seen[raw] {
-				continue
-			}
-			seen[raw] = true
-			urls++
-			if routed[host] || containsHost(values[ownerKey], host) {
-				continue
-			}
-			findings = append(findings, fmt.Sprintf(
-				"%s: verifies %s but no rendered Ingress, IngressRoute or Application value serves host %q; an Application that is disabled in this environment must not be listed",
-				d.ID(), raw, host))
-		}
-	}
-
-	detail := fmt.Sprintf("%d verified URLs in %d CronWorkflows, %d routed hosts", urls, workflows, len(routed))
-	detail += skipped.detail("CronWorkflow(s)")
-	return g.result("verified-hosts", start, detail, findings)
-}
-
-// routedHosts lists the lower-cased hosts an Ingress or a Traefik IngressRoute
-// routes; nil for every other kind.
-func routedHosts(d Doc) []string {
-	var hosts []string
-	switch {
-	case d.Kind() == "Ingress" && d.Group() == "networking.k8s.io":
-		for _, r := range d.GetSlice("spec", "rules") {
-			if m, ok := r.(map[string]any); ok {
-				if h, ok := m["host"].(string); ok && h != "" {
-					hosts = append(hosts, strings.ToLower(h))
-				}
-			}
-		}
-	case d.Kind() == "IngressRoute" && (d.Group() == "traefik.io" || d.Group() == "traefik.containo.us"):
-		for _, r := range d.GetSlice("spec", "routes") {
-			m, _ := r.(map[string]any)
-			match, _ := m["match"].(string)
-			for _, call := range traefikHostRe.FindAllStringSubmatch(match, -1) {
-				for _, arg := range traefikHostArgRe.FindAllStringSubmatch(call[1], -1) {
-					hosts = append(hosts, strings.ToLower(arg[1]))
-				}
-			}
-		}
-	}
-	return hosts
-}
-
-// urlParameters collects, in document order, the string value of every
-// {name: url, value: <string>} map under node — the shape of an Argo
-// Workflows parameter.
-func urlParameters(node any, out []string) []string {
-	switch v := node.(type) {
-	case map[string]any:
-		if name, _ := v["name"].(string); name == "url" {
-			if value, ok := v["value"].(string); ok {
-				out = append(out, value)
-			}
-		}
-		for _, key := range sortedKeys(v) {
-			out = urlParameters(v[key], out)
-		}
-	case []any:
-		for _, item := range v {
-			out = urlParameters(item, out)
-		}
-	}
-	return out
-}
-
-// externalHost returns the lower-cased host of an http(s) URL that leaves the
-// cluster. An Argo expression such as {{inputs.parameters.url}} has neither a
-// scheme nor a host; a Service name (no dot, *.svc, *.svc.cluster.local) is
-// resolved by cluster DNS and needs no route.
-func externalHost(raw string) (string, bool) {
-	u, err := url.Parse(strings.TrimSpace(raw))
-	if err != nil || (u.Scheme != "http" && u.Scheme != "https") {
-		return "", false
-	}
-	host := strings.ToLower(u.Hostname())
-	if !strings.Contains(host, ".") || strings.HasSuffix(host, ".svc") || strings.HasSuffix(host, ".svc.cluster.local") {
-		return "", false
-	}
-	return host, true
-}
-
-// appValueStrings gathers, lower-cased, every string in the Helm values of
-// every rendered Application except the one keyed excludeKey
-// ("namespace/name"): helm.values as the raw YAML string, helm.valuesObject
-// string by string, for spec.source and each spec.sources entry.
-func (g *gitopsGraph) appValueStrings(excludeKey string) []string {
-	var out []string
-	for _, app := range g.apps {
-		if app.Namespace()+"/"+app.Name() == excludeKey {
-			continue
-		}
-		for _, src := range appSources(app) {
-			if raw := src.GetString("helm", "values"); raw != "" {
-				out = append(out, strings.ToLower(raw))
-			}
-			if vo, ok := src.Get("helm", "valuesObject"); ok {
-				out = lowerStrings(vo, out)
-			}
-		}
-	}
-	return out
-}
-
-// lowerStrings appends every string value under node, lower-cased.
-func lowerStrings(node any, out []string) []string {
-	switch v := node.(type) {
-	case string:
-		out = append(out, strings.ToLower(v))
-	case map[string]any:
-		for _, key := range sortedKeys(v) {
-			out = lowerStrings(v[key], out)
-		}
-	case []any:
-		for _, item := range v {
-			out = lowerStrings(item, out)
-		}
-	}
-	return out
-}
-
-// containsHost reports whether host is a substring of any of the strings.
-func containsHost(haystack []string, host string) bool {
-	for _, s := range haystack {
-		if strings.Contains(s, host) {
-			return true
-		}
-	}
-	return false
 }

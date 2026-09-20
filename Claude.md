@@ -147,6 +147,7 @@ When updating helm chart versions, check these repositories:
 | cloudnative-pg | https://github.com/cloudnative-pg/charts/blob/main/charts/cloudnative-pg/Chart.yaml |
 | paperclip-operator | https://github.com/paperclipinc/paperclip-operator/blob/main/charts/paperclip-operator/Chart.yaml |
 | kubelet-csr-approver | https://github.com/postfinance/kubelet-csr-approver/blob/main/charts/kubelet-csr-approver/Chart.yaml |
+| metrics-server | https://github.com/kubernetes-sigs/metrics-server/blob/master/charts/metrics-server/Chart.yaml |
 | oauth2-proxy | https://github.com/oauth2-proxy/manifests/blob/main/helm/oauth2-proxy/Chart.yaml |
 | nvidia-gpu-operator | https://github.com/NVIDIA/gpu-operator/blob/main/deployments/gpu-operator/Chart.yaml |
 | Plex | https://github.com/plexinc/pms-docker/blob/master/charts/plex-media-server/Chart.yaml |
@@ -192,6 +193,8 @@ charts:
   tailscale-operator: "1.98.4"
   # renovate: datasource=helm depName=kubelet-csr-approver registryUrl=https://postfinance.github.io/kubelet-csr-approver
   kubelet-csr-approver: "1.2.14"
+  # renovate: datasource=helm depName=metrics-server registryUrl=https://kubernetes-sigs.github.io/metrics-server/
+  metrics-server: "3.14.0"
   # renovate: datasource=helm depName=connect registryUrl=https://1password.github.io/connect-helm-charts
   onepassword-connect: "2.4.1"
   # renovate: datasource=docker depName=ghcr.io/spegel-org/helm-charts/spegel
@@ -295,7 +298,7 @@ homelab/
 ├── charts/
 │   ├── gitops/           # App-of-Apps root: bootstrap, addons, applications, previews
 │   ├── bootstrap/        # SOPS secrets, 1Password operator, environment config, ArgoCD self-manage
-│   ├── addons/           # Infrastructure Applications (29 templates)
+│   ├── addons/           # Infrastructure Applications (30 templates)
 │   ├── applications/     # User workloads (15 templates)
 │   ├── secrets/          # SOPS-encrypted secrets (ksops)
 │   └── *-config/, *-dependencies/, paperclip*/, duckdns*/  # child charts (ADR-010)
@@ -392,7 +395,7 @@ The homelab environment uses an ArgoCD Config Management Plugin (CMP) sidecar to
 
 - **Bootstrap chart** deploys: SOPS secrets, 1Password operator, homelab-environment-config secret
 - **CMP sidecar** runs `homelab config export --stdout` piped into `helm template`
-- **Localdev** uses native Helm with `values-localdev.yaml`, which is generated from the same templates (`homelab config export --set localdev`, `task config:export:localdev`) and committed; level 0 fails when it is stale (no CMP). Kind differences are capability keys in `platform.schema.yaml` (`ARGOCD_AUTOMATED_SYNC=false`, `MEDIA_PROVIDER=ephemeral`, `CERT_ISSUER=selfsigned`, `STORAGE_PROVIDER=local-path`, `SECRETS_PROVIDER=none`), never environment-name branches (ADR-011, ADR-012)
+- **Localdev** uses native Helm with `values-localdev.yaml`, which is generated from the same templates (`homelab config export --set localdev`, `task config:export:localdev`) and committed; level 0 fails when it is stale (no CMP). Kind differences are capability keys in `platform.schema.yaml` (`ARGOCD_AUTOMATED_SYNC=false`, `MEDIA_PROVIDER=ephemeral`, `CERT_ISSUER=selfsigned`, `STORAGE_PROVIDER=local-path`, `SECRETS_PROVIDER=none`, `KUBELET_SERVING_CERT=self-signed`), never environment-name branches (ADR-011, ADR-012)
 - **Child `*-config`/`*-dependencies` charts** stay on plain `helm.valueFiles`; anything derived from `configuration/` (domain, hostnames, IPs, iSCSI portal, e-mail) reaches them via the parent Application's `helm.valuesObject`, so their committed `values-homelab.yaml` carries no PII. Level 0 mirrors this by feeding each child the `valuesObject` extracted from the rendered parent (ADR-010)
 - Decisions: `docs/project_notes/decisions.md` (entry "2026-02-11: ArgoCD CMP for PII removal" and ADR-010; the original design doc was removed in c4daa10 once implemented)
 
@@ -401,7 +404,7 @@ The homelab environment uses an ArgoCD Config Management Plugin (CMP) sidecar to
 
 ### Previews and read-only production (ADR-013)
 - **Previews:** a maintainer labels a PR `preview` (+ `preview:<app>` per app); the `previews` ApplicationSet renders `charts/applications` at the PR head through the CMP in preview mode (`global.preview.*`): Applications `<app>-pr<N>` in namespace `preview-<N>`, AppProject `previews`, hosts `<app>-pr<N>.<domain>`, ephemeral (`emptyDir`) storage; closing or unlabelling deletes it. Level 0 renders it as env `homelab-preview`. `docs/runbooks/previews.md`
-- **Read-only production:** agents never mutate homelab. `task prod:kubeconfig` (once), then `task verify:prod`, `task prod:status`, `task prod:diff -- <app>` through the `homelab-readonly` context (ServiceAccount `agent-readonly`, Tailscale API server proxy) and the read-only ArgoCD `agent` account. `docs/runbooks/readonly-access.md`
+- **Read-only production:** agents never mutate homelab. The `agent-readonly` account may also `exec` and port-forward, for diagnosis only (`amtool alert`, the Prometheus API); it still cannot change API objects or read Secrets through the API. `task prod:kubeconfig` (once), then `task verify:prod`, `task prod:status`, `task prod:diff -- <app>` through the `homelab-readonly` context (ServiceAccount `agent-readonly`, Tailscale API server proxy) and the read-only ArgoCD `agent` account. `docs/runbooks/readonly-access.md`
 
 ### Common Errors & Solutions
 | Error | Cause | Solution |

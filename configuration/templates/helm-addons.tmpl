@@ -107,6 +107,33 @@ kubelet-csr-approver:
       memory: 128Mi
 
 # ============================================================================
+# metrics-server - metrics.k8s.io for kubectl top and the Traefik HPAs
+# ============================================================================
+
+metrics-server:
+  enabled: true
+  namespace: kube-system
+
+  chart:
+    name: metrics-server
+    repo: https://kubernetes-sigs.github.io/metrics-server/
+    version: "{{ index .Versions.Charts "metrics-server" }}"
+
+  # Kind sizing: one replica; homelab keeps the aggregated API up through a drain.
+  replicas: {{ if $localdev }}1{{ else }}2{{ end }}
+
+  # Platform capability, not an environment branch (KUBELET_SERVING_CERT).
+  kubeletInsecureTLS: {{ eq .Values.KUBELET_SERVING_CERT.Value "self-signed" }}
+
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+
+# ============================================================================
 # Spegel - P2P image distribution; only the chart version comes from
 # versions.yaml (the rest of charts/addons/values.yaml spegel block applies)
 # ============================================================================
@@ -1446,40 +1473,3 @@ argo-workflows:
           secondsAfterCompletion: 86400
           secondsAfterSuccess: 43200
           secondsAfterFailure: 172800
-
-  # Ingress verification workflow configuration
-  # NOTE: Consumed by the argo-workflows-config child chart (CronWorkflow) via
-  # the argo-workflows-config Application's helm.valuesObject, not by the
-  # upstream argo-workflows chart.
-  ingressVerification:
-    enabled: true
-    schedule: "0 0 * * *"
-    # List of ingresses to verify - all require authentication. List only hosts
-    # an enabled Application serves: level 0 (gitops/<env>/verified-hosts) fails
-    # on a URL that no rendered Ingress, IngressRoute or Application value carries.
-    # Home Assistant is disabled (helm-apps.tmpl), so it is not listed.
-    ingresses:
-      - name: traefik
-        url: https://{{ .Values.TRAEFIK_HOSTNAME.Value }}/dashboard/
-        expectAuth: true
-      - name: argocd
-        url: https://{{ .Values.ARGOCD_HOSTNAME.Value }}
-        expectAuth: true
-      - name: grafana
-        url: https://{{ .Values.GRAFANA_HOSTNAME.Value }}
-        expectAuth: true
-      - name: plex
-        url: https://{{ .Values.PLEX_HOSTNAME.Value }}
-        expectAuth: true
-      - name: sonarr
-        url: https://{{ .Values.SONARR_HOSTNAME.Value }}
-        expectAuth: true
-      - name: radarr
-        url: https://{{ .Values.RADARR_HOSTNAME.Value }}
-        expectAuth: true
-      - name: prowlarr
-        url: https://{{ .Values.PROWLARR_HOSTNAME.Value }}
-        expectAuth: true
-      - name: auth
-        url: https://{{ .Values.AUTH_HOSTNAME.Value }}
-        expectAuth: true

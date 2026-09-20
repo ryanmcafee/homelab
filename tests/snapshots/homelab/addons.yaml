@@ -544,79 +544,6 @@ spec:
       - ApplyOutOfSyncOnly=true
 
 ---
-# Source: addons/templates/argo-workflows.yaml
-# Argo Workflows Config - CronWorkflows and custom resources
-# Wave 10: After argo-workflows (wave 9) installs CRDs
-apiVersion: argoproj.io/v1alpha1
-kind: Application
-metadata:
-  name: argo-workflows-config
-  namespace: argocd
-  labels:
-    helm.sh/chart: addons-1.0.0
-    app.kubernetes.io/name: addons
-    app.kubernetes.io/instance: addons
-    app.kubernetes.io/version: "1.0"
-    app.kubernetes.io/managed-by: Helm
-  annotations:
-    argocd.argoproj.io/sync-wave: "10"
-  finalizers:
-    - resources-finalizer.argocd.argoproj.io
-spec:
-  project: default
-  source:
-    repoURL: https://github.com/ryanmcafee/homelab.git
-    targetRevision: main
-    path: charts/argo-workflows-config
-    helm:
-      valueFiles:
-        - values.yaml
-        - values-homelab.yaml
-      # The ingress list (hostnames) comes from this parent's argo-workflows
-      # values (configuration/ via the CMP in homelab) so the child's committed
-      # values files stay PII-free. valuesObject overrides valueFiles in ArgoCD.
-      valuesObject:
-        ingressVerification:
-          enabled: true
-          ingresses:
-          - expectAuth: true
-            name: traefik
-            url: https://traefik.REPLACEME-domain.com/dashboard/
-          - expectAuth: true
-            name: argocd
-            url: https://argocd.REPLACEME-domain.com
-          - expectAuth: true
-            name: grafana
-            url: https://grafana.REPLACEME-domain.com
-          - expectAuth: true
-            name: plex
-            url: https://plex.REPLACEME-domain.com
-          - expectAuth: true
-            name: sonarr
-            url: https://sonarr.REPLACEME-domain.com
-          - expectAuth: true
-            name: radarr
-            url: https://radarr.REPLACEME-domain.com
-          - expectAuth: true
-            name: prowlarr
-            url: https://prowlarr.REPLACEME-domain.com
-          - expectAuth: true
-            name: auth
-            url: https://auth.REPLACEME-domain.com
-          schedule: 0 0 * * *
-  destination:
-    server: https://kubernetes.default.svc
-    namespace: argo-workflows
-  syncPolicy:
-    automated:
-      prune: true
-      selfHeal: true
-    syncOptions:
-      - CreateNamespace=true
-      - ServerSideApply=true
-      - SkipDryRunOnMissingResource=true
-
----
 # Source: addons/templates/cert-manager.yaml
 apiVersion: argoproj.io/v1alpha1
 kind: Application
@@ -2385,6 +2312,64 @@ spec:
           requests:
             cpu: 10m
             memory: 32Mi
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: kube-system
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+
+---
+# Source: addons/templates/metrics-server.yaml
+# metrics-server serves metrics.k8s.io: `kubectl top` and every
+# HorizontalPodAutoscaler on a Resource metric (both Traefik HPAs) read it.
+# Without it an HPA reports `cpu: <unknown>` and never scales.
+# Wave 2: after kubelet-csr-approver (wave 1), which approves the kubelet
+# serving certificates metrics-server verifies.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: metrics-server
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://kubernetes-sigs.github.io/metrics-server/
+    chart: metrics-server
+    targetRevision: 3.14.0
+    helm:
+      releaseName: metrics-server
+      values: |
+        replicas: 2
+        # An aggregated API with no ready backend raises KubeAggregatedAPIDown
+        # and blinds every HPA, so a node drain must leave one replica.
+        podDisruptionBudget:
+          enabled: true
+          minAvailable: 1
+
+        # Talos signs kubelet serving certificates with the cluster CA
+        # (rotate-server-certificates + kubelet-csr-approver), which
+        # metrics-server verifies by default. Kind's kubelets self-sign, so
+        # verification is off only where KUBELET_SERVING_CERT says so.
+
+        resources:
+          limits:
+            cpu: 200m
+            memory: 256Mi
+          requests:
+            cpu: 50m
+            memory: 64Mi
 
   destination:
     server: https://kubernetes.default.svc

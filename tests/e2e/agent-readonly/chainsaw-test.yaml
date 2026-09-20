@@ -127,7 +127,17 @@ spec:
                 # shellcheck disable=SC2086
                 check no $who -- patch applications.argoproj.io -n argocd
                 # shellcheck disable=SC2086
-                check no $who -- create pods/exec -n default
+                check yes $who -- create pods/exec -n monitoring
+                # shellcheck disable=SC2086
+                check yes $who -- get pods/exec -n monitoring
+                # shellcheck disable=SC2086
+                check yes $who -- create pods/portforward -n monitoring
+                # shellcheck disable=SC2086
+                check yes $who -- get pods/portforward -n monitoring
+                # shellcheck disable=SC2086
+                check no $who -- create pods/attach -n default
+                # shellcheck disable=SC2086
+                check no $who -- create pods -n default
                 # shellcheck disable=SC2086
                 check no $who -- delete customresourcedefinitions
               done

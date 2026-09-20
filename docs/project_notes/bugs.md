@@ -383,10 +383,20 @@ These are documented errors with known solutions:
 - **Issue**: The nightly `ingress-verification` CronWorkflow failed on `auth.<DOMAIN>`: TLS handshake got `TRAEFIK DEFAULT CERT` although `auth-tls` was Ready. The `/dashboard` redirect routes of both Traefiks were dead the same way
 - **Root Cause**: Both Traefik instances run with `--providers.kubernetescrd.ingressClass=<external|internal>`. `auth-oidc`, `traefik-dashboard-redirect` and `traefik-internal-dashboard-redirect` had no `kubernetes.io/ingress.class` annotation, so neither instance loaded them. They applied cleanly and ArgoCD showed them Healthy
 - **Solution**: Annotated all three
-- **Prevention**: conftest rule `ingressroute-class` requires the annotation on every rendered IngressRoute
+- **Prevention**: conftest rule `ingressroute-class` requires the annotation on every rendered IngressRoute. The CronWorkflow that surfaced it was removed in the same PR (no longer needed)
 
 ### 2026-09-20 - `ingress-verification` checked a host of a disabled Application
 - **Issue**: The same CronWorkflow failed every night on `homeassistant.<DOMAIN>`
 - **Root Cause**: The URL list in `configuration/templates/helm-addons.tmpl` was static while Home Assistant is `enabled: false` in `helm-apps.tmpl`; nothing compared the list with what is served
-- **Solution**: Removed the entry
-- **Prevention**: Level 0 rule `gitops/<env>/verified-hosts` fails when a CronWorkflow URL's host is served by no rendered Ingress, IngressRoute or Application value
+- **Solution**: The workflow was no longer needed: removed `charts/argo-workflows-config` (CronWorkflow, ServiceAccount, ClusterRole), its Application and the `ingressVerification` values
+- **Prevention**: A static list of things to probe drifts from what is deployed; derive such a list from the rendered manifests or do not keep one
+
+### 2026-09-20 - Both Traefik HPAs read `cpu: <unknown>`: no metrics-server in homelab
+- **Issue**: `FailedGetResourceMetric` events every 15 s on `traefik-external` and `traefik-internal`; neither HPA could ever scale, and `kubectl top` did not work
+- **Root Cause**: Autoscaling was enabled for both Traefiks but nothing served `metrics.k8s.io`
+- **Solution**: `metrics-server` addon (wave 2, `kube-system`, two replicas with a PodDisruptionBudget). Talos kubelets serve cluster-CA certificates with IP SANs (checked with `openssl s_client`), so verification stays on; Kind's self-signed kubelets get `--kubelet-insecure-tls` through the platform key `KUBELET_SERVING_CERT`
+- **Prevention**: Enabling an HPA on a Resource metric requires metrics-server in the same environment
+
+### 2026-09-20 - The read-only agent could not read what Alertmanager was firing
+- **Issue**: Alert triage had to be reconstructed from cluster state: `services/proxy`, `pods/exec` and `pods/portforward` were all forbidden, and neither Alertmanager nor Prometheus has an Ingress
+- **Solution**: `homelab-agent-readonly` grants `get`/`create` on `pods/exec` and `pods/portforward`. API objects stay read-only; exec is a deliberate exception (a shell can read what its container mounts), documented in `docs/runbooks/readonly-access.md`

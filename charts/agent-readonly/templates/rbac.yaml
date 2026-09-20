@@ -8,8 +8,14 @@
 # - cluster-scoped objects agents need for diagnosis (nodes, namespaces,
 #   persistentvolumes, storageclasses, ingressclasses, CRDs) and events;
 # - every custom resource in the groups this repo deploys.
-# Verbs are fixed to get/list/watch here and never read from values: this role
-# must stay read-only. Secrets are absent from both roles by construction.
+# - pods/exec and pods/portforward, the diagnostic channel: `amtool alert`
+#   inside Alertmanager, a port-forward to the Prometheus or Alertmanager API.
+#   Neither is exposed by an Ingress, and `view` grants neither.
+# Verbs are fixed here and never read from values. API objects stay read-only:
+# get/list/watch everywhere, and no rule names Secrets. exec is the one
+# exception to "read-only" and a deliberate one: a shell in a container can
+# read what that container mounts (including Secrets) and change state inside
+# it, so it is for diagnosis only (docs/runbooks/readonly-access.md).
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
@@ -33,6 +39,11 @@ rules:
   - apiGroups: [apiextensions.k8s.io]
     resources: [customresourcedefinitions]
     verbs: [get, list, watch]
+  # kubectl exec / port-forward: `create` for the SPDY upgrade (POST), `get`
+  # for the WebSocket upgrade kubectl >= 1.31 uses by default (GET).
+  - apiGroups: [""]
+    resources: [pods/exec, pods/portforward]
+    verbs: [get, create]
   {{- if $groups }}
   - apiGroups:
       {{- range $groups }}

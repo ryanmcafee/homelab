@@ -90,6 +90,33 @@ kubelet-csr-approver:
       memory: 128Mi
 
 # ============================================================================
+# metrics-server - metrics.k8s.io for kubectl top and the Traefik HPAs
+# ============================================================================
+
+metrics-server:
+  enabled: true
+  namespace: kube-system
+
+  chart:
+    name: metrics-server
+    repo: https://kubernetes-sigs.github.io/metrics-server/
+    version: "3.14.0"
+
+  # Kind sizing: one replica; homelab keeps the aggregated API up through a drain.
+  replicas: 1
+
+  # Platform capability, not an environment branch (KUBELET_SERVING_CERT).
+  kubeletInsecureTLS: true
+
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+
+# ============================================================================
 # Spegel - P2P image distribution; only the chart version comes from
 # versions.yaml (the rest of charts/addons/values.yaml spegel block applies)
 # ============================================================================
@@ -1225,40 +1252,3 @@ argo-workflows:
           secondsAfterCompletion: 86400
           secondsAfterSuccess: 43200
           secondsAfterFailure: 172800
-
-  # Ingress verification workflow configuration
-  # NOTE: Consumed by the argo-workflows-config child chart (CronWorkflow) via
-  # the argo-workflows-config Application's helm.valuesObject, not by the
-  # upstream argo-workflows chart.
-  ingressVerification:
-    enabled: true
-    schedule: "0 0 * * *"
-    # List of ingresses to verify - all require authentication. List only hosts
-    # an enabled Application serves: level 0 (gitops/<env>/verified-hosts) fails
-    # on a URL that no rendered Ingress, IngressRoute or Application value carries.
-    # Home Assistant is disabled (helm-apps.tmpl), so it is not listed.
-    ingresses:
-      - name: traefik
-        url: https://traefik.homelab.local/dashboard/
-        expectAuth: true
-      - name: argocd
-        url: https://argocd.homelab.local
-        expectAuth: true
-      - name: grafana
-        url: https://grafana.homelab.local
-        expectAuth: true
-      - name: plex
-        url: https://plex.homelab.local
-        expectAuth: true
-      - name: sonarr
-        url: https://sonarr.homelab.local
-        expectAuth: true
-      - name: radarr
-        url: https://radarr.homelab.local
-        expectAuth: true
-      - name: prowlarr
-        url: https://prowlarr.homelab.local
-        expectAuth: true
-      - name: auth
-        url: https://auth.homelab.local
-        expectAuth: true

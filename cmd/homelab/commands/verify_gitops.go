@@ -41,10 +41,6 @@ Rules, one check each, named gitops/<env>/<rule>:
                 CreateNamespace=true, or a system namespace
   ssa           charts with oversized CRDs set ServerSideApply=true
   unique-names  no two Applications share namespace/name
-  verified-hosts
-                every external URL a CronWorkflow verifies has a host an
-                Ingress, an IngressRoute or another Application's Helm values
-                serve, so a disabled Application is never listed
 
 The registries under tests/gitops/ declare the facts the manifests cannot:
 CRD providers, oversized-CRD charts, system namespaces and the Secrets

@@ -96,3 +96,27 @@ spec:
             namespace: argocd
             selector: app.kubernetes.io/name=argocd-application-controller
             tail: 100
+    - name: metrics-api-available
+      description: >-
+        APIService v1beta1.metrics.k8s.io (the metrics-server Application) is Available, so
+        `kubectl top` and every HorizontalPodAutoscaler on a Resource metric have data. A Healthy
+        Application is not enough: the API only turns Available once a kubelet scrape succeeds.
+      try:
+        - assert:
+            resource:
+              apiVersion: apiregistration.k8s.io/v1
+              kind: APIService
+              metadata:
+                name: v1beta1.metrics.k8s.io
+              status:
+                (conditions[?type == 'Available']):
+                  - status: 'True'
+      catch:
+        - describe:
+            apiVersion: apiregistration.k8s.io/v1
+            kind: APIService
+            name: v1beta1.metrics.k8s.io
+        - podLogs:
+            namespace: kube-system
+            selector: app.kubernetes.io/name=metrics-server
+            tail: 100
