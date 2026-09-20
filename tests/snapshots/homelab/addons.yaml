@@ -2128,6 +2128,15 @@ spec:
               cpu: 50m
               memory: 128Mi
 
+        # The chart's own CPUThrottlingHigh divides throttled CFS periods by the
+        # periods the container ran in at all, with no floor under the
+        # denominator, so a container that is 99 % idle reads as badly throttled
+        # off a handful of samples. Turned off here; the tuned copy with that
+        # floor is in additionalPrometheusRulesMap below.
+        defaultRules:
+          disabled:
+            CPUThrottlingHigh: true
+
         # No kube-proxy where Cilium replaces it: the chart's scrape Service would
         # select nothing and KubeProxyDown would fire forever. Disabling the
         # component also drops that rule.
@@ -2277,6 +2286,24 @@ spec:
                     annotations:
                       summary: 'CoreDNS has no healthy upstream resolver'
                       description: 'CoreDNS has marked every upstream in the node resolver unhealthy for 10m, so it can only answer from cache and then SERVFAIL. The nodes resolve through one upstream, so this usually means the gateway is not answering DNS; docs/runbooks/cluster-dns.md.'
+                  # CPUThrottlingHigh, re-stated with a floor under the denominator
+                  # (defaultRules.disabled turns the chart's own copy off). Same
+                  # ratio and the same 25 % threshold; the container must also have
+                  # run in more than 300 of the 3000 CFS periods in the window, a
+                  # 10 % duty cycle. Below that the ratio is a handful of samples
+                  # and means nothing: the democratic-csi drivers sit at ~35
+                  # periods. Every container that does real work is far above the
+                  # floor (Prometheus 2250, Grafana 1934, Spegel ~1180/pod), so
+                  # nothing that could actually be CPU-starved stops alerting.
+                  - alert: CPUThrottlingHigh
+                    expr: 'sum without (id, metrics_path, name, image, endpoint, job, node) (topk by (cluster, namespace, pod, container, instance) (1, increase(container_cpu_cfs_throttled_periods_total{container!="",job="kubelet",metrics_path="/metrics/cadvisor"}[5m]))) / on (cluster, namespace, pod, container, instance) group_left () sum without (id, metrics_path, name, image, endpoint, job, node) (topk by (cluster, namespace, pod, container, instance) (1, increase(container_cpu_cfs_periods_total{job="kubelet",metrics_path="/metrics/cadvisor"}[5m]))) > (25 / 100) and on (cluster, namespace, pod, container, instance) sum without (id, metrics_path, name, image, endpoint, job, node) (topk by (cluster, namespace, pod, container, instance) (1, increase(container_cpu_cfs_periods_total{job="kubelet",metrics_path="/metrics/cadvisor"}[5m]))) > 300'
+                    for: 15m
+                    labels:
+                      severity: info
+                    annotations:
+                      summary: 'Processes experience elevated CPU throttling.'
+                      description: '{{ $value | humanizePercentage }} throttling of CPU in namespace {{ $labels.namespace }} for container {{ $labels.container }} in pod {{ $labels.pod }}, which is busy enough for the figure to mean something. Raise the CPU limit; requests govern scheduling, a limit only caps a burst.'
+                      runbook_url: 'https://runbooks.prometheus-operator.dev/runbooks/kubernetes/cputhrottlinghigh'
 
   destination:
     server: https://kubernetes.default.svc

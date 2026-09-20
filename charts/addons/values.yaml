@@ -681,6 +681,16 @@ kube-prometheus-stack:
         memory: 128Mi
 
   # Kube-state-metrics
+  # The chart's CPUThrottlingHigh divides throttled CFS periods by the periods a
+  # container ran in at all, with no floor under the denominator. A container
+  # that is 99 % idle runs in ~30 of the 3000 periods in five minutes, so a
+  # handful of throttled bursts reads as 30 % and the alert never clears — that
+  # is how 16 alerts stood on democratic-csi for three months. The tuned copy in
+  # additionalPrometheusRulesMap adds the missing floor.
+  defaultRules:
+    disabled:
+      CPUThrottlingHigh: true
+
   kubeStateMetrics:
     enabled: true
     resources:

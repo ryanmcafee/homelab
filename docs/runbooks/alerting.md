@@ -97,8 +97,12 @@ leaves it alone; the snapshot in `tests/snapshots/homelab/addons.yaml` shows the
 
 ## Rules
 
-The chart's `defaultRules` stay on (node, kubelet, volumes, targets, etcd once scraped). Homelab
-rules live in `additionalPrometheusRulesMap`:
+The chart's `defaultRules` stay on (node, kubelet, volumes, targets, etcd once scraped) with one
+exception: `CPUThrottlingHigh` is disabled in `defaultRules.disabled` and re-stated below with a
+floor under its denominator. The chart's version divides throttled CFS periods by the periods a
+container ran in *at all*, so a container that is 99 % idle reads as badly throttled off a handful
+of samples; that is how 16 alerts stood on democratic-csi for three months while the drivers used
+12m of CPU. Homelab rules live in `additionalPrometheusRulesMap`:
 
 | Group | Alert | Severity | Fires when |
 |---|---|---|---|
@@ -113,6 +117,7 @@ rules live in `additionalPrometheusRulesMap`:
 | homelab-infrastructure | `HomelabCertificateExpiringSoon` | warning | a cert-manager Certificate expires in under 14 days for 1 h |
 | homelab-infrastructure | `HomelabClusterDNSFailing` | critical | CoreDNS answers SERVFAIL for more than 10 % of queries for 15 m ([cluster-dns.md](./cluster-dns.md)) |
 | homelab-infrastructure | `HomelabClusterDNSUpstreamDown` | critical | CoreDNS has no healthy upstream resolver for 10 m ([cluster-dns.md](./cluster-dns.md)) |
+| homelab-infrastructure | `CPUThrottlingHigh` | info | more than 25 % of CFS periods throttled for 15 m, **and** the container ran in more than 300 of the 3000 periods in the window |
 
 Add a rule next to these (Prometheus `$labels` escaped as in the file), give it a `severity`
 label the table above routes, and run `task verify:text`: kubeconform validates the
