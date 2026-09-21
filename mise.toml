@@ -20,7 +20,7 @@ kubectl = "1.37.0"        # the Kind loop's node image minor (versions.yaml imag
 helm = "4.3.0"
 kind = "0.33.0"           # versions.yaml tools.kind
 talosctl = "1.13.8"
-tilt = "0.37.3"
+tilt = "0.37.7"
 argocd = "3.5.3"          # versions.yaml tools.argocd
 argo = "latest"           # Argo Workflows CLI
 
