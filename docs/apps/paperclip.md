@@ -19,10 +19,10 @@ All four are rendered by `charts/applications/templates/paperclip.yaml`, gated o
 | 13 | `paperclip-database` | `charts/paperclip-database` | CloudNativePG `Cluster` `paperclip-postgres`: 1 instance, image `ghcr.io/cloudnative-pg/postgresql:17.11` (`images.cloudnative-pg-postgresql`), `STORAGE_CLASS_ISCSI_SSD` (iSCSI block on the SSD pool; NFS classes fail initdb with "wrong ownership", bugs.md 2026-09-15) / 10Gi (local-path / 1Gi in Kind), PodMonitor on. CNPG generates Secret `paperclip-postgres-app`; its `uri` key is the app's `DATABASE_URL` |
 | 14 | `paperclip` | `charts/paperclip` | `paperclip.inc/v1alpha1` `Instance` `paperclip` + PostSync smoke Job `smoke-paperclip` |
 
-The `Instance`: image `ghcr.io/paperclipai/paperclip` at `images.paperclip` (2026.831.1);
+The `Instance`: image `ghcr.io/paperclipai/paperclip` at `images.paperclip` (2026.916.1);
 `database.mode: external` with `externalURLSecretRef {paperclip-postgres-app, uri}`;
 `deployment.mode: authenticated`, `exposure: private` (the instance sits behind the internal Traefik only; `public` cannot be onboarded by operator 0.19.1 with app 2026.831+, see the values comment), `publicURL: https://paperclip.<domain>`;
-admin bootstrapped once from `PAPERCLIP_ADMIN_EMAIL` + `ADMIN_PASSWORD`, `disableSignUp: false` for now (the bootstrap Job signs the admin up through the same API, see the values comment and bugs.md 2026-09-15);
+admin bootstrapped once from `PAPERCLIP_ADMIN_EMAIL` + `ADMIN_PASSWORD`, `disableSignUp: false` for now (the bootstrap Job signs the admin up through the same API, see the values comment and bugs.md 2026-09-15; the instance has reported `status.bootstrap` since 2026-09-15, so flipping it back to `true` is an open follow-up);
 Ingress class `internal` with cert-manager `letsencrypt` and external-dns, TLS Secret `paperclip-tls`;
 Service `paperclip` port 3100, health path `/api/health`; the operator's default NetworkPolicy stays
 enabled; `security.seLinuxRelabel: false` (the operator's default privileged relabel init container is rejected by the namespace's PodSecurity baseline, and chcon has no purpose on Talos or NFS); Instance metrics off (the OTEL preload and collector do not exist here); persistence 10Gi
@@ -85,6 +85,14 @@ adds `OPENAI_API_KEY`, and a disabled key is never declared. The chart does not 
 one reference into both variables at once, so it cannot expose one provider's key without the
 other's. Both toggles default to `false`: subscriptions are the default, and with them neither
 API-key variable exists in the pod. The 1Password item carries whichever you use.
+
+Since app 2026.916.0 this environment-variable path is the *legacy* one: upstream moved provider
+credentials into the app's Connections as managed accounts with their own grants, and the UI steers
+new agents there. Existing agents keep their current authentication until they explicitly adopt a
+managed connection, so nothing here has to change. Two consequences of the same release: a `plain`
+value set in an agent's adapter env is redacted in every API response after you save it, so read it
+back from 1Password rather than from the API, and the removed "cheap model profile" second execution
+mode means recovery runs now use the same model as normal work.
 
 ### API keys (API billing)
 
@@ -163,7 +171,9 @@ that provider's wiring alone. No agent runs there.
 ## Operate
 
 - **First login**: open `https://paperclip.<domain>` and sign in with `PAPERCLIP_ADMIN_EMAIL` and
-  the `ADMIN_PASSWORD` field of `paperclip-auth`. Self-service sign-up is disabled.
+  the `ADMIN_PASSWORD` field of `paperclip-auth`. Self-service sign-up is still **enabled**
+  (`auth.disableSignUp: false`, the bootstrap workaround); only the internal Traefik reaches the
+  instance, so the exposure is LAN/tailnet-only until the follow-up flips it back.
 - **Rotate `BETTER_AUTH_SECRET`**: edit the field in the 1Password item; the operator's
   `OnePasswordItem` sync updates the Secret. Then restart the workload, which invalidates every
   session:
@@ -206,6 +216,9 @@ task prod:diff -- paperclip
 
 ## Follow-ups
 
+- Flip `auth.disableSignUp` back to `true` (bugs.md 2026-09-15): the instance has reported
+  `status.bootstrap` since 2026-09-15, so the Job short-circuits and the workaround is no longer
+  needed. Verify the operator does not re-run the bootstrap Job on the changed spec hash first
 - CNPG `ScheduledBackup` + `ObjectStore` for `paperclip-postgres` once an S3-compatible target exists in production
 - `spec.adapters.cloudSandbox` (in-cluster agent sandboxes) and inference proxy
 - Google OAuth login (`spec.auth.google`) reusing the `google-oauth` 1Password item

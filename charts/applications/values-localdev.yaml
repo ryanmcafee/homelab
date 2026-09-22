@@ -995,7 +995,7 @@ paperclip:
   instance:
     image:
       repository: ghcr.io/paperclipai/paperclip
-      tag: "2026.831.1"
+      tag: "2026.916.1"
     # Bootstrapped once by the operator's admin-seed Job; the password is the
     # ADMIN_PASSWORD field of the paperclip-auth item.
     admin:
