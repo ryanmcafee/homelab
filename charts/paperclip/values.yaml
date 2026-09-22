@@ -58,22 +58,31 @@ admin:
   name: Admin
   passwordKey: ADMIN_PASSWORD
 
-# LLM credentials. The operator injects the provider keys it knows
-# (ANTHROPIC_API_KEY, OPENAI_API_KEY) from this Secret as optional environment
-# variables; empty name = no adapter keys.
+# Agent credentials (docs/apps/paperclip.md). One Secret carries whichever
+# credential kind is in use; empty name = no credentials wired at all.
 adapters:
-  apiKeysSecretName: paperclip-api-keys
-  # Further keys of the same Secret exposed to the server and the onboarding
-  # init container as optional environment variables (spec.env), for the CLIs
-  # bundled in the image that read something other than an API key. Both
-  # credential kinds work side by side (docs/apps/paperclip.md):
-  #   ANTHROPIC_API_KEY / OPENAI_API_KEY  API billing; injected by the operator
-  #   CLAUDE_CODE_OAUTH_TOKEN             Claude subscription (`claude setup-token`)
-  # Claude Code prefers ANTHROPIC_API_KEY when both are set. Codex reads its key
-  # from ~/.codex/auth.json (`codex login --with-api-key` or a ChatGPT device
-  # login), never from the host environment; HOME (/paperclip) is the persistent
-  # data volume, so that file survives restarts. A key missing from the Secret
-  # is simply unset.
+  secretName: paperclip-api-keys
+  # API billing, one toggle per provider. Each enabled key becomes its own
+  # optional secretKeyRef environment variable (spec.env) read from secretName;
+  # the others are never declared. The chart deliberately does not use the
+  # operator's spec.adapters.apiKeysSecretRef, which injects ANTHROPIC_API_KEY
+  # and OPENAI_API_KEY together (operator 0.19.1 internal/resources/statefulset.go)
+  # and cannot expose one without the other. Both off by default: with the
+  # subscription logins below those variables must not exist in the pod, because
+  # Claude Code ranks ANTHROPIC_API_KEY above the subscription token and would
+  # bill the API.
+  apiKeys:
+    anthropic:
+      enabled: false   # ANTHROPIC_API_KEY
+    openai:
+      enabled: false   # OPENAI_API_KEY
+  # Further keys of the same Secret exposed the same way, for the CLIs bundled
+  # in the image that read something other than an API key:
+  #   CLAUDE_CODE_OAUTH_TOKEN  Claude subscription (`claude setup-token`)
+  # Codex never reads a key from the host environment: a ChatGPT device login
+  # (or `codex login --with-api-key`) lives in ~/.codex/auth.json, and HOME
+  # (/paperclip) is the persistent data volume, so that file survives restarts.
+  # A key missing from the Secret is simply unset.
   extraSecretEnv:
     - CLAUDE_CODE_OAUTH_TOKEN
 

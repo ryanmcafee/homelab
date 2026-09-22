@@ -185,7 +185,7 @@ trusting a prose table.
 | Paperclip auth secret | `op://homelab/paperclip-auth/BETTER_AUTH_SECRET` |
 | Paperclip admin password | `op://homelab/paperclip-auth/ADMIN_PASSWORD` |
 | Paperclip node pin | one node labelled `paperclip.homelab/pin=true` (server + operator bootstrap Job share the RWO iSCSI volume; `docs/apps/paperclip.md` "Node pin") |
-| Paperclip agent credentials | `op://homelab/paperclip-api-keys`: `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` (API billing; the operator injects them) and/or `CLAUDE_CODE_OAUTH_TOKEN` (Claude subscription token from `claude setup-token`; an API key wins for Claude). Codex reads `/paperclip/.codex/auth.json` (`codex login --with-api-key` or `--device-auth` in the pod), never the host env |
+| Paperclip agent credentials | `op://homelab/paperclip-api-keys`: `CLAUDE_CODE_OAUTH_TOKEN` (Claude subscription token from `claude setup-token`; the default). `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` (API billing) reach the pod only with `charts/paperclip` `adapters.apiKeys.anthropic.enabled` / `adapters.apiKeys.openai.enabled`, each independently (chart `spec.env`, never the operator's all-or-nothing `apiKeysSecretRef`; an API key wins for Claude). Codex reads `/paperclip/.codex/auth.json` (`codex login --with-api-key` or `--device-auth` in the pod), never the host env |
 
 ## Tips
 
