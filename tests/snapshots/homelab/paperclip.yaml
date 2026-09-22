@@ -13,8 +13,8 @@ spec:
   image:
     repository: ghcr.io/paperclipai/paperclip
     tag: "2026.831.1"
-  # Optional keys of the credentials Secret (subscription tokens the operator
-  # does not inject itself) followed by extraEnv; both containers receive spec.env.
+  # Optional keys of the credentials Secret (the enabled per-provider API keys,
+  # then extraSecretEnv) followed by extraEnv; both containers receive spec.env.
   env:
     - name: CLAUDE_CODE_OAUTH_TOKEN
       valueFrom:

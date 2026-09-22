@@ -12,16 +12,24 @@ spec:
   image:
     repository: {{ .Values.image.repository }}
     tag: {{ .Values.image.tag | quote }}
+  {{- $secretKeys := list }}
+  {{- if .Values.adapters.apiKeys.anthropic.enabled }}
+  {{- $secretKeys = append $secretKeys "ANTHROPIC_API_KEY" }}
+  {{- end }}
+  {{- if .Values.adapters.apiKeys.openai.enabled }}
+  {{- $secretKeys = append $secretKeys "OPENAI_API_KEY" }}
+  {{- end }}
+  {{- $secretKeys = concat $secretKeys (.Values.adapters.extraSecretEnv | default list) }}
   {{- $secretEnv := list }}
   {{- if .Values.adapters.secretName }}
-  {{- range .Values.adapters.extraSecretEnv }}
+  {{- range $secretKeys | uniq }}
   {{- $secretEnv = append $secretEnv (dict "name" . "valueFrom" (dict "secretKeyRef" (dict "name" $.Values.adapters.secretName "key" . "optional" true))) }}
   {{- end }}
   {{- end }}
   {{- $env := concat $secretEnv (.Values.extraEnv | default list) }}
   {{- with $env }}
-  # Optional keys of the credentials Secret (subscription tokens the operator
-  # does not inject itself) followed by extraEnv; both containers receive spec.env.
+  # Optional keys of the credentials Secret (the enabled per-provider API keys,
+  # then extraSecretEnv) followed by extraEnv; both containers receive spec.env.
   env:
     {{- toYaml . | nindent 4 }}
   {{- end }}
@@ -49,13 +57,6 @@ spec:
         name: {{ .Values.auth.secretName }}
         key: {{ .Values.admin.passwordKey }}
     {{- end }}
-  {{- if and .Values.adapters.secretName .Values.adapters.apiKeys.enabled }}
-  # API billing only: the operator turns this into ANTHROPIC_API_KEY and
-  # OPENAI_API_KEY secretKeyRef env on the server. Absent with subscriptions.
-  adapters:
-    apiKeysSecretRef:
-      name: {{ .Values.adapters.secretName }}
-  {{- end }}
   {{- with .Values.availability.nodeSelector }}
   availability:
     nodeSelector:
