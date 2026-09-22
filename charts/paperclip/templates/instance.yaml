@@ -13,15 +13,15 @@ spec:
     repository: {{ .Values.image.repository }}
     tag: {{ .Values.image.tag | quote }}
   {{- $secretEnv := list }}
-  {{- if .Values.adapters.apiKeysSecretName }}
+  {{- if .Values.adapters.secretName }}
   {{- range .Values.adapters.extraSecretEnv }}
-  {{- $secretEnv = append $secretEnv (dict "name" . "valueFrom" (dict "secretKeyRef" (dict "name" $.Values.adapters.apiKeysSecretName "key" . "optional" true))) }}
+  {{- $secretEnv = append $secretEnv (dict "name" . "valueFrom" (dict "secretKeyRef" (dict "name" $.Values.adapters.secretName "key" . "optional" true))) }}
   {{- end }}
   {{- end }}
   {{- $env := concat $secretEnv (.Values.extraEnv | default list) }}
   {{- with $env }}
-  # Optional keys of the adapter Secret (subscription tokens the operator does
-  # not inject itself) followed by extraEnv; both containers receive spec.env.
+  # Optional keys of the credentials Secret (subscription tokens the operator
+  # does not inject itself) followed by extraEnv; both containers receive spec.env.
   env:
     {{- toYaml . | nindent 4 }}
   {{- end }}
@@ -49,10 +49,12 @@ spec:
         name: {{ .Values.auth.secretName }}
         key: {{ .Values.admin.passwordKey }}
     {{- end }}
-  {{- if .Values.adapters.apiKeysSecretName }}
+  {{- if and .Values.adapters.secretName .Values.adapters.apiKeys.enabled }}
+  # API billing only: the operator turns this into ANTHROPIC_API_KEY and
+  # OPENAI_API_KEY secretKeyRef env on the server. Absent with subscriptions.
   adapters:
     apiKeysSecretRef:
-      name: {{ .Values.adapters.apiKeysSecretName }}
+      name: {{ .Values.adapters.secretName }}
   {{- end }}
   {{- with .Values.availability.nodeSelector }}
   availability:
