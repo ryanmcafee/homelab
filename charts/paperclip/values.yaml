@@ -143,10 +143,13 @@ resources:
     cpu: "2"
     memory: 2Gi
 
-# Migrations run at startup; give the first boot up to 5 minutes.
+# Migrations run at startup, so the budget has to cover the largest upgrade, not
+# the steady-state boot: 2026.916.0 alone adds 49 of them (0231-0279). 10 minutes.
+# A startup probe that gives up restarts the container mid-upgrade, which is the
+# one failure mode worth over-provisioning against.
 probes:
   startup:
-    failureThreshold: 60
+    failureThreshold: 120
     periodSeconds: 5
 
 # Extra environment for the server and the onboarding init container (spec.env;

@@ -12,7 +12,7 @@ metadata:
 spec:
   image:
     repository: ghcr.io/paperclipai/paperclip
-    tag: "2026.831.1"
+    tag: "2026.916.1"
   # Optional keys of the credentials Secret (the enabled per-provider API keys,
   # then extraSecretEnv) followed by extraEnv; both containers receive spec.env.
   env:
@@ -86,5 +86,5 @@ spec:
       memory: 1Gi
   probes:
     startup:
-      failureThreshold: 60
+      failureThreshold: 120
       periodSeconds: 5

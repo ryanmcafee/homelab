@@ -1249,7 +1249,7 @@ spec:
           name: Admin
         image:
           repository: ghcr.io/paperclipai/paperclip
-          tag: 2026.831.1
+          tag: 2026.916.1
         ingress:
           className: internal
         persistence:
