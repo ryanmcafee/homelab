@@ -94,6 +94,14 @@ value set in an agent's adapter env is redacted in every API response after you 
 back from 1Password rather than from the API, and the removed "cheap model profile" second execution
 mode means recovery runs now use the same model as normal work.
 
+Since app 2026.916.0 this environment-variable path is the *legacy* one: provider credentials are
+meant to live in the app's Connections as managed accounts with their own grants. Existing agents
+keep their current authentication until they explicitly adopt a managed connection, so nothing here
+has to change — but the UI now steers new agents towards Connections. Two consequences of the same
+release: a `plain` value set in an agent's adapter env (below) is redacted in every API response
+after you save it, so read it back from 1Password rather than from the API, and the removed "cheap
+model profile" second execution mode means recovery runs now use the same model as normal work.
+
 ### API keys (API billing)
 
 Enable only the provider you pay per token, in `charts/paperclip/values.yaml`; each toggle is
