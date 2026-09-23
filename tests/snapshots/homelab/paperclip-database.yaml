@@ -11,6 +11,13 @@ metadata:
   namespace: paperclip
 spec:
   instances: 1
+  # In an ambient-enrolled namespace the database stays out of the mesh: a
+  # ztunnel restart must never cut PostgreSQL connections, and its Services
+  # bypass the namespace's waypoint (docs/service-mesh.md).
+  inheritedMetadata:
+    labels:
+      istio.io/dataplane-mode: none
+      istio.io/use-waypoint: none
   imageName: "ghcr.io/cloudnative-pg/postgresql:17.11"
   primaryUpdateStrategy: unsupervised
   storage:

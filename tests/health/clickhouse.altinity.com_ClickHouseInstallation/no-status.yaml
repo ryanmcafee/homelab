@@ -1,0 +1,11 @@
+# expect: Progressing
+# message: Waiting for the operator
+apiVersion: clickhouse.altinity.com/v1
+kind: ClickHouseInstallation
+metadata:
+  name: logs
+  namespace: observability
+spec:
+  configuration:
+    clusters:
+      - name: logs

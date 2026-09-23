@@ -1,0 +1,11 @@
+{{- /* "Paperclip request path" for the Grafana sidecar (docs/runbooks/paperclip-request-path.md). */}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Values.name }}-request-path-dashboard
+  namespace: {{ .Values.namespace }}
+  labels:
+    grafana_dashboard: "1"
+data:
+  paperclip-request-path.json: |-
+    {{- .Files.Get "dashboards/paperclip-request-path.json" | nindent 4 }}

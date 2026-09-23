@@ -1,0 +1,13 @@
+# expect: Healthy
+# message: reconciled
+apiVersion: clickhouse.altinity.com/v1
+kind: ClickHouseInstallation
+metadata:
+  name: logs
+  namespace: observability
+spec:
+  configuration:
+    clusters:
+      - name: logs
+status:
+  status: Completed

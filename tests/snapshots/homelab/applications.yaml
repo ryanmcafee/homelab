@@ -73,6 +73,9 @@ metadata:
     pod-security.kubernetes.io/enforce: baseline
     pod-security.kubernetes.io/audit: baseline
     pod-security.kubernetes.io/warn: baseline
+    istio.io/dataplane-mode: ambient
+    istio.io/use-waypoint: waypoint
+    istio.io/ingress-use-waypoint: "true"
   annotations:
     argocd.argoproj.io/sync-wave: "10"
 
@@ -1352,6 +1355,7 @@ spec:
       # (configuration/) and reach the child through this parent (ADR-010).
       valuesObject:
         namespace: paperclip
+        ambientOptOut: true
         imageName: ghcr.io/cloudnative-pg/postgresql:17.11
         instances: 1
         resources:
@@ -1414,6 +1418,8 @@ spec:
       valuesObject:
         namespace: paperclip
         hostname: paperclip.REPLACEME-domain.com
+        serviceMesh:
+          ambient: true
         admin:
           email: admin@REPLACEME-domain.com
           name: Admin
@@ -2303,3 +2309,21 @@ spec:
         duration: 5s
         factor: 2
         maxDuration: 3m
+
+---
+# Source: applications/templates/waypoints.yaml
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: waypoint
+  namespace: paperclip
+  labels:
+    istio.io/waypoint-for: service
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
+spec:
+  gatewayClassName: istio-waypoint
+  listeners:
+    - name: mesh
+      port: 15008
+      protocol: HBONE

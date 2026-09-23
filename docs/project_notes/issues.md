@@ -13,6 +13,11 @@ Each entry should include:
 
 ## Recent Work
 
+### 2026-09-23 - Observability: Traefik logs+metrics, OTel -> ClickHouse logs and traces, Hubble, UniFi flows, Istio ambient + Kiali, paperclip request path
+- **Status**: PR #321 open; before merge create 1Password items `clickhouse-otel` and `clickhouse-grafana` (field `password`) and add `OTEL_LB_IP` to homelab.yaml and the homelab-environment-config document; after merge a human runs `task render && task render:push && task tf:apply`, restarts Cilium, and points UniFi syslog/IPFIX at `OTEL_LB_IP`
+- **Description**: The Paperclip API occasionally fails to respond with no 5xx at Traefik. Every hop now leaves correlated data: Traefik JSON access logs (TraceId, timings, client) and metrics, OpenTelemetry collectors writing container logs, events, OTLP traces, the filtered Hubble flow log and UniFi syslog/IPFIX into ClickHouse (Altinity operator, iSCSI 100Gi, 90-day TTL), Istio 1.31 ambient with paperclip enrolled behind a waypoint, blackbox probes (ingress vs direct), Kiali, Hubble UI and the "Paperclip request path" dashboard with its runbook. ADR-019..022
+- **URL**: https://github.com/ryanmcafee/homelab/pull/321
+
 ### 2026-09-20 - Firing alerts root-caused: stale failed Jobs, kube-proxy, Talos bind-address, unclassed IngressRoutes
 - **Status**: PR #313 open; after merge a human runs `task tf:apply:component COMPONENT=talos-cluster` and deletes the four pre-TTL failed Jobs once
 - **Description**: `KubeJobFailed` fired 17 days after one transient failure because neither CronJob expired finished Jobs; `KubeProxyDown` because Cilium replaces kube-proxy; `KubeControllerManagerDown`/`KubeSchedulerDown` because Talos binds both to 127.0.0.1; the nightly `ingress-verification` failed on `auth` (three IngressRoutes without an ingress class are loaded by no Traefik) and on the disabled Home Assistant. Guards: conftest `cronjob-ttl` and `ingressroute-class`. Follow-ups in the same PR: the `ingress-verification` CronWorkflow and its `argo-workflows-config` chart removed (no longer needed), `metrics-server` addon so the Traefik HPAs and `kubectl top` work, and `agent-readonly` may `exec` and port-forward so an agent can read what Alertmanager is firing. Details in `bugs.md` (2026-09-20)

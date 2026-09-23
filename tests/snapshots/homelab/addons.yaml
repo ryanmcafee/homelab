@@ -74,12 +74,38 @@ metadata:
     argocd.argoproj.io/sync-wave: "9"
 
 ---
+# Source: addons/templates/istio.yaml
+# istio-cni and ztunnel mount host paths and need NET_ADMIN/SYS_ADMIN, which
+# Talos' default baseline PodSecurity rejects.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: istio-system
+  labels:
+    pod-security.kubernetes.io/enforce: privileged
+    pod-security.kubernetes.io/audit: privileged
+    pod-security.kubernetes.io/warn: privileged
+
+---
 # Source: addons/templates/kube-prometheus-stack.yaml
 # Namespace with privileged PodSecurity labels for node-exporter
 apiVersion: v1
 kind: Namespace
 metadata:
   name: monitoring
+  labels:
+    pod-security.kubernetes.io/enforce: privileged
+    pod-security.kubernetes.io/audit: privileged
+    pod-security.kubernetes.io/warn: privileged
+
+---
+# Source: addons/templates/logging.yaml
+# The agent DaemonSet reads /var/log/pods through hostPath volumes, which the
+# baseline PodSecurity level forbids.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: observability
   labels:
     pod-security.kubernetes.io/enforce: privileged
     pod-security.kubernetes.io/audit: privileged
@@ -308,6 +334,57 @@ spec:
               cpu: "100m"
 
 ---
+# Source: addons/templates/istio.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: smoke-kiali
+  namespace: istio-system
+  labels:
+    app.kubernetes.io/name: smoke-kiali
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation,HookSucceeded
+    argocd.argoproj.io/sync-wave: "10"
+spec:
+  backoffLimit: 2
+  activeDeadlineSeconds: 600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: smoke-kiali
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: curl
+          image: curlimages/curl:8.22.0
+          env:
+            - name: URL
+              value: "http://kiali.istio-system.svc.cluster.local:20001/healthz"
+          command: ["sh", "-c"]
+          args:
+            - |
+              code=$(curl -sL --max-redirs 5 -o /dev/null -w '%{http_code}' --retry 30 --retry-delay 10 --retry-all-errors --max-time 20 "$URL")
+              echo "smoke kiali: $URL -> HTTP $code"
+              case "$code" in 200) exit 0;; *) exit 1;; esac
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 100
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            seccompProfile:
+              type: RuntimeDefault
+
+---
 # Source: addons/templates/kube-prometheus-stack.yaml
 apiVersion: batch/v1
 kind: Job
@@ -391,6 +468,57 @@ spec:
             - |
               code=$(curl -sL --max-redirs 5 -o /dev/null -w '%{http_code}' --retry 30 --retry-delay 10 --retry-all-errors --max-time 20 "$URL")
               echo "smoke prometheus: $URL -> HTTP $code"
+              case "$code" in 200) exit 0;; *) exit 1;; esac
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 100
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            seccompProfile:
+              type: RuntimeDefault
+
+---
+# Source: addons/templates/logging.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: smoke-clickhouse
+  namespace: observability
+  labels:
+    app.kubernetes.io/name: smoke-clickhouse
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation,HookSucceeded
+    argocd.argoproj.io/sync-wave: "11"
+spec:
+  backoffLimit: 2
+  activeDeadlineSeconds: 600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: smoke-clickhouse
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: curl
+          image: curlimages/curl:8.22.0
+          env:
+            - name: URL
+              value: "http://clickhouse-logs.observability.svc.cluster.local:8123/ping"
+          command: ["sh", "-c"]
+          args:
+            - |
+              code=$(curl -sL --max-redirs 5 -o /dev/null -w '%{http_code}' --retry 30 --retry-delay 10 --retry-all-errors --max-time 20 "$URL")
+              echo "smoke clickhouse: $URL -> HTTP $code"
               case "$code" in 200) exit 0;; *) exit 1;; esac
           resources:
             requests:
@@ -541,6 +669,76 @@ spec:
       - CreateNamespace=true
       - ServerSideApply=true
       - PruneLast=true
+      - ApplyOutOfSyncOnly=true
+
+---
+# Source: addons/templates/blackbox-exporter.yaml
+# Synthetic HTTP probes (docs/runbooks/paperclip-request-path.md): one
+# ServiceMonitor per target, metrics probe_success / probe_duration_seconds
+# labelled target=<name>; alerts in the homelab-probes group.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: blackbox-exporter
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://prometheus-community.github.io/helm-charts
+    chart: prometheus-blackbox-exporter
+    targetRevision: "11.18.0"
+    helm:
+      releaseName: blackbox-exporter
+      values: |
+        config:
+          modules:
+            http_2xx:
+              prober: http
+              timeout: 10s
+              http:
+                preferred_ip_protocol: ip4
+            # The ingress probe checks reachability, not the certificate
+            # (HomelabCertificateExpiringSoon covers that; Kind's is self-signed).
+            http_2xx_ingress:
+              prober: http
+              timeout: 10s
+              http:
+                preferred_ip_protocol: ip4
+                tls_config:
+                  insecure_skip_verify: true
+        resources:
+          requests:
+            cpu: 10m
+            memory: 32Mi
+          limits:
+            cpu: 200m
+            memory: 128Mi
+        serviceMonitor:
+          enabled: true
+          defaults:
+            interval: 15s
+            scrapeTimeout: 12s
+          targets:
+            - module: http_2xx_ingress
+              name: paperclip-ingress
+              url: https://paperclip.REPLACEME-domain.com/api/health
+            - module: http_2xx
+              name: paperclip-direct
+              url: http://paperclip.paperclip.svc.cluster.local:3100/api/health
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
       - ApplyOutOfSyncOnly=true
 
 ---
@@ -763,9 +961,30 @@ spec:
           autoMount:
             enabled: false
           hostRoot: /sys/fs/cgroup
+        cni:
+          exclusive: false
         externalIPs:
           enabled: true
         hubble:
+          export:
+            static:
+              allowList:
+              - '{"source_pod":["paperclip/","traefik/"]}'
+              - '{"destination_pod":["paperclip/","traefik/"]}'
+              - '{"verdict":["DROPPED","ERROR"]}'
+              enabled: true
+              fileMaxBackups: 3
+              fileMaxSizeMb: 50
+              filePath: /var/run/cilium/hubble/events.log
+          metrics:
+            enableOpenMetrics: true
+            enabled:
+            - dns
+            - drop:sourceContext=namespace;destinationContext=namespace
+            - tcp
+            - flow:sourceContext=workload-name|reserved-identity;destinationContext=workload-name|reserved-identity
+            - port-distribution
+            - icmp
           relay:
             enabled: true
           ui:
@@ -777,6 +996,13 @@ spec:
         kubeProxyReplacement: true
         l2announcements:
           enabled: true
+        operator:
+          prometheus:
+            enabled: true
+            metricsService: true
+        prometheus:
+          enabled: true
+          metricsService: true
         securityContext:
           capabilities:
             ciliumAgent:
@@ -795,6 +1021,8 @@ spec:
             - NET_ADMIN
             - SYS_ADMIN
             - SYS_RESOURCE
+        socketLB:
+          hostNamespaceOnly: true
 
   destination:
     server: https://kubernetes.default.svc
@@ -826,6 +1054,47 @@ spec:
         - /data
         - /metadata/annotations
         - /metadata/labels
+
+---
+# Source: addons/templates/cilium.yaml
+# Config Application: the Cilium objects that need CRDs, cert-manager or
+# Traefik, which the Talos-applied release cannot carry (charts/cilium-config).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cilium-config
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/ryanmcafee/homelab.git
+    targetRevision: main
+    path: charts/cilium-config
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-homelab.yaml
+      valuesObject:
+        hubbleUI:
+          enabled: true
+          host: hubble.REPLACEME-domain.com
+          ingressClassName: internal
+        monitoring:
+          enabled: true
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: kube-system
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true
+      - SkipDryRunOnMissingResource=true
 
 ---
 # Source: addons/templates/cloudnative-pg.yaml
@@ -1912,6 +2181,349 @@ spec:
       - ApplyOutOfSyncOnly=true
 
 ---
+# Source: addons/templates/istio.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: gateway-api-crds
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+    # Its path is in the gateway-api repository: Kind syncs it from there,
+    # not with --local (scripts/localdev-argocd.ts REMOTE_SYNC_ANNOTATION).
+    homelab.local/localdev-sync: remote
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/kubernetes-sigs/gateway-api.git
+    targetRevision: v1.6.2
+    path: config/crd/standard
+  destination:
+    server: https://kubernetes.default.svc
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+
+---
+# Source: addons/templates/istio.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: istio-base
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://blob.istio.io/istio-release/charts
+    chart: base
+    targetRevision: "1.31.1"
+    helm:
+      releaseName: istio-base
+      values: |
+        defaultRevision: default
+        # Fail from the start: otherwise istiod flips the chart's Ignore to
+        # Fail and the two fight over the field under server-side apply.
+        base:
+          validationFailurePolicy: Fail
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: istio-system
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+      - RespectIgnoreDifferences=true
+  ignoreDifferences:
+    - group: admissionregistration.k8s.io
+      kind: ValidatingWebhookConfiguration
+      jqPathExpressions:
+        - .webhooks[]?.clientConfig.caBundle
+
+---
+# Source: addons/templates/istio.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: istiod
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://blob.istio.io/istio-release/charts
+    chart: istiod
+    targetRevision: "1.31.1"
+    helm:
+      releaseName: istiod
+      values: |
+        profile: ambient
+        base:
+          validationFailurePolicy: Fail
+        # Spans from waypoints go to the OpenTelemetry gateway collector; the
+        # mesh-wide Telemetry in charts/istio-config selects this provider.
+        meshConfig:
+          extensionProviders:
+            - name: otel-tracing
+              opentelemetry:
+                service: otel-collector-gateway.observability.svc.cluster.local
+                port: 4317
+        pilot:
+          autoscaleEnabled: false
+          replicaCount: 1
+          resources:
+            limits:
+              cpu: "1"
+              memory: 1Gi
+            requests:
+              cpu: 100m
+              memory: 512Mi
+        global:
+          proxy:
+            resources:
+              limits:
+                cpu: "1"
+                memory: 512Mi
+              requests:
+                cpu: 50m
+                memory: 128Mi
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: istio-system
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+      - RespectIgnoreDifferences=true
+  ignoreDifferences:
+    - group: admissionregistration.k8s.io
+      kind: ValidatingWebhookConfiguration
+      jqPathExpressions:
+        - .webhooks[]?.clientConfig.caBundle
+    - group: admissionregistration.k8s.io
+      kind: MutatingWebhookConfiguration
+      jqPathExpressions:
+        - .webhooks[]?.clientConfig.caBundle
+
+---
+# Source: addons/templates/istio.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: istio-cni
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://blob.istio.io/istio-release/charts
+    chart: cni
+    targetRevision: "1.31.1"
+    helm:
+      releaseName: istio-cni
+      values: |
+        profile: ambient
+        cni:
+          # Istio platform prerequisites: Talos keeps CNI binaries and
+          # config at these host paths, and Cilium is the primary plugin.
+          cniBinDir: /opt/cni/bin
+          cniConfDir: /etc/cni/net.d
+          chained: true
+          resources:
+            limits:
+              cpu: 500m
+              memory: 256Mi
+            requests:
+              cpu: 50m
+              memory: 64Mi
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: istio-system
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+
+---
+# Source: addons/templates/istio.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: ztunnel
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "4"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://blob.istio.io/istio-release/charts
+    chart: ztunnel
+    targetRevision: "1.31.1"
+    helm:
+      releaseName: ztunnel
+      values: |
+        profile: ambient
+        resources:
+          limits:
+            cpu: "1"
+            memory: 512Mi
+          requests:
+            cpu: 50m
+            memory: 64Mi
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: istio-system
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+
+---
+# Source: addons/templates/istio.yaml
+# Config Application: Prometheus operator monitors for istiod, istio-cni,
+# ztunnel and waypoints, and the mesh-wide tracing Telemetry (charts/istio-config).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: istio-config
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "5"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/ryanmcafee/homelab.git
+    targetRevision: main
+    path: charts/istio-config
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-homelab.yaml
+      valuesObject:
+        namespace: istio-system
+        tracing:
+          port: 4317
+          provider: otel-tracing
+          samplingPercentage: 10
+          service: otel-collector-gateway.observability.svc.cluster.local
+        kiali:
+          host: servicemesh.REPLACEME-domain.com
+          ingressClassName: internal
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: istio-system
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - SkipDryRunOnMissingResource=true
+
+---
+# Source: addons/templates/istio.yaml
+# Kiali on the internal ingress at the SERVICEMESH_HOSTNAME of configuration/.
+# Token login: a user signs in with a ServiceAccount token and sees what that
+# token's RBAC allows (docs/service-mesh.md).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: kiali
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://kiali.org/helm-charts
+    chart: kiali-server
+    targetRevision: "2.32.0"
+    helm:
+      releaseName: kiali
+      values: |
+        auth:
+          strategy: token
+        deployment:
+          image_pull_policy: IfNotPresent
+          resources:
+            limits:
+              cpu: 500m
+              memory: 1Gi
+            requests:
+              cpu: 10m
+              memory: 128Mi
+          # The Ingress is rendered by charts/istio-config: the chart's own
+          # picks its apiVersion from cluster capabilities, which a local
+          # render does not have, and then never matches the live object.
+          ingress:
+            enabled: false
+        server:
+          web_root: /
+          web_fqdn: servicemesh.REPLACEME-domain.com
+          web_schema: https
+          web_port: "443"
+        external_services:
+          istio:
+            root_namespace: istio-system
+          prometheus:
+            url: http://kube-prometheus-stack-prometheus.monitoring.svc.cluster.local:9090
+          grafana:
+            enabled: true
+            internal_url: http://kube-prometheus-stack-grafana.monitoring.svc.cluster.local:80
+            external_url: https://grafana.REPLACEME-domain.com
+          tracing:
+            enabled: false
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: istio-system
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+
+---
 # Source: addons/templates/kube-prometheus-stack.yaml
 apiVersion: argoproj.io/v1alpha1
 kind: Application
@@ -2017,6 +2629,127 @@ spec:
             fsGroup: 100
             runAsGroup: 100
             runAsUser: 568
+
+          # ClickHouse datasource for cluster logs and traces (docs/logging.md,
+          # docs/tracing.md); OpenTelemetry mode links a log's TraceId to its trace. The
+          # provisioning file keeps the $-reference; Grafana expands it from
+          # the environment, so the password never enters a ConfigMap.
+          plugins:
+            - grafana-clickhouse-datasource@4.21.3
+          envValueFrom:
+            CLICKHOUSE_PASSWORD:
+              secretKeyRef:
+                name: clickhouse-grafana
+                key: password
+          additionalDataSources:
+            - name: ClickHouse
+              uid: clickhouse-logs
+              type: grafana-clickhouse-datasource
+              jsonData:
+                host: clickhouse-logs.observability.svc.cluster.local
+                port: 9000
+                protocol: native
+                username: grafana
+                defaultDatabase: otel
+                logs:
+                  defaultDatabase: otel
+                  defaultTable: otel_logs
+                  otelEnabled: true
+                  otelVersion: "1.3.0"
+                traces:
+                  defaultDatabase: otel
+                  defaultTable: otel_traces
+                  otelEnabled: true
+                  otelVersion: "1.3.0"
+                  durationUnit: nanoseconds
+              secureJsonData:
+                password: $CLICKHOUSE_PASSWORD
+
+          dashboardProviders:
+            dashboardproviders.yaml:
+              apiVersion: 1
+              providers:
+                - name: homelab
+                  folder: Homelab
+                  type: file
+                  disableDeletion: true
+                  editable: false
+                  options:
+                    path: /var/lib/grafana/dashboards/homelab
+          dashboards:
+            homelab:
+              cilium-agent:
+                gnetId: 16611
+                revision: 1
+                datasource:
+                  - name: DS_PROMETHEUS
+                    value: Prometheus
+              cilium-operator:
+                gnetId: 16612
+                revision: 1
+                datasource:
+                  - name: DS_PROMETHEUS
+                    value: Prometheus
+              hubble:
+                gnetId: 16613
+                revision: 1
+                datasource:
+                  - name: DS_PROMETHEUS
+                    value: Prometheus
+              hubble-dns-overview:
+                gnetId: 19425
+                revision: 1
+                datasource:
+                  - name: DS_PROMETHEUS
+                    value: Prometheus
+              hubble-network-overview:
+                gnetId: 19424
+                revision: 1
+                datasource:
+                  - name: DS_PROMETHEUS
+                    value: Prometheus
+              istio-control-plane:
+                gnetId: 7645
+                revision: 332
+                datasource:
+                  - name: DS_PROMETHEUS
+                    value: Prometheus
+              istio-mesh:
+                gnetId: 7639
+                revision: 333
+                datasource:
+                  - name: DS_PROMETHEUS
+                    value: Prometheus
+              istio-service:
+                gnetId: 7636
+                revision: 332
+                datasource:
+                  - name: DS_PROMETHEUS
+                    value: Prometheus
+              istio-workload:
+                gnetId: 7630
+                revision: 333
+                datasource:
+                  - name: DS_PROMETHEUS
+                    value: Prometheus
+              istio-ztunnel:
+                gnetId: 21306
+                revision: 100
+                datasource:
+                  - name: DS_PROMETHEUS
+                    value: Prometheus
+              opentelemetry-collector:
+                gnetId: 15983
+                revision: 30
+                datasource:
+                  - name: DS_PROMETHEUS
+                    value: Prometheus
+              traefik:
+                gnetId: 17347
+                revision: 9
+                datasource:
+                  - name: DS_PROMETHEUS
+                    value: Prometheus
 
           # Use Recreate strategy to avoid Multi-Attach errors with RWO PVC
           deploymentStrategy:
@@ -2304,6 +3037,222 @@ spec:
                       summary: 'Processes experience elevated CPU throttling.'
                       description: '{{ $value | humanizePercentage }} throttling of CPU in namespace {{ $labels.namespace }} for container {{ $labels.container }} in pod {{ $labels.pod }}, which is busy enough for the figure to mean something. Raise the CPU limit; requests govern scheduling, a limit only caps a burst.'
                       runbook_url: 'https://runbooks.prometheus-operator.dev/runbooks/kubernetes/cputhrottlinghigh'
+          # Ingress (docs/runbooks/alerting.md). Metrics: the ServiceMonitors of
+          # both Traefik releases (job = release name). Traefik labels the
+          # backend `service`; the scrape renames it to exported_service.
+          homelab-ingress:
+            groups:
+              - name: homelab-ingress
+                rules:
+                  - alert: HomelabTraefikDown
+                    expr: 'sum by (job) (up{job=~"traefik-internal|traefik-external"}) == 0 or absent(up{job="traefik-internal"}) or absent(up{job="traefik-external"})'
+                    for: 5m
+                    labels:
+                      severity: critical
+                    annotations:
+                      summary: 'Traefik {{ $labels.job }} has no reachable instance'
+                      description: 'No {{ $labels.job }} pod has answered the metrics scrape for 5m, so every route on that ingress class is down. `kubectl -n traefik get pods` and the Traefik logs in Grafana (docs/logging.md).'
+                  - alert: HomelabTraefikBackendErrors
+                    expr: 'sum by (job, exported_service) (rate(traefik_service_requests_total{code=~"5.."}[5m])) / sum by (job, exported_service) (rate(traefik_service_requests_total[5m])) > 0.05 and sum by (job, exported_service) (rate(traefik_service_requests_total[5m])) > 0.1'
+                    for: 10m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: '{{ $labels.exported_service }} answers 5xx to {{ $value | humanizePercentage }} of requests'
+                      description: 'More than 5 % of the requests {{ $labels.job }} routed to {{ $labels.exported_service }} have failed with 5xx for 10m. The access logs (ServiceName traefik, docs/logging.md) show the failing paths and upstream durations.'
+                  - alert: HomelabTraefikBackendSlow
+                    expr: 'histogram_quantile(0.95, sum by (job, exported_service, le) (rate(traefik_service_request_duration_seconds_bucket[5m]))) > 5 and sum by (job, exported_service) (rate(traefik_service_requests_total[5m])) > 0.05'
+                    for: 10m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: 'p95 latency of {{ $labels.exported_service }} is {{ $value | humanizeDuration }}'
+                      description: 'The 95th percentile response time {{ $labels.job }} measured for {{ $labels.exported_service }} has been above 5 s for 10m. Streaming endpoints hold requests open by design; check the access logs before tuning.'
+          # Log pipeline, adapted from the opentelemetry-collector chart rules and
+          # the Altinity clickhouse-operator alert rules (docs/runbooks/alerting.md).
+          homelab-logging:
+            groups:
+              - name: homelab-logging
+                rules:
+                  - alert: HomelabLogExportFailing
+                    expr: 'sum by (namespace, pod) (rate(otelcol_exporter_send_failed_log_records_total[5m])) > 0'
+                    for: 15m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: 'Collector {{ $labels.pod }} cannot write logs to ClickHouse'
+                      description: '{{ $labels.pod }} has failed to export log records for 15m; they are dropped once the retry window (5m) and the send queue run out. Check the ClickHouse pod and `kubectl -n {{ $labels.namespace }} logs {{ $labels.pod }}`.'
+                  - alert: HomelabLogExportQueueFull
+                    expr: 'max by (namespace, pod) (otelcol_exporter_queue_size / otelcol_exporter_queue_capacity) > 0.8'
+                    for: 10m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: 'Collector {{ $labels.pod }} send queue is {{ $value | humanizePercentage }} full'
+                      description: 'The ClickHouse exporter queue of {{ $labels.pod }} has been above 80 % for 10m; new batches are refused when it fills. ClickHouse is slow or unreachable.'
+                  - alert: HomelabLogsNotArriving
+                    expr: 'sum(rate(otelcol_receiver_accepted_log_records_total{receiver=~"file_?log.*"}[15m])) == 0 or absent(otelcol_receiver_accepted_log_records_total{receiver=~"file_?log.*"})'
+                    for: 30m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: 'No container logs are being collected'
+                      description: 'The OpenTelemetry agents have read no container log line for 30m. Check the otel-collector-agent DaemonSet in observability and its hostPath mounts of /var/log/pods.'
+                  - alert: HomelabTraceExportFailing
+                    expr: 'sum by (namespace, pod) (rate(otelcol_exporter_send_failed_spans_total[5m])) > 0'
+                    for: 15m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: 'Collector {{ $labels.pod }} cannot write spans to ClickHouse'
+                      description: '{{ $labels.pod }} has failed to export spans for 15m; they are dropped once retries and the send queue run out (docs/tracing.md).'
+                  - alert: HomelabTelemetryRefused
+                    expr: 'sum by (namespace, pod, receiver) (rate(otelcol_receiver_refused_spans_total[5m]) or rate(otelcol_receiver_refused_log_records_total[5m])) > 0'
+                    for: 10m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: 'Receiver {{ $labels.receiver }} on {{ $labels.pod }} refuses data'
+                      description: 'The collector has refused spans or log records on {{ $labels.receiver }} for 10m, usually because memory_limiter is holding it back. Raise the collector memory limit or find the sender flooding it.'
+                  - alert: HomelabUniFiTelemetrySilent
+                    expr: 'sum by (receiver) (rate(otelcol_receiver_accepted_log_records_total{receiver=~"syslog.*|netflow"}[30m])) == 0'
+                    for: 30m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: 'No UniFi {{ $labels.receiver }} records for 30m'
+                      description: 'The gateway collector has received nothing on {{ $labels.receiver }} for an hour. Check the UniFi export settings (docs/logging.md, "UniFi gateway") and that otel.<DOMAIN> resolves to OTEL_LB_IP.'
+                  - alert: HomelabClickHouseDown
+                    expr: 'max by (chi, hostname) (chi_clickhouse_metric_fetch_errors{fetch_type="system.metrics"}) > 0 or absent(chi_clickhouse_metric_Uptime)'
+                    for: 10m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: 'ClickHouse {{ $labels.chi }} is not answering the metrics exporter'
+                      description: 'The clickhouse-operator metrics exporter has not read system.metrics from ClickHouse for 10m, so the log store is down or unreachable. `kubectl -n observability get chi` and the ClickHouse pod events.'
+                  - alert: HomelabClickHouseRejectedInserts
+                    expr: 'sum by (chi, hostname) (increase(chi_clickhouse_event_RejectedInserts[5m])) > 0'
+                    for: 5m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: 'ClickHouse {{ $labels.hostname }} rejects inserts (too many parts)'
+                      description: 'ClickHouse refused inserts because a partition has too many active parts; merges are not keeping up with the batch rate. Raise the collector batch size or ClickHouse CPU.'
+                  - alert: HomelabClickHouseTooManyParts
+                    expr: 'max by (chi, hostname) (chi_clickhouse_metric_MaxPartCountForPartition) > 150'
+                    for: 15m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: 'ClickHouse {{ $labels.hostname }} has {{ $value }} parts in one partition'
+                      description: 'Inserts are throttled from 150 parts per partition and rejected from 300. Merges are behind; see HomelabClickHouseRejectedInserts.'
+          # Cilium and Hubble (docs/hubble.md), from the agent, operator and
+          # hubble-metrics ServiceMonitors of charts/cilium-config.
+          homelab-network:
+            groups:
+              - name: homelab-network
+                rules:
+                  - alert: HomelabCiliumAgentNotReady
+                    expr: 'kube_daemonset_status_number_ready{namespace="kube-system",daemonset="cilium"} < kube_daemonset_status_desired_number_scheduled{namespace="kube-system",daemonset="cilium"}'
+                    for: 10m
+                    labels:
+                      severity: critical
+                    annotations:
+                      summary: 'A Cilium agent is not ready'
+                      description: 'Fewer Cilium agents are ready than nodes for 10m; pods on the affected node lose networking and policy. `kubectl -n kube-system get pods -l k8s-app=cilium -o wide`.'
+                  - alert: HomelabCiliumOperatorDown
+                    expr: 'absent(up{job="cilium-operator"} == 1)'
+                    for: 15m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: 'cilium-operator is not running'
+                      description: 'No cilium-operator answered the scrape for 15m; LoadBalancer IP allocation and identity garbage collection stop until it is back.'
+                  - alert: HomelabCiliumUnreachableNodes
+                    expr: 'max by (node) (cilium_unreachable_nodes) > 0'
+                    for: 10m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: 'Cilium on {{ $labels.node }} cannot reach {{ $value }} node(s)'
+                      description: 'Node-to-node health probes have failed for 10m; cross-node pod traffic from {{ $labels.node }} is likely broken. `kubectl -n kube-system exec ds/cilium -- cilium-health status`.'
+                  - alert: HomelabCiliumEndpointRegenerationFailing
+                    expr: 'sum by (node) (rate(cilium_endpoint_regenerations_total{outcome="fail"}[5m])) > 0'
+                    for: 15m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: 'Cilium fails to program endpoints on {{ $labels.node }}'
+                      description: 'Endpoint regeneration has been failing for 15m, so new pods or policy changes on that node are not applied. The agent log names the endpoint.'
+                  - alert: HomelabCiliumBPFMapPressure
+                    expr: 'max by (node, map_name) (cilium_bpf_map_pressure) > 0.9'
+                    for: 15m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: 'BPF map {{ $labels.map_name }} on {{ $labels.node }} is {{ $value | humanizePercentage }} full'
+                      description: 'A full BPF map drops new connections or policy entries. Raise the map size in the Cilium values (bpf.*Max) and re-render.'
+                  - alert: HomelabHubbleDropsHigh
+                    expr: 'sum by (reason, source, destination) (rate(hubble_drop_total[5m])) > 1'
+                    for: 15m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: 'Cilium drops {{ $value | humanize }} packets/s ({{ $labels.reason }}) from {{ $labels.source }} to {{ $labels.destination }}'
+                      description: 'Sustained drops for 15m. The Hubble flow log in ClickHouse (ServiceName hubble, verdict DROPPED) has every dropped flow with its 5-tuple (docs/hubble.md).'
+          # Synthetic probes (docs/runbooks/paperclip-request-path.md); target
+          # is the probe name, e.g. paperclip-ingress vs paperclip-direct.
+          homelab-probes:
+            groups:
+              - name: homelab-probes
+                rules:
+                  - alert: HomelabProbeFailing
+                    expr: 'max by (target, instance) (probe_success) == 0'
+                    for: 2m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: 'Probe {{ $labels.target }} fails ({{ $labels.instance }})'
+                      description: '{{ $labels.instance }} has not answered 2xx for 2m. If only the -ingress probe fails the break is in DNS or Traefik, if -direct fails too it is the pod; docs/runbooks/paperclip-request-path.md.'
+                  - alert: HomelabProbeSlow
+                    expr: 'max by (target, instance) (probe_duration_seconds) > 2'
+                    for: 10m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: 'Probe {{ $labels.target }} takes {{ $value | humanizeDuration }}'
+                      description: '{{ $labels.instance }} has taken more than 2 s for 10m; compare the -ingress and -direct probes to find the slow hop.'
+          # Service mesh (docs/service-mesh.md). Metrics: charts/istio-config
+          # monitors and kube-state-metrics. ztunnel and istio-cni must run on
+          # every node or enrolled pods there lose their traffic.
+          homelab-service-mesh:
+            groups:
+              - name: homelab-service-mesh
+                rules:
+                  - alert: HomelabIstiodDown
+                    expr: 'absent(up{app="istiod"} == 1)'
+                    for: 10m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: 'istiod is not running'
+                      description: 'No istiod instance has answered the metrics scrape for 10m. Running workloads keep their last configuration, but new pods, certificates and policy changes wait for it. `kubectl -n istio-system get pods -l app=istiod`.'
+                  - alert: HomelabMeshNodeAgentNotReady
+                    expr: 'kube_daemonset_status_number_ready{namespace="istio-system",daemonset=~"ztunnel|istio-cni-node"} < kube_daemonset_status_desired_number_scheduled{namespace="istio-system",daemonset=~"ztunnel|istio-cni-node"}'
+                    for: 15m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: '{{ $labels.daemonset }} is not ready on every node'
+                      description: '{{ $labels.daemonset }} has fewer ready pods than nodes for 15m. Pods of enrolled namespaces on the affected node cannot send or receive traffic. `kubectl -n istio-system get pods -o wide`.'
+                  - alert: HomelabIstioXdsRejects
+                    expr: 'sum(rate(pilot_total_xds_rejects[5m])) > 0'
+                    for: 15m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: 'Proxies reject the configuration istiod sends'
+                      description: 'ztunnel or a waypoint has rejected xDS configuration for 15m, so it keeps running on stale config. `istioctl proxy-status` and the istiod logs name the resource.'
 
   destination:
     server: https://kubernetes.default.svc
@@ -2368,6 +3317,648 @@ spec:
     server: https://kubernetes.default.svc
     namespace: kube-system
 
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+
+---
+# Source: addons/templates/logging.yaml
+# Dependencies Application: the ClickHouse user passwords. Only where a secret
+# store exists (SECRETS_PROVIDER); localdev seeds the same Secrets in
+# localdev/fakes/secrets.yaml.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: clickhouse-dependencies
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/ryanmcafee/homelab.git
+    targetRevision: main
+    path: charts/clickhouse-dependencies
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-homelab.yaml
+      # 1Password paths come from configuration/ (secrets.schema.yaml) through
+      # this parent, so the child's committed values stay environment-free.
+      valuesObject:
+        namespace: observability
+        grafanaNamespace: monitoring
+        onePassword:
+          enabled: true
+          grafanaItemPath: vaults/homelab/items/clickhouse-grafana
+          otelItemPath: vaults/homelab/items/clickhouse-otel
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: observability
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - SkipDryRunOnMissingResource=true
+
+---
+# Source: addons/templates/logging.yaml
+# The chart's crdHook (a bitnami/kubectl:latest Job) is off: ArgoCD applies
+# the CRDs from the chart's crds/ directory itself, server-side because the
+# ClickHouseInstallation CRD is past the client-side-apply size limit.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: clickhouse-operator
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://helm.altinity.com
+    chart: altinity-clickhouse-operator
+    targetRevision: "0.27.3"
+    helm:
+      releaseName: clickhouse-operator
+      values: |
+        crdHook:
+          enabled: false
+        watchNamespaces:
+          - observability
+        operator:
+          resources:
+            limits:
+              cpu: 500m
+              memory: 256Mi
+            requests:
+              cpu: 50m
+              memory: 64Mi
+        metrics:
+          enabled: true
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 20m
+              memory: 64Mi
+        serviceMonitor:
+          enabled: true
+        dashboards:
+          enabled: true
+          additionalLabels:
+            grafana_dashboard: "1"
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: observability
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+
+---
+# Source: addons/templates/logging.yaml
+# The ClickHouseInstallation and the logs dashboard (charts/clickhouse). Health
+# comes from charts/bootstrap/files/health/clickhouse.altinity.com_ClickHouseInstallation.lua.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: clickhouse
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "11"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/ryanmcafee/homelab.git
+    targetRevision: main
+    path: charts/clickhouse
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-homelab.yaml
+      # Storage class, sizing and image pin are environment facts
+      # (configuration/) and reach the child through this parent (ADR-010).
+      valuesObject:
+        namespace: observability
+        database: otel
+        image: clickhouse/clickhouse-server:26.8.10.6
+        resources:
+          limits:
+            cpu: "2"
+            memory: 4Gi
+          requests:
+            cpu: 250m
+            memory: 2Gi
+        storageClass: democratic-csi-iscsi
+        storageSize: 100Gi
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: observability
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - SkipDryRunOnMissingResource=true
+    # The ClickHouseInstallation CRD comes from clickhouse-operator (wave 10).
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+
+---
+# Source: addons/templates/logging.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: otel-collector-agent
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "12"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://open-telemetry.github.io/opentelemetry-helm-charts
+    chart: opentelemetry-collector
+    targetRevision: "0.173.1"
+    helm:
+      releaseName: otel-collector-agent
+      values: |
+        fullnameOverride: otel-collector-agent
+        mode: daemonset
+        presets:
+          # filelog on /var/log/pods (hostPath, read-only) with the CRI parser;
+          # checkpoints in /var/lib/otelcol so a restart neither re-sends nor skips.
+          logsCollection:
+            enabled: true
+            includeCollectorLogs: false
+            storeCheckpoints: true
+          kubernetesAttributes:
+            enabled: true
+        # Container logs under /var/log/pods are root-owned 0640.
+        securityContext:
+          runAsUser: 0
+          runAsGroup: 0
+        tolerations:
+          - operator: Exists
+        # Cilium writes the filtered Hubble flow log on every node (hubble.export.static).
+        extraVolumes:
+          - name: hubble-flows
+            hostPath:
+              path: /var/run/cilium/hubble
+              type: DirectoryOrCreate
+        extraVolumeMounts:
+          - name: hubble-flows
+            mountPath: /var/run/cilium/hubble
+            readOnly: true
+        image:
+          repository: otel/opentelemetry-collector-contrib
+        command:
+          name: otelcol-contrib
+        resources:
+          limits:
+            cpu: 500m
+            memory: 512Mi
+          requests:
+            cpu: 50m
+            memory: 128Mi
+        ports:
+          otlp:
+            enabled: false
+          otlp-http:
+            enabled: false
+          jaeger-compact:
+            enabled: false
+          jaeger-thrift:
+            enabled: false
+          jaeger-grpc:
+            enabled: false
+          zipkin:
+            enabled: false
+          metrics:
+            enabled: true
+        podMonitor:
+          enabled: true
+        extraEnvs:
+          - name: CLICKHOUSE_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: clickhouse-otel
+                key: password
+        config:
+          receivers:
+            jaeger: null
+            zipkin: null
+            prometheus: null
+            otlp: null
+            # One JSON object per line: {"flow": {...}, "node_name": ..., "time": ...}.
+            file_log/hubble:
+              include:
+                - /var/run/cilium/hubble/events.log
+              start_at: end
+              storage: file_storage
+              operators:
+                - type: json_parser
+                  parse_to: body
+                - type: add
+                  field: resource["service.name"]
+                  value: hubble
+          processors:
+            batch:
+              send_batch_size: 5000
+              timeout: 5s
+            # Grafana's OpenTelemetry logs view groups by ServiceName; pods
+            # carry no service.name, so the container name stands in.
+            transform/service-name:
+              log_statements:
+                - context: resource
+                  statements:
+                    - set(attributes["service.name"], attributes["k8s.container.name"]) where attributes["service.name"] == nil
+          exporters:
+            debug: null
+            clickhouse:
+              endpoint: tcp://clickhouse-logs.observability.svc.cluster.local:9000?dial_timeout=10s
+              database: otel
+              username: otel
+              password: ${env:CLICKHOUSE_PASSWORD}
+              create_schema: true
+              logs_table_name: otel_logs
+              traces_table_name: otel_traces
+              ttl: 2160h
+              timeout: 10s
+              sending_queue:
+                queue_size: 1000
+              retry_on_failure:
+                enabled: true
+                initial_interval: 5s
+                max_interval: 30s
+                max_elapsed_time: 300s
+          service:
+            pipelines:
+              logs:
+                receivers:
+                  - file_log/hubble
+                processors:
+                  - memory_limiter
+                  - transform/service-name
+                  - batch
+                exporters:
+                  - clickhouse
+              traces: null
+              metrics: null
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: observability
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+
+---
+# Source: addons/templates/logging.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: otel-collector-cluster
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "12"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://open-telemetry.github.io/opentelemetry-helm-charts
+    chart: opentelemetry-collector
+    targetRevision: "0.173.1"
+    helm:
+      releaseName: otel-collector-cluster
+      values: |
+        fullnameOverride: otel-collector-cluster
+        mode: deployment
+        replicaCount: 1
+        presets:
+          kubernetesEvents:
+            enabled: true
+        image:
+          repository: otel/opentelemetry-collector-contrib
+        command:
+          name: otelcol-contrib
+        resources:
+          limits:
+            cpu: 200m
+            memory: 256Mi
+          requests:
+            cpu: 20m
+            memory: 64Mi
+        ports:
+          otlp:
+            enabled: false
+          otlp-http:
+            enabled: false
+          jaeger-compact:
+            enabled: false
+          jaeger-thrift:
+            enabled: false
+          jaeger-grpc:
+            enabled: false
+          zipkin:
+            enabled: false
+          metrics:
+            enabled: true
+        podMonitor:
+          enabled: true
+        extraEnvs:
+          - name: CLICKHOUSE_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: clickhouse-otel
+                key: password
+        config:
+          receivers:
+            jaeger: null
+            zipkin: null
+            prometheus: null
+            otlp: null
+          processors:
+            batch:
+              send_batch_size: 5000
+              timeout: 5s
+            # Grafana's OpenTelemetry logs view groups by ServiceName; pods
+            # carry no service.name, so the container name stands in.
+            transform/service-name:
+              log_statements:
+                - context: resource
+                  statements:
+                    - set(attributes["service.name"], attributes["k8s.container.name"]) where attributes["service.name"] == nil
+          exporters:
+            debug: null
+            clickhouse:
+              endpoint: tcp://clickhouse-logs.observability.svc.cluster.local:9000?dial_timeout=10s
+              database: otel
+              username: otel
+              password: ${env:CLICKHOUSE_PASSWORD}
+              create_schema: true
+              logs_table_name: otel_logs
+              traces_table_name: otel_traces
+              ttl: 2160h
+              timeout: 10s
+              sending_queue:
+                queue_size: 1000
+              retry_on_failure:
+                enabled: true
+                initial_interval: 5s
+                max_interval: 30s
+                max_elapsed_time: 300s
+          service:
+            pipelines:
+              logs:
+                receivers: []
+                processors:
+                  - memory_limiter
+                  - transform/service-name
+                  - batch
+                exporters:
+                  - clickhouse
+              traces: null
+              metrics: null
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: observability
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+
+---
+# Source: addons/templates/logging.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: otel-collector-gateway
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "12"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://open-telemetry.github.io/opentelemetry-helm-charts
+    chart: opentelemetry-collector
+    targetRevision: "0.173.1"
+    helm:
+      releaseName: otel-collector-gateway
+      values: |
+        fullnameOverride: otel-collector-gateway
+        # OTLP for traces and application logs, plus the UniFi gateway's syslog
+        # and flow export (docs/logging.md, docs/tracing.md).
+        mode: deployment
+        replicaCount: 1
+        presets:
+          kubernetesAttributes:
+            enabled: true
+        service:
+          annotations:
+            external-dns.alpha.kubernetes.io/hostname: otel.REPLACEME-domain.com
+            io.cilium/lb-ipam-ips: 192.168.1.104
+          loadBalancerSourceRanges:
+          - 192.168.1.0/24
+          type: LoadBalancer
+        ingress:
+          annotations:
+            cert-manager.io/cluster-issuer: letsencrypt
+            external-dns.alpha.kubernetes.io/hostname: otlp.REPLACEME-domain.com
+          enabled: true
+          hosts:
+          - host: otlp.REPLACEME-domain.com
+            paths:
+            - path: /
+              pathType: Prefix
+              port: 4318
+          ingressClassName: internal
+          tls:
+          - hosts:
+            - otlp.REPLACEME-domain.com
+            secretName: otlp-tls
+        image:
+          repository: otel/opentelemetry-collector-contrib
+        command:
+          name: otelcol-contrib
+        resources:
+          limits:
+            cpu: "1"
+            memory: 512Mi
+          requests:
+            cpu: 50m
+            memory: 128Mi
+        ports:
+          otlp:
+            enabled: true
+            hostPort: 0
+          otlp-http:
+            enabled: true
+            hostPort: 0
+          jaeger-compact:
+            enabled: false
+          jaeger-thrift:
+            enabled: false
+          jaeger-grpc:
+            enabled: false
+          zipkin:
+            enabled: false
+          metrics:
+            enabled: true
+          syslog-udp:
+            enabled: true
+            containerPort: 5514
+            servicePort: 514
+            protocol: UDP
+          syslog-tcp:
+            enabled: true
+            containerPort: 5514
+            servicePort: 514
+            protocol: TCP
+          netflow:
+            enabled: true
+            containerPort: 2055
+            servicePort: 2055
+            protocol: UDP
+        podMonitor:
+          enabled: true
+        extraEnvs:
+          - name: CLICKHOUSE_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: clickhouse-otel
+                key: password
+        config:
+          receivers:
+            jaeger: null
+            zipkin: null
+            prometheus: null
+            # UniFi SIEM export: CEF lines inside RFC 3164 syslog.
+            syslog/udp:
+              udp:
+                listen_address: 0.0.0.0:5514
+                add_attributes: true
+              protocol: rfc3164
+              location: UTC
+              operators:
+                - type: regex_parser
+                  if: 'attributes.message matches "CEF:"'
+                  parse_from: attributes.message
+                  regex: 'CEF:(?P<cef_version>\d+)\|(?P<cef_vendor>[^|]*)\|(?P<cef_product>[^|]*)\|(?P<cef_device_version>[^|]*)\|(?P<cef_signature>[^|]*)\|(?P<cef_name>[^|]*)\|(?P<cef_severity>[^|]*)\|(?P<cef_extension>.*)'
+                  on_error: send_quiet
+                - type: add
+                  field: resource["service.name"]
+                  value: unifi-syslog
+            syslog/tcp:
+              tcp:
+                listen_address: 0.0.0.0:5514
+                add_attributes: true
+              protocol: rfc3164
+              location: UTC
+              operators:
+                - type: add
+                  field: resource["service.name"]
+                  value: unifi-syslog
+            # NetFlow v5/v9/IPFIX from the gateway, one log record per flow.
+            netflow:
+              scheme: netflow
+              port: 2055
+              sockets: 1
+              workers: 2
+          processors:
+            batch:
+              send_batch_size: 5000
+              timeout: 5s
+            # Grafana's OpenTelemetry logs view groups by ServiceName; pods
+            # carry no service.name, so the container name stands in.
+            transform/service-name:
+              log_statements:
+                - context: resource
+                  statements:
+                    - set(attributes["service.name"], attributes["k8s.container.name"]) where attributes["service.name"] == nil
+          exporters:
+            debug: null
+            clickhouse:
+              endpoint: tcp://clickhouse-logs.observability.svc.cluster.local:9000?dial_timeout=10s
+              database: otel
+              username: otel
+              password: ${env:CLICKHOUSE_PASSWORD}
+              create_schema: true
+              logs_table_name: otel_logs
+              traces_table_name: otel_traces
+              ttl: 2160h
+              timeout: 10s
+              sending_queue:
+                queue_size: 1000
+              retry_on_failure:
+                enabled: true
+                initial_interval: 5s
+                max_interval: 30s
+                max_elapsed_time: 300s
+          service:
+            pipelines:
+              logs:
+                receivers:
+                  - otlp
+                  - syslog/udp
+                  - syslog/tcp
+                  - netflow
+                processors:
+                  - memory_limiter
+                  - transform/service-name
+                  - batch
+                exporters:
+                  - clickhouse
+              traces:
+                receivers:
+                  - otlp
+                processors:
+                  - memory_limiter
+                  - batch
+                exporters:
+                  - clickhouse
+              metrics: null
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: observability
   syncPolicy:
     automated:
       prune: true
@@ -2711,6 +4302,48 @@ spec:
       - ServerSideApply=true
 
 ---
+# Source: addons/templates/traefik-crds.yaml
+# The traefik.io CRDs for traefik-internal and traefik-external, which render
+# with skipCrds. The traefik chart's crds/ also carries Gateway API v1.4
+# CRDs, which the Gateway API v1.6 ValidatingAdmissionPolicy
+# (safe-upgrades.gateway.networking.k8s.io, gateway-api-crds) rejects; Gateway
+# API comes only from gateway-api-crds. Hub, Knative and Gateway API stay off.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: traefik-crds
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "4"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://traefik.github.io/charts
+    chart: traefik-crds
+    targetRevision: "1.14.1"
+    helm:
+      releaseName: traefik-crds
+      values: |
+        traefik: true
+        gatewayAPI: false
+        gatewayAPIExperimental: false
+        hub: false
+        knative: false
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: traefik
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+
+---
 # Source: addons/templates/traefik-external.yaml
 # Dependencies Application: deploys secrets and OnePasswordItems before traefik-external
 # Wave 5: After external-dns (wave 4), which installs the DNSEndpoint CRD this chart's config child uses
@@ -2765,6 +4398,8 @@ spec:
     targetRevision: 39.0.9
     helm:
       releaseName: traefik-external
+      # CRDs come from the traefik-crds Application (templates/traefik-crds.yaml).
+      skipCrds: true
       values: |
         # IngressClass configuration
         ingressClass:
@@ -2831,6 +4466,35 @@ spec:
             traefikoidc:
               moduleName: github.com/lukaszraczylo/traefikoidc
               version: v1.0.32
+
+        logs:
+          access:
+            enabled: true
+            format: json
+            fields:
+              headers:
+                defaultmode: drop
+                names:
+                  Traceparent: keep
+                  User-Agent: keep
+        tracing:
+          sampleRate: 0.1
+          otlp:
+            enabled: true
+            grpc:
+              enabled: true
+              endpoint: otel-collector-gateway.observability.svc.cluster.local:4317
+              insecure: true
+
+        # The ServiceMonitor selects a dedicated metrics Service; the main
+        # Service does not expose :9100. The API check would fail an offline render.
+        metrics:
+          prometheus:
+            disableAPICheck: true
+            service:
+              enabled: true
+            serviceMonitor:
+              enabled: true
 
         env:
           []
@@ -3008,6 +4672,8 @@ spec:
     targetRevision: 39.0.9
     helm:
       releaseName: traefik-internal
+      # CRDs come from the traefik-crds Application (templates/traefik-crds.yaml).
+      skipCrds: true
       values: |
         # IngressClass configuration
         ingressClass:
@@ -3064,6 +4730,35 @@ spec:
         additionalArguments:
           - --global.checknewversion=false
           - --global.sendanonymoususage=false
+
+        logs:
+          access:
+            enabled: true
+            format: json
+            fields:
+              headers:
+                defaultmode: drop
+                names:
+                  Traceparent: keep
+                  User-Agent: keep
+        tracing:
+          sampleRate: 0.1
+          otlp:
+            enabled: true
+            grpc:
+              enabled: true
+              endpoint: otel-collector-gateway.observability.svc.cluster.local:4317
+              insecure: true
+
+        # The ServiceMonitor selects a dedicated metrics Service; the main
+        # Service does not expose :9100. The API check would fail an offline render.
+        metrics:
+          prometheus:
+            disableAPICheck: true
+            service:
+              enabled: true
+            serviceMonitor:
+              enabled: true
 
         env:
           []

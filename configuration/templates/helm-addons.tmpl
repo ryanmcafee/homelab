@@ -164,6 +164,13 @@ cilium:
     ipam:
       mode: kubernetes
     kubeProxyReplacement: {{ $kubeProxyReplacement }}
+    # Istio ambient prerequisites (docs/service-mesh.md): leave istio-cni's
+    # chained config in /etc/cni/net.d, and keep socket load balancing out of
+    # pod namespaces so ztunnel redirection sees the Service address.
+    cni:
+      exclusive: false
+    socketLB:
+      hostNamespaceOnly: true
     operator:
       replicas: 1
       resources:
@@ -188,6 +195,13 @@ cilium:
     ipam:
       mode: kubernetes
     kubeProxyReplacement: {{ $kubeProxyReplacement }}
+    # Istio ambient prerequisites (docs/service-mesh.md): leave istio-cni's
+    # chained config in /etc/cni/net.d, and keep socket load balancing out of
+    # pod namespaces so ztunnel redirection sees the Service address.
+    cni:
+      exclusive: false
+    socketLB:
+      hostNamespaceOnly: true
     k8sServiceHost: localhost
     k8sServicePort: 7445
     securityContext:
@@ -218,15 +232,57 @@ cilium:
       enabled: true
     bgpControlPlane:
       enabled: true
+    # Hubble (docs/hubble.md): relay and UI, flow metrics, and a filtered flow
+    # log the OpenTelemetry agents ship to ClickHouse. Only ConfigMaps and
+    # Services here: Talos applies this before any CRD exists, so the
+    # ServiceMonitors live in charts/cilium-config, and the dashboards come
+    # from grafana.com to keep the inline manifest small.
     hubble:
       relay:
         enabled: true
       ui:
         enabled: true
+      metrics:
+        enableOpenMetrics: true
+        enabled:
+          - dns
+          - "drop:sourceContext=namespace;destinationContext=namespace"
+          - tcp
+          - "flow:sourceContext=workload-name|reserved-identity;destinationContext=workload-name|reserved-identity"
+          - port-distribution
+          - icmp
+      export:
+        static:
+          enabled: true
+          filePath: /var/run/cilium/hubble/events.log
+          # Every flow of the paperclip request path, and every drop or error.
+          allowList:
+            - '{"source_pod":["paperclip/","traefik/"]}'
+            - '{"destination_pod":["paperclip/","traefik/"]}'
+            - '{"verdict":["DROPPED","ERROR"]}'
+          fileMaxSizeMb: 50
+          fileMaxBackups: 3
+    prometheus:
+      enabled: true
+      metricsService: true
+    operator:
+      prometheus:
+        enabled: true
+        metricsService: true
     bandwidthManager:
       enabled: true
       bbr: true
 {{- end }}
+
+  # charts/cilium-config: ServiceMonitors for the agent, operator and Hubble
+  # metrics, and the Hubble UI ingress, where the Talos values enable them.
+  config:
+    monitoring:
+      enabled: {{ not $localdev }}
+    hubbleUI:
+      enabled: {{ not $localdev }}
+      host: {{ .Values.HUBBLE_HOSTNAME.Value }}
+      ingressClassName: {{ .Values.INGRESS_CLASS_INTERNAL.Value }}
 
 # ============================================================================
 # Cilium LB IPAM - LoadBalancer IP Management + BGP
@@ -937,6 +993,54 @@ kube-prometheus-stack:
         cpu: {{ if $localdev }}200m{{ else }}500m{{ end }}
         memory: {{ if $localdev }}256Mi{{ else }}512Mi{{ end }}
 
+    # ClickHouse datasource for the cluster logs (docs/logging.md). Grafana
+    # installs the plugin at startup and reads the password of the read-only
+    # ClickHouse user from Secret logging.secrets.grafana.
+    clickhousePlugin: "{{ index .Versions.Images "grafana-clickhouse-datasource" }}"
+
+    # grafana.com dashboards the Grafana init container downloads into the
+    # "homelab" folder; revisions are pinned. The ClickHouse operator chart
+    # ships its own dashboards as sidecar ConfigMaps.
+    dashboards:
+      traefik:
+        gnetId: 17347
+        revision: 9
+      opentelemetry-collector:
+        gnetId: 15983
+        revision: 30
+{{- if $cilium }}
+      istio-control-plane:
+        gnetId: 7645
+        revision: 332
+      istio-mesh:
+        gnetId: 7639
+        revision: 333
+      istio-service:
+        gnetId: 7636
+        revision: 332
+      istio-workload:
+        gnetId: 7630
+        revision: 333
+      istio-ztunnel:
+        gnetId: 21306
+        revision: 100
+      cilium-agent:
+        gnetId: 16611
+        revision: 1
+      cilium-operator:
+        gnetId: 16612
+        revision: 1
+      hubble:
+        gnetId: 16613
+        revision: 1
+      hubble-network-overview:
+        gnetId: 19424
+        revision: 1
+      hubble-dns-overview:
+        gnetId: 19425
+        revision: 1
+{{- end }}
+
   # Alertmanager and node-exporter are not useful in Kind (no alert routes, containerised nodes).
   alertmanager:
     enabled: {{ not $localdev }}
@@ -1092,6 +1196,29 @@ traefikExternal:
   additionalArguments:
     - --global.checknewversion=false
     - --global.sendanonymoususage=false
+
+  # JSON access logs on stdout (collected by the OpenTelemetry agents into
+  # ClickHouse, docs/logging.md) and a metrics Service + ServiceMonitor on the
+  # metrics entrypoint (:9100) that kube-prometheus-stack scrapes.
+  logs:
+    access:
+      enabled: true
+      format: json
+      # Every general field is kept (ClientHost, RequestHost/Path/Method,
+      # Duration, OriginDuration, OriginStatus, DownstreamStatus, RouterName,
+      # ServiceURL, RetryAttempts, TraceId, SpanId); of the headers only these.
+      headers:
+        User-Agent: keep
+        Traceparent: keep
+  metrics:
+    serviceMonitor:
+      enabled: true
+  # W3C traceparent is started or continued here and forwarded to the
+  # backend; spans go to the OpenTelemetry gateway collector (docs/tracing.md).
+  tracing:
+    enabled: true
+    endpoint: otel-collector-gateway.observability.svc.cluster.local:4317
+    sampleRate: {{ if $localdev }}1.0{{ else }}0.1{{ end }}
 
   # OIDC Plugin for authentication (replaces oauth2-proxy)
   experimental:
@@ -1266,6 +1393,29 @@ traefikInternal:
   additionalArguments:
     - --global.checknewversion=false
     - --global.sendanonymoususage=false
+
+  # JSON access logs on stdout (collected by the OpenTelemetry agents into
+  # ClickHouse, docs/logging.md) and a metrics Service + ServiceMonitor on the
+  # metrics entrypoint (:9100) that kube-prometheus-stack scrapes.
+  logs:
+    access:
+      enabled: true
+      format: json
+      # Every general field is kept (ClientHost, RequestHost/Path/Method,
+      # Duration, OriginDuration, OriginStatus, DownstreamStatus, RouterName,
+      # ServiceURL, RetryAttempts, TraceId, SpanId); of the headers only these.
+      headers:
+        User-Agent: keep
+        Traceparent: keep
+  metrics:
+    serviceMonitor:
+      enabled: true
+  # W3C traceparent is started or continued here and forwarded to the
+  # backend; spans go to the OpenTelemetry gateway collector (docs/tracing.md).
+  tracing:
+    enabled: true
+    endpoint: otel-collector-gateway.observability.svc.cluster.local:4317
+    sampleRate: {{ if $localdev }}1.0{{ else }}0.1{{ end }}
 
   env: []
 
@@ -1503,3 +1653,287 @@ argo-workflows:
           secondsAfterCompletion: 86400
           secondsAfterSuccess: 43200
           secondsAfterFailure: 172800
+
+# ============================================================================
+# Traefik CRDs (traefik.io only) for both Traefik releases
+# Sync Wave: 4 (before traefik-*-dependencies at 5 and the controllers at 6)
+# ============================================================================
+
+traefikCrds:
+  enabled: true
+  chart:
+    name: traefik-crds
+    repo: https://traefik.github.io/charts
+    version: "{{ index .Versions.Charts "traefik-crds" }}"
+
+# ============================================================================
+# Istio ambient mesh + Kiali (docs/service-mesh.md)
+# Sync Waves: 2 istio-base, 3 istiod + istio-cni, 4 ztunnel, 5 istio-config,
+# 10 kiali. No namespace is enrolled here: SERVICE_MESH_AMBIENT_NAMESPACES
+# labels namespaces of the applications chart.
+# ============================================================================
+
+istio:
+  # Runs wherever Cilium is the CNI: ambient needs its cni.exclusive=false and
+  # socketLB.hostNamespaceOnly=true (the cilium block above).
+  enabled: {{ $cilium }}
+  namespace: istio-system
+  chart:
+    # The storage.googleapis.com repository ends at 1.30.5; 1.31 is published here.
+    repo: https://blob.istio.io/istio-release/charts
+    version: "{{ .Versions.Charts.istio }}"
+  # Standard-channel Gateway API CRDs; a waypoint is a Gateway of class istio-waypoint.
+  gatewayApi:
+    repo: https://github.com/kubernetes-sigs/gateway-api.git
+    version: "{{ index .Versions.Charts "gateway-api" }}"
+
+  # Waypoint spans to the OpenTelemetry gateway collector (OTLP gRPC).
+  # ztunnel is L4 only and emits no spans (docs/service-mesh.md).
+  tracing:
+    provider: otel-tracing
+    service: otel-collector-gateway.observability.svc.cluster.local
+    port: 4317
+    samplingPercentage: {{ if $localdev }}100{{ else }}10{{ end }}
+
+  istiod:
+    replicas: 1
+    resources:
+      requests:
+        cpu: {{ if $localdev }}50m{{ else }}100m{{ end }}
+        memory: {{ if $localdev }}256Mi{{ else }}512Mi{{ end }}
+      limits:
+        cpu: "1"
+        memory: 1Gi
+
+  # Waypoint proxies, created only when a namespace asks for L7 policy.
+  proxy:
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        cpu: "1"
+        memory: 512Mi
+
+  cni:
+    cniBinDir: /opt/cni/bin
+    cniConfDir: /etc/cni/net.d
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: 500m
+        memory: 256Mi
+
+  ztunnel:
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: "1"
+        memory: 512Mi
+
+  kiali:
+    enabled: true
+    chart:
+      name: kiali-server
+      repo: https://kiali.org/helm-charts
+      version: "{{ index .Versions.Charts "kiali-server" }}"
+    hostname: {{ .Values.SERVICEMESH_HOSTNAME.Value }}
+    ingress:
+      className: {{ .Values.INGRESS_CLASS_INTERNAL.Value }}
+    prometheusUrl: http://kube-prometheus-stack-prometheus.monitoring.svc.cluster.local:9090
+    grafana:
+      internalUrl: http://kube-prometheus-stack-grafana.monitoring.svc.cluster.local:80
+      externalUrl: https://{{ .Values.GRAFANA_HOSTNAME.Value }}
+    resources:
+      requests:
+        cpu: 10m
+        memory: 128Mi
+      limits:
+        cpu: 500m
+        memory: 1Gi
+    smoke:
+      enabled: true
+      url: http://kiali.istio-system.svc.cluster.local:20001/healthz
+      expect: ["200"]
+
+# ============================================================================
+# Cluster logs: OpenTelemetry collectors -> ClickHouse -> Grafana (docs/logging.md)
+# Sync Waves: 8 clickhouse-dependencies, 10 clickhouse-operator,
+# 11 clickhouse, 12 otel-collector-agent + otel-collector-cluster
+# ============================================================================
+
+logging:
+  enabled: true
+  namespace: observability
+  database: otel
+  # 90 days. The exporter writes it as the otel_logs table TTL when it creates
+  # the table; changing it later needs ALTER TABLE ... MODIFY TTL (docs/logging.md).
+  retention: 2160h
+
+  # Secrets with a `password` key: 1Password items in homelab
+  # (charts/clickhouse-dependencies), localdev/fakes/secrets.yaml in Kind.
+  secrets:
+    otel: clickhouse-otel
+    grafana: clickhouse-grafana
+  dependencies:
+    onePassword:
+      enabled: {{ $onepassword }}
+      otelItemPath: {{ .Values.CLICKHOUSE_OTEL_1P_PATH.Value }}
+      grafanaItemPath: {{ .Values.CLICKHOUSE_GRAFANA_1P_PATH.Value }}
+
+  clickhouse:
+    # The operator names the Service of ClickHouseInstallation "logs" clickhouse-logs.
+    host: clickhouse-logs.observability.svc.cluster.local
+    endpoint: tcp://clickhouse-logs.observability.svc.cluster.local:9000?dial_timeout=10s
+    operator:
+      chart:
+        name: altinity-clickhouse-operator
+        repo: https://helm.altinity.com
+        version: "{{ index .Versions.Charts "altinity-clickhouse-operator" }}"
+      resources:
+        requests:
+          cpu: 50m
+          memory: 64Mi
+        limits:
+          cpu: 500m
+          memory: 256Mi
+      metricsResources:
+        requests:
+          cpu: 20m
+          memory: 64Mi
+        limits:
+          cpu: 200m
+          memory: 256Mi
+    # charts/clickhouse values (the parent passes them through valuesObject).
+    server:
+      image: "clickhouse/clickhouse-server:{{ index .Versions.Images "clickhouse-server" }}"
+      # Block storage like the PostgreSQL clusters: ClickHouse fsyncs and
+      # renames parts constantly, which NFS serves badly.
+      storageClass: {{ .Values.STORAGE_CLASS_ISCSI_SSD.Value }}
+{{- if $localdev }}
+      storageSize: 2Gi
+      resources:
+        requests:
+          cpu: 100m
+          memory: 512Mi
+        limits:
+          cpu: "1"
+          memory: 1Gi
+{{- else }}
+      # 90 days of logs, traces, Hubble and UniFi flows; estimate in docs/logging.md.
+      storageSize: 100Gi
+      resources:
+        requests:
+          cpu: 250m
+          memory: 2Gi
+        limits:
+          cpu: "2"
+          memory: 4Gi
+{{- end }}
+    smoke:
+      enabled: true
+      url: http://clickhouse-logs.observability.svc.cluster.local:8123/ping
+      expect: ["200"]
+
+  otel:
+    chart:
+      name: opentelemetry-collector
+      repo: https://open-telemetry.github.io/opentelemetry-helm-charts
+      version: "{{ index .Versions.Charts "opentelemetry-collector" }}"
+    # The contrib distribution carries the clickhouse exporter; the image tag
+    # follows the chart's appVersion.
+    image:
+      repository: otel/opentelemetry-collector-contrib
+      command: otelcol-contrib
+    agent:
+      resources:
+        requests:
+          cpu: 50m
+          memory: 128Mi
+        limits:
+          cpu: 500m
+          memory: 512Mi
+    cluster:
+      resources:
+        requests:
+          cpu: 20m
+          memory: 64Mi
+        limits:
+          cpu: 200m
+          memory: 256Mi
+    # OTLP (traces, application logs) and the UniFi gateway's syslog/NetFlow.
+    # Service otel-collector-gateway; with LoadBalancer addresses it also
+    # takes OTEL_LB_IP so the gateway can reach it as otel.<DOMAIN>.
+    gateway:
+      resources:
+        requests:
+          cpu: 50m
+          memory: 128Mi
+        limits:
+          cpu: "1"
+          memory: 512Mi
+      # OTLP/HTTP with TLS for clients outside the cluster.
+      ingress:
+        enabled: true
+        ingressClassName: {{ .Values.INGRESS_CLASS_INTERNAL.Value }}
+        annotations:
+          cert-manager.io/cluster-issuer: letsencrypt
+          external-dns.alpha.kubernetes.io/hostname: {{ .Values.OTLP_HOSTNAME.Value }}
+        hosts:
+          - host: {{ .Values.OTLP_HOSTNAME.Value }}
+            paths:
+              - path: /
+                pathType: Prefix
+                port: 4318
+        tls:
+          - secretName: otlp-tls
+            hosts:
+              - {{ .Values.OTLP_HOSTNAME.Value }}
+{{- if $lb }}
+      service:
+        type: LoadBalancer
+        annotations:
+          io.cilium/lb-ipam-ips: "{{ .Values.OTEL_LB_IP.Value }}"
+          external-dns.alpha.kubernetes.io/hostname: {{ .Values.OTEL_HOSTNAME.Value }}
+        # Cilium drops anything from outside these ranges at the load balancer.
+        loadBalancerSourceRanges:
+          - "{{ .Values.NFS_SHARE_ALLOW.Value }}"
+{{- end }}
+
+  # UniFi gateway syslog (CEF) and NetFlow receivers on otel-collector-gateway.
+  unifi:
+    enabled: true
+    gatewayIP: "{{ .Values.GATEWAY_IP.Value }}"
+
+  # Filtered Hubble flow log (cilium hubble.export.static) read by the agents.
+  # Hubble runs in the Talos Cilium values only.
+  hubble:
+    enabled: {{ and $cilium (not $localdev) }}
+    flowLog: /var/run/cilium/hubble/events.log
+
+# ============================================================================
+# Blackbox probes - synthetic checks of the paperclip request path
+# Sync Wave: 10 (docs/runbooks/paperclip-request-path.md)
+# ============================================================================
+
+blackbox-exporter:
+  enabled: true
+  namespace: monitoring
+  chart:
+    name: prometheus-blackbox-exporter
+    repo: https://prometheus-community.github.io/helm-charts
+    version: "{{ index .Versions.Charts "prometheus-blackbox-exporter" }}"
+  # Every 15 s: through DNS and traefik-internal (in-cluster, so the LB
+  # address resolves but Cilium short-circuits it to Traefik without the
+  # L2/BGP hop) and straight to the pod's Service, so a failure names the hop.
+  targets:
+    - name: paperclip-ingress
+      url: https://{{ .Values.PAPERCLIP_HOSTNAME.Value }}/api/health
+      module: http_2xx_ingress
+    - name: paperclip-direct
+      url: http://paperclip.paperclip.svc.cluster.local:3100/api/health
+      module: http_2xx

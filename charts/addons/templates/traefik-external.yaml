@@ -61,6 +61,8 @@ spec:
     targetRevision: {{ .Values.traefikExternal.chart.version }}
     helm:
       releaseName: traefik-external
+      # CRDs come from the traefik-crds Application (templates/traefik-crds.yaml).
+      skipCrds: true
       values: |
         # IngressClass configuration
         ingressClass:
@@ -152,6 +154,39 @@ spec:
             {{- end }}
           {{- end }}
         {{- end }}
+
+        logs:
+          access:
+            enabled: {{ .Values.traefikExternal.logs.access.enabled }}
+            format: {{ .Values.traefikExternal.logs.access.format }}
+            {{- with .Values.traefikExternal.logs.access.headers }}
+            fields:
+              headers:
+                defaultmode: drop
+                names:
+                  {{- toYaml . | nindent 18 }}
+            {{- end }}
+
+        {{- if .Values.traefikExternal.tracing.enabled }}
+        tracing:
+          sampleRate: {{ .Values.traefikExternal.tracing.sampleRate }}
+          otlp:
+            enabled: true
+            grpc:
+              enabled: true
+              endpoint: {{ .Values.traefikExternal.tracing.endpoint }}
+              insecure: true
+        {{- end }}
+
+        # The ServiceMonitor selects a dedicated metrics Service; the main
+        # Service does not expose :9100. The API check would fail an offline render.
+        metrics:
+          prometheus:
+            disableAPICheck: true
+            service:
+              enabled: {{ .Values.traefikExternal.metrics.serviceMonitor.enabled }}
+            serviceMonitor:
+              enabled: {{ .Values.traefikExternal.metrics.serviceMonitor.enabled }}
 
         env:
           {{- toYaml .Values.traefikExternal.env | nindent 10 }}

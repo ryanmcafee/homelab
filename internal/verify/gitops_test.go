@@ -223,6 +223,88 @@ spec:
 			wantFind:   "charts/does-not-exist",
 		},
 		{
+			name:       "paths skip sources from another git repository",
+			rule:       "paths",
+			repoCharts: []string{"bootstrap", "addons", "applications", "cert-manager-config"},
+			rendered: map[string]string{
+				"gitops": gitopsParents,
+				"addons": `
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cert-manager-config
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  source:
+    repoURL: https://github.com/example/homelab.git
+    path: charts/cert-manager-config
+  destination:
+    namespace: cert-manager
+  syncPolicy:
+    syncOptions: [CreateNamespace=true]
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: gateway-api-crds
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  source:
+    repoURL: https://github.com/kubernetes-sigs/gateway-api.git
+    path: config/crd/standard
+  destination:
+    server: https://kubernetes.default.svc
+`,
+			},
+			wantStatus: StatusPass,
+			wantDetail: "4 Application source paths checked, 1 in another repository not checked",
+		},
+		{
+			name:       "paths still fail a missing path in this repository's own URL",
+			rule:       "paths",
+			repoCharts: []string{"bootstrap", "addons", "applications", "cert-manager-config"},
+			rendered: map[string]string{
+				"gitops": gitopsParents,
+				"addons": `
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cert-manager-config
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  source:
+    repoURL: https://github.com/example/homelab.git
+    path: charts/cert-manager-config
+  destination:
+    namespace: cert-manager
+  syncPolicy:
+    syncOptions: [CreateNamespace=true]
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: ghost
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  source:
+    repoURL: https://github.com/example/homelab.git
+    path: charts/does-not-exist
+  destination:
+    namespace: kube-system
+`,
+			},
+			wantStatus: StatusFail,
+			wantFind:   "charts/does-not-exist",
+		},
+		{
 			name:       "paths ignore missing value files when opted in",
 			rule:       "paths",
 			repoCharts: []string{"bootstrap", "addons", "applications", "x"},

@@ -30,10 +30,15 @@ sync wave 1 in homelab). Waves inside the chart run from -1 (namespaces, reposit
 | --- | --- | --- | --- | --- | --- |
 | `agent-readonly` | `charts/agent-readonly` | git | — | agent-readonly | — |
 | `argo-workflows` | `argo-workflows` | 1.0.18 | internal: workflows | — | — |
+| `blackbox-exporter` | `prometheus-blackbox-exporter` | 11.18.0 | — | — | — |
 | `cert-manager` | `cert-manager` | v1.20.3 | — | cert-manager | — |
 | `cert-manager-cluster-issuer` | `charts/cert-manager-cluster-issuer` | git | — | — | — |
 | `cert-manager-config` | `charts/cert-manager-config` | git | — | — | — |
 | `cilium` | `cilium` | 1.19.5 | — | cilium-netpol | — |
+| `cilium-config` | `charts/cilium-config` | git | internal: hubble | — | — |
+| `clickhouse` | `charts/clickhouse` | git | — | — | smoke-clickhouse |
+| `clickhouse-dependencies` | `charts/clickhouse-dependencies` | git | — | — | — |
+| `clickhouse-operator` | `altinity-clickhouse-operator` | 0.27.3 | — | — | — |
 | `cloudnative-pg` | `cloudnative-pg` | 0.28.3 | — | cloudnative-pg | — |
 | `cnpg-barman-cloud` | `plugin-barman-cloud` | 0.8.0 | — | — | — |
 | `democratic-csi` | `democratic-csi` | 0.15.1 | — | — | — |
@@ -46,25 +51,36 @@ sync wave 1 in homelab). Waves inside the chart run from -1 (namespaces, reposit
 | `external-dns-config` | `charts/external-dns-config` | git | — | — | — |
 | `external-dns-unifi-crd` | `external-dns` | 1.21.1 | — | — | — |
 | `external-dns-unifi-ingress` | `external-dns` | 1.21.1 | — | — | — |
+| `gateway-api-crds` | `config/crd/standard` | git | — | — | — |
 | `grafana-config` | `charts/grafana-config` | git | — | — | — |
 | `intel-device-plugins-operator` | `intel-device-plugins-operator` | 0.36.0 | — | — | — |
 | `intel-gpu-device-plugin` | `intel-device-plugins-gpu` | 0.36.0 | — | — | — |
+| `istio-base` | `base` | 1.31.1 | — | — | — |
+| `istio-cni` | `cni` | 1.31.1 | — | — | — |
+| `istio-config` | `charts/istio-config` | git | internal: servicemesh | — | — |
+| `istiod` | `istiod` | 1.31.1 | — | — | — |
+| `kiali` | `kiali-server` | 2.32.0 | — | — | smoke-kiali |
 | `kube-prometheus-stack` | `kube-prometheus-stack` | 87.1.0 | internal: grafana | grafana | smoke-grafana, smoke-prometheus |
 | `kubelet-csr-approver` | `kubelet-csr-approver` | 1.2.14 | — | — | — |
 | `metrics-server` | `metrics-server` | 3.14.0 | — | — | — |
 | `node-feature-discovery` | `node-feature-discovery` | 0.18.3 | — | — | — |
+| `otel-collector-agent` | `opentelemetry-collector` | 0.173.1 | — | — | — |
+| `otel-collector-cluster` | `opentelemetry-collector` | 0.173.1 | — | — | — |
+| `otel-collector-gateway` | `opentelemetry-collector` | 0.173.1 | internal: otel, otlp | — | — |
 | `port-forwarding-controller` | `port-forwarding` | 1.1.1 | — | — | — |
 | `port-forwarding-controller-config` | `charts/port-forwarding-controller-config` | git | — | — | — |
 | `prometheus-config` | `charts/prometheus-config` | git | — | — | — |
 | `spegel` | `spegel` | 0.6.0 | — | — | — |
 | `tailscale-config` | `charts/tailscale-config` | git | — | — | — |
 | `tailscale-operator` | `tailscale-operator` | 1.98.4 | — | — | — |
+| `traefik-crds` | `traefik-crds` | 1.14.1 | — | — | — |
 | `traefik-external` | `traefik` | 39.0.9 | external: traefik | traefik | — |
 | `traefik-external-config` | `charts/traefik-external-config` | git | — | — | — |
 | `traefik-external-dependencies` | `charts/traefik-external-dependencies` | git | — | — | — |
 | `traefik-internal` | `traefik` | 39.0.9 | internal: traefik-internal | traefik | — |
 | `traefik-internal-config` | `charts/traefik-internal-config` | git | — | — | — |
 | `traefik-internal-dependencies` | `charts/traefik-internal-dependencies` | git | — | — | — |
+| `ztunnel` | `ztunnel` | 1.31.1 | — | — | — |
 <!-- docs-check:end addons-table -->
 
 Notes:

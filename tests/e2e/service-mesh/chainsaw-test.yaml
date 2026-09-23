@@ -1,0 +1,259 @@
+---
+# Istio ambient mesh (docs/service-mesh.md): control plane and node agents are
+# up, and Kiali answers through the internal Traefik on servicemesh.homelab.local.
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: service-mesh
+spec:
+  description: >-
+    istiod, istio-cni and ztunnel are Healthy, paperclip is enrolled with a programmed waypoint, and Kiali /healthz answers through the internal Traefik.
+  steps:
+    - name: applications-healthy
+      description: The ArgoCD Applications behind the mesh are Healthy and their last sync Succeeded.
+      try:
+        - assert:
+            resource:
+              apiVersion: argoproj.io/v1alpha1
+              kind: Application
+              metadata:
+                name: istio-base
+                namespace: argocd
+              status:
+                health:
+                  status: Healthy
+                operationState:
+                  phase: Succeeded
+        - assert:
+            resource:
+              apiVersion: argoproj.io/v1alpha1
+              kind: Application
+              metadata:
+                name: istiod
+                namespace: argocd
+              status:
+                health:
+                  status: Healthy
+                operationState:
+                  phase: Succeeded
+        - assert:
+            resource:
+              apiVersion: argoproj.io/v1alpha1
+              kind: Application
+              metadata:
+                name: istio-cni
+                namespace: argocd
+              status:
+                health:
+                  status: Healthy
+                operationState:
+                  phase: Succeeded
+        - assert:
+            resource:
+              apiVersion: argoproj.io/v1alpha1
+              kind: Application
+              metadata:
+                name: ztunnel
+                namespace: argocd
+              status:
+                health:
+                  status: Healthy
+                operationState:
+                  phase: Succeeded
+        - assert:
+            resource:
+              apiVersion: argoproj.io/v1alpha1
+              kind: Application
+              metadata:
+                name: istio-config
+                namespace: argocd
+              status:
+                health:
+                  status: Healthy
+                operationState:
+                  phase: Succeeded
+        - assert:
+            resource:
+              apiVersion: argoproj.io/v1alpha1
+              kind: Application
+              metadata:
+                name: kiali
+                namespace: argocd
+              status:
+                health:
+                  status: Healthy
+                operationState:
+                  phase: Succeeded
+      catch:
+        - describe:
+            apiVersion: argoproj.io/v1alpha1
+            kind: Application
+            name: istio-base
+            namespace: argocd
+        - describe:
+            apiVersion: argoproj.io/v1alpha1
+            kind: Application
+            name: istiod
+            namespace: argocd
+        - describe:
+            apiVersion: argoproj.io/v1alpha1
+            kind: Application
+            name: istio-cni
+            namespace: argocd
+        - describe:
+            apiVersion: argoproj.io/v1alpha1
+            kind: Application
+            name: ztunnel
+            namespace: argocd
+        - describe:
+            apiVersion: argoproj.io/v1alpha1
+            kind: Application
+            name: istio-config
+            namespace: argocd
+        - describe:
+            apiVersion: argoproj.io/v1alpha1
+            kind: Application
+            name: kiali
+            namespace: argocd
+    - name: node-agents-ready
+      description: ztunnel and istio-cni-node run a ready pod on every node.
+      try:
+        - assert:
+            resource:
+              apiVersion: apps/v1
+              kind: DaemonSet
+              metadata:
+                name: ztunnel
+                namespace: istio-system
+              (status.numberReady == status.desiredNumberScheduled): true
+        - assert:
+            resource:
+              apiVersion: apps/v1
+              kind: DaemonSet
+              metadata:
+                name: istio-cni-node
+                namespace: istio-system
+              (status.numberReady == status.desiredNumberScheduled): true
+      catch:
+        - events:
+            namespace: istio-system
+        - podLogs:
+            namespace: istio-system
+            selector: app=istio-cni-node
+            tail: 50
+    - name: paperclip-waypoint
+      description: >-
+        The paperclip namespace is enrolled (SERVICE_MESH_AMBIENT_NAMESPACES) and its
+        waypoint Gateway is programmed; the paperclip e2e test then reaches the app through it.
+      try:
+        - assert:
+            resource:
+              apiVersion: v1
+              kind: Namespace
+              metadata:
+                name: paperclip
+                labels:
+                  istio.io/dataplane-mode: ambient
+                  istio.io/use-waypoint: waypoint
+        - assert:
+            resource:
+              apiVersion: gateway.networking.k8s.io/v1
+              kind: Gateway
+              metadata:
+                name: waypoint
+                namespace: paperclip
+              status:
+                (conditions[?type == 'Programmed']):
+                  - status: "True"
+      catch:
+        - describe:
+            apiVersion: gateway.networking.k8s.io/v1
+            kind: Gateway
+            name: waypoint
+            namespace: paperclip
+        - events:
+            namespace: paperclip
+    - name: curl-kiali
+      description: >-
+        A curl Job must get 200 from https://servicemesh.homelab.local/healthz
+        via traefik-internal.traefik.svc.cluster.local.
+      timeouts:
+        assert: 5m
+      try:
+        - apply:
+            resource:
+              apiVersion: batch/v1
+              kind: Job
+              metadata:
+                name: curl-kiali
+              spec:
+                backoffLimit: 0
+                activeDeadlineSeconds: 300
+                template:
+                  spec:
+                    restartPolicy: Never
+                    securityContext:
+                      runAsNonRoot: true
+                      runAsUser: 100
+                      seccompProfile:
+                        type: RuntimeDefault
+                    containers:
+                      - name: curl
+                        # pinned from configuration/versions.yaml images.curl
+                        image: curlimages/curl:8.22.0
+                        securityContext:
+                          allowPrivilegeEscalation: false
+                          capabilities:
+                            drop: ["ALL"]
+                        resources:
+                          requests:
+                            cpu: 10m
+                            memory: 32Mi
+                          limits:
+                            cpu: 100m
+                            memory: 64Mi
+                        env:
+                          - name: HOST
+                            value: "servicemesh.homelab.local"
+                          - name: GATEWAY
+                            value: "traefik-internal.traefik.svc.cluster.local"
+                          - name: URL_PATH
+                            value: "/healthz"
+                          - name: EXPECT
+                            value: "200"
+                          - name: ATTEMPTS
+                            value: "20"
+                        command: ["sh", "-c"]
+                        args:
+                          - |
+                            set -u
+                            i=1
+                            while [ "$i" -le "$ATTEMPTS" ]; do
+                              code=$(curl -sk -o /dev/null -w '%{http_code}' -L --max-redirs 5 --max-time 20 \
+                                --connect-to "$HOST:443:$GATEWAY:443" --connect-to "$HOST:80:$GATEWAY:80" \
+                                "https://$HOST$URL_PATH")
+                              echo "attempt $i/$ATTEMPTS: HTTP $code for https://$HOST$URL_PATH via $GATEWAY"
+                              for ok in $EXPECT; do [ "$code" = "$ok" ] && exit 0; done
+                              i=$((i + 1))
+                              sleep 6
+                            done
+                            echo "giving up: last HTTP code $code, expected one of: $EXPECT"
+                            exit 1
+        - assert:
+            resource:
+              apiVersion: batch/v1
+              kind: Job
+              metadata:
+                name: curl-kiali
+              status:
+                succeeded: 1
+      catch:
+        - events: {}
+        - podLogs:
+            selector: job-name=curl-kiali
+            tail: 50
+        - describe:
+            apiVersion: argoproj.io/v1alpha1
+            kind: Application
+            name: kiali
+            namespace: argocd

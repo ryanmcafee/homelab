@@ -113,6 +113,12 @@ ingress:
   clusterIssuer: letsencrypt
   tlsSecretName: paperclip-tls
 
+# In an ambient-enrolled namespace (serviceMesh.ambient, set by the parent)
+# templates/networkpolicy-ambient.yaml adds HBONE (TCP 15008) in both
+# directions, which the operator's policy below does not know.
+serviceMesh:
+  ambient: false
+
 # The operator's default policy: ingress on the service port from any source,
 # egress to DNS, TCP 443 (LLM APIs), OTLP 4317/4318 and, in external database
 # mode, TCP 5432. That already covers Traefik -> app and app -> paperclip-postgres-rw.

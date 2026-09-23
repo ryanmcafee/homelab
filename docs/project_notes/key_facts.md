@@ -46,7 +46,15 @@ See `CLAUDE.local.md` for IP addresses and hostnames.
 - Storage Classes:
   - `democratic-csi-nfs` (default) - NFS on HDD pool
   - `democratic-csi-ssd` - NFS on SSD pool (`STORAGE_CLASS_SSD`; files appear owned by the mapall user, unusable for PostgreSQL)
-  - `democratic-csi-iscsi` - iSCSI block storage on SSD pool (`STORAGE_CLASS_ISCSI_SSD`; SQLite and PostgreSQL workloads, e.g. `paperclip-postgres`)
+  - `democratic-csi-iscsi` - iSCSI block storage on SSD pool (`STORAGE_CLASS_ISCSI_SSD`; SQLite, PostgreSQL and ClickHouse workloads, e.g. `paperclip-postgres`, `ClickHouseInstallation/logs`)
+
+**Observability:**
+- Container logs + Kubernetes events: OpenTelemetry collectors -> ClickHouse `otel.otel_logs` (namespace `observability`), 90-day table TTL; Traefik access logs are JSON in the same table (docs/logging.md)
+- Traefik metrics: ServiceMonitors on the `metrics` entrypoint (:9100) of both releases, jobs `traefik-internal` / `traefik-external`
+- Istio 1.31.1 ambient (namespace `istio-system`); `paperclip` enrolled with a waypoint (`SERVICE_MESH_AMBIENT_NAMESPACES`, `SERVICE_MESH_WAYPOINT_NAMESPACES`), its database opted out; Cilium runs `cni.exclusive=false`, `socketLB.hostNamespaceOnly=true` (docs/service-mesh.md)
+- Traces: OTLP to `otel-collector-gateway.observability.svc.cluster.local:4317/4318` -> ClickHouse `otel.otel_traces` (90 days); Traefik and waypoints sample 10 % (docs/tracing.md)
+- Hubble: UI at `hubble.{domain}`, flow metrics, filtered flow log in ClickHouse (ServiceName `hubble`) (docs/hubble.md)
+- UniFi syslog (514) and IPFIX (2055) to `OTEL_LB_IP` (`otel.{domain}`), LAN-only (docs/logging.md); blackbox probes `paperclip-ingress` / `paperclip-direct` every 15 s (docs/runbooks/paperclip-request-path.md)
 
 ## ArgoCD Sync Wave Order
 
@@ -73,6 +81,8 @@ that parent renders):
 | `addons` | -1 .. 10 | 0 cert-manager, 1 its ClusterIssuer, 3 external-dns config, 4 external-dns, 5-8 Traefik |
 | `applications` | 10 .. 15 | each `*-config` chart before the workload that consumes it |
 | `applications` (Paperclip, `paperclip.yaml`) | 10 .. 14 | 10 Namespaces `paperclip-operator` + `paperclip`, 11 `paperclip-operator` (OCI chart, ServerSideApply), 12 `paperclip-dependencies` (OnePasswordItems), 13 `paperclip-database` (CloudNativePG `Cluster` `paperclip-postgres`), 14 `paperclip` (`Instance` + smoke Job) |
+| `addons` (Istio, `istio.yaml`) | 1 .. 10 | 1 `gateway-api-crds`, 2 `istio-base`, 3 `istiod` + `istio-cni`, 4 `ztunnel`, 5 `istio-config` (monitors), 10 `kiali` (`servicemesh.<DOMAIN>`, docs/service-mesh.md) |
+| `addons` (logs, `logging.yaml`) | 8 .. 12 | 8 `clickhouse-dependencies` (before Grafana at 9), 10 `clickhouse-operator`, 11 `clickhouse` (`ClickHouseInstallation/logs`), 12 `otel-collector-agent` + `otel-collector-cluster` + `otel-collector-gateway` (docs/logging.md, docs/tracing.md); 8 `cilium-config` (Hubble/Cilium monitors, Hubble UI); 10 `blackbox-exporter` |
 
 `homelab verify gitops` enforces the conventions this table describes
 (`gitops/<env>/waves`, `gitops/<env>/crd-order`); read the rendered
@@ -162,7 +172,10 @@ trusting a prose table.
 
 **Management:**
 - ArgoCD: `https://argocd.{domain}`
-- Grafana: `https://grafana.{domain}`
+- Grafana: `https://grafana.{domain}` (logs: datasource `ClickHouse`, dashboard "Cluster logs", docs/logging.md)
+- Kiali (Istio ambient mesh): `https://servicemesh.{domain}` (token login, docs/service-mesh.md)
+- Hubble UI: `https://hubble.{domain}` (no login, internal only, docs/hubble.md)
+- OTLP/HTTP (TLS): `https://otlp.{domain}`; collector LoadBalancer `otel.{domain}` (syslog 514, IPFIX 2055, OTLP 4317/4318)
 
 **Applications:**
 - Plex: `https://plex.{domain}`
@@ -186,6 +199,8 @@ trusting a prose table.
 | Paperclip admin password | `op://homelab/paperclip-auth/ADMIN_PASSWORD` |
 | Paperclip node pin | one node labelled `paperclip.homelab/pin=true` (server + operator bootstrap Job share the RWO iSCSI volume; `docs/apps/paperclip.md` "Node pin") |
 | Paperclip agent credentials | `op://homelab/paperclip-api-keys`: `CLAUDE_CODE_OAUTH_TOKEN` (Claude subscription token from `claude setup-token`; the default). `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` (API billing) reach the pod only with `charts/paperclip` `adapters.apiKeys.anthropic.enabled` / `adapters.apiKeys.openai.enabled`, each independently (chart `spec.env`, never the operator's all-or-nothing `apiKeysSecretRef`; an API key wins for Claude). Codex reads `/paperclip/.codex/auth.json` (`codex login --with-api-key` or `--device-auth` in the pod), never the host env |
+| ClickHouse log writer (collectors) | `op://homelab/clickhouse-otel/password` (`CLICKHOUSE_OTEL_1P_PATH`) |
+| ClickHouse log reader (Grafana datasource) | `op://homelab/clickhouse-grafana/password` (`CLICKHOUSE_GRAFANA_1P_PATH`) |
 
 ## Tips
 

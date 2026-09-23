@@ -38,6 +38,13 @@ global:
   images:
     curl: "8.22.0"
 
+  # Comma-separated namespaces of this chart enrolled in the ambient mesh, and
+  # those of them with a waypoint (templates/_mesh.tpl, templates/waypoints.yaml).
+  # Placeholders; SERVICE_MESH_AMBIENT_NAMESPACES / _WAYPOINT_NAMESPACES win at render time.
+  serviceMesh:
+    ambientNamespaces: ""
+    waypointNamespaces: ""
+
   # Per-PR preview mode (docs/runbooks/previews.md, templates/_preview.tpl).
   # Off while pr is empty. Never set pr/apps in a values file: the CMP passes
   # them with --set-string from the PREVIEW_PR / PREVIEW_APPS plugin env of the

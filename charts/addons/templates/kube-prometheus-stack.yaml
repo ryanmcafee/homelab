@@ -109,6 +109,69 @@ spec:
           securityContext:
             {{- toYaml (index .Values "kube-prometheus-stack" "grafana" "securityContext") | nindent 12 }}
 
+          {{- if .Values.logging.enabled }}
+
+          # ClickHouse datasource for cluster logs and traces (docs/logging.md,
+          # docs/tracing.md); OpenTelemetry mode links a log's TraceId to its trace. The
+          # provisioning file keeps the $-reference; Grafana expands it from
+          # the environment, so the password never enters a ConfigMap.
+          plugins:
+            - grafana-clickhouse-datasource@{{ index .Values "kube-prometheus-stack" "grafana" "clickhousePlugin" | trimPrefix "v" }}
+          envValueFrom:
+            CLICKHOUSE_PASSWORD:
+              secretKeyRef:
+                name: {{ .Values.logging.secrets.grafana }}
+                key: password
+          additionalDataSources:
+            - name: ClickHouse
+              uid: clickhouse-logs
+              type: grafana-clickhouse-datasource
+              jsonData:
+                host: {{ .Values.logging.clickhouse.host }}
+                port: 9000
+                protocol: native
+                username: grafana
+                defaultDatabase: {{ .Values.logging.database }}
+                logs:
+                  defaultDatabase: {{ .Values.logging.database }}
+                  defaultTable: otel_logs
+                  otelEnabled: true
+                  otelVersion: "1.3.0"
+                traces:
+                  defaultDatabase: {{ .Values.logging.database }}
+                  defaultTable: otel_traces
+                  otelEnabled: true
+                  otelVersion: "1.3.0"
+                  durationUnit: nanoseconds
+              secureJsonData:
+                password: $CLICKHOUSE_PASSWORD
+          {{- end }}
+
+          {{- with (index .Values "kube-prometheus-stack" "grafana" "dashboards") }}
+
+          dashboardProviders:
+            dashboardproviders.yaml:
+              apiVersion: 1
+              providers:
+                - name: homelab
+                  folder: Homelab
+                  type: file
+                  disableDeletion: true
+                  editable: false
+                  options:
+                    path: /var/lib/grafana/dashboards/homelab
+          dashboards:
+            homelab:
+              {{- range $name, $dashboard := . }}
+              {{ $name }}:
+                gnetId: {{ $dashboard.gnetId }}
+                revision: {{ $dashboard.revision }}
+                datasource:
+                  - name: DS_PROMETHEUS
+                    value: Prometheus
+              {{- end }}
+          {{- end }}
+
           # Use Recreate strategy to avoid Multi-Attach errors with RWO PVC
           deploymentStrategy:
             type: Recreate
@@ -392,6 +455,230 @@ spec:
                       summary: 'Processes experience elevated CPU throttling.'
                       description: '{{`{{ $value | humanizePercentage }}`}} throttling of CPU in namespace {{`{{ $labels.namespace }}`}} for container {{`{{ $labels.container }}`}} in pod {{`{{ $labels.pod }}`}}, which is busy enough for the figure to mean something. Raise the CPU limit; requests govern scheduling, a limit only caps a burst.'
                       runbook_url: 'https://runbooks.prometheus-operator.dev/runbooks/kubernetes/cputhrottlinghigh'
+          # Ingress (docs/runbooks/alerting.md). Metrics: the ServiceMonitors of
+          # both Traefik releases (job = release name). Traefik labels the
+          # backend `service`; the scrape renames it to exported_service.
+          homelab-ingress:
+            groups:
+              - name: homelab-ingress
+                rules:
+                  - alert: HomelabTraefikDown
+                    expr: 'sum by (job) (up{job=~"traefik-internal|traefik-external"}) == 0 or absent(up{job="traefik-internal"}) or absent(up{job="traefik-external"})'
+                    for: 5m
+                    labels:
+                      severity: critical
+                    annotations:
+                      summary: 'Traefik {{`{{ $labels.job }}`}} has no reachable instance'
+                      description: 'No {{`{{ $labels.job }}`}} pod has answered the metrics scrape for 5m, so every route on that ingress class is down. `kubectl -n traefik get pods` and the Traefik logs in Grafana (docs/logging.md).'
+                  - alert: HomelabTraefikBackendErrors
+                    expr: 'sum by (job, exported_service) (rate(traefik_service_requests_total{code=~"5.."}[5m])) / sum by (job, exported_service) (rate(traefik_service_requests_total[5m])) > 0.05 and sum by (job, exported_service) (rate(traefik_service_requests_total[5m])) > 0.1'
+                    for: 10m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: '{{`{{ $labels.exported_service }}`}} answers 5xx to {{`{{ $value | humanizePercentage }}`}} of requests'
+                      description: 'More than 5 % of the requests {{`{{ $labels.job }}`}} routed to {{`{{ $labels.exported_service }}`}} have failed with 5xx for 10m. The access logs (ServiceName traefik, docs/logging.md) show the failing paths and upstream durations.'
+                  - alert: HomelabTraefikBackendSlow
+                    expr: 'histogram_quantile(0.95, sum by (job, exported_service, le) (rate(traefik_service_request_duration_seconds_bucket[5m]))) > 5 and sum by (job, exported_service) (rate(traefik_service_requests_total[5m])) > 0.05'
+                    for: 10m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: 'p95 latency of {{`{{ $labels.exported_service }}`}} is {{`{{ $value | humanizeDuration }}`}}'
+                      description: 'The 95th percentile response time {{`{{ $labels.job }}`}} measured for {{`{{ $labels.exported_service }}`}} has been above 5 s for 10m. Streaming endpoints hold requests open by design; check the access logs before tuning.'
+          {{- if .Values.logging.enabled }}
+          # Log pipeline, adapted from the opentelemetry-collector chart rules and
+          # the Altinity clickhouse-operator alert rules (docs/runbooks/alerting.md).
+          homelab-logging:
+            groups:
+              - name: homelab-logging
+                rules:
+                  - alert: HomelabLogExportFailing
+                    expr: 'sum by (namespace, pod) (rate(otelcol_exporter_send_failed_log_records_total[5m])) > 0'
+                    for: 15m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: 'Collector {{`{{ $labels.pod }}`}} cannot write logs to ClickHouse'
+                      description: '{{`{{ $labels.pod }}`}} has failed to export log records for 15m; they are dropped once the retry window (5m) and the send queue run out. Check the ClickHouse pod and `kubectl -n {{`{{ $labels.namespace }}`}} logs {{`{{ $labels.pod }}`}}`.'
+                  - alert: HomelabLogExportQueueFull
+                    expr: 'max by (namespace, pod) (otelcol_exporter_queue_size / otelcol_exporter_queue_capacity) > 0.8'
+                    for: 10m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: 'Collector {{`{{ $labels.pod }}`}} send queue is {{`{{ $value | humanizePercentage }}`}} full'
+                      description: 'The ClickHouse exporter queue of {{`{{ $labels.pod }}`}} has been above 80 % for 10m; new batches are refused when it fills. ClickHouse is slow or unreachable.'
+                  - alert: HomelabLogsNotArriving
+                    expr: 'sum(rate(otelcol_receiver_accepted_log_records_total{receiver=~"file_?log.*"}[15m])) == 0 or absent(otelcol_receiver_accepted_log_records_total{receiver=~"file_?log.*"})'
+                    for: 30m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: 'No container logs are being collected'
+                      description: 'The OpenTelemetry agents have read no container log line for 30m. Check the otel-collector-agent DaemonSet in {{ .Values.logging.namespace }} and its hostPath mounts of /var/log/pods.'
+                  - alert: HomelabTraceExportFailing
+                    expr: 'sum by (namespace, pod) (rate(otelcol_exporter_send_failed_spans_total[5m])) > 0'
+                    for: 15m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: 'Collector {{`{{ $labels.pod }}`}} cannot write spans to ClickHouse'
+                      description: '{{`{{ $labels.pod }}`}} has failed to export spans for 15m; they are dropped once retries and the send queue run out (docs/tracing.md).'
+                  - alert: HomelabTelemetryRefused
+                    expr: 'sum by (namespace, pod, receiver) (rate(otelcol_receiver_refused_spans_total[5m]) or rate(otelcol_receiver_refused_log_records_total[5m])) > 0'
+                    for: 10m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: 'Receiver {{`{{ $labels.receiver }}`}} on {{`{{ $labels.pod }}`}} refuses data'
+                      description: 'The collector has refused spans or log records on {{`{{ $labels.receiver }}`}} for 10m, usually because memory_limiter is holding it back. Raise the collector memory limit or find the sender flooding it.'
+                  - alert: HomelabUniFiTelemetrySilent
+                    expr: 'sum by (receiver) (rate(otelcol_receiver_accepted_log_records_total{receiver=~"syslog.*|netflow"}[30m])) == 0'
+                    for: 30m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: 'No UniFi {{`{{ $labels.receiver }}`}} records for 30m'
+                      description: 'The gateway collector has received nothing on {{`{{ $labels.receiver }}`}} for an hour. Check the UniFi export settings (docs/logging.md, "UniFi gateway") and that otel.<DOMAIN> resolves to OTEL_LB_IP.'
+                  - alert: HomelabClickHouseDown
+                    expr: 'max by (chi, hostname) (chi_clickhouse_metric_fetch_errors{fetch_type="system.metrics"}) > 0 or absent(chi_clickhouse_metric_Uptime)'
+                    for: 10m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: 'ClickHouse {{`{{ $labels.chi }}`}} is not answering the metrics exporter'
+                      description: 'The clickhouse-operator metrics exporter has not read system.metrics from ClickHouse for 10m, so the log store is down or unreachable. `kubectl -n {{ .Values.logging.namespace }} get chi` and the ClickHouse pod events.'
+                  - alert: HomelabClickHouseRejectedInserts
+                    expr: 'sum by (chi, hostname) (increase(chi_clickhouse_event_RejectedInserts[5m])) > 0'
+                    for: 5m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: 'ClickHouse {{`{{ $labels.hostname }}`}} rejects inserts (too many parts)'
+                      description: 'ClickHouse refused inserts because a partition has too many active parts; merges are not keeping up with the batch rate. Raise the collector batch size or ClickHouse CPU.'
+                  - alert: HomelabClickHouseTooManyParts
+                    expr: 'max by (chi, hostname) (chi_clickhouse_metric_MaxPartCountForPartition) > 150'
+                    for: 15m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: 'ClickHouse {{`{{ $labels.hostname }}`}} has {{`{{ $value }}`}} parts in one partition'
+                      description: 'Inserts are throttled from 150 parts per partition and rejected from 300. Merges are behind; see HomelabClickHouseRejectedInserts.'
+          {{- end }}
+          {{- if .Values.cilium.config.monitoring.enabled }}
+          # Cilium and Hubble (docs/hubble.md), from the agent, operator and
+          # hubble-metrics ServiceMonitors of charts/cilium-config.
+          homelab-network:
+            groups:
+              - name: homelab-network
+                rules:
+                  - alert: HomelabCiliumAgentNotReady
+                    expr: 'kube_daemonset_status_number_ready{namespace="kube-system",daemonset="cilium"} < kube_daemonset_status_desired_number_scheduled{namespace="kube-system",daemonset="cilium"}'
+                    for: 10m
+                    labels:
+                      severity: critical
+                    annotations:
+                      summary: 'A Cilium agent is not ready'
+                      description: 'Fewer Cilium agents are ready than nodes for 10m; pods on the affected node lose networking and policy. `kubectl -n kube-system get pods -l k8s-app=cilium -o wide`.'
+                  - alert: HomelabCiliumOperatorDown
+                    expr: 'absent(up{job="cilium-operator"} == 1)'
+                    for: 15m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: 'cilium-operator is not running'
+                      description: 'No cilium-operator answered the scrape for 15m; LoadBalancer IP allocation and identity garbage collection stop until it is back.'
+                  - alert: HomelabCiliumUnreachableNodes
+                    expr: 'max by (node) (cilium_unreachable_nodes) > 0'
+                    for: 10m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: 'Cilium on {{`{{ $labels.node }}`}} cannot reach {{`{{ $value }}`}} node(s)'
+                      description: 'Node-to-node health probes have failed for 10m; cross-node pod traffic from {{`{{ $labels.node }}`}} is likely broken. `kubectl -n kube-system exec ds/cilium -- cilium-health status`.'
+                  - alert: HomelabCiliumEndpointRegenerationFailing
+                    expr: 'sum by (node) (rate(cilium_endpoint_regenerations_total{outcome="fail"}[5m])) > 0'
+                    for: 15m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: 'Cilium fails to program endpoints on {{`{{ $labels.node }}`}}'
+                      description: 'Endpoint regeneration has been failing for 15m, so new pods or policy changes on that node are not applied. The agent log names the endpoint.'
+                  - alert: HomelabCiliumBPFMapPressure
+                    expr: 'max by (node, map_name) (cilium_bpf_map_pressure) > 0.9'
+                    for: 15m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: 'BPF map {{`{{ $labels.map_name }}`}} on {{`{{ $labels.node }}`}} is {{`{{ $value | humanizePercentage }}`}} full'
+                      description: 'A full BPF map drops new connections or policy entries. Raise the map size in the Cilium values (bpf.*Max) and re-render.'
+                  - alert: HomelabHubbleDropsHigh
+                    expr: 'sum by (reason, source, destination) (rate(hubble_drop_total[5m])) > 1'
+                    for: 15m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: 'Cilium drops {{`{{ $value | humanize }}`}} packets/s ({{`{{ $labels.reason }}`}}) from {{`{{ $labels.source }}`}} to {{`{{ $labels.destination }}`}}'
+                      description: 'Sustained drops for 15m. The Hubble flow log in ClickHouse (ServiceName hubble, verdict DROPPED) has every dropped flow with its 5-tuple (docs/hubble.md).'
+          {{- end }}
+          {{- if (index .Values "blackbox-exporter" "enabled") }}
+          # Synthetic probes (docs/runbooks/paperclip-request-path.md); target
+          # is the probe name, e.g. paperclip-ingress vs paperclip-direct.
+          homelab-probes:
+            groups:
+              - name: homelab-probes
+                rules:
+                  - alert: HomelabProbeFailing
+                    expr: 'max by (target, instance) (probe_success) == 0'
+                    for: 2m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: 'Probe {{`{{ $labels.target }}`}} fails ({{`{{ $labels.instance }}`}})'
+                      description: '{{`{{ $labels.instance }}`}} has not answered 2xx for 2m. If only the -ingress probe fails the break is in DNS or Traefik, if -direct fails too it is the pod; docs/runbooks/paperclip-request-path.md.'
+                  - alert: HomelabProbeSlow
+                    expr: 'max by (target, instance) (probe_duration_seconds) > 2'
+                    for: 10m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: 'Probe {{`{{ $labels.target }}`}} takes {{`{{ $value | humanizeDuration }}`}}'
+                      description: '{{`{{ $labels.instance }}`}} has taken more than 2 s for 10m; compare the -ingress and -direct probes to find the slow hop.'
+          {{- end }}
+          {{- if .Values.istio.enabled }}
+          # Service mesh (docs/service-mesh.md). Metrics: charts/istio-config
+          # monitors and kube-state-metrics. ztunnel and istio-cni must run on
+          # every node or enrolled pods there lose their traffic.
+          homelab-service-mesh:
+            groups:
+              - name: homelab-service-mesh
+                rules:
+                  - alert: HomelabIstiodDown
+                    expr: 'absent(up{app="istiod"} == 1)'
+                    for: 10m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: 'istiod is not running'
+                      description: 'No istiod instance has answered the metrics scrape for 10m. Running workloads keep their last configuration, but new pods, certificates and policy changes wait for it. `kubectl -n {{ .Values.istio.namespace }} get pods -l app=istiod`.'
+                  - alert: HomelabMeshNodeAgentNotReady
+                    expr: 'kube_daemonset_status_number_ready{namespace="{{ .Values.istio.namespace }}",daemonset=~"ztunnel|istio-cni-node"} < kube_daemonset_status_desired_number_scheduled{namespace="{{ .Values.istio.namespace }}",daemonset=~"ztunnel|istio-cni-node"}'
+                    for: 15m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: '{{`{{ $labels.daemonset }}`}} is not ready on every node'
+                      description: '{{`{{ $labels.daemonset }}`}} has fewer ready pods than nodes for 15m. Pods of enrolled namespaces on the affected node cannot send or receive traffic. `kubectl -n {{ .Values.istio.namespace }} get pods -o wide`.'
+                  - alert: HomelabIstioXdsRejects
+                    expr: 'sum(rate(pilot_total_xds_rejects[5m])) > 0'
+                    for: 15m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: 'Proxies reject the configuration istiod sends'
+                      description: 'ztunnel or a waypoint has rejected xDS configuration for 15m, so it keeps running on stale config. `istioctl proxy-status` and the istiod logs name the resource.'
+          {{- end }}
 
   destination:
     server: https://kubernetes.default.svc

@@ -41,9 +41,11 @@
  * Exit codes: 0 = success; 1 = a step failed; 2 = argument error.
  */
 
+import { randomBytes } from "node:crypto";
 import {
   mkdir,
   mkdtemp,
+  readdir,
   readFile,
   rm,
   stat,
@@ -52,7 +54,11 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { isNotFound } from "./lib/errors.ts";
-import { parse as parseYaml, stringify as stringifyYaml } from "./lib/yaml.ts";
+import {
+  parseAll as parseAllYaml,
+  parse as parseYaml,
+  stringify as stringifyYaml,
+} from "./lib/yaml.ts";
 
 // ============================================================================
 // Logging
@@ -99,6 +105,10 @@ const ARGOCD_URL = "http://localhost:8080";
 export const DEFAULT_CILIUM_KIND_VALUES = `ipam:
   mode: kubernetes
 kubeProxyReplacement: false
+cni:
+  exclusive: false
+socketLB:
+  hostNamespaceOnly: true
 operator:
   replicas: 1
   resources:
@@ -1031,6 +1041,134 @@ async function removeKindBundledStorage(ctx: Ctx): Promise<void> {
 // ============================================================================
 // Fakes
 // ============================================================================
+const GENERATED_KEY = "homelab.local/generated-key";
+const GENERATED_GROUP = "homelab.local/generated-group";
+
+/** A fake Secret whose one key gets a random value in the cluster, never in git. */
+export interface GeneratedSecretStub {
+  namespace: string;
+  name: string;
+  key: string;
+  /** Stubs sharing a group get the same value (one credential, several namespaces). */
+  group: string;
+}
+
+/**
+ * Returns the Secrets in a fakes file annotated with homelab.local/generated-key
+ * (and -group, default the Secret name). Throws on a group without a key.
+ */
+export function generatedSecretStubs(content: string): GeneratedSecretStub[] {
+  const stubs: GeneratedSecretStub[] = [];
+  for (const doc of parseAllYaml(content)) {
+    const obj = doc as {
+      kind?: string;
+      metadata?: {
+        name?: string;
+        namespace?: string;
+        annotations?: Record<string, string>;
+      };
+    } | null;
+    const ann = obj?.metadata?.annotations ?? {};
+    if (
+      obj?.kind !== "Secret" ||
+      !(GENERATED_KEY in ann || GENERATED_GROUP in ann)
+    ) {
+      continue;
+    }
+    const name = obj.metadata?.name ?? "";
+    const namespace = obj.metadata?.namespace ?? "";
+    const key = ann[GENERATED_KEY];
+    if (!key) {
+      throw new Error(
+        `Secret ${namespace}/${name}: ${GENERATED_GROUP} without ${GENERATED_KEY}`,
+      );
+    }
+    stubs.push({ namespace, name, key, group: ann[GENERATED_GROUP] || name });
+  }
+  return stubs;
+}
+
+/**
+ * Picks the value for every stub (keyed "<namespace>/<name>"): a value already
+ * in the cluster wins for its whole group, otherwise one fresh value per group.
+ */
+export function assignGeneratedValues(
+  stubs: GeneratedSecretStub[],
+  existing: Record<string, string>,
+  fresh: () => string,
+): Record<string, string> {
+  const byGroup = new Map<string, string>();
+  for (const s of stubs) {
+    const v = existing[`${s.namespace}/${s.name}`];
+    if (v && !byGroup.has(s.group)) byGroup.set(s.group, v);
+  }
+  const values: Record<string, string> = {};
+  for (const s of stubs) {
+    if (!byGroup.has(s.group)) byGroup.set(s.group, fresh());
+    values[`${s.namespace}/${s.name}`] = byGroup.get(s.group) as string;
+  }
+  return values;
+}
+
+/** Fills the generated keys of the fake Secret stubs that do not have them yet. */
+async function fillGeneratedSecrets(ctx: Ctx, dir: string): Promise<void> {
+  const stubs: GeneratedSecretStub[] = [];
+  for (const file of (await readdir(dir))
+    .filter((f) => /\.ya?ml$/.test(f))
+    .sort()) {
+    stubs.push(
+      ...generatedSecretStubs(await readFile(join(dir, file), "utf8")),
+    );
+  }
+  const existing: Record<string, string> = {};
+  for (const s of stubs) {
+    const r = await ctx.exec.run([
+      "kubectl",
+      "--context",
+      ctx.args.context,
+      "-n",
+      s.namespace,
+      "get",
+      "secret",
+      s.name,
+      "-o",
+      `jsonpath={.data.${s.key}}`,
+    ]);
+    if (r.code === 0 && r.stdout.trim()) {
+      existing[`${s.namespace}/${s.name}`] = Buffer.from(
+        r.stdout.trim(),
+        "base64",
+      ).toString();
+    }
+  }
+  const values = assignGeneratedValues(stubs, existing, () =>
+    randomBytes(24).toString("hex"),
+  );
+  for (const s of stubs) {
+    const id = `${s.namespace}/${s.name}`;
+    if (existing[id]) continue;
+    const patch = JSON.stringify({ stringData: { [s.key]: values[id] } });
+    await ctx.exec.must([
+      "kubectl",
+      "--context",
+      ctx.args.context,
+      "-n",
+      s.namespace,
+      "patch",
+      "secret",
+      s.name,
+      "--type",
+      "merge",
+      "--field-manager",
+      "localdev-kind-generated",
+      "-p",
+      patch,
+    ]);
+  }
+  if (stubs.length > 0)
+    log.ok(`Generated values for ${stubs.length} fake Secret key(s)`);
+}
+
 async function applyFakes(ctx: Ctx): Promise<void> {
   const dir = `${ctx.repoRoot}/${FAKES_DIR}`;
   if (!(await pathExists(dir))) {
@@ -1051,6 +1189,7 @@ async function applyFakes(ctx: Ctx): Promise<void> {
     { inherit: true },
   );
   log.ok(`Fakes applied from ${FAKES_DIR}`);
+  await fillGeneratedSecrets(ctx, dir);
 }
 
 // ============================================================================

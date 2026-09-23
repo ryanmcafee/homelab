@@ -1,0 +1,32 @@
+# clickhouse values: one clickhouse.altinity.com/v1 ClickHouseInstallation
+# (wave 11, after clickhouse-operator at 10, before the collectors at 12).
+# Storage class, size, image pin and sizing arrive through the parent
+# Application's helm.valuesObject from configuration/ (ADR-010).
+
+namespace: observability
+
+# Installation name; the operator names the client Service clickhouse-<name>.
+name: logs
+
+# Database the collectors create (create_schema) and Grafana reads.
+database: otel
+
+# Pinned server image (configuration/versions.yaml images.clickhouse-server).
+image: clickhouse/clickhouse-server:latest
+
+storageClass: ""
+storageSize: 10Gi
+
+resources:
+  requests:
+    cpu: 250m
+    memory: 1Gi
+  limits:
+    cpu: "2"
+    memory: 4Gi
+
+# Secrets holding the `password` of each user (charts/clickhouse-dependencies
+# in homelab, localdev/fakes/secrets.yaml in Kind).
+secrets:
+  otel: clickhouse-otel
+  grafana: clickhouse-grafana

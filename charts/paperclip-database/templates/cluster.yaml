@@ -10,6 +10,15 @@ metadata:
   namespace: {{ .Values.namespace }}
 spec:
   instances: {{ .Values.instances }}
+  {{- if .Values.ambientOptOut }}
+  # In an ambient-enrolled namespace the database stays out of the mesh: a
+  # ztunnel restart must never cut PostgreSQL connections, and its Services
+  # bypass the namespace's waypoint (docs/service-mesh.md).
+  inheritedMetadata:
+    labels:
+      istio.io/dataplane-mode: none
+      istio.io/use-waypoint: none
+  {{- end }}
   {{- with .Values.imageName }}
   imageName: {{ . | quote }}
   {{- end }}

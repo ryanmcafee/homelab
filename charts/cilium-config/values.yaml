@@ -1,0 +1,18 @@
+# cilium-config values (wave 8, after cert-manager and Traefik). Cilium is
+# installed outside ArgoCD, before any CRD exists, so the objects that need the
+# monitoring CRDs, cert-manager or Traefik are rendered here instead of by the
+# Cilium chart. Host and toggles arrive through the parent Application's
+# helm.valuesObject from configuration/ (ADR-010).
+
+namespace: kube-system
+
+# ServiceMonitors for the Services the Cilium values create with
+# prometheus.metricsService, operator.prometheus.metricsService and hubble.metrics.
+monitoring:
+  enabled: false
+
+# Hubble UI (Service hubble-ui:80) on the internal ingress.
+hubbleUI:
+  enabled: false
+  host: hubble.example.com
+  ingressClassName: internal

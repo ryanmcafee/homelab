@@ -611,9 +611,19 @@ export function isTierComplete(apps: Application[]): boolean {
   return apps.every(isAppComplete);
 }
 
+/**
+ * Annotation for a git-path Application whose path lives in another
+ * repository (e.g. the Gateway API CRDs): it syncs from that repo, never with
+ * --local against this working tree.
+ */
+export const REMOTE_SYNC_ANNOTATION = "homelab.local/localdev-sync";
+
 export function sourceKind(app: Application): SourceKind {
   if (Array.isArray(app.spec?.sources) && app.spec.sources.length > 0) {
     return "multi";
+  }
+  if (app.metadata.annotations?.[REMOTE_SYNC_ANNOTATION] === "remote") {
+    return "chart";
   }
   if (app.spec?.source?.path) return "local";
   return "chart";

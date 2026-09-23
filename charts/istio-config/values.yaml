@@ -1,0 +1,17 @@
+# istio-config values: the monitors Istio documents for the Prometheus operator
+# (samples/addons/extras/prometheus-operator.yaml) and the mesh-wide tracing
+# Telemetry. Wave 5, after istiod and ztunnel; the monitoring CRDs come from
+# the bootstrap chart (ADR-018), Telemetry from istio-base.
+
+namespace: istio-system
+
+# Mesh-wide tracing (Telemetry mesh-default). The parent passes the provider
+# istiod's meshConfig.extensionProviders defines; empty renders nothing.
+tracing:
+  provider: ""
+  samplingPercentage: 10
+
+# Kiali (Service kiali:20001) on the internal ingress; empty host renders nothing.
+kiali:
+  host: ""
+  ingressClassName: internal

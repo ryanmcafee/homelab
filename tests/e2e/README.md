@@ -30,6 +30,8 @@ task verify LEVEL=2                      # runs the same suite, reports e2e/<nam
 | `mosquitto/` | TCP connect to `mosquitto.home-automation.svc.cluster.local:1883` |
 | `cloudnative-pg/` | 1-instance `Cluster` on `local-path` reaches "Cluster in healthy state" |
 | `paperclip/` | Applications `paperclip-operator`, `paperclip-dependencies`, `paperclip-database`, `paperclip` Healthy/Succeeded; the CNPG `Cluster/paperclip-postgres` and the `paperclip.inc` `Instance/paperclip` are ready; `curl-paperclip` Job reaches the app |
+| `logging/` | Applications `clickhouse-operator`, `clickhouse`, `otel-collector-agent`, `otel-collector-cluster`, `otel-collector-gateway`, `kube-prometheus-stack` Healthy/Succeeded; a Job in `observability` queries ClickHouse as the read-only `grafana` user until `otel.otel_logs` has rows and a TTL, then sends an OTLP/HTTP span to the gateway until it is in `otel.otel_traces` |
+| `service-mesh/` | Applications `istio-base`, `istiod`, `istio-cni`, `ztunnel`, `istio-config`, `kiali` Healthy/Succeeded; `ztunnel` and `istio-cni-node` ready on every node; namespace `paperclip` enrolled with a Programmed `waypoint` Gateway; `curl-kiali` gets 200 from `servicemesh.homelab.local/healthz` |
 | `cilium-netpol/` | default-deny NetworkPolicy blocks a curl Job, an allow policy lets one through |
 | `agent-readonly/` | Application Healthy, token Secret populated; `kubectl auth can-i` as ServiceAccount `agent-access/agent-readonly` and as Group `homelab:agent-readonly`: reads yes, Secrets and every write no |
 

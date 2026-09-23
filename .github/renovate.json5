@@ -71,6 +71,18 @@
         'every weekend',
       ],
     },
+    // The traefik chart and its CRD chart are released together; one PR keeps
+    // the CRDs Traefik reads in step with the controller.
+    {
+      groupName: 'Traefik',
+      matchPackageNames: [
+        'traefik',
+        'traefik-crds',
+      ],
+      matchDatasources: [
+        'helm',
+      ],
+    },
     {
       groupName: 'ArgoCD',
       matchPackageNames: [

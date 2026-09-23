@@ -36,3 +36,13 @@ keys:
     description: Default timezone for all workloads
     required: true
     default: "America/New_York"
+
+  SERVICE_MESH_AMBIENT_NAMESPACES:
+    description: Comma-separated namespaces of the applications chart enrolled in the Istio ambient mesh (label istio.io/dataplane-mode=ambient); "none" enrolls none (docs/service-mesh.md)
+    required: true
+    default: "paperclip"
+
+  SERVICE_MESH_WAYPOINT_NAMESPACES:
+    description: Comma-separated enrolled namespaces that get a waypoint proxy (Gateway waypoint, L7 metrics and spans for every Service in them, ingress traffic included); "none" deploys none
+    required: true
+    default: "paperclip"

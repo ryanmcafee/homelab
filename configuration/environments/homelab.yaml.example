@@ -19,6 +19,8 @@ LB_POOL_START: "192.168.1.100"
 LB_POOL_END: "192.168.1.200"
 TRAEFIK_STATIC_IP: "192.168.1.200"
 PLEX_LB_IP: "192.168.1.103"
+# OpenTelemetry gateway collector (UniFi syslog/NetFlow target, otel.<DOMAIN>); a free address in the LB pool
+OTEL_LB_IP: "192.168.1.104"
 NFS_SHARE_ALLOW: "192.168.1.0/24"
 # Homelab LAN CIDR advertised onto the tailnet by the Tailscale Connector subnet router
 TAILSCALE_ADVERTISE_ROUTES: "192.168.1.0/24"

@@ -1,0 +1,19 @@
+# clickhouse-dependencies values: 1Password items for the two ClickHouse users
+# (wave 8, before Grafana at 9 and ClickHouse at 11). Item paths arrive through
+# the parent Application's helm.valuesObject from configuration/
+# (CLICKHOUSE_OTEL_1P_PATH, CLICKHOUSE_GRAFANA_1P_PATH).
+
+# Namespace of ClickHouse and the collectors, and of Grafana.
+namespace: observability
+grafanaNamespace: monitoring
+
+# Each OnePasswordItem needs the toggle and its own path: an item with an empty
+# itemPath renders but is inert. Localdev has no secret store and seeds the
+# same Secrets in localdev/fakes/secrets.yaml.
+onePassword:
+  enabled: false
+  # Secret clickhouse-otel (field password): the writer the collectors use
+  otelItemPath: ""
+  # Secret clickhouse-grafana (field password): the read-only Grafana user,
+  # rendered in both namespaces because ClickHouse and Grafana each read it
+  grafanaItemPath: ""

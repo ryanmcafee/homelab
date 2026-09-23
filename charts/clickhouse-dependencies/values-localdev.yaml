@@ -1,0 +1,5 @@
+# clickhouse-dependencies local development values. Kind has no secret store,
+# so the parent never creates this Application (localdev/fakes/secrets.yaml
+# seeds the Secrets); the file exists for a render with localdev values.
+
+namespace: observability

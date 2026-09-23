@@ -1,0 +1,5 @@
+# clickhouse homelab values. Committed and PII-free (ADR-010): storage class,
+# size, sizing and the image pin come from the parent Application's
+# helm.valuesObject. The file has to exist because the parent lists it.
+
+namespace: observability

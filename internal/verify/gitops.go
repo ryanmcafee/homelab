@@ -283,16 +283,22 @@ func (g *gitopsGraph) result(rule string, start time.Time, detail string, findin
 // -------------------------------------------------------------------------
 
 // rulePaths verifies every Application source path exists in the repo and
-// every declared Helm value file exists inside it.
+// every declared Helm value file exists inside it. A source in another git
+// repository (a repoURL no source with an existing path uses) is not checked.
 func (g *gitopsGraph) rulePaths(repoRoot string) Check {
 	start := time.Now()
 	var findings []string
-	paths := 0
+	paths, external := 0, 0
+	localRepos := g.localRepoURLs(repoRoot)
 
 	for _, app := range g.apps {
 		for _, src := range appSources(app) {
 			p := strings.TrimSpace(src.GetString("path"))
 			if p == "" || p == "." {
+				continue
+			}
+			if repo := strings.TrimSpace(src.GetString("repoURL")); repo != "" && len(localRepos) > 0 && !localRepos[normalizeRepoURL(repo)] {
+				external++
 				continue
 			}
 			paths++
@@ -325,7 +331,30 @@ func (g *gitopsGraph) rulePaths(repoRoot string) Check {
 			}
 		}
 	}
-	return g.result("paths", start, fmt.Sprintf("%d Application source paths checked", paths), findings)
+	detail := fmt.Sprintf("%d Application source paths checked", paths)
+	if external > 0 {
+		detail += fmt.Sprintf(", %d in another repository not checked", external)
+	}
+	return g.result("paths", start, detail, findings)
+}
+
+// localRepoURLs returns the repoURLs of sources whose path is a directory in
+// repoRoot, i.e. the URLs that name this repository.
+func (g *gitopsGraph) localRepoURLs(repoRoot string) map[string]bool {
+	local := map[string]bool{}
+	for _, app := range g.apps {
+		for _, src := range appSources(app) {
+			repo := strings.TrimSpace(src.GetString("repoURL"))
+			p := strings.TrimSpace(src.GetString("path"))
+			if repo == "" || p == "" || p == "." {
+				continue
+			}
+			if fi, err := os.Stat(filepath.Join(repoRoot, filepath.Clean(filepath.FromSlash(p)))); err == nil && fi.IsDir() {
+				local[normalizeRepoURL(repo)] = true
+			}
+		}
+	}
+	return local
 }
 
 // -------------------------------------------------------------------------

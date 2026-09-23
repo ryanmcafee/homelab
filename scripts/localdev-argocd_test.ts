@@ -419,6 +419,29 @@ test("sourceKind: path → local, chart → chart, sources → multi", () => {
   assertEquals(sourceKind({ metadata: { name: "bare" } }), "chart");
 });
 
+test("sourceKind: a path in another repository syncs from that repo", () => {
+  const external: Application = {
+    metadata: {
+      name: "gateway-api-crds",
+      annotations: { "homelab.local/localdev-sync": "remote" },
+    },
+    spec: {
+      source: {
+        repoURL: "https://github.com/kubernetes-sigs/gateway-api.git",
+        path: "config/crd/standard",
+      },
+    },
+  };
+  assertEquals(sourceKind(external), "chart");
+  assertEquals(syncArgs(external, REPO), [
+    "app",
+    "sync",
+    "gateway-api-crds",
+    "--prune",
+    "--async",
+  ]);
+});
+
 test("syncArgs: git-path apps sync from the working tree", () => {
   assertEquals(syncArgs(gitops, REPO), [
     "app",

@@ -1,0 +1,68 @@
+{{- $bb := index .Values "blackbox-exporter" }}
+{{- if $bb.enabled }}
+---
+# Synthetic HTTP probes (docs/runbooks/paperclip-request-path.md): one
+# ServiceMonitor per target, metrics probe_success / probe_duration_seconds
+# labelled target=<name>; alerts in the homelab-probes group.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: blackbox-exporter
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: {{ $bb.chart.repo }}
+    chart: {{ $bb.chart.name }}
+    targetRevision: {{ $bb.chart.version | quote }}
+    helm:
+      releaseName: blackbox-exporter
+      values: |
+        config:
+          modules:
+            http_2xx:
+              prober: http
+              timeout: 10s
+              http:
+                preferred_ip_protocol: ip4
+            # The ingress probe checks reachability, not the certificate
+            # (HomelabCertificateExpiringSoon covers that; Kind's is self-signed).
+            http_2xx_ingress:
+              prober: http
+              timeout: 10s
+              http:
+                preferred_ip_protocol: ip4
+                tls_config:
+                  insecure_skip_verify: true
+        resources:
+          requests:
+            cpu: 10m
+            memory: 32Mi
+          limits:
+            cpu: 200m
+            memory: 128Mi
+        serviceMonitor:
+          enabled: true
+          defaults:
+            interval: 15s
+            scrapeTimeout: 12s
+          targets:
+            {{- toYaml $bb.targets | nindent 12 }}
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: {{ $bb.namespace }}
+  syncPolicy:
+    {{- if .Values.global.automatedSync }}
+    automated:
+      prune: true
+      selfHeal: true
+    {{- end }}
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+{{- end }}

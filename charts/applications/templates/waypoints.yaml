@@ -1,0 +1,25 @@
+{{- /*
+One waypoint proxy per namespace listed in SERVICE_MESH_WAYPOINT_NAMESPACES and
+enrolled in the mesh (docs/service-mesh.md): L7 metrics and spans for its
+Services. The Gateway API CRDs come from the gateway-api-crds addon.
+*/}}
+{{- if not (include "homelab.preview.enabled" .) }}
+{{- range $ns := splitList "," (include "homelab.meshWaypoints" .) | compact }}
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: waypoint
+  namespace: {{ $ns }}
+  labels:
+    istio.io/waypoint-for: service
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
+spec:
+  gatewayClassName: istio-waypoint
+  listeners:
+    - name: mesh
+      port: 15008
+      protocol: HBONE
+{{- end }}
+{{- end }}

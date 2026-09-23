@@ -35,6 +35,13 @@ global:
   iscsi:
     portal: "127.0.0.1:3260"
 
+  # Namespaces enrolled in the Istio ambient mesh and those with a waypoint
+  # (SERVICE_MESH_AMBIENT_NAMESPACES, SERVICE_MESH_WAYPOINT_NAMESPACES;
+  # comma-separated, docs/service-mesh.md).
+  serviceMesh:
+    ambientNamespaces: "paperclip"
+    waypointNamespaces: "paperclip"
+
 # ============================================================================
 # Plex Media Server
 # Sync Wave: 1 (core media service)

@@ -1,0 +1,434 @@
+{{- /*
+Cluster log pipeline (docs/logging.md): OpenTelemetry collectors ship every
+container log and the Kubernetes events into ClickHouse, where Grafana reads
+them through the ClickHouse datasource (kube-prometheus-stack.yaml).
+  wave 8   clickhouse-dependencies  charts/clickhouse-dependencies: OnePasswordItems for the
+                                    ClickHouse users (before Grafana at 9, which reads one)
+  wave 10  clickhouse-operator      Altinity operator, CRDs from the chart's crds/
+  wave 11  clickhouse               charts/clickhouse: ClickHouseInstallation logs + logs dashboard
+  wave 12  otel-collector-agent     DaemonSet: filelog on /var/log/pods -> clickhouse exporter
+  wave 12  otel-collector-cluster   one replica: Kubernetes events -> clickhouse exporter
+  wave 12  otel-collector-gateway   OTLP (traces, app logs), UniFi syslog + NetFlow -> clickhouse exporter
+Retention is the exporter's table TTL (logging.retention); the exporter
+creates database and table on first start (create_schema).
+*/}}
+{{- $log := .Values.logging }}
+{{- if $log.enabled }}
+---
+# The agent DaemonSet reads /var/log/pods through hostPath volumes, which the
+# baseline PodSecurity level forbids.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ $log.namespace }}
+  labels:
+    pod-security.kubernetes.io/enforce: privileged
+    pod-security.kubernetes.io/audit: privileged
+    pod-security.kubernetes.io/warn: privileged
+{{- if $log.dependencies.onePassword.enabled }}
+---
+# Dependencies Application: the ClickHouse user passwords. Only where a secret
+# store exists (SECRETS_PROVIDER); localdev seeds the same Secrets in
+# localdev/fakes/secrets.yaml.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: clickhouse-dependencies
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: {{ .Values.global.repoUrl }}
+    targetRevision: {{ .Values.global.targetRevision }}
+    path: charts/clickhouse-dependencies
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-{{ .Values.global.environment }}.yaml
+      # 1Password paths come from configuration/ (secrets.schema.yaml) through
+      # this parent, so the child's committed values stay environment-free.
+      valuesObject:
+        namespace: {{ $log.namespace }}
+        grafanaNamespace: {{ index .Values "kube-prometheus-stack" "namespace" }}
+        onePassword:
+          {{- toYaml $log.dependencies.onePassword | nindent 10 }}
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: {{ $log.namespace }}
+  syncPolicy:
+    {{- if .Values.global.automatedSync }}
+    automated:
+      prune: true
+      selfHeal: true
+    {{- end }}
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - SkipDryRunOnMissingResource=true
+{{- end }}
+---
+# The chart's crdHook (a bitnami/kubectl:latest Job) is off: ArgoCD applies
+# the CRDs from the chart's crds/ directory itself, server-side because the
+# ClickHouseInstallation CRD is past the client-side-apply size limit.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: clickhouse-operator
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: {{ $log.clickhouse.operator.chart.repo }}
+    chart: {{ $log.clickhouse.operator.chart.name }}
+    targetRevision: {{ $log.clickhouse.operator.chart.version | quote }}
+    helm:
+      releaseName: clickhouse-operator
+      values: |
+        crdHook:
+          enabled: false
+        watchNamespaces:
+          - {{ $log.namespace }}
+        operator:
+          resources:
+            {{- toYaml $log.clickhouse.operator.resources | nindent 12 }}
+        metrics:
+          enabled: true
+          resources:
+            {{- toYaml $log.clickhouse.operator.metricsResources | nindent 12 }}
+        serviceMonitor:
+          enabled: true
+        dashboards:
+          enabled: true
+          additionalLabels:
+            grafana_dashboard: "1"
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: {{ $log.namespace }}
+  syncPolicy:
+    {{- if .Values.global.automatedSync }}
+    automated:
+      prune: true
+      selfHeal: true
+    {{- end }}
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+---
+# The ClickHouseInstallation and the logs dashboard (charts/clickhouse). Health
+# comes from charts/bootstrap/files/health/clickhouse.altinity.com_ClickHouseInstallation.lua.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: clickhouse
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "11"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: {{ .Values.global.repoUrl }}
+    targetRevision: {{ .Values.global.targetRevision }}
+    path: charts/clickhouse
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-{{ .Values.global.environment }}.yaml
+      # Storage class, sizing and image pin are environment facts
+      # (configuration/) and reach the child through this parent (ADR-010).
+      valuesObject:
+        namespace: {{ $log.namespace }}
+        database: {{ $log.database }}
+        {{- toYaml $log.clickhouse.server | nindent 8 }}
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: {{ $log.namespace }}
+  syncPolicy:
+    {{- if .Values.global.automatedSync }}
+    automated:
+      prune: true
+      selfHeal: true
+    {{- end }}
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - SkipDryRunOnMissingResource=true
+    # The ClickHouseInstallation CRD comes from clickhouse-operator (wave 10).
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+{{- include "homelab.smokeJob" (dict "name" "clickhouse" "namespace" $log.namespace "smoke" $log.clickhouse.smoke "wave" "11" "image" .Values.global.images.curl) }}
+{{- range $collector := list "agent" "cluster" "gateway" }}
+{{- $otel := index $log.otel $collector }}
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: otel-collector-{{ $collector }}
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "12"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: {{ $log.otel.chart.repo }}
+    chart: {{ $log.otel.chart.name }}
+    targetRevision: {{ $log.otel.chart.version | quote }}
+    helm:
+      releaseName: otel-collector-{{ $collector }}
+      values: |
+        fullnameOverride: otel-collector-{{ $collector }}
+        {{- if eq $collector "agent" }}
+        mode: daemonset
+        presets:
+          # filelog on /var/log/pods (hostPath, read-only) with the CRI parser;
+          # checkpoints in /var/lib/otelcol so a restart neither re-sends nor skips.
+          logsCollection:
+            enabled: true
+            includeCollectorLogs: false
+            storeCheckpoints: true
+          kubernetesAttributes:
+            enabled: true
+        # Container logs under /var/log/pods are root-owned 0640.
+        securityContext:
+          runAsUser: 0
+          runAsGroup: 0
+        tolerations:
+          - operator: Exists
+        {{- if $log.hubble.enabled }}
+        # Cilium writes the filtered Hubble flow log on every node (hubble.export.static).
+        extraVolumes:
+          - name: hubble-flows
+            hostPath:
+              path: {{ dir $log.hubble.flowLog }}
+              type: DirectoryOrCreate
+        extraVolumeMounts:
+          - name: hubble-flows
+            mountPath: {{ dir $log.hubble.flowLog }}
+            readOnly: true
+        {{- end }}
+        {{- else if eq $collector "cluster" }}
+        mode: deployment
+        replicaCount: 1
+        presets:
+          kubernetesEvents:
+            enabled: true
+        {{- else }}
+        # OTLP for traces and application logs, plus the UniFi gateway's syslog
+        # and flow export (docs/logging.md, docs/tracing.md).
+        mode: deployment
+        replicaCount: 1
+        presets:
+          kubernetesAttributes:
+            enabled: true
+        {{- with $otel.service }}
+        service:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+        {{- with $otel.ingress }}
+        ingress:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+        {{- end }}
+        image:
+          repository: {{ $log.otel.image.repository }}
+        command:
+          name: {{ $log.otel.image.command }}
+        resources:
+          {{- toYaml $otel.resources | nindent 10 }}
+        ports:
+          otlp:
+            enabled: {{ eq $collector "gateway" }}
+            {{- if eq $collector "gateway" }}
+            hostPort: 0
+            {{- end }}
+          otlp-http:
+            enabled: {{ eq $collector "gateway" }}
+            {{- if eq $collector "gateway" }}
+            hostPort: 0
+            {{- end }}
+          jaeger-compact:
+            enabled: false
+          jaeger-thrift:
+            enabled: false
+          jaeger-grpc:
+            enabled: false
+          zipkin:
+            enabled: false
+          metrics:
+            enabled: true
+          {{- if and (eq $collector "gateway") $log.unifi.enabled }}
+          syslog-udp:
+            enabled: true
+            containerPort: 5514
+            servicePort: 514
+            protocol: UDP
+          syslog-tcp:
+            enabled: true
+            containerPort: 5514
+            servicePort: 514
+            protocol: TCP
+          netflow:
+            enabled: true
+            containerPort: 2055
+            servicePort: 2055
+            protocol: UDP
+          {{- end }}
+        podMonitor:
+          enabled: true
+        extraEnvs:
+          - name: CLICKHOUSE_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: {{ $log.secrets.otel }}
+                key: password
+        config:
+          receivers:
+            jaeger: null
+            zipkin: null
+            prometheus: null
+            {{- if ne $collector "gateway" }}
+            otlp: null
+            {{- end }}
+            {{- if and (eq $collector "agent") $log.hubble.enabled }}
+            # One JSON object per line: {"flow": {...}, "node_name": ..., "time": ...}.
+            file_log/hubble:
+              include:
+                - {{ $log.hubble.flowLog }}
+              start_at: end
+              storage: file_storage
+              operators:
+                - type: json_parser
+                  parse_to: body
+                - type: add
+                  field: resource["service.name"]
+                  value: hubble
+            {{- end }}
+            {{- if and (eq $collector "gateway") $log.unifi.enabled }}
+            # UniFi SIEM export: CEF lines inside RFC 3164 syslog.
+            syslog/udp:
+              udp:
+                listen_address: 0.0.0.0:5514
+                add_attributes: true
+              protocol: rfc3164
+              location: UTC
+              operators:
+                - type: regex_parser
+                  if: 'attributes.message matches "CEF:"'
+                  parse_from: attributes.message
+                  regex: 'CEF:(?P<cef_version>\d+)\|(?P<cef_vendor>[^|]*)\|(?P<cef_product>[^|]*)\|(?P<cef_device_version>[^|]*)\|(?P<cef_signature>[^|]*)\|(?P<cef_name>[^|]*)\|(?P<cef_severity>[^|]*)\|(?P<cef_extension>.*)'
+                  on_error: send_quiet
+                - type: add
+                  field: resource["service.name"]
+                  value: unifi-syslog
+            syslog/tcp:
+              tcp:
+                listen_address: 0.0.0.0:5514
+                add_attributes: true
+              protocol: rfc3164
+              location: UTC
+              operators:
+                - type: add
+                  field: resource["service.name"]
+                  value: unifi-syslog
+            # NetFlow v5/v9/IPFIX from the gateway, one log record per flow.
+            netflow:
+              scheme: netflow
+              port: 2055
+              sockets: 1
+              workers: 2
+            {{- end }}
+          processors:
+            batch:
+              send_batch_size: 5000
+              timeout: 5s
+            # Grafana's OpenTelemetry logs view groups by ServiceName; pods
+            # carry no service.name, so the container name stands in.
+            transform/service-name:
+              log_statements:
+                - context: resource
+                  statements:
+                    - set(attributes["service.name"], attributes["k8s.container.name"]) where attributes["service.name"] == nil
+          exporters:
+            debug: null
+            clickhouse:
+              endpoint: {{ $log.clickhouse.endpoint }}
+              database: {{ $log.database }}
+              username: otel
+              password: ${env:CLICKHOUSE_PASSWORD}
+              create_schema: true
+              logs_table_name: otel_logs
+              traces_table_name: otel_traces
+              ttl: {{ $log.retention }}
+              timeout: 10s
+              sending_queue:
+                queue_size: 1000
+              retry_on_failure:
+                enabled: true
+                initial_interval: 5s
+                max_interval: 30s
+                max_elapsed_time: 300s
+          service:
+            pipelines:
+              logs:
+                receivers:
+                  {{- if eq $collector "gateway" }}
+                  - otlp
+                  {{- if $log.unifi.enabled }}
+                  - syslog/udp
+                  - syslog/tcp
+                  - netflow
+                  {{- end }}
+                  {{- else if and (eq $collector "agent") $log.hubble.enabled }}
+                  - file_log/hubble
+                  {{- else }} []
+                  {{- end }}
+                processors:
+                  - memory_limiter
+                  - transform/service-name
+                  - batch
+                exporters:
+                  - clickhouse
+              {{- if eq $collector "gateway" }}
+              traces:
+                receivers:
+                  - otlp
+                processors:
+                  - memory_limiter
+                  - batch
+                exporters:
+                  - clickhouse
+              {{- else }}
+              traces: null
+              {{- end }}
+              metrics: null
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: {{ $log.namespace }}
+  syncPolicy:
+    {{- if $.Values.global.automatedSync }}
+    automated:
+      prune: true
+      selfHeal: true
+    {{- end }}
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+{{- end }}
+{{- end }}

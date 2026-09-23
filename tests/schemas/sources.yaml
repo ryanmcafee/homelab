@@ -56,6 +56,29 @@ sources:
       name: traefik
     kinds: [IngressRoute, Middleware, IngressRouteTCP, TLSOption, ServersTransport]
 
+  - name: altinity-clickhouse-operator
+    versionKey: altinity-clickhouse-operator
+    chart:
+      repo: https://helm.altinity.com
+      name: altinity-clickhouse-operator
+    kinds: [ClickHouseInstallation]
+
+  - name: istio-base
+    versionKey: istio
+    chart:
+      repo: https://blob.istio.io/istio-release/charts
+      name: base
+    kinds: [Telemetry]
+
+  - name: gateway-api
+    versionKey: gateway-api
+    github:
+      repo: kubernetes-sigs/gateway-api
+      ref: "{version}"
+      paths:
+        - config/crd/standard
+    kinds: [Gateway]
+
   - name: onepassword-connect
     versionKey: onepassword-connect
     chart:
