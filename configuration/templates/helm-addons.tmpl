@@ -235,7 +235,8 @@ cilium:
     # Hubble (docs/hubble.md): relay and UI, flow metrics, and a filtered flow
     # log the OpenTelemetry agents ship to ClickHouse. Only ConfigMaps and
     # Services here: Talos applies this before any CRD exists, so the
-    # ServiceMonitors live in charts/cilium-config.
+    # ServiceMonitors live in charts/cilium-config, and the dashboards come
+    # from grafana.com to keep the inline manifest small.
     hubble:
       relay:
         enabled: true
@@ -250,8 +251,6 @@ cilium:
           - "flow:sourceContext=workload-name|reserved-identity;destinationContext=workload-name|reserved-identity"
           - port-distribution
           - icmp
-        dashboards:
-          enabled: true
       export:
         static:
           enabled: true
@@ -270,8 +269,6 @@ cilium:
       prometheus:
         enabled: true
         metricsService: true
-    dashboards:
-      enabled: true
     bandwidthManager:
       enabled: true
       bbr: true
@@ -1027,6 +1024,21 @@ kube-prometheus-stack:
       istio-ztunnel:
         gnetId: 21306
         revision: 100
+      cilium-agent:
+        gnetId: 16611
+        revision: 1
+      cilium-operator:
+        gnetId: 16612
+        revision: 1
+      hubble:
+        gnetId: 16613
+        revision: 1
+      hubble-network-overview:
+        gnetId: 19424
+        revision: 1
+      hubble-dns-overview:
+        gnetId: 19425
+        revision: 1
 {{- end }}
 
   # Alertmanager and node-exporter are not useful in Kind (no alert routes, containerised nodes).
@@ -1800,7 +1812,8 @@ logging:
           cpu: "1"
           memory: 1Gi
 {{- else }}
-      storageSize: 50Gi
+      # 90 days of logs, traces, Hubble and UniFi flows; estimate in docs/logging.md.
+      storageSize: 100Gi
       resources:
         requests:
           cpu: 250m
