@@ -325,7 +325,7 @@ func IsPIIKey(key string) bool {
 // real value pasted into one of these files is a leak the same as one pasted
 // into configuration/.
 //
-// scripts/ is in scope because a Deno script is just as able to hardcode a
+// scripts/ is in scope because a TypeScript script is just as able to hardcode a
 // real address as a values file, and nothing rendered it through the CMP
 // either. Leaving scripts/ out hid three scripts that defaulted --api-url to
 // the real TrueNAS hostname, and a migration script that hardcoded the whole
@@ -372,7 +372,7 @@ var guardScanExtensions = map[string]bool{
 	".yml":  true,
 	".json": true,
 	".md":   true,
-	// .ts because scripts/ is in scope: a Deno script that hardcodes a real
+	// .ts because scripts/ is in scope: a TypeScript script that hardcodes a real
 	// address or hostname as a flag default is a leak the same as one pasted
 	// into configuration/, and three of them did exactly that before the
 	// scope was widened.

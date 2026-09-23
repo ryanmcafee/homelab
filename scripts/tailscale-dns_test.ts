@@ -1,12 +1,13 @@
-#!/usr/bin/env -S deno test
+#!/usr/bin/env -S bun test
 /**
  * Unit tests for the pure logic in tailscale-dns.ts. Nothing here talks to
  * 1Password or the Tailscale API.
  *
- *   deno test scripts/tailscale-dns_test.ts
+ *   bun test scripts/tailscale-dns_test.ts
  */
 
-import { assert, assertEquals, assertThrows } from "jsr:@std/assert@^1";
+import { test } from "bun:test";
+import { assert, assertEquals, assertThrows } from "./lib/assert.ts";
 import {
   DEFAULT_OAUTH_REF,
   DEFAULT_TAILNET,
@@ -20,13 +21,13 @@ import {
 
 const ENV = { domain: "example.com", nameserver: "192.0.2.1" };
 
-Deno.test("parseArgs with no arguments prints help", () => {
+test("parseArgs with no arguments prints help", () => {
   assertEquals(parseArgs([], ENV).command, "help");
   assertEquals(parseArgs(["--help"], ENV).command, "help");
   assertEquals(parseArgs(["apply", "-h"], ENV).command, "help");
 });
 
-Deno.test("parseArgs apply defaults domain and nameserver from the environment file values", () => {
+test("parseArgs apply defaults domain and nameserver from the environment file values", () => {
   const args = parseArgs(["apply"], ENV);
   assertEquals(args.command, "apply");
   assertEquals(args.domain, "example.com");
@@ -36,7 +37,7 @@ Deno.test("parseArgs apply defaults domain and nameserver from the environment f
   assertEquals(args.dryRun, false);
 });
 
-Deno.test("parseArgs flags override the environment file and --nameserver repeats", () => {
+test("parseArgs flags override the environment file and --nameserver repeats", () => {
   const args = parseArgs(
     [
       "apply",
@@ -60,13 +61,13 @@ Deno.test("parseArgs flags override the environment file and --nameserver repeat
   assertEquals(args.dryRun, true);
 });
 
-Deno.test("parseArgs accepts a -- separator from the task runner", () => {
+test("parseArgs accepts a -- separator from the task runner", () => {
   const args = parseArgs(["apply", "--", "--dry-run"], ENV);
   assertEquals(args.command, "apply");
   assertEquals(args.dryRun, true);
 });
 
-Deno.test("parseArgs apply without a domain or nameserver is a usage error", () => {
+test("parseArgs apply without a domain or nameserver is a usage error", () => {
   assertThrows(
     () => parseArgs(["apply"], { nameserver: "192.0.2.1" }),
     UsageError,
@@ -79,7 +80,7 @@ Deno.test("parseArgs apply without a domain or nameserver is a usage error", () 
   );
 });
 
-Deno.test("parseArgs remove needs a domain but no nameserver", () => {
+test("parseArgs remove needs a domain but no nameserver", () => {
   const args = parseArgs(["remove"], { domain: "example.com" });
   assertEquals(args.command, "remove");
   assertEquals(args.domain, "example.com");
@@ -87,13 +88,13 @@ Deno.test("parseArgs remove needs a domain but no nameserver", () => {
   assertThrows(() => parseArgs(["remove"], {}), UsageError, "--domain");
 });
 
-Deno.test("parseArgs status needs neither domain nor nameserver", () => {
+test("parseArgs status needs neither domain nor nameserver", () => {
   const args = parseArgs(["status"], {});
   assertEquals(args.command, "status");
   assertEquals(args.domain, undefined);
 });
 
-Deno.test("parseArgs rejects malformed values", () => {
+test("parseArgs rejects malformed values", () => {
   assertThrows(
     () => parseArgs(["apply", "--nameserver", "300.1.1.1"], ENV),
     UsageError,
@@ -146,12 +147,12 @@ Deno.test("parseArgs rejects malformed values", () => {
   );
 });
 
-Deno.test("parseArgs accepts an IPv6 nameserver", () => {
+test("parseArgs accepts an IPv6 nameserver", () => {
   const args = parseArgs(["apply", "--nameserver", "fd7a:115c:a1e0::53"], ENV);
   assertEquals(args.nameservers, ["fd7a:115c:a1e0::53"]);
 });
 
-Deno.test("envFileValue reads a trimmed string and rejects placeholders", () => {
+test("envFileValue reads a trimmed string and rejects placeholders", () => {
   const text = 'DOMAIN: " Example.COM "\nGATEWAY_IP: "192.0.2.1"\nEMPTY: ""\n';
   assertEquals(envFileValue(text, "DOMAIN"), "example.com");
   assertEquals(envFileValue(text, "GATEWAY_IP"), "192.0.2.1");
@@ -163,7 +164,7 @@ Deno.test("envFileValue reads a trimmed string and rejects placeholders", () => 
   assertEquals(envFileValue("- a list\n", "DOMAIN"), null);
 });
 
-Deno.test("planSplitDns reports no change when the domain already maps to the same nameservers", () => {
+test("planSplitDns reports no change when the domain already maps to the same nameservers", () => {
   const current = {
     "example.com": ["10.0.1.53", "10.0.0.53"],
     "other.test": ["10.9.9.9"],
@@ -174,7 +175,7 @@ Deno.test("planSplitDns reports no change when the domain already maps to the sa
   assertEquals(plan.patch, { "example.com": ["10.0.0.53", "10.0.1.53"] });
 });
 
-Deno.test("planSplitDns patches only the requested domain", () => {
+test("planSplitDns patches only the requested domain", () => {
   const current = { "other.test": ["10.9.9.9"] };
   const plan = planSplitDns(current, "example.com", ["192.0.2.1"]);
   assertEquals(plan.changed, true);
@@ -183,7 +184,7 @@ Deno.test("planSplitDns patches only the requested domain", () => {
   assertEquals(plan.patch, { "example.com": ["192.0.2.1"] });
 });
 
-Deno.test("planSplitDns detects a nameserver change for an existing domain", () => {
+test("planSplitDns detects a nameserver change for an existing domain", () => {
   const plan = planSplitDns({ "example.com": ["10.0.0.1"] }, "example.com", [
     "192.0.2.1",
   ]);
@@ -191,7 +192,7 @@ Deno.test("planSplitDns detects a nameserver change for an existing domain", () 
   assertEquals(plan.current, ["10.0.0.1"]);
 });
 
-Deno.test("planRemove clears a domain with null and is a no-op when absent", () => {
+test("planRemove clears a domain with null and is a no-op when absent", () => {
   assertEquals(planRemove({ "example.com": ["10.0.0.1"] }, "example.com"), {
     changed: true,
     current: ["10.0.0.1"],
@@ -200,7 +201,7 @@ Deno.test("planRemove clears a domain with null and is a no-op when absent", () 
   assertEquals(planRemove({}, "example.com").changed, false);
 });
 
-Deno.test("formatStatus lists MagicDNS, global nameservers, search paths and split DNS", () => {
+test("formatStatus lists MagicDNS, global nameservers, search paths and split DNS", () => {
   const text = formatStatus({
     magicDNS: true,
     nameservers: ["1.1.1.1"],
@@ -217,7 +218,7 @@ Deno.test("formatStatus lists MagicDNS, global nameservers, search paths and spl
   assert(text.includes("other.test -> 10.9.9.9, 10.9.9.10"));
 });
 
-Deno.test("formatStatus says so when nothing is configured", () => {
+test("formatStatus says so when nothing is configured", () => {
   const text = formatStatus({
     magicDNS: false,
     nameservers: [],

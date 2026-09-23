@@ -112,9 +112,9 @@ Each decision should include:
 - Avoid shell script complexity
 
 **Decision:**
-- Use TypeScript with Deno runtime for all scripts
+- Use TypeScript with the Bun runtime for all scripts
 - No Bash or Python scripts
-- Explicit Deno permissions for security
+- Dependencies pinned in `package.json` and `bun.lock`; Biome formats and lints, tsc type-checks, `bun test` runs the unit tests
 
 **Alternatives Considered:**
 - Bash -> Traditional but error-prone, hard to maintain
@@ -124,7 +124,7 @@ Each decision should include:
 **Consequences:**
 - Type-safe automation
 - Modern async/await patterns
-- Requires Deno installation
+- Requires Bun (pinned in `mise.toml`)
 - Some learning curve for shell-to-TS conversion
 
 ### ADR-006: Unified NFS Permission Model — apps:users (568:100) (2026-02-09)
@@ -362,7 +362,7 @@ Each decision should include:
 - **Agent contract (item 22):** a committed Claude Code PostToolUse hook runs level 0 after every edit under `charts/` or `configuration/` and feeds failures back to the agent; `task verify:claim` produces the PR-body block, and `pr-contract.yml` re-runs level 0 and fails when the claim disagrees; the gitops-test skill no longer contains any command that applies to or repoints production
 
 **Alternatives Considered:**
-- Renovate `postUpgradeTasks` in the in-cluster Renovate -> needs Go, Helm and Deno in the Renovate image plus an `allowedCommands` admin change; the CI bot keeps the toolchain in one place
+- Renovate `postUpgradeTasks` in the in-cluster Renovate -> needs Go, Helm and Bun in the Renovate image plus an `allowedCommands` admin change; the CI bot keeps the toolchain in one place
 - Keep "never commit on Renovate branches" -> every chart bump stays red and needs a human, so the automerge half of item 19 could never happen
 - Native `barmanObjectStore` -> deprecated in CloudNativePG 1.26, removed in 1.31; MinIO as the S3 fake -> no longer publishes community images
 - Velero for the drill -> not deployed anywhere; the drill tests the path production will use for databases

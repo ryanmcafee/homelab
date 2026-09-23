@@ -158,11 +158,15 @@ jobs:
       # The same toolchain verify.yml's level-0 job uses (mise.toml pins), so
       # `task verify`, `task test:snapshot`, `task docs:check` and friends
       # reproduce CI here.
-      - name: Install go, helm, deno, kubeconform, conftest, pluto, task, yamllint from mise.toml
+      - name: Install go, helm, bun, kubeconform, conftest, pluto, task, yamllint from mise.toml
         if: steps.guard.outputs.run == 'true'
         uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
         with:
-          install_args: go helm deno kubeconform conftest pluto task pipx:yamllint
+          install_args: go helm bun kubeconform conftest pluto task pipx:yamllint
+
+      - name: Install script dependencies from bun.lock
+        if: steps.guard.outputs.run == 'true'
+        run: bun install --frozen-lockfile
 
       # Everything Claude reads about the failure comes from the failed run's
       # own logs, capped so a runaway log cannot eat the context.
@@ -203,7 +207,7 @@ jobs:
 
             The failed jobs and steps are in /tmp/ci-autofix/jobs.txt and the failing
             log lines in /tmp/ci-autofix/failed.log. The checkout is the PR head; the same
-            toolchain CI uses is on PATH (go, helm, deno, task, kubeconform, conftest, pluto).
+            toolchain CI uses is on PATH (go, helm, bun, task, kubeconform, conftest, pluto).
             Read CLAUDE.md and docs/runbooks/verification.md ("Reading failures from CI") first.
 
             Do this, in order:
@@ -211,7 +215,7 @@ jobs:
             1. Triage. Name the failing check and its root cause in one or two sentences.
                Decide which of these it is:
                (a) FIXABLE HERE: the cause is in this repository's committed files and a
-                   contributor would fix it locally — formatting (`deno fmt`, gofmt,
+                   contributor would fix it locally — formatting (`task scripts:fmt`, gofmt,
                    terraform fmt), a stale golden snapshot (`task test:snapshot -- --update`),
                    stale generated localdev values (`task config:export:localdev`), CRD
                    schemas to re-vendor (`task schemas:vendor`), a drifted doc number
@@ -226,7 +230,7 @@ jobs:
 
             2. For (a): make the smallest change that fixes the root cause. Then run the
                exact check that failed locally and show it passing (`task verify`, `task
-               test:policy`, `deno test scripts/`, `go test ./...`, `task docs:check`,
+               test:policy`, `task test:scripts`, `go test ./...`, `task docs:check`,
                `task config:validate`, `task verify:upgrade -- --base origin/${{ steps.pr.outputs.base }}` —
                whichever the failing job ran). If the failing job needs a Kind cluster
                (Verify (Kind, levels 1-2)), you cannot run it here: fix what the log proves

@@ -105,7 +105,7 @@ its Ingress/IngressRoute hostnames derive from `DOMAIN` exactly as homelab's do.
 conftest verify -p tests/policy
 
 # Fixture suite (negative + positive), with a results table
-deno run --allow-read --allow-run --allow-env scripts/policy-test.ts
+bun scripts/policy-test.ts
 
 # Ad-hoc, against one rendered file — --all-namespaces is required (see below)
 conftest test -p tests/policy --all-namespaces --data tests/policy/negative/_data.yaml -o json <file.yaml>

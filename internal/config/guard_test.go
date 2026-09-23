@@ -698,7 +698,7 @@ func TestHasScannableExtension(t *testing.T) {
 		{path: "notes.md.sample", want: true},
 		{path: "configuration/templates/helm-addons.tmpl", want: false},
 		{path: "configuration/environments/.gitkeep", want: false},
-		// scripts/ is guarded, so a Deno script is scannable: several hardcoded
+		// scripts/ is guarded, so a TypeScript script is scannable: several hardcoded
 		// real addresses, hostnames and a username while .ts was out of scope.
 		{path: "scripts/run.ts", want: true},
 		{path: "scripts/run_test.ts", want: true},
@@ -1747,7 +1747,7 @@ func TestDefaultGuardScopeCoversChartHomelabValues(t *testing.T) {
 	// The child charts' values-homelab.yaml files are committed and rendered
 	// in production without the CMP, so they must be guarded by default, not
 	// only when someone remembers --paths. scripts/ is in scope for the same
-	// reason: a Deno script hardcoding a real address leaks exactly as much,
+	// reason: a TypeScript script hardcoding a real address leaks exactly as much,
 	// and several did while scripts/ was out of scope. .github/ is in scope
 	// because the README header SVG spells out hostnames as <DOMAIN>
 	// placeholders and the guard is what keeps a real one out of it.

@@ -88,7 +88,7 @@ talos/ packer/   machine config and images
 charts/          gitops, bootstrap, addons, applications, child charts
 configuration/   schema, environments, versions.yaml, export templates
 cmd/ internal/   the `homelab` CLI (Go)
-scripts/         Deno automation the Taskfile runs
+scripts/         Bun (TypeScript) automation the Taskfile runs
 localdev/        Kind values and fakes
 tests/           e2e (chainsaw), snapshots, policy, drills
 docs/            architecture, networking, runbooks, ADRs

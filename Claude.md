@@ -31,7 +31,7 @@ Tool routing is mandatory, not advisory. Grep/Glob/Read are fallback tools. Ever
 
 ## Subagent Routing
 
-The table below names the specialist roles to delegate to. Their definitions are not committed (`.claude/agents/` is gitignored and holds only the local GSD agents); when a named agent is not installed, delegate to a general-purpose subagent with the same brief. **Always delegate specialized work** instead of doing it inline. See `AGENTS.md` for coordination rules.
+The table below names the specialist roles to delegate to. Their definitions are not committed (`.claude/agents/` is gitignored and holds no project agents); when a named agent is not installed, delegate to a general-purpose subagent with the same brief. **Always delegate specialized work** instead of doing it inline. See `AGENTS.md` for coordination rules.
 
 ### When to use which subagent
 
@@ -49,7 +49,7 @@ The table below names the specialist roles to delegate to. Their definitions are
 | **Secrets/SOPS/1Password** | `security-engineer` | Key management, vault paths, sync wave ordering |
 | **Security audits** | `security-engineer` + `code-reviewer` | DevSecOps, vulnerability scanning |
 | **Go code** | `golang-pro` | Concurrency, testing, microservices |
-| **TypeScript/Deno scripts** | `typescript-pro` | Deno runtime, scripting patterns |
+| **TypeScript scripts (Bun)** | `typescript-pro` | Bun runtime, scripting patterns |
 | **Code reviews** | `code-reviewer` | Quality, security, project rule enforcement |
 | **Architecture decisions** | `architect-reviewer` | Design patterns, scalability, trade-offs |
 | **Performance issues** | `performance-engineer` | Profiling, load testing, optimization |
@@ -87,7 +87,7 @@ Learned while landing #261 Section A (PR #264). Each one cost real time once.
 |--------|------------|
 | mise refuses a fresh git worktree ("Config files ... are not trusted") | `mise trust && mise install` right after `git worktree add`. Pinned tools (terraform, terragrunt, kind, talosctl) show as "missing" until installed; the pre-commit `terraform_fmt`/`terragrunt_fmt` hooks fail with "command not found" until then. |
 | Serena is rooted at the directory Claude Code was launched from (`--project-from-cwd`) | Launch Claude Code from the worktree you edit. `.mcp.json` (committed) and `.serena/project.yml` (committed) make Serena available in every checkout; Serena's edit tools refuse paths outside its root, so use Bash/Edit for files in another worktree. |
-| Non-interactive shells miss the mise shims | Prepend `$HOME/.local/share/mise/shims` to `PATH` (`go`, `helm`, `deno`, `task` are all mise-managed; `mise.toml` pins `go = "1.25"` and `helm = "4.3.0"`). |
+| Non-interactive shells miss the mise shims | Prepend `$HOME/.local/share/mise/shims` to `PATH` (`go`, `helm`, `bun`, `task` are all mise-managed; `mise.toml` pins `go = "1.25"` and `helm = "4.3.0"`). |
 | helm version changes rendered bytes | Golden snapshots are byte-exact against `configuration/versions.yaml` `tools.helm`; keep `mise.toml`, `verify.yml` and `versions.yaml` on the same helm. |
 | `go run ./cmd/homelab` collapses child exit codes to 1 | Check exit codes with the built binary (`go build -o bin/homelab ./cmd/homelab`). |
 | Terraform warns about the plugin cache dir | `task install-tools` creates `~/.terraform.d/plugin-cache`: the Taskfile `env:` and `.envrc` set `TF_PLUGIN_CACHE_DIR` to that path and, because `mise.toml` loads `.envrc` after its own `[env]`, it overrides the repo-local path `mise.toml` names. |
@@ -127,7 +127,7 @@ GitOps-driven homelab infrastructure with:
 - ArgoCD App-of-Apps pattern (gitops -> addons -> applications)
 - Talos Linux Kubernetes cluster on Proxmox VE
 - Multi-environment: localdev (Kind + Tilt) and homelab (production)
-- TypeScript scripting only (Deno runtime, no Bash/Python)
+- TypeScript scripting only (Bun runtime, no Bash/Python)
 - 1Password + SOPS for secrets management
 
 ## Helm Chart Version Sources
@@ -306,7 +306,7 @@ homelab/
 ├── internal/             # Go packages behind the CLI (config, verify, prereq, scaffold)
 ├── cmp/                  # ArgoCD Config Management Plugin definition (Dockerfile.cmp)
 ├── configuration/        # Schema, environments, templates, versions.yaml
-├── scripts/              # TypeScript automation (Deno)
+├── scripts/              # TypeScript automation (Bun)
 ├── terragrunt/
 │   ├── modules/          # Reusable Terraform modules
 │   └── environments/     # homelab (11 units) + localdev
@@ -435,12 +435,13 @@ kubectl -n argocd logs -l app.kubernetes.io/name=argocd-application-controller
 
 ## TypeScript Scripting Patterns
 
-All scripts use Deno with explicit permissions:
+All scripts run on Bun (`mise.toml` pins it; dependencies are in `package.json` and `bun.lock`):
 ```typescript
-#!/usr/bin/env -S deno run --allow-net --allow-run --allow-env --allow-read
+#!/usr/bin/env bun
 ```
 
 Conventions:
+- Run scripts through their `task` entry; `task test:scripts` runs the unit tests (`scripts/<name>_test.ts`, `bun test`), `task scripts:lint` checks format, lint (Biome) and types (tsc), `task scripts:fmt` formats
 - Always include `--help` flag
 - Use `--dry-run` for non-destructive preview
 - Log with colors: cyan=INFO, green=OK, red=ERROR

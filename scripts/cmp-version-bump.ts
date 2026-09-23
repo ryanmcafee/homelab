@@ -1,4 +1,6 @@
-#!/usr/bin/env -S deno run --allow-read --allow-write --allow-run
+#!/usr/bin/env bun
+
+import { readFile, writeFile } from "node:fs/promises";
 
 /**
  * cmp-version-bump.ts
@@ -22,17 +24,20 @@ const red = (s: string) => `\x1b[31m${s}\x1b[0m`;
 
 /** Run a shell command and return stdout */
 async function run(cmd: string[]): Promise<string> {
-  const p = new Deno.Command(cmd[0], {
-    args: cmd.slice(1),
-    stdout: "piped",
-    stderr: "piped",
+  const p = Bun.spawn(cmd, {
+    stdin: "inherit",
+    stdout: "pipe",
+    stderr: "pipe",
   });
-  const output = await p.output();
-  if (!output.success) {
-    const stderr = new TextDecoder().decode(output.stderr);
+  const [stdout, stderr, code] = await Promise.all([
+    new Response(p.stdout).text(),
+    new Response(p.stderr).text(),
+    p.exited,
+  ]);
+  if (code !== 0) {
     throw new Error(`Command failed: ${cmd.join(" ")}\n${stderr}`);
   }
-  return new TextDecoder().decode(output.stdout).trim();
+  return stdout.trim();
 }
 
 /** Check if any CMP-related files are staged (excluding versions.yaml itself) */
@@ -65,18 +70,20 @@ async function readCurrentVersion(): Promise<string> {
 async function readHeadVersion(): Promise<string | null> {
   try {
     const head = await run(["git", "show", "HEAD:configuration/versions.yaml"]);
-    const p = new Deno.Command("yq", {
-      args: [".images.homelab-cmp", "-"],
-      stdin: "piped",
-      stdout: "piped",
-      stderr: "piped",
-    }).spawn();
-    const writer = p.stdin.getWriter();
-    await writer.write(new TextEncoder().encode(head));
-    await writer.close();
-    const output = await p.output();
-    if (!output.success) return null;
-    return new TextDecoder().decode(output.stdout).trim();
+    const p = Bun.spawn(["yq", ".images.homelab-cmp", "-"], {
+      stdin: "pipe",
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    p.stdin.write(head);
+    await p.stdin.end();
+    const [stdout, , code] = await Promise.all([
+      new Response(p.stdout).text(),
+      new Response(p.stderr).text(),
+      p.exited,
+    ]);
+    if (code !== 0) return null;
+    return stdout.trim();
   } catch {
     return null;
   }
@@ -97,12 +104,12 @@ async function updateFileVersion(
   newVersion: string,
 ): Promise<boolean> {
   try {
-    const content = await Deno.readTextFile(filePath);
+    const content = await readFile(filePath, "utf8");
     const pattern = `ghcr.io/ryanmcafee/homelab-cmp:${oldVersion}`;
     const replacement = `ghcr.io/ryanmcafee/homelab-cmp:${newVersion}`;
     if (!content.includes(pattern)) return false;
     const updated = content.replaceAll(pattern, replacement);
-    await Deno.writeTextFile(filePath, updated);
+    await writeFile(filePath, updated);
     return true;
   } catch {
     return false;
@@ -111,7 +118,7 @@ async function updateFileVersion(
 
 async function main() {
   // Check for --force flag (skip staged file check)
-  const force = Deno.args.includes("--force");
+  const force = process.argv.slice(2).includes("--force");
 
   if (!force) {
     const hasCmpChanges = await hasStagedCmpFiles();
@@ -119,7 +126,7 @@ async function main() {
       console.log(
         cyan("INFO: No CMP-related files staged, skipping version bump."),
       );
-      Deno.exit(0);
+      process.exit(0);
     }
   }
 
@@ -137,7 +144,7 @@ async function main() {
           `INFO: CMP version already bumped in this commit (${headVersion} -> ${currentVersion}), skipping.`,
         ),
       );
-      Deno.exit(0);
+      process.exit(0);
     }
   }
 
@@ -194,12 +201,14 @@ async function main() {
         ]);
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
-        console.error(red(
-          `ERROR: config export --set localdev --format ${format} failed after the version bump.\n` +
-            "Fix the export, then run: task config:export:localdev\n" +
-            message,
-        ));
-        Deno.exit(1);
+        console.error(
+          red(
+            `ERROR: config export --set localdev --format ${format} failed after the version bump.\n` +
+              "Fix the export, then run: task config:export:localdev\n" +
+              message,
+          ),
+        );
+        process.exit(1);
       }
     }
     updatedFiles.push(
@@ -219,13 +228,15 @@ async function main() {
       ]);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      console.error(red(
-        "ERROR: snapshots could not be regenerated after the version bump.\n" +
-          "The image tag changed but tests/snapshots did not, which fails CI.\n" +
-          "Fix the render, then run: task test:snapshot -- --update\n" +
-          message,
-      ));
-      Deno.exit(1);
+      console.error(
+        red(
+          "ERROR: snapshots could not be regenerated after the version bump.\n" +
+            "The image tag changed but tests/snapshots did not, which fails CI.\n" +
+            "Fix the render, then run: task test:snapshot -- --update\n" +
+            message,
+        ),
+      );
+      process.exit(1);
     }
     updatedFiles.push("tests/snapshots");
   }
@@ -241,5 +252,5 @@ async function main() {
 
 main().catch((err) => {
   console.error(red(`ERROR: ${err.message}`));
-  Deno.exit(1);
+  process.exit(1);
 });

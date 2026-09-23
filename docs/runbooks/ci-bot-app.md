@@ -47,7 +47,7 @@ download.
 - Open a Renovate PR (or push any `renovate/*` branch) that changes a chart version: the
   `regenerate` job in `upgrade.yml` commits the regenerated files as `homelab-regen-bot` and CI
   re-runs on that commit.
-- Break formatting on a scratch PR (`deno fmt` a script badly): `ci-autofix.yml` pushes a
+- Break formatting on a scratch PR (misformat a script so `task scripts:lint` fails): `ci-autofix.yml` pushes a
   `fix(ci): …` commit with a `Ci-Autofix-Run:` trailer and posts the sticky `ci-autofix`
   comment with the verdict.
 

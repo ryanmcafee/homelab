@@ -51,6 +51,10 @@ on:
       - 'go.mod'
       - 'go.sum'
       - 'mise.toml'
+      - 'package.json'
+      - 'bun.lock'
+      - 'tsconfig.json'
+      - 'biome.json'
       - '.github/workflows/tilt-ci.yml'
   push:
     branches: [main]
@@ -68,6 +72,10 @@ on:
       - 'go.mod'
       - 'go.sum'
       - 'mise.toml'
+      - 'package.json'
+      - 'bun.lock'
+      - 'tsconfig.json'
+      - 'biome.json'
       - '.github/workflows/tilt-ci.yml'
   workflow_dispatch:
 
@@ -122,10 +130,13 @@ jobs:
               || '' }}
 
       # level 2 includes level 0, so the level-0 tools come along.
-      - name: Install go, helm, deno, kind, kubectl, argocd, chainsaw, tilt, task, kubeconform, conftest, pluto from mise.toml
+      - name: Install go, helm, bun, kind, kubectl, argocd, chainsaw, tilt, task, kubeconform, conftest, pluto from mise.toml
         uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
         with:
-          install_args: go helm deno kind kubectl argocd aqua:kyverno/chainsaw tilt task kubeconform conftest pluto
+          install_args: go helm bun kind kubectl argocd aqua:kyverno/chainsaw tilt task kubeconform conftest pluto
+
+      - name: Install script dependencies from bun.lock
+        run: bun install --frozen-lockfile
 
       - name: Tool versions
         run: |
@@ -260,10 +271,13 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - name: Install go, helm, deno, kind, kubectl, tilt, task from mise.toml
+      - name: Install go, helm, bun, kind, kubectl, tilt, task from mise.toml
         uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
         with:
-          install_args: go helm deno kind kubectl tilt task
+          install_args: go helm bun kind kubectl tilt task
+
+      - name: Install script dependencies from bun.lock
+        run: bun install --frozen-lockfile
 
       - name: Tool versions
         run: |

@@ -200,7 +200,7 @@ func TestParseTier(t *testing.T) {
 }
 
 var (
-	localdevRows = []string{"mise", "task", "deno", "docker", "kind", "kubectl", "helm", "argocd", "chainsaw"}
+	localdevRows = []string{"mise", "task", "bun", "docker", "kind", "kubectl", "helm", "argocd", "chainsaw"}
 	homelabRows  = []string{"terragrunt", "talosctl", "ansible-playbook", "op", "age-key", "homelab.yaml", "proxmox"}
 )
 

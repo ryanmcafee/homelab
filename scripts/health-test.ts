@@ -1,4 +1,4 @@
-#!/usr/bin/env -S deno run --allow-read --allow-run --allow-env --allow-write
+#!/usr/bin/env bun
 
 /**
  * health-test.ts
@@ -21,13 +21,17 @@
  * matching Lua file fails, and a Lua file without at least one fixture fails.
  *
  * Usage:
- *   deno run --allow-read --allow-run --allow-env --allow-write scripts/health-test.ts
- *   deno run ... scripts/health-test.ts --help
- *   deno run ... scripts/health-test.ts --only onepassword.com_OnePasswordItem
- *   deno run ... scripts/health-test.ts --argocd .tools/argocd
+ *   bun scripts/health-test.ts
+ *   bun scripts/health-test.ts --help
+ *   bun scripts/health-test.ts --only onepassword.com_OnePasswordItem
+ *   bun scripts/health-test.ts --argocd .tools/argocd
  *
  * Exit codes: 0 = all fixtures behave as expected; 1 = any mismatch; 2 = bad args.
  */
+
+import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 // ============================================================================
 // Logging
@@ -62,7 +66,7 @@ function requireValue(argv: string[], i: number, flag: string): string {
   const v = argv[i];
   if (v === undefined || v.startsWith("--")) {
     log.error(`${flag} requires a value`);
-    Deno.exit(2);
+    process.exit(2);
   }
   return v;
 }
@@ -97,7 +101,7 @@ function parseArgs(argv: string[]): Args {
       args.only = a.slice("--only=".length);
     } else {
       log.error(`Unknown argument: ${a}`);
-      Deno.exit(2);
+      process.exit(2);
     }
   }
   return args;
@@ -107,7 +111,7 @@ function printHelp(): void {
   console.log(`health-test.ts — ArgoCD health Lua fixture test runner
 
 Usage:
-  deno run --allow-read --allow-run --allow-env --allow-write scripts/health-test.ts [flags]
+  bun scripts/health-test.ts [flags]
 
 Flags:
   --help, -h               Show this help and exit 0
@@ -144,7 +148,7 @@ export const HEALTH_STATUSES = [
   "Degraded",
   "Suspended",
 ] as const;
-export type HealthStatus = typeof HEALTH_STATUSES[number];
+export type HealthStatus = (typeof HEALTH_STATUSES)[number];
 
 export interface Expectation {
   status: HealthStatus;
@@ -234,8 +238,9 @@ export function healthKey(luaFileName: string): string {
  * (apiVersion: v1) map to just `<kind>`, matching ArgoCD's key format.
  */
 export function fixtureGroupKind(text: string): string {
-  const apiVersion = text.match(/^apiVersion:\s*["']?([^\s"']+)["']?\s*$/m)
-    ?.[1];
+  const apiVersion = text.match(
+    /^apiVersion:\s*["']?([^\s"']+)["']?\s*$/m,
+  )?.[1];
   const kind = text.match(/^kind:\s*["']?([^\s"']+)["']?\s*$/m)?.[1];
   if (!apiVersion || !kind) {
     throw new Error("fixture needs top-level apiVersion and kind");
@@ -253,16 +258,18 @@ export function fixtureGroupKind(text: string): string {
 export function buildConfigMap(data: Record<string, string>): string {
   const sorted: Record<string, string> = {};
   for (const k of Object.keys(data).sort()) sorted[k] = data[k];
-  return JSON.stringify(
-    {
-      apiVersion: "v1",
-      kind: "ConfigMap",
-      metadata: { name: "argocd-cm", namespace: "argocd" },
-      data: sorted,
-    },
-    null,
-    2,
-  ) + "\n";
+  return (
+    JSON.stringify(
+      {
+        apiVersion: "v1",
+        kind: "ConfigMap",
+        metadata: { name: "argocd-cm", namespace: "argocd" },
+        data: sorted,
+      },
+      null,
+      2,
+    ) + "\n"
+  );
 }
 
 /**
@@ -272,7 +279,10 @@ export function buildConfigMap(data: Record<string, string>): string {
  * `attempt to index a non-table object(nil) with key 'phase'`.
  */
 export function argocdErrorSummary(stderr: string): string {
-  const lines = stderr.split("\n").map((l) => l.trim()).filter((l) => l !== "");
+  const lines = stderr
+    .split("\n")
+    .map((l) => l.trim())
+    .filter((l) => l !== "");
   if (lines.length === 0) return "(no stderr)";
   const last = lines[lines.length - 1];
   try {
@@ -296,17 +306,17 @@ export function judge(expect: Expectation, actual: HealthOutput): Verdict {
   if (actual.status !== expect.status) {
     return {
       ok: false,
-      detail: `expected ${expect.status}, got ${actual.status} (message: ${
-        JSON.stringify(actual.message)
-      })`,
+      detail: `expected ${expect.status}, got ${actual.status} (message: ${JSON.stringify(
+        actual.message,
+      )})`,
     };
   }
   if (expect.message !== null && !actual.message.includes(expect.message)) {
     return {
       ok: false,
-      detail: `status ${actual.status} as expected, but message ${
-        JSON.stringify(actual.message)
-      } does not contain ${JSON.stringify(expect.message)}`,
+      detail: `status ${actual.status} as expected, but message ${JSON.stringify(
+        actual.message,
+      )} does not contain ${JSON.stringify(expect.message)}`,
     };
   }
   return { ok: true, detail: "" };
@@ -348,8 +358,8 @@ export function coverage(
 // ============================================================================
 async function listLuaFiles(dir: string): Promise<string[]> {
   const out: string[] = [];
-  for await (const entry of Deno.readDir(dir)) {
-    if (entry.isFile && entry.name.endsWith(".lua")) out.push(entry.name);
+  for (const entry of await readdir(dir, { withFileTypes: true })) {
+    if (entry.isFile() && entry.name.endsWith(".lua")) out.push(entry.name);
   }
   out.sort();
   return out;
@@ -357,11 +367,13 @@ async function listLuaFiles(dir: string): Promise<string[]> {
 
 async function listFixtureDirs(dir: string): Promise<Record<string, string[]>> {
   const out: Record<string, string[]> = {};
-  for await (const entry of Deno.readDir(dir)) {
-    if (!entry.isDirectory) continue;
+  for (const entry of await readdir(dir, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
     const files: string[] = [];
-    for await (const f of Deno.readDir(`${dir}/${entry.name}`)) {
-      if (f.isFile && f.name.endsWith(".yaml") && !f.name.startsWith("_")) {
+    for (const f of await readdir(`${dir}/${entry.name}`, {
+      withFileTypes: true,
+    })) {
+      if (f.isFile() && f.name.endsWith(".yaml") && !f.name.startsWith("_")) {
         files.push(f.name);
       }
     }
@@ -379,22 +391,30 @@ async function runArgocdHealth(
   fixturePath: string,
   cmPath: string,
 ): Promise<HealthOutput> {
-  const cmd = new Deno.Command(argocdBin, {
-    args: [
-      "admin",
-      "settings",
-      "resource-overrides",
-      "health",
-      fixturePath,
-      "--argocd-cm-path",
-      cmPath,
-    ],
-    stdout: "piped",
-    stderr: "piped",
-  });
-  let result: Deno.CommandOutput;
+  const argv = [
+    argocdBin,
+    "admin",
+    "settings",
+    "resource-overrides",
+    "health",
+    fixturePath,
+    "--argocd-cm-path",
+    cmPath,
+  ];
+  let stdoutText: string;
+  let stderrText: string;
+  let code: number;
   try {
-    result = await cmd.output();
+    const p = Bun.spawn(argv, {
+      stdin: "inherit",
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    [stdoutText, stderrText, code] = await Promise.all([
+      new Response(p.stdout).text(),
+      new Response(p.stderr).text(),
+      p.exited,
+    ]);
   } catch (err) {
     throw new Error(
       `could not run ${argocdBin}: ${
@@ -402,13 +422,9 @@ async function runArgocdHealth(
       }`,
     );
   }
-  const stdoutText = new TextDecoder().decode(result.stdout);
-  const stderrText = new TextDecoder().decode(result.stderr);
-  if (result.code !== 0) {
+  if (code !== 0) {
     throw new Error(
-      `argocd exited ${result.code}: ${
-        argocdErrorSummary(stderrText || stdoutText)
-      }`,
+      `argocd exited ${code}: ${argocdErrorSummary(stderrText || stdoutText)}`,
     );
   }
   return parseHealthOutput(stdoutText);
@@ -435,11 +451,12 @@ async function runCase(
   const path = `${args.fixturesDir}/${groupKind}/${fixtureFile}`;
   let expectText = "?";
   try {
-    const text = await Deno.readTextFile(path);
+    const text = await readFile(path, "utf8");
     const expect = parseExpectation(text);
-    expectText = expect.message === null
-      ? expect.status
-      : `${expect.status} ~ "${expect.message}"`;
+    expectText =
+      expect.message === null
+        ? expect.status
+        : `${expect.status} ~ "${expect.message}"`;
     const actualGroupKind = fixtureGroupKind(text);
     if (actualGroupKind !== groupKind) {
       return {
@@ -447,8 +464,7 @@ async function runCase(
         expect: expectText,
         actual: "-",
         ok: false,
-        detail:
-          `fixture is a ${actualGroupKind} but lives under ${groupKind}/ — it would not exercise ${groupKind}.lua`,
+        detail: `fixture is a ${actualGroupKind} but lives under ${groupKind}/ — it would not exercise ${groupKind}.lua`,
       };
     }
     const actual = await runArgocdHealth(args.argocd, path, cmPath);
@@ -495,7 +511,7 @@ async function runPool<T, R>(
 // Main
 // ============================================================================
 async function main(): Promise<number> {
-  const args = parseArgs(Deno.args);
+  const args = parseArgs(process.argv.slice(2));
   if (args.help) {
     printHelp();
     return 0;
@@ -553,9 +569,9 @@ async function main(): Promise<number> {
   if (args.only !== null) {
     if (!luaNames.includes(args.only)) {
       log.error(
-        `--only ${args.only}: no such health script (have: ${
-          luaNames.join(", ")
-        })`,
+        `--only ${args.only}: no such health script (have: ${luaNames.join(
+          ", ",
+        )})`,
       );
       return 1;
     }
@@ -567,11 +583,11 @@ async function main(): Promise<number> {
   // directory is caught by fixtureGroupKind, not masked by a narrowed map.
   const data: Record<string, string> = {};
   for (const f of luaFiles) {
-    data[healthKey(f)] = await Deno.readTextFile(`${args.healthDir}/${f}`);
+    data[healthKey(f)] = await readFile(`${args.healthDir}/${f}`, "utf8");
   }
-  const tmpDir = await Deno.makeTempDir({ prefix: "health-test-" });
+  const tmpDir = await mkdtemp(join(tmpdir(), "health-test-"));
   const cmPath = `${tmpDir}/argocd-cm.yaml`;
-  await Deno.writeTextFile(cmPath, buildConfigMap(data));
+  await writeFile(cmPath, buildConfigMap(data));
 
   log.info(
     `${luaFiles.length} health script(s) in ${args.healthDir}, evaluating with ${args.argocd}`,
@@ -584,13 +600,11 @@ async function main(): Promise<number> {
 
   let results: CaseResult[];
   try {
-    results = await runPool(
-      cases,
-      8,
-      (c) => runCase(args, c.groupKind, c.file, cmPath),
+    results = await runPool(cases, 8, (c) =>
+      runCase(args, c.groupKind, c.file, cmPath),
     );
   } finally {
-    await Deno.remove(tmpDir, { recursive: true });
+    await rm(tmpDir, { recursive: true });
   }
 
   for (const r of results) {
@@ -619,5 +633,5 @@ async function main(): Promise<number> {
 }
 
 if (import.meta.main) {
-  Deno.exit(await main());
+  process.exit(await main());
 }

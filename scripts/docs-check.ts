@@ -1,4 +1,4 @@
-#!/usr/bin/env -S deno run --allow-read --allow-write --allow-env
+#!/usr/bin/env bun
 
 /**
  * docs-check.ts
@@ -40,7 +40,8 @@
  * Exit codes: 0 = in sync; 1 = drift (or unfixable drift after --fix); 2 = usage.
  */
 
-import { parse as parseYaml } from "jsr:@std/yaml@^1";
+import { readdir, readFile, stat, writeFile } from "node:fs/promises";
+import { parse as parseYaml } from "./lib/yaml.ts";
 
 // ---------------------------------------------------------------------------
 // Facts
@@ -89,9 +90,10 @@ export function parseVersions(text: string): Record<string, string> {
 
 /** Splits a multi-document YAML file on its `---` separators. */
 export function splitDocs(text: string): string[] {
-  return text.split(/^---\s*$/m).map((d) => d.trim()).filter((d) =>
-    d.length > 0
-  );
+  return text
+    .split(/^---\s*$/m)
+    .map((d) => d.trim())
+    .filter((d) => d.length > 0);
 }
 
 function field(doc: string, key: string): string | undefined {
@@ -101,7 +103,7 @@ function field(doc: string, key: string): string | undefined {
 
 /** metadata.name of a document (first `  name:` under `metadata:`). */
 export function docName(doc: string): string | undefined {
-  const m = doc.match(/^metadata:\n(?:  .*\n)*?  name:\s*(\S+)/m);
+  const m = doc.match(/^metadata:\n(?: {2}.*\n)*? {2}name:\s*(\S+)/m);
   return m?.[1];
 }
 
@@ -158,8 +160,8 @@ export function ingressInventory(docs: string[]): IngressRow[] {
       }
     }
   }
-  return rows.sort((a, b) =>
-    a.class.localeCompare(b.class) || a.host.localeCompare(b.host)
+  return rows.sort(
+    (a, b) => a.class.localeCompare(b.class) || a.host.localeCompare(b.host),
   );
 }
 
@@ -226,10 +228,12 @@ export function applicationRows(
     for (const r of ing) {
       byClass.set(r.class, [...(byClass.get(r.class) ?? []), r.host]);
     }
-    const ingressText = byClass.size === 0
-      ? "—"
-      : [...byClass.entries()].map(([c, hosts]) => `${c}: ${hosts.join(", ")}`)
-        .join("; ");
+    const ingressText =
+      byClass.size === 0
+        ? "—"
+        : [...byClass.entries()]
+            .map(([c, hosts]) => `${c}: ${hosts.join(", ")}`)
+            .join("; ");
     const e2e = matches(name, e2eSuites, E2E_ALIASES, "");
     const sm = matches(name, smoke, SMOKE_ALIASES, "smoke-");
     rows.push({
@@ -258,9 +262,12 @@ export function renderTable(header: string[], rows: string[][]): string {
 export function renderIngressTable(rows: IngressRow[]): string {
   return renderTable(
     ["Host", "Class", "Kind", "Application"],
-    rows.map((
-      r,
-    ) => [`\`${r.host}.<DOMAIN>\``, r.class, r.kind, `\`${r.app}\``]),
+    rows.map((r) => [
+      `\`${r.host}.<DOMAIN>\``,
+      r.class,
+      r.kind,
+      `\`${r.app}\``,
+    ]),
   );
 }
 
@@ -274,9 +281,7 @@ export function renderAppTable(rows: AppRow[]): string {
       "chainsaw e2e",
       "Smoke Job",
     ],
-    rows.map((
-      r,
-    ) => [
+    rows.map((r) => [
       `\`${r.name}\``,
       `\`${r.source}\``,
       r.version,
@@ -357,9 +362,9 @@ export interface Literal {
 /** The hand-written sentences that must carry the computed numbers. */
 export function expectedLiterals(f: Facts): Literal[] {
   const n = f.e2eSuites.length;
-  const internalHosts = f.ingress.filter((r) =>
-    r.class === "internal" && r.host !== "traefik-internal"
-  ).map((r) => r.host);
+  const internalHosts = f.ingress
+    .filter((r) => r.class === "internal" && r.host !== "traefik-internal")
+    .map((r) => r.host);
   return [
     {
       file: "readme.md",
@@ -423,25 +428,28 @@ async function listFiles(
   pred: (name: string) => boolean,
 ): Promise<string[]> {
   const out: string[] = [];
-  for await (const e of Deno.readDir(dir)) {
-    if (e.isFile && pred(e.name)) out.push(`${dir}/${e.name}`);
+  for (const e of await readdir(dir, { withFileTypes: true })) {
+    if (e.isFile() && pred(e.name)) out.push(`${dir}/${e.name}`);
   }
   return out.sort();
 }
 
 async function listDirs(dir: string): Promise<string[]> {
   const out: string[] = [];
-  for await (const e of Deno.readDir(dir)) if (e.isDirectory) out.push(e.name);
+  for (const e of await readdir(dir, { withFileTypes: true })) {
+    if (e.isDirectory()) out.push(e.name);
+  }
   return out.sort();
 }
 
 export async function collectFacts(root: string): Promise<Facts> {
   const isTemplate = (n: string) => n.endsWith(".yaml") && !n.startsWith("_");
-  const addons =
-    (await listFiles(`${root}/charts/addons/templates`, isTemplate)).length;
-  const applications =
-    (await listFiles(`${root}/charts/applications/templates`, isTemplate))
-      .length;
+  const addons = (
+    await listFiles(`${root}/charts/addons/templates`, isTemplate)
+  ).length;
+  const applications = (
+    await listFiles(`${root}/charts/applications/templates`, isTemplate)
+  ).length;
 
   const snapshotFiles = await listFiles(
     `${root}/tests/snapshots/homelab`,
@@ -449,28 +457,30 @@ export async function collectFacts(root: string): Promise<Facts> {
   );
   const byFile = new Map<string, string[]>();
   for (const f of snapshotFiles) {
-    byFile.set(f, splitDocs(await Deno.readTextFile(f)));
+    byFile.set(f, splitDocs(await readFile(f, "utf8")));
   }
   const allDocs = [...byFile.values()].flat();
 
   const e2eSuites: string[] = [];
   for (const d of await listDirs(`${root}/tests/e2e`)) {
     try {
-      await Deno.stat(`${root}/tests/e2e/${d}/chainsaw-test.yaml`);
+      await stat(`${root}/tests/e2e/${d}/chainsaw-test.yaml`);
       e2eSuites.push(d);
-    } catch { /* not a suite */ }
+    } catch {
+      /* not a suite */
+    }
   }
 
   const ingress = ingressInventory(allDocs);
   const smoke = smokeJobs(allDocs);
-  const addonDocs = byFile.get(`${root}/tests/snapshots/homelab/addons.yaml`) ??
-    [];
+  const addonDocs =
+    byFile.get(`${root}/tests/snapshots/homelab/addons.yaml`) ?? [];
   const appDocs =
     byFile.get(`${root}/tests/snapshots/homelab/applications.yaml`) ?? [];
 
   return {
     versions: parseVersions(
-      await Deno.readTextFile(`${root}/configuration/versions.yaml`),
+      await readFile(`${root}/configuration/versions.yaml`, "utf8"),
     ),
     addons,
     applications,
@@ -609,7 +619,7 @@ const FILES = [
 async function main(): Promise<number> {
   let args: Args;
   try {
-    args = parseArgs(Deno.args);
+    args = parseArgs(process.argv.slice(2));
   } catch (e) {
     console.error(`docs-check: ${(e as Error).message}`);
     return 2;
@@ -622,14 +632,16 @@ async function main(): Promise<number> {
   const files = new Map<string, string>();
   for (const f of FILES) {
     try {
-      files.set(f, await Deno.readTextFile(`${args.root}/${f}`));
-    } catch { /* reported as missing */ }
+      files.set(f, await readFile(`${args.root}/${f}`, "utf8"));
+    } catch {
+      /* reported as missing */
+    }
   }
   const { drift, fixed } = check(files, facts);
   if (args.fix) {
     for (const [f, text] of fixed) {
       if (files.get(f) !== text) {
-        await Deno.writeTextFile(`${args.root}/${f}`, text);
+        await writeFile(`${args.root}/${f}`, text);
         console.log(`fixed ${f}`);
       }
     }
@@ -660,4 +672,4 @@ async function main(): Promise<number> {
   return remaining.length === 0 ? 0 : 1;
 }
 
-if (import.meta.main) Deno.exit(await main());
+if (import.meta.main) process.exit(await main());

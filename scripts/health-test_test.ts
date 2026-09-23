@@ -1,4 +1,4 @@
-#!/usr/bin/env -S deno test
+#!/usr/bin/env -S bun test
 /**
  * Unit tests for the pure helpers in health-test.ts.
  *
@@ -6,10 +6,11 @@
  * against real captured output (argocd v3.5.2) and the fixture header
  * contract, plus the coverage cross-check and the verdict logic.
  *
- *   deno test scripts/health-test_test.ts
+ *   bun test scripts/health-test_test.ts
  */
 
-import { assertEquals, assertThrows } from "jsr:@std/assert@^1";
+import { test } from "bun:test";
+import { assertEquals, assertThrows } from "./lib/assert.ts";
 import {
   argocdErrorSummary,
   buildConfigMap,
@@ -27,7 +28,7 @@ import {
 // with argocd v3.5.2+e258ee2. stdout is exactly two lines, MESSAGE possibly
 // empty; the JSON log lines go to stderr and never reach this parser.
 // ---------------------------------------------------------------------------
-Deno.test("parseHealthOutput: captured Healthy output with a message", () => {
+test("parseHealthOutput: captured Healthy output with a message", () => {
   const stdout = "STATUS: Healthy\nMESSAGE: Secret synced\n";
   assertEquals(parseHealthOutput(stdout), {
     status: "Healthy",
@@ -35,7 +36,7 @@ Deno.test("parseHealthOutput: captured Healthy output with a message", () => {
   });
 });
 
-Deno.test("parseHealthOutput: captured Degraded and Progressing outputs", () => {
+test("parseHealthOutput: captured Degraded and Progressing outputs", () => {
   assertEquals(
     parseHealthOutput("STATUS: Degraded\nMESSAGE: item not found\n"),
     { status: "Degraded", message: "item not found" },
@@ -46,7 +47,7 @@ Deno.test("parseHealthOutput: captured Degraded and Progressing outputs", () => 
   );
 });
 
-Deno.test("parseHealthOutput: an empty hs.message prints as a bare MESSAGE line", () => {
+test("parseHealthOutput: an empty hs.message prints as a bare MESSAGE line", () => {
   // Captured with a Lua that sets hs.message = "": the CLI still prints the
   // label, followed by a single space and a newline.
   assertEquals(parseHealthOutput("STATUS: Healthy\nMESSAGE: \n"), {
@@ -55,7 +56,7 @@ Deno.test("parseHealthOutput: an empty hs.message prints as a bare MESSAGE line"
   });
 });
 
-Deno.test("parseHealthOutput: tolerates CRLF and a missing MESSAGE line", () => {
+test("parseHealthOutput: tolerates CRLF and a missing MESSAGE line", () => {
   assertEquals(parseHealthOutput("STATUS: Suspended\r\nMESSAGE: paused\r\n"), {
     status: "Suspended",
     message: "paused",
@@ -66,7 +67,7 @@ Deno.test("parseHealthOutput: tolerates CRLF and a missing MESSAGE line", () => 
   });
 });
 
-Deno.test("parseHealthOutput: no STATUS line is an error, not a silent pass", () => {
+test("parseHealthOutput: no STATUS line is an error, not a silent pass", () => {
   assertThrows(() => parseHealthOutput(""), Error, "STATUS");
   assertThrows(
     () => parseHealthOutput("MESSAGE: only a message\n"),
@@ -79,14 +80,14 @@ Deno.test("parseHealthOutput: no STATUS line is an error, not a silent pass", ()
 // ---------------------------------------------------------------------------
 // parseExpectation — the fixture header contract
 // ---------------------------------------------------------------------------
-Deno.test("parseExpectation: status only", () => {
+test("parseExpectation: status only", () => {
   assertEquals(
     parseExpectation("# expect: Healthy\napiVersion: v1\nkind: Secret\n"),
     { status: "Healthy", message: null },
   );
 });
 
-Deno.test("parseExpectation: status plus message substring", () => {
+test("parseExpectation: status plus message substring", () => {
   assertEquals(
     parseExpectation(
       "# expect: Degraded\n# message: item not found\napiVersion: onepassword.com/v1\n",
@@ -95,7 +96,7 @@ Deno.test("parseExpectation: status plus message substring", () => {
   );
 });
 
-Deno.test("parseExpectation: message substring keeps inner spaces, trims the ends", () => {
+test("parseExpectation: message substring keeps inner spaces, trims the ends", () => {
   assertEquals(
     parseExpectation(
       "#expect:Progressing\n#  message:   Waiting for  status  \n",
@@ -104,7 +105,7 @@ Deno.test("parseExpectation: message substring keeps inner spaces, trims the end
   );
 });
 
-Deno.test("parseExpectation: a message header only counts on line 2", () => {
+test("parseExpectation: a message header only counts on line 2", () => {
   // Line 2 is a normal YAML comment here, so no message expectation is set.
   assertEquals(
     parseExpectation("# expect: Healthy\n# a note\n# message: ignored\n"),
@@ -112,7 +113,7 @@ Deno.test("parseExpectation: a message header only counts on line 2", () => {
   );
 });
 
-Deno.test("parseExpectation: rejects a missing header, unknown status or empty message", () => {
+test("parseExpectation: rejects a missing header, unknown status or empty message", () => {
   assertThrows(
     () => parseExpectation("apiVersion: v1\nkind: Secret\n"),
     Error,
@@ -139,7 +140,7 @@ Deno.test("parseExpectation: rejects a missing header, unknown status or empty m
 // ---------------------------------------------------------------------------
 // healthKey / fixtureGroupKind / buildConfigMap
 // ---------------------------------------------------------------------------
-Deno.test("healthKey: file name becomes the argocd-cm key", () => {
+test("healthKey: file name becomes the argocd-cm key", () => {
   assertEquals(
     healthKey("onepassword.com_OnePasswordItem.lua"),
     "resource.customizations.health.onepassword.com_OnePasswordItem",
@@ -151,7 +152,7 @@ Deno.test("healthKey: file name becomes the argocd-cm key", () => {
   assertThrows(() => healthKey("notes.txt"), Error, ".lua");
 });
 
-Deno.test("fixtureGroupKind: group_kind from apiVersion/kind, core group is bare kind", () => {
+test("fixtureGroupKind: group_kind from apiVersion/kind, core group is bare kind", () => {
   assertEquals(
     fixtureGroupKind(
       "# expect: Healthy\napiVersion: tailscale.com/v1alpha1\nkind: Connector\nmetadata:\n  name: x\n",
@@ -166,7 +167,7 @@ Deno.test("fixtureGroupKind: group_kind from apiVersion/kind, core group is bare
   assertThrows(() => fixtureGroupKind("kind: Service\n"), Error, "apiVersion");
 });
 
-Deno.test("fixtureGroupKind: only top-level apiVersion/kind count", () => {
+test("fixtureGroupKind: only top-level apiVersion/kind count", () => {
   // The nested `kind: Application` under status.resources must not win.
   const text = [
     "apiVersion: argoproj.io/v1alpha1",
@@ -179,7 +180,7 @@ Deno.test("fixtureGroupKind: only top-level apiVersion/kind count", () => {
   assertEquals(fixtureGroupKind(text), "argoproj.io_Application");
 });
 
-Deno.test("buildConfigMap: argocd-cm manifest with sorted data keys", () => {
+test("buildConfigMap: argocd-cm manifest with sorted data keys", () => {
   const cm = buildConfigMap({
     "resource.customizations.health.b_B": "hs = {}\nreturn hs\n",
     "resource.customizations.health.a_A":
@@ -201,21 +202,27 @@ Deno.test("buildConfigMap: argocd-cm manifest with sorted data keys", () => {
 // ---------------------------------------------------------------------------
 // judge / coverage / argocdErrorSummary
 // ---------------------------------------------------------------------------
-Deno.test("judge: status match without a message expectation passes", () => {
+test("judge: status match without a message expectation passes", () => {
   assertEquals(
-    judge({ status: "Healthy", message: null }, {
-      status: "Healthy",
-      message: "anything",
-    }),
+    judge(
+      { status: "Healthy", message: null },
+      {
+        status: "Healthy",
+        message: "anything",
+      },
+    ),
     { ok: true, detail: "" },
   );
 });
 
-Deno.test("judge: status mismatch fails and reports the actual message", () => {
-  const v = judge({ status: "Degraded", message: null }, {
-    status: "Healthy",
-    message: "Secret synced",
-  });
+test("judge: status mismatch fails and reports the actual message", () => {
+  const v = judge(
+    { status: "Degraded", message: null },
+    {
+      status: "Healthy",
+      message: "Secret synced",
+    },
+  );
   assertEquals(v.ok, false);
   assertEquals(
     v.detail,
@@ -223,18 +230,24 @@ Deno.test("judge: status mismatch fails and reports the actual message", () => {
   );
 });
 
-Deno.test("judge: message substring is checked only after the status matches", () => {
+test("judge: message substring is checked only after the status matches", () => {
   assertEquals(
-    judge({ status: "Healthy", message: "synced" }, {
-      status: "Healthy",
-      message: "Secret synced from 1Password",
-    }).ok,
+    judge(
+      { status: "Healthy", message: "synced" },
+      {
+        status: "Healthy",
+        message: "Secret synced from 1Password",
+      },
+    ).ok,
     true,
   );
-  const v = judge({ status: "Healthy", message: "nothing like this" }, {
-    status: "Healthy",
-    message: "Secret synced",
-  });
+  const v = judge(
+    { status: "Healthy", message: "nothing like this" },
+    {
+      status: "Healthy",
+      message: "Secret synced",
+    },
+  );
   assertEquals(v.ok, false);
   assertEquals(
     v.detail,
@@ -242,13 +255,13 @@ Deno.test("judge: message substring is checked only after the status matches", (
   );
 });
 
-Deno.test("coverage: both directions of the Lua <-> fixture cross-check", () => {
+test("coverage: both directions of the Lua <-> fixture cross-check", () => {
   assertEquals(
     coverage(["b_B", "a_A", "orphan_O"], {
-      "a_A": 2,
-      "b_B": 1,
-      "stray_S": 1,
-      "empty_E": 0,
+      a_A: 2,
+      b_B: 1,
+      stray_S: 1,
+      empty_E: 0,
     }),
     {
       covered: ["a_A", "b_B"],
@@ -258,15 +271,15 @@ Deno.test("coverage: both directions of the Lua <-> fixture cross-check", () => 
   );
 });
 
-Deno.test("coverage: a Lua whose fixture directory is empty is uncovered", () => {
-  assertEquals(coverage(["a_A"], { "a_A": 0 }), {
+test("coverage: a Lua whose fixture directory is empty is uncovered", () => {
+  assertEquals(coverage(["a_A"], { a_A: 0 }), {
     covered: [],
     luaWithoutFixtures: ["a_A"],
     fixturesWithoutLua: ["a_A"].filter(() => false),
   });
 });
 
-Deno.test("argocdErrorSummary: pulls the fatal msg out of argocd's JSON log lines", () => {
+test("argocdErrorSummary: pulls the fatal msg out of argocd's JSON log lines", () => {
   // Captured from argocd v3.5.2 when the Lua indexes a nil table.
   const stderr = [
     '{"level":"info","msg":"Starting configmap/secret informers","time":"2026-09-12T23:12:39-05:00"}',
@@ -280,7 +293,7 @@ Deno.test("argocdErrorSummary: pulls the fatal msg out of argocd's JSON log line
   );
 });
 
-Deno.test("argocdErrorSummary: non-JSON stderr falls back to its last line", () => {
+test("argocdErrorSummary: non-JSON stderr falls back to its last line", () => {
   assertEquals(
     argocdErrorSummary(
       "mise ERROR No version is set for shim: argocd\nmise ERROR Run with --verbose\n",

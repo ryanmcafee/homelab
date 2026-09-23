@@ -1,4 +1,4 @@
-#!/usr/bin/env -S deno run --allow-net --allow-run --allow-env --allow-read --allow-write
+#!/usr/bin/env bun
 
 /**
  * localdev-kind.ts
@@ -35,16 +35,24 @@
  *   task localdev:kind                  (= up)
  *   task localdev:fakes                 (= fakes)
  *   task localdev:registry -- status
- *   deno run ... scripts/localdev-kind.ts --help
- *   deno run ... scripts/localdev-kind.ts up --dry-run
+ *   bun scripts/localdev-kind.ts --help
+ *   bun scripts/localdev-kind.ts up --dry-run
  *
  * Exit codes: 0 = success; 1 = a step failed; 2 = argument error.
  */
 
 import {
-  parse as parseYaml,
-  stringify as stringifyYaml,
-} from "jsr:@std/yaml@^1";
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { isNotFound } from "./lib/errors.ts";
+import { parse as parseYaml, stringify as stringifyYaml } from "./lib/yaml.ts";
 
 // ============================================================================
 // Logging
@@ -200,7 +208,7 @@ export interface Versions {
   onepasswordConnect: string;
 }
 
-// deno-lint-ignore no-explicit-any
+// biome-ignore lint/suspicious/noExplicitAny: walks an untyped parsed YAML document
 function dig(obj: any, path: string[]): unknown {
   let cur = obj;
   for (const key of path) {
@@ -250,7 +258,9 @@ export function extractCiliumValues(yamlText: string): string | null {
   const doc = parseYaml(yamlText);
   const values = dig(doc, ["cilium", "values"]);
   if (
-    values === null || typeof values !== "object" || Array.isArray(values) ||
+    values === null ||
+    typeof values !== "object" ||
+    Array.isArray(values) ||
     Object.keys(values as object).length === 0
   ) {
     return null;
@@ -372,8 +382,7 @@ Creates the Kind cluster with Cilium as CNI, registry pull-through caches and
 the localdev fakes. Nothing here touches the homelab cluster.
 
 Usage:
-  deno run --allow-net --allow-run --allow-env --allow-read --allow-write \\
-    scripts/localdev-kind.ts <command> [flags]
+  bun scripts/localdev-kind.ts <command> [flags]
 
 Commands:
   up                     Create cluster (if missing), registry caches, hosts.toml,
@@ -429,12 +438,10 @@ interface RunOpts {
 
 /** Shell-quotes a command for display only (never used to execute). */
 export function formatCommand(cmd: string[]): string {
-  return cmd.map((
-    a,
-  ) => (/^[A-Za-z0-9_@%+=:,./-]+$/.test(a)
-    ? a
-    : `'${a.replace(/'/g, `'\\''`)}'`)
-  )
+  return cmd
+    .map((a) =>
+      /^[A-Za-z0-9_@%+=:,./-]+$/.test(a) ? a : `'${a.replace(/'/g, `'\\''`)}'`,
+    )
     .join(" ");
 }
 
@@ -451,18 +458,20 @@ class Exec {
       }
       return { stdout: "", stderr: "", code: 0 };
     }
-    const p = new Deno.Command(cmd[0], {
-      args: cmd.slice(1),
-      cwd: opts.cwd,
-      stdin: opts.stdin !== undefined ? "piped" : "null",
-      stdout: opts.inherit ? "inherit" : "piped",
-      stderr: opts.inherit ? "inherit" : "piped",
-    });
-    let child: Deno.ChildProcess;
+    let child: Bun.Subprocess<
+      "pipe" | "ignore",
+      "pipe" | "inherit",
+      "pipe" | "inherit"
+    >;
     try {
-      child = p.spawn();
+      child = Bun.spawn(cmd, {
+        cwd: opts.cwd,
+        stdin: opts.stdin !== undefined ? "pipe" : "ignore",
+        stdout: opts.inherit ? "inherit" : "pipe",
+        stderr: opts.inherit ? "inherit" : "pipe",
+      });
     } catch (err) {
-      if (err instanceof Deno.errors.NotFound) {
+      if (isNotFound(err)) {
         return {
           stdout: "",
           stderr: `${cmd[0]}: command not found`,
@@ -471,16 +480,19 @@ class Exec {
       }
       throw err;
     }
-    if (opts.stdin !== undefined) {
-      const w = child.stdin.getWriter();
-      await w.write(new TextEncoder().encode(opts.stdin));
-      await w.close();
+    if (opts.stdin !== undefined && child.stdin) {
+      child.stdin.write(opts.stdin);
+      await child.stdin.end();
     }
-    const out = await child.output();
+    const [stdout, stderr, code] = await Promise.all([
+      child.stdout ? new Response(child.stdout).text() : "",
+      child.stderr ? new Response(child.stderr).text() : "",
+      child.exited,
+    ]);
     return {
-      stdout: opts.inherit ? "" : new TextDecoder().decode(out.stdout),
-      stderr: opts.inherit ? "" : new TextDecoder().decode(out.stderr),
-      code: out.code,
+      stdout: opts.inherit ? "" : stdout,
+      stderr: opts.inherit ? "" : stderr,
+      code,
     };
   }
 
@@ -501,28 +513,28 @@ class Exec {
 }
 
 async function findRepoRoot(): Promise<string> {
-  const p = new Deno.Command("git", {
-    args: ["rev-parse", "--show-toplevel"],
-    stdout: "piped",
-    stderr: "piped",
+  const p = Bun.spawn(["git", "rev-parse", "--show-toplevel"], {
+    stdin: "inherit",
+    stdout: "pipe",
+    stderr: "pipe",
   });
-  const out = await p.output();
-  if (!out.success) {
-    throw new Error(
-      `git rev-parse --show-toplevel failed:\n${
-        new TextDecoder().decode(out.stderr)
-      }`,
-    );
+  const [stdout, stderr, code] = await Promise.all([
+    new Response(p.stdout).text(),
+    new Response(p.stderr).text(),
+    p.exited,
+  ]);
+  if (code !== 0) {
+    throw new Error(`git rev-parse --show-toplevel failed:\n${stderr}`);
   }
-  return new TextDecoder().decode(out.stdout).trim();
+  return stdout.trim();
 }
 
 async function pathExists(path: string): Promise<boolean> {
   try {
-    await Deno.stat(path);
+    await stat(path);
     return true;
   } catch (err) {
-    if (err instanceof Deno.errors.NotFound) return false;
+    if (isNotFound(err)) return false;
     throw err;
   }
 }
@@ -564,7 +576,10 @@ async function clusterExists(ctx: Ctx): Promise<boolean> {
     if (ctx.args.dryRun) return false;
     throw new Error(`kind get clusters failed:\n${r.stderr.trim()}`);
   }
-  return r.stdout.split("\n").map((s) => s.trim()).includes(ctx.args.cluster);
+  return r.stdout
+    .split("\n")
+    .map((s) => s.trim())
+    .includes(ctx.args.cluster);
 }
 
 async function clusterNodes(ctx: Ctx): Promise<string[]> {
@@ -576,9 +591,13 @@ async function clusterNodes(ctx: Ctx): Promise<string[]> {
     ctx.args.cluster,
   ]);
   // kind exits 0 with no output (and a stderr note) when the cluster is absent.
-  const nodes = r.code === 0
-    ? r.stdout.split("\n").map((s) => s.trim()).filter(Boolean)
-    : [];
+  const nodes =
+    r.code === 0
+      ? r.stdout
+          .split("\n")
+          .map((s) => s.trim())
+          .filter(Boolean)
+      : [];
   if (nodes.length === 0) {
     if (ctx.args.dryRun) {
       // The cluster is not created under --dry-run; show the topology that
@@ -602,23 +621,26 @@ async function ensureCluster(ctx: Ctx, versions: Versions): Promise<void> {
     return;
   }
   log.info(
-    `Creating Kind cluster ${ctx.args.cluster} (${
-      kindNodeImage(versions.kindNode)
-    })`,
+    `Creating Kind cluster ${ctx.args.cluster} (${kindNodeImage(
+      versions.kindNode,
+    )})`,
   );
-  await ctx.exec.must([
-    "kind",
-    "create",
-    "cluster",
-    "--name",
-    ctx.args.cluster,
-    "--config",
-    `${ctx.repoRoot}/${KIND_CONFIG}`,
-    "--image",
-    kindNodeImage(versions.kindNode),
-    "--wait",
-    "0s",
-  ], { inherit: true });
+  await ctx.exec.must(
+    [
+      "kind",
+      "create",
+      "cluster",
+      "--name",
+      ctx.args.cluster,
+      "--config",
+      `${ctx.repoRoot}/${KIND_CONFIG}`,
+      "--image",
+      kindNodeImage(versions.kindNode),
+      "--wait",
+      "0s",
+    ],
+    { inherit: true },
+  );
   log.ok(
     `Kind cluster ${ctx.args.cluster} created (context ${ctx.args.context})`,
   );
@@ -680,9 +702,9 @@ async function registryUp(ctx: Ctx): Promise<void> {
     await ensureKindNetwork(ctx);
   } catch (err) {
     log.warn(
-      `could not ensure the ${KIND_NETWORK} network: ${
-        msg(err)
-      }; skipping registry caches`,
+      `could not ensure the ${KIND_NETWORK} network: ${msg(
+        err,
+      )}; skipping registry caches`,
     );
     return;
   }
@@ -695,7 +717,7 @@ async function registryUp(ctx: Ctx): Promise<void> {
       } else if (state === "absent") {
         const dir = `${ctx.cacheDir}/${u.name}`;
         if (ctx.args.dryRun) log.dry(`mkdir -p ${dir}`);
-        else await Deno.mkdir(dir, { recursive: true });
+        else await mkdir(dir, { recursive: true });
         await ctx.exec.must([
           "docker",
           "run",
@@ -728,9 +750,9 @@ async function registryUp(ctx: Ctx): Promise<void> {
       }
     } catch (err) {
       log.warn(
-        `${name}: ${
-          msg(err)
-        } — pulls from ${u.host} go straight to the upstream`,
+        `${name}: ${msg(
+          err,
+        )} — pulls from ${u.host} go straight to the upstream`,
       );
     }
   }
@@ -778,10 +800,11 @@ export function formatStatusTable(rows: RegistryStatusRow[]): string {
   const w = (k: keyof RegistryStatusRow) =>
     Math.max(...all.map((r) => r[k].length));
   return all
-    .map((r) =>
-      `${r.name.padEnd(w("name"))}  ${r.upstream.padEnd(w("upstream"))}  ${
-        r.state.padEnd(w("state"))
-      }  ${r.size}`
+    .map(
+      (r) =>
+        `${r.name.padEnd(w("name"))}  ${r.upstream.padEnd(w("upstream"))}  ${r.state.padEnd(
+          w("state"),
+        )}  ${r.size}`,
     )
     .join("\n");
 }
@@ -841,7 +864,7 @@ async function writeHostsToml(ctx: Ctx): Promise<void> {
 async function ciliumValues(ctx: Ctx): Promise<string> {
   const file = `${ctx.repoRoot}/${ADDONS_LOCALDEV_VALUES}`;
   if (await pathExists(file)) {
-    const extracted = extractCiliumValues(await Deno.readTextFile(file));
+    const extracted = extractCiliumValues(await readFile(file, "utf8"));
     if (extracted !== null) {
       log.info(`Cilium values: ${ADDONS_LOCALDEV_VALUES} cilium.values`);
       return extracted;
@@ -859,12 +882,10 @@ async function ciliumValues(ctx: Ctx): Promise<string> {
 
 async function installCilium(ctx: Ctx, versions: Versions): Promise<void> {
   const values = await ciliumValues(ctx);
-  const valuesFile = await Deno.makeTempFile({
-    prefix: "cilium-kind-",
-    suffix: ".yaml",
-  });
+  const valuesDir = await mkdtemp(join(tmpdir(), "cilium-kind-"));
+  const valuesFile = join(valuesDir, "values.yaml");
   try {
-    await Deno.writeTextFile(valuesFile, values);
+    await writeFile(valuesFile, values, { mode: 0o600 });
     if (ctx.args.dryRun) {
       log.dry(`values file ${valuesFile}:`);
       for (const line of values.trimEnd().split("\n")) {
@@ -872,30 +893,33 @@ async function installCilium(ctx: Ctx, versions: Versions): Promise<void> {
       }
     }
     log.info(`Installing Cilium ${versions.cilium} into ${CILIUM_NAMESPACE}`);
-    await ctx.exec.must([
-      "helm",
-      "--kube-context",
-      ctx.args.context,
-      "upgrade",
-      "--install",
-      "cilium",
-      "cilium",
-      "--repo",
-      CILIUM_REPO,
-      "--version",
-      versions.cilium,
-      "--namespace",
-      CILIUM_NAMESPACE,
-      "--values",
-      valuesFile,
-      "--wait",
-      "--timeout",
-      "10m",
-    ], { inherit: true });
+    await ctx.exec.must(
+      [
+        "helm",
+        "--kube-context",
+        ctx.args.context,
+        "upgrade",
+        "--install",
+        "cilium",
+        "cilium",
+        "--repo",
+        CILIUM_REPO,
+        "--version",
+        versions.cilium,
+        "--namespace",
+        CILIUM_NAMESPACE,
+        "--values",
+        valuesFile,
+        "--wait",
+        "--timeout",
+        "10m",
+      ],
+      { inherit: true },
+    );
     log.ok(`Cilium ${versions.cilium} ready`);
   } finally {
     try {
-      await Deno.remove(valuesFile);
+      await rm(valuesDir, { recursive: true });
     } catch {
       // temp file already gone
     }
@@ -903,16 +927,19 @@ async function installCilium(ctx: Ctx, versions: Versions): Promise<void> {
 }
 
 async function waitForNodes(ctx: Ctx): Promise<void> {
-  await ctx.exec.must([
-    "kubectl",
-    "--context",
-    ctx.args.context,
-    "wait",
-    "--for=condition=Ready",
-    "nodes",
-    "--all",
-    "--timeout=5m",
-  ], { inherit: true });
+  await ctx.exec.must(
+    [
+      "kubectl",
+      "--context",
+      ctx.args.context,
+      "wait",
+      "--for=condition=Ready",
+      "nodes",
+      "--all",
+      "--timeout=5m",
+    ],
+    { inherit: true },
+  );
   log.ok("All nodes Ready");
 }
 
@@ -1009,17 +1036,20 @@ async function applyFakes(ctx: Ctx): Promise<void> {
   if (!(await pathExists(dir))) {
     throw new Error(`${FAKES_DIR} not found in ${ctx.repoRoot}`);
   }
-  await ctx.exec.must([
-    "kubectl",
-    "--context",
-    ctx.args.context,
-    "apply",
-    "--server-side",
-    "--field-manager",
-    "localdev-kind",
-    "-f",
-    dir,
-  ], { inherit: true });
+  await ctx.exec.must(
+    [
+      "kubectl",
+      "--context",
+      ctx.args.context,
+      "apply",
+      "--server-side",
+      "--field-manager",
+      "localdev-kind",
+      "-f",
+      dir,
+    ],
+    { inherit: true },
+  );
   log.ok(`Fakes applied from ${FAKES_DIR}`);
 }
 
@@ -1028,7 +1058,7 @@ async function applyFakes(ctx: Ctx): Promise<void> {
 // ============================================================================
 async function readVersions(ctx: Ctx): Promise<Versions> {
   return parseVersions(
-    await Deno.readTextFile(`${ctx.repoRoot}/${VERSIONS_YAML}`),
+    await readFile(`${ctx.repoRoot}/${VERSIONS_YAML}`, "utf8"),
   );
 }
 
@@ -1068,13 +1098,10 @@ async function cmdUp(ctx: Ctx): Promise<void> {
 async function cmdDown(ctx: Ctx): Promise<void> {
   await requireDocker(ctx);
   if (await clusterExists(ctx)) {
-    await ctx.exec.must([
-      "kind",
-      "delete",
-      "cluster",
-      "--name",
-      ctx.args.cluster,
-    ], { inherit: true });
+    await ctx.exec.must(
+      ["kind", "delete", "cluster", "--name", ctx.args.cluster],
+      { inherit: true },
+    );
     log.ok(`Kind cluster ${ctx.args.cluster} deleted`);
   } else {
     log.info(`Kind cluster ${ctx.args.cluster} does not exist`);
@@ -1089,7 +1116,7 @@ async function cmdDown(ctx: Ctx): Promise<void> {
   if (await pathExists(ctx.cacheDir)) {
     log.info(`Removing cache dir ${ctx.cacheDir}`);
     if (ctx.args.dryRun) log.dry(`rm -rf ${ctx.cacheDir}`);
-    else await Deno.remove(ctx.cacheDir, { recursive: true });
+    else await rm(ctx.cacheDir, { recursive: true });
     log.ok(`Removed ${ctx.cacheDir}`);
   } else {
     log.info(`Cache dir ${ctx.cacheDir} does not exist`);
@@ -1102,9 +1129,11 @@ async function cmdRegistry(ctx: Ctx): Promise<void> {
     case "up": {
       await registryUp(ctx);
       if (await clusterExists(ctx)) await writeHostsToml(ctx);
-      else {log.info(
+      else {
+        log.info(
           `cluster ${ctx.args.cluster} absent; hosts.toml is written by \`up\``,
-        );}
+        );
+      }
       break;
     }
     case "down":
@@ -1132,7 +1161,7 @@ function msg(err: unknown): string {
 async function main(): Promise<number> {
   let args: Args;
   try {
-    args = parseArgs(Deno.args);
+    args = parseArgs(process.argv.slice(2));
   } catch (err) {
     if (err instanceof UsageError) {
       log.error(err.message);
@@ -1150,7 +1179,7 @@ async function main(): Promise<number> {
     args,
     exec: new Exec(args.dryRun),
     repoRoot: await findRepoRoot(),
-    cacheDir: resolveCacheDir(Deno.env.toObject(), Deno.env.get("HOME") ?? "."),
+    cacheDir: resolveCacheDir({ ...process.env }, process.env.HOME ?? "."),
   };
   if (args.dryRun) {
     log.info("Dry-run: mutating commands are printed, not executed");
@@ -1178,9 +1207,9 @@ async function main(): Promise<number> {
 
 if (import.meta.main) {
   try {
-    Deno.exit(await main());
+    process.exit(await main());
   } catch (err) {
     log.error(msg(err));
-    Deno.exit(1);
+    process.exit(1);
   }
 }

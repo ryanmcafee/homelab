@@ -1,4 +1,4 @@
-#!/usr/bin/env -S deno run --allow-net --allow-run --allow-env --allow-read --allow-write
+#!/usr/bin/env bun
 
 /**
  * localdev-argocd.ts
@@ -94,12 +94,12 @@
  *
  * Usage:
  *   task localdev:argocd | localdev:sync | localdev:wait | localdev:diagnose
- *   deno run ... scripts/localdev-argocd.ts --help
- *   deno run ... scripts/localdev-argocd.ts install [--revision <ref>] [--dry-run] [--local-port 18080 | --server host:port]
- *   deno run ... scripts/localdev-argocd.ts sync [--warm] [--only a,b] [--timeout 40m] [--dry-run]
- *   deno run ... scripts/localdev-argocd.ts wait [--require-synced] [--exclude a,b] [--timeout 20m]
- *   deno run ... scripts/localdev-argocd.ts diagnose
- *   deno run ... scripts/localdev-argocd.ts report [--base main] [--out kind-report.md] [--verify-json verify-level2.json]
+ *   bun scripts/localdev-argocd.ts --help
+ *   bun scripts/localdev-argocd.ts install [--revision <ref>] [--dry-run] [--local-port 18080 | --server host:port]
+ *   bun scripts/localdev-argocd.ts sync [--warm] [--only a,b] [--timeout 40m] [--dry-run]
+ *   bun scripts/localdev-argocd.ts wait [--require-synced] [--exclude a,b] [--timeout 20m]
+ *   bun scripts/localdev-argocd.ts diagnose
+ *   bun scripts/localdev-argocd.ts report [--base main] [--out kind-report.md] [--verify-json verify-level2.json]
  *                                                  [--max-diff-bytes 50000] [--no-diff]
  *
  * Exit codes: 0 = success (report: a report was written, whatever it says);
@@ -107,12 +107,10 @@
  *             not write its output; 2 = argument error.
  */
 
-import {
-  parse as parseYaml,
-  stringify as stringifyYaml,
-} from "jsr:@std/yaml@^1";
-import { expandGlob } from "jsr:@std/fs@^1/expand-glob";
-import { join, normalize, resolve } from "jsr:@std/path@^1";
+import { parse as parseYaml, stringify as stringifyYaml } from "./lib/yaml.ts";
+import { readFile, stat, writeFile } from "node:fs/promises";
+import { join, normalize, resolve } from "node:path";
+import { isAddrInUse, isNotFound } from "./lib/errors.ts";
 
 // ============================================================================
 // Logging
@@ -228,11 +226,15 @@ export function candidatePorts(
 /** true when 127.0.0.1:<port> can be bound right now. */
 export function portIsFree(port: number): boolean {
   try {
-    const l = Deno.listen({ hostname: "127.0.0.1", port });
-    l.close();
+    const l = Bun.listen({
+      hostname: "127.0.0.1",
+      port,
+      socket: { data() {} },
+    });
+    l.stop(true);
     return true;
   } catch (err) {
-    if (err instanceof Deno.errors.AddrInUse) return false;
+    if (isAddrInUse(err)) return false;
     throw err;
   }
 }
@@ -340,8 +342,8 @@ export function isAutomated(app: Application): boolean {
 
 /** ArgoCD could not generate the app's manifests from its repo. */
 export function hasComparisonError(app: Application): boolean {
-  return (app.status?.conditions ?? []).some((c) =>
-    c?.type === "ComparisonError"
+  return (app.status?.conditions ?? []).some(
+    (c) => c?.type === "ComparisonError",
   );
 }
 
@@ -465,8 +467,8 @@ export function appState(app: Application): AppState {
  */
 export function parentsAwaitingWaves(apps: Application[]): string[] {
   return apps
-    .filter((a) =>
-      isParentApp(a) && a.status?.operationState?.phase === "Running"
+    .filter(
+      (a) => isParentApp(a) && a.status?.operationState?.phase === "Running",
     )
     .map((a) => a.metadata.name)
     .sort();
@@ -499,11 +501,11 @@ export function tierBlockedBy(
   awaiting: Array<{ name: string; key: TierKey }>,
 ): string | null {
   const blocking = awaiting
-    .filter(({ key }) =>
-      compareTierKey(key, tier) < 0 && !isTierKeyPrefix(key, tier)
+    .filter(
+      ({ key }) => compareTierKey(key, tier) < 0 && !isTierKeyPrefix(key, tier),
     )
-    .sort((x, y) =>
-      compareTierKey(x.key, y.key) || x.name.localeCompare(y.name)
+    .sort(
+      (x, y) => compareTierKey(x.key, y.key) || x.name.localeCompare(y.name),
     );
   return blocking[0]?.name ?? null;
 }
@@ -526,9 +528,10 @@ export function discoverable(
     .filter((a) => !done.has(a.metadata.name) && !active.has(a.metadata.name))
     .map((a) => ({ a, key: tierKey(a, byName) }))
     .filter(({ key }) => compareTierKey(key, currentKey) < 0)
-    .sort((x, y) =>
-      compareTierKey(x.key, y.key) ||
-      x.a.metadata.name.localeCompare(y.a.metadata.name)
+    .sort(
+      (x, y) =>
+        compareTierKey(x.key, y.key) ||
+        x.a.metadata.name.localeCompare(y.a.metadata.name),
     )
     .map(({ a }) => a);
 }
@@ -539,8 +542,8 @@ export function pendingChildren(
   apps: Application[],
   done: Set<string>,
 ): Application[] {
-  return apps.filter((a) =>
-    parentOf(a) === parent && !done.has(a.metadata.name)
+  return apps.filter(
+    (a) => parentOf(a) === parent && !done.has(a.metadata.name),
   );
 }
 
@@ -750,9 +753,8 @@ export function chooseRevision(opts: {
   if (flag) return { revision: flag, source: "flag" };
   const env = opts.env?.trim();
   if (env) return { revision: env, source: "env" };
-  const branch = opts.upstream === null
-    ? null
-    : branchFromUpstream(opts.upstream);
+  const branch =
+    opts.upstream === null ? null : branchFromUpstream(opts.upstream);
   if (branch) return { revision: branch, source: "upstream" };
   return { revision: DEFAULT_BASE, source: "default" };
 }
@@ -776,20 +778,21 @@ export function renderRootApp(manifestText: string, revision: string): string {
     );
   }
   source.targetRevision = revision;
-  const helm =
-    (typeof source.helm === "object" && source.helm !== null
-      ? source.helm
-      : {}) as Record<string, unknown>;
+  const helm = (
+    typeof source.helm === "object" && source.helm !== null ? source.helm : {}
+  ) as Record<string, unknown>;
   source.helm = helm;
-  const valuesObject =
-    (typeof helm.valuesObject === "object" && helm.valuesObject !== null
+  const valuesObject = (
+    typeof helm.valuesObject === "object" && helm.valuesObject !== null
       ? helm.valuesObject
-      : {}) as Record<string, unknown>;
+      : {}
+  ) as Record<string, unknown>;
   helm.valuesObject = valuesObject;
-  const global = (typeof valuesObject.global === "object" &&
-      valuesObject.global !== null
-    ? valuesObject.global
-    : {}) as Record<string, unknown>;
+  const global = (
+    typeof valuesObject.global === "object" && valuesObject.global !== null
+      ? valuesObject.global
+      : {}
+  ) as Record<string, unknown>;
   valuesObject.global = global;
   global.targetRevision = revision;
   return stringifyYaml(doc, { lineWidth: -1 });
@@ -807,8 +810,9 @@ export function isNewEmptyApp(app: Application): boolean {
   if (st.health?.status !== "Healthy") return false;
   if (st.operationState?.phase || st.operationState?.message) return false;
   if ((st.resources ?? []).length > 0) return false;
-  return (st.conditions ?? []).some((c) =>
-    c?.type === "ComparisonError" && mentionsMissingPath(c.message ?? "")
+  return (st.conditions ?? []).some(
+    (c) =>
+      c?.type === "ComparisonError" && mentionsMissingPath(c.message ?? ""),
   );
 }
 
@@ -817,9 +821,8 @@ export function countManifests(yaml: string): number {
   return yaml
     .split(/^---\s*$/m)
     .filter((doc) =>
-      doc.split("\n").some((l) => l.trim() && !l.trim().startsWith("#"))
-    )
-    .length;
+      doc.split("\n").some((l) => l.trim() && !l.trim().startsWith("#")),
+    ).length;
 }
 
 /** Apply --warm / --only to the discovered app list. */
@@ -829,9 +832,10 @@ export function selectApps(
 ): Application[] {
   let out = apps;
   if (opts.warm) {
-    out = out.filter((a) =>
-      a.metadata.name !== WARM_EXCLUDED_ROOT &&
-      parentOf(a) !== WARM_EXCLUDED_ROOT
+    out = out.filter(
+      (a) =>
+        a.metadata.name !== WARM_EXCLUDED_ROOT &&
+        parentOf(a) !== WARM_EXCLUDED_ROOT,
     );
   }
   if (opts.only) {
@@ -870,13 +874,13 @@ export function escapeHelmKey(s: string): string {
 export function setFileArgs(luaFiles: string[]): string[] {
   const out: string[] = [];
   const sorted = [...luaFiles].sort((a, b) =>
-    baseName(a).localeCompare(baseName(b))
+    baseName(a).localeCompare(baseName(b)),
   );
   for (const file of sorted) {
     const stem = baseName(file).replace(/\.lua$/, "");
-    const key = `configs.cm.${
-      escapeHelmKey(`resource.customizations.health.${stem}`)
-    }`;
+    const key = `configs.cm.${escapeHelmKey(
+      `resource.customizations.health.${stem}`,
+    )}`;
     out.push("--set-file", `${key}=${file}`);
   }
   return out;
@@ -893,13 +897,8 @@ export function parseDuration(s: string): number {
   if (!m) throw new Error(`invalid duration "${s}" (use e.g. 40m, 90s, 2h)`);
   const n = Number(m[1]);
   const unit = m[2] ?? "s";
-  const mult = unit === "ms"
-    ? 1
-    : unit === "s"
-    ? 1000
-    : unit === "m"
-    ? 60_000
-    : 3_600_000;
+  const mult =
+    unit === "ms" ? 1 : unit === "s" ? 1000 : unit === "m" ? 60_000 : 3_600_000;
   return Math.round(n * mult);
 }
 
@@ -914,11 +913,14 @@ export function formatDuration(ms: number): string {
 /** Fixed-width text table (no dependency, no colour). */
 export function formatTable(headers: string[], rows: string[][]): string {
   const widths = headers.map((h, i) =>
-    Math.max(h.length, ...rows.map((r) => (r[i] ?? "").length))
+    Math.max(h.length, ...rows.map((r) => (r[i] ?? "").length)),
   );
   const line = (cells: string[]) =>
     "  " +
-    cells.map((c, i) => (c ?? "").padEnd(widths[i])).join("  ").trimEnd();
+    cells
+      .map((c, i) => (c ?? "").padEnd(widths[i]))
+      .join("  ")
+      .trimEnd();
   return [
     line(headers),
     line(widths.map((w) => "-".repeat(w))),
@@ -1002,8 +1004,9 @@ export interface ReportInput {
 
 /** The revision the root Application tracks, as ArgoCD has it. */
 export function headRevision(apps: Application[]): string | undefined {
-  const rev = apps.find((a) => a.metadata?.name === ROOT_APP)?.spec?.source
-    ?.targetRevision?.trim();
+  const rev = apps
+    .find((a) => a.metadata?.name === ROOT_APP)
+    ?.spec?.source?.targetRevision?.trim();
   return rev || undefined;
 }
 
@@ -1019,7 +1022,12 @@ function byteLength(s: string): number {
 }
 
 function firstLine(s: string): string {
-  return s.split("\n").map((l) => l.trim()).find((l) => l.length > 0) ?? "";
+  return (
+    s
+      .split("\n")
+      .map((l) => l.trim())
+      .find((l) => l.length > 0) ?? ""
+  );
 }
 
 function clip(s: string, max: number): string {
@@ -1087,29 +1095,25 @@ export function parseVerifyJson(
   if (text === null) {
     return {
       ok: false,
-      reason:
-        `\`${source}\` was not written: the Kind loop failed before \`task verify LEVEL=2\` ran (see the job log)`,
+      reason: `\`${source}\` was not written: the Kind loop failed before \`task verify LEVEL=2\` ran (see the job log)`,
     };
   }
   if (!text.trim()) {
     return {
       ok: false,
-      reason:
-        `\`${source}\` is empty: \`task verify LEVEL=2\` produced no JSON (see the job log)`,
+      reason: `\`${source}\` is empty: \`task verify LEVEL=2\` produced no JSON (see the job log)`,
     };
   }
   const obj = extractJsonObject(text) as Partial<VerifyResult> | null;
-  if (
-    obj === null || typeof obj !== "object" || !Array.isArray(obj.checks)
-  ) {
+  if (obj === null || typeof obj !== "object" || !Array.isArray(obj.checks)) {
     return {
       ok: false,
-      reason:
-        `\`${source}\` is not a complete level-2 result (the verify step was probably cut short; see the job log)`,
+      reason: `\`${source}\` is not a complete level-2 result (the verify step was probably cut short; see the job log)`,
     };
   }
-  const checks = obj.checks.filter((c): c is VerifyCheck =>
-    c !== null && typeof c === "object" && typeof c.name === "string"
+  const checks = obj.checks.filter(
+    (c): c is VerifyCheck =>
+      c !== null && typeof c === "object" && typeof c.name === "string",
   );
   return { ok: true, result: { ...obj, checks } as VerifyResult };
 }
@@ -1119,9 +1123,10 @@ export function treeOrder(apps: Application[]): Application[] {
   const byName = indexApps(apps);
   return apps
     .map((a) => ({ a, key: tierKey(a, byName) }))
-    .sort((x, y) =>
-      compareTierKey(x.key, y.key) ||
-      x.a.metadata.name.localeCompare(y.a.metadata.name)
+    .sort(
+      (x, y) =>
+        compareTierKey(x.key, y.key) ||
+        x.a.metadata.name.localeCompare(y.a.metadata.name),
     )
     .map(({ a }) => a);
 }
@@ -1146,9 +1151,11 @@ export function diffArgs(name: string, base: string): string[] {
 }
 
 /** Resources, added and removed lines of an inverted `argocd app diff`. */
-export function diffStats(
-  diff: string,
-): { resources: number; added: number; removed: number } {
+export function diffStats(diff: string): {
+  resources: number;
+  added: number;
+  removed: number;
+} {
   let resources = 0;
   let added = 0;
   let removed = 0;
@@ -1187,9 +1194,10 @@ export function statusRows(
       operation = "- (new chart, nothing to sync)";
       vsMain = `not on ${base}`;
     } else if (d === undefined) {
-      vsMain = sourceKind(a) === "local"
-        ? "not diffed"
-        : "chart (compared on its parent)";
+      vsMain =
+        sourceKind(a) === "local"
+          ? "not diffed"
+          : "chart (compared on its parent)";
     } else if (d.error !== undefined) {
       vsMain = mentionsMissingPath(d.error)
         ? `not on ${base}`
@@ -1288,7 +1296,9 @@ export function argocdErrorMessage(text: string): string {
         const o = JSON.parse(line) as { msg?: unknown; level?: unknown };
         if (typeof o.msg === "string" && o.msg.trim()) {
           if (
-            o.level === undefined || o.level === "fatal" || o.level === "error"
+            o.level === undefined ||
+            o.level === "fatal" ||
+            o.level === "error"
           ) {
             return o.msg.trim();
           }
@@ -1320,7 +1330,9 @@ export function classifyDiffResult(
   return {
     app,
     diff: "",
-    error: argocdErrorMessage(stderr) || argocdErrorMessage(stdout) ||
+    error:
+      argocdErrorMessage(stderr) ||
+      argocdErrorMessage(stdout) ||
       `argocd app diff exited ${code}`,
   };
 }
@@ -1388,20 +1400,17 @@ function verifyLine(v: VerifyInput): string {
   if (!v.ok) return `**Level 2:** no result · ${v.reason}`;
   const r = v.result;
   const count = (s: string) => r.checks.filter((c) => c.status === s).length;
-  const verdict = r.pass === true
-    ? "PASS ✅"
-    : r.pass === false
-    ? "FAIL ❌"
-    : "UNKNOWN";
-  const level = r.level !== undefined && r.level !== 2
-    ? ` (level ${r.level}, not 2)`
-    : "";
-  const took = typeof r.duration_ms === "number"
-    ? ` · ${formatDuration(r.duration_ms)}`
-    : "";
-  return `**Level 2:** ${verdict}${level} · ${r.checks.length} checks: ${
-    count("pass")
-  } pass, ${count("fail")} fail, ${count("skip")} skip${took}`;
+  const verdict =
+    r.pass === true ? "PASS ✅" : r.pass === false ? "FAIL ❌" : "UNKNOWN";
+  const level =
+    r.level !== undefined && r.level !== 2 ? ` (level ${r.level}, not 2)` : "";
+  const took =
+    typeof r.duration_ms === "number"
+      ? ` · ${formatDuration(r.duration_ms)}`
+      : "";
+  return `**Level 2:** ${verdict}${level} · ${r.checks.length} checks: ${count(
+    "pass",
+  )} pass, ${count("fail")} fail, ${count("skip")} skip${took}`;
 }
 
 function failingChecksSection(v: VerifyInput): string[] {
@@ -1413,9 +1422,9 @@ function failingChecksSection(v: VerifyInput): string[] {
     const findings = c.findings ?? [];
     const body = [
       ...(c.detail ? [c.detail.trim()] : []),
-      ...findings.slice(0, REPORT_MAX_FINDINGS).map((f) =>
-        `- ${clip(f.trim(), REPORT_MAX_FINDING_CHARS)}`
-      ),
+      ...findings
+        .slice(0, REPORT_MAX_FINDINGS)
+        .map((f) => `- ${clip(f.trim(), REPORT_MAX_FINDING_CHARS)}`),
       ...(findings.length > REPORT_MAX_FINDINGS
         ? [`… ${findings.length - REPORT_MAX_FINDINGS} more finding(s)`]
         : []),
@@ -1439,8 +1448,9 @@ function diffSection(input: ReportInput, base: string): string[] {
   if (input.diffNote) return [...out, input.diffNote, ""];
   // Empty diffs are "same as <base>" in the table; only errors and real
   // differences get a collapsed block.
-  const shown = input.diffs.filter((d) =>
-    d.error !== undefined || d.diff.trim() || d.originalBytes !== undefined
+  const shown = input.diffs.filter(
+    (d) =>
+      d.error !== undefined || d.diff.trim() || d.originalBytes !== undefined,
   );
   if (shown.length === 0) {
     return [
@@ -1481,9 +1491,9 @@ function diffSection(input: ReportInput, base: string): string[] {
     );
     if (cut) {
       out.push(
-        `Truncated: showing ${
-          byteLength(d.diff)
-        } of ${d.originalBytes} bytes (${d.omittedLines} line(s) omitted). Full diff: \`task localdev:report -- --max-diff-bytes 0\` against a local Kind loop, or \`argocd app diff ${d.app} --revision ${base}\`.`,
+        `Truncated: showing ${byteLength(
+          d.diff,
+        )} of ${d.originalBytes} bytes (${d.omittedLines} line(s) omitted). Full diff: \`task localdev:report -- --max-diff-bytes 0\` against a local Kind loop, or \`argocd app diff ${d.app} --revision ${base}\`.`,
         "",
       );
     }
@@ -1503,9 +1513,9 @@ export function renderReport(input: ReportInput): string {
 
   if (input.apps === null) {
     out.push(
-      `> **ArgoCD was not reachable** (${
-        mdCell(input.appsError ?? "unknown error")
-      }). \`task localdev:ci\` failed before ArgoCD was up, so there is no Application table and no diff; see the job log.`,
+      `> **ArgoCD was not reachable** (${mdCell(
+        input.appsError ?? "unknown error",
+      )}). \`task localdev:ci\` failed before ArgoCD was up, so there is no Application table and no diff; see the job log.`,
       "",
     );
     out.push(...failingChecksSection(input.verify));
@@ -1537,10 +1547,11 @@ export function renderReport(input: ReportInput): string {
       "",
       `| Application | Health | Sync | Last operation | vs ${mdCell(base)} |`,
       "|---|---|---|---|---|",
-      ...rows.map((r) =>
-        `| ${mdCell(r.app)} | ${mdCell(r.health)} | ${mdCell(r.sync)} | ${
-          mdCell(r.operation)
-        } | ${mdCell(r.vsMain)} |`
+      ...rows.map(
+        (r) =>
+          `| ${mdCell(r.app)} | ${mdCell(r.health)} | ${mdCell(r.sync)} | ${mdCell(
+            r.operation,
+          )} | ${mdCell(r.vsMain)} |`,
       ),
       "",
     );
@@ -1612,7 +1623,10 @@ export function parseByteCount(s: string): number {
 }
 
 function splitList(v: string): string[] {
-  return v.split(",").map((s) => s.trim()).filter((s) => s.length > 0);
+  return v
+    .split(",")
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
 }
 
 export function parseArgs(argv: string[]): Args {
@@ -1635,7 +1649,7 @@ export function parseArgs(argv: string[]): Args {
     revision: null,
     base: null,
   };
-  const valueOf = (i: number, flag: string): string => {
+  const flagValue = (i: number, flag: string): string => {
     const v = argv[i + 1];
     if (v === undefined || v.startsWith("--")) {
       throw new Error(`${flag} requires a value`);
@@ -1648,40 +1662,40 @@ export function parseArgs(argv: string[]): Args {
     else if (a === "--dry-run") args.dryRun = true;
     else if (a === "--warm") args.warm = true;
     else if (a === "--require-synced") args.requireSynced = true;
-    else if (a === "--only") args.only = splitList(valueOf(i++, a));
+    else if (a === "--only") args.only = splitList(flagValue(i++, a));
     else if (a.startsWith("--only=")) {
       args.only = splitList(a.slice("--only=".length));
-    } else if (a === "--exclude") args.exclude = splitList(valueOf(i++, a));
+    } else if (a === "--exclude") args.exclude = splitList(flagValue(i++, a));
     else if (a.startsWith("--exclude=")) {
       args.exclude = splitList(a.slice("--exclude=".length));
     } else if (a === "--timeout") {
-      args.timeoutMs = parseDuration(valueOf(i++, a));
+      args.timeoutMs = parseDuration(flagValue(i++, a));
     } else if (a.startsWith("--timeout=")) {
       args.timeoutMs = parseDuration(a.slice("--timeout=".length));
-    } else if (a === "--repo-root") args.repoRoot = valueOf(i++, a);
+    } else if (a === "--repo-root") args.repoRoot = flagValue(i++, a);
     else if (a.startsWith("--repo-root=")) {
       args.repoRoot = a.slice("--repo-root=".length);
-    } else if (a === "--server") args.server = valueOf(i++, a);
+    } else if (a === "--server") args.server = flagValue(i++, a);
     else if (a.startsWith("--server=")) {
       args.server = a.slice("--server=".length);
     } else if (a === "--local-port") {
-      args.localPort = parsePort(valueOf(i++, a));
+      args.localPort = parsePort(flagValue(i++, a));
     } else if (a.startsWith("--local-port=")) {
       args.localPort = parsePort(a.slice("--local-port=".length));
-    } else if (a === "--out") args.out = valueOf(i++, a);
+    } else if (a === "--out") args.out = flagValue(i++, a);
     else if (a.startsWith("--out=")) args.out = a.slice("--out=".length);
-    else if (a === "--verify-json") args.verifyJson = valueOf(i++, a);
+    else if (a === "--verify-json") args.verifyJson = flagValue(i++, a);
     else if (a.startsWith("--verify-json=")) {
       args.verifyJson = a.slice("--verify-json=".length);
     } else if (a === "--max-diff-bytes") {
-      args.maxDiffBytes = parseByteCount(valueOf(i++, a));
+      args.maxDiffBytes = parseByteCount(flagValue(i++, a));
     } else if (a.startsWith("--max-diff-bytes=")) {
       args.maxDiffBytes = parseByteCount(a.slice("--max-diff-bytes=".length));
     } else if (a === "--no-diff") args.noDiff = true;
-    else if (a === "--revision") args.revision = valueOf(i++, a);
+    else if (a === "--revision") args.revision = flagValue(i++, a);
     else if (a.startsWith("--revision=")) {
       args.revision = a.slice("--revision=".length);
-    } else if (a === "--base") args.base = valueOf(i++, a);
+    } else if (a === "--base") args.base = flagValue(i++, a);
     else if (a.startsWith("--base=")) args.base = a.slice("--base=".length);
     else if (a.startsWith("-")) {
       throw new Error(`Unknown argument: ${a}`);
@@ -1705,8 +1719,7 @@ function printHelp(): void {
     `localdev-argocd.ts — ArgoCD install + sync orchestrator for the Kind localdev loop
 
 Usage:
-  deno run --allow-net --allow-run --allow-env --allow-read --allow-write \\
-    scripts/localdev-argocd.ts <command> [flags]
+  bun scripts/localdev-argocd.ts <command> [flags]
 
 Commands:
   install    helm upgrade --install prometheus-operator-crds (the monitoring CRDs,
@@ -1804,22 +1817,22 @@ async function run(
   cmd: string[],
   opts: { cwd?: string; quiet?: boolean; env?: Record<string, string> } = {},
 ): Promise<RunResult> {
-  const p = new Deno.Command(cmd[0], {
-    args: cmd.slice(1),
-    cwd: opts.cwd,
-    env: opts.env,
-    stdout: "piped",
-    stderr: "piped",
-  });
   try {
-    const out = await p.output();
-    return {
-      stdout: new TextDecoder().decode(out.stdout),
-      stderr: new TextDecoder().decode(out.stderr),
-      code: out.code,
-    };
+    const p = Bun.spawn(cmd, {
+      cwd: opts.cwd,
+      env: opts.env ? { ...process.env, ...opts.env } : undefined,
+      stdin: "inherit",
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const [stdout, stderr, code] = await Promise.all([
+      new Response(p.stdout).text(),
+      new Response(p.stderr).text(),
+      p.exited,
+    ]);
+    return { stdout, stderr, code };
   } catch (err) {
-    if (err instanceof Deno.errors.NotFound) {
+    if (isNotFound(err)) {
       return { stdout: "", stderr: `${cmd[0]}: command not found`, code: 127 };
     }
     throw err;
@@ -1832,47 +1845,44 @@ async function runWithStdin(
   input: string,
   opts: { cwd?: string } = {},
 ): Promise<RunResult> {
-  const p = new Deno.Command(cmd[0], {
-    args: cmd.slice(1),
-    cwd: opts.cwd,
-    stdin: "piped",
-    stdout: "piped",
-    stderr: "piped",
-  });
-  let child: Deno.ChildProcess;
+  let child: Bun.Subprocess<"pipe", "pipe", "pipe">;
   try {
-    child = p.spawn();
+    child = Bun.spawn(cmd, {
+      cwd: opts.cwd,
+      stdin: "pipe",
+      stdout: "pipe",
+      stderr: "pipe",
+    });
   } catch (err) {
-    if (err instanceof Deno.errors.NotFound) {
+    if (isNotFound(err)) {
       return { stdout: "", stderr: `${cmd[0]}: command not found`, code: 127 };
     }
     throw err;
   }
-  const writer = child.stdin.getWriter();
-  await writer.write(utf8.encode(input));
-  await writer.close();
-  const out = await child.output();
-  return {
-    stdout: new TextDecoder().decode(out.stdout),
-    stderr: new TextDecoder().decode(out.stderr),
-    code: out.code,
-  };
+  const output = Promise.all([
+    new Response(child.stdout).text(),
+    new Response(child.stderr).text(),
+    child.exited,
+  ]);
+  child.stdin.write(utf8.encode(input));
+  await child.stdin.end();
+  const [stdout, stderr, code] = await output;
+  return { stdout, stderr, code };
 }
 
 /** Run with inherited stdio (streams helm/argocd output to the terminal). */
 async function runInherit(cmd: string[], cwd?: string): Promise<number> {
-  const p = new Deno.Command(cmd[0], {
-    args: cmd.slice(1),
+  const p = Bun.spawn(cmd, {
     cwd,
+    stdin: "inherit",
     stdout: "inherit",
     stderr: "inherit",
   });
-  const out = await p.output();
-  return out.code;
+  return await p.exited;
 }
 
 function shellQuote(s: string): string {
-  return /^[A-Za-z0-9_\/.:=@%+,-]+$/.test(s)
+  return /^[A-Za-z0-9_/.:=@%+,-]+$/.test(s)
     ? s
     : `'${s.replaceAll("'", "'\\''")}'`;
 }
@@ -1932,8 +1942,8 @@ function argocd(...args: string[]): string[] {
 // Port-forward supervisor
 // ============================================================================
 class PortForward {
-  #child: Deno.ChildProcess | null = null;
-  #exited: Promise<Deno.CommandStatus> | null = null;
+  #child: Bun.Subprocess<"ignore", "ignore", "pipe"> | null = null;
+  #exited: Promise<number> | null = null;
   #stderr = "";
   #stopped = false;
   readonly port: number;
@@ -1950,26 +1960,26 @@ class PortForward {
   async start(): Promise<void> {
     const cmd = portForwardCmd(this.port);
     log.info(fmtCmd(cmd));
-    const child = new Deno.Command(cmd[0], {
-      args: cmd.slice(1),
-      stdin: "null",
-      stdout: "null",
-      stderr: "piped",
-    }).spawn();
+    const child = Bun.spawn(cmd, {
+      stdin: "ignore",
+      stdout: "ignore",
+      stderr: "pipe",
+    });
     this.#child = child;
     this.#stderr = "";
     // Drain stderr so kubectl never blocks; keep the tail for error reports.
     (async () => {
       try {
         for await (const chunk of child.stderr) {
-          this.#stderr = (this.#stderr + new TextDecoder().decode(chunk))
-            .slice(-2000);
+          this.#stderr = (this.#stderr + new TextDecoder().decode(chunk)).slice(
+            -2000,
+          );
         }
       } catch {
         // stream closed with the process
       }
     })();
-    this.#exited = child.status;
+    this.#exited = child.exited;
     let exited = false;
     this.#exited.then(() => {
       exited = true;
@@ -1991,9 +2001,9 @@ class PortForward {
     }
     await this.stop();
     throw new Error(
-      `port-forward to ${this.server} not ready within ${
-        formatDuration(PORT_FORWARD_READY_MS)
-      }: ${this.#stderr.trim()}`,
+      `port-forward to ${this.server} not ready within ${formatDuration(
+        PORT_FORWARD_READY_MS,
+      )}: ${this.#stderr.trim()}`,
     );
   }
 
@@ -2079,17 +2089,17 @@ async function withArgocdServer<T>(
   activePortForward = pf;
   const onSignal = () => {
     stopPortForwardSync();
-    Deno.exit(130);
+    process.exit(130);
   };
-  Deno.addSignalListener("SIGINT", onSignal);
-  Deno.addSignalListener("SIGTERM", onSignal);
+  process.on("SIGINT", onSignal);
+  process.on("SIGTERM", onSignal);
   try {
     await pf.start();
     argocdServer = pf.server;
     return await fn();
   } finally {
-    Deno.removeSignalListener("SIGINT", onSignal);
-    Deno.removeSignalListener("SIGTERM", onSignal);
+    process.off("SIGINT", onSignal);
+    process.off("SIGTERM", onSignal);
     activePortForward = null;
     await pf.stop();
   }
@@ -2117,8 +2127,10 @@ async function listApplications(): Promise<Application[]> {
   if (r.code !== 0) {
     throw new Error(
       `kubectl get applications failed: ${
-        r.stderr.trim().split("\n").filter((l) => l.trim())[0] ??
-          `exit ${r.code}`
+        r.stderr
+          .trim()
+          .split("\n")
+          .filter((l) => l.trim())[0] ?? `exit ${r.code}`
       }`,
     );
   }
@@ -2206,9 +2218,9 @@ async function login(dryRun: boolean): Promise<void> {
     }
     if (Date.now() >= deadline) {
       throw new Error(
-        `argocd login at ${argocdServer} did not succeed within ${
-          formatDuration(LOGIN_RETRY_MS)
-        }: ${lastErr}`,
+        `argocd login at ${argocdServer} did not succeed within ${formatDuration(
+          LOGIN_RETRY_MS,
+        )}: ${lastErr}`,
       );
     }
     log.info(`waiting for ArgoCD server (${lastErr}); retrying in 5 s`);
@@ -2234,7 +2246,7 @@ async function readChartVersion(
   key: string,
 ): Promise<string> {
   return chartVersionFromVersions(
-    await Deno.readTextFile(join(repoRoot, VERSIONS_YAML)),
+    await readFile(join(repoRoot, VERSIONS_YAML), "utf8"),
     key,
   );
 }
@@ -2272,12 +2284,15 @@ async function listHealthLua(repoRoot: string): Promise<string[]> {
   const files: string[] = [];
   const dir = join(repoRoot, HEALTH_LUA_DIR);
   try {
-    if (!(await Deno.stat(dir)).isDirectory) return files;
+    if (!(await stat(dir)).isDirectory()) return files;
   } catch {
     return files;
   }
-  for await (const e of expandGlob("*.lua", { root: dir })) {
-    if (e.isFile) files.push(`${HEALTH_LUA_DIR}/${e.name}`);
+  for await (const name of new Bun.Glob("*.lua").scan({
+    cwd: dir,
+    onlyFiles: true,
+  })) {
+    files.push(`${HEALTH_LUA_DIR}/${name}`);
   }
   return files.sort();
 }
@@ -2338,16 +2353,14 @@ async function upstreamOfHead(repoRoot: string): Promise<string | null> {
  * branch, ArgoCD would compare against main and every chart new on this
  * branch would show as "app path does not exist": say so.
  */
-async function resolveRevision(
-  args: Args,
-  repoRoot: string,
-): Promise<string> {
-  const upstream = args.revision || Deno.env.get(REVISION_ENV)?.trim()
-    ? null
-    : await upstreamOfHead(repoRoot);
+async function resolveRevision(args: Args, repoRoot: string): Promise<string> {
+  const upstream =
+    args.revision || process.env[REVISION_ENV]?.trim()
+      ? null
+      : await upstreamOfHead(repoRoot);
   const { revision, source } = chooseRevision({
     flag: args.revision,
-    env: Deno.env.get(REVISION_ENV),
+    env: process.env[REVISION_ENV],
     upstream,
   });
   const why = {
@@ -2377,9 +2390,9 @@ async function cmdInstall(args: Args, repoRoot: string): Promise<number> {
     log.dry(fmtCmd(crds));
     log.dry(fmtCmd(helm));
     log.dry(
-      `${
-        fmtCmd(apply)
-      }  # stdin: ${ROOT_APP_MANIFEST} with spec.source.targetRevision and helm.valuesObject.global.targetRevision = ${revision}`,
+      `${fmtCmd(
+        apply,
+      )}  # stdin: ${ROOT_APP_MANIFEST} with spec.source.targetRevision and helm.valuesObject.global.targetRevision = ${revision}`,
     );
     dryRunConnection(args);
     await login(true);
@@ -2409,7 +2422,7 @@ async function cmdInstall(args: Args, repoRoot: string): Promise<number> {
     `applying root Application from ${ROOT_APP_MANIFEST} at ${revision}`,
   );
   const manifest = renderRootApp(
-    await Deno.readTextFile(join(repoRoot, ROOT_APP_MANIFEST)),
+    await readFile(join(repoRoot, ROOT_APP_MANIFEST), "utf8"),
     revision,
   );
   const r = await runWithStdin(apply, manifest, { cwd: repoRoot });
@@ -2432,9 +2445,9 @@ function dryRunConnection(args: Args): void {
   const port = args.localPort ?? DEFAULT_LOCAL_PORT;
   argocdServer = `127.0.0.1:${port}`;
   log.dry(
-    `${
-      fmtCmd(portForwardCmd(port))
-    }  # background; next free port if ${port} is taken`,
+    `${fmtCmd(
+      portForwardCmd(port),
+    )}  # background; next free port if ${port} is taken`,
   );
   log.dry(`wait for http://${argocdServer}/healthz`);
 }
@@ -2460,8 +2473,7 @@ async function syncOne(
   if (isAutomated(app)) {
     // Not from the working tree: ArgoCD syncs it from its repo on its own.
     // Expected only when ARGOCD_AUTOMATED_SYNC=false did not reach this app.
-    const msg =
-      `${name}: automated sync policy; ArgoCD syncs it from its own repo (argocd app sync --local would be refused). Set ARGOCD_AUTOMATED_SYNC=false for localdev to sync it from the working tree.`;
+    const msg = `${name}: automated sync policy; ArgoCD syncs it from its own repo (argocd app sync --local would be refused). Set ARGOCD_AUTOMATED_SYNC=false for localdev to sync it from the working tree.`;
     if (dryRun) log.dry(`skip ${msg}`);
     else log.warn(msg);
     return { ok: true, detail: "", skipped: "automated" };
@@ -2470,13 +2482,13 @@ async function syncOne(
   if (dryRun) {
     if (sourceKind(app) === "local") {
       log.dry(
-        `${
-          fmtCmd(argocd(...manifestsArgs(app, repoRoot)))
-        }  # if this renders nothing and \`argocd app manifests ${name}\` (Git) renders nothing too: ${
-          fmtCmd(argocd(...syncArgs(app, repoRoot, { plain: true })))
-        }; nothing locally and the path absent from ${
-          gitRefForRevision(app.spec?.source?.targetRevision)
-        }: no sync (new chart); nothing locally but something in Git: error`,
+        `${fmtCmd(
+          argocd(...manifestsArgs(app, repoRoot)),
+        )}  # if this renders nothing and \`argocd app manifests ${name}\` (Git) renders nothing too: ${fmtCmd(
+          argocd(...syncArgs(app, repoRoot, { plain: true })),
+        )}; nothing locally and the path absent from ${gitRefForRevision(
+          app.spec?.source?.targetRevision,
+        )}: no sync (new chart); nothing locally but something in Git: error`,
       );
     }
     log.dry(fmtCmd(cmd));
@@ -2544,12 +2556,11 @@ async function syncOne(
     if (decision === "error") {
       return {
         ok: false,
-        detail:
-          `${name} renders no manifests from ${repoRoot}/${app.spec?.source?.path} but ${
-            gitCount === null ? "an unknown number" : gitCount
-          } from ${
-            app.spec?.source?.targetRevision ?? "the Git revision"
-          }; ArgoCD would silently sync the Git revision instead. Disable this Application in its parent's localdev values (it has nothing to deploy here) or give it something to render.`,
+        detail: `${name} renders no manifests from ${repoRoot}/${app.spec?.source?.path} but ${
+          gitCount === null ? "an unknown number" : gitCount
+        } from ${
+          app.spec?.source?.targetRevision ?? "the Git revision"
+        }; ArgoCD would silently sync the Git revision instead. Disable this Application in its parent's localdev values (it has nothing to deploy here) or give it something to render.`,
       };
     }
     if (decision === "empty") {
@@ -2632,10 +2643,11 @@ function printTier(key: TierKey, rows: TierRow[]): void {
 
 function summarise(apps: Application[]): string {
   return apps
-    .map((a) =>
-      `${a.metadata.name}=${a.status?.health?.status ?? "?"}/${
-        a.status?.operationState?.phase ?? "-"
-      }`
+    .map(
+      (a) =>
+        `${a.metadata.name}=${a.status?.health?.status ?? "?"}/${
+          a.status?.operationState?.phase ?? "-"
+        }`,
     )
     .join(" ");
 }
@@ -2691,13 +2703,13 @@ async function cmdSyncDryRun(args: Args, repoRoot: string): Promise<number> {
     );
   }
   log.dry(
-    `then poll every ${
-      formatDuration(POLL_INTERVAL_MS)
-    } until each tier is complete (timeout ${
-      formatDuration(args.timeoutMs ?? DEFAULT_SYNC_TIMEOUT_MS)
-    }); Failed/Error operations retry ${SYNC_RETRIES}x with ${
-      formatDuration(SYNC_RETRY_BACKOFF_MS)
-    } backoff`,
+    `then poll every ${formatDuration(
+      POLL_INTERVAL_MS,
+    )} until each tier is complete (timeout ${formatDuration(
+      args.timeoutMs ?? DEFAULT_SYNC_TIMEOUT_MS,
+    )}); Failed/Error operations retry ${SYNC_RETRIES}x with ${formatDuration(
+      SYNC_RETRY_BACKOFF_MS,
+    )} backoff`,
   );
   return 0;
 }
@@ -2765,9 +2777,9 @@ async function syncLoop(args: Args, repoRoot: string): Promise<number> {
   log.info(
     `syncing from ${repoRoot}${
       args.warm ? " (--warm: bootstrap + addons only)" : ""
-    }${args.only ? ` (--only ${args.only.join(",")})` : ""}; timeout ${
-      formatDuration(timeoutMs)
-    }`,
+    }${args.only ? ` (--only ${args.only.join(",")})` : ""}; timeout ${formatDuration(
+      timeoutMs,
+    )}`,
   );
 
   for (;;) {
@@ -2782,17 +2794,17 @@ async function syncLoop(args: Args, repoRoot: string): Promise<number> {
         if (waiting.length === 0) break;
         if (Date.now() >= deadline) {
           return await fail(
-            `sync timed out after ${
-              formatDuration(timeoutMs)
-            } waiting for the remaining child Applications of: ${
-              waiting.join(", ")
-            }`,
+            `sync timed out after ${formatDuration(
+              timeoutMs,
+            )} waiting for the remaining child Applications of: ${waiting.join(
+              ", ",
+            )}`,
           );
         }
         log.info(
-          `[${formatDuration(Date.now() - start)}] waiting for ${
-            waiting.join(", ")
-          } to create their next wave`,
+          `[${formatDuration(Date.now() - start)}] waiting for ${waiting.join(
+            ", ",
+          )} to create their next wave`,
         );
         await sleep(POLL_INTERVAL_MS);
         continue;
@@ -2811,28 +2823,28 @@ async function syncLoop(args: Args, repoRoot: string): Promise<number> {
       if (blocker !== null) {
         if (Date.now() >= deadline) {
           return await fail(
-            `sync timed out after ${
-              formatDuration(timeoutMs)
-            } waiting for ${blocker} to finish its waves before ${
-              formatTierKey(tier.key)
-            }`,
+            `sync timed out after ${formatDuration(
+              timeoutMs,
+            )} waiting for ${blocker} to finish its waves before ${formatTierKey(
+              tier.key,
+            )}`,
           );
         }
         log.info(
-          `[${
-            formatDuration(Date.now() - start)
-          }] waiting for ${blocker} to finish its waves before tier ${
-            formatTierKey(tier.key)
-          }`,
+          `[${formatDuration(
+            Date.now() - start,
+          )}] waiting for ${blocker} to finish its waves before tier ${formatTierKey(
+            tier.key,
+          )}`,
         );
         await sleep(POLL_INTERVAL_MS);
         continue;
       }
       tiersRun++;
       log.info(
-        `tier ${formatTierKey(tier.key)}: ${
-          tier.apps.map((a) => a.metadata.name).join(", ")
-        }`,
+        `tier ${formatTierKey(tier.key)}: ${tier.apps
+          .map((a) => a.metadata.name)
+          .join(", ")}`,
       );
       for (const app of tier.apps) {
         const err = await startSync(app, tier.key);
@@ -2849,7 +2861,9 @@ async function syncLoop(args: Args, repoRoot: string): Promise<number> {
     for (const app of apps) {
       const name = app.metadata.name;
       if (
-        done.has(name) && !active.has(name) && isParentApp(app) &&
+        done.has(name) &&
+        !active.has(name) &&
+        isParentApp(app) &&
         appState(app) === "failed"
       ) {
         done.delete(name);
@@ -2892,9 +2906,9 @@ async function syncLoop(args: Args, repoRoot: string): Promise<number> {
       );
       if (found.length > 0) {
         log.info(
-          `discovered lower-tier app(s) while waiting on ${
-            formatTierKey(currentKey)
-          }: ${found.map((a) => a.metadata.name).join(", ")}`,
+          `discovered lower-tier app(s) while waiting on ${formatTierKey(
+            currentKey,
+          )}: ${found.map((a) => a.metadata.name).join(", ")}`,
         );
         for (const app of found) {
           const err = await startSync(app, tierKey(app, byName));
@@ -2924,8 +2938,8 @@ async function syncLoop(args: Args, repoRoot: string): Promise<number> {
         row.finishedAt = Date.now();
         return await fail(
           `${name}: automated app cannot be rendered by ArgoCD: ${
-            (app.status?.conditions ?? []).find((c) =>
-              c?.type === "ComparisonError"
+            (app.status?.conditions ?? []).find(
+              (c) => c?.type === "ComparisonError",
             )?.message ?? ""
           }`,
         );
@@ -2933,7 +2947,8 @@ async function syncLoop(args: Args, repoRoot: string): Promise<number> {
       if (state === "complete") {
         // "accepted": a parent's operation stays open until its child
         // Applications (synced in later tiers) are Healthy.
-        const healthy = app.status?.health?.status === "Healthy" &&
+        const healthy =
+          app.status?.health?.status === "Healthy" &&
           app.status?.operationState?.phase === "Succeeded";
         if (row.result === "empty") {
           // keep the label
@@ -2987,9 +3002,9 @@ async function syncLoop(args: Args, repoRoot: string): Promise<number> {
         }
         retries.set(name, n);
         log.warn(
-          `${name}: operation ${app.status?.operationState?.phase} (${msg}); retry ${n}/${SYNC_RETRIES} in ${
-            formatDuration(SYNC_RETRY_BACKOFF_MS)
-          }`,
+          `${name}: operation ${app.status?.operationState?.phase} (${msg}); retry ${n}/${SYNC_RETRIES} in ${formatDuration(
+            SYNC_RETRY_BACKOFF_MS,
+          )}`,
         );
         await sleep(SYNC_RETRY_BACKOFF_MS);
         const r = await syncOne(app, repoRoot, false);
@@ -3004,16 +3019,16 @@ async function syncLoop(args: Args, repoRoot: string): Promise<number> {
     flushTables(tables, printed, false);
     if (Date.now() >= deadline) {
       return await fail(
-        `sync timed out after ${formatDuration(timeoutMs)} waiting for: ${
-          summarise(pending)
-        }`,
+        `sync timed out after ${formatDuration(timeoutMs)} waiting for: ${summarise(
+          pending,
+        )}`,
       );
     }
     if (pending.length > 0) {
       log.info(
-        `[${formatDuration(Date.now() - start)}] waiting: ${
-          summarise(pending)
-        }`,
+        `[${formatDuration(Date.now() - start)}] waiting: ${summarise(
+          pending,
+        )}`,
       );
     }
   }
@@ -3026,9 +3041,9 @@ async function syncLoop(args: Args, repoRoot: string): Promise<number> {
   if (rc !== 0) return rc;
 
   log.ok(
-    `${done.size} Application(s) synced in ${tiersRun} tier(s), ${
-      formatDuration(Date.now() - start)
-    }`,
+    `${done.size} Application(s) synced in ${tiersRun} tier(s), ${formatDuration(
+      Date.now() - start,
+    )}`,
   );
   return 0;
 }
@@ -3061,13 +3076,14 @@ async function finishParents(
     .sort((x, y) => -compareTierKey(tierKey(x, byName), tierKey(y, byName)));
   if (parents.length === 0) return 0;
   log.info(
-    `final pass: parent(s) without a Succeeded operation: ${
-      parents.map((a) =>
-        `${a.metadata.name} (${
-          a.status?.operationState?.phase ?? "no operation"
-        })`
-      ).join(", ")
-    }`,
+    `final pass: parent(s) without a Succeeded operation: ${parents
+      .map(
+        (a) =>
+          `${a.metadata.name} (${
+            a.status?.operationState?.phase ?? "no operation"
+          })`,
+      )
+      .join(", ")}`,
   );
   for (const parent of parents) {
     const name = parent.metadata.name;
@@ -3104,18 +3120,18 @@ async function finishParents(
         }
       } else {
         log.info(
-          `[${
-            formatDuration(Date.now() - start)
-          }] final pass: waiting for ${name} (${
+          `[${formatDuration(
+            Date.now() - start,
+          )}] final pass: waiting for ${name} (${
             app?.status?.health?.status ?? "?"
           }/${app?.status?.operationState?.phase ?? "-"})`,
         );
       }
       if (Date.now() >= deadline) {
         log.error(
-          `sync timed out after ${
-            formatDuration(deadline - start)
-          } in the final parent pass waiting for ${name}`,
+          `sync timed out after ${formatDuration(
+            deadline - start,
+          )} in the final parent pass waiting for ${name}`,
         );
         await cmdDiagnose();
         return 1;
@@ -3148,15 +3164,15 @@ async function cmdWait(args: Args): Promise<number> {
     }; timeout ${formatDuration(timeoutMs)}`,
   );
   for (;;) {
-    const apps = (await listApplications()).filter((a) =>
-      !excluded.has(a.metadata.name)
+    const apps = (await listApplications()).filter(
+      (a) => !excluded.has(a.metadata.name),
     );
     const notReady = apps.filter((a) => !isReady(a, args.requireSynced));
     if (apps.length > 0 && notReady.length === 0) {
       log.ok(
-        `${apps.length} Application(s) Healthy after ${
-          formatDuration(Date.now() - start)
-        }`,
+        `${apps.length} Application(s) Healthy after ${formatDuration(
+          Date.now() - start,
+        )}`,
       );
       return 0;
     }
@@ -3225,8 +3241,8 @@ export function podNeedsDiagnosis(pod: PodSummary): boolean {
     ...(pod.status?.initContainerStatuses ?? []),
     ...(pod.status?.containerStatuses ?? []),
   ];
-  return all.some((c) =>
-    c.ready === false || (c.restartCount ?? 0) > 0 || !!c.state?.waiting
+  return all.some(
+    (c) => c.ready === false || (c.restartCount ?? 0) > 0 || !!c.state?.waiting,
   );
 }
 
@@ -3235,7 +3251,9 @@ export function containerNames(pod: PodSummary): string[] {
   return [
     ...(pod.status?.initContainerStatuses ?? []),
     ...(pod.status?.containerStatuses ?? []),
-  ].map((c) => c.name ?? "").filter((n) => n !== "");
+  ]
+    .map((c) => c.name ?? "")
+    .filter((n) => n !== "");
 }
 
 /** True when a container of the pod has restarted (a --previous log exists). */
@@ -3281,9 +3299,10 @@ export function formatResource(r: AppResource, app: Application): string {
  */
 export function resourceLines(app: Application): string[] {
   const all = (app.status?.resources ?? []).filter((r) => r != null);
-  const shown = app.status?.health?.status === "Healthy"
-    ? all.filter(resourceNotHealthy)
-    : all;
+  const shown =
+    app.status?.health?.status === "Healthy"
+      ? all.filter(resourceNotHealthy)
+      : all;
   return shown.map((r) => formatResource(r, app));
 }
 
@@ -3551,9 +3570,9 @@ async function readVerifyInput(path: string | null): Promise<VerifyInput> {
   }
   let text: string | null;
   try {
-    text = await Deno.readTextFile(path);
+    text = await readFile(path, "utf8");
   } catch (err) {
-    if (!(err instanceof Deno.errors.NotFound)) throw err;
+    if (!isNotFound(err)) throw err;
     text = null;
   }
   return parseVerifyJson(text, path);
@@ -3573,7 +3592,7 @@ async function diffApp(name: string, base: string): Promise<AppDiff> {
 
 /** Commit and run link when running in GitHub Actions. */
 function githubMeta(): ReportInput["meta"] {
-  const env = (k: string) => Deno.env.get(k)?.trim() || undefined;
+  const env = (k: string) => process.env[k]?.trim() || undefined;
   const server = env("GITHUB_SERVER_URL");
   const repo = env("GITHUB_REPOSITORY");
   const runId = env("GITHUB_RUN_ID");
@@ -3581,9 +3600,10 @@ function githubMeta(): ReportInput["meta"] {
     // On pull_request GITHUB_SHA is the merge commit; the workflow passes
     // the PR head as PR_HEAD_SHA.
     sha: env("PR_HEAD_SHA") ?? env("GITHUB_SHA"),
-    runUrl: server && repo && runId
-      ? `${server}/${repo}/actions/runs/${runId}`
-      : undefined,
+    runUrl:
+      server && repo && runId
+        ? `${server}/${repo}/actions/runs/${runId}`
+        : undefined,
   };
 }
 
@@ -3604,8 +3624,8 @@ async function cmdReport(args: Args): Promise<number> {
     log.warn(`ArgoCD not reachable: ${appsError}`);
   }
 
-  const base = args.base?.trim() || Deno.env.get(BASE_ENV)?.trim() ||
-    DEFAULT_BASE;
+  const base =
+    args.base?.trim() || process.env[BASE_ENV]?.trim() || DEFAULT_BASE;
   let diffs: AppDiff[] = [];
   let diffNote: string | undefined;
   if (apps !== null) {
@@ -3616,9 +3636,9 @@ async function cmdReport(args: Args): Promise<number> {
       diffNote = "Diffs skipped (`--no-diff`).";
     } else if (targets.length > 0) {
       log.info(
-        `argocd app diff --revision ${base} for ${targets.length} app(s): ${
-          targets.join(", ")
-        }`,
+        `argocd app diff --revision ${base} for ${targets.length} app(s): ${targets.join(
+          ", ",
+        )}`,
       );
       try {
         diffs = await withArgocdServer(args, async () => {
@@ -3630,9 +3650,9 @@ async function cmdReport(args: Args): Promise<number> {
       } catch (err) {
         const why = firstLine(err instanceof Error ? err.message : String(err));
         log.warn(`no diffs: ${why}`);
-        diffNote = `Diffs unavailable: the ArgoCD API was not reachable (${
-          mdCell(why)
-        }).`;
+        diffNote = `Diffs unavailable: the ArgoCD API was not reachable (${mdCell(
+          why,
+        )}).`;
       }
     }
   }
@@ -3647,11 +3667,13 @@ async function cmdReport(args: Args): Promise<number> {
     meta: githubMeta(),
   });
   if (args.out === null) {
-    await Deno.stdout.write(utf8.encode(markdown));
+    await new Promise<void>((r, j) =>
+      process.stdout.write(utf8.encode(markdown), (e) => (e ? j(e) : r())),
+    );
     return 0;
   }
   try {
-    await Deno.writeTextFile(args.out, markdown);
+    await writeFile(args.out, markdown);
   } catch (err) {
     log.error(
       `cannot write ${args.out}: ${err instanceof Error ? err.message : err}`,
@@ -3668,7 +3690,7 @@ async function cmdReport(args: Args): Promise<number> {
 async function main(): Promise<number> {
   let args: Args;
   try {
-    args = parseArgs(Deno.args);
+    args = parseArgs(process.argv.slice(2));
   } catch (err) {
     log.error(err instanceof Error ? err.message : String(err));
     console.error("Run with --help for usage.");
@@ -3701,9 +3723,9 @@ async function main(): Promise<number> {
 
 if (import.meta.main) {
   try {
-    Deno.exit(await main());
+    process.exit(await main());
   } catch (err) {
     log.error(err instanceof Error ? err.message : String(err));
-    Deno.exit(1);
+    process.exit(1);
   }
 }

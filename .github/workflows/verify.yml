@@ -35,6 +35,10 @@ on:
       - 'go.sum'
       - 'Taskfile.yml'
       - 'mise.toml'
+      - 'package.json'
+      - 'bun.lock'
+      - 'tsconfig.json'
+      - 'biome.json'
       - '.github/workflows/verify.yml'
   push:
     branches: [main]
@@ -52,6 +56,10 @@ on:
       - 'go.sum'
       - 'Taskfile.yml'
       - 'mise.toml'
+      - 'package.json'
+      - 'bun.lock'
+      - 'tsconfig.json'
+      - 'biome.json'
       - '.github/workflows/verify.yml'
   workflow_dispatch:
 
@@ -137,10 +145,13 @@ jobs:
       # argocd is the mise.toml pin (= configuration/versions.yaml tools.argocd):
       # the health fixtures are evaluated with `argocd admin settings
       # resource-overrides health`, the same code path the controller runs.
-      - name: Install go, deno, conftest, argocd, task from mise.toml
+      - name: Install go, bun, conftest, argocd, task from mise.toml
         uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
         with:
-          install_args: go deno conftest argocd task
+          install_args: go bun conftest argocd task
+
+      - name: Install script dependencies from bun.lock
+        run: bun install --frozen-lockfile
 
       - name: Tool versions
         run: argocd version --client
@@ -149,20 +160,19 @@ jobs:
         run: conftest verify -p tests/policy
 
       - name: Negative and positive fixtures
-        run: deno run --allow-read --allow-run --allow-env scripts/policy-test.ts
+        run: bun scripts/policy-test.ts
 
       - name: ArgoCD health Lua fixtures
         run: task test:health
 
-      # Every script in scripts/ is TypeScript on Deno and is the automation
+      # Every script in scripts/ is TypeScript run by Bun and is the automation
       # this repo runs; a formatting or type error there breaks a task, not a
       # chart, so it is checked here rather than nowhere.
-      - name: TypeScript format, types and unit tests
+      - name: TypeScript format, lint, types and unit tests
         run: |
           set -euo pipefail
-          deno fmt --check scripts/
-          deno check scripts/*.ts
-          deno test scripts/
+          task scripts:lint
+          task test:scripts
 
       # The README badge row, the tables in docs/ and the counts drawn into
       # .github/homelab.svg are computed from versions.yaml, the chart
@@ -178,16 +188,19 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - name: Install helm and deno from mise.toml
+      - name: Install helm and bun from mise.toml
         uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
         with:
-          install_args: helm deno
+          install_args: helm bun
+
+      - name: Install script dependencies from bun.lock
+        run: bun install --frozen-lockfile
 
       - name: schemas --check
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
-          deno run --allow-net --allow-run --allow-env --allow-read --allow-write scripts/crd-schemas-vendor.ts --check \
+          bun scripts/crd-schemas-vendor.ts --check \
             || { echo "::error::tests/schemas is stale. Run 'task schemas:vendor' and commit the result."; exit 1; }
 
   snapshot:
@@ -279,10 +292,13 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - name: Install go and deno from mise.toml
+      - name: Install go and bun from mise.toml
         uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
         with:
-          install_args: go deno
+          install_args: go bun
+
+      - name: Install script dependencies from bun.lock
+        run: bun install --frozen-lockfile
 
       # The parity check needs the base tag to tell "this PR bumped the tag,
       # so the image does not exist yet" from "the image was never built".
@@ -298,7 +314,7 @@ jobs:
         env:
           BASE: ${{ github.base_ref || 'main' }}
         run: |
-          deno run --allow-net --allow-run --allow-env --allow-read --allow-write \
+          bun \
             scripts/cmp-parity-test.ts --base-ref "origin/$BASE"
 
   # Scaffolder self-test (issue #261 item 21): `homelab scaffold app` for every
@@ -313,10 +329,13 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - name: Install go, helm, deno, kubeconform, conftest, pluto, task from mise.toml
+      - name: Install go, helm, bun, kubeconform, conftest, pluto, task from mise.toml
         uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
         with:
-          install_args: go helm deno kubeconform conftest pluto task
+          install_args: go helm bun kubeconform conftest pluto task
+
+      - name: Install script dependencies from bun.lock
+        run: bun install --frozen-lockfile
 
       - name: Cache kubeconform core schemas
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4

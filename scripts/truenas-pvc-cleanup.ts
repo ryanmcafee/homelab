@@ -1,4 +1,4 @@
-#!/usr/bin/env -S deno run --allow-net --allow-env --allow-read --allow-run
+#!/usr/bin/env bun
 
 /**
  * truenas-pvc-cleanup.ts
@@ -15,7 +15,8 @@
  * scripts/prod-readonly.ts for the pattern).
  */
 
-import { parse as parseYaml } from "jsr:@std/yaml@^1";
+import { readFile } from "node:fs/promises";
+import { parse as parseYaml } from "./lib/yaml.ts";
 
 const VERSION = "1.0.0";
 
@@ -65,7 +66,7 @@ export function envFileValue(text: string, key: string): string | null {
 /** One key of the environment file, or null when the file is unreadable. */
 async function envValue(key: string): Promise<string | null> {
   try {
-    return envFileValue(await Deno.readTextFile(HOMELAB_ENV_FILE), key);
+    return envFileValue(await readFile(HOMELAB_ENV_FILE, "utf8"), key);
   } catch {
     return null;
   }
@@ -81,7 +82,7 @@ async function envValue(key: string): Promise<string | null> {
  */
 async function resolveApiUrl(flag: string | undefined): Promise<string> {
   if (flag) return flag;
-  const env = Deno.env.get("TRUENAS_API_URL")?.trim();
+  const env = process.env.TRUENAS_API_URL?.trim();
   if (env) return env;
   const host = await envValue("TRUENAS_HOSTNAME");
   if (host && DNS_NAME.test(host)) return `https://${host}`;
@@ -163,7 +164,7 @@ Find and clean up orphaned TrueNAS datasets not in use by Kubernetes PVs.
 Cross-references democratic-csi PVs with TrueNAS datasets under storage/k8s and ssd/k8s.
 
 ${bold("USAGE:")}
-  deno run --allow-net --allow-env --allow-read --allow-run scripts/truenas-pvc-cleanup.ts [OPTIONS]
+  bun scripts/truenas-pvc-cleanup.ts [OPTIONS]
 
 ${bold("OPTIONS:")}
   --help              Show this help message
@@ -184,16 +185,16 @@ ${bold("ENVIRONMENT:")}
 
 ${bold("EXAMPLES:")}
   # Preview orphaned datasets (safe, no changes)
-  deno run --allow-net --allow-env --allow-read --allow-run scripts/truenas-pvc-cleanup.ts
+  bun scripts/truenas-pvc-cleanup.ts
 
   # Actually delete orphaned datasets
-  deno run --allow-net --allow-env --allow-read --allow-run scripts/truenas-pvc-cleanup.ts --delete
+  bun scripts/truenas-pvc-cleanup.ts --delete
 
   # Include Released PVs in cleanup
-  deno run --allow-net --allow-env --allow-read --allow-run scripts/truenas-pvc-cleanup.ts --delete --include-released
+  bun scripts/truenas-pvc-cleanup.ts --delete --include-released
 
   # Use with 1Password injection
-  op run --env-file=.env.op -- deno run --allow-net --allow-env --allow-read --allow-run scripts/truenas-pvc-cleanup.ts
+  op run --env-file=.env.op -- bun scripts/truenas-pvc-cleanup.ts
 `);
 }
 
@@ -249,7 +250,7 @@ function parseArgs(args: string[]): {
         break;
       default:
         console.error(red(`ERROR: Unknown argument: ${args[i]}`));
-        Deno.exit(1);
+        process.exit(1);
     }
   }
 
@@ -272,20 +273,23 @@ function formatBytes(bytes: number): string {
 // --- kubectl ---
 
 async function runKubectl(args: string[]): Promise<string> {
-  const cmd = new Deno.Command("kubectl", {
-    args,
-    stdout: "piped",
-    stderr: "piped",
+  const proc = Bun.spawn(["kubectl", ...args], {
+    stdin: "inherit",
+    stdout: "pipe",
+    stderr: "pipe",
   });
 
-  const output = await cmd.output();
+  const [stdout, stderr, code] = await Promise.all([
+    new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
+    proc.exited,
+  ]);
 
-  if (!output.success) {
-    const stderr = new TextDecoder().decode(output.stderr);
+  if (code !== 0) {
     throw new Error(`kubectl ${args.join(" ")} failed: ${stderr}`);
   }
 
-  return new TextDecoder().decode(output.stdout);
+  return stdout;
 }
 
 async function fetchK8sPersistentVolumes(): Promise<Map<string, PvInfo>> {
@@ -336,7 +340,7 @@ async function fetchShares(
     );
   }
 
-  return await resp.json();
+  return (await resp.json()) as NfsShare[];
 }
 
 async function fetchDatasetWithChildren(
@@ -345,10 +349,9 @@ async function fetchDatasetWithChildren(
   parentDataset: string,
 ): Promise<Dataset | null> {
   const encodedId = encodeURIComponent(parentDataset);
-  const resp = await fetch(
-    `${apiUrl}/api/v2.0/pool/dataset/id/${encodedId}`,
-    { headers: { Authorization: `Bearer ${apiKey}` } },
-  );
+  const resp = await fetch(`${apiUrl}/api/v2.0/pool/dataset/id/${encodedId}`, {
+    headers: { Authorization: `Bearer ${apiKey}` },
+  });
 
   if (!resp.ok) {
     if (resp.status === 404) {
@@ -359,7 +362,7 @@ async function fetchDatasetWithChildren(
     );
   }
 
-  return await resp.json();
+  return (await resp.json()) as Dataset;
 }
 
 async function deleteDataset(
@@ -368,17 +371,14 @@ async function deleteDataset(
   datasetId: string,
 ): Promise<void> {
   const encodedId = encodeURIComponent(datasetId);
-  const resp = await fetch(
-    `${apiUrl}/api/v2.0/pool/dataset/id/${encodedId}`,
-    {
-      method: "DELETE",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ recursive: true, force: true }),
+  const resp = await fetch(`${apiUrl}/api/v2.0/pool/dataset/id/${encodedId}`, {
+    method: "DELETE",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
     },
-  );
+    body: JSON.stringify({ recursive: true, force: true }),
+  });
 
   if (!resp.ok) {
     const body = await resp.text();
@@ -393,13 +393,10 @@ async function deleteNfsShare(
   apiKey: string,
   shareId: number,
 ): Promise<void> {
-  const resp = await fetch(
-    `${apiUrl}/api/v2.0/sharing/nfs/id/${shareId}`,
-    {
-      method: "DELETE",
-      headers: { Authorization: `Bearer ${apiKey}` },
-    },
-  );
+  const resp = await fetch(`${apiUrl}/api/v2.0/sharing/nfs/id/${shareId}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${apiKey}` },
+  });
 
   if (!resp.ok) {
     const body = await resp.text();
@@ -439,9 +436,8 @@ function analyzeDatasets(
     const pv = pvMap.get(shortName);
 
     if (pv) {
-      const status: DatasetStatus = pv.phase === "Bound"
-        ? "IN USE"
-        : "RELEASED";
+      const status: DatasetStatus =
+        pv.phase === "Bound" ? "IN USE" : "RELEASED";
       results.push({
         datasetId: ds.id,
         shortName,
@@ -474,22 +470,22 @@ function printSummaryTable(analyses: DatasetAnalysis[]): void {
   }
 
   // Column headers
-  const header = `  ${"DATASET".padEnd(52)} ${"SIZE".padStart(10)} ${
-    "STATUS".padEnd(10)
-  } ${"PV PHASE".padEnd(10)} ${"PVC".padEnd(40)}`;
+  const header = `  ${"DATASET".padEnd(52)} ${"SIZE".padStart(10)} ${"STATUS".padEnd(
+    10,
+  )} ${"PV PHASE".padEnd(10)} ${"PVC".padEnd(40)}`;
   console.log(bold(header));
   console.log("  " + "-".repeat(header.trimStart().length));
 
   for (const a of analyses) {
-    const datasetLabel = a.datasetId.length > 50
-      ? "..." + a.datasetId.slice(-47)
-      : a.datasetId.padEnd(50);
+    const datasetLabel =
+      a.datasetId.length > 50
+        ? "..." + a.datasetId.slice(-47)
+        : a.datasetId.padEnd(50);
     const size = formatBytes(a.usedBytes).padStart(10);
     const phase = (a.pvPhase || "-").padEnd(10);
     const pvc = a.pvcName ? `${a.pvcNamespace}/${a.pvcName}` : "-";
-    const pvcLabel = pvc.length > 38
-      ? pvc.slice(0, 35) + "..."
-      : pvc.padEnd(40);
+    const pvcLabel =
+      pvc.length > 38 ? pvc.slice(0, 35) + "..." : pvc.padEnd(40);
 
     let statusLabel: string;
     switch (a.status) {
@@ -515,8 +511,7 @@ function printSummaryTable(analyses: DatasetAnalysis[]): void {
 
 async function confirmDeletion(count: number): Promise<boolean> {
   console.log("");
-  const msg =
-    `⚠ About to delete ${count} orphaned dataset(s) and their NFS shares. This is irreversible.`;
+  const msg = `⚠ About to delete ${count} orphaned dataset(s) and their NFS shares. This is irreversible.`;
   console.log(yellow(msg));
   const answer = prompt("Type 'yes' to confirm deletion:");
   return answer?.toLowerCase() === "yes";
@@ -525,20 +520,20 @@ async function confirmDeletion(count: number): Promise<boolean> {
 // --- Main ---
 
 async function main(): Promise<void> {
-  const parsed = parseArgs(Deno.args);
+  const parsed = parseArgs(process.argv.slice(2));
 
   if (parsed.help) {
     printHelp();
-    Deno.exit(0);
+    process.exit(0);
   }
 
-  const apiKey = Deno.env.get("TRUENAS_API_KEY");
+  const apiKey = process.env.TRUENAS_API_KEY;
   if (!apiKey) {
     console.error(
       red("ERROR: TRUENAS_API_KEY environment variable is required"),
     );
     console.error("Set it directly or use: op run --env-file=.env.op -- ...");
-    Deno.exit(1);
+    process.exit(1);
   }
 
   const opts = { ...parsed, apiUrl: await resolveApiUrl(parsed.apiUrl) };
@@ -555,10 +550,10 @@ async function main(): Promise<void> {
     fetchK8sPersistentVolumes(),
     fetchShares(opts.apiUrl, apiKey),
     ...DATASET_PARENTS.map((p) =>
-      fetchDatasetWithChildren(opts.apiUrl, apiKey, p)
+      fetchDatasetWithChildren(opts.apiUrl, apiKey, p),
     ),
     ...SNAPSHOT_PARENTS.map((p) =>
-      fetchDatasetWithChildren(opts.apiUrl, apiKey, p)
+      fetchDatasetWithChildren(opts.apiUrl, apiKey, p),
     ),
   ]);
 
@@ -567,7 +562,7 @@ async function main(): Promise<void> {
     console.error(
       red(`ERROR: Failed to fetch Kubernetes PVs: ${pvResult.reason}`),
     );
-    Deno.exit(1);
+    process.exit(1);
   }
   const pvMap = pvResult.value;
   console.log(
@@ -579,7 +574,7 @@ async function main(): Promise<void> {
     console.error(
       red(`ERROR: Failed to fetch NFS shares: ${sharesResult.reason}`),
     );
-    Deno.exit(1);
+    process.exit(1);
   }
   const allShares = sharesResult.value;
 
@@ -681,15 +676,15 @@ async function main(): Promise<void> {
   if (targets.length === 0) {
     console.log("");
     console.log(green("OK: No orphaned datasets found. Nothing to clean up."));
-    Deno.exit(0);
+    process.exit(0);
   }
 
   console.log("");
   console.log(
     bold(
-      `Reclaimable space: ${
-        formatBytes(totalReclaimable)
-      } across ${targets.length} dataset(s)`,
+      `Reclaimable space: ${formatBytes(
+        totalReclaimable,
+      )} across ${targets.length} dataset(s)`,
     ),
   );
   if (opts.includeReleased && released.length > 0) {
@@ -713,7 +708,7 @@ async function main(): Promise<void> {
         yellow("  Add --include-released to also target Released PVs"),
       );
     }
-    Deno.exit(0);
+    process.exit(0);
   }
 
   // Confirm before deleting
@@ -721,7 +716,7 @@ async function main(): Promise<void> {
     const confirmed = await confirmDeletion(targets.length);
     if (!confirmed) {
       console.log(yellow("Aborted. No changes made."));
-      Deno.exit(0);
+      process.exit(0);
     }
   } else {
     console.log(
@@ -802,25 +797,22 @@ async function main(): Promise<void> {
     console.log(red(`  Errors:  ${errors}`));
   }
   console.log(
-    `  Space reclaimed: ~${
-      formatBytes(
-        targets.filter((_, i) => i < deleted).reduce(
-          (sum, a) => sum + a.usedBytes,
-          0,
-        ),
-      )
-    }`,
+    `  Space reclaimed: ~${formatBytes(
+      targets
+        .filter((_, i) => i < deleted)
+        .reduce((sum, a) => sum + a.usedBytes, 0),
+    )}`,
   );
 
   if (errors > 0) {
-    Deno.exit(1);
+    process.exit(1);
   }
 }
 
 main().catch((err) => {
   if (err instanceof UsageError) {
     console.error(red(`ERROR: ${err.message}`));
-    Deno.exit(1);
+    process.exit(1);
   }
   throw err;
 });

@@ -1,4 +1,7 @@
-#!/usr/bin/env -S deno run --allow-read --allow-write --allow-run --allow-env
+#!/usr/bin/env bun
+
+import { stat } from "node:fs/promises";
+import { isNotFound } from "./lib/errors.ts";
 
 /**
  * config-export-hook.ts
@@ -27,16 +30,20 @@ const yellow = (s: string) => `\x1b[33m${s}\x1b[0m`;
 async function run(
   cmd: string[],
 ): Promise<{ success: boolean; stdout: string; stderr: string }> {
-  const p = new Deno.Command(cmd[0], {
-    args: cmd.slice(1),
-    stdout: "piped",
-    stderr: "piped",
+  const p = Bun.spawn(cmd, {
+    stdin: "inherit",
+    stdout: "pipe",
+    stderr: "pipe",
   });
-  const output = await p.output();
+  const [stdout, stderr, code] = await Promise.all([
+    new Response(p.stdout).text(),
+    new Response(p.stderr).text(),
+    p.exited,
+  ]);
   return {
-    success: output.success,
-    stdout: new TextDecoder().decode(output.stdout).trim(),
-    stderr: new TextDecoder().decode(output.stderr).trim(),
+    success: code === 0,
+    stdout: stdout.trim(),
+    stderr: stderr.trim(),
   };
 }
 
@@ -54,7 +61,7 @@ async function configExport(label: string, args: string[]): Promise<void> {
   if (!result.success) {
     console.error(red(`ERROR: Config export failed (${label})`));
     if (result.stderr) console.error(red(result.stderr));
-    Deno.exit(1);
+    process.exit(1);
   }
 
   if (result.stdout) console.log(result.stdout);
@@ -92,9 +99,9 @@ async function exportHomelab(): Promise<void> {
   // templates with homelab.yaml.example.
   const envFile = "configuration/environments/homelab.yaml";
   try {
-    await Deno.stat(envFile);
+    await stat(envFile);
   } catch (err) {
-    if (err instanceof Deno.errors.NotFound) {
+    if (isNotFound(err)) {
       console.log(
         yellow(
           `WARN: ${envFile} not found; skipping homelab config export (nothing to regenerate)`,
@@ -126,5 +133,5 @@ async function main() {
 
 main().catch((err) => {
   console.error(red(`ERROR: ${err.message}`));
-  Deno.exit(1);
+  process.exit(1);
 });

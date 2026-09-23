@@ -1,0 +1,19 @@
+{
+  "name": "homelab-scripts",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "fmt": "biome format --write scripts",
+    "lint": "biome check scripts && tsc --noEmit -p .",
+    "test": "bun test scripts"
+  },
+  "dependencies": {
+    "js-yaml": "^4.3.2"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.5.14",
+    "@types/bun": "1.4.2",
+    "@types/js-yaml": "4.0.9",
+    "typescript": "7.0.2"
+  }
+}

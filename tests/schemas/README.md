@@ -27,7 +27,7 @@ filenames are always `lowercase-kind_version.json` (e.g.
 
 ## How it's generated
 
-`scripts/crd-schemas-vendor.ts` (a Deno/TypeScript script — see the repo rule against
+`scripts/crd-schemas-vendor.ts` (a TypeScript script run by Bun — see the repo rule against
 Bash/Python scripting) reads `sources.yaml`, resolves each source's chart version from
 `configuration/versions.yaml` (`charts.<versionKey>` — **never** hard-coded here), fetches
 the upstream CRD manifests, and converts each requested kind's `openAPIV3Schema` into a
@@ -93,8 +93,7 @@ task schemas:check           # regenerate into a temp dir and fail if anything d
 or directly:
 
 ```
-deno run --allow-net --allow-run --allow-env --allow-read --allow-write \
-  scripts/crd-schemas-vendor.ts [--dry-run] [--check] [--only <source-name>]
+bun scripts/crd-schemas-vendor.ts [--dry-run] [--check] [--only <source-name>]
 ```
 
 Run `--check` in CI after a Renovate chart-version bump lands: Renovate can't run repo
@@ -111,7 +110,7 @@ instruction (which files are `added`, `changed`, or `removed`) until someone run
    `github: {repo, ref, paths}`, an optional `helmArgs` list (`--set`/`--values` flags
    needed to get the CRD templates to render, e.g. `crds.enabled=true`), and the list of
    `kinds` to vendor.
-2. Run `task schemas:vendor` (or the `deno run` invocation above with `--only <name>`
+2. Run `task schemas:vendor` (or the `bun` invocation above with `--only <name>`
    while iterating).
 3. If a requested kind isn't found, the script errors out and lists the kinds it did
    find in that source — use that to fix a typo or confirm the CRD isn't actually

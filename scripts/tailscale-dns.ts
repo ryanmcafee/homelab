@@ -1,4 +1,4 @@
-#!/usr/bin/env -S deno run --allow-net --allow-run --allow-env --allow-read
+#!/usr/bin/env bun
 
 /**
  * tailscale-dns.ts
@@ -35,12 +35,14 @@
  *   task tailscale:dns:status
  *   task tailscale:dns:apply -- --dry-run
  *   task tailscale:dns:apply
- *   deno run ... scripts/tailscale-dns.ts --help
+ *   bun scripts/tailscale-dns.ts --help
  *
  * Exit codes: 0 = success; 1 = a request failed; 2 = argument error.
  */
 
-import { parse as parseYaml } from "jsr:@std/yaml@^1";
+import { readFile } from "node:fs/promises";
+import { isNotFound } from "./lib/errors.ts";
+import { parse as parseYaml } from "./lib/yaml.ts";
 
 // ============================================================================
 // Logging
@@ -297,7 +299,7 @@ export interface DnsStatus {
 }
 
 export function formatStatus(s: DnsStatus): string {
-  const list = (xs: string[]) => xs.length ? xs.join(", ") : "(none)";
+  const list = (xs: string[]) => (xs.length ? xs.join(", ") : "(none)");
   const lines = [
     `MagicDNS: ${s.magicDNS ? "enabled" : "disabled"}`,
     `Global nameservers: ${list(s.nameservers)}`,
@@ -322,20 +324,19 @@ interface RunResult {
 
 async function run(cmd: string[]): Promise<RunResult> {
   try {
-    const out = await new Deno.Command(cmd[0], {
-      args: cmd.slice(1),
-      stdin: "null",
-      stdout: "piped",
-      stderr: "piped",
-    }).output();
-    const dec = new TextDecoder();
-    return {
-      code: out.code,
-      stdout: dec.decode(out.stdout),
-      stderr: dec.decode(out.stderr),
-    };
+    const p = Bun.spawn(cmd, {
+      stdin: "ignore",
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const [stdout, stderr, code] = await Promise.all([
+      new Response(p.stdout).text(),
+      new Response(p.stderr).text(),
+      p.exited,
+    ]);
+    return { code, stdout, stderr };
   } catch (err) {
-    if (err instanceof Deno.errors.NotFound) {
+    if (isNotFound(err)) {
       return {
         code: 127,
         stdout: "",
@@ -378,22 +379,25 @@ async function oauthToken(oauthRef: string): Promise<string> {
       `OAuth token exchange failed (HTTP ${res.status}); check the client in ${oauthRef} exists and is not revoked`,
     );
   }
-  const json = await res.json() as { access_token?: string };
+  const json = (await res.json()) as { access_token?: string };
   if (!json.access_token) throw new Error("OAuth response had no access_token");
   return json.access_token;
 }
 
 class TailscaleApi {
-  constructor(private token: string, private tailnet: string) {}
+  constructor(
+    private token: string,
+    private tailnet: string,
+  ) {}
 
   private async request(
     method: "GET" | "PATCH",
     path: string,
     body?: unknown,
   ): Promise<unknown> {
-    const url = `${API_BASE}/tailnet/${
-      encodeURIComponent(this.tailnet)
-    }/dns/${path}`;
+    const url = `${API_BASE}/tailnet/${encodeURIComponent(
+      this.tailnet,
+    )}/dns/${path}`;
     const res = await fetch(url, {
       method,
       headers: {
@@ -405,9 +409,10 @@ class TailscaleApi {
     });
     if (!res.ok) {
       const text = (await res.text()).trim();
-      const hint = res.status === 403
-        ? " — the OAuth client needs the `dns` scope (read and write)"
-        : "";
+      const hint =
+        res.status === 403
+          ? " — the OAuth client needs the `dns` scope (read and write)"
+          : "";
       throw new Error(
         `${method} ${url} failed (HTTP ${res.status}): ${
           text || "no body"
@@ -458,9 +463,8 @@ async function cmdStatus(args: Args): Promise<number> {
 }
 
 function describe(plan: Plan, domain: string): string {
-  const now = plan.current === undefined
-    ? "unset"
-    : plan.current.join(", ") || "(empty)";
+  const now =
+    plan.current === undefined ? "unset" : plan.current.join(", ") || "(empty)";
   const want = plan.patch[domain];
   return `${domain}: ${now} -> ${want === null ? "unset" : want.join(", ")}`;
 }
@@ -470,9 +474,9 @@ async function cmdApply(args: Args): Promise<number> {
   if (args.dryRun) {
     const plan = planSplitDns({}, domain, args.nameservers);
     log.dry(
-      `would PATCH ${API_BASE}/tailnet/${args.tailnet}/dns/split-dns with ${
-        JSON.stringify(plan.patch)
-      }`,
+      `would PATCH ${API_BASE}/tailnet/${args.tailnet}/dns/split-dns with ${JSON.stringify(
+        plan.patch,
+      )}`,
     );
     log.dry("no 1Password or API access in --dry-run; current state not read");
     return 0;
@@ -505,9 +509,9 @@ async function cmdRemove(args: Args): Promise<number> {
   const domain = args.domain!;
   if (args.dryRun) {
     log.dry(
-      `would PATCH ${API_BASE}/tailnet/${args.tailnet}/dns/split-dns with ${
-        JSON.stringify({ [domain]: null })
-      }`,
+      `would PATCH ${API_BASE}/tailnet/${args.tailnet}/dns/split-dns with ${JSON.stringify(
+        { [domain]: null },
+      )}`,
     );
     return 0;
   }
@@ -556,7 +560,7 @@ Exit codes: 0 success, 1 request failed, 2 usage error.`,
 async function readEnvDefaults(): Promise<ArgEnv> {
   let text: string;
   try {
-    text = await Deno.readTextFile(HOMELAB_ENV_FILE);
+    text = await readFile(HOMELAB_ENV_FILE, "utf8");
   } catch {
     return {};
   }
@@ -569,7 +573,7 @@ async function readEnvDefaults(): Promise<ArgEnv> {
 async function main(): Promise<number> {
   let args: Args;
   try {
-    args = parseArgs(Deno.args, await readEnvDefaults());
+    args = parseArgs(process.argv.slice(2), await readEnvDefaults());
   } catch (err) {
     if (err instanceof UsageError) {
       log.error(err.message);
@@ -597,5 +601,5 @@ async function main(): Promise<number> {
 }
 
 if (import.meta.main) {
-  Deno.exit(await main());
+  process.exit(await main());
 }

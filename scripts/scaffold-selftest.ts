@@ -1,4 +1,4 @@
-#!/usr/bin/env -S deno run --allow-read --allow-write --allow-run --allow-env
+#!/usr/bin/env bun
 
 /**
  * scaffold-selftest.ts
@@ -30,7 +30,7 @@
  * generated health Lua.
  *
  * Usage:
- *   deno run --allow-read --allow-write --allow-run --allow-env scripts/scaffold-selftest.ts
+ *   bun scripts/scaffold-selftest.ts
  *   task test:scaffold
  *   task test:scaffold -- --only helm,operator --keep
  *   task test:scaffold -- --bin bin/homelab       # reuse a built CLI
@@ -38,6 +38,12 @@
  *
  * Exit codes: 0 = every case passes; 1 = a case failed; 2 = usage error.
  */
+
+import type { Stats } from "node:fs";
+import { copyFile, lstat, mkdir, mkdtemp, readdir, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { isNotFound } from "./lib/errors.ts";
 
 // ============================================================================
 // Logging
@@ -277,8 +283,10 @@ export function casePassed(r: CaseResult): boolean {
   if (r.scaffoldErrors.length > 0 || r.verifyError) return false;
   if (!r.classification) return false;
   if (r.extras.some((e) => e.status === "fail")) return false;
-  return r.classification.newFailures.length === 0 &&
-    r.classification.worsened.length === 0;
+  return (
+    r.classification.newFailures.length === 0 &&
+    r.classification.worsened.length === 0
+  );
 }
 
 /**
@@ -301,7 +309,7 @@ export function parseVerifyOutput(stdout: string): VerifyResult {
 /** Paths the scaffolder reported as created ("[OK] created  <path>"). */
 export function createdPaths(stdout: string): string[] {
   const out: string[] = [];
-  // deno-lint-ignore no-control-regex
+  // biome-ignore lint/suspicious/noControlCharactersInRegex: strips ANSI colour escapes
   const clean = stdout.replace(/\x1b\[[0-9;]*m/g, "");
   for (const line of clean.split("\n")) {
     const m = /\bcreated\s+(\S+)\s*$/.exec(line);
@@ -313,7 +321,7 @@ export function createdPaths(stdout: string): string[] {
 /** Every path the scaffolder reported as created or modified. */
 export function changedPaths(stdout: string): string[] {
   const out: string[] = [];
-  // deno-lint-ignore no-control-regex
+  // biome-ignore lint/suspicious/noControlCharactersInRegex: strips ANSI colour escapes
   const clean = stdout.replace(/\x1b\[[0-9;]*m/g, "");
   for (const line of clean.split("\n")) {
     const m = /\b(?:created|modified)\s+(\S+)\s*$/.exec(line);
@@ -328,17 +336,20 @@ export function changedPaths(stdout: string): string[] {
  * change.
  */
 export function guardTargets(paths: string[]): string[] {
-  return paths.filter((p) =>
-    p.startsWith("configuration/") ||
-    /^charts\/[^/]+\/values-homelab\.yaml$/.test(p)
+  return paths.filter(
+    (p) =>
+      p.startsWith("configuration/") ||
+      /^charts\/[^/]+\/values-homelab\.yaml$/.test(p),
   );
 }
 
 /** Created files yamllint should check: plain YAML outside Helm templates. */
 export function yamllintTargets(paths: string[]): string[] {
-  return paths.filter((p) =>
-    /\.ya?ml$/.test(p) && !/^charts\/[^/]+\/templates\//.test(p) &&
-    !p.startsWith("tests/snapshots/")
+  return paths.filter(
+    (p) =>
+      /\.ya?ml$/.test(p) &&
+      !/^charts\/[^/]+\/templates\//.test(p) &&
+      !p.startsWith("tests/snapshots/"),
   );
 }
 
@@ -355,7 +366,7 @@ export function healthStems(paths: string[]): string[] {
 /** chainsaw test files among created files. */
 export function e2eTests(paths: string[]): string[] {
   return paths.filter((p) =>
-    /^tests\/e2e\/[^/]+\/chainsaw-test\.yaml$/.test(p)
+    /^tests\/e2e\/[^/]+\/chainsaw-test\.yaml$/.test(p),
   );
 }
 
@@ -407,9 +418,9 @@ export function renderSummary(results: CaseResult[]): string {
   lines.push(
     failed.length === 0
       ? `All ${results.length} case(s) pass level 0.`
-      : `${failed.length} of ${results.length} case(s) failed: ${
-        failed.join(", ")
-      }`,
+      : `${failed.length} of ${results.length} case(s) failed: ${failed.join(
+          ", ",
+        )}`,
   );
   return lines.join("\n");
 }
@@ -458,20 +469,20 @@ export function parseArgs(argv: string[]): Args {
   const ids = CASES.map((c) => c.id);
   for (const o of args.only) {
     if (!ids.includes(o)) {
-      throw new UsageError(
-        `unknown case ${o} (want one of ${ids.join(", ")})`,
-      );
+      throw new UsageError(`unknown case ${o} (want one of ${ids.join(", ")})`);
     }
   }
   return args;
 }
 
 function splitList(s: string): string[] {
-  return s.split(",").map((x) => x.trim()).filter((x) => x !== "");
+  return s
+    .split(",")
+    .map((x) => x.trim())
+    .filter((x) => x !== "");
 }
 
-const HELP =
-  `scaffold-selftest.ts: prove homelab scaffold app output passes level 0
+const HELP = `scaffold-selftest.ts: prove homelab scaffold app output passes level 0
 
 Copies the repository (git ls-files, working-tree content) to a temporary
 directory, builds the homelab CLI, and for every case scaffolds its apps into a
@@ -513,21 +524,21 @@ async function run(
   cwd: string,
 ): Promise<RunResult> {
   try {
-    const out = await new Deno.Command(cmd, {
-      args,
+    const p = Bun.spawn([cmd, ...args], {
       cwd,
-      stdout: "piped",
-      stderr: "piped",
-      env: childEnv,
-    }).output();
-    const dec = new TextDecoder();
-    return {
-      code: out.code,
-      stdout: dec.decode(out.stdout),
-      stderr: dec.decode(out.stderr),
-    };
+      stdin: "inherit",
+      stdout: "pipe",
+      stderr: "pipe",
+      env: { ...process.env, ...childEnv },
+    });
+    const [stdout, stderr, code] = await Promise.all([
+      new Response(p.stdout).text(),
+      new Response(p.stderr).text(),
+      p.exited,
+    ]);
+    return { code, stdout, stderr };
   } catch (e) {
-    if (e instanceof Deno.errors.NotFound) {
+    if (isNotFound(e)) {
       return { code: 127, stdout: "", stderr: `${cmd}: not found` };
     }
     throw e;
@@ -535,7 +546,7 @@ async function run(
 }
 
 async function which(tool: string): Promise<boolean> {
-  const r = await run(tool, ["--help"], Deno.cwd());
+  const r = await run(tool, ["--help"], process.cwd());
   return r.code !== 127;
 }
 
@@ -557,20 +568,20 @@ async function copyRepo(root: string, dest: string): Promise<number> {
   for (const rel of r.stdout.split("\0")) {
     if (rel === "") continue;
     const src = `${root}/${rel}`;
-    let info: Deno.FileInfo;
+    let info: Stats;
     try {
-      info = await Deno.lstat(src);
+      info = await lstat(src);
     } catch {
       continue; // tracked but deleted in the working tree
     }
-    if (!info.isFile) continue;
+    if (!info.isFile()) continue;
     const target = `${dest}/${rel}`;
     const dir = dirname(target);
     if (!made.has(dir)) {
-      await Deno.mkdir(dir, { recursive: true });
+      await mkdir(dir, { recursive: true });
       made.add(dir);
     }
-    await Deno.copyFile(src, target);
+    await copyFile(src, target);
     n++;
   }
   return n;
@@ -578,12 +589,12 @@ async function copyRepo(root: string, dest: string): Promise<number> {
 
 /** Recursively copy a directory tree of regular files. */
 async function copyTree(src: string, dest: string): Promise<void> {
-  await Deno.mkdir(dest, { recursive: true });
-  for await (const e of Deno.readDir(src)) {
+  await mkdir(dest, { recursive: true });
+  for (const e of await readdir(src, { withFileTypes: true })) {
     const from = `${src}/${e.name}`;
     const to = `${dest}/${e.name}`;
-    if (e.isDirectory) await copyTree(from, to);
-    else if (e.isFile) await Deno.copyFile(from, to);
+    if (e.isDirectory()) await copyTree(from, to);
+    else if (e.isFile()) await copyFile(from, to);
   }
 }
 
@@ -610,19 +621,18 @@ async function extraChecks(
   // must pass it (shape rules; the copy has no real homelab.yaml).
   const guarded = guardTargets(changed);
   if (guarded.length > 0) {
-    const r = await run(bin, [
-      "config",
-      "guard",
-      "--set",
-      "homelab",
-      ...guarded,
-    ], dir);
+    const r = await run(
+      bin,
+      ["config", "guard", "--set", "homelab", ...guarded],
+      dir,
+    );
     out.push({
       name: `config guard (${guarded.length} files)`,
       status: r.code === 0 ? "pass" : "fail",
-      detail: r.code === 0
-        ? ""
-        : (r.stdout + r.stderr).trim().split("\n").slice(-6).join(" | "),
+      detail:
+        r.code === 0
+          ? ""
+          : (r.stdout + r.stderr).trim().split("\n").slice(-6).join(" | "),
     });
   }
 
@@ -639,9 +649,10 @@ async function extraChecks(
       out.push({
         name: `chainsaw lint ${t}`,
         status: r.code === 0 ? "pass" : "fail",
-        detail: r.code === 0
-          ? ""
-          : (r.stdout + r.stderr).trim().split("\n").slice(-5).join(" | "),
+        detail:
+          r.code === 0
+            ? ""
+            : (r.stdout + r.stderr).trim().split("\n").slice(-5).join(" | "),
       });
     }
   }
@@ -654,20 +665,17 @@ async function extraChecks(
       detail: "yamllint not installed",
     });
   } else if (yml.length > 0) {
-    const r = await run("yamllint", [
-      "-c",
-      ".yamllint",
-      "-f",
-      "parsable",
-      ...yml,
-    ], dir);
+    const r = await run(
+      "yamllint",
+      ["-c", ".yamllint", "-f", "parsable", ...yml],
+      dir,
+    );
     // Warnings (line length, document start) do not fail yamllint; errors do.
     out.push({
       name: `yamllint (${yml.length} files)`,
       status: r.code === 0 ? "pass" : "fail",
-      detail: r.code === 0
-        ? ""
-        : r.stdout.trim().split("\n").slice(0, 5).join(" | "),
+      detail:
+        r.code === 0 ? "" : r.stdout.trim().split("\n").slice(0, 5).join(" | "),
     });
   }
 
@@ -681,22 +689,18 @@ async function extraChecks(
       });
     } else {
       for (const stem of stems) {
-        const r = await run("deno", [
-          "run",
-          "--allow-read",
-          "--allow-run",
-          "--allow-env",
-          "--allow-write",
-          "scripts/health-test.ts",
-          "--only",
-          stem,
-        ], dir);
+        const r = await run(
+          process.execPath,
+          ["scripts/health-test.ts", "--only", stem],
+          dir,
+        );
         out.push({
           name: `health ${stem}`,
           status: r.code === 0 ? "pass" : "fail",
-          detail: r.code === 0
-            ? ""
-            : (r.stdout + r.stderr).trim().split("\n").slice(-5).join(" | "),
+          detail:
+            r.code === 0
+              ? ""
+              : (r.stdout + r.stderr).trim().split("\n").slice(-5).join(" | "),
         });
       }
     }
@@ -707,7 +711,7 @@ async function extraChecks(
 async function main(): Promise<number> {
   let args: Args;
   try {
-    args = parseArgs(Deno.args);
+    args = parseArgs(process.argv.slice(2));
   } catch (e) {
     if (e instanceof UsageError) {
       log.error(e.message);
@@ -720,9 +724,10 @@ async function main(): Promise<number> {
     console.log(HELP);
     return 0;
   }
-  const cases = args.only.length > 0
-    ? CASES.filter((c) => args.only.includes(c.id))
-    : CASES;
+  const cases =
+    args.only.length > 0
+      ? CASES.filter((c) => args.only.includes(c.id))
+      : CASES;
 
   if (args.dryRun) {
     log.info("dry run: nothing is copied, built or run");
@@ -736,18 +741,20 @@ async function main(): Promise<number> {
     return 0;
   }
 
-  const root = (await run("git", ["rev-parse", "--show-toplevel"], Deno.cwd()))
-    .stdout.trim();
+  const root = (
+    await run("git", ["rev-parse", "--show-toplevel"], process.cwd())
+  ).stdout.trim();
   if (!root) {
     log.error("not inside a git checkout");
     return 1;
   }
-  const tmp = await Deno.makeTempDir({ prefix: "homelab-scaffold-selftest-" });
+  const tmp = await mkdtemp(join(tmpdir(), "homelab-scaffold-selftest-"));
   childEnv.MISE_TRUSTED_CONFIG_PATHS = [
     tmp,
-    Deno.env.get("MISE_TRUSTED_CONFIG_PATHS"),
+    process.env.MISE_TRUSTED_CONFIG_PATHS,
   ]
-    .filter((x) => x).join(":");
+    .filter((x) => x)
+    .join(":");
   try {
     const base = `${tmp}/base`;
     const n = await copyRepo(root, base);
@@ -793,9 +800,11 @@ async function main(): Promise<number> {
         const s = await run(bin, ["scaffold", "app", a.name, ...a.args], dir);
         if (s.code !== 0) {
           r.scaffoldErrors.push(
-            `${a.name} (exit ${s.code}): ${
-              (s.stderr + s.stdout).trim().split("\n").slice(-12).join(" | ")
-            }`,
+            `${a.name} (exit ${s.code}): ${(s.stderr + s.stdout)
+              .trim()
+              .split("\n")
+              .slice(-12)
+              .join(" | ")}`,
           );
         }
         created.push(...createdPaths(s.stdout));
@@ -821,10 +830,10 @@ async function main(): Promise<number> {
     }
     return results.every(casePassed) ? 0 : 1;
   } finally {
-    if (!args.keep) await Deno.remove(tmp, { recursive: true });
+    if (!args.keep) await rm(tmp, { recursive: true });
   }
 }
 
 if (import.meta.main) {
-  Deno.exit(await main());
+  process.exit(await main());
 }

@@ -87,7 +87,7 @@ func TestValidateTable(t *testing.T) {
 			args:     []string{"validate"},
 			env:      stubEnv{},
 			wantCode: ExitOK,
-			wantRows: []string{"mise", "task", "deno", "docker", "kind", "kubectl", "helm", "argocd", "chainsaw"},
+			wantRows: []string{"mise", "task", "bun", "docker", "kind", "kubectl", "helm", "argocd", "chainsaw"},
 			// localdev never runs the production rows
 			wantNoRows: []string{"terragrunt", "talosctl", "op", "proxmox"},
 			wantMark:   "✔",

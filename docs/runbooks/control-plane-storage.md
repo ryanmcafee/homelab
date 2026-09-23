@@ -167,8 +167,7 @@ Read-only, safe for agents:
 
 ```bash
 # every control-plane disk on cp-storage, etcd healthy, /readyz ok, the VIP held by one node
-deno run --allow-net --allow-run --allow-env --allow-read --allow-write \
-  scripts/cp-storage-migrate.ts verify [--prometheus-url http://127.0.0.1:9091]
+bun scripts/cp-storage-migrate.ts verify [--prometheus-url http://127.0.0.1:9091]
 
 # etcd is healthy and now scraped
 talosctl -n <CP1_IP>,<CP2_IP>,<CP3_IP> etcd status

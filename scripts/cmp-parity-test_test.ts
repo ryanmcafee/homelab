@@ -1,4 +1,4 @@
-#!/usr/bin/env -S deno test
+#!/usr/bin/env -S bun test
 /**
  * Unit tests for the pure decision logic in cmp-parity-test.ts.
  *
@@ -6,48 +6,46 @@
  * the one branch that decides whether a missing image tag is a failure or the
  * expected state of a PR that bumped it.
  *
- *   deno test scripts/
+ *   bun test scripts/cmp-parity-test_test.ts
  */
 
-import { assertEquals } from "jsr:@std/assert@^1";
+import { test } from "bun:test";
+import { assertEquals } from "./lib/assert.ts";
 import {
   decideMissingTag,
   isPlatformMismatchError,
   isUnknownTagError,
 } from "./cmp-parity-test.ts";
 
-Deno.test("decideMissingTag: a bumped tag is not a failure", () => {
+test("decideMissingTag: a bumped tag is not a failure", () => {
   // cmp-image.yml builds the image on merge to main, so the PR that bumps the
   // tag necessarily references an image the registry does not have yet.
   assertEquals(decideMissingTag({ pinned: "0.1.12", base: "0.1.7" }), "bumped");
   assertEquals(decideMissingTag({ pinned: "0.2.0", base: "0.1.12" }), "bumped");
 });
 
-Deno.test("decideMissingTag: an unbumped missing tag is a failure", () => {
+test("decideMissingTag: an unbumped missing tag is a failure", () => {
   // Same tag on both sides means nothing bumped it, so the image should exist
   // and does not: the cluster would pull nothing.
   assertEquals(decideMissingTag({ pinned: "0.1.7", base: "0.1.7" }), "missing");
 });
 
-Deno.test("decideMissingTag: whitespace does not change the verdict", () => {
+test("decideMissingTag: whitespace does not change the verdict", () => {
   assertEquals(
     decideMissingTag({ pinned: " 0.1.7 ", base: "0.1.7\n" }),
     "missing",
   );
-  assertEquals(
-    decideMissingTag({ pinned: "0.1.8", base: " 0.1.7" }),
-    "bumped",
-  );
+  assertEquals(decideMissingTag({ pinned: "0.1.8", base: " 0.1.7" }), "bumped");
 });
 
-Deno.test("decideMissingTag: an unreadable base ref fails closed", () => {
+test("decideMissingTag: an unreadable base ref fails closed", () => {
   // The check must not pass because it could not find out.
   assertEquals(decideMissingTag({ pinned: "0.1.12", base: null }), "missing");
   assertEquals(decideMissingTag({ pinned: "0.1.12", base: "" }), "missing");
   assertEquals(decideMissingTag({ pinned: "0.1.12", base: "   " }), "missing");
 });
 
-Deno.test("isUnknownTagError: recognises the registry's wordings", () => {
+test("isUnknownTagError: recognises the registry's wordings", () => {
   const unknown = [
     "Error response from daemon: manifest unknown",
     "Error response from daemon: manifest for ghcr.io/ryanmcafee/homelab-cmp:0.1.10 not found: manifest unknown: manifest unknown",
@@ -64,7 +62,7 @@ Deno.test("isUnknownTagError: recognises the registry's wordings", () => {
   }
 });
 
-Deno.test("isUnknownTagError: every other failure stays a failure", () => {
+test("isUnknownTagError: every other failure stays a failure", () => {
   const other = [
     "Cannot connect to the Docker daemon at unix:///var/run/docker.sock",
     "unauthorized: authentication required",
@@ -86,7 +84,7 @@ Deno.test("isUnknownTagError: every other failure stays a failure", () => {
   }
 });
 
-Deno.test("isPlatformMismatchError: the amd64-only image on an arm64 machine", () => {
+test("isPlatformMismatchError: the amd64-only image on an arm64 machine", () => {
   // cmp-image.yml builds without a `platforms:` list, so the image is
   // linux/amd64 only and a pull on an arm64 workstation fails this way. The fix
   // is --platform, not a rebuild, so it must not be confused with either a
@@ -101,7 +99,7 @@ Deno.test("isPlatformMismatchError: the amd64-only image on an arm64 machine", (
   }
 });
 
-Deno.test("isPlatformMismatchError: a genuinely missing tag is not a platform problem", () => {
+test("isPlatformMismatchError: a genuinely missing tag is not a platform problem", () => {
   const notPlatform = [
     "Error response from daemon: manifest unknown",
     'Error response from daemon: failed to resolve reference "ghcr.io/x:1": ghcr.io/x:1: not found',

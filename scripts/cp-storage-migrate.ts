@@ -1,4 +1,4 @@
-#!/usr/bin/env -S deno run --allow-net --allow-run --allow-env --allow-read --allow-write
+#!/usr/bin/env bun
 
 /**
  * cp-storage-migrate.ts
@@ -54,14 +54,16 @@
  *   task cp:migrate:status
  *   task cp:migrate -- --dry-run
  *   task cp:migrate -- --yes --only cp-1
- *   deno run ... scripts/cp-storage-migrate.ts --help
+ *   bun scripts/cp-storage-migrate.ts --help
  *
  * Exit codes: 0 = success; 1 = a gate or a command failed; 2 = argument error.
  */
 
-import { delay } from "jsr:@std/async@^1/delay";
-import { join, resolve } from "jsr:@std/path@^1";
-import { parse as parseYaml } from "jsr:@std/yaml@^1";
+import { mkdir, readFile, stat } from "node:fs/promises";
+import { join, resolve } from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
+import { isNotFound } from "./lib/errors.ts";
+import { parse as parseYaml } from "./lib/yaml.ts";
 
 // ============================================================================
 // Logging
@@ -155,9 +157,9 @@ export function parseDuration(raw: string, flag = "duration"): number {
   const m = DURATION.exec(raw);
   if (!m) {
     throw new UsageError(
-      `--${flag} must look like 30s, 5m or 90 (seconds), got ${
-        JSON.stringify(raw)
-      }`,
+      `--${flag} must look like 30s, 5m or 90 (seconds), got ${JSON.stringify(
+        raw,
+      )}`,
     );
   }
   const ms = Math.round(Number(m[1]) * UNIT_MS[m[2] ?? "s"]);
@@ -176,9 +178,9 @@ export function formatDuration(ms: number): string {
 export function parseBwlimit(raw: string): number {
   if (!/^\d+$/.test(raw.trim())) {
     throw new UsageError(
-      `--bwlimit must be a whole number of KiB/s like ${DEFAULT_BWLIMIT}, got ${
-        JSON.stringify(raw)
-      }`,
+      `--bwlimit must be a whole number of KiB/s like ${DEFAULT_BWLIMIT}, got ${JSON.stringify(
+        raw,
+      )}`,
     );
   }
   const n = Number(raw.trim());
@@ -195,9 +197,9 @@ export function parseBwlimit(raw: string): number {
 export function parsePercent(raw: string, flag: string): number {
   if (!/^\d{1,3}$/.test(raw.trim())) {
     throw new UsageError(
-      `--${flag} must be a whole percentage like 90, got ${
-        JSON.stringify(raw)
-      }`,
+      `--${flag} must be a whole percentage like 90, got ${JSON.stringify(
+        raw,
+      )}`,
     );
   }
   const n = Number(raw.trim());
@@ -218,14 +220,17 @@ export interface NodeSpec {
  * order is the migration order and is preserved.
  */
 export function parseNodeSpecs(raw: string): NodeSpec[] {
-  const specs = raw.split(",").map((s) => s.trim()).filter((s) => s !== "").map(
-    (entry) => {
+  const specs = raw
+    .split(",")
+    .map((s) => s.trim())
+    .filter((s) => s !== "")
+    .map((entry) => {
       const parts = entry.split("=");
       if (parts.length !== 3) {
         throw new UsageError(
-          `--nodes entry ${
-            JSON.stringify(entry)
-          } must look like name=vmid=ip (cp-1=101=192.0.2.11)`,
+          `--nodes entry ${JSON.stringify(
+            entry,
+          )} must look like name=vmid=ip (cp-1=101=192.0.2.11)`,
         );
       }
       const [name, vmid, ip] = parts.map((p) => p.trim());
@@ -234,9 +239,9 @@ export function parseNodeSpecs(raw: string): NodeSpec[] {
       }
       if (!/^\d+$/.test(vmid) || Number(vmid) < 100) {
         throw new UsageError(
-          `invalid VMID ${
-            JSON.stringify(vmid)
-          } for ${name} (Proxmox VMIDs start at 100)`,
+          `invalid VMID ${JSON.stringify(
+            vmid,
+          )} for ${name} (Proxmox VMIDs start at 100)`,
         );
       }
       const m = IPV4.exec(ip);
@@ -244,8 +249,7 @@ export function parseNodeSpecs(raw: string): NodeSpec[] {
         throw new UsageError(`invalid IP ${JSON.stringify(ip)} for ${name}`);
       }
       return { name, vmid: Number(vmid), ip };
-    },
-  );
+    });
   if (specs.length === 0) {
     throw new UsageError("--nodes needs at least one node");
   }
@@ -305,7 +309,10 @@ export function filterNodes(
   only: string | undefined,
 ): NodeSpec[] {
   if (only === undefined) return [...nodes];
-  const wanted = only.split(",").map((s) => s.trim()).filter((s) => s !== "");
+  const wanted = only
+    .split(",")
+    .map((s) => s.trim())
+    .filter((s) => s !== "");
   if (wanted.length === 0) {
     throw new UsageError("--only needs at least one node");
   }
@@ -313,9 +320,9 @@ export function filterNodes(
   for (const w of wanted) {
     if (!known.has(w)) {
       throw new UsageError(
-        `--only ${JSON.stringify(w)} is not a known node (${
-          nodes.map((n) => n.name).join(", ")
-        })`,
+        `--only ${JSON.stringify(w)} is not a known node (${nodes
+          .map((n) => n.name)
+          .join(", ")})`,
       );
     }
   }
@@ -362,9 +369,9 @@ export function parseQmConfigDisk(
     const [volumeRef, ...options] = value.split(",");
     const colon = volumeRef.indexOf(":");
     if (colon <= 0) return null;
-    const sizeOpt = options.map((o) => o.trim()).find((o) =>
-      o.startsWith("size=")
-    );
+    const sizeOpt = options
+      .map((o) => o.trim())
+      .find((o) => o.startsWith("size="));
     return {
       datastore: volumeRef.slice(0, colon),
       volume: volumeRef.slice(colon + 1),
@@ -425,8 +432,8 @@ function headerOffsets(header: string): { name: string; start: number }[] {
  */
 export function parseEtcdStatus(text: string): EtcdMember[] {
   const lines = text.split("\n").filter((l) => l.trim() !== "");
-  const headerIdx = lines.findIndex((l) =>
-    /\bNODE\b/.test(l) && /\bRAFT INDEX\b/.test(l)
+  const headerIdx = lines.findIndex(
+    (l) => /\bNODE\b/.test(l) && /\bRAFT INDEX\b/.test(l),
   );
   if (headerIdx < 0) return [];
   const cells = headerOffsets(lines[headerIdx]);
@@ -481,9 +488,9 @@ export function etcdHealth(
   for (const m of learners) problems.push(`${m.node} is a learner`);
   const bad = members.filter((m) => !Number.isFinite(m.raftIndex));
   for (const m of bad) problems.push(`${m.node} has no RAFT INDEX`);
-  const indices = members.filter((m) => Number.isFinite(m.raftIndex)).map((m) =>
-    m.raftIndex
-  );
+  const indices = members
+    .filter((m) => Number.isFinite(m.raftIndex))
+    .map((m) => m.raftIndex);
   if (indices.length > 1) {
     const highest = Math.max(...indices);
     for (const m of members) {
@@ -712,20 +719,23 @@ export const kubectlNodesArgv = (context: string): string[] => [
 
 /** The etcd snapshot file name for a run started at `at`. */
 export function snapshotPath(dir: string, at: Date): string {
-  const stamp = at.toISOString().replace(/[-:]/g, "").replace(
-    /\.\d+Z$/,
-    "Z",
-  );
+  const stamp = at
+    .toISOString()
+    .replace(/[-:]/g, "")
+    .replace(/\.\d+Z$/, "Z");
   return join(dir, `etcd-${stamp}.snapshot`);
 }
 
 /** Plain aligned table. */
 export function formatTable(headers: string[], rows: string[][]): string {
   const widths = headers.map((h, i) =>
-    Math.max(h.length, ...rows.map((r) => (r[i] ?? "").length))
+    Math.max(h.length, ...rows.map((r) => (r[i] ?? "").length)),
   );
   const line = (cells: string[]) =>
-    cells.map((c, i) => c.padEnd(widths[i])).join("  ").trimEnd();
+    cells
+      .map((c, i) => c.padEnd(widths[i]))
+      .join("  ")
+      .trimEnd();
   return [line(headers), ...rows.map(line)].join("\n");
 }
 
@@ -969,9 +979,9 @@ export interface Config {
 export function buildConfig(args: Args): Config {
   if (args.nodes === undefined) {
     throw new UsageError(
-      `--nodes is required (or fill ${
-        CP_NODE_DEFAULTS.map((n) => n.key).join(", ")
-      } in ${HOMELAB_ENV_FILE})`,
+      `--nodes is required (or fill ${CP_NODE_DEFAULTS.map((n) => n.key).join(
+        ", ",
+      )} in ${HOMELAB_ENV_FILE})`,
     );
   }
   if (args.proxmoxHost === undefined) {
@@ -990,9 +1000,9 @@ export function buildConfig(args: Args): Config {
   }
   if (!/^[a-z]+\d+$/.test(args.disk)) {
     throw new UsageError(
-      `--disk must look like scsi0 or virtio0, got ${
-        JSON.stringify(args.disk)
-      }`,
+      `--disk must look like scsi0 or virtio0, got ${JSON.stringify(
+        args.disk,
+      )}`,
     );
   }
   if (args.targetDatastore === args.sourceDatastore) {
@@ -1071,21 +1081,23 @@ const SKIPPED: RunResult = {
 
 async function exec(cmd: string[], stream = false): Promise<RunResult> {
   try {
-    const child = new Deno.Command(cmd[0], {
-      args: cmd.slice(1),
-      stdin: "null",
-      stdout: stream ? "inherit" : "piped",
-      stderr: stream ? "inherit" : "piped",
+    const child = Bun.spawn(cmd, {
+      stdin: "ignore",
+      stdout: stream ? "inherit" : "pipe",
+      stderr: stream ? "inherit" : "pipe",
     });
-    const out = await child.output();
-    const dec = new TextDecoder();
+    const [stdout, stderr, code] = await Promise.all([
+      child.stdout ? new Response(child.stdout).text() : "",
+      child.stderr ? new Response(child.stderr).text() : "",
+      child.exited,
+    ]);
     return {
-      code: out.code,
-      stdout: stream ? "" : dec.decode(out.stdout),
-      stderr: stream ? "" : dec.decode(out.stderr),
+      code,
+      stdout: stream ? "" : stdout,
+      stderr: stream ? "" : stderr,
     };
   } catch (err) {
-    if (err instanceof Deno.errors.NotFound) {
+    if (isNotFound(err)) {
       return {
         code: 127,
         stdout: "",
@@ -1184,7 +1196,8 @@ interface ClusterState {
 
 function short(res: RunResult): string {
   return (res.stderr.trim() || res.stdout.trim() || `exit ${res.code}`)
-    .split("\n")[0].slice(0, 160);
+    .split("\n")[0]
+    .slice(0, 160);
 }
 
 /** One full read-only sweep of the cluster and the Proxmox host. */
@@ -1295,30 +1308,32 @@ function printStateTable(cfg: Config, state: ClusterState): void {
     state.vipHolders === null
       ? "?"
       : state.vipHolders.includes(n.spec.ip)
-      ? "yes"
-      : "no",
+        ? "yes"
+        : "no",
     n.disk === null
       ? "?"
       : needsMigration(n.disk, cfg.targetDatastore)
-      ? "needs migrating"
-      : "done",
+        ? "needs migrating"
+        : "done",
   ]);
-  console.log(formatTable(
-    ["NODE", "VMID", "IP", "DATASTORE", "SIZE", "VM", "ETCD", "VIP", "STATE"],
-    rows,
-  ));
+  console.log(
+    formatTable(
+      ["NODE", "VMID", "IP", "DATASTORE", "SIZE", "VM", "ETCD", "VIP", "STATE"],
+      rows,
+    ),
+  );
 }
 
 function printContext(cfg: Config, state: ClusterState): void {
   const ds = state.datastore;
   log.info(
     ds
-      ? `datastore ${cfg.targetDatastore}: ${ds.type}, ${ds.status}, ${
-        ds.availGiB.toFixed(0)
-      } GiB free of ${ds.totalGiB.toFixed(0)} GiB`
+      ? `datastore ${cfg.targetDatastore}: ${ds.type}, ${ds.status}, ${ds.availGiB.toFixed(
+          0,
+        )} GiB free of ${ds.totalGiB.toFixed(0)} GiB`
       : `datastore ${cfg.targetDatastore}: ${
-        state.datastoreError ?? "not found"
-      }`,
+          state.datastoreError ?? "not found"
+        }`,
   );
   log.info(
     state.rootUsePct === null
@@ -1338,15 +1353,15 @@ function printContext(cfg: Config, state: ClusterState): void {
     state.vipHolders === null
       ? `VIP ${cfg.vip}: ${state.vipError ?? "unknown"}`
       : state.vipHolders.length === 0
-      ? `VIP ${cfg.vip}: held by no node`
-      : `VIP ${cfg.vip}: held by ${state.vipHolders.join(", ")}`,
+        ? `VIP ${cfg.vip}: held by no node`
+        : `VIP ${cfg.vip}: held by ${state.vipHolders.join(", ")}`,
   );
   log.info(
     state.readyz === null
       ? `/readyz: ${state.readyzError ?? "unknown"}`
       : state.readyz
-      ? `/readyz: ok (context ${cfg.context})`
-      : `/readyz: NOT ok (context ${cfg.context})`,
+        ? `/readyz: ok (context ${cfg.context})`
+        : `/readyz: NOT ok (context ${cfg.context})`,
   );
 }
 
@@ -1365,17 +1380,18 @@ async function cmdStatus(cfg: Config): Promise<number> {
   printContext(cfg, state);
 
   const selected = new Set(cfg.nodes.map((n) => n.name));
-  const pending = state.nodes.filter((n) =>
-    selected.has(n.spec.name) && needsMigration(n.disk, cfg.targetDatastore)
+  const pending = state.nodes.filter(
+    (n) =>
+      selected.has(n.spec.name) && needsMigration(n.disk, cfg.targetDatastore),
   );
-  const unknown = state.nodes.filter((n) =>
-    selected.has(n.spec.name) && n.disk === null
+  const unknown = state.nodes.filter(
+    (n) => selected.has(n.spec.name) && n.disk === null,
   );
   if (unknown.length > 0) {
     log.warn(
-      `could not read the ${cfg.disk} datastore of ${
-        unknown.map((n) => n.spec.name).join(", ")
-      }`,
+      `could not read the ${cfg.disk} datastore of ${unknown
+        .map((n) => n.spec.name)
+        .join(", ")}`,
     );
   }
   if (pending.length === 0 && unknown.length === 0) {
@@ -1384,12 +1400,11 @@ async function cmdStatus(cfg: Config): Promise<number> {
     );
   } else if (pending.length > 0) {
     log.info(
-      `still to migrate (in this order): ${
-        pending.map((n) =>
-          `${n.spec.name} (VM ${n.spec.vmid}, on ${n.disk?.datastore})`
+      `still to migrate (in this order): ${pending
+        .map(
+          (n) => `${n.spec.name} (VM ${n.spec.vmid}, on ${n.disk?.datastore})`,
         )
-          .join(", ")
-      }`,
+        .join(", ")}`,
     );
     log.info(`next: task cp:migrate -- --dry-run, then --yes (${RUNBOOK})`);
   }
@@ -1406,10 +1421,7 @@ function preflightGates(
   pending: NodeState[],
   snapshotTaken: boolean,
 ): Gate[] {
-  const biggestGiB = Math.max(
-    0,
-    ...pending.map((n) => n.disk?.sizeGiB ?? 0),
-  );
+  const biggestGiB = Math.max(0, ...pending.map((n) => n.disk?.sizeGiB ?? 0));
   const ds = state.datastore;
   const gates: Gate[] = [
     {
@@ -1419,51 +1431,55 @@ function preflightGates(
       ok: ds ? ds.status === "active" : state.datastoreKnown ? false : null,
       detail: ds
         ? `${ds.type}, status ${ds.status}`
-        : state.datastoreError ?? "unknown",
+        : (state.datastoreError ?? "unknown"),
     },
     {
       name: `${cfg.targetDatastore} has room for the largest disk`,
       ok: ds ? ds.availGiB >= biggestGiB : state.datastoreKnown ? false : null,
       detail: ds
-        ? `${ds.availGiB.toFixed(0)} GiB free, largest disk ${
-          biggestGiB.toFixed(0)
-        } GiB`
-        : state.datastoreError ?? "unknown",
+        ? `${ds.availGiB.toFixed(0)} GiB free, largest disk ${biggestGiB.toFixed(
+            0,
+          )} GiB`
+        : (state.datastoreError ?? "unknown"),
     },
     {
       name: `Proxmox root filesystem below ${cfg.maxRootUse}%`,
       ok: state.rootUsePct === null ? null : state.rootUsePct < cfg.maxRootUse,
-      detail: state.rootUsePct === null
-        ? state.rootError ?? "unknown"
-        : `${state.rootUsePct}% used (a full root breaks every Proxmox operation; ` +
-          `see "Host housekeeping" in the runbook)`,
+      detail:
+        state.rootUsePct === null
+          ? (state.rootError ?? "unknown")
+          : `${state.rootUsePct}% used (a full root breaks every Proxmox operation; ` +
+            `see "Host housekeeping" in the runbook)`,
     },
     {
       name: `${cfg.allNodes.length} healthy etcd members`,
       ok: state.etcd === null ? null : state.etcd.ok,
-      detail: state.etcd === null
-        ? state.etcdError ?? "unknown"
-        : state.etcd.ok
-        ? `${state.etcd.members.length} members, matching RAFT INDEX, no ERRORS`
-        : state.etcd.problems.join("; "),
+      detail:
+        state.etcd === null
+          ? (state.etcdError ?? "unknown")
+          : state.etcd.ok
+            ? `${state.etcd.members.length} members, matching RAFT INDEX, no ERRORS`
+            : state.etcd.problems.join("; "),
     },
     {
       name: "/readyz ok",
       ok: state.readyz,
-      detail: state.readyz === null
-        ? state.readyzError ?? "unknown"
-        : state.readyz
-        ? `context ${cfg.context}`
-        : "the API server is not ready",
+      detail:
+        state.readyz === null
+          ? (state.readyzError ?? "unknown")
+          : state.readyz
+            ? `context ${cfg.context}`
+            : "the API server is not ready",
     },
     {
       name: `VIP ${cfg.vip} held by a node`,
       ok: state.vipHolders === null ? null : state.vipHolders.length === 1,
-      detail: state.vipHolders === null
-        ? state.vipError ?? "unknown"
-        : state.vipHolders.length === 0
-        ? "no node holds the VIP"
-        : state.vipHolders.join(", "),
+      detail:
+        state.vipHolders === null
+          ? (state.vipError ?? "unknown")
+          : state.vipHolders.length === 0
+            ? "no node holds the VIP"
+            : state.vipHolders.join(", "),
     },
     {
       name: "etcd snapshot taken in this run",
@@ -1471,10 +1487,10 @@ function preflightGates(
       detail: cfg.skipSnapshot
         ? "--skip-snapshot: you are responsible for an off-cluster backup"
         : !snapshotTaken
-        ? "no snapshot"
-        : cfg.dryRun
-        ? `would be written under ${cfg.snapshotDir} and checked for a non-zero size`
-        : `under ${cfg.snapshotDir}`,
+          ? "no snapshot"
+          : cfg.dryRun
+            ? `would be written under ${cfg.snapshotDir} and checked for a non-zero size`
+            : `under ${cfg.snapshotDir}`,
     },
   ];
   return gates;
@@ -1499,11 +1515,11 @@ async function takeSnapshot(
 ): Promise<string | null> {
   const healthy =
     cfg.allNodes.find((n) =>
-      state.etcd?.members.some((m) => m.node === n.ip && m.errors === "")
+      state.etcd?.members.some((m) => m.node === n.ip && m.errors === ""),
     ) ?? cfg.allNodes[0];
   const path = resolve(snapshotPath(cfg.snapshotDir, new Date()));
   if (!cfg.dryRun) {
-    await Deno.mkdir(cfg.snapshotDir, { recursive: true });
+    await mkdir(cfg.snapshotDir, { recursive: true });
   } else {
     log.dry(`mkdir -p ${cfg.snapshotDir}`);
   }
@@ -1518,7 +1534,7 @@ async function takeSnapshot(
   }
   let size = 0;
   try {
-    size = (await Deno.stat(path)).size;
+    size = (await stat(path)).size;
   } catch {
     size = 0;
   }
@@ -1532,10 +1548,7 @@ async function takeSnapshot(
 }
 
 /** Polls `qm status` until the VM is stopped, or the timeout expires. */
-async function waitForStopped(
-  cfg: Config,
-  node: NodeSpec,
-): Promise<boolean> {
+async function waitForStopped(cfg: Config, node: NodeSpec): Promise<boolean> {
   const deadline = Date.now() + cfg.shutdownTimeoutMs;
   while (Date.now() < deadline) {
     const res = await read(cfg, qmStatusArgv(cfg.ssh, node.vmid));
@@ -1573,35 +1586,39 @@ function postGates(
     {
       name: `${cfg.allNodes.length} healthy etcd members`,
       ok: state.etcd === null ? null : state.etcd.ok,
-      detail: state.etcd === null
-        ? state.etcdError ?? "unknown"
-        : state.etcd.ok
-        ? "matching RAFT INDEX, no ERRORS"
-        : state.etcd.problems.join("; "),
+      detail:
+        state.etcd === null
+          ? (state.etcdError ?? "unknown")
+          : state.etcd.ok
+            ? "matching RAFT INDEX, no ERRORS"
+            : state.etcd.problems.join("; "),
     },
     {
       name: "/readyz ok",
       ok: state.readyz,
-      detail: state.readyz === null ? state.readyzError ?? "unknown" : "",
+      detail: state.readyz === null ? (state.readyzError ?? "unknown") : "",
     },
     {
       name: `${node.name} Ready in kubectl get nodes`,
-      ok: state.kubeNodes === null
-        ? null
-        : isNodeReady(state.kubeNodes, node.ip),
-      detail: state.kubeNodes === null ? "kubectl get nodes not read" : (() => {
-        const row = findKubeNode(state.kubeNodes, node.ip);
-        return row
-          ? `${row.name} ${row.status}`
-          : `no node with internal IP ${node.ip}`;
-      })(),
+      ok:
+        state.kubeNodes === null ? null : isNodeReady(state.kubeNodes, node.ip),
+      detail:
+        state.kubeNodes === null
+          ? "kubectl get nodes not read"
+          : (() => {
+              const row = findKubeNode(state.kubeNodes, node.ip);
+              return row
+                ? `${row.name} ${row.status}`
+                : `no node with internal IP ${node.ip}`;
+            })(),
     },
     {
       name: `VIP ${cfg.vip} held by exactly one node`,
       ok: state.vipHolders === null ? null : state.vipHolders.length === 1,
-      detail: state.vipHolders === null
-        ? state.vipError ?? "unknown"
-        : state.vipHolders.join(", ") || "nobody",
+      detail:
+        state.vipHolders === null
+          ? (state.vipError ?? "unknown")
+          : state.vipHolders.join(", ") || "nobody",
     },
   ];
 }
@@ -1623,9 +1640,9 @@ async function waitForSettled(
     if (failingGates(gates, false).length === 0) return { ok: true, gates };
     if (Date.now() >= deadline) return { ok: false, gates };
     log.info(
-      `${node.name}: not settled yet (attempt ${attempt}); retrying in ${
-        formatDuration(cfg.pollIntervalMs)
-      }, up to ${formatDuration(cfg.settleTimeoutMs)}`,
+      `${node.name}: not settled yet (attempt ${attempt}); retrying in ${formatDuration(
+        cfg.pollIntervalMs,
+      )}, up to ${formatDuration(cfg.settleTimeoutMs)}`,
     );
     await delay(cfg.pollIntervalMs);
   }
@@ -1644,12 +1661,12 @@ function printFailure(
   - ${node.name} is the only node this run was changing; the other control
     planes were not touched and still hold quorum if they were healthy.
   - Check the VM:      ssh ${cfg.ssh.user}@${cfg.ssh.host} 'qm status ${node.vmid}; qm config ${node.vmid} | grep ${cfg.disk}'
-  - Check etcd:        talosctl -n ${
-    cfg.allNodes.map((n) => n.ip).join(",")
-  } etcd status
-  - Check the VIP:     talosctl -n ${
-    cfg.allNodes.map((n) => n.ip).join(",")
-  } get addresses | rg ${cfg.vip}/
+  - Check etcd:        talosctl -n ${cfg.allNodes
+    .map((n) => n.ip)
+    .join(",")} etcd status
+  - Check the VIP:     talosctl -n ${cfg.allNodes
+    .map((n) => n.ip)
+    .join(",")} get addresses | rg ${cfg.vip}/
   - Check the API:     kubectl --context ${cfg.context} get --raw '/readyz?verbose' | tail -3
   - A half-moved disk: 'qm config ${node.vmid}' still points at the source
     datastore unless move-disk completed; Proxmox does not leave it in between.
@@ -1673,13 +1690,13 @@ async function cmdMigrate(cfg: Config): Promise<number> {
       cfg.noProbe
         ? "dry run with --no-probe: nothing at all is executed, the plan below is static"
         : "dry run: read-only commands (qm config/status, pvesm, df, talosctl, kubectl) DO run; " +
-          "every mutating command is printed, never executed",
+            "every mutating command is printed, never executed",
     );
   }
   log.info(
-    `plan: ${
-      cfg.nodes.map((n) => n.name).join(" -> ")
-    } | ${cfg.disk} ${cfg.sourceDatastore} -> ` +
+    `plan: ${cfg.nodes
+      .map((n) => n.name)
+      .join(" -> ")} | ${cfg.disk} ${cfg.sourceDatastore} -> ` +
       `${cfg.targetDatastore} | bwlimit ${cfg.bwlimit} KiB/s | ssh ${cfg.ssh.user}@${cfg.ssh.host} | context ${cfg.context}`,
   );
 
@@ -1690,14 +1707,15 @@ async function cmdMigrate(cfg: Config): Promise<number> {
   printContext(cfg, state);
 
   const selected = new Set(cfg.nodes.map((n) => n.name));
-  const pending = state.nodes.filter((n) =>
-    selected.has(n.spec.name) &&
-    (cfg.dryRun && n.disk === null
-      ? true // unknown in a dry run: still show the plan for it
-      : needsMigration(n.disk, cfg.targetDatastore))
+  const pending = state.nodes.filter(
+    (n) =>
+      selected.has(n.spec.name) &&
+      (cfg.dryRun && n.disk === null
+        ? true // unknown in a dry run: still show the plan for it
+        : needsMigration(n.disk, cfg.targetDatastore)),
   );
-  const skipped = state.nodes.filter((n) =>
-    selected.has(n.spec.name) && !pending.includes(n)
+  const skipped = state.nodes.filter(
+    (n) => selected.has(n.spec.name) && !pending.includes(n),
   );
   for (const n of skipped) {
     log.ok(
@@ -1736,9 +1754,9 @@ async function cmdMigrate(cfg: Config): Promise<number> {
   const failed = failingGates(gates, cfg.dryRun);
   if (failed.length > 0) {
     log.error(
-      `preflight failed: ${
-        failed.map((g) => g.name).join("; ")
-      } — nothing was touched`,
+      `preflight failed: ${failed
+        .map((g) => g.name)
+        .join("; ")} — nothing was touched`,
     );
     log.info(`fix these first; see ${RUNBOOK}`);
     return 1;
@@ -1782,23 +1800,23 @@ async function cmdMigrate(cfg: Config): Promise<number> {
     }
     if (cfg.dryRun) {
       log.dry(
-        `would poll: ${qmStatusArgv(cfg.ssh, spec.vmid).join(" ")} every ${
-          formatDuration(cfg.pollIntervalMs)
-        } until "stopped", up to ${formatDuration(cfg.shutdownTimeoutMs)}`,
+        `would poll: ${qmStatusArgv(cfg.ssh, spec.vmid).join(" ")} every ${formatDuration(
+          cfg.pollIntervalMs,
+        )} until "stopped", up to ${formatDuration(cfg.shutdownTimeoutMs)}`,
       );
-    } else if (!await waitForStopped(cfg, spec)) {
+    } else if (!(await waitForStopped(cfg, spec))) {
       if (cfg.forceStop) {
         log.warn(
-          `${spec.name} did not stop within ${
-            formatDuration(cfg.shutdownTimeoutMs)
-          }; --force-stop was passed, issuing qm stop`,
+          `${spec.name} did not stop within ${formatDuration(
+            cfg.shutdownTimeoutMs,
+          )}; --force-stop was passed, issuing qm stop`,
         );
         const stop = await mutate(cfg, "stop", qmStopArgv(cfg.ssh, spec.vmid));
         if (stop && stop.code !== 0) {
           printFailure(cfg, spec, "qm stop failed", short(stop));
           return 1;
         }
-        if (!await waitForStopped(cfg, spec)) {
+        if (!(await waitForStopped(cfg, spec))) {
           printFailure(
             cfg,
             spec,
@@ -1856,15 +1874,20 @@ async function cmdMigrate(cfg: Config): Promise<number> {
     // 4. post gates
     if (cfg.dryRun) {
       log.dry(
-        `would poll every ${formatDuration(cfg.pollIntervalMs)} for up to ${
-          formatDuration(cfg.settleTimeoutMs)
-        }: ${talosVersionArgv(spec.ip).join(" ")}; ${
-          talosEtcdStatusArgv(cfg.allNodes.map((n) => n.ip)).join(" ")
-        }; ${kubectlReadyzArgv(cfg.context).join(" ")}; ${
-          kubectlNodesArgv(cfg.context).join(" ")
-        }; ${talosAddressesArgv(cfg.allNodes.map((n) => n.ip)).join(" ")}; ${
-          qmConfigArgv(cfg.ssh, spec.vmid).join(" ")
-        }`,
+        `would poll every ${formatDuration(cfg.pollIntervalMs)} for up to ${formatDuration(
+          cfg.settleTimeoutMs,
+        )}: ${talosVersionArgv(spec.ip).join(" ")}; ${talosEtcdStatusArgv(
+          cfg.allNodes.map((n) => n.ip),
+        ).join(
+          " ",
+        )}; ${kubectlReadyzArgv(cfg.context).join(" ")}; ${kubectlNodesArgv(
+          cfg.context,
+        ).join(
+          " ",
+        )}; ${talosAddressesArgv(cfg.allNodes.map((n) => n.ip)).join(" ")}; ${qmConfigArgv(
+          cfg.ssh,
+          spec.vmid,
+        ).join(" ")}`,
       );
     } else {
       const settled = await waitForSettled(cfg, spec);
@@ -1873,10 +1896,12 @@ async function cmdMigrate(cfg: Config): Promise<number> {
         printFailure(
           cfg,
           spec,
-          `the cluster did not settle within ${
-            formatDuration(cfg.settleTimeoutMs)
-          }`,
-          failingGates(settled.gates, false).map((g) => g.name).join("; "),
+          `the cluster did not settle within ${formatDuration(
+            cfg.settleTimeoutMs,
+          )}`,
+          failingGates(settled.gates, false)
+            .map((g) => g.name)
+            .join("; "),
         );
         return 1;
       }
@@ -1895,9 +1920,9 @@ async function cmdMigrate(cfg: Config): Promise<number> {
         );
       } else {
         log.info(
-          `waiting ${
-            formatDuration(cfg.settleWaitMs)
-          } so etcd is demonstrably steady before the next node`,
+          `waiting ${formatDuration(
+            cfg.settleWaitMs,
+          )} so etcd is demonstrably steady before the next node`,
         );
         await delay(cfg.settleWaitMs);
       }
@@ -1936,10 +1961,12 @@ async function prometheusEtcdUp(url: string): Promise<string> {
   target.searchParams.set("query", 'up{job="kube-etcd"}');
   const res = await fetch(target, { signal: AbortSignal.timeout(10_000) });
   if (!res.ok) throw new Error(`Prometheus returned HTTP ${res.status}`);
-  const body = await res.json();
-  const values: string[] = (body?.data?.result ?? []).map((
-    r: { value?: [number, string] },
-  ) => r.value?.[1] ?? "?");
+  const body = (await res.json()) as {
+    data?: { result?: { value?: [number, string] }[] };
+  } | null;
+  const values: string[] = (body?.data?.result ?? []).map(
+    (r: { value?: [number, string] }) => r.value?.[1] ?? "?",
+  );
   return values.join(", ") || "no series";
 }
 
@@ -1955,8 +1982,8 @@ async function cmdVerify(cfg: Config): Promise<number> {
 
   const gates: Gate[] = [
     ...cfg.nodes.map((spec): Gate => {
-      const disk = state.nodes.find((n) => n.spec.name === spec.name)?.disk ??
-        null;
+      const disk =
+        state.nodes.find((n) => n.spec.name === spec.name)?.disk ?? null;
       return {
         name: `${spec.name} ${cfg.disk} on ${cfg.targetDatastore}`,
         ok: disk === null ? null : disk.datastore === cfg.targetDatastore,
@@ -1966,23 +1993,25 @@ async function cmdVerify(cfg: Config): Promise<number> {
     {
       name: `${cfg.allNodes.length} healthy etcd members`,
       ok: state.etcd === null ? null : state.etcd.ok,
-      detail: state.etcd === null
-        ? state.etcdError ?? "unknown"
-        : state.etcd.ok
-        ? "matching RAFT INDEX, no ERRORS"
-        : state.etcd.problems.join("; "),
+      detail:
+        state.etcd === null
+          ? (state.etcdError ?? "unknown")
+          : state.etcd.ok
+            ? "matching RAFT INDEX, no ERRORS"
+            : state.etcd.problems.join("; "),
     },
     {
       name: "/readyz ok",
       ok: state.readyz,
-      detail: state.readyz === null ? state.readyzError ?? "unknown" : "",
+      detail: state.readyz === null ? (state.readyzError ?? "unknown") : "",
     },
     {
       name: `VIP ${cfg.vip} held by exactly one node`,
       ok: state.vipHolders === null ? null : state.vipHolders.length === 1,
-      detail: state.vipHolders === null
-        ? state.vipError ?? "unknown"
-        : state.vipHolders.join(", ") || "nobody",
+      detail:
+        state.vipHolders === null
+          ? (state.vipError ?? "unknown")
+          : state.vipHolders.join(", ") || "nobody",
     },
   ];
   printGates(cfg, "verify:", gates);
@@ -2076,9 +2105,9 @@ Flags:
   --prometheus-url      verify only: query up{job="kube-etcd"} directly
 
 Defaults (from ${HOMELAB_ENV_FILE}, gitignored; no address is hardcoded here):
-  --nodes        ${CP_NODE_DEFAULTS.map((n) => n.key).join(", ")} (as ${
-      CP_NODE_DEFAULTS.map((n) => `${n.name}=${n.vmid}`).join(", ")
-    })
+  --nodes        ${CP_NODE_DEFAULTS.map((n) => n.key).join(", ")} (as ${CP_NODE_DEFAULTS.map(
+    (n) => `${n.name}=${n.vmid}`,
+  ).join(", ")})
   --vip          ${VIP_KEY}          --proxmox-host  ${PROXMOX_HOST_KEY}
   A flag always wins over the file; a value neither flag nor file supplies is a
   usage error, never a guess. HOMELAB_ENV_FILE overrides the path of that file.
@@ -2097,10 +2126,10 @@ Exit codes: 0 success, 1 a gate or command failed, 2 usage error.`,
  * instead of falling back to an address baked into this repository.
  */
 async function readEnvDefaults(): Promise<ArgEnv> {
-  const path = Deno.env.get("HOMELAB_ENV_FILE") ?? HOMELAB_ENV_FILE;
+  const path = process.env.HOMELAB_ENV_FILE ?? HOMELAB_ENV_FILE;
   let text: string;
   try {
-    text = await Deno.readTextFile(path);
+    text = await readFile(path, "utf8");
   } catch {
     return {};
   }
@@ -2114,7 +2143,7 @@ async function readEnvDefaults(): Promise<ArgEnv> {
 async function main(): Promise<number> {
   let cfg: Config;
   try {
-    const args = parseArgs(Deno.args, await readEnvDefaults());
+    const args = parseArgs(process.argv.slice(2), await readEnvDefaults());
     if (args.command === "help") {
       printHelp();
       return 0;
@@ -2151,5 +2180,5 @@ async function main(): Promise<number> {
 }
 
 if (import.meta.main) {
-  Deno.exit(await main());
+  process.exit(await main());
 }

@@ -232,7 +232,7 @@ func ChecksWith(opts Options) []Check {
 	return []Check{
 		binary("mise", Localdev, "curl https://mise.run | sh, then mise trust && mise install"),
 		binary("task", Localdev, mise),
-		binary("deno", Localdev, mise),
+		binary("bun", Localdev, mise),
 		{
 			Name: "docker",
 			Tier: Localdev,

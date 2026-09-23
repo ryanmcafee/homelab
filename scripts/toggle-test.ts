@@ -1,4 +1,4 @@
-#!/usr/bin/env -S deno run --allow-net --allow-run --allow-env --allow-read --allow-write
+#!/usr/bin/env bun
 
 /**
  * toggle-test.ts
@@ -27,15 +27,26 @@
  *
  * Usage:
  *   task gpu:toggle-test                       # full run
- *   deno run ... scripts/toggle-test.ts --help
- *   deno run ... scripts/toggle-test.ts --dry-run
- *   deno run ... scripts/toggle-test.ts --vendor=intel
- *   deno run ... scripts/toggle-test.ts --keep-artifacts
+ *   bun scripts/toggle-test.ts --help
+ *   bun scripts/toggle-test.ts --dry-run
+ *   bun scripts/toggle-test.ts --vendor=intel
+ *   bun scripts/toggle-test.ts --keep-artifacts
  *
  * Exit codes: 0 = all assertions pass; 1 = any failure.
  */
 
-import { parse as parseYaml } from "jsr:@std/yaml@^1";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  stat as fsStat,
+  writeFile as fsWriteFile,
+} from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { isNotFound } from "./lib/errors.ts";
+import { parse as parseYaml } from "./lib/yaml.ts";
 
 // ============================================================================
 // Logging
@@ -57,7 +68,7 @@ const log = {
 // ============================================================================
 type Vendor = "none" | "nvidia" | "intel";
 const ALL_VENDORS: Vendor[] = ["none", "nvidia", "intel"];
-// ARTIFACT_ROOT is assigned at runtime from Deno.makeTempDir() to avoid
+// ARTIFACT_ROOT is assigned at runtime from mkdtemp() to avoid
 // predictable paths in /tmp (symlink-swap exposure). See initArtifactRoot().
 let ARTIFACT_ROOT = "";
 // SNAPSHOT_DIR holds the golden, byte-exact renders produced by
@@ -92,7 +103,7 @@ const VERSIONS_YAML_PATH = "configuration/versions.yaml";
 async function readKubernetesVersion(): Promise<string> {
   let raw: string;
   try {
-    raw = await Deno.readTextFile(VERSIONS_YAML_PATH);
+    raw = await readFile(VERSIONS_YAML_PATH, "utf8");
   } catch (err) {
     throw new Error(
       `Could not read ${VERSIONS_YAML_PATH} to determine kubeconform's -kubernetes-version: ${
@@ -135,12 +146,12 @@ function parseArgs(argv: string[]): Args {
       const v = a.slice("--vendor=".length);
       if (v !== "none" && v !== "nvidia" && v !== "intel") {
         log.error(`Invalid --vendor value: ${v} (must be none|nvidia|intel)`);
-        Deno.exit(2);
+        process.exit(2);
       }
       args.vendor = v as Vendor;
     } else {
       log.error(`Unknown argument: ${a}`);
-      Deno.exit(2);
+      process.exit(2);
     }
   }
   return args;
@@ -151,8 +162,7 @@ function printHelp(): void {
 
 Usage:
   task gpu:toggle-test
-  deno run --allow-net --allow-run --allow-env --allow-read --allow-write \\
-    scripts/toggle-test.ts [flags]
+  bun scripts/toggle-test.ts [flags]
 
 Flags:
   --help, -h         Show this help and exit 0
@@ -165,7 +175,7 @@ Flags:
   tests/snapshots/README.md.
 
 Constants:
-  ARTIFACT_ROOT  = <allocated at runtime via Deno.makeTempDir>
+  ARTIFACT_ROOT  = <allocated at runtime via mkdtemp>
   SNAPSHOT_DIR   = ${SNAPSHOT_DIR}
   HOMELAB_BIN    = ${HOMELAB_BIN}
   ADDONS_CHART   = ${ADDONS_CHART}
@@ -185,24 +195,17 @@ async function run(
   cmd: string[],
   opts: { stdin?: string } = {},
 ): Promise<{ stdout: string; stderr: string; code: number }> {
-  const p = new Deno.Command(cmd[0], {
-    args: cmd.slice(1),
-    stdout: "piped",
-    stderr: "piped",
-    stdin: opts.stdin !== undefined ? "piped" : "null",
+  const p = Bun.spawn(cmd, {
+    stdout: "pipe",
+    stderr: "pipe",
+    stdin: opts.stdin !== undefined ? new Blob([opts.stdin]) : "ignore",
   });
-  const child = p.spawn();
-  if (opts.stdin !== undefined) {
-    const writer = child.stdin.getWriter();
-    await writer.write(new TextEncoder().encode(opts.stdin));
-    await writer.close();
-  }
-  const output = await child.output();
-  return {
-    stdout: new TextDecoder().decode(output.stdout),
-    stderr: new TextDecoder().decode(output.stderr),
-    code: output.code,
-  };
+  const [stdout, stderr, code] = await Promise.all([
+    new Response(p.stdout).text(),
+    new Response(p.stderr).text(),
+    p.exited,
+  ]);
+  return { stdout, stderr, code };
 }
 
 // ============================================================================
@@ -221,7 +224,7 @@ interface VendorResult {
 // Filesystem helpers
 // ============================================================================
 async function ensureDir(path: string): Promise<void> {
-  await Deno.mkdir(path, { recursive: true });
+  await mkdir(path, { recursive: true });
 }
 
 async function writeFile(path: string, content: string): Promise<void> {
@@ -232,7 +235,7 @@ async function writeFile(path: string, content: string): Promise<void> {
     const dir = path.substring(0, idx) || "/";
     await ensureDir(dir);
   }
-  await Deno.writeTextFile(path, content);
+  await fsWriteFile(path, content);
 }
 
 // ============================================================================
@@ -240,12 +243,12 @@ async function writeFile(path: string, content: string): Promise<void> {
 // ============================================================================
 async function ensureHomelabBinary(): Promise<void> {
   try {
-    const stat = await Deno.stat(HOMELAB_BIN);
-    if (stat.isFile) return;
+    const stat = await fsStat(HOMELAB_BIN);
+    if (stat.isFile()) return;
   } catch (err) {
     // Only treat "missing file" as build-required. Rethrow permission or
     // I/O errors so we fail loudly instead of silently shelling out to go build.
-    if (!(err instanceof Deno.errors.NotFound)) throw err;
+    if (!isNotFound(err)) throw err;
   }
   log.info(`Building ${HOMELAB_BIN} ...`);
   const r = await run(["go", "build", "-o", HOMELAB_BIN, "./cmd/homelab"]);
@@ -264,7 +267,7 @@ async function writeVendorEnvFile(
   // Use homelab.yaml.example as the base (it has all the keys defaults.yaml
   // leaves unset, e.g. TRUENAS_IP, NFS_SHARE_ALLOW), then override GPU_VENDOR.
   const examplePath = "configuration/environments/homelab.yaml.example";
-  const base = await Deno.readTextFile(examplePath);
+  const base = await readFile(examplePath, "utf8");
   // Replace the GPU_VENDOR line with the target vendor.
   const overridden = base.replace(
     /^GPU_VENDOR:.*$/m,
@@ -358,8 +361,7 @@ async function lintVendor(
   if (a.code !== 0) {
     return {
       ok: false,
-      err:
-        `helm lint ${ADDONS_CHART} failed for ${vendor}:\n${a.stdout}\n${a.stderr}`,
+      err: `helm lint ${ADDONS_CHART} failed for ${vendor}:\n${a.stdout}\n${a.stderr}`,
     };
   }
   const b = await run([
@@ -374,8 +376,7 @@ async function lintVendor(
   if (b.code !== 0) {
     return {
       ok: false,
-      err:
-        `helm lint ${APPS_CHART} failed for ${vendor}:\n${b.stdout}\n${b.stderr}`,
+      err: `helm lint ${APPS_CHART} failed for ${vendor}:\n${b.stdout}\n${b.stderr}`,
     };
   }
   return { ok: true };
@@ -411,8 +412,7 @@ async function kubeconformVendor(
   if (b.code !== 0) {
     return {
       ok: false,
-      err:
-        `kubeconform applications failed for ${vendor}:\n${b.stdout}\n${b.stderr}`,
+      err: `kubeconform applications failed for ${vendor}:\n${b.stdout}\n${b.stderr}`,
     };
   }
   return { ok: true };
@@ -575,8 +575,8 @@ async function assertNvidia(
   const f: AssertionFailure[] = [];
   const snapshotAddonsPath = `${SNAPSHOT_DIR}/addons.yaml`;
   const snapshotAppsPath = `${SNAPSHOT_DIR}/applications.yaml`;
-  const snapshotAddons = await Deno.readTextFile(snapshotAddonsPath);
-  const snapshotApps = await Deno.readTextFile(snapshotAppsPath);
+  const snapshotAddons = await readFile(snapshotAddonsPath, "utf8");
+  const snapshotApps = await readFile(snapshotAppsPath, "utf8");
 
   if (addonsYaml !== snapshotAddons) {
     f.push({
@@ -636,8 +636,8 @@ async function runAssertions(
   vendor: Vendor,
   outDir: string,
 ): Promise<AssertionFailure[]> {
-  const addonsYaml = await Deno.readTextFile(`${outDir}/addons.yaml`);
-  const appsYaml = await Deno.readTextFile(`${outDir}/applications.yaml`);
+  const addonsYaml = await readFile(`${outDir}/addons.yaml`, "utf8");
+  const appsYaml = await readFile(`${outDir}/applications.yaml`, "utf8");
   switch (vendor) {
     case "none":
       return assertNone(addonsYaml, appsYaml);
@@ -662,9 +662,10 @@ function printResultsTable(results: VendorResult[]): void {
     const pad = (s: string, n: number) =>
       s + " ".repeat(Math.max(0, n - stripAnsi(s).length));
     console.log(
-      `${pad(r.vendor, 9)}${pad(cell(r.renderOk), 8)}${pad(cell(r.lintOk), 8)}${
-        pad(cell(r.kubeconformOk), 13)
-      }${cell(r.assertionsOk)}`,
+      `${pad(r.vendor, 9)}${pad(cell(r.renderOk), 8)}${pad(cell(r.lintOk), 8)}${pad(
+        cell(r.kubeconformOk),
+        13,
+      )}${cell(r.assertionsOk)}`,
     );
   }
   console.log("");
@@ -678,7 +679,7 @@ function printResultsTable(results: VendorResult[]): void {
 
 // Strip ANSI color codes for padding calculation (ensures aligned columns)
 function stripAnsi(s: string): string {
-  // deno-lint-ignore no-control-regex
+  // biome-ignore lint/suspicious/noControlCharactersInRegex: strips ANSI colour escapes
   return s.replace(/\x1b\[[0-9;]*m/g, "");
 }
 
@@ -686,7 +687,7 @@ function stripAnsi(s: string): string {
 // Main
 // ============================================================================
 async function main(): Promise<number> {
-  const args = parseArgs(Deno.args);
+  const args = parseArgs(process.argv.slice(2));
 
   if (args.help) {
     printHelp();
@@ -698,11 +699,11 @@ async function main(): Promise<number> {
     `Kubernetes schema version (from ${VERSIONS_YAML_PATH}): ${KUBERNETES_VERSION}`,
   );
 
-  // Allocate a non-predictable artifact root via Deno.makeTempDir to avoid
+  // Allocate a non-predictable artifact root via mkdtemp to avoid
   // the hardcoded /tmp/gpu-toggle-test path (symlink-swap exposure on
-  // multi-user systems). makeTempDir creates the directory fresh, so no
+  // multi-user systems). mkdtemp creates the directory fresh, so no
   // pre-run cleanup of a previous tree is needed.
-  ARTIFACT_ROOT = await Deno.makeTempDir({ prefix: "gpu-toggle-test-" });
+  ARTIFACT_ROOT = await mkdtemp(join(tmpdir(), "gpu-toggle-test-"));
 
   const targetVendors: Vendor[] = args.vendor ? [args.vendor] : ALL_VENDORS;
 
@@ -756,12 +757,12 @@ async function main(): Promise<number> {
 
   if (!args.keepArtifacts) {
     try {
-      await Deno.remove(ARTIFACT_ROOT, { recursive: true });
+      await rm(ARTIFACT_ROOT, { recursive: true });
     } catch (err) {
       // Don't fail the whole run for post-run cleanup hiccups, but DO surface
       // them — silently ignoring causes disk accumulation under /tmp.
       // NotFound is fine (someone else already cleaned up); anything else is a warning.
-      if (!(err instanceof Deno.errors.NotFound)) {
+      if (!isNotFound(err)) {
         log.warn(
           `post-run cleanup of ${ARTIFACT_ROOT} failed: ${
             err instanceof Error ? err.message : String(err)
@@ -783,9 +784,9 @@ async function main(): Promise<number> {
 
 if (import.meta.main) {
   try {
-    Deno.exit(await main());
+    process.exit(await main());
   } catch (err) {
     log.error(err instanceof Error ? err.message : String(err));
-    Deno.exit(1);
+    process.exit(1);
   }
 }

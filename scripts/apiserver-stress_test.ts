@@ -1,17 +1,18 @@
-#!/usr/bin/env -S deno test
+#!/usr/bin/env -S bun test
 /**
  * Unit tests for the pure helpers in apiserver-stress.ts. Nothing here opens
  * a socket or reads a kubeconfig from disk.
  *
- *   deno test scripts/apiserver-stress_test.ts
+ *   bun test scripts/apiserver-stress_test.ts
  */
 
+import { test } from "bun:test";
 import {
   assert,
   assertEquals,
   assertRejects,
   assertThrows,
-} from "jsr:@std/assert@^1";
+} from "./lib/assert.ts";
 import {
   applyLeaseFallback,
   buildPlan,
@@ -67,7 +68,7 @@ function result(
 // durations
 // ----------------------------------------------------------------------------
 
-Deno.test("parseDuration accepts 30s, 5m, plain seconds, ms and h", () => {
+test("parseDuration accepts 30s, 5m, plain seconds, ms and h", () => {
   assertEquals(parseDuration("30s"), 30_000);
   assertEquals(parseDuration("5m"), 300_000);
   assertEquals(parseDuration("90"), 90_000);
@@ -76,7 +77,7 @@ Deno.test("parseDuration accepts 30s, 5m, plain seconds, ms and h", () => {
   assertEquals(parseDuration(" 1.5s "), 1500);
 });
 
-Deno.test("parseDuration rejects junk, zero and negatives with the flag name", () => {
+test("parseDuration rejects junk, zero and negatives with the flag name", () => {
   for (const bad of ["", "forever", "-5s", "0", "0s", "5 minutes", "1d"]) {
     const err = assertThrows(
       () => parseDuration(bad, "step-duration"),
@@ -86,7 +87,7 @@ Deno.test("parseDuration rejects junk, zero and negatives with the flag name", (
   }
 });
 
-Deno.test("formatDuration picks the shortest unit", () => {
+test("formatDuration picks the shortest unit", () => {
   assertEquals(formatDuration(300_000), "5m");
   assertEquals(formatDuration(90_000), "90s");
   assertEquals(formatDuration(250), "250ms");
@@ -97,17 +98,16 @@ Deno.test("formatDuration picks the shortest unit", () => {
 // concurrency
 // ----------------------------------------------------------------------------
 
-Deno.test("parseConcurrency parses a list and keeps the order", () => {
-  assertEquals(parseConcurrency("8,32,64", DEFAULT_MAX_CONCURRENCY, false), [
-    8,
-    32,
-    64,
-  ]);
+test("parseConcurrency parses a list and keeps the order", () => {
+  assertEquals(
+    parseConcurrency("8,32,64", DEFAULT_MAX_CONCURRENCY, false),
+    [8, 32, 64],
+  );
   assertEquals(parseConcurrency(" 64 , 8 ", 128, false), [64, 8]);
   assertEquals(parseConcurrency("1", 1, false), [1]);
 });
 
-Deno.test("parseConcurrency guard refuses steps above the maximum unless --i-know", () => {
+test("parseConcurrency guard refuses steps above the maximum unless --i-know", () => {
   const err = assertThrows(
     () => parseConcurrency("8,256", 128, false),
     UsageError,
@@ -117,7 +117,7 @@ Deno.test("parseConcurrency guard refuses steps above the maximum unless --i-kno
   assertEquals(parseConcurrency("8,256", 128, true), [8, 256]);
 });
 
-Deno.test("parseConcurrency rejects empty, zero, negative and non-numeric steps", () => {
+test("parseConcurrency rejects empty, zero, negative and non-numeric steps", () => {
   for (const bad of ["", ",", "0", "-8", "8,abc", "8.5", "8;32"]) {
     assertThrows(() => parseConcurrency(bad, 128, true), UsageError);
   }
@@ -127,7 +127,7 @@ Deno.test("parseConcurrency rejects empty, zero, negative and non-numeric steps"
 // percentiles
 // ----------------------------------------------------------------------------
 
-Deno.test("percentile uses nearest rank and tolerates unsorted input", () => {
+test("percentile uses nearest rank and tolerates unsorted input", () => {
   const sample = [50, 10, 40, 20, 30, 60, 70, 80, 90, 100];
   assertEquals(percentile(sample, 50), 50);
   assertEquals(percentile(sample, 95), 100);
@@ -138,7 +138,7 @@ Deno.test("percentile uses nearest rank and tolerates unsorted input", () => {
   assertEquals(percentile([], 50), null);
 });
 
-Deno.test("latencyStats reports p50/p95/p99/max and nulls for an empty sample", () => {
+test("latencyStats reports p50/p95/p99/max and nulls for an empty sample", () => {
   const values = Array.from({ length: 100 }, (_, i) => i + 1);
   assertEquals(latencyStats(values), { p50: 50, p95: 95, p99: 99, max: 100 });
   assertEquals(latencyStats([]), {
@@ -153,7 +153,7 @@ Deno.test("latencyStats reports p50/p95/p99/max and nulls for an empty sample", 
 // error classification
 // ----------------------------------------------------------------------------
 
-Deno.test("classifyError buckets timeouts, refused, reset, tls and other", () => {
+test("classifyError buckets timeouts, refused, reset, tls and other", () => {
   const timeout = new DOMException("signal timed out", "TimeoutError");
   assertEquals(classifyError(timeout), "timeout");
   assertEquals(
@@ -206,7 +206,29 @@ Deno.test("classifyError buckets timeouts, refused, reset, tls and other", () =>
   assertEquals(classifyError("weird string"), "other");
 });
 
-Deno.test("classifyStatus treats only 2xx as ok", () => {
+test("classifyError reads the code Bun's fetch sets on transport errors", () => {
+  const bunError = (code: string, message: string) =>
+    Object.assign(new TypeError(message), { code });
+  const cases: [string, string, string][] = [
+    [
+      "ConnectionRefused",
+      "Unable to connect. Is the computer able to access the url?",
+      "refused",
+    ],
+    ["ECONNRESET", "The socket connection was closed unexpectedly.", "reset"],
+    ["DEPTH_ZERO_SELF_SIGNED_CERT", "self signed certificate", "tls"],
+    ["UNABLE_TO_GET_ISSUER_CERT_LOCALLY", "unable to get issuer", "tls"],
+    ["CERT_HAS_EXPIRED", "certificate has expired", "tls"],
+    ["ERR_TLS_CERT_ALTNAME_INVALID", "Hostname/IP does not match", "tls"],
+    ["ETIMEDOUT", "operation timed out", "timeout"],
+    ["FailedToOpenSocket", "Was there a typo in the url or port?", "other"],
+  ];
+  for (const [code, message, kind] of cases) {
+    assertEquals(classifyError(bunError(code, message)), kind, code);
+  }
+});
+
+test("classifyStatus treats only 2xx as ok", () => {
   assertEquals(classifyStatus(200), "ok");
   assertEquals(classifyStatus(204), "ok");
   assertEquals(classifyStatus(403), "http 403");
@@ -214,7 +236,7 @@ Deno.test("classifyStatus treats only 2xx as ok", () => {
   assertEquals(classifyStatus(301), "http 301");
 });
 
-Deno.test("countErrors sorts by frequency then name and skips ok", () => {
+test("countErrors sorts by frequency then name and skips ok", () => {
   const rs = [
     result({ at: 1, kind: "ok" }),
     result({ at: 2, kind: "timeout" }),
@@ -234,7 +256,7 @@ Deno.test("countErrors sorts by frequency then name and skips ok", () => {
 // outages
 // ----------------------------------------------------------------------------
 
-Deno.test("longestOutage finds the longest run of consecutive failures", () => {
+test("longestOutage finds the longest run of consecutive failures", () => {
   const rs = [
     result({ at: 1000, kind: "ok" }),
     result({ at: 2000, kind: "timeout", latencyMs: 5000 }),
@@ -248,7 +270,7 @@ Deno.test("longestOutage finds the longest run of consecutive failures", () => {
   assertEquals(longestOutage(rs), { start: 4000, end: 10_000, failures: 3 });
 });
 
-Deno.test("longestOutage sorts by send time, handles a trailing outage and none at all", () => {
+test("longestOutage sorts by send time, handles a trailing outage and none at all", () => {
   const trailing = [
     result({ at: 3000, kind: "timeout", latencyMs: 5000 }),
     result({ at: 1000, kind: "ok" }),
@@ -269,7 +291,7 @@ Deno.test("longestOutage sorts by send time, handles a trailing outage and none 
   assertEquals(longestOutage([]), null);
 });
 
-Deno.test("longestOutage breaks a tie on failures by wall-clock length", () => {
+test("longestOutage breaks a tie on failures by wall-clock length", () => {
   const rs = [
     result({ at: 1000, kind: "timeout", latencyMs: 10 }),
     result({ at: 1500, kind: "timeout", latencyMs: 10 }),
@@ -284,7 +306,7 @@ Deno.test("longestOutage breaks a tie on failures by wall-clock length", () => {
 // summary
 // ----------------------------------------------------------------------------
 
-Deno.test("summarize groups per endpoint and path in first-seen order", () => {
+test("summarize groups per endpoint and path in first-seen order", () => {
   const rs = [
     result({ at: 1000, kind: "ok", latencyMs: 10 }),
     result({ at: 1000, kind: "ok", endpoint: CP1, latencyMs: 30 }),
@@ -293,11 +315,14 @@ Deno.test("summarize groups per endpoint and path in first-seen order", () => {
     result({ at: 3000, kind: "ok", latencyMs: 12 }),
   ];
   const cells = summarize(rs);
-  assertEquals(cells.map((c) => [c.endpoint, c.path]), [
-    [VIP, "/readyz"],
-    [CP1, "/readyz"],
-    [VIP, LEASE_PATH],
-  ]);
+  assertEquals(
+    cells.map((c) => [c.endpoint, c.path]),
+    [
+      [VIP, "/readyz"],
+      [CP1, "/readyz"],
+      [VIP, LEASE_PATH],
+    ],
+  );
   assertEquals(cells[0], {
     endpoint: VIP,
     path: "/readyz",
@@ -311,11 +336,13 @@ Deno.test("summarize groups per endpoint and path in first-seen order", () => {
   assertEquals(summarize([]), []);
 });
 
-Deno.test("summaryTable renders one aligned row per cell", () => {
-  const table = summaryTable(summarize([
-    result({ at: 0, kind: "ok", latencyMs: 10 }),
-    result({ at: 1000, kind: "http 503", latencyMs: 20 }),
-  ]));
+test("summaryTable renders one aligned row per cell", () => {
+  const table = summaryTable(
+    summarize([
+      result({ at: 0, kind: "ok", latencyMs: 10 }),
+      result({ at: 1000, kind: "http 503", latencyMs: 20 }),
+    ]),
+  );
   const lines = table.split("\n");
   assertEquals(lines.length, 2);
   assert(lines[0].startsWith("ENDPOINT"), lines[0]);
@@ -323,14 +350,17 @@ Deno.test("summaryTable renders one aligned row per cell", () => {
   // Columns pad to the widest cell, so the endpoint column is as wide as the
   // URL, not as the "ENDPOINT" header: every column must start at the same
   // offset in the header and in the row.
-  for (const [header, cell] of [["PATH", "/readyz"], ["COUNT", "2"]]) {
+  for (const [header, cell] of [
+    ["PATH", "/readyz"],
+    ["COUNT", "2"],
+  ]) {
     assertEquals(lines[0].indexOf(header), lines[1].indexOf(cell), header);
   }
   assert(lines[1].includes("http 503=1"), lines[1]);
   assert(lines[1].includes("1 (00:00:01.000..00:00:01.020 UTC)"), lines[1]);
 });
 
-Deno.test("applyLeaseFallback swaps the Lease for /version only on a 403", () => {
+test("applyLeaseFallback swaps the Lease for /version only on a 403", () => {
   const forbidden = result({
     at: 1,
     kind: "http 403",
@@ -355,21 +385,19 @@ Deno.test("applyLeaseFallback swaps the Lease for /version only on a 403", () =>
 // endpoints and paths
 // ----------------------------------------------------------------------------
 
-Deno.test("normalizeEndpoint keeps the origin and rejects paths and credentials", () => {
+test("normalizeEndpoint keeps the origin and rejects paths and credentials", () => {
   assertEquals(
     normalizeEndpoint("https://10.0.0.10:6443/"),
     "https://10.0.0.10:6443",
   );
   assertEquals(normalizeEndpoint(" https://cp1.example.test:6443 "), CP1);
-  for (
-    const bad of [
-      "cp1:6443",
-      "ftp://x",
-      "https://x:6443/readyz",
-      "https://x:6443/?a=b",
-      "https://user:pw@x:6443",
-    ]
-  ) {
+  for (const bad of [
+    "cp1:6443",
+    "ftp://x",
+    "https://x:6443/readyz",
+    "https://x:6443/?a=b",
+    "https://user:pw@x:6443",
+  ]) {
     assertThrows(() => normalizeEndpoint(bad), UsageError);
   }
 });
@@ -378,7 +406,7 @@ Deno.test("normalizeEndpoint keeps the origin and rejects paths and credentials"
 // kubeconfig
 // ----------------------------------------------------------------------------
 
-Deno.test("kubeconfigPath prefers the flag, then the first $KUBECONFIG entry, then ~/.kube/config", () => {
+test("kubeconfigPath prefers the flag, then the first $KUBECONFIG entry, then ~/.kube/config", () => {
   assertEquals(kubeconfigPath("/x/kc.yaml", "/y:/z", "/home/a"), "/x/kc.yaml");
   assertEquals(
     kubeconfigPath(undefined, "/y/kc.yaml:/z", "/home/a"),
@@ -402,9 +430,9 @@ const CERT_PEM = "-----BEGIN CERTIFICATE-----\ncl\n-----END CERTIFICATE-----\n";
 // keeps flagging real keys instead of being taught to ignore this file. The
 // body is the single letter "k": there is no key material here.
 const PEM = (label: string, body: string) =>
-  `${"-".repeat(5)}BEGIN ${label}${"-".repeat(5)}\n${body}\n${
-    "-".repeat(5)
-  }END ${label}${"-".repeat(5)}\n`;
+  `${"-".repeat(5)}BEGIN ${label}${"-".repeat(5)}\n${body}\n${"-".repeat(
+    5,
+  )}END ${label}${"-".repeat(5)}\n`;
 const KEY_PEM = PEM("EC PRIVATE KEY", "k");
 const TOKEN = "fixture-token-not-a-secret";
 
@@ -471,7 +499,7 @@ const KUBECONFIG = {
   ],
 };
 
-Deno.test("resolveContext uses current-context and inline cert data", () => {
+test("resolveContext uses current-context and inline cert data", () => {
   const rc = resolveContext(KUBECONFIG);
   assertEquals(rc.context, "admin@homelab");
   assertEquals(rc.cluster, "homelab");
@@ -487,7 +515,7 @@ Deno.test("resolveContext uses current-context and inline cert data", () => {
   assertEquals(describeIdentity(rc), "client certificate (data) + key (data)");
 });
 
-Deno.test("resolveContext selects a bearer-token context without a CA", () => {
+test("resolveContext selects a bearer-token context without a CA", () => {
   const rc = resolveContext(KUBECONFIG, "homelab-readonly");
   assertEquals(rc.server, "https://proxy.example.test");
   assertEquals(rc.ca, null);
@@ -499,7 +527,7 @@ Deno.test("resolveContext selects a bearer-token context without a CA", () => {
   assert(!describeIdentity(rc).includes(TOKEN));
 });
 
-Deno.test("resolveContext supports file variants, tokenFile and insecure-skip-tls-verify", () => {
+test("resolveContext supports file variants, tokenFile and insecure-skip-tls-verify", () => {
   const files = resolveContext(KUBECONFIG, "files");
   assertEquals(files.ca, { kind: "file", value: "certs/ca.crt" });
   assertEquals(files.identity, {
@@ -528,7 +556,7 @@ Deno.test("resolveContext supports file variants, tokenFile and insecure-skip-tl
   assertEquals(describeIdentity(anon), "none (anonymous)");
 });
 
-Deno.test("resolveContext rejects missing names, exec plugins and half credentials", () => {
+test("resolveContext rejects missing names, exec plugins and half credentials", () => {
   const bad: [string | undefined, unknown, string][] = [
     ["nope", KUBECONFIG, 'context "nope" not found'],
     ["dangling", KUBECONFIG, 'cluster "missing" not found'],
@@ -536,19 +564,23 @@ Deno.test("resolveContext rejects missing names, exec plugins and half credentia
     ["half", KUBECONFIG, "without a key"],
     [undefined, { clusters: [] }, "no current-context"],
     [undefined, "not a mapping", "not a YAML mapping"],
-    [undefined, {
-      "current-context": "c",
-      contexts: [{ name: "c", context: { cluster: "k", user: "u" } }],
-      clusters: [{ name: "k", cluster: {} }],
-      users: [{ name: "u", user: {} }],
-    }, "has no server"],
+    [
+      undefined,
+      {
+        "current-context": "c",
+        contexts: [{ name: "c", context: { cluster: "k", user: "u" } }],
+        clusters: [{ name: "k", cluster: {} }],
+        users: [{ name: "u", user: {} }],
+      },
+      "has no server",
+    ],
   ];
   for (const [ctx, doc, msg] of bad) {
     assertThrows(() => resolveContext(doc, ctx), UsageError, msg);
   }
 });
 
-Deno.test("loadCredentials decodes inline data and reads files relative to the kubeconfig", async () => {
+test("loadCredentials decodes inline data and reads files relative to the kubeconfig", async () => {
   const reads: string[] = [];
   const readFile = (p: string) => {
     reads.push(p);
@@ -613,24 +645,24 @@ Deno.test("loadCredentials decodes inline data and reads files relative to the k
   assertEquals(anon, { caPem: CA_PEM });
 });
 
-Deno.test("loadCredentials reports unreadable files and bad base64 without echoing data", async () => {
+test("loadCredentials reports unreadable files and bad base64 without echoing data", async () => {
   const missing = resolveContext(KUBECONFIG, "files");
   await assertRejects(
     () =>
-      loadCredentials(
-        missing,
-        "/kc",
-        () => Promise.reject(new Error("ENOENT")),
+      loadCredentials(missing, "/kc", () =>
+        Promise.reject(new Error("ENOENT")),
       ),
     Error,
     "cannot read certificate-authority file /kc/certs/ca.crt",
   );
   const badB64 = resolveContext({
     ...KUBECONFIG,
-    users: [{
-      name: "admin",
-      user: { "client-certificate-data": "@@@", "client-key-data": "@@@" },
-    }],
+    users: [
+      {
+        name: "admin",
+        user: { "client-certificate-data": "@@@", "client-key-data": "@@@" },
+      },
+    ],
   });
   await assertRejects(
     () => loadCredentials(badB64, "/kc", () => Promise.resolve("")),
@@ -643,7 +675,7 @@ Deno.test("loadCredentials reports unreadable files and bad base64 without echoi
 // argv and plan
 // ----------------------------------------------------------------------------
 
-Deno.test("parseArgs defaults and help", () => {
+test("parseArgs defaults and help", () => {
   const args = parseArgs(["probe"]);
   assertEquals(args.command, "probe");
   assertEquals(args.endpoints, []);
@@ -663,7 +695,7 @@ Deno.test("parseArgs defaults and help", () => {
   assertEquals(parseArgs(["-h"]).command, "help");
 });
 
-Deno.test("parseArgs collects repeatable flags and the = form", () => {
+test("parseArgs collects repeatable flags and the = form", () => {
   const args = parseArgs([
     "--",
     "stress",
@@ -701,7 +733,7 @@ Deno.test("parseArgs collects repeatable flags and the = form", () => {
   assertEquals(args.dryRun, true);
 });
 
-Deno.test("parseArgs rejects bad invocations", () => {
+test("parseArgs rejects bad invocations", () => {
   const bad: [string[], string][] = [
     [["frobnicate"], "unknown subcommand"],
     [["probe", "extra"], "unexpected argument"],
@@ -714,7 +746,7 @@ Deno.test("parseArgs rejects bad invocations", () => {
   }
 });
 
-Deno.test("buildPlan converts durations, paths and the concurrency guard", () => {
+test("buildPlan converts durations, paths and the concurrency guard", () => {
   const plan = buildPlan(
     parseArgs(["stress", "--duration", "5m", "--interval", "500ms"]),
   );
@@ -729,15 +761,17 @@ Deno.test("buildPlan converts durations, paths and the concurrency guard", () =>
   assertEquals(plan.steps, [8, 32]);
   assertEquals(plan.stepDurationMs, 30_000);
 
-  const custom = buildPlan(parseArgs([
-    "probe",
-    "--path",
-    "/version",
-    "--path",
-    "/healthz",
-    "--endpoint",
-    `${CP1}/`,
-  ]));
+  const custom = buildPlan(
+    parseArgs([
+      "probe",
+      "--path",
+      "/version",
+      "--path",
+      "/healthz",
+      "--endpoint",
+      `${CP1}/`,
+    ]),
+  );
   assertEquals(custom.probePaths, ["/version", "/healthz"]);
   assertEquals(custom.stressPaths, ["/version", "/healthz"]);
   assertEquals(custom.extraEndpoints, [CP1]);
@@ -775,11 +809,11 @@ Deno.test("buildPlan converts durations, paths and the concurrency guard", () =>
   );
 });
 
-Deno.test("the only request method is GET", () => {
+test("the only request method is GET", () => {
   assertEquals(METHOD, "GET");
 });
 
-Deno.test("isClientSaturated separates a starved client from a slow server", () => {
+test("isClientSaturated separates a starved client from a slow server", () => {
   const cell = (count: number, ok: number): CellSummary => ({
     endpoint: VIP,
     path: "/readyz",

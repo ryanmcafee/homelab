@@ -1,4 +1,4 @@
-#!/usr/bin/env -S deno run --allow-net --allow-run --allow-env --allow-read --allow-write
+#!/usr/bin/env bun
 
 /**
  * prod-readonly.ts
@@ -38,14 +38,23 @@
  *   task prod:kubeconfig [-- --tailnet tail1234.ts.net] [-- --dry-run]
  *   task prod:status
  *   task prod:diff -- <app>
- *   deno run ... scripts/prod-readonly.ts --help
+ *   bun scripts/prod-readonly.ts --help
  *
  * Exit codes: 0 = success; 1 = a command failed; 2 = argument error.
  */
 
-import { stringify as stringifyYaml } from "jsr:@std/yaml@^1";
-import { parse as parseYaml } from "jsr:@std/yaml@^1";
-import { dirname, join, resolve } from "jsr:@std/path@^1";
+import {
+  chmod,
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  writeFile,
+} from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { dirname, join, resolve } from "node:path";
+import { isNotFound } from "./lib/errors.ts";
+import { parse as parseYaml, stringify as stringifyYaml } from "./lib/yaml.ts";
 
 // ============================================================================
 // Logging
@@ -105,9 +114,9 @@ export function tailnetDomain(tailnet: string): string {
   const t = tailnet.trim().toLowerCase().replace(/\.$/, "");
   if (!DNS_NAME.test(t)) {
     throw new UsageError(
-      `invalid tailnet ${
-        JSON.stringify(tailnet)
-      } (expected e.g. tail1234.ts.net)`,
+      `invalid tailnet ${JSON.stringify(
+        tailnet,
+      )} (expected e.g. tail1234.ts.net)`,
     );
   }
   return t.endsWith(".ts.net") ? t : `${t}.ts.net`;
@@ -142,14 +151,16 @@ export function renderKubeconfig(input: KubeconfigInput): string {
     apiVersion: "v1",
     kind: "Config",
     clusters: [{ name: input.context, cluster: { server: input.server } }],
-    contexts: [{
-      name: input.context,
-      context: {
-        cluster: input.context,
-        user: input.user,
-        namespace: input.namespace,
+    contexts: [
+      {
+        name: input.context,
+        context: {
+          cluster: input.context,
+          user: input.user,
+          namespace: input.namespace,
+        },
       },
-    }],
+    ],
     "current-context": input.context,
     users: [{ name: input.user, user: { token: input.token } }],
     preferences: {},
@@ -256,7 +267,7 @@ export function domainFromEnvFile(text: string): string | null {
   return d;
 }
 
-// deno-lint-ignore no-explicit-any
+// biome-ignore lint/suspicious/noExplicitAny: arbitrary JSON from kubectl
 type Json = any;
 
 export interface AppRow {
@@ -292,10 +303,13 @@ export function isRowHealthy(row: AppRow): boolean {
 /** Plain aligned table. */
 export function formatTable(headers: string[], rows: string[][]): string {
   const widths = headers.map((h, i) =>
-    Math.max(h.length, ...rows.map((r) => (r[i] ?? "").length))
+    Math.max(h.length, ...rows.map((r) => (r[i] ?? "").length)),
   );
   const line = (cells: string[]) =>
-    cells.map((c, i) => c.padEnd(widths[i])).join("  ").trimEnd();
+    cells
+      .map((c, i) => c.padEnd(widths[i]))
+      .join("  ")
+      .trimEnd();
   return [line(headers), ...rows.map(line)].join("\n");
 }
 
@@ -410,9 +424,9 @@ export function parseArgs(argv: string[], env: ArgEnv): Args {
   if (command === undefined) return args;
   if (command !== "kubeconfig" && command !== "status" && command !== "diff") {
     throw new UsageError(
-      `unknown subcommand ${
-        JSON.stringify(command)
-      } (kubeconfig, status, diff)`,
+      `unknown subcommand ${JSON.stringify(
+        command,
+      )} (kubeconfig, status, diff)`,
     );
   }
   args.command = command;
@@ -432,12 +446,10 @@ export function parseArgs(argv: string[], env: ArgEnv): Args {
     throw new UsageError(`unexpected argument ${JSON.stringify(rest[0])}`);
   }
 
-  for (
-    const [flag, ref] of [["--token-ref", args.tokenRef], [
-      "--argocd-token-ref",
-      args.argocdTokenRef,
-    ]]
-  ) {
+  for (const [flag, ref] of [
+    ["--token-ref", args.tokenRef],
+    ["--argocd-token-ref", args.argocdTokenRef],
+  ]) {
     if (!ref.startsWith("op://")) {
       throw new UsageError(
         `${flag} must be a 1Password reference (op://...), got ${ref}`,
@@ -487,21 +499,20 @@ async function run(
   env?: Record<string, string>,
 ): Promise<RunResult> {
   try {
-    const out = await new Deno.Command(cmd[0], {
-      args: cmd.slice(1),
-      env,
-      stdin: "null",
-      stdout: "piped",
-      stderr: "piped",
-    }).output();
-    const dec = new TextDecoder();
-    return {
-      code: out.code,
-      stdout: dec.decode(out.stdout),
-      stderr: dec.decode(out.stderr),
-    };
+    const p = Bun.spawn(cmd, {
+      env: env ? { ...process.env, ...env } : undefined,
+      stdin: "ignore",
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const [stdout, stderr, code] = await Promise.all([
+      new Response(p.stdout).text(),
+      new Response(p.stderr).text(),
+      p.exited,
+    ]);
+    return { code, stdout, stderr };
   } catch (err) {
-    if (err instanceof Deno.errors.NotFound) {
+    if (isNotFound(err)) {
       return {
         code: 127,
         stdout: "",
@@ -545,8 +556,8 @@ async function resolveTailnet(args: Args): Promise<string> {
 }
 
 async function cmdKubeconfig(args: Args): Promise<number> {
-  const server = args.server ??
-    proxyServerUrl(args.hostname, await resolveTailnet(args));
+  const server =
+    args.server ?? proxyServerUrl(args.hostname, await resolveTailnet(args));
   const input: KubeconfigInput = {
     server,
     token: REDACTED,
@@ -564,9 +575,9 @@ async function cmdKubeconfig(args: Args): Promise<number> {
 
   const token = checkToken(await opRead(args.tokenRef), args.tokenRef);
   const text = renderKubeconfig({ ...input, token });
-  await Deno.mkdir(dirname(args.kubeconfig), { recursive: true, mode: 0o700 });
-  await Deno.writeTextFile(args.kubeconfig, text, { mode: 0o600 });
-  await Deno.chmod(args.kubeconfig, 0o600);
+  await mkdir(dirname(args.kubeconfig), { recursive: true, mode: 0o700 });
+  await writeFile(args.kubeconfig, text, { mode: 0o600 });
+  await chmod(args.kubeconfig, 0o600);
   log.ok(
     `wrote ${args.kubeconfig} (mode 0600): context ${args.context}, server ${server}`,
   );
@@ -594,10 +605,12 @@ async function cmdStatus(args: Args): Promise<number> {
     return 1;
   }
   const rows = statusRows(JSON.parse(res.stdout));
-  console.log(formatTable(
-    ["NAME", "SYNC", "HEALTH", "OPERATION", "REVISION"],
-    rows.map((r) => [r.name, r.sync, r.health, r.operation, r.revision]),
-  ));
+  console.log(
+    formatTable(
+      ["NAME", "SYNC", "HEALTH", "OPERATION", "REVISION"],
+      rows.map((r) => [r.name, r.sync, r.health, r.operation, r.revision]),
+    ),
+  );
   const bad = rows.filter((r) => !isRowHealthy(r));
   if (bad.length === 0) {
     log.ok(
@@ -605,9 +618,9 @@ async function cmdStatus(args: Args): Promise<number> {
     );
   } else {
     log.warn(
-      `${bad.length} of ${rows.length} Applications not Healthy/Succeeded: ${
-        bad.map((r) => r.name).join(", ")
-      }`,
+      `${bad.length} of ${rows.length} Applications not Healthy/Succeeded: ${bad
+        .map((r) => r.name)
+        .join(", ")}`,
     );
   }
   return 0;
@@ -616,7 +629,7 @@ async function cmdStatus(args: Args): Promise<number> {
 async function resolveArgocdServer(args: Args): Promise<string> {
   if (args.argocdServer) return args.argocdServer;
   try {
-    const domain = domainFromEnvFile(await Deno.readTextFile(HOMELAB_ENV_FILE));
+    const domain = domainFromEnvFile(await readFile(HOMELAB_ENV_FILE, "utf8"));
     if (domain) return `argocd.${domain}`;
   } catch {
     // fall through
@@ -631,7 +644,7 @@ async function cmdDiff(args: Args): Promise<number> {
   const server = await resolveArgocdServer(args);
   const configDir = args.dryRun
     ? "<temp-dir>"
-    : await Deno.makeTempDir({ prefix: "homelab-argocd-readonly-" });
+    : await mkdtemp(join(tmpdir(), "homelab-argocd-readonly-"));
   const cmd = argocdDiffCmd(args.app!, server, join(configDir, "config"));
   if (args.dryRun) {
     log.dry(`would read the token with: op read ${args.argocdTokenRef}`);
@@ -657,7 +670,7 @@ async function cmdDiff(args: Args): Promise<number> {
     }
     return 0;
   } finally {
-    await Deno.remove(configDir, { recursive: true }).catch(() => {});
+    await rm(configDir, { recursive: true }).catch(() => {});
   }
 }
 
@@ -691,10 +704,10 @@ Exit codes: 0 success, 1 failure, 2 usage error.`,
 async function main(): Promise<number> {
   let args: Args;
   try {
-    args = parseArgs(Deno.args, {
-      home: Deno.env.get("HOME") ?? "",
-      tailnet: Deno.env.get("HOMELAB_TAILNET"),
-      argocdServer: Deno.env.get("HOMELAB_ARGOCD_SERVER"),
+    args = parseArgs(process.argv.slice(2), {
+      home: process.env.HOME ?? "",
+      tailnet: process.env.HOMELAB_TAILNET,
+      argocdServer: process.env.HOMELAB_ARGOCD_SERVER,
     });
   } catch (err) {
     if (err instanceof UsageError) {
@@ -704,7 +717,7 @@ async function main(): Promise<number> {
     }
     throw err;
   }
-  if (!args.dryRun && args.command !== "help" && !Deno.env.get("HOME")) {
+  if (!args.dryRun && args.command !== "help" && !process.env.HOME) {
     log.error("HOME is not set");
     return 2;
   }
@@ -731,5 +744,5 @@ async function main(): Promise<number> {
 }
 
 if (import.meta.main) {
-  Deno.exit(await main());
+  process.exit(await main());
 }

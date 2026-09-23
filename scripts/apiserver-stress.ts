@@ -1,4 +1,4 @@
-#!/usr/bin/env -S deno run --allow-net --allow-env --allow-read --allow-write
+#!/usr/bin/env -S bun --experimental-http2-fetch
 
 /**
  * apiserver-stress.ts
@@ -36,10 +36,11 @@
  * Auth: the kubeconfig (--kubeconfig, else the first path in $KUBECONFIG,
  * else ~/.kube/config) and --context (default: current-context). Supported
  * user entries: client-certificate(-data) + client-key(-data), token,
- * tokenFile. insecure-skip-tls-verify is honoured by not pinning the CA; Deno
- * has no per-client switch for it, so also run with
- * `deno run --unsafely-ignore-certificate-errors=<host> ...`. exec plugins
- * are not supported. Tokens are never printed.
+ * tokenFile. insecure-skip-tls-verify is honoured by not pinning the CA; to
+ * also skip verification run with
+ * `NODE_TLS_REJECT_UNAUTHORIZED=0 bun --experimental-http2-fetch scripts/apiserver-stress.ts ...`
+ * (this disables verification for every host). exec plugins are not
+ * supported. Tokens are never printed.
  *
  * --dry-run prints the resolved endpoints, paths, identity type and plan and
  * exits 0 without any network call. --json <file> also writes the summary.
@@ -47,16 +48,17 @@
  * Usage:
  *   task apiserver:probe  [-- --endpoint https://<cp-ip>:6443 --duration 5m]
  *   task apiserver:stress [-- --concurrency 8,32,64 --step-duration 30s]
- *   deno run ... scripts/apiserver-stress.ts --help
+ *   bun --experimental-http2-fetch scripts/apiserver-stress.ts --help
  *
  * Exit codes: 0 = run completed with no probe failures; 1 = the probe saw
  * failures or the run itself failed; 2 = argument error.
  */
 
-import { parse as parseYaml } from "jsr:@std/yaml@^1";
-import { dirname, join, resolve } from "jsr:@std/path@^1";
-import { decodeBase64 } from "jsr:@std/encoding@^1/base64";
-import { delay } from "jsr:@std/async@^1/delay";
+import { readFile, writeFile } from "node:fs/promises";
+import { dirname, join, resolve } from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
+import { rootCertificates } from "node:tls";
+import { parse as parseYaml } from "./lib/yaml.ts";
 
 // ============================================================================
 // Logging
@@ -122,9 +124,9 @@ export function parseDuration(raw: string, flag = "duration"): number {
   const m = DURATION.exec(raw);
   if (!m) {
     throw new UsageError(
-      `--${flag} must look like 30s, 5m or 90 (seconds), got ${
-        JSON.stringify(raw)
-      }`,
+      `--${flag} must look like 30s, 5m or 90 (seconds), got ${JSON.stringify(
+        raw,
+      )}`,
     );
   }
   const ms = Math.round(Number(m[1]) * UNIT_MS[m[2] ?? "s"]);
@@ -148,13 +150,16 @@ export function parseConcurrency(
   max: number,
   iKnow: boolean,
 ): number[] {
-  const steps = raw.split(",").map((s) => s.trim()).filter((s) => s !== "")
+  const steps = raw
+    .split(",")
+    .map((s) => s.trim())
+    .filter((s) => s !== "")
     .map((s) => {
       if (!/^\d+$/.test(s) || Number(s) < 1) {
         throw new UsageError(
-          `--concurrency must be a list of positive integers like 8,32, got ${
-            JSON.stringify(raw)
-          }`,
+          `--concurrency must be a list of positive integers like 8,32, got ${JSON.stringify(
+            raw,
+          )}`,
         );
       }
       return Number(s);
@@ -165,9 +170,9 @@ export function parseConcurrency(
   const over = steps.filter((n) => n > max);
   if (over.length > 0 && !iKnow) {
     throw new UsageError(
-      `--concurrency ${
-        over.join(",")
-      } exceeds --max-concurrency ${max}; pass --i-know to run it anyway`,
+      `--concurrency ${over.join(
+        ",",
+      )} exceeds --max-concurrency ${max}; pass --i-know to run it anyway`,
     );
   }
   return steps;
@@ -203,20 +208,39 @@ export function latencyStats(values: number[]): LatencyStats {
 export type TransportKind = "timeout" | "refused" | "reset" | "tls" | "other";
 export type ResultKind = "ok" | TransportKind | `http ${number}`;
 
+/** The string `code` of an error (Bun's fetch sets one), or "". */
+function errorCode(err: unknown): string {
+  const code = (err as { code?: unknown } | null)?.code;
+  return typeof code === "string" ? code : "";
+}
+
 /** Buckets a fetch/AbortSignal error by what the network did. */
 export function classifyError(err: unknown): TransportKind {
   const name = err instanceof Error ? err.name : "";
-  const msg = (err instanceof Error ? err.message : String(err)).toLowerCase();
+  // Bun's fetch reports the cause in `code` (ConnectionRefused, ECONNRESET,
+  // DEPTH_ZERO_SELF_SIGNED_CERT, ...) and a generic message.
+  const msg = `${errorCode(err)} ${
+    err instanceof Error ? err.message : String(err)
+  }`.toLowerCase();
   if (
-    name === "TimeoutError" || name === "AbortError" || /timed? ?out/.test(msg)
+    name === "TimeoutError" ||
+    name === "AbortError" ||
+    /timed? ?out/.test(msg)
   ) {
     return "timeout";
   }
   if (/refused/.test(msg)) return "refused";
-  if (/\btls\b|certificate|handshake|\bssl\b/.test(msg)) return "tls";
   if (
-    /reset|broken pipe|closed before|unexpected eof|\beof\b|http2 error|stream error|goaway|connection closed/
-      .test(msg)
+    /\btls\b|certificate|handshake|\bssl\b|_cert\b|^cert_|issuer|err_tls/.test(
+      msg,
+    )
+  ) {
+    return "tls";
+  }
+  if (
+    /reset|broken pipe|epipe|closed before|unexpected eof|\beof\b|http2 error|stream error|goaway|connection closed|connectionclosed|closed unexpectedly/.test(
+      msg,
+    )
   ) {
     return "reset";
   }
@@ -259,7 +283,8 @@ export function longestOutage(results: RequestResult[]): Outage | null {
   const consider = (o: Outage | null) => {
     if (!o) return;
     if (
-      !best || o.failures > best.failures ||
+      !best ||
+      o.failures > best.failures ||
       (o.failures === best.failures && o.end - o.start > best.end - best.start)
     ) {
       best = o;
@@ -290,8 +315,8 @@ export function countErrors(results: RequestResult[]): Record<string, number> {
     if (r.kind !== "ok") counts.set(r.kind, (counts.get(r.kind) ?? 0) + 1);
   }
   return Object.fromEntries(
-    [...counts.entries()].sort((a, b) =>
-      b[1] - a[1] || a[0].localeCompare(b[0])
+    [...counts.entries()].sort(
+      (a, b) => b[1] - a[1] || a[0].localeCompare(b[0]),
     ),
   );
 }
@@ -355,9 +380,9 @@ export function normalizeEndpoint(raw: string): string {
   }
   if ((url.pathname !== "/" && url.pathname !== "") || url.search || url.hash) {
     throw new UsageError(
-      `endpoint ${
-        JSON.stringify(raw)
-      } must not carry a path; use --path for paths`,
+      `endpoint ${JSON.stringify(
+        raw,
+      )} must not carry a path; use --path for paths`,
     );
   }
   if (url.username || url.password) {
@@ -390,9 +415,10 @@ export function kubeconfigPath(
   home: string,
 ): string {
   if (flag) return flag;
-  const first = (envKubeconfig ?? "").split(":").map((s) => s.trim()).find(
-    (s) => s !== "",
-  );
+  const first = (envKubeconfig ?? "")
+    .split(":")
+    .map((s) => s.trim())
+    .find((s) => s !== "");
   if (first) return first;
   return join(home, ".kube", "config");
 }
@@ -418,7 +444,7 @@ export interface ResolvedContext {
   identity: Identity;
 }
 
-// deno-lint-ignore no-explicit-any
+// biome-ignore lint/suspicious/noExplicitAny: kubeconfig YAML is untyped and walked field by field
 type Json = any;
 
 function named(list: Json, name: string, what: string): Json {
@@ -432,11 +458,7 @@ function named(list: Json, name: string, what: string): Json {
   return hit;
 }
 
-function source(
-  obj: Json,
-  dataKey: string,
-  fileKey: string,
-): Source | null {
+function source(obj: Json, dataKey: string, fileKey: string): Source | null {
   if (typeof obj?.[dataKey] === "string" && obj[dataKey] !== "") {
     return { kind: "data", value: obj[dataKey] };
   }
@@ -482,9 +504,9 @@ export function resolveContext(
     identity = { type: "cert", cert, key };
   } else if (cert || key) {
     throw new UsageError(
-      `user ${
-        JSON.stringify(ctx.user)
-      } has a client certificate without a key (or vice versa)`,
+      `user ${JSON.stringify(
+        ctx.user,
+      )} has a client certificate without a key (or vice versa)`,
     );
   } else if (typeof user.token === "string" && user.token !== "") {
     identity = { type: "token", token: { kind: "data", value: user.token } };
@@ -495,9 +517,9 @@ export function resolveContext(
     };
   } else if (user.exec || user["auth-provider"]) {
     throw new UsageError(
-      `user ${
-        JSON.stringify(ctx.user)
-      } uses an exec/auth-provider credential plugin, which this script does not support; ` +
+      `user ${JSON.stringify(
+        ctx.user,
+      )} uses an exec/auth-provider credential plugin, which this script does not support; ` +
         "use a context with a client certificate or a token",
     );
   }
@@ -518,6 +540,18 @@ export interface Credentials {
   certPem?: string;
   keyPem?: string;
   token?: string;
+}
+
+/**
+ * Strict standard base64 decode: rejects characters outside the alphabet,
+ * misplaced padding and a length that is not a multiple of 4 (Buffer.from
+ * silently skips junk, which would turn a corrupt kubeconfig into bad PEM).
+ */
+function decodeBase64(s: string): Uint8Array {
+  if (s.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(s)) {
+    throw new TypeError("invalid base64");
+  }
+  return new Uint8Array(Buffer.from(s, "base64"));
 }
 
 /**
@@ -560,8 +594,9 @@ export async function loadCredentials(
     creds.keyPem = await materialize(rc.identity.key, "client-key");
   } else if (rc.identity.type === "token") {
     const t = rc.identity.token;
-    creds.token = (t.kind === "data" ? t.value : await materialize(t, "token"))
-      .trim();
+    creds.token = (
+      t.kind === "data" ? t.value : await materialize(t, "token")
+    ).trim();
     if (!creds.token) throw new Error("the token in the kubeconfig is empty");
   }
   return creds;
@@ -679,7 +714,8 @@ export function parseArgs(argv: string[]): Args {
           args.endpoints.push(value);
           break;
         case "--path":
-          (args.paths ??= []).push(value);
+          args.paths ??= [];
+          args.paths.push(value);
           break;
         case "--interval":
           args.interval = value;
@@ -773,22 +809,28 @@ export function buildPlan(args: Args): Plan {
 /** Plain aligned table. */
 export function formatTable(headers: string[], rows: string[][]): string {
   const widths = headers.map((h, i) =>
-    Math.max(h.length, ...rows.map((r) => (r[i] ?? "").length))
+    Math.max(h.length, ...rows.map((r) => (r[i] ?? "").length)),
   );
   const line = (cells: string[]) =>
-    cells.map((c, i) => c.padEnd(widths[i])).join("  ").trimEnd();
+    cells
+      .map((c, i) => c.padEnd(widths[i]))
+      .join("  ")
+      .trimEnd();
   return [line(headers), ...rows.map(line)].join("\n");
 }
 
 const iso = (epochMs: number) => new Date(epochMs).toISOString();
-const msText = (v: number | null) => v === null ? "-" : `${Math.round(v)}`;
+const msText = (v: number | null) => (v === null ? "-" : `${Math.round(v)}`);
 const errorsText = (e: Record<string, number>) =>
-  Object.entries(e).map(([k, n]) => `${k}=${n}`).join(",") || "-";
+  Object.entries(e)
+    .map(([k, n]) => `${k}=${n}`)
+    .join(",") || "-";
 const outageText = (o: Outage | null) =>
   o
-    ? `${o.failures} (${iso(o.start).slice(11, 23)}..${
-      iso(o.end).slice(11, 23)
-    } UTC)`
+    ? `${o.failures} (${iso(o.start).slice(11, 23)}..${iso(o.end).slice(
+        11,
+        23,
+      )} UTC)`
     : "-";
 
 /** The per-endpoint per-path summary table. */
@@ -826,7 +868,7 @@ export function summaryTable(cells: CellSummary[]): string {
 // ============================================================================
 
 interface RunContext {
-  client: Deno.HttpClient;
+  client: HttpClient;
   /** Authorization (bearer) when the identity is a token. Never logged. */
   headers: Record<string, string>;
   /** Set on SIGINT: loops stop scheduling and the summary is printed. */
@@ -834,9 +876,11 @@ interface RunContext {
 }
 
 function shortError(err: unknown): string {
-  const raw = err instanceof Error
-    ? `${err.name}: ${err.message}`
-    : String(err);
+  const code = errorCode(err);
+  const raw =
+    err instanceof Error
+      ? `${err.name}: ${code ? `${code}: ` : ""}${err.message}`
+      : String(err);
   return raw
     .replace(/error sending request for url \([^)]*\):\s*/i, "")
     .replace(/\s+/g, " ")
@@ -868,7 +912,7 @@ async function getOnce(
   const at = Date.now();
   const t0 = performance.now();
   try {
-    const res = await fetch(req, { client: ctx.client });
+    const res = await fetch(req, ctx.client);
     const body = await res.text();
     const latencyMs = performance.now() - t0;
     const kind = classifyStatus(res.status);
@@ -879,9 +923,8 @@ async function getOnce(
       status: res.status,
       kind,
       latencyMs,
-      error: kind === "ok"
-        ? undefined
-        : body.replace(/\s+/g, " ").slice(0, 120),
+      error:
+        kind === "ok" ? undefined : body.replace(/\s+/g, " ").slice(0, 120),
     };
   } catch (err) {
     return {
@@ -898,9 +941,9 @@ async function getOnce(
 
 function eventLine(tag: string, r: RequestResult): string {
   const detail = r.error ? ` (${r.error})` : "";
-  return `${iso(r.at)} ${tag} ${r.endpoint} ${r.path} ${r.kind}${detail} ${
-    Math.round(r.latencyMs)
-  }ms`;
+  return `${iso(r.at)} ${tag} ${r.endpoint} ${r.path} ${r.kind}${detail} ${Math.round(
+    r.latencyMs,
+  )}ms`;
 }
 
 /** Prints failures and slow requests as they happen. */
@@ -974,9 +1017,12 @@ export interface StepSummary {
 /**
  * One stress step: N workers looping over endpoints x paths plus the probe.
  *
- * `probeCtx` MUST own a different Deno.HttpClient than `ctx`. Sharing one
- * client makes the probe queue behind the load inside the client's own
- * connection pool, so the "baseline" would measure this process rather than
+ * `probeCtx` MUST NOT queue behind the load inside this process. Bun's fetch
+ * has one process-wide connection pool, so `probeCtx` gets its own options
+ * object but not its own pool; over HTTP/1.1 every in-flight request holds
+ * its own connection, so the probe only queues once the process-wide limit
+ * (BUN_CONFIG_MAX_HTTP_REQUESTS, default 256) is reached. If the probe did
+ * queue behind the load, the "baseline" would measure this process rather than
  * the API server: a run against a perfectly healthy cluster (server-side p99
  * 24 ms, no APF queueing) reported 5 s probe timeouts until they were split.
  */
@@ -1009,7 +1055,7 @@ async function runStep(
   const worker = async (id: number) => {
     for (let i = id; Date.now() < deadline && !ctx.stop.aborted; i++) {
       const targets = endpoints.flatMap((e) =>
-        stressPaths.map((p) => ({ endpoint: e, path: p }))
+        stressPaths.map((p) => ({ endpoint: e, path: p })),
       );
       const t = targets[i % targets.length];
       const r = await getOnce(ctx, t.endpoint, t.path, plan.timeoutMs);
@@ -1048,12 +1094,12 @@ async function runStep(
 function printStep(s: StepSummary): void {
   const errs = errorsText(s.errors);
   log.info(
-    `step concurrency=${s.concurrency}: ${s.requests} requests in ${
-      formatDuration(Math.round(s.durationMs / 1000) * 1000)
-    }, ${s.achievedRps.toFixed(1)} req/s, errors ${errs}, ` +
-      `p50 ${msText(s.latency.p50)}ms p95 ${msText(s.latency.p95)}ms p99 ${
-        msText(s.latency.p99)
-      }ms max ${msText(s.latency.max)}ms`,
+    `step concurrency=${s.concurrency}: ${s.requests} requests in ${formatDuration(
+      Math.round(s.durationMs / 1000) * 1000,
+    )}, ${s.achievedRps.toFixed(1)} req/s, errors ${errs}, ` +
+      `p50 ${msText(s.latency.p50)}ms p95 ${msText(s.latency.p95)}ms p99 ${msText(
+        s.latency.p99,
+      )}ms max ${msText(s.latency.max)}ms`,
   );
   console.log("baseline probe during this step:");
   console.log(summaryTable(s.probe));
@@ -1081,20 +1127,29 @@ export function isClientSaturated(s: StepSummary): boolean {
   return s.latency.p99 !== null && s.latency.p99 < 1000;
 }
 
-function buildClient(creds: Credentials, http1: boolean): Deno.HttpClient {
-  const base: Deno.CreateHttpClientOptions = {
-    caCerts: creds.caPem ? [creds.caPem] : undefined,
-    http1: true,
-    http2: !http1,
-  };
+/** The per-request fetch options that carry the TLS identity and protocol. */
+interface HttpClient {
+  tls?: BunFetchRequestInitTLS;
+  protocol?: "http1.1";
+}
+
+/**
+ * The kubeconfig CA is trusted in addition to the bundled root store (a bare
+ * `tls.ca` would replace it). Without --http1 the protocol is left to Bun:
+ * h2 is offered via ALPN when Bun runs with --experimental-http2-fetch,
+ * otherwise HTTP/1.1 is used.
+ */
+function buildClient(creds: Credentials, http1: boolean): HttpClient {
+  const tls: BunFetchRequestInitTLS = {};
+  if (creds.caPem) tls.ca = [...rootCertificates, creds.caPem];
   if (creds.certPem && creds.keyPem) {
-    return Deno.createHttpClient({
-      ...base,
-      cert: creds.certPem,
-      key: creds.keyPem,
-    });
+    tls.cert = creds.certPem;
+    tls.key = creds.keyPem;
   }
-  return Deno.createHttpClient(base);
+  return {
+    tls: Object.keys(tls).length > 0 ? tls : undefined,
+    protocol: http1 ? "http1.1" : undefined,
+  };
 }
 
 function printPlan(
@@ -1105,39 +1160,41 @@ function printPlan(
   dryRun: boolean,
 ): void {
   const tls = rc.insecureSkipTlsVerify
-    ? "insecure-skip-tls-verify (needs --unsafely-ignore-certificate-errors)"
+    ? "insecure-skip-tls-verify (needs NODE_TLS_REJECT_UNAUTHORIZED=0)"
     : rc.ca
-    ? `CA from kubeconfig (${rc.ca.kind})`
-    : "system trust store";
+      ? `CA from kubeconfig (${rc.ca.kind})`
+      : "system trust store";
   // Only a dry run may label these lines DRY: in a real run they are the plan
   // of requests that are about to be made.
   const out = dryRun ? log.dry : log.info;
   out(`kubeconfig ${kcPath}, context ${rc.context}, cluster ${rc.cluster}`);
   out(
     `identity: ${describeIdentity(rc)}; tls: ${tls}; ${
-      plan.http1 ? "HTTP/1.1 only" : "HTTP/2 allowed"
+      plan.http1
+        ? "HTTP/1.1 only"
+        : "HTTP/2 allowed (offered with bun --experimental-http2-fetch)"
     }`,
   );
   out(
-    `endpoints: ${
-      endpoints.map((e, i) => i === 0 ? `${e} (kubeconfig)` : e).join(", ")
-    }`,
+    `endpoints: ${endpoints
+      .map((e, i) => (i === 0 ? `${e} (kubeconfig)` : e))
+      .join(", ")}`,
   );
   out(
-    `probe: every ${formatDuration(plan.intervalMs)} for ${
-      formatDuration(plan.durationMs)
-    }, timeout ${formatDuration(plan.timeoutMs)}, slow > ${
-      formatDuration(plan.slowMs)
-    }`,
+    `probe: every ${formatDuration(plan.intervalMs)} for ${formatDuration(
+      plan.durationMs,
+    )}, timeout ${formatDuration(plan.timeoutMs)}, slow > ${formatDuration(
+      plan.slowMs,
+    )}`,
   );
   out(`probe paths: ${plan.probePaths.join(", ")}`);
   if (plan.command === "stress") {
     out(
-      `stress: concurrency ${plan.steps.join(",")} x ${
-        formatDuration(plan.stepDurationMs)
-      } each, probe every ${
-        formatDuration(STRESS_PROBE_INTERVAL_MS)
-      } during each step`,
+      `stress: concurrency ${plan.steps.join(",")} x ${formatDuration(
+        plan.stepDurationMs,
+      )} each, probe every ${formatDuration(
+        STRESS_PROBE_INTERVAL_MS,
+      )} during each step`,
     );
     out(`stress paths: ${plan.stressPaths.join(", ")} (GET only)`);
   }
@@ -1166,15 +1223,15 @@ Subcommands:
 Endpoints: the server of the kubeconfig context, plus each --endpoint (repeatable) so the VIP
 and every control plane can be probed side by side. The kubeconfig CA verifies all of them.
 Paths:     default ${PROBE_PATHS.join(" and ")}
-           (Lease 403 -> ${FALLBACK_PATH}); stress adds ${
-      STRESS_PATHS.slice(2).join(" and ")
-    }.
+           (Lease 403 -> ${FALLBACK_PATH}); stress adds ${STRESS_PATHS.slice(
+             2,
+           ).join(" and ")}.
            --path (repeatable) replaces the defaults for both subcommands.
 Durations: 30s, 5m, 250ms, or plain seconds (90).
 Auth:      --kubeconfig, else the first path in $KUBECONFIG, else ~/.kube/config; --context
            (default current-context). client-certificate(-data)/client-key(-data), token and
            tokenFile are supported; exec plugins are not. Tokens are never printed.
-           insecure-skip-tls-verify: also run deno with --unsafely-ignore-certificate-errors=<host>.
+           insecure-skip-tls-verify: also run with NODE_TLS_REJECT_UNAUTHORIZED=0 (disables verification for every host).
 
 Every request is a GET (asserted in the single request function); nothing can modify the cluster.
 Exit codes: 0 success, 1 failures observed or run failed, 2 usage error.`,
@@ -1185,7 +1242,7 @@ async function main(): Promise<number> {
   let args: Args;
   let plan: Plan;
   try {
-    args = parseArgs(Deno.args);
+    args = parseArgs(process.argv.slice(2));
     if (args.command === "help") {
       printHelp();
       return 0;
@@ -1204,24 +1261,24 @@ async function main(): Promise<number> {
   let interrupts = 0;
   const onInterrupt = () => {
     interrupts++;
-    if (interrupts > 1) Deno.exit(130);
+    if (interrupts > 1) process.exit(130);
     log.warn(
       "interrupted: waiting for in-flight requests, then printing the summary (Ctrl-C again to quit)",
     );
     stopController.abort();
   };
 
-  let client: Deno.HttpClient | undefined;
-  let probeClient: Deno.HttpClient | undefined;
+  let client: HttpClient | undefined;
+  let probeClient: HttpClient | undefined;
   try {
     const kcPath = kubeconfigPath(
       args.kubeconfig,
-      Deno.env.get("KUBECONFIG"),
-      Deno.env.get("HOME") ?? "",
+      process.env.KUBECONFIG,
+      process.env.HOME ?? "",
     );
     let doc: unknown;
     try {
-      doc = parseYaml(await Deno.readTextFile(kcPath));
+      doc = parseYaml(await readFile(kcPath, "utf8"));
     } catch (err) {
       throw new UsageError(
         `cannot read kubeconfig ${kcPath}: ${
@@ -1245,11 +1302,13 @@ async function main(): Promise<number> {
     }
     if (rc.insecureSkipTlsVerify) {
       log.warn(
-        "insecure-skip-tls-verify is set: certificate errors will show as kind tls unless deno runs with --unsafely-ignore-certificate-errors",
+        "insecure-skip-tls-verify is set: certificate errors will show as kind tls unless bun runs with NODE_TLS_REJECT_UNAUTHORIZED=0",
       );
     }
 
-    const creds = await loadCredentials(rc, dirname(kcPath), Deno.readTextFile);
+    const creds = await loadCredentials(rc, dirname(kcPath), (p) =>
+      readFile(p, "utf8"),
+    );
     client = buildClient(creds, plan.http1);
     const headers: Record<string, string> = { "user-agent": USER_AGENT };
     if (creds.token) headers.authorization = `Bearer ${creds.token}`;
@@ -1261,11 +1320,11 @@ async function main(): Promise<number> {
     const probeCtx: RunContext = probeClient
       ? { client: probeClient, headers, stop: stopController.signal }
       : ctx;
-    Deno.addSignalListener("SIGINT", onInterrupt);
+    process.on("SIGINT", onInterrupt);
 
     const startedAt = Date.now();
     let probeFailures = 0;
-    // deno-lint-ignore no-explicit-any
+    // biome-ignore lint/suspicious/noExplicitAny: free-form JSON report
     const report: Record<string, any> = {
       command: plan.command,
       startedAt: iso(startedAt),
@@ -1297,9 +1356,9 @@ async function main(): Promise<number> {
       for (const n of plan.steps) {
         if (ctx.stop.aborted) break;
         log.info(
-          `step: concurrency ${n} for ${
-            formatDuration(plan.stepDurationMs)
-          } (GET only) with a 1/s probe alongside`,
+          `step: concurrency ${n} for ${formatDuration(
+            plan.stepDurationMs,
+          )} (GET only) with a 1/s probe alongside`,
         );
         const { summary, probeResults } = await runStep(
           ctx,
@@ -1319,10 +1378,7 @@ async function main(): Promise<number> {
     report.interrupted = ctx.stop.aborted;
 
     if (plan.json) {
-      await Deno.writeTextFile(
-        plan.json,
-        JSON.stringify(report, null, 2) + "\n",
-      );
+      await writeFile(plan.json, JSON.stringify(report, null, 2) + "\n");
       log.info(`summary written to ${plan.json}`);
     }
     if (probeFailures === 0) {
@@ -1344,15 +1400,13 @@ async function main(): Promise<number> {
     return 1;
   } finally {
     try {
-      Deno.removeSignalListener("SIGINT", onInterrupt);
+      process.off("SIGINT", onInterrupt);
     } catch {
       // not registered (dry run or early error)
     }
-    client?.close();
-    probeClient?.close();
   }
 }
 
 if (import.meta.main) {
-  Deno.exit(await main());
+  process.exit(await main());
 }

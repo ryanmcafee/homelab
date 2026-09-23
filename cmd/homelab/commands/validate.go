@@ -28,7 +28,7 @@ func NewValidateCmd() *cobra.Command {
 		Long: `Checks every prerequisite the selected tier needs and prints one row per
 check: ` + markPass + ` when it passes, ` + markFail + ` with a fix hint when it fails.
 
-  localdev  mise, task, deno, docker (daemon reachable), kind, kubectl, helm,
+  localdev  mise, task, bun, docker (daemon reachable), kind, kubectl, helm,
             argocd, chainsaw
   homelab   the localdev rows plus terragrunt, talosctl, ansible-playbook,
             op (signed in), the SOPS age key, configuration/environments/

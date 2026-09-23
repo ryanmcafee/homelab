@@ -31,7 +31,7 @@ Never touches production; production is read-only (ADR-009). Details: the `gitop
 
 ## Prerequisites
 
-- `mise install` (go, helm, kubeconform, conftest, pluto, kind, argocd, chainsaw, deno, task)
+- `mise install` (go, helm, kubeconform, conftest, pluto, kind, argocd, chainsaw, bun, task)
 - Docker running for levels 1-2
 - `gh` authenticated for the PR steps
 - For read-only production: `task prod:kubeconfig` (see `docs/runbooks/readonly-access.md`)

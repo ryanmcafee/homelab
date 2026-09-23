@@ -139,19 +139,17 @@ locals {
   }
 
   # GPU passthrough — Intel Arc Pro B50 (Battlemage G21)
-  # Authoritative values from Phase 1 hardware spike (committed under .planning/):
-  #   pci_bus_address  : .planning/phases/01-hardware-spike-discovery/findings/spk-02-pci-id.md
-  #   iommu_group      : .planning/phases/01-hardware-spike-discovery/findings/spk-03-iommu-group.md
-  #   subsystem_id     : .planning/phases/01-hardware-spike-discovery/findings/spk-04-subsystem-id.md
-  #   iommu_cmdline    : .planning/phases/01-hardware-spike-discovery/findings/spk-05-iommu-cmdline.md (AMD-Vi active, no intel_iommu flag needed)
+  # Values read on the Proxmox host: PCI bus address and IDs from `lspci -nnk`, the
+  # IOMMU group from /sys/bus/pci/devices/<addr>/iommu_group (AMD-Vi active, no
+  # intel_iommu kernel flag needed).
   # Kernel driver currently bound to `xe`; Talos machine patch for Intel GPU loads `xe` + `mei` modules.
   # Active: gpu_vendor above is "intel"; talos-cluster passes this through to worker-1.
   gpu_intel_pci_id = "0000:c3:00.0"
 
   gpu_intel_device = {
-    device_id    = "8086:e212" # Intel Arc Pro B50 (Battlemage G21) — spk-02
-    subsystem_id = "8086:1114" # Intel subsystem — spk-04
-    iommu_group  = 14          # Clean isolation (1 device in group) — spk-03
+    device_id    = "8086:e212" # Intel Arc Pro B50 (Battlemage G21)
+    subsystem_id = "8086:1114" # Intel subsystem
+    iommu_group  = 14          # Clean isolation (1 device in group)
     description  = "Intel Arc Pro B50 for Plex transcoding"
   }
 
