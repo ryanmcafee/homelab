@@ -13,9 +13,9 @@ Each entry should include:
 
 ## Recent Work
 
-### 2026-09-23 - Observability: Traefik access logs + metrics, OpenTelemetry -> ClickHouse logs, Istio ambient + Kiali
-- **Status**: PR #321 open; before merge create 1Password items `clickhouse-otel` and `clickhouse-grafana` (field `password`); after merge a human runs `task render && task render:push && task tf:apply` and restarts the Cilium agents
-- **Description**: The Paperclip API is intermittently unresponsive and nothing could show why. Traefik (both releases) now writes JSON access logs and is scraped; OpenTelemetry collectors ship every container log and Kubernetes event into ClickHouse (Altinity operator, iSCSI, 90-day TTL) queried from Grafana ("Cluster logs" dashboard); Istio ambient (no namespace enrolled, `SERVICE_MESH_AMBIENT_NAMESPACES`) with Kiali at `servicemesh.<domain>`; alerts `homelab-ingress`, `homelab-logging`, `homelab-service-mesh`, grafana.com dashboards. ADR-019, ADR-020, docs/logging.md, docs/service-mesh.md. Kind level 2 runs the whole stack
+### 2026-09-23 - Observability: Traefik logs+metrics, OTel -> ClickHouse logs and traces, Hubble, UniFi flows, Istio ambient + Kiali, paperclip request path
+- **Status**: PR #321 open; before merge create 1Password items `clickhouse-otel` and `clickhouse-grafana` (field `password`) and add `OTEL_LB_IP` to homelab.yaml and the homelab-environment-config document; after merge a human runs `task render && task render:push && task tf:apply`, restarts Cilium, and points UniFi syslog/IPFIX at `OTEL_LB_IP`
+- **Description**: The Paperclip API occasionally fails to respond with no 5xx at Traefik. Every hop now leaves correlated data: Traefik JSON access logs (TraceId, timings, client) and metrics, OpenTelemetry collectors writing container logs, events, OTLP traces, the filtered Hubble flow log and UniFi syslog/IPFIX into ClickHouse (Altinity operator, iSCSI 100Gi, 90-day TTL), Istio 1.31 ambient with paperclip enrolled behind a waypoint, blackbox probes (ingress vs direct), Kiali, Hubble UI and the "Paperclip request path" dashboard with its runbook. ADR-019..022
 - **URL**: https://github.com/ryanmcafee/homelab/pull/321
 
 ### 2026-09-20 - Firing alerts root-caused: stale failed Jobs, kube-proxy, Talos bind-address, unclassed IngressRoutes

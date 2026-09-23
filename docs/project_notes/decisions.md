@@ -489,7 +489,7 @@ Each decision should include:
 
 **Decision:**
 - Collection: two releases of the upstream `opentelemetry-collector` chart with the contrib image. `otel-collector-agent` is a DaemonSet with the chart's `logsCollection` (filelog on `/var/log/pods`, CRI parser, checkpoints in `/var/lib/otelcol`) and `kubernetesAttributes` presets; `otel-collector-cluster` is one replica with the `kubernetesEvents` preset. Both export with the `clickhouse` exporter straight to ClickHouse, no gateway tier
-- Store: the Altinity `clickhouse-operator` chart (`charts.altinity-clickhouse-operator`, CRDs from its `crds/`, its `bitnami/kubectl:latest` CRD hook disabled) and one single-node `ClickHouseInstallation` `logs` (`charts/clickhouse`) on `STORAGE_CLASS_ISCSI_SSD`, image pinned in `images.clickhouse-server` (26.8 LTS)
+- Store: the Altinity `clickhouse-operator` chart (`charts.altinity-clickhouse-operator`, CRDs from its `crds/`, its `bitnami/kubectl:latest` CRD hook disabled) and one single-node `ClickHouseInstallation` `logs` (`charts/clickhouse`) on `STORAGE_CLASS_ISCSI_SSD` (100Gi, ADR-021), image pinned in `images.clickhouse-server` (26.8 LTS)
 - Retention: the exporter's `ttl: 2160h` becomes the `otel_logs` table TTL when `create_schema` creates it (90 days); `docs/logging.md` documents the `ALTER TABLE ... MODIFY TTL` needed to change it later, and the `logging` e2e test asserts the TTL exists
 - Users: `otel` (ALL on `otel.*`) and `grafana` (SELECT on `otel.*`), passwords from two 1Password items through `charts/clickhouse-dependencies` (wave 8, before Grafana at 9); ClickHouse reads them as environment variables (`valueFrom.secretKeyRef`), never from a ConfigMap
 - Grafana installs `grafana-clickhouse-datasource` (pinned in `images.grafana-clickhouse-datasource`) and provisions datasource `clickhouse-logs` with the OpenTelemetry logs settings; the password is expanded from the environment at provisioning time
@@ -518,11 +518,11 @@ Each decision should include:
 - Cilium is the CNI with kube-proxy replacement and BGP (ADR-012 keeps it in Kind too); a mesh must not disturb it or any workload that has not asked to join
 
 **Decision:**
-- Istio in ambient mode from the four official charts (`base`, `istiod` and `cni` with `profile: ambient`, `ztunnel`), one version key `charts.istio` so they cannot drift, waves 2-4, namespace `istio-system` at PodSecurity `privileged`; enabled wherever `CNI_PROVIDER=cilium`
+- Istio in ambient mode from the four official charts (`base`, `istiod` and `cni` with `profile: ambient`, `ztunnel`), one version key `charts.istio` so they cannot drift, waves 2-4, namespace `istio-system` at PodSecurity `privileged`; enabled wherever `CNI_PROVIDER=cilium`. Version 1.31.1 from `blob.istio.io` (the GCS repository ends at 1.30.5): 1.31 supports Kubernetes 1.32-1.36, covering production (v1.32.0) and Kind (v1.36.1); `tools.kubernetes` v1.37.0 needs a later Istio before the cluster moves past 1.36
 - Cilium gets Istio's documented prerequisites: `cni.exclusive=false` and `socketLB.hostNamespaceOnly=true`, in the CMP template (Kind and the adopting Application) and in `task cilium:render` (Talos inline manifest). The homelab change needs `task render && task render:push && task tf:apply` and an agent restart by a human
-- Nothing is enrolled by default. `SERVICE_MESH_AMBIENT_NAMESPACES` (optional, comma-separated) labels namespaces of the applications chart `istio.io/dataplane-mode=ambient`
+- Enrollment is per namespace through `SERVICE_MESH_AMBIENT_NAMESPACES` and `SERVICE_MESH_WAYPOINT_NAMESPACES` (comma-separated, both default `paperclip`, amended by ADR-021): only paperclip is in the mesh, with a waypoint that ingress traffic also uses; its CNPG database opts out
 - Monitoring: the upstream Prometheus operator monitors (`charts/istio-config`), the grafana.com Istio dashboards, and `homelab-service-mesh` alerts on istiod, the node agents and xDS rejects
-- Kiali (`kiali-server` chart) on the internal ingress at `SERVICEMESH_HOSTNAME` (`servicemesh.<DOMAIN>`), token login, reading the kube-prometheus-stack Prometheus and Grafana
+- Kiali (`kiali-server` chart) on the internal ingress at `SERVICEMESH_HOSTNAME` (`servicemesh.<DOMAIN>`), token login, reading the kube-prometheus-stack Prometheus and Grafana; its Ingress is rendered by `charts/istio-config` because the chart's capability-dependent one stayed OutOfSync
 
 **Alternatives Considered:**
 - **Sidecar mode** -> every enrolled pod gets an Envoy with its own resources and restart ordering; ambient adds nothing to a pod and can be enabled per namespace without restarts of the mesh itself
@@ -535,6 +535,57 @@ Each decision should include:
 - Enrolled namespaces with a default-deny policy must allow kubelet probes from `169.254.7.127`
 - Kiali's Grafana links need Grafana credentials it does not have; the graph and metrics work, dashboard links may not
 - Every node runs two more DaemonSets (istio-cni-node, ztunnel), also in Kind and every PR's level-2 run
+- Istio ambient on Talos has no upstream test record (siderolabs/talos#7380 closed as stale); the Kind loop proves the charts and the Cilium settings, the first production sync proves Talos
+
+### ADR-021: One correlated paperclip request path: traces in ClickHouse, a gateway collector for OTLP and UniFi, probes, paperclip in the mesh (2026-09-23)
+
+**Context:**
+- The paperclip API "occasionally fails to respond", yet Traefik showed no 5xx, no restarts, only 499 client aborts and a few 429s, so the failure may be before Traefik. Logs alone (ADR-019) cannot say which hop of client -> UniFi -> LB address -> Traefik -> app -> database failed
+- The UniFi gateway can export syslog (CEF over UDP, Settings -> Control Plane -> Integrations and CyberSecure -> Traffic Logging, "SIEM Server") and IPFIX flow records (CyberSecure -> Traffic Logging -> NetFlow (IPFIX), collector IP + port, default 2055); both take an IP address and have no authentication
+- Production runs Kubernetes v1.32.0 while `tools.kubernetes` targets v1.37.0
+
+**Decision:**
+- Traces go to ClickHouse too (`otel.otel_traces`, exporter `traces_table_name`, the same 2160h TTL as logs so a log line and its trace expire together), through a third collector release `otel-collector-gateway` (Deployment, OTLP gRPC/HTTP). Traefik starts/continues W3C `traceparent` (10 % in homelab) and logs `TraceId`/`SpanId`, `User-Agent` and every timing/status field; waypoints send spans via istiod's `opentelemetry` extension provider and a mesh-wide Telemetry (10 %). Grafana's ClickHouse datasource gets the traces settings and the plugin's Logs/Traces Explorer dashboards
+- The gateway collector also receives UniFi syslog (UDP/TCP 514 -> 5514, CEF header parsed) and NetFlow v5/v9/IPFIX (UDP 2055) and writes them to `otel_logs`. It is exposed as a Cilium LB IPAM LoadBalancer at a fixed `OTEL_LB_IP` published as `otel.<DOMAIN>`, restricted to the LAN with `loadBalancerSourceRanges`; OTLP/HTTP with TLS is additionally at `otlp.<DOMAIN>` through the internal ingress
+- Cilium's Hubble flow log (ADR-022) and the Traefik access log join in ClickHouse on client IP, 5-tuple and time; the access log joins traces on TraceId
+- Paperclip is enrolled in the ambient mesh with a waypoint in every environment (`SERVICE_MESH_AMBIENT_NAMESPACES`/`SERVICE_MESH_WAYPOINT_NAMESPACES` default `paperclip`), with `istio.io/ingress-use-waypoint` so Traefik's requests get L7 metrics and spans; an extra NetworkPolicy opens HBONE 15008 next to the operator's; the CNPG database opts out of mesh and waypoint
+- blackbox-exporter probes paperclip every 15 s through its public name (DNS + traefik-internal) and directly at the Service, so a failure names the hop; `homelab-probes` alerts. One Grafana dashboard, "Paperclip request path", links probe, Traefik, access log, trace, mesh, Hubble, UniFi, pod and database panels through `trace_id` and `client_ip` variables; `docs/runbooks/paperclip-request-path.md` says which panel answers which hop
+- Istio 1.31.1 (supports Kubernetes 1.32-1.36): the running v1.32.0 and Kind's v1.36.1
+
+**Alternatives Considered:**
+- **Tempo/Jaeger for traces** -> another store to run and size; the ClickHouse plugin already has trace views and the correlation queries are SQL joins on one database
+- **Traefik UDP/TCP entryPoints for syslog/NetFlow** (IngressRouteUDP) -> no extra IP, but Traefik proxies UDP (new source address, no per-packet path) and the hostname would share Traefik's address, which the OTLP ingress also needs; a dedicated LoadBalancer keeps the raw protocols out of the ingress controller
+- **`externalTrafficPolicy: Local`** (keep client source IPs at Traefik and the collector) -> Cilium's L2 lease holder or BGP speaker (control planes) would have to run a backend pod or traffic is dropped; not taken, documented as the trade-off. UniFi flow records and Hubble carry the real 5-tuple instead
+- **Keep paperclip-postgres in the mesh** -> mTLS for a same-namespace database adds a ztunnel restart as a new way to cut its connections, for no isolation gain
+
+**Consequences:**
+- ClickHouse grows to 100Gi (estimate in docs/logging.md) and the gateway collector is one more Deployment; Kind runs all of it (level 2 proves an OTLP span reaches `otel_traces` and paperclip works through its waypoint)
+- The in-cluster ingress probe does not cross the L2/BGP hop (Cilium short-circuits LB addresses in the cluster); hops 1-2 are judged from UniFi flow records
+- UniFi must be pointed at `OTEL_LB_IP` by hand after merge; `HomelabUniFiTelemetrySilent` fires until it is
+- Kind's ClickHouse passwords are no longer in git: `scripts/localdev-kind.ts fakes` fills annotated Secret stubs with random values once
+
+### ADR-022: Hubble flow metrics, UI and a filtered flow log, with GitOps-side monitors (2026-09-23)
+
+**Context:**
+- Hubble relay and UI were already on in the Talos Cilium values but unexposed and unscraped; Cilium itself was not scraped at all
+- Talos installs Cilium from inline manifests before any CRD exists, so ServiceMonitors in the Cilium chart would break the bootstrap apply; `task cilium:render` duplicated the values as `--set` flags and could drift from the adopting Application
+
+**Decision:**
+- Cilium values (homelab): `hubble.metrics` (dns, drop and flow with namespace/workload context, tcp, port-distribution, icmp), `prometheus.metricsService`, `operator.prometheus.metricsService`, and `hubble.export.static` writing `/var/run/cilium/hubble/events.log` with every paperclip/traefik flow and every DROPPED/ERROR verdict; the OpenTelemetry agents tail it into ClickHouse
+- The upstream Cilium/Hubble dashboards come from grafana.com (16611-16613, 19424, 19425) rather than the chart's ConfigMaps, which would add ~0.5 MB to the Talos inline manifest
+- `charts/cilium-config` (wave 8) holds the ServiceMonitors and the Hubble UI Ingress at `HUBBLE_HOSTNAME` (`hubble.<DOMAIN>`); `homelab-network` alerts
+- `task cilium:render` renders from `cilium.values` of the CMP template via `homelab config export`, the same map the Application uses
+- Kind keeps Hubble off
+
+**Alternatives Considered:**
+- **`hubble.export.dynamic`** -> reconfigurable without agent restarts, but one static filter is all this needs
+- **Hubble exporter to OTLP directly** -> not in Cilium 1.19; the file plus the existing agent reuses the log pipeline
+- **httpV2 Hubble metrics** -> need Cilium L7 visibility, which must not be combined with Istio L7 on enrolled pods; waypoint metrics cover L7
+
+**Consequences:**
+- Needs `task render && task render:push && task tf:apply` and a Cilium agent/operator restart by a human
+- Hubble UI has no login; it is reachable only through the internal ingress
+- For ambient-enrolled pods Hubble sees HBONE (TCP 15008) between nodes, not the app port
 
 ## Tips
 

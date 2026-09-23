@@ -90,21 +90,25 @@
   @keyframes glow{0%,33.5%{opacity:0}36%,96%{opacity:.45}100%{opacity:0}}
   .glow{animation:glow 27s infinite}
   /* host windows: 10 × 4.5% from 45% to 90% (1.2 s each) */
-  @keyframes h0{0%,45%{opacity:0}45.3%,48.75%{opacity:1}49.05%,100%{opacity:0}}
-  @keyframes h1{0%,49.05%{opacity:0}49.35%,52.8%{opacity:1}53.1%,100%{opacity:0}}
-  @keyframes h2{0%,53.1%{opacity:0}53.4%,56.85%{opacity:1}57.15%,100%{opacity:0}}
-  @keyframes h3{0%,57.15%{opacity:0}57.45%,60.9%{opacity:1}61.2%,100%{opacity:0}}
-  @keyframes h4{0%,61.2%{opacity:0}61.5%,64.95%{opacity:1}65.25%,100%{opacity:0}}
-  @keyframes h5{0%,65.25%{opacity:0}65.55%,69%{opacity:1}69.3%,100%{opacity:0}}
-  @keyframes h6{0%,69.3%{opacity:0}69.6%,73.05%{opacity:1}73.35%,100%{opacity:0}}
-  @keyframes h7{0%,73.35%{opacity:0}73.65%,77.1%{opacity:1}77.4%,100%{opacity:0}}
-  @keyframes h8{0%,77.4%{opacity:0}77.7%,81.15%{opacity:1}81.45%,100%{opacity:0}}
-  @keyframes h9{0%,81.45%{opacity:0}81.75%,85.2%{opacity:1}85.5%,100%{opacity:0}}
-  @keyframes h10{0%,85.5%{opacity:0}85.8%,95.7%{opacity:1}96%,100%{opacity:0}}
+  @keyframes h0{0%,45%{opacity:0}45.3%,47.82%{opacity:1}48.12%,100%{opacity:0}}
+  @keyframes h1{0%,48.12%{opacity:0}48.42%,50.93%{opacity:1}51.23%,100%{opacity:0}}
+  @keyframes h2{0%,51.23%{opacity:0}51.53%,54.05%{opacity:1}54.35%,100%{opacity:0}}
+  @keyframes h3{0%,54.35%{opacity:0}54.65%,57.16%{opacity:1}57.46%,100%{opacity:0}}
+  @keyframes h4{0%,57.46%{opacity:0}57.76%,60.28%{opacity:1}60.58%,100%{opacity:0}}
+  @keyframes h5{0%,60.58%{opacity:0}60.88%,63.39%{opacity:1}63.69%,100%{opacity:0}}
+  @keyframes h6{0%,63.69%{opacity:0}63.99%,66.51%{opacity:1}66.81%,100%{opacity:0}}
+  @keyframes h7{0%,66.81%{opacity:0}67.11%,69.62%{opacity:1}69.92%,100%{opacity:0}}
+  @keyframes h8{0%,69.92%{opacity:0}70.22%,72.74%{opacity:1}73.04%,100%{opacity:0}}
+  @keyframes h9{0%,73.04%{opacity:0}73.34%,75.85%{opacity:1}76.15%,100%{opacity:0}}
+  @keyframes h10{0%,76.15%{opacity:0}76.45%,78.97%{opacity:1}79.27%,100%{opacity:0}}
+  @keyframes h11{0%,79.27%{opacity:0}79.57%,82.08%{opacity:1}82.38%,100%{opacity:0}}
+  @keyframes h12{0%,82.38%{opacity:0}82.68%,85.2%{opacity:1}85.5%,100%{opacity:0}}
+  @keyframes h13{0%,85.5%{opacity:0}85.8%,95.7%{opacity:1}96%,100%{opacity:0}}
   .h0{animation:h0 27s infinite}.h1{animation:h1 27s infinite}.h2{animation:h2 27s infinite}
   .h3{animation:h3 27s infinite}.h4{animation:h4 27s infinite}.h5{animation:h5 27s infinite}
   .h6{animation:h6 27s infinite}.h7{animation:h7 27s infinite}.h8{animation:h8 27s infinite}
-  .h9{animation:h9 27s infinite}.h10{animation:h10 27s infinite}
+  .h9{animation:h9 27s infinite}.h10{animation:h10 27s infinite}.h11{animation:h11 27s infinite}
+  .h12{animation:h12 27s infinite}.h13{animation:h13 27s infinite}
   /* verdict badges: after the packet lands (S+2.7) until the window ends */
   @keyframes v0{0%,47.7%{opacity:0}48%,49.2%{opacity:1}49.5%,100%{opacity:0}}
   @keyframes v1{0%,52.2%{opacity:0}52.5%,53.7%{opacity:1}54%,100%{opacity:0}}
@@ -177,7 +181,7 @@
   <text class="a21_5" x="28" y="192" fill="#8b949e">    1password operator</text>
   <text class="a23"   x="28" y="209" fill="#8b949e">    environment-config</text>
   <text class="a25"   x="28" y="226"><tspan fill="#8b949e">›</tspan> cmp      <tspan fill="#a371f7">export|helm template</tspan></text>
-  <text class="a26_5" x="28" y="243"><tspan fill="#8b949e">›</tspan> argocd   <tspan fill="#8b949e">81 apps synced</tspan></text>
+  <text class="a26_5" x="28" y="243"><tspan fill="#8b949e">›</tspan> argocd   <tspan fill="#8b949e">85 apps synced</tspan></text>
   <text class="a33"   x="28" y="260"><tspan fill="#8b949e">›</tspan> bgp      <tspan fill="#8b949e">64512 ⇄ 64513</tspan> <tspan fill="#27c93f">up</tspan></text>
   <text class="a36"   x="28" y="277"><tspan fill="#8b949e">›</tspan> unifi    <tspan fill="#8b949e">kube-* forwards</tspan> <tspan fill="#27c93f">✔</tspan></text>
   <text class="a46"   x="28" y="298"><tspan fill="#a371f7">●</tspan> plex.&lt;DOMAIN&gt; <tspan fill="#27c93f">200</tspan> <tspan fill="#8b949e">e2e ✔ smoke ✔</tspan></text>
@@ -186,12 +190,15 @@
   <text class="h2" x="28" y="315"><tspan fill="#2dd4bf">●</tspan> paperclip.&lt;DOMAIN&gt; <tspan fill="#27c93f">200</tspan> <tspan fill="#8b949e">e2e ✔ smoke ✔</tspan></text>
   <text class="h3" x="28" y="315"><tspan fill="#2dd4bf">●</tspan> workflows.&lt;DOMAIN&gt; <tspan fill="#27c93f">200</tspan> <tspan fill="#8b949e">e2e —</tspan></text>
   <text class="h4" x="28" y="315"><tspan fill="#2dd4bf">●</tspan> servicemesh.&lt;DOMAIN&gt; <tspan fill="#27c93f">200</tspan> <tspan fill="#8b949e">e2e ✔ smoke ✔</tspan></text>
-  <text class="h5" x="28" y="315"><tspan fill="#2dd4bf">●</tspan> sonarr.&lt;DOMAIN&gt; <tspan fill="#27c93f">200</tspan> <tspan fill="#8b949e">e2e ✔ smoke ✔</tspan></text>
-  <text class="h6" x="28" y="315"><tspan fill="#2dd4bf">●</tspan> radarr.&lt;DOMAIN&gt; <tspan fill="#27c93f">200</tspan> <tspan fill="#8b949e">e2e ✔ smoke ✔</tspan></text>
-  <text class="h7" x="28" y="315"><tspan fill="#2dd4bf">●</tspan> prowlarr.&lt;DOMAIN&gt; <tspan fill="#27c93f">200</tspan> <tspan fill="#8b949e">e2e ✔ smoke ✔</tspan></text>
-  <text class="h8" x="28" y="315"><tspan fill="#2dd4bf">●</tspan> nzbget.&lt;DOMAIN&gt; <tspan fill="#27c93f">200</tspan> <tspan fill="#8b949e">e2e ✔ smoke ✔</tspan></text>
-  <text class="h9" x="28" y="315"><tspan fill="#2dd4bf">●</tspan> tautulli.&lt;DOMAIN&gt; <tspan fill="#27c93f">200</tspan> <tspan fill="#8b949e">e2e ✔ smoke ✔</tspan></text>
-  <text class="h10" x="28" y="315" font-size="10"><tspan fill="#2dd4bf">●</tspan> lazylibrarian.&lt;DOMAIN&gt; <tspan fill="#27c93f">200</tspan> <tspan fill="#8b949e">e2e ✔ smoke ✔</tspan></text>
+  <text class="h5" x="28" y="315"><tspan fill="#2dd4bf">●</tspan> hubble.&lt;DOMAIN&gt; <tspan fill="#27c93f">200</tspan> <tspan fill="#8b949e">e2e —</tspan></text>
+  <text class="h6" x="28" y="315"><tspan fill="#2dd4bf">●</tspan> otlp.&lt;DOMAIN&gt; <tspan fill="#27c93f">200</tspan> <tspan fill="#8b949e">e2e ✔</tspan></text>
+  <text class="h7" x="28" y="315"><tspan fill="#2dd4bf">●</tspan> otel.&lt;DOMAIN&gt; <tspan fill="#27c93f">200</tspan> <tspan fill="#8b949e">syslog · ipfix</tspan></text>
+  <text class="h8" x="28" y="315"><tspan fill="#2dd4bf">●</tspan> sonarr.&lt;DOMAIN&gt; <tspan fill="#27c93f">200</tspan> <tspan fill="#8b949e">e2e ✔ smoke ✔</tspan></text>
+  <text class="h9" x="28" y="315"><tspan fill="#2dd4bf">●</tspan> radarr.&lt;DOMAIN&gt; <tspan fill="#27c93f">200</tspan> <tspan fill="#8b949e">e2e ✔ smoke ✔</tspan></text>
+  <text class="h10" x="28" y="315"><tspan fill="#2dd4bf">●</tspan> prowlarr.&lt;DOMAIN&gt; <tspan fill="#27c93f">200</tspan> <tspan fill="#8b949e">e2e ✔ smoke ✔</tspan></text>
+  <text class="h11" x="28" y="315"><tspan fill="#2dd4bf">●</tspan> nzbget.&lt;DOMAIN&gt; <tspan fill="#27c93f">200</tspan> <tspan fill="#8b949e">e2e ✔ smoke ✔</tspan></text>
+  <text class="h12" x="28" y="315"><tspan fill="#2dd4bf">●</tspan> tautulli.&lt;DOMAIN&gt; <tspan fill="#27c93f">200</tspan> <tspan fill="#8b949e">e2e ✔ smoke ✔</tspan></text>
+  <text class="h13" x="28" y="315" font-size="10"><tspan fill="#2dd4bf">●</tspan> lazylibrarian.&lt;DOMAIN&gt; <tspan fill="#27c93f">200</tspan> <tspan fill="#8b949e">e2e ✔ smoke ✔</tspan></text>
   <!-- e2e counter -->
   <g fill="#f0883e">
     <text class="c0"  x="28" y="335"><tspan fill="#8b949e">›</tspan> chainsaw e2e   0/19 suites</text>
@@ -262,9 +269,9 @@
 <path class="w d25" d="M732 180 H744"/>
 <g class="a25"><rect class="box" x="744" y="164" width="104" height="32" rx="6" stroke="#a371f7"/><text class="n" x="796" y="177" text-anchor="middle">homelab-cmp</text><text class="n2" x="796" y="189" text-anchor="middle">config export | helm template</text></g>
 <path class="w d26_5" d="M848 180 H860"/>
-<g class="a26_5"><rect class="box" x="860" y="164" width="104" height="32" rx="6"/><text class="n" x="912" y="177" text-anchor="middle">addons · 32</text><text class="n2" x="912" y="189" text-anchor="middle">rendered by cmp</text></g>
+<g class="a26_5"><rect class="box" x="860" y="164" width="104" height="32" rx="6"/><text class="n" x="912" y="177" text-anchor="middle">addons · 33</text><text class="n2" x="912" y="189" text-anchor="middle">rendered by cmp</text></g>
 <path class="w d28" d="M964 180 H976"/>
-<g class="a28"><rect class="box" x="976" y="164" width="104" height="32" rx="6"/><text class="n" x="1028" y="177" text-anchor="middle">applications · 15</text><text class="n2" x="1028" y="189" text-anchor="middle">rendered by cmp</text></g>
+<g class="a28"><rect class="box" x="976" y="164" width="104" height="32" rx="6"/><text class="n" x="1028" y="177" text-anchor="middle">applications · 16</text><text class="n2" x="1028" y="189" text-anchor="middle">rendered by cmp</text></g>
 
 <!-- ROW D : network + verify -->
 <circle class="saw" cx="332" cy="244" r="40" fill="#f0883e"/>

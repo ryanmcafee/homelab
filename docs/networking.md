@@ -134,12 +134,15 @@ Generated from `tests/snapshots/homelab/*.yaml` by `task docs:check -- --fix`
 | `traefik.<DOMAIN>` | external | IngressRoute | `traefik-external` |
 | `argocd.<DOMAIN>` | internal | Ingress | `argocd` |
 | `grafana.<DOMAIN>` | internal | Ingress | `kube-prometheus-stack` |
+| `hubble.<DOMAIN>` | internal | Ingress | `cilium-config` |
 | `lazylibrarian.<DOMAIN>` | internal | Ingress | `lazylibrarian` |
 | `nzbget.<DOMAIN>` | internal | Ingress | `nzbget` |
+| `otel.<DOMAIN>` | internal | Ingress | `otel-collector-gateway` |
+| `otlp.<DOMAIN>` | internal | Ingress | `otel-collector-gateway` |
 | `paperclip.<DOMAIN>` | internal | Ingress | `paperclip` |
 | `prowlarr.<DOMAIN>` | internal | Ingress | `prowlarr` |
 | `radarr.<DOMAIN>` | internal | Ingress | `radarr` |
-| `servicemesh.<DOMAIN>` | internal | Ingress | `kiali` |
+| `servicemesh.<DOMAIN>` | internal | Ingress | `istio-config` |
 | `sonarr.<DOMAIN>` | internal | Ingress | `sonarr` |
 | `tautulli.<DOMAIN>` | internal | Ingress | `tautulli` |
 | `traefik-internal.<DOMAIN>` | internal | IngressRoute | `traefik-internal` |

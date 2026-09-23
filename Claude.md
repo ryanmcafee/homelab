@@ -248,8 +248,13 @@ charts:
   # renovate: datasource=docker depName=ghcr.io/paperclipinc/charts/paperclip-operator
   paperclip-operator: "0.19.1"
   # One key for base, istiod, cni and ztunnel: the four Istio charts must run the same release.
-  # renovate: datasource=helm depName=istiod registryUrl=https://istio-release.storage.googleapis.com/charts
-  istio: "1.30.5"
+  # renovate: datasource=helm depName=istiod registryUrl=https://blob.istio.io/istio-release/charts
+  istio: "1.31.1"
+  # Gateway API CRDs for Istio waypoints (config/crd/standard of this tag).
+  # renovate: datasource=github-releases depName=kubernetes-sigs/gateway-api
+  gateway-api: "v1.6.2"
+  # renovate: datasource=helm depName=prometheus-blackbox-exporter registryUrl=https://prometheus-community.github.io/helm-charts
+  prometheus-blackbox-exporter: "11.18.0"
   # renovate: datasource=helm depName=kiali-server registryUrl=https://kiali.org/helm-charts
   kiali-server: "2.32.0"
   # renovate: datasource=helm depName=opentelemetry-collector registryUrl=https://open-telemetry.github.io/opentelemetry-helm-charts
@@ -257,7 +262,7 @@ charts:
   # renovate: datasource=helm depName=altinity-clickhouse-operator registryUrl=https://helm.altinity.com
   altinity-clickhouse-operator: "0.27.3"
 images:
-  homelab-cmp: "0.1.48"
+  homelab-cmp: "0.1.49"
   # renovate: datasource=docker depName=curlimages/curl
   curl: "8.22.0"
   # renovate: datasource=docker depName=kindest/node

@@ -1,18 +1,25 @@
 # Service mesh: Istio ambient + Kiali
 
 Istio runs in ambient mode: no sidecars, a per-node `ztunnel` carries mTLS and L4 telemetry for
-enrolled pods, and `istio-cni` redirects their traffic into it. **No namespace is enrolled by
-default**; the mesh costs nothing to a workload until its namespace opts in. Kiali shows the
-mesh graph at `https://servicemesh.<DOMAIN>` on the internal ingress. Decision record: ADR-020
-in `docs/project_notes/decisions.md`.
+enrolled pods, and `istio-cni` redirects their traffic into it. Only the namespaces listed in
+`SERVICE_MESH_AMBIENT_NAMESPACES` are enrolled; the default is `paperclip` (with a waypoint), so
+the paperclip request path has L7 metrics and spans; every other workload is untouched. Kiali
+shows the mesh graph at `https://servicemesh.<DOMAIN>` on the internal ingress. Decision
+records: ADR-020, ADR-021 in `docs/project_notes/decisions.md`.
+
+Istio 1.31.1 (`charts.istio`, from `https://blob.istio.io/istio-release/charts`; the old
+storage.googleapis.com repository ends at 1.30.5) supports Kubernetes 1.32-1.36: production runs
+v1.32.0 and Kind v1.36.1. `tools.kubernetes` (v1.37.0, the upgrade target) is outside that range;
+upgrading the cluster past 1.36 needs an Istio release that supports it first.
 
 | Application | Chart (`configuration/versions.yaml`) | Wave | Notes |
 |---|---|---|---|
-| `istio-base` | `base` (`charts.istio`) | 2 | CRDs, default validating webhook |
+| `gateway-api-crds` | kubernetes-sigs/gateway-api `config/crd/standard` (`charts.gateway-api`) | 1 | Gateway API CRDs; a waypoint is a Gateway |
+| `istio-base` | `base` (`charts.istio`) | 2 | CRDs, default validating webhook (`validationFailurePolicy: Fail` in base and istiod, so istiod never flips it under server-side apply) |
 | `istiod` | `istiod` (`charts.istio`), `profile: ambient` | 3 | control plane |
 | `istio-cni` | `cni` (`charts.istio`), `profile: ambient` | 3 | DaemonSet `istio-cni-node`, chained after Cilium in `/etc/cni/net.d` |
 | `ztunnel` | `ztunnel` (`charts.istio`) | 4 | DaemonSet, one per node |
-| `istio-config` | `charts/istio-config` | 5 | upstream ServiceMonitor (istiod) and PodMonitor (ztunnel, waypoints) |
+| `istio-config` | `charts/istio-config` | 5 | upstream ServiceMonitor (istiod) and PodMonitor (waypoints), PodMonitors for ztunnel and istio-cni, Telemetry `mesh-default` (tracing), the Kiali Ingress |
 | `kiali` | `kiali-server` (`charts.kiali-server`) | 10 | Prometheus and Grafana of kube-prometheus-stack |
 
 All four Istio charts share one version key, so Renovate bumps them together. Namespace
@@ -55,28 +62,41 @@ platform prerequisites).
 
 ## Enroll a namespace
 
-Namespaces of the applications chart are enrolled through `configuration/`:
+Namespaces of the applications chart are enrolled through `configuration/` (defaults in
+`configuration/schema/kubernetes.schema.yaml`):
 
 ```yaml
-# configuration/environments/homelab.yaml (and the homelab-environment-config document)
-SERVICE_MESH_AMBIENT_NAMESPACES: "paperclip"
+# configuration/environments/<set>.yaml (and the homelab-environment-config document)
+SERVICE_MESH_AMBIENT_NAMESPACES: "paperclip,media"   # "none" enrolls nothing
+SERVICE_MESH_WAYPOINT_NAMESPACES: "paperclip"        # must also be enrolled
 ```
 
-`charts/applications/templates/_mesh.tpl` then adds `istio.io/dataplane-mode: ambient` to that
-Namespace (media, home-automation, paperclip-operator, paperclip). Pods are captured on their
-next start; restart them to enroll running ones. hostNetwork pods are never captured. For a
-namespace outside the applications chart, add the label to its Namespace manifest in Git.
-Leave the mesh again by removing the name; the label disappears on the next sync.
+`charts/applications/templates/_mesh.tpl` labels each listed Namespace
+`istio.io/dataplane-mode: ambient`; with a waypoint also `istio.io/use-waypoint: waypoint` and
+`istio.io/ingress-use-waypoint: "true"` (traffic from outside the mesh, i.e. Traefik, goes
+through the waypoint too), and `templates/waypoints.yaml` renders the Gateway `waypoint`
+(class `istio-waypoint`, HBONE 15008). Pods are captured on their next start; hostNetwork pods
+never are. For a namespace outside the applications chart, add the labels to its Namespace
+manifest in Git.
 
-L7 policy and telemetry need a waypoint in the namespace
-(`istioctl waypoint apply -n <ns> --enroll-namespace` produces the Gateway to commit); the
-`envoy-stats-monitor` PodMonitor already scrapes waypoints.
+**Paperclip.** Enrolled with a waypoint in every environment, Kind included (the paperclip and
+service-mesh e2e tests go through it). Two adjustments:
+
+- The operator's NetworkPolicy only knows the app port 3100; `charts/paperclip`
+  `templates/networkpolicy-ambient.yaml` adds TCP 15008 (HBONE) in and out. NetworkPolicies are
+  additive, so the operator's rules stay as they are.
+- `paperclip-postgres` stays out of the mesh: the CNPG Cluster's `inheritedMetadata` labels its
+  pods `istio.io/dataplane-mode: none` and its Services `istio.io/use-waypoint: none`. A ztunnel
+  restart must never cut database connections, and the database needs no mTLS inside one
+  namespace; the connection stays visible in Hubble (plaintext 5432).
 
 ## Kiali
 
 `https://servicemesh.<DOMAIN>` (`SERVICEMESH_HOSTNAME`, derived from `DOMAIN`), IngressClass
 `internal`, certificate `kiali-tls` from the `letsencrypt` ClusterIssuer, record published by
-external-dns. Login uses a Kubernetes token and shows what that token may read:
+external-dns. The Ingress lives in `charts/istio-config`: the kiali-server chart picks the
+Ingress apiVersion from cluster capabilities, which a local render lacks, so its own Ingress
+never matched the live object. Login uses a Kubernetes token and shows what that token may read:
 
 ```bash
 kubectl -n istio-system create token kiali --duration 8h
@@ -84,8 +104,10 @@ kubectl -n istio-system create token kiali --duration 8h
 
 ## Metrics, alerts, dashboards
 
-- Scrapes: `istio-component-monitor` (istiod `http-monitoring`), `envoy-stats-monitor`
-  (every `istio-proxy` container: ztunnel and waypoints) from `charts/istio-config`.
+- Scrapes (`charts/istio-config`): `istio-component-monitor` (istiod `http-monitoring`),
+  `envoy-stats-monitor` (waypoints), `ztunnel` (port `ztunnel-stats` 15020) and `istio-cni`
+  (port `metrics` 15014).
+- Tracing: waypoint spans to the gateway collector at 10 % (docs/tracing.md); ztunnel is L4 only.
 - Alerts `homelab-service-mesh`: `HomelabIstiodDown`, `HomelabMeshNodeAgentNotReady`,
   `HomelabIstioXdsRejects` ([runbooks/alerting.md](runbooks/alerting.md)).
 - Grafana folder "Homelab": Istio Control Plane (7645), Mesh (7639), Service (7636), Workload
