@@ -9,7 +9,7 @@ for CI on the new head. The outcome lands in the sticky PR comment `ci-autofix`.
 
 | Failure | Action |
 |---|---|
-| Formatting (`deno fmt`, gofmt, terraform fmt), lint findings | fix, run the linter, push |
+| Formatting (`task scripts:fmt`, gofmt, terraform fmt), lint findings | fix, run the linter, push |
 | Golden snapshot drift | `task test:snapshot -- --update`, push |
 | Stale localdev values, CRD schemas, doc numbers | `task config:export:localdev`, `task schemas:vendor`, `task docs:check -- --fix`, push |
 | A unit, policy or health test the PR broke | fix the code or the test the PR added, run it, push |

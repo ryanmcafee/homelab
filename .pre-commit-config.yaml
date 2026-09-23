@@ -31,7 +31,7 @@ repos:
 
       - id: cmp-version-bump
         name: Auto-bump CMP version
-        entry: deno run --allow-read --allow-write --allow-run scripts/cmp-version-bump.ts
+        entry: bun scripts/cmp-version-bump.ts
         language: system
         pass_filenames: false
         files: ^(cmd/|internal/|cmp/|Dockerfile\.cmp)
@@ -39,7 +39,7 @@ repos:
 
       - id: config-export
         name: Auto-export config on changes
-        entry: deno run --allow-read --allow-write --allow-run --allow-env scripts/config-export-hook.ts
+        entry: bun scripts/config-export-hook.ts
         language: system
         pass_filenames: false
         files: ^configuration/(schema/|environments/|versions\.yaml$|templates/)

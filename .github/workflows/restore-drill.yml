@@ -43,10 +43,13 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       # jq and yq (test:drill reads versions.yaml with yq) ship with ubuntu-latest.
-      - name: Install go, helm, deno, kind, kubectl, argocd, chainsaw, task from mise.toml
+      - name: Install go, helm, bun, kind, kubectl, argocd, chainsaw, task from mise.toml
         uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
         with:
-          install_args: go helm deno kind kubectl argocd aqua:kyverno/chainsaw task
+          install_args: go helm bun kind kubectl argocd aqua:kyverno/chainsaw task
+
+      - name: Install script dependencies from bun.lock
+        run: bun install --frozen-lockfile
 
       - name: Tool versions
         run: |

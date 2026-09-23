@@ -1,4 +1,4 @@
-#!/usr/bin/env -S deno run --allow-net --allow-run --allow-env --allow-read --allow-write
+#!/usr/bin/env bun
 
 /**
  * crd-schemas-vendor.ts
@@ -14,8 +14,7 @@
  *
  * Usage:
  *   task schemas:vendor
- *   deno run --allow-net --allow-run --allow-env --allow-read --allow-write \
- *     scripts/crd-schemas-vendor.ts [flags]
+ *   bun scripts/crd-schemas-vendor.ts [flags]
  *
  * Flags:
  *   --help            Show this help and exit 0
@@ -31,7 +30,12 @@
  * 2 = argument error.
  */
 
-import { parse as parseYaml, parseAll } from "jsr:@std/yaml@^1";
+import { type Dirent, readdirSync } from "node:fs";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { isNotFound } from "./lib/errors.ts";
+import { parseAll, parse as parseYaml } from "./lib/yaml.ts";
 
 // ============================================================================
 // Logging
@@ -96,7 +100,7 @@ function parseArgs(argv: string[]): Args {
       const v = argv[++i];
       if (!v) {
         log.error("--only requires a value");
-        Deno.exit(2);
+        process.exit(2);
       }
       args.only.push(v);
     } else if (a.startsWith("--only=")) {
@@ -105,7 +109,7 @@ function parseArgs(argv: string[]): Args {
       const v = argv[++i];
       if (!v) {
         log.error("--sources requires a value");
-        Deno.exit(2);
+        process.exit(2);
       }
       args.sourcesPath = v;
     } else if (a.startsWith("--sources=")) {
@@ -114,14 +118,14 @@ function parseArgs(argv: string[]): Args {
       const v = argv[++i];
       if (!v) {
         log.error("--out requires a value");
-        Deno.exit(2);
+        process.exit(2);
       }
       args.outDir = v;
     } else if (a.startsWith("--out=")) {
       args.outDir = a.slice("--out=".length);
     } else {
       log.error(`Unknown argument: ${a}`);
-      Deno.exit(2);
+      process.exit(2);
     }
   }
   return args;
@@ -133,8 +137,7 @@ function printHelp(): void {
 
 Usage:
   task schemas:vendor
-  deno run --allow-net --allow-run --allow-env --allow-read --allow-write \\
-    scripts/crd-schemas-vendor.ts [flags]
+  bun scripts/crd-schemas-vendor.ts [flags]
 
 Flags:
   --help, -h         Show this help and exit 0
@@ -188,7 +191,7 @@ interface Versions {
 }
 
 // A single `apiextensions.k8s.io/v1 CustomResourceDefinition` document.
-// deno-lint-ignore no-explicit-any
+// biome-ignore lint/suspicious/noExplicitAny: CRD documents are arbitrary YAML
 type CRD = any;
 
 interface PlannedFile {
@@ -202,29 +205,29 @@ interface PlannedFile {
 async function run(
   cmd: string[],
 ): Promise<{ stdout: string; stderr: string; code: number }> {
-  const p = new Deno.Command(cmd[0], {
-    args: cmd.slice(1),
-    stdout: "piped",
-    stderr: "piped",
+  const p = Bun.spawn(cmd, {
+    stdin: "inherit",
+    stdout: "pipe",
+    stderr: "pipe",
   });
-  const output = await p.output();
-  return {
-    stdout: new TextDecoder().decode(output.stdout),
-    stderr: new TextDecoder().decode(output.stderr),
-    code: output.code,
-  };
+  const [stdout, stderr, code] = await Promise.all([
+    new Response(p.stdout).text(),
+    new Response(p.stderr).text(),
+    p.exited,
+  ]);
+  return { stdout, stderr, code };
 }
 
 // ============================================================================
 // Load configuration
 // ============================================================================
 async function loadVersions(path: string): Promise<Versions> {
-  const text = await Deno.readTextFile(path);
+  const text = await readFile(path, "utf8");
   return parseYaml(text) as Versions;
 }
 
 async function loadSources(path: string): Promise<SourcesFile> {
-  const text = await Deno.readTextFile(path);
+  const text = await readFile(path, "utf8");
   return parseYaml(text) as SourcesFile;
 }
 
@@ -276,7 +279,7 @@ async function fetchChartCRDs(
   kubeVersion: string,
 ): Promise<CRD[]> {
   const chart = source.chart!;
-  const tmpDir = await Deno.makeTempDir({ prefix: "crd-vendor-chart-" });
+  const tmpDir = await mkdtemp(join(tmpdir(), "crd-vendor-chart-"));
   try {
     // OCI registries (oci://ghcr.io/org/charts) take the chart as a single
     // reference and reject --repo; classic https indexes need --repo <url> <name>.
@@ -322,9 +325,9 @@ async function fetchChartCRDs(
     if (missing.length > 0) {
       const helmArgs = source.helmArgs ?? [];
       log.info(
-        `[${source.name}] helm show crds missing ${
-          missing.join(", ")
-        }; falling back to helm template --include-crds`,
+        `[${source.name}] helm show crds missing ${missing.join(
+          ", ",
+        )}; falling back to helm template --include-crds`,
       );
       const tmpl = await run([
         "helm",
@@ -348,7 +351,7 @@ async function fetchChartCRDs(
 
     return [...pool.values()];
   } finally {
-    await Deno.remove(tmpDir, { recursive: true }).catch(() => {});
+    await rm(tmpDir, { recursive: true }).catch(() => {});
   }
 }
 
@@ -370,10 +373,9 @@ async function fetchGithubCRDs(
   const pool = new Map<string, CRD>();
 
   for (const path of gh.paths) {
-    const apiUrl =
-      `https://api.github.com/repos/${gh.repo}/contents/${path}?ref=${
-        encodeURIComponent(ref)
-      }`;
+    const apiUrl = `https://api.github.com/repos/${gh.repo}/contents/${path}?ref=${encodeURIComponent(
+      ref,
+    )}`;
     log.info(`[${source.name}] GET ${apiUrl}`);
     // Unauthenticated calls share a 60/hour per-IP budget that shared CI
     // runners exhaust (403 Forbidden); a token raises it to 5000/hour. The
@@ -381,7 +383,7 @@ async function fetchGithubCRDs(
     const headers: Record<string, string> = {
       "User-Agent": "homelab-crd-schemas-vendor",
     };
-    const token = Deno.env.get("GITHUB_TOKEN");
+    const token = process.env.GITHUB_TOKEN;
     if (token) headers["Authorization"] = `Bearer ${token}`;
     const res = await fetch(apiUrl, { headers });
     if (!res.ok) {
@@ -414,7 +416,7 @@ async function fetchGithubCRDs(
 // ============================================================================
 // Schema conversion
 // ============================================================================
-// deno-lint-ignore no-explicit-any
+// biome-ignore lint/suspicious/noExplicitAny: walks arbitrary OpenAPI schema nodes
 function convertNode(node: any): any {
   if (Array.isArray(node)) {
     return node.map((n) => convertNode(n));
@@ -460,9 +462,7 @@ function convertNode(node: any): any {
   // int-or-string fields normally already carry an `anyOf: [integer, string]`
   // (the Kubernetes structural-schema convention) alongside the marker; only
   // synthesize one if it's genuinely missing.
-  if (
-    intOrString && !("oneOf" in result) && !("anyOf" in result)
-  ) {
+  if (intOrString && !("oneOf" in result) && !("anyOf" in result)) {
     result.oneOf = [{ type: "integer" }, { type: "string" }];
   }
 
@@ -491,7 +491,7 @@ function convertSchema(openAPIV3Schema: unknown): Record<string, unknown> {
 // ============================================================================
 // Deterministic JSON serialization (sorted keys, 2-space indent, trailing \n)
 // ============================================================================
-// deno-lint-ignore no-explicit-any
+// biome-ignore lint/suspicious/noExplicitAny: sorts arbitrary JSON values
 function sortKeysDeep(value: any): any {
   if (Array.isArray(value)) return value.map(sortKeysDeep);
   if (value !== null && typeof value === "object") {
@@ -563,12 +563,13 @@ async function processSource(
   const { files, foundKinds } = planFilesForSource(source, crds, outDir);
   const missing = source.kinds.filter((k) => !foundKinds.has(k));
   if (missing.length > 0) {
-    const available = [...new Set(crds.map((c) => crdKind(c)).filter(Boolean))]
-      .sort();
+    const available = [
+      ...new Set(crds.map((c) => crdKind(c)).filter(Boolean)),
+    ].sort();
     throw new Error(
-      `source "${source.name}": kind(s) ${
-        missing.join(", ")
-      } not found. Available kinds in this source: ${
+      `source "${source.name}": kind(s) ${missing.join(
+        ", ",
+      )} not found. Available kinds in this source: ${
         available.length > 0 ? available.join(", ") : "(none)"
       }`,
     );
@@ -588,19 +589,19 @@ async function readExistingSchemaFiles(
 ): Promise<Map<string, string>> {
   const existing = new Map<string, string>();
   async function walk(dir: string): Promise<void> {
-    let entries: Deno.DirEntry[];
+    let entries: Dirent[];
     try {
-      entries = [...Deno.readDirSync(dir)];
+      entries = readdirSync(dir, { withFileTypes: true });
     } catch (err) {
-      if (err instanceof Deno.errors.NotFound) return;
+      if (isNotFound(err)) return;
       throw err;
     }
     for (const entry of entries) {
       const full = `${dir}/${entry.name}`;
-      if (entry.isDirectory) {
+      if (entry.isDirectory()) {
         await walk(full);
-      } else if (entry.isFile && entry.name.endsWith(".json")) {
-        existing.set(full, await Deno.readTextFile(full));
+      } else if (entry.isFile() && entry.name.endsWith(".json")) {
+        existing.set(full, await readFile(full, "utf8"));
       }
     }
   }
@@ -615,8 +616,8 @@ async function writeFiles(files: PlannedFile[]): Promise<void> {
   for (const file of files) {
     const idx = file.path.lastIndexOf("/");
     const dir = idx >= 0 ? file.path.substring(0, idx) : ".";
-    await Deno.mkdir(dir, { recursive: true });
-    await Deno.writeTextFile(file.path, file.content);
+    await mkdir(dir, { recursive: true });
+    await writeFile(file.path, file.content);
   }
 }
 
@@ -624,7 +625,7 @@ async function writeFiles(files: PlannedFile[]): Promise<void> {
 // Main
 // ============================================================================
 async function main(): Promise<number> {
-  const args = parseArgs(Deno.args);
+  const args = parseArgs(process.argv.slice(2));
 
   if (args.help) {
     printHelp();
@@ -656,7 +657,7 @@ async function main(): Promise<number> {
   // --check regenerates into an isolated temp dir so the working tree's
   // tests/schemas/ is never touched while diffing.
   const targetOutDir = args.check
-    ? await Deno.makeTempDir({ prefix: "crd-vendor-check-" })
+    ? await mkdtemp(join(tmpdir(), "crd-vendor-check-"))
     : args.outDir;
 
   const allFiles: PlannedFile[] = [];
@@ -678,7 +679,7 @@ async function main(): Promise<number> {
   if (errors.length > 0) {
     for (const e of errors) log.error(e);
     if (args.check) {
-      await Deno.remove(targetOutDir, { recursive: true }).catch(() => {});
+      await rm(targetOutDir, { recursive: true }).catch(() => {});
     }
     return 1;
   }
@@ -727,7 +728,7 @@ async function main(): Promise<number> {
       }
     }
 
-    await Deno.remove(targetOutDir, { recursive: true }).catch(() => {});
+    await rm(targetOutDir, { recursive: true }).catch(() => {});
 
     if (added.length === 0 && changed.length === 0 && removed.length === 0) {
       log.ok(
@@ -752,9 +753,9 @@ async function main(): Promise<number> {
 
 if (import.meta.main) {
   try {
-    Deno.exit(await main());
+    process.exit(await main());
   } catch (err) {
     log.error(err instanceof Error ? err.message : String(err));
-    Deno.exit(1);
+    process.exit(1);
   }
 }

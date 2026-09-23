@@ -139,7 +139,7 @@ its doc (`docs/architecture.md#provisioning`, `docs/runbooks/control-plane-stora
 
 **`homelab validate`** — per-tier table, ✔/✘ per row with a fix hint; `--environment` selects
 the tier (default localdev); exit 1 if any required row fails.
-- localdev rows: mise, task, deno, docker (daemon reachable), kind, kubectl, helm, argocd,
+- localdev rows: mise, task, bun, docker (daemon reachable), kind, kubectl, helm, argocd,
   chainsaw.
 - homelab rows: localdev rows + terragrunt, talosctl, ansible-playbook, `op` (signed in:
   `op whoami`), age key file, `homelab.yaml` present and schema-valid (`task config:validate`
@@ -160,7 +160,7 @@ the tier (default localdev); exit 1 if any required row fails.
 
 ## 5. Drift guard: `task docs:check`
 
-A Deno script `scripts/docs-check.ts` (tests in `scripts/docs-check_test.ts`) that computes:
+A TypeScript script `scripts/docs-check.ts` (tests in `scripts/docs-check_test.ts`) that computes:
 - versions from `configuration/versions.yaml` and compares to the README badge row;
 - counts: addons templates, applications templates, ArgoCD Applications in the homelab
   snapshots, chainsaw suites in `tests/e2e`, internal ingress hosts in the snapshots;

@@ -1,4 +1,4 @@
-#!/usr/bin/env -S deno test
+#!/usr/bin/env -S bun test
 /**
  * Unit tests for the pure orchestration logic in localdev-argocd.ts.
  *
@@ -7,16 +7,17 @@
  * interfaces → Sync orchestration") against hand-built Application objects in
  * the shape `kubectl get applications -o json` returns.
  *
- *   deno test scripts/localdev-argocd_test.ts
+ *   bun test scripts/localdev-argocd_test.ts
  */
 
+import { test } from "bun:test";
 import {
   assert,
   assertEquals,
   assertStringIncludes,
   assertThrows,
-} from "jsr:@std/assert@^1";
-import { parse as parseYaml } from "jsr:@std/yaml@^1";
+} from "./lib/assert.ts";
+import { parse as parseYaml } from "./lib/yaml.ts";
 import {
   type AppDiff,
   type Application,
@@ -192,31 +193,31 @@ const argocdApp = app({
 // ----------------------------------------------------------------------------
 // parseWave / parentOf
 // ----------------------------------------------------------------------------
-Deno.test("parseWave: reads the sync-wave annotation as an integer", () => {
+test("parseWave: reads the sync-wave annotation as an integer", () => {
   assertEquals(parseWave(app({ name: "a", wave: "2" })), 2);
   assertEquals(parseWave(app({ name: "a", wave: "-5" })), -5);
   assertEquals(parseWave(app({ name: "a", wave: " 7 " })), 7);
 });
 
-Deno.test("parseWave: missing or unparsable annotation is wave 0", () => {
+test("parseWave: missing or unparsable annotation is wave 0", () => {
   assertEquals(parseWave(app({ name: "a" })), 0);
   assertEquals(parseWave(app({ name: "a", wave: "" })), 0);
   assertEquals(parseWave(app({ name: "a", wave: "later" })), 0);
   assertEquals(parseWave({ metadata: { name: "bare" } }), 0);
 });
 
-Deno.test("parentOf: the ArgoCD tracking label names the parent", () => {
+test("parentOf: the ArgoCD tracking label names the parent", () => {
   assertEquals(parentOf(addons), "gitops");
   assertEquals(parentOf(cilium), "addons");
 });
 
-Deno.test("parentOf: the root has no parent; a self-label is ignored", () => {
+test("parentOf: the root has no parent; a self-label is ignored", () => {
   assertEquals(parentOf(gitops), null);
   assertEquals(parentOf({ metadata: { name: "x" } }), null);
   assertEquals(parentOf(app({ name: "loop", parent: "loop" })), null);
 });
 
-Deno.test("indexApps: maps every app name to the app", () => {
+test("indexApps: maps every app name to the app", () => {
   const byName = indexApps([gitops, addons, cilium]);
   assertEquals(byName.get("gitops"), gitops);
   assertEquals(byName.get("cilium")?.metadata.name, "cilium");
@@ -225,11 +226,11 @@ Deno.test("indexApps: maps every app name to the app", () => {
 // ----------------------------------------------------------------------------
 // tierKey / nextTier
 // ----------------------------------------------------------------------------
-Deno.test("tierKey: the root's key is just its own wave", () => {
+test("tierKey: the root's key is just its own wave", () => {
   assertEquals(tierKey(gitops, indexApps([gitops])), [0]);
 });
 
-Deno.test("tierKey: children are keyed by the wave path from the root", () => {
+test("tierKey: children are keyed by the wave path from the root", () => {
   const all = [gitops, bootstrap, addons, applications, cilium, sonarrConfig];
   const byName = indexApps(all);
   assertEquals(tierKey(bootstrap, byName), [0, 0]);
@@ -239,19 +240,19 @@ Deno.test("tierKey: children are keyed by the wave path from the root", () => {
   assertEquals(tierKey(sonarrConfig, byName), [0, 3, 0]);
 });
 
-Deno.test("tierKey: a parent that is not in the index counts as an unknown wave-0 root", () => {
+test("tierKey: a parent that is not in the index counts as an unknown wave-0 root", () => {
   // Cannot happen in a consistent cluster (the parent created the child), but
   // the key must still be total so the loop never stalls.
   assertEquals(tierKey(cilium, new Map()), [0, -5]);
 });
 
-Deno.test("tierKey: a cycle in the tracking annotations is cut, not looped", () => {
+test("tierKey: a cycle in the tracking annotations is cut, not looped", () => {
   const a = app({ name: "a", wave: "1", parent: "b" });
   const b = app({ name: "b", wave: "2", parent: "a" });
   assertEquals(tierKey(a, indexApps([a, b])), [2, 1]);
 });
 
-Deno.test("compareTierKey: a parent sorts before its children, even negative-wave ones", () => {
+test("compareTierKey: a parent sorts before its children, even negative-wave ones", () => {
   // The plan's (parent wave, own wave) pair would put sops-secrets (0,-2)
   // before its parent bootstrap (0,0); the wave path keeps the parent first.
   assert(compareTierKey([0, 0], [0, 0, -2]) < 0);
@@ -261,7 +262,7 @@ Deno.test("compareTierKey: a parent sorts before its children, even negative-wav
   assertEquals(compareTierKey([0, 2], [0, 2]), 0);
 });
 
-Deno.test("nextTier: walks the tree root → gitops children → addon children → application children", () => {
+test("nextTier: walks the tree root → gitops children → addon children → application children", () => {
   const all = [
     sonarrConfig,
     traefik,
@@ -295,21 +296,24 @@ Deno.test("nextTier: walks the tree root → gitops children → addon children 
   ]);
 });
 
-Deno.test("nextTier: apps sharing a key form one tier, sorted by name", () => {
+test("nextTier: apps sharing a key form one tier, sorted by name", () => {
   const a = app({ name: "zeta", wave: "1", parent: "addons", chart: "z" });
   const b = app({ name: "alpha", wave: "1", parent: "addons", chart: "a" });
   const tier = nextTier([gitops, addons, a, b], new Set(["gitops", "addons"]));
   assert(tier);
   assertEquals(tier.key, [0, 2, 1]);
-  assertEquals(tier.apps.map((x) => x.metadata.name), ["alpha", "zeta"]);
+  assertEquals(
+    tier.apps.map((x) => x.metadata.name),
+    ["alpha", "zeta"],
+  );
 });
 
-Deno.test("nextTier: returns null once everything is done", () => {
+test("nextTier: returns null once everything is done", () => {
   assertEquals(nextTier([gitops], new Set(["gitops"])), null);
   assertEquals(nextTier([], new Set()), null);
 });
 
-Deno.test("nextTier: a later round can reuse an earlier key when children appear", () => {
+test("nextTier: a later round can reuse an earlier key when children appear", () => {
   // bootstrap is (0,0); once it is synced its wave-0 child shows up with the
   // same key and must be picked up as a new tier, not skipped.
   const child = app({
@@ -324,13 +328,16 @@ Deno.test("nextTier: a later round can reuse an earlier key when children appear
   );
   assert(tier);
   assertEquals(tier.key, [0, 0, 0]);
-  assertEquals(tier.apps.map((x) => x.metadata.name), ["sops-secrets"]);
+  assertEquals(
+    tier.apps.map((x) => x.metadata.name),
+    ["sops-secrets"],
+  );
 });
 
 // ----------------------------------------------------------------------------
 // appState / isAppComplete / isTierComplete
 // ----------------------------------------------------------------------------
-Deno.test("appState: Healthy + Succeeded is complete", () => {
+test("appState: Healthy + Succeeded is complete", () => {
   assertEquals(
     appState(app({ name: "a", health: "Healthy", phase: "Succeeded" })),
     "complete",
@@ -340,7 +347,7 @@ Deno.test("appState: Healthy + Succeeded is complete", () => {
   );
 });
 
-Deno.test("appState: a parent whose Running operation waits on child Applications is complete", () => {
+test("appState: a parent whose Running operation waits on child Applications is complete", () => {
   const parent = app({
     name: "addons",
     health: "Progressing",
@@ -350,7 +357,7 @@ Deno.test("appState: a parent whose Running operation waits on child Application
   assertEquals(appState(parent), "complete");
 });
 
-Deno.test("appState: a Running operation without child Applications is pending", () => {
+test("appState: a Running operation without child Applications is pending", () => {
   const leaf = app({
     name: "traefik",
     health: "Progressing",
@@ -364,7 +371,7 @@ Deno.test("appState: a Running operation without child Applications is pending",
   );
 });
 
-Deno.test("appState: Succeeded but not yet Healthy is pending", () => {
+test("appState: Succeeded but not yet Healthy is pending", () => {
   assertEquals(
     appState(app({ name: "a", health: "Progressing", phase: "Succeeded" })),
     "pending",
@@ -375,7 +382,7 @@ Deno.test("appState: Succeeded but not yet Healthy is pending", () => {
   );
 });
 
-Deno.test("appState: Failed and Error operations are failed", () => {
+test("appState: Failed and Error operations are failed", () => {
   assertEquals(appState(app({ name: "a", phase: "Failed" })), "failed");
   assertEquals(
     appState(app({ name: "a", health: "Healthy", phase: "Error" })),
@@ -383,12 +390,12 @@ Deno.test("appState: Failed and Error operations are failed", () => {
   );
 });
 
-Deno.test("appState: never-synced or fieldless apps are pending", () => {
+test("appState: never-synced or fieldless apps are pending", () => {
   assertEquals(appState(app({ name: "a" })), "pending");
   assertEquals(appState({ metadata: { name: "bare" } }), "pending");
 });
 
-Deno.test("isTierComplete: every app in the tier must be complete", () => {
+test("isTierComplete: every app in the tier must be complete", () => {
   const ok = app({ name: "a", health: "Healthy", phase: "Succeeded" });
   const parent = app({
     name: "p",
@@ -405,14 +412,14 @@ Deno.test("isTierComplete: every app in the tier must be complete", () => {
 // ----------------------------------------------------------------------------
 // sourceKind / syncArgs
 // ----------------------------------------------------------------------------
-Deno.test("sourceKind: path → local, chart → chart, sources → multi", () => {
+test("sourceKind: path → local, chart → chart, sources → multi", () => {
   assertEquals(sourceKind(gitops), "local");
   assertEquals(sourceKind(cilium), "chart");
   assertEquals(sourceKind(app({ name: "m", sources: true })), "multi");
   assertEquals(sourceKind({ metadata: { name: "bare" } }), "chart");
 });
 
-Deno.test("syncArgs: git-path apps sync from the working tree", () => {
+test("syncArgs: git-path apps sync from the working tree", () => {
   assertEquals(syncArgs(gitops, REPO), [
     "app",
     "sync",
@@ -430,7 +437,7 @@ Deno.test("syncArgs: git-path apps sync from the working tree", () => {
   ]);
 });
 
-Deno.test("syncArgs: chart and multi-source apps sync without --local", () => {
+test("syncArgs: chart and multi-source apps sync without --local", () => {
   assertEquals(syncArgs(cilium, REPO), [
     "app",
     "sync",
@@ -447,7 +454,7 @@ Deno.test("syncArgs: chart and multi-source apps sync without --local", () => {
   ]);
 });
 
-Deno.test("syncArgs: a trailing slash on the repo root does not double up", () => {
+test("syncArgs: a trailing slash on the repo root does not double up", () => {
   assertEquals(
     syncArgs(gitops, "/work/homelab/")[4],
     "/work/homelab/charts/gitops",
@@ -455,7 +462,7 @@ Deno.test("syncArgs: a trailing slash on the repo root does not double up", () =
   assertEquals(syncArgs(gitops, "/work/homelab/")[6], "/work/homelab");
 });
 
-Deno.test("syncArgs: a path that escapes the repo root is refused", () => {
+test("syncArgs: a path that escapes the repo root is refused", () => {
   const evil = app({ name: "evil", path: "../../etc" });
   assertThrows(() => syncArgs(evil, REPO), Error, "outside");
 });
@@ -463,29 +470,31 @@ Deno.test("syncArgs: a path that escapes the repo root is refused", () => {
 // ----------------------------------------------------------------------------
 // selectApps (--warm / --only)
 // ----------------------------------------------------------------------------
-Deno.test("selectApps: --warm drops `applications` and everything under it", () => {
+test("selectApps: --warm drops `applications` and everything under it", () => {
   const all = [gitops, bootstrap, addons, applications, cilium, sonarrConfig];
-  const names = selectApps(all, { warm: true, only: null }).map((a) =>
-    a.metadata.name
+  const names = selectApps(all, { warm: true, only: null }).map(
+    (a) => a.metadata.name,
   );
   assertEquals(names, ["gitops", "bootstrap", "addons", "cilium"]);
 });
 
-Deno.test("selectApps: --only keeps just the named apps, in list order", () => {
+test("selectApps: --only keeps just the named apps, in list order", () => {
   const all = [gitops, bootstrap, addons, cilium];
-  const names = selectApps(all, { warm: false, only: ["cilium", "gitops"] })
-    .map((a) => a.metadata.name);
+  const names = selectApps(all, {
+    warm: false,
+    only: ["cilium", "gitops"],
+  }).map((a) => a.metadata.name);
   assertEquals(names, ["gitops", "cilium"]);
 });
 
-Deno.test("selectApps: --only names that do not exist are simply absent", () => {
+test("selectApps: --only names that do not exist are simply absent", () => {
   assertEquals(selectApps([gitops], { warm: false, only: ["nope"] }), []);
 });
 
 // ----------------------------------------------------------------------------
 // isReady (wait)
 // ----------------------------------------------------------------------------
-Deno.test("isReady: Healthy + Succeeded; --require-synced adds Synced", () => {
+test("isReady: Healthy + Succeeded; --require-synced adds Synced", () => {
   const outOfSync = app({
     name: "a",
     health: "Healthy",
@@ -495,10 +504,13 @@ Deno.test("isReady: Healthy + Succeeded; --require-synced adds Synced", () => {
   assert(isReady(outOfSync, false));
   assert(!isReady(outOfSync, true));
   assert(
-    isReady({
-      ...outOfSync,
-      status: { ...outOfSync.status, sync: { status: "Synced" } },
-    }, true),
+    isReady(
+      {
+        ...outOfSync,
+        status: { ...outOfSync.status, sync: { status: "Synced" } },
+      },
+      true,
+    ),
   );
   assert(
     !isReady(app({ name: "b", health: "Healthy", phase: "Running" }), false),
@@ -512,7 +524,7 @@ Deno.test("isReady: Healthy + Succeeded; --require-synced adds Synced", () => {
 // ----------------------------------------------------------------------------
 // setFileArgs / escapeHelmKey
 // ----------------------------------------------------------------------------
-Deno.test("escapeHelmKey: every dot becomes a backslash-dot", () => {
+test("escapeHelmKey: every dot becomes a backslash-dot", () => {
   assertEquals(
     escapeHelmKey("resource.customizations.health.argoproj.io_Application"),
     "resource\\.customizations\\.health\\.argoproj\\.io_Application",
@@ -520,7 +532,7 @@ Deno.test("escapeHelmKey: every dot becomes a backslash-dot", () => {
   assertEquals(escapeHelmKey("plain"), "plain");
 });
 
-Deno.test("setFileArgs: one --set-file per Lua file under configs.cm, dots in the group escaped", () => {
+test("setFileArgs: one --set-file per Lua file under configs.cm, dots in the group escaped", () => {
   // helm --set-file splits on unescaped dots, so `argoproj.io_Application`
   // would otherwise become configs.cm."resource...argoproj".io_Application.
   const args = setFileArgs([
@@ -535,7 +547,7 @@ Deno.test("setFileArgs: one --set-file per Lua file under configs.cm, dots in th
   ]);
 });
 
-Deno.test("crdsInstallArgs: the CRD chart installs at the pinned version, before ArgoCD, and only waits", () => {
+test("crdsInstallArgs: the CRD chart installs at the pinned version, before ArgoCD, and only waits", () => {
   const args = crdsInstallArgs("30.0.0");
   assertEquals(args.slice(0, 3), [
     "helm",
@@ -555,7 +567,7 @@ Deno.test("crdsInstallArgs: the CRD chart installs at the pinned version, before
   assert(!args.includes("-f") && !args.includes("--set-file"));
 });
 
-Deno.test("chartVersionFromVersions: reads charts.<key> and names the missing key", () => {
+test("chartVersionFromVersions: reads charts.<key> and names the missing key", () => {
   const text =
     'charts:\n  argocd: "9.7.1"\n  prometheus-operator-crds: "30.0.0"\n';
   assertEquals(
@@ -570,11 +582,11 @@ Deno.test("chartVersionFromVersions: reads charts.<key> and names the missing ke
   );
 });
 
-Deno.test("setFileArgs: no Lua files means no flags", () => {
+test("setFileArgs: no Lua files means no flags", () => {
   assertEquals(setFileArgs([]), []);
 });
 
-Deno.test("setFileArgs: a kind without a group keeps its plain name", () => {
+test("setFileArgs: a kind without a group keeps its plain name", () => {
   assertEquals(setFileArgs(["h/ConfigMap.lua"]), [
     "--set-file",
     "configs.cm.resource\\.customizations\\.health\\.ConfigMap=h/ConfigMap.lua",
@@ -584,7 +596,7 @@ Deno.test("setFileArgs: a kind without a group keeps its plain name", () => {
 // ----------------------------------------------------------------------------
 // parseArgs
 // ----------------------------------------------------------------------------
-Deno.test("parseArgs: subcommand plus flags", () => {
+test("parseArgs: subcommand plus flags", () => {
   const a = parseArgs([
     "sync",
     "--warm",
@@ -600,7 +612,7 @@ Deno.test("parseArgs: subcommand plus flags", () => {
   assert(a.dryRun);
 });
 
-Deno.test("parseArgs: wait flags and duration units", () => {
+test("parseArgs: wait flags and duration units", () => {
   const a = parseArgs([
     "wait",
     "--require-synced",
@@ -615,13 +627,13 @@ Deno.test("parseArgs: wait flags and duration units", () => {
   assertEquals(a.timeoutMs, 90_000);
 });
 
-Deno.test("parseArgs: --help and no command", () => {
+test("parseArgs: --help and no command", () => {
   assert(parseArgs(["--help"]).help);
   assert(parseArgs(["sync", "-h"]).help);
   assertEquals(parseArgs([]).command, null);
 });
 
-Deno.test("parseArgs: unknown flags and bad durations are argument errors", () => {
+test("parseArgs: unknown flags and bad durations are argument errors", () => {
   assertThrows(() => parseArgs(["sync", "--bogus"]), Error, "Unknown argument");
   assertThrows(
     () => parseArgs(["sync", "--timeout", "soon"]),
@@ -634,7 +646,7 @@ Deno.test("parseArgs: unknown flags and bad durations are argument errors", () =
 // ----------------------------------------------------------------------------
 // Port-forward helpers
 // ----------------------------------------------------------------------------
-Deno.test("serverFlags: pins the server with plaintext, insecure and grpc-web", () => {
+test("serverFlags: pins the server with plaintext, insecure and grpc-web", () => {
   assertEquals(serverFlags("127.0.0.1:18080"), [
     "--server",
     "127.0.0.1:18080",
@@ -644,7 +656,7 @@ Deno.test("serverFlags: pins the server with plaintext, insecure and grpc-web", 
   ]);
 });
 
-Deno.test("portForwardCmd: kubectl port-forward on the Kind context, loopback only", () => {
+test("portForwardCmd: kubectl port-forward on the Kind context, loopback only", () => {
   assertEquals(portForwardCmd(18080), [
     "kubectl",
     "--context",
@@ -659,22 +671,25 @@ Deno.test("portForwardCmd: kubectl port-forward on the Kind context, loopback on
   ]);
 });
 
-Deno.test("candidatePorts: preferred first, then consecutive ports, clipped at 65535", () => {
+test("candidatePorts: preferred first, then consecutive ports, clipped at 65535", () => {
   assertEquals(candidatePorts(18080, 3), [18080, 18081, 18082]);
   assertEquals(candidatePorts(65534, 5), [65534, 65535]);
   assertEquals(candidatePorts(DEFAULT_LOCAL_PORT).length, 20);
 });
 
-Deno.test("findFreePort: skips ports the probe reports busy", () => {
+test("findFreePort: skips ports the probe reports busy", () => {
   const busy = new Set([18080, 18081]);
   assertEquals(
     findFreePort([18080, 18081, 18082], (p) => !busy.has(p)),
     18082,
   );
-  assertEquals(findFreePort([18080], () => true), 18080);
+  assertEquals(
+    findFreePort([18080], () => true),
+    18080,
+  );
 });
 
-Deno.test("findFreePort: fails when every candidate is taken", () => {
+test("findFreePort: fails when every candidate is taken", () => {
   assertThrows(
     () => findFreePort([18080, 18081], () => false),
     Error,
@@ -682,7 +697,7 @@ Deno.test("findFreePort: fails when every candidate is taken", () => {
   );
 });
 
-Deno.test("parsePort / --local-port / --server", () => {
+test("parsePort / --local-port / --server", () => {
   assertEquals(parsePort("18080"), 18080);
   assertThrows(() => parsePort("0"), Error, "invalid port");
   assertThrows(() => parsePort("http"), Error, "invalid port");
@@ -697,7 +712,7 @@ Deno.test("parsePort / --local-port / --server", () => {
 // ----------------------------------------------------------------------------
 // ArgoCD v3 annotation tracking / automated apps
 // ----------------------------------------------------------------------------
-Deno.test("parentOf: ArgoCD v3 tracking-id annotation names the parent (no label)", () => {
+test("parentOf: ArgoCD v3 tracking-id annotation names the parent (no label)", () => {
   // application.resourceTrackingMethod defaults to `annotation` in ArgoCD 3.x:
   // children carry no app.kubernetes.io/instance label at all.
   const child: Application = {
@@ -714,7 +729,7 @@ Deno.test("parentOf: ArgoCD v3 tracking-id annotation names the parent (no label
   assertEquals(tierKey(child, indexApps([gitops, child])), [0, 0]);
 });
 
-Deno.test("parentOf: the annotation wins over the label; a self tracking-id is ignored", () => {
+test("parentOf: the annotation wins over the label; a self tracking-id is ignored", () => {
   const both: Application = {
     metadata: {
       name: "x",
@@ -735,7 +750,7 @@ Deno.test("parentOf: the annotation wins over the label; a self tracking-id is i
   assertEquals(parentOf(selfTracked), null);
 });
 
-Deno.test("isAutomated / hasComparisonError / isOperationInProgress", () => {
+test("isAutomated / hasComparisonError / isOperationInProgress", () => {
   assert(!isAutomated(gitops));
   assert(
     isAutomated({
@@ -750,12 +765,14 @@ Deno.test("isAutomated / hasComparisonError / isOperationInProgress", () => {
     }),
   );
   assert(!hasComparisonError(gitops));
-  assert(hasComparisonError({
-    metadata: { name: "a" },
-    status: {
-      conditions: [{ type: "ComparisonError", message: "ksops not found" }],
-    },
-  }));
+  assert(
+    hasComparisonError({
+      metadata: { name: "a" },
+      status: {
+        conditions: [{ type: "ComparisonError", message: "ksops not found" }],
+      },
+    }),
+  );
   assert(
     isOperationInProgress(
       '{"level":"fatal","msg":"rpc error: code = FailedPrecondition desc = another operation is already in progress"}',
@@ -768,7 +785,7 @@ Deno.test("isAutomated / hasComparisonError / isOperationInProgress", () => {
   );
 });
 
-Deno.test("nextTier: on a re-run with every app present, parents still come before children", () => {
+test("nextTier: on a re-run with every app present, parents still come before children", () => {
   const sops = app({
     name: "sops-secrets",
     wave: "-2",
@@ -795,7 +812,7 @@ Deno.test("nextTier: on a re-run with every app present, parents still come befo
   ]);
 });
 
-Deno.test("parentOf via tracking-id feeds tierKey the same way as the label", () => {
+test("parentOf via tracking-id feeds tierKey the same way as the label", () => {
   const child: Application = {
     metadata: {
       name: "bootstrap",
@@ -809,7 +826,7 @@ Deno.test("parentOf via tracking-id feeds tierKey the same way as the label", ()
   assertEquals(tierKey(child, indexApps([gitops, child])), [0, 0]);
 });
 
-Deno.test("manifestsArgs: renders a git-path app locally without syncing", () => {
+test("manifestsArgs: renders a git-path app locally without syncing", () => {
   assertEquals(manifestsArgs(gitops, REPO), [
     "app",
     "manifests",
@@ -822,7 +839,7 @@ Deno.test("manifestsArgs: renders a git-path app locally without syncing", () =>
   assertThrows(() => manifestsArgs(cilium, REPO), Error, "not a git-path app");
 });
 
-Deno.test("countManifests: counts non-empty YAML documents", () => {
+test("countManifests: counts non-empty YAML documents", () => {
   assertEquals(countManifests(""), 0);
   assertEquals(countManifests("---\n"), 0);
   assertEquals(countManifests("---\n# only a comment\n---\n"), 0);
@@ -835,24 +852,24 @@ Deno.test("countManifests: counts non-empty YAML documents", () => {
   );
 });
 
-Deno.test("emptyRenderDecision: local manifests → --local sync", () => {
+test("emptyRenderDecision: local manifests → --local sync", () => {
   assertEquals(emptyRenderDecision(3, null), "local");
   assertEquals(emptyRenderDecision(1, 0), "local");
 });
 
-Deno.test("emptyRenderDecision: nothing locally and nothing in Git → plain sync of an empty app", () => {
+test("emptyRenderDecision: nothing locally and nothing in Git → plain sync of an empty app", () => {
   // 22 child charts (cert-manager-config, sonarr-config, ...) render nothing
   // in localdev by design; a plain sync makes them Synced/Healthy.
   assertEquals(emptyRenderDecision(0, 0), "empty");
 });
 
-Deno.test("emptyRenderDecision: nothing locally but manifests in Git → error", () => {
+test("emptyRenderDecision: nothing locally but manifests in Git → error", () => {
   // ArgoCD would silently apply the Git revision (bootstrap in localdev).
   assertEquals(emptyRenderDecision(0, 7), "error");
   assertEquals(emptyRenderDecision(0, null), "error");
 });
 
-Deno.test("emptyRenderDecision: table with the path-in-Git flag", () => {
+test("emptyRenderDecision: table with the path-in-Git flag", () => {
   // paperclip-dependencies on PR #280: new on the branch, renders nothing in
   // localdev, absent from origin/main. `argocd app manifests` printed nothing
   // (git = 0) yet the plain sync failed with "app path does not exist".
@@ -877,7 +894,7 @@ Deno.test("emptyRenderDecision: table with the path-in-Git flag", () => {
   }
 });
 
-Deno.test("gitRefForRevision: branches resolve against origin, SHAs as is", () => {
+test("gitRefForRevision: branches resolve against origin, SHAs as is", () => {
   assertEquals(gitRefForRevision("main"), "origin/main");
   assertEquals(gitRefForRevision("feat/paperclip"), "origin/feat/paperclip");
   assertEquals(gitRefForRevision("origin/main"), "origin/main");
@@ -892,7 +909,7 @@ Deno.test("gitRefForRevision: branches resolve against origin, SHAs as is", () =
   assertEquals(gitRefForRevision("v1.2.3"), "origin/v1.2.3");
 });
 
-Deno.test("mentionsMissingPath: ArgoCD's repo-server wording", () => {
+test("mentionsMissingPath: ArgoCD's repo-server wording", () => {
   assert(
     mentionsMissingPath(
       "rpc error: code = Unknown desc = Manifest generation error (cached): charts/paperclip-dependencies: app path does not exist",
@@ -914,16 +931,17 @@ function newEmptyApp(name: string): Application {
       sync: { status: "Unknown" },
       health: { status: "Healthy" },
       resources: [],
-      conditions: [{
-        type: "ComparisonError",
-        message:
-          `Failed to load target state: failed to generate manifest for source 1 of 1: rpc error: code = Unknown desc = Manifest generation error (cached): charts/${name}: app path does not exist`,
-      }],
+      conditions: [
+        {
+          type: "ComparisonError",
+          message: `Failed to load target state: failed to generate manifest for source 1 of 1: rpc error: code = Unknown desc = Manifest generation error (cached): charts/${name}: app path does not exist`,
+        },
+      ],
     },
   };
 }
 
-Deno.test("isNewEmptyApp: Healthy, no operation, no resources, path missing on the target", () => {
+test("isNewEmptyApp: Healthy, no operation, no resources, path missing on the target", () => {
   const a = newEmptyApp("paperclip-dependencies");
   assert(isNewEmptyApp(a));
   // Any of the four legs missing → not the new-chart case.
@@ -964,13 +982,13 @@ Deno.test("isNewEmptyApp: Healthy, no operation, no resources, path missing on t
   );
 });
 
-Deno.test("isReady: a new chart's Application counts as ready, even with --require-synced", () => {
+test("isReady: a new chart's Application counts as ready, even with --require-synced", () => {
   const a = newEmptyApp("paperclip-dependencies");
   assert(isReady(a, false));
   assert(isReady(a, true));
 });
 
-Deno.test("appsToDiff / statusRows: a new chart's Application is not diffed and is labelled", () => {
+test("appsToDiff / statusRows: a new chart's Application is not diffed and is labelled", () => {
   const a = newEmptyApp("paperclip-dependencies");
   const synced = app({
     name: "s",
@@ -990,25 +1008,28 @@ Deno.test("appsToDiff / statusRows: a new chart's Application is not diffed and 
   // (Synced now means "the tree equals the pushed head", not "same as main").
   assertEquals(appsToDiff([a, synced, differs]), ["d", "s"]);
   const rows = statusRows([a, differs]);
-  assertEquals(rows.find((r) => r.app === "paperclip-dependencies"), {
-    app: "paperclip-dependencies",
-    health: "Healthy",
-    sync: "Unknown",
-    operation: "- (new chart, nothing to sync)",
-    vsMain: "not on main",
-  });
+  assertEquals(
+    rows.find((r) => r.app === "paperclip-dependencies"),
+    {
+      app: "paperclip-dependencies",
+      health: "Healthy",
+      sync: "Unknown",
+      operation: "- (new chart, nothing to sync)",
+      vsMain: "not on main",
+    },
+  );
   // No diff taken for d: the row says so instead of guessing from sync status.
   assertEquals(rows.find((r) => r.app === "d")!.vsMain, "not diffed");
   assertEquals(rows.find((r) => r.app === "d")!.sync, "OutOfSync");
 });
 
-Deno.test("appsToDiff: chart-sourced Applications are never diffed (no git revision to render)", () => {
+test("appsToDiff: chart-sourced Applications are never diffed (no git revision to render)", () => {
   assertEquals(appsToDiff([gitops, cilium]), ["gitops"]);
   const [row] = statusRows([cilium]);
   assertEquals(row.vsMain, "chart (compared on its parent)");
 });
 
-Deno.test("diffArgs: every diff is taken against the base revision", () => {
+test("diffArgs: every diff is taken against the base revision", () => {
   assertEquals(diffArgs("addons", "main"), [
     "app",
     "diff",
@@ -1023,7 +1044,7 @@ Deno.test("diffArgs: every diff is taken against the base revision", () => {
 // ----------------------------------------------------------------------------
 // install --revision: which Git revision the root Application tracks
 // ----------------------------------------------------------------------------
-Deno.test("branchFromUpstream: strips the remote, keeps slashes in the branch name", () => {
+test("branchFromUpstream: strips the remote, keeps slashes in the branch name", () => {
   assertEquals(branchFromUpstream("origin/feat/paperclip"), "feat/paperclip");
   assertEquals(branchFromUpstream("origin/main"), "main");
   assertEquals(branchFromUpstream("upstream/renovate/x"), "renovate/x");
@@ -1033,7 +1054,7 @@ Deno.test("branchFromUpstream: strips the remote, keeps slashes in the branch na
   assertEquals(branchFromUpstream("origin/"), null);
 });
 
-Deno.test("chooseRevision: flag, then env, then the upstream branch, then main", () => {
+test("chooseRevision: flag, then env, then the upstream branch, then main", () => {
   assertEquals(
     chooseRevision({ flag: "abc1234", env: "x", upstream: "origin/y" }),
     { revision: "abc1234", source: "flag" },
@@ -1050,15 +1071,15 @@ Deno.test("chooseRevision: flag, then env, then the upstream branch, then main",
     chooseRevision({ flag: null, env: "", upstream: "origin/main" }),
     { revision: "main", source: "upstream" },
   );
-  assertEquals(
-    chooseRevision({ flag: null, env: undefined, upstream: null }),
-    { revision: "main", source: "default" },
-  );
+  assertEquals(chooseRevision({ flag: null, env: undefined, upstream: null }), {
+    revision: "main",
+    source: "default",
+  });
   // A flag that is only whitespace counts as absent.
-  assertEquals(
-    chooseRevision({ flag: "  ", env: undefined, upstream: null }),
-    { revision: "main", source: "default" },
-  );
+  assertEquals(chooseRevision({ flag: "  ", env: undefined, upstream: null }), {
+    revision: "main",
+    source: "default",
+  });
 });
 
 const ROOT_APP_FIXTURE = `# Root Application for the Kind localdev loop.
@@ -1093,10 +1114,10 @@ spec:
       - ServerSideApply=true
 `;
 
-// deno-lint-ignore no-explicit-any
+// biome-ignore lint/suspicious/noExplicitAny: test fixtures poke at arbitrary manifest shapes
 type Loose = any;
 
-Deno.test("renderRootApp: targetRevision and helm.valuesObject.global.targetRevision follow the revision", () => {
+test("renderRootApp: targetRevision and helm.valuesObject.global.targetRevision follow the revision", () => {
   const sha = "0d96cfd31fb10e66d4fe0628a142edd17c7dd9f9";
   const out = parseYaml(renderRootApp(ROOT_APP_FIXTURE, sha)) as Loose;
   assertEquals(out.spec.source.targetRevision, sha);
@@ -1124,7 +1145,7 @@ Deno.test("renderRootApp: targetRevision and helm.valuesObject.global.targetRevi
   );
 });
 
-Deno.test("renderRootApp: creates helm.valuesObject.global when the manifest has no helm block", () => {
+test("renderRootApp: creates helm.valuesObject.global when the manifest has no helm block", () => {
   const bare = `apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -1149,7 +1170,7 @@ spec:
   );
 });
 
-Deno.test("syncArgs: plain option drops --local for a git-path app", () => {
+test("syncArgs: plain option drops --local for a git-path app", () => {
   assertEquals(syncArgs(gitops, REPO, { plain: true }), [
     "app",
     "sync",
@@ -1163,7 +1184,7 @@ Deno.test("syncArgs: plain option drops --local for a git-path app", () => {
 // ----------------------------------------------------------------------------
 // Lower-tier discovery and parent re-sync (live-run defects)
 // ----------------------------------------------------------------------------
-Deno.test("appState: a parent with a Succeeded operation but unhealthy children is accepted", () => {
+test("appState: a parent with a Succeeded operation but unhealthy children is accepted", () => {
   const parent = app({
     name: "applications",
     health: "Progressing",
@@ -1175,7 +1196,7 @@ Deno.test("appState: a parent with a Succeeded operation but unhealthy children 
   assert(!isParentApp(app({ name: "leaf", resourceKinds: ["Deployment"] })));
 });
 
-Deno.test("discoverable: apps in a lower tier than the one being waited on are synced immediately", () => {
+test("discoverable: apps in a lower tier than the one being waited on are synced immediately", () => {
   // Waiting on applications' wave-12 child [0,3,12] when addons creates its
   // wave-8 children [0,2,8]: those must not wait for the current tier.
   const flaresolverr = app({
@@ -1206,13 +1227,13 @@ Deno.test("discoverable: apps in a lower tier than the one being waited on are s
   const done = new Set(["gitops", "addons", "applications"]);
   const active = new Set(["flaresolverr"]);
   const found = discoverable(all, done, active, [0, 3, 12]);
-  assertEquals(found.map((a) => a.metadata.name), [
-    "traefik-external-config",
-    "traefik-internal-config",
-  ]);
+  assertEquals(
+    found.map((a) => a.metadata.name),
+    ["traefik-external-config", "traefik-internal-config"],
+  );
 });
 
-Deno.test("discoverable: nothing when every pending app is in the current or a higher tier", () => {
+test("discoverable: nothing when every pending app is in the current or a higher tier", () => {
   const later = app({
     name: "zzz",
     wave: "13",
@@ -1227,16 +1248,17 @@ Deno.test("discoverable: nothing when every pending app is in the current or a h
   });
   const all = [gitops, applications, later, same];
   assertEquals(
-    discoverable(all, new Set(["gitops", "applications"]), new Set(), [
-      0,
-      3,
-      12,
-    ]),
+    discoverable(
+      all,
+      new Set(["gitops", "applications"]),
+      new Set(),
+      [0, 3, 12],
+    ),
     [],
   );
 });
 
-Deno.test("isTierKeyPrefix: a key is a prefix of itself and of its descendants only", () => {
+test("isTierKeyPrefix: a key is a prefix of itself and of its descendants only", () => {
   assert(isTierKeyPrefix([0], [0]));
   assert(isTierKeyPrefix([0], [0, 2, 9]));
   assert(isTierKeyPrefix([0, 2], [0, 2, -5]));
@@ -1245,7 +1267,7 @@ Deno.test("isTierKeyPrefix: a key is a prefix of itself and of its descendants o
   assert(!isTierKeyPrefix([0, 2, 9], [0, 2]));
 });
 
-Deno.test("tierBlockedBy: addons holding a wave open blocks the applications subtree", () => {
+test("tierBlockedBy: addons holding a wave open blocks the applications subtree", () => {
   // CI on PR #280: after addons' wave-6 children completed, its wave 7+
   // children did not exist yet, so nextTier moved on to applications [0,3]
   // and paperclip-database failed on a CNPG CRD that cloudnative-pg (addons
@@ -1256,21 +1278,21 @@ Deno.test("tierBlockedBy: addons holding a wave open blocks the applications sub
   assertEquals(tierBlockedBy([0, 3, 11], awaiting), "addons");
 });
 
-Deno.test("tierBlockedBy: a parent never blocks its own subtree nor itself", () => {
+test("tierBlockedBy: a parent never blocks its own subtree nor itself", () => {
   const awaiting = [{ name: "addons", key: [0, 2] }];
   assertEquals(tierBlockedBy([0, 2, 7], awaiting), null);
   assertEquals(tierBlockedBy([0, 2, -5], awaiting), null);
   assertEquals(tierBlockedBy([0, 2], awaiting), null);
 });
 
-Deno.test("tierBlockedBy: the root gitops holding a wave open blocks nothing", () => {
+test("tierBlockedBy: the root gitops holding a wave open blocks nothing", () => {
   const awaiting = [{ name: "gitops", key: [0] }];
   assertEquals(tierBlockedBy([0, 0], awaiting), null);
   assertEquals(tierBlockedBy([0, 2], awaiting), null);
   assertEquals(tierBlockedBy([0, 3, 11], awaiting), null);
 });
 
-Deno.test("tierBlockedBy: a parent with a higher key does not block a lower tier", () => {
+test("tierBlockedBy: a parent with a higher key does not block a lower tier", () => {
   // applications [0,3] Running while addons creates a wave-9 child [0,2,9]:
   // that child belongs to an earlier subtree and must be synced now.
   const awaiting = [{ name: "applications", key: [0, 3] }];
@@ -1278,7 +1300,7 @@ Deno.test("tierBlockedBy: a parent with a higher key does not block a lower tier
   assertEquals(tierBlockedBy([0, 2], awaiting), null);
 });
 
-Deno.test("tierBlockedBy: with several awaiting parents the lowest one is returned", () => {
+test("tierBlockedBy: with several awaiting parents the lowest one is returned", () => {
   const awaiting = [
     { name: "gitops", key: [0] },
     { name: "addons", key: [0, 2] },
@@ -1287,20 +1309,23 @@ Deno.test("tierBlockedBy: with several awaiting parents the lowest one is return
   assertEquals(tierBlockedBy([0, 3], awaiting), "bootstrap");
   // Same key: sorted by name.
   assertEquals(
-    tierBlockedBy([0, 3], [
-      { name: "zeta", key: [0, 2] },
-      { name: "alpha", key: [0, 2] },
-    ]),
+    tierBlockedBy(
+      [0, 3],
+      [
+        { name: "zeta", key: [0, 2] },
+        { name: "alpha", key: [0, 2] },
+      ],
+    ),
     "alpha",
   );
   assertEquals(tierBlockedBy([0, 3], []), null);
 });
 
-Deno.test("pendingChildren: children of a parent that are not done", () => {
+test("pendingChildren: children of a parent that are not done", () => {
   const all = [gitops, addons, cilium, traefik];
   assertEquals(
-    pendingChildren("addons", all, new Set(["cilium"])).map((a) =>
-      a.metadata.name
+    pendingChildren("addons", all, new Set(["cilium"])).map(
+      (a) => a.metadata.name,
     ),
     ["traefik"],
   );
@@ -1310,7 +1335,7 @@ Deno.test("pendingChildren: children of a parent that are not done", () => {
   );
 });
 
-Deno.test("parentResyncDecision: only a failed parent is considered", () => {
+test("parentResyncDecision: only a failed parent is considered", () => {
   const okParent = app({
     name: "p",
     phase: "Running",
@@ -1325,7 +1350,7 @@ Deno.test("parentResyncDecision: only a failed parent is considered", () => {
   assertEquals(parentResyncDecision(failedLeaf, 0, 0), "none");
 });
 
-Deno.test("parentResyncDecision: wait while children are pending, re-sync when they are complete, give up after the limit", () => {
+test("parentResyncDecision: wait while children are pending, re-sync when they are complete, give up after the limit", () => {
   const failedParent = app({
     name: "applications",
     health: "Degraded",
@@ -1339,7 +1364,7 @@ Deno.test("parentResyncDecision: wait while children are pending, re-sync when t
   assertEquals(parentResyncDecision(failedParent, 0, 1, 1), "give-up");
 });
 
-Deno.test("degradedChildHint: names the Degraded child Application", () => {
+test("degradedChildHint: names the Degraded child Application", () => {
   const parent: Application = {
     metadata: { name: "applications" },
     status: {
@@ -1361,7 +1386,8 @@ Deno.test("degradedChildHint: names the Degraded child Application", () => {
   };
   const hint = degradedChildHint(parent);
   assert(
-    hint && hint.includes("flaresolverr") &&
+    hint &&
+      hint.includes("flaresolverr") &&
       hint.includes("task localdev:sync"),
   );
   const viaMessage: Application = {
@@ -1375,7 +1401,7 @@ Deno.test("degradedChildHint: names the Degraded child Application", () => {
   assertEquals(degradedChildHint(app({ name: "x", health: "Healthy" })), null);
 });
 
-Deno.test("finalPassDecision: Running parents are waited on, never terminated; only Failed/Error re-sync", () => {
+test("finalPassDecision: Running parents are waited on, never terminated; only Failed/Error re-sync", () => {
   // A Running operation may be executing the PostSync smoke-hook Jobs.
   assertEquals(
     finalPassDecision(
@@ -1529,29 +1555,27 @@ const VERIFY_FINDINGS = Array.from(
   { length: REPORT_MAX_FINDINGS + 5 },
   (_, i) => `Deployment traefik/traefik: finding ${i + 1}`,
 );
-const VERIFY_LEVEL2_TEXT = `${
-  JSON.stringify(
-    {
-      level: 2,
-      checks: [
-        { name: "argocd/cilium", status: "pass", duration_ms: 3 },
-        {
-          name: "argocd/traefik",
-          status: "fail",
-          duration_ms: 4,
-          detail: "health Degraded, operation Failed",
-          findings: VERIFY_FINDINGS,
-        },
-        { name: "e2e/traefik", status: "skip", duration_ms: 0 },
-        { name: "render/localdev/addons", status: "pass", duration_ms: 120 },
-      ],
-      pass: false,
-      duration_ms: 431_000,
-    },
-    null,
-    2,
-  )
-}\ntask: Failed to run task "verify": exit status 1\n`;
+const VERIFY_LEVEL2_TEXT = `${JSON.stringify(
+  {
+    level: 2,
+    checks: [
+      { name: "argocd/cilium", status: "pass", duration_ms: 3 },
+      {
+        name: "argocd/traefik",
+        status: "fail",
+        duration_ms: 4,
+        detail: "health Degraded, operation Failed",
+        findings: VERIFY_FINDINGS,
+      },
+      { name: "e2e/traefik", status: "skip", duration_ms: 0 },
+      { name: "render/localdev/addons", status: "pass", duration_ms: 120 },
+    ],
+    pass: false,
+    duration_ms: 431_000,
+  },
+  null,
+  2,
+)}\ntask: Failed to run task "verify": exit status 1\n`;
 
 // Raw `argocd app diff addons --exit-code=false` with KUBECTL_EXTERNAL_DIFF=
 // "diff -u": argocd runs `diff <live> <target>`, so `-` is the PR (live in
@@ -1594,7 +1618,7 @@ function diffOf(app: string, lines: number, width = 40): AppDiff {
 
 const bytes = (s: string) => new TextEncoder().encode(s).length;
 
-Deno.test("parseArgs: report flags and their defaults", () => {
+test("parseArgs: report flags and their defaults", () => {
   const d = parseArgs(["report"]);
   assertEquals(d.command, "report");
   assertEquals(d.out, null);
@@ -1630,7 +1654,7 @@ Deno.test("parseArgs: report flags and their defaults", () => {
   );
 });
 
-Deno.test("parseArgs: install --revision", () => {
+test("parseArgs: install --revision", () => {
   assertEquals(parseArgs(["install"]).revision, null);
   assertEquals(
     parseArgs(["install", "--revision", "feat/paperclip"]).revision,
@@ -1647,7 +1671,7 @@ Deno.test("parseArgs: install --revision", () => {
   );
 });
 
-Deno.test("parseArgs: a bad --max-diff-bytes is an argument error", () => {
+test("parseArgs: a bad --max-diff-bytes is an argument error", () => {
   assertThrows(
     () => parseArgs(["report", "--max-diff-bytes", "-1"]),
     Error,
@@ -1663,7 +1687,7 @@ Deno.test("parseArgs: a bad --max-diff-bytes is an argument error", () => {
   assertThrows(() => parseArgs(["report", "--out"]), Error, "requires a value");
 });
 
-Deno.test("extractJsonObject: whole text, or the object before task's trailing error line", () => {
+test("extractJsonObject: whole text, or the object before task's trailing error line", () => {
   assertEquals(extractJsonObject('{"a":1}'), { a: 1 });
   assertEquals(
     extractJsonObject(
@@ -1675,7 +1699,7 @@ Deno.test("extractJsonObject: whole text, or the object before task's trailing e
   assertEquals(extractJsonObject('{\n  "a": [1,\n'), null);
 });
 
-Deno.test("parseVerifyJson: a failing level-2 run with task's trailing error line", () => {
+test("parseVerifyJson: a failing level-2 run with task's trailing error line", () => {
   const v = parseVerifyJson(VERIFY_LEVEL2_TEXT);
   assert(v.ok);
   assertEquals(v.result.level, 2);
@@ -1683,7 +1707,7 @@ Deno.test("parseVerifyJson: a failing level-2 run with task's trailing error lin
   assertEquals(v.result.checks.length, 4);
 });
 
-Deno.test("parseVerifyJson: missing, empty and cut-short files become reasons, never throws", () => {
+test("parseVerifyJson: missing, empty and cut-short files become reasons, never throws", () => {
   const missing = parseVerifyJson(null, "verify-level2.json");
   assert(!missing.ok);
   assertStringIncludes(missing.reason, "was not written");
@@ -1697,23 +1721,22 @@ Deno.test("parseVerifyJson: missing, empty and cut-short files become reasons, n
   assert(!noChecks.ok);
 });
 
-Deno.test("parseVerifyJson: malformed check entries are dropped", () => {
+test("parseVerifyJson: malformed check entries are dropped", () => {
   const v = parseVerifyJson(
     '{"level":2,"pass":true,"checks":[null,{"status":"pass"},{"name":"x","status":"pass"}]}',
   );
   assert(v.ok);
-  assertEquals(v.result.checks.map((c) => c.name), ["x"]);
+  assertEquals(
+    v.result.checks.map((c) => c.name),
+    ["x"],
+  );
 });
 
-Deno.test("treeOrder / appsToDiff: tree order; every git-path app is diffed, whatever its sync status", () => {
-  assertEquals(treeOrder(reportApps).map((a) => a.metadata.name), [
-    "gitops",
-    "addons",
-    "cilium",
-    "traefik",
-    "applications",
-    "agent-readonly",
-  ]);
+test("treeOrder / appsToDiff: tree order; every git-path app is diffed, whatever its sync status", () => {
+  assertEquals(
+    treeOrder(reportApps).map((a) => a.metadata.name),
+    ["gitops", "addons", "cilium", "traefik", "applications", "agent-readonly"],
+  );
   // cilium and traefik are chart sources (no git revision to render at the
   // base) and are compared on their parent's diff instead; applications is
   // Synced but still diffed against the base.
@@ -1725,7 +1748,7 @@ Deno.test("treeOrder / appsToDiff: tree order; every git-path app is diffed, wha
   ]);
 });
 
-Deno.test("statusRows: health, sync, last operation and vs base per Application", () => {
+test("statusRows: health, sync, last operation and vs base per Application", () => {
   const addonsDiff = classifyDiffResult("addons", 0, RAW_ADDONS_DIFF, "");
   const diffs = new Map<string, AppDiff>([
     ["gitops", { app: "gitops", diff: "" }],
@@ -1773,20 +1796,23 @@ Deno.test("statusRows: health, sync, last operation and vs base per Application"
   );
 });
 
-Deno.test("statusRows: a truncated diff keeps its marker", () => {
+test("statusRows: a truncated diff keeps its marker", () => {
   const diffs = new Map<string, AppDiff>([
-    ["addons", {
-      app: "addons",
-      diff: "===== v1/ConfigMap a/b ======\n-x\n+y",
-      originalBytes: 5000,
-      omittedLines: 9,
-    }],
+    [
+      "addons",
+      {
+        app: "addons",
+        diff: "===== v1/ConfigMap a/b ======\n-x\n+y",
+        originalBytes: 5000,
+        omittedLines: 9,
+      },
+    ],
   ]);
   const row = statusRows(reportApps, diffs).find((r) => r.app === "addons")!;
   assertEquals(row.vsMain, "differs · +1 -1 (truncated)");
 });
 
-Deno.test("statusRows: fieldless apps never throw", () => {
+test("statusRows: fieldless apps never throw", () => {
   assertEquals(statusRows([{ metadata: { name: "bare" } }]), [
     {
       app: "bare",
@@ -1798,7 +1824,7 @@ Deno.test("statusRows: fieldless apps never throw", () => {
   ]);
 });
 
-Deno.test("invertUnifiedDiff: main becomes `-`, the PR `+`; temp-file headers dropped", () => {
+test("invertUnifiedDiff: main becomes `-`, the PR `+`; temp-file headers dropped", () => {
   const inv = invertUnifiedDiff(RAW_ADDONS_DIFF);
   const lines = inv.split("\n");
   assert(!lines.some((l) => l.includes("/tmp/argocd-diff")));
@@ -1818,7 +1844,7 @@ Deno.test("invertUnifiedDiff: main becomes `-`, the PR `+`; temp-file headers dr
   assert(lines.includes("===== /ConfigMap traefik/new-in-pr ======"));
 });
 
-Deno.test("invertUnifiedDiff: context lines and no-newline markers are kept", () => {
+test("invertUnifiedDiff: context lines and no-newline markers are kept", () => {
   const raw =
     "@@ -1,3 +1,3 @@\n a: 1\n-b: live\n\\ No newline at end of file\n+b: main\n c: 3\n";
   assertEquals(
@@ -1828,7 +1854,7 @@ Deno.test("invertUnifiedDiff: context lines and no-newline markers are kept", ()
   assertEquals(invertUnifiedDiff(""), "");
 });
 
-Deno.test("invertUnifiedDiff: within a changed run, main's lines come before the PR's", () => {
+test("invertUnifiedDiff: within a changed run, main's lines come before the PR's", () => {
   const raw = "@@ -1,3 +1,2 @@\n-a: live\n-b: live\n+a: main\n c: 1";
   assertEquals(
     invertUnifiedDiff(raw),
@@ -1841,13 +1867,13 @@ Deno.test("invertUnifiedDiff: within a changed run, main's lines come before the
   );
 });
 
-Deno.test("diffStats: resources and +/- lines of an inverted diff", () => {
+test("diffStats: resources and +/- lines of an inverted diff", () => {
   const inv = invertUnifiedDiff(RAW_ADDONS_DIFF);
   assertEquals(diffStats(inv), { resources: 2, added: 6, removed: 3 });
   assertEquals(diffStats(""), { resources: 0, added: 0, removed: 0 });
 });
 
-Deno.test("argocdErrorMessage: the msg of argocd's JSON fatal line, or the first text line", () => {
+test("argocdErrorMessage: the msg of argocd's JSON fatal line, or the first text line", () => {
   assertEquals(
     argocdErrorMessage(
       '{"level":"info","msg":"connecting"}\n{"level":"fatal","msg":"rpc error: code = Unknown desc = charts/agent-readonly: app path does not exist","time":"2026-09-13T10:00:00Z"}\n',
@@ -1861,7 +1887,7 @@ Deno.test("argocdErrorMessage: the msg of argocd's JSON fatal line, or the first
   assertEquals(argocdErrorMessage(""), "");
 });
 
-Deno.test("classifyDiffResult: 0 and 1-with-output are diffs, anything else an error", () => {
+test("classifyDiffResult: 0 and 1-with-output are diffs, anything else an error", () => {
   const ok = classifyDiffResult("addons", 0, RAW_ADDONS_DIFF, "");
   assertEquals(ok.error, undefined);
   assert(ok.diff.startsWith("===== argoproj.io/Application argocd/traefik"));
@@ -1887,7 +1913,7 @@ Deno.test("classifyDiffResult: 0 and 1-with-output are diffs, anything else an e
   );
 });
 
-Deno.test("truncateDiffs: under the budget nothing changes", () => {
+test("truncateDiffs: under the budget nothing changes", () => {
   const diffs = [diffOf("a", 3), diffOf("b", 5)];
   const out = truncateDiffs(diffs, 100_000);
   assertEquals(out, diffs);
@@ -1895,13 +1921,16 @@ Deno.test("truncateDiffs: under the budget nothing changes", () => {
   assertEquals(truncateDiffs(diffs, 0), diffs, "0 = unlimited");
 });
 
-Deno.test("truncateDiffs: a big diff is cut at a line boundary; small diffs stay whole", () => {
+test("truncateDiffs: a big diff is cut at a line boundary; small diffs stay whole", () => {
   const small = diffOf("small", 3);
   const big = diffOf("big", 5000); // ~260 KB
   const tiny = { app: "tiny", diff: "" };
   const budget = 20_000;
   const out = truncateDiffs([big, small, tiny], budget);
-  assertEquals(out.map((d) => d.app), ["big", "small", "tiny"]);
+  assertEquals(
+    out.map((d) => d.app),
+    ["big", "small", "tiny"],
+  );
   assertEquals(out[1], small);
   assertEquals(out[2], tiny);
   const cut = out[0];
@@ -1919,7 +1948,7 @@ Deno.test("truncateDiffs: a big diff is cut at a line boundary; small diffs stay
   assertEquals(big.originalBytes, undefined);
 });
 
-Deno.test("truncateDiffs: two big diffs share the budget equally", () => {
+test("truncateDiffs: two big diffs share the budget equally", () => {
   const out = truncateDiffs([diffOf("a", 2000), diffOf("b", 3000)], 10_000);
   for (const d of out) {
     assert(d.originalBytes !== undefined);
@@ -1927,7 +1956,7 @@ Deno.test("truncateDiffs: two big diffs share the budget equally", () => {
   }
 });
 
-Deno.test("truncateDiffs: the budget counts UTF-8 bytes, not characters", () => {
+test("truncateDiffs: the budget counts UTF-8 bytes, not characters", () => {
   const d = {
     app: "u",
     diff: Array.from({ length: 100 }, () => "+ é€漢字").join("\n"),
@@ -1937,7 +1966,7 @@ Deno.test("truncateDiffs: the budget counts UTF-8 bytes, not characters", () => 
   assert(out[0].diff.length < 300, "multi-byte characters cost more than 1");
 });
 
-Deno.test("mdCell / fenceFor: table cells and code fences cannot be broken out of", () => {
+test("mdCell / fenceFor: table cells and code fences cannot be broken out of", () => {
   assertEquals(mdCell("a | b\nc <x> & y"), "a \\| b c &lt;x&gt; &amp; y");
   assertEquals(fenceFor("plain"), "```");
   assertEquals(fenceFor("has ``` inside"), "````");
@@ -1946,12 +1975,15 @@ Deno.test("mdCell / fenceFor: table cells and code fences cannot be broken out o
 
 function fullReport(maxDiffBytes = DEFAULT_MAX_DIFF_BYTES): string {
   const verify = parseVerifyJson(VERIFY_LEVEL2_TEXT);
-  const diffs = truncateDiffs([
-    { app: "gitops", diff: "" },
-    classifyDiffResult("addons", 0, RAW_ADDONS_DIFF, ""),
-    diffOf("traefik", 5000),
-    { app: "agent-readonly", diff: "", error: "app path does not exist" },
-  ], maxDiffBytes);
+  const diffs = truncateDiffs(
+    [
+      { app: "gitops", diff: "" },
+      classifyDiffResult("addons", 0, RAW_ADDONS_DIFF, ""),
+      diffOf("traefik", 5000),
+      { app: "agent-readonly", diff: "", error: "app path does not exist" },
+    ],
+    maxDiffBytes,
+  );
   return renderReport({
     apps: reportApps,
     verify,
@@ -1963,7 +1995,7 @@ function fullReport(maxDiffBytes = DEFAULT_MAX_DIFF_BYTES): string {
   });
 }
 
-Deno.test("renderReport: title, pass/fail line, table, failing checks and one collapsed diff per app", () => {
+test("renderReport: title, pass/fail line, table, failing checks and one collapsed diff per app", () => {
   const md = fullReport();
   assert(md.startsWith(`## ${REPORT_TITLE}\n`));
   assertStringIncludes(
@@ -2048,7 +2080,7 @@ Deno.test("renderReport: title, pass/fail line, table, failing checks and one co
   assertEquals(md.split("</details>").length - 1, 3);
 });
 
-Deno.test("renderReport: --base names the branch everywhere", () => {
+test("renderReport: --base names the branch everywhere", () => {
   const md = renderReport({
     apps: reportApps,
     verify: parseVerifyJson(null),
@@ -2068,7 +2100,7 @@ Deno.test("renderReport: --base names the branch everywhere", () => {
   assert(!md.includes("vs main"));
 });
 
-Deno.test("renderReport: a huge diff keeps the comment under GitHub's 65536-character limit", () => {
+test("renderReport: a huge diff keeps the comment under GitHub's 65536-character limit", () => {
   const md = fullReport();
   assert(md.length < 65_536, `report is ${md.length} characters`);
   const unlimited = fullReport(0);
@@ -2076,7 +2108,7 @@ Deno.test("renderReport: a huge diff keeps the comment under GitHub's 65536-char
   assert(!unlimited.includes("Truncated:"));
 });
 
-Deno.test("renderReport: missing verify JSON is reported, the rest still renders", () => {
+test("renderReport: missing verify JSON is reported, the rest still renders", () => {
   const md = renderReport({
     apps: reportApps,
     verify: parseVerifyJson(null, "verify-level2.json"),
@@ -2095,7 +2127,7 @@ Deno.test("renderReport: missing verify JSON is reported, the rest still renders
   assertStringIncludes(md, "### Diffs vs main\n\nDiffs skipped (`--no-diff`).");
 });
 
-Deno.test("renderReport: ArgoCD not reachable (localdev:ci failed early) says so instead of failing", () => {
+test("renderReport: ArgoCD not reachable (localdev:ci failed early) says so instead of failing", () => {
   const verify: VerifyInput = parseVerifyJson(null);
   const md = renderReport({
     apps: null,
@@ -2111,7 +2143,7 @@ Deno.test("renderReport: ArgoCD not reachable (localdev:ci failed early) says so
   assert(md.endsWith("\n") && !md.endsWith("\n\n"));
 });
 
-Deno.test("renderReport: every diff empty means nothing changes vs main; no Applications is explained", () => {
+test("renderReport: every diff empty means nothing changes vs main; no Applications is explained", () => {
   const synced = reportApps.map((a) => ({
     ...a,
     status: { ...a.status, sync: { status: "Synced" } },
@@ -2137,19 +2169,21 @@ Deno.test("renderReport: every diff empty means nothing changes vs main; no Appl
   assert(!none.includes("### Diffs vs main"));
 });
 
-Deno.test("renderReport: diff content with backtick fences cannot close the code block", () => {
+test("renderReport: diff content with backtick fences cannot close the code block", () => {
   const md = renderReport({
     apps: reportApps,
     verify: parseVerifyJson(null),
-    diffs: [{
-      app: "gitops",
-      diff: "+  readme: |\n+    ```sh\n+    task up\n+    ```",
-    }],
+    diffs: [
+      {
+        app: "gitops",
+        diff: "+  readme: |\n+    ```sh\n+    task up\n+    ```",
+      },
+    ],
   });
   assertStringIncludes(md, "````diff\n+  readme: |");
 });
 
-Deno.test("parentsAwaitingWaves: only parents with a Running operation, sorted", () => {
+test("parentsAwaitingWaves: only parents with a Running operation, sorted", () => {
   const mk = (
     name: string,
     phase: string | undefined,
@@ -2219,11 +2253,11 @@ function unhealthyApps(): Application[] {
   return [applications, gitops, paperclip];
 }
 
-Deno.test("diagnoseNamespaces: every unhealthy app's destination namespace, workload namespaces before argocd", () => {
+test("diagnoseNamespaces: every unhealthy app's destination namespace, workload namespaces before argocd", () => {
   assertEquals(diagnoseNamespaces(unhealthyApps()), ["paperclip", "argocd"]);
 });
 
-Deno.test("diagnoseNamespaces: unhealthy resource namespaces are added, Healthy ones and child Applications are not", () => {
+test("diagnoseNamespaces: unhealthy resource namespaces are added, Healthy ones and child Applications are not", () => {
   const a = app({ name: "media", health: "Degraded" });
   a.spec!.destination = { namespace: "media" };
   a.status!.resources = [
@@ -2254,7 +2288,7 @@ Deno.test("diagnoseNamespaces: unhealthy resource namespaces are added, Healthy 
   assertEquals(diagnoseNamespaces([]), []);
 });
 
-Deno.test("describeTargets: custom resources only — Applications and core kinds excluded, missing health included", () => {
+test("describeTargets: custom resources only — Applications and core kinds excluded, missing health included", () => {
   const apps = unhealthyApps();
   apps[2].status!.resources!.push(
     { kind: "ConfigMap", namespace: "paperclip", name: "cm" },
@@ -2286,7 +2320,7 @@ Deno.test("describeTargets: custom resources only — Applications and core kind
   assertEquals(describeTargets([]), []);
 });
 
-Deno.test("describeTargets: a resource without its own namespace falls back to the destination", () => {
+test("describeTargets: a resource without its own namespace falls back to the destination", () => {
   const a = app({ name: "x", health: "Progressing" });
   a.spec!.destination = { namespace: "x-ns" };
   a.status!.resources = [{ group: "g.io", kind: "Thing", name: "t" }];
@@ -2295,7 +2329,7 @@ Deno.test("describeTargets: a resource without its own namespace falls back to t
   ]);
 });
 
-Deno.test("describeArgs: kind.group singular form, namespaced or not", () => {
+test("describeArgs: kind.group singular form, namespaced or not", () => {
   assertEquals(
     describeArgs({
       group: "paperclip.inc",
@@ -2311,7 +2345,7 @@ Deno.test("describeArgs: kind.group singular form, namespaced or not", () => {
   );
 });
 
-Deno.test("resourceLines: a not-Healthy app lists every resource, health or not", () => {
+test("resourceLines: a not-Healthy app lists every resource, health or not", () => {
   const [, , paperclip] = unhealthyApps();
   assertEquals(resourceLines(paperclip), [
     "paperclip.inc/Instance paperclip/paperclip: -",
@@ -2329,7 +2363,7 @@ Deno.test("resourceLines: a not-Healthy app lists every resource, health or not"
   ]);
 });
 
-Deno.test("resourceLines: a Healthy app (failed operation) lists only resources that are not Healthy", () => {
+test("resourceLines: a Healthy app (failed operation) lists only resources that are not Healthy", () => {
   const a = app({ name: "h", health: "Healthy", phase: "Failed" });
   a.status!.resources = [
     { kind: "ConfigMap", name: "ok", health: { status: "Healthy" } },
@@ -2348,11 +2382,13 @@ Deno.test("resourceLines: a Healthy app (failed operation) lists only resources 
   assertEquals(resourceLines(app({ name: "bare", health: "Progressing" })), []);
 });
 
-Deno.test("podNeedsDiagnosis: Running pods with a crash-looping, restarted or not-ready container are diagnosed", () => {
+test("podNeedsDiagnosis: Running pods with a crash-looping, restarted or not-ready container are diagnosed", () => {
   const running = (
-    statuses: Array<
-      { ready?: boolean; restartCount?: number; waiting?: string }
-    >,
+    statuses: Array<{
+      ready?: boolean;
+      restartCount?: number;
+      waiting?: string;
+    }>,
   ): PodSummary => ({
     metadata: { name: "p" },
     status: {

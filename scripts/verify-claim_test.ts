@@ -1,18 +1,19 @@
-#!/usr/bin/env -S deno test
+#!/usr/bin/env -S bun test
 /**
  * Unit tests for the pure helpers in verify-claim.ts: parsing the level-0 JSON
  * contract (including `task verify`'s trailing failure line), rendering the
  * PR-body block, extracting it back from a PR body, and the compare rules.
  *
- *   deno test scripts/verify-claim_test.ts
+ *   bun test scripts/verify-claim_test.ts
  */
 
+import { test } from "bun:test";
 import {
   assert,
   assertEquals,
   assertStringIncludes,
   assertThrows,
-} from "jsr:@std/assert@^1";
+} from "./lib/assert.ts";
 import {
   compareClaim,
   extractClaim,
@@ -65,24 +66,25 @@ function bodyWith(block: string): string {
 // ---------------------------------------------------------------------------
 // parsing
 // ---------------------------------------------------------------------------
-Deno.test("extractJsonObject: strips task's trailing failure line", () => {
-  const raw = JSON.stringify(FAILING, null, 2) +
+test("extractJsonObject: strips task's trailing failure line", () => {
+  const raw =
+    JSON.stringify(FAILING, null, 2) +
     '\ntask: Failed to run task "verify": exit status 1\n';
   assertEquals(JSON.parse(extractJsonObject(raw)), FAILING);
 });
 
-Deno.test("extractJsonObject: single-line object and leading noise", () => {
+test("extractJsonObject: single-line object and leading noise", () => {
   const raw = "go: downloading x\n" + JSON.stringify(RESULT) + "\n";
   assertEquals(JSON.parse(extractJsonObject(raw)), RESULT);
 });
 
-Deno.test("parseVerifyResult: accepts the contract and keeps detail/findings", () => {
+test("parseVerifyResult: accepts the contract and keeps detail/findings", () => {
   const r = parseVerifyResult(JSON.stringify(FAILING, null, 2));
   assertEquals(r.pass, false);
   assertEquals(r.checks[1].findings, ["@@ -1 +1 @@", "-a", "+b"]);
 });
 
-Deno.test("parseVerifyResult: rejects empty input, non-JSON and wrong shapes", () => {
+test("parseVerifyResult: rejects empty input, non-JSON and wrong shapes", () => {
   assertThrows(() => parseVerifyResult(""), Error, "no JSON object");
   // `task verify` when the Go build itself failed: only task's error line.
   assertThrows(
@@ -110,7 +112,7 @@ Deno.test("parseVerifyResult: rejects empty input, non-JSON and wrong shapes", (
 // ---------------------------------------------------------------------------
 // render
 // ---------------------------------------------------------------------------
-Deno.test("toClaim + renderClaimBlock: sorted, one check per line, valid JSON", () => {
+test("toClaim + renderClaimBlock: sorted, one check per line, valid JSON", () => {
   const block = renderClaimBlock(toClaim(RESULT));
   const lines = block.trimEnd().split("\n");
   assertEquals(lines[0], MARKER);
@@ -134,7 +136,7 @@ Deno.test("toClaim + renderClaimBlock: sorted, one check per line, valid JSON", 
   });
 });
 
-Deno.test("render -> extract round trip, CRLF bodies included", () => {
+test("render -> extract round trip, CRLF bodies included", () => {
   const block = renderClaimBlock(toClaim(FAILING));
   const got = extractClaim(bodyWith(block).replaceAll("\n", "\r\n"));
   assertEquals(got.markers, 1);
@@ -145,24 +147,23 @@ Deno.test("render -> extract round trip, CRLF bodies included", () => {
 // ---------------------------------------------------------------------------
 // extract
 // ---------------------------------------------------------------------------
-Deno.test("extractClaim: no marker", () => {
+test("extractClaim: no marker", () => {
   const got = extractClaim("## Summary\nnothing here\n");
   assertEquals(got, { claim: null, markers: 0, error: null });
 });
 
-Deno.test("extractClaim: marker without a fence, and a placeholder that is not JSON", () => {
+test("extractClaim: marker without a fence, and a placeholder that is not JSON", () => {
   assertStringIncludes(
     extractClaim(`${MARKER}\nplease paste\n`).error ?? "",
     "not followed",
   );
-  const placeholder =
-    `${MARKER}\n\`\`\`json\nreplace me with task verify:claim\n\`\`\`\n`;
+  const placeholder = `${MARKER}\n\`\`\`json\nreplace me with task verify:claim\n\`\`\`\n`;
   const got = extractClaim(placeholder);
   assertEquals(got.claim, null);
   assertStringIncludes(got.error ?? "", "not JSON");
 });
 
-Deno.test("extractClaim: the last well-formed block wins over a template placeholder", () => {
+test("extractClaim: the last well-formed block wins over a template placeholder", () => {
   const placeholder = `${MARKER}\n\`\`\`json\nreplace me\n\`\`\`\n`;
   const body = bodyWith(placeholder + "\n" + renderClaimBlock(toClaim(RESULT)));
   const got = extractClaim(body);
@@ -170,16 +171,15 @@ Deno.test("extractClaim: the last well-formed block wins over a template placeho
   assertEquals(got.claim, toClaim(RESULT));
 });
 
-Deno.test("extractClaim: rejects an invalid status inside the block", () => {
-  const block =
-    `${MARKER}\n\`\`\`json\n{"level":0,"pass":true,"checks":{"a":"ok"}}\n\`\`\`\n`;
+test("extractClaim: rejects an invalid status inside the block", () => {
+  const block = `${MARKER}\n\`\`\`json\n{"level":0,"pass":true,"checks":{"a":"ok"}}\n\`\`\`\n`;
   assertStringIncludes(extractClaim(block).error ?? "", "status");
 });
 
 // ---------------------------------------------------------------------------
 // compare
 // ---------------------------------------------------------------------------
-Deno.test("compareClaim: identical claim matches", () => {
+test("compareClaim: identical claim matches", () => {
   const cmp = compareClaim(toClaim(RESULT), RESULT);
   assert(cmp.ok);
   assertEquals(cmp.failures, []);
@@ -187,7 +187,7 @@ Deno.test("compareClaim: identical claim matches", () => {
   assertEquals(cmp.checkCount, 3);
 });
 
-Deno.test("compareClaim: an honest failing claim matches a failing CI run", () => {
+test("compareClaim: an honest failing claim matches a failing CI run", () => {
   const cmp = compareClaim(toClaim(FAILING), FAILING);
   assert(cmp.ok);
   assertStringIncludes(
@@ -196,7 +196,7 @@ Deno.test("compareClaim: an honest failing claim matches a failing CI run", () =
   );
 });
 
-Deno.test("compareClaim: pass <-> fail and overall pass differences fail", () => {
+test("compareClaim: pass <-> fail and overall pass differences fail", () => {
   const claim = toClaim({
     ...FAILING,
     pass: true,
@@ -204,41 +204,47 @@ Deno.test("compareClaim: pass <-> fail and overall pass differences fail", () =>
   });
   const cmp = compareClaim(claim, FAILING);
   assertEquals(cmp.ok, false);
-  assertEquals(cmp.failures, [{
-    name: "snapshot/homelab/addons",
-    claimed: "pass",
-    actual: "fail",
-  }]);
+  assertEquals(cmp.failures, [
+    {
+      name: "snapshot/homelab/addons",
+      claimed: "pass",
+      actual: "fail",
+    },
+  ]);
   assertEquals(cmp.problems.length, 1);
   assertStringIncludes(cmp.problems[0], "CI says it fails");
 });
 
-Deno.test("compareClaim: claimed fail where CI skips is a failure (fail on either side)", () => {
+test("compareClaim: claimed fail where CI skips is a failure (fail on either side)", () => {
   const claim = toClaim(RESULT);
   claim.checks["gitops/localdev/ssa"] = "fail";
   claim.pass = false;
   const cmp = compareClaim(claim, RESULT);
-  assertEquals(cmp.failures, [{
-    name: "gitops/localdev/ssa",
-    claimed: "fail",
-    actual: "skip",
-  }]);
+  assertEquals(cmp.failures, [
+    {
+      name: "gitops/localdev/ssa",
+      claimed: "fail",
+      actual: "skip",
+    },
+  ]);
 });
 
-Deno.test("compareClaim: skip <-> pass is a warning only", () => {
+test("compareClaim: skip <-> pass is a warning only", () => {
   const claim = toClaim(RESULT);
   claim.checks["pluto/homelab"] = "skip";
   const cmp = compareClaim(claim, RESULT);
   assert(cmp.ok);
-  assertEquals(cmp.warnings, [{
-    name: "pluto/homelab",
-    claimed: "skip",
-    actual: "pass",
-  }]);
+  assertEquals(cmp.warnings, [
+    {
+      name: "pluto/homelab",
+      claimed: "skip",
+      actual: "pass",
+    },
+  ]);
   assertStringIncludes(renderComparison(cmp, RESULT), "skip/pass difference");
 });
 
-Deno.test("compareClaim: check-name sets must match in both directions", () => {
+test("compareClaim: check-name sets must match in both directions", () => {
   const claim = toClaim(RESULT);
   delete claim.checks["pluto/homelab"];
   claim.checks["render/homelab/removed-chart"] = "pass";
@@ -250,7 +256,7 @@ Deno.test("compareClaim: check-name sets must match in both directions", () => {
   ]);
 });
 
-Deno.test("compareClaim: the claim must be level 0", () => {
+test("compareClaim: the claim must be level 0", () => {
   const claim = { ...toClaim(RESULT), level: 2 };
   const cmp = compareClaim(claim, RESULT);
   assertEquals(cmp.ok, false);
@@ -260,7 +266,7 @@ Deno.test("compareClaim: the claim must be level 0", () => {
 // ---------------------------------------------------------------------------
 // markdown
 // ---------------------------------------------------------------------------
-Deno.test("renderComparison: mismatch shows the table, findings and how to fix", () => {
+test("renderComparison: mismatch shows the table, findings and how to fix", () => {
   const claim = toClaim({
     ...FAILING,
     pass: true,
@@ -274,7 +280,7 @@ Deno.test("renderComparison: mismatch shows the table, findings and how to fix",
   assertStringIncludes(md, "task verify:claim");
 });
 
-Deno.test("renderMissing: explains the marker and the command", () => {
+test("renderMissing: explains the marker and the command", () => {
   const md = renderMissing("The PR description has no block.");
   assertStringIncludes(md, "**Result:** MISSING");
   assertStringIncludes(md, "task verify:claim");
@@ -284,7 +290,7 @@ Deno.test("renderMissing: explains the marker and the command", () => {
 // ---------------------------------------------------------------------------
 // args
 // ---------------------------------------------------------------------------
-Deno.test("parseArgs: subcommands, required --actual, unknown flags", () => {
+test("parseArgs: subcommands, required --actual, unknown flags", () => {
   assertEquals(parseArgs(["render"]).cmd, "render");
   assertEquals(
     parseArgs(["compare", "--actual", "a.json", "--body-file", "b.md"])

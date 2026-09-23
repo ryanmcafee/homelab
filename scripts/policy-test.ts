@@ -1,4 +1,4 @@
-#!/usr/bin/env -S deno run --allow-read --allow-run --allow-env
+#!/usr/bin/env bun
 
 /**
  * policy-test.ts
@@ -14,13 +14,16 @@
  * `conftest verify -p tests/policy`.
  *
  * Usage:
- *   deno run --allow-read --allow-run --allow-env scripts/policy-test.ts
- *   deno run ... scripts/policy-test.ts --help
- *   deno run ... scripts/policy-test.ts --policy-dir tests/policy --fixtures-dir tests/policy
- *   deno run ... scripts/policy-test.ts --conftest .tools/conftest
+ *   bun scripts/policy-test.ts
+ *   bun scripts/policy-test.ts --help
+ *   bun scripts/policy-test.ts --policy-dir tests/policy --fixtures-dir tests/policy
+ *   bun scripts/policy-test.ts --conftest .tools/conftest
  *
  * Exit codes: 0 = all fixtures behave as expected; 1 = any mismatch.
  */
+
+import { readdir, readFile, stat } from "node:fs/promises";
+import { isNotFound } from "./lib/errors.ts";
 
 // ============================================================================
 // Logging
@@ -53,7 +56,7 @@ function requireValue(argv: string[], i: number, flag: string): string {
   const v = argv[i];
   if (v === undefined || v.startsWith("--")) {
     log.error(`${flag} requires a value`);
-    Deno.exit(2);
+    process.exit(2);
   }
   return v;
 }
@@ -83,7 +86,7 @@ function parseArgs(argv: string[]): Args {
       args.conftest = a.slice("--conftest=".length);
     } else {
       log.error(`Unknown argument: ${a}`);
-      Deno.exit(2);
+      process.exit(2);
     }
   }
   return args;
@@ -93,7 +96,7 @@ function printHelp(): void {
   console.log(`policy-test.ts — conftest/Rego policy fixture test runner
 
 Usage:
-  deno run --allow-read --allow-run --allow-env scripts/policy-test.ts [flags]
+  bun scripts/policy-test.ts [flags]
 
 Flags:
   --help, -h             Show this help and exit 0
@@ -134,8 +137,9 @@ async function runConftest(
   dataFile: string,
   file: string,
 ): Promise<ConftestResult[]> {
-  const cmd = new Deno.Command(conftestBin, {
-    args: [
+  const cmd = Bun.spawn(
+    [
+      conftestBin,
       "test",
       "-p",
       policyDir,
@@ -146,12 +150,13 @@ async function runConftest(
       "json",
       file,
     ],
-    stdout: "piped",
-    stderr: "piped",
-  });
-  const { stdout, stderr, code } = await cmd.output();
-  const stdoutText = new TextDecoder().decode(stdout);
-  const stderrText = new TextDecoder().decode(stderr);
+    { stdin: "inherit", stdout: "pipe", stderr: "pipe" },
+  );
+  const [stdoutText, stderrText, code] = await Promise.all([
+    new Response(cmd.stdout).text(),
+    new Response(cmd.stderr).text(),
+    cmd.exited,
+  ]);
 
   // conftest test exits non-zero both on policy failures (expected — that's
   // what we're testing for) and on real errors (missing binary, bad Rego).
@@ -204,16 +209,17 @@ const ALL_RULE_IDS = [
 async function listYamlFiles(dir: string): Promise<string[]> {
   const out: string[] = [];
   try {
-    for await (const entry of Deno.readDir(dir)) {
+    for (const entry of await readdir(dir, { withFileTypes: true })) {
       if (
-        entry.isFile && entry.name.endsWith(".yaml") &&
+        entry.isFile() &&
+        entry.name.endsWith(".yaml") &&
         !entry.name.startsWith("_")
       ) {
         out.push(`${dir}/${entry.name}`);
       }
     }
   } catch (err) {
-    if (err instanceof Deno.errors.NotFound) return [];
+    if (isNotFound(err)) return [];
     throw err;
   }
   out.sort();
@@ -221,14 +227,14 @@ async function listYamlFiles(dir: string): Promise<string[]> {
 }
 
 async function expectedRuleId(file: string): Promise<string> {
-  const text = await Deno.readTextFile(file);
+  const text = await readFile(file, "utf8");
   const firstLine = text.split("\n", 1)[0];
   const m = firstLine.match(/^#\s*expect:\s*(\S+)\s*$/);
   if (!m) {
     throw new Error(
-      `${file}: first line must be "# expect: <rule-id>", got ${
-        JSON.stringify(firstLine)
-      }`,
+      `${file}: first line must be "# expect: <rule-id>", got ${JSON.stringify(
+        firstLine,
+      )}`,
     );
   }
   return m[1];
@@ -265,9 +271,8 @@ async function runNegativeCase(
     if (matched) {
       return { name, kind: "negative", expect, ok: true, detail: "" };
     }
-    const got = messages.length > 0
-      ? messages.join("; ")
-      : "(no failures reported)";
+    const got =
+      messages.length > 0 ? messages.join("; ") : "(no failures reported)";
     return {
       name,
       kind: "negative",
@@ -352,7 +357,7 @@ function printResultsTable(results: CaseResult[]): void {
 // Main
 // ============================================================================
 async function main(): Promise<number> {
-  const args = parseArgs(Deno.args);
+  const args = parseArgs(process.argv.slice(2));
   if (args.help) {
     printHelp();
     return 0;
@@ -363,7 +368,7 @@ async function main(): Promise<number> {
   const dataFile = `${negativeDir}/_data.yaml`;
 
   try {
-    await Deno.stat(dataFile);
+    await stat(dataFile);
   } catch {
     log.error(`missing ${dataFile} (needed for --data)`);
     return 1;
@@ -428,9 +433,9 @@ async function main(): Promise<number> {
 
 if (import.meta.main) {
   try {
-    Deno.exit(await main());
+    process.exit(await main());
   } catch (err) {
     log.error(err instanceof Error ? err.message : String(err));
-    Deno.exit(1);
+    process.exit(1);
   }
 }

@@ -1,13 +1,14 @@
-#!/usr/bin/env -S deno test
+#!/usr/bin/env -S bun test
 /**
  * Unit tests for the pure logic in prod-readonly.ts. Nothing here talks to
  * 1Password, Tailscale or a cluster.
  *
- *   deno test scripts/prod-readonly_test.ts
+ *   bun test scripts/prod-readonly_test.ts
  */
 
-import { assert, assertEquals, assertThrows } from "jsr:@std/assert@^1";
-import { parse as parseYaml } from "jsr:@std/yaml@^1";
+import { test } from "bun:test";
+import { assert, assertEquals, assertThrows } from "./lib/assert.ts";
+import { parse as parseYaml } from "./lib/yaml.ts";
 import {
   argocdDiffCmd,
   checkToken,
@@ -55,17 +56,19 @@ function input(token = TOKEN): KubeconfigInput {
   };
 }
 
-Deno.test("renderKubeconfig produces a loadable kubeconfig for the read-only context", () => {
+test("renderKubeconfig produces a loadable kubeconfig for the read-only context", () => {
   const text = renderKubeconfig(input());
-  // deno-lint-ignore no-explicit-any
+  // biome-ignore lint/suspicious/noExplicitAny: parsed YAML fixture
   const doc = parseYaml(text) as any;
   assertEquals(doc.apiVersion, "v1");
   assertEquals(doc.kind, "Config");
   assertEquals(doc["current-context"], "homelab-readonly");
-  assertEquals(doc.clusters, [{
-    name: "homelab-readonly",
-    cluster: { server: "https://tailscale-operator-homelab.tail1234.ts.net" },
-  }]);
+  assertEquals(doc.clusters, [
+    {
+      name: "homelab-readonly",
+      cluster: { server: "https://tailscale-operator-homelab.tail1234.ts.net" },
+    },
+  ]);
   assertEquals(doc.contexts[0].context, {
     cluster: "homelab-readonly",
     user: "agent-readonly",
@@ -82,19 +85,19 @@ Deno.test("renderKubeconfig produces a loadable kubeconfig for the read-only con
   );
 });
 
-Deno.test("kubeconfigPreview never contains the token", () => {
+test("kubeconfigPreview never contains the token", () => {
   const preview = kubeconfigPreview(input());
   assert(
     !preview.includes(TOKEN),
     "the dry-run preview must not leak the token",
   );
   assert(preview.includes(REDACTED));
-  // deno-lint-ignore no-explicit-any
+  // biome-ignore lint/suspicious/noExplicitAny: parsed YAML fixture
   const doc = parseYaml(preview) as any;
   assertEquals(doc.users[0].user.token, REDACTED);
 });
 
-Deno.test("redact replaces every occurrence and ignores empty secrets", () => {
+test("redact replaces every occurrence and ignores empty secrets", () => {
   assertEquals(
     redact(`a ${TOKEN} b ${TOKEN}`, [TOKEN]),
     `a ${REDACTED} b ${REDACTED}`,
@@ -102,7 +105,7 @@ Deno.test("redact replaces every occurrence and ignores empty secrets", () => {
   assertEquals(redact("nothing to hide", [""]), "nothing to hide");
 });
 
-Deno.test("checkToken accepts a JWT and never echoes a bad one", () => {
+test("checkToken accepts a JWT and never echoes a bad one", () => {
   assertEquals(checkToken(`  ${TOKEN}\n`, DEFAULT_TOKEN_REF), TOKEN);
   const secretish = "not-a-jwt-but-secret";
   const err = assertThrows(
@@ -116,7 +119,7 @@ Deno.test("checkToken accepts a JWT and never echoes a bad one", () => {
   assertThrows(() => checkToken("   ", DEFAULT_TOKEN_REF), Error, "is empty");
 });
 
-Deno.test("tailnetDomain and proxyServerUrl", () => {
+test("tailnetDomain and proxyServerUrl", () => {
   assertEquals(tailnetDomain("tail1234"), "tail1234.ts.net");
   assertEquals(tailnetDomain("Tail1234.ts.net."), "tail1234.ts.net");
   assertEquals(
@@ -131,7 +134,7 @@ Deno.test("tailnetDomain and proxyServerUrl", () => {
   );
 });
 
-Deno.test("argv never carries a token", () => {
+test("argv never carries a token", () => {
   const diff = argocdDiffCmd("sonarr", "argocd.example.com", "/tmp/x/config");
   assertEquals(diff, [
     "argocd",
@@ -163,7 +166,7 @@ Deno.test("argv never carries a token", () => {
   }
 });
 
-Deno.test("domainFromEnvFile reads DOMAIN and ignores placeholders", () => {
+test("domainFromEnvFile reads DOMAIN and ignores placeholders", () => {
   assertEquals(
     domainFromEnvFile("DOMAIN: lab.example.org\nGATEWAY_IP: 1.2.3.4\n"),
     "lab.example.org",
@@ -173,7 +176,7 @@ Deno.test("domainFromEnvFile reads DOMAIN and ignores placeholders", () => {
   assertEquals(domainFromEnvFile(": not yaml ["), null);
 });
 
-Deno.test("statusRows sorts, shortens revisions and tolerates missing fields", () => {
+test("statusRows sorts, shortens revisions and tolerates missing fields", () => {
   const rows = statusRows({
     items: [
       {
@@ -195,7 +198,10 @@ Deno.test("statusRows sorts, shortens revisions and tolerates missing fields", (
       { metadata: { name: "bare" } },
     ],
   });
-  assertEquals(rows.map((r) => r.name), ["bare", "cilium", "plex"]);
+  assertEquals(
+    rows.map((r) => r.name),
+    ["bare", "cilium", "plex"],
+  );
   assertEquals(rows[1], {
     name: "cilium",
     sync: "Synced",
@@ -214,14 +220,20 @@ Deno.test("statusRows sorts, shortens revisions and tolerates missing fields", (
   assertEquals(statusRows({}), []);
 });
 
-Deno.test("formatTable aligns columns", () => {
+test("formatTable aligns columns", () => {
   assertEquals(
-    formatTable(["A", "BB"], [["xyz", "1"], ["q", "22"]]),
+    formatTable(
+      ["A", "BB"],
+      [
+        ["xyz", "1"],
+        ["q", "22"],
+      ],
+    ),
     "A    BB\nxyz  1\nq    22",
   );
 });
 
-Deno.test("parseArgs defaults", () => {
+test("parseArgs defaults", () => {
   const args = parseArgs(["kubeconfig"], ENV);
   assertEquals(args.command, "kubeconfig");
   assertEquals(args.kubeconfig, defaultKubeconfigPath("/home/agent"));
@@ -235,7 +247,7 @@ Deno.test("parseArgs defaults", () => {
   assertEquals(parseArgs(["status", "--help"], ENV).command, "help");
 });
 
-Deno.test("parseArgs flags, env defaults and the diff app", () => {
+test("parseArgs flags, env defaults and the diff app", () => {
   const args = parseArgs(
     [
       "--",
@@ -261,7 +273,7 @@ Deno.test("parseArgs flags, env defaults and the diff app", () => {
   );
 });
 
-Deno.test("parseArgs rejects bad invocations", () => {
+test("parseArgs rejects bad invocations", () => {
   const bad: [string[], string][] = [
     [["frobnicate"], "unknown subcommand"],
     [["diff"], "exactly one Application"],
@@ -284,7 +296,7 @@ Deno.test("parseArgs rejects bad invocations", () => {
   }
 });
 
-Deno.test("isMainKubeconfig only matches ~/.kube/config", () => {
+test("isMainKubeconfig only matches ~/.kube/config", () => {
   assert(isMainKubeconfig("/home/agent/.kube/config", "/home/agent"));
   assert(isMainKubeconfig("/home/agent/.kube/../.kube/config", "/home/agent"));
   assert(

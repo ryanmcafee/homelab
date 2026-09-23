@@ -1,4 +1,4 @@
-#!/usr/bin/env -S deno run --allow-read --allow-write --allow-run --allow-env
+#!/usr/bin/env bun
 
 /**
  * claude-verify-hook.ts
@@ -29,7 +29,7 @@
  * Usage:
  *   (automatic, from .claude/settings.json)
  *   echo '{"tool_name":"Edit","tool_input":{"file_path":"'$PWD'/charts/addons/values.yaml"}}' \
- *     | CLAUDE_PROJECT_DIR=$PWD deno run --allow-read --allow-write --allow-run --allow-env scripts/claude-verify-hook.ts
+ *     | CLAUDE_PROJECT_DIR=$PWD bun scripts/claude-verify-hook.ts
  *   ... scripts/claude-verify-hook.ts --dry-run   # print the decision, run nothing
  *   ... scripts/claude-verify-hook.ts --help
  *
@@ -37,6 +37,14 @@
  * not run (stderr goes to the agent); 1 = internal error (never blocks a tool).
  */
 
+import {
+  mkdirSync,
+  realpathSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
+import { isAlreadyExists } from "./lib/errors.ts";
 import {
   parseVerifyResult,
   type VerifyCheck,
@@ -137,8 +145,10 @@ export function watchedPaths(
 }
 
 export function hookDisabled(value: string | undefined): boolean {
-  return value !== undefined &&
-    ["off", "0", "false", "no"].includes(value.trim().toLowerCase());
+  return (
+    value !== undefined &&
+    ["off", "0", "false", "no"].includes(value.trim().toLowerCase())
+  );
 }
 
 // ============================================================================
@@ -156,12 +166,12 @@ export function fnv1a(s: string): string {
 }
 
 export function tempDir(): string {
-  return (Deno.env.get("TMPDIR") ?? "/tmp").replace(/\/+$/, "") || "/tmp";
+  return (process.env.TMPDIR ?? "/tmp").replace(/\/+$/, "") || "/tmp";
 }
 
 /** The three filesystem operations the lock needs (injectable for tests). */
 export interface LockFs {
-  /** Create `path` with `data`; throws Deno.errors.AlreadyExists when it exists. */
+  /** Create `path` with `data`; throws an EEXIST error when it exists. */
   createNew(path: string, data: string): void;
   /** Modification time in ms, or null when the file does not exist. */
   mtimeMs(path: string): number | null;
@@ -169,16 +179,15 @@ export interface LockFs {
 }
 
 export const realLockFs: LockFs = {
-  createNew: (path, data) =>
-    Deno.writeTextFileSync(path, data, { createNew: true }),
+  createNew: (path, data) => writeFileSync(path, data, { flag: "wx" }),
   mtimeMs: (path) => {
     try {
-      return Deno.statSync(path).mtime?.getTime() ?? null;
+      return statSync(path).mtime?.getTime() ?? null;
     } catch {
       return null;
     }
   },
-  remove: (path) => Deno.removeSync(path),
+  remove: (path) => rmSync(path),
 };
 
 /**
@@ -194,10 +203,10 @@ export function tryAcquireLock(
 ): boolean {
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      fs.createNew(path, `${Deno.pid} ${nowMs}\n`);
+      fs.createNew(path, `${process.pid} ${nowMs}\n`);
       return true;
     } catch (e) {
-      if (!(e instanceof Deno.errors.AlreadyExists)) throw e;
+      if (!isAlreadyExists(e)) throw e;
       const mtime = fs.mtimeMs(path);
       if (mtime === null) continue; // removed between the two calls: retry
       if (nowMs - mtime < staleMs) return false;
@@ -253,9 +262,10 @@ export function hintsFor(failing: VerifyCheck[]): string[] {
     );
   }
   if (
-    failing.some((c) =>
-      c.name.startsWith("kubeconform/") &&
-      (c.findings ?? []).some((f) => f.includes("could not find schema"))
+    failing.some(
+      (c) =>
+        c.name.startsWith("kubeconform/") &&
+        (c.findings ?? []).some((f) => f.includes("could not find schema")),
     )
   ) {
     hints.push(
@@ -276,10 +286,12 @@ export function summarizeFailure(
   opts: SummaryOptions = DEFAULT_SUMMARY,
 ): string {
   const failing = result.checks.filter((c) => c.status === "fail");
-  const secs = result.duration_ms !== undefined
-    ? `, ${(result.duration_ms / 1000).toFixed(1)} s`
-    : "";
-  const files = edited.slice(0, 3).join(", ") +
+  const secs =
+    result.duration_ms !== undefined
+      ? `, ${(result.duration_ms / 1000).toFixed(1)} s`
+      : "";
+  const files =
+    edited.slice(0, 3).join(", ") +
     (edited.length > 3 ? ` (+${edited.length - 3} more)` : "");
   const header = [
     clip(
@@ -342,12 +354,12 @@ function tailLines(s: string, n: number): string {
 }
 
 function childEnv(): Record<string, string> {
-  const home = Deno.env.get("HOME") ?? "";
+  const home = process.env.HOME ?? "";
   const shims = `${home}/.local/share/mise/shims`;
-  const path = Deno.env.get("PATH") ?? "";
+  const path = process.env.PATH ?? "";
   let hasShims = false;
   try {
-    hasShims = home !== "" && Deno.statSync(shims).isDirectory;
+    hasShims = home !== "" && statSync(shims).isDirectory();
   } catch {
     hasShims = false;
   }
@@ -363,28 +375,29 @@ async function runCommand(
   args: string[],
   cwd: string,
   deadline: number,
-): Promise<
-  { code: number; stdout: string; stderr: string; timedOut: boolean }
-> {
+): Promise<{
+  code: number;
+  stdout: string;
+  stderr: string;
+  timedOut: boolean;
+}> {
   const remaining = Math.max(1, deadline - Date.now());
   const signal = AbortSignal.timeout(remaining);
   try {
-    const out = await new Deno.Command(cmd, {
-      args,
+    const p = Bun.spawn([cmd, ...args], {
       cwd,
-      env: childEnv(),
-      stdin: "null",
-      stdout: "piped",
-      stderr: "piped",
+      env: { ...process.env, ...childEnv() },
+      stdin: "ignore",
+      stdout: "pipe",
+      stderr: "pipe",
       signal,
-    }).output();
-    const dec = new TextDecoder();
-    return {
-      code: out.code,
-      stdout: dec.decode(out.stdout),
-      stderr: dec.decode(out.stderr),
-      timedOut: signal.aborted,
-    };
+    });
+    const [stdout, stderr, code] = await Promise.all([
+      new Response(p.stdout).text(),
+      new Response(p.stderr).text(),
+      p.exited,
+    ]);
+    return { code, stdout, stderr, timedOut: signal.aborted };
   } catch (e) {
     if (signal.aborted) {
       return { code: -1, stdout: "", stderr: "", timedOut: true };
@@ -400,8 +413,8 @@ export async function runLevel0(
 ): Promise<RunOutcome> {
   const deadline = Date.now() + timeoutMs;
   const bin = `${binDir}/homelab`;
-  Deno.mkdirSync(binDir, { recursive: true });
-  let build;
+  mkdirSync(binDir, { recursive: true });
+  let build: Awaited<ReturnType<typeof runCommand>>;
   try {
     build = await runCommand(
       "go",
@@ -458,8 +471,7 @@ export async function runLevel0(
 // ============================================================================
 // Main
 // ============================================================================
-const HELP =
-  `claude-verify-hook.ts: Claude Code PostToolUse hook running level-0 verification
+const HELP = `claude-verify-hook.ts: Claude Code PostToolUse hook running level-0 verification
 
 Reads the hook payload on stdin. Runs \`homelab verify all --level 0 --json\` in
 $CLAUDE_PROJECT_DIR when the edited file is under charts/ or configuration/.
@@ -474,7 +486,7 @@ Environment:
   HOMELAB_VERIFY_HOOK    off|0|false|no disables the hook`;
 
 async function main(): Promise<number> {
-  const argv = Deno.args;
+  const argv = process.argv.slice(2);
   const dryRun = argv.includes("--dry-run");
   if (argv.includes("--help") || argv.includes("-h")) {
     console.log(HELP);
@@ -486,7 +498,7 @@ async function main(): Promise<number> {
     return 1; // never 2: that would be read as verification feedback
   }
 
-  if (hookDisabled(Deno.env.get("HOMELAB_VERIFY_HOOK"))) {
+  if (hookDisabled(process.env.HOMELAB_VERIFY_HOOK)) {
     if (dryRun) {
       log.info("HOMELAB_VERIFY_HOOK disables the hook; nothing to do");
     }
@@ -495,7 +507,7 @@ async function main(): Promise<number> {
 
   let payload: unknown;
   try {
-    payload = JSON.parse(await new Response(Deno.stdin.readable).text());
+    payload = JSON.parse(await Bun.stdin.text());
   } catch (e) {
     // A malformed payload is not a verification failure; never disturb the agent for it.
     console.error(
@@ -506,20 +518,21 @@ async function main(): Promise<number> {
     return 0;
   }
   const payloadCwd = (payload as Record<string, unknown>)?.cwd;
-  const cwd = typeof payloadCwd === "string" && payloadCwd !== ""
-    ? payloadCwd
-    : Deno.cwd();
-  const root = Deno.env.get("CLAUDE_PROJECT_DIR") || cwd;
+  const cwd =
+    typeof payloadCwd === "string" && payloadCwd !== ""
+      ? payloadCwd
+      : process.cwd();
+  const root = process.env.CLAUDE_PROJECT_DIR || cwd;
 
   const edited = collectEditedPaths(payload);
   let watched = watchedPaths(edited, root, cwd);
   if (watched.length === 0 && edited.length > 0) {
     // Symlinked roots (macOS /tmp -> /private/tmp): compare real paths too.
     try {
-      const realRoot = Deno.realPathSync(root);
+      const realRoot = realpathSync(root);
       const real = edited.flatMap((p) => {
         try {
-          return [Deno.realPathSync(p.startsWith("/") ? p : `${cwd}/${p}`)];
+          return [realpathSync(p.startsWith("/") ? p : `${cwd}/${p}`)];
         } catch {
           return [];
         }
@@ -532,9 +545,9 @@ async function main(): Promise<number> {
   if (watched.length === 0) {
     if (dryRun) {
       log.info(
-        `no edited path under ${
-          WATCHED_DIRS.join(" or ")
-        } of ${root}; nothing to do`,
+        `no edited path under ${WATCHED_DIRS.join(
+          " or ",
+        )} of ${root}; nothing to do`,
       );
     }
     return 0;
@@ -558,9 +571,9 @@ async function main(): Promise<number> {
     const outcome = await runLevel0(root, binDir);
     if (outcome.kind === "error") {
       console.error(
-        `Level 0 verification could not run after editing ${
-          watched.join(", ")
-        }: ${outcome.message}`,
+        `Level 0 verification could not run after editing ${watched.join(
+          ", ",
+        )}: ${outcome.message}`,
       );
       return 2;
     }
@@ -574,9 +587,9 @@ async function main(): Promise<number> {
 
 if (import.meta.main) {
   try {
-    Deno.exit(await main());
+    process.exit(await main());
   } catch (e) {
     log.error(`claude-verify-hook: ${(e as Error).message}`);
-    Deno.exit(1);
+    process.exit(1);
   }
 }

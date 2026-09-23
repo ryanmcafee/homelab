@@ -100,7 +100,7 @@ Everything is pinned in `mise.toml`; run `mise install` after cloning. Docker De
 | helm | `tools.helm` | Cilium and ArgoCD installs; every render |
 | argocd | `tools.argocd` | `argocd app sync --local`, health fixture tests |
 | chainsaw | `tools.chainsaw` | e2e tests |
-| deno | mise | every script under `scripts/` |
+| bun | mise | every script under `scripts/` (dependencies from `bun.lock`) |
 | task | mise | task runner |
 | go | mise | the `homelab` CLI (`go run ./cmd/homelab`) |
 | yq, jq | mise | version and values extraction in the scripts |
@@ -513,7 +513,7 @@ use `task localdev:ui` / `task localdev:traefik` ([Host ports on macOS](#host-po
 
 | Job | What it runs | Required |
 |-----|--------------|----------|
-| `kind-argocd` | pinned tools from `versions.yaml` (kind, kubectl, helm, argocd, chainsaw, task, deno), `actions/cache` on `~/.cache/homelab-kind-registry`, `task localdev:ci`, `task verify LEVEL=2` (JSON to the Job Summary and the `verify-level2` artifact), `task localdev:diagnose` on every outcome, then `task localdev:report` as the sticky PR comment `kind-preview` (same-repo PRs; never decides the check). 45 minute budget. | yes |
+| `kind-argocd` | pinned tools from `versions.yaml` (kind, kubectl, helm, argocd, chainsaw, task, bun), `actions/cache` on `~/.cache/homelab-kind-registry`, `task localdev:ci`, `task verify LEVEL=2` (JSON to the Job Summary and the `verify-level2` artifact), `task localdev:diagnose` on every outcome, then `task localdev:report` as the sticky PR comment `kind-preview` (same-repo PRs; never decides the check). 45 minute budget. | yes |
 | `kind-direct` | Legacy: `task localdev:kind -- --no-registry`, `tilt ci --timeout 15m` with the direct-mode Tiltfile, asserts the Traefik and cert-manager Deployments. Kept while `localdev/Tiltfile` exists; not the loop. | |
 | `yaml-lint` | `yamllint` over `charts/`, `localdev/`, `tests/e2e`, `tests/health` | |
 

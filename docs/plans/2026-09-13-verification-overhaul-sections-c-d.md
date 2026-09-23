@@ -18,15 +18,15 @@ branched from `origin/main` (68abdbf). Never touch `$HOME/Projects/homelab` (the
 ## Global Constraints
 
 - Work only inside the worktree. Prepend `$HOME/.local/share/mise/shims` to `PATH` in every shell
-  (`go`, `helm`, `deno`, `task`, `kubectl`, `argocd`, `chainsaw`, `kind`, `yq`, `conftest` are mise-managed;
+  (`go`, `helm`, `bun`, `task`, `kubectl`, `argocd`, `chainsaw`, `kind`, `yq`, `conftest` are mise-managed;
   helm is pinned to 4.3.0 and the golden snapshots are byte-exact against it).
 - Serena is rooted at the main checkout, not this worktree: use Read/Edit/Write/Bash for files here.
 - Forbidden CLI: `grep`, `find`, `cat`, `ls` in scripts/docs you write (`rg`, `rg --files`, `sed -n` are fine
   for your own exploration). `eza`, `fd`, `bat` are not installed.
-- TypeScript (Deno) for every script (ADR-005). Shebang `#!/usr/bin/env -S deno run --allow-...` with the exact
-  permissions, `--help`, `--dry-run` where anything is mutated, colour log helpers (cyan INFO, green OK,
+- TypeScript (Bun) for every script (ADR-005). Shebang `#!/usr/bin/env bun`,
+  `--help`, `--dry-run` where anything is mutated, colour log helpers (cyan INFO, green OK,
   red ERROR, yellow WARN), exit 0/1 (2 = usage). Pure logic in exported functions with
-  `scripts/<name>_test.ts`; CI runs `deno fmt --check scripts/`, `deno check scripts/*.ts`, `deno test scripts/`.
+  `scripts/<name>_test.ts`; CI runs `task scripts:lint` (Biome format check and lint, tsc) and `task test:scripts` (`bun test scripts`).
 - Go: cobra commands in `cmd/homelab/commands`, exit codes from `exitcode.go` (`ExitOK/ExitFailure/ExitUsage`,
   `NewUsageError`), reuse the **global** `--dry-run` (`commands.DryRun`) — never define another. Table-driven
   tests. The JSON contract is `internal/verify/types.go` `Result{level, checks[], pass, duration_ms}` /
@@ -57,14 +57,14 @@ branched from `origin/main` (68abdbf). Never touch `$HOME/Projects/homelab` (the
 
 | Task | Command | Owner |
 |---|---|---|
-| `localdev:report` | `deno run ... scripts/localdev-argocd.ts report {{.CLI_ARGS}}` | WP-R |
+| `localdev:report` | `bun scripts/localdev-argocd.ts report {{.CLI_ARGS}}` | WP-R |
 | `drill:restore` | `localdev:kind` → `localdev:argocd` → `localdev:sync -- --warm` → `test:drill` | WP-D |
 | `test:drill` | chainsaw over `tests/drills/` with the image values from `versions.yaml` | WP-D |
 | `scaffold` | `go run ./cmd/homelab scaffold {{.CLI_ARGS}}` | WP-S |
-| `test:scaffold` | `deno run ... scripts/scaffold-selftest.ts {{.CLI_ARGS}}` | WP-S |
+| `test:scaffold` | `bun scripts/scaffold-selftest.ts {{.CLI_ARGS}}` | WP-S |
 | `verify:upgrade` | `go run ./cmd/homelab verify upgrade {{.CLI_ARGS}}` | WP-U |
 | `verify:prod` | `go run ./cmd/homelab verify prod --kube-context homelab-readonly {{.CLI_ARGS}}` | WP-A |
-| `prod:kubeconfig` / `prod:status` / `prod:diff` | `deno run ... scripts/prod-readonly.ts <sub> {{.CLI_ARGS}}` | WP-A |
+| `prod:kubeconfig` / `prod:status` / `prod:diff` | `bun scripts/prod-readonly.ts <sub> {{.CLI_ARGS}}` | WP-A |
 | `verify:claim` | level-0 JSON piped into `scripts/verify-claim.ts render` | WP-C |
 
 ## Cross-package interfaces
@@ -169,7 +169,7 @@ branched from `origin/main` (68abdbf). Never touch `$HOME/Projects/homelab` (the
   `task localdev:report -- --out kind-report.md --verify-json verify-level2.json` (continue-on-error), append to the job
   summary, sticky comment header `kind-preview`, upload `kind-report.md` with the level-2 artifact. When `localdev:ci`
   failed before ArgoCD was reachable the report says so instead of failing.
-- [ ] **R3 Verify.** `deno fmt/check/test` on the script; `yamllint -c .yamllint .github/workflows/tilt-ci.yml`;
+- [ ] **R3 Verify.** `task scripts:lint` and `task test:scripts` on the script; `yamllint -c .yamllint .github/workflows/tilt-ci.yml`;
   `actionlint` if installed. Do not run against a cluster (the integrator runs the loop).
 
 ## WP-A: Read-only production access + deploy notifications (item 18)
@@ -221,7 +221,7 @@ new keys (each must be referenced by a template — contract test).
   Secret → 1Password, `argocd account generate-token --account agent` → 1Password, GitHub App + 1Password item + flipping
   the two notification flags), and the agent commands (`task prod:kubeconfig`, `task verify:prod`, `task prod:status`,
   `task prod:diff -- <app>`).
-- [ ] **A8 Verify.** `go test`, `task verify:text` (snapshot/committed-values failures only), `deno fmt/check/test`,
+- [ ] **A8 Verify.** `go test`, `task verify:text` (snapshot/committed-values failures only), `task scripts:lint` and `task test:scripts`,
   `helm template charts/agent-readonly`. No cluster.
 
 ## WP-U: Renovate-aware upgrade verification (item 19)
@@ -347,7 +347,7 @@ environment and MinIO no longer publishes community images; `versity/versitygw` 
   operator pattern uses `--crd-group` with an existing vendored group or the check allowance you document) and fail on
   any failing check; `--keep` to inspect. `verify.yml` job `scaffold` runs `task test:scaffold`.
 - [ ] **S4 Verify.** `go vet ./... && go test ./internal/scaffold/... ./cmd/...`, `task test:scaffold` locally,
-  `deno fmt/check/test`. Update `docs/runbooks/verification.md` "Adding a new chart or application" by sending the text in
+  `task scripts:lint` and `task test:scripts`. Update `docs/runbooks/verification.md` "Adding a new chart or application" by sending the text in
   your report (integrator owns the file).
 
 ## WP-C: Agent contract (item 22)
@@ -364,8 +364,8 @@ environment and MinIO no longer publishes community images; `versity/versitygw` 
   while another is in flight; run `go run ./cmd/homelab verify all --level 0 --json` (timeout 150 s) in the project dir;
   pass → exit 0 with no output; fail → exit 2 with a compact stderr summary (failing check names, detail, ≤5 findings each,
   ≤60 lines total, a hint that `snapshot/*` drift after an intended change is fixed with `task test:snapshot -- --update`).
-  `.claude/settings.json`: `hooks.PostToolUse` matcher `Edit|Write|MultiEdit` → `deno run --allow-read --allow-write
-  --allow-run --allow-env "$CLAUDE_PROJECT_DIR/scripts/claude-verify-hook.ts"`, timeout 180. Nothing else in that file.
+  `.claude/settings.json`: `hooks.PostToolUse` matcher `Edit|Write|MultiEdit` → `bun
+  "$CLAUDE_PROJECT_DIR/scripts/claude-verify-hook.ts"`, timeout 180. Nothing else in that file.
 - [ ] **C2 Claim.** `scripts/verify-claim.ts render` (stdin = `homelab verify all --json`; prints the PR-body block:
   `<!-- verify-level0 -->` + fenced ```json``` with `{"level":0,"pass":bool,"checks":{"<name>":"<status>",...}}` sorted,
   compact); `compare --actual <ci json> [--body-file <f>|env PR_BODY]`: missing block → exit 1 with instructions; level
@@ -384,14 +384,14 @@ environment and MinIO no longer publishes community images; `versity/versitygw` 
   "retired": gone), and remove the real domain it mentions. Keep the component-specific read-only diagnostics that are
   still useful. Update `.claude/commands/gitops-test.md` to match. `AGENTS.md`: Validation Flow reflects the hook, the claim
   and the read-only prod commands.
-- [ ] **C5 Verify.** `deno fmt/check/test`; feed the hook a sample stdin JSON for a charts/ path and a non-matching path and
+- [ ] **C5 Verify.** `task scripts:lint` and `task test:scripts`; feed the hook a sample stdin JSON for a charts/ path and a non-matching path and
   show both behaviours; `task verify:claim` output pasted in your report; `yamllint` the workflow.
 
 ## Integration (owner: integrator, after the wave)
 
 1. `task config:export:localdev`, `task schemas:check`, `task test:snapshot -- --update` (creates
    `tests/snapshots/homelab-preview/`, `*/agent-readonly.yaml`), `task verify:text`, `go vet ./... && go test ./...`,
-   `task test:policy`, `task test:health`, `deno fmt --check scripts/ && deno check scripts/*.ts && deno test scripts/`,
+   `task test:policy`, `task test:health`, `task scripts:lint && task test:scripts`,
    `yamllint -c .yamllint .`, `task renovate:validate`, `task test:scaffold`.
 2. Real loop on the workstation: `task localdev:down; task localdev:ci`, `task verify LEVEL=2`, `task localdev:report`,
    `task drill:restore` (or `task test:drill` on the warm cluster). Fix what fails.

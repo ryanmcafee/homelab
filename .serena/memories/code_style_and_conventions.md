@@ -10,9 +10,10 @@
 - Color output: `fatih/color` for terminal colors
 - Build: binary output to `./bin/homelab`
 
-## TypeScript/Deno Scripts
-- Runtime: Deno (NOT Node.js)
-- Shebang: `#!/usr/bin/env -S deno run --allow-net --allow-run --allow-env --allow-read`
+## TypeScript Scripts (Bun)
+- Runtime: Bun (pinned in mise.toml; dependencies in package.json + bun.lock)
+- Shebang: `#!/usr/bin/env bun`
+- Tests: `scripts/<name>_test.ts` with `bun test` (`task test:scripts`); format/lint/types: `task scripts:lint`
 - Always include `--help` flag and `--dry-run` option
 - Log with colors: cyan=INFO, green=OK, red=ERROR
 - Location: `scripts/` directory

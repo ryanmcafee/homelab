@@ -1,14 +1,16 @@
-#!/usr/bin/env -S deno test
+#!/usr/bin/env -S bun test
 /**
  * Unit tests for the pure helpers in claude-verify-hook.ts: which edits
  * trigger level 0, the lock (against an in-memory filesystem, so no
  * permissions are needed), and the compact failure summary the agent sees.
  * Nothing here runs go or level 0.
  *
- *   deno test scripts/claude-verify-hook_test.ts
+ *   bun test scripts/claude-verify-hook_test.ts
  */
 
-import { assert, assertEquals, assertStringIncludes } from "jsr:@std/assert@^1";
+import { test } from "bun:test";
+import { assert, assertEquals, assertStringIncludes } from "./lib/assert.ts";
+import { isPermissionDenied, systemError } from "./lib/errors.ts";
 import {
   collectEditedPaths,
   fnv1a,
@@ -29,7 +31,7 @@ const ROOT = "/work/homelab";
 // ---------------------------------------------------------------------------
 // payload -> paths (shapes from the Claude Code PostToolUse hook input)
 // ---------------------------------------------------------------------------
-Deno.test("collectEditedPaths: Edit, Write, MultiEdit and NotebookEdit payloads", () => {
+test("collectEditedPaths: Edit, Write, MultiEdit and NotebookEdit payloads", () => {
   assertEquals(
     collectEditedPaths({
       hook_event_name: "PostToolUse",
@@ -47,9 +49,12 @@ Deno.test("collectEditedPaths: Edit, Write, MultiEdit and NotebookEdit payloads"
       tool_name: "MultiEdit",
       tool_input: {
         file_path: `${ROOT}/charts/gitops/values.yaml`,
-        edits: [{ old_string: "a", new_string: "b" }, {
-          file_path: `${ROOT}/configuration/versions.yaml`,
-        }],
+        edits: [
+          { old_string: "a", new_string: "b" },
+          {
+            file_path: `${ROOT}/configuration/versions.yaml`,
+          },
+        ],
       },
     }),
     [
@@ -63,7 +68,7 @@ Deno.test("collectEditedPaths: Edit, Write, MultiEdit and NotebookEdit payloads"
   );
 });
 
-Deno.test("collectEditedPaths: tolerates junk and deduplicates", () => {
+test("collectEditedPaths: tolerates junk and deduplicates", () => {
   assertEquals(collectEditedPaths(null), []);
   assertEquals(collectEditedPaths({ tool_input: "nope" }), []);
   assertEquals(
@@ -78,7 +83,7 @@ Deno.test("collectEditedPaths: tolerates junk and deduplicates", () => {
   );
 });
 
-Deno.test("normalizePath and relativeToRoot", () => {
+test("normalizePath and relativeToRoot", () => {
   assertEquals(normalizePath("/a/./b/../c//d/"), "/a/c/d");
   assertEquals(normalizePath("a/../../b"), "../b");
   assertEquals(
@@ -97,7 +102,7 @@ Deno.test("normalizePath and relativeToRoot", () => {
   );
 });
 
-Deno.test("watchedPaths: only charts/ and configuration/ of the project root", () => {
+test("watchedPaths: only charts/ and configuration/ of the project root", () => {
   const paths = [
     `${ROOT}/charts/addons/templates/traefik.yaml`,
     `${ROOT}/configuration/versions.yaml`,
@@ -112,7 +117,7 @@ Deno.test("watchedPaths: only charts/ and configuration/ of the project root", (
   ]);
 });
 
-Deno.test("hookDisabled: off/0/false/no, case-insensitive", () => {
+test("hookDisabled: off/0/false/no, case-insensitive", () => {
   for (const v of ["off", "OFF", " 0 ", "false", "no"]) {
     assert(hookDisabled(v), v);
   }
@@ -124,25 +129,25 @@ Deno.test("hookDisabled: off/0/false/no, case-insensitive", () => {
 // ---------------------------------------------------------------------------
 // lock
 // ---------------------------------------------------------------------------
-Deno.test("fnv1a: stable per root, differs between roots", () => {
+test("fnv1a: stable per root, differs between roots", () => {
   assertEquals(fnv1a(ROOT), fnv1a(ROOT));
   assert(fnv1a(ROOT) !== fnv1a(`${ROOT}-issue-261-cd`));
   assertEquals(fnv1a("").length, 8);
 });
 
-// In-memory LockFs: `deno test scripts/` runs in CI without permissions.
+// In-memory LockFs: no real filesystem is touched.
 function memFs(): LockFs & { files: Map<string, number> } {
   const files = new Map<string, number>();
   let clock = 0;
   return {
     files,
     createNew(path) {
-      if (files.has(path)) throw new Deno.errors.AlreadyExists(path);
+      if (files.has(path)) throw systemError("EEXIST", path);
       files.set(path, clock);
     },
     mtimeMs: (path) => files.get(path) ?? null,
     remove(path) {
-      if (!files.delete(path)) throw new Deno.errors.NotFound(path);
+      if (!files.delete(path)) throw systemError("ENOENT", path);
     },
     set now(v: number) {
       clock = v;
@@ -150,7 +155,7 @@ function memFs(): LockFs & { files: Map<string, number> } {
   } as LockFs & { files: Map<string, number>; now: number };
 }
 
-Deno.test("tryAcquireLock: exclusive while fresh, replaced when stale, free after release", () => {
+test("tryAcquireLock: exclusive while fresh, replaced when stale, free after release", () => {
   const fs = memFs() as ReturnType<typeof memFs> & { now: number };
   const lock = "/tmp/homelab-verify-hook-x.lock";
   fs.now = 1_000;
@@ -170,10 +175,10 @@ Deno.test("tryAcquireLock: exclusive while fresh, replaced when stale, free afte
   releaseLock(lock, fs); // idempotent
 });
 
-Deno.test("tryAcquireLock: other filesystem errors propagate", () => {
+test("tryAcquireLock: other filesystem errors propagate", () => {
   const broken: LockFs = {
     createNew: () => {
-      throw new Deno.errors.PermissionDenied("tmp");
+      throw systemError("EACCES", "tmp");
     },
     mtimeMs: () => null,
     remove: () => {},
@@ -182,7 +187,7 @@ Deno.test("tryAcquireLock: other filesystem errors propagate", () => {
   try {
     tryAcquireLock("/x.lock", 0, 1, broken);
   } catch (e) {
-    threw = e instanceof Deno.errors.PermissionDenied;
+    threw = isPermissionDenied(e);
   }
   assert(threw);
 });
@@ -208,7 +213,7 @@ function result(checks: VerifyCheck[]): VerifyResult {
   };
 }
 
-Deno.test("summarizeFailure: header, capped findings, snapshot hint", () => {
+test("summarizeFailure: header, capped findings, snapshot hint", () => {
   const r = result([
     { name: "render/homelab/addons", status: "pass" },
     failing("snapshot/homelab/addons", 8, "rendered output differs"),
@@ -230,10 +235,9 @@ Deno.test("summarizeFailure: header, capped findings, snapshot hint", () => {
   assertStringIncludes(text, "task test:snapshot -- --update");
 });
 
-Deno.test("summarizeFailure: never exceeds 60 lines, reports hidden checks", () => {
-  const checks = Array.from(
-    { length: 30 },
-    (_, i) => failing(`policy/env${i}`, 9),
+test("summarizeFailure: never exceeds 60 lines, reports hidden checks", () => {
+  const checks = Array.from({ length: 30 }, (_, i) =>
+    failing(`policy/env${i}`, 9),
   );
   const text = summarizeFailure(result(checks), [
     "charts/a.yaml",
@@ -247,7 +251,7 @@ Deno.test("summarizeFailure: never exceeds 60 lines, reports hidden checks", () 
   assertStringIncludes(text, "more failing check(s): run `task verify:text`");
 });
 
-Deno.test("summarizeFailure: clips long findings to one line", () => {
+test("summarizeFailure: clips long findings to one line", () => {
   const long = "x".repeat(1000) + "\nsecond line";
   const text = summarizeFailure(
     result([{ name: "kubeconform/homelab", status: "fail", findings: [long] }]),
@@ -259,7 +263,7 @@ Deno.test("summarizeFailure: clips long findings to one line", () => {
   assertEquals(text.includes("second line"), false);
 });
 
-Deno.test("hintsFor: committed-values and missing-schema hints", () => {
+test("hintsFor: committed-values and missing-schema hints", () => {
   const hints = hintsFor([
     failing("render/localdev/_committed-values", 1),
     {

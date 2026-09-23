@@ -129,9 +129,8 @@ Agents may mutate only Kind clusters (ADR-009). Production is verified through m
 ## Specialist Subagents
 
 The repository ships **no** specialist agent definitions: `.claude/agents/` is untracked and
-holds only the GSD workflow agents (`gsd-*`) on machines that installed them, and
-`~/.claude/agents/` is per-user. The specialties below are the ones CLAUDE.md's routing table
-names; they come from [VoltAgent/awesome-claude-code-subagents](https://github.com/VoltAgent/awesome-claude-code-subagents)
+holds no project agents, and `~/.claude/agents/` is per-user. The specialties below are
+the ones CLAUDE.md's routing table names; they come from [VoltAgent/awesome-claude-code-subagents](https://github.com/VoltAgent/awesome-claude-code-subagents)
 and are optional. When a named agent is not installed, dispatch a `general-purpose` subagent
 and put the specialty, the project context from the customization table below and the file
 scope in the prompt; never skip delegation because the agent name is missing.
@@ -167,7 +166,7 @@ To install them per user: copy the agent files into `~/.claude/agents/` (not int
 | Agent | Model | Purpose |
 |-------|-------|---------|
 | golang-pro | sonnet | Go concurrency, performance, microservices, testing |
-| typescript-pro | sonnet | TypeScript/Deno, type safety, async patterns |
+| typescript-pro | sonnet | TypeScript on Bun, type safety, async patterns |
 
 ### Data (2 agents)
 
@@ -205,7 +204,7 @@ otherwise):
 | terragrunt-expert | DRY patterns, module/environment directory layout |
 | security-engineer | SOPS age key paths, 1Password vault paths, sync wave ordering for secrets |
 | golang-pro | Table-driven tests, 95%+ coverage, Pact/TestContainers |
-| typescript-pro | Deno runtime, permissions pattern, Vitest/Pact, no Bash/Python |
+| typescript-pro | Bun runtime, `bun test`, Biome, Pact, no Bash/Python |
 | code-reviewer | Forbidden CLI patterns, TypeScript-only scripting, semantic commits |
 | deployment-engineer | ArgoCD sync waves, health checks, ServerSideApply |
 | postgres-pro | CloudNativePG operator patterns |

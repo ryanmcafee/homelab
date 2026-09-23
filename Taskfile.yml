@@ -37,6 +37,37 @@ tasks:
     cmds:
       - mise install -y
       - mkdir -p .terraform.d/plugin-cache
+      - bun install --frozen-lockfile
+
+  bun:install:
+    desc: Install the script dependencies pinned in bun.lock (a no-op when node_modules is current)
+    internal: true
+    silent: true
+    run: once
+    cmds:
+      - bun install --frozen-lockfile --silent
+
+  # ==========================================================================
+  # TypeScript scripts (scripts/*.ts, run with Bun)
+  # ==========================================================================
+
+  scripts:fmt:
+    desc: Format scripts/ with Biome
+    deps: [bun:install]
+    cmds:
+      - bun run fmt
+
+  scripts:lint:
+    desc: "Format check, lint (Biome) and type check (tsc) of scripts/"
+    deps: [bun:install]
+    cmds:
+      - bun run lint
+
+  test:scripts:
+    desc: Unit tests of scripts/ (bun test; task test:scripts -- scripts/verify-claim_test.ts for one file)
+    deps: [bun:install]
+    cmds:
+      - bun test {{.CLI_ARGS | default "scripts"}}
 
   mise:doctor:
     desc: Run mise diagnostics
@@ -71,43 +102,51 @@ tasks:
 
   localdev:kind:
     desc: Create the Kind cluster (Cilium CNI, registry pull-through cache, localdev fakes); idempotent
+    deps: [bun:install]
     cmds:
-      - deno run --allow-net --allow-run --allow-env --allow-read --allow-write scripts/localdev-kind.ts up {{.CLI_ARGS}}
+      - bun scripts/localdev-kind.ts up {{.CLI_ARGS}}
 
   localdev:fakes:
     desc: (Re)apply the localdev fakes in localdev/fakes (StorageClass aliases, seeded Secrets, OnePasswordItem CRD)
+    deps: [bun:install]
     cmds:
-      - deno run --allow-net --allow-run --allow-env --allow-read --allow-write scripts/localdev-kind.ts fakes {{.CLI_ARGS}}
+      - bun scripts/localdev-kind.ts fakes {{.CLI_ARGS}}
 
   localdev:registry:
     desc: Start the registry pull-through caches used by Kind (task localdev:registry -- down|status)
+    deps: [bun:install]
     cmds:
-      - deno run --allow-net --allow-run --allow-env --allow-read --allow-write scripts/localdev-kind.ts registry {{.CLI_ARGS | default "up"}}
+      - bun scripts/localdev-kind.ts registry {{.CLI_ARGS | default "up"}}
 
   localdev:argocd:
     desc: "Install the Prometheus operator CRDs and ArgoCD into Kind (chart versions from configuration/versions.yaml, health Lua from charts/bootstrap/files/health) and apply the root Application at the PR head (-- --revision <ref> or LOCALDEV_REVISION; default: the upstream branch of HEAD, else main)"
+    deps: [bun:install]
     cmds:
-      - deno run --allow-net --allow-run --allow-env --allow-read --allow-write scripts/localdev-argocd.ts install {{.CLI_ARGS}}
+      - bun scripts/localdev-argocd.ts install {{.CLI_ARGS}}
 
   localdev:sync:
     desc: Sync every Application from the working tree (argocd app sync --local), wave by wave (task localdev:sync -- --warm for bootstrap+addons only)
+    deps: [bun:install]
     cmds:
-      - deno run --allow-net --allow-run --allow-env --allow-read --allow-write scripts/localdev-argocd.ts sync {{.CLI_ARGS}}
+      - bun scripts/localdev-argocd.ts sync {{.CLI_ARGS}}
 
   localdev:wait:
     desc: Block until every Application is Healthy with a succeeded sync; dumps conditions, events and pod logs on failure
+    deps: [bun:install]
     cmds:
-      - deno run --allow-net --allow-run --allow-env --allow-read --allow-write scripts/localdev-argocd.ts wait {{.CLI_ARGS}}
+      - bun scripts/localdev-argocd.ts wait {{.CLI_ARGS}}
 
   localdev:diagnose:
     desc: Print Application conditions, unhealthy resources, events and failing pod logs
+    deps: [bun:install]
     cmds:
-      - deno run --allow-net --allow-run --allow-env --allow-read --allow-write scripts/localdev-argocd.ts diagnose {{.CLI_ARGS}}
+      - bun scripts/localdev-argocd.ts diagnose {{.CLI_ARGS}}
 
   localdev:report:
     desc: "Markdown report of the Kind loop (Application table, level-2 summary, argocd app diff --revision <base> of every git-path app; -- --base <ref> or LOCALDEV_BASE, default main); tilt-ci.yml posts it on PRs"
+    deps: [bun:install]
     cmds:
-      - deno run --allow-net --allow-run --allow-env --allow-read --allow-write scripts/localdev-argocd.ts report {{.CLI_ARGS}}
+      - bun scripts/localdev-argocd.ts report {{.CLI_ARGS}}
 
   localdev:ui:
     desc: "ArgoCD UI at http://localhost:8080 via kubectl port-forward (Docker Desktop cannot deliver the NodePort through Cilium; admin password: task k8s:argocd-password)"
@@ -121,10 +160,11 @@ tasks:
 
   localdev:warm:
     desc: "Warm cluster: Kind + registry cache + ArgoCD + bootstrap/addons synced (operators and CRDs), applications left for localdev:sync"
+    deps: [bun:install]
     cmds:
       - task: localdev:kind
       - task: localdev:argocd
-      - deno run --allow-net --allow-run --allow-env --allow-read --allow-write scripts/localdev-argocd.ts sync --warm
+      - bun scripts/localdev-argocd.ts sync --warm
 
   localdev:ci:
     desc: "Non-interactive full loop (what tilt-ci.yml runs): kind -> argocd -> sync -> wait -> e2e"
@@ -149,9 +189,10 @@ tasks:
 
   localdev:down:
     desc: Tear down the Kind cluster (registry caches are kept; task localdev:registry -- down removes them)
+    deps: [bun:install]
     cmds:
       - tilt down --file localdev/Tiltfile || true
-      - deno run --allow-net --allow-run --allow-env --allow-read --allow-write scripts/localdev-kind.ts down {{.CLI_ARGS}}
+      - bun scripts/localdev-kind.ts down {{.CLI_ARGS}}
 
   localdev:reset:
     desc: Reset local environment (full teardown + recreate)
@@ -397,43 +438,51 @@ tasks:
 
   truenas:fix-nfs-shares:
     desc: Update existing NFS shares to use mapall (fixes PVC permissions)
+    deps: [bun:install]
     cmds:
-      - op run --env-file={{.ROOT_DIR}}/.env.op -- deno run --allow-net --allow-env --allow-read scripts/truenas-nfs-mapall.ts --all
+      - op run --env-file={{.ROOT_DIR}}/.env.op -- bun scripts/truenas-nfs-mapall.ts --all
 
   truenas:fix-nfs-shares:dry-run:
     desc: Preview NFS share mapall updates (dry run)
+    deps: [bun:install]
     cmds:
-      - op run --env-file={{.ROOT_DIR}}/.env.op -- deno run --allow-net --allow-env --allow-read scripts/truenas-nfs-mapall.ts --all --dry-run
+      - op run --env-file={{.ROOT_DIR}}/.env.op -- bun scripts/truenas-nfs-mapall.ts --all --dry-run
 
   truenas:fix-k8s-volumes:
     desc: Fix existing k8s volume permissions and NFS shares to apps:users (568:100)
+    deps: [bun:install]
     cmds:
-      - op run --env-file={{.ROOT_DIR}}/.env.op -- deno run --allow-net --allow-env --allow-read scripts/truenas-nfs-mapall.ts --fix-permissions
+      - op run --env-file={{.ROOT_DIR}}/.env.op -- bun scripts/truenas-nfs-mapall.ts --fix-permissions
 
   truenas:fix-k8s-volumes:dry-run:
     desc: Preview k8s volume permission and NFS share fixes (dry run)
+    deps: [bun:install]
     cmds:
-      - op run --env-file={{.ROOT_DIR}}/.env.op -- deno run --allow-net --allow-env --allow-read scripts/truenas-nfs-mapall.ts --fix-permissions --dry-run
+      - op run --env-file={{.ROOT_DIR}}/.env.op -- bun scripts/truenas-nfs-mapall.ts --fix-permissions --dry-run
 
   truenas:pvc-cleanup:
     desc: Clean up orphaned TrueNAS datasets not in use by Kubernetes PVCs
+    deps: [bun:install]
     cmds:
-      - op run --env-file={{.ROOT_DIR}}/.env.op -- deno run --allow-net --allow-env --allow-read --allow-run scripts/truenas-pvc-cleanup.ts --delete
+      - op run --env-file={{.ROOT_DIR}}/.env.op -- bun scripts/truenas-pvc-cleanup.ts --delete
 
   truenas:pvc-cleanup:dry-run:
     desc: Preview orphaned TrueNAS dataset cleanup (no changes)
+    deps: [bun:install]
     cmds:
-      - op run --env-file={{.ROOT_DIR}}/.env.op -- deno run --allow-net --allow-env --allow-read --allow-run scripts/truenas-pvc-cleanup.ts
+      - op run --env-file={{.ROOT_DIR}}/.env.op -- bun scripts/truenas-pvc-cleanup.ts
 
   truenas:iscsi-migrate:
     desc: Migrate iSCSI volumes to deterministic PV naming
+    deps: [bun:install]
     cmds:
-      - op run --env-file={{.ROOT_DIR}}/.env.op -- deno run --allow-net --allow-env --allow-read --allow-run scripts/truenas-iscsi-migrate.ts --execute
+      - op run --env-file={{.ROOT_DIR}}/.env.op -- bun scripts/truenas-iscsi-migrate.ts --execute
 
   truenas:iscsi-migrate:dry-run:
     desc: Preview iSCSI volume migration (no changes)
+    deps: [bun:install]
     cmds:
-      - op run --env-file={{.ROOT_DIR}}/.env.op -- deno run --allow-net --allow-env --allow-read --allow-run scripts/truenas-iscsi-migrate.ts
+      - op run --env-file={{.ROOT_DIR}}/.env.op -- bun scripts/truenas-iscsi-migrate.ts
 
   # ==========================================================================
   # Terragrunt / Terraform
@@ -685,8 +734,9 @@ tasks:
 
   gpu:toggle-test:
     desc: Render charts for GPU_VENDOR=none|nvidia|intel and assert TGL-01..TGL-04 (nvidia compares against tests/snapshots/homelab)
+    deps: [bun:install]
     cmds:
-      - deno run --allow-net --allow-run --allow-env --allow-read --allow-write scripts/toggle-test.ts {{.CLI_ARGS}}
+      - bun scripts/toggle-test.ts {{.CLI_ARGS}}
 
   # ==========================================================================
   # Verification (level 0: static, cluster-free, PII-free) — see docs/runbooks/verification.md
@@ -720,9 +770,10 @@ tasks:
 
   test:policy:
     desc: Run conftest unit tests and assert every negative fixture fails as intended
+    deps: [bun:install]
     cmds:
       - conftest verify -p tests/policy
-      - deno run --allow-read --allow-run --allow-env scripts/policy-test.ts {{.CLI_ARGS}}
+      - bun scripts/policy-test.ts {{.CLI_ARGS}}
 
   test:e2e:
     desc: Declarative Kind e2e tests (chainsaw) against the running localdev cluster (task test:e2e -- --test-dir tests/e2e/plex)
@@ -731,13 +782,15 @@ tasks:
 
   test:health:
     desc: Exercise every ArgoCD health Lua in charts/bootstrap/files/health against the fixtures in tests/health
+    deps: [bun:install]
     cmds:
-      - deno run --allow-read --allow-run --allow-env --allow-write scripts/health-test.ts {{.CLI_ARGS}}
+      - bun scripts/health-test.ts {{.CLI_ARGS}}
 
   test:cmp-parity:
     desc: Prove the pinned homelab-cmp image matches `homelab config export` from source (needs Docker)
+    deps: [bun:install]
     cmds:
-      - deno run --allow-net --allow-run --allow-env --allow-read --allow-write scripts/cmp-parity-test.ts {{.CLI_ARGS}}
+      - bun scripts/cmp-parity-test.ts {{.CLI_ARGS}}
 
   test:config:
     desc: Config-system contract tests (templates <-> schema <-> versions.yaml)
@@ -751,13 +804,15 @@ tasks:
 
   schemas:vendor:
     desc: Regenerate tests/schemas from the chart versions pinned in configuration/versions.yaml
+    deps: [bun:install]
     cmds:
-      - deno run --allow-net --allow-run --allow-env --allow-read --allow-write scripts/crd-schemas-vendor.ts {{.CLI_ARGS}}
+      - bun scripts/crd-schemas-vendor.ts {{.CLI_ARGS}}
 
   schemas:check:
     desc: Fail if tests/schemas is stale relative to configuration/versions.yaml
+    deps: [bun:install]
     cmds:
-      - deno run --allow-net --allow-run --allow-env --allow-read --allow-write scripts/crd-schemas-vendor.ts --check
+      - bun scripts/crd-schemas-vendor.ts --check
 
   verify:upgrade:
     desc: Render every upstream chart at a base ref and at the working tree and diff the manifests (task verify:upgrade -- --base origin/main)
@@ -771,9 +826,10 @@ tasks:
 
   verify:claim:
     desc: Print the level-0 verification claim block for a PR body (CI re-runs level 0 and compares it)
+    deps: [bun:install]
     silent: true
     cmds:
-      - go run ./cmd/homelab verify all --level 0 --json {{.CLI_ARGS}} | deno run --allow-read scripts/verify-claim.ts render
+      - go run ./cmd/homelab verify all --level 0 --json {{.CLI_ARGS}} | bun scripts/verify-claim.ts render
 
   test:drill:
     desc: CloudNativePG backup/restore drill (chainsaw, tests/drills) against the running Kind loop
@@ -783,10 +839,11 @@ tasks:
 
   drill:restore:
     desc: "Restore drill end to end (what restore-drill.yml runs weekly): Kind -> ArgoCD -> operators (sync --warm) -> tests/drills"
+    deps: [bun:install]
     cmds:
       - task: localdev:kind
       - task: localdev:argocd
-      - deno run --allow-net --allow-run --allow-env --allow-read --allow-write scripts/localdev-argocd.ts sync --warm
+      - bun scripts/localdev-argocd.ts sync --warm
       - task: test:drill
 
   scaffold:
@@ -796,8 +853,9 @@ tasks:
 
   test:scaffold:
     desc: Scaffold one app per pattern into a temporary copy of the repo and prove level 0 passes there
+    deps: [bun:install]
     cmds:
-      - deno run --allow-read --allow-write --allow-run --allow-env scripts/scaffold-selftest.ts {{.CLI_ARGS}}
+      - bun scripts/scaffold-selftest.ts {{.CLI_ARGS}}
 
   # ==========================================================================
   # Kubernetes Operations
@@ -818,53 +876,63 @@ tasks:
 
   prod:kubeconfig:
     desc: Write ~/.kube/homelab-readonly.yaml (read-only ServiceAccount token from 1Password via the Tailscale API server proxy)
+    deps: [bun:install]
     cmds:
-      - deno run --allow-net --allow-run --allow-env --allow-read --allow-write scripts/prod-readonly.ts kubeconfig {{.CLI_ARGS}}
+      - bun scripts/prod-readonly.ts kubeconfig {{.CLI_ARGS}}
 
   prod:status:
     desc: Read-only ArgoCD Application table of the homelab cluster (context homelab-readonly)
+    deps: [bun:install]
     cmds:
-      - deno run --allow-net --allow-run --allow-env --allow-read --allow-write scripts/prod-readonly.ts status {{.CLI_ARGS}}
+      - bun scripts/prod-readonly.ts status {{.CLI_ARGS}}
 
   prod:diff:
     desc: Read-only argocd app diff against the homelab ArgoCD (read-only agent account; task prod:diff -- <app>)
+    deps: [bun:install]
     cmds:
-      - deno run --allow-net --allow-run --allow-env --allow-read --allow-write scripts/prod-readonly.ts diff {{.CLI_ARGS}}
+      - bun scripts/prod-readonly.ts diff {{.CLI_ARGS}}
 
   apiserver:probe:
     desc: Read-only availability probe of the Kubernetes API (VIP and each control plane side by side; docs/runbooks/control-plane-storage.md)
+    deps: [bun:install]
     cmds:
-      - deno run --allow-net --allow-env --allow-read --allow-write scripts/apiserver-stress.ts probe {{.CLI_ARGS}}
+      - bun --experimental-http2-fetch scripts/apiserver-stress.ts probe {{.CLI_ARGS}}
 
   apiserver:stress:
     desc: Read-only GET load ramp against the Kubernetes API with a 1/s probe alongside (task apiserver:stress -- --concurrency 8,32,64)
+    deps: [bun:install]
     cmds:
-      - deno run --allow-net --allow-env --allow-read --allow-write scripts/apiserver-stress.ts stress {{.CLI_ARGS}}
+      - bun --experimental-http2-fetch scripts/apiserver-stress.ts stress {{.CLI_ARGS}}
 
   cp:migrate:status:
     desc: Read-only state of the control-plane disk migration (which nodes are still on vm-storage; docs/runbooks/control-plane-storage.md)
+    deps: [bun:install]
     cmds:
-      - deno run --allow-net --allow-run --allow-env --allow-read --allow-write scripts/cp-storage-migrate.ts status {{.CLI_ARGS}}
+      - bun scripts/cp-storage-migrate.ts status {{.CLI_ARGS}}
 
   cp:migrate:
     desc: Move the control-plane system disks to cp-storage one node at a time (task cp:migrate -- --dry-run, then -- --yes; docs/runbooks/control-plane-storage.md)
+    deps: [bun:install]
     cmds:
-      - deno run --allow-net --allow-run --allow-env --allow-read --allow-write scripts/cp-storage-migrate.ts migrate {{.CLI_ARGS}}
+      - bun scripts/cp-storage-migrate.ts migrate {{.CLI_ARGS}}
 
   tailscale:dns:status:
     desc: Tailnet DNS settings (MagicDNS, global nameservers, split DNS) through the Tailscale API (docs/runbooks/tailscale-dns.md)
+    deps: [bun:install]
     cmds:
-      - deno run --allow-net --allow-run --allow-env --allow-read scripts/tailscale-dns.ts status {{.CLI_ARGS}}
+      - bun scripts/tailscale-dns.ts status {{.CLI_ARGS}}
 
   tailscale:dns:apply:
     desc: Split DNS for DOMAIN -> GATEWAY_IP on the tailnet so private hostnames resolve off-LAN (task tailscale:dns:apply -- --dry-run)
+    deps: [bun:install]
     cmds:
-      - deno run --allow-net --allow-run --allow-env --allow-read scripts/tailscale-dns.ts apply {{.CLI_ARGS}}
+      - bun scripts/tailscale-dns.ts apply {{.CLI_ARGS}}
 
   tailscale:dns:remove:
     desc: Clear the tailnet split DNS entry for DOMAIN (task tailscale:dns:remove -- --dry-run)
+    deps: [bun:install]
     cmds:
-      - deno run --allow-net --allow-run --allow-env --allow-read scripts/tailscale-dns.ts remove {{.CLI_ARGS}}
+      - bun scripts/tailscale-dns.ts remove {{.CLI_ARGS}}
 
   # ==========================================================================
   # CI/CD Testing
@@ -881,6 +949,8 @@ tasks:
     desc: Run all non-interactive tests (no cluster required)
     cmds:
       - task: ci:lint
+      - task: scripts:lint
+      - task: test:scripts
       - task: tf:validate
       - task: test:go
       - task: verify
@@ -1003,13 +1073,15 @@ tasks:
 
   config:export:hook:
     desc: Re-export localdev values and the gitignored homelab outputs (used by pre-commit)
+    deps: [bun:install]
     cmds:
-      - deno run --allow-read --allow-write --allow-run --allow-env scripts/config-export-hook.ts
+      - bun scripts/config-export-hook.ts
 
   cmp:bump:
     desc: Manually bump the CMP image patch version
+    deps: [bun:install]
     cmds:
-      - deno run --allow-read --allow-write --allow-run scripts/cmp-version-bump.ts --force
+      - bun scripts/cmp-version-bump.ts --force
 
   # ==========================================================================
   # Utilities
@@ -1043,93 +1115,9 @@ tasks:
 
   docs:check:
     desc: "Numbers in readme.md, docs/ and .github/homelab.svg match the repo (versions, counts, ingress inventory); -- --fix rewrites the generated regions"
+    deps: [bun:install]
     cmds:
-      - deno run --allow-read --allow-write --allow-env scripts/docs-check.ts {{.CLI_ARGS}}
-
-  # ==========================================================================
-  # Phase 1 Hardware Spike (SPK-02..SPK-05 Proxmox evidence capture)
-  # ==========================================================================
-
-  spk:capture:
-    desc: "Phase 1 hardware spike — capture all Proxmox-side evidence in one SSH session (SPK-02, SPK-03, SPK-04, SPK-05)"
-    vars:
-      PROXMOX_HOST: '{{.PROXMOX_HOST | default (print "root@" .PROXMOX_IP)}}'
-      OUT: ".planning/phases/01-hardware-spike-discovery/findings/proxmox-ssh-session.log"
-    cmds:
-      - mkdir -p $(dirname {{.OUT}})
-      - |
-        ssh {{.PROXMOX_HOST}} 'bash -s' <<'EOF' | tee {{.OUT}}
-        set -euo pipefail
-        echo "=== SPK-05: kernel cmdline ==="
-        cat /proc/cmdline
-        echo
-        echo "=== SPK-02: B50 PCI ID ==="
-        lspci -nnk | grep -A 3 -iE 'intel.*(arc|e212)'
-        echo
-        BUS=$(lspci -nn | grep -iE 'intel.*(arc|e212)' | awk '{print $1}' | head -1)
-        echo "=== Captured bus: $BUS ==="
-        echo
-        echo "=== SPK-04: subsystem ID + driver binding ==="
-        lspci -vmmnn -s "$BUS"
-        lspci -nnk -s "$BUS"
-        echo
-        echo "=== SPK-03: IOMMU group + isolation ==="
-        GROUP=$(basename "$(readlink /sys/bus/pci/devices/0000:${BUS}/iommu_group)")
-        echo "IOMMU group: $GROUP"
-        echo "Devices in group $GROUP:"
-        for dev in /sys/kernel/iommu_groups/$GROUP/devices/*; do
-          lspci -nns "$(basename "$dev")"
-        done
-        echo
-        echo "=== SPK-05 (bonus): dmesg IOMMU ==="
-        dmesg | grep -iE 'DMAR.*IOMMU enabled|AMD-Vi.*IOMMU|AMD-Vi.*Using global' | head -5 || true
-        EOF
-      - echo "Wave B captured to {{.OUT}}. Next — author per-SPK findings files from this transcript (see Plan 04)."
-
-  spk:verify:
-    desc: "Phase 1 hardware spike — verify all 8 SPK findings files exist with required extracted-value fields (from 01-VALIDATION.md)"
-    vars:
-      F: ".planning/phases/01-hardware-spike-discovery/findings"
-    cmds:
-      - |
-        set -e
-        pass=0
-        fail=0
-        check() {
-          local id="$1"; shift
-          if "$@" >/dev/null 2>&1; then
-            echo "PASS  $id"
-            pass=$((pass+1))
-          else
-            echo "FAIL  $id"
-            fail=$((fail+1))
-          fi
-        }
-        # --- Wave A (desk research) ---
-        check 1-A-02 test -f {{.F}}/spk-01-talos-kernel.md
-        check 1-A-01 grep -E 'Linux 6\.(1[2-9]|[2-9][0-9])' {{.F}}/spk-01-talos-kernel.md
-        check 1-A-03 grep -E '^- digest:.*sha256' {{.F}}/spk-06-plex-libva.md
-        check 1-A-04 grep -E '(iHD_drv_video\.so|FALLBACK)' {{.F}}/spk-06-plex-libva.md
-        check 1-A-05 grep -E '(pms_version: 1\.[4-9][3-9]|FALLBACK)' {{.F}}/spk-06-plex-libva.md
-        # Row 1-A-06 — NFD default PCI label (CORRECTED from 01-VALIDATION.md).
-        # Original row specified 'pci-8086.present' (vendor-only). Plan 01-02
-        # proved the actual NFD default is 'pci-0300_8086.present' (class+vendor).
-        # spk-07-nfd-labels.md contains the corrected long form on line 113 under
-        # `default_label:` as the authoritative value. See 01-02-SUMMARY.md
-        # Rule 1 deviation and the findings file Interpretation block.
-        check 1-A-06 grep -E 'pci-0300_8086\.present' {{.F}}/spk-07-nfd-labels.md
-        check 1-A-07 grep -F 'compute-runtime/issues/872' {{.F}}/spk-08-compute-runtime.md
-        # --- Wave B (Proxmox shell — populated by Plan 04) ---
-        check 1-B-01 grep -E '^- pci_bus_address:' {{.F}}/spk-02-pci-id.md
-        check 1-B-02 grep -F '8086:e212' {{.F}}/spk-02-pci-id.md
-        check 1-B-03 grep -E '^- iommu_group:' {{.F}}/spk-03-iommu-group.md
-        check 1-B-04 grep -E '^\*\*Status:\*\* (VERIFIED|VERIFIED-WITH-FALLBACK|BLOCKED)$' {{.F}}/spk-03-iommu-group.md
-        check 1-B-05 grep -E '^- subsystem_id:' {{.F}}/spk-04-subsystem-id.md
-        check 1-B-06 grep -iE 'vfio-pci|kernel driver' {{.F}}/spk-04-subsystem-id.md
-        check 1-B-07 grep -iE 'intel_iommu=on|AMD-Vi.*enabled|AMD-Vi.*Using global' {{.F}}/spk-05-iommu-cmdline.md
-        echo
-        echo "Passed: $pass  Failed: $fail"
-        exit $fail
+      - bun scripts/docs-check.ts {{.CLI_ARGS}}
 
   default:
     desc: Show available tasks

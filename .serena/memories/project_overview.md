@@ -12,7 +12,7 @@ GitOps-driven homelab infrastructure with ArgoCD App-of-Apps pattern on Talos Li
 - **Networking**: Cilium with BGP peering to UniFi router
 - **Storage**: Democratic-CSI with TrueNAS NFS
 - **Backend Code**: Go 1.19 (cobra CLI tool)
-- **Scripting**: TypeScript only (Deno runtime, no Bash/Python)
+- **Scripting**: TypeScript only (Bun runtime, no Bash/Python)
 - **Task Runner**: Taskfile
 - **Database**: CloudNativePG (PostgreSQL operator)
 - **Monitoring**: kube-prometheus-stack + Grafana
@@ -22,7 +22,7 @@ GitOps-driven homelab infrastructure with ArgoCD App-of-Apps pattern on Talos Li
 ```
 homelab/
 ├── charts/           # Helm charts (gitops, addons, applications, secrets)
-├── scripts/          # TypeScript automation (Deno)
+├── scripts/          # TypeScript automation (Bun)
 ├── terragrunt/       # Terraform modules + environments (homelab, localdev)
 ├── localdev/         # Kind + Tilt configuration
 ├── talos/            # Talos Linux config + image

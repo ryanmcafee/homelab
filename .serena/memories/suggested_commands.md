@@ -50,10 +50,12 @@ Hooks include: helm-lint, helm-template, kubeconform, yamllint, terraform_fmt, t
 - `./bin/homelab bootstrap` - Bootstrap homelab
 - `./bin/homelab validate` - Validate prerequisites
 
-## TypeScript Scripts (Deno)
-All scripts in `scripts/` use Deno with explicit permissions:
+## TypeScript Scripts (Bun)
+All scripts in `scripts/` run on Bun, normally through their `task` entry:
 ```
-deno run --allow-net --allow-run --allow-env --allow-read scripts/<script>.ts
+bun scripts/<script>.ts
+task test:scripts     # bun test scripts
+task scripts:lint     # Biome format check + lint, tsc type check
 ```
 
 ## CLI Tool Preferences (macOS/Darwin)

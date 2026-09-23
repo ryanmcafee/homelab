@@ -1,19 +1,20 @@
-#!/usr/bin/env -S deno test
+#!/usr/bin/env -S bun test
 /**
  * Unit tests for the pure logic in scaffold-selftest.ts: result
  * classification against the baseline, output parsing, argument parsing and
  * the report. The end-to-end run (copy, build, scaffold, level 0) is
  * `task test:scaffold` itself.
  *
- *   deno test scripts/scaffold-selftest_test.ts
+ *   bun test scripts/scaffold-selftest_test.ts
  */
 
+import { test } from "bun:test";
 import {
   assert,
   assertEquals,
   assertStringIncludes,
   assertThrows,
-} from "jsr:@std/assert@^1";
+} from "./lib/assert.ts";
 import {
   casePassed,
   type CaseResult,
@@ -41,35 +42,38 @@ const fail = (name: string, ...findings: string[]): Check => ({
 });
 const skip = (name: string): Check => ({ name, status: "skip" });
 
-Deno.test("classify: a check failing only after the scaffold is new", () => {
+test("classify: a check failing only after the scaffold is new", () => {
   const c = classify(
     [pass("render/homelab/addons"), skip("gitops/homelab/ssa")],
     [fail("render/homelab/addons", "x"), fail("gitops/homelab/ssa", "y")],
   );
-  assertEquals(c.newFailures.map((x) => x.name), [
-    "render/homelab/addons",
-    "gitops/homelab/ssa",
-  ]);
+  assertEquals(
+    c.newFailures.map((x) => x.name),
+    ["render/homelab/addons", "gitops/homelab/ssa"],
+  );
   assertEquals(c.preExisting, []);
   assertEquals(c.worsened, []);
 });
 
-Deno.test("classify: a check absent from the baseline and failing is new", () => {
+test("classify: a check absent from the baseline and failing is new", () => {
   const c = classify([], [fail("snapshot/homelab/new-app-config")]);
   assertEquals(c.newFailures.length, 1);
 });
 
-Deno.test("classify: failing in both with the same findings is pre-existing", () => {
+test("classify: failing in both with the same findings is pre-existing", () => {
   const c = classify(
     [fail("snapshot/homelab/gitops", "a", "b")],
     [fail("snapshot/homelab/gitops", "b", "a")],
   );
-  assertEquals(c.preExisting.map((x) => x.name), ["snapshot/homelab/gitops"]);
+  assertEquals(
+    c.preExisting.map((x) => x.name),
+    ["snapshot/homelab/gitops"],
+  );
   assertEquals(c.newFailures, []);
   assertEquals(c.worsened, []);
 });
 
-Deno.test("classify: failing in both with extra findings is worsened", () => {
+test("classify: failing in both with extra findings is worsened", () => {
   const c = classify(
     [fail("kubeconform/homelab", "old")],
     [fail("kubeconform/homelab", "old", "new: Widget has no schema")],
@@ -78,7 +82,7 @@ Deno.test("classify: failing in both with extra findings is worsened", () => {
   assertEquals(c.worsened[0].added, ["new: Widget has no schema"]);
 });
 
-Deno.test("classify: failing before and passing or gone after is fixed", () => {
+test("classify: failing before and passing or gone after is fixed", () => {
   const c = classify(
     [fail("snapshot/homelab/addons"), fail("snapshot/localdev/gone")],
     [pass("snapshot/homelab/addons")],
@@ -103,43 +107,49 @@ function result(over: Partial<CaseResult>): CaseResult {
   };
 }
 
-Deno.test("casePassed: clean case passes, pre-existing failures do not count", () => {
+test("casePassed: clean case passes, pre-existing failures do not count", () => {
   assert(casePassed(result({})));
   assert(
-    casePassed(result({
-      classification: {
-        newFailures: [],
-        worsened: [],
-        preExisting: [fail("x")],
-        fixed: [],
-      },
-    })),
+    casePassed(
+      result({
+        classification: {
+          newFailures: [],
+          worsened: [],
+          preExisting: [fail("x")],
+          fixed: [],
+        },
+      }),
+    ),
   );
 });
 
-Deno.test("casePassed: scaffold errors, missing level 0, new failures and failed extras fail", () => {
+test("casePassed: scaffold errors, missing level 0, new failures and failed extras fail", () => {
   assert(!casePassed(result({ scaffoldErrors: ["exit 2"] })));
   assert(!casePassed(result({ verifyError: "no JSON" })));
   assert(!casePassed(result({ classification: undefined })));
   assert(
-    !casePassed(result({
-      classification: {
-        newFailures: [fail("a")],
-        worsened: [],
-        preExisting: [],
-        fixed: [],
-      },
-    })),
+    !casePassed(
+      result({
+        classification: {
+          newFailures: [fail("a")],
+          worsened: [],
+          preExisting: [],
+          fixed: [],
+        },
+      }),
+    ),
   );
   assert(
-    !casePassed(result({
-      classification: {
-        newFailures: [],
-        worsened: [{ check: fail("a"), added: ["z"] }],
-        preExisting: [],
-        fixed: [],
-      },
-    })),
+    !casePassed(
+      result({
+        classification: {
+          newFailures: [],
+          worsened: [{ check: fail("a"), added: ["z"] }],
+          preExisting: [],
+          fixed: [],
+        },
+      }),
+    ),
   );
   assert(
     !casePassed(
@@ -155,7 +165,7 @@ Deno.test("casePassed: scaffold errors, missing level 0, new failures and failed
   );
 });
 
-Deno.test("parseVerifyOutput: tolerates wrapper noise around the JSON", () => {
+test("parseVerifyOutput: tolerates wrapper noise around the JSON", () => {
   const r = parseVerifyOutput(
     'task: [verify] go run ...\n{"level":0,"pass":false,"checks":[{"name":"a","status":"fail"}]}\ntask: Failed\n',
   );
@@ -163,7 +173,7 @@ Deno.test("parseVerifyOutput: tolerates wrapper noise around the JSON", () => {
   assertEquals(r.checks[0].name, "a");
 });
 
-Deno.test("parseVerifyOutput: rejects output without a result", () => {
+test("parseVerifyOutput: rejects output without a result", () => {
   assertThrows(() => parseVerifyOutput("Error: boom"), Error, "no JSON object");
   assertThrows(() => parseVerifyOutput('{"level":0}'), Error, "checks");
 });
@@ -180,7 +190,7 @@ const SCAFFOLD_OUT = [
   "[OK] snapshot homelab/applications",
 ].join("\n");
 
-Deno.test("createdPaths / changedPaths parse the scaffolder output", () => {
+test("createdPaths / changedPaths parse the scaffolder output", () => {
   assertEquals(createdPaths(SCAFFOLD_OUT), [
     "charts/applications/templates/x.yaml",
     "charts/x-config/values-homelab.yaml",
@@ -191,7 +201,7 @@ Deno.test("createdPaths / changedPaths parse the scaffolder output", () => {
   assert(changedPaths(SCAFFOLD_OUT).includes(".github/renovate.json5"));
 });
 
-Deno.test("target filters pick the right files", () => {
+test("target filters pick the right files", () => {
   const paths = changedPaths(SCAFFOLD_OUT);
   assertEquals(yamllintTargets(createdPaths(SCAFFOLD_OUT)), [
     "charts/x-config/values-homelab.yaml",
@@ -205,7 +215,7 @@ Deno.test("target filters pick the right files", () => {
   ]);
 });
 
-Deno.test("parseArgs: flags, lists and errors", () => {
+test("parseArgs: flags, lists and errors", () => {
   assertEquals(parseArgs([]), {
     help: false,
     keep: false,
@@ -232,7 +242,7 @@ Deno.test("parseArgs: flags, lists and errors", () => {
   );
 });
 
-Deno.test("CASES cover every pattern once each, with unique ids", () => {
+test("CASES cover every pattern once each, with unique ids", () => {
   const ids = CASES.map((c) => c.id);
   assertEquals(new Set(ids).size, ids.length);
   for (const pattern of ["operator", "helm", "deps-main-config"]) {
@@ -246,7 +256,7 @@ Deno.test("CASES cover every pattern once each, with unique ids", () => {
   assertEquals(new Set(names).size, names.length);
 });
 
-Deno.test("renderSummary names verdicts, causes and pre-existing failures", () => {
+test("renderSummary names verdicts, causes and pre-existing failures", () => {
   const out = renderSummary([
     result({ id: "operator" }),
     result({

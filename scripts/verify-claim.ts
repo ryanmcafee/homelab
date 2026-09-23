@@ -1,4 +1,4 @@
-#!/usr/bin/env -S deno run --allow-read --allow-env=PR_BODY
+#!/usr/bin/env bun
 
 /**
  * verify-claim.ts
@@ -36,13 +36,15 @@
  *
  * Usage:
  *   task verify:claim
- *   go run ./cmd/homelab verify all --level 0 --json | deno run --allow-read scripts/verify-claim.ts render
- *   deno run --allow-read --allow-env=PR_BODY scripts/verify-claim.ts compare --actual verify-level0.json
- *   deno run --allow-read scripts/verify-claim.ts compare --actual verify-level0.json --body-file body.md
+ *   go run ./cmd/homelab verify all --level 0 --json | bun scripts/verify-claim.ts render
+ *   bun scripts/verify-claim.ts compare --actual verify-level0.json
+ *   bun scripts/verify-claim.ts compare --actual verify-level0.json --body-file body.md
  *
  * Exit codes: 0 = ok / claim matches; 1 = claim missing or mismatched, bad
  * input; 2 = usage error.
  */
+
+import { readFile } from "node:fs/promises";
 
 // ============================================================================
 // Logging (stderr only: stdout carries the block or the markdown verdict)
@@ -187,19 +189,22 @@ export function toClaim(result: VerifyResult): Claim {
  */
 export function renderClaimBlock(claim: Claim): string {
   const names = Object.keys(claim.checks).sort();
-  const entries = names.map((n, i) =>
-    `${JSON.stringify(n)}:${JSON.stringify(claim.checks[n])}${
-      i < names.length - 1 ? "," : ""
-    }`
+  const entries = names.map(
+    (n, i) =>
+      `${JSON.stringify(n)}:${JSON.stringify(claim.checks[n])}${
+        i < names.length - 1 ? "," : ""
+      }`,
   );
-  return [
-    MARKER,
-    "```json",
-    `{"level":${claim.level},"pass":${claim.pass},"checks":{`,
-    ...entries,
-    "}}",
-    "```",
-  ].join("\n") + "\n";
+  return (
+    [
+      MARKER,
+      "```json",
+      `{"level":${claim.level},"pass":${claim.pass},"checks":{`,
+      ...entries,
+      "}}",
+      "```",
+    ].join("\n") + "\n"
+  );
 }
 
 function parseClaim(text: string): Claim {
@@ -216,14 +221,16 @@ function parseClaim(text: string): Claim {
   if (typeof r.level !== "number") throw new Error("`level` is missing");
   if (typeof r.pass !== "boolean") throw new Error("`pass` is missing");
   if (
-    typeof r.checks !== "object" || r.checks === null || Array.isArray(r.checks)
+    typeof r.checks !== "object" ||
+    r.checks === null ||
+    Array.isArray(r.checks)
   ) {
     throw new Error("`checks` must be an object of name -> status");
   }
   const checks: Record<string, Status> = {};
-  for (
-    const [name, status] of Object.entries(r.checks as Record<string, unknown>)
-  ) {
+  for (const [name, status] of Object.entries(
+    r.checks as Record<string, unknown>,
+  )) {
     if (!isStatus(status)) {
       throw new Error(`check ${name}: status ${JSON.stringify(status)}`);
     }
@@ -318,7 +325,9 @@ export function compareClaim(claim: Claim, actual: VerifyResult): Comparison {
     if (claimed === got) continue;
     const d = { name, claimed, actual: got };
     if (
-      claimed === "absent" || got === "absent" || claimed === "fail" ||
+      claimed === "absent" ||
+      got === "absent" ||
+      claimed === "fail" ||
       got === "fail"
     ) {
       failures.push(d);
@@ -460,9 +469,11 @@ export function renderComparison(
       "",
       "| Check | Claimed | CI |",
       "|---|---|---|",
-      ...cmp.warnings.slice(0, MAX_ROWS).map((d) =>
-        `| \`${d.name}\` | ${side(d.claimed)} | ${side(d.actual)} |`
-      ),
+      ...cmp.warnings
+        .slice(0, MAX_ROWS)
+        .map(
+          (d) => `| \`${d.name}\` | ${side(d.claimed)} | ${side(d.actual)} |`,
+        ),
       "",
       "</details>",
     );
@@ -474,8 +485,7 @@ export function renderComparison(
 // ============================================================================
 // CLI
 // ============================================================================
-const HELP =
-  `verify-claim.ts: the level-0 claim in a PR description, rendered and checked
+const HELP = `verify-claim.ts: the level-0 claim in a PR description, rendered and checked
 
 Usage:
   verify-claim.ts render [--input <file>]
@@ -543,12 +553,12 @@ export function parseArgs(argv: string[]): Args {
 }
 
 async function readStdin(): Promise<string> {
-  return await new Response(Deno.stdin.readable).text();
+  return await Bun.stdin.text();
 }
 
 async function cmdRender(args: Args): Promise<number> {
   const text = args.input
-    ? await Deno.readTextFile(args.input)
+    ? await readFile(args.input, "utf8")
     : await readStdin();
   let result: VerifyResult;
   try {
@@ -572,13 +582,13 @@ async function cmdRender(args: Args): Promise<number> {
       `level 0 passes (${n} checks); paste the block above into the PR description`,
     );
   } else {
-    const failed = result.checks.filter((c) => c.status === "fail").map((c) =>
-      c.name
-    );
+    const failed = result.checks
+      .filter((c) => c.status === "fail")
+      .map((c) => c.name);
     log.warn(
-      `level 0 FAILS (${failed.length} of ${n}): ${
-        failed.slice(0, 5).join(", ")
-      }${failed.length > 5 ? ", ..." : ""}`,
+      `level 0 FAILS (${failed.length} of ${n}): ${failed
+        .slice(0, 5)
+        .join(", ")}${failed.length > 5 ? ", ..." : ""}`,
     );
     log.warn(
       "the block records that honestly; fix the findings (`task verify:text`) before marking the PR ready",
@@ -590,9 +600,9 @@ async function cmdRender(args: Args): Promise<number> {
 async function cmdCompare(args: Args): Promise<number> {
   let body: string;
   if (args.bodyFile) {
-    body = await Deno.readTextFile(args.bodyFile);
+    body = await readFile(args.bodyFile, "utf8");
   } else {
-    const env = Deno.env.get("PR_BODY");
+    const env = process.env.PR_BODY;
     if (env === undefined) {
       log.error("no PR body: pass --body-file <file> or set PR_BODY");
       return 2;
@@ -601,25 +611,28 @@ async function cmdCompare(args: Args): Promise<number> {
   }
   let actual: VerifyResult;
   try {
-    actual = parseVerifyResult(await Deno.readTextFile(args.actual!));
+    actual = parseVerifyResult(await readFile(args.actual!, "utf8"));
   } catch (e) {
-    console.log([
-      HEADING,
-      "",
-      `**Result:** ERROR. CI could not produce a level-0 result to compare with: ${
-        (e as Error).message
-      }.`,
-      "See the `task verify` step log of this run.",
-      "",
-    ].join("\n"));
+    console.log(
+      [
+        HEADING,
+        "",
+        `**Result:** ERROR. CI could not produce a level-0 result to compare with: ${
+          (e as Error).message
+        }.`,
+        "See the `task verify` step log of this run.",
+        "",
+      ].join("\n"),
+    );
     log.error(`--actual ${args.actual}: ${(e as Error).message}`);
     return 1;
   }
   const extracted = extractClaim(body);
   if (!extracted.claim) {
-    const reason = extracted.markers === 0
-      ? `The PR description has no \`${MARKER}\` block.`
-      : `The \`${MARKER}\` block in the PR description is unusable: ${extracted.error}.`;
+    const reason =
+      extracted.markers === 0
+        ? `The PR description has no \`${MARKER}\` block.`
+        : `The \`${MARKER}\` block in the PR description is unusable: ${extracted.error}.`;
     console.log(renderMissing(reason));
     log.error(reason);
     return 1;
@@ -641,7 +654,7 @@ async function cmdCompare(args: Args): Promise<number> {
 async function main(): Promise<number> {
   let args: Args;
   try {
-    args = parseArgs(Deno.args);
+    args = parseArgs(process.argv.slice(2));
   } catch (e) {
     if (e instanceof UsageError) {
       log.error(e.message);
@@ -662,5 +675,5 @@ async function main(): Promise<number> {
 }
 
 if (import.meta.main) {
-  Deno.exit(await main());
+  process.exit(await main());
 }

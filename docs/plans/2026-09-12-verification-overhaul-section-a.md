@@ -4,9 +4,9 @@
 
 **Goal:** Give agents and humans a `< 5 s`, cluster-free, PII-free, machine-readable verification of every chart in the repo (`task verify` → `{"level":0,"checks":[...],"pass":bool}`), covering items 1–8 of GitHub issue #261.
 
-**Architecture:** A new Go package `internal/verify` renders every chart under `charts/` for two environments (`localdev` via plain Helm values; `homelab` via the two-stage config-export → helm path using the PII-free `homelab.yaml.example`), writes `<out>/<env>/<chart>.yaml`, and runs checks over the rendered objects: `helm lint`, `kubeconform` (no `-skip`, vendored CRD schemas, cluster version from `versions.yaml`), `pluto`, a GitOps graph linter, golden-snapshot diff, and `conftest` policies. Cobra subcommands `homelab verify render|gitops|snapshot|all` expose them; `task verify` wraps `verify all --level 0`. Deno scripts vendor CRD schemas and run the CMP image parity test; Go tests enforce the config-template ↔ schema contract.
+**Architecture:** A new Go package `internal/verify` renders every chart under `charts/` for two environments (`localdev` via plain Helm values; `homelab` via the two-stage config-export → helm path using the PII-free `homelab.yaml.example`), writes `<out>/<env>/<chart>.yaml`, and runs checks over the rendered objects: `helm lint`, `kubeconform` (no `-skip`, vendored CRD schemas, cluster version from `versions.yaml`), `pluto`, a GitOps graph linter, golden-snapshot diff, and `conftest` policies. Cobra subcommands `homelab verify render|gitops|snapshot|all` expose them; `task verify` wraps `verify all --level 0`. TypeScript scripts (Bun) vendor CRD schemas and run the CMP image parity test; Go tests enforce the config-template ↔ schema contract.
 
-**Tech Stack:** Go 1.25 (cobra, yaml.v3, stdlib only), Helm 4, kubeconform 0.7, conftest (Rego), pluto, Deno 2 (TypeScript, `@std/yaml`), GitHub Actions, Taskfile, mise.
+**Tech Stack:** Go 1.25 (cobra, yaml.v3, stdlib only), Helm 4, kubeconform 0.7, conftest (Rego), pluto, Bun (TypeScript, `js-yaml`), GitHub Actions, Taskfile, mise.
 
 **Spec:** https://github.com/ryanmcafee/homelab/issues/261 — Section A, items 1–8, plus the Section-A slices of "Files to Create/Modify".
 
@@ -15,7 +15,7 @@
 - Level 0 must run with **no cluster, no network beyond kubeconform's cached core schemas, no PII**: only `configuration/environments/{localdev.yaml,homelab.yaml.example}` are read. Never read `homelab.yaml`.
 - Output contract: `{"level":0,"checks":[{"name","status":"pass|fail|skip","duration_ms","detail?","findings?"}],"pass":bool,"duration_ms"}`; exit 0 when `pass`, 1 otherwise, 2 on usage error.
 - Check names are slash-scoped and stable: `render/<env>/<chart>`, `lint/<env>/<chart>`, `kubeconform/<env>`, `pluto/<env>`, `gitops/<env>/<rule>`, `snapshot/<env>/<chart>`, `policy/<env>`.
-- Scripting is TypeScript on Deno with explicit permission flags, `--help`, and `--dry-run` where mutation happens. No Bash/Python scripts.
+- Scripting is TypeScript on Bun with `--help`, and `--dry-run` where mutation happens. No Bash/Python scripts.
 - Go: stdlib `testing`, table-driven, no testify. Tests must not need a cluster or the network. Shelling out to `helm`/`kubeconform`/`conftest`/`pluto` happens only in `internal/verify/tools.go` behind the `Runner` interface so tests can fake it.
 - Kubernetes version for schema validation comes from `configuration/versions.yaml` `tools.kubernetes` (strip leading `v`). Never hard-code.
 - No `-skip` lists anywhere (pre-commit, skill, scripts). Missing CRD schemas are failures; fix by vendoring the schema.
@@ -288,7 +288,7 @@ sources:
   - `verify`: `go run ./cmd/homelab verify all --level {{.LEVEL | default "0"}} --json {{.CLI_ARGS}}` (doc: `task verify` or `task verify LEVEL=0`).
   - `verify:text`: same without `--json`.
   - `test:snapshot`: `go run ./cmd/homelab verify snapshot {{.CLI_ARGS}}` (`task test:snapshot -- --update`).
-  - `test:policy`: `conftest verify -p tests/policy && deno run --allow-read --allow-run --allow-env scripts/policy-test.ts`.
+  - `test:policy`: `conftest verify -p tests/policy && bun scripts/policy-test.ts`.
   - `test:cmp-parity`, `test:config` (`go test ./internal/config/...`), `test:go` (`go test ./...`), `schemas:vendor`, `schemas:check`.
   - `ci:test`: `ci:lint` → `tf:validate` → `test:go` → `verify` → `test:policy` (no `localdev:up`). Section B adds `localdev:ci`.
 - [ ] `.pre-commit-config.yaml`: replace `helm-template-*` and `kubeconform-*` hooks with one `verify-level-0` hook (`task verify`, `pass_filenames: false`, `files: ^(charts/|configuration/|tests/(schemas|policy|gitops|snapshots)/)`). Keep `helm-lint`? No — lint is inside `verify`; remove to avoid double work.

@@ -169,7 +169,7 @@ snapshot check fails. Three files name the helm version and must agree:
 | `mise.toml` | `helm` | the local renderer |
 | `mise.toml` | `helm` (every CI job installs it through `jdx/mise-action`) | the CI renderer |
 
-`kubeconform`, `conftest`, `pluto` and `deno` track `latest` in `mise.toml`; their output
+`kubeconform`, `conftest`, `pluto` and `bun` track `latest` in `mise.toml`; their output
 is not byte-compared, so a minor difference between a workstation and CI is tolerable. The
 CI pins for those live in `verify.yml`, each with a Renovate marker comment so bumps land
 there too.
@@ -335,7 +335,7 @@ Hook notes:
 - Only `charts/` and `configuration/` are watched. Edits to `tests/**`, `localdev/**` or
   `internal/verify/**` change level 0 too; run `task verify:text` after them.
 - The root is `$CLAUDE_PROJECT_DIR`: launch Claude Code from the worktree you edit, or edits in
-  another worktree are not verified. The hook needs `deno` on `PATH`; it adds the mise shims
+  another worktree are not verified. The hook needs `bun` on `PATH`; it adds the mise shims
   to the child `PATH` itself, so `go`, `helm`, `kubeconform`, `conftest` and `pluto` resolve
   (in a fresh worktree run `mise trust && mise install` first, or the hook reports mise's
   "not trusted" error).

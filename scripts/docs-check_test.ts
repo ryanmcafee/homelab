@@ -1,18 +1,19 @@
-#!/usr/bin/env -S deno test
+#!/usr/bin/env -S bun test
 /**
  * Unit tests for the pure helpers in docs-check.ts: facts from snapshot
  * documents, table/badge rendering, region replacement and the in-memory
  * check that decides what is drift and what --fix can repair.
  *
- *   deno test scripts/docs-check_test.ts
+ *   bun test scripts/docs-check_test.ts
  */
 
+import { test } from "bun:test";
 import {
   assert,
   assertEquals,
   assertStringIncludes,
   assertThrows,
-} from "jsr:@std/assert@^1";
+} from "./lib/assert.ts";
 import {
   applicationRows,
   check,
@@ -100,18 +101,18 @@ metadata:
     argocd.argoproj.io/hook: PostSync
 `;
 
-Deno.test("splitDocs and docName", () => {
+test("splitDocs and docName", () => {
   const docs = splitDocs(SNAPSHOT);
   assertEquals(docs.length, 5);
   assertEquals(docName(docs[0]), "plex");
   assertEquals(docName(docs[3]), "traefik-internal-dashboard-redirect");
 });
 
-Deno.test("countApplications counts only kind: Application", () => {
+test("countApplications counts only kind: Application", () => {
   assertEquals(countApplications(splitDocs(SNAPSHOT)), 3);
 });
 
-Deno.test("ingressInventory: classed hosts from host lines, links and NFS servers ignored", () => {
+test("ingressInventory: classed hosts from host lines, links and NFS servers ignored", () => {
   const rows = ingressInventory(splitDocs(SNAPSHOT));
   assertEquals(rows, [
     { app: "plex", host: "plex", class: "external", kind: "Ingress" },
@@ -125,22 +126,22 @@ Deno.test("ingressInventory: classed hosts from host lines, links and NFS server
   ]);
 });
 
-Deno.test("smokeJobs lists PostSync smoke Job names", () => {
+test("smokeJobs lists PostSync smoke Job names", () => {
   assertEquals(smokeJobs(splitDocs(SNAPSHOT)), ["smoke-plex"]);
 });
 
-Deno.test("applicationRows: chart version vs git, ingress, e2e and smoke columns", () => {
+test("applicationRows: chart version vs git, ingress, e2e and smoke columns", () => {
   const docs = splitDocs(SNAPSHOT);
-  const rows = applicationRows(docs, ingressInventory(docs), [
-    "plex",
-    "sonarr",
-    "argocd-apps",
-  ], ["smoke-plex"]);
-  assertEquals(rows.map((r) => r.name), [
-    "argo-workflows-config",
-    "plex",
-    "sonarr",
-  ]);
+  const rows = applicationRows(
+    docs,
+    ingressInventory(docs),
+    ["plex", "sonarr", "argocd-apps"],
+    ["smoke-plex"],
+  );
+  assertEquals(
+    rows.map((r) => r.name),
+    ["argo-workflows-config", "plex", "sonarr"],
+  );
   const plex = rows[1];
   assertEquals(plex.source, "plex-media-server");
   assertEquals(plex.version, "1.6.0");
@@ -155,7 +156,7 @@ Deno.test("applicationRows: chart version vs git, ingress, e2e and smoke columns
   assertEquals(rows[0].e2e, "—");
 });
 
-Deno.test("parseVersions flattens sections", () => {
+test("parseVersions flattens sections", () => {
   const v = parseVersions(
     `tools:\n  # renovate: x\n  talos: "v1.14.0"\ncharts:\n  cilium: "1.19.5"\n`,
   );
@@ -163,7 +164,7 @@ Deno.test("parseVersions flattens sections", () => {
   assertEquals(v["charts.cilium"], "1.19.5");
 });
 
-Deno.test("renderBadges uses versions.yaml and fails on a missing key", () => {
+test("renderBadges uses versions.yaml and fails on a missing key", () => {
   const ok = renderBadges({
     "tools.talos": "v1.14.0",
     "tools.kubernetes": "v1.37.0",
@@ -182,18 +183,20 @@ Deno.test("renderBadges uses versions.yaml and fails on a missing key", () => {
   );
 });
 
-Deno.test("renderIngressTable is a Markdown table with placeholders", () => {
-  const t = renderIngressTable([{
-    app: "plex",
-    host: "plex",
-    class: "external",
-    kind: "Ingress",
-  }]);
+test("renderIngressTable is a Markdown table with placeholders", () => {
+  const t = renderIngressTable([
+    {
+      app: "plex",
+      host: "plex",
+      class: "external",
+      kind: "Ingress",
+    },
+  ]);
   assertStringIncludes(t, "| `plex.<DOMAIN>` | external | Ingress | `plex` |");
   assert(t.startsWith("| Host | Class | Kind | Application |\n| --- |"));
 });
 
-Deno.test("regions: read, replace, missing", () => {
+test("regions: read, replace, missing", () => {
   const text =
     "intro\n<!-- docs-check:begin t -->\nold\n<!-- docs-check:end t -->\noutro";
   assertEquals(readRegion(text, "t"), "old");
@@ -235,18 +238,18 @@ function facts(): Facts {
   };
 }
 
-Deno.test("expectedLiterals: internal hosts except the traefik-internal dashboard", () => {
+test("expectedLiterals: internal hosts except the traefik-internal dashboard", () => {
   const lits = expectedLiterals(facts());
-  const svg = lits.filter((l) => l.file === ".github/homelab.svg").map((l) =>
-    l.expect
-  );
+  const svg = lits
+    .filter((l) => l.file === ".github/homelab.svg")
+    .map((l) => l.expect);
   assert(svg.includes("grafana.&lt;DOMAIN&gt;"));
   assert(!svg.includes("traefik-internal.&lt;DOMAIN&gt;"));
   assert(svg.includes("2/2 suites"));
   assert(svg.includes("68 apps synced"));
 });
 
-Deno.test("check: reports stale regions and literals, --fix rewrites what it can", () => {
+test("check: reports stale regions and literals, --fix rewrites what it can", () => {
   const f = facts();
   const files = new Map<string, string>([
     [
@@ -271,9 +274,10 @@ Deno.test("check: reports stale regions and literals, --fix rewrites what it can
   assert(whats.includes('readme.md: expected "68 Applications"'));
   assert(whats.includes('readme.md: expected "68 ArgoCD Applications"'));
   assert(whats.includes('.github/homelab.svg: expected "addons · 29"'));
-  assertEquals(drift.filter((d) => !d.fixable).map((d) => d.what), [
-    "region ingress-table missing",
-  ]);
+  assertEquals(
+    drift.filter((d) => !d.fixable).map((d) => d.what),
+    ["region ingress-table missing"],
+  );
   const readme = fixed.get("readme.md")!;
   assertStringIncludes(readme, "badge/Talos-v1.14.0-");
   assertStringIncludes(
@@ -288,7 +292,7 @@ Deno.test("check: reports stale regions and literals, --fix rewrites what it can
   );
 });
 
-Deno.test("check: in-sync input yields no drift", () => {
+test("check: in-sync input yields no drift", () => {
   const f = facts();
   const first = check(
     new Map([
@@ -315,7 +319,7 @@ Deno.test("check: in-sync input yields no drift", () => {
   assertEquals(second.drift, []);
 });
 
-Deno.test("parseArgs", () => {
+test("parseArgs", () => {
   assertEquals(parseArgs([]), {
     fix: false,
     json: false,

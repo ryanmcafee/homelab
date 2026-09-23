@@ -1,4 +1,6 @@
-#!/usr/bin/env -S deno test
+#!/usr/bin/env -S bun test
+import { test } from "bun:test";
+
 /**
  * Unit tests for the pure logic in localdev-kind.ts.
  *
@@ -7,7 +9,7 @@
  * image tag derivation, the Cilium values extraction, the cache dir
  * resolution and the argument parser.
  *
- *   deno test scripts/localdev-kind_test.ts
+ *   bun test scripts/localdev-kind_test.ts
  */
 
 import {
@@ -15,8 +17,8 @@ import {
   assertEquals,
   assertStringIncludes,
   assertThrows,
-} from "jsr:@std/assert@^1";
-import { parse as parseYaml } from "jsr:@std/yaml@^1";
+} from "./lib/assert.ts";
+import { parse as parseYaml } from "./lib/yaml.ts";
 import {
   CERTS_D,
   DEFAULT_CILIUM_KIND_VALUES,
@@ -41,7 +43,7 @@ import {
 // ----------------------------------------------------------------------------
 // hosts.toml
 // ----------------------------------------------------------------------------
-Deno.test("renderHostsToml: proxy first, upstream as the fallback server", () => {
+test("renderHostsToml: proxy first, upstream as the fallback server", () => {
   const toml = renderHostsToml("ghcr.io", "http://kind-registry-ghcr:5000");
   assertStringIncludes(toml, 'server = "https://ghcr.io"');
   assertStringIncludes(toml, '[host."http://kind-registry-ghcr:5000"]');
@@ -52,7 +54,7 @@ Deno.test("renderHostsToml: proxy first, upstream as the fallback server", () =>
   assert(toml.endsWith("\n"));
 });
 
-Deno.test("renderHostsToml: docker.io uses its real API host as server", () => {
+test("renderHostsToml: docker.io uses its real API host as server", () => {
   // https://docker.io is not a registry endpoint; the fallback must be the
   // same host the proxy fronts.
   const toml = renderHostsToml(
@@ -64,7 +66,7 @@ Deno.test("renderHostsToml: docker.io uses its real API host as server", () => {
   assert(!toml.includes('"https://docker.io"'));
 });
 
-Deno.test("hostsTomlPath: certs.d/<host>/hosts.toml", () => {
+test("hostsTomlPath: certs.d/<host>/hosts.toml", () => {
   assertEquals(
     hostsTomlPath("registry.k8s.io"),
     `${CERTS_D}/registry.k8s.io/hosts.toml`,
@@ -75,7 +77,7 @@ Deno.test("hostsTomlPath: certs.d/<host>/hosts.toml", () => {
 // ----------------------------------------------------------------------------
 // Upstream table
 // ----------------------------------------------------------------------------
-Deno.test("registryUpstreams: the five upstreams from the plan, unique names and hosts", () => {
+test("registryUpstreams: the five upstreams from the plan, unique names and hosts", () => {
   const hosts = registryUpstreams.map((u) => u.host);
   assertEquals(hosts, [
     "docker.io",
@@ -96,7 +98,7 @@ Deno.test("registryUpstreams: the five upstreams from the plan, unique names and
   }
 });
 
-Deno.test("registryContainerName / registryProxyUrl: valid docker names on port 5000", () => {
+test("registryContainerName / registryProxyUrl: valid docker names on port 5000", () => {
   for (const u of registryUpstreams) {
     const name = registryContainerName(u.name);
     assert(/^[a-zA-Z0-9][a-zA-Z0-9_.-]+$/.test(name), name);
@@ -120,7 +122,7 @@ tools:
   helm: "4.2.0"
 `;
 
-Deno.test("parseVersions: reads the three pins from a versions.yaml string", () => {
+test("parseVersions: reads the three pins from a versions.yaml string", () => {
   assertEquals(parseVersions(VERSIONS_FIXTURE), {
     kindNode: "v1.36.1",
     cilium: "1.19.5",
@@ -128,7 +130,7 @@ Deno.test("parseVersions: reads the three pins from a versions.yaml string", () 
   });
 });
 
-Deno.test("parseVersions: a missing pin names the key", () => {
+test("parseVersions: a missing pin names the key", () => {
   const err = assertThrows(
     () =>
       parseVersions(
@@ -145,7 +147,7 @@ Deno.test("parseVersions: a missing pin names the key", () => {
   assertStringIncludes(err2.message, "images.kind-node");
 });
 
-Deno.test("kindNodeImage: kindest/node with a normalised v prefix", () => {
+test("kindNodeImage: kindest/node with a normalised v prefix", () => {
   assertEquals(kindNodeImage("v1.36.1"), "kindest/node:v1.36.1");
   assertEquals(kindNodeImage("1.36.1"), "kindest/node:v1.36.1");
   assertEquals(kindNodeImage(" v1.36.1\n"), "kindest/node:v1.36.1");
@@ -154,7 +156,7 @@ Deno.test("kindNodeImage: kindest/node with a normalised v prefix", () => {
 // ----------------------------------------------------------------------------
 // Cilium values
 // ----------------------------------------------------------------------------
-Deno.test("extractCiliumValues: returns cilium.values as YAML", () => {
+test("extractCiliumValues: returns cilium.values as YAML", () => {
   const doc = `cilium:
   enabled: true
   chart:
@@ -178,7 +180,7 @@ Deno.test("extractCiliumValues: returns cilium.values as YAML", () => {
   assert(!out.includes("chart"));
 });
 
-Deno.test("extractCiliumValues: null when the key is absent, null or empty", () => {
+test("extractCiliumValues: null when the key is absent, null or empty", () => {
   assertEquals(extractCiliumValues("cilium:\n  enabled: false\n"), null);
   assertEquals(extractCiliumValues("cilium:\n  values: null\n"), null);
   assertEquals(extractCiliumValues("cilium:\n  values: {}\n"), null);
@@ -186,7 +188,7 @@ Deno.test("extractCiliumValues: null when the key is absent, null or empty", () 
   assertEquals(extractCiliumValues("other: 1\n"), null);
 });
 
-Deno.test("DEFAULT_CILIUM_KIND_VALUES: matches the plan's Kind values", () => {
+test("DEFAULT_CILIUM_KIND_VALUES: matches the plan's Kind values", () => {
   const v = parseYaml(DEFAULT_CILIUM_KIND_VALUES) as Record<string, unknown>;
   assertEquals(v.ipam, { mode: "kubernetes" });
   assertEquals(v.kubeProxyReplacement, false);
@@ -199,7 +201,7 @@ Deno.test("DEFAULT_CILIUM_KIND_VALUES: matches the plan's Kind values", () => {
 // ----------------------------------------------------------------------------
 // Cache dir
 // ----------------------------------------------------------------------------
-Deno.test("resolveCacheDir: explicit override, XDG, then ~/.cache", () => {
+test("resolveCacheDir: explicit override, XDG, then ~/.cache", () => {
   assertEquals(
     resolveCacheDir({ HOMELAB_KIND_CACHE_DIR: "/tmp/kc" }, "/home/u"),
     "/tmp/kc",
@@ -225,7 +227,7 @@ Deno.test("resolveCacheDir: explicit override, XDG, then ~/.cache", () => {
 // ----------------------------------------------------------------------------
 // Args
 // ----------------------------------------------------------------------------
-Deno.test("parseArgs: defaults and the context derived from the cluster", () => {
+test("parseArgs: defaults and the context derived from the cluster", () => {
   const a = parseArgs(["up"]);
   assertEquals(a.command, "up");
   assertEquals(a.cluster, DEFAULT_CLUSTER);
@@ -242,7 +244,7 @@ Deno.test("parseArgs: defaults and the context derived from the cluster", () => 
   assertEquals(c.context, "bar");
 });
 
-Deno.test("parseArgs: registry actions default to up", () => {
+test("parseArgs: registry actions default to up", () => {
   assertEquals(parseArgs(["registry"]).registryAction, "up");
   assertEquals(parseArgs(["registry", "status"]).registryAction, "status");
   assertEquals(
@@ -256,7 +258,7 @@ Deno.test("parseArgs: registry actions default to up", () => {
   );
 });
 
-Deno.test("parseArgs: down --purge-cache, and the flag is rejected elsewhere", () => {
+test("parseArgs: down --purge-cache, and the flag is rejected elsewhere", () => {
   assertEquals(parseArgs(["down", "--purge-cache"]).purgeCache, true);
   assertThrows(
     () => parseArgs(["up", "--purge-cache"]),
@@ -265,7 +267,7 @@ Deno.test("parseArgs: down --purge-cache, and the flag is rejected elsewhere", (
   );
 });
 
-Deno.test("parseArgs: usage errors", () => {
+test("parseArgs: usage errors", () => {
   assertThrows(() => parseArgs([]), UsageError, "missing subcommand");
   assertThrows(() => parseArgs(["reboot"]), UsageError, "Unknown subcommand");
   assertThrows(() => parseArgs(["up", "--bogus"]), UsageError, "Unknown flag");
@@ -286,7 +288,7 @@ Deno.test("parseArgs: usage errors", () => {
   );
 });
 
-Deno.test("parseArgs: --help needs no subcommand", () => {
+test("parseArgs: --help needs no subcommand", () => {
   assertEquals(parseArgs(["--help"]).help, true);
   assertEquals(parseArgs(["-h"]).help, true);
   assertEquals(parseArgs(["up", "--help"]).help, true);
@@ -295,7 +297,7 @@ Deno.test("parseArgs: --help needs no subcommand", () => {
 // ----------------------------------------------------------------------------
 // Display helpers
 // ----------------------------------------------------------------------------
-Deno.test("formatCommand: quotes only what the shell would mangle", () => {
+test("formatCommand: quotes only what the shell would mangle", () => {
   assertEquals(formatCommand(["kind", "get", "clusters"]), "kind get clusters");
   assertEquals(
     formatCommand([
@@ -312,7 +314,7 @@ Deno.test("formatCommand: quotes only what the shell would mangle", () => {
   assertEquals(formatCommand(["x", "it's"]), "x 'it'\\''s'");
 });
 
-Deno.test("formatStatusTable: aligned columns with a header", () => {
+test("formatStatusTable: aligned columns with a header", () => {
   const table = formatStatusTable([
     {
       name: "kind-registry-docker",
@@ -338,12 +340,12 @@ Deno.test("formatStatusTable: aligned columns with a header", () => {
 // ----------------------------------------------------------------------------
 // Kind's bundled local-path-provisioner
 // ----------------------------------------------------------------------------
-Deno.test("kindBundledStorageObjects: only what the chart does not re-create by name", () => {
+test("kindBundledStorageObjects: only what the chart does not re-create by name", () => {
   // Names from kind v0.33.0 const_storage.go. The chart (containeroo
   // local-path-provisioner) names its RBAC objects `local-path-provisioner`
   // and its class `local-path`, so the bundled ones would otherwise linger.
-  const refs = kindBundledStorageObjects.map((o) =>
-    `${o.namespace ?? "-"}/${o.kind}/${o.name}`
+  const refs = kindBundledStorageObjects.map(
+    (o) => `${o.namespace ?? "-"}/${o.kind}/${o.name}`,
   );
   assertEquals(refs, [
     "local-path-storage/deployment/local-path-provisioner",
@@ -359,7 +361,7 @@ Deno.test("kindBundledStorageObjects: only what the chart does not re-create by 
   assert(!refs.some((r) => r.includes("namespace/")));
 });
 
-Deno.test("kubectlDeleteArgs: one delete per namespace, --ignore-not-found for re-runs", () => {
+test("kubectlDeleteArgs: one delete per namespace, --ignore-not-found for re-runs", () => {
   const args = kubectlDeleteArgs(kindBundledStorageObjects);
   assertEquals(args, [
     [

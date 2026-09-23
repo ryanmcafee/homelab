@@ -1,4 +1,4 @@
-#!/usr/bin/env -S deno run --allow-net --allow-run --allow-env --allow-read --allow-write
+#!/usr/bin/env bun
 
 /**
  * cmp-parity-test.ts
@@ -35,17 +35,26 @@
  *
  * Usage:
  *   task test:cmp-parity
- *   deno run ... scripts/cmp-parity-test.ts --help
- *   deno run ... scripts/cmp-parity-test.ts --dry-run
- *   deno run ... scripts/cmp-parity-test.ts --tag 0.1.8
- *   deno run ... scripts/cmp-parity-test.ts --base-ref origin/main
- *   deno run ... scripts/cmp-parity-test.ts --no-pull --keep-artifacts
+ *   bun scripts/cmp-parity-test.ts --help
+ *   bun scripts/cmp-parity-test.ts --dry-run
+ *   bun scripts/cmp-parity-test.ts --tag 0.1.8
+ *   bun scripts/cmp-parity-test.ts --base-ref origin/main
+ *   bun scripts/cmp-parity-test.ts --no-pull --keep-artifacts
  *
  * Exit codes: 0 = image matches source; 1 = mismatch (drift or tag inconsistency)
  *             or a check could not be completed; 2 = argument error.
  */
 
-import { parse as parseYaml } from "jsr:@std/yaml@^1";
+import {
+  mkdtemp,
+  readFile,
+  rm,
+  writeFile as fsWriteFile,
+} from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { isNotFound } from "./lib/errors.ts";
+import { parse as parseYaml } from "./lib/yaml.ts";
 
 // ============================================================================
 // Logging
@@ -114,7 +123,7 @@ function parseArgs(argv: string[]): Args {
       const v = argv[i + 1];
       if (!v) {
         log.error("--tag requires a value");
-        Deno.exit(2);
+        process.exit(2);
       }
       args.tag = v;
       i++;
@@ -124,7 +133,7 @@ function parseArgs(argv: string[]): Args {
       const v = argv[i + 1];
       if (!v) {
         log.error("--base-ref requires a value");
-        Deno.exit(2);
+        process.exit(2);
       }
       args.baseRef = v;
       i++;
@@ -134,7 +143,7 @@ function parseArgs(argv: string[]): Args {
       const v = argv[i + 1];
       if (!v) {
         log.error("--platform requires a value");
-        Deno.exit(2);
+        process.exit(2);
       }
       args.platform = v;
       i++;
@@ -142,7 +151,7 @@ function parseArgs(argv: string[]): Args {
       args.platform = a.slice("--platform=".length);
     } else {
       log.error(`Unknown argument: ${a}`);
-      Deno.exit(2);
+      process.exit(2);
     }
   }
   return args;
@@ -157,8 +166,7 @@ for every format the CMP renders (helm-addons, helm-apps).
 
 Usage:
   task test:cmp-parity
-  deno run --allow-net --allow-run --allow-env --allow-read --allow-write \\
-    scripts/cmp-parity-test.ts [flags]
+  bun scripts/cmp-parity-test.ts [flags]
 
 Flags:
   --help, -h         Show this help and exit 0
@@ -192,22 +200,22 @@ async function run(
   cmd: string[],
   opts: { cwd?: string } = {},
 ): Promise<{ stdout: string; stderr: string; code: number }> {
-  const p = new Deno.Command(cmd[0], {
-    args: cmd.slice(1),
+  const p = Bun.spawn(cmd, {
     cwd: opts.cwd,
-    stdout: "piped",
-    stderr: "piped",
+    stdin: "inherit",
+    stdout: "pipe",
+    stderr: "pipe",
   });
-  const output = await p.output();
-  return {
-    stdout: new TextDecoder().decode(output.stdout),
-    stderr: new TextDecoder().decode(output.stderr),
-    code: output.code,
-  };
+  const [stdout, stderr, code] = await Promise.all([
+    new Response(p.stdout).text(),
+    new Response(p.stderr).text(),
+    p.exited,
+  ]);
+  return { stdout, stderr, code };
 }
 
 async function writeFile(path: string, content: string): Promise<void> {
-  await Deno.writeTextFile(path, content);
+  await fsWriteFile(path, content);
 }
 
 async function unifiedDiff(
@@ -233,7 +241,7 @@ async function findRepoRoot(): Promise<string> {
 // ============================================================================
 // YAML helpers
 // ============================================================================
-// deno-lint-ignore no-explicit-any
+// biome-ignore lint/suspicious/noExplicitAny: walks arbitrary parsed YAML
 function dig(obj: any, path: string[]): unknown {
   let cur = obj;
   for (const key of path) {
@@ -260,8 +268,9 @@ interface TagCheck {
 }
 
 async function checkImageTagConsistency(repoRoot: string): Promise<TagCheck> {
-  const bootstrapText = await Deno.readTextFile(
+  const bootstrapText = await readFile(
     `${repoRoot}/${BOOTSTRAP_VALUES}`,
+    "utf8",
   );
   const bootstrap = parseYaml(bootstrapText);
   const initContainers = dig(bootstrap, [
@@ -285,12 +294,11 @@ async function checkImageTagConsistency(repoRoot: string): Promise<TagCheck> {
       initImage: initImg ?? "(missing)",
       extraImage: extraImg ?? "(missing)",
       versionsTag: "",
-      detail:
-        `Could not find argocd.values.repoServer.{initContainers[0],extraContainers[0]}.image in ${BOOTSTRAP_VALUES}`,
+      detail: `Could not find argocd.values.repoServer.{initContainers[0],extraContainers[0]}.image in ${BOOTSTRAP_VALUES}`,
     };
   }
 
-  const versionsText = await Deno.readTextFile(`${repoRoot}/${VERSIONS_YAML}`);
+  const versionsText = await readFile(`${repoRoot}/${VERSIONS_YAML}`, "utf8");
   const versions = parseYaml(versionsText);
   const versionsTag = dig(versions, ["images", "homelab-cmp"]) as
     | string
@@ -387,8 +395,10 @@ export function isUnknownTagError(stderr: string): boolean {
  */
 export function isPlatformMismatchError(stderr: string): boolean {
   const s = stderr.toLowerCase();
-  return s.includes("no match for platform") ||
-    s.includes("no matching manifest for");
+  return (
+    s.includes("no match for platform") ||
+    s.includes("no matching manifest for")
+  );
 }
 
 export type MissingTagDecision = "bumped" | "missing";
@@ -405,9 +415,10 @@ export type MissingTagDecision = "bumped" | "missing";
  * A base tag of null (the ref could not be read) is treated as "missing": this
  * check must not pass because it could not find out.
  */
-export function decideMissingTag(
-  opts: { pinned: string; base: string | null },
-): MissingTagDecision {
+export function decideMissingTag(opts: {
+  pinned: string;
+  base: string | null;
+}): MissingTagDecision {
   const base = opts.base?.trim();
   if (!base) return "missing";
   return opts.pinned.trim() === base ? "missing" : "bumped";
@@ -542,7 +553,7 @@ async function sourceVersion(repoRoot: string): Promise<string> {
 // Main
 // ============================================================================
 async function main(): Promise<number> {
-  const args = parseArgs(Deno.args);
+  const args = parseArgs(process.argv.slice(2));
 
   if (args.help) {
     printHelp();
@@ -628,7 +639,7 @@ async function main(): Promise<number> {
     log.info(`--no-pull set; using local image ${image} as-is`);
   }
 
-  const artifactRoot = await Deno.makeTempDir({ prefix: "cmp-parity-test-" });
+  const artifactRoot = await mkdtemp(join(tmpdir(), "cmp-parity-test-"));
   log.info(`Artifact root: ${artifactRoot}`);
 
   let anyMismatch = false;
@@ -691,9 +702,9 @@ async function main(): Promise<number> {
 
   if (!args.keepArtifacts) {
     try {
-      await Deno.remove(artifactRoot, { recursive: true });
+      await rm(artifactRoot, { recursive: true });
     } catch (err) {
-      if (!(err instanceof Deno.errors.NotFound)) {
+      if (!isNotFound(err)) {
         log.warn(
           `post-run cleanup of ${artifactRoot} failed: ${
             err instanceof Error ? err.message : String(err)
@@ -721,9 +732,9 @@ async function main(): Promise<number> {
 
 if (import.meta.main) {
   try {
-    Deno.exit(await main());
+    process.exit(await main());
   } catch (err) {
     log.error(err instanceof Error ? err.message : String(err));
-    Deno.exit(1);
+    process.exit(1);
   }
 }

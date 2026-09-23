@@ -13,7 +13,7 @@
 - Integration testing with Pact and TestContainers
 
 ## TypeScript
-- Deno runtime only (no Node.js)
+- Bun runtime (`bun scripts/<name>.ts`, run through `task`)
 - Always include `--help` flag in scripts
 - Use `--dry-run` for non-destructive preview
 - Log with colors: cyan=INFO, green=OK, red=ERROR

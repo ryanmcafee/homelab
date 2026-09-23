@@ -1,4 +1,4 @@
-#!/usr/bin/env -S deno run --allow-net --allow-env --allow-read
+#!/usr/bin/env bun
 
 /**
  * truenas-nfs-mapall.ts
@@ -20,7 +20,8 @@
  * scripts/tailscale-dns.ts and scripts/prod-readonly.ts for the pattern).
  */
 
-import { parse as parseYaml } from "jsr:@std/yaml@^1";
+import { readFile } from "node:fs/promises";
+import { parse as parseYaml } from "./lib/yaml.ts";
 
 const VERSION = "3.0.0";
 
@@ -70,7 +71,7 @@ export function envFileValue(text: string, key: string): string | null {
 /** One key of the environment file, or null when the file is unreadable. */
 async function envValue(key: string): Promise<string | null> {
   try {
-    return envFileValue(await Deno.readTextFile(HOMELAB_ENV_FILE), key);
+    return envFileValue(await readFile(HOMELAB_ENV_FILE, "utf8"), key);
   } catch {
     return null;
   }
@@ -86,7 +87,7 @@ async function envValue(key: string): Promise<string | null> {
  */
 async function resolveApiUrl(flag: string | undefined): Promise<string> {
   if (flag) return flag;
-  const env = Deno.env.get("TRUENAS_API_URL")?.trim();
+  const env = process.env.TRUENAS_API_URL?.trim();
   if (env) return env;
   const host = await envValue("TRUENAS_HOSTNAME");
   if (host && DNS_NAME.test(host)) return `https://${host}`;
@@ -157,7 +158,7 @@ Supports split permission models: k8s shares use apps:users (568:100),
 media/personal shares use <NFS_MAPALL_USER>:users. See --media-* flags.
 
 ${bold("USAGE:")}
-  deno run --allow-net --allow-env --allow-read scripts/truenas-nfs-mapall.ts [OPTIONS]
+  bun scripts/truenas-nfs-mapall.ts [OPTIONS]
 
 ${bold("OPTIONS:")}
   --help                    Show this help message
@@ -191,19 +192,19 @@ ${bold("ENVIRONMENT:")}
 
 ${bold("EXAMPLES:")}
   # Preview changes for k8s PVC shares only
-  deno run --allow-net --allow-env --allow-read scripts/truenas-nfs-mapall.ts --dry-run
+  bun scripts/truenas-nfs-mapall.ts --dry-run
 
   # Update all NFS shares (k8s → apps:users, media → <NFS_MAPALL_USER>:users)
-  deno run --allow-net --allow-env --allow-read scripts/truenas-nfs-mapall.ts --all
+  bun scripts/truenas-nfs-mapall.ts --all
 
   # Fix k8s shares and dataset permissions
-  deno run --allow-net --allow-env --allow-read scripts/truenas-nfs-mapall.ts --fix-permissions
+  bun scripts/truenas-nfs-mapall.ts --fix-permissions
 
   # Fix ALL shares + ALL dataset permissions (split k8s/media model)
-  deno run --allow-net --allow-env --allow-read scripts/truenas-nfs-mapall.ts --all --fix-permissions
+  bun scripts/truenas-nfs-mapall.ts --all --fix-permissions
 
   # Use with 1Password injection
-  op run --env-file=.env.op -- deno run --allow-net --allow-env --allow-read scripts/truenas-nfs-mapall.ts --all --fix-permissions
+  op run --env-file=.env.op -- bun scripts/truenas-nfs-mapall.ts --all --fix-permissions
 `);
 }
 
@@ -283,7 +284,7 @@ function parseArgs(args: string[]): {
         break;
       default:
         console.error(red(`ERROR: Unknown argument: ${args[i]}`));
-        Deno.exit(1);
+        process.exit(1);
     }
   }
 
@@ -340,8 +341,8 @@ function needsUpdate(
   targetGroup: string,
 ): boolean {
   const hasMaproot = !!(share.maproot_user || share.maproot_group);
-  const hasCorrectMapall = share.mapall_user === targetUser &&
-    share.mapall_group === targetGroup;
+  const hasCorrectMapall =
+    share.mapall_user === targetUser && share.mapall_group === targetGroup;
   // Needs update if maproot is set, or mapall doesn't match the target
   return hasMaproot || !hasCorrectMapall;
 }
@@ -360,7 +361,7 @@ async function fetchShares(
     );
   }
 
-  return await resp.json();
+  return (await resp.json()) as NfsShare[];
 }
 
 async function updateShare(
@@ -399,10 +400,9 @@ async function listChildDatasets(
 ): Promise<string[]> {
   // Use /id/ endpoint which returns the dataset with nested children
   const encodedId = encodeURIComponent(parentDataset);
-  const resp = await fetch(
-    `${apiUrl}/api/v2.0/pool/dataset/id/${encodedId}`,
-    { headers: { Authorization: `Bearer ${apiKey}` } },
-  );
+  const resp = await fetch(`${apiUrl}/api/v2.0/pool/dataset/id/${encodedId}`, {
+    headers: { Authorization: `Bearer ${apiKey}` },
+  });
 
   if (!resp.ok) {
     if (resp.status === 404) {
@@ -413,7 +413,7 @@ async function listChildDatasets(
     );
   }
 
-  const parent: Dataset = await resp.json();
+  const parent: Dataset = (await resp.json()) as Dataset;
   // Flatten all dataset IDs including the parent
   const result: string[] = [];
   function collect(ds: Dataset) {
@@ -468,7 +468,7 @@ async function setDatasetPermissions(
   }
 
   // Returns a job ID
-  const jobId: number = await resp.json();
+  const jobId: number = (await resp.json()) as number;
   return jobId;
 }
 
@@ -488,7 +488,7 @@ async function waitForJob(
       throw new Error(`Failed to check job ${jobId}: ${resp.status}`);
     }
 
-    const jobs = await resp.json();
+    const jobs = (await resp.json()) as { state: string; error?: string }[];
     if (jobs.length > 0) {
       const job = jobs[0];
       if (job.state === "SUCCESS") {
@@ -506,20 +506,20 @@ async function waitForJob(
 }
 
 async function main(): Promise<void> {
-  const parsed = parseArgs(Deno.args);
+  const parsed = parseArgs(process.argv.slice(2));
 
   if (parsed.help) {
     printHelp();
-    Deno.exit(0);
+    process.exit(0);
   }
 
-  const apiKey = Deno.env.get("TRUENAS_API_KEY");
+  const apiKey = process.env.TRUENAS_API_KEY;
   if (!apiKey) {
     console.error(
       red("ERROR: TRUENAS_API_KEY environment variable is required"),
     );
     console.error("Set it directly or use: op run --env-file=.env.op -- ...");
-    Deno.exit(1);
+    process.exit(1);
   }
 
   // The media user identifies a real account, so it is only resolved when
@@ -530,9 +530,10 @@ async function main(): Promise<void> {
     mediaMapallUser: parsed.all
       ? await resolveMediaUser(parsed.mediaMapallUser, "--media-mapall-user")
       : parsed.mediaMapallUser,
-    mediaPermUser: parsed.all && parsed.fixPermissions
-      ? await resolveMediaUser(parsed.mediaPermUser, "--media-perm-user")
-      : parsed.mediaPermUser,
+    mediaPermUser:
+      parsed.all && parsed.fixPermissions
+        ? await resolveMediaUser(parsed.mediaPermUser, "--media-perm-user")
+        : parsed.mediaPermUser,
   };
 
   console.log(cyan(`INFO: Connecting to TrueNAS at ${opts.apiUrl}`));
@@ -557,7 +558,7 @@ async function main(): Promise<void> {
     shares = await fetchShares(opts.apiUrl, apiKey);
   } catch (err) {
     console.error(red(`ERROR: ${(err as Error).message}`));
-    Deno.exit(1);
+    process.exit(1);
   }
 
   console.log(cyan(`INFO: Found ${shares.length} total NFS shares`));
@@ -567,13 +568,9 @@ async function main(): Promise<void> {
 
   if (!opts.all) {
     console.log(
-      cyan(
-        `INFO: Filtering to k8s shares (${targetShares.length} matches)`,
-      ),
+      cyan(`INFO: Filtering to k8s shares (${targetShares.length} matches)`),
     );
-    console.log(
-      cyan("INFO: Use --all to update all NFS shares"),
-    );
+    console.log(cyan("INFO: Use --all to update all NFS shares"));
   }
 
   // Find shares that need updating — when --all, apply different targets per share type
@@ -617,11 +614,7 @@ async function main(): Promise<void> {
       green("OK: All target shares are already correctly configured"),
     );
   } else {
-    console.log(
-      cyan(
-        `INFO: ${sharesToUpdate.length} share(s) need updating`,
-      ),
-    );
+    console.log(cyan(`INFO: ${sharesToUpdate.length} share(s) need updating`));
     console.log("");
 
     // Process NFS share updates
@@ -633,8 +626,8 @@ async function main(): Promise<void> {
       const currentMapping = share.maproot_user
         ? `maproot(${share.maproot_user}:${share.maproot_group ?? "null"})`
         : `mapall(${share.mapall_user ?? "null"}:${
-          share.mapall_group ?? "null"
-        })`;
+            share.mapall_group ?? "null"
+          })`;
 
       if (opts.dryRun) {
         console.log(
@@ -857,11 +850,11 @@ async function main(): Promise<void> {
     // Permission Summary
     console.log("");
     console.log(bold("--- Permission Summary ---"));
-    const permUpdated = permResults.filter((r) =>
-      r.status === "updated"
+    const permUpdated = permResults.filter(
+      (r) => r.status === "updated",
     ).length;
-    const permSkipped = permResults.filter((r) =>
-      r.status === "skipped"
+    const permSkipped = permResults.filter(
+      (r) => r.status === "skipped",
     ).length;
     const permErrors = permResults.filter((r) => r.status === "error").length;
 
@@ -869,7 +862,7 @@ async function main(): Promise<void> {
     console.log(`  Skipped: ${permSkipped}`);
     if (permErrors > 0) {
       console.log(red(`  Errors:  ${permErrors}`));
-      Deno.exit(1);
+      process.exit(1);
     }
   }
 }
@@ -877,7 +870,7 @@ async function main(): Promise<void> {
 main().catch((err) => {
   if (err instanceof UsageError) {
     console.error(red(`ERROR: ${err.message}`));
-    Deno.exit(1);
+    process.exit(1);
   }
   throw err;
 });
