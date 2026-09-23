@@ -22,6 +22,8 @@ import { parse as parseYaml } from "./lib/yaml.ts";
 import {
   CERTS_D,
   DEFAULT_CILIUM_KIND_VALUES,
+  assignGeneratedValues,
+  generatedSecretStubs,
   DEFAULT_CLUSTER,
   extractCiliumValues,
   formatCommand,
@@ -383,4 +385,95 @@ test("kubectlDeleteArgs: one delete per namespace, --ignore-not-found for re-run
     ],
   ]);
   assertEquals(kubectlDeleteArgs([]), []);
+});
+
+// ----------------------------------------------------------------------------
+// Generated fake Secrets
+// ----------------------------------------------------------------------------
+const STUBS = `---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: observability
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: clickhouse-otel
+  namespace: observability
+  annotations:
+    homelab.local/generated-key: password
+    homelab.local/generated-group: clickhouse-otel
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: clickhouse-grafana
+  namespace: observability
+  annotations:
+    homelab.local/generated-key: password
+    homelab.local/generated-group: clickhouse-grafana
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: clickhouse-grafana
+  namespace: monitoring
+  annotations:
+    homelab.local/generated-key: password
+    homelab.local/generated-group: clickhouse-grafana
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: plex
+  namespace: media
+stringData:
+  plex-claim-token: claim-localdev
+`;
+
+test("generatedSecretStubs: only annotated Secrets, with key and group", () => {
+  assertEquals(generatedSecretStubs(STUBS), [
+    {
+      namespace: "observability",
+      name: "clickhouse-otel",
+      key: "password",
+      group: "clickhouse-otel",
+    },
+    {
+      namespace: "observability",
+      name: "clickhouse-grafana",
+      key: "password",
+      group: "clickhouse-grafana",
+    },
+    {
+      namespace: "monitoring",
+      name: "clickhouse-grafana",
+      key: "password",
+      group: "clickhouse-grafana",
+    },
+  ]);
+});
+
+test("generatedSecretStubs: an annotated Secret without a key is rejected", () => {
+  assertThrows(() =>
+    generatedSecretStubs(
+      "apiVersion: v1\nkind: Secret\nmetadata:\n  name: x\n  namespace: y\n  annotations:\n    homelab.local/generated-group: g\n",
+    ),
+  );
+});
+
+test("assignGeneratedValues: one value per group, existing values win", () => {
+  const stubs = generatedSecretStubs(STUBS);
+  let n = 0;
+  const values = assignGeneratedValues(
+    stubs,
+    { "monitoring/clickhouse-grafana": "kept" },
+    () => `random-${++n}`,
+  );
+  assertEquals(values, {
+    "observability/clickhouse-otel": "random-1",
+    "observability/clickhouse-grafana": "kept",
+    "monitoring/clickhouse-grafana": "kept",
+  });
 });

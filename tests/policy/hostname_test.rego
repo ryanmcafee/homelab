@@ -313,3 +313,24 @@ test_inline_exempt_hostname if {
 	}
 	count(deny) == 0 with input as obj with data.domain as "example.com"
 }
+
+test_inline_cluster_service_names_are_skipped if {
+	obj := {
+		"kind": "Application",
+		"apiVersion": "argoproj.io/v1alpha1",
+		"metadata": {"name": "app", "namespace": "argocd"},
+		"spec": {"source": {"helm": {"values": "db:\n  host: clickhouse.observability.svc.cluster.local\nprometheus:\n  url: http://prometheus.monitoring.svc:9090\n"}}},
+	}
+	count(deny) == 0 with input as obj with data.domain as "example.com"
+}
+
+test_inline_lookalike_cluster_suffix_still_fails if {
+	obj := {
+		"kind": "Application",
+		"apiVersion": "argoproj.io/v1alpha1",
+		"metadata": {"name": "app", "namespace": "argocd"},
+		"spec": {"source": {"helm": {"values": "db:\n  host: evil.svc.cluster.local.other.com\n"}}},
+	}
+	some m in deny with input as obj with data.domain as "example.com"
+	startswith(m, "[hostname-domain]")
+}

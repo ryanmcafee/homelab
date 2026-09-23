@@ -1,0 +1,5 @@
+# clickhouse-dependencies homelab values. Committed and PII-free (ADR-010): the
+# 1Password paths and the toggle come from the parent Application's
+# helm.valuesObject. The file has to exist because the parent lists it.
+
+namespace: observability

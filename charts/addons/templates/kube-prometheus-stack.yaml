@@ -109,6 +109,37 @@ spec:
           securityContext:
             {{- toYaml (index .Values "kube-prometheus-stack" "grafana" "securityContext") | nindent 12 }}
 
+          {{- if .Values.logging.enabled }}
+
+          # ClickHouse datasource for the cluster logs (docs/logging.md). The
+          # provisioning file keeps the $-reference; Grafana expands it from
+          # the environment, so the password never enters a ConfigMap.
+          plugins:
+            - grafana-clickhouse-datasource@{{ index .Values "kube-prometheus-stack" "grafana" "clickhousePlugin" | trimPrefix "v" }}
+          envValueFrom:
+            CLICKHOUSE_PASSWORD:
+              secretKeyRef:
+                name: {{ .Values.logging.secrets.grafana }}
+                key: password
+          additionalDataSources:
+            - name: ClickHouse
+              uid: clickhouse-logs
+              type: grafana-clickhouse-datasource
+              jsonData:
+                host: {{ .Values.logging.clickhouse.host }}
+                port: 9000
+                protocol: native
+                username: grafana
+                defaultDatabase: {{ .Values.logging.database }}
+                logs:
+                  defaultDatabase: {{ .Values.logging.database }}
+                  defaultTable: otel_logs
+                  otelEnabled: true
+                  otelVersion: latest
+              secureJsonData:
+                password: $CLICKHOUSE_PASSWORD
+          {{- end }}
+
           {{- with (index .Values "kube-prometheus-stack" "grafana" "dashboards") }}
 
           dashboardProviders:
@@ -448,6 +479,62 @@ spec:
                     annotations:
                       summary: 'p95 latency of {{`{{ $labels.exported_service }}`}} is {{`{{ $value | humanizeDuration }}`}}'
                       description: 'The 95th percentile response time {{`{{ $labels.job }}`}} measured for {{`{{ $labels.exported_service }}`}} has been above 5 s for 10m. Streaming endpoints hold requests open by design; check the access logs before tuning.'
+          {{- if .Values.logging.enabled }}
+          # Log pipeline, adapted from the opentelemetry-collector chart rules and
+          # the Altinity clickhouse-operator alert rules (docs/runbooks/alerting.md).
+          homelab-logging:
+            groups:
+              - name: homelab-logging
+                rules:
+                  - alert: HomelabLogExportFailing
+                    expr: 'sum by (namespace, pod) (rate(otelcol_exporter_send_failed_log_records_total[5m])) > 0'
+                    for: 15m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: 'Collector {{`{{ $labels.pod }}`}} cannot write logs to ClickHouse'
+                      description: '{{`{{ $labels.pod }}`}} has failed to export log records for 15m; they are dropped once the retry window (5m) and the send queue run out. Check the ClickHouse pod and `kubectl -n {{`{{ $labels.namespace }}`}} logs {{`{{ $labels.pod }}`}}`.'
+                  - alert: HomelabLogExportQueueFull
+                    expr: 'max by (namespace, pod) (otelcol_exporter_queue_size / otelcol_exporter_queue_capacity) > 0.8'
+                    for: 10m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: 'Collector {{`{{ $labels.pod }}`}} send queue is {{`{{ $value | humanizePercentage }}`}} full'
+                      description: 'The ClickHouse exporter queue of {{`{{ $labels.pod }}`}} has been above 80 % for 10m; new batches are refused when it fills. ClickHouse is slow or unreachable.'
+                  - alert: HomelabLogsNotArriving
+                    expr: 'sum(rate(otelcol_receiver_accepted_log_records_total{receiver=~"file_?log.*"}[15m])) == 0 or absent(otelcol_receiver_accepted_log_records_total{receiver=~"file_?log.*"})'
+                    for: 30m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: 'No container logs are being collected'
+                      description: 'The OpenTelemetry agents have read no container log line for 30m. Check the otel-collector-agent DaemonSet in {{ .Values.logging.namespace }} and its hostPath mounts of /var/log/pods.'
+                  - alert: HomelabClickHouseDown
+                    expr: 'max by (chi, hostname) (chi_clickhouse_metric_fetch_errors{fetch_type="system.metrics"}) > 0 or absent(chi_clickhouse_metric_Uptime)'
+                    for: 10m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: 'ClickHouse {{`{{ $labels.chi }}`}} is not answering the metrics exporter'
+                      description: 'The clickhouse-operator metrics exporter has not read system.metrics from ClickHouse for 10m, so the log store is down or unreachable. `kubectl -n {{ .Values.logging.namespace }} get chi` and the ClickHouse pod events.'
+                  - alert: HomelabClickHouseRejectedInserts
+                    expr: 'sum by (chi, hostname) (increase(chi_clickhouse_event_RejectedInserts[5m])) > 0'
+                    for: 5m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: 'ClickHouse {{`{{ $labels.hostname }}`}} rejects inserts (too many parts)'
+                      description: 'ClickHouse refused inserts because a partition has too many active parts; merges are not keeping up with the batch rate. Raise the collector batch size or ClickHouse CPU.'
+                  - alert: HomelabClickHouseTooManyParts
+                    expr: 'max by (chi, hostname) (chi_clickhouse_metric_MaxPartCountForPartition) > 150'
+                    for: 15m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: 'ClickHouse {{`{{ $labels.hostname }}`}} has {{`{{ $value }}`}} parts in one partition'
+                      description: 'Inserts are throttled from 150 parts per partition and rejected from 300. Merges are behind; see HomelabClickHouseRejectedInserts.'
+          {{- end }}
 
   destination:
     server: https://kubernetes.default.svc

@@ -1235,3 +1235,12 @@ argo-workflows:
           secondsAfterCompletion: 86400  # 24 hours
           secondsAfterSuccess: 43200     # 12 hours
           secondsAfterFailure: 172800    # 48 hours
+
+# ============================================================================
+# Cluster logs: OpenTelemetry -> ClickHouse (templates/logging.yaml, docs/logging.md)
+# Placeholder: configuration/templates/helm-addons.tmpl renders the real block.
+# ============================================================================
+
+logging:
+  enabled: false
+  namespace: observability

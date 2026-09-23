@@ -30,6 +30,7 @@ task verify LEVEL=2                      # runs the same suite, reports e2e/<nam
 | `mosquitto/` | TCP connect to `mosquitto.home-automation.svc.cluster.local:1883` |
 | `cloudnative-pg/` | 1-instance `Cluster` on `local-path` reaches "Cluster in healthy state" |
 | `paperclip/` | Applications `paperclip-operator`, `paperclip-dependencies`, `paperclip-database`, `paperclip` Healthy/Succeeded; the CNPG `Cluster/paperclip-postgres` and the `paperclip.inc` `Instance/paperclip` are ready; `curl-paperclip` Job reaches the app |
+| `logging/` | Applications `clickhouse-operator`, `clickhouse`, `otel-collector-agent`, `otel-collector-cluster`, `kube-prometheus-stack` Healthy/Succeeded; a Job in `observability` queries ClickHouse as the read-only `grafana` user until `otel.otel_logs` has rows and a TTL |
 | `cilium-netpol/` | default-deny NetworkPolicy blocks a curl Job, an allow policy lets one through |
 | `agent-readonly/` | Application Healthy, token Secret populated; `kubectl auth can-i` as ServiceAccount `agent-access/agent-readonly` and as Group `homelab:agent-readonly`: reads yes, Secrets and every write no |
 

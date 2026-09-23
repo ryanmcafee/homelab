@@ -158,7 +158,12 @@ is_ip_literal(s) if regex.match(`^\[[0-9A-Fa-f:]+\](:[0-9]+)?$`, s)
 looks_like_hostname(s) if {
 	contains(s, ".")
 	not is_ip_literal(s)
+	not is_cluster_service(s)
 }
+
+# is_cluster_service matches in-cluster Service DNS names (<svc>.<ns>.svc and
+# <svc>.<ns>.svc.cluster.local), which never live under the public domain.
+is_cluster_service(s) if regex.match(`^[a-z0-9.-]+\.svc(\.cluster\.local)?$`, s)
 
 # url_host_regex pulls the host (and, if present, port) out of an http(s) URL.
 # Deliberately anchored to http/https only: a "url" field pointing at an

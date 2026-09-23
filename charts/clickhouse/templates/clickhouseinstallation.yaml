@@ -1,0 +1,68 @@
+{{- /*
+Single-node ClickHouse for container logs. Two users besides the operator's
+own: otel writes (and creates the database and table through the exporter's
+create_schema), grafana only reads. Passwords reach ClickHouse as environment
+variables from Secrets (from_env), so none lands in a ConfigMap. Retention is
+the TTL the exporter sets on the table (docs/logging.md).
+*/}}
+apiVersion: clickhouse.altinity.com/v1
+kind: ClickHouseInstallation
+metadata:
+  name: {{ .Values.name }}
+  namespace: {{ .Values.namespace }}
+spec:
+  defaults:
+    templates:
+      podTemplate: clickhouse
+      dataVolumeClaimTemplate: data
+  configuration:
+    users:
+      otel/password:
+        valueFrom:
+          secretKeyRef:
+            name: {{ .Values.secrets.otel }}
+            key: password
+      otel/networks/ip:
+        - "::/0"
+      otel/profile: default
+      otel/grants/query:
+        - GRANT ALL ON {{ .Values.database }}.*
+      grafana/password:
+        valueFrom:
+          secretKeyRef:
+            name: {{ .Values.secrets.grafana }}
+            key: password
+      grafana/networks/ip:
+        - "::/0"
+      grafana/profile: default
+      grafana/grants/query:
+        - GRANT SELECT ON {{ .Values.database }}.*
+    clusters:
+      - name: {{ .Values.name }}
+        layout:
+          shardsCount: 1
+          replicasCount: 1
+  templates:
+    podTemplates:
+      - name: clickhouse
+        spec:
+          securityContext:
+            runAsUser: 101
+            runAsGroup: 101
+            fsGroup: 101
+          containers:
+            - name: clickhouse
+              image: {{ .Values.image }}
+              resources:
+                {{- toYaml .Values.resources | nindent 16 }}
+    volumeClaimTemplates:
+      - name: data
+        spec:
+          {{- with .Values.storageClass }}
+          storageClassName: {{ . }}
+          {{- end }}
+          accessModes:
+            - ReadWriteOnce
+          resources:
+            requests:
+              storage: {{ .Values.storageSize }}

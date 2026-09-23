@@ -1,0 +1,5 @@
+# clickhouse local development values. Nothing to override: the parent passes
+# local-path storage and Kind sizing through helm.valuesObject. The file has to
+# exist because the parent lists values-localdev.yaml.
+
+namespace: observability

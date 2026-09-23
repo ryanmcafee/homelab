@@ -1,0 +1,13 @@
+# expect: Progressing
+# message: InProgress
+apiVersion: clickhouse.altinity.com/v1
+kind: ClickHouseInstallation
+metadata:
+  name: logs
+  namespace: observability
+spec:
+  configuration:
+    clusters:
+      - name: logs
+status:
+  status: InProgress

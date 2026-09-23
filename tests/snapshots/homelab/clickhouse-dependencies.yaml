@@ -1,0 +1,29 @@
+---
+# Source: clickhouse-dependencies/templates/secrets.yaml
+apiVersion: onepassword.com/v1
+kind: OnePasswordItem
+metadata:
+  name: clickhouse-otel
+  namespace: observability
+spec:
+  itemPath: "vaults/homelab/items/clickhouse-otel"
+
+---
+# Source: clickhouse-dependencies/templates/secrets.yaml
+apiVersion: onepassword.com/v1
+kind: OnePasswordItem
+metadata:
+  name: clickhouse-grafana
+  namespace: observability
+spec:
+  itemPath: "vaults/homelab/items/clickhouse-grafana"
+
+---
+# Source: clickhouse-dependencies/templates/secrets.yaml
+apiVersion: onepassword.com/v1
+kind: OnePasswordItem
+metadata:
+  name: clickhouse-grafana
+  namespace: monitoring
+spec:
+  itemPath: "vaults/homelab/items/clickhouse-grafana"

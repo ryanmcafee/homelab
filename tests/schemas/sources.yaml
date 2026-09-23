@@ -56,6 +56,13 @@ sources:
       name: traefik
     kinds: [IngressRoute, Middleware, IngressRouteTCP, TLSOption, ServersTransport]
 
+  - name: altinity-clickhouse-operator
+    versionKey: altinity-clickhouse-operator
+    chart:
+      repo: https://helm.altinity.com
+      name: altinity-clickhouse-operator
+    kinds: [ClickHouseInstallation]
+
   - name: onepassword-connect
     versionKey: onepassword-connect
     chart:

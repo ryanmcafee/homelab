@@ -937,6 +937,11 @@ kube-prometheus-stack:
         cpu: {{ if $localdev }}200m{{ else }}500m{{ end }}
         memory: {{ if $localdev }}256Mi{{ else }}512Mi{{ end }}
 
+    # ClickHouse datasource for the cluster logs (docs/logging.md). Grafana
+    # installs the plugin at startup and reads the password of the read-only
+    # ClickHouse user from Secret logging.secrets.grafana.
+    clickhousePlugin: "{{ index .Versions.Images "grafana-clickhouse-datasource" }}"
+
     # grafana.com dashboards the Grafana init container downloads into the
     # "homelab" folder; revisions are pinned. The ClickHouse operator chart
     # ships its own dashboards as sidecar ConfigMaps.
@@ -944,6 +949,9 @@ kube-prometheus-stack:
       traefik:
         gnetId: 17347
         revision: 9
+      opentelemetry-collector:
+        gnetId: 15983
+        revision: 30
 
   # Alertmanager and node-exporter are not useful in Kind (no alert routes, containerised nodes).
   alertmanager:
@@ -1533,3 +1541,108 @@ argo-workflows:
           secondsAfterCompletion: 86400
           secondsAfterSuccess: 43200
           secondsAfterFailure: 172800
+
+# ============================================================================
+# Cluster logs: OpenTelemetry collectors -> ClickHouse -> Grafana (docs/logging.md)
+# Sync Waves: 8 clickhouse-dependencies, 10 clickhouse-operator,
+# 11 clickhouse, 12 otel-collector-agent + otel-collector-cluster
+# ============================================================================
+
+logging:
+  enabled: true
+  namespace: observability
+  database: otel
+  # 90 days. The exporter writes it as the otel_logs table TTL when it creates
+  # the table; changing it later needs ALTER TABLE ... MODIFY TTL (docs/logging.md).
+  retention: 2160h
+
+  # Secrets with a `password` key: 1Password items in homelab
+  # (charts/clickhouse-dependencies), localdev/fakes/secrets.yaml in Kind.
+  secrets:
+    otel: clickhouse-otel
+    grafana: clickhouse-grafana
+  dependencies:
+    onePassword:
+      enabled: {{ $onepassword }}
+      otelItemPath: {{ .Values.CLICKHOUSE_OTEL_1P_PATH.Value }}
+      grafanaItemPath: {{ .Values.CLICKHOUSE_GRAFANA_1P_PATH.Value }}
+
+  clickhouse:
+    # The operator names the Service of ClickHouseInstallation "logs" clickhouse-logs.
+    host: clickhouse-logs.observability.svc.cluster.local
+    endpoint: tcp://clickhouse-logs.observability.svc.cluster.local:9000?dial_timeout=10s
+    operator:
+      chart:
+        name: altinity-clickhouse-operator
+        repo: https://helm.altinity.com
+        version: "{{ index .Versions.Charts "altinity-clickhouse-operator" }}"
+      resources:
+        requests:
+          cpu: 50m
+          memory: 64Mi
+        limits:
+          cpu: 500m
+          memory: 256Mi
+      metricsResources:
+        requests:
+          cpu: 20m
+          memory: 64Mi
+        limits:
+          cpu: 200m
+          memory: 256Mi
+    # charts/clickhouse values (the parent passes them through valuesObject).
+    server:
+      image: "clickhouse/clickhouse-server:{{ index .Versions.Images "clickhouse-server" }}"
+      # Block storage like the PostgreSQL clusters: ClickHouse fsyncs and
+      # renames parts constantly, which NFS serves badly.
+      storageClass: {{ .Values.STORAGE_CLASS_ISCSI_SSD.Value }}
+{{- if $localdev }}
+      storageSize: 2Gi
+      resources:
+        requests:
+          cpu: 100m
+          memory: 512Mi
+        limits:
+          cpu: "1"
+          memory: 1Gi
+{{- else }}
+      storageSize: 50Gi
+      resources:
+        requests:
+          cpu: 250m
+          memory: 2Gi
+        limits:
+          cpu: "2"
+          memory: 4Gi
+{{- end }}
+    smoke:
+      enabled: true
+      url: http://clickhouse-logs.observability.svc.cluster.local:8123/ping
+      expect: ["200"]
+
+  otel:
+    chart:
+      name: opentelemetry-collector
+      repo: https://open-telemetry.github.io/opentelemetry-helm-charts
+      version: "{{ index .Versions.Charts "opentelemetry-collector" }}"
+    # The contrib distribution carries the clickhouse exporter; the image tag
+    # follows the chart's appVersion.
+    image:
+      repository: otel/opentelemetry-collector-contrib
+      command: otelcol-contrib
+    agent:
+      resources:
+        requests:
+          cpu: 50m
+          memory: 128Mi
+        limits:
+          cpu: 500m
+          memory: 512Mi
+    cluster:
+      resources:
+        requests:
+          cpu: 20m
+          memory: 64Mi
+        limits:
+          cpu: 200m
+          memory: 256Mi

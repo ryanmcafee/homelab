@@ -27,6 +27,19 @@ metadata:
     pod-security.kubernetes.io/warn: privileged
 
 ---
+# Source: addons/templates/logging.yaml
+# The agent DaemonSet reads /var/log/pods through hostPath volumes, which the
+# baseline PodSecurity level forbids.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: observability
+  labels:
+    pod-security.kubernetes.io/enforce: privileged
+    pod-security.kubernetes.io/audit: privileged
+    pod-security.kubernetes.io/warn: privileged
+
+---
 # Source: addons/templates/node-feature-discovery.yaml
 # Namespace for NodeFeatureDiscovery components.
 #
@@ -172,6 +185,57 @@ spec:
             - |
               code=$(curl -sL --max-redirs 5 -o /dev/null -w '%{http_code}' --retry 30 --retry-delay 10 --retry-all-errors --max-time 20 "$URL")
               echo "smoke prometheus: $URL -> HTTP $code"
+              case "$code" in 200) exit 0;; *) exit 1;; esac
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 100
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            seccompProfile:
+              type: RuntimeDefault
+
+---
+# Source: addons/templates/logging.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: smoke-clickhouse
+  namespace: observability
+  labels:
+    app.kubernetes.io/name: smoke-clickhouse
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation,HookSucceeded
+    argocd.argoproj.io/sync-wave: "11"
+spec:
+  backoffLimit: 2
+  activeDeadlineSeconds: 600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: smoke-clickhouse
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: curl
+          image: curlimages/curl:8.22.0
+          env:
+            - name: URL
+              value: "http://clickhouse-logs.observability.svc.cluster.local:8123/ping"
+          command: ["sh", "-c"]
+          args:
+            - |
+              code=$(curl -sL --max-redirs 5 -o /dev/null -w '%{http_code}' --retry 30 --retry-delay 10 --retry-all-errors --max-time 20 "$URL")
+              echo "smoke clickhouse: $URL -> HTTP $code"
               case "$code" in 200) exit 0;; *) exit 1;; esac
           resources:
             requests:
@@ -725,6 +789,34 @@ spec:
             runAsGroup: 100
             runAsUser: 568
 
+          # ClickHouse datasource for the cluster logs (docs/logging.md). The
+          # provisioning file keeps the $-reference; Grafana expands it from
+          # the environment, so the password never enters a ConfigMap.
+          plugins:
+            - grafana-clickhouse-datasource@4.21.3
+          envValueFrom:
+            CLICKHOUSE_PASSWORD:
+              secretKeyRef:
+                name: clickhouse-grafana
+                key: password
+          additionalDataSources:
+            - name: ClickHouse
+              uid: clickhouse-logs
+              type: grafana-clickhouse-datasource
+              jsonData:
+                host: clickhouse-logs.observability.svc.cluster.local
+                port: 9000
+                protocol: native
+                username: grafana
+                defaultDatabase: otel
+                logs:
+                  defaultDatabase: otel
+                  defaultTable: otel_logs
+                  otelEnabled: true
+                  otelVersion: latest
+              secureJsonData:
+                password: $CLICKHOUSE_PASSWORD
+
           dashboardProviders:
             dashboardproviders.yaml:
               apiVersion: 1
@@ -738,6 +830,12 @@ spec:
                     path: /var/lib/grafana/dashboards/homelab
           dashboards:
             homelab:
+              opentelemetry-collector:
+                gnetId: 15983
+                revision: 30
+                datasource:
+                  - name: DS_PROMETHEUS
+                    value: Prometheus
               traefik:
                 gnetId: 17347
                 revision: 9
@@ -956,6 +1054,60 @@ spec:
                     annotations:
                       summary: 'p95 latency of {{ $labels.exported_service }} is {{ $value | humanizeDuration }}'
                       description: 'The 95th percentile response time {{ $labels.job }} measured for {{ $labels.exported_service }} has been above 5 s for 10m. Streaming endpoints hold requests open by design; check the access logs before tuning.'
+          # Log pipeline, adapted from the opentelemetry-collector chart rules and
+          # the Altinity clickhouse-operator alert rules (docs/runbooks/alerting.md).
+          homelab-logging:
+            groups:
+              - name: homelab-logging
+                rules:
+                  - alert: HomelabLogExportFailing
+                    expr: 'sum by (namespace, pod) (rate(otelcol_exporter_send_failed_log_records_total[5m])) > 0'
+                    for: 15m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: 'Collector {{ $labels.pod }} cannot write logs to ClickHouse'
+                      description: '{{ $labels.pod }} has failed to export log records for 15m; they are dropped once the retry window (5m) and the send queue run out. Check the ClickHouse pod and `kubectl -n {{ $labels.namespace }} logs {{ $labels.pod }}`.'
+                  - alert: HomelabLogExportQueueFull
+                    expr: 'max by (namespace, pod) (otelcol_exporter_queue_size / otelcol_exporter_queue_capacity) > 0.8'
+                    for: 10m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: 'Collector {{ $labels.pod }} send queue is {{ $value | humanizePercentage }} full'
+                      description: 'The ClickHouse exporter queue of {{ $labels.pod }} has been above 80 % for 10m; new batches are refused when it fills. ClickHouse is slow or unreachable.'
+                  - alert: HomelabLogsNotArriving
+                    expr: 'sum(rate(otelcol_receiver_accepted_log_records_total{receiver=~"file_?log.*"}[15m])) == 0 or absent(otelcol_receiver_accepted_log_records_total{receiver=~"file_?log.*"})'
+                    for: 30m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: 'No container logs are being collected'
+                      description: 'The OpenTelemetry agents have read no container log line for 30m. Check the otel-collector-agent DaemonSet in observability and its hostPath mounts of /var/log/pods.'
+                  - alert: HomelabClickHouseDown
+                    expr: 'max by (chi, hostname) (chi_clickhouse_metric_fetch_errors{fetch_type="system.metrics"}) > 0 or absent(chi_clickhouse_metric_Uptime)'
+                    for: 10m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: 'ClickHouse {{ $labels.chi }} is not answering the metrics exporter'
+                      description: 'The clickhouse-operator metrics exporter has not read system.metrics from ClickHouse for 10m, so the log store is down or unreachable. `kubectl -n observability get chi` and the ClickHouse pod events.'
+                  - alert: HomelabClickHouseRejectedInserts
+                    expr: 'sum by (chi, hostname) (increase(chi_clickhouse_event_RejectedInserts[5m])) > 0'
+                    for: 5m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: 'ClickHouse {{ $labels.hostname }} rejects inserts (too many parts)'
+                      description: 'ClickHouse refused inserts because a partition has too many active parts; merges are not keeping up with the batch rate. Raise the collector batch size or ClickHouse CPU.'
+                  - alert: HomelabClickHouseTooManyParts
+                    expr: 'max by (chi, hostname) (chi_clickhouse_metric_MaxPartCountForPartition) > 150'
+                    for: 15m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: 'ClickHouse {{ $labels.hostname }} has {{ $value }} parts in one partition'
+                      description: 'Inserts are throttled from 150 parts per partition and rejected from 300. Merges are behind; see HomelabClickHouseRejectedInserts.'
 
   destination:
     server: https://kubernetes.default.svc
@@ -1059,6 +1211,360 @@ spec:
     server: https://kubernetes.default.svc
     namespace: local-path-storage
 
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+
+---
+# Source: addons/templates/logging.yaml
+# The chart's crdHook (a bitnami/kubectl:latest Job) is off: ArgoCD applies
+# the CRDs from the chart's crds/ directory itself, server-side because the
+# ClickHouseInstallation CRD is past the client-side-apply size limit.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: clickhouse-operator
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://helm.altinity.com
+    chart: altinity-clickhouse-operator
+    targetRevision: "0.27.3"
+    helm:
+      releaseName: clickhouse-operator
+      values: |
+        crdHook:
+          enabled: false
+        watchNamespaces:
+          - observability
+        operator:
+          resources:
+            limits:
+              cpu: 500m
+              memory: 256Mi
+            requests:
+              cpu: 50m
+              memory: 64Mi
+        metrics:
+          enabled: true
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 20m
+              memory: 64Mi
+        serviceMonitor:
+          enabled: true
+        dashboards:
+          enabled: true
+          additionalLabels:
+            grafana_dashboard: "1"
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: observability
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+
+---
+# Source: addons/templates/logging.yaml
+# The ClickHouseInstallation and the logs dashboard (charts/clickhouse). Health
+# comes from charts/bootstrap/files/health/clickhouse.altinity.com_ClickHouseInstallation.lua.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: clickhouse
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "11"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/ryanmcafee/homelab.git
+    targetRevision: main
+    path: charts/clickhouse
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-localdev.yaml
+      # Storage class, sizing and image pin are environment facts
+      # (configuration/) and reach the child through this parent (ADR-010).
+      valuesObject:
+        namespace: observability
+        database: otel
+        image: clickhouse/clickhouse-server:26.8.10.6
+        resources:
+          limits:
+            cpu: "1"
+            memory: 1Gi
+          requests:
+            cpu: 100m
+            memory: 512Mi
+        storageClass: local-path
+        storageSize: 2Gi
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: observability
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - SkipDryRunOnMissingResource=true
+    # The ClickHouseInstallation CRD comes from clickhouse-operator (wave 10).
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+
+---
+# Source: addons/templates/logging.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: otel-collector-agent
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "12"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://open-telemetry.github.io/opentelemetry-helm-charts
+    chart: opentelemetry-collector
+    targetRevision: "0.173.1"
+    helm:
+      releaseName: otel-collector-agent
+      values: |
+        mode: daemonset
+        presets:
+          # filelog on /var/log/pods (hostPath, read-only) with the CRI parser;
+          # checkpoints in /var/lib/otelcol so a restart neither re-sends nor skips.
+          logsCollection:
+            enabled: true
+            includeCollectorLogs: false
+            storeCheckpoints: true
+          kubernetesAttributes:
+            enabled: true
+        # Container logs under /var/log/pods are root-owned 0640.
+        securityContext:
+          runAsUser: 0
+          runAsGroup: 0
+        tolerations:
+          - operator: Exists
+        image:
+          repository: otel/opentelemetry-collector-contrib
+        command:
+          name: otelcol-contrib
+        resources:
+          limits:
+            cpu: 500m
+            memory: 512Mi
+          requests:
+            cpu: 50m
+            memory: 128Mi
+        ports:
+          otlp:
+            enabled: false
+          otlp-http:
+            enabled: false
+          jaeger-compact:
+            enabled: false
+          jaeger-thrift:
+            enabled: false
+          jaeger-grpc:
+            enabled: false
+          zipkin:
+            enabled: false
+          metrics:
+            enabled: true
+        podMonitor:
+          enabled: true
+        extraEnvs:
+          - name: CLICKHOUSE_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: clickhouse-otel
+                key: password
+        config:
+          receivers:
+            jaeger: null
+            zipkin: null
+            otlp: null
+            prometheus: null
+          processors:
+            batch:
+              send_batch_size: 5000
+              timeout: 5s
+            # Grafana's OpenTelemetry logs view groups by ServiceName; pods
+            # carry no service.name, so the container name stands in.
+            transform/service-name:
+              log_statements:
+                - context: resource
+                  statements:
+                    - set(attributes["service.name"], attributes["k8s.container.name"]) where attributes["service.name"] == nil
+          exporters:
+            debug: null
+            clickhouse:
+              endpoint: tcp://clickhouse-logs.observability.svc.cluster.local:9000?dial_timeout=10s
+              database: otel
+              username: otel
+              password: ${env:CLICKHOUSE_PASSWORD}
+              create_schema: true
+              logs_table_name: otel_logs
+              ttl: 2160h
+              timeout: 10s
+              sending_queue:
+                queue_size: 1000
+              retry_on_failure:
+                enabled: true
+                initial_interval: 5s
+                max_interval: 30s
+                max_elapsed_time: 300s
+          service:
+            pipelines:
+              logs:
+                receivers: []
+                processors:
+                  - memory_limiter
+                  - transform/service-name
+                  - batch
+                exporters:
+                  - clickhouse
+              metrics: null
+              traces: null
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: observability
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+
+---
+# Source: addons/templates/logging.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: otel-collector-cluster
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "12"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://open-telemetry.github.io/opentelemetry-helm-charts
+    chart: opentelemetry-collector
+    targetRevision: "0.173.1"
+    helm:
+      releaseName: otel-collector-cluster
+      values: |
+        mode: deployment
+        replicaCount: 1
+        presets:
+          kubernetesEvents:
+            enabled: true
+        image:
+          repository: otel/opentelemetry-collector-contrib
+        command:
+          name: otelcol-contrib
+        resources:
+          limits:
+            cpu: 200m
+            memory: 256Mi
+          requests:
+            cpu: 20m
+            memory: 64Mi
+        ports:
+          otlp:
+            enabled: false
+          otlp-http:
+            enabled: false
+          jaeger-compact:
+            enabled: false
+          jaeger-thrift:
+            enabled: false
+          jaeger-grpc:
+            enabled: false
+          zipkin:
+            enabled: false
+          metrics:
+            enabled: true
+        podMonitor:
+          enabled: true
+        extraEnvs:
+          - name: CLICKHOUSE_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: clickhouse-otel
+                key: password
+        config:
+          receivers:
+            jaeger: null
+            zipkin: null
+            otlp: null
+            prometheus: null
+          processors:
+            batch:
+              send_batch_size: 5000
+              timeout: 5s
+            # Grafana's OpenTelemetry logs view groups by ServiceName; pods
+            # carry no service.name, so the container name stands in.
+            transform/service-name:
+              log_statements:
+                - context: resource
+                  statements:
+                    - set(attributes["service.name"], attributes["k8s.container.name"]) where attributes["service.name"] == nil
+          exporters:
+            debug: null
+            clickhouse:
+              endpoint: tcp://clickhouse-logs.observability.svc.cluster.local:9000?dial_timeout=10s
+              database: otel
+              username: otel
+              password: ${env:CLICKHOUSE_PASSWORD}
+              create_schema: true
+              logs_table_name: otel_logs
+              ttl: 2160h
+              timeout: 10s
+              sending_queue:
+                queue_size: 1000
+              retry_on_failure:
+                enabled: true
+                initial_interval: 5s
+                max_interval: 30s
+                max_elapsed_time: 300s
+          service:
+            pipelines:
+              logs:
+                receivers: []
+                processors:
+                  - memory_limiter
+                  - transform/service-name
+                  - batch
+                exporters:
+                  - clickhouse
+              metrics: null
+              traces: null
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: observability
   syncPolicy:
     syncOptions:
       - CreateNamespace=true

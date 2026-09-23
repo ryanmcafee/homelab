@@ -1,0 +1,6 @@
+apiVersion: v2
+name: clickhouse
+description: ClickHouse log store for the OpenTelemetry pipeline (Altinity ClickHouseInstallation) and its Grafana logs dashboard
+type: application
+version: 1.0.0
+appVersion: "1.0"

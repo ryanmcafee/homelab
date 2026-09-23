@@ -1,0 +1,197 @@
+---
+# Log pipeline end to end (docs/logging.md): the collectors have written
+# container logs into ClickHouse, the table carries the retention TTL, and the
+# read-only grafana user (the Grafana datasource's) can read them.
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: logging
+spec:
+  description: >-
+    Container logs reach otel.otel_logs in ClickHouse through the OpenTelemetry agents, with the table TTL set.
+  steps:
+    - name: applications-healthy
+      description: The ArgoCD Applications behind the log pipeline are Healthy and their last sync Succeeded.
+      try:
+        - assert:
+            resource:
+              apiVersion: argoproj.io/v1alpha1
+              kind: Application
+              metadata:
+                name: clickhouse-operator
+                namespace: argocd
+              status:
+                health:
+                  status: Healthy
+                operationState:
+                  phase: Succeeded
+        - assert:
+            resource:
+              apiVersion: argoproj.io/v1alpha1
+              kind: Application
+              metadata:
+                name: clickhouse
+                namespace: argocd
+              status:
+                health:
+                  status: Healthy
+                operationState:
+                  phase: Succeeded
+        - assert:
+            resource:
+              apiVersion: argoproj.io/v1alpha1
+              kind: Application
+              metadata:
+                name: otel-collector-agent
+                namespace: argocd
+              status:
+                health:
+                  status: Healthy
+                operationState:
+                  phase: Succeeded
+        - assert:
+            resource:
+              apiVersion: argoproj.io/v1alpha1
+              kind: Application
+              metadata:
+                name: otel-collector-cluster
+                namespace: argocd
+              status:
+                health:
+                  status: Healthy
+                operationState:
+                  phase: Succeeded
+        - assert:
+            resource:
+              apiVersion: argoproj.io/v1alpha1
+              kind: Application
+              metadata:
+                name: kube-prometheus-stack
+                namespace: argocd
+              status:
+                health:
+                  status: Healthy
+                operationState:
+                  phase: Succeeded
+      catch:
+        - describe:
+            apiVersion: argoproj.io/v1alpha1
+            kind: Application
+            name: clickhouse-operator
+            namespace: argocd
+        - describe:
+            apiVersion: argoproj.io/v1alpha1
+            kind: Application
+            name: clickhouse
+            namespace: argocd
+        - describe:
+            apiVersion: argoproj.io/v1alpha1
+            kind: Application
+            name: otel-collector-agent
+            namespace: argocd
+        - describe:
+            apiVersion: argoproj.io/v1alpha1
+            kind: Application
+            name: otel-collector-cluster
+            namespace: argocd
+        - describe:
+            apiVersion: argoproj.io/v1alpha1
+            kind: Application
+            name: kube-prometheus-stack
+            namespace: argocd
+    - name: query-clickhouse
+      description: >-
+        A curl Job in the observability namespace queries ClickHouse over HTTP as
+        the grafana user until otel.otel_logs has rows and a TTL.
+      timeouts:
+        assert: 8m
+      try:
+        - apply:
+            resource:
+              apiVersion: batch/v1
+              kind: Job
+              metadata:
+                name: e2e-clickhouse-logs
+                namespace: observability
+              spec:
+                backoffLimit: 0
+                activeDeadlineSeconds: 420
+                template:
+                  spec:
+                    restartPolicy: Never
+                    securityContext:
+                      runAsNonRoot: true
+                      runAsUser: 100
+                      seccompProfile:
+                        type: RuntimeDefault
+                    containers:
+                      - name: curl
+                        # pinned from configuration/versions.yaml images.curl
+                        image: curlimages/curl:8.22.0
+                        securityContext:
+                          allowPrivilegeEscalation: false
+                          capabilities:
+                            drop: ["ALL"]
+                        resources:
+                          requests:
+                            cpu: 10m
+                            memory: 32Mi
+                          limits:
+                            cpu: 100m
+                            memory: 64Mi
+                        env:
+                          - name: CLICKHOUSE_URL
+                            value: "http://clickhouse-logs.observability.svc.cluster.local:8123/"
+                          - name: CLICKHOUSE_PASSWORD
+                            valueFrom:
+                              secretKeyRef:
+                                name: clickhouse-grafana
+                                key: password
+                          - name: ATTEMPTS
+                            value: "40"
+                        command: ["sh", "-c"]
+                        args:
+                          - |
+                            set -u
+                            query() {
+                              curl -s --max-time 20 -u "grafana:$CLICKHOUSE_PASSWORD" --data-binary "$1" "$CLICKHOUSE_URL"
+                            }
+                            i=1
+                            while [ "$i" -le "$ATTEMPTS" ]; do
+                              rows=$(query "SELECT count() FROM otel.otel_logs")
+                              echo "attempt $i/$ATTEMPTS: otel.otel_logs rows: $rows"
+                              case "$rows" in
+                                ''|*[!0-9]*|0) ;;
+                                *)
+                                  ttl=$(query "SELECT engine_full FROM system.tables WHERE database = 'otel' AND name = 'otel_logs'")
+                                  echo "engine: $ttl"
+                                  case "$ttl" in *TTL*) exit 0 ;; esac
+                                  echo "otel_logs has no TTL"
+                                  exit 1
+                                  ;;
+                              esac
+                              i=$((i + 1))
+                              sleep 10
+                            done
+                            echo "giving up: no rows in otel.otel_logs"
+                            exit 1
+        - assert:
+            resource:
+              apiVersion: batch/v1
+              kind: Job
+              metadata:
+                name: e2e-clickhouse-logs
+                namespace: observability
+              status:
+                succeeded: 1
+      catch:
+        - events:
+            namespace: observability
+        - podLogs:
+            namespace: observability
+            selector: job-name=e2e-clickhouse-logs
+            tail: 50
+        - podLogs:
+            namespace: observability
+            selector: app.kubernetes.io/instance=otel-collector-agent
+            tail: 50
