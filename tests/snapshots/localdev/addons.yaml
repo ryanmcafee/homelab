@@ -873,6 +873,9 @@ metadata:
   namespace: argocd
   annotations:
     argocd.argoproj.io/sync-wave: "1"
+    # Its path is in the gateway-api repository: Kind syncs it from there,
+    # not with --local (scripts/localdev-argocd.ts REMOTE_SYNC_ANNOTATION).
+    homelab.local/localdev-sync: remote
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
