@@ -790,6 +790,14 @@ traefikExternal:
     - --global.checknewversion=false
     - --global.sendanonymoususage=false
 
+  logs:
+    access:
+      enabled: false
+      format: json
+  metrics:
+    serviceMonitor:
+      enabled: false
+
   # Environment variables
   env: []
 
@@ -901,6 +909,14 @@ traefikInternal:
   additionalArguments:
     - --global.checknewversion=false
     - --global.sendanonymoususage=false
+
+  logs:
+    access:
+      enabled: false
+      format: json
+  metrics:
+    serviceMonitor:
+      enabled: false
 
   env: []
 

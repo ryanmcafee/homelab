@@ -153,6 +153,21 @@ spec:
           {{- end }}
         {{- end }}
 
+        logs:
+          access:
+            enabled: {{ .Values.traefikExternal.logs.access.enabled }}
+            format: {{ .Values.traefikExternal.logs.access.format }}
+
+        # The ServiceMonitor selects a dedicated metrics Service; the main
+        # Service does not expose :9100. The API check would fail an offline render.
+        metrics:
+          prometheus:
+            disableAPICheck: true
+            service:
+              enabled: {{ .Values.traefikExternal.metrics.serviceMonitor.enabled }}
+            serviceMonitor:
+              enabled: {{ .Values.traefikExternal.metrics.serviceMonitor.enabled }}
+
         env:
           {{- toYaml .Values.traefikExternal.env | nindent 10 }}
 

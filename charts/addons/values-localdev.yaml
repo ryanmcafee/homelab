@@ -810,6 +810,14 @@ kube-prometheus-stack:
         cpu: 200m
         memory: 256Mi
 
+    # grafana.com dashboards the Grafana init container downloads into the
+    # "homelab" folder; revisions are pinned. The ClickHouse operator chart
+    # ships its own dashboards as sidecar ConfigMaps.
+    dashboards:
+      traefik:
+        gnetId: 17347
+        revision: 9
+
   # Alertmanager and node-exporter are not useful in Kind (no alert routes, containerised nodes).
   alertmanager:
     enabled: false
@@ -952,6 +960,17 @@ traefikExternal:
     - --global.checknewversion=false
     - --global.sendanonymoususage=false
 
+  # JSON access logs on stdout (collected by the OpenTelemetry agents into
+  # ClickHouse, docs/logging.md) and a metrics Service + ServiceMonitor on the
+  # metrics entrypoint (:9100) that kube-prometheus-stack scrapes.
+  logs:
+    access:
+      enabled: true
+      format: json
+  metrics:
+    serviceMonitor:
+      enabled: true
+
   # OIDC Plugin for authentication (replaces oauth2-proxy)
   experimental:
     plugins:
@@ -1080,6 +1099,17 @@ traefikInternal:
   additionalArguments:
     - --global.checknewversion=false
     - --global.sendanonymoususage=false
+
+  # JSON access logs on stdout (collected by the OpenTelemetry agents into
+  # ClickHouse, docs/logging.md) and a metrics Service + ServiceMonitor on the
+  # metrics entrypoint (:9100) that kube-prometheus-stack scrapes.
+  logs:
+    access:
+      enabled: true
+      format: json
+  metrics:
+    serviceMonitor:
+      enabled: true
 
   env: []
 
