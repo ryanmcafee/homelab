@@ -47,7 +47,7 @@ bun = "1.4.2"             # the formatter and test runner pins live in package.j
 
 # Kubernetes Validation (level-0 static verification: task verify)
 kubeconform = "0.7.0"     # Kubernetes manifest schema validation
-conftest = "0.70.0"       # Policy-as-code (Rego) over rendered manifests
+conftest = "0.70.1"       # Policy-as-code (Rego) over rendered manifests
 pluto = "5.24.4"          # Detect deprecated apiVersions ahead of upgrades
 "aqua:kyverno/chainsaw" = "0.2.15"  # Declarative Kind e2e tests (task test:e2e); versions.yaml tools.chainsaw
 
