@@ -14,7 +14,8 @@
 ---
 providers:
   cert-manager.io: cert-manager
-  traefik.io: traefik-external
+  # traefik-crds (wave 4) installs them; both Traefik releases render with skipCrds.
+  traefik.io: traefik-crds
   onepassword.com: onepassword-operator
   tailscale.com: tailscale-operator
   cilium.io: cilium

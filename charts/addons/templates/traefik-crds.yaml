@@ -1,0 +1,44 @@
+{{- if .Values.traefikCrds.enabled }}
+---
+# The traefik.io CRDs for traefik-internal and traefik-external, which render
+# with skipCrds. The traefik chart's crds/ also carries Gateway API v1.4
+# CRDs, which the Gateway API v1.6 ValidatingAdmissionPolicy
+# (safe-upgrades.gateway.networking.k8s.io, gateway-api-crds) rejects; Gateway
+# API comes only from gateway-api-crds. Hub, Knative and Gateway API stay off.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: traefik-crds
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "4"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: {{ .Values.traefikCrds.chart.repo }}
+    chart: {{ .Values.traefikCrds.chart.name }}
+    targetRevision: {{ .Values.traefikCrds.chart.version | quote }}
+    helm:
+      releaseName: traefik-crds
+      values: |
+        traefik: true
+        gatewayAPI: false
+        gatewayAPIExperimental: false
+        hub: false
+        knative: false
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: {{ .Values.traefikInternal.namespace }}
+  syncPolicy:
+    {{- if .Values.global.automatedSync }}
+    automated:
+      prune: true
+      selfHeal: true
+    {{- end }}
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+{{- end }}

@@ -1393,6 +1393,18 @@ argo-workflows:
           secondsAfterFailure: 172800
 
 # ============================================================================
+# Traefik CRDs (traefik.io only) for both Traefik releases
+# Sync Wave: 4 (before traefik-*-dependencies at 5 and the controllers at 6)
+# ============================================================================
+
+traefikCrds:
+  enabled: true
+  chart:
+    name: traefik-crds
+    repo: https://traefik.github.io/charts
+    version: "1.14.1"
+
+# ============================================================================
 # Istio ambient mesh + Kiali (docs/service-mesh.md)
 # Sync Waves: 2 istio-base, 3 istiod + istio-cni, 4 ztunnel, 5 istio-config,
 # 10 kiali. No namespace is enrolled here: SERVICE_MESH_AMBIENT_NAMESPACES

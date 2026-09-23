@@ -61,6 +61,8 @@ spec:
     targetRevision: {{ .Values.traefikExternal.chart.version }}
     helm:
       releaseName: traefik-external
+      # CRDs come from the traefik-crds Application (templates/traefik-crds.yaml).
+      skipCrds: true
       values: |
         # IngressClass configuration
         ingressClass:

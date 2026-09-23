@@ -12,6 +12,13 @@ Each entry should include:
 
 ## Entries
 
+### 2026-09-23 - Traefik syncs denied: chart ships Gateway API v1.4 CRDs, Gateway API v1.6 VAP forbids them
+- **Issue**: In the PR #321 Kind loop `traefik-internal` and `traefik-external` ended Failed after three retries on `backendtlspolicies`, `referencegrants`, `grpcroutes`, `httproutes` (gateway.networking.k8s.io): "Installing CRDs with version before v1.5.0 is prohibited by default"
+- **Root Cause**: The traefik chart 39.0.9 carries `crds/gateway-standard-install.yaml` (bundle v1.4.0) and ArgoCD applies a chart's `crds/` directory. The new `gateway-api-crds` Application (v1.6.2, for Istio waypoints) installs the ValidatingAdmissionPolicy `safe-upgrades.gateway.networking.k8s.io`, which denies any Gateway API CRD older than v1.5. The same would have failed every production Traefik sync
+- **Solution**: New `traefik-crds` Application (chart `traefik-crds` 1.14.1, released with traefik 39.0.9, identical traefik.io CRDs; Gateway API, Hub and Knative off) at addons wave 4; both Traefik Applications set `helm.skipCrds: true`; `tests/gitops/crd-providers.yaml` names `traefik-crds` for traefik.io; Renovate groups `traefik` and `traefik-crds`. Gateway API CRDs come only from `gateway-api-crds`. Cilium (`gatewayAPI.enabled: false`) and Istio base ship no Gateway API CRDs
+- **Transition (production)**: checked read-only on 2026-09-23 through `homelab-readonly`: the live traefik.io, hub.traefik.io and gateway.networking.k8s.io CRDs carry no `argocd.argoproj.io/tracking-id` annotation (the tracking method is the ArgoCD 3 default, annotation), so `traefik-internal`/`traefik-external` do not own them and cannot prune them when they stop rendering them. `traefik-crds` (wave 4) syncs and becomes Healthy before the Traefik Applications (wave 6) are updated, and then owns the traefik.io CRDs. The hub.traefik.io CRDs stay in the cluster unowned (unused; delete by hand if wanted); the Gateway API CRDs move from v1.4 to v1.6 through `gateway-api-crds` (an upgrade, which the policy allows)
+- **Prevention**: A chart's `crds/` directory is applied by ArgoCD unless `skipCrds` is set; when two Applications could install the same CRD group, give the group one owner in `crd-providers.yaml` and skip it everywhere else
+
 ### 2025-01-27 - Ingresses returning 401/503 with oauth2-proxy middleware
 - **Issue**: Multiple ingresses (Traefik, Grafana, Sonarr, Radarr, Prowlarr, Home Assistant) returning 401 authorization or 503 errors
 - **Root Cause**: OAuth2-proxy middleware configuration issue (investigation pending)

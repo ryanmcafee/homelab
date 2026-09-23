@@ -187,6 +187,10 @@ charts:
   prometheus-operator-crds: "30.0.0"
   # renovate: datasource=helm depName=traefik registryUrl=https://traefik.github.io/charts
   traefik: "39.0.9"
+  # CRDs of the traefik chart, installed on their own (traefik-crds Application); released with
+  # the traefik chart, bump both together (1.14.1 ships the CRDs of traefik 39.0.9).
+  # renovate: datasource=helm depName=traefik-crds registryUrl=https://traefik.github.io/charts
+  traefik-crds: "1.14.1"
   # renovate: datasource=helm depName=democratic-csi registryUrl=https://democratic-csi.github.io/charts/
   democratic-csi: "0.15.1"
   # renovate: datasource=helm depName=tailscale-operator registryUrl=https://pkgs.tailscale.com/helmcharts

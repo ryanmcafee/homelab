@@ -1275,3 +1275,7 @@ logging:
 blackbox-exporter:
   enabled: false
   namespace: monitoring
+
+# Traefik CRDs (templates/traefik-crds.yaml). Placeholder; the CMP template renders the real block.
+traefikCrds:
+  enabled: false

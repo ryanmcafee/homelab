@@ -4302,6 +4302,48 @@ spec:
       - ServerSideApply=true
 
 ---
+# Source: addons/templates/traefik-crds.yaml
+# The traefik.io CRDs for traefik-internal and traefik-external, which render
+# with skipCrds. The traefik chart's crds/ also carries Gateway API v1.4
+# CRDs, which the Gateway API v1.6 ValidatingAdmissionPolicy
+# (safe-upgrades.gateway.networking.k8s.io, gateway-api-crds) rejects; Gateway
+# API comes only from gateway-api-crds. Hub, Knative and Gateway API stay off.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: traefik-crds
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "4"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://traefik.github.io/charts
+    chart: traefik-crds
+    targetRevision: "1.14.1"
+    helm:
+      releaseName: traefik-crds
+      values: |
+        traefik: true
+        gatewayAPI: false
+        gatewayAPIExperimental: false
+        hub: false
+        knative: false
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: traefik
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+
+---
 # Source: addons/templates/traefik-external.yaml
 # Dependencies Application: deploys secrets and OnePasswordItems before traefik-external
 # Wave 5: After external-dns (wave 4), which installs the DNSEndpoint CRD this chart's config child uses
@@ -4356,6 +4398,8 @@ spec:
     targetRevision: 39.0.9
     helm:
       releaseName: traefik-external
+      # CRDs come from the traefik-crds Application (templates/traefik-crds.yaml).
+      skipCrds: true
       values: |
         # IngressClass configuration
         ingressClass:
@@ -4628,6 +4672,8 @@ spec:
     targetRevision: 39.0.9
     helm:
       releaseName: traefik-internal
+      # CRDs come from the traefik-crds Application (templates/traefik-crds.yaml).
+      skipCrds: true
       values: |
         # IngressClass configuration
         ingressClass:
