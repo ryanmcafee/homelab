@@ -34,7 +34,7 @@ task = "3.46.4"
 
 # Go toolchain (docs/runbooks/verification.md agrees on this minor; the
 # level-0 CLI and its tests are built with it)
-go = "1.25"
+go = "1.27.1"
 
 # Utilities
 jq = "latest"
