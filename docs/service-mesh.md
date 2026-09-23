@@ -29,6 +29,7 @@ Istio's platform prerequisites for Cilium are set in the `cilium` block of
 |---|---|
 | `cni.exclusive: false` | Cilium otherwise deletes every other CNI config, including the chained `istio-cni` entry |
 | `socketLB.hostNamespaceOnly: true` | with kube-proxy replacement, socket load balancing in pod namespaces rewrites the Service address before ztunnel's redirection sees it |
+| `bpf.masquerade` left at its default `false` | Istio: BPF masquerading breaks kubelet health probes of ambient pods; keep iptables masquerading |
 
 In homelab Talos installs Cilium from inline manifests and the `cilium` Application only adopts
 the release. After merge that Application syncs the new `cilium-config` ConfigMap, but the
@@ -48,7 +49,9 @@ nothing is enrolled, so no workload is affected. Kind picks the values up at
 
 **Default-deny NetworkPolicies.** Ambient SNATs kubelet health probes of enrolled pods to
 `169.254.7.127`. A Cilium default-deny policy in an enrolled namespace must allow that address
-or probes fail; none exists today.
+or probes fail; none exists today. Istio's fix is a `CiliumClusterwideNetworkPolicy` allowing
+ingress from `169.254.7.127/32` to every endpoint (`allow-ambient-hostprobes` in the Istio
+platform prerequisites).
 
 ## Enroll a namespace
 
