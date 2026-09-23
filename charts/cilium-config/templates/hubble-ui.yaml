@@ -1,0 +1,28 @@
+{{- /* Hubble UI has no login of its own; it is reachable on the internal ingress only. */}}
+{{- if .Values.hubbleUI.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: hubble-ui
+  namespace: {{ .Values.namespace }}
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt
+    external-dns.alpha.kubernetes.io/hostname: {{ .Values.hubbleUI.host }}
+spec:
+  ingressClassName: {{ .Values.hubbleUI.ingressClassName }}
+  rules:
+    - host: {{ .Values.hubbleUI.host }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: hubble-ui
+                port:
+                  number: 80
+  tls:
+    - secretName: hubble-ui-tls
+      hosts:
+        - {{ .Values.hubbleUI.host }}
+{{- end }}

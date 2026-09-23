@@ -49,10 +49,12 @@ global:
   iscsi:
     portal: "{{ .Values.ISCSI_TARGET_PORTAL.Value }}"
 
-  # Namespaces enrolled in the Istio ambient mesh (SERVICE_MESH_AMBIENT_NAMESPACES,
-  # comma-separated; docs/service-mesh.md). Empty enrolls none.
+  # Namespaces enrolled in the Istio ambient mesh and those with a waypoint
+  # (SERVICE_MESH_AMBIENT_NAMESPACES, SERVICE_MESH_WAYPOINT_NAMESPACES;
+  # comma-separated, docs/service-mesh.md).
   serviceMesh:
-    ambientNamespaces: "{{ if .Values.SERVICE_MESH_AMBIENT_NAMESPACES }}{{ .Values.SERVICE_MESH_AMBIENT_NAMESPACES.Value }}{{ end }}"
+    ambientNamespaces: "{{ .Values.SERVICE_MESH_AMBIENT_NAMESPACES.Value }}"
+    waypointNamespaces: "{{ .Values.SERVICE_MESH_WAYPOINT_NAMESPACES.Value }}"
 
 # ============================================================================
 # Plex Media Server

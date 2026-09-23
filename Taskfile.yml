@@ -606,26 +606,14 @@ tasks:
     desc: Render Cilium Helm chart to YAML for inline installation
     cmds:
       - helm repo add cilium https://helm.cilium.io/ || true
+      # The values are the homelab cilium.values of configuration/templates/helm-addons.tmpl,
+      # the same map the adopting cilium Application renders, so the two cannot drift.
       - |
+        values=$(mktemp)
+        trap 'rm -f "$values"' EXIT
+        go run ./cmd/homelab config export --set homelab --format helm-addons --stdout | yq '.cilium.values' > "$values"
         helm template cilium cilium/cilium --version "$(yq -r .charts.cilium configuration/versions.yaml)" \
-          --namespace kube-system \
-          --set ipam.mode=kubernetes \
-          --set kubeProxyReplacement=true \
-          --set k8sServiceHost=localhost \
-          --set k8sServicePort=7445 \
-          --set securityContext.capabilities.ciliumAgent="{CHOWN,KILL,NET_ADMIN,NET_RAW,IPC_LOCK,SYS_ADMIN,SYS_RESOURCE,DAC_OVERRIDE,FOWNER,SETGID,SETUID}" \
-          --set securityContext.capabilities.cleanCiliumState="{NET_ADMIN,SYS_ADMIN,SYS_RESOURCE}" \
-          --set cgroup.autoMount.enabled=false \
-          --set cgroup.hostRoot=/sys/fs/cgroup \
-          --set l2announcements.enabled=true \
-          --set externalIPs.enabled=true \
-          --set bgpControlPlane.enabled=true \
-          --set hubble.relay.enabled=true \
-          --set hubble.ui.enabled=true \
-          --set bandwidthManager.enabled=true \
-          --set bandwidthManager.bbr=true \
-          --set cni.exclusive=false \
-          --set socketLB.hostNamespaceOnly=true \
+          --namespace kube-system -f "$values" \
           > terragrunt/files/cilium-rendered.yaml
       - echo "Cilium manifests rendered to terragrunt/files/cilium-rendered.yaml"
 

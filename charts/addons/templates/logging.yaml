@@ -8,6 +8,7 @@ them through the ClickHouse datasource (kube-prometheus-stack.yaml).
   wave 11  clickhouse               charts/clickhouse: ClickHouseInstallation logs + logs dashboard
   wave 12  otel-collector-agent     DaemonSet: filelog on /var/log/pods -> clickhouse exporter
   wave 12  otel-collector-cluster   one replica: Kubernetes events -> clickhouse exporter
+  wave 12  otel-collector-gateway   OTLP (traces, app logs), UniFi syslog + NetFlow -> clickhouse exporter
 Retention is the exporter's table TTL (logging.retention); the exporter
 creates database and table on first start (create_schema).
 */}}
@@ -170,7 +171,7 @@ spec:
         factor: 2
         maxDuration: 3m
 {{- include "homelab.smokeJob" (dict "name" "clickhouse" "namespace" $log.namespace "smoke" $log.clickhouse.smoke "wave" "11" "image" .Values.global.images.curl) }}
-{{- range $collector := list "agent" "cluster" }}
+{{- range $collector := list "agent" "cluster" "gateway" }}
 {{- $otel := index $log.otel $collector }}
 ---
 apiVersion: argoproj.io/v1alpha1
@@ -191,6 +192,7 @@ spec:
     helm:
       releaseName: otel-collector-{{ $collector }}
       values: |
+        fullnameOverride: otel-collector-{{ $collector }}
         {{- if eq $collector "agent" }}
         mode: daemonset
         presets:
@@ -208,12 +210,40 @@ spec:
           runAsGroup: 0
         tolerations:
           - operator: Exists
-        {{- else }}
+        {{- if $log.hubble.enabled }}
+        # Cilium writes the filtered Hubble flow log on every node (hubble.export.static).
+        extraVolumes:
+          - name: hubble-flows
+            hostPath:
+              path: {{ dir $log.hubble.flowLog }}
+              type: DirectoryOrCreate
+        extraVolumeMounts:
+          - name: hubble-flows
+            mountPath: {{ dir $log.hubble.flowLog }}
+            readOnly: true
+        {{- end }}
+        {{- else if eq $collector "cluster" }}
         mode: deployment
         replicaCount: 1
         presets:
           kubernetesEvents:
             enabled: true
+        {{- else }}
+        # OTLP for traces and application logs, plus the UniFi gateway's syslog
+        # and flow export (docs/logging.md, docs/tracing.md).
+        mode: deployment
+        replicaCount: 1
+        presets:
+          kubernetesAttributes:
+            enabled: true
+        {{- with $otel.service }}
+        service:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+        {{- with $otel.ingress }}
+        ingress:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
         {{- end }}
         image:
           repository: {{ $log.otel.image.repository }}
@@ -223,9 +253,15 @@ spec:
           {{- toYaml $otel.resources | nindent 10 }}
         ports:
           otlp:
-            enabled: false
+            enabled: {{ eq $collector "gateway" }}
+            {{- if eq $collector "gateway" }}
+            hostPort: 0
+            {{- end }}
           otlp-http:
-            enabled: false
+            enabled: {{ eq $collector "gateway" }}
+            {{- if eq $collector "gateway" }}
+            hostPort: 0
+            {{- end }}
           jaeger-compact:
             enabled: false
           jaeger-thrift:
@@ -236,6 +272,23 @@ spec:
             enabled: false
           metrics:
             enabled: true
+          {{- if and (eq $collector "gateway") $log.unifi.enabled }}
+          syslog-udp:
+            enabled: true
+            containerPort: 5514
+            servicePort: 514
+            protocol: UDP
+          syslog-tcp:
+            enabled: true
+            containerPort: 5514
+            servicePort: 514
+            protocol: TCP
+          netflow:
+            enabled: true
+            containerPort: 2055
+            servicePort: 2055
+            protocol: UDP
+          {{- end }}
         podMonitor:
           enabled: true
         extraEnvs:
@@ -248,8 +301,58 @@ spec:
           receivers:
             jaeger: null
             zipkin: null
-            otlp: null
             prometheus: null
+            {{- if ne $collector "gateway" }}
+            otlp: null
+            {{- end }}
+            {{- if and (eq $collector "agent") $log.hubble.enabled }}
+            # One JSON object per line: {"flow": {...}, "node_name": ..., "time": ...}.
+            file_log/hubble:
+              include:
+                - {{ $log.hubble.flowLog }}
+              start_at: end
+              storage: file_storage
+              operators:
+                - type: json_parser
+                  parse_to: body
+                - type: add
+                  field: resource["service.name"]
+                  value: hubble
+            {{- end }}
+            {{- if and (eq $collector "gateway") $log.unifi.enabled }}
+            # UniFi SIEM export: CEF lines inside RFC 3164 syslog.
+            syslog/udp:
+              udp:
+                listen_address: 0.0.0.0:5514
+                add_attributes: true
+              protocol: rfc3164
+              location: UTC
+              operators:
+                - type: regex_parser
+                  if: 'attributes.message matches "CEF:"'
+                  parse_from: attributes.message
+                  regex: 'CEF:(?P<cef_version>\d+)\|(?P<cef_vendor>[^|]*)\|(?P<cef_product>[^|]*)\|(?P<cef_device_version>[^|]*)\|(?P<cef_signature>[^|]*)\|(?P<cef_name>[^|]*)\|(?P<cef_severity>[^|]*)\|(?P<cef_extension>.*)'
+                  on_error: send_quiet
+                - type: add
+                  field: resource["service.name"]
+                  value: unifi-syslog
+            syslog/tcp:
+              tcp:
+                listen_address: 0.0.0.0:5514
+                add_attributes: true
+              protocol: rfc3164
+              location: UTC
+              operators:
+                - type: add
+                  field: resource["service.name"]
+                  value: unifi-syslog
+            # NetFlow v5/v9/IPFIX from the gateway, one log record per flow.
+            netflow:
+              scheme: netflow
+              port: 2055
+              sockets: 1
+              workers: 2
+            {{- end }}
           processors:
             batch:
               send_batch_size: 5000
@@ -270,6 +373,7 @@ spec:
               password: ${env:CLICKHOUSE_PASSWORD}
               create_schema: true
               logs_table_name: otel_logs
+              traces_table_name: otel_traces
               ttl: {{ $log.retention }}
               timeout: 10s
               sending_queue:
@@ -282,15 +386,37 @@ spec:
           service:
             pipelines:
               logs:
-                receivers: []
+                receivers:
+                  {{- if eq $collector "gateway" }}
+                  - otlp
+                  {{- if $log.unifi.enabled }}
+                  - syslog/udp
+                  - syslog/tcp
+                  - netflow
+                  {{- end }}
+                  {{- else if and (eq $collector "agent") $log.hubble.enabled }}
+                  - file_log/hubble
+                  {{- else }} []
+                  {{- end }}
                 processors:
                   - memory_limiter
                   - transform/service-name
                   - batch
                 exporters:
                   - clickhouse
-              metrics: null
+              {{- if eq $collector "gateway" }}
+              traces:
+                receivers:
+                  - otlp
+                processors:
+                  - memory_limiter
+                  - batch
+                exporters:
+                  - clickhouse
+              {{- else }}
               traces: null
+              {{- end }}
+              metrics: null
   destination:
     server: https://kubernetes.default.svc
     namespace: {{ $log.namespace }}

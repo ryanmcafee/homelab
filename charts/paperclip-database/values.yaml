@@ -15,6 +15,10 @@ namespace: paperclip
 # on iSCSI with no manual step in production.
 name: paperclip-postgres
 
+# True when the namespace is enrolled in the Istio ambient mesh: the pods and
+# Services opt out of it (inheritedMetadata labels). Set by the parent.
+ambientOptOut: false
+
 # 1 to start; 2 once HA is wanted (automatic failover, primaryUpdateStrategy
 # unsupervised switches the primary during upgrades).
 instances: 1

@@ -1,9 +1,9 @@
 {{- /*
 Upstream Istio monitors (samples/addons/extras/prometheus-operator.yaml):
-istiod through its http-monitoring Service port, and every pod with an
-istio-proxy container (ztunnel and waypoints in ambient) through the
-prometheus.io annotations Istio sets on them. Labels and relabelings are kept
-as upstream ships them because the Istio Grafana dashboards query on them.
+istiod through its http-monitoring Service port and waypoints through the
+prometheus.io annotations Istio sets on them; labels and relabelings stay as
+upstream ships them because the Istio Grafana dashboards query on them.
+Upstream has none for ztunnel (no Service) or istio-cni, so those are PodMonitors.
 */}}
 ---
 apiVersion: monitoring.coreos.com/v1
@@ -48,6 +48,9 @@ spec:
           regex: "istio-proxy"
         - action: keep
           sourceLabels: [__meta_kubernetes_pod_annotationpresent_prometheus_io_scrape]
+        - action: drop
+          sourceLabels: [__meta_kubernetes_pod_label_app]
+          regex: ztunnel
         - action: replace
           regex: (\d+);(([A-Fa-f0-9]{1,4}::?){1,7}[A-Fa-f0-9]{1,4})
           replacement: '[$2]:$1'
@@ -66,3 +69,31 @@ spec:
         - sourceLabels: [__meta_kubernetes_pod_name]
           action: replace
           targetLabel: pod_name
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: ztunnel
+  namespace: {{ .Values.namespace }}
+spec:
+  selector:
+    matchLabels:
+      app: ztunnel
+  podMetricsEndpoints:
+    - port: ztunnel-stats
+      path: /stats/prometheus
+      interval: 15s
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: istio-cni
+  namespace: {{ .Values.namespace }}
+spec:
+  selector:
+    matchLabels:
+      k8s-app: istio-cni-node
+  podMetricsEndpoints:
+    - port: metrics
+      path: /metrics
+      interval: 30s

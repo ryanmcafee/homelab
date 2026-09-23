@@ -174,6 +174,16 @@ cilium:
     image:
       pullPolicy: IfNotPresent
 
+  # charts/cilium-config: ServiceMonitors for the agent, operator and Hubble
+  # metrics, and the Hubble UI ingress, where the Talos values enable them.
+  config:
+    monitoring:
+      enabled: false
+    hubbleUI:
+      enabled: false
+      host: hubble.homelab.local
+      ingressClassName: internal
+
 # ============================================================================
 # Cilium LB IPAM - LoadBalancer IP Management + BGP
 # Sync Wave: 1
@@ -997,9 +1007,21 @@ traefikExternal:
     access:
       enabled: true
       format: json
+      # Every general field is kept (ClientHost, RequestHost/Path/Method,
+      # Duration, OriginDuration, OriginStatus, DownstreamStatus, RouterName,
+      # ServiceURL, RetryAttempts, TraceId, SpanId); of the headers only these.
+      headers:
+        User-Agent: keep
+        Traceparent: keep
   metrics:
     serviceMonitor:
       enabled: true
+  # W3C traceparent is started or continued here and forwarded to the
+  # backend; spans go to the OpenTelemetry gateway collector (docs/tracing.md).
+  tracing:
+    enabled: true
+    endpoint: otel-collector-gateway.observability.svc.cluster.local:4317
+    sampleRate: 1.0
 
   # OIDC Plugin for authentication (replaces oauth2-proxy)
   experimental:
@@ -1137,9 +1159,21 @@ traefikInternal:
     access:
       enabled: true
       format: json
+      # Every general field is kept (ClientHost, RequestHost/Path/Method,
+      # Duration, OriginDuration, OriginStatus, DownstreamStatus, RouterName,
+      # ServiceURL, RetryAttempts, TraceId, SpanId); of the headers only these.
+      headers:
+        User-Agent: keep
+        Traceparent: keep
   metrics:
     serviceMonitor:
       enabled: true
+  # W3C traceparent is started or continued here and forwarded to the
+  # backend; spans go to the OpenTelemetry gateway collector (docs/tracing.md).
+  tracing:
+    enabled: true
+    endpoint: otel-collector-gateway.observability.svc.cluster.local:4317
+    sampleRate: 1.0
 
   env: []
 
@@ -1356,8 +1390,21 @@ istio:
   enabled: true
   namespace: istio-system
   chart:
-    repo: https://istio-release.storage.googleapis.com/charts
-    version: "1.30.5"
+    # The storage.googleapis.com repository ends at 1.30.5; 1.31 is published here.
+    repo: https://blob.istio.io/istio-release/charts
+    version: "1.31.1"
+  # Standard-channel Gateway API CRDs; a waypoint is a Gateway of class istio-waypoint.
+  gatewayApi:
+    repo: https://github.com/kubernetes-sigs/gateway-api.git
+    version: "v1.6.2"
+
+  # Waypoint spans to the OpenTelemetry gateway collector (OTLP gRPC).
+  # ztunnel is L4 only and emits no spans (docs/service-mesh.md).
+  tracing:
+    provider: otel-tracing
+    service: otel-collector-gateway.observability.svc.cluster.local
+    port: 4317
+    samplingPercentage: 100
 
   istiod:
     replicas: 1
@@ -1517,3 +1564,65 @@ logging:
         limits:
           cpu: 200m
           memory: 256Mi
+    # OTLP (traces, application logs) and the UniFi gateway's syslog/NetFlow.
+    # Service otel-collector-gateway; with LoadBalancer addresses it also
+    # takes OTEL_LB_IP so the gateway can reach it as otel.<DOMAIN>.
+    gateway:
+      resources:
+        requests:
+          cpu: 50m
+          memory: 128Mi
+        limits:
+          cpu: "1"
+          memory: 512Mi
+      # OTLP/HTTP with TLS for clients outside the cluster.
+      ingress:
+        enabled: true
+        ingressClassName: internal
+        annotations:
+          cert-manager.io/cluster-issuer: letsencrypt
+          external-dns.alpha.kubernetes.io/hostname: otlp.homelab.local
+        hosts:
+          - host: otlp.homelab.local
+            paths:
+              - path: /
+                pathType: Prefix
+                port: 4318
+        tls:
+          - secretName: otlp-tls
+            hosts:
+              - otlp.homelab.local
+
+  # UniFi gateway syslog (CEF) and NetFlow receivers on otel-collector-gateway.
+  unifi:
+    enabled: true
+    gatewayIP: "127.0.0.1"
+
+  # Filtered Hubble flow log (cilium hubble.export.static) read by the agents.
+  # Hubble runs in the Talos Cilium values only.
+  hubble:
+    enabled: false
+    flowLog: /var/run/cilium/hubble/events.log
+
+# ============================================================================
+# Blackbox probes - synthetic checks of the paperclip request path
+# Sync Wave: 10 (docs/runbooks/paperclip-request-path.md)
+# ============================================================================
+
+blackbox-exporter:
+  enabled: true
+  namespace: monitoring
+  chart:
+    name: prometheus-blackbox-exporter
+    repo: https://prometheus-community.github.io/helm-charts
+    version: "11.18.0"
+  # Every 15 s: through DNS and traefik-internal (in-cluster, so the LB
+  # address resolves but Cilium short-circuits it to Traefik without the
+  # L2/BGP hop) and straight to the pod's Service, so a failure names the hop.
+  targets:
+    - name: paperclip-ingress
+      url: https://paperclip.homelab.local/api/health
+      module: http_2xx_ingress
+    - name: paperclip-direct
+      url: http://paperclip.paperclip.svc.cluster.local:3100/api/health
+      module: http_2xx

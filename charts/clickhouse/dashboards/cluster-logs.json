@@ -38,7 +38,7 @@
         },
         "refresh": 2,
         "sort": 1,
-        "query": "SELECT DISTINCT ResourceAttributes['k8s.namespace.name'] FROM {{ .Values.database }}.otel_logs WHERE $__timeFilter(Timestamp)"
+        "query": "SELECT DISTINCT ResourceAttributes['k8s.namespace.name'] FROM otel.otel_logs WHERE $__timeFilter(Timestamp)"
       },
       {
         "name": "search",
@@ -89,7 +89,7 @@
           "editorType": "sql",
           "queryType": "sql",
           "format": 0,
-          "rawSql": "SELECT $__timeInterval(Timestamp) AS time, ResourceAttributes['k8s.namespace.name'] AS namespace, count() AS lines FROM {{ .Values.database }}.otel_logs WHERE $__timeFilter(Timestamp) AND ResourceAttributes['k8s.namespace.name'] IN (${namespace:singlequote}) GROUP BY time, namespace ORDER BY time",
+          "rawSql": "SELECT $__timeInterval(Timestamp) AS time, ResourceAttributes['k8s.namespace.name'] AS namespace, count() AS lines FROM otel.otel_logs WHERE $__timeFilter(Timestamp) AND ResourceAttributes['k8s.namespace.name'] IN (${namespace:singlequote}) GROUP BY time, namespace ORDER BY time",
           "pluginVersion": ""
         }
       ]
@@ -119,7 +119,7 @@
           "editorType": "sql",
           "queryType": "sql",
           "format": 1,
-          "rawSql": "SELECT Timestamp, ResourceAttributes['k8s.pod.name'] AS pod, JSONExtractString(Body, 'RequestHost') AS host, JSONExtractString(Body, 'RequestMethod') AS method, JSONExtractString(Body, 'RequestPath') AS path, JSONExtractInt(Body, 'DownstreamStatus') AS status, round(JSONExtractFloat(Body, 'Duration') / 1e6) AS duration_ms, JSONExtractString(Body, 'ServiceName') AS backend FROM {{ .Values.database }}.otel_logs WHERE $__timeFilter(Timestamp) AND ResourceAttributes['k8s.namespace.name'] = 'traefik' AND JSONHas(Body, 'DownstreamStatus') AND (JSONExtractInt(Body, 'DownstreamStatus') >= 500 OR JSONExtractFloat(Body, 'Duration') > 1e9) ORDER BY Timestamp DESC LIMIT 500",
+          "rawSql": "SELECT Timestamp, ResourceAttributes['k8s.pod.name'] AS pod, JSONExtractString(Body, 'RequestHost') AS host, JSONExtractString(Body, 'RequestMethod') AS method, JSONExtractString(Body, 'RequestPath') AS path, JSONExtractInt(Body, 'DownstreamStatus') AS status, round(JSONExtractFloat(Body, 'Duration') / 1e6) AS duration_ms, JSONExtractString(Body, 'ServiceName') AS backend FROM otel.otel_logs WHERE $__timeFilter(Timestamp) AND ResourceAttributes['k8s.namespace.name'] = 'traefik' AND JSONHas(Body, 'DownstreamStatus') AND (JSONExtractInt(Body, 'DownstreamStatus') >= 500 OR JSONExtractFloat(Body, 'Duration') > 1e9) ORDER BY Timestamp DESC LIMIT 500",
           "pluginVersion": ""
         }
       ]
@@ -154,7 +154,7 @@
           "editorType": "sql",
           "queryType": "sql",
           "format": 2,
-          "rawSql": "SELECT Timestamp AS timestamp, Body AS body, SeverityText AS level, ResourceAttributes['k8s.namespace.name'] AS namespace, ResourceAttributes['k8s.pod.name'] AS pod, ResourceAttributes['k8s.container.name'] AS container FROM {{ .Values.database }}.otel_logs WHERE $__timeFilter(Timestamp) AND ResourceAttributes['k8s.namespace.name'] IN (${namespace:singlequote}) AND positionCaseInsensitive(Body, '${search}') > 0 ORDER BY Timestamp DESC LIMIT 1000",
+          "rawSql": "SELECT Timestamp AS timestamp, Body AS body, SeverityText AS level, ResourceAttributes['k8s.namespace.name'] AS namespace, ResourceAttributes['k8s.pod.name'] AS pod, ResourceAttributes['k8s.container.name'] AS container FROM otel.otel_logs WHERE $__timeFilter(Timestamp) AND ResourceAttributes['k8s.namespace.name'] IN (${namespace:singlequote}) AND positionCaseInsensitive(Body, '${search}') > 0 ORDER BY Timestamp DESC LIMIT 1000",
           "pluginVersion": ""
         }
       ]

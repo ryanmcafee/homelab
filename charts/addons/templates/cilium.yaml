@@ -64,4 +64,40 @@ spec:
         - /data
         - /metadata/annotations
         - /metadata/labels
+---
+# Config Application: the Cilium objects that need CRDs, cert-manager or
+# Traefik, which the Talos-applied release cannot carry (charts/cilium-config).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cilium-config
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: {{ .Values.global.repoUrl }}
+    targetRevision: {{ .Values.global.targetRevision }}
+    path: charts/cilium-config
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-{{ .Values.global.environment }}.yaml
+      valuesObject:
+        {{- toYaml .Values.cilium.config | nindent 8 }}
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: kube-system
+  syncPolicy:
+    {{- if .Values.global.automatedSync }}
+    automated:
+      prune: true
+      selfHeal: true
+    {{- end }}
+    syncOptions:
+      - ServerSideApply=true
+      - SkipDryRunOnMissingResource=true
 {{- end }}

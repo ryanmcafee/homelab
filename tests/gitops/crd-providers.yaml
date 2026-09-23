@@ -26,6 +26,10 @@ providers:
   # altinity-clickhouse-operator ships its CRDs in the chart's crds/ directory
   # (crdHook off); charts/clickhouse (wave 11) renders the installation after it (10).
   clickhouse.altinity.com: clickhouse-operator
+  # Istio's CRDs (Telemetry, ...) come from the base chart (wave 2); the
+  # waypoint Gateway needs the standard Gateway API CRDs (wave 1).
+  telemetry.istio.io: istio-base
+  gateway.networking.k8s.io: gateway-api-crds
   # The CRD-only companion chart in the bootstrap chart (wave -1) installs the
   # monitoring CRDs; kube-prometheus-stack (addons wave 9) runs with
   # crds.enabled=false, so ArgoCD (wave 1) and cert-manager (wave 4) can render

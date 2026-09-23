@@ -134,6 +134,24 @@ spec:
           access:
             enabled: {{ .Values.traefikInternal.logs.access.enabled }}
             format: {{ .Values.traefikInternal.logs.access.format }}
+            {{- with .Values.traefikInternal.logs.access.headers }}
+            fields:
+              headers:
+                defaultmode: drop
+                names:
+                  {{- toYaml . | nindent 18 }}
+            {{- end }}
+
+        {{- if .Values.traefikInternal.tracing.enabled }}
+        tracing:
+          sampleRate: {{ .Values.traefikInternal.tracing.sampleRate }}
+          otlp:
+            enabled: true
+            grpc:
+              enabled: true
+              endpoint: {{ .Values.traefikInternal.tracing.endpoint }}
+              insecure: true
+        {{- end }}
 
         # The ServiceMonitor selects a dedicated metrics Service; the main
         # Service does not expose :9100. The API check would fail an offline render.

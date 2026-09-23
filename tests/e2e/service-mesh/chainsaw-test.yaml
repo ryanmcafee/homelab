@@ -7,7 +7,7 @@ metadata:
   name: service-mesh
 spec:
   description: >-
-    istiod, istio-cni and ztunnel are Healthy and Kiali /healthz answers through the internal Traefik.
+    istiod, istio-cni and ztunnel are Healthy, paperclip is enrolled with a programmed waypoint, and Kiali /healthz answers through the internal Traefik.
   steps:
     - name: applications-healthy
       description: The ArgoCD Applications behind the mesh are Healthy and their last sync Succeeded.
@@ -141,6 +141,38 @@ spec:
             namespace: istio-system
             selector: app=istio-cni-node
             tail: 50
+    - name: paperclip-waypoint
+      description: >-
+        The paperclip namespace is enrolled (SERVICE_MESH_AMBIENT_NAMESPACES) and its
+        waypoint Gateway is programmed; the paperclip e2e test then reaches the app through it.
+      try:
+        - assert:
+            resource:
+              apiVersion: v1
+              kind: Namespace
+              metadata:
+                name: paperclip
+                labels:
+                  istio.io/dataplane-mode: ambient
+                  istio.io/use-waypoint: waypoint
+        - assert:
+            resource:
+              apiVersion: gateway.networking.k8s.io/v1
+              kind: Gateway
+              metadata:
+                name: waypoint
+                namespace: paperclip
+              status:
+                (conditions[?type == 'Programmed']):
+                  - status: "True"
+      catch:
+        - describe:
+            apiVersion: gateway.networking.k8s.io/v1
+            kind: Gateway
+            name: waypoint
+            namespace: paperclip
+        - events:
+            namespace: paperclip
     - name: curl-kiali
       description: >-
         A curl Job must get 200 from https://servicemesh.homelab.local/healthz

@@ -1,0 +1,27 @@
+{{- /*
+Ambient mesh traffic reaches and leaves the pods as HBONE on TCP 15008
+(ztunnel and the waypoint); NetworkPolicies are additive, so this opens only
+that port next to the operator's own policy.
+*/}}
+{{- if and .Values.serviceMesh.ambient .Values.security.networkPolicy.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ .Values.name }}-ambient-hbone
+  namespace: {{ .Values.namespace }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: paperclip
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - ports:
+        - protocol: TCP
+          port: 15008
+  egress:
+    - ports:
+        - protocol: TCP
+          port: 15008
+{{- end }}

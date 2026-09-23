@@ -1,0 +1,5 @@
+# cilium-config homelab values. Committed and PII-free (ADR-010): the host and
+# toggles come from the parent Application. The file has to exist because the
+# parent lists it.
+
+namespace: kube-system

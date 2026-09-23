@@ -1,4 +1,753 @@
 ---
+# Source: paperclip/templates/networkpolicy-ambient.yaml
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: paperclip-ambient-hbone
+  namespace: paperclip
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: paperclip
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - ports:
+        - protocol: TCP
+          port: 15008
+  egress:
+    - ports:
+        - protocol: TCP
+          port: 15008
+
+---
+# Source: paperclip/templates/dashboard.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: paperclip-request-path-dashboard
+  namespace: paperclip
+  labels:
+    grafana_dashboard: "1"
+data:
+  paperclip-request-path.json: |-
+    {
+      "uid": "paperclip-request-path",
+      "title": "Paperclip request path",
+      "tags": [
+        "paperclip",
+        "tracing",
+        "network"
+      ],
+      "timezone": "browser",
+      "schemaVersion": 39,
+      "version": 1,
+      "editable": false,
+      "description": "client -> UniFi -> traefik-internal LB -> Traefik -> waypoint/ztunnel -> paperclip :3100 -> paperclip-postgres-rw (docs/runbooks/paperclip-request-path.md)",
+      "time": {
+        "from": "now-3h",
+        "to": "now"
+      },
+      "templating": {
+        "list": [
+          {
+            "name": "trace_id",
+            "label": "Trace ID",
+            "type": "textbox",
+            "query": "",
+            "current": {
+              "text": "",
+              "value": ""
+            }
+          },
+          {
+            "name": "client_ip",
+            "label": "Client IP",
+            "type": "textbox",
+            "query": "",
+            "current": {
+              "text": "",
+              "value": ""
+            }
+          },
+          {
+            "name": "lb_ip",
+            "label": "traefik-internal LB IP",
+            "type": "query",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "prometheus"
+            },
+            "refresh": 1,
+            "query": {
+              "query": "label_values(kube_service_status_load_balancer_ingress{namespace=\"traefik\",service=\"traefik-internal\"}, ip)",
+              "refId": "lb"
+            },
+            "definition": "label_values(kube_service_status_load_balancer_ingress{namespace=\"traefik\",service=\"traefik-internal\"}, ip)"
+          }
+        ]
+      },
+      "panels": [
+        {
+          "id": 1,
+          "type": "row",
+          "title": "1. Synthetic probes (ingress path vs pod)",
+          "collapsed": false,
+          "gridPos": {
+            "x": 0,
+            "y": 0,
+            "w": 24,
+            "h": 1
+          },
+          "panels": []
+        },
+        {
+          "id": 2,
+          "type": "timeseries",
+          "title": "Probe success",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "x": 0,
+            "y": 1,
+            "w": 12,
+            "h": 7
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "probe_success{target=~\"paperclip-.*\"}",
+              "legendFormat": "{{target}}"
+            }
+          ],
+          "description": "paperclip-ingress goes through DNS and traefik-internal, paperclip-direct straight to the Service. Only -ingress failing = DNS/Traefik; both failing = the pod.",
+          "fieldConfig": {
+            "defaults": {
+              "min": 0,
+              "max": 1,
+              "custom": {
+                "drawStyle": "line",
+                "lineInterpolation": "stepAfter"
+              }
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 3,
+          "type": "timeseries",
+          "title": "Probe duration",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "x": 12,
+            "y": 1,
+            "w": 12,
+            "h": 7
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "probe_duration_seconds{target=~\"paperclip-.*\"}",
+              "legendFormat": "{{target}}"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s"
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 4,
+          "type": "row",
+          "title": "2. Traefik (paperclip router)",
+          "collapsed": false,
+          "gridPos": {
+            "x": 0,
+            "y": 8,
+            "w": 24,
+            "h": 1
+          },
+          "panels": []
+        },
+        {
+          "id": 5,
+          "type": "timeseries",
+          "title": "Requests by status",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "x": 0,
+            "y": 9,
+            "w": 12,
+            "h": 7
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum by (code) (rate(traefik_service_requests_total{exported_service=~\".*paperclip.*\"}[$__rate_interval]))",
+              "legendFormat": "{{code}}"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps"
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 6,
+          "type": "timeseries",
+          "title": "Latency p50 / p95 / p99",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "x": 12,
+            "y": 9,
+            "w": 12,
+            "h": 7
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "histogram_quantile(0.5, sum by (le) (rate(traefik_service_request_duration_seconds_bucket{exported_service=~\".*paperclip.*\"}[$__rate_interval])))",
+              "legendFormat": "p50"
+            },
+            {
+              "refId": "B",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "histogram_quantile(0.95, sum by (le) (rate(traefik_service_request_duration_seconds_bucket{exported_service=~\".*paperclip.*\"}[$__rate_interval])))",
+              "legendFormat": "p95"
+            },
+            {
+              "refId": "C",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "histogram_quantile(0.99, sum by (le) (rate(traefik_service_request_duration_seconds_bucket{exported_service=~\".*paperclip.*\"}[$__rate_interval])))",
+              "legendFormat": "p99"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s"
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 7,
+          "type": "table",
+          "title": "Access log (click TraceId for the trace, ClientHost to filter every panel)",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-logs"
+          },
+          "gridPos": {
+            "x": 0,
+            "y": 16,
+            "w": 24,
+            "h": 10
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "grafana-clickhouse-datasource",
+                "uid": "clickhouse-logs"
+              },
+              "editorType": "sql",
+              "queryType": "sql",
+              "format": 1,
+              "rawSql": "SELECT Timestamp, JSONExtractString(Body, 'ClientHost') AS ClientHost, JSONExtractString(Body, 'RequestMethod') AS RequestMethod, JSONExtractString(Body, 'RequestPath') AS RequestPath, JSONExtractInt(Body, 'DownstreamStatus') AS DownstreamStatus, JSONExtractInt(Body, 'OriginStatus') AS OriginStatus, round(JSONExtractFloat(Body, 'Duration') / 1e6, 1) AS Duration_ms, round(JSONExtractFloat(Body, 'OriginDuration') / 1e6, 1) AS OriginDuration_ms, JSONExtractInt(Body, 'RetryAttempts') AS RetryAttempts, JSONExtractString(Body, 'RouterName') AS RouterName, JSONExtractString(Body, 'ServiceURL') AS ServiceURL, JSONExtractString(Body, 'request_User-Agent') AS UserAgent, JSONExtractString(Body, 'TraceId') AS TraceId FROM otel.otel_logs WHERE $__timeFilter(Timestamp) AND ResourceAttributes['k8s.namespace.name'] = 'traefik' AND JSONHas(Body, 'DownstreamStatus') AND JSONExtractString(Body, 'RequestHost') LIKE 'paperclip%' AND ('${client_ip}' = '' OR JSONExtractString(Body, 'ClientHost') = '${client_ip}') ORDER BY Timestamp DESC LIMIT 500"
+            }
+          ],
+          "description": "Traefik JSON access log in ClickHouse. OriginStatus 0 with DownstreamStatus 499 = the client gave up before paperclip answered.",
+          "fieldConfig": {
+            "defaults": {},
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "TraceId"
+                },
+                "properties": [
+                  {
+                    "id": "links",
+                    "value": [
+                      {
+                        "title": "Show this trace",
+                        "url": "/d/paperclip-request-path/paperclip-request-path?${__url_time_range}&var-trace_id=${__value.raw}"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "ClientHost"
+                },
+                "properties": [
+                  {
+                    "id": "links",
+                    "value": [
+                      {
+                        "title": "Filter by this client",
+                        "url": "/d/paperclip-request-path/paperclip-request-path?${__url_time_range}&var-client_ip=${__value.raw}"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "id": 8,
+          "type": "row",
+          "title": "3. Traces",
+          "collapsed": false,
+          "gridPos": {
+            "x": 0,
+            "y": 26,
+            "w": 24,
+            "h": 1
+          },
+          "panels": []
+        },
+        {
+          "id": 9,
+          "type": "table",
+          "title": "Trace search (paperclip)",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-logs"
+          },
+          "gridPos": {
+            "x": 0,
+            "y": 27,
+            "w": 10,
+            "h": 12
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "grafana-clickhouse-datasource",
+                "uid": "clickhouse-logs"
+              },
+              "editorType": "sql",
+              "queryType": "sql",
+              "format": 1,
+              "rawSql": "SELECT min(Timestamp) AS Start, TraceId, argMin(SpanName, Timestamp) AS RootSpan, round(max(Duration) / 1e6, 1) AS Duration_ms, countIf(StatusCode = 'Error') AS Errors, count() AS Spans FROM otel.otel_traces WHERE $__timeFilter(Timestamp) AND (ServiceName LIKE '%paperclip%' OR SpanAttributes['server.address'] LIKE 'paperclip%' OR SpanAttributes['http.host'] LIKE 'paperclip%') GROUP BY TraceId ORDER BY Start DESC LIMIT 200"
+            }
+          ],
+          "description": "Spans from Traefik and the paperclip waypoint. Sampling is 10% in homelab (docs/tracing.md).",
+          "fieldConfig": {
+            "defaults": {},
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "TraceId"
+                },
+                "properties": [
+                  {
+                    "id": "links",
+                    "value": [
+                      {
+                        "title": "Show this trace",
+                        "url": "/d/paperclip-request-path/paperclip-request-path?${__url_time_range}&var-trace_id=${__value.raw}"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "id": 10,
+          "type": "traces",
+          "title": "Trace ${trace_id}",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-logs"
+          },
+          "gridPos": {
+            "x": 10,
+            "y": 27,
+            "w": 14,
+            "h": 12
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "grafana-clickhouse-datasource",
+                "uid": "clickhouse-logs"
+              },
+              "editorType": "sql",
+              "queryType": "sql",
+              "format": 3,
+              "rawSql": "SELECT TraceId AS traceID, SpanId AS spanID, ParentSpanId AS parentSpanID, ServiceName AS serviceName, SpanName AS operationName, Timestamp AS startTime, multiply(Duration, 0.000001) AS duration, arrayMap(key -> map('key', key, 'value', SpanAttributes[key]), mapKeys(SpanAttributes)) AS tags, arrayMap(key -> map('key', key, 'value', ResourceAttributes[key]), mapKeys(ResourceAttributes)) AS serviceTags FROM otel.otel_traces WHERE TraceId = '${trace_id}' ORDER BY startTime"
+            }
+          ],
+          "description": "Set by clicking a TraceId; empty shows nothing."
+        },
+        {
+          "id": 11,
+          "type": "row",
+          "title": "4. Mesh (ztunnel L4, waypoint L7)",
+          "collapsed": false,
+          "gridPos": {
+            "x": 0,
+            "y": 39,
+            "w": 24,
+            "h": 1
+          },
+          "panels": []
+        },
+        {
+          "id": 12,
+          "type": "timeseries",
+          "title": "Waypoint requests by response code",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "x": 0,
+            "y": 40,
+            "w": 8,
+            "h": 7
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum by (response_code) (rate(istio_requests_total{destination_service_namespace=\"paperclip\",reporter=\"waypoint\"}[$__rate_interval]))",
+              "legendFormat": "{{response_code}}"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "reqps"
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 13,
+          "type": "timeseries",
+          "title": "Waypoint p95 latency",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "x": 8,
+            "y": 40,
+            "w": 8,
+            "h": 7
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "histogram_quantile(0.95, sum by (le) (rate(istio_request_duration_milliseconds_bucket{destination_service_namespace=\"paperclip\",reporter=\"waypoint\"}[$__rate_interval])))",
+              "legendFormat": "p95"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "ms"
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 14,
+          "type": "timeseries",
+          "title": "ztunnel TCP connections to paperclip",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "x": 16,
+            "y": 40,
+            "w": 8,
+            "h": 7
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum by (reporter) (rate(istio_tcp_connections_opened_total{destination_workload_namespace=\"paperclip\"}[$__rate_interval]))",
+              "legendFormat": "opened {{reporter}}"
+            },
+            {
+              "refId": "B",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum by (reporter) (rate(istio_tcp_connections_failed_total{destination_workload_namespace=\"paperclip\"}[$__rate_interval]))",
+              "legendFormat": "failed {{reporter}}"
+            }
+          ]
+        },
+        {
+          "id": 15,
+          "type": "row",
+          "title": "5. Network: Hubble (in cluster) and UniFi (LAN)",
+          "collapsed": false,
+          "gridPos": {
+            "x": 0,
+            "y": 47,
+            "w": 24,
+            "h": 1
+          },
+          "panels": []
+        },
+        {
+          "id": 16,
+          "type": "table",
+          "title": "Hubble flows: paperclip + traefik, and every drop",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-logs"
+          },
+          "gridPos": {
+            "x": 0,
+            "y": 48,
+            "w": 24,
+            "h": 9
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "grafana-clickhouse-datasource",
+                "uid": "clickhouse-logs"
+              },
+              "editorType": "sql",
+              "queryType": "sql",
+              "format": 1,
+              "rawSql": "SELECT Timestamp, JSONExtractString(Body, 'flow', 'verdict') AS verdict, JSONExtractString(Body, 'flow', 'drop_reason_desc') AS drop_reason, JSONExtractString(Body, 'flow', 'IP', 'source') AS src, JSONExtractString(Body, 'flow', 'source', 'pod_name') AS src_pod, JSONExtractString(Body, 'flow', 'IP', 'destination') AS dst, JSONExtractString(Body, 'flow', 'destination', 'pod_name') AS dst_pod, JSONExtractUInt(Body, 'flow', 'l4', 'TCP', 'destination_port') AS dport, JSONExtractString(Body, 'flow', 'Summary') AS summary FROM otel.otel_logs WHERE $__timeFilter(Timestamp) AND ServiceName = 'hubble' AND ('${client_ip}' = '' OR JSONExtractString(Body, 'flow', 'IP', 'source') = '${client_ip}' OR JSONExtractString(Body, 'flow', 'IP', 'destination') = '${client_ip}') AND (JSONExtractString(Body, 'flow', 'verdict') IN ('DROPPED', 'ERROR') OR JSONExtractString(Body, 'flow', 'source', 'namespace') IN ('paperclip', 'traefik') OR JSONExtractString(Body, 'flow', 'destination', 'namespace') IN ('paperclip', 'traefik')) ORDER BY verdict = 'FORWARDED', Timestamp DESC LIMIT 500"
+            }
+          ],
+          "description": "Filtered Hubble flow log (cilium hubble.export.static). Drops sort first. HBONE shows as dport 15008."
+        },
+        {
+          "id": 17,
+          "type": "table",
+          "title": "UniFi flow records to/from traefik-internal (${lb_ip})",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-logs"
+          },
+          "gridPos": {
+            "x": 0,
+            "y": 57,
+            "w": 24,
+            "h": 9
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "grafana-clickhouse-datasource",
+                "uid": "clickhouse-logs"
+              },
+              "editorType": "sql",
+              "queryType": "sql",
+              "format": 1,
+              "rawSql": "SELECT Timestamp, LogAttributes['source.address'] AS src, LogAttributes['source.port'] AS sport, LogAttributes['destination.address'] AS dst, LogAttributes['destination.port'] AS dport, LogAttributes['network.transport'] AS proto, toUInt64OrZero(LogAttributes['flow.io.bytes']) AS bytes, toUInt64OrZero(LogAttributes['flow.io.packets']) AS packets FROM otel.otel_logs WHERE $__timeFilter(Timestamp) AND ScopeName LIKE '%netflow%' AND (LogAttributes['destination.address'] = '${lb_ip}' OR LogAttributes['source.address'] = '${lb_ip}') AND ('${client_ip}' = '' OR LogAttributes['source.address'] = '${client_ip}' OR LogAttributes['destination.address'] = '${client_ip}') ORDER BY Timestamp DESC LIMIT 500"
+            }
+          ],
+          "description": "NetFlow/IPFIX from the UniFi gateway: whether the client's packets reached the LB address at all."
+        },
+        {
+          "id": 18,
+          "type": "row",
+          "title": "6. Pod and database",
+          "collapsed": false,
+          "gridPos": {
+            "x": 0,
+            "y": 66,
+            "w": 24,
+            "h": 1
+          },
+          "panels": []
+        },
+        {
+          "id": 19,
+          "type": "timeseries",
+          "title": "paperclip CPU (cores)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "x": 0,
+            "y": 67,
+            "w": 6,
+            "h": 7
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum by (pod) (rate(container_cpu_usage_seconds_total{namespace=\"paperclip\",container=\"paperclip\"}[$__rate_interval]))",
+              "legendFormat": "{{pod}}"
+            }
+          ]
+        },
+        {
+          "id": 20,
+          "type": "timeseries",
+          "title": "paperclip memory",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "x": 6,
+            "y": 67,
+            "w": 6,
+            "h": 7
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum by (pod) (container_memory_working_set_bytes{namespace=\"paperclip\",container=\"paperclip\"})",
+              "legendFormat": "{{pod}}"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "bytes"
+            },
+            "overrides": []
+          }
+        },
+        {
+          "id": 21,
+          "type": "timeseries",
+          "title": "Restarts and readiness",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "x": 12,
+            "y": 67,
+            "w": 6,
+            "h": 7
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum by (pod) (increase(kube_pod_container_status_restarts_total{namespace=\"paperclip\"}[$__rate_interval]))",
+              "legendFormat": "restarts {{pod}}"
+            },
+            {
+              "refId": "B",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum by (pod) (kube_pod_status_ready{namespace=\"paperclip\",condition=\"true\"})",
+              "legendFormat": "ready {{pod}}"
+            }
+          ]
+        },
+        {
+          "id": 22,
+          "type": "timeseries",
+          "title": "paperclip-postgres backends",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "x": 18,
+            "y": 67,
+            "w": 6,
+            "h": 7
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum by (state) (cnpg_backends_total{namespace=\"paperclip\"})",
+              "legendFormat": "{{state}}"
+            }
+          ]
+        }
+      ]
+    }
+    
+
+---
 # Source: paperclip/templates/instance.yaml
 # Paperclip Instance. paperclip-operator turns it into a StatefulSet, Service
 # (port 3100), ConfigMap, PVC, ServiceAccount, NetworkPolicy, Ingress and a

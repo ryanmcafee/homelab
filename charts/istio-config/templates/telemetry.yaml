@@ -1,0 +1,13 @@
+{{- /* Mesh-wide default (root namespace): waypoint spans to the provider istiod's meshConfig defines. */}}
+{{- if .Values.tracing.provider }}
+apiVersion: telemetry.istio.io/v1
+kind: Telemetry
+metadata:
+  name: mesh-default
+  namespace: {{ .Values.namespace }}
+spec:
+  tracing:
+    - providers:
+        - name: {{ .Values.tracing.provider }}
+      randomSamplingPercentage: {{ .Values.tracing.samplingPercentage }}
+{{- end }}

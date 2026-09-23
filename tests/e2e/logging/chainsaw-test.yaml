@@ -1,14 +1,15 @@
 ---
-# Log pipeline end to end (docs/logging.md): the collectors have written
-# container logs into ClickHouse, the table carries the retention TTL, and the
-# read-only grafana user (the Grafana datasource's) can read them.
+# Log and trace pipeline end to end (docs/logging.md, docs/tracing.md): the
+# collectors have written container logs into ClickHouse with the retention
+# TTL, a span sent over OTLP/HTTP to the gateway collector lands in
+# otel_traces, and the read-only grafana user (the datasource's) reads both.
 apiVersion: chainsaw.kyverno.io/v1alpha1
 kind: Test
 metadata:
   name: logging
 spec:
   description: >-
-    Container logs reach otel.otel_logs in ClickHouse through the OpenTelemetry agents, with the table TTL set.
+    Container logs reach otel.otel_logs with the table TTL set, and an OTLP span reaches otel.otel_traces.
   steps:
     - name: applications-healthy
       description: The ArgoCD Applications behind the log pipeline are Healthy and their last sync Succeeded.
@@ -66,6 +67,18 @@ spec:
               apiVersion: argoproj.io/v1alpha1
               kind: Application
               metadata:
+                name: otel-collector-gateway
+                namespace: argocd
+              status:
+                health:
+                  status: Healthy
+                operationState:
+                  phase: Succeeded
+        - assert:
+            resource:
+              apiVersion: argoproj.io/v1alpha1
+              kind: Application
+              metadata:
                 name: kube-prometheus-stack
                 namespace: argocd
               status:
@@ -97,6 +110,11 @@ spec:
         - describe:
             apiVersion: argoproj.io/v1alpha1
             kind: Application
+            name: otel-collector-gateway
+            namespace: argocd
+        - describe:
+            apiVersion: argoproj.io/v1alpha1
+            kind: Application
             name: kube-prometheus-stack
             namespace: argocd
     - name: query-clickhouse
@@ -104,7 +122,7 @@ spec:
         A curl Job in the observability namespace queries ClickHouse over HTTP as
         the grafana user until otel.otel_logs has rows and a TTL.
       timeouts:
-        assert: 8m
+        assert: 15m
       try:
         - apply:
             resource:
@@ -115,7 +133,7 @@ spec:
                 namespace: observability
               spec:
                 backoffLimit: 0
-                activeDeadlineSeconds: 420
+                activeDeadlineSeconds: 840
                 template:
                   spec:
                     restartPolicy: Never
@@ -147,6 +165,10 @@ spec:
                               secretKeyRef:
                                 name: clickhouse-grafana
                                 key: password
+                          - name: OTLP_URL
+                            value: "http://otel-collector-gateway.observability.svc.cluster.local:4318/v1/traces"
+                          - name: TRACE_ID
+                            value: "5b8efff798038103d269b633813fc60c"
                           - name: ATTEMPTS
                             value: "40"
                         command: ["sh", "-c"]
@@ -165,7 +187,7 @@ spec:
                                 *)
                                   ttl=$(query "SELECT engine_full FROM system.tables WHERE database = 'otel' AND name = 'otel_logs'")
                                   echo "engine: $ttl"
-                                  case "$ttl" in *TTL*) exit 0 ;; esac
+                                  case "$ttl" in *TTL*) break ;; esac
                                   echo "otel_logs has no TTL"
                                   exit 1
                                   ;;
@@ -173,7 +195,19 @@ spec:
                               i=$((i + 1))
                               sleep 10
                             done
-                            echo "giving up: no rows in otel.otel_logs"
+                            [ "$i" -le "$ATTEMPTS" ] || { echo "giving up: no rows in otel.otel_logs"; exit 1; }
+                            now=$(date +%s)000000000
+                            span='{"resourceSpans":[{"resource":{"attributes":[{"key":"service.name","value":{"stringValue":"e2e"}}]},"scopeSpans":[{"spans":[{"traceId":"'"$TRACE_ID"'","spanId":"eee19b7ec3c1b174","name":"e2e","kind":1,"startTimeUnixNano":"'"$now"'","endTimeUnixNano":"'"$now"'"}]}]}]}'
+                            i=1
+                            while [ "$i" -le "$ATTEMPTS" ]; do
+                              code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 -H 'Content-Type: application/json' --data "$span" "$OTLP_URL")
+                              spans=$(query "SELECT count() FROM otel.otel_traces WHERE TraceId = '$TRACE_ID'")
+                              echo "attempt $i/$ATTEMPTS: OTLP HTTP $code, spans for $TRACE_ID: $spans"
+                              case "$spans" in ''|*[!0-9]*|0) ;; *) exit 0 ;; esac
+                              i=$((i + 1))
+                              sleep 10
+                            done
+                            echo "giving up: the span never reached otel.otel_traces"
                             exit 1
         - assert:
             resource:

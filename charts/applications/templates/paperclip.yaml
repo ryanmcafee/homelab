@@ -15,6 +15,7 @@ Never part of a preview (docs/runbooks/previews.md): an operator, CRDs and
 1Password items are cluster-level concerns.
 */}}
 {{- $pc := .Values.paperclip }}
+{{- $ambient := has $pc.namespace (splitList "," (include "homelab.meshNamespaces" .)) }}
 {{- if and $pc.enabled (not (include "homelab.preview.enabled" .)) }}
 ---
 # Namespace for the paperclip-operator controller. The chart runs it non-root
@@ -197,6 +198,7 @@ spec:
       # (configuration/) and reach the child through this parent (ADR-010).
       valuesObject:
         namespace: {{ $pc.namespace }}
+        ambientOptOut: {{ $ambient }}
         {{- toYaml $pc.database | nindent 8 }}
   destination:
     server: https://kubernetes.default.svc
@@ -249,6 +251,8 @@ spec:
       valuesObject:
         namespace: {{ $pc.namespace }}
         hostname: {{ $pc.hostname }}
+        serviceMesh:
+          ambient: {{ $ambient }}
         {{- toYaml $pc.instance | nindent 8 }}
   destination:
     server: https://kubernetes.default.svc

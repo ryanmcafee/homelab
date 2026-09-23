@@ -1,0 +1,5 @@
+# cilium-config local development values. Nothing to override: Kind runs
+# Cilium without Hubble or agent metrics. The file has to exist because the
+# parent lists it.
+
+namespace: kube-system

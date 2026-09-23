@@ -1,0 +1,159 @@
+{
+  "uid": "unifi-flows",
+  "title": "UniFi gateway flows and firewall",
+  "tags": [
+    "unifi",
+    "netflow",
+    "logs"
+  ],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": false,
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Flow records per minute",
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-logs"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 7
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-logs"
+          },
+          "editorType": "sql",
+          "queryType": "sql",
+          "format": 0,
+          "rawSql": "SELECT $__timeInterval(Timestamp) AS time, count() AS flows FROM otel.otel_logs WHERE $__timeFilter(Timestamp) AND ScopeName LIKE '%netflow%' GROUP BY time ORDER BY time"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "table",
+      "title": "Top talkers (bytes)",
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-logs"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 7,
+        "w": 12,
+        "h": 10
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-logs"
+          },
+          "editorType": "sql",
+          "queryType": "sql",
+          "format": 1,
+          "rawSql": "SELECT LogAttributes['source.address'] AS src, formatReadableSize(sum(toUInt64OrZero(LogAttributes['flow.io.bytes']))) AS bytes, count() AS flows FROM otel.otel_logs WHERE $__timeFilter(Timestamp) AND ScopeName LIKE '%netflow%' GROUP BY src ORDER BY sum(toUInt64OrZero(LogAttributes['flow.io.bytes'])) DESC LIMIT 20"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "table",
+      "title": "Top destination ports",
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-logs"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 7,
+        "w": 12,
+        "h": 10
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-logs"
+          },
+          "editorType": "sql",
+          "queryType": "sql",
+          "format": 1,
+          "rawSql": "SELECT LogAttributes['destination.port'] AS dport, LogAttributes['network.transport'] AS proto, count() AS flows, formatReadableSize(sum(toUInt64OrZero(LogAttributes['flow.io.bytes']))) AS bytes FROM otel.otel_logs WHERE $__timeFilter(Timestamp) AND ScopeName LIKE '%netflow%' GROUP BY dport, proto ORDER BY flows DESC LIMIT 20"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "table",
+      "title": "Firewall denies and threats (UniFi syslog, CEF)",
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-logs"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 17,
+        "w": 24,
+        "h": 10
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-logs"
+          },
+          "editorType": "sql",
+          "queryType": "sql",
+          "format": 1,
+          "rawSql": "SELECT Timestamp, LogAttributes['cef_name'] AS event, LogAttributes['cef_severity'] AS severity, LogAttributes['cef_extension'] AS details FROM otel.otel_logs WHERE $__timeFilter(Timestamp) AND ServiceName = 'unifi-syslog' AND (positionCaseInsensitive(Body, 'block') > 0 OR positionCaseInsensitive(Body, 'drop') > 0 OR positionCaseInsensitive(Body, 'deny') > 0 OR positionCaseInsensitive(Body, 'threat') > 0) ORDER BY Timestamp DESC LIMIT 500"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "logs",
+      "title": "UniFi syslog",
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-logs"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 27,
+        "w": 24,
+        "h": 10
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-logs"
+          },
+          "editorType": "sql",
+          "queryType": "sql",
+          "format": 2,
+          "rawSql": "SELECT Timestamp AS timestamp, Body AS body, SeverityText AS level FROM otel.otel_logs WHERE $__timeFilter(Timestamp) AND ServiceName = 'unifi-syslog' ORDER BY Timestamp DESC LIMIT 1000"
+        }
+      ]
+    }
+  ]
+}
