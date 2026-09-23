@@ -13,6 +13,11 @@ Each entry should include:
 
 ## Recent Work
 
+### 2026-09-23 - Observability: Traefik access logs + metrics, OpenTelemetry -> ClickHouse logs, Istio ambient + Kiali
+- **Status**: PR #321 open; before merge create 1Password items `clickhouse-otel` and `clickhouse-grafana` (field `password`); after merge a human runs `task render && task render:push && task tf:apply` and restarts the Cilium agents
+- **Description**: The Paperclip API is intermittently unresponsive and nothing could show why. Traefik (both releases) now writes JSON access logs and is scraped; OpenTelemetry collectors ship every container log and Kubernetes event into ClickHouse (Altinity operator, iSCSI, 90-day TTL) queried from Grafana ("Cluster logs" dashboard); Istio ambient (no namespace enrolled, `SERVICE_MESH_AMBIENT_NAMESPACES`) with Kiali at `servicemesh.<domain>`; alerts `homelab-ingress`, `homelab-logging`, `homelab-service-mesh`, grafana.com dashboards. ADR-019, ADR-020, docs/logging.md, docs/service-mesh.md. Kind level 2 runs the whole stack
+- **URL**: https://github.com/ryanmcafee/homelab/pull/321
+
 ### 2026-09-20 - Firing alerts root-caused: stale failed Jobs, kube-proxy, Talos bind-address, unclassed IngressRoutes
 - **Status**: PR #313 open; after merge a human runs `task tf:apply:component COMPONENT=talos-cluster` and deletes the four pre-TTL failed Jobs once
 - **Description**: `KubeJobFailed` fired 17 days after one transient failure because neither CronJob expired finished Jobs; `KubeProxyDown` because Cilium replaces kube-proxy; `KubeControllerManagerDown`/`KubeSchedulerDown` because Talos binds both to 127.0.0.1; the nightly `ingress-verification` failed on `auth` (three IngressRoutes without an ingress class are loaded by no Traefik) and on the disabled Home Assistant. Guards: conftest `cronjob-ttl` and `ingressroute-class`. Follow-ups in the same PR: the `ingress-verification` CronWorkflow and its `argo-workflows-config` chart removed (no longer needed), `metrics-server` addon so the Traefik HPAs and `kubectl top` work, and `agent-readonly` may `exec` and port-forward so an agent can read what Alertmanager is firing. Details in `bugs.md` (2026-09-20)
