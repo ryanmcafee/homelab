@@ -1,0 +1,321 @@
+{{- /*
+Istio ambient mesh (docs/service-mesh.md): the four official charts at one
+release (configuration/versions.yaml charts.istio) plus Kiali.
+  wave 2   istio-base    CRDs and the default validating webhook
+  wave 3   istiod        control plane, profile ambient
+  wave 3   istio-cni     node agent that redirects enrolled pods to ztunnel
+  wave 4   ztunnel       per-node L4 proxy
+  wave 5   istio-config  charts/istio-config: ServiceMonitor/PodMonitors
+  wave 10  kiali         kiali-server, after kube-prometheus-stack (wave 9)
+Nothing joins the mesh by default: a namespace is enrolled only by the
+istio.io/dataplane-mode=ambient label (SERVICE_MESH_AMBIENT_NAMESPACES).
+Cilium must run with cni.exclusive=false and socketLB.hostNamespaceOnly=true
+(the cilium block of configuration/templates/helm-addons.tmpl).
+*/}}
+{{- $istio := .Values.istio }}
+{{- if $istio.enabled }}
+---
+# istio-cni and ztunnel mount host paths and need NET_ADMIN/SYS_ADMIN, which
+# Talos' default baseline PodSecurity rejects.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ $istio.namespace }}
+  labels:
+    pod-security.kubernetes.io/enforce: privileged
+    pod-security.kubernetes.io/audit: privileged
+    pod-security.kubernetes.io/warn: privileged
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: istio-base
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: {{ $istio.chart.repo }}
+    chart: base
+    targetRevision: {{ $istio.chart.version | quote }}
+    helm:
+      releaseName: istio-base
+      values: |
+        defaultRevision: default
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: {{ $istio.namespace }}
+  syncPolicy:
+    {{- if .Values.global.automatedSync }}
+    automated:
+      prune: true
+      selfHeal: true
+    {{- end }}
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+      - RespectIgnoreDifferences=true
+  # istiod rewrites failurePolicy of its default validator once it is ready.
+  ignoreDifferences:
+    - group: admissionregistration.k8s.io
+      kind: ValidatingWebhookConfiguration
+      jqPathExpressions:
+        - .webhooks[]?.failurePolicy
+        - .webhooks[]?.clientConfig.caBundle
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: istiod
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: {{ $istio.chart.repo }}
+    chart: istiod
+    targetRevision: {{ $istio.chart.version | quote }}
+    helm:
+      releaseName: istiod
+      values: |
+        profile: ambient
+        pilot:
+          autoscaleEnabled: false
+          replicaCount: {{ $istio.istiod.replicas }}
+          resources:
+            {{- toYaml $istio.istiod.resources | nindent 12 }}
+        global:
+          proxy:
+            resources:
+              {{- toYaml $istio.proxy.resources | nindent 14 }}
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: {{ $istio.namespace }}
+  syncPolicy:
+    {{- if .Values.global.automatedSync }}
+    automated:
+      prune: true
+      selfHeal: true
+    {{- end }}
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+      - RespectIgnoreDifferences=true
+  ignoreDifferences:
+    - group: admissionregistration.k8s.io
+      kind: ValidatingWebhookConfiguration
+      jqPathExpressions:
+        - .webhooks[]?.failurePolicy
+        - .webhooks[]?.clientConfig.caBundle
+    - group: admissionregistration.k8s.io
+      kind: MutatingWebhookConfiguration
+      jqPathExpressions:
+        - .webhooks[]?.clientConfig.caBundle
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: istio-cni
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: {{ $istio.chart.repo }}
+    chart: cni
+    targetRevision: {{ $istio.chart.version | quote }}
+    helm:
+      releaseName: istio-cni
+      values: |
+        profile: ambient
+        cni:
+          # Istio platform prerequisites: Talos keeps CNI binaries and
+          # config at these host paths, and Cilium is the primary plugin.
+          cniBinDir: {{ $istio.cni.cniBinDir }}
+          cniConfDir: {{ $istio.cni.cniConfDir }}
+          chained: true
+          resources:
+            {{- toYaml $istio.cni.resources | nindent 12 }}
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: {{ $istio.namespace }}
+  syncPolicy:
+    {{- if .Values.global.automatedSync }}
+    automated:
+      prune: true
+      selfHeal: true
+    {{- end }}
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: ztunnel
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "4"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: {{ $istio.chart.repo }}
+    chart: ztunnel
+    targetRevision: {{ $istio.chart.version | quote }}
+    helm:
+      releaseName: ztunnel
+      values: |
+        profile: ambient
+        resources:
+          {{- toYaml $istio.ztunnel.resources | nindent 10 }}
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: {{ $istio.namespace }}
+  syncPolicy:
+    {{- if .Values.global.automatedSync }}
+    automated:
+      prune: true
+      selfHeal: true
+    {{- end }}
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+---
+# Config Application: the upstream Prometheus operator monitors for istiod,
+# ztunnel and waypoint proxies (charts/istio-config).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: istio-config
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "5"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: {{ .Values.global.repoUrl }}
+    targetRevision: {{ .Values.global.targetRevision }}
+    path: charts/istio-config
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-{{ .Values.global.environment }}.yaml
+      valuesObject:
+        namespace: {{ $istio.namespace }}
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: {{ $istio.namespace }}
+  syncPolicy:
+    {{- if .Values.global.automatedSync }}
+    automated:
+      prune: true
+      selfHeal: true
+    {{- end }}
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - SkipDryRunOnMissingResource=true
+{{- $kiali := $istio.kiali }}
+{{- if $kiali.enabled }}
+---
+# Kiali on the internal ingress at the SERVICEMESH_HOSTNAME of configuration/.
+# Token login: a user signs in with a ServiceAccount token and sees what that
+# token's RBAC allows (docs/service-mesh.md).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: kiali
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: {{ $kiali.chart.repo }}
+    chart: {{ $kiali.chart.name }}
+    targetRevision: {{ $kiali.chart.version | quote }}
+    helm:
+      releaseName: kiali
+      values: |
+        auth:
+          strategy: token
+        deployment:
+          image_pull_policy: IfNotPresent
+          resources:
+            {{- toYaml $kiali.resources | nindent 12 }}
+          ingress:
+            enabled: true
+            class_name: {{ $kiali.ingress.className }}
+            override_yaml:
+              metadata:
+                annotations:
+                  cert-manager.io/cluster-issuer: letsencrypt
+                  external-dns.alpha.kubernetes.io/hostname: {{ $kiali.hostname }}
+              spec:
+                ingressClassName: {{ $kiali.ingress.className }}
+                rules:
+                  - host: {{ $kiali.hostname }}
+                    http:
+                      paths:
+                        - path: /
+                          pathType: Prefix
+                          backend:
+                            service:
+                              name: kiali
+                              port:
+                                number: 20001
+                tls:
+                  - secretName: kiali-tls
+                    hosts:
+                      - {{ $kiali.hostname }}
+        server:
+          web_root: /
+          web_fqdn: {{ $kiali.hostname }}
+          web_schema: https
+          web_port: "443"
+        external_services:
+          istio:
+            root_namespace: {{ $istio.namespace }}
+          prometheus:
+            url: {{ $kiali.prometheusUrl }}
+          grafana:
+            enabled: true
+            internal_url: {{ $kiali.grafana.internalUrl }}
+            external_url: {{ $kiali.grafana.externalUrl }}
+          tracing:
+            enabled: false
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: {{ $istio.namespace }}
+  syncPolicy:
+    {{- if .Values.global.automatedSync }}
+    automated:
+      prune: true
+      selfHeal: true
+    {{- end }}
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+{{- include "homelab.smokeJob" (dict "name" "kiali" "namespace" $istio.namespace "smoke" $kiali.smoke "wave" "10" "image" .Values.global.images.curl) }}
+{{- end }}
+{{- end }}

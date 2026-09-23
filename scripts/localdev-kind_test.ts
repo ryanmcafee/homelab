@@ -194,6 +194,8 @@ test("DEFAULT_CILIUM_KIND_VALUES: matches the plan's Kind values", () => {
   const v = parseYaml(DEFAULT_CILIUM_KIND_VALUES) as Record<string, unknown>;
   assertEquals(v.ipam, { mode: "kubernetes" });
   assertEquals(v.kubeProxyReplacement, false);
+  assertEquals(v.cni, { exclusive: false });
+  assertEquals(v.socketLB, { hostNamespaceOnly: true });
   assertEquals((v.operator as Record<string, unknown>).replicas, 1);
   assertEquals(v.hubble, { enabled: false });
   assertEquals(v.image, { pullPolicy: "IfNotPresent" });

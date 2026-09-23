@@ -535,6 +535,39 @@ spec:
                       summary: 'ClickHouse {{`{{ $labels.hostname }}`}} has {{`{{ $value }}`}} parts in one partition'
                       description: 'Inserts are throttled from 150 parts per partition and rejected from 300. Merges are behind; see HomelabClickHouseRejectedInserts.'
           {{- end }}
+          {{- if .Values.istio.enabled }}
+          # Service mesh (docs/service-mesh.md). Metrics: charts/istio-config
+          # monitors and kube-state-metrics. ztunnel and istio-cni must run on
+          # every node or enrolled pods there lose their traffic.
+          homelab-service-mesh:
+            groups:
+              - name: homelab-service-mesh
+                rules:
+                  - alert: HomelabIstiodDown
+                    expr: 'absent(up{job="istiod"} == 1)'
+                    for: 10m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: 'istiod is not running'
+                      description: 'No istiod instance has answered the metrics scrape for 10m. Running workloads keep their last configuration, but new pods, certificates and policy changes wait for it. `kubectl -n {{ .Values.istio.namespace }} get pods -l app=istiod`.'
+                  - alert: HomelabMeshNodeAgentNotReady
+                    expr: 'kube_daemonset_status_number_ready{namespace="{{ .Values.istio.namespace }}",daemonset=~"ztunnel|istio-cni-node"} < kube_daemonset_status_desired_number_scheduled{namespace="{{ .Values.istio.namespace }}",daemonset=~"ztunnel|istio-cni-node"}'
+                    for: 15m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: '{{`{{ $labels.daemonset }}`}} is not ready on every node'
+                      description: '{{`{{ $labels.daemonset }}`}} has fewer ready pods than nodes for 15m. Pods of enrolled namespaces on the affected node cannot send or receive traffic. `kubectl -n {{ .Values.istio.namespace }} get pods -o wide`.'
+                  - alert: HomelabIstioXdsRejects
+                    expr: 'sum(rate(pilot_total_xds_rejects[5m])) > 0'
+                    for: 15m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: 'Proxies reject the configuration istiod sends'
+                      description: 'ztunnel or a waypoint has rejected xDS configuration for 15m, so it keeps running on stale config. `istioctl proxy-status` and the istiod logs name the resource.'
+          {{- end }}
 
   destination:
     server: https://kubernetes.default.svc

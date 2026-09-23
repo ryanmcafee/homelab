@@ -64,6 +64,7 @@ metadata:
     pod-security.kubernetes.io/enforce: privileged
     pod-security.kubernetes.io/audit: privileged
     pod-security.kubernetes.io/warn: privileged
+    {{- include "homelab.meshLabels" (dict "namespace" "media" "root" $) }}
   annotations:
     argocd.argoproj.io/sync-wave: "10"
 ---
@@ -76,6 +77,7 @@ metadata:
     pod-security.kubernetes.io/enforce: privileged
     pod-security.kubernetes.io/audit: privileged
     pod-security.kubernetes.io/warn: privileged
+    {{- include "homelab.meshLabels" (dict "namespace" "home-automation" "root" $) }}
   annotations:
     argocd.argoproj.io/sync-wave: "10"
 {{- end }}

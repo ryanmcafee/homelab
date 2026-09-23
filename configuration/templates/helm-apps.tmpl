@@ -49,6 +49,11 @@ global:
   iscsi:
     portal: "{{ .Values.ISCSI_TARGET_PORTAL.Value }}"
 
+  # Namespaces enrolled in the Istio ambient mesh (SERVICE_MESH_AMBIENT_NAMESPACES,
+  # comma-separated; docs/service-mesh.md). Empty enrolls none.
+  serviceMesh:
+    ambientNamespaces: "{{ if .Values.SERVICE_MESH_AMBIENT_NAMESPACES }}{{ .Values.SERVICE_MESH_AMBIENT_NAMESPACES.Value }}{{ end }}"
+
 # ============================================================================
 # Plex Media Server
 # Sync Wave: 1 (core media service)

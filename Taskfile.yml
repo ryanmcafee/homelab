@@ -624,6 +624,8 @@ tasks:
           --set hubble.ui.enabled=true \
           --set bandwidthManager.enabled=true \
           --set bandwidthManager.bbr=true \
+          --set cni.exclusive=false \
+          --set socketLB.hostNamespaceOnly=true \
           > terragrunt/files/cilium-rendered.yaml
       - echo "Cilium manifests rendered to terragrunt/files/cilium-rendered.yaml"
 

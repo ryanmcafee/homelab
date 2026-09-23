@@ -1,0 +1,5 @@
+# istio-config values: the monitors Istio documents for the Prometheus operator
+# (samples/addons/extras/prometheus-operator.yaml). Wave 5, after istiod and
+# ztunnel; the monitoring CRDs come from the bootstrap chart (ADR-018).
+
+namespace: istio-system

@@ -1,0 +1,4 @@
+# istio-config homelab values. Nothing is environment-specific; the file has to
+# exist because the parent Application lists values-homelab.yaml.
+
+namespace: istio-system

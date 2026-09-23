@@ -15,6 +15,19 @@ metadata:
     argocd.argoproj.io/sync-wave: "1"
 
 ---
+# Source: addons/templates/istio.yaml
+# istio-cni and ztunnel mount host paths and need NET_ADMIN/SYS_ADMIN, which
+# Talos' default baseline PodSecurity rejects.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: istio-system
+  labels:
+    pod-security.kubernetes.io/enforce: privileged
+    pod-security.kubernetes.io/audit: privileged
+    pod-security.kubernetes.io/warn: privileged
+
+---
 # Source: addons/templates/kube-prometheus-stack.yaml
 # Namespace with privileged PodSecurity labels for node-exporter
 apiVersion: v1
@@ -100,6 +113,57 @@ stringData:
   type: helm
   url: ghcr.io/spegel-org/helm-charts
   enableOCI: "true"
+
+---
+# Source: addons/templates/istio.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: smoke-kiali
+  namespace: istio-system
+  labels:
+    app.kubernetes.io/name: smoke-kiali
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation,HookSucceeded
+    argocd.argoproj.io/sync-wave: "10"
+spec:
+  backoffLimit: 2
+  activeDeadlineSeconds: 600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: smoke-kiali
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: curl
+          image: curlimages/curl:8.22.0
+          env:
+            - name: URL
+              value: "http://kiali.istio-system.svc.cluster.local:20001/healthz"
+          command: ["sh", "-c"]
+          args:
+            - |
+              code=$(curl -sL --max-redirs 5 -o /dev/null -w '%{http_code}' --retry 30 --retry-delay 10 --retry-all-errors --max-time 20 "$URL")
+              echo "smoke kiali: $URL -> HTTP $code"
+              case "$code" in 200) exit 0;; *) exit 1;; esac
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 100
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            seccompProfile:
+              type: RuntimeDefault
 
 ---
 # Source: addons/templates/kube-prometheus-stack.yaml
@@ -501,6 +565,8 @@ spec:
       # Values must match what installed the release for an accurate diff
       # (cilium.values in the environment values file).
       values: |
+        cni:
+          exclusive: false
         hubble:
           enabled: false
         image:
@@ -524,6 +590,8 @@ spec:
           requests:
             cpu: 100m
             memory: 256Mi
+        socketLB:
+          hostNamespaceOnly: true
 
   destination:
     server: https://kubernetes.default.svc
@@ -692,6 +760,302 @@ spec:
       - SkipDryRunOnMissingResource=true
 
 ---
+# Source: addons/templates/istio.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: istio-base
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://istio-release.storage.googleapis.com/charts
+    chart: base
+    targetRevision: "1.30.5"
+    helm:
+      releaseName: istio-base
+      values: |
+        defaultRevision: default
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: istio-system
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+      - RespectIgnoreDifferences=true
+  # istiod rewrites failurePolicy of its default validator once it is ready.
+  ignoreDifferences:
+    - group: admissionregistration.k8s.io
+      kind: ValidatingWebhookConfiguration
+      jqPathExpressions:
+        - .webhooks[]?.failurePolicy
+        - .webhooks[]?.clientConfig.caBundle
+
+---
+# Source: addons/templates/istio.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: istiod
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://istio-release.storage.googleapis.com/charts
+    chart: istiod
+    targetRevision: "1.30.5"
+    helm:
+      releaseName: istiod
+      values: |
+        profile: ambient
+        pilot:
+          autoscaleEnabled: false
+          replicaCount: 1
+          resources:
+            limits:
+              cpu: "1"
+              memory: 1Gi
+            requests:
+              cpu: 50m
+              memory: 256Mi
+        global:
+          proxy:
+            resources:
+              limits:
+                cpu: "1"
+                memory: 512Mi
+              requests:
+                cpu: 50m
+                memory: 128Mi
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: istio-system
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+      - RespectIgnoreDifferences=true
+  ignoreDifferences:
+    - group: admissionregistration.k8s.io
+      kind: ValidatingWebhookConfiguration
+      jqPathExpressions:
+        - .webhooks[]?.failurePolicy
+        - .webhooks[]?.clientConfig.caBundle
+    - group: admissionregistration.k8s.io
+      kind: MutatingWebhookConfiguration
+      jqPathExpressions:
+        - .webhooks[]?.clientConfig.caBundle
+
+---
+# Source: addons/templates/istio.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: istio-cni
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://istio-release.storage.googleapis.com/charts
+    chart: cni
+    targetRevision: "1.30.5"
+    helm:
+      releaseName: istio-cni
+      values: |
+        profile: ambient
+        cni:
+          # Istio platform prerequisites: Talos keeps CNI binaries and
+          # config at these host paths, and Cilium is the primary plugin.
+          cniBinDir: /opt/cni/bin
+          cniConfDir: /etc/cni/net.d
+          chained: true
+          resources:
+            limits:
+              cpu: 500m
+              memory: 256Mi
+            requests:
+              cpu: 50m
+              memory: 64Mi
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: istio-system
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+
+---
+# Source: addons/templates/istio.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: ztunnel
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "4"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://istio-release.storage.googleapis.com/charts
+    chart: ztunnel
+    targetRevision: "1.30.5"
+    helm:
+      releaseName: ztunnel
+      values: |
+        profile: ambient
+        resources:
+          limits:
+            cpu: "1"
+            memory: 512Mi
+          requests:
+            cpu: 50m
+            memory: 64Mi
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: istio-system
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+
+---
+# Source: addons/templates/istio.yaml
+# Config Application: the upstream Prometheus operator monitors for istiod,
+# ztunnel and waypoint proxies (charts/istio-config).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: istio-config
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "5"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/ryanmcafee/homelab.git
+    targetRevision: main
+    path: charts/istio-config
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-localdev.yaml
+      valuesObject:
+        namespace: istio-system
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: istio-system
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - SkipDryRunOnMissingResource=true
+
+---
+# Source: addons/templates/istio.yaml
+# Kiali on the internal ingress at the SERVICEMESH_HOSTNAME of configuration/.
+# Token login: a user signs in with a ServiceAccount token and sees what that
+# token's RBAC allows (docs/service-mesh.md).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: kiali
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://kiali.org/helm-charts
+    chart: kiali-server
+    targetRevision: "2.32.0"
+    helm:
+      releaseName: kiali
+      values: |
+        auth:
+          strategy: token
+        deployment:
+          image_pull_policy: IfNotPresent
+          resources:
+            limits:
+              cpu: 500m
+              memory: 1Gi
+            requests:
+              cpu: 10m
+              memory: 128Mi
+          ingress:
+            enabled: true
+            class_name: internal
+            override_yaml:
+              metadata:
+                annotations:
+                  cert-manager.io/cluster-issuer: letsencrypt
+                  external-dns.alpha.kubernetes.io/hostname: servicemesh.homelab.local
+              spec:
+                ingressClassName: internal
+                rules:
+                  - host: servicemesh.homelab.local
+                    http:
+                      paths:
+                        - path: /
+                          pathType: Prefix
+                          backend:
+                            service:
+                              name: kiali
+                              port:
+                                number: 20001
+                tls:
+                  - secretName: kiali-tls
+                    hosts:
+                      - servicemesh.homelab.local
+        server:
+          web_root: /
+          web_fqdn: servicemesh.homelab.local
+          web_schema: https
+          web_port: "443"
+        external_services:
+          istio:
+            root_namespace: istio-system
+          prometheus:
+            url: http://kube-prometheus-stack-prometheus.monitoring.svc.cluster.local:9090
+          grafana:
+            enabled: true
+            internal_url: http://kube-prometheus-stack-grafana.monitoring.svc.cluster.local:80
+            external_url: https://grafana.homelab.local
+          tracing:
+            enabled: false
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: istio-system
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+
+---
 # Source: addons/templates/kube-prometheus-stack.yaml
 apiVersion: argoproj.io/v1alpha1
 kind: Application
@@ -830,6 +1194,36 @@ spec:
                     path: /var/lib/grafana/dashboards/homelab
           dashboards:
             homelab:
+              istio-control-plane:
+                gnetId: 7645
+                revision: 332
+                datasource:
+                  - name: DS_PROMETHEUS
+                    value: Prometheus
+              istio-mesh:
+                gnetId: 7639
+                revision: 333
+                datasource:
+                  - name: DS_PROMETHEUS
+                    value: Prometheus
+              istio-service:
+                gnetId: 7636
+                revision: 332
+                datasource:
+                  - name: DS_PROMETHEUS
+                    value: Prometheus
+              istio-workload:
+                gnetId: 7630
+                revision: 333
+                datasource:
+                  - name: DS_PROMETHEUS
+                    value: Prometheus
+              istio-ztunnel:
+                gnetId: 21306
+                revision: 100
+                datasource:
+                  - name: DS_PROMETHEUS
+                    value: Prometheus
               opentelemetry-collector:
                 gnetId: 15983
                 revision: 30
@@ -1108,6 +1502,37 @@ spec:
                     annotations:
                       summary: 'ClickHouse {{ $labels.hostname }} has {{ $value }} parts in one partition'
                       description: 'Inserts are throttled from 150 parts per partition and rejected from 300. Merges are behind; see HomelabClickHouseRejectedInserts.'
+          # Service mesh (docs/service-mesh.md). Metrics: charts/istio-config
+          # monitors and kube-state-metrics. ztunnel and istio-cni must run on
+          # every node or enrolled pods there lose their traffic.
+          homelab-service-mesh:
+            groups:
+              - name: homelab-service-mesh
+                rules:
+                  - alert: HomelabIstiodDown
+                    expr: 'absent(up{job="istiod"} == 1)'
+                    for: 10m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: 'istiod is not running'
+                      description: 'No istiod instance has answered the metrics scrape for 10m. Running workloads keep their last configuration, but new pods, certificates and policy changes wait for it. `kubectl -n istio-system get pods -l app=istiod`.'
+                  - alert: HomelabMeshNodeAgentNotReady
+                    expr: 'kube_daemonset_status_number_ready{namespace="istio-system",daemonset=~"ztunnel|istio-cni-node"} < kube_daemonset_status_desired_number_scheduled{namespace="istio-system",daemonset=~"ztunnel|istio-cni-node"}'
+                    for: 15m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: '{{ $labels.daemonset }} is not ready on every node'
+                      description: '{{ $labels.daemonset }} has fewer ready pods than nodes for 15m. Pods of enrolled namespaces on the affected node cannot send or receive traffic. `kubectl -n istio-system get pods -o wide`.'
+                  - alert: HomelabIstioXdsRejects
+                    expr: 'sum(rate(pilot_total_xds_rejects[5m])) > 0'
+                    for: 15m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: 'Proxies reject the configuration istiod sends'
+                      description: 'ztunnel or a waypoint has rejected xDS configuration for 15m, so it keeps running on stale config. `istioctl proxy-status` and the istiod logs name the resource.'
 
   destination:
     server: https://kubernetes.default.svc

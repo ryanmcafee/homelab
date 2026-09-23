@@ -138,6 +138,10 @@ keys:
     description: 1Password Connect hostname
     const: "op-connect.{{.DOMAIN}}"
 
+  SERVICEMESH_HOSTNAME:
+    description: Kiali (Istio service mesh console) hostname on the internal ingress
+    const: "servicemesh.{{.DOMAIN}}"
+
   TRUENAS_LAN_IP:
     description: TrueNAS address on the storage LAN (VLAN 10) with prefix length, used by the Ansible inventory
     required: false

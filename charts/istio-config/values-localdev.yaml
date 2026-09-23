@@ -1,0 +1,4 @@
+# istio-config local development values. Nothing to override; the file has to
+# exist because the parent Application lists values-localdev.yaml.
+
+namespace: istio-system

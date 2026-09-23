@@ -146,6 +146,13 @@ cilium:
     ipam:
       mode: kubernetes
     kubeProxyReplacement: false
+    # Istio ambient prerequisites (docs/service-mesh.md): leave istio-cni's
+    # chained config in /etc/cni/net.d, and keep socket load balancing out of
+    # pod namespaces so ztunnel redirection sees the Service address.
+    cni:
+      exclusive: false
+    socketLB:
+      hostNamespaceOnly: true
     operator:
       replicas: 1
       resources:
@@ -825,6 +832,21 @@ kube-prometheus-stack:
       opentelemetry-collector:
         gnetId: 15983
         revision: 30
+      istio-control-plane:
+        gnetId: 7645
+        revision: 332
+      istio-mesh:
+        gnetId: 7639
+        revision: 333
+      istio-service:
+        gnetId: 7636
+        revision: 332
+      istio-workload:
+        gnetId: 7630
+        revision: 333
+      istio-ztunnel:
+        gnetId: 21306
+        revision: 100
 
   # Alertmanager and node-exporter are not useful in Kind (no alert routes, containerised nodes).
   alertmanager:
@@ -1320,6 +1342,87 @@ argo-workflows:
           secondsAfterCompletion: 86400
           secondsAfterSuccess: 43200
           secondsAfterFailure: 172800
+
+# ============================================================================
+# Istio ambient mesh + Kiali (docs/service-mesh.md)
+# Sync Waves: 2 istio-base, 3 istiod + istio-cni, 4 ztunnel, 5 istio-config,
+# 10 kiali. No namespace is enrolled here: SERVICE_MESH_AMBIENT_NAMESPACES
+# labels namespaces of the applications chart.
+# ============================================================================
+
+istio:
+  # Runs wherever Cilium is the CNI: ambient needs its cni.exclusive=false and
+  # socketLB.hostNamespaceOnly=true (the cilium block above).
+  enabled: true
+  namespace: istio-system
+  chart:
+    repo: https://istio-release.storage.googleapis.com/charts
+    version: "1.30.5"
+
+  istiod:
+    replicas: 1
+    resources:
+      requests:
+        cpu: 50m
+        memory: 256Mi
+      limits:
+        cpu: "1"
+        memory: 1Gi
+
+  # Waypoint proxies, created only when a namespace asks for L7 policy.
+  proxy:
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        cpu: "1"
+        memory: 512Mi
+
+  cni:
+    cniBinDir: /opt/cni/bin
+    cniConfDir: /etc/cni/net.d
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: 500m
+        memory: 256Mi
+
+  ztunnel:
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: "1"
+        memory: 512Mi
+
+  kiali:
+    enabled: true
+    chart:
+      name: kiali-server
+      repo: https://kiali.org/helm-charts
+      version: "2.32.0"
+    hostname: servicemesh.homelab.local
+    ingress:
+      className: internal
+    prometheusUrl: http://kube-prometheus-stack-prometheus.monitoring.svc.cluster.local:9090
+    grafana:
+      internalUrl: http://kube-prometheus-stack-grafana.monitoring.svc.cluster.local:80
+      externalUrl: https://grafana.homelab.local
+    resources:
+      requests:
+        cpu: 10m
+        memory: 128Mi
+      limits:
+        cpu: 500m
+        memory: 1Gi
+    smoke:
+      enabled: true
+      url: http://kiali.istio-system.svc.cluster.local:20001/healthz
+      expect: ["200"]
 
 # ============================================================================
 # Cluster logs: OpenTelemetry collectors -> ClickHouse -> Grafana (docs/logging.md)

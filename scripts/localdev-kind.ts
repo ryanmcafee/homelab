@@ -105,6 +105,10 @@ const ARGOCD_URL = "http://localhost:8080";
 export const DEFAULT_CILIUM_KIND_VALUES = `ipam:
   mode: kubernetes
 kubeProxyReplacement: false
+cni:
+  exclusive: false
+socketLB:
+  hostNamespaceOnly: true
 operator:
   replicas: 1
   resources:

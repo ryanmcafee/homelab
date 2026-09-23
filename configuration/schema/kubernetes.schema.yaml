@@ -36,3 +36,7 @@ keys:
     description: Default timezone for all workloads
     required: true
     default: "America/New_York"
+
+  SERVICE_MESH_AMBIENT_NAMESPACES:
+    description: Comma-separated namespaces of the applications chart enrolled in the Istio ambient mesh (label istio.io/dataplane-mode=ambient); unset enrolls none (docs/service-mesh.md)
+    required: false

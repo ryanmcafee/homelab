@@ -1237,6 +1237,15 @@ argo-workflows:
           secondsAfterFailure: 172800    # 48 hours
 
 # ============================================================================
+# Istio ambient mesh + Kiali (templates/istio.yaml, docs/service-mesh.md)
+# Placeholder: configuration/templates/helm-addons.tmpl renders the real block.
+# ============================================================================
+
+istio:
+  enabled: false
+  namespace: istio-system
+
+# ============================================================================
 # Cluster logs: OpenTelemetry -> ClickHouse (templates/logging.yaml, docs/logging.md)
 # Placeholder: configuration/templates/helm-addons.tmpl renders the real block.
 # ============================================================================
