@@ -28,13 +28,13 @@ Docker is the only requirement. The Kind loop runs the same charts production do
 standing in for 1Password, TrueNAS and the UniFi gateway.
 
 ```bash
-task localdev:up        # Kind (Cilium, registry caches, fakes) → ArgoCD → all 70 Applications synced from your working tree
+task localdev:up        # Kind (Cilium, registry caches, fakes) → ArgoCD → all 81 Applications synced from your working tree
 task localdev:report    # what is Healthy, and what differs from main
 task localdev:down      # delete the cluster; the registry caches stay
 ```
 
 ArgoCD is on http://localhost:8080 (`admin`, password in `argocd-initial-admin-secret`; on macOS run
-`task localdev:ui` first). `task verify LEVEL=2` runs the 17 chainsaw suites against it.
+`task localdev:ui` first). `task verify LEVEL=2` runs the 19 chainsaw suites against it.
 
 ## Boot it on real hardware
 
@@ -56,7 +56,7 @@ with a confirmation at each phase. Nothing reaches `terragrunt apply` without th
 | Host | Ansible prepares Proxmox: repos, networking, storcli, IPMI fans, log retention | [`ansible/`](ansible/) |
 | Infra | Terragrunt DAG (11 units): ZFS pools, TrueNAS, Talos images, 3 control planes on NVMe + 3 workers, cluster config, UniFi FRR | [`terragrunt/`](terragrunt/) |
 | Bridge | `gitops-bootstrap` installs ArgoCD with the `homelab-cmp` sidecar, the SOPS age key and the root Application | [`terragrunt/modules/gitops-bootstrap/`](terragrunt/modules/gitops-bootstrap/) |
-| GitOps | app-of-apps: `gitops` → `bootstrap` → 30 addons → 15 applications, plus per-PR previews | [`charts/`](charts/) |
+| GitOps | app-of-apps: `gitops` → `bootstrap` → 32 addons → 15 applications, plus per-PR previews | [`charts/`](charts/) |
 | Secrets | SOPS + ksops for the bootstrap credentials, 1Password operator for everything else | [`docs/secrets.md`](docs/secrets.md) |
 | Config | One schema-driven `configuration/`; the CMP renders values at sync time so no PII is committed | [`configuration/`](configuration/) |
 | Network | Cilium LB IPAM + BGP ⇄ UniFi, two Traefiks (external with OIDC, internal), external-dns ×2, port-forwarding controller, Tailscale subnet router + split DNS | [`docs/networking.md`](docs/networking.md) |
@@ -67,12 +67,12 @@ with a confirmation at each phase. Nothing reaches `terragrunt apply` without th
 **Media** · plex · sonarr · radarr · prowlarr · nzbget · tautulli · lazylibrarian · flaresolverr
 **Platform** · argocd · grafana · argo-workflows · paperclip · cloudnative-pg · mosquitto · renovate
 
-30 addons and 15 applications, 70 ArgoCD Applications in all. The full table with chart versions,
+32 addons and 15 applications, 81 ArgoCD Applications in all. The full table with chart versions,
 ingress class and test coverage per app is generated in [`docs/applications.md`](docs/applications.md).
 
 ## Guardrails
 
-- Every PR: level 0 (render, schema, policy, golden snapshots) in seconds, then the Kind loop with 17 chainsaw suites; label `preview` and the PR gets its own namespace in production.
+- Every PR: level 0 (render, schema, policy, golden snapshots) in seconds, then the Kind loop with 19 chainsaw suites; label `preview` and the PR gets its own namespace in production.
 - Renovate automerges non-major bumps only when the upstream chart diff passes the same gates (ADR-014).
 - `task config:guard` blocks real IPs, hostnames and e-mail addresses from ever being committed.
 - `task docs:check` recomputes every version and count on this page from the repo and fails CI when they drift.

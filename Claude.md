@@ -247,8 +247,17 @@ charts:
   unifi-port-forward: "1.1.1"
   # renovate: datasource=docker depName=ghcr.io/paperclipinc/charts/paperclip-operator
   paperclip-operator: "0.19.1"
+  # One key for base, istiod, cni and ztunnel: the four Istio charts must run the same release.
+  # renovate: datasource=helm depName=istiod registryUrl=https://istio-release.storage.googleapis.com/charts
+  istio: "1.30.5"
+  # renovate: datasource=helm depName=kiali-server registryUrl=https://kiali.org/helm-charts
+  kiali-server: "2.32.0"
+  # renovate: datasource=helm depName=opentelemetry-collector registryUrl=https://open-telemetry.github.io/opentelemetry-helm-charts
+  opentelemetry-collector: "0.173.1"
+  # renovate: datasource=helm depName=altinity-clickhouse-operator registryUrl=https://helm.altinity.com
+  altinity-clickhouse-operator: "0.27.3"
 images:
-  homelab-cmp: "0.1.47"
+  homelab-cmp: "0.1.48"
   # renovate: datasource=docker depName=curlimages/curl
   curl: "8.22.0"
   # renovate: datasource=docker depName=kindest/node
@@ -259,6 +268,11 @@ images:
   paperclip: "2026.916.1"
   # renovate: datasource=docker depName=ghcr.io/cloudnative-pg/postgresql
   cloudnative-pg-postgresql: "17.11"
+  # renovate: datasource=docker depName=clickhouse/clickhouse-server
+  clickhouse-server: "26.8.10.6"
+  # Grafana plugin, installed by the kube-prometheus-stack Grafana at startup.
+  # renovate: datasource=github-releases depName=grafana/clickhouse-datasource
+  grafana-clickhouse-datasource: "v4.21.3"
 tools:
   # talos and kubernetes are the TARGET (Renovate bumps them). What the cluster runs is
   # terragrunt/environments/homelab/env.hcl; while it lags, the lag is registered with a

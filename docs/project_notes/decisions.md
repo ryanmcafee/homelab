@@ -481,6 +481,61 @@ Each decision should include:
 - The chart pair must be upgraded together; Renovate's `Monitoring stack` group carries both in one PR, and a hand-made bump of only kube-prometheus-stack to an operator newer than the CRDs is the failure mode to watch for. `docs/runbooks/alerting.md` has the lookup
 - Kind never creates the bootstrap Application (`charts/gitops/values-localdev.yaml`), so `scripts/localdev-argocd.ts install` installs the same CRD chart with Helm before ArgoCD; without that, cert-manager's ServiceMonitor failed to apply in the Kind loop the first time this shipped, and kube-prometheus-stack's own monitors would have too. The addons' ServiceMonitors therefore apply in Kind even though Alertmanager stays off
 
+### ADR-019: Cluster logs go through OpenTelemetry collectors into ClickHouse run by the Altinity operator (2026-09-23)
+
+**Context:**
+- The Paperclip API is intermittently unresponsive, and the cluster could not show why: Traefik wrote no access logs and was not scraped, and nothing kept container logs beyond the kubelet's rotation
+- The store must keep 90 days of every container log and Kubernetes event on the homelab's own hardware, be queryable from the existing Grafana, and follow the repository's patterns (versions in `versions.yaml`, secrets from 1Password, block storage for databases, level 0 + Kind level 2)
+
+**Decision:**
+- Collection: two releases of the upstream `opentelemetry-collector` chart with the contrib image. `otel-collector-agent` is a DaemonSet with the chart's `logsCollection` (filelog on `/var/log/pods`, CRI parser, checkpoints in `/var/lib/otelcol`) and `kubernetesAttributes` presets; `otel-collector-cluster` is one replica with the `kubernetesEvents` preset. Both export with the `clickhouse` exporter straight to ClickHouse, no gateway tier
+- Store: the Altinity `clickhouse-operator` chart (`charts.altinity-clickhouse-operator`, CRDs from its `crds/`, its `bitnami/kubectl:latest` CRD hook disabled) and one single-node `ClickHouseInstallation` `logs` (`charts/clickhouse`) on `STORAGE_CLASS_ISCSI_SSD`, image pinned in `images.clickhouse-server` (26.8 LTS)
+- Retention: the exporter's `ttl: 2160h` becomes the `otel_logs` table TTL when `create_schema` creates it (90 days); `docs/logging.md` documents the `ALTER TABLE ... MODIFY TTL` needed to change it later, and the `logging` e2e test asserts the TTL exists
+- Users: `otel` (ALL on `otel.*`) and `grafana` (SELECT on `otel.*`), passwords from two 1Password items through `charts/clickhouse-dependencies` (wave 8, before Grafana at 9); ClickHouse reads them as environment variables (`valueFrom.secretKeyRef`), never from a ConfigMap
+- Grafana installs `grafana-clickhouse-datasource` (pinned in `images.grafana-clickhouse-datasource`) and provisions datasource `clickhouse-logs` with the OpenTelemetry logs settings; the password is expanded from the environment at provisioning time
+- Traefik (both releases) writes JSON access logs to stdout and gets a metrics Service + ServiceMonitor on its `metrics` entrypoint
+- Alerts in `homelab-logging` and `homelab-ingress` (warning), adapted from the collector chart's and Altinity's upstream rules; the chart's own default collector rules stay off because every one is `critical`
+
+**Alternatives Considered:**
+- **Loki** -> the common Grafana choice, but the requirement was a SQL-queryable store; ClickHouse also answers the access-log questions (p95 per host, 5xx by path) with plain SQL over the JSON body
+- **Official ClickHouse Kubernetes operator** -> younger, with fewer users and no chart-shipped monitoring; Altinity's operator has run ClickHouse on Kubernetes for years, ships a metrics exporter, a ServiceMonitor and Grafana dashboards, and its CRDs are vendorable for kubeconform
+- **Plain StatefulSet** -> no upgrade, user or config management; the operator's `ClickHouseInstallation` keeps users and storage declarative
+- **opentelemetry-operator** -> one more controller and CRD set for two static collectors; the chart's presets already encode the Kubernetes log pipeline
+- **A gateway collector tier** -> useful for fan-out or tail sampling; with one sink and five nodes, each agent's exporter queue and retry are enough
+- **NFS storage** -> ClickHouse renames and fsyncs parts constantly; block storage as for PostgreSQL (ADR-008, ADR-015)
+
+**Consequences:**
+- New namespace `observability` at PodSecurity `privileged` (hostPath mounts, root agent)
+- Grafana does not start until Secret `monitoring/clickhouse-grafana` exists: the 1Password items `clickhouse-otel` and `clickhouse-grafana` (field `password`) must be created before the first sync
+- The single ClickHouse node is not replicated; losing its volume loses the log history, not the pipeline. Logs are diagnostic data, so no backup is set up
+- The operator's own ClickHouse user `clickhouse_operator` keeps the chart's default password (Secret rendered by the chart); moving it to a 1Password item is a follow-up
+- Kind runs the whole pipeline at small sizes, and the `logging` e2e test proves rows arrive with the TTL set
+
+### ADR-020: Istio ambient mesh on Cilium, opt-in per namespace, with Kiali (2026-09-23)
+
+**Context:**
+- Diagnosing intermittent failures between services needs L4 (and optionally L7) telemetry and a traffic graph; the cluster had neither
+- Cilium is the CNI with kube-proxy replacement and BGP (ADR-012 keeps it in Kind too); a mesh must not disturb it or any workload that has not asked to join
+
+**Decision:**
+- Istio in ambient mode from the four official charts (`base`, `istiod` and `cni` with `profile: ambient`, `ztunnel`), one version key `charts.istio` so they cannot drift, waves 2-4, namespace `istio-system` at PodSecurity `privileged`; enabled wherever `CNI_PROVIDER=cilium`
+- Cilium gets Istio's documented prerequisites: `cni.exclusive=false` and `socketLB.hostNamespaceOnly=true`, in the CMP template (Kind and the adopting Application) and in `task cilium:render` (Talos inline manifest). The homelab change needs `task render && task render:push && task tf:apply` and an agent restart by a human
+- Nothing is enrolled by default. `SERVICE_MESH_AMBIENT_NAMESPACES` (optional, comma-separated) labels namespaces of the applications chart `istio.io/dataplane-mode=ambient`
+- Monitoring: the upstream Prometheus operator monitors (`charts/istio-config`), the grafana.com Istio dashboards, and `homelab-service-mesh` alerts on istiod, the node agents and xDS rejects
+- Kiali (`kiali-server` chart) on the internal ingress at `SERVICEMESH_HOSTNAME` (`servicemesh.<DOMAIN>`), token login, reading the kube-prometheus-stack Prometheus and Grafana
+
+**Alternatives Considered:**
+- **Sidecar mode** -> every enrolled pod gets an Envoy with its own resources and restart ordering; ambient adds nothing to a pod and can be enabled per namespace without restarts of the mesh itself
+- **Cilium service mesh** -> already present, but its mTLS and L7 story needs Envoy per node and gives no Kiali-style graph; Istio ambient is the requested stack and coexists with Cilium when the two prerequisites are set
+- **Kiali operator** -> a CRD and a controller for one instance; the server chart is enough
+- **Anonymous Kiali behind the internal ingress** -> the LAN and tailnet would see the full mesh configuration without login; token login costs one `kubectl create token`
+
+**Consequences:**
+- Until the human applies the Cilium change in homelab, a Cilium agent restart can remove istio-cni's chained config; harmless while nothing is enrolled
+- Enrolled namespaces with a default-deny policy must allow kubelet probes from `169.254.7.127`
+- Kiali's Grafana links need Grafana credentials it does not have; the graph and metrics work, dashboard links may not
+- Every node runs two more DaemonSets (istio-cni-node, ztunnel), also in Kind and every PR's level-2 run
+
 ## Tips
 
 - Number decisions sequentially (ADR-001, ADR-002, etc.)

@@ -118,6 +118,24 @@ of samples; that is how 16 alerts stood on democratic-csi for three months while
 | homelab-infrastructure | `HomelabClusterDNSFailing` | critical | CoreDNS answers SERVFAIL for more than 10 % of queries for 15 m ([cluster-dns.md](./cluster-dns.md)) |
 | homelab-infrastructure | `HomelabClusterDNSUpstreamDown` | critical | CoreDNS has no healthy upstream resolver for 10 m ([cluster-dns.md](./cluster-dns.md)) |
 | homelab-infrastructure | `CPUThrottlingHigh` | info | more than 25 % of CFS periods throttled for 15 m, **and** the container ran in more than 300 of the 3000 periods in the window |
+| homelab-ingress | `HomelabTraefikDown` | critical | no pod of `traefik-internal` or `traefik-external` answers the scrape for 5 m |
+| homelab-ingress | `HomelabTraefikBackendErrors` | warning | more than 5 % of a backend's requests are 5xx for 10 m (at least 0.1 req/s) |
+| homelab-ingress | `HomelabTraefikBackendSlow` | warning | a backend's p95 response time is above 5 s for 10 m |
+| homelab-logging | `HomelabLogExportFailing` | warning | a collector fails to export log records to ClickHouse for 15 m ([logging.md](../logging.md)) |
+| homelab-logging | `HomelabLogExportQueueFull` | warning | a collector's ClickHouse send queue is above 80 % for 10 m |
+| homelab-logging | `HomelabLogsNotArriving` | warning | the agents read no container log line for 30 m |
+| homelab-logging | `HomelabClickHouseDown` | warning | the operator's metrics exporter cannot read ClickHouse for 10 m |
+| homelab-logging | `HomelabClickHouseRejectedInserts` | warning | ClickHouse rejected inserts (too many parts) in the last 5 m |
+| homelab-logging | `HomelabClickHouseTooManyParts` | warning | a partition has more than 150 active parts for 15 m |
+| homelab-service-mesh | `HomelabIstiodDown` | warning | no istiod answers the scrape for 10 m ([service-mesh.md](../service-mesh.md)) |
+| homelab-service-mesh | `HomelabMeshNodeAgentNotReady` | warning | `ztunnel` or `istio-cni-node` is not ready on every node for 15 m |
+| homelab-service-mesh | `HomelabIstioXdsRejects` | warning | ztunnel or a waypoint rejects istiod's configuration for 15 m |
+
+The `homelab-logging` rules follow the opentelemetry-collector chart's default rules and
+Altinity's `prometheus-alert-rules-clickhouse.yaml`, restated at `warning` (the chart's own are
+all `critical`); the log store is diagnostic, so its failures never page at night. The Traefik
+rules read `exported_service`: the scrape's own `service` label (the metrics Service) displaces
+Traefik's backend label.
 
 Add a rule next to these (Prometheus `$labels` escaped as in the file), give it a `severity`
 label the table above routes, and run `task verify:text`: kubeconform validates the

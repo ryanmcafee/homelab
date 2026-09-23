@@ -348,6 +348,8 @@ installed by mise (`mise.toml`); this table names the pieces, the file has the n
 | Secrets | 1Password Connect + operator (`charts.onepassword-connect`), SOPS/age via ksops | [Secrets and configuration](#secrets-and-configuration) |
 | Storage | democratic-csi (`charts.democratic-csi`), CloudNativePG (`charts.cloudnative-pg`, `charts.plugin-barman-cloud`), Spegel (`charts.spegel`) | [Storage](#storage) |
 | Observability | kube-prometheus-stack (`charts.kube-prometheus-stack`), etcd scrape, Grafana behind the internal ingress; Alertmanager pushes critical (high priority) and warning (low priority) alerts to Pushover, credentials from one 1Password item (`docs/runbooks/alerting.md`) | `charts/addons/templates/kube-prometheus-stack.yaml`, `charts/prometheus-config` |
+| Logs | OpenTelemetry collectors (DaemonSet + events) -> ClickHouse (Altinity operator, iSCSI, 90-day TTL) -> Grafana ClickHouse datasource; Traefik JSON access logs (`docs/logging.md`, ADR-019) | `charts/addons/templates/logging.yaml`, `charts/clickhouse`, `charts/clickhouse-dependencies` |
+| Service mesh | Istio ambient (istiod, istio-cni, ztunnel) on Cilium, opt-in per namespace; Kiali on the internal ingress (`docs/service-mesh.md`, ADR-020) | `charts/addons/templates/istio.yaml`, `charts/istio-config` |
 | CLI and scripts | Go CLI `homelab` (`cmd/homelab`, `internal/`), TypeScript on Bun (`scripts/`), Taskfile (ADR-005) | `Taskfile.yml` |
 | Local loop | Kind (`tools.kind`, `images.kind-node`) + ArgoCD `--local` sync, chainsaw (`tools.chainsaw`) | [local-development.md](./local-development.md) |
 | Updates | Renovate (`.github/renovate.json5`, app `renovate` in-cluster) | [Verification](#verification) |

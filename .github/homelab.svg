@@ -90,20 +90,21 @@
   @keyframes glow{0%,33.5%{opacity:0}36%,96%{opacity:.45}100%{opacity:0}}
   .glow{animation:glow 27s infinite}
   /* host windows: 10 × 4.5% from 45% to 90% (1.2 s each) */
-  @keyframes h0{0%,45%{opacity:0}45.3%,49.2%{opacity:1}49.5%,100%{opacity:0}}
-  @keyframes h1{0%,49.5%{opacity:0}49.8%,53.7%{opacity:1}54%,100%{opacity:0}}
-  @keyframes h2{0%,54%{opacity:0}54.3%,58.2%{opacity:1}58.5%,100%{opacity:0}}
-  @keyframes h3{0%,58.5%{opacity:0}58.8%,62.7%{opacity:1}63%,100%{opacity:0}}
-  @keyframes h4{0%,63%{opacity:0}63.3%,67.2%{opacity:1}67.5%,100%{opacity:0}}
-  @keyframes h5{0%,67.5%{opacity:0}67.8%,71.7%{opacity:1}72%,100%{opacity:0}}
-  @keyframes h6{0%,72%{opacity:0}72.3%,76.2%{opacity:1}76.5%,100%{opacity:0}}
-  @keyframes h7{0%,76.5%{opacity:0}76.8%,80.7%{opacity:1}81%,100%{opacity:0}}
-  @keyframes h8{0%,81%{opacity:0}81.3%,85.2%{opacity:1}85.5%,100%{opacity:0}}
-  @keyframes h9{0%,85.5%{opacity:0}85.8%,95.7%{opacity:1}96%,100%{opacity:0}}
+  @keyframes h0{0%,45%{opacity:0}45.3%,48.75%{opacity:1}49.05%,100%{opacity:0}}
+  @keyframes h1{0%,49.05%{opacity:0}49.35%,52.8%{opacity:1}53.1%,100%{opacity:0}}
+  @keyframes h2{0%,53.1%{opacity:0}53.4%,56.85%{opacity:1}57.15%,100%{opacity:0}}
+  @keyframes h3{0%,57.15%{opacity:0}57.45%,60.9%{opacity:1}61.2%,100%{opacity:0}}
+  @keyframes h4{0%,61.2%{opacity:0}61.5%,64.95%{opacity:1}65.25%,100%{opacity:0}}
+  @keyframes h5{0%,65.25%{opacity:0}65.55%,69%{opacity:1}69.3%,100%{opacity:0}}
+  @keyframes h6{0%,69.3%{opacity:0}69.6%,73.05%{opacity:1}73.35%,100%{opacity:0}}
+  @keyframes h7{0%,73.35%{opacity:0}73.65%,77.1%{opacity:1}77.4%,100%{opacity:0}}
+  @keyframes h8{0%,77.4%{opacity:0}77.7%,81.15%{opacity:1}81.45%,100%{opacity:0}}
+  @keyframes h9{0%,81.45%{opacity:0}81.75%,85.2%{opacity:1}85.5%,100%{opacity:0}}
+  @keyframes h10{0%,85.5%{opacity:0}85.8%,95.7%{opacity:1}96%,100%{opacity:0}}
   .h0{animation:h0 27s infinite}.h1{animation:h1 27s infinite}.h2{animation:h2 27s infinite}
   .h3{animation:h3 27s infinite}.h4{animation:h4 27s infinite}.h5{animation:h5 27s infinite}
   .h6{animation:h6 27s infinite}.h7{animation:h7 27s infinite}.h8{animation:h8 27s infinite}
-  .h9{animation:h9 27s infinite}
+  .h9{animation:h9 27s infinite}.h10{animation:h10 27s infinite}
   /* verdict badges: after the packet lands (S+2.7) until the window ends */
   @keyframes v0{0%,47.7%{opacity:0}48%,49.2%{opacity:1}49.5%,100%{opacity:0}}
   @keyframes v1{0%,52.2%{opacity:0}52.5%,53.7%{opacity:1}54%,100%{opacity:0}}
@@ -119,31 +120,34 @@
   .v3{animation:v3 27s infinite}.v4{animation:v4 27s infinite}.v5{animation:v5 27s infinite}
   .v6{animation:v6 27s infinite}.v7{animation:v7 27s infinite}.v8{animation:v8 27s infinite}
   .v9{animation:v9 27s infinite}
-  /* e2e suite counter: 17 steps of 2.65% from 45% to 90%, then 17/17 holds */
-  @keyframes c0{0%,45%{opacity:0}45.1%,47.55%{opacity:1}47.65%,100%{opacity:0}}
-  @keyframes c1{0%,47.65%{opacity:0}47.75%,50.2%{opacity:1}50.3%,100%{opacity:0}}
-  @keyframes c2{0%,50.3%{opacity:0}50.4%,52.85%{opacity:1}52.95%,100%{opacity:0}}
-  @keyframes c3{0%,52.95%{opacity:0}53.05%,55.5%{opacity:1}55.6%,100%{opacity:0}}
-  @keyframes c4{0%,55.6%{opacity:0}55.7%,58.15%{opacity:1}58.25%,100%{opacity:0}}
-  @keyframes c5{0%,58.25%{opacity:0}58.35%,60.8%{opacity:1}60.9%,100%{opacity:0}}
-  @keyframes c6{0%,60.9%{opacity:0}61%,63.45%{opacity:1}63.55%,100%{opacity:0}}
-  @keyframes c7{0%,63.55%{opacity:0}63.65%,66.1%{opacity:1}66.2%,100%{opacity:0}}
-  @keyframes c8{0%,66.2%{opacity:0}66.3%,68.75%{opacity:1}68.85%,100%{opacity:0}}
-  @keyframes c9{0%,68.85%{opacity:0}68.95%,71.4%{opacity:1}71.5%,100%{opacity:0}}
-  @keyframes c10{0%,71.5%{opacity:0}71.6%,74.05%{opacity:1}74.15%,100%{opacity:0}}
-  @keyframes c11{0%,74.15%{opacity:0}74.25%,76.7%{opacity:1}76.8%,100%{opacity:0}}
-  @keyframes c12{0%,76.8%{opacity:0}76.9%,79.35%{opacity:1}79.45%,100%{opacity:0}}
-  @keyframes c13{0%,79.45%{opacity:0}79.55%,82%{opacity:1}82.1%,100%{opacity:0}}
-  @keyframes c14{0%,82.1%{opacity:0}82.2%,84.65%{opacity:1}84.75%,100%{opacity:0}}
-  @keyframes c15{0%,84.75%{opacity:0}84.85%,87.3%{opacity:1}87.4%,100%{opacity:0}}
-  @keyframes c16{0%,87.4%{opacity:0}87.5%,89.9%{opacity:1}90%,100%{opacity:0}}
-  @keyframes c17{0%,90%{opacity:0}90.1%,96%{opacity:1}100%{opacity:0}}
+  /* e2e suite counter: 19 steps of 2.37% from 45% to 90%, then 19/19 holds */
+  @keyframes c0{0%,45%{opacity:0}45.1%,47.27%{opacity:1}47.37%,100%{opacity:0}}
+  @keyframes c1{0%,47.37%{opacity:0}47.47%,49.64%{opacity:1}49.74%,100%{opacity:0}}
+  @keyframes c2{0%,49.74%{opacity:0}49.84%,52.01%{opacity:1}52.11%,100%{opacity:0}}
+  @keyframes c3{0%,52.11%{opacity:0}52.21%,54.37%{opacity:1}54.47%,100%{opacity:0}}
+  @keyframes c4{0%,54.47%{opacity:0}54.57%,56.74%{opacity:1}56.84%,100%{opacity:0}}
+  @keyframes c5{0%,56.84%{opacity:0}56.94%,59.11%{opacity:1}59.21%,100%{opacity:0}}
+  @keyframes c6{0%,59.21%{opacity:0}59.31%,61.48%{opacity:1}61.58%,100%{opacity:0}}
+  @keyframes c7{0%,61.58%{opacity:0}61.68%,63.85%{opacity:1}63.95%,100%{opacity:0}}
+  @keyframes c8{0%,63.95%{opacity:0}64.05%,66.22%{opacity:1}66.32%,100%{opacity:0}}
+  @keyframes c9{0%,66.32%{opacity:0}66.42%,68.58%{opacity:1}68.68%,100%{opacity:0}}
+  @keyframes c10{0%,68.68%{opacity:0}68.78%,70.95%{opacity:1}71.05%,100%{opacity:0}}
+  @keyframes c11{0%,71.05%{opacity:0}71.15%,73.32%{opacity:1}73.42%,100%{opacity:0}}
+  @keyframes c12{0%,73.42%{opacity:0}73.52%,75.69%{opacity:1}75.79%,100%{opacity:0}}
+  @keyframes c13{0%,75.79%{opacity:0}75.89%,78.06%{opacity:1}78.16%,100%{opacity:0}}
+  @keyframes c14{0%,78.16%{opacity:0}78.26%,80.43%{opacity:1}80.53%,100%{opacity:0}}
+  @keyframes c15{0%,80.53%{opacity:0}80.63%,82.79%{opacity:1}82.89%,100%{opacity:0}}
+  @keyframes c16{0%,82.89%{opacity:0}82.99%,85.16%{opacity:1}85.26%,100%{opacity:0}}
+  @keyframes c17{0%,85.26%{opacity:0}85.36%,87.53%{opacity:1}87.63%,100%{opacity:0}}
+  @keyframes c18{0%,87.63%{opacity:0}87.73%,89.9%{opacity:1}90%,100%{opacity:0}}
+  @keyframes c19{0%,90%{opacity:0}90.1%,96%{opacity:1}100%{opacity:0}}
   .c0{animation:c0 27s infinite}.c1{animation:c1 27s infinite}.c2{animation:c2 27s infinite}
   .c3{animation:c3 27s infinite}.c4{animation:c4 27s infinite}.c5{animation:c5 27s infinite}
   .c6{animation:c6 27s infinite}.c7{animation:c7 27s infinite}.c8{animation:c8 27s infinite}
   .c9{animation:c9 27s infinite}.c10{animation:c10 27s infinite}.c11{animation:c11 27s infinite}
   .c12{animation:c12 27s infinite}.c13{animation:c13 27s infinite}.c14{animation:c14 27s infinite}
   .c15{animation:c15 27s infinite}.c16{animation:c16 27s infinite}.c17{animation:c17 27s infinite}
+  .c18{animation:c18 27s infinite}.c19{animation:c19 27s infinite}
   /* chainsaw pulse once per host window */
   @keyframes saw{0%,44.5%{opacity:0}
     45.5%{opacity:.6}48%{opacity:0} 50%{opacity:.6}52.5%{opacity:0} 54.5%{opacity:.6}57%{opacity:0}
@@ -151,7 +155,7 @@
     72.5%{opacity:.6}75%{opacity:0} 77%{opacity:.6}79.5%{opacity:0} 81.5%{opacity:.6}84%{opacity:0}
     86%{opacity:.6}88.5%,100%{opacity:0}}
   .saw{animation:saw 27s infinite}
-  /* final: chainsaw node turns green when 17/17 */
+  /* final: chainsaw node turns green when 19/19 */
   @keyframes done{0%,90%{stroke:#f0883e}90.5%,96%{stroke:#27c93f}100%{stroke:#f0883e}}
   .done{animation:done 27s infinite}
 </style>
@@ -173,7 +177,7 @@
   <text class="a21_5" x="28" y="192" fill="#8b949e">    1password operator</text>
   <text class="a23"   x="28" y="209" fill="#8b949e">    environment-config</text>
   <text class="a25"   x="28" y="226"><tspan fill="#8b949e">›</tspan> cmp      <tspan fill="#a371f7">export|helm template</tspan></text>
-  <text class="a26_5" x="28" y="243"><tspan fill="#8b949e">›</tspan> argocd   <tspan fill="#8b949e">70 apps synced</tspan></text>
+  <text class="a26_5" x="28" y="243"><tspan fill="#8b949e">›</tspan> argocd   <tspan fill="#8b949e">81 apps synced</tspan></text>
   <text class="a33"   x="28" y="260"><tspan fill="#8b949e">›</tspan> bgp      <tspan fill="#8b949e">64512 ⇄ 64513</tspan> <tspan fill="#27c93f">up</tspan></text>
   <text class="a36"   x="28" y="277"><tspan fill="#8b949e">›</tspan> unifi    <tspan fill="#8b949e">kube-* forwards</tspan> <tspan fill="#27c93f">✔</tspan></text>
   <text class="a46"   x="28" y="298"><tspan fill="#a371f7">●</tspan> plex.&lt;DOMAIN&gt; <tspan fill="#27c93f">200</tspan> <tspan fill="#8b949e">e2e ✔ smoke ✔</tspan></text>
@@ -181,32 +185,35 @@
   <text class="h1" x="28" y="315"><tspan fill="#2dd4bf">●</tspan> argocd.&lt;DOMAIN&gt; <tspan fill="#27c93f">200</tspan> <tspan fill="#8b949e">e2e ✔</tspan></text>
   <text class="h2" x="28" y="315"><tspan fill="#2dd4bf">●</tspan> paperclip.&lt;DOMAIN&gt; <tspan fill="#27c93f">200</tspan> <tspan fill="#8b949e">e2e ✔ smoke ✔</tspan></text>
   <text class="h3" x="28" y="315"><tspan fill="#2dd4bf">●</tspan> workflows.&lt;DOMAIN&gt; <tspan fill="#27c93f">200</tspan> <tspan fill="#8b949e">e2e —</tspan></text>
-  <text class="h4" x="28" y="315"><tspan fill="#2dd4bf">●</tspan> sonarr.&lt;DOMAIN&gt; <tspan fill="#27c93f">200</tspan> <tspan fill="#8b949e">e2e ✔ smoke ✔</tspan></text>
-  <text class="h5" x="28" y="315"><tspan fill="#2dd4bf">●</tspan> radarr.&lt;DOMAIN&gt; <tspan fill="#27c93f">200</tspan> <tspan fill="#8b949e">e2e ✔ smoke ✔</tspan></text>
-  <text class="h6" x="28" y="315"><tspan fill="#2dd4bf">●</tspan> prowlarr.&lt;DOMAIN&gt; <tspan fill="#27c93f">200</tspan> <tspan fill="#8b949e">e2e ✔ smoke ✔</tspan></text>
-  <text class="h7" x="28" y="315"><tspan fill="#2dd4bf">●</tspan> nzbget.&lt;DOMAIN&gt; <tspan fill="#27c93f">200</tspan> <tspan fill="#8b949e">e2e ✔ smoke ✔</tspan></text>
-  <text class="h8" x="28" y="315"><tspan fill="#2dd4bf">●</tspan> tautulli.&lt;DOMAIN&gt; <tspan fill="#27c93f">200</tspan> <tspan fill="#8b949e">e2e ✔ smoke ✔</tspan></text>
-  <text class="h9" x="28" y="315" font-size="10"><tspan fill="#2dd4bf">●</tspan> lazylibrarian.&lt;DOMAIN&gt; <tspan fill="#27c93f">200</tspan> <tspan fill="#8b949e">e2e ✔ smoke ✔</tspan></text>
+  <text class="h4" x="28" y="315"><tspan fill="#2dd4bf">●</tspan> servicemesh.&lt;DOMAIN&gt; <tspan fill="#27c93f">200</tspan> <tspan fill="#8b949e">e2e ✔ smoke ✔</tspan></text>
+  <text class="h5" x="28" y="315"><tspan fill="#2dd4bf">●</tspan> sonarr.&lt;DOMAIN&gt; <tspan fill="#27c93f">200</tspan> <tspan fill="#8b949e">e2e ✔ smoke ✔</tspan></text>
+  <text class="h6" x="28" y="315"><tspan fill="#2dd4bf">●</tspan> radarr.&lt;DOMAIN&gt; <tspan fill="#27c93f">200</tspan> <tspan fill="#8b949e">e2e ✔ smoke ✔</tspan></text>
+  <text class="h7" x="28" y="315"><tspan fill="#2dd4bf">●</tspan> prowlarr.&lt;DOMAIN&gt; <tspan fill="#27c93f">200</tspan> <tspan fill="#8b949e">e2e ✔ smoke ✔</tspan></text>
+  <text class="h8" x="28" y="315"><tspan fill="#2dd4bf">●</tspan> nzbget.&lt;DOMAIN&gt; <tspan fill="#27c93f">200</tspan> <tspan fill="#8b949e">e2e ✔ smoke ✔</tspan></text>
+  <text class="h9" x="28" y="315"><tspan fill="#2dd4bf">●</tspan> tautulli.&lt;DOMAIN&gt; <tspan fill="#27c93f">200</tspan> <tspan fill="#8b949e">e2e ✔ smoke ✔</tspan></text>
+  <text class="h10" x="28" y="315" font-size="10"><tspan fill="#2dd4bf">●</tspan> lazylibrarian.&lt;DOMAIN&gt; <tspan fill="#27c93f">200</tspan> <tspan fill="#8b949e">e2e ✔ smoke ✔</tspan></text>
   <!-- e2e counter -->
   <g fill="#f0883e">
-    <text class="c0"  x="28" y="335"><tspan fill="#8b949e">›</tspan> chainsaw e2e   0/17 suites</text>
-    <text class="c1"  x="28" y="335"><tspan fill="#8b949e">›</tspan> chainsaw e2e   1/17 suites</text>
-    <text class="c2"  x="28" y="335"><tspan fill="#8b949e">›</tspan> chainsaw e2e   2/17 suites</text>
-    <text class="c3"  x="28" y="335"><tspan fill="#8b949e">›</tspan> chainsaw e2e   3/17 suites</text>
-    <text class="c4"  x="28" y="335"><tspan fill="#8b949e">›</tspan> chainsaw e2e   4/17 suites</text>
-    <text class="c5"  x="28" y="335"><tspan fill="#8b949e">›</tspan> chainsaw e2e   5/17 suites</text>
-    <text class="c6"  x="28" y="335"><tspan fill="#8b949e">›</tspan> chainsaw e2e   6/17 suites</text>
-    <text class="c7"  x="28" y="335"><tspan fill="#8b949e">›</tspan> chainsaw e2e   7/17 suites</text>
-    <text class="c8"  x="28" y="335"><tspan fill="#8b949e">›</tspan> chainsaw e2e   8/17 suites</text>
-    <text class="c9"  x="28" y="335"><tspan fill="#8b949e">›</tspan> chainsaw e2e   9/17 suites</text>
-    <text class="c10" x="28" y="335"><tspan fill="#8b949e">›</tspan> chainsaw e2e  10/17 suites</text>
-    <text class="c11" x="28" y="335"><tspan fill="#8b949e">›</tspan> chainsaw e2e  11/17 suites</text>
-    <text class="c12" x="28" y="335"><tspan fill="#8b949e">›</tspan> chainsaw e2e  12/17 suites</text>
-    <text class="c13" x="28" y="335"><tspan fill="#8b949e">›</tspan> chainsaw e2e  13/17 suites</text>
-    <text class="c14" x="28" y="335"><tspan fill="#8b949e">›</tspan> chainsaw e2e  14/17 suites</text>
-    <text class="c15" x="28" y="335"><tspan fill="#8b949e">›</tspan> chainsaw e2e  15/17 suites</text>
-    <text class="c16" x="28" y="335"><tspan fill="#8b949e">›</tspan> chainsaw e2e  16/17 suites</text>
-    <text class="c17" x="28" y="335" fill="#27c93f"><tspan fill="#8b949e">›</tspan> chainsaw e2e  17/17 suites ✔</text>
+    <text class="c0"  x="28" y="335"><tspan fill="#8b949e">›</tspan> chainsaw e2e   0/19 suites</text>
+    <text class="c1"  x="28" y="335"><tspan fill="#8b949e">›</tspan> chainsaw e2e   1/19 suites</text>
+    <text class="c2"  x="28" y="335"><tspan fill="#8b949e">›</tspan> chainsaw e2e   2/19 suites</text>
+    <text class="c3"  x="28" y="335"><tspan fill="#8b949e">›</tspan> chainsaw e2e   3/19 suites</text>
+    <text class="c4"  x="28" y="335"><tspan fill="#8b949e">›</tspan> chainsaw e2e   4/19 suites</text>
+    <text class="c5"  x="28" y="335"><tspan fill="#8b949e">›</tspan> chainsaw e2e   5/19 suites</text>
+    <text class="c6"  x="28" y="335"><tspan fill="#8b949e">›</tspan> chainsaw e2e   6/19 suites</text>
+    <text class="c7"  x="28" y="335"><tspan fill="#8b949e">›</tspan> chainsaw e2e   7/19 suites</text>
+    <text class="c8"  x="28" y="335"><tspan fill="#8b949e">›</tspan> chainsaw e2e   8/19 suites</text>
+    <text class="c9"  x="28" y="335"><tspan fill="#8b949e">›</tspan> chainsaw e2e   9/19 suites</text>
+    <text class="c10" x="28" y="335"><tspan fill="#8b949e">›</tspan> chainsaw e2e  10/19 suites</text>
+    <text class="c11" x="28" y="335"><tspan fill="#8b949e">›</tspan> chainsaw e2e  11/19 suites</text>
+    <text class="c12" x="28" y="335"><tspan fill="#8b949e">›</tspan> chainsaw e2e  12/19 suites</text>
+    <text class="c13" x="28" y="335"><tspan fill="#8b949e">›</tspan> chainsaw e2e  13/19 suites</text>
+    <text class="c14" x="28" y="335"><tspan fill="#8b949e">›</tspan> chainsaw e2e  14/19 suites</text>
+    <text class="c15" x="28" y="335"><tspan fill="#8b949e">›</tspan> chainsaw e2e  15/19 suites</text>
+    <text class="c16" x="28" y="335"><tspan fill="#8b949e">›</tspan> chainsaw e2e  16/19 suites</text>
+    <text class="c17" x="28" y="335"><tspan fill="#8b949e">›</tspan> chainsaw e2e  17/19 suites</text>
+    <text class="c18" x="28" y="335"><tspan fill="#8b949e">›</tspan> chainsaw e2e  18/19 suites</text>
+    <text class="c19" x="28" y="335" fill="#27c93f"><tspan fill="#8b949e">›</tspan> chainsaw e2e  19/19 suites ✔</text>
   </g>
   <text class="a90" x="28" y="366" font-size="10.5" fill="#27c93f">✔ homelab is online. systems nominal.</text>
 </g>
@@ -255,7 +262,7 @@
 <path class="w d25" d="M732 180 H744"/>
 <g class="a25"><rect class="box" x="744" y="164" width="104" height="32" rx="6" stroke="#a371f7"/><text class="n" x="796" y="177" text-anchor="middle">homelab-cmp</text><text class="n2" x="796" y="189" text-anchor="middle">config export | helm template</text></g>
 <path class="w d26_5" d="M848 180 H860"/>
-<g class="a26_5"><rect class="box" x="860" y="164" width="104" height="32" rx="6"/><text class="n" x="912" y="177" text-anchor="middle">addons · 30</text><text class="n2" x="912" y="189" text-anchor="middle">rendered by cmp</text></g>
+<g class="a26_5"><rect class="box" x="860" y="164" width="104" height="32" rx="6"/><text class="n" x="912" y="177" text-anchor="middle">addons · 32</text><text class="n2" x="912" y="189" text-anchor="middle">rendered by cmp</text></g>
 <path class="w d28" d="M964 180 H976"/>
 <g class="a28"><rect class="box" x="976" y="164" width="104" height="32" rx="6"/><text class="n" x="1028" y="177" text-anchor="middle">applications · 15</text><text class="n2" x="1028" y="189" text-anchor="middle">rendered by cmp</text></g>
 
@@ -264,15 +271,16 @@
 <g class="a30"><rect class="box done" x="280" y="228" width="104" height="32" rx="6" stroke="#f0883e"/><text class="n" x="332" y="241" text-anchor="middle">chainsaw e2e</text><text class="n2" x="332" y="253" text-anchor="middle">kind · every PR · smoke on sync</text></g>
 <!-- graph-side counter mirrors the terminal -->
 <g class="n2" text-anchor="middle" fill="#f0883e">
-  <text class="c0"  x="332" y="272">0/17 suites</text><text class="c1"  x="332" y="272">1/17 suites</text>
-  <text class="c2"  x="332" y="272">2/17 suites</text><text class="c3"  x="332" y="272">3/17 suites</text>
-  <text class="c4"  x="332" y="272">4/17 suites</text><text class="c5"  x="332" y="272">5/17 suites</text>
-  <text class="c6"  x="332" y="272">6/17 suites</text><text class="c7"  x="332" y="272">7/17 suites</text>
-  <text class="c8"  x="332" y="272">8/17 suites</text><text class="c9"  x="332" y="272">9/17 suites</text>
-  <text class="c10" x="332" y="272">10/17 suites</text><text class="c11" x="332" y="272">11/17 suites</text>
-  <text class="c12" x="332" y="272">12/17 suites</text><text class="c13" x="332" y="272">13/17 suites</text>
-  <text class="c14" x="332" y="272">14/17 suites</text><text class="c15" x="332" y="272">15/17 suites</text>
-  <text class="c16" x="332" y="272">16/17 suites</text><text class="c17" x="332" y="272" fill="#27c93f">17/17 suites ✔</text>
+  <text class="c0"  x="332" y="272">0/19 suites</text><text class="c1"  x="332" y="272">1/19 suites</text>
+  <text class="c2"  x="332" y="272">2/19 suites</text><text class="c3"  x="332" y="272">3/19 suites</text>
+  <text class="c4"  x="332" y="272">4/19 suites</text><text class="c5"  x="332" y="272">5/19 suites</text>
+  <text class="c6"  x="332" y="272">6/19 suites</text><text class="c7"  x="332" y="272">7/19 suites</text>
+  <text class="c8"  x="332" y="272">8/19 suites</text><text class="c9"  x="332" y="272">9/19 suites</text>
+  <text class="c10" x="332" y="272">10/19 suites</text><text class="c11" x="332" y="272">11/19 suites</text>
+  <text class="c12" x="332" y="272">12/19 suites</text><text class="c13" x="332" y="272">13/19 suites</text>
+  <text class="c14" x="332" y="272">14/19 suites</text><text class="c15" x="332" y="272">15/19 suites</text>
+  <text class="c16" x="332" y="272">16/19 suites</text><text class="c17" x="332" y="272">17/19 suites</text>
+  <text class="c18" x="332" y="272">18/19 suites</text><text class="c19" x="332" y="272" fill="#27c93f">19/19 suites ✔</text>
 </g>
 <path class="w d30" d="M900 196 V228"/>
 <path class="w d33" d="M900 196 V212 H796 V228"/>

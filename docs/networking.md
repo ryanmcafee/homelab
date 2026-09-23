@@ -139,6 +139,7 @@ Generated from `tests/snapshots/homelab/*.yaml` by `task docs:check -- --fix`
 | `paperclip.<DOMAIN>` | internal | Ingress | `paperclip` |
 | `prowlarr.<DOMAIN>` | internal | Ingress | `prowlarr` |
 | `radarr.<DOMAIN>` | internal | Ingress | `radarr` |
+| `servicemesh.<DOMAIN>` | internal | Ingress | `kiali` |
 | `sonarr.<DOMAIN>` | internal | Ingress | `sonarr` |
 | `tautulli.<DOMAIN>` | internal | Ingress | `tautulli` |
 | `traefik-internal.<DOMAIN>` | internal | IngressRoute | `traefik-internal` |
