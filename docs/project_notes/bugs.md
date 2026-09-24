@@ -437,3 +437,15 @@ These are documented errors with known solutions:
 - **Root Cause**: `charts/addons/templates/*.yaml` build `spec.source.helm.values` field by field; nothing passes a values file through. A key with no matching line in the Application template is simply not in the rendered Application
 - **Solution**: Added the `defaultRules:` block to `charts/addons/templates/kube-prometheus-stack.yaml`, the same way `kubeProxy` is emitted
 - **Prevention**: Level 0 renders the Application, not the upstream chart's output, so it cannot catch this. Confirm a values change with `helm template <upstream chart> -f <the values from the snapshot>` and grep for what should have changed
+
+### 2026-09-23 - HomelabTraefikDown fired critical for both ingresses while Traefik was healthy
+- **Issue**: After PR #321 rolled out, `HomelabTraefikDown` fired critical for `traefik-internal` and `traefik-external`. All four Traefik pods were Running and every scrape target was `up`
+- **Root Cause**: The rule matched `job="traefik-internal"`, assuming job = release name. The Traefik chart's ServiceMonitor has no `jobLabel`, so Prometheus uses the metrics Service name: `traefik-internal-metrics` and `traefik-external-metrics`. The `absent()` branches were always true
+- **Solution**: The rule now matches the `-metrics` job names. Verified against live Prometheus: 0 results
+- **Prevention**: Evaluate every new alert expression against live Prometheus before merging (`task prod:kubeconfig`, port-forward `svc/kube-prometheus-stack-prometheus`); an `absent()` on a wrong label always fires
+
+### 2026-09-23 - HomelabHubbleDropsHigh fired for VLAN_FILTERED, and KubeCPUOvercommit after the observability rollout
+- **Issue**: `HomelabHubbleDropsHigh` at ~23 packets/s `VLAN_FILTERED` with no source or destination; `KubeCPUOvercommit` 0.18 CPU over the N-1 capacity
+- **Root Cause**: The VLAN drops are ~3.9 packets/s on each of the six nodes, control planes included: tagged frames of other VLANs that the switch trunk floods to every node NIC. No pod traffic is involved. The overcommit came from the PR #321 DaemonSets (istio-cni, ztunnel, OTel agents) on top of four Traefik pods requesting 500m each while using 1-2m
+- **Solution**: The alert excludes `reason="VLAN_FILTERED"`. Traefik CPU requests 500m -> 100m (limit stays 1000m; the HPA target is relative to the request), which frees 1.6 CPU
+- **Prevention**: To stop the VLAN frames at the source, set the node switch ports to the native VLAN only in UniFi

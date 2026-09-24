@@ -135,7 +135,7 @@ of samples; that is how 16 alerts stood on democratic-csi for three months while
 | homelab-network | `HomelabCiliumUnreachableNodes` | warning | node-to-node health probes fail for 10 m |
 | homelab-network | `HomelabCiliumEndpointRegenerationFailing` | warning | endpoint regeneration fails for 15 m |
 | homelab-network | `HomelabCiliumBPFMapPressure` | warning | a BPF map above 90 % for 15 m |
-| homelab-network | `HomelabHubbleDropsHigh` | warning | more than 1 dropped packet/s between two namespaces for 15 m |
+| homelab-network | `HomelabHubbleDropsHigh` | warning | more than 1 dropped packet/s between two namespaces for 15 m, `VLAN_FILTERED` excluded (foreign-VLAN frames from the switch trunk) |
 | homelab-probes | `HomelabProbeFailing` | warning | a blackbox probe (paperclip-ingress, paperclip-direct) fails for 2 m ([paperclip-request-path.md](./paperclip-request-path.md)) |
 | homelab-probes | `HomelabProbeSlow` | warning | a probe takes more than 2 s for 10 m |
 | homelab-service-mesh | `HomelabIstiodDown` | warning | no istiod answers the scrape for 10 m ([service-mesh.md](../service-mesh.md)) |
