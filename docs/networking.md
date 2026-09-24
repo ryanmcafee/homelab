@@ -66,9 +66,9 @@ flowchart LR
 ```mermaid
 flowchart LR
   svc["Service type=LoadBalancer\n(optional io.cilium/lb-ipam-ips: <TRAEFIK_STATIC_IP>)"] --> pool["CiliumLoadBalancerIPPool default\n<LB_POOL_START>-<LB_POOL_END>"]
-  pool --> adv["CiliumBGPAdvertisement loadbalancer-ips\n(advertisementType: Service)"]
-  adv --> bgp["CiliumBGPClusterConfig homelab-bgp\nlocalASN 64512, nodeSelector: control planes\nCiliumBGPPeerConfig unifi-gateway-peer (graceful restart)"]
-  bgp <-->|"TCP 179, /32 per Service IP"| frr["UniFi FRR AS64513\nrouter bgp 64513, neighbor <CP1_IP>/<CP2_IP>/<CP3_IP> remote-as 64512\n(unifi_bgp.this, frr-bgp-64513.conf)"]
+  pool --> adv["CiliumBGPAdvertisement loadbalancer-ips\nlabel advertise=loadbalancer-ips (advertisementType: Service)"]
+  adv --> bgp["CiliumBGPClusterConfig homelab-bgp\nlocalASN 64512, nodeSelector: workers only\nCiliumBGPPeerConfig unifi-gateway-peer (ipv4 unicast, advertise: loadbalancer-ips)"]
+  bgp <-->|"TCP 179, /32 per Service IP"| frr["UniFi FRR AS64513\nrouter bgp 64513, neighbor <WORKER1_IP>/<WORKER2_IP>/<WORKER3_IP> remote-as 64512\nmaximum-paths 3 (ECMP)\n(unifi_bgp.this, frr-bgp-64513.conf)"]
   pool --> l2["CiliumL2AnnouncementPolicy default\nnodeSelector: workers only (ARP on the LAN)"]
   vip["CiliumLoadBalancerIPPool control-plane-vip\n<CP_VIP>/32, serviceSelector"] -.-> bgp
 ```
@@ -78,15 +78,16 @@ flowchart LR
 | Resource | Name | What it does |
 |----------|------|--------------|
 | `CiliumLoadBalancerIPPool` | `default` | Allocates `<LB_POOL_START>`-`<LB_POOL_END>` to `LoadBalancer` Services; a Service pins an address with `io.cilium/lb-ipam-ips` (Traefik external: `<TRAEFIK_STATIC_IP>`, Plex: `<PLEX_LB_IP>`) |
-| `CiliumLoadBalancerIPPool` | `control-plane-vip` | A one-address pool for `<CP_VIP>` selected by `serviceSelector`, so the control-plane VIP can also be advertised by BGP |
-| `CiliumBGPClusterConfig` | `homelab-bgp` | Local AS `64512`; runs on the control-plane nodes only (`nodeSelector`), peering with every entry in `cilium-lb-ipam.bgp.peers` (`<BGP_PEER_IP>` = `<GATEWAY_IP>`, AS `<BGP_ROUTER_ASN>`) |
-| `CiliumBGPPeerConfig` | `unifi-gateway-peer` | Timers and graceful restart for the session |
-| `CiliumBGPAdvertisement` | `loadbalancer-ips` | Advertises Service LoadBalancer addresses as /32 routes |
+| `CiliumLoadBalancerIPPool` | `control-plane-vip` | A one-address pool for `<CP_VIP>` selected by `serviceSelector`, for a Service that opts in with the `cilium.io/pool: control-plane-vip` label |
+| `CiliumBGPClusterConfig` | `homelab-bgp` | Local AS `64512`; runs on the workers only (`nodeSelector` control-plane `DoesNotExist`, the same selector as the L2 policy), peering with every entry in `cilium-lb-ipam.bgp.peers` (`<BGP_PEER_IP>` = `<GATEWAY_IP>`, AS `<BGP_ROUTER_ASN>`) |
+| `CiliumBGPPeerConfig` | `unifi-gateway-peer` | Timers, graceful restart and the `ipv4/unicast` family; `families[].advertisements` selects `CiliumBGPAdvertisement`s labelled `advertise: loadbalancer-ips` (without it Cilium advertises nothing) |
+| `CiliumBGPAdvertisement` | `loadbalancer-ips` | Labelled `advertise: loadbalancer-ips`; advertises every Service LoadBalancer address as a /32 from each worker (`externalTrafficPolicy: Local` Services such as Plex only from workers with a local endpoint) |
 | `CiliumL2AnnouncementPolicy` | `default` | Workers answer ARP for the pool addresses on the LAN interface, so LAN clients reach them even without the BGP route |
 
 The other end of the session is written by Terragrunt: the `unifi-gateway` unit renders
 `frr-bgp.conf.tftpl` (`router bgp 64513`, one `neighbor <node ip> remote-as 64512` per
-control plane, `soft-reconfiguration inbound`) and uploads it with the `unifi_bgp` resource
+worker, `soft-reconfiguration inbound`, `maximum-paths` = number of neighbors so the gateway
+installs an ECMP route across every worker advertising a /32) and uploads it with the `unifi_bgp` resource
 (`task tf:apply:component COMPONENT=unifi-gateway`). Private ASNs per RFC 6996.
 
 In Kind `LOAD_BALANCER_ENABLED=false`: Services are NodePort, none of these CRs render.
@@ -287,7 +288,7 @@ load-balancing CRs above. In Kind the same chart and values are installed by
 ### BGP session down or LoadBalancer IP unreachable
 
 ```bash
-# Cilium side: peers, advertised routes, pool allocation
+# Cilium side (exec into a worker's cilium pod: control planes run no BGP speaker)
 kubectl -n kube-system exec ds/cilium -- cilium bgp peers
 kubectl -n kube-system exec ds/cilium -- cilium bgp routes advertised ipv4 unicast
 kubectl get ciliumloadbalancerippools,ciliumbgpclusterconfigs,ciliumbgpadvertisements,ciliuml2announcementpolicies
@@ -295,23 +296,23 @@ kubectl get svc -A | rg LoadBalancer
 
 # Gateway side (FRR on the UniFi gateway)
 ssh admin@<GATEWAY_IP>
-vtysh -c "show ip bgp summary"          # one established neighbor per control plane, AS 64512
+vtysh -c "show ip bgp summary"          # one established neighbor per worker, AS 64512, PfxRcd > 0
 vtysh -c "show ip bgp"                  # /32 per Service address
-vtysh -c "show ip route bgp"
+vtysh -c "show ip route bgp"            # Cluster-policy /32s list one nexthop per worker (ECMP)
 ```
 
 Illustrative `show ip bgp summary` (RFC 5737 addresses):
 
 ```
 Neighbor        V    AS   MsgRcvd MsgSent   TblVer  InQ OutQ  Up/Down State/PfxRcd
-192.0.2.11      4 64512      123     456        0    0    0 01:23:45        5
-192.0.2.12      4 64512      234     567        0    0    0 01:23:45        5
-192.0.2.13      4 64512      345     678        0    0    0 01:23:45        5
+192.0.2.21      4 64512      123     456        0    0    0 01:23:45        5
+192.0.2.22      4 64512      234     567        0    0    0 01:23:45        5
+192.0.2.23      4 64512      345     678        0    0    0 01:23:45        5
 ```
 
 Check the ASNs match (`cilium-lb-ipam.bgp` values vs `BGP_ROUTER_ASN`), that TCP 179 is
-allowed between the control planes and `<GATEWAY_IP>`, and that the FRR file uploaded by
-`unifi-gateway` lists the current control-plane addresses (`task tf:plan:component
+allowed between the workers and `<GATEWAY_IP>`, and that the FRR file uploaded by
+`unifi-gateway` lists the current worker addresses (`task tf:plan:component
 COMPONENT=unifi-gateway` shows drift after a node recreate).
 
 ### Ingress not answering

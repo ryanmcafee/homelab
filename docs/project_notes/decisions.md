@@ -587,6 +587,29 @@ Each decision should include:
 - Hubble UI has no login; it is reachable only through the internal ingress
 - For ambient-enrolled pods Hubble sees HBONE (TCP 15008) between nodes, not the app port
 
+### ADR-023: BGP only between the workers and the UniFi gateway, with ECMP (2026-09-23)
+
+**Context:**
+- `CiliumBGPClusterConfig homelab-bgp` selected the control planes, while the gateway FRR config listed all six nodes; the three worker sessions could never establish
+- The three control-plane sessions were up but advertised nothing (bug log, 2026-09-23), so LoadBalancer reachability relied entirely on the worker L2 announcements
+- Control planes run etcd, whose fsync stalls already cost API availability (control-plane-storage runbook); ingress traffic on them competes for the same CPU and network
+
+**Decision:**
+- BGP speakers are the workers only: `nodeSelector` control-plane `DoesNotExist`, the same selector as `CiliumL2AnnouncementPolicy default`
+- `CiliumBGPPeerConfig unifi-gateway-peer` negotiates `ipv4/unicast` and selects advertisements labelled `advertise: loadbalancer-ips`
+- The `unifi-gateway` unit peers with `worker_nodes` only; the FRR template sets `maximum-paths` (default: number of neighbors) so the gateway spreads each `externalTrafficPolicy: Cluster` /32 across every worker
+- L2 announcements on the workers stay as the fallback when BGP is down
+
+**Alternatives Considered:**
+- **Control planes only (fix just the advertisement selector)** -> every LoadBalancer flow would enter through an etcd node
+- **All six nodes** -> same etcd concern, and ECMP across the control planes adds no capacity the workers lack
+- **Drop BGP, L2 only** -> one lease holder per Service IP takes all ingress traffic; no ECMP and a failover waits for the lease to expire
+
+**Consequences:**
+- `externalTrafficPolicy: Local` Services (Plex) are advertised only from workers with a local endpoint, which is intended
+- A worker recreate or IP change needs `task tf:apply:component COMPONENT=unifi-gateway`
+- Rolling out needs the addons sync (Cilium CRs) and that apply; order does not matter because the L2 fallback covers the gap
+
 ## Tips
 
 - Number decisions sequentially (ADR-001, ADR-002, etc.)

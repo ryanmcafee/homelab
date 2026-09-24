@@ -24,6 +24,7 @@ See `CLAUDE.local.md` for IP addresses and hostnames.
 - Kubernetes ASN: 64512 (Cilium)
 - Router ASN: 64513 (UniFi)
 - Purpose: Cilium advertises LoadBalancer IPs to UniFi router
+- Speakers: the three workers only (control planes excluded); the gateway installs ECMP routes (`maximum-paths`)
 
 ## Kubernetes Cluster
 

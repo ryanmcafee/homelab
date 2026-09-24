@@ -18,6 +18,7 @@ locals {
     neighbors            = var.bgp_neighbors
     networks             = var.bgp_networks
     log_neighbor_changes = var.bgp_log_neighbor_changes
+    maximum_paths        = coalesce(var.bgp_maximum_paths, max(length(var.bgp_neighbors), 1))
   })
 }
 

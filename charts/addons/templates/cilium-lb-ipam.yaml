@@ -76,9 +76,14 @@ spec:
     enabled: true
     restartTimeSeconds: 120
   ebgpMultihop: 1
+  families:
+    - afi: ipv4
+      safi: unicast
+      advertisements:
+        matchLabels:
+          advertise: loadbalancer-ips
 ---
-# CiliumBGPClusterConfig - BGP cluster-wide configuration
-# Cilium native BGP configuration for route advertisements
+# CiliumBGPClusterConfig - BGP speakers on the workers only (control planes stay off the ingress path)
 apiVersion: cilium.io/v2
 kind: CiliumBGPClusterConfig
 metadata:
@@ -87,8 +92,9 @@ metadata:
     argocd.argoproj.io/sync-wave: "1"
 spec:
   nodeSelector:
-    matchLabels:
-      node-role.kubernetes.io/control-plane: ""
+    matchExpressions:
+      - key: node-role.kubernetes.io/control-plane
+        operator: DoesNotExist
   bgpInstances:
     - name: homelab
       localASN: {{ (index .Values "cilium-lb-ipam" "bgp" "localASN") }}
@@ -107,6 +113,8 @@ apiVersion: cilium.io/v2
 kind: CiliumBGPAdvertisement
 metadata:
   name: loadbalancer-ips
+  labels:
+    advertise: loadbalancer-ips
   annotations:
     argocd.argoproj.io/sync-wave: "1"
 spec:

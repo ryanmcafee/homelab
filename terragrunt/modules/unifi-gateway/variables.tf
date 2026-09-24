@@ -37,6 +37,12 @@ variable "bgp_networks" {
   default     = []
 }
 
+variable "bgp_maximum_paths" {
+  description = "ECMP paths installed per prefix (maximum-paths); null uses the number of neighbors"
+  type        = number
+  default     = null
+}
+
 variable "bgp_log_neighbor_changes" {
   description = "Log BGP neighbor state changes"
   type        = bool

@@ -36,12 +36,9 @@ inputs = {
   bgp_local_as    = include.env.locals.bgp_asn_unifi
   bgp_router_id   = include.env.locals.gateway
 
-  # Peer with the Kubernetes nodes (Cilium's CiliumBGPClusterConfig selects the control planes)
+  # Only the workers speak BGP (CiliumBGPClusterConfig homelab-bgp nodeSelector).
   bgp_neighbors = [
-    for name, node in merge(
-      include.env.locals.control_plane_nodes,
-      include.env.locals.worker_nodes
-      ) : {
+    for name, node in include.env.locals.worker_nodes : {
       address     = node.ip
       remote_as   = include.env.locals.bgp_asn_k8s
       description = "K8s ${name}"
