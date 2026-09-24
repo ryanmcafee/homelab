@@ -1,4 +1,6 @@
 {{- $bb := index .Values "blackbox-exporter" }}
+{{- $paths := $bb.ingressPaths | default dict }}
+{{- $nodePorts := dict "internal" .Values.traefikInternal.ports.websecure.nodePort "external" .Values.traefikExternal.ports.websecure.nodePort }}
 {{- if $bb.enabled }}
 ---
 # Synthetic HTTP probes (docs/runbooks/paperclip-request-path.md): one
@@ -38,6 +40,19 @@ spec:
                 preferred_ip_protocol: ip4
                 tls_config:
                   insecure_skip_verify: true
+            {{- if $paths.enabled }}
+            # Ingress paths: the route answered, so auth walls (401/403), redirects
+            # and 405 count; 404 is Traefik without a router, 5xx a broken backend.
+            http_ingress_path:
+              prober: http
+              timeout: 10s
+              http:
+                preferred_ip_protocol: ip4
+                follow_redirects: false
+                valid_status_codes: [200, 204, 301, 302, 303, 307, 308, 401, 403, 405]
+                tls_config:
+                  insecure_skip_verify: true
+            {{- end }}
         resources:
           requests:
             cpu: 10m
@@ -52,6 +67,60 @@ spec:
             scrapeTimeout: 12s
           targets:
             {{- toYaml $bb.targets | nindent 12 }}
+        {{- if $paths.enabled }}
+        # One Probe per host (docs/runbooks/ingress-paths.md): the host through
+        # each node's Traefik NodePort, and through its DNS name (path=lb).
+        extraManifests:
+          {{- range $host := $paths.hosts }}
+          {{- $nodePort := required (printf "no Traefik websecure nodePort for class %q" $host.class) (index $nodePorts $host.class) }}
+          {{- $urlPath := $host.path | default "/" }}
+          - apiVersion: monitoring.coreos.com/v1
+            kind: Probe
+            metadata:
+              name: ingress-path-{{ $host.fqdn | replace "." "-" }}
+              namespace: {{ $bb.namespace }}
+              labels:
+                release: kube-prometheus-stack
+            spec:
+              jobName: ingress-paths
+              module: http_ingress_path
+              interval: {{ $paths.interval }}
+              scrapeTimeout: 12s
+              prober:
+                url: blackbox-exporter-prometheus-blackbox-exporter.{{ $bb.namespace }}.svc:9115
+              targets:
+                staticConfig:
+                  static:
+                    {{- range $paths.nodes }}
+                    - https://{{ .ip }}:{{ $nodePort }}{{ $urlPath }}
+                    {{- end }}
+                    - https://{{ $host.fqdn }}{{ $urlPath }}
+                  labels:
+                    fqdn: {{ $host.fqdn }}
+                    ingress_class: {{ $host.class }}
+                  relabelingConfigs:
+                    - targetLabel: __param_hostname
+                      replacement: {{ $host.fqdn }}
+                    - targetLabel: path
+                      replacement: lb
+                    - targetLabel: node
+                      replacement: lb
+                    - sourceLabels: [__param_target]
+                      regex: 'https://(\d+\.\d+\.\d+\.\d+):\d+/.*'
+                      targetLabel: node_ip
+                      replacement: $1
+                    - sourceLabels: [node_ip]
+                      regex: '.+'
+                      targetLabel: path
+                      replacement: nodeport
+                    {{- range $paths.nodes }}
+                    - sourceLabels: [node_ip]
+                      regex: {{ regexQuoteMeta .ip | squote }}
+                      targetLabel: node
+                      replacement: {{ .name }}
+                    {{- end }}
+          {{- end }}
+        {{- end }}
   destination:
     server: https://kubernetes.default.svc
     namespace: {{ $bb.namespace }}

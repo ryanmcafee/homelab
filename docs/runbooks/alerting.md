@@ -121,11 +121,18 @@ of samples; that is how 16 alerts stood on democratic-csi for three months while
 | homelab-ingress | `HomelabTraefikDown` | critical | no pod of `traefik-internal` or `traefik-external` answers the scrape for 5 m |
 | homelab-ingress | `HomelabTraefikBackendErrors` | warning | more than 5 % of a backend's requests are 5xx for 10 m (at least 0.1 req/s) |
 | homelab-ingress | `HomelabTraefikBackendSlow` | warning | a backend's p95 response time is above 5 s for 10 m |
+| homelab-ingress | `HomelabIngressHostErrors` | warning | more than 5 % of a host's requests are 5xx for 10 m (at least 0.1 req/s); carries `fqdn` ([ingress-paths.md](./ingress-paths.md)) |
+| homelab-ingress | `HomelabIngressHostSlow` | warning | a host's p95 response time is above 5 s for 10 m; carries `fqdn` |
+| homelab-ingress-paths | `HomelabIngressHostDown` | critical | a host fails through every node's NodePort and its DNS name for 3 m ([ingress-paths.md](./ingress-paths.md)) |
+| homelab-ingress-paths | `HomelabIngressPathFailing` | warning | a host fails through one node (or its DNS name) for 3 m while other paths work; names `fqdn`, `node`, `path` |
+| homelab-ingress-paths | `HomelabIngressPathSlow` | warning | a host's probe through one node takes more than 3 s for 10 m |
+| homelab-ingress-paths | `HomelabIngressProbesMissing` | warning | no `probe_success{job="ingress-paths"}` for 15 m |
 | homelab-logging | `HomelabLogExportFailing` | warning | a collector fails to export log records to ClickHouse for 15 m ([logging.md](../logging.md)) |
 | homelab-logging | `HomelabLogExportQueueFull` | warning | a collector's ClickHouse send queue is above 80 % for 10 m |
 | homelab-logging | `HomelabLogsNotArriving` | warning | the agents read no container log line for 30 m |
 | homelab-logging | `HomelabTraceExportFailing` | warning | a collector fails to export spans to ClickHouse for 15 m ([tracing.md](../tracing.md)) |
 | homelab-logging | `HomelabTelemetryRefused` | warning | a receiver refuses spans or log records for 10 m |
+| homelab-logging | `HomelabHubbleFlowLogSilent` | warning | the agents read no Hubble flow log line for 30 m ([hubble.md](../hubble.md)) |
 | homelab-logging | `HomelabUniFiTelemetrySilent` | warning | no UniFi syslog or NetFlow record for an hour, or none since the gateway started ([logging.md](../logging.md)) |
 | homelab-logging | `HomelabClickHouseDown` | warning | the operator's metrics exporter cannot read ClickHouse for 10 m |
 | homelab-logging | `HomelabClickHouseRejectedInserts` | warning | ClickHouse rejected inserts (too many parts) in the last 5 m |
@@ -136,6 +143,10 @@ of samples; that is how 16 alerts stood on democratic-csi for three months while
 | homelab-network | `HomelabCiliumEndpointRegenerationFailing` | warning | endpoint regeneration fails for 15 m |
 | homelab-network | `HomelabCiliumBPFMapPressure` | warning | a BPF map above 90 % for 15 m |
 | homelab-network | `HomelabHubbleDropsHigh` | warning | more than 1 dropped packet/s between two namespaces for 15 m |
+| homelab-network | `HomelabIngressDrops` | warning | any drop into a namespace that serves an Ingress host for 10 m; carries `fqdn` ([ingress-paths.md](./ingress-paths.md)) |
+| homelab-network | `HomelabIngressControllerDrops` | warning | any drop into namespace `traefik` for 10 m (every host of that class) |
+| homelab-network | `HomelabHubbleEventsLost` | warning | Hubble loses more than 1 event/s on a node for 15 m |
+| homelab-network | `HomelabHubbleMetricsMissing` | warning | fewer `hubble-metrics` targets up than nodes for 15 m |
 | homelab-probes | `HomelabProbeFailing` | warning | a blackbox probe (paperclip-ingress, paperclip-direct) fails for 2 m ([paperclip-request-path.md](./paperclip-request-path.md)) |
 | homelab-probes | `HomelabProbeSlow` | warning | a probe takes more than 2 s for 10 m |
 | homelab-service-mesh | `HomelabIstiodDown` | warning | no istiod answers the scrape for 10 m ([service-mesh.md](../service-mesh.md)) |
@@ -146,7 +157,10 @@ The `homelab-logging` rules follow the opentelemetry-collector chart's default r
 Altinity's `prometheus-alert-rules-clickhouse.yaml`, restated at `warning` (the chart's own are
 all `critical`); the log store is diagnostic, so its failures never page at night. The Traefik
 rules read `exported_service`: the scrape's own `service` label (the metrics Service) displaces
-Traefik's backend label.
+Traefik's backend label. The recording rule `homelab:ingress_host:info` joins `exported_service` to
+kube-state-metrics `kube_ingress_path`, so the `HomelabIngress*` rules carry `fqdn`;
+`HomelabTraefikBackend*` cover only the backends no Ingress host maps to (IngressRoutes,
+`api@internal`). The `homelab-probes` rules match the paperclip probes (`target` label) only.
 
 Add a rule next to these (Prometheus `$labels` escaped as in the file), give it a `severity`
 label the table above routes, and run `task verify:text`: kubeconform validates the
@@ -168,5 +182,6 @@ kube-prometheus-stack --version <v>` prints the operator `appVersion`; pick the
 ## Related
 
 - `docs/runbooks/control-plane-storage.md`: the etcd alerts and what to do when they fire
+- `docs/runbooks/ingress-paths.md`: the per-node ingress probes, the "Ingress paths" dashboard and `task test:ingress-paths`
 - `docs/secrets.md`: how 1Password items reach the cluster
 - `docs/project_notes/decisions.md` ADR-017: why routes and receivers live in the Application and not in an AlertmanagerConfig CR

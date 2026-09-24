@@ -1588,10 +1588,18 @@ spec:
           # Ingress (docs/runbooks/alerting.md). Metrics: the ServiceMonitors of
           # both Traefik releases (job = metrics Service, <release>-metrics). Traefik labels the
           # backend `service`; the scrape renames it to exported_service.
+          # homelab:ingress_host:info maps exported_service to the Ingress host
+          # (kube-state-metrics kube_ingress_path), so host alerts carry fqdn.
           homelab-ingress:
             groups:
               - name: homelab-ingress
                 rules:
+                  - record: homelab:ingress_host:info
+                    expr: 'max by (exported_service, fqdn, namespace) (label_replace(label_replace(label_join(kube_ingress_path, "exported_service", "-", "namespace", "service_name", "service_port"), "exported_service", "$1@kubernetes", "exported_service", "(.+)"), "fqdn", "$1", "host", "(.+)"))'
+                  - record: homelab:ingress_host:requests:rate5m
+                    expr: 'homelab:ingress_host:info * on (exported_service) group_left () sum by (exported_service) (rate(traefik_service_requests_total[5m]))'
+                  - record: homelab:ingress_host:errors:rate5m
+                    expr: 'homelab:ingress_host:info * on (exported_service) group_left () sum by (exported_service) (rate(traefik_service_requests_total{code=~"5.."}[5m]))'
                   - alert: HomelabTraefikDown
                     expr: 'sum by (job) (up{job=~"traefik-internal-metrics|traefik-external-metrics"}) == 0 or absent(up{job="traefik-internal-metrics"}) or absent(up{job="traefik-external-metrics"})'
                     for: 5m
@@ -1601,7 +1609,7 @@ spec:
                       summary: 'Traefik {{ $labels.job }} has no reachable instance'
                       description: 'No {{ $labels.job }} pod has answered the metrics scrape for 5m, so every route on that ingress class is down. `kubectl -n traefik get pods` and the Traefik logs in Grafana (docs/logging.md).'
                   - alert: HomelabTraefikBackendErrors
-                    expr: 'sum by (job, exported_service) (rate(traefik_service_requests_total{code=~"5.."}[5m])) / sum by (job, exported_service) (rate(traefik_service_requests_total[5m])) > 0.05 and sum by (job, exported_service) (rate(traefik_service_requests_total[5m])) > 0.1'
+                    expr: '(sum by (job, exported_service) (rate(traefik_service_requests_total{code=~"5.."}[5m])) / sum by (job, exported_service) (rate(traefik_service_requests_total[5m])) > 0.05 and sum by (job, exported_service) (rate(traefik_service_requests_total[5m])) > 0.1) unless on (exported_service) homelab:ingress_host:info'
                     for: 10m
                     labels:
                       severity: warning
@@ -1609,13 +1617,29 @@ spec:
                       summary: '{{ $labels.exported_service }} answers 5xx to {{ $value | humanizePercentage }} of requests'
                       description: 'More than 5 % of the requests {{ $labels.job }} routed to {{ $labels.exported_service }} have failed with 5xx for 10m. The access logs (ServiceName traefik, docs/logging.md) show the failing paths and upstream durations.'
                   - alert: HomelabTraefikBackendSlow
-                    expr: 'histogram_quantile(0.95, sum by (job, exported_service, le) (rate(traefik_service_request_duration_seconds_bucket[5m]))) > 5 and sum by (job, exported_service) (rate(traefik_service_requests_total[5m])) > 0.05'
+                    expr: '(histogram_quantile(0.95, sum by (job, exported_service, le) (rate(traefik_service_request_duration_seconds_bucket[5m]))) > 5 and sum by (job, exported_service) (rate(traefik_service_requests_total[5m])) > 0.05) unless on (exported_service) homelab:ingress_host:info'
                     for: 10m
                     labels:
                       severity: warning
                     annotations:
                       summary: 'p95 latency of {{ $labels.exported_service }} is {{ $value | humanizeDuration }}'
                       description: 'The 95th percentile response time {{ $labels.job }} measured for {{ $labels.exported_service }} has been above 5 s for 10m. Streaming endpoints hold requests open by design; check the access logs before tuning.'
+                  - alert: HomelabIngressHostErrors
+                    expr: 'homelab:ingress_host:errors:rate5m / homelab:ingress_host:requests:rate5m > 0.05 and homelab:ingress_host:requests:rate5m > 0.1'
+                    for: 10m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: '{{ $labels.fqdn }} answers 5xx to {{ $value | humanizePercentage }} of requests'
+                      description: 'More than 5 % of the requests to {{ $labels.fqdn }} ({{ $labels.exported_service }}) have failed with 5xx for 10m. Access logs: ServiceName traefik, RequestHost {{ $labels.fqdn }} (docs/logging.md); dashboard "Ingress paths" (docs/runbooks/ingress-paths.md).'
+                  - alert: HomelabIngressHostSlow
+                    expr: 'homelab:ingress_host:info * on (exported_service) group_left () histogram_quantile(0.95, sum by (exported_service, le) (rate(traefik_service_request_duration_seconds_bucket[5m]))) > 5 and homelab:ingress_host:requests:rate5m > 0.05'
+                    for: 10m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: 'p95 latency of {{ $labels.fqdn }} is {{ $value | humanizeDuration }}'
+                      description: 'The 95th percentile response time Traefik measured for {{ $labels.fqdn }} ({{ $labels.exported_service }}) has been above 5 s for 10m. Streaming endpoints hold requests open by design; check the access logs before tuning.'
           # Log pipeline, adapted from the opentelemetry-collector chart rules and
           # the Altinity clickhouse-operator alert rules (docs/runbooks/alerting.md).
           homelab-logging:
@@ -1701,7 +1725,7 @@ spec:
               - name: homelab-probes
                 rules:
                   - alert: HomelabProbeFailing
-                    expr: 'max by (target, instance) (probe_success) == 0'
+                    expr: 'max by (target, instance) (probe_success{target!=""}) == 0'
                     for: 2m
                     labels:
                       severity: warning
@@ -1709,7 +1733,7 @@ spec:
                       summary: 'Probe {{ $labels.target }} fails ({{ $labels.instance }})'
                       description: '{{ $labels.instance }} has not answered 2xx for 2m. If only the -ingress probe fails the break is in DNS or Traefik, if -direct fails too it is the pod; docs/runbooks/paperclip-request-path.md.'
                   - alert: HomelabProbeSlow
-                    expr: 'max by (target, instance) (probe_duration_seconds) > 2'
+                    expr: 'max by (target, instance) (probe_duration_seconds{target!=""}) > 2'
                     for: 10m
                     labels:
                       severity: warning

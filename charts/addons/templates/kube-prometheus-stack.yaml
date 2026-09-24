@@ -458,10 +458,18 @@ spec:
           # Ingress (docs/runbooks/alerting.md). Metrics: the ServiceMonitors of
           # both Traefik releases (job = metrics Service, <release>-metrics). Traefik labels the
           # backend `service`; the scrape renames it to exported_service.
+          # homelab:ingress_host:info maps exported_service to the Ingress host
+          # (kube-state-metrics kube_ingress_path), so host alerts carry fqdn.
           homelab-ingress:
             groups:
               - name: homelab-ingress
                 rules:
+                  - record: homelab:ingress_host:info
+                    expr: 'max by (exported_service, fqdn, namespace) (label_replace(label_replace(label_join(kube_ingress_path, "exported_service", "-", "namespace", "service_name", "service_port"), "exported_service", "$1@kubernetes", "exported_service", "(.+)"), "fqdn", "$1", "host", "(.+)"))'
+                  - record: homelab:ingress_host:requests:rate5m
+                    expr: 'homelab:ingress_host:info * on (exported_service) group_left () sum by (exported_service) (rate(traefik_service_requests_total[5m]))'
+                  - record: homelab:ingress_host:errors:rate5m
+                    expr: 'homelab:ingress_host:info * on (exported_service) group_left () sum by (exported_service) (rate(traefik_service_requests_total{code=~"5.."}[5m]))'
                   - alert: HomelabTraefikDown
                     expr: 'sum by (job) (up{job=~"traefik-internal-metrics|traefik-external-metrics"}) == 0 or absent(up{job="traefik-internal-metrics"}) or absent(up{job="traefik-external-metrics"})'
                     for: 5m
@@ -471,7 +479,7 @@ spec:
                       summary: 'Traefik {{`{{ $labels.job }}`}} has no reachable instance'
                       description: 'No {{`{{ $labels.job }}`}} pod has answered the metrics scrape for 5m, so every route on that ingress class is down. `kubectl -n traefik get pods` and the Traefik logs in Grafana (docs/logging.md).'
                   - alert: HomelabTraefikBackendErrors
-                    expr: 'sum by (job, exported_service) (rate(traefik_service_requests_total{code=~"5.."}[5m])) / sum by (job, exported_service) (rate(traefik_service_requests_total[5m])) > 0.05 and sum by (job, exported_service) (rate(traefik_service_requests_total[5m])) > 0.1'
+                    expr: '(sum by (job, exported_service) (rate(traefik_service_requests_total{code=~"5.."}[5m])) / sum by (job, exported_service) (rate(traefik_service_requests_total[5m])) > 0.05 and sum by (job, exported_service) (rate(traefik_service_requests_total[5m])) > 0.1) unless on (exported_service) homelab:ingress_host:info'
                     for: 10m
                     labels:
                       severity: warning
@@ -479,13 +487,29 @@ spec:
                       summary: '{{`{{ $labels.exported_service }}`}} answers 5xx to {{`{{ $value | humanizePercentage }}`}} of requests'
                       description: 'More than 5 % of the requests {{`{{ $labels.job }}`}} routed to {{`{{ $labels.exported_service }}`}} have failed with 5xx for 10m. The access logs (ServiceName traefik, docs/logging.md) show the failing paths and upstream durations.'
                   - alert: HomelabTraefikBackendSlow
-                    expr: 'histogram_quantile(0.95, sum by (job, exported_service, le) (rate(traefik_service_request_duration_seconds_bucket[5m]))) > 5 and sum by (job, exported_service) (rate(traefik_service_requests_total[5m])) > 0.05'
+                    expr: '(histogram_quantile(0.95, sum by (job, exported_service, le) (rate(traefik_service_request_duration_seconds_bucket[5m]))) > 5 and sum by (job, exported_service) (rate(traefik_service_requests_total[5m])) > 0.05) unless on (exported_service) homelab:ingress_host:info'
                     for: 10m
                     labels:
                       severity: warning
                     annotations:
                       summary: 'p95 latency of {{`{{ $labels.exported_service }}`}} is {{`{{ $value | humanizeDuration }}`}}'
                       description: 'The 95th percentile response time {{`{{ $labels.job }}`}} measured for {{`{{ $labels.exported_service }}`}} has been above 5 s for 10m. Streaming endpoints hold requests open by design; check the access logs before tuning.'
+                  - alert: HomelabIngressHostErrors
+                    expr: 'homelab:ingress_host:errors:rate5m / homelab:ingress_host:requests:rate5m > 0.05 and homelab:ingress_host:requests:rate5m > 0.1'
+                    for: 10m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: '{{`{{ $labels.fqdn }}`}} answers 5xx to {{`{{ $value | humanizePercentage }}`}} of requests'
+                      description: 'More than 5 % of the requests to {{`{{ $labels.fqdn }}`}} ({{`{{ $labels.exported_service }}`}}) have failed with 5xx for 10m. Access logs: ServiceName traefik, RequestHost {{`{{ $labels.fqdn }}`}} (docs/logging.md); dashboard "Ingress paths" (docs/runbooks/ingress-paths.md).'
+                  - alert: HomelabIngressHostSlow
+                    expr: 'homelab:ingress_host:info * on (exported_service) group_left () histogram_quantile(0.95, sum by (exported_service, le) (rate(traefik_service_request_duration_seconds_bucket[5m]))) > 5 and homelab:ingress_host:requests:rate5m > 0.05'
+                    for: 10m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: 'p95 latency of {{`{{ $labels.fqdn }}`}} is {{`{{ $value | humanizeDuration }}`}}'
+                      description: 'The 95th percentile response time Traefik measured for {{`{{ $labels.fqdn }}`}} ({{`{{ $labels.exported_service }}`}}) has been above 5 s for 10m. Streaming endpoints hold requests open by design; check the access logs before tuning.'
           {{- if .Values.logging.enabled }}
           # Log pipeline, adapted from the opentelemetry-collector chart rules and
           # the Altinity clickhouse-operator alert rules (docs/runbooks/alerting.md).
@@ -565,6 +589,16 @@ spec:
                     annotations:
                       summary: 'ClickHouse {{`{{ $labels.hostname }}`}} has {{`{{ $value }}`}} parts in one partition'
                       description: 'Inserts are throttled from 150 parts per partition and rejected from 300. Merges are behind; see HomelabClickHouseRejectedInserts.'
+                  {{- if (.Values.logging.hubble | default dict).enabled }}
+                  - alert: HomelabHubbleFlowLogSilent
+                    expr: 'sum(rate(otelcol_receiver_accepted_log_records{receiver="file_log/hubble"}[15m])) == 0 or absent(otelcol_receiver_accepted_log_records{receiver="file_log/hubble"})'
+                    for: 30m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: 'No Hubble flow log records are being collected'
+                      description: 'The agents have read no line of the Hubble flow log (hubble.export.static, every drop included) for 30m, so dropped-flow evidence stops reaching ClickHouse. Check that {{ .Values.logging.hubble.flowLog }} grows on a node and the file_log/hubble receiver of otel-collector-agent (docs/hubble.md).'
+                  {{- end }}
           {{- end }}
           {{- if .Values.cilium.config.monitoring.enabled }}
           # Cilium and Hubble (docs/hubble.md), from the agent, operator and
@@ -621,6 +655,38 @@ spec:
                     annotations:
                       summary: 'Cilium drops {{`{{ $value | humanize }}`}} packets/s ({{`{{ $labels.reason }}`}}) from {{`{{ $labels.source }}`}} to {{`{{ $labels.destination }}`}}'
                       description: 'Sustained drops for 15m. The Hubble flow log in ClickHouse (ServiceName hubble, verdict DROPPED) has every dropped flow with its 5-tuple (docs/hubble.md).'
+                  - alert: HomelabIngressDrops
+                    expr: 'max by (fqdn, namespace) (homelab:ingress_host:info) * on (namespace) group_left () label_replace(sum by (destination) (rate(hubble_drop_total{destination!=""}[5m])), "namespace", "$1", "destination", "(.+)") > 0'
+                    for: 10m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: 'Cilium drops packets into {{`{{ $labels.namespace }}`}}, which serves {{`{{ $labels.fqdn }}`}}'
+                      description: '{{`{{ $value | humanize }}`}} packets/s into namespace {{`{{ $labels.namespace }}`}} have been dropped for 10m, every drop reason counted. The "Ingress paths" dashboard names the reason and source; the Hubble flow log in ClickHouse has each flow (docs/runbooks/ingress-paths.md).'
+                  - alert: HomelabIngressControllerDrops
+                    expr: 'sum by (source, reason) (rate(hubble_drop_total{destination="traefik"}[5m])) > 0'
+                    for: 10m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: 'Cilium drops packets into Traefik ({{`{{ $labels.reason }}`}}, from {{`{{ $labels.source }}`}})'
+                      description: 'Drops into namespace traefik for 10m affect every host of that ingress class. Compare with HomelabIngressPathFailing to see which nodes are hit (docs/runbooks/ingress-paths.md).'
+                  - alert: HomelabHubbleEventsLost
+                    expr: 'sum by (node, source) (rate(hubble_lost_events_total[10m])) > 1'
+                    for: 15m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: 'Hubble on {{`{{ $labels.node }}`}} loses {{`{{ $value | humanize }}`}} events/s ({{`{{ $labels.source }}`}})'
+                      description: 'Flows are lost before Hubble records them, so drop metrics and the flow log undercount on this node. A full perf or Hubble ring buffer means more events than the agent can read; raise hubble.eventBufferCapacity (docs/hubble.md).'
+                  - alert: HomelabHubbleMetricsMissing
+                    expr: 'count(up{job="hubble-metrics"} == 1) < count(kube_node_info) or absent(up{job="hubble-metrics"} == 1)'
+                    for: 15m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: 'Hubble metrics are missing for some nodes'
+                      description: 'Fewer hubble-metrics targets answer than there are nodes, so drops on those nodes raise no alert. `kubectl -n kube-system get pods -l k8s-app=cilium -o wide` and the hubble ServiceMonitor in charts/cilium-config.'
           {{- end }}
           {{- if (index .Values "blackbox-exporter" "enabled") }}
           # Synthetic probes (docs/runbooks/paperclip-request-path.md); target
@@ -630,7 +696,7 @@ spec:
               - name: homelab-probes
                 rules:
                   - alert: HomelabProbeFailing
-                    expr: 'max by (target, instance) (probe_success) == 0'
+                    expr: 'max by (target, instance) (probe_success{target!=""}) == 0'
                     for: 2m
                     labels:
                       severity: warning
@@ -638,13 +704,54 @@ spec:
                       summary: 'Probe {{`{{ $labels.target }}`}} fails ({{`{{ $labels.instance }}`}})'
                       description: '{{`{{ $labels.instance }}`}} has not answered 2xx for 2m. If only the -ingress probe fails the break is in DNS or Traefik, if -direct fails too it is the pod; docs/runbooks/paperclip-request-path.md.'
                   - alert: HomelabProbeSlow
-                    expr: 'max by (target, instance) (probe_duration_seconds) > 2'
+                    expr: 'max by (target, instance) (probe_duration_seconds{target!=""}) > 2'
                     for: 10m
                     labels:
                       severity: warning
                     annotations:
                       summary: 'Probe {{`{{ $labels.target }}`}} takes {{`{{ $value | humanizeDuration }}`}}'
                       description: '{{`{{ $labels.instance }}`}} has taken more than 2 s for 10m; compare the -ingress and -direct probes to find the slow hop.'
+          {{- end }}
+          {{- $ingressPaths := (index .Values "blackbox-exporter").ingressPaths | default dict }}
+          {{- if and (index .Values "blackbox-exporter" "enabled") $ingressPaths.enabled }}
+          # Ingress paths (docs/runbooks/ingress-paths.md): job ingress-paths
+          # probes every host through every node's NodePort and its DNS name.
+          homelab-ingress-paths:
+            groups:
+              - name: homelab-ingress-paths
+                rules:
+                  - alert: HomelabIngressHostDown
+                    expr: 'max by (fqdn, ingress_class) (probe_success{job="ingress-paths"}) == 0'
+                    for: 3m
+                    labels:
+                      severity: critical
+                    annotations:
+                      summary: '{{`{{ $labels.fqdn }}`}} fails on every node and through its DNS name'
+                      description: 'No path to {{`{{ $labels.fqdn }}`}} (traefik-{{`{{ $labels.ingress_class }}`}}) has answered with an accepted status for 3m: the route, Traefik or the backend is down. `task test:ingress-paths` shows the status per node (docs/runbooks/ingress-paths.md).'
+                  - alert: HomelabIngressPathFailing
+                    expr: 'min by (fqdn, ingress_class, node, node_ip, path) (probe_success{job="ingress-paths"}) == 0 unless on (fqdn) (max by (fqdn) (probe_success{job="ingress-paths"}) == 0)'
+                    for: 3m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: '{{`{{ $labels.fqdn }}`}} fails through {{`{{ $labels.node }}`}} ({{`{{ $labels.path }}`}})'
+                      description: '{{`{{ $labels.fqdn }}`}} answers on other paths but not through {{`{{ $labels.node }}`}} {{`{{ $labels.node_ip }}`}} for 3m: that node does not forward its Traefik NodePort (Cilium, VXLAN) or, for path=lb, DNS or the LoadBalancer address is wrong (docs/runbooks/ingress-paths.md).'
+                  - alert: HomelabIngressPathSlow
+                    expr: 'max by (fqdn, node, path) (probe_duration_seconds{job="ingress-paths"}) > 3'
+                    for: 10m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: '{{`{{ $labels.fqdn }}`}} through {{`{{ $labels.node }}`}} takes {{`{{ $value | humanizeDuration }}`}}'
+                      description: 'The probe of {{`{{ $labels.fqdn }}`}} through {{`{{ $labels.node }}`}} ({{`{{ $labels.path }}`}}) has taken more than 3 s for 10m. One slow node points at its uplink or the VXLAN hop; every node slow at the backend.'
+                  - alert: HomelabIngressProbesMissing
+                    expr: 'absent(probe_success{job="ingress-paths"})'
+                    for: 15m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: 'The ingress-path probes return no data'
+                      description: 'Prometheus has no probe_success for job ingress-paths, so HomelabIngressHostDown cannot fire. Check the ingress-path-* Probes and the blackbox exporter in {{ index .Values "blackbox-exporter" "namespace" }}.'
           {{- end }}
           {{- if .Values.istio.enabled }}
           # Service mesh (docs/service-mesh.md). Metrics: charts/istio-config

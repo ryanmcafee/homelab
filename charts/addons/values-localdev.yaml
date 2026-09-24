@@ -1661,3 +1661,55 @@ blackbox-exporter:
     - name: paperclip-direct
       url: http://paperclip.paperclip.svc.cluster.local:3100/api/health
       module: http_2xx
+  # Ingress paths (docs/runbooks/ingress-paths.md): every host through every
+  # node's Traefik NodePort (Host/SNI = the host) and through its DNS name (lb).
+  # Needs routable node addresses, so LoadBalancer platforms only; Kind runs
+  # tests/e2e/ingress-paths instead.
+  ingressPaths:
+    enabled: false
+    interval: 30s
+    nodes:
+      - name: cp1
+        ip: "127.0.0.1"
+      - name: cp2
+        ip: "127.0.0.1"
+      - name: cp3
+        ip: "127.0.0.1"
+      - name: worker1
+        ip: "127.0.0.1"
+      - name: worker2
+        ip: "127.0.0.1"
+      - name: worker3
+        ip: "127.0.0.1"
+    # class: the ingressClass, i.e. the Traefik release (internal|external) serving it.
+    hosts:
+      - fqdn: argocd.homelab.local
+        class: internal
+      - fqdn: servicemesh.homelab.local
+        class: internal
+      - fqdn: grafana.homelab.local
+        class: internal
+      # The OTLP receiver answers 405 to a GET here; its / is a 404.
+      - fqdn: otlp.homelab.local
+        class: internal
+        path: /v1/traces
+      - fqdn: paperclip.homelab.local
+        class: internal
+      - fqdn: sonarr.homelab.local
+        class: internal
+      - fqdn: radarr.homelab.local
+        class: internal
+      - fqdn: prowlarr.homelab.local
+        class: internal
+      - fqdn: nzbget.homelab.local
+        class: internal
+      - fqdn: tautulli.homelab.local
+        class: internal
+      - fqdn: lazylibrarian.homelab.local
+        class: internal
+      - fqdn: traefik-internal.homelab.local
+        class: internal
+      - fqdn: plex.homelab.local
+        class: external
+      - fqdn: traefik.homelab.local
+        class: external

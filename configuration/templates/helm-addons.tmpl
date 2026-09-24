@@ -1945,3 +1945,69 @@ blackbox-exporter:
     - name: paperclip-direct
       url: http://paperclip.paperclip.svc.cluster.local:3100/api/health
       module: http_2xx
+  # Ingress paths (docs/runbooks/ingress-paths.md): every host through every
+  # node's Traefik NodePort (Host/SNI = the host) and through its DNS name (lb).
+  # Needs routable node addresses, so LoadBalancer platforms only; Kind runs
+  # tests/e2e/ingress-paths instead.
+  ingressPaths:
+    enabled: {{ $lb }}
+    interval: 30s
+    nodes:
+      - name: cp1
+        ip: "{{ .Values.CP1_IP.Value }}"
+      - name: cp2
+        ip: "{{ .Values.CP2_IP.Value }}"
+      - name: cp3
+        ip: "{{ .Values.CP3_IP.Value }}"
+      - name: worker1
+        ip: "{{ .Values.WORKER1_IP.Value }}"
+      - name: worker2
+        ip: "{{ .Values.WORKER2_IP.Value }}"
+      - name: worker3
+        ip: "{{ .Values.WORKER3_IP.Value }}"
+    # class: the ingressClass, i.e. the Traefik release (internal|external) serving it.
+    hosts:
+      - fqdn: {{ .Values.ARGOCD_HOSTNAME.Value }}
+        class: internal
+{{- if not $localdev }}
+      - fqdn: {{ .Values.WORKFLOWS_HOSTNAME.Value }}
+        class: internal
+{{- end }}
+{{- if and $cilium (not $localdev) }}
+      - fqdn: {{ .Values.HUBBLE_HOSTNAME.Value }}
+        class: internal
+{{- end }}
+{{- if $cilium }}
+      - fqdn: {{ .Values.SERVICEMESH_HOSTNAME.Value }}
+        class: internal
+{{- end }}
+      - fqdn: {{ .Values.GRAFANA_HOSTNAME.Value }}
+        class: internal
+      # The OTLP receiver answers 405 to a GET here; its / is a 404.
+      - fqdn: {{ .Values.OTLP_HOSTNAME.Value }}
+        class: internal
+        path: /v1/traces
+      - fqdn: {{ .Values.PAPERCLIP_HOSTNAME.Value }}
+        class: internal
+      - fqdn: {{ .Values.SONARR_HOSTNAME.Value }}
+        class: internal
+      - fqdn: {{ .Values.RADARR_HOSTNAME.Value }}
+        class: internal
+      - fqdn: {{ .Values.PROWLARR_HOSTNAME.Value }}
+        class: internal
+      - fqdn: {{ .Values.NZBGET_HOSTNAME.Value }}
+        class: internal
+      - fqdn: {{ .Values.TAUTULLI_HOSTNAME.Value }}
+        class: internal
+      - fqdn: {{ .Values.LAZYLIBRARIAN_HOSTNAME.Value }}
+        class: internal
+      - fqdn: {{ .Values.TRAEFIK_INTERNAL_HOSTNAME.Value }}
+        class: internal
+      - fqdn: {{ .Values.PLEX_HOSTNAME.Value }}
+        class: external
+      - fqdn: {{ .Values.TRAEFIK_HOSTNAME.Value }}
+        class: external
+{{- if $onepassword }}
+      - fqdn: {{ .Values.AUTH_HOSTNAME.Value }}
+        class: external
+{{- end }}
