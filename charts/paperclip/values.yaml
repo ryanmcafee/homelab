@@ -125,6 +125,10 @@ serviceMesh:
 security:
   networkPolicy:
     enabled: true
+    # templates/networkpolicy-ingress-controller.yaml: app -> its own public URL (Traefik web/websecure).
+    ingressController:
+      namespace: traefik
+      ports: [8000, 8443]
   # The operator adds a privileged "selinux-relabel" init container (chcon on the
   # data volume) unless told not to. It is rejected by the namespace's PodSecurity
   # baseline admission (no pod is ever created and the Instance stays

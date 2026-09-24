@@ -12,6 +12,12 @@ Each entry should include:
 
 ## Entries
 
+### 2026-09-23 - Paperclip agents failed with TLS/connection errors calling https://paperclip.<domain>
+- **Issue**: From `paperclip-0`, every request to the public URL (and any host on the traefik-internal LB IP) reset or timed out during the TLS handshake after 10 s (`curl: (35) Recv failure: Connection reset by peer`, node `ECONNRESET`); agents reported this as TLS/signing failures. The same URLs worked from non-paperclip pods and the internet worked from the pod
+- **Root Cause**: Cilium evaluates egress policy after the LoadBalancer DNAT, so a connection to the traefik-internal LB IP on 443 is checked as `traefik-internal:8443`. The operator's NetworkPolicy allows egress only on 53, 443, 4317/4318 and 5432, so Hubble showed `Policy denied DROPPED` on the SYN; ztunnel logged `deadline has elapsed`
+- **Solution**: `charts/paperclip/templates/networkpolicy-ingress-controller.yaml` allows egress to the Traefik pods on their container ports 8000/8443 (`security.networkPolicy.ingressController`)
+- **Prevention**: When a policy allows a Service port, allow the backend container port too; debug with `hubble observe --ip <pod-ip>` from the node's cilium agent
+
 ### 2026-09-23 - BGP sessions established but advertised 0 routes; worker sessions never came up
 - **Issue**: Read-only check of production: the three control-plane sessions to the UniFi gateway were Established with 0 prefixes sent, and the gateway's three worker neighbors could never establish (no speaker ran on the workers). LoadBalancer IPs were reachable only through the worker L2 (ARP) announcements, without ECMP
 - **Root Cause**: `CiliumBGPPeerConfig unifi-gateway-peer` had no `spec.families[].advertisements` selector and `CiliumBGPAdvertisement loadbalancer-ips` had no labels; in the Cilium v2 BGP API nothing is advertised unless a family selects an advertisement. Separately, `CiliumBGPClusterConfig homelab-bgp` ran speakers on the control planes while the gateway also listed the workers, and the FRR template had no `maximum-paths`

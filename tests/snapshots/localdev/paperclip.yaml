@@ -22,6 +22,33 @@ spec:
           port: 15008
 
 ---
+# Source: paperclip/templates/networkpolicy-ingress-controller.yaml
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: paperclip-ingress-controller-egress
+  namespace: paperclip
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: paperclip
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: traefik
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: traefik
+      ports:
+        - protocol: TCP
+          port: 8000
+        - protocol: TCP
+          port: 8443
+
+---
 # Source: paperclip/templates/dashboard.yaml
 apiVersion: v1
 kind: ConfigMap
