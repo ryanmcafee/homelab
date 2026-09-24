@@ -125,8 +125,8 @@ inputs = {
   gpu_installer_image = "factory.talos.dev/installer/${dependency.talos_image_gpu.outputs.schematic_id}:${dependency.talos_image_gpu.outputs.talos_version}"
 
   # Network configuration
-  # The module tags no VLAN on the VM NICs; the bridge port carries VLAN
-  # include.env.locals.vlan_id.
+  # The switch delivers include.env.locals.vlan_id untagged; the module keeps
+  # the VM NICs on that native VLAN only (trunks = "1").
   network_bridge  = "vmbr0"
   network_gateway = include.env.locals.gateway
   network_cidr    = include.env.locals.subnet

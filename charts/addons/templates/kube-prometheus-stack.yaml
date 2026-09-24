@@ -456,14 +456,14 @@ spec:
                       description: '{{`{{ $value | humanizePercentage }}`}} throttling of CPU in namespace {{`{{ $labels.namespace }}`}} for container {{`{{ $labels.container }}`}} in pod {{`{{ $labels.pod }}`}}, which is busy enough for the figure to mean something. Raise the CPU limit; requests govern scheduling, a limit only caps a burst.'
                       runbook_url: 'https://runbooks.prometheus-operator.dev/runbooks/kubernetes/cputhrottlinghigh'
           # Ingress (docs/runbooks/alerting.md). Metrics: the ServiceMonitors of
-          # both Traefik releases (job = release name). Traefik labels the
+          # both Traefik releases (job = metrics Service, <release>-metrics). Traefik labels the
           # backend `service`; the scrape renames it to exported_service.
           homelab-ingress:
             groups:
               - name: homelab-ingress
                 rules:
                   - alert: HomelabTraefikDown
-                    expr: 'sum by (job) (up{job=~"traefik-internal|traefik-external"}) == 0 or absent(up{job="traefik-internal"}) or absent(up{job="traefik-external"})'
+                    expr: 'sum by (job) (up{job=~"traefik-internal-metrics|traefik-external-metrics"}) == 0 or absent(up{job="traefik-internal-metrics"}) or absent(up{job="traefik-external-metrics"})'
                     for: 5m
                     labels:
                       severity: critical

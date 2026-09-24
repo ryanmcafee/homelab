@@ -423,6 +423,8 @@ resource "proxmox_virtual_environment_vm" "controlplane" {
   network_device {
     bridge      = var.network_bridge
     mac_address = local.node_mac_addresses[each.key]
+    # Native VLAN only: without trunks Proxmox adds VIDs 2-4094 and floods other VLANs in.
+    trunks = "1"
   }
 
   # Cloud-init for Talos machine config delivery
@@ -548,6 +550,8 @@ resource "proxmox_virtual_environment_vm" "worker" {
   network_device {
     bridge      = var.network_bridge
     mac_address = local.node_mac_addresses[each.key]
+    # Native VLAN only: without trunks Proxmox adds VIDs 2-4094 and floods other VLANs in.
+    trunks = "1"
   }
 
   # Cloud-init for Talos machine config delivery

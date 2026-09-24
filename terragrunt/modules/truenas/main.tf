@@ -97,9 +97,11 @@ resource "proxmox_virtual_environment_vm" "truenas" {
   }
 
   # Network Configuration
+  # An untagged NIC gets the native VLAN only; Proxmox otherwise trunks VIDs 2-4094.
   network_device {
     bridge   = var.network_bridge
     vlan_id  = var.network_vlan_id
+    trunks   = var.network_vlan_id == null ? "1" : null
     model    = "virtio"
     firewall = false
   }
@@ -110,6 +112,7 @@ resource "proxmox_virtual_environment_vm" "truenas" {
     content {
       bridge   = var.lan_network_bridge
       vlan_id  = var.lan_network_vlan_id
+      trunks   = var.lan_network_vlan_id == null ? "1" : null
       model    = "virtio"
       firewall = false
     }

@@ -437,3 +437,21 @@ These are documented errors with known solutions:
 - **Root Cause**: `charts/addons/templates/*.yaml` build `spec.source.helm.values` field by field; nothing passes a values file through. A key with no matching line in the Application template is simply not in the rendered Application
 - **Solution**: Added the `defaultRules:` block to `charts/addons/templates/kube-prometheus-stack.yaml`, the same way `kubeProxy` is emitted
 - **Prevention**: Level 0 renders the Application, not the upstream chart's output, so it cannot catch this. Confirm a values change with `helm template <upstream chart> -f <the values from the snapshot>` and grep for what should have changed
+
+### 2026-09-23 - HomelabTraefikDown fired critical for both ingresses while Traefik was healthy
+- **Issue**: After PR #321 rolled out, `HomelabTraefikDown` fired critical for `traefik-internal` and `traefik-external`. All four Traefik pods were Running and every scrape target was `up`
+- **Root Cause**: The rule matched `job="traefik-internal"`, assuming job = release name. The Traefik chart's ServiceMonitor has no `jobLabel`, so Prometheus uses the metrics Service name: `traefik-internal-metrics` and `traefik-external-metrics`. The `absent()` branches were always true
+- **Solution**: The rule now matches the `-metrics` job names. Verified against live Prometheus: 0 results
+- **Prevention**: Evaluate every new alert expression against live Prometheus before merging (`task prod:kubeconfig`, port-forward `svc/kube-prometheus-stack-prometheus`); an `absent()` on a wrong label always fires
+
+### 2026-09-23 - LAN VLAN 10 broadcasts reached every Talos node (HomelabHubbleDropsHigh VLAN_FILTERED)
+- **Issue**: `HomelabHubbleDropsHigh` at ~23 packets/s, reason `VLAN_FILTERED`, no source or destination identity. Each frame was dropped on all six nodes: ARP, SSDP, IGMP, UniFi discovery (UDP 10001), UDP 6667 broadcasts, all from 172.16.10.0/24 (the LAN, VLAN 10)
+- **Root Cause**: The Talos VM NICs (`net0`, no `tag`, no `trunks`) sit on the VLAN-aware `vmbr0`. For such a port Proxmox runs `bridge vlan add vid 2-4094` (`PVE/Network.pm`), so every tap is a trunk of all VLANs. `nic1` carries VLAN 10 tagged for the TrueNAS VM (`net1`, tag 10), so every LAN broadcast was delivered, tagged, into every Kubernetes node, where Cilium dropped it. The cluster VLAN was not isolated from the LAN at layer 2
+- **Solution**: `trunks = "1"` on the Talos VM `network_device`: the tap joins only the bridge native VLAN, which is how the switch delivers VLAN 100. The TrueNAS VM net0 (untagged) had the same 2-4094 trunk and gets the same fix; its net1 keeps tag 10 The alert was left unchanged, since a leak like this is what it should catch
+- **Prevention**: On a VLAN-aware Proxmox bridge an untagged VM NIC is a trunk of every VLAN. Give every VM NIC a `tag` or an explicit `trunks`, and check with `bridge vlan show` on the host
+
+### 2026-09-23 - KubeCPUOvercommit after the observability rollout
+- **Issue**: `KubeCPUOvercommit`: pod CPU requests 0.18 CPU over what the cluster can hold with its largest node down
+- **Root Cause**: The PR #321 DaemonSets (istio-cni, ztunnel, OTel agents) landed on top of four Traefik pods requesting 500m each while using 1-2m
+- **Solution**: Traefik CPU requests 500m -> 100m (limit stays 1000m; the HPA target is relative to the request), which frees 1.6 CPU
+- **Prevention**: Size requests from `container_cpu_usage_seconds_total`, not from defaults
