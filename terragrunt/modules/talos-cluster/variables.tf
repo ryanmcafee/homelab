@@ -148,8 +148,7 @@ variable "network_bridge" {
   default     = "vmbr0"
 }
 
-# VLAN tagging is not applied by this module (network_device carries no
-# vlan_id); the bridge port carries the VLAN.
+# VM NICs carry no vlan_id and trunk only the bridge native VLAN (trunks = "1").
 
 variable "network_gateway" {
   description = "Network gateway"

@@ -3192,9 +3192,8 @@ spec:
                     annotations:
                       summary: 'BPF map {{ $labels.map_name }} on {{ $labels.node }} is {{ $value | humanizePercentage }} full'
                       description: 'A full BPF map drops new connections or policy entries. Raise the map size in the Cilium values (bpf.*Max) and re-render.'
-                  # VLAN_FILTERED: foreign-VLAN frames the switch trunk floods to every node NIC.
                   - alert: HomelabHubbleDropsHigh
-                    expr: 'sum by (reason, source, destination) (rate(hubble_drop_total{reason!="VLAN_FILTERED"}[5m])) > 1'
+                    expr: 'sum by (reason, source, destination) (rate(hubble_drop_total[5m])) > 1'
                     for: 15m
                     labels:
                       severity: warning
