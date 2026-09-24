@@ -1,0 +1,30 @@
+{{- /*
+The app calls itself on its public URL; Cilium checks egress after the
+LoadBalancer DNAT, so the Traefik container ports must be allowed, not 80/443.
+*/}}
+{{- if .Values.security.networkPolicy.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ .Values.name }}-ingress-controller-egress
+  namespace: {{ .Values.namespace }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: paperclip
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.security.networkPolicy.ingressController.namespace }}
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: traefik
+      ports:
+        {{- range .Values.security.networkPolicy.ingressController.ports }}
+        - protocol: TCP
+          port: {{ . }}
+        {{- end }}
+{{- end }}
