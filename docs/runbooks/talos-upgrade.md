@@ -273,7 +273,7 @@ Rebuild from Terragrunt and let ArgoCD restore every workload from Git; see
 
 **Network**
 
-- [ ] BGP sessions established: `kubectl -n kube-system exec ds/cilium -- cilium bgp peers`
+- [ ] BGP sessions established, one per worker with routes: `vtysh -c "show ip bgp summary"` on the gateway (control planes run no speaker)
 - [ ] In-cluster DNS: `kubectl run -it --rm dns --image=nicolaka/netshoot --restart=Never -- nslookup kubernetes.default.svc.cluster.local`
 
 **GPU (worker-1)**

@@ -12,6 +12,12 @@ Each entry should include:
 
 ## Entries
 
+### 2026-09-23 - BGP sessions established but advertised 0 routes; worker sessions never came up
+- **Issue**: Read-only check of production: the three control-plane sessions to the UniFi gateway were Established with 0 prefixes sent, and the gateway's three worker neighbors could never establish (no speaker ran on the workers). LoadBalancer IPs were reachable only through the worker L2 (ARP) announcements, without ECMP
+- **Root Cause**: `CiliumBGPPeerConfig unifi-gateway-peer` had no `spec.families[].advertisements` selector and `CiliumBGPAdvertisement loadbalancer-ips` had no labels; in the Cilium v2 BGP API nothing is advertised unless a family selects an advertisement. Separately, `CiliumBGPClusterConfig homelab-bgp` ran speakers on the control planes while the gateway also listed the workers, and the FRR template had no `maximum-paths`
+- **Solution**: Peer config negotiates `ipv4/unicast` with `advertisements.matchLabels: {advertise: loadbalancer-ips}`, the advertisement carries that label; speakers moved to the workers (control-plane `DoesNotExist`); `unifi-gateway` peers with `worker_nodes` only and renders `maximum-paths` (ADR-023)
+- **Prevention**: After any BGP change check `vtysh -c "show ip bgp summary"` for PfxRcd > 0, not just Established; the level-0 render proves only that the CRs are valid, not that they select anything
+
 ### 2026-09-23 - Traefik syncs denied: chart ships Gateway API v1.4 CRDs, Gateway API v1.6 VAP forbids them
 - **Issue**: In the PR #321 Kind loop `traefik-internal` and `traefik-external` ended Failed after three retries on `backendtlspolicies`, `referencegrants`, `grpcroutes`, `httproutes` (gateway.networking.k8s.io): "Installing CRDs with version before v1.5.0 is prohibited by default"
 - **Root Cause**: The traefik chart 39.0.9 carries `crds/gateway-standard-install.yaml` (bundle v1.4.0) and ArgoCD applies a chart's `crds/` directory. The new `gateway-api-crds` Application (v1.6.2, for Istio waypoints) installs the ValidatingAdmissionPolicy `safe-upgrades.gateway.networking.k8s.io`, which denies any Gateway API CRD older than v1.5. The same would have failed every production Traefik sync

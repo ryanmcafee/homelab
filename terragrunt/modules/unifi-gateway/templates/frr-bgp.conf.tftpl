@@ -22,6 +22,7 @@ router bgp ${local_as}
 %{ endfor ~}
  !
  address-family ipv4 unicast
+  maximum-paths ${maximum_paths}
 %{ for neighbor in neighbors ~}
   neighbor ${neighbor.address} activate
   neighbor ${neighbor.address} soft-reconfiguration inbound

@@ -475,7 +475,7 @@ After any recovery procedure:
 **Network**:
 - [ ] Can access VMs from workstation
 - [ ] VMs can access internet
-- [ ] BGP peering established (if MetalLB)
+- [ ] BGP peering established: one neighbor per worker with PfxRcd > 0 (`vtysh -c "show ip bgp summary"` on the gateway)
 - [ ] DNS resolving correctly
 
 ### Validation Commands
