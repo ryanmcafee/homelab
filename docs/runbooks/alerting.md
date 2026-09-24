@@ -126,7 +126,7 @@ of samples; that is how 16 alerts stood on democratic-csi for three months while
 | homelab-logging | `HomelabLogsNotArriving` | warning | the agents read no container log line for 30 m |
 | homelab-logging | `HomelabTraceExportFailing` | warning | a collector fails to export spans to ClickHouse for 15 m ([tracing.md](../tracing.md)) |
 | homelab-logging | `HomelabTelemetryRefused` | warning | a receiver refuses spans or log records for 10 m |
-| homelab-logging | `HomelabUniFiTelemetrySilent` | warning | no UniFi syslog or NetFlow record for an hour ([logging.md](../logging.md)) |
+| homelab-logging | `HomelabUniFiTelemetrySilent` | warning | no UniFi syslog or NetFlow record for an hour, or none since the gateway started ([logging.md](../logging.md)) |
 | homelab-logging | `HomelabClickHouseDown` | warning | the operator's metrics exporter cannot read ClickHouse for 10 m |
 | homelab-logging | `HomelabClickHouseRejectedInserts` | warning | ClickHouse rejected inserts (too many parts) in the last 5 m |
 | homelab-logging | `HomelabClickHouseTooManyParts` | warning | a partition has more than 150 active parts for 15 m |
