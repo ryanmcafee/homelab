@@ -761,6 +761,7 @@ traefikExternal:
     web:
       port: 8000
       exposedPort: 80
+      nodePort: 32182
       expose:
         default: true
       # Redirect HTTP to HTTPS (v39+ format)
@@ -773,6 +774,7 @@ traefikExternal:
     websecure:
       port: 8443
       exposedPort: 443
+      nodePort: 31935
       expose:
         default: true
       asDefault: true
@@ -888,6 +890,7 @@ traefikInternal:
     web:
       port: 8000
       exposedPort: 80
+      nodePort: 31359
       expose:
         default: true
       http:
@@ -899,6 +902,7 @@ traefikInternal:
     websecure:
       port: 8443
       exposedPort: 443
+      nodePort: 30160
       expose:
         default: true
       asDefault: true

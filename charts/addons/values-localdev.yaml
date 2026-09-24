@@ -979,10 +979,12 @@ traefikExternal:
     spec:
       externalTrafficPolicy: Cluster
 
+  # nodePorts are pinned: the ingress-path probes and tests target them on every node.
   ports:
     web:
       port: 8000
       exposedPort: 80
+      nodePort: 32182
       expose:
         default: true
       http:
@@ -994,6 +996,7 @@ traefikExternal:
     websecure:
       port: 8443
       exposedPort: 443
+      nodePort: 31935
       expose:
         default: true
       asDefault: true
@@ -1007,6 +1010,7 @@ traefikExternal:
           idleTimeout: 600s
     traefik:
       port: 9000
+      nodePort: 30176
       expose:
         default: true
 
@@ -1132,10 +1136,12 @@ traefikInternal:
     # No static IP - Cilium LB IPAM assigns dynamically
     # No port forwarding - internal only
 
+  # nodePorts are pinned: the ingress-path probes and tests target them on every node.
   ports:
     web:
       port: 8000
       exposedPort: 80
+      nodePort: 31359
       expose:
         default: true
       http:
@@ -1147,6 +1153,7 @@ traefikInternal:
     websecure:
       port: 8443
       exposedPort: 443
+      nodePort: 30160
       expose:
         default: true
       asDefault: true
@@ -1160,6 +1167,7 @@ traefikInternal:
           idleTimeout: 600s
     traefik:
       port: 9000
+      nodePort: 30759
       expose:
         default: true
 

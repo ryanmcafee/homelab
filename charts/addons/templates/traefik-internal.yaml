@@ -87,6 +87,9 @@ spec:
           web:
             port: {{ .Values.traefikInternal.ports.web.port }}
             exposedPort: {{ .Values.traefikInternal.ports.web.exposedPort | default 80 }}
+            {{- with .Values.traefikInternal.ports.web.nodePort }}
+            nodePort: {{ . }}
+            {{- end }}
             expose:
               default: {{ .Values.traefikInternal.ports.web.expose.default }}
             {{- if .Values.traefikInternal.ports.web.http }}
@@ -102,6 +105,9 @@ spec:
           websecure:
             port: {{ .Values.traefikInternal.ports.websecure.port }}
             exposedPort: {{ .Values.traefikInternal.ports.websecure.exposedPort | default 443 }}
+            {{- with .Values.traefikInternal.ports.websecure.nodePort }}
+            nodePort: {{ . }}
+            {{- end }}
             expose:
               default: {{ .Values.traefikInternal.ports.websecure.expose.default }}
             {{- if .Values.traefikInternal.ports.websecure.asDefault }}
@@ -119,6 +125,9 @@ spec:
           {{- if .Values.traefikInternal.ports.traefik }}
           traefik:
             port: {{ .Values.traefikInternal.ports.traefik.port }}
+            {{- with .Values.traefikInternal.ports.traefik.nodePort }}
+            nodePort: {{ . }}
+            {{- end }}
             expose:
               default: {{ .Values.traefikInternal.ports.traefik.expose.default }}
           {{- end }}

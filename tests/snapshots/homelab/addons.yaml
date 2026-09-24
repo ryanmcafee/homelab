@@ -4432,6 +4432,7 @@ spec:
           web:
             port: 8000
             exposedPort: 80
+            nodePort: 32182
             expose:
               default: true
             http:
@@ -4443,6 +4444,7 @@ spec:
           websecure:
             port: 8443
             exposedPort: 443
+            nodePort: 31935
             expose:
               default: true
             asDefault: true
@@ -4456,6 +4458,7 @@ spec:
                 writeTimeout: 0
           traefik:
             port: 9000
+            nodePort: 30176
             expose:
               default: true
         additionalArguments:
@@ -4701,6 +4704,7 @@ spec:
           web:
             port: 8000
             exposedPort: 80
+            nodePort: 31359
             expose:
               default: true
             http:
@@ -4712,6 +4716,7 @@ spec:
           websecure:
             port: 8443
             exposedPort: 443
+            nodePort: 30160
             expose:
               default: true
             asDefault: true
@@ -4725,6 +4730,7 @@ spec:
                 writeTimeout: 0
           traefik:
             port: 9000
+            nodePort: 30759
             expose:
               default: true
         additionalArguments:
