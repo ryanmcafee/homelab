@@ -1,1 +1,955 @@
-
+---
+# Source: prometheus-config/templates/dashboards.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: homelab-dashboards
+  namespace: monitoring
+  labels:
+    grafana_dashboard: "1"
+data:
+  ingress-paths.json: |-
+    {
+     "uid": "ingress-paths",
+     "title": "Ingress paths",
+     "tags": [
+      "ingress",
+      "network",
+      "traefik",
+      "hubble"
+     ],
+     "timezone": "browser",
+     "schemaVersion": 39,
+     "version": 1,
+     "editable": false,
+     "description": "Every ingress host through every node's Traefik NodePort and its DNS name, Traefik per host, Hubble drops, BGP (docs/runbooks/ingress-paths.md)",
+     "time": {
+      "from": "now-6h",
+      "to": "now"
+     },
+     "refresh": "1m",
+     "templating": {
+      "list": [
+       {
+        "name": "fqdn",
+        "label": "Host",
+        "type": "query",
+        "datasource": {
+         "type": "prometheus",
+         "uid": "prometheus"
+        },
+        "refresh": 1,
+        "multi": true,
+        "includeAll": true,
+        "allValue": ".*",
+        "current": {
+         "text": "All",
+         "value": "$__all"
+        },
+        "query": {
+         "query": "label_values(probe_success{job=\"ingress-paths\"}, fqdn)",
+         "refId": "fqdn"
+        },
+        "definition": "label_values(probe_success{job=\"ingress-paths\"}, fqdn)"
+       }
+      ]
+     },
+     "panels": [
+      {
+       "id": 1,
+       "type": "row",
+       "title": "1. Paths: every host through every node (blackbox, job ingress-paths)",
+       "collapsed": false,
+       "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 1
+       },
+       "panels": []
+      },
+      {
+       "id": 2,
+       "type": "text",
+       "title": "How a request reaches the backend",
+       "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+       },
+       "gridPos": {
+        "x": 0,
+        "y": 1,
+        "w": 8,
+        "h": 10
+       },
+       "targets": [],
+       "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+       },
+       "options": {
+        "mode": "markdown",
+        "content": "**client** (LAN / Tailscale)\n-> **node** `nodeIP:NodePort` (any control plane or worker; path=nodeport) or the **LoadBalancer** address via DNS (path=lb; BGP/L2 from UniFi)\n-> **Cilium** eBPF NodePort (kube-proxy replacement), `externalTrafficPolicy: Cluster`\n-> **VXLAN** tunnel when the Traefik pod runs on another node\n-> **Traefik** pod (`traefik-internal` / `traefik-external`) matches Host/SNI = fqdn\n-> **backend** Service -> pod.\n\nA red cell names the node that does not forward; a red row means the host itself is down.\nAccepted: 2xx, 3xx, 401, 403, 405. Failing: 404 (no router), 5xx, TLS, timeout, connection error.\nRunbook: docs/runbooks/ingress-paths.md; ad-hoc matrix: `task test:ingress-paths`."
+       }
+      },
+      {
+       "id": 3,
+       "type": "table",
+       "title": "Matrix: worst probe result in the time range (fqdn x node)",
+       "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+       },
+       "gridPos": {
+        "x": 8,
+        "y": 1,
+        "w": 16,
+        "h": 10
+       },
+       "targets": [
+        {
+         "refId": "A",
+         "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+         },
+         "expr": "min by (fqdn, node) (min_over_time(probe_success{job=\"ingress-paths\",fqdn=~\"$fqdn\"}[$__range]))",
+         "legendFormat": "",
+         "instant": true,
+         "range": false,
+         "format": "table"
+        }
+       ],
+       "description": "0 = at least one failed probe in the selected range. Columns are the config node names (cp1..worker3) plus lb (the DNS name).",
+       "fieldConfig": {
+        "defaults": {
+         "mappings": [
+          {
+           "type": "value",
+           "options": {
+            "0": {
+             "text": "FAIL",
+             "color": "red",
+             "index": 0
+            },
+            "1": {
+             "text": "OK",
+             "color": "green",
+             "index": 1
+            }
+           }
+          }
+         ],
+         "custom": {
+          "cellOptions": {
+           "type": "color-background"
+          },
+          "align": "center"
+         },
+         "color": {
+          "mode": "thresholds"
+         },
+         "thresholds": {
+          "mode": "absolute",
+          "steps": [
+           {
+            "color": "red",
+            "value": null
+           },
+           {
+            "color": "green",
+            "value": 1
+           }
+          ]
+         }
+        },
+        "overrides": [
+         {
+          "matcher": {
+           "id": "byName",
+           "options": "fqdn\\node"
+          },
+          "properties": [
+           {
+            "id": "custom.cellOptions",
+            "value": {
+             "type": "auto"
+            }
+           },
+           {
+            "id": "custom.align",
+            "value": "left"
+           }
+          ]
+         }
+        ]
+       },
+       "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+       },
+       "transformations": [
+        {
+         "id": "groupingToMatrix",
+         "options": {
+          "rowField": "fqdn",
+          "columnField": "node",
+          "valueField": "Value",
+          "emptyValue": "null"
+         }
+        }
+       ]
+      },
+      {
+       "id": 4,
+       "type": "status-history",
+       "title": "Per host over time (min over nodes and lb)",
+       "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+       },
+       "gridPos": {
+        "x": 0,
+        "y": 11,
+        "w": 12,
+        "h": 12
+       },
+       "targets": [
+        {
+         "refId": "A",
+         "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+         },
+         "expr": "min by (fqdn) (probe_success{job=\"ingress-paths\",fqdn=~\"$fqdn\"})",
+         "legendFormat": "{{fqdn}}"
+        }
+       ],
+       "fieldConfig": {
+        "defaults": {
+         "mappings": [
+          {
+           "type": "value",
+           "options": {
+            "0": {
+             "text": "FAIL",
+             "color": "red",
+             "index": 0
+            },
+            "1": {
+             "text": "OK",
+             "color": "green",
+             "index": 1
+            }
+           }
+          }
+         ],
+         "color": {
+          "mode": "thresholds"
+         },
+         "thresholds": {
+          "mode": "absolute",
+          "steps": [
+           {
+            "color": "red",
+            "value": null
+           },
+           {
+            "color": "green",
+            "value": 1
+           }
+          ]
+         }
+        },
+        "overrides": []
+       },
+       "options": {
+        "showValue": "never",
+        "rowHeight": 0.9,
+        "legend": {
+         "showLegend": false
+        }
+       }
+      },
+      {
+       "id": 5,
+       "type": "state-timeline",
+       "title": "Per node over time (min over hosts)",
+       "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+       },
+       "gridPos": {
+        "x": 12,
+        "y": 11,
+        "w": 12,
+        "h": 12
+       },
+       "targets": [
+        {
+         "refId": "A",
+         "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+         },
+         "expr": "min by (node) (probe_success{job=\"ingress-paths\",fqdn=~\"$fqdn\"})",
+         "legendFormat": "{{node}}"
+        }
+       ],
+       "description": "A node that fails for every host does not forward its NodePort at all (Cilium on that node, its uplink, or VXLAN).",
+       "fieldConfig": {
+        "defaults": {
+         "mappings": [
+          {
+           "type": "value",
+           "options": {
+            "0": {
+             "text": "FAIL",
+             "color": "red",
+             "index": 0
+            },
+            "1": {
+             "text": "OK",
+             "color": "green",
+             "index": 1
+            }
+           }
+          }
+         ],
+         "color": {
+          "mode": "thresholds"
+         },
+         "thresholds": {
+          "mode": "absolute",
+          "steps": [
+           {
+            "color": "red",
+            "value": null
+           },
+           {
+            "color": "green",
+            "value": 1
+           }
+          ]
+         }
+        },
+        "overrides": []
+       },
+       "options": {
+        "showValue": "never",
+        "mergeValues": true,
+        "rowHeight": 0.9,
+        "legend": {
+         "showLegend": false
+        }
+       }
+      },
+      {
+       "id": 6,
+       "type": "timeseries",
+       "title": "Probe duration by host and node",
+       "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+       },
+       "gridPos": {
+        "x": 0,
+        "y": 23,
+        "w": 12,
+        "h": 8
+       },
+       "targets": [
+        {
+         "refId": "A",
+         "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+         },
+         "expr": "max by (fqdn, node) (probe_duration_seconds{job=\"ingress-paths\",fqdn=~\"$fqdn\"})",
+         "legendFormat": "{{fqdn}} @ {{node}}"
+        }
+       ],
+       "fieldConfig": {
+        "defaults": {
+         "unit": "s"
+        },
+        "overrides": []
+       },
+       "options": {
+        "legend": {
+         "displayMode": "table",
+         "placement": "right",
+         "calcs": [
+          "max",
+          "mean"
+         ],
+         "sortBy": "Max",
+         "sortDesc": true
+        },
+        "tooltip": {
+         "mode": "multi",
+         "sort": "desc"
+        }
+       }
+      },
+      {
+       "id": 7,
+       "type": "timeseries",
+       "title": "HTTP status per path (non-accepted codes stand out)",
+       "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+       },
+       "gridPos": {
+        "x": 12,
+        "y": 23,
+        "w": 12,
+        "h": 8
+       },
+       "targets": [
+        {
+         "refId": "A",
+         "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+         },
+         "expr": "max by (fqdn, node) (probe_http_status_code{job=\"ingress-paths\",fqdn=~\"$fqdn\"})",
+         "legendFormat": "{{fqdn}} @ {{node}}"
+        }
+       ],
+       "description": "0 = no HTTP answer (connect, TLS or timeout).",
+       "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+       },
+       "options": {
+        "legend": {
+         "displayMode": "table",
+         "placement": "right",
+         "calcs": [
+          "lastNotNull"
+         ]
+        },
+        "tooltip": {
+         "mode": "multi",
+         "sort": "desc"
+        }
+       }
+      },
+      {
+       "id": 8,
+       "type": "row",
+       "title": "2. Traefik per host (kube_ingress_path join, homelab:ingress_host:*)",
+       "collapsed": false,
+       "gridPos": {
+        "x": 0,
+        "y": 31,
+        "w": 24,
+        "h": 1
+       },
+       "panels": []
+      },
+      {
+       "id": 9,
+       "type": "timeseries",
+       "title": "Requests/s by host",
+       "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+       },
+       "gridPos": {
+        "x": 0,
+        "y": 32,
+        "w": 8,
+        "h": 8
+       },
+       "targets": [
+        {
+         "refId": "A",
+         "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+         },
+         "expr": "sum by (fqdn) (homelab:ingress_host:requests:rate5m{fqdn=~\"$fqdn\"})",
+         "legendFormat": "{{fqdn}}"
+        }
+       ],
+       "fieldConfig": {
+        "defaults": {
+         "unit": "reqps"
+        },
+        "overrides": []
+       }
+      },
+      {
+       "id": 10,
+       "type": "timeseries",
+       "title": "5xx ratio by host",
+       "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+       },
+       "gridPos": {
+        "x": 8,
+        "y": 32,
+        "w": 8,
+        "h": 8
+       },
+       "targets": [
+        {
+         "refId": "A",
+         "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+         },
+         "expr": "sum by (fqdn) (homelab:ingress_host:errors:rate5m{fqdn=~\"$fqdn\"}) / sum by (fqdn) (homelab:ingress_host:requests:rate5m{fqdn=~\"$fqdn\"})",
+         "legendFormat": "{{fqdn}}"
+        }
+       ],
+       "description": "HomelabIngressHostErrors fires above 5 % for 10m.",
+       "fieldConfig": {
+        "defaults": {
+         "unit": "percentunit",
+         "min": 0
+        },
+        "overrides": []
+       }
+      },
+      {
+       "id": 11,
+       "type": "timeseries",
+       "title": "p95 latency by host",
+       "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+       },
+       "gridPos": {
+        "x": 16,
+        "y": 32,
+        "w": 8,
+        "h": 8
+       },
+       "targets": [
+        {
+         "refId": "A",
+         "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+         },
+         "expr": "max by (fqdn) (homelab:ingress_host:info{fqdn=~\"$fqdn\"} * on (exported_service) group_left () histogram_quantile(0.95, sum by (exported_service, le) (rate(traefik_service_request_duration_seconds_bucket[5m]))))",
+         "legendFormat": "{{fqdn}}"
+        }
+       ],
+       "fieldConfig": {
+        "defaults": {
+         "unit": "s"
+        },
+        "overrides": []
+       }
+      },
+      {
+       "id": 12,
+       "type": "timeseries",
+       "title": "Responses by code (both Traefik releases)",
+       "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+       },
+       "gridPos": {
+        "x": 0,
+        "y": 40,
+        "w": 12,
+        "h": 8
+       },
+       "targets": [
+        {
+         "refId": "A",
+         "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+         },
+         "expr": "sum by (job, code) (rate(traefik_entrypoint_requests_total{entrypoint=\"websecure\"}[5m]))",
+         "legendFormat": "{{job}} {{code}}"
+        }
+       ],
+       "fieldConfig": {
+        "defaults": {
+         "unit": "reqps"
+        },
+        "overrides": []
+       }
+      },
+      {
+       "id": 13,
+       "type": "timeseries",
+       "title": "Open connections per Traefik pod",
+       "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+       },
+       "gridPos": {
+        "x": 12,
+        "y": 40,
+        "w": 12,
+        "h": 8
+       },
+       "targets": [
+        {
+         "refId": "A",
+         "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+         },
+         "expr": "sum by (pod) (traefik_open_connections)",
+         "legendFormat": "{{pod}}"
+        }
+       ],
+       "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+       }
+      },
+      {
+       "id": 14,
+       "type": "row",
+       "title": "3. Drops (Hubble) and flow logs",
+       "collapsed": false,
+       "gridPos": {
+        "x": 0,
+        "y": 48,
+        "w": 24,
+        "h": 1
+       },
+       "panels": []
+      },
+      {
+       "id": 15,
+       "type": "timeseries",
+       "title": "Drops into namespaces that serve a host (by fqdn)",
+       "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+       },
+       "gridPos": {
+        "x": 0,
+        "y": 49,
+        "w": 12,
+        "h": 8
+       },
+       "targets": [
+        {
+         "refId": "A",
+         "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+         },
+         "expr": "max by (fqdn, namespace) (homelab:ingress_host:info{fqdn=~\"$fqdn\"}) * on (namespace) group_left () label_replace(sum by (destination) (rate(hubble_drop_total{destination!=\"\"}[5m])), \"namespace\", \"$1\", \"destination\", \"(.+)\")",
+         "legendFormat": "{{fqdn}} ({{namespace}})"
+        }
+       ],
+       "description": "HomelabIngressDrops fires when this stays above 0 for 10m.",
+       "fieldConfig": {
+        "defaults": {
+         "unit": "pps"
+        },
+        "overrides": []
+       }
+      },
+      {
+       "id": 16,
+       "type": "timeseries",
+       "title": "Drops by reason, source and destination namespace",
+       "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+       },
+       "gridPos": {
+        "x": 12,
+        "y": 49,
+        "w": 12,
+        "h": 8
+       },
+       "targets": [
+        {
+         "refId": "A",
+         "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+         },
+         "expr": "sum by (reason, source, destination) (rate(hubble_drop_total[5m])) > 0",
+         "legendFormat": "{{reason}} {{source}} -> {{destination}}"
+        }
+       ],
+       "description": "Empty source/destination = host or world traffic (e.g. VLAN_FILTERED on the node uplink).",
+       "fieldConfig": {
+        "defaults": {
+         "unit": "pps"
+        },
+        "overrides": []
+       },
+       "options": {
+        "legend": {
+         "displayMode": "table",
+         "placement": "right",
+         "calcs": [
+          "max",
+          "mean"
+         ]
+        },
+        "tooltip": {
+         "mode": "multi",
+         "sort": "desc"
+        }
+       }
+      },
+      {
+       "id": 17,
+       "type": "timeseries",
+       "title": "Drops into Traefik",
+       "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+       },
+       "gridPos": {
+        "x": 0,
+        "y": 57,
+        "w": 8,
+        "h": 7
+       },
+       "targets": [
+        {
+         "refId": "A",
+         "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+         },
+         "expr": "sum by (reason, source) (rate(hubble_drop_total{destination=\"traefik\"}[5m]))",
+         "legendFormat": "{{reason}} from {{source}}"
+        }
+       ],
+       "fieldConfig": {
+        "defaults": {
+         "unit": "pps"
+        },
+        "overrides": []
+       }
+      },
+      {
+       "id": 18,
+       "type": "timeseries",
+       "title": "Hubble lost events by node",
+       "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+       },
+       "gridPos": {
+        "x": 8,
+        "y": 57,
+        "w": 8,
+        "h": 7
+       },
+       "targets": [
+        {
+         "refId": "A",
+         "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+         },
+         "expr": "sum by (node, source) (rate(hubble_lost_events_total[5m]))",
+         "legendFormat": "{{node}} {{source}}"
+        }
+       ],
+       "description": "HomelabHubbleEventsLost fires above 1/s for 15m.",
+       "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+       }
+      },
+      {
+       "id": 19,
+       "type": "timeseries",
+       "title": "Hubble flow log records collected/s",
+       "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+       },
+       "gridPos": {
+        "x": 16,
+        "y": 57,
+        "w": 8,
+        "h": 7
+       },
+       "targets": [
+        {
+         "refId": "A",
+         "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+         },
+         "expr": "sum by (pod) (rate(otelcol_receiver_accepted_log_records{receiver=\"file_log/hubble\"}[5m]))",
+         "legendFormat": "{{pod}}"
+        }
+       ],
+       "description": "HomelabHubbleFlowLogSilent fires when the sum is 0 for 30m.",
+       "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+       }
+      },
+      {
+       "id": 20,
+       "type": "table",
+       "title": "Dropped flows (Hubble flow log in ClickHouse)",
+       "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-logs"
+       },
+       "gridPos": {
+        "x": 0,
+        "y": 64,
+        "w": 24,
+        "h": 9
+       },
+       "targets": [
+        {
+         "refId": "A",
+         "datasource": {
+          "type": "grafana-clickhouse-datasource",
+          "uid": "clickhouse-logs"
+         },
+         "editorType": "sql",
+         "queryType": "sql",
+         "format": 1,
+         "rawSql": "SELECT Timestamp, JSONExtractString(Body, 'flow', 'node_name') AS node, JSONExtractString(Body, 'flow', 'drop_reason_desc') AS drop_reason, JSONExtractString(Body, 'flow', 'source', 'namespace') AS src_ns, JSONExtractString(Body, 'flow', 'IP', 'source') AS src, JSONExtractString(Body, 'flow', 'destination', 'namespace') AS dst_ns, JSONExtractString(Body, 'flow', 'destination', 'pod_name') AS dst_pod, JSONExtractString(Body, 'flow', 'IP', 'destination') AS dst, JSONExtractUInt(Body, 'flow', 'l4', 'TCP', 'destination_port') AS dport, JSONExtractString(Body, 'flow', 'Summary') AS summary FROM otel.otel_logs WHERE $__timeFilter(Timestamp) AND ServiceName = 'hubble' AND JSONExtractString(Body, 'flow', 'verdict') IN ('DROPPED', 'ERROR') ORDER BY Timestamp DESC LIMIT 500"
+        }
+       ],
+       "description": "Every dropped flow with its 5-tuple and drop reason, newest first.",
+       "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+       }
+      },
+      {
+       "id": 21,
+       "type": "row",
+       "title": "4. BGP (Cilium control plane)",
+       "collapsed": false,
+       "gridPos": {
+        "x": 0,
+        "y": 73,
+        "w": 24,
+        "h": 1
+       },
+       "panels": []
+      },
+      {
+       "id": 22,
+       "type": "state-timeline",
+       "title": "BGP session state by node and neighbor",
+       "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+       },
+       "gridPos": {
+        "x": 0,
+        "y": 74,
+        "w": 12,
+        "h": 8
+       },
+       "targets": [
+        {
+         "refId": "A",
+         "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+         },
+         "expr": "max by (node, neighbor) (cilium_bgp_control_plane_session_state)",
+         "legendFormat": "{{node}} -> {{neighbor}}"
+        }
+       ],
+       "description": "1 = established. Only nodes selected by the CiliumBGPClusterConfig peer.",
+       "fieldConfig": {
+        "defaults": {
+         "mappings": [
+          {
+           "type": "value",
+           "options": {
+            "0": {
+             "text": "down",
+             "color": "red"
+            },
+            "1": {
+             "text": "established",
+             "color": "green"
+            }
+           }
+          }
+         ],
+         "color": {
+          "mode": "thresholds"
+         },
+         "thresholds": {
+          "mode": "absolute",
+          "steps": [
+           {
+            "color": "red",
+            "value": null
+           },
+           {
+            "color": "green",
+            "value": 1
+           }
+          ]
+         }
+        },
+        "overrides": []
+       },
+       "options": {
+        "showValue": "never",
+        "mergeValues": true,
+        "legend": {
+         "showLegend": false
+        }
+       }
+      },
+      {
+       "id": 23,
+       "type": "timeseries",
+       "title": "Advertised and received routes by node",
+       "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+       },
+       "gridPos": {
+        "x": 12,
+        "y": 74,
+        "w": 12,
+        "h": 8
+       },
+       "targets": [
+        {
+         "refId": "A",
+         "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+         },
+         "expr": "sum by (node) (cilium_bgp_control_plane_advertised_routes)",
+         "legendFormat": "{{node}} advertised"
+        },
+        {
+         "refId": "B",
+         "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+         },
+         "expr": "sum by (node) (cilium_bgp_control_plane_received_routes)",
+         "legendFormat": "{{node}} received"
+        }
+       ],
+       "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+       }
+      }
+     ]
+    }
