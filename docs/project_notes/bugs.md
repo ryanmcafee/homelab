@@ -447,7 +447,7 @@ These are documented errors with known solutions:
 ### 2026-09-23 - LAN VLAN 10 broadcasts reached every Talos node (HomelabHubbleDropsHigh VLAN_FILTERED)
 - **Issue**: `HomelabHubbleDropsHigh` at ~23 packets/s, reason `VLAN_FILTERED`, no source or destination identity. Each frame was dropped on all six nodes: ARP, SSDP, IGMP, UniFi discovery (UDP 10001), UDP 6667 broadcasts, all from 172.16.10.0/24 (the LAN, VLAN 10)
 - **Root Cause**: The Talos VM NICs (`net0`, no `tag`, no `trunks`) sit on the VLAN-aware `vmbr0`. For such a port Proxmox runs `bridge vlan add vid 2-4094` (`PVE/Network.pm`), so every tap is a trunk of all VLANs. `nic1` carries VLAN 10 tagged for the TrueNAS VM (`net1`, tag 10), so every LAN broadcast was delivered, tagged, into every Kubernetes node, where Cilium dropped it. The cluster VLAN was not isolated from the LAN at layer 2
-- **Solution**: `trunks = "1"` on the Talos VM `network_device`: the tap joins only the bridge native VLAN, which is how the switch delivers VLAN 100. The alert was left unchanged, since a leak like this is what it should catch
+- **Solution**: `trunks = "1"` on the Talos VM `network_device`: the tap joins only the bridge native VLAN, which is how the switch delivers VLAN 100. The TrueNAS VM net0 (untagged) had the same 2-4094 trunk and gets the same fix; its net1 keeps tag 10 The alert was left unchanged, since a leak like this is what it should catch
 - **Prevention**: On a VLAN-aware Proxmox bridge an untagged VM NIC is a trunk of every VLAN. Give every VM NIC a `tag` or an explicit `trunks`, and check with `bridge vlan show` on the host
 
 ### 2026-09-23 - KubeCPUOvercommit after the observability rollout
