@@ -151,10 +151,20 @@ reset_cluster
 awk -F'\t' '$3 != "192.168.1.12"' "$FAKE_STATE/members" > "$FAKE_STATE/m" && mv "$FAKE_STATE/m" "$FAKE_STATE/members"
 rc=$(recreate "$SANDBOX/b.log" --node=cp-2)
 assert_eq   "exits 0" "$rc" "0"
-assert_contains "notices the member is already gone" "$SANDBOX/b.log" "is not an etcd member"
+assert_contains "notices the member is already gone" "$SANDBOX/b.log" \
+  "is a control plane but not an etcd member"
 assert_absent   "does not remove a second member"    "$SANDBOX/b.log" "confirmed absent from the member list"
 assert_eq   "cp-1 and cp-3 survived" \
   "$(awk -F'\t' '$3=="192.168.1.11" || $3=="192.168.1.13"' "$FAKE_STATE/members" | grep -c .)" "2"
+# A resume is not a worker. Finding the member already gone must not switch the
+# recovery wait off: reporting success over a cluster still at 2 of 3 is how a
+# degraded control plane gets signed off as healthy.
+assert_contains "resumes instead of treating the node as a non-member" "$SANDBOX/b.log" \
+  "an earlier run removed it and did not finish"
+assert_contains "still waits for etcd to be whole again" "$SANDBOX/b.log" "etcd is whole again"
+assert_eq   "resume ends at three members" "$(members_count)" "3"
+if has_member 192.168.1.12; then ok "the resumed node rejoined at the same IP"
+else bad "the resumed node did not rejoin at 192.168.1.12"; fi
 
 # ---------------------------------------------------------------------------
 say "C  refuses when a surviving member is unreachable"

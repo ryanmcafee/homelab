@@ -84,6 +84,18 @@ func controlPlaneIPs(values map[string]config.ConfigValue) []string {
 	return out
 }
 
+// containsIP reports whether ip is one of the configured addresses. It is how
+// a control plane whose etcd member is already gone is told apart from a
+// worker, which never had one.
+func containsIP(ips []string, ip string) bool {
+	for _, v := range ips {
+		if v == ip {
+			return true
+		}
+	}
+	return false
+}
+
 // exceptIP returns ips without the given address.
 func exceptIP(ips []string, ip string) []string {
 	out := make([]string, 0, len(ips))
@@ -200,6 +212,16 @@ type etcdRemoval struct {
 	SnapshotPath string
 	// SurvivorIPs are the members expected to still be serving.
 	SurvivorIPs []string
+	// ExpectWhole is the member count etcd must return to before the
+	// recreate may report success, or 0 when this node is not an etcd node
+	// at all and the wait does not apply.
+	//
+	// It is deliberately not derived from Removed. A resumed run finds the
+	// member already gone (Removed=false) but is still rebuilding a control
+	// plane that has to rejoin, and skipping the recovery wait there would
+	// report success over a cluster left at N-1 — the exact "green on top,
+	// degraded underneath" outcome this command exists to prevent.
+	ExpectWhole int
 }
 
 // etcdPhaseOptions carries the inputs of the etcd phase.
@@ -252,10 +274,25 @@ func prepareEtcdForRecreate(ctx context.Context, opts etcdPhaseOptions) (*etcdRe
 
 	target, isMember := etcd.FindMemberByIP(members, opts.nodeIP)
 	if !isMember {
-		logger.OK(fmt.Sprintf(
-			"%s is not an etcd member — nothing to remove (a worker, or a member an earlier run already removed)",
-			opts.nodeIP))
-		return &etcdRemoval{Removed: false, ClusterSize: len(members), SurvivorIPs: etcd.MemberIPs(members)}, nil
+		// Nothing to remove either way — that is the idempotency guarantee.
+		// But the two reasons a node is not a member need different
+		// endings, so they are told apart here rather than conflated.
+		out := &etcdRemoval{Removed: false, ClusterSize: len(members), SurvivorIPs: etcd.MemberIPs(members)}
+		if !containsIP(opts.cpIPs, opts.nodeIP) {
+			logger.OK(fmt.Sprintf("%s is not an etcd member and not a control plane — a worker, nothing to remove",
+				opts.nodeIP))
+			return out, nil
+		}
+		// A control plane that is not in the member list: an earlier run
+		// removed it and died before the node rejoined. Resume — and hold
+		// the same bar the first run would have, which means waiting for
+		// the member it is about to rebuild to come back.
+		out.ExpectWhole = len(members) + 1
+		logger.Warn(fmt.Sprintf(
+			"%s is a control plane but not an etcd member: an earlier run removed it and did not finish. "+
+				"Resuming — no second member will be removed, and this run waits for etcd to return to %d members.",
+			opts.nodeIP, out.ExpectWhole))
+		return out, nil
 	}
 
 	logger.Info(fmt.Sprintf("%s is etcd member %s (%s) of a %d-member cluster",
@@ -310,6 +347,7 @@ func prepareEtcdForRecreate(ctx context.Context, opts etcdPhaseOptions) (*etcdRe
 		MemberID:    target.ID,
 		ClusterSize: len(members),
 		SurvivorIPs: survivorIPs,
+		ExpectWhole: len(members),
 	}
 
 	if opts.skipSnapshot {
