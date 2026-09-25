@@ -7,6 +7,7 @@ name: Verify (level 0)
 #   level-0     task verify        render + lint + kubeconform + pluto + gitops graph + snapshots + policy
 #   policy      task test:policy   Rego unit tests + negative fixtures
 #               task test:health   ArgoCD health Lua (charts/bootstrap/files/health) against tests/health
+#               task test:alerts   promtool unit tests of the rendered alerting rules against tests/alerts
 #   schemas     task schemas:check vendored CRD schemas match configuration/versions.yaml
 #   cmp-parity  task test:cmp-parity  pinned homelab-cmp image == source `config export`
 #   scaffold    task test:scaffold one scaffolded app per pattern passes level 0 in a temp copy
@@ -145,10 +146,10 @@ jobs:
       # argocd is the mise.toml pin (= configuration/versions.yaml tools.argocd):
       # the health fixtures are evaluated with `argocd admin settings
       # resource-overrides health`, the same code path the controller runs.
-      - name: Install go, bun, conftest, argocd, task from mise.toml
+      - name: Install go, bun, conftest, argocd, helm, yq, promtool, task from mise.toml
         uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
         with:
-          install_args: go bun conftest argocd task
+          install_args: go bun conftest argocd helm yq aqua:prometheus/prometheus task
 
       - name: Install script dependencies from bun.lock
         run: bun install --frozen-lockfile
@@ -164,6 +165,13 @@ jobs:
 
       - name: ArgoCD health Lua fixtures
         run: task test:health
+
+      # promtool evaluates the alerting rules the addons chart renders against
+      # synthetic series (tests/alerts). A rule whose threshold encodes a
+      # deadline - PF_WORK's 24h silent-loss budget - is otherwise only ever
+      # read, never exercised. docs/runbooks/pf-work-age-expiry.md.
+      - name: Prometheus alerting rule unit tests
+        run: task test:alerts
 
       # Every script in scripts/ is TypeScript run by Bun and is the automation
       # this repo runs; a formatting or type error there breaks a task, not a

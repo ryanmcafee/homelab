@@ -161,6 +161,9 @@ of samples; that is how 16 alerts stood on democratic-csi for three months while
 | homelab-paperclip | `PaperclipAgentFailureRateHigh` | warning | more than 20 % of the agent runs finished in the last hour failed, were interrupted or timed out (at least 5 runs) for 15 m |
 | homelab-paperclip | `PaperclipRecoveryRateBreached` | warning | Paperclip's recovery-observability reports this week above its threshold for 30 m |
 | homelab-paperclip | `PaperclipPhantomAgentStuck` | warning | an agent reports `running` without a live run for 15 m |
+| homelab-nats-jetstream | `PFWorkOldestUnackedAging` | warning / critical | the head of the `PF_WORK` work queue has been unacked for 12 h / 18 h of its 24 h `max_age`, which deletes it silently ([pf-work-age-expiry.md](./pf-work-age-expiry.md)) |
+| homelab-nats-jetstream | `PFWorkMessagesExpiredUnacked` | critical | `PF_WORK` messages left the stream without being acked: age expiry, a purge or a delete |
+| homelab-nats-jetstream | `PFWorkStreamMetricsAbsent` | warning | the exporter reported `PF_WORK` in the last 6 h and no longer does, so the age budget is unwatched, for 30 m |
 | homelab-github | `GitHubPullRequestNeedsReview` | info (own route) | an open pull request matched a review query for 5 m ([below](#github-pull-requests-that-need-review)) |
 | homelab-github | `GitHubPullRequestExporterFailing` | warning | a GitHub search query failed (bad token, rate limit) or is not scraped for 15 m |
 | homelab-service-mesh | `HomelabIstiodDown` | warning | no istiod answers the scrape for 10 m ([service-mesh.md](../service-mesh.md)) |
@@ -173,9 +176,22 @@ all `critical`); the log store is diagnostic, so its failures never page at nigh
 rules read `exported_service`: the scrape's own `service` label (the metrics Service) displaces
 Traefik's backend label.
 
+The `homelab-nats-jetstream` rules exist before the stream they watch: a cluster without NATS has
+no `nats_stream_*` series, so they sit silent rather than firing or going absent. They are the
+monitoring half of a contract requirement — `PF_WORK` age expiry destroys unacked work with no
+advisory of any kind, so a consumer with no such alert fails the boundary quality gate (ADR-030).
+
 Add a rule next to these (Prometheus `$labels` escaped as in the file), give it a `severity`
 label the table above routes, and run `task verify:text`: kubeconform validates the
-Application and the snapshot records the change.
+Application and the snapshot records the change. If the rule's threshold encodes a decision — a
+budget, a deadline, a margin — unit-test it as well:
+
+```bash
+task test:alerts    # promtool, against the rules the chart renders (tests/alerts)
+```
+
+A rule that has never fired in a test is not evidence of anything; the tests in `tests/alerts`
+assert both that each threshold fires and that the near-miss cases stay quiet.
 
 **Where the metrics come from.** The monitoring CRDs (ServiceMonitor, PodMonitor,
 PrometheusRule) are installed by the bootstrap chart's `prometheus-operator-crds` Application
