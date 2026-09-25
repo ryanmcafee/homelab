@@ -1,5 +1,12 @@
 # Platform contracts
 
+> **Building or extending the platform?** Start here.
+>
+> **Just want the repository running?** You need none of this. Go to
+> [`readme.md`](../../readme.md), then [`docs/local-development.md`](../local-development.md).
+> Nothing on this page is a prerequisite for forking, booting a Kind cluster, or running the
+> verification gate.
+
 The architecture baseline that this repository and the commercial control plane both build
 against. One set of bones, not two copies: the moment homelab and enterprise diverge in
 implementation for the same concern, the architecture has failed.
@@ -15,7 +22,11 @@ implementation for the same concern, the architecture has failed.
 
 The ADRs live in [`docs/project_notes/decisions.md`](../project_notes/decisions.md), the
 repository's existing decision record. These documents carry the normative detail an ADR
-deliberately leaves out; the machine-checkable artifacts live in [`contracts/`](../../contracts).
+deliberately leaves out.
+
+Two directories one character apart, so worth stating plainly: **`docs/contracts/`** (here) is the
+prose — what the contract means and why. **[`contracts/`](../../contracts)** at the repository root
+is the machine-checkable form — schemas and fixtures a test can assert against.
 
 ## Status
 
