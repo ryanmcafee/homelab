@@ -233,20 +233,27 @@ func runTalosRecreate(opts talosRecreateOptions) error {
 	// A Ready kubelet is not the same thing as a rejoined etcd member, and
 	// the whole point of this command is the etcd half. Report success only
 	// once the cluster is whole again at its original size.
-	if removal != nil && removal.Removed {
+	// ExpectWhole, not Removed: a resumed run whose member an earlier crashed
+	// run already removed still has to see the control plane rejoin before it
+	// may claim success.
+	if removal != nil && removal.ExpectWhole > 0 {
 		logger.Info(fmt.Sprintf("Step 9/9: Waiting up to %s for etcd to return to %d healthy members",
-			etcdRejoinTimeout, removal.ClusterSize))
+			etcdRejoinTimeout, removal.ExpectWhole))
 		evidence, herr := waitEtcdHealthy(ctx, append([]string{nodeIP}, removal.SurvivorIPs...),
-			removal.ClusterSize, opts.raftTolerance, etcdRejoinTimeout)
+			removal.ExpectWhole, opts.raftTolerance, etcdRejoinTimeout)
 		if herr != nil {
+			rollback := "No snapshot was taken by this run; use the one from the run that removed the member."
+			if removal.SnapshotPath != "" {
+				rollback = fmt.Sprintf("The snapshot taken before the removal is at %s.", removal.SnapshotPath)
+			}
 			return fmt.Errorf("node %q was rebuilt and is Ready, but etcd did not recover: %w\n"+
-				"The snapshot taken before the removal is at %s. "+
+				"%s "+
 				"See docs/runbooks/talos-upgrade.md (Scenario 4: node replacement failed mid-flight)",
-				node, herr, removal.SnapshotPath)
+				node, herr, rollback)
 		}
 		logger.OK("etcd is whole again:\n" + evidence)
 	} else {
-		logger.Info("Step 9/9: SKIPPED etcd recovery wait (this node is not an etcd member)")
+		logger.Info("Step 9/9: SKIPPED etcd recovery wait (this node is not an etcd node)")
 	}
 
 	logger.OK(fmt.Sprintf("Node %q recreated and Ready (K8s name: %s)", node, newK8sName))
