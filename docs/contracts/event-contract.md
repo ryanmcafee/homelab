@@ -37,6 +37,14 @@ registered `dataschema` resolves to a file under [`contracts/events/data/`](../.
 and the gate opens it — an unpublished payload is not a contract, so the rule is enforced and
 not merely asserted.
 
+**`$id` is identity; `dataschema` is location.** Every schema's `$id` stays
+`https://github.com/ryanmcafee/homelab/…` on a fork, while its `dataschema` on the wire resolves
+through that fork's own `contracts_base_uri`. This is deliberate and is the same argument as the
+fixed `com.mcafeeconsulting.platform.` type prefix: the schema's identity belongs to the platform
+software, which a fork still runs, and only the retrieval URI is the operator's. Cache and compare
+by `$id`; fetch by `dataschema`. Do not key a schema cache on the retrieval URI, or two installs
+of the same contract look like two contracts.
+
 ## 2. The subject taxonomy
 
 Seven tokens, always:
@@ -140,8 +148,17 @@ The gate pins each stable type's payload properties, its `required` list and the
 **New envelope attributes are not unilaterally additive.** `envelope.v1.schema.json` is
 `additionalProperties: false`, so a producer that ships a new attribute has its events
 *rejected* by any consumer still validating against an older copy of the file. Adding one is a
-**coordinated rollout** — every validator updated first, producers second — and the gate pins
-the envelope's `required` array so the ordering cannot be skipped by accident.
+**coordinated rollout** — every validator updated first, producers second. The gate pins the
+envelope attribute by attribute, not just its `required` array: the property set in both
+directions (`envelope-attribute-added`, `envelope-attribute-removed`), each attribute's declared
+type (`envelope-attribute-retyped`), each attribute's `pattern`, `format` and `const`
+(`envelope-pattern-changed`), and the `additionalProperties` flag this whole paragraph rests on
+(`envelope-additional-properties-changed`). Pinning `required` alone could not see any of it: an
+attribute added *optionally* is the exact hazard described here and is not required, and deleting
+`sequence` outright removed it from `properties` and `required` together, so the diff was
+invisible to the gate. Payload schemas were pinned property by property while the one file every
+event on the bus validates against was pinned by an eight-element string array — the weaker guard
+on the more dangerous file. (ADR-038, D1.)
 
 Everything else needs `…v2` published **alongside** `…v1`, with v1 kept for at least one minor
 release of the platform. The breaking set the gate rejects outright:
@@ -223,6 +240,17 @@ just declared for one.
   component to create a domain-wide `wq` consumer would permanently foreclose every other
   component in that domain, and you would find out in whichever environment the second
   component deployed to. The domain-scoped naming rule above is for `.ev` only.
+- **That rule assumes one NATS account, and therefore one `PF_WORK`, per tenant.** A
+  fully-specified subject names a concrete `<tenant>` token while the consumer name grammar has
+  none, so the two are consistent only when the tenant is constant within the account. Stated
+  normatively because the single-account reading fails silently: **a durable consumer create with
+  an existing name is an *update*, not a conflict.** Two tenants' `platform-api` deployments both
+  create `platform-api-deployment-promote-v1`, and the second silently repoints the first's
+  filter — no error, no `10100`, which only fires on an overlapping filter under a *different*
+  name. The first tenant's queued `wq` work then has no consumer; a work queue retains rather
+  than drops it, so nothing alerts, and 24h later `max_age` deletes it down the no-advisory path
+  in `PF_WORK`'s `silent_loss`. Onboarding a second tenant would silently destroy the first
+  tenant's durable requests a day later, by routine deployment rather than misconfiguration.
 - **Republish to the `dl` subject on final failure.** On the delivery where `max_deliver`
   exhausts, or on an error the handler knows is not retryable, the consumer republishes the
   **full original envelope** to the `dl` subject derived from the message's own subject (same

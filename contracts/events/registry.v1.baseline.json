@@ -14,7 +14,106 @@
       "tenant",
       "time",
       "type"
-    ]
+    ],
+    "properties": {
+      "correlationid": {
+        "type": "string",
+        "pattern": null,
+        "format": null,
+        "const": null
+      },
+      "data": {
+        "type": "unknown",
+        "pattern": null,
+        "format": null,
+        "const": null
+      },
+      "datacontenttype": {
+        "type": "unknown",
+        "pattern": null,
+        "format": null,
+        "const": "\"application/json\""
+      },
+      "dataschema": {
+        "type": "string",
+        "pattern": null,
+        "format": "uri",
+        "const": null
+      },
+      "dryrun": {
+        "type": "boolean",
+        "pattern": null,
+        "format": null,
+        "const": null
+      },
+      "id": {
+        "type": "string",
+        "pattern": null,
+        "format": null,
+        "const": null
+      },
+      "replyto": {
+        "type": "string",
+        "pattern": null,
+        "format": null,
+        "const": null
+      },
+      "sequence": {
+        "type": "string",
+        "pattern": "^[0-9]{1,20}$",
+        "format": null,
+        "const": null
+      },
+      "source": {
+        "type": "string",
+        "pattern": "^//[a-z0-9]([a-z0-9-]*[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*/[a-z0-9./-]+$",
+        "format": null,
+        "const": null
+      },
+      "specversion": {
+        "type": "unknown",
+        "pattern": null,
+        "format": null,
+        "const": "\"1.0\""
+      },
+      "subject": {
+        "type": "string",
+        "pattern": null,
+        "format": null,
+        "const": null
+      },
+      "tenant": {
+        "type": "string",
+        "pattern": "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$",
+        "format": null,
+        "const": null
+      },
+      "time": {
+        "type": "string",
+        "pattern": null,
+        "format": "date-time",
+        "const": null
+      },
+      "traceparent": {
+        "type": "string",
+        "pattern": "^00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$",
+        "format": null,
+        "const": null
+      },
+      "tracestate": {
+        "type": "string",
+        "pattern": null,
+        "format": null,
+        "const": null
+      },
+      "type": {
+        "type": "string",
+        "pattern": "^com\\.mcafeeconsulting\\.platform\\.[a-z0-9]+(-[a-z0-9]+)*(\\.[a-z0-9]+(-[a-z0-9]+)*)*\\.v[1-9][0-9]*$",
+        "format": null,
+        "const": null
+      }
+    },
+    "additionalProperties": false
   },
   "streams": [
     {

@@ -86,11 +86,20 @@ const TAXONOMY: Taxonomy = {
 
 const ENVELOPE: Envelope = {
   required: ["id", "source", "type"],
+  additionalProperties: false,
   properties: {
     type: {
+      type: "string",
       pattern:
         "^com\\.mcafeeconsulting\\.platform\\.[a-z0-9]+(-[a-z0-9]+)*(\\.[a-z0-9]+(-[a-z0-9]+)*)*\\.v[1-9][0-9]*$",
     },
+    id: { type: "string" },
+    source: { type: "string" },
+    time: { type: "string", format: "date-time" },
+    specversion: { const: "1.0" },
+    // Optional, and the attribute `consumers.ordering_reality` tells every
+    // consumer to rely on — so the one most worth pinning.
+    sequence: { type: "string", pattern: "^[0-9]{1,20}$" },
   },
 };
 
@@ -874,6 +883,99 @@ test("the envelope's own required list is pinned, in both directions", () => {
   );
 
   assertEquals(checkEnvelopeCompatibility(base, ENVELOPE), []);
+});
+
+// --- D1: the properties block, not just `required` -------------------------
+// Pinning `required` alone left the one file every event on the bus validates
+// against guarded by an eight-element string array, while payload schemas were
+// pinned property by property. These three mutations all passed that gate.
+
+const envelopeWithout = (attr: string): Envelope => {
+  const properties = { ...ENVELOPE.properties };
+  delete properties[attr];
+  return { ...ENVELOPE, properties };
+};
+
+const envelopeRules = (e: Envelope) =>
+  checkEnvelopeCompatibility(baselineOf(DEPLOYED), e).map((v) => v.rule);
+
+test("deleting an optional envelope attribute is rejected", () => {
+  // `sequence` is optional, so removing it never touches `required` and the
+  // required-only pin could not see it — in the same contract that tells every
+  // consumer to use `sequence` to detect reordering.
+  assert(
+    envelopeRules(envelopeWithout("sequence")).includes(
+      "envelope-attribute-removed",
+    ),
+  );
+});
+
+test("adding an envelope attribute is rejected even when it is optional", () => {
+  // additionalProperties: false means a consumer validating against an older
+  // vendored copy REJECTS every event carrying it. Optional is not additive.
+  const wider: Envelope = {
+    ...ENVELOPE,
+    properties: { ...ENVELOPE.properties, partitionkey: { type: "string" } },
+  };
+  assert(envelopeRules(wider).includes("envelope-attribute-added"));
+});
+
+test("retyping an envelope attribute is rejected", () => {
+  const retyped: Envelope = {
+    ...ENVELOPE,
+    properties: { ...ENVELOPE.properties, sequence: { type: "integer" } },
+  };
+  assert(envelopeRules(retyped).includes("envelope-attribute-retyped"));
+});
+
+test("narrowing an envelope pattern, format or const is rejected", () => {
+  // Nothing about the attribute's *type* changes, but values that validated
+  // before stop validating — here, every hyphenated type the grammar allows.
+  const narrowed: Envelope = {
+    ...ENVELOPE,
+    properties: {
+      ...ENVELOPE.properties,
+      type: {
+        type: "string",
+        pattern: "^com\\.mcafeeconsulting\\.platform\\.[a-z0-9]+$",
+      },
+    },
+  };
+  assert(envelopeRules(narrowed).includes("envelope-pattern-changed"));
+
+  const reformatted: Envelope = {
+    ...ENVELOPE,
+    properties: {
+      ...ENVELOPE.properties,
+      time: { type: "string", format: "date" },
+    },
+  };
+  assert(envelopeRules(reformatted).includes("envelope-pattern-changed"));
+
+  const reconsted: Envelope = {
+    ...ENVELOPE,
+    properties: { ...ENVELOPE.properties, specversion: { const: "1.1" } },
+  };
+  assert(envelopeRules(reconsted).includes("envelope-pattern-changed"));
+});
+
+test("opening the envelope to additional properties is rejected", () => {
+  // The flag the whole coordinated-rollout rule rests on.
+  const opened: Envelope = { ...ENVELOPE, additionalProperties: true };
+  assert(
+    envelopeRules(opened).includes("envelope-additional-properties-changed"),
+  );
+});
+
+test("an envelope baseline predating the properties pin is adopted, not failed", () => {
+  // `baseline --write` is the documented way to take the new pin; an older
+  // baseline must not fail the build on every attribute at once.
+  const base = baselineOf(DEPLOYED);
+  const legacy = {
+    ...base,
+    envelope: { required: base.envelope.required },
+  } as Baseline;
+  assertEquals(checkEnvelopeCompatibility(legacy, ENVELOPE), []);
 });
 
 // ============================================================================

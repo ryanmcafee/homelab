@@ -21,8 +21,8 @@
  *
  *   2. Backward compatibility — the whole contract is diffed against the frozen
  *      baseline in contracts/events/registry.v1.baseline.json: the registered
- *      types, the envelope's own `required` list, the stream set, and the
- *      subject grammar. Removing a stable type, demoting it to experimental,
+ *      types, the envelope schema attribute by attribute, the stream set, and
+ *      the subject grammar. Removing a stable type, demoting it to experimental,
  *      weakening its delivery guarantee or ordering, changing its data schema
  *      in place, adding OR removing a required attribute, reassigning its
  *      producer, emptying its body, narrowing a stream filter, shortening a
@@ -118,7 +118,16 @@ export interface Taxonomy {
 /** The envelope schema, read only for the fields the gate pins. */
 export interface Envelope {
   required: string[];
-  properties: Record<string, { pattern?: string }>;
+  properties: Record<
+    string,
+    {
+      type?: string | string[];
+      pattern?: string;
+      format?: string;
+      const?: unknown;
+    }
+  >;
+  additionalProperties?: boolean;
 }
 
 /**
@@ -148,6 +157,39 @@ export interface BaselinePayload {
   /** Property name -> declared JSON type, `"unknown"` when untyped. */
   properties: Record<string, string>;
   required: string[];
+  additionalProperties: boolean;
+}
+
+/**
+ * One envelope attribute, pinned by every constraint that can reject a value
+ * which used to validate.
+ *
+ * `pattern`, `format` and `const` are here and not only `type` because
+ * narrowing any of them is a silent break: tightening `type`'s pattern to drop
+ * hyphen support rejects every event of a hyphenated type the grammar
+ * explicitly allows, and nothing about the attribute's *type* changed.
+ */
+export interface BaselineEnvelopeProperty {
+  /** Declared JSON type, `"unknown"` for a `const`-only or untyped attribute. */
+  type: string;
+  pattern: string | null;
+  format: string | null;
+  /** `const` rendered as JSON, because changing it is a wire-format change. */
+  const: string | null;
+}
+
+/**
+ * The envelope's own projection.
+ *
+ * ADR-038 pinned `required` and nothing else, which left the properties block
+ * of the one file every event on the bus validates against completely
+ * unguarded. Deleting `sequence` outright passed the gate — in the same commit
+ * that made `consumers.ordering_reality` normative and told every consumer to
+ * use `sequence` to detect reordering.
+ */
+export interface BaselineEnvelope {
+  required: string[];
+  properties: Record<string, BaselineEnvelopeProperty>;
   additionalProperties: boolean;
 }
 
@@ -205,7 +247,7 @@ export interface BaselineStream {
 export interface Baseline {
   version: number;
   grammar: { pattern: string; tokens: number };
-  envelope: { required: string[] };
+  envelope: BaselineEnvelope;
   streams: BaselineStream[];
   types: BaselineEntry[];
 }
@@ -821,6 +863,26 @@ export function toBaselineStreams(taxonomy: Taxonomy): BaselineStream[] {
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
+export function toBaselineEnvelope(envelope: Envelope): BaselineEnvelope {
+  const properties: Record<string, BaselineEnvelopeProperty> = {};
+  for (const name of Object.keys(envelope.properties ?? {}).sort()) {
+    const def = envelope.properties[name] ?? {};
+    const t = def.type;
+    properties[name] = {
+      type: Array.isArray(t) ? [...t].sort().join("|") : (t ?? "unknown"),
+      pattern: def.pattern ?? null,
+      format: def.format ?? null,
+      const: def.const === undefined ? null : JSON.stringify(def.const),
+    };
+  }
+  return {
+    required: [...envelope.required].sort(),
+    properties,
+    // Absent means "additions allowed" in JSON Schema; record the effective value.
+    additionalProperties: envelope.additionalProperties ?? true,
+  };
+}
+
 export function toBaseline(
   registry: Registry,
   taxonomy: Taxonomy,
@@ -833,7 +895,7 @@ export function toBaseline(
       pattern: taxonomy.grammar.pattern,
       tokens: taxonomy.grammar.tokens,
     },
-    envelope: { required: [...envelope.required].sort() },
+    envelope: toBaselineEnvelope(envelope),
     streams: toBaselineStreams(taxonomy),
     types: toBaselineTypes(registry, payloads),
   };
@@ -1031,33 +1093,87 @@ export function checkPayloadCompatibility(
 }
 
 /**
- * The envelope schema's own `required` list, which the gate did not read at all
- * until ADR-038 — while the documentation claimed it rejected a newly required
- * envelope attribute. Both directions are breaking: adding one rejects every
- * event from a producer that has not shipped yet, and removing one withdraws a
- * guarantee consumers were told to rely on.
+ * The envelope schema — its `required` list and, since D1, its `properties`
+ * block.
+ *
+ * `required` alone was the weaker guard on the more dangerous file: payload
+ * schemas were pinned property by property while the envelope, which every
+ * event on the bus validates against, was pinned by an eight-element string
+ * array. Deleting `sequence` from `properties` left it absent from `required`
+ * too, so the diff was invisible to the gate and `contracts:check` stayed
+ * green. A required-only pin also cannot see an *optional* attribute being
+ * added, which is the hazard `event-contract.md` §4 actually describes: under
+ * `additionalProperties: false`, a consumer still validating against an older
+ * vendored copy rejects every event carrying the new attribute, required or
+ * not.
  */
 export function checkEnvelopeCompatibility(
   baseline: Baseline,
   envelope: Envelope,
 ): Violation[] {
   const out: Violation[] = [];
+  const v = (rule: string, message: string) =>
+    out.push({ rule, subject: ENVELOPE_FILE, message });
+
   const was = baseline.envelope?.required ?? [];
   const is = envelope.required ?? [];
   const added = is.filter((r) => !was.includes(r));
   const removed = was.filter((r) => !is.includes(r));
   if (added.length > 0)
-    out.push({
-      rule: "envelope-attribute-required",
-      subject: "envelope.v1.schema.json",
-      message: `newly required envelope attributes [${added.join(", ")}]; the envelope is additionalProperties: false, so this is a coordinated rollout (validators first, producers second), never a unilateral edit`,
-    });
+    v(
+      "envelope-attribute-required",
+      `newly required envelope attributes [${added.join(", ")}]; the envelope is additionalProperties: false, so this is a coordinated rollout (validators first, producers second), never a unilateral edit`,
+    );
   if (removed.length > 0)
-    out.push({
-      rule: "envelope-attribute-unrequired",
-      subject: "envelope.v1.schema.json",
-      message: `no longer required: [${removed.join(", ")}]; consumers were told these are always present`,
-    });
+    v(
+      "envelope-attribute-unrequired",
+      `no longer required: [${removed.join(", ")}]; consumers were told these are always present`,
+    );
+
+  const wasProps = baseline.envelope?.properties;
+  // An older baseline predates the properties pin; `baseline --write` adopts it.
+  if (!wasProps) return out;
+  const isProps = toBaselineEnvelope(envelope).properties;
+
+  const goneProps = Object.keys(wasProps).filter((p) => !(p in isProps));
+  if (goneProps.length > 0)
+    v(
+      "envelope-attribute-removed",
+      `envelope attributes removed: [${goneProps.join(", ")}]; producers can no longer set them and any consumer reading them gets undefined. Deprecate in place instead`,
+    );
+
+  const newProps = Object.keys(isProps).filter((p) => !(p in wasProps));
+  if (newProps.length > 0)
+    v(
+      "envelope-attribute-added",
+      `new envelope attributes [${newProps.join(", ")}]; the envelope is additionalProperties: false, so a consumer validating against an older vendored copy rejects every event carrying them. Optional does not make this additive — roll validators out first, then producers`,
+    );
+
+  for (const [name, wasProp] of Object.entries(wasProps)) {
+    const isProp = isProps[name];
+    if (!isProp) continue; // already reported as removed
+    if (isProp.type !== wasProp.type)
+      v(
+        "envelope-attribute-retyped",
+        `envelope attribute "${name}" changed type ${wasProp.type} -> ${isProp.type}; a consumer that parsed the old type fails on the new one`,
+      );
+    for (const key of ["pattern", "format", "const"] as const) {
+      if (isProp[key] !== wasProp[key])
+        v(
+          "envelope-pattern-changed",
+          `envelope attribute "${name}" changed its ${key} constraint ${wasProp[key] ?? "(none)"} -> ${isProp[key] ?? "(none)"}; a value that validated before may not now, and every producer and consumer shares this one file`,
+        );
+    }
+  }
+
+  const wasOpen = baseline.envelope?.additionalProperties;
+  const isOpen = envelope.additionalProperties ?? true;
+  if (wasOpen !== undefined && wasOpen !== isOpen)
+    v(
+      "envelope-additional-properties-changed",
+      `additionalProperties changed ${wasOpen} -> ${isOpen} on the envelope; this decides whether an unregistered attribute on the wire is rejected or ignored, which is the whole basis of the coordinated-rollout rule. Move it with an ADR`,
+    );
+
   return out;
 }
 
@@ -1252,7 +1368,7 @@ async function main(argv: string[]): Promise<number> {
         0,
       );
       log.ok(
-        `wrote ${join(dir, BASELINE_FILE)} (${baseline.types.length} stable types, ${baseline.streams.length} streams, ${baseline.envelope.required.length} required envelope attributes, ${pinnedProps} payload properties)`,
+        `wrote ${join(dir, BASELINE_FILE)} (${baseline.types.length} stable types, ${baseline.streams.length} streams, ${Object.keys(baseline.envelope.properties).length} envelope attributes of which ${baseline.envelope.required.length} required, ${pinnedProps} payload properties)`,
       );
       return 0;
     }
@@ -1292,7 +1408,7 @@ async function main(argv: string[]): Promise<number> {
     0,
   );
   log.ok(
-    `${registry.types.length} registered types across ${taxonomy.streams.length} streams; ${baseline.types.length} stable types, ${baseline.streams.length} streams, the envelope's ${baseline.envelope.required.length} required attributes, ${pinnedProps} payload properties and the subject grammar all compatible with the baseline`,
+    `${registry.types.length} registered types across ${taxonomy.streams.length} streams; ${baseline.types.length} stable types, ${baseline.streams.length} streams, the envelope's ${Object.keys(baseline.envelope.properties ?? {}).length} attributes (${baseline.envelope.required.length} required), ${pinnedProps} payload properties and the subject grammar all compatible with the baseline`,
   );
   return 0;
 }
