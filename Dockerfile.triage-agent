@@ -1,0 +1,49 @@
+# Alert triage agent (triage-agent/, docs/runbooks/triage-agent.md).
+#
+# Node for the npx MCP servers, Bun for the service, uv for the uvx MCP servers
+# (serena, paperclip-mcp), git for the repository clone and kubectl for the
+# read-only diagnosis. Every stage resolves to the TARGET platform so
+# `bun install` picks the Claude Code binary of the architecture that runs it.
+
+# renovate: datasource=docker depName=oven/bun
+FROM oven/bun:1.4.2-debian AS bun
+
+# renovate: datasource=docker depName=ghcr.io/astral-sh/uv
+FROM ghcr.io/astral-sh/uv:0.12.19 AS uv
+
+FROM bun AS deps
+WORKDIR /app
+COPY triage-agent/package.json triage-agent/bun.lock ./
+RUN bun install --frozen-lockfile --production
+
+# renovate: datasource=docker depName=node
+FROM node:24-bookworm-slim
+
+ARG TARGETARCH
+# renovate: datasource=github-releases depName=kubernetes/kubernetes
+ARG KUBECTL_VERSION=v1.37.1
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates curl git jq ripgrep \
+    && rm -rf /var/lib/apt/lists/* \
+    && curl -fsSLo /usr/local/bin/kubectl "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${TARGETARCH}/kubectl" \
+    && echo "$(curl -fsSL "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${TARGETARCH}/kubectl.sha256")  /usr/local/bin/kubectl" | sha256sum -c - \
+    && chmod 0755 /usr/local/bin/kubectl
+
+COPY --from=bun /usr/local/bin/bun /usr/local/bin/bun
+COPY --from=uv /uv /uvx /usr/local/bin/
+
+WORKDIR /app
+COPY --from=deps /app/node_modules ./node_modules
+COPY triage-agent/package.json ./
+COPY triage-agent/src ./src
+
+# HOME, the workspace and /tmp are emptyDir volumes in the pod; the root
+# filesystem stays read-only.
+ENV HOME=/home/agent \
+    CLAUDE_CONFIG_DIR=/home/agent/.claude \
+    npm_config_update_notifier=false \
+    UV_NO_PROGRESS=1
+USER 1000:1000
+EXPOSE 8080
+CMD ["bun", "src/main.ts"]

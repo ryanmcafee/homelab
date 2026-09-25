@@ -69,6 +69,29 @@ tasks:
     cmds:
       - bun test {{.CLI_ARGS | default "scripts"}}
 
+  triage-agent:install:
+    desc: Install the triage agent dependencies pinned in triage-agent/bun.lock
+    internal: true
+    silent: true
+    run: once
+    dir: triage-agent
+    cmds:
+      - bun install --frozen-lockfile --silent
+
+  triage-agent:lint:
+    desc: "Format check, lint (Biome) and type check (tsc) of triage-agent/"
+    deps: [bun:install, triage-agent:install]
+    cmds:
+      - bunx biome check triage-agent
+      - bun run --cwd triage-agent typecheck
+
+  test:triage-agent:
+    desc: Unit tests of triage-agent/ (bun test; task test:triage-agent -- tests/unit/queue.test.ts for one file)
+    deps: [triage-agent:install]
+    dir: triage-agent
+    cmds:
+      - bun test {{.CLI_ARGS | default "tests"}}
+
   contracts:check:
     desc: Validate the platform event contract in contracts/events/ and diff it against the compatibility baseline (ADR-026, ADR-030)
     deps: [bun:install]
@@ -1030,6 +1053,8 @@ tasks:
       - task: ci:lint
       - task: scripts:lint
       - task: test:scripts
+      - task: triage-agent:lint
+      - task: test:triage-agent
       - task: tf:validate
       - task: test:go
       - task: verify
