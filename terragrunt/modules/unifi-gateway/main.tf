@@ -52,8 +52,8 @@ resource "unifi_setting" "syslog" {
     ip                             = var.telemetry_collector_ip
     port                           = var.syslog_port
     log_all_contents               = true
-    this_controller                = true
-    this_controller_encrypted_only = true
+    this_controller                = false
+    this_controller_encrypted_only = false
     debug                          = false
     netconsole_enabled             = false
   }
