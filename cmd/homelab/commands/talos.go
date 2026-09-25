@@ -72,10 +72,17 @@ raft-lagging. Re-running after a failed run never removes a second member.`,
 	cmd.Flags().BoolVar(&opts.skipDrain, "skip-drain", false, "Skip draining the node")
 	cmd.Flags().StringVar(&opts.snapshotDir, "etcd-snapshot-dir", defaultEtcdSnapshotDir,
 		"Directory for the pre-removal etcd snapshot")
-	cmd.Flags().BoolVar(&opts.skipSnapshot, "skip-etcd-snapshot", false,
-		"Do not take an etcd snapshot before removing the member (you must have an off-cluster backup)")
+	// There is deliberately no --skip-etcd-snapshot. A verified snapshot
+	// before the removal is an acceptance criterion of homelab #39, not a
+	// default, and a flag that turns a safety precondition off is how the
+	// precondition stops being one: the run that most wants to skip the
+	// snapshot is the run on a cluster that is already unhappy, which is
+	// precisely the run that will need it. An operator who genuinely has an
+	// off-cluster backup loses nothing by also taking this one, and
+	// --etcd-snapshot-dir still says where it goes.
 	cmd.Flags().Int64Var(&opts.raftTolerance, "raft-tolerance", etcd.DefaultRaftTolerance,
-		"How far behind the highest RAFT INDEX a surviving etcd member may be and still count as healthy")
+		fmt.Sprintf("How far behind the highest RAFT INDEX a surviving etcd member may be and still count as "+
+			"healthy. May only be tightened: values above the default of %d are rejected.", etcd.DefaultRaftTolerance))
 
 	return cmd
 }
@@ -85,11 +92,28 @@ type talosRecreateOptions struct {
 	node          string
 	skipDrain     bool
 	snapshotDir   string
-	skipSnapshot  bool
 	raftTolerance int64
 }
 
+// validate rejects flag values that would weaken a gate on a destructive path.
+// A flag that can only make a safety check stricter is a convenience; one that
+// can make it laxer is a bypass with a nicer name.
+func (o talosRecreateOptions) validate() error {
+	if o.raftTolerance > etcd.DefaultRaftTolerance {
+		return fmt.Errorf("--raft-tolerance=%d is looser than the default of %d: the raft-index-converged check "+
+			"may only be tightened, because raising it counts a member that is still catching up towards quorum "+
+			"on a path that removes an etcd member", o.raftTolerance, etcd.DefaultRaftTolerance)
+	}
+	if o.raftTolerance < 0 {
+		return fmt.Errorf("--raft-tolerance=%d is negative", o.raftTolerance)
+	}
+	return nil
+}
+
 func runTalosRecreate(opts talosRecreateOptions) error {
+	if err := opts.validate(); err != nil {
+		return err
+	}
 	node, skipDrain := opts.node, opts.skipDrain
 	utils.DryRun = DryRun
 	utils.AutoAccept = AutoAccept
@@ -99,7 +123,7 @@ func runTalosRecreate(opts talosRecreateOptions) error {
 	logger.Info("======================================")
 	logger.Info(fmt.Sprintf("  Node: %s", node))
 	logger.Info(fmt.Sprintf("  Skip Drain: %t", skipDrain))
-	logger.Info(fmt.Sprintf("  etcd snapshot: %s", etcdSnapshotSummary(opts)))
+	logger.Info(fmt.Sprintf("  etcd snapshot: %s", opts.snapshotDir))
 	logger.Info(fmt.Sprintf("  Dry Run: %t", DryRun))
 	logger.Info("======================================")
 	fmt.Println()
@@ -189,7 +213,6 @@ func runTalosRecreate(opts talosRecreateOptions) error {
 		nodeIP:        nodeIP,
 		cpIPs:         cpIPs,
 		snapshotDir:   opts.snapshotDir,
-		skipSnapshot:  opts.skipSnapshot,
 		raftTolerance: opts.raftTolerance,
 	})
 	if eerr != nil {
@@ -240,7 +263,7 @@ func runTalosRecreate(opts talosRecreateOptions) error {
 		logger.Info(fmt.Sprintf("Step 9/9: Waiting up to %s for etcd to return to %d healthy members",
 			etcdRejoinTimeout, removal.ExpectWhole))
 		evidence, herr := waitEtcdHealthy(ctx, append([]string{nodeIP}, removal.SurvivorIPs...),
-			removal.ExpectWhole, opts.raftTolerance, etcdRejoinTimeout)
+			cpIPs, opts.raftTolerance, etcdRejoinTimeout)
 		if herr != nil {
 			rollback := "No snapshot was taken by this run; use the one from the run that removed the member."
 			if removal.SnapshotPath != "" {
@@ -261,15 +284,6 @@ func runTalosRecreate(opts talosRecreateOptions) error {
 		logger.Info(fmt.Sprintf("Pre-removal etcd snapshot retained at %s", removal.SnapshotPath))
 	}
 	return nil
-}
-
-// etcdSnapshotSummary renders the snapshot setting for the run banner, so the
-// operator sees up front whether this run has a rollback path.
-func etcdSnapshotSummary(opts talosRecreateOptions) string {
-	if opts.skipSnapshot {
-		return "SKIPPED (--skip-etcd-snapshot)"
-	}
-	return opts.snapshotDir
 }
 
 // waitForNewReadyNodeByIP polls kubectl until a K8s node whose InternalIP

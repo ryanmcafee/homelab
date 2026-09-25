@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/ryanmcafee/homelab/internal/config"
+	"github.com/ryanmcafee/homelab/internal/etcd"
 )
 
 func values(pairs map[string]string) map[string]config.ConfigValue {
@@ -104,12 +105,51 @@ func TestExceptIP(t *testing.T) {
 	}
 }
 
-func TestEtcdSnapshotSummary(t *testing.T) {
-	if got := etcdSnapshotSummary(talosRecreateOptions{snapshotDir: "./etcd-snapshots"}); got != "./etcd-snapshots" {
-		t.Errorf("etcdSnapshotSummary = %q, want the directory", got)
+// The raft-index-converged tolerance may only be tightened. A flag that can
+// loosen a safety check on a path that removes an etcd member is a bypass, so
+// it is rejected before any cluster call happens.
+func TestRecreateOptionsValidateRaftTolerance(t *testing.T) {
+	base := talosRecreateOptions{snapshotDir: "./etcd-snapshots"}
+
+	tighter := base
+	tighter.raftTolerance = etcd.DefaultRaftTolerance - 1
+	if err := tighter.validate(); err != nil {
+		t.Errorf("tightening the tolerance was rejected: %v", err)
 	}
-	got := etcdSnapshotSummary(talosRecreateOptions{snapshotDir: "./etcd-snapshots", skipSnapshot: true})
-	if !strings.Contains(got, "SKIPPED") {
-		t.Errorf("etcdSnapshotSummary = %q, want it to say the run has no snapshot", got)
+
+	atDefault := base
+	atDefault.raftTolerance = etcd.DefaultRaftTolerance
+	if err := atDefault.validate(); err != nil {
+		t.Errorf("the default tolerance was rejected: %v", err)
+	}
+
+	looser := base
+	looser.raftTolerance = etcd.DefaultRaftTolerance + 1
+	err := looser.validate()
+	if err == nil {
+		t.Fatal("a tolerance looser than the default was accepted; the gate can be turned off from the command line")
+	}
+	if !strings.Contains(err.Error(), "only be tightened") {
+		t.Errorf("refusal does not say why: %v", err)
+	}
+
+	negative := base
+	negative.raftTolerance = -1
+	if err := negative.validate(); err == nil {
+		t.Error("a negative tolerance was accepted")
+	}
+}
+
+// There must be no way to ask for the removal without a snapshot: it is a
+// precondition of the operation, not an option on it.
+func TestRecreateHasNoSnapshotBypassFlag(t *testing.T) {
+	cmd := newTalosRecreateCmd()
+	for _, name := range []string{"skip-etcd-snapshot", "skip-snapshot", "no-etcd-snapshot", "force"} {
+		if f := cmd.Flags().Lookup(name); f != nil {
+			t.Errorf("--%s exists: the verified pre-removal snapshot can be skipped", name)
+		}
+	}
+	if cmd.Flags().Lookup("etcd-snapshot-dir") == nil {
+		t.Error("--etcd-snapshot-dir is missing: the operator cannot say where the snapshot goes")
 	}
 }

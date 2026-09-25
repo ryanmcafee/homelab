@@ -23,17 +23,19 @@ import (
 )
 
 const (
-	// ExpectedMembers is the default control-plane size. It is only a
-	// default: every check takes the expected count as an argument so a
-	// fork running one or five control planes is measured against its own
-	// cluster, not against this repo's three.
-	ExpectedMembers = 3
-
 	// DefaultRaftTolerance is how far behind the highest RAFT INDEX a
 	// member may be and still count as caught up. The members are queried
 	// at slightly different moments on a cluster that keeps writing, so
 	// exact equality is not a usable gate; a member many indices behind is
 	// still catching up and must not be counted towards quorum.
+	//
+	// This is the contract's `raftIndexTolerance`, not an independent
+	// constant. It is duplicated here only until the topology-contract
+	// loader lands (contracts/cluster/topology.v1.yaml, ADR-034); at that
+	// point this declaration is deleted and the value is read from the
+	// contract. Callers may only *tighten* it — a larger tolerance makes
+	// raft-index-converged weaker on a destructive path, so the flag that
+	// feeds it refuses to loosen it.
 	DefaultRaftTolerance int64 = 10
 )
 
@@ -258,6 +260,19 @@ func CheckHealth(members []Status, expected int, tolerance int64) Health {
 	if len(members) != expected {
 		problems = append(problems, fmt.Sprintf("%d member(s) answered, expected %d", len(members), expected))
 	}
+	problems = append(problems, convergenceProblems(members, tolerance)...)
+	return Health{OK: len(problems) == 0, Problems: problems}
+}
+
+// convergenceProblems is the contract's four per-member conditions —
+// no-errors, no-learners, single-leader and raft-index-converged — evaluated
+// over the members that answered. It deliberately says nothing about *how
+// many* answered: that is the one condition `whole` and `survivable` differ
+// on, so it is the caller's, and keeping it out of here is what stops
+// `survivable` from accidentally relaxing anything else.
+func convergenceProblems(members []Status, tolerance int64) []string {
+	var problems []string
+
 	for _, m := range members {
 		if m.Errors != "" {
 			problems = append(problems, fmt.Sprintf("%s: ERRORS %s", m.Node, m.Errors))
@@ -314,7 +329,7 @@ func CheckHealth(members []Status, expected int, tolerance int64) Health {
 		}
 	}
 
-	return Health{OK: len(problems) == 0, Problems: problems}
+	return problems
 }
 
 // HealthyCount is how many of the given members are individually fit to
@@ -355,6 +370,182 @@ func Quorum(size int) int {
 	return size/2 + 1
 }
 
+// MaxUnavailable is how many members of a cluster of `size` may be absent
+// while the cluster still has quorum.
+func MaxUnavailable(size int) int {
+	if size <= 0 {
+		return 0
+	}
+	return size - Quorum(size)
+}
+
+// Predicate is a named health gate. The two names, and the conditions behind
+// them, are the ones in contracts/cluster/topology.v1.yaml (ADR-034).
+type Predicate string
+
+const (
+	// Whole requires every expected member present and converged. It is the
+	// gate for "the cluster is finished and fault-tolerant again".
+	Whole Predicate = "whole"
+
+	// Survivable relaxes Whole in exactly one way and no other: the members
+	// absent may only be the ones this operation declared as its targets,
+	// and there must still be a quorum. It is the gate at the moment a
+	// destructive step is about to run, and on resume — the two points where
+	// the cluster is deliberately short a member, so Whole is unsatisfiable
+	// by construction and a Whole gate there would abort mid-procedure.
+	Survivable Predicate = "survivable"
+)
+
+// Observation is what one evaluation point actually saw. It is the whole
+// input to a predicate: nothing is read from a constant or from the
+// environment, so a gate is reproducible from its Observation alone.
+type Observation struct {
+	// Expected are the control-plane addresses derived from the ConfigSet's
+	// CP<n>_IP keys. This — never the live member list — is the cluster
+	// size the quorum arithmetic is measured against. Sizing quorum off the
+	// live list is how a cluster that is already a member short consents to
+	// losing another one.
+	Expected []string
+
+	// Members is the live `etcd members` list, used to catch a member at an
+	// address that is not a configured control plane.
+	Members []Member
+
+	// Statuses are the `etcd status` rows that came back. An expected
+	// address with no row here counts as absent, whether it was queried and
+	// did not answer or was deliberately not queried at all.
+	Statuses []Status
+
+	// Declared are the addresses this operation has declared as its targets:
+	// the absences it is allowed to explain. For `talos recreate` that is
+	// the single node being replaced.
+	Declared []string
+}
+
+// Verdict is the result of evaluating a predicate.
+type Verdict struct {
+	OK        bool
+	Predicate Predicate
+	// Problems are the failed conditions, named individually so a refusal
+	// tells the operator which condition failed and with what arithmetic.
+	Problems []string
+	// Absent are the expected addresses that did not report a status row.
+	Absent []string
+	// Undeclared are the absent addresses this operation did not declare —
+	// the ones that mean "this cluster is degraded" rather than "this
+	// procedure is in flight".
+	Undeclared []string
+	// Answered is how many expected members reported a status row.
+	Answered int
+}
+
+// Evaluate is the fail-closed gate. Anything it could not establish counts
+// against proceeding: an unparseable status table produces no rows, so every
+// member reads as absent and the verdict is not-OK — never "nothing to
+// report, carry on".
+func Evaluate(p Predicate, obs Observation, tolerance int64) Verdict {
+	size := len(obs.Expected)
+	answeredAt := map[string]bool{}
+	for _, s := range obs.Statuses {
+		if s.Node != "" {
+			answeredAt[s.Node] = true
+		}
+	}
+
+	v := Verdict{Predicate: p}
+	for _, ip := range obs.Expected {
+		if answeredAt[ip] {
+			v.Answered++
+			continue
+		}
+		v.Absent = append(v.Absent, ip)
+		if !containsString(obs.Declared, ip) {
+			v.Undeclared = append(v.Undeclared, ip)
+		}
+	}
+
+	// A member at an address that is not a configured control plane fails
+	// both predicates. That is #39's own wreckage: a stale member left at an
+	// address the ConfigSet no longer describes, or a second member at an
+	// address that already has one.
+	var unexpected []string
+	for _, ip := range MemberIPs(obs.Members) {
+		if !containsString(obs.Expected, ip) {
+			unexpected = append(unexpected, ip)
+		}
+	}
+
+	if size == 0 {
+		v.Problems = append(v.Problems,
+			"no control-plane addresses are configured, so there is no cluster size to measure against")
+	}
+	for _, ip := range unexpected {
+		v.Problems = append(v.Problems, fmt.Sprintf(
+			"etcd member at %s is not one of the configured control planes (%s)", ip, strings.Join(obs.Expected, ", ")))
+	}
+
+	switch p {
+	case Whole:
+		if len(v.Absent) > 0 {
+			v.Problems = append(v.Problems, fmt.Sprintf(
+				"%d of %d expected member(s) did not report: %s", len(v.Absent), size, strings.Join(v.Absent, ", ")))
+		}
+	case Survivable:
+		// quorum-present.
+		if q := Quorum(size); v.Answered < q {
+			v.Problems = append(v.Problems, fmt.Sprintf(
+				"only %d of %d expected member(s) answered; a quorum of %d is required", v.Answered, size, q))
+		}
+		if mu := MaxUnavailable(size); len(v.Absent) > mu {
+			v.Problems = append(v.Problems, fmt.Sprintf(
+				"%d member(s) absent (%s) but a %d-member cluster tolerates at most %d",
+				len(v.Absent), strings.Join(v.Absent, ", "), size, mu))
+		}
+		// absences-are-declared. This is the condition that tells a
+		// procedure in flight apart from a degraded cluster, and it is the
+		// only reason Survivable is safe to be laxer than Whole.
+		if len(v.Undeclared) > 0 {
+			v.Problems = append(v.Problems, fmt.Sprintf(
+				"member(s) %s are absent and are not a declared target of this operation (declared: %s) — "+
+					"this cluster is degraded, not mid-procedure", strings.Join(v.Undeclared, ", "), declaredList(obs.Declared)))
+		}
+	default:
+		v.Problems = append(v.Problems, fmt.Sprintf("unknown predicate %q", p))
+	}
+
+	// The four per-member conditions apply identically under both
+	// predicates, over whichever members answered.
+	v.Problems = append(v.Problems, convergenceProblems(obs.Statuses, tolerance)...)
+
+	v.OK = len(v.Problems) == 0
+	return v
+}
+
+// Reason renders a verdict's problems for a refusal message.
+func (v Verdict) Reason() string {
+	if len(v.Problems) == 0 {
+		return ""
+	}
+	return strings.Join(v.Problems, "; ")
+}
+
+func declaredList(declared []string) string {
+	if len(declared) == 0 {
+		return "none"
+	}
+	return strings.Join(declared, ", ")
+}
+
+func containsString(haystack []string, needle string) bool {
+	for _, v := range haystack {
+		if v == needle {
+			return true
+		}
+	}
+	return false
+}
+
 // RemovalSafety is the verdict on removing one member from a cluster.
 type RemovalSafety struct {
 	OK bool
@@ -366,35 +557,44 @@ type RemovalSafety struct {
 	QuorumAfter int
 }
 
-// CheckRemoval decides whether removing one member from a cluster of `size`
-// members, of which `healthyRemaining` of the others are healthy, keeps a
-// quorum.
+// CheckRemoval decides whether removing one member from a cluster whose
+// expected size is `expected`, and of which `healthyRemaining` of the other
+// members are healthy, keeps a quorum.
+//
+// `expected` is the configured control-plane count, NEVER the length of the
+// live member list. Sizing this off the live list is unsound: a cluster that a
+// crashed earlier run already left at 2 of 3 would be measured as a 2-member
+// cluster, Quorum(1) is 1, and the removal of a second member would be
+// consented to — taking a 3-node control plane to one member. The live list
+// is an observation; the expected size is the contract.
 //
 // Two separate conditions have to hold and both are checked here:
 //
 //   - The removal itself is a raft write, so the cluster must have quorum
-//     *now*, at its current size — a 3-member cluster with one member already
+//     *now*, at its expected size — a 3-member cluster with one member already
 //     down cannot commit the removal of a second.
 //   - The cluster left behind must still be able to elect a leader, so the
 //     healthy survivors must reach quorum at the post-removal size.
 //
 // The raft-lag tolerance is not a parameter here: it is applied by
 // CheckHealth, whose verdict is what produces healthyRemaining.
-func CheckRemoval(size, healthyRemaining int) RemovalSafety {
-	after := size - 1
+func CheckRemoval(expected, healthyRemaining int) RemovalSafety {
+	after := expected - 1
 	quorumAfter := Quorum(after)
 	res := RemovalSafety{SizeAfter: after, QuorumAfter: quorumAfter}
 
 	switch {
-	case size <= 1:
+	case expected <= 1:
 		res.Reason = fmt.Sprintf(
-			"refusing to remove the only etcd member (cluster size %d): the removal would destroy the cluster", size)
+			"refusing to remove the only etcd member of a %d-member control plane: recreating the sole etcd "+
+				"member is a snapshot-restore operation, not a member removal — see docs/runbooks/talos-upgrade.md "+
+				"(Scenario 1: restore etcd from a snapshot)", expected)
 		return res
-	case healthyRemaining+1 < Quorum(size):
+	case healthyRemaining+1 < Quorum(expected):
 		// +1 counts the member being removed, which is still voting now.
 		res.Reason = fmt.Sprintf(
 			"etcd has %d healthy member(s) of %d; the removal itself needs a quorum of %d to commit",
-			healthyRemaining+1, size, Quorum(size))
+			healthyRemaining+1, expected, Quorum(expected))
 		return res
 	case healthyRemaining < quorumAfter:
 		res.Reason = fmt.Sprintf(

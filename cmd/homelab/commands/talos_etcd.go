@@ -229,7 +229,6 @@ type etcdPhaseOptions struct {
 	nodeIP        string
 	cpIPs         []string
 	snapshotDir   string
-	skipSnapshot  bool
 	raftTolerance int64
 }
 
@@ -283,11 +282,20 @@ func prepareEtcdForRecreate(ctx context.Context, opts etcdPhaseOptions) (*etcdRe
 				opts.nodeIP))
 			return out, nil
 		}
+
 		// A control plane that is not in the member list: an earlier run
-		// removed it and died before the node rejoined. Resume — and hold
-		// the same bar the first run would have, which means waiting for
-		// the member it is about to rebuild to come back.
-		out.ExpectWhole = len(members) + 1
+		// removed it and died before the node rejoined. This is the resume
+		// path, and it is gated, not merely narrated. Finding nothing to
+		// remove says only that this run will not remove a second member; it
+		// says nothing about whether the cluster can survive the VM being
+		// destroyed in the next step. If the crashed run left {cp-1, cp-3}
+		// and cp-3 has since died, etcd has no quorum, the replacement's
+		// member add cannot commit, and going ahead destroys a VM to spend
+		// the rejoin timeout failing.
+		out.ExpectWhole = len(opts.cpIPs)
+		if verr := evaluateSurvivable(ctx, via, opts, members, "resume"); verr != nil {
+			return nil, verr
+		}
 		logger.Warn(fmt.Sprintf(
 			"%s is a control plane but not an etcd member: an earlier run removed it and did not finish. "+
 				"Resuming — no second member will be removed, and this run waits for etcd to return to %d members.",
@@ -300,46 +308,43 @@ func prepareEtcdForRecreate(ctx context.Context, opts etcdPhaseOptions) (*etcdRe
 
 	survivors := etcd.Without(members, target.ID)
 	survivorIPs := etcd.MemberIPs(survivors)
+	expected := len(opts.cpIPs)
 
-	// Health of the survivors, measured against how many survivors there
-	// are — the outgoing member is deliberately excluded, because it is
-	// allowed to be broken. That is usually why it is being replaced.
-	statuses, rawStatus, err := etcdStatusOf(ctx, via, survivorIPs)
-	if err != nil {
+	// The `survivable` gate, evaluated before anything destructive. The
+	// outgoing member is the declared target, so it is allowed to be absent
+	// or broken — that is usually why it is being replaced — but every
+	// *other* expected member must have answered and converged, and the
+	// arithmetic is measured against the configured control-plane size, not
+	// against the live member list.
+	if verr := evaluateSurvivable(ctx, via, opts, members, "before-destructive-step"); verr != nil {
+		return nil, fmt.Errorf("refusing to remove etcd member %s (%s): %w", target.ID, opts.nodeIP, verr)
+	}
+
+	statuses, _, err := etcdStatusOf(ctx, via, survivorIPs)
+	if err != nil && !utils.DryRun {
 		return nil, fmt.Errorf("refusing to remove etcd member %s: the surviving members did not report status: %w",
 			target.ID, err)
 	}
-	logger.Info(fmt.Sprintf("etcd status of the %d surviving member(s):\n%s",
-		len(survivorIPs), strings.TrimRight(rawStatus, "\n")))
-
-	health := etcd.CheckHealth(statuses, len(survivorIPs), opts.raftTolerance)
 	healthyRemaining := etcd.HealthyCount(statuses, opts.raftTolerance)
 
-	if safety := etcd.CheckRemoval(len(members), healthyRemaining); !safety.OK {
-		detail := safety.Reason
-		if !health.OK {
-			detail += " — " + strings.Join(health.Problems, "; ")
-		}
-		return nil, fmt.Errorf("refusing to remove etcd member %s (%s): %s", target.ID, opts.nodeIP, detail)
+	// The post-removal projection, on top of the current-state gate above:
+	// the survivors have to reach quorum at the size the cluster will be
+	// once this member is gone. `expected` and not len(members) — see
+	// etcd.CheckRemoval.
+	if safety := etcd.CheckRemoval(expected, healthyRemaining); !safety.OK {
+		return nil, fmt.Errorf("refusing to remove etcd member %s (%s): %s", target.ID, opts.nodeIP, safety.Reason)
 	}
-	if !health.OK {
-		return nil, fmt.Errorf("refusing to remove etcd member %s (%s): the surviving members are not healthy: %s",
-			target.ID, opts.nodeIP, strings.Join(health.Problems, "; "))
-	}
-	logger.OK(fmt.Sprintf("Quorum check passed: %d healthy survivor(s), quorum of %d after removal",
-		len(survivorIPs), etcd.Quorum(len(members)-1)))
+	logger.OK(fmt.Sprintf("Quorum check passed: %d healthy survivor(s) of a %d-member control plane, quorum of %d after removal",
+		healthyRemaining, expected, etcd.Quorum(expected-1)))
 
-	// The gate above is measured against the cluster that actually exists,
-	// not against this repo's three, so a fork with a different topology is
-	// not blocked. But a cluster that ends up below the expected size has
-	// no fault tolerance left while the replacement boots, and the operator
-	// should know that before the confirmation prompt, not after.
-	if len(members)-1 < etcd.ExpectedMembers {
+	// A cluster that ends up below quorum-plus-one has no fault tolerance
+	// left while the replacement boots, and the operator should know that
+	// before the confirmation prompt, not after.
+	if etcd.MaxUnavailable(expected-1) == 0 {
 		logger.Warn(fmt.Sprintf(
-			"After this removal etcd runs on %d member(s), below the expected %d: "+
-				"a single further failure loses quorum until %s rejoins. "+
-				"Consider restoring the cluster to %d members first.",
-			len(members)-1, etcd.ExpectedMembers, opts.nodeIP, etcd.ExpectedMembers))
+			"While %s is rebuilt etcd runs on %d member(s) with no spare: a single further failure loses quorum "+
+				"until it rejoins. The snapshot taken below is the only way back from that.",
+			opts.nodeIP, expected-1))
 	}
 
 	removal := &etcdRemoval{
@@ -347,19 +352,16 @@ func prepareEtcdForRecreate(ctx context.Context, opts etcdPhaseOptions) (*etcdRe
 		MemberID:    target.ID,
 		ClusterSize: len(members),
 		SurvivorIPs: survivorIPs,
-		ExpectWhole: len(members),
+		ExpectWhole: expected,
 	}
 
-	if opts.skipSnapshot {
-		logger.Warn("--skip-etcd-snapshot: no snapshot will be taken by this run. " +
-			"You are responsible for an off-cluster backup; there is no rollback path without one.")
-	} else {
-		path, serr := takeEtcdSnapshot(ctx, via, opts.snapshotDir)
-		if serr != nil {
-			return nil, fmt.Errorf("refusing to remove etcd member %s: %w", target.ID, serr)
-		}
-		removal.SnapshotPath = path
+	// Unconditional: the snapshot is a precondition of the removal, not an
+	// option on it. There is no flag to turn this off.
+	path, serr := takeEtcdSnapshot(ctx, via, opts.snapshotDir)
+	if serr != nil {
+		return nil, fmt.Errorf("refusing to remove etcd member %s: %w", target.ID, serr)
 	}
+	removal.SnapshotPath = path
 
 	if !AutoAccept && !DryRun {
 		msg := fmt.Sprintf("Remove etcd member %s (%s, %s) from the %d-member cluster? This is irreversible without the snapshot.",
@@ -378,7 +380,85 @@ func prepareEtcdForRecreate(ctx context.Context, opts etcdPhaseOptions) (*etcdRe
 	}
 	logger.OK(fmt.Sprintf("etcd member %s removed and confirmed absent from the member list", target.ID))
 
+	// Revalidate immediately before the taint rather than trusting the gate
+	// from the top of this function. The removal is a raft write and a leader
+	// election can follow it, so the cluster the terragrunt step is about to
+	// act on is not the one that was measured a minute ago. The VM is still
+	// intact at this point, so a refusal here is recoverable: the member is
+	// out, the snapshot is on disk, and re-running resumes.
+	if !utils.DryRun {
+		afterVia, after, _, merr := etcdMemberList(ctx, survivorIPs)
+		if merr != nil {
+			return nil, fmt.Errorf("etcd member %s was removed but the member list is no longer readable, "+
+				"so the cluster cannot be confirmed survivable before the VM is destroyed: %w\n"+
+				"The snapshot at %s is the way back — see docs/runbooks/talos-upgrade.md (Scenario 4)",
+				target.ID, merr, removal.SnapshotPath)
+		}
+		if verr := evaluateSurvivable(ctx, afterVia, opts, after, "before-destructive-step (revalidated)"); verr != nil {
+			return nil, fmt.Errorf("etcd member %s was removed, but the cluster is no longer safe to destroy a VM in: %w\n"+
+				"Nothing else has been touched. The snapshot at %s is the way back — "+
+				"see docs/runbooks/talos-upgrade.md (Scenario 4)", target.ID, verr, removal.SnapshotPath)
+		}
+	}
+
 	return removal, nil
+}
+
+// evaluateSurvivable applies the contract's `survivable` predicate at one
+// evaluation point and returns a non-nil error when the cluster does not
+// satisfy it.
+//
+// The node being recreated is this operation's single declared target, so its
+// absence is explained and every other absence is not. That is what makes the
+// gate usable at the two points where the cluster is deliberately short a
+// member — immediately before the destructive step, and on resume after a
+// crashed run — without it being laxer in any other way than `whole`. A gate
+// that has to be bypassed to finish a legitimate recovery is not a gate.
+//
+// Fail-closed: a status table that does not parse yields no rows, so every
+// member reads as absent and the predicate refuses. "Could not tell" is not
+// "safe to proceed".
+func evaluateSurvivable(ctx context.Context, via string, opts etcdPhaseOptions, members []etcd.Member, point string) error {
+	queried := exceptIP(etcd.MemberIPs(members), opts.nodeIP)
+
+	var statuses []etcd.Status
+	if len(queried) > 0 {
+		rows, raw, err := etcdStatusOf(ctx, via, queried)
+		if err != nil {
+			if utils.DryRun {
+				logger.Warn(fmt.Sprintf("dry run: could not read etcd status at %s (%v). "+
+					"A real run would STOP here.", point, err))
+				return nil
+			}
+			return fmt.Errorf("the surviving members did not report status: %w", err)
+		}
+		statuses = rows
+		logger.Info(fmt.Sprintf("etcd status of the %d member(s) expected to be serving:\n%s",
+			len(queried), strings.TrimRight(raw, "\n")))
+	}
+
+	v := etcd.Evaluate(etcd.Survivable, etcd.Observation{
+		Expected: opts.cpIPs,
+		Members:  members,
+		Statuses: statuses,
+		Declared: []string{opts.nodeIP},
+	}, opts.raftTolerance)
+
+	if !v.OK {
+		return fmt.Errorf("etcd does not satisfy `survivable` at %s: %s", point, v.Reason())
+	}
+	logger.OK(fmt.Sprintf("etcd satisfies `survivable` at %s: %d of %d expected member(s) answered and converged%s",
+		point, v.Answered, len(opts.cpIPs), declaredAbsenceSuffix(v)))
+	return nil
+}
+
+// declaredAbsenceSuffix names the absence the predicate accepted, so a passing
+// gate still says out loud which member is missing and why that was allowed.
+func declaredAbsenceSuffix(v etcd.Verdict) string {
+	if len(v.Absent) == 0 {
+		return ""
+	}
+	return fmt.Sprintf(" (%s absent, and declared as this operation's target)", strings.Join(v.Absent, ", "))
 }
 
 // takeEtcdSnapshot streams a snapshot off the cluster and refuses to return a
@@ -467,12 +547,21 @@ func waitMemberGone(ctx context.Context, via, id string, timeout time.Duration) 
 		"while etcd still expects it — see docs/runbooks/talos-upgrade.md (Scenario 4)", id, timeout)
 }
 
-// waitEtcdHealthy polls until the cluster is back to `expected` members and
-// passes the health gate. Called after the replacement node boots, so the
-// recreate only reports success once etcd is actually whole again.
-func waitEtcdHealthy(ctx context.Context, endpoints []string, expected int, tolerance int64, timeout time.Duration) (string, error) {
+// waitEtcdHealthy polls until the cluster satisfies `whole`: every configured
+// control plane is a member, answered, and converged. Called after the
+// replacement node boots, so the recreate only reports success once etcd is
+// actually whole again.
+//
+// `whole` and not a member count, because a count is satisfiable by the wrong
+// cluster. #39's failure shape is a member at the right address under the
+// wrong id; a cluster carrying both the stale member and the rebuilt one has
+// the expected number of members and is broken. `whole` measures the members
+// against the configured addresses, so the stale one is an unexpected member
+// and the wait keeps failing until it is gone.
+func waitEtcdHealthy(ctx context.Context, endpoints, cpIPs []string, tolerance int64, timeout time.Duration) (string, error) {
+	expected := len(cpIPs)
 	if utils.DryRun {
-		logger.Warn(fmt.Sprintf("Would poll etcd until %d healthy member(s) answer", expected))
+		logger.Warn(fmt.Sprintf("Would poll etcd until all %d configured control plane(s) are whole", expected))
 		return "", nil
 	}
 	deadline := time.Now().Add(timeout)
@@ -481,17 +570,22 @@ func waitEtcdHealthy(ctx context.Context, endpoints []string, expected int, tole
 		via, members, rawMembers, err := etcdMemberList(ctx, endpoints)
 		if err != nil {
 			last = err.Error()
-		} else if len(members) == expected {
+		} else {
 			statuses, rawStatus, serr := etcdStatusOf(ctx, via, etcd.MemberIPs(members))
 			if serr != nil {
 				last = serr.Error()
-			} else if h := etcd.CheckHealth(statuses, expected, tolerance); h.OK {
+			} else if v := etcd.Evaluate(etcd.Whole, etcd.Observation{
+				Expected: cpIPs,
+				Members:  members,
+				Statuses: statuses,
+				// No declared targets at completion: by this point nothing
+				// is allowed to be missing, which is the whole difference
+				// between this gate and the one before the destructive step.
+			}, tolerance); v.OK {
 				return strings.TrimRight(rawMembers, "\n") + "\n\n" + strings.TrimRight(rawStatus, "\n"), nil
 			} else {
-				last = strings.Join(h.Problems, "; ")
+				last = v.Reason()
 			}
-		} else {
-			last = fmt.Sprintf("%d member(s), expected %d", len(members), expected)
 		}
 		logger.Info(fmt.Sprintf("etcd not whole yet: %s", last))
 		select {
@@ -500,5 +594,6 @@ func waitEtcdHealthy(ctx context.Context, endpoints []string, expected int, tole
 		case <-time.After(etcdPollInterval):
 		}
 	}
-	return "", fmt.Errorf("etcd did not return to %d healthy member(s) within %s (last: %s)", expected, timeout, last)
+	return "", fmt.Errorf("etcd did not satisfy `whole` on all %d configured control plane(s) within %s (last: %s)",
+		expected, timeout, last)
 }
