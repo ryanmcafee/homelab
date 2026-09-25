@@ -24,7 +24,7 @@ flowchart LR
 | Passwords of the ClickHouse users `otel` and `grafana` | `charts/clickhouse-dependencies` (OnePasswordItems) | 8 |
 | Grafana plugin, datasource `ClickHouse` (uid `clickhouse-logs`) | `charts/addons/templates/kube-prometheus-stack.yaml` | 9 |
 | Altinity clickhouse-operator (CRDs, metrics exporter, ServiceMonitor, dashboards) | `charts/addons/templates/logging.yaml` | 10 |
-| `ClickHouseInstallation/logs` on `STORAGE_CLASS_ISCSI_SSD`, dashboard "Cluster logs" | `charts/clickhouse` | 11 |
+| `ClickHouseInstallation/logs` on `STORAGE_CLASS_ISCSI_SSD`, dashboards "Cluster logs", "Network flows and security" | `charts/clickhouse` | 11 |
 | `otel-collector-agent` (DaemonSet), `otel-collector-cluster` (events), `otel-collector-gateway` (OTLP, UniFi) | `charts/addons/templates/logging.yaml` | 12 |
 
 Everything runs in namespace `observability` (PodSecurity `privileged`: the agent mounts
@@ -158,10 +158,31 @@ carries the gateway's hostname and flow records carry the flow's own addresses.
 
 Records: syslog lines get ServiceName `unifi-syslog`, the CEF header in `LogAttributes`
 (`cef_vendor`, `cef_product`, `cef_name`, `cef_severity`, `cef_extension`); flows get
-ServiceName `unifi-netflow` (set by `transform/service-name`) and come from scope
-`otelcol/netflowreceiver` with `source.address`, `source.port`, `destination.address`,
-`destination.port`, `network.transport`, `flow.io.bytes`, `flow.io.packets`, `flow.start`,
-`flow.end`. Dashboard: "UniFi gateway flows and firewall" (top talkers, ports, denies).
+ServiceName `unifi-netflow` (set by `transform/service-name`; empty on older records) and
+come from ScopeName `otelcol/netflowreceiver`, which the dashboard filters on, with
+`source.address`, `source.port`, `destination.address`, `destination.port`, `network.transport`,
+`flow.io.bytes`, `flow.io.packets`, `flow.start`, `flow.end`, `flow.in_if`, `flow.out_if`,
+`flow.tcp_flags`.
+
+### Dashboard "Network flows and security"
+
+`charts/clickhouse/dashboards/network-flows.json` (uid `network-flows`), filtered by network,
+protocol, source and destination IP:
+
+| Row | Panels |
+|---|---|
+| Overview | bytes, packets, flow records, active local hosts, top protocol, threat events, firewall blocks, Hubble policy drops |
+| Traffic | throughput by source network and by direction (egress, ingress, internal), network-to-network matrix, top sources and destinations, Traefik requests by entrypoint |
+| Flows | top conversations, protocol mix, top destination ports with service names, flow records |
+| Security | UniFi security events over time, top blocked sources, IDS/IPS and threat events (CEF `UNIFIcategory=Security`), risky destination ports (SMB, RDP, databases, ...), inbound from the internet to service ports, scan-like local hosts, hourly egress outliers (z-score), Hubble drops by reason and policy drops |
+| UniFi syslog | raw lines (collapsed) |
+
+`NETWORK_NAMES` (`name=CIDR` pairs, comma-separated, e.g. `homelab=192.168.1.0/24`) names the
+subnets; unnamed private addresses show as their /24 and public ones as `internet`. It is PII like
+`NFS_SHARE_ALLOW`, so it lives in the environment file and reaches the dashboard through the
+`clickhouse` Application's `valuesObject`. IPFIX records are unidirectional: a reply counts
+against the opposite direction, and "inbound from the internet" keeps only flows whose destination
+port is below both the source port and 32768.
 
 Counter: the `netflow` receiver emits no `otelcol_receiver_*` self-metrics, so the gateway
 counts UniFi records itself. The logs pipeline also exports to the `count/unifi` connector,

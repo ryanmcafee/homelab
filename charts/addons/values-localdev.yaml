@@ -1586,6 +1586,7 @@ logging:
       # Block storage like the PostgreSQL clusters: ClickHouse fsyncs and
       # renames parts constantly, which NFS serves badly.
       storageClass: local-path
+      networkNames: ""
       storageSize: 2Gi
       resources:
         requests:

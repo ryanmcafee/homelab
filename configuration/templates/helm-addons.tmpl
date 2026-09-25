@@ -1874,6 +1874,7 @@ logging:
       # Block storage like the PostgreSQL clusters: ClickHouse fsyncs and
       # renames parts constantly, which NFS serves badly.
       storageClass: {{ .Values.STORAGE_CLASS_ISCSI_SSD.Value }}
+      networkNames: "{{ .Values.NETWORK_NAMES.Value }}"
 {{- if $localdev }}
       storageSize: 2Gi
       resources:

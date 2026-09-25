@@ -14,6 +14,9 @@ database: otel
 # Pinned server image (configuration/versions.yaml images.clickhouse-server).
 image: clickhouse/clickhouse-server:latest
 
+# name=CIDR pairs substituted into the network flows dashboard (NETWORK_NAMES).
+networkNames: ""
+
 storageClass: ""
 storageSize: 10Gi
 

@@ -1,0 +1,1989 @@
+{
+  "annotations": {
+    "list": []
+  },
+  "description": "UniFi gateway IPFIX flows, UniFi syslog security events and Cilium drops: traffic by network, top talkers, conversations and risk signals.",
+  "editable": false,
+  "graphTooltip": 1,
+  "links": [
+    {
+      "asDropdown": true,
+      "icon": "external link",
+      "includeVars": false,
+      "keepTime": true,
+      "tags": [
+        "clickhouse",
+        "otel"
+      ],
+      "title": "OpenTelemetry Dashboards",
+      "type": "dashboards"
+    }
+  ],
+  "panels": [
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "id": 1,
+      "panels": [],
+      "title": "Overview",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-logs"
+      },
+      "description": "Sum of flow.io.bytes of the IPFIX records in the range (sampling rate 0: unsampled).",
+      "gridPos": {
+        "h": 4,
+        "w": 3,
+        "x": 0,
+        "y": 1
+      },
+      "id": 2,
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-logs"
+          },
+          "editorType": "sql",
+          "format": 1,
+          "queryType": "sql",
+          "rawSql": "SELECT sum(bytes) FROM (WITH arrayFilter(n -> length(n) = 2, arrayMap(x -> splitByChar('=', x), splitByChar(',', '${networks:raw}'))) AS nets SELECT Timestamp, if(isIPv4String(LogAttributes['source.address']) OR isIPv6String(LogAttributes['source.address']), LogAttributes['source.address'], '::') AS src, arrayFirst(n -> isIPAddressInRange(src, n[2]), nets)[1] AS src_name, multiIf(src_name != '', src_name, isIPAddressInRange(src, '10.0.0.0/8') OR isIPAddressInRange(src, '172.16.0.0/12') OR isIPAddressInRange(src, '192.168.0.0/16'), concat(IPv4NumToString(IPv4CIDRToRange(toIPv4OrDefault(src), 24).1), '/24'), isIPAddressInRange(src, '100.64.0.0/10'), 'cgnat', isIPAddressInRange(src, '224.0.0.0/4') OR isIPAddressInRange(src, 'ff00::/8') OR src = '255.255.255.255', 'multicast', isIPAddressInRange(src, '169.254.0.0/16') OR isIPAddressInRange(src, 'fe80::/10'), 'link-local', isIPAddressInRange(src, 'fc00::/7'), 'ipv6-ula', 'internet') AS src_net, if(isIPv4String(LogAttributes['destination.address']) OR isIPv6String(LogAttributes['destination.address']), LogAttributes['destination.address'], '::') AS dst, arrayFirst(n -> isIPAddressInRange(dst, n[2]), nets)[1] AS dst_name, multiIf(dst_name != '', dst_name, isIPAddressInRange(dst, '10.0.0.0/8') OR isIPAddressInRange(dst, '172.16.0.0/12') OR isIPAddressInRange(dst, '192.168.0.0/16'), concat(IPv4NumToString(IPv4CIDRToRange(toIPv4OrDefault(dst), 24).1), '/24'), isIPAddressInRange(dst, '100.64.0.0/10'), 'cgnat', isIPAddressInRange(dst, '224.0.0.0/4') OR isIPAddressInRange(dst, 'ff00::/8') OR dst = '255.255.255.255', 'multicast', isIPAddressInRange(dst, '169.254.0.0/16') OR isIPAddressInRange(dst, 'fe80::/10'), 'link-local', isIPAddressInRange(dst, 'fc00::/7'), 'ipv6-ula', 'internet') AS dst_net, toUInt16OrZero(LogAttributes['source.port']) AS sport, toUInt16OrZero(LogAttributes['destination.port']) AS dport, LogAttributes['network.transport'] AS proto, toUInt64OrZero(LogAttributes['flow.io.bytes']) AS bytes, toUInt64OrZero(LogAttributes['flow.io.packets']) AS packets, multiIf(src_net != 'internet' AND dst_net != 'internet', 'internal', src_net != 'internet', 'egress', dst_net != 'internet', 'ingress', 'transit') AS direction FROM otel.otel_logs WHERE $__timeFilter(Timestamp) AND ScopeName = 'otelcol/netflowreceiver' SETTINGS optimize_functions_to_subcolumns = 0) WHERE $__conditionalAll((src_net IN (${network:singlequote}) OR dst_net IN (${network:singlequote})), $network) AND $__conditionalAll(proto IN (${protocol:singlequote}), $protocol) AND $__conditionalAll(src = ${src_ip:singlequote}, $src_ip) AND $__conditionalAll(dst = ${dst_ip:singlequote}, $dst_ip)",
+          "refId": "A"
+        }
+      ],
+      "title": "Bytes",
+      "type": "stat",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "unit": "decbytes"
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value"
+      }
+    },
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-logs"
+      },
+      "description": "Sum of flow.io.packets.",
+      "gridPos": {
+        "h": 4,
+        "w": 3,
+        "x": 3,
+        "y": 1
+      },
+      "id": 3,
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-logs"
+          },
+          "editorType": "sql",
+          "format": 1,
+          "queryType": "sql",
+          "rawSql": "SELECT sum(packets) FROM (WITH arrayFilter(n -> length(n) = 2, arrayMap(x -> splitByChar('=', x), splitByChar(',', '${networks:raw}'))) AS nets SELECT Timestamp, if(isIPv4String(LogAttributes['source.address']) OR isIPv6String(LogAttributes['source.address']), LogAttributes['source.address'], '::') AS src, arrayFirst(n -> isIPAddressInRange(src, n[2]), nets)[1] AS src_name, multiIf(src_name != '', src_name, isIPAddressInRange(src, '10.0.0.0/8') OR isIPAddressInRange(src, '172.16.0.0/12') OR isIPAddressInRange(src, '192.168.0.0/16'), concat(IPv4NumToString(IPv4CIDRToRange(toIPv4OrDefault(src), 24).1), '/24'), isIPAddressInRange(src, '100.64.0.0/10'), 'cgnat', isIPAddressInRange(src, '224.0.0.0/4') OR isIPAddressInRange(src, 'ff00::/8') OR src = '255.255.255.255', 'multicast', isIPAddressInRange(src, '169.254.0.0/16') OR isIPAddressInRange(src, 'fe80::/10'), 'link-local', isIPAddressInRange(src, 'fc00::/7'), 'ipv6-ula', 'internet') AS src_net, if(isIPv4String(LogAttributes['destination.address']) OR isIPv6String(LogAttributes['destination.address']), LogAttributes['destination.address'], '::') AS dst, arrayFirst(n -> isIPAddressInRange(dst, n[2]), nets)[1] AS dst_name, multiIf(dst_name != '', dst_name, isIPAddressInRange(dst, '10.0.0.0/8') OR isIPAddressInRange(dst, '172.16.0.0/12') OR isIPAddressInRange(dst, '192.168.0.0/16'), concat(IPv4NumToString(IPv4CIDRToRange(toIPv4OrDefault(dst), 24).1), '/24'), isIPAddressInRange(dst, '100.64.0.0/10'), 'cgnat', isIPAddressInRange(dst, '224.0.0.0/4') OR isIPAddressInRange(dst, 'ff00::/8') OR dst = '255.255.255.255', 'multicast', isIPAddressInRange(dst, '169.254.0.0/16') OR isIPAddressInRange(dst, 'fe80::/10'), 'link-local', isIPAddressInRange(dst, 'fc00::/7'), 'ipv6-ula', 'internet') AS dst_net, toUInt16OrZero(LogAttributes['source.port']) AS sport, toUInt16OrZero(LogAttributes['destination.port']) AS dport, LogAttributes['network.transport'] AS proto, toUInt64OrZero(LogAttributes['flow.io.bytes']) AS bytes, toUInt64OrZero(LogAttributes['flow.io.packets']) AS packets, multiIf(src_net != 'internet' AND dst_net != 'internet', 'internal', src_net != 'internet', 'egress', dst_net != 'internet', 'ingress', 'transit') AS direction FROM otel.otel_logs WHERE $__timeFilter(Timestamp) AND ScopeName = 'otelcol/netflowreceiver' SETTINGS optimize_functions_to_subcolumns = 0) WHERE $__conditionalAll((src_net IN (${network:singlequote}) OR dst_net IN (${network:singlequote})), $network) AND $__conditionalAll(proto IN (${protocol:singlequote}), $protocol) AND $__conditionalAll(src = ${src_ip:singlequote}, $src_ip) AND $__conditionalAll(dst = ${dst_ip:singlequote}, $dst_ip)",
+          "refId": "A"
+        }
+      ],
+      "title": "Packets",
+      "type": "stat",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value"
+      }
+    },
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-logs"
+      },
+      "description": "IPFIX records (one per unidirectional flow).",
+      "gridPos": {
+        "h": 4,
+        "w": 3,
+        "x": 6,
+        "y": 1
+      },
+      "id": 4,
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-logs"
+          },
+          "editorType": "sql",
+          "format": 1,
+          "queryType": "sql",
+          "rawSql": "SELECT count() FROM (WITH arrayFilter(n -> length(n) = 2, arrayMap(x -> splitByChar('=', x), splitByChar(',', '${networks:raw}'))) AS nets SELECT Timestamp, if(isIPv4String(LogAttributes['source.address']) OR isIPv6String(LogAttributes['source.address']), LogAttributes['source.address'], '::') AS src, arrayFirst(n -> isIPAddressInRange(src, n[2]), nets)[1] AS src_name, multiIf(src_name != '', src_name, isIPAddressInRange(src, '10.0.0.0/8') OR isIPAddressInRange(src, '172.16.0.0/12') OR isIPAddressInRange(src, '192.168.0.0/16'), concat(IPv4NumToString(IPv4CIDRToRange(toIPv4OrDefault(src), 24).1), '/24'), isIPAddressInRange(src, '100.64.0.0/10'), 'cgnat', isIPAddressInRange(src, '224.0.0.0/4') OR isIPAddressInRange(src, 'ff00::/8') OR src = '255.255.255.255', 'multicast', isIPAddressInRange(src, '169.254.0.0/16') OR isIPAddressInRange(src, 'fe80::/10'), 'link-local', isIPAddressInRange(src, 'fc00::/7'), 'ipv6-ula', 'internet') AS src_net, if(isIPv4String(LogAttributes['destination.address']) OR isIPv6String(LogAttributes['destination.address']), LogAttributes['destination.address'], '::') AS dst, arrayFirst(n -> isIPAddressInRange(dst, n[2]), nets)[1] AS dst_name, multiIf(dst_name != '', dst_name, isIPAddressInRange(dst, '10.0.0.0/8') OR isIPAddressInRange(dst, '172.16.0.0/12') OR isIPAddressInRange(dst, '192.168.0.0/16'), concat(IPv4NumToString(IPv4CIDRToRange(toIPv4OrDefault(dst), 24).1), '/24'), isIPAddressInRange(dst, '100.64.0.0/10'), 'cgnat', isIPAddressInRange(dst, '224.0.0.0/4') OR isIPAddressInRange(dst, 'ff00::/8') OR dst = '255.255.255.255', 'multicast', isIPAddressInRange(dst, '169.254.0.0/16') OR isIPAddressInRange(dst, 'fe80::/10'), 'link-local', isIPAddressInRange(dst, 'fc00::/7'), 'ipv6-ula', 'internet') AS dst_net, toUInt16OrZero(LogAttributes['source.port']) AS sport, toUInt16OrZero(LogAttributes['destination.port']) AS dport, LogAttributes['network.transport'] AS proto, toUInt64OrZero(LogAttributes['flow.io.bytes']) AS bytes, toUInt64OrZero(LogAttributes['flow.io.packets']) AS packets, multiIf(src_net != 'internet' AND dst_net != 'internet', 'internal', src_net != 'internet', 'egress', dst_net != 'internet', 'ingress', 'transit') AS direction FROM otel.otel_logs WHERE $__timeFilter(Timestamp) AND ScopeName = 'otelcol/netflowreceiver' SETTINGS optimize_functions_to_subcolumns = 0) WHERE $__conditionalAll((src_net IN (${network:singlequote}) OR dst_net IN (${network:singlequote})), $network) AND $__conditionalAll(proto IN (${protocol:singlequote}), $protocol) AND $__conditionalAll(src = ${src_ip:singlequote}, $src_ip) AND $__conditionalAll(dst = ${dst_ip:singlequote}, $dst_ip)",
+          "refId": "A"
+        }
+      ],
+      "title": "Flow records",
+      "type": "stat",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value"
+      }
+    },
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-logs"
+      },
+      "description": "Distinct non-internet source addresses.",
+      "gridPos": {
+        "h": 4,
+        "w": 3,
+        "x": 9,
+        "y": 1
+      },
+      "id": 5,
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-logs"
+          },
+          "editorType": "sql",
+          "format": 1,
+          "queryType": "sql",
+          "rawSql": "SELECT uniqExact(src) FROM (WITH arrayFilter(n -> length(n) = 2, arrayMap(x -> splitByChar('=', x), splitByChar(',', '${networks:raw}'))) AS nets SELECT Timestamp, if(isIPv4String(LogAttributes['source.address']) OR isIPv6String(LogAttributes['source.address']), LogAttributes['source.address'], '::') AS src, arrayFirst(n -> isIPAddressInRange(src, n[2]), nets)[1] AS src_name, multiIf(src_name != '', src_name, isIPAddressInRange(src, '10.0.0.0/8') OR isIPAddressInRange(src, '172.16.0.0/12') OR isIPAddressInRange(src, '192.168.0.0/16'), concat(IPv4NumToString(IPv4CIDRToRange(toIPv4OrDefault(src), 24).1), '/24'), isIPAddressInRange(src, '100.64.0.0/10'), 'cgnat', isIPAddressInRange(src, '224.0.0.0/4') OR isIPAddressInRange(src, 'ff00::/8') OR src = '255.255.255.255', 'multicast', isIPAddressInRange(src, '169.254.0.0/16') OR isIPAddressInRange(src, 'fe80::/10'), 'link-local', isIPAddressInRange(src, 'fc00::/7'), 'ipv6-ula', 'internet') AS src_net, if(isIPv4String(LogAttributes['destination.address']) OR isIPv6String(LogAttributes['destination.address']), LogAttributes['destination.address'], '::') AS dst, arrayFirst(n -> isIPAddressInRange(dst, n[2]), nets)[1] AS dst_name, multiIf(dst_name != '', dst_name, isIPAddressInRange(dst, '10.0.0.0/8') OR isIPAddressInRange(dst, '172.16.0.0/12') OR isIPAddressInRange(dst, '192.168.0.0/16'), concat(IPv4NumToString(IPv4CIDRToRange(toIPv4OrDefault(dst), 24).1), '/24'), isIPAddressInRange(dst, '100.64.0.0/10'), 'cgnat', isIPAddressInRange(dst, '224.0.0.0/4') OR isIPAddressInRange(dst, 'ff00::/8') OR dst = '255.255.255.255', 'multicast', isIPAddressInRange(dst, '169.254.0.0/16') OR isIPAddressInRange(dst, 'fe80::/10'), 'link-local', isIPAddressInRange(dst, 'fc00::/7'), 'ipv6-ula', 'internet') AS dst_net, toUInt16OrZero(LogAttributes['source.port']) AS sport, toUInt16OrZero(LogAttributes['destination.port']) AS dport, LogAttributes['network.transport'] AS proto, toUInt64OrZero(LogAttributes['flow.io.bytes']) AS bytes, toUInt64OrZero(LogAttributes['flow.io.packets']) AS packets, multiIf(src_net != 'internet' AND dst_net != 'internet', 'internal', src_net != 'internet', 'egress', dst_net != 'internet', 'ingress', 'transit') AS direction FROM otel.otel_logs WHERE $__timeFilter(Timestamp) AND ScopeName = 'otelcol/netflowreceiver' SETTINGS optimize_functions_to_subcolumns = 0) WHERE $__conditionalAll((src_net IN (${network:singlequote}) OR dst_net IN (${network:singlequote})), $network) AND $__conditionalAll(proto IN (${protocol:singlequote}), $protocol) AND $__conditionalAll(src = ${src_ip:singlequote}, $src_ip) AND $__conditionalAll(dst = ${dst_ip:singlequote}, $dst_ip) AND src_net != 'internet'",
+          "refId": "A"
+        }
+      ],
+      "title": "Active local hosts",
+      "type": "stat",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value"
+      }
+    },
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-logs"
+      },
+      "description": "Transport protocol with the most bytes.",
+      "gridPos": {
+        "h": 4,
+        "w": 3,
+        "x": 12,
+        "y": 1
+      },
+      "id": 6,
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-logs"
+          },
+          "editorType": "sql",
+          "format": 1,
+          "queryType": "sql",
+          "rawSql": "SELECT proto FROM (WITH arrayFilter(n -> length(n) = 2, arrayMap(x -> splitByChar('=', x), splitByChar(',', '${networks:raw}'))) AS nets SELECT Timestamp, if(isIPv4String(LogAttributes['source.address']) OR isIPv6String(LogAttributes['source.address']), LogAttributes['source.address'], '::') AS src, arrayFirst(n -> isIPAddressInRange(src, n[2]), nets)[1] AS src_name, multiIf(src_name != '', src_name, isIPAddressInRange(src, '10.0.0.0/8') OR isIPAddressInRange(src, '172.16.0.0/12') OR isIPAddressInRange(src, '192.168.0.0/16'), concat(IPv4NumToString(IPv4CIDRToRange(toIPv4OrDefault(src), 24).1), '/24'), isIPAddressInRange(src, '100.64.0.0/10'), 'cgnat', isIPAddressInRange(src, '224.0.0.0/4') OR isIPAddressInRange(src, 'ff00::/8') OR src = '255.255.255.255', 'multicast', isIPAddressInRange(src, '169.254.0.0/16') OR isIPAddressInRange(src, 'fe80::/10'), 'link-local', isIPAddressInRange(src, 'fc00::/7'), 'ipv6-ula', 'internet') AS src_net, if(isIPv4String(LogAttributes['destination.address']) OR isIPv6String(LogAttributes['destination.address']), LogAttributes['destination.address'], '::') AS dst, arrayFirst(n -> isIPAddressInRange(dst, n[2]), nets)[1] AS dst_name, multiIf(dst_name != '', dst_name, isIPAddressInRange(dst, '10.0.0.0/8') OR isIPAddressInRange(dst, '172.16.0.0/12') OR isIPAddressInRange(dst, '192.168.0.0/16'), concat(IPv4NumToString(IPv4CIDRToRange(toIPv4OrDefault(dst), 24).1), '/24'), isIPAddressInRange(dst, '100.64.0.0/10'), 'cgnat', isIPAddressInRange(dst, '224.0.0.0/4') OR isIPAddressInRange(dst, 'ff00::/8') OR dst = '255.255.255.255', 'multicast', isIPAddressInRange(dst, '169.254.0.0/16') OR isIPAddressInRange(dst, 'fe80::/10'), 'link-local', isIPAddressInRange(dst, 'fc00::/7'), 'ipv6-ula', 'internet') AS dst_net, toUInt16OrZero(LogAttributes['source.port']) AS sport, toUInt16OrZero(LogAttributes['destination.port']) AS dport, LogAttributes['network.transport'] AS proto, toUInt64OrZero(LogAttributes['flow.io.bytes']) AS bytes, toUInt64OrZero(LogAttributes['flow.io.packets']) AS packets, multiIf(src_net != 'internet' AND dst_net != 'internet', 'internal', src_net != 'internet', 'egress', dst_net != 'internet', 'ingress', 'transit') AS direction FROM otel.otel_logs WHERE $__timeFilter(Timestamp) AND ScopeName = 'otelcol/netflowreceiver' SETTINGS optimize_functions_to_subcolumns = 0) WHERE $__conditionalAll((src_net IN (${network:singlequote}) OR dst_net IN (${network:singlequote})), $network) AND $__conditionalAll(proto IN (${protocol:singlequote}), $protocol) AND $__conditionalAll(src = ${src_ip:singlequote}, $src_ip) AND $__conditionalAll(dst = ${dst_ip:singlequote}, $dst_ip) GROUP BY proto ORDER BY sum(bytes) DESC LIMIT 1",
+          "refId": "A"
+        }
+      ],
+      "title": "Top protocol",
+      "type": "stat",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "/^proto$/",
+          "values": false
+        },
+        "textMode": "value"
+      }
+    },
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-logs"
+      },
+      "description": "UniFi CEF events of category Security other than Firewall (IDS/IPS, honeypot, threats).",
+      "gridPos": {
+        "h": 4,
+        "w": 3,
+        "x": 15,
+        "y": 1
+      },
+      "id": 7,
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-logs"
+          },
+          "editorType": "sql",
+          "format": 1,
+          "queryType": "sql",
+          "rawSql": "SELECT count() FROM (SELECT Timestamp, Body, LogAttributes['cef_name'] AS cef_name, LogAttributes['cef_extension'] AS ext, toUInt8OrZero(LogAttributes['cef_severity']) AS severity, extract(ext, '(?:^| )UNIFIcategory=(.*?)(?: [A-Za-z0-9_]+=|$)') AS category, extract(ext, '(?:^| )UNIFIsubCategory=(.*?)(?: [A-Za-z0-9_]+=|$)') AS subcategory, extract(ext, '(?:^| )UNIFIipsSignature=(.*?)(?: [A-Za-z0-9_]+=|$)') AS signature, extract(ext, '(?:^| )UNIFIrisk=(.*?)(?: [A-Za-z0-9_]+=|$)') AS risk, extract(ext, '(?:^| )UNIFIthreatType=(.*?)(?: [A-Za-z0-9_]+=|$)') AS threat_type, extract(ext, '(?:^| )msg=(.*?)(?: [A-Za-z0-9_]+=|$)') AS msg, extract(Body, '[[]([A-Za-z0-9_]+-[A-Za-z0-9_-]+)[]]') AS fw_rule, if(ext != '', extract(ext, '(?:^| )src=(.*?)(?: [A-Za-z0-9_]+=|$)'), extract(Body, '(?:^| )SRC=([^ ]*)')) AS src, if(ext != '', extract(ext, '(?:^| )dst=(.*?)(?: [A-Za-z0-9_]+=|$)'), extract(Body, '(?:^| )DST=([^ ]*)')) AS dst, toUInt16OrZero(if(ext != '', extract(ext, '(?:^| )dpt=(.*?)(?: [A-Za-z0-9_]+=|$)'), extract(Body, '(?:^| )DPT=([^ ]*)'))) AS dport, lower(if(ext != '', extract(ext, '(?:^| )proto=(.*?)(?: [A-Za-z0-9_]+=|$)'), extract(Body, '(?:^| )PROTO=([^ ]*)'))) AS proto, multiIf(category = 'Security' AND subcategory = 'Firewall', 'firewall', category = 'Security', lower(if(subcategory != '', subcategory, cef_name)), fw_rule != '' AND match(fw_rule, '-(D|R|B)(-|$)|DROP|REJECT|BLOCK'), 'firewall', '') AS kind FROM otel.otel_logs WHERE $__timeFilter(Timestamp) AND ServiceName = 'unifi-syslog') WHERE kind NOT IN ('', 'firewall') AND $__conditionalAll(src = ${src_ip:singlequote}, $src_ip) AND $__conditionalAll(dst = ${dst_ip:singlequote}, $dst_ip)",
+          "refId": "A"
+        }
+      ],
+      "title": "Threat events",
+      "type": "stat",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 100
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value"
+      }
+    },
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-logs"
+      },
+      "description": "UniFi firewall block events (CEF Security/Firewall or netfilter drop/reject lines).",
+      "gridPos": {
+        "h": 4,
+        "w": 3,
+        "x": 18,
+        "y": 1
+      },
+      "id": 8,
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-logs"
+          },
+          "editorType": "sql",
+          "format": 1,
+          "queryType": "sql",
+          "rawSql": "SELECT count() FROM (SELECT Timestamp, Body, LogAttributes['cef_name'] AS cef_name, LogAttributes['cef_extension'] AS ext, toUInt8OrZero(LogAttributes['cef_severity']) AS severity, extract(ext, '(?:^| )UNIFIcategory=(.*?)(?: [A-Za-z0-9_]+=|$)') AS category, extract(ext, '(?:^| )UNIFIsubCategory=(.*?)(?: [A-Za-z0-9_]+=|$)') AS subcategory, extract(ext, '(?:^| )UNIFIipsSignature=(.*?)(?: [A-Za-z0-9_]+=|$)') AS signature, extract(ext, '(?:^| )UNIFIrisk=(.*?)(?: [A-Za-z0-9_]+=|$)') AS risk, extract(ext, '(?:^| )UNIFIthreatType=(.*?)(?: [A-Za-z0-9_]+=|$)') AS threat_type, extract(ext, '(?:^| )msg=(.*?)(?: [A-Za-z0-9_]+=|$)') AS msg, extract(Body, '[[]([A-Za-z0-9_]+-[A-Za-z0-9_-]+)[]]') AS fw_rule, if(ext != '', extract(ext, '(?:^| )src=(.*?)(?: [A-Za-z0-9_]+=|$)'), extract(Body, '(?:^| )SRC=([^ ]*)')) AS src, if(ext != '', extract(ext, '(?:^| )dst=(.*?)(?: [A-Za-z0-9_]+=|$)'), extract(Body, '(?:^| )DST=([^ ]*)')) AS dst, toUInt16OrZero(if(ext != '', extract(ext, '(?:^| )dpt=(.*?)(?: [A-Za-z0-9_]+=|$)'), extract(Body, '(?:^| )DPT=([^ ]*)'))) AS dport, lower(if(ext != '', extract(ext, '(?:^| )proto=(.*?)(?: [A-Za-z0-9_]+=|$)'), extract(Body, '(?:^| )PROTO=([^ ]*)'))) AS proto, multiIf(category = 'Security' AND subcategory = 'Firewall', 'firewall', category = 'Security', lower(if(subcategory != '', subcategory, cef_name)), fw_rule != '' AND match(fw_rule, '-(D|R|B)(-|$)|DROP|REJECT|BLOCK'), 'firewall', '') AS kind FROM otel.otel_logs WHERE $__timeFilter(Timestamp) AND ServiceName = 'unifi-syslog') WHERE kind = 'firewall' AND $__conditionalAll(src = ${src_ip:singlequote}, $src_ip) AND $__conditionalAll(dst = ${dst_ip:singlequote}, $dst_ip)",
+          "refId": "A"
+        }
+      ],
+      "title": "Firewall blocks",
+      "type": "stat",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 100
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value"
+      }
+    },
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-logs"
+      },
+      "description": "Cilium drops with reason POLICY_DENIED from the Hubble flow log.",
+      "gridPos": {
+        "h": 4,
+        "w": 3,
+        "x": 21,
+        "y": 1
+      },
+      "id": 9,
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-logs"
+          },
+          "editorType": "sql",
+          "format": 1,
+          "queryType": "sql",
+          "rawSql": "SELECT count() FROM (SELECT Timestamp, JSONExtractString(Body, 'flow', 'drop_reason_desc') AS reason, JSONExtractString(Body, 'flow', 'traffic_direction') AS direction, JSONExtractString(Body, 'flow', 'IP', 'source') AS src, JSONExtractString(Body, 'flow', 'IP', 'destination') AS dst, JSONExtractString(Body, 'flow', 'source', 'namespace') AS src_ns, JSONExtractString(Body, 'flow', 'source', 'pod_name') AS src_pod, JSONExtractString(Body, 'flow', 'destination', 'namespace') AS dst_ns, JSONExtractString(Body, 'flow', 'destination', 'pod_name') AS dst_pod, greatest(JSONExtractUInt(Body, 'flow', 'l4', 'TCP', 'destination_port'), JSONExtractUInt(Body, 'flow', 'l4', 'UDP', 'destination_port')) AS dport FROM otel.otel_logs WHERE $__timeFilter(Timestamp) AND ServiceName = 'hubble' AND hasToken(lower(Body), 'denied') AND JSONExtractString(Body, 'flow', 'verdict') = 'DROPPED' AND JSONExtractString(Body, 'flow', 'drop_reason_desc') = 'POLICY_DENIED')",
+          "refId": "A"
+        }
+      ],
+      "title": "Hubble policy drops",
+      "type": "stat",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 100
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value"
+      }
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 5
+      },
+      "id": 10,
+      "panels": [],
+      "title": "Traffic",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-logs"
+      },
+      "description": "Bytes per second by the network of the source address. Networks come from NETWORK_NAMES; unnamed private addresses show as their /24.",
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 0,
+        "y": 6
+      },
+      "id": 11,
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-logs"
+          },
+          "editorType": "sql",
+          "format": 0,
+          "queryType": "sql",
+          "rawSql": "SELECT $__timeInterval(Timestamp) AS time, src_net AS metric, sum(bytes) / $__interval_s AS bps FROM (WITH arrayFilter(n -> length(n) = 2, arrayMap(x -> splitByChar('=', x), splitByChar(',', '${networks:raw}'))) AS nets SELECT Timestamp, if(isIPv4String(LogAttributes['source.address']) OR isIPv6String(LogAttributes['source.address']), LogAttributes['source.address'], '::') AS src, arrayFirst(n -> isIPAddressInRange(src, n[2]), nets)[1] AS src_name, multiIf(src_name != '', src_name, isIPAddressInRange(src, '10.0.0.0/8') OR isIPAddressInRange(src, '172.16.0.0/12') OR isIPAddressInRange(src, '192.168.0.0/16'), concat(IPv4NumToString(IPv4CIDRToRange(toIPv4OrDefault(src), 24).1), '/24'), isIPAddressInRange(src, '100.64.0.0/10'), 'cgnat', isIPAddressInRange(src, '224.0.0.0/4') OR isIPAddressInRange(src, 'ff00::/8') OR src = '255.255.255.255', 'multicast', isIPAddressInRange(src, '169.254.0.0/16') OR isIPAddressInRange(src, 'fe80::/10'), 'link-local', isIPAddressInRange(src, 'fc00::/7'), 'ipv6-ula', 'internet') AS src_net, if(isIPv4String(LogAttributes['destination.address']) OR isIPv6String(LogAttributes['destination.address']), LogAttributes['destination.address'], '::') AS dst, arrayFirst(n -> isIPAddressInRange(dst, n[2]), nets)[1] AS dst_name, multiIf(dst_name != '', dst_name, isIPAddressInRange(dst, '10.0.0.0/8') OR isIPAddressInRange(dst, '172.16.0.0/12') OR isIPAddressInRange(dst, '192.168.0.0/16'), concat(IPv4NumToString(IPv4CIDRToRange(toIPv4OrDefault(dst), 24).1), '/24'), isIPAddressInRange(dst, '100.64.0.0/10'), 'cgnat', isIPAddressInRange(dst, '224.0.0.0/4') OR isIPAddressInRange(dst, 'ff00::/8') OR dst = '255.255.255.255', 'multicast', isIPAddressInRange(dst, '169.254.0.0/16') OR isIPAddressInRange(dst, 'fe80::/10'), 'link-local', isIPAddressInRange(dst, 'fc00::/7'), 'ipv6-ula', 'internet') AS dst_net, toUInt16OrZero(LogAttributes['source.port']) AS sport, toUInt16OrZero(LogAttributes['destination.port']) AS dport, LogAttributes['network.transport'] AS proto, toUInt64OrZero(LogAttributes['flow.io.bytes']) AS bytes, toUInt64OrZero(LogAttributes['flow.io.packets']) AS packets, multiIf(src_net != 'internet' AND dst_net != 'internet', 'internal', src_net != 'internet', 'egress', dst_net != 'internet', 'ingress', 'transit') AS direction FROM otel.otel_logs WHERE $__timeFilter(Timestamp) AND ScopeName = 'otelcol/netflowreceiver' SETTINGS optimize_functions_to_subcolumns = 0) WHERE $__conditionalAll((src_net IN (${network:singlequote}) OR dst_net IN (${network:singlequote})), $network) AND $__conditionalAll(proto IN (${protocol:singlequote}), $protocol) AND $__conditionalAll(src = ${src_ip:singlequote}, $src_ip) AND $__conditionalAll(dst = ${dst_ip:singlequote}, $dst_ip) GROUP BY time, metric ORDER BY time",
+          "refId": "A"
+        }
+      ],
+      "title": "Throughput by source network",
+      "type": "timeseries",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 30,
+            "lineWidth": 1,
+            "showPoints": "never",
+            "stacking": {
+              "group": "A",
+              "mode": "normal"
+            }
+          },
+          "unit": "Bps"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [
+            "sum",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "right"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-logs"
+      },
+      "description": "egress: local -> internet, ingress: internet -> local, internal: local -> local. IPFIX records are unidirectional, so replies count in the opposite direction.",
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 12,
+        "y": 6
+      },
+      "id": 12,
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-logs"
+          },
+          "editorType": "sql",
+          "format": 0,
+          "queryType": "sql",
+          "rawSql": "SELECT $__timeInterval(Timestamp) AS time, direction AS metric, sum(bytes) / $__interval_s AS bps FROM (WITH arrayFilter(n -> length(n) = 2, arrayMap(x -> splitByChar('=', x), splitByChar(',', '${networks:raw}'))) AS nets SELECT Timestamp, if(isIPv4String(LogAttributes['source.address']) OR isIPv6String(LogAttributes['source.address']), LogAttributes['source.address'], '::') AS src, arrayFirst(n -> isIPAddressInRange(src, n[2]), nets)[1] AS src_name, multiIf(src_name != '', src_name, isIPAddressInRange(src, '10.0.0.0/8') OR isIPAddressInRange(src, '172.16.0.0/12') OR isIPAddressInRange(src, '192.168.0.0/16'), concat(IPv4NumToString(IPv4CIDRToRange(toIPv4OrDefault(src), 24).1), '/24'), isIPAddressInRange(src, '100.64.0.0/10'), 'cgnat', isIPAddressInRange(src, '224.0.0.0/4') OR isIPAddressInRange(src, 'ff00::/8') OR src = '255.255.255.255', 'multicast', isIPAddressInRange(src, '169.254.0.0/16') OR isIPAddressInRange(src, 'fe80::/10'), 'link-local', isIPAddressInRange(src, 'fc00::/7'), 'ipv6-ula', 'internet') AS src_net, if(isIPv4String(LogAttributes['destination.address']) OR isIPv6String(LogAttributes['destination.address']), LogAttributes['destination.address'], '::') AS dst, arrayFirst(n -> isIPAddressInRange(dst, n[2]), nets)[1] AS dst_name, multiIf(dst_name != '', dst_name, isIPAddressInRange(dst, '10.0.0.0/8') OR isIPAddressInRange(dst, '172.16.0.0/12') OR isIPAddressInRange(dst, '192.168.0.0/16'), concat(IPv4NumToString(IPv4CIDRToRange(toIPv4OrDefault(dst), 24).1), '/24'), isIPAddressInRange(dst, '100.64.0.0/10'), 'cgnat', isIPAddressInRange(dst, '224.0.0.0/4') OR isIPAddressInRange(dst, 'ff00::/8') OR dst = '255.255.255.255', 'multicast', isIPAddressInRange(dst, '169.254.0.0/16') OR isIPAddressInRange(dst, 'fe80::/10'), 'link-local', isIPAddressInRange(dst, 'fc00::/7'), 'ipv6-ula', 'internet') AS dst_net, toUInt16OrZero(LogAttributes['source.port']) AS sport, toUInt16OrZero(LogAttributes['destination.port']) AS dport, LogAttributes['network.transport'] AS proto, toUInt64OrZero(LogAttributes['flow.io.bytes']) AS bytes, toUInt64OrZero(LogAttributes['flow.io.packets']) AS packets, multiIf(src_net != 'internet' AND dst_net != 'internet', 'internal', src_net != 'internet', 'egress', dst_net != 'internet', 'ingress', 'transit') AS direction FROM otel.otel_logs WHERE $__timeFilter(Timestamp) AND ScopeName = 'otelcol/netflowreceiver' SETTINGS optimize_functions_to_subcolumns = 0) WHERE $__conditionalAll((src_net IN (${network:singlequote}) OR dst_net IN (${network:singlequote})), $network) AND $__conditionalAll(proto IN (${protocol:singlequote}), $protocol) AND $__conditionalAll(src = ${src_ip:singlequote}, $src_ip) AND $__conditionalAll(dst = ${dst_ip:singlequote}, $dst_ip) GROUP BY time, metric ORDER BY time",
+          "refId": "A"
+        }
+      ],
+      "title": "Throughput by direction",
+      "type": "timeseries",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 30,
+            "lineWidth": 1,
+            "showPoints": "never",
+            "stacking": {
+              "group": "A",
+              "mode": "normal"
+            }
+          },
+          "unit": "Bps"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [
+            "sum",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "right"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-logs"
+      },
+      "description": "Bytes, packets and flows between networks.",
+      "gridPos": {
+        "h": 10,
+        "w": 8,
+        "x": 0,
+        "y": 15
+      },
+      "id": 13,
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-logs"
+          },
+          "editorType": "sql",
+          "format": 1,
+          "queryType": "sql",
+          "rawSql": "SELECT src_net, dst_net, sum(bytes) AS bytes, sum(packets) AS packets, count() AS flows FROM (WITH arrayFilter(n -> length(n) = 2, arrayMap(x -> splitByChar('=', x), splitByChar(',', '${networks:raw}'))) AS nets SELECT Timestamp, if(isIPv4String(LogAttributes['source.address']) OR isIPv6String(LogAttributes['source.address']), LogAttributes['source.address'], '::') AS src, arrayFirst(n -> isIPAddressInRange(src, n[2]), nets)[1] AS src_name, multiIf(src_name != '', src_name, isIPAddressInRange(src, '10.0.0.0/8') OR isIPAddressInRange(src, '172.16.0.0/12') OR isIPAddressInRange(src, '192.168.0.0/16'), concat(IPv4NumToString(IPv4CIDRToRange(toIPv4OrDefault(src), 24).1), '/24'), isIPAddressInRange(src, '100.64.0.0/10'), 'cgnat', isIPAddressInRange(src, '224.0.0.0/4') OR isIPAddressInRange(src, 'ff00::/8') OR src = '255.255.255.255', 'multicast', isIPAddressInRange(src, '169.254.0.0/16') OR isIPAddressInRange(src, 'fe80::/10'), 'link-local', isIPAddressInRange(src, 'fc00::/7'), 'ipv6-ula', 'internet') AS src_net, if(isIPv4String(LogAttributes['destination.address']) OR isIPv6String(LogAttributes['destination.address']), LogAttributes['destination.address'], '::') AS dst, arrayFirst(n -> isIPAddressInRange(dst, n[2]), nets)[1] AS dst_name, multiIf(dst_name != '', dst_name, isIPAddressInRange(dst, '10.0.0.0/8') OR isIPAddressInRange(dst, '172.16.0.0/12') OR isIPAddressInRange(dst, '192.168.0.0/16'), concat(IPv4NumToString(IPv4CIDRToRange(toIPv4OrDefault(dst), 24).1), '/24'), isIPAddressInRange(dst, '100.64.0.0/10'), 'cgnat', isIPAddressInRange(dst, '224.0.0.0/4') OR isIPAddressInRange(dst, 'ff00::/8') OR dst = '255.255.255.255', 'multicast', isIPAddressInRange(dst, '169.254.0.0/16') OR isIPAddressInRange(dst, 'fe80::/10'), 'link-local', isIPAddressInRange(dst, 'fc00::/7'), 'ipv6-ula', 'internet') AS dst_net, toUInt16OrZero(LogAttributes['source.port']) AS sport, toUInt16OrZero(LogAttributes['destination.port']) AS dport, LogAttributes['network.transport'] AS proto, toUInt64OrZero(LogAttributes['flow.io.bytes']) AS bytes, toUInt64OrZero(LogAttributes['flow.io.packets']) AS packets, multiIf(src_net != 'internet' AND dst_net != 'internet', 'internal', src_net != 'internet', 'egress', dst_net != 'internet', 'ingress', 'transit') AS direction FROM otel.otel_logs WHERE $__timeFilter(Timestamp) AND ScopeName = 'otelcol/netflowreceiver' SETTINGS optimize_functions_to_subcolumns = 0) WHERE $__conditionalAll((src_net IN (${network:singlequote}) OR dst_net IN (${network:singlequote})), $network) AND $__conditionalAll(proto IN (${protocol:singlequote}), $protocol) AND $__conditionalAll(src = ${src_ip:singlequote}, $src_ip) AND $__conditionalAll(dst = ${dst_ip:singlequote}, $dst_ip) GROUP BY src_net, dst_net ORDER BY bytes DESC LIMIT 50",
+          "refId": "A"
+        }
+      ],
+      "title": "Network to network",
+      "type": "table",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "filterable": true
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "bytes"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "decbytes"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        },
+        "showHeader": true
+      }
+    },
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-logs"
+      },
+      "description": "Source addresses by bytes sent.",
+      "gridPos": {
+        "h": 10,
+        "w": 8,
+        "x": 8,
+        "y": 15
+      },
+      "id": 14,
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-logs"
+          },
+          "editorType": "sql",
+          "format": 1,
+          "queryType": "sql",
+          "rawSql": "SELECT src, any(src_net) AS network, sum(bytes) AS bytes, count() AS flows, uniqExact(dst) AS peers FROM (WITH arrayFilter(n -> length(n) = 2, arrayMap(x -> splitByChar('=', x), splitByChar(',', '${networks:raw}'))) AS nets SELECT Timestamp, if(isIPv4String(LogAttributes['source.address']) OR isIPv6String(LogAttributes['source.address']), LogAttributes['source.address'], '::') AS src, arrayFirst(n -> isIPAddressInRange(src, n[2]), nets)[1] AS src_name, multiIf(src_name != '', src_name, isIPAddressInRange(src, '10.0.0.0/8') OR isIPAddressInRange(src, '172.16.0.0/12') OR isIPAddressInRange(src, '192.168.0.0/16'), concat(IPv4NumToString(IPv4CIDRToRange(toIPv4OrDefault(src), 24).1), '/24'), isIPAddressInRange(src, '100.64.0.0/10'), 'cgnat', isIPAddressInRange(src, '224.0.0.0/4') OR isIPAddressInRange(src, 'ff00::/8') OR src = '255.255.255.255', 'multicast', isIPAddressInRange(src, '169.254.0.0/16') OR isIPAddressInRange(src, 'fe80::/10'), 'link-local', isIPAddressInRange(src, 'fc00::/7'), 'ipv6-ula', 'internet') AS src_net, if(isIPv4String(LogAttributes['destination.address']) OR isIPv6String(LogAttributes['destination.address']), LogAttributes['destination.address'], '::') AS dst, arrayFirst(n -> isIPAddressInRange(dst, n[2]), nets)[1] AS dst_name, multiIf(dst_name != '', dst_name, isIPAddressInRange(dst, '10.0.0.0/8') OR isIPAddressInRange(dst, '172.16.0.0/12') OR isIPAddressInRange(dst, '192.168.0.0/16'), concat(IPv4NumToString(IPv4CIDRToRange(toIPv4OrDefault(dst), 24).1), '/24'), isIPAddressInRange(dst, '100.64.0.0/10'), 'cgnat', isIPAddressInRange(dst, '224.0.0.0/4') OR isIPAddressInRange(dst, 'ff00::/8') OR dst = '255.255.255.255', 'multicast', isIPAddressInRange(dst, '169.254.0.0/16') OR isIPAddressInRange(dst, 'fe80::/10'), 'link-local', isIPAddressInRange(dst, 'fc00::/7'), 'ipv6-ula', 'internet') AS dst_net, toUInt16OrZero(LogAttributes['source.port']) AS sport, toUInt16OrZero(LogAttributes['destination.port']) AS dport, LogAttributes['network.transport'] AS proto, toUInt64OrZero(LogAttributes['flow.io.bytes']) AS bytes, toUInt64OrZero(LogAttributes['flow.io.packets']) AS packets, multiIf(src_net != 'internet' AND dst_net != 'internet', 'internal', src_net != 'internet', 'egress', dst_net != 'internet', 'ingress', 'transit') AS direction FROM otel.otel_logs WHERE $__timeFilter(Timestamp) AND ScopeName = 'otelcol/netflowreceiver' SETTINGS optimize_functions_to_subcolumns = 0) WHERE $__conditionalAll((src_net IN (${network:singlequote}) OR dst_net IN (${network:singlequote})), $network) AND $__conditionalAll(proto IN (${protocol:singlequote}), $protocol) AND $__conditionalAll(src = ${src_ip:singlequote}, $src_ip) AND $__conditionalAll(dst = ${dst_ip:singlequote}, $dst_ip) GROUP BY src ORDER BY bytes DESC LIMIT 25",
+          "refId": "A"
+        }
+      ],
+      "title": "Top sources",
+      "type": "table",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "filterable": true
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "bytes"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "decbytes"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        },
+        "showHeader": true
+      }
+    },
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-logs"
+      },
+      "description": "Destination addresses by bytes received.",
+      "gridPos": {
+        "h": 10,
+        "w": 8,
+        "x": 16,
+        "y": 15
+      },
+      "id": 15,
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-logs"
+          },
+          "editorType": "sql",
+          "format": 1,
+          "queryType": "sql",
+          "rawSql": "SELECT dst, any(dst_net) AS network, sum(bytes) AS bytes, count() AS flows, uniqExact(src) AS peers FROM (WITH arrayFilter(n -> length(n) = 2, arrayMap(x -> splitByChar('=', x), splitByChar(',', '${networks:raw}'))) AS nets SELECT Timestamp, if(isIPv4String(LogAttributes['source.address']) OR isIPv6String(LogAttributes['source.address']), LogAttributes['source.address'], '::') AS src, arrayFirst(n -> isIPAddressInRange(src, n[2]), nets)[1] AS src_name, multiIf(src_name != '', src_name, isIPAddressInRange(src, '10.0.0.0/8') OR isIPAddressInRange(src, '172.16.0.0/12') OR isIPAddressInRange(src, '192.168.0.0/16'), concat(IPv4NumToString(IPv4CIDRToRange(toIPv4OrDefault(src), 24).1), '/24'), isIPAddressInRange(src, '100.64.0.0/10'), 'cgnat', isIPAddressInRange(src, '224.0.0.0/4') OR isIPAddressInRange(src, 'ff00::/8') OR src = '255.255.255.255', 'multicast', isIPAddressInRange(src, '169.254.0.0/16') OR isIPAddressInRange(src, 'fe80::/10'), 'link-local', isIPAddressInRange(src, 'fc00::/7'), 'ipv6-ula', 'internet') AS src_net, if(isIPv4String(LogAttributes['destination.address']) OR isIPv6String(LogAttributes['destination.address']), LogAttributes['destination.address'], '::') AS dst, arrayFirst(n -> isIPAddressInRange(dst, n[2]), nets)[1] AS dst_name, multiIf(dst_name != '', dst_name, isIPAddressInRange(dst, '10.0.0.0/8') OR isIPAddressInRange(dst, '172.16.0.0/12') OR isIPAddressInRange(dst, '192.168.0.0/16'), concat(IPv4NumToString(IPv4CIDRToRange(toIPv4OrDefault(dst), 24).1), '/24'), isIPAddressInRange(dst, '100.64.0.0/10'), 'cgnat', isIPAddressInRange(dst, '224.0.0.0/4') OR isIPAddressInRange(dst, 'ff00::/8') OR dst = '255.255.255.255', 'multicast', isIPAddressInRange(dst, '169.254.0.0/16') OR isIPAddressInRange(dst, 'fe80::/10'), 'link-local', isIPAddressInRange(dst, 'fc00::/7'), 'ipv6-ula', 'internet') AS dst_net, toUInt16OrZero(LogAttributes['source.port']) AS sport, toUInt16OrZero(LogAttributes['destination.port']) AS dport, LogAttributes['network.transport'] AS proto, toUInt64OrZero(LogAttributes['flow.io.bytes']) AS bytes, toUInt64OrZero(LogAttributes['flow.io.packets']) AS packets, multiIf(src_net != 'internet' AND dst_net != 'internet', 'internal', src_net != 'internet', 'egress', dst_net != 'internet', 'ingress', 'transit') AS direction FROM otel.otel_logs WHERE $__timeFilter(Timestamp) AND ScopeName = 'otelcol/netflowreceiver' SETTINGS optimize_functions_to_subcolumns = 0) WHERE $__conditionalAll((src_net IN (${network:singlequote}) OR dst_net IN (${network:singlequote})), $network) AND $__conditionalAll(proto IN (${protocol:singlequote}), $protocol) AND $__conditionalAll(src = ${src_ip:singlequote}, $src_ip) AND $__conditionalAll(dst = ${dst_ip:singlequote}, $dst_ip) GROUP BY dst ORDER BY bytes DESC LIMIT 25",
+          "refId": "A"
+        }
+      ],
+      "title": "Top destinations",
+      "type": "table",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "filterable": true
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "bytes"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "decbytes"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        },
+        "showHeader": true
+      }
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "Requests per second into the internal and external Traefik, by status class (Prometheus).",
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 25
+      },
+      "id": 16,
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorType": "code",
+          "expr": "sum by (container, entrypoint, code_class) (label_replace(rate(traefik_entrypoint_requests_total[$__rate_interval]), \"code_class\", \"${1}xx\", \"code\", \"([0-9])..\"))",
+          "legendFormat": "{{container}} {{entrypoint}} {{code_class}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Traefik requests by entrypoint",
+      "type": "timeseries",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 30,
+            "lineWidth": 1,
+            "showPoints": "never",
+            "stacking": {
+              "group": "A",
+              "mode": "normal"
+            }
+          },
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [
+            "sum",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "right"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 33
+      },
+      "id": 17,
+      "panels": [],
+      "title": "Flows",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-logs"
+      },
+      "description": "Source, destination and destination port by bytes.",
+      "gridPos": {
+        "h": 10,
+        "w": 16,
+        "x": 0,
+        "y": 34
+      },
+      "id": 18,
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-logs"
+          },
+          "editorType": "sql",
+          "format": 1,
+          "queryType": "sql",
+          "rawSql": "SELECT src, dst, dport, transform(dport, [20, 22, 25, 53, 67, 80, 123, 137, 161, 443, 465, 514, 587, 853, 993, 1883, 1900, 2055, 3478, 5353, 8080, 8443, 32400, 51820, 21, 23, 135, 139, 445, 1433, 1521, 2375, 3306, 3389, 5432, 5900, 6379, 9200, 11211, 27017], ['ftp-data', 'ssh', 'smtp', 'dns', 'dhcp', 'http', 'ntp', 'netbios-ns', 'snmp', 'https', 'smtps', 'syslog', 'submission', 'dns-over-tls', 'imaps', 'mqtt', 'ssdp', 'netflow', 'stun', 'mdns', 'http-alt', 'https-alt', 'plex', 'wireguard', 'ftp', 'telnet', 'msrpc', 'netbios', 'smb', 'mssql', 'oracle', 'docker', 'mysql', 'rdp', 'postgres', 'vnc', 'redis', 'elasticsearch', 'memcached', 'mongodb'], toString(dport)) AS service, proto, direction, sum(bytes) AS bytes, sum(packets) AS packets, count() AS flows FROM (WITH arrayFilter(n -> length(n) = 2, arrayMap(x -> splitByChar('=', x), splitByChar(',', '${networks:raw}'))) AS nets SELECT Timestamp, if(isIPv4String(LogAttributes['source.address']) OR isIPv6String(LogAttributes['source.address']), LogAttributes['source.address'], '::') AS src, arrayFirst(n -> isIPAddressInRange(src, n[2]), nets)[1] AS src_name, multiIf(src_name != '', src_name, isIPAddressInRange(src, '10.0.0.0/8') OR isIPAddressInRange(src, '172.16.0.0/12') OR isIPAddressInRange(src, '192.168.0.0/16'), concat(IPv4NumToString(IPv4CIDRToRange(toIPv4OrDefault(src), 24).1), '/24'), isIPAddressInRange(src, '100.64.0.0/10'), 'cgnat', isIPAddressInRange(src, '224.0.0.0/4') OR isIPAddressInRange(src, 'ff00::/8') OR src = '255.255.255.255', 'multicast', isIPAddressInRange(src, '169.254.0.0/16') OR isIPAddressInRange(src, 'fe80::/10'), 'link-local', isIPAddressInRange(src, 'fc00::/7'), 'ipv6-ula', 'internet') AS src_net, if(isIPv4String(LogAttributes['destination.address']) OR isIPv6String(LogAttributes['destination.address']), LogAttributes['destination.address'], '::') AS dst, arrayFirst(n -> isIPAddressInRange(dst, n[2]), nets)[1] AS dst_name, multiIf(dst_name != '', dst_name, isIPAddressInRange(dst, '10.0.0.0/8') OR isIPAddressInRange(dst, '172.16.0.0/12') OR isIPAddressInRange(dst, '192.168.0.0/16'), concat(IPv4NumToString(IPv4CIDRToRange(toIPv4OrDefault(dst), 24).1), '/24'), isIPAddressInRange(dst, '100.64.0.0/10'), 'cgnat', isIPAddressInRange(dst, '224.0.0.0/4') OR isIPAddressInRange(dst, 'ff00::/8') OR dst = '255.255.255.255', 'multicast', isIPAddressInRange(dst, '169.254.0.0/16') OR isIPAddressInRange(dst, 'fe80::/10'), 'link-local', isIPAddressInRange(dst, 'fc00::/7'), 'ipv6-ula', 'internet') AS dst_net, toUInt16OrZero(LogAttributes['source.port']) AS sport, toUInt16OrZero(LogAttributes['destination.port']) AS dport, LogAttributes['network.transport'] AS proto, toUInt64OrZero(LogAttributes['flow.io.bytes']) AS bytes, toUInt64OrZero(LogAttributes['flow.io.packets']) AS packets, multiIf(src_net != 'internet' AND dst_net != 'internet', 'internal', src_net != 'internet', 'egress', dst_net != 'internet', 'ingress', 'transit') AS direction FROM otel.otel_logs WHERE $__timeFilter(Timestamp) AND ScopeName = 'otelcol/netflowreceiver' SETTINGS optimize_functions_to_subcolumns = 0) WHERE $__conditionalAll((src_net IN (${network:singlequote}) OR dst_net IN (${network:singlequote})), $network) AND $__conditionalAll(proto IN (${protocol:singlequote}), $protocol) AND $__conditionalAll(src = ${src_ip:singlequote}, $src_ip) AND $__conditionalAll(dst = ${dst_ip:singlequote}, $dst_ip) GROUP BY src, dst, dport, proto, direction ORDER BY bytes DESC LIMIT 100",
+          "refId": "A"
+        }
+      ],
+      "title": "Top conversations",
+      "type": "table",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "filterable": true
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "bytes"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "decbytes"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        },
+        "showHeader": true
+      }
+    },
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-logs"
+      },
+      "description": "Bytes by transport protocol.",
+      "gridPos": {
+        "h": 10,
+        "w": 8,
+        "x": 16,
+        "y": 34
+      },
+      "id": 19,
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-logs"
+          },
+          "editorType": "sql",
+          "format": 1,
+          "queryType": "sql",
+          "rawSql": "SELECT proto, sum(bytes) AS bytes FROM (WITH arrayFilter(n -> length(n) = 2, arrayMap(x -> splitByChar('=', x), splitByChar(',', '${networks:raw}'))) AS nets SELECT Timestamp, if(isIPv4String(LogAttributes['source.address']) OR isIPv6String(LogAttributes['source.address']), LogAttributes['source.address'], '::') AS src, arrayFirst(n -> isIPAddressInRange(src, n[2]), nets)[1] AS src_name, multiIf(src_name != '', src_name, isIPAddressInRange(src, '10.0.0.0/8') OR isIPAddressInRange(src, '172.16.0.0/12') OR isIPAddressInRange(src, '192.168.0.0/16'), concat(IPv4NumToString(IPv4CIDRToRange(toIPv4OrDefault(src), 24).1), '/24'), isIPAddressInRange(src, '100.64.0.0/10'), 'cgnat', isIPAddressInRange(src, '224.0.0.0/4') OR isIPAddressInRange(src, 'ff00::/8') OR src = '255.255.255.255', 'multicast', isIPAddressInRange(src, '169.254.0.0/16') OR isIPAddressInRange(src, 'fe80::/10'), 'link-local', isIPAddressInRange(src, 'fc00::/7'), 'ipv6-ula', 'internet') AS src_net, if(isIPv4String(LogAttributes['destination.address']) OR isIPv6String(LogAttributes['destination.address']), LogAttributes['destination.address'], '::') AS dst, arrayFirst(n -> isIPAddressInRange(dst, n[2]), nets)[1] AS dst_name, multiIf(dst_name != '', dst_name, isIPAddressInRange(dst, '10.0.0.0/8') OR isIPAddressInRange(dst, '172.16.0.0/12') OR isIPAddressInRange(dst, '192.168.0.0/16'), concat(IPv4NumToString(IPv4CIDRToRange(toIPv4OrDefault(dst), 24).1), '/24'), isIPAddressInRange(dst, '100.64.0.0/10'), 'cgnat', isIPAddressInRange(dst, '224.0.0.0/4') OR isIPAddressInRange(dst, 'ff00::/8') OR dst = '255.255.255.255', 'multicast', isIPAddressInRange(dst, '169.254.0.0/16') OR isIPAddressInRange(dst, 'fe80::/10'), 'link-local', isIPAddressInRange(dst, 'fc00::/7'), 'ipv6-ula', 'internet') AS dst_net, toUInt16OrZero(LogAttributes['source.port']) AS sport, toUInt16OrZero(LogAttributes['destination.port']) AS dport, LogAttributes['network.transport'] AS proto, toUInt64OrZero(LogAttributes['flow.io.bytes']) AS bytes, toUInt64OrZero(LogAttributes['flow.io.packets']) AS packets, multiIf(src_net != 'internet' AND dst_net != 'internet', 'internal', src_net != 'internet', 'egress', dst_net != 'internet', 'ingress', 'transit') AS direction FROM otel.otel_logs WHERE $__timeFilter(Timestamp) AND ScopeName = 'otelcol/netflowreceiver' SETTINGS optimize_functions_to_subcolumns = 0) WHERE $__conditionalAll((src_net IN (${network:singlequote}) OR dst_net IN (${network:singlequote})), $network) AND $__conditionalAll(proto IN (${protocol:singlequote}), $protocol) AND $__conditionalAll(src = ${src_ip:singlequote}, $src_ip) AND $__conditionalAll(dst = ${dst_ip:singlequote}, $dst_ip) GROUP BY proto ORDER BY bytes DESC",
+          "refId": "A"
+        }
+      ],
+      "title": "Protocol mix",
+      "type": "piechart",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "decbytes"
+        },
+        "overrides": []
+      },
+      "options": {
+        "displayLabels": [
+          "name",
+          "percent"
+        ],
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "values": [
+            "value",
+            "percent"
+          ]
+        },
+        "pieType": "donut",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": true
+        }
+      }
+    },
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-logs"
+      },
+      "description": "Destination ports by flows; ports at or above 32768 are mostly replies to ephemeral ports.",
+      "gridPos": {
+        "h": 10,
+        "w": 12,
+        "x": 0,
+        "y": 44
+      },
+      "id": 20,
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-logs"
+          },
+          "editorType": "sql",
+          "format": 1,
+          "queryType": "sql",
+          "rawSql": "SELECT dport, transform(dport, [20, 22, 25, 53, 67, 80, 123, 137, 161, 443, 465, 514, 587, 853, 993, 1883, 1900, 2055, 3478, 5353, 8080, 8443, 32400, 51820, 21, 23, 135, 139, 445, 1433, 1521, 2375, 3306, 3389, 5432, 5900, 6379, 9200, 11211, 27017], ['ftp-data', 'ssh', 'smtp', 'dns', 'dhcp', 'http', 'ntp', 'netbios-ns', 'snmp', 'https', 'smtps', 'syslog', 'submission', 'dns-over-tls', 'imaps', 'mqtt', 'ssdp', 'netflow', 'stun', 'mdns', 'http-alt', 'https-alt', 'plex', 'wireguard', 'ftp', 'telnet', 'msrpc', 'netbios', 'smb', 'mssql', 'oracle', 'docker', 'mysql', 'rdp', 'postgres', 'vnc', 'redis', 'elasticsearch', 'memcached', 'mongodb'], toString(dport)) AS service, proto, count() AS flows, sum(bytes) AS bytes, uniqExact(src) AS sources, uniqExact(dst) AS destinations FROM (WITH arrayFilter(n -> length(n) = 2, arrayMap(x -> splitByChar('=', x), splitByChar(',', '${networks:raw}'))) AS nets SELECT Timestamp, if(isIPv4String(LogAttributes['source.address']) OR isIPv6String(LogAttributes['source.address']), LogAttributes['source.address'], '::') AS src, arrayFirst(n -> isIPAddressInRange(src, n[2]), nets)[1] AS src_name, multiIf(src_name != '', src_name, isIPAddressInRange(src, '10.0.0.0/8') OR isIPAddressInRange(src, '172.16.0.0/12') OR isIPAddressInRange(src, '192.168.0.0/16'), concat(IPv4NumToString(IPv4CIDRToRange(toIPv4OrDefault(src), 24).1), '/24'), isIPAddressInRange(src, '100.64.0.0/10'), 'cgnat', isIPAddressInRange(src, '224.0.0.0/4') OR isIPAddressInRange(src, 'ff00::/8') OR src = '255.255.255.255', 'multicast', isIPAddressInRange(src, '169.254.0.0/16') OR isIPAddressInRange(src, 'fe80::/10'), 'link-local', isIPAddressInRange(src, 'fc00::/7'), 'ipv6-ula', 'internet') AS src_net, if(isIPv4String(LogAttributes['destination.address']) OR isIPv6String(LogAttributes['destination.address']), LogAttributes['destination.address'], '::') AS dst, arrayFirst(n -> isIPAddressInRange(dst, n[2]), nets)[1] AS dst_name, multiIf(dst_name != '', dst_name, isIPAddressInRange(dst, '10.0.0.0/8') OR isIPAddressInRange(dst, '172.16.0.0/12') OR isIPAddressInRange(dst, '192.168.0.0/16'), concat(IPv4NumToString(IPv4CIDRToRange(toIPv4OrDefault(dst), 24).1), '/24'), isIPAddressInRange(dst, '100.64.0.0/10'), 'cgnat', isIPAddressInRange(dst, '224.0.0.0/4') OR isIPAddressInRange(dst, 'ff00::/8') OR dst = '255.255.255.255', 'multicast', isIPAddressInRange(dst, '169.254.0.0/16') OR isIPAddressInRange(dst, 'fe80::/10'), 'link-local', isIPAddressInRange(dst, 'fc00::/7'), 'ipv6-ula', 'internet') AS dst_net, toUInt16OrZero(LogAttributes['source.port']) AS sport, toUInt16OrZero(LogAttributes['destination.port']) AS dport, LogAttributes['network.transport'] AS proto, toUInt64OrZero(LogAttributes['flow.io.bytes']) AS bytes, toUInt64OrZero(LogAttributes['flow.io.packets']) AS packets, multiIf(src_net != 'internet' AND dst_net != 'internet', 'internal', src_net != 'internet', 'egress', dst_net != 'internet', 'ingress', 'transit') AS direction FROM otel.otel_logs WHERE $__timeFilter(Timestamp) AND ScopeName = 'otelcol/netflowreceiver' SETTINGS optimize_functions_to_subcolumns = 0) WHERE $__conditionalAll((src_net IN (${network:singlequote}) OR dst_net IN (${network:singlequote})), $network) AND $__conditionalAll(proto IN (${protocol:singlequote}), $protocol) AND $__conditionalAll(src = ${src_ip:singlequote}, $src_ip) AND $__conditionalAll(dst = ${dst_ip:singlequote}, $dst_ip) GROUP BY dport, proto ORDER BY flows DESC LIMIT 50",
+          "refId": "A"
+        }
+      ],
+      "title": "Top destination ports",
+      "type": "table",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "filterable": true
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "bytes"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "decbytes"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        },
+        "showHeader": true
+      }
+    },
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-logs"
+      },
+      "description": "IPFIX records per second by transport protocol.",
+      "gridPos": {
+        "h": 10,
+        "w": 12,
+        "x": 12,
+        "y": 44
+      },
+      "id": 21,
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-logs"
+          },
+          "editorType": "sql",
+          "format": 0,
+          "queryType": "sql",
+          "rawSql": "SELECT $__timeInterval(Timestamp) AS time, proto AS metric, count() / $__interval_s AS rate FROM (WITH arrayFilter(n -> length(n) = 2, arrayMap(x -> splitByChar('=', x), splitByChar(',', '${networks:raw}'))) AS nets SELECT Timestamp, if(isIPv4String(LogAttributes['source.address']) OR isIPv6String(LogAttributes['source.address']), LogAttributes['source.address'], '::') AS src, arrayFirst(n -> isIPAddressInRange(src, n[2]), nets)[1] AS src_name, multiIf(src_name != '', src_name, isIPAddressInRange(src, '10.0.0.0/8') OR isIPAddressInRange(src, '172.16.0.0/12') OR isIPAddressInRange(src, '192.168.0.0/16'), concat(IPv4NumToString(IPv4CIDRToRange(toIPv4OrDefault(src), 24).1), '/24'), isIPAddressInRange(src, '100.64.0.0/10'), 'cgnat', isIPAddressInRange(src, '224.0.0.0/4') OR isIPAddressInRange(src, 'ff00::/8') OR src = '255.255.255.255', 'multicast', isIPAddressInRange(src, '169.254.0.0/16') OR isIPAddressInRange(src, 'fe80::/10'), 'link-local', isIPAddressInRange(src, 'fc00::/7'), 'ipv6-ula', 'internet') AS src_net, if(isIPv4String(LogAttributes['destination.address']) OR isIPv6String(LogAttributes['destination.address']), LogAttributes['destination.address'], '::') AS dst, arrayFirst(n -> isIPAddressInRange(dst, n[2]), nets)[1] AS dst_name, multiIf(dst_name != '', dst_name, isIPAddressInRange(dst, '10.0.0.0/8') OR isIPAddressInRange(dst, '172.16.0.0/12') OR isIPAddressInRange(dst, '192.168.0.0/16'), concat(IPv4NumToString(IPv4CIDRToRange(toIPv4OrDefault(dst), 24).1), '/24'), isIPAddressInRange(dst, '100.64.0.0/10'), 'cgnat', isIPAddressInRange(dst, '224.0.0.0/4') OR isIPAddressInRange(dst, 'ff00::/8') OR dst = '255.255.255.255', 'multicast', isIPAddressInRange(dst, '169.254.0.0/16') OR isIPAddressInRange(dst, 'fe80::/10'), 'link-local', isIPAddressInRange(dst, 'fc00::/7'), 'ipv6-ula', 'internet') AS dst_net, toUInt16OrZero(LogAttributes['source.port']) AS sport, toUInt16OrZero(LogAttributes['destination.port']) AS dport, LogAttributes['network.transport'] AS proto, toUInt64OrZero(LogAttributes['flow.io.bytes']) AS bytes, toUInt64OrZero(LogAttributes['flow.io.packets']) AS packets, multiIf(src_net != 'internet' AND dst_net != 'internet', 'internal', src_net != 'internet', 'egress', dst_net != 'internet', 'ingress', 'transit') AS direction FROM otel.otel_logs WHERE $__timeFilter(Timestamp) AND ScopeName = 'otelcol/netflowreceiver' SETTINGS optimize_functions_to_subcolumns = 0) WHERE $__conditionalAll((src_net IN (${network:singlequote}) OR dst_net IN (${network:singlequote})), $network) AND $__conditionalAll(proto IN (${protocol:singlequote}), $protocol) AND $__conditionalAll(src = ${src_ip:singlequote}, $src_ip) AND $__conditionalAll(dst = ${dst_ip:singlequote}, $dst_ip) GROUP BY time, metric ORDER BY time",
+          "refId": "A"
+        }
+      ],
+      "title": "Flow records by protocol",
+      "type": "timeseries",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 30,
+            "lineWidth": 1,
+            "showPoints": "never",
+            "stacking": {
+              "group": "A",
+              "mode": "normal"
+            }
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [
+            "sum",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "right"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-logs"
+      },
+      "description": "Latest 500 IPFIX records matching the filters.",
+      "gridPos": {
+        "h": 12,
+        "w": 24,
+        "x": 0,
+        "y": 54
+      },
+      "id": 22,
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-logs"
+          },
+          "editorType": "sql",
+          "format": 1,
+          "queryType": "sql",
+          "rawSql": "SELECT Timestamp, src, sport, dst, dport, transform(dport, [20, 22, 25, 53, 67, 80, 123, 137, 161, 443, 465, 514, 587, 853, 993, 1883, 1900, 2055, 3478, 5353, 8080, 8443, 32400, 51820, 21, 23, 135, 139, 445, 1433, 1521, 2375, 3306, 3389, 5432, 5900, 6379, 9200, 11211, 27017], ['ftp-data', 'ssh', 'smtp', 'dns', 'dhcp', 'http', 'ntp', 'netbios-ns', 'snmp', 'https', 'smtps', 'syslog', 'submission', 'dns-over-tls', 'imaps', 'mqtt', 'ssdp', 'netflow', 'stun', 'mdns', 'http-alt', 'https-alt', 'plex', 'wireguard', 'ftp', 'telnet', 'msrpc', 'netbios', 'smb', 'mssql', 'oracle', 'docker', 'mysql', 'rdp', 'postgres', 'vnc', 'redis', 'elasticsearch', 'memcached', 'mongodb'], toString(dport)) AS service, proto, src_net, dst_net, direction, bytes, packets FROM (WITH arrayFilter(n -> length(n) = 2, arrayMap(x -> splitByChar('=', x), splitByChar(',', '${networks:raw}'))) AS nets SELECT Timestamp, if(isIPv4String(LogAttributes['source.address']) OR isIPv6String(LogAttributes['source.address']), LogAttributes['source.address'], '::') AS src, arrayFirst(n -> isIPAddressInRange(src, n[2]), nets)[1] AS src_name, multiIf(src_name != '', src_name, isIPAddressInRange(src, '10.0.0.0/8') OR isIPAddressInRange(src, '172.16.0.0/12') OR isIPAddressInRange(src, '192.168.0.0/16'), concat(IPv4NumToString(IPv4CIDRToRange(toIPv4OrDefault(src), 24).1), '/24'), isIPAddressInRange(src, '100.64.0.0/10'), 'cgnat', isIPAddressInRange(src, '224.0.0.0/4') OR isIPAddressInRange(src, 'ff00::/8') OR src = '255.255.255.255', 'multicast', isIPAddressInRange(src, '169.254.0.0/16') OR isIPAddressInRange(src, 'fe80::/10'), 'link-local', isIPAddressInRange(src, 'fc00::/7'), 'ipv6-ula', 'internet') AS src_net, if(isIPv4String(LogAttributes['destination.address']) OR isIPv6String(LogAttributes['destination.address']), LogAttributes['destination.address'], '::') AS dst, arrayFirst(n -> isIPAddressInRange(dst, n[2]), nets)[1] AS dst_name, multiIf(dst_name != '', dst_name, isIPAddressInRange(dst, '10.0.0.0/8') OR isIPAddressInRange(dst, '172.16.0.0/12') OR isIPAddressInRange(dst, '192.168.0.0/16'), concat(IPv4NumToString(IPv4CIDRToRange(toIPv4OrDefault(dst), 24).1), '/24'), isIPAddressInRange(dst, '100.64.0.0/10'), 'cgnat', isIPAddressInRange(dst, '224.0.0.0/4') OR isIPAddressInRange(dst, 'ff00::/8') OR dst = '255.255.255.255', 'multicast', isIPAddressInRange(dst, '169.254.0.0/16') OR isIPAddressInRange(dst, 'fe80::/10'), 'link-local', isIPAddressInRange(dst, 'fc00::/7'), 'ipv6-ula', 'internet') AS dst_net, toUInt16OrZero(LogAttributes['source.port']) AS sport, toUInt16OrZero(LogAttributes['destination.port']) AS dport, LogAttributes['network.transport'] AS proto, toUInt64OrZero(LogAttributes['flow.io.bytes']) AS bytes, toUInt64OrZero(LogAttributes['flow.io.packets']) AS packets, multiIf(src_net != 'internet' AND dst_net != 'internet', 'internal', src_net != 'internet', 'egress', dst_net != 'internet', 'ingress', 'transit') AS direction FROM otel.otel_logs WHERE $__timeFilter(Timestamp) AND ScopeName = 'otelcol/netflowreceiver' SETTINGS optimize_functions_to_subcolumns = 0) WHERE $__conditionalAll((src_net IN (${network:singlequote}) OR dst_net IN (${network:singlequote})), $network) AND $__conditionalAll(proto IN (${protocol:singlequote}), $protocol) AND $__conditionalAll(src = ${src_ip:singlequote}, $src_ip) AND $__conditionalAll(dst = ${dst_ip:singlequote}, $dst_ip) ORDER BY Timestamp DESC LIMIT 500",
+          "refId": "A"
+        }
+      ],
+      "title": "Flow records",
+      "type": "table",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "filterable": true
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "bytes"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "decbytes"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        },
+        "showHeader": true
+      }
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 66
+      },
+      "id": 23,
+      "panels": [],
+      "title": "Security",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-logs"
+      },
+      "description": "UniFi syslog events by kind (firewall, intrusion prevention, honeypot, threat).",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 67
+      },
+      "id": 24,
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-logs"
+          },
+          "editorType": "sql",
+          "format": 0,
+          "queryType": "sql",
+          "rawSql": "SELECT $__timeInterval(Timestamp) AS time, kind AS metric, count() AS events FROM (SELECT Timestamp, Body, LogAttributes['cef_name'] AS cef_name, LogAttributes['cef_extension'] AS ext, toUInt8OrZero(LogAttributes['cef_severity']) AS severity, extract(ext, '(?:^| )UNIFIcategory=(.*?)(?: [A-Za-z0-9_]+=|$)') AS category, extract(ext, '(?:^| )UNIFIsubCategory=(.*?)(?: [A-Za-z0-9_]+=|$)') AS subcategory, extract(ext, '(?:^| )UNIFIipsSignature=(.*?)(?: [A-Za-z0-9_]+=|$)') AS signature, extract(ext, '(?:^| )UNIFIrisk=(.*?)(?: [A-Za-z0-9_]+=|$)') AS risk, extract(ext, '(?:^| )UNIFIthreatType=(.*?)(?: [A-Za-z0-9_]+=|$)') AS threat_type, extract(ext, '(?:^| )msg=(.*?)(?: [A-Za-z0-9_]+=|$)') AS msg, extract(Body, '[[]([A-Za-z0-9_]+-[A-Za-z0-9_-]+)[]]') AS fw_rule, if(ext != '', extract(ext, '(?:^| )src=(.*?)(?: [A-Za-z0-9_]+=|$)'), extract(Body, '(?:^| )SRC=([^ ]*)')) AS src, if(ext != '', extract(ext, '(?:^| )dst=(.*?)(?: [A-Za-z0-9_]+=|$)'), extract(Body, '(?:^| )DST=([^ ]*)')) AS dst, toUInt16OrZero(if(ext != '', extract(ext, '(?:^| )dpt=(.*?)(?: [A-Za-z0-9_]+=|$)'), extract(Body, '(?:^| )DPT=([^ ]*)'))) AS dport, lower(if(ext != '', extract(ext, '(?:^| )proto=(.*?)(?: [A-Za-z0-9_]+=|$)'), extract(Body, '(?:^| )PROTO=([^ ]*)'))) AS proto, multiIf(category = 'Security' AND subcategory = 'Firewall', 'firewall', category = 'Security', lower(if(subcategory != '', subcategory, cef_name)), fw_rule != '' AND match(fw_rule, '-(D|R|B)(-|$)|DROP|REJECT|BLOCK'), 'firewall', '') AS kind FROM otel.otel_logs WHERE $__timeFilter(Timestamp) AND ServiceName = 'unifi-syslog') WHERE kind != '' AND $__conditionalAll(src = ${src_ip:singlequote}, $src_ip) AND $__conditionalAll(dst = ${dst_ip:singlequote}, $dst_ip) GROUP BY time, metric ORDER BY time",
+          "refId": "A"
+        }
+      ],
+      "title": "UniFi security events",
+      "type": "timeseries",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 30,
+            "lineWidth": 1,
+            "showPoints": "never",
+            "stacking": {
+              "group": "A",
+              "mode": "normal"
+            }
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [
+            "sum",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "right"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-logs"
+      },
+      "description": "Sources of UniFi firewall blocks.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 67
+      },
+      "id": 25,
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-logs"
+          },
+          "editorType": "sql",
+          "format": 1,
+          "queryType": "sql",
+          "rawSql": "SELECT src, count() AS blocks, uniqExact(dst) AS destinations, groupUniqArray(5)(dport) AS ports, any(fw_rule) AS rule FROM (SELECT Timestamp, Body, LogAttributes['cef_name'] AS cef_name, LogAttributes['cef_extension'] AS ext, toUInt8OrZero(LogAttributes['cef_severity']) AS severity, extract(ext, '(?:^| )UNIFIcategory=(.*?)(?: [A-Za-z0-9_]+=|$)') AS category, extract(ext, '(?:^| )UNIFIsubCategory=(.*?)(?: [A-Za-z0-9_]+=|$)') AS subcategory, extract(ext, '(?:^| )UNIFIipsSignature=(.*?)(?: [A-Za-z0-9_]+=|$)') AS signature, extract(ext, '(?:^| )UNIFIrisk=(.*?)(?: [A-Za-z0-9_]+=|$)') AS risk, extract(ext, '(?:^| )UNIFIthreatType=(.*?)(?: [A-Za-z0-9_]+=|$)') AS threat_type, extract(ext, '(?:^| )msg=(.*?)(?: [A-Za-z0-9_]+=|$)') AS msg, extract(Body, '[[]([A-Za-z0-9_]+-[A-Za-z0-9_-]+)[]]') AS fw_rule, if(ext != '', extract(ext, '(?:^| )src=(.*?)(?: [A-Za-z0-9_]+=|$)'), extract(Body, '(?:^| )SRC=([^ ]*)')) AS src, if(ext != '', extract(ext, '(?:^| )dst=(.*?)(?: [A-Za-z0-9_]+=|$)'), extract(Body, '(?:^| )DST=([^ ]*)')) AS dst, toUInt16OrZero(if(ext != '', extract(ext, '(?:^| )dpt=(.*?)(?: [A-Za-z0-9_]+=|$)'), extract(Body, '(?:^| )DPT=([^ ]*)'))) AS dport, lower(if(ext != '', extract(ext, '(?:^| )proto=(.*?)(?: [A-Za-z0-9_]+=|$)'), extract(Body, '(?:^| )PROTO=([^ ]*)'))) AS proto, multiIf(category = 'Security' AND subcategory = 'Firewall', 'firewall', category = 'Security', lower(if(subcategory != '', subcategory, cef_name)), fw_rule != '' AND match(fw_rule, '-(D|R|B)(-|$)|DROP|REJECT|BLOCK'), 'firewall', '') AS kind FROM otel.otel_logs WHERE $__timeFilter(Timestamp) AND ServiceName = 'unifi-syslog') WHERE kind = 'firewall' AND $__conditionalAll(src = ${src_ip:singlequote}, $src_ip) AND $__conditionalAll(dst = ${dst_ip:singlequote}, $dst_ip) GROUP BY src ORDER BY blocks DESC LIMIT 25",
+          "refId": "A"
+        }
+      ],
+      "title": "Top blocked sources",
+      "type": "table",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "filterable": true
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        },
+        "showHeader": true
+      }
+    },
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-logs"
+      },
+      "description": "UniFi CEF events of category Security other than Firewall, newest first.",
+      "gridPos": {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 75
+      },
+      "id": 26,
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-logs"
+          },
+          "editorType": "sql",
+          "format": 1,
+          "queryType": "sql",
+          "rawSql": "SELECT Timestamp, severity, cef_name AS event, subcategory, signature, threat_type, risk, src, dst, dport, proto, msg FROM (SELECT Timestamp, Body, LogAttributes['cef_name'] AS cef_name, LogAttributes['cef_extension'] AS ext, toUInt8OrZero(LogAttributes['cef_severity']) AS severity, extract(ext, '(?:^| )UNIFIcategory=(.*?)(?: [A-Za-z0-9_]+=|$)') AS category, extract(ext, '(?:^| )UNIFIsubCategory=(.*?)(?: [A-Za-z0-9_]+=|$)') AS subcategory, extract(ext, '(?:^| )UNIFIipsSignature=(.*?)(?: [A-Za-z0-9_]+=|$)') AS signature, extract(ext, '(?:^| )UNIFIrisk=(.*?)(?: [A-Za-z0-9_]+=|$)') AS risk, extract(ext, '(?:^| )UNIFIthreatType=(.*?)(?: [A-Za-z0-9_]+=|$)') AS threat_type, extract(ext, '(?:^| )msg=(.*?)(?: [A-Za-z0-9_]+=|$)') AS msg, extract(Body, '[[]([A-Za-z0-9_]+-[A-Za-z0-9_-]+)[]]') AS fw_rule, if(ext != '', extract(ext, '(?:^| )src=(.*?)(?: [A-Za-z0-9_]+=|$)'), extract(Body, '(?:^| )SRC=([^ ]*)')) AS src, if(ext != '', extract(ext, '(?:^| )dst=(.*?)(?: [A-Za-z0-9_]+=|$)'), extract(Body, '(?:^| )DST=([^ ]*)')) AS dst, toUInt16OrZero(if(ext != '', extract(ext, '(?:^| )dpt=(.*?)(?: [A-Za-z0-9_]+=|$)'), extract(Body, '(?:^| )DPT=([^ ]*)'))) AS dport, lower(if(ext != '', extract(ext, '(?:^| )proto=(.*?)(?: [A-Za-z0-9_]+=|$)'), extract(Body, '(?:^| )PROTO=([^ ]*)'))) AS proto, multiIf(category = 'Security' AND subcategory = 'Firewall', 'firewall', category = 'Security', lower(if(subcategory != '', subcategory, cef_name)), fw_rule != '' AND match(fw_rule, '-(D|R|B)(-|$)|DROP|REJECT|BLOCK'), 'firewall', '') AS kind FROM otel.otel_logs WHERE $__timeFilter(Timestamp) AND ServiceName = 'unifi-syslog') WHERE kind NOT IN ('', 'firewall') AND $__conditionalAll(src = ${src_ip:singlequote}, $src_ip) AND $__conditionalAll(dst = ${dst_ip:singlequote}, $dst_ip) ORDER BY Timestamp DESC LIMIT 500",
+          "refId": "A"
+        }
+      ],
+      "title": "IDS/IPS and threat events",
+      "type": "table",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "filterable": true
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "severity"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background",
+                  "mode": "basic"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 5
+                    },
+                    {
+                      "color": "red",
+                      "value": 8
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        },
+        "showHeader": true
+      }
+    },
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-logs"
+      },
+      "description": "Flows to ports that should rarely cross networks (21 ftp, 23 telnet, 135 msrpc, 139 netbios, 445 smb, 1433 mssql, 1521 oracle, 2375 docker, 3306 mysql, 3389 rdp, 5432 postgres, 5900 vnc, 6379 redis, 9200 elasticsearch, 11211 memcached, 27017 mongodb).",
+      "gridPos": {
+        "h": 10,
+        "w": 12,
+        "x": 0,
+        "y": 85
+      },
+      "id": 27,
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-logs"
+          },
+          "editorType": "sql",
+          "format": 1,
+          "queryType": "sql",
+          "rawSql": "SELECT src, dst, dport, transform(dport, [21, 23, 135, 139, 445, 1433, 1521, 2375, 3306, 3389, 5432, 5900, 6379, 9200, 11211, 27017], ['ftp', 'telnet', 'msrpc', 'netbios', 'smb', 'mssql', 'oracle', 'docker', 'mysql', 'rdp', 'postgres', 'vnc', 'redis', 'elasticsearch', 'memcached', 'mongodb'], toString(dport)) AS service, proto, direction, count() AS flows, sum(bytes) AS bytes FROM (WITH arrayFilter(n -> length(n) = 2, arrayMap(x -> splitByChar('=', x), splitByChar(',', '${networks:raw}'))) AS nets SELECT Timestamp, if(isIPv4String(LogAttributes['source.address']) OR isIPv6String(LogAttributes['source.address']), LogAttributes['source.address'], '::') AS src, arrayFirst(n -> isIPAddressInRange(src, n[2]), nets)[1] AS src_name, multiIf(src_name != '', src_name, isIPAddressInRange(src, '10.0.0.0/8') OR isIPAddressInRange(src, '172.16.0.0/12') OR isIPAddressInRange(src, '192.168.0.0/16'), concat(IPv4NumToString(IPv4CIDRToRange(toIPv4OrDefault(src), 24).1), '/24'), isIPAddressInRange(src, '100.64.0.0/10'), 'cgnat', isIPAddressInRange(src, '224.0.0.0/4') OR isIPAddressInRange(src, 'ff00::/8') OR src = '255.255.255.255', 'multicast', isIPAddressInRange(src, '169.254.0.0/16') OR isIPAddressInRange(src, 'fe80::/10'), 'link-local', isIPAddressInRange(src, 'fc00::/7'), 'ipv6-ula', 'internet') AS src_net, if(isIPv4String(LogAttributes['destination.address']) OR isIPv6String(LogAttributes['destination.address']), LogAttributes['destination.address'], '::') AS dst, arrayFirst(n -> isIPAddressInRange(dst, n[2]), nets)[1] AS dst_name, multiIf(dst_name != '', dst_name, isIPAddressInRange(dst, '10.0.0.0/8') OR isIPAddressInRange(dst, '172.16.0.0/12') OR isIPAddressInRange(dst, '192.168.0.0/16'), concat(IPv4NumToString(IPv4CIDRToRange(toIPv4OrDefault(dst), 24).1), '/24'), isIPAddressInRange(dst, '100.64.0.0/10'), 'cgnat', isIPAddressInRange(dst, '224.0.0.0/4') OR isIPAddressInRange(dst, 'ff00::/8') OR dst = '255.255.255.255', 'multicast', isIPAddressInRange(dst, '169.254.0.0/16') OR isIPAddressInRange(dst, 'fe80::/10'), 'link-local', isIPAddressInRange(dst, 'fc00::/7'), 'ipv6-ula', 'internet') AS dst_net, toUInt16OrZero(LogAttributes['source.port']) AS sport, toUInt16OrZero(LogAttributes['destination.port']) AS dport, LogAttributes['network.transport'] AS proto, toUInt64OrZero(LogAttributes['flow.io.bytes']) AS bytes, toUInt64OrZero(LogAttributes['flow.io.packets']) AS packets, multiIf(src_net != 'internet' AND dst_net != 'internet', 'internal', src_net != 'internet', 'egress', dst_net != 'internet', 'ingress', 'transit') AS direction FROM otel.otel_logs WHERE $__timeFilter(Timestamp) AND ScopeName = 'otelcol/netflowreceiver' SETTINGS optimize_functions_to_subcolumns = 0) WHERE $__conditionalAll((src_net IN (${network:singlequote}) OR dst_net IN (${network:singlequote})), $network) AND $__conditionalAll(proto IN (${protocol:singlequote}), $protocol) AND $__conditionalAll(src = ${src_ip:singlequote}, $src_ip) AND $__conditionalAll(dst = ${dst_ip:singlequote}, $dst_ip) AND dport IN (21, 23, 135, 139, 445, 1433, 1521, 2375, 3306, 3389, 5432, 5900, 6379, 9200, 11211, 27017) GROUP BY src, dst, dport, proto, direction ORDER BY (direction = 'ingress') DESC, flows DESC LIMIT 100",
+          "refId": "A"
+        }
+      ],
+      "title": "Risky destination ports",
+      "type": "table",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "filterable": true
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "bytes"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "decbytes"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        },
+        "showHeader": true
+      }
+    },
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-logs"
+      },
+      "description": "Internet sources reaching local addresses on a service port (destination port below the source port and below 32768), which excludes most reply flows.",
+      "gridPos": {
+        "h": 10,
+        "w": 12,
+        "x": 12,
+        "y": 85
+      },
+      "id": 28,
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-logs"
+          },
+          "editorType": "sql",
+          "format": 1,
+          "queryType": "sql",
+          "rawSql": "SELECT src, dst, dport, transform(dport, [20, 22, 25, 53, 67, 80, 123, 137, 161, 443, 465, 514, 587, 853, 993, 1883, 1900, 2055, 3478, 5353, 8080, 8443, 32400, 51820, 21, 23, 135, 139, 445, 1433, 1521, 2375, 3306, 3389, 5432, 5900, 6379, 9200, 11211, 27017], ['ftp-data', 'ssh', 'smtp', 'dns', 'dhcp', 'http', 'ntp', 'netbios-ns', 'snmp', 'https', 'smtps', 'syslog', 'submission', 'dns-over-tls', 'imaps', 'mqtt', 'ssdp', 'netflow', 'stun', 'mdns', 'http-alt', 'https-alt', 'plex', 'wireguard', 'ftp', 'telnet', 'msrpc', 'netbios', 'smb', 'mssql', 'oracle', 'docker', 'mysql', 'rdp', 'postgres', 'vnc', 'redis', 'elasticsearch', 'memcached', 'mongodb'], toString(dport)) AS service, proto, count() AS flows, sum(bytes) AS bytes FROM (WITH arrayFilter(n -> length(n) = 2, arrayMap(x -> splitByChar('=', x), splitByChar(',', '${networks:raw}'))) AS nets SELECT Timestamp, if(isIPv4String(LogAttributes['source.address']) OR isIPv6String(LogAttributes['source.address']), LogAttributes['source.address'], '::') AS src, arrayFirst(n -> isIPAddressInRange(src, n[2]), nets)[1] AS src_name, multiIf(src_name != '', src_name, isIPAddressInRange(src, '10.0.0.0/8') OR isIPAddressInRange(src, '172.16.0.0/12') OR isIPAddressInRange(src, '192.168.0.0/16'), concat(IPv4NumToString(IPv4CIDRToRange(toIPv4OrDefault(src), 24).1), '/24'), isIPAddressInRange(src, '100.64.0.0/10'), 'cgnat', isIPAddressInRange(src, '224.0.0.0/4') OR isIPAddressInRange(src, 'ff00::/8') OR src = '255.255.255.255', 'multicast', isIPAddressInRange(src, '169.254.0.0/16') OR isIPAddressInRange(src, 'fe80::/10'), 'link-local', isIPAddressInRange(src, 'fc00::/7'), 'ipv6-ula', 'internet') AS src_net, if(isIPv4String(LogAttributes['destination.address']) OR isIPv6String(LogAttributes['destination.address']), LogAttributes['destination.address'], '::') AS dst, arrayFirst(n -> isIPAddressInRange(dst, n[2]), nets)[1] AS dst_name, multiIf(dst_name != '', dst_name, isIPAddressInRange(dst, '10.0.0.0/8') OR isIPAddressInRange(dst, '172.16.0.0/12') OR isIPAddressInRange(dst, '192.168.0.0/16'), concat(IPv4NumToString(IPv4CIDRToRange(toIPv4OrDefault(dst), 24).1), '/24'), isIPAddressInRange(dst, '100.64.0.0/10'), 'cgnat', isIPAddressInRange(dst, '224.0.0.0/4') OR isIPAddressInRange(dst, 'ff00::/8') OR dst = '255.255.255.255', 'multicast', isIPAddressInRange(dst, '169.254.0.0/16') OR isIPAddressInRange(dst, 'fe80::/10'), 'link-local', isIPAddressInRange(dst, 'fc00::/7'), 'ipv6-ula', 'internet') AS dst_net, toUInt16OrZero(LogAttributes['source.port']) AS sport, toUInt16OrZero(LogAttributes['destination.port']) AS dport, LogAttributes['network.transport'] AS proto, toUInt64OrZero(LogAttributes['flow.io.bytes']) AS bytes, toUInt64OrZero(LogAttributes['flow.io.packets']) AS packets, multiIf(src_net != 'internet' AND dst_net != 'internet', 'internal', src_net != 'internet', 'egress', dst_net != 'internet', 'ingress', 'transit') AS direction FROM otel.otel_logs WHERE $__timeFilter(Timestamp) AND ScopeName = 'otelcol/netflowreceiver' SETTINGS optimize_functions_to_subcolumns = 0) WHERE $__conditionalAll((src_net IN (${network:singlequote}) OR dst_net IN (${network:singlequote})), $network) AND $__conditionalAll(proto IN (${protocol:singlequote}), $protocol) AND $__conditionalAll(src = ${src_ip:singlequote}, $src_ip) AND $__conditionalAll(dst = ${dst_ip:singlequote}, $dst_ip) AND direction = 'ingress' AND dport < sport AND dport < 32768 GROUP BY src, dst, dport, proto ORDER BY flows DESC LIMIT 100",
+          "refId": "A"
+        }
+      ],
+      "title": "Inbound from the internet",
+      "type": "table",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "filterable": true
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "bytes"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "decbytes"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        },
+        "showHeader": true
+      }
+    },
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-logs"
+      },
+      "description": "Local sources by distinct destination ports and peers; many ports or peers from one host suggests scanning.",
+      "gridPos": {
+        "h": 10,
+        "w": 12,
+        "x": 0,
+        "y": 95
+      },
+      "id": 29,
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-logs"
+          },
+          "editorType": "sql",
+          "format": 1,
+          "queryType": "sql",
+          "rawSql": "SELECT src, any(src_net) AS network, uniqExact(dport) AS distinct_ports, uniqExact(dst) AS distinct_peers, round(avg(packets), 1) AS avg_packets, count() AS flows FROM (WITH arrayFilter(n -> length(n) = 2, arrayMap(x -> splitByChar('=', x), splitByChar(',', '${networks:raw}'))) AS nets SELECT Timestamp, if(isIPv4String(LogAttributes['source.address']) OR isIPv6String(LogAttributes['source.address']), LogAttributes['source.address'], '::') AS src, arrayFirst(n -> isIPAddressInRange(src, n[2]), nets)[1] AS src_name, multiIf(src_name != '', src_name, isIPAddressInRange(src, '10.0.0.0/8') OR isIPAddressInRange(src, '172.16.0.0/12') OR isIPAddressInRange(src, '192.168.0.0/16'), concat(IPv4NumToString(IPv4CIDRToRange(toIPv4OrDefault(src), 24).1), '/24'), isIPAddressInRange(src, '100.64.0.0/10'), 'cgnat', isIPAddressInRange(src, '224.0.0.0/4') OR isIPAddressInRange(src, 'ff00::/8') OR src = '255.255.255.255', 'multicast', isIPAddressInRange(src, '169.254.0.0/16') OR isIPAddressInRange(src, 'fe80::/10'), 'link-local', isIPAddressInRange(src, 'fc00::/7'), 'ipv6-ula', 'internet') AS src_net, if(isIPv4String(LogAttributes['destination.address']) OR isIPv6String(LogAttributes['destination.address']), LogAttributes['destination.address'], '::') AS dst, arrayFirst(n -> isIPAddressInRange(dst, n[2]), nets)[1] AS dst_name, multiIf(dst_name != '', dst_name, isIPAddressInRange(dst, '10.0.0.0/8') OR isIPAddressInRange(dst, '172.16.0.0/12') OR isIPAddressInRange(dst, '192.168.0.0/16'), concat(IPv4NumToString(IPv4CIDRToRange(toIPv4OrDefault(dst), 24).1), '/24'), isIPAddressInRange(dst, '100.64.0.0/10'), 'cgnat', isIPAddressInRange(dst, '224.0.0.0/4') OR isIPAddressInRange(dst, 'ff00::/8') OR dst = '255.255.255.255', 'multicast', isIPAddressInRange(dst, '169.254.0.0/16') OR isIPAddressInRange(dst, 'fe80::/10'), 'link-local', isIPAddressInRange(dst, 'fc00::/7'), 'ipv6-ula', 'internet') AS dst_net, toUInt16OrZero(LogAttributes['source.port']) AS sport, toUInt16OrZero(LogAttributes['destination.port']) AS dport, LogAttributes['network.transport'] AS proto, toUInt64OrZero(LogAttributes['flow.io.bytes']) AS bytes, toUInt64OrZero(LogAttributes['flow.io.packets']) AS packets, multiIf(src_net != 'internet' AND dst_net != 'internet', 'internal', src_net != 'internet', 'egress', dst_net != 'internet', 'ingress', 'transit') AS direction FROM otel.otel_logs WHERE $__timeFilter(Timestamp) AND ScopeName = 'otelcol/netflowreceiver' SETTINGS optimize_functions_to_subcolumns = 0) WHERE $__conditionalAll((src_net IN (${network:singlequote}) OR dst_net IN (${network:singlequote})), $network) AND $__conditionalAll(proto IN (${protocol:singlequote}), $protocol) AND $__conditionalAll(src = ${src_ip:singlequote}, $src_ip) AND $__conditionalAll(dst = ${dst_ip:singlequote}, $dst_ip) AND src_net != 'internet' AND dport < 32768 GROUP BY src ORDER BY distinct_ports DESC, distinct_peers DESC LIMIT 25",
+          "refId": "A"
+        }
+      ],
+      "title": "Scan-like local hosts",
+      "type": "table",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "filterable": true
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "distinct_ports"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background",
+                  "mode": "basic"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "transparent",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 25
+                    },
+                    {
+                      "color": "red",
+                      "value": 100
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "distinct_peers"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background",
+                  "mode": "basic"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "transparent",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 100
+                    },
+                    {
+                      "color": "red",
+                      "value": 500
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        },
+        "showHeader": true
+      }
+    },
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-logs"
+      },
+      "description": "Hourly egress bytes per local host with the z-score against all host-hours in the range; 3 or more is unusual.",
+      "gridPos": {
+        "h": 10,
+        "w": 12,
+        "x": 12,
+        "y": 95
+      },
+      "id": 30,
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-logs"
+          },
+          "editorType": "sql",
+          "format": 1,
+          "queryType": "sql",
+          "rawSql": "SELECT hour, src, bytes, round((bytes - avg(bytes) OVER ()) / nullIf(stddevPop(bytes) OVER (), 0), 1) AS zscore FROM (SELECT toStartOfHour(Timestamp) AS hour, src, sum(bytes) AS bytes FROM (WITH arrayFilter(n -> length(n) = 2, arrayMap(x -> splitByChar('=', x), splitByChar(',', '${networks:raw}'))) AS nets SELECT Timestamp, if(isIPv4String(LogAttributes['source.address']) OR isIPv6String(LogAttributes['source.address']), LogAttributes['source.address'], '::') AS src, arrayFirst(n -> isIPAddressInRange(src, n[2]), nets)[1] AS src_name, multiIf(src_name != '', src_name, isIPAddressInRange(src, '10.0.0.0/8') OR isIPAddressInRange(src, '172.16.0.0/12') OR isIPAddressInRange(src, '192.168.0.0/16'), concat(IPv4NumToString(IPv4CIDRToRange(toIPv4OrDefault(src), 24).1), '/24'), isIPAddressInRange(src, '100.64.0.0/10'), 'cgnat', isIPAddressInRange(src, '224.0.0.0/4') OR isIPAddressInRange(src, 'ff00::/8') OR src = '255.255.255.255', 'multicast', isIPAddressInRange(src, '169.254.0.0/16') OR isIPAddressInRange(src, 'fe80::/10'), 'link-local', isIPAddressInRange(src, 'fc00::/7'), 'ipv6-ula', 'internet') AS src_net, if(isIPv4String(LogAttributes['destination.address']) OR isIPv6String(LogAttributes['destination.address']), LogAttributes['destination.address'], '::') AS dst, arrayFirst(n -> isIPAddressInRange(dst, n[2]), nets)[1] AS dst_name, multiIf(dst_name != '', dst_name, isIPAddressInRange(dst, '10.0.0.0/8') OR isIPAddressInRange(dst, '172.16.0.0/12') OR isIPAddressInRange(dst, '192.168.0.0/16'), concat(IPv4NumToString(IPv4CIDRToRange(toIPv4OrDefault(dst), 24).1), '/24'), isIPAddressInRange(dst, '100.64.0.0/10'), 'cgnat', isIPAddressInRange(dst, '224.0.0.0/4') OR isIPAddressInRange(dst, 'ff00::/8') OR dst = '255.255.255.255', 'multicast', isIPAddressInRange(dst, '169.254.0.0/16') OR isIPAddressInRange(dst, 'fe80::/10'), 'link-local', isIPAddressInRange(dst, 'fc00::/7'), 'ipv6-ula', 'internet') AS dst_net, toUInt16OrZero(LogAttributes['source.port']) AS sport, toUInt16OrZero(LogAttributes['destination.port']) AS dport, LogAttributes['network.transport'] AS proto, toUInt64OrZero(LogAttributes['flow.io.bytes']) AS bytes, toUInt64OrZero(LogAttributes['flow.io.packets']) AS packets, multiIf(src_net != 'internet' AND dst_net != 'internet', 'internal', src_net != 'internet', 'egress', dst_net != 'internet', 'ingress', 'transit') AS direction FROM otel.otel_logs WHERE $__timeFilter(Timestamp) AND ScopeName = 'otelcol/netflowreceiver' SETTINGS optimize_functions_to_subcolumns = 0) WHERE $__conditionalAll((src_net IN (${network:singlequote}) OR dst_net IN (${network:singlequote})), $network) AND $__conditionalAll(proto IN (${protocol:singlequote}), $protocol) AND $__conditionalAll(src = ${src_ip:singlequote}, $src_ip) AND $__conditionalAll(dst = ${dst_ip:singlequote}, $dst_ip) AND direction = 'egress' GROUP BY hour, src) ORDER BY zscore DESC LIMIT 25",
+          "refId": "A"
+        }
+      ],
+      "title": "Large egress outliers",
+      "type": "table",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "filterable": true
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "bytes"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "decbytes"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "zscore"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background",
+                  "mode": "basic"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "transparent",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 3
+                    },
+                    {
+                      "color": "red",
+                      "value": 5
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        },
+        "showHeader": true
+      }
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "Cilium drops per second by reason (Prometheus hubble_drop_total).",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 105
+      },
+      "id": 31,
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorType": "code",
+          "expr": "sum by (reason) (rate(hubble_drop_total[$__rate_interval]))",
+          "legendFormat": "{{reason}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Hubble drops by reason",
+      "type": "timeseries",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 30,
+            "lineWidth": 1,
+            "showPoints": "never",
+            "stacking": {
+              "group": "A",
+              "mode": "normal"
+            }
+          },
+          "unit": "pps"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [
+            "sum",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "right"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse-logs"
+      },
+      "description": "Flows Cilium dropped with POLICY_DENIED, from the Hubble flow log in ClickHouse.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 105
+      },
+      "id": 32,
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-logs"
+          },
+          "editorType": "sql",
+          "format": 1,
+          "queryType": "sql",
+          "rawSql": "SELECT src_ns, src_pod, src, dst_ns, dst_pod, dst, dport, direction, count() AS drops, max(Timestamp) AS last_seen FROM (SELECT Timestamp, JSONExtractString(Body, 'flow', 'drop_reason_desc') AS reason, JSONExtractString(Body, 'flow', 'traffic_direction') AS direction, JSONExtractString(Body, 'flow', 'IP', 'source') AS src, JSONExtractString(Body, 'flow', 'IP', 'destination') AS dst, JSONExtractString(Body, 'flow', 'source', 'namespace') AS src_ns, JSONExtractString(Body, 'flow', 'source', 'pod_name') AS src_pod, JSONExtractString(Body, 'flow', 'destination', 'namespace') AS dst_ns, JSONExtractString(Body, 'flow', 'destination', 'pod_name') AS dst_pod, greatest(JSONExtractUInt(Body, 'flow', 'l4', 'TCP', 'destination_port'), JSONExtractUInt(Body, 'flow', 'l4', 'UDP', 'destination_port')) AS dport FROM otel.otel_logs WHERE $__timeFilter(Timestamp) AND ServiceName = 'hubble' AND hasToken(lower(Body), 'denied') AND JSONExtractString(Body, 'flow', 'verdict') = 'DROPPED' AND JSONExtractString(Body, 'flow', 'drop_reason_desc') = 'POLICY_DENIED') GROUP BY src_ns, src_pod, src, dst_ns, dst_pod, dst, dport, direction ORDER BY drops DESC LIMIT 50",
+          "refId": "A"
+        }
+      ],
+      "title": "Hubble policy drops",
+      "type": "table",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "filterable": true
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        },
+        "showHeader": true
+      }
+    },
+    {
+      "collapsed": true,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 113
+      },
+      "id": 33,
+      "panels": [
+        {
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse-logs"
+          },
+          "description": "Raw UniFi syslog lines, newest first.",
+          "gridPos": {
+            "h": 12,
+            "w": 24,
+            "x": 0,
+            "y": 114
+          },
+          "id": 34,
+          "targets": [
+            {
+              "datasource": {
+                "type": "grafana-clickhouse-datasource",
+                "uid": "clickhouse-logs"
+              },
+              "editorType": "sql",
+              "format": 2,
+              "queryType": "sql",
+              "rawSql": "SELECT Timestamp AS timestamp, Body AS body, SeverityText AS level FROM otel.otel_logs WHERE $__timeFilter(Timestamp) AND ServiceName = 'unifi-syslog' ORDER BY Timestamp DESC LIMIT 1000",
+              "refId": "A"
+            }
+          ],
+          "title": "UniFi syslog",
+          "type": "logs",
+          "options": {
+            "dedupStrategy": "none",
+            "enableLogDetails": true,
+            "showTime": true,
+            "sortOrder": "Descending",
+            "wrapLogMessage": true
+          }
+        }
+      ],
+      "title": "UniFi syslog",
+      "type": "row"
+    }
+  ],
+  "refresh": "5m",
+  "schemaVersion": 39,
+  "tags": [
+    "network",
+    "netflow",
+    "unifi",
+    "security",
+    "clickhouse"
+  ],
+  "templating": {
+    "list": [
+      {
+        "hide": 2,
+        "label": "Named networks",
+        "name": "networks",
+        "query": "__NETWORK_NAMES__",
+        "type": "constant"
+      },
+      {
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "datasource": {
+          "type": "grafana-clickhouse-datasource",
+          "uid": "clickhouse-logs"
+        },
+        "definition": "SELECT DISTINCT net FROM (WITH arrayFilter(n -> length(n) = 2, arrayMap(x -> splitByChar('=', x), splitByChar(',', '${networks:raw}'))) AS nets SELECT if(isIPv4String(LogAttributes['source.address']) OR isIPv6String(LogAttributes['source.address']), LogAttributes['source.address'], '::') AS a, arrayFirst(n -> isIPAddressInRange(a, n[2]), nets)[1] AS a_name, multiIf(a_name != '', a_name, isIPAddressInRange(a, '10.0.0.0/8') OR isIPAddressInRange(a, '172.16.0.0/12') OR isIPAddressInRange(a, '192.168.0.0/16'), concat(IPv4NumToString(IPv4CIDRToRange(toIPv4OrDefault(a), 24).1), '/24'), isIPAddressInRange(a, '100.64.0.0/10'), 'cgnat', isIPAddressInRange(a, '224.0.0.0/4') OR isIPAddressInRange(a, 'ff00::/8') OR a = '255.255.255.255', 'multicast', isIPAddressInRange(a, '169.254.0.0/16') OR isIPAddressInRange(a, 'fe80::/10'), 'link-local', isIPAddressInRange(a, 'fc00::/7'), 'ipv6-ula', 'internet') AS a_net, if(isIPv4String(LogAttributes['destination.address']) OR isIPv6String(LogAttributes['destination.address']), LogAttributes['destination.address'], '::') AS b, arrayFirst(n -> isIPAddressInRange(b, n[2]), nets)[1] AS b_name, multiIf(b_name != '', b_name, isIPAddressInRange(b, '10.0.0.0/8') OR isIPAddressInRange(b, '172.16.0.0/12') OR isIPAddressInRange(b, '192.168.0.0/16'), concat(IPv4NumToString(IPv4CIDRToRange(toIPv4OrDefault(b), 24).1), '/24'), isIPAddressInRange(b, '100.64.0.0/10'), 'cgnat', isIPAddressInRange(b, '224.0.0.0/4') OR isIPAddressInRange(b, 'ff00::/8') OR b = '255.255.255.255', 'multicast', isIPAddressInRange(b, '169.254.0.0/16') OR isIPAddressInRange(b, 'fe80::/10'), 'link-local', isIPAddressInRange(b, 'fc00::/7'), 'ipv6-ula', 'internet') AS b_net FROM otel.otel_logs WHERE $__timeFilter(Timestamp) AND ScopeName = 'otelcol/netflowreceiver') ARRAY JOIN [a_net, b_net] AS net ORDER BY net",
+        "includeAll": true,
+        "label": "Network",
+        "multi": true,
+        "name": "network",
+        "query": "SELECT DISTINCT net FROM (WITH arrayFilter(n -> length(n) = 2, arrayMap(x -> splitByChar('=', x), splitByChar(',', '${networks:raw}'))) AS nets SELECT if(isIPv4String(LogAttributes['source.address']) OR isIPv6String(LogAttributes['source.address']), LogAttributes['source.address'], '::') AS a, arrayFirst(n -> isIPAddressInRange(a, n[2]), nets)[1] AS a_name, multiIf(a_name != '', a_name, isIPAddressInRange(a, '10.0.0.0/8') OR isIPAddressInRange(a, '172.16.0.0/12') OR isIPAddressInRange(a, '192.168.0.0/16'), concat(IPv4NumToString(IPv4CIDRToRange(toIPv4OrDefault(a), 24).1), '/24'), isIPAddressInRange(a, '100.64.0.0/10'), 'cgnat', isIPAddressInRange(a, '224.0.0.0/4') OR isIPAddressInRange(a, 'ff00::/8') OR a = '255.255.255.255', 'multicast', isIPAddressInRange(a, '169.254.0.0/16') OR isIPAddressInRange(a, 'fe80::/10'), 'link-local', isIPAddressInRange(a, 'fc00::/7'), 'ipv6-ula', 'internet') AS a_net, if(isIPv4String(LogAttributes['destination.address']) OR isIPv6String(LogAttributes['destination.address']), LogAttributes['destination.address'], '::') AS b, arrayFirst(n -> isIPAddressInRange(b, n[2]), nets)[1] AS b_name, multiIf(b_name != '', b_name, isIPAddressInRange(b, '10.0.0.0/8') OR isIPAddressInRange(b, '172.16.0.0/12') OR isIPAddressInRange(b, '192.168.0.0/16'), concat(IPv4NumToString(IPv4CIDRToRange(toIPv4OrDefault(b), 24).1), '/24'), isIPAddressInRange(b, '100.64.0.0/10'), 'cgnat', isIPAddressInRange(b, '224.0.0.0/4') OR isIPAddressInRange(b, 'ff00::/8') OR b = '255.255.255.255', 'multicast', isIPAddressInRange(b, '169.254.0.0/16') OR isIPAddressInRange(b, 'fe80::/10'), 'link-local', isIPAddressInRange(b, 'fc00::/7'), 'ipv6-ula', 'internet') AS b_net FROM otel.otel_logs WHERE $__timeFilter(Timestamp) AND ScopeName = 'otelcol/netflowreceiver') ARRAY JOIN [a_net, b_net] AS net ORDER BY net",
+        "refresh": 2,
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "datasource": {
+          "type": "grafana-clickhouse-datasource",
+          "uid": "clickhouse-logs"
+        },
+        "definition": "SELECT DISTINCT LogAttributes['network.transport'] FROM otel.otel_logs WHERE $__timeFilter(Timestamp) AND ScopeName = 'otelcol/netflowreceiver'",
+        "includeAll": true,
+        "label": "Protocol",
+        "multi": true,
+        "name": "protocol",
+        "query": "SELECT DISTINCT LogAttributes['network.transport'] FROM otel.otel_logs WHERE $__timeFilter(Timestamp) AND ScopeName = 'otelcol/netflowreceiver'",
+        "refresh": 2,
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "current": {
+          "text": "",
+          "value": ""
+        },
+        "description": "Exact source address; empty matches all.",
+        "label": "Source IP",
+        "name": "src_ip",
+        "query": "",
+        "type": "textbox"
+      },
+      {
+        "current": {
+          "text": "",
+          "value": ""
+        },
+        "description": "Exact destination address; empty matches all.",
+        "label": "Destination IP",
+        "name": "dst_ip",
+        "query": "",
+        "type": "textbox"
+      }
+    ]
+  },
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Network flows and security",
+  "uid": "network-flows",
+  "version": 1
+}

@@ -4,7 +4,7 @@ Path of one request, and what records each hop:
 
 | # | Hop | Evidence | Where |
 |---|---|---|---|
-| 1 | client -> UniFi gateway | IPFIX flow records, firewall syslog | ClickHouse ScopeName `netflowreceiver` / ServiceName `unifi-syslog`; dashboard "UniFi gateway flows and firewall" |
+| 1 | client -> UniFi gateway | IPFIX flow records, firewall syslog | ClickHouse ScopeName `otelcol/netflowreceiver` / ServiceName `unifi-syslog`; dashboard "Network flows and security" |
 | 2 | gateway -> traefik-internal LB IP (Cilium L2 announcement) | flow records to the LB IP | "Paperclip request path" panel 5 (UniFi) |
 | 3 | Cilium -> Traefik pod | Hubble flows, drops with reason | panel 5 (Hubble), `HomelabHubbleDropsHigh` |
 | 4 | Traefik | access log (ClientHost, Duration, OriginDuration, OriginStatus, DownstreamStatus, RouterName, ServiceURL, RetryAttempts, User-Agent, TraceId), metrics, span | panels 2 and 3 |
