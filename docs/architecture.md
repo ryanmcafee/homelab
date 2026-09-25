@@ -15,6 +15,11 @@ behind it. Versions quoted here come from `configuration/versions.yaml`; address
 Decisions are recorded as ADRs in `docs/project_notes/decisions.md` and referenced by
 number below.
 
+This page describes the homelab as it is built today. The forward-looking platform baseline
+that homelab and the commercial platform share — the operator model, the CloudEvents/NATS
+contract, the shared SDK boundary, the BYO-\* seams, fork-ability and the boundary quality
+gates — lives in [`docs/contracts/`](contracts/README.md) (ADR-024 … ADR-030).
+
 ---
 
 ## Provisioning

@@ -69,6 +69,18 @@ tasks:
     cmds:
       - bun test {{.CLI_ARGS | default "scripts"}}
 
+  contracts:check:
+    desc: Validate the platform event contract in contracts/events/ and diff it against the compatibility baseline (ADR-025, ADR-029)
+    deps: [bun:install]
+    cmds:
+      - bun scripts/contract-check.ts check
+
+  contracts:baseline:
+    desc: Refresh contracts/events/registry.v1.baseline.json after an additive contract change
+    deps: [bun:install]
+    cmds:
+      - bun scripts/contract-check.ts baseline --write
+
   mise:doctor:
     desc: Run mise diagnostics
     cmds:
