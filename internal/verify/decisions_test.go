@@ -180,12 +180,146 @@ func TestADRRecordFailsWhenTheRecordIsMissing(t *testing.T) {
 }
 
 func TestNextFreeADRIsAboveEveryHeading(t *testing.T) {
-	headings, _ := ParseADRHeadings([]byte("### ADR-009: a (2026)\n### ADR-038: b (2026)\n### ADR-012: c (2026)\n"))
-	if got := NextFreeADR(headings); got != "ADR-039" {
+	headings, malformed, err := ParseADRHeadings([]byte("### ADR-009: a (2026)\n### ADR-038: b (2026)\n### ADR-012: c (2026)\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := NextFreeADR(headings, malformed); got != "ADR-039" {
 		t.Errorf("want ADR-039, got %s", got)
 	}
-	if got := NextFreeADR(nil); got != "ADR-001" {
+	if got := NextFreeADR(nil, nil); got != "ADR-001" {
 		t.Errorf("empty record should start at ADR-001, got %s", got)
+	}
+}
+
+// A placeholder heading is rejected, but it still spends its number: advising
+// the author onto it would send them at the one number the record is most
+// likely to fight them for.
+func TestNextFreeADRCountsAMalformedPlaceholder(t *testing.T) {
+	headings, malformed, err := ParseADRHeadings([]byte(
+		"### ADR-038: a (2026)\n### ADR-040 **Reserved — lands in #401**\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(malformed) != 1 || malformed[0].Claimed != 40 {
+		t.Fatalf("want the placeholder parsed as claiming 40, got %+v", malformed)
+	}
+	if got := NextFreeADR(headings, malformed); got != "ADR-041" {
+		t.Errorf("want ADR-041, got %s", got)
+	}
+}
+
+// C2: CommonMark allows up to three leading spaces on an ATX heading, so an
+// indented heading renders as a real one. A checker anchored at `^#` reports a
+// confident green on a record that already carries the duplicate.
+func TestADRRecordSeesHeadingsIndentedUpToThreeSpaces(t *testing.T) {
+	root := adrRecord(t, strings.Join([]string{
+		"### ADR-034: real (2026-09-25)",
+		"",
+		"   ### ADR-034: duplicate, renders the same (2026-09-25)",
+		"",
+		" ### ADR-033 **Reserved — one leading space**",
+		"",
+	}, "\n"))
+
+	n := checkByName(t, adrResult(root), "decisions/adr-numbers")
+	if n.Status != StatusFail {
+		t.Fatalf("an indented duplicate must fail: %s %v", n.Status, n.Findings)
+	}
+	if !strings.Contains(n.Findings[0], "ADR-034 is defined 2 times") {
+		t.Errorf("finding: %q", n.Findings[0])
+	}
+	f := checkByName(t, adrResult(root), "decisions/adr-format")
+	if f.Status != StatusFail || len(f.Findings) != 1 {
+		t.Fatalf("an indented placeholder must fail format: %s %v", f.Status, f.Findings)
+	}
+	// The finding quotes the line as written so the author can grep for it.
+	if !strings.Contains(f.Findings[0], " ### ADR-033 **Reserved") {
+		t.Errorf("finding should keep the indent: %q", f.Findings[0])
+	}
+}
+
+// Four spaces is an indented code block, never a heading — so a quoted example
+// is correctly invisible and needs no fence.
+func TestADRRecordIgnoresHeadingsInAnIndentedCodeBlock(t *testing.T) {
+	root := adrRecord(t, strings.Join([]string{
+		"### ADR-034: real (2026-09-25)",
+		"",
+		"    ### ADR-034: <title> (<date>)",
+		"    ### ADR-033 **Reserved**",
+		"",
+	}, "\n"))
+
+	for _, c := range ADRRecord(root) {
+		if c.Status != StatusPass {
+			t.Errorf("%s: want pass, got %s: %v", c.Name, c.Status, c.Findings)
+		}
+	}
+}
+
+// C3: one stray opener hides every heading below it. decisions.md is the
+// repository's hottest conflict file, and keeping one side of a fence pair is
+// exactly how the count goes odd.
+func TestADRRecordFailsOnAnUnterminatedFence(t *testing.T) {
+	root := adrRecord(t, strings.Join([]string{
+		"### ADR-001: real (2026-01-01)",
+		"",
+		"```yaml",
+		"key: value",
+		"",
+		"### ADR-034: a (2026-09-25)",
+		"### ADR-034: b (2026-09-25)",
+		"",
+	}, "\n"))
+
+	checks := ADRRecord(root)
+	if len(checks) != 1 || checks[0].Name != "decisions/adr-record" || checks[0].Status != StatusFail {
+		t.Fatalf("an untrustworthy parse must fail as one check, got %v", checks)
+	}
+	if !strings.Contains(checks[0].Findings[0], DecisionsPath+":3 ") {
+		t.Errorf("the finding should locate the opener: %q", checks[0].Findings[0])
+	}
+}
+
+// C3, floor: "0 ADRs, no duplicate number" is not a green anyone should read.
+func TestADRRecordFailsOnARecordWithNoADRs(t *testing.T) {
+	root := adrRecord(t, "# Architectural Decision Records (ADRs)\n\nnothing here yet\n")
+
+	c := checkByName(t, adrResult(root), "decisions/adr-record")
+	if c.Status != StatusFail {
+		t.Fatalf("want fail, got %s", c.Status)
+	}
+}
+
+// C4: the format check must not fire on a heading that claims no number. This
+// file already carries ADR-numbering guidance under `## Tips`, and promoting it
+// to its own section is the natural next edit.
+func TestADRRecordAllowsProseHeadingsAboutADRs(t *testing.T) {
+	root := adrRecord(t, strings.Join([]string{
+		"### ADR-034: real (2026-09-25)",
+		"",
+		"## ADR numbering conventions",
+		"",
+		"## ADR process",
+		"",
+	}, "\n"))
+
+	for _, c := range ADRRecord(root) {
+		if c.Status != StatusPass {
+			t.Errorf("%s: want pass, got %s: %v", c.Name, c.Status, c.Findings)
+		}
+	}
+}
+
+// The other side of C4: a sub-heading that names a number stays a failure. It
+// is byte-adjacent to the placeholder shape that deletes an ADR, so the two are
+// not separable — verification.md says so where the author will read it.
+func TestADRRecordStillFailsOnASubHeadingThatNamesANumber(t *testing.T) {
+	root := adrRecord(t, "### ADR-034: real (2026-09-25)\n\n#### ADR-034 rollout notes\n")
+
+	c := checkByName(t, adrResult(root), "decisions/adr-format")
+	if c.Status != StatusFail {
+		t.Fatalf("want fail, got %s: %q", c.Status, c.Detail)
 	}
 }
 

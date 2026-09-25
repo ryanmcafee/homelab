@@ -22,10 +22,30 @@ const DecisionsPath = "docs/project_notes/decisions.md"
 // forms are exactly the ones that break a rebase — `### ADR-033 **Reserved**`
 // merges cleanly on top of a real ADR-033 and deletes it, and `### ADR-34:`
 // sorts and greps differently from every citation of it.
+//
+// Both run against the line with its heading indent removed (stripIndent), not
+// against the raw line: CommonMark renders `   ### ADR-034:` as the same
+// heading, so a checker anchored at `^#` would read a real duplicate as prose
+// and report a confident green. The trailing `\d` is what separates a heading
+// that claims a number from prose about the numbering ("## ADR numbering
+// conventions"), which claims none and must not fail the format check.
 var (
-	adrHeadingLine = regexp.MustCompile(`^#{1,6}\s*ADR[-\s]`)
+	adrHeadingLine = regexp.MustCompile(`^#{1,6}\s*ADR[-\s]*\d`)
 	adrHeading     = regexp.MustCompile(`^### ADR-(\d{3}): \S`)
+	adrClaimed     = regexp.MustCompile(`ADR[-\s]*(\d+)`)
 )
+
+// stripIndent removes the up-to-three leading spaces CommonMark allows before
+// an ATX heading or a fence and reports whether the line can be either. Four
+// or more spaces is an indented code block, so a heading quoted that way is
+// correctly invisible to this checker.
+func stripIndent(line string) (string, bool) {
+	indent := len(line) - len(strings.TrimLeft(line, " "))
+	if indent > 3 {
+		return "", false
+	}
+	return line[indent:], true
+}
 
 // ADRHeading is one `### ADR-NNN: <title>` line of the decision record.
 type ADRHeading struct {
@@ -37,25 +57,60 @@ type ADRHeading struct {
 	Title string
 }
 
+// MalformedHeading is a line that claims an ADR number without being the
+// canonical `### ADR-NNN: <title>` form.
+type MalformedHeading struct {
+	// Line is the 1-based line number in DecisionsPath.
+	Line int
+	// Text is the line as written, indent included, so the author can find it.
+	Text string
+	// Claimed is the number the line names (33 for `### ADR-033 **Reserved**`),
+	// or 0 when it names none. A malformed heading still spends its number in
+	// practice, so NextFreeADR must not hand that number out as free.
+	Claimed int
+}
+
+// Finding renders the heading as one line of a check's findings.
+func (m MalformedHeading) Finding() string {
+	return fmt.Sprintf("%s:%d: %q is not `### ADR-NNN: <title>`", DecisionsPath, m.Line, m.Text)
+}
+
 // ParseADRHeadings splits a decision record into the headings that parse and
 // the ones that do not. Lines inside a fenced code block are ignored, so an ADR
 // that quotes a heading as an example does not register as a decision.
-func ParseADRHeadings(data []byte) (headings []ADRHeading, malformed []string) {
-	inFence := false
+//
+// An unterminated fence is an error rather than a silent skip: one stray opener
+// hides every heading below it, and this file is the repository's hottest
+// conflict file, where keeping one side of a fence pair is exactly how the
+// count goes odd. A parse that may have skipped the record must not produce a
+// green.
+func ParseADRHeadings(data []byte) (headings []ADRHeading, malformed []MalformedHeading, err error) {
+	fenceOpenedAt := 0
 	scanner := bufio.NewScanner(bytes.NewReader(data))
 	scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
 	for n := 1; scanner.Scan(); n++ {
-		line := scanner.Text()
-		if strings.HasPrefix(strings.TrimSpace(line), "```") {
-			inFence = !inFence
+		line, canBeHeading := stripIndent(scanner.Text())
+		if !canBeHeading {
 			continue
 		}
-		if inFence || !adrHeadingLine.MatchString(line) {
+		if strings.HasPrefix(line, "```") {
+			if fenceOpenedAt == 0 {
+				fenceOpenedAt = n
+			} else {
+				fenceOpenedAt = 0
+			}
+			continue
+		}
+		if fenceOpenedAt != 0 || !adrHeadingLine.MatchString(line) {
 			continue
 		}
 		m := adrHeading.FindStringSubmatch(line)
 		if m == nil {
-			malformed = append(malformed, fmt.Sprintf("%s:%d: %q is not `### ADR-NNN: <title>`", DecisionsPath, n, line))
+			bad := MalformedHeading{Line: n, Text: scanner.Text()}
+			if c := adrClaimed.FindStringSubmatch(line); c != nil {
+				fmt.Sscanf(c[1], "%d", &bad.Claimed)
+			}
+			malformed = append(malformed, bad)
 			continue
 		}
 		headings = append(headings, ADRHeading{
@@ -64,7 +119,15 @@ func ParseADRHeadings(data []byte) (headings []ADRHeading, malformed []string) {
 			Title:  strings.TrimSpace(strings.TrimPrefix(line, "### ADR-"+m[1]+":")),
 		})
 	}
-	return headings, malformed
+	if err := scanner.Err(); err != nil {
+		return nil, nil, err
+	}
+	if fenceOpenedAt != 0 {
+		return nil, nil, fmt.Errorf(
+			"the fenced code block opened at %s:%d is never closed, so every heading below it was skipped — this parse cannot be trusted to have seen the record",
+			DecisionsPath, fenceOpenedAt)
+	}
+	return headings, malformed, nil
 }
 
 // ADRRecord is the level-0 gate on the ADR record (ADR-039). It reads the
@@ -86,14 +149,34 @@ func ADRRecord(repoRoot string) []Check {
 	if err != nil {
 		return []Check{FailCheck("decisions/adr-record", start, "reading "+DecisionsPath, err.Error())}
 	}
-	headings, malformed := ParseADRHeadings(data)
+	headings, malformed, err := ParseADRHeadings(data)
+	if err != nil {
+		return []Check{FailCheck("decisions/adr-record", start,
+			"the ADR record did not parse, so neither `decisions/adr-format` nor `decisions/adr-numbers` can be answered. Close the fence (or delete the stray one) and run `task verify` again.",
+			err.Error())}
+	}
+
+	var checks []Check
+	// A record that yields no ADR at all is not a passing record, it is a
+	// parse that saw nothing: without this floor the two checks below report
+	// "0 ADRs, no duplicate number" on an empty or unreadable file and the
+	// gate's green means nothing.
+	if len(headings) == 0 {
+		checks = append(checks, FailCheck("decisions/adr-record", start,
+			"the ADR record contains no `### ADR-NNN: <title>` heading. Either this is not the decision record or every heading in it is malformed; a green from a record with no ADRs proves nothing.",
+			DecisionsPath+": 0 well-formed ADR headings"))
+	}
 
 	format := PassCheck("decisions/adr-format", start,
 		fmt.Sprintf("%d ADR headings, every one `### ADR-NNN: <title>`", len(headings)))
 	if len(malformed) > 0 {
+		findings := make([]string, 0, len(malformed))
+		for _, m := range malformed {
+			findings = append(findings, m.Finding())
+		}
 		format = FailCheck("decisions/adr-format", start,
-			"every ADR heading is `### ADR-NNN: <title>` — three digits, a colon, a title. Record a number you intend to use as a blockquote above the next real ADR, never as a heading: a placeholder heading merges cleanly over the real ADR of that number and deletes it.",
-			malformed...)
+			"every ADR heading is `### ADR-NNN: <title>` — three digits, a colon, a title, at heading depth three and unindented. Record a number you intend to use as a blockquote above the next real ADR, never as a heading: a placeholder heading merges cleanly over the real ADR of that number and deletes it.",
+			findings...)
 	}
 
 	lines := map[string][]int{}
@@ -123,22 +206,31 @@ func ADRRecord(repoRoot string) []Check {
 		fmt.Sprintf("%d ADRs, no duplicate number", len(headings)))
 	if len(duplicates) > 0 {
 		unique = FailCheck("decisions/adr-numbers", start,
-			"an ADR number names one decision, so two headings with the same number make every citation of it ambiguous. The number belongs to whichever ADR merged first: renumber the one this branch adds to "+NextFreeADR(headings)+" or later, keep its body byte-identical, and update the citations that name the old number.",
+			"an ADR number names one decision, so two headings with the same number make every citation of it ambiguous. The number belongs to whichever ADR merged first: renumber the one this branch adds to "+NextFreeADR(headings, malformed)+" or later, keep its body byte-identical, and update the citations that name the old number.",
 			duplicates...)
 	}
-	return []Check{format, unique}
+	return append(checks, format, unique)
 }
 
-// NextFreeADR is the lowest zero-padded number above every heading in the
-// record, formatted for the failure message. It is advice, not an allocation:
-// another branch may merge that number first, in which case this check is what
-// says so.
-func NextFreeADR(headings []ADRHeading) string {
+// NextFreeADR is the lowest zero-padded number above every number the record
+// already spends, formatted for the failure message. Malformed headings count:
+// a `### ADR-040 **Reserved**` placeholder is rejected by decisions/adr-format,
+// but advising the author to move onto 040 while that line sits in the file
+// sends them at the one number the record is most likely to fight them for.
+//
+// It is advice, not an allocation: another branch may merge that number first,
+// in which case this check is what says so.
+func NextFreeADR(headings []ADRHeading, malformed []MalformedHeading) string {
 	max := 0
 	for _, h := range headings {
 		n := 0
 		if _, err := fmt.Sscanf(h.Number, "%d", &n); err == nil && n > max {
 			max = n
+		}
+	}
+	for _, m := range malformed {
+		if m.Claimed > max {
+			max = m.Claimed
 		}
 	}
 	return fmt.Sprintf("ADR-%03d", max+1)
