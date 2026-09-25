@@ -4,8 +4,9 @@ Normative. Decision records: ADR-029 and ADR-033 (which splits check 3) in
 [`docs/project_notes/decisions.md`](../project_notes/decisions.md).
 
 **Read [Current status](#current-status) before citing a check.** Of the four checks below, two
-are specified and not implemented, one has never been executed by anyone, and one is automated.
-The table states what each check *is*; the status section states what has actually run.
+are specified and not implemented, one has never been executed by anyone, and one is automated and
+passing. The table states what each check *is*; the status section states what has actually run,
+when, and with what result.
 
 ## The rule
 
@@ -62,7 +63,7 @@ specified-and-not-implemented; it may **not** be listed with no status (ADR-033)
 |---|---|---|---|---|
 | 1 | **Render with a synthetic ConfigSet.** Render every chart and manifest against an environment whose values are all synthetic (`DOMAIN: example.invalid`, RFC 5737 addresses), then grep the rendered output for any value from the real environment. | Level-0 static verification, every PR | A literal that escaped the ConfigSet | **Specified, not implemented** |
 | 2 | **`homelab.yaml.example` completeness.** Every key the render requires appears in the example file with a `REPLACEME-` or clearly synthetic value. | Level-0, every PR | A new required key that a fork cannot discover | **Specified, not implemented — and fails on `main` today** |
-| 3a | **The cold documented Kind path.** A clean clone with no cache and no local state: `task localdev:up` → `localdev:wait` → `localdev:report` → `localdev:down`, each timed, followed by an assertion that the cluster is actually gone. | Weekly cron and on demand | Documentation drift, "works because it was already installed", a teardown that only works after a clean run | **Automated** in [`.github/workflows/fork-path-cold.yml`](../../.github/workflows/fork-path-cold.yml) |
+| 3a | **The cold documented Kind path.** A clean clone with no cache and no local state: `task localdev:up` → `localdev:wait` → `localdev:report` → `localdev:down`, each timed, followed by an assertion that the cluster is actually gone. | Weekly cron and on demand | Documentation drift, "works because it was already installed", a teardown that only works after a clean run | **Automated and passing** in [`.github/workflows/fork-path-cold.yml`](../../.github/workflows/fork-path-cold.yml) — `18m 55s` cold, 2026-09-25 |
 | 3b | **The production bootstrap on foreign hardware.** A filled-in ConfigSet and `task setup -- --environment homelab`, on a machine holding none of the maintainer's credentials. | Before a declared platform milestone | Undeclared physical prerequisites, secret-store and identity assumptions, anything the Kind path cannot reach | **Never executed** |
 
 Checks 1 and 2 are static and belong in the existing level-0 gate, so a violation fails a pull
@@ -88,13 +89,34 @@ for 3b, whose prerequisites are physical and cannot be faked in CI.
 
 Dated, because a check's status is a claim about the past and decays.
 
-- **3a — automated, first run in flight.** `.github/workflows/fork-path-cold.yml` restores no
-  cache and saves none, and fails if a cache directory exists. Added in
-  [#352](https://github.com/ryanmcafee/homelab/pull/352); as of 2026-09-25 its first execution is
-  still running, so **no cold time to first success has been published yet**. When it lands, that
-  is the number to quote for the fork path — not `tilt-ci.yml`'s, which restores a
-  `kind-registry-*` pull-through cache and is therefore a lower bound rather than a newcomer's
-  experience.
+- **3a — automated, and green on its first run: cold time to first success `18m 55s`, measured
+  2026-09-25.** `.github/workflows/fork-path-cold.yml` restores no cache and saves none, and fails
+  if a cache directory exists. Added in [#352](https://github.com/ryanmcafee/homelab/pull/352);
+  its first execution
+  ([run 36099151539](https://github.com/ryanmcafee/homelab/actions/runs/36099151539)) succeeded,
+  with `task localdev:up` at `18m 54s`, `task localdev:wait` at `1s`, `task localdev:report` at
+  `11s` and `task localdev:down` at `33s`, the cluster confirmed gone afterwards. **`18m 55s`
+  (`up` + `wait`) is the number to quote for the fork path** — not `tilt-ci.yml`'s, which restores
+  a `kind-registry-*` pull-through cache and is therefore a lower bound rather than a newcomer's
+  experience. Re-measure and re-date this line on each weekly run; a cold number more than a few
+  weeks old is a claim about a tree that no longer exists.
+- **One thing #352 predicted did not reproduce, and one doc defect did.** #352 expected
+  `localdev:up` to return well before anything reported Healthy, which is why `localdev:wait` is
+  timed separately. On this run `wait` returned in `487ms` with everything already Healthy, so on
+  the cold path `localdev:up` alone was sufficient. Keep the two timings separate anyway — one run
+  is not a pattern, and the split is what would show the gap reopening. The defect that *is* real:
+  `readme.md:31` describes `task localdev:up` as syncing "all 87 Applications", and the run
+  reported **60 Applications · 60 Healthy**. Filed as
+  [homelab#379](https://github.com/ryanmcafee/homelab/issues/379).
+- **3a's pass criterion, so a slow pass is distinguishable from a fail.** 3a fails **only** on a
+  non-zero exit from one of the four readme commands, from the warm-cache assertion, or from the
+  post-teardown `kind get clusters` assertion. There is no timing threshold, and a slower run is
+  **not** a failure — the elapsed time is published as a trend line, not a gate. The reason is that
+  a cold run pulls every image from upstream, so its wall clock tracks registry and runner weather
+  more than it tracks this repository; a threshold would produce failures that no change here
+  caused, and a check that cries wolf gets muted. A regression is therefore read by a human from
+  the trend, not enforced by CI. If that stops being good enough, the fix is a threshold on a
+  rolling median across runs, not on a single run.
 - **3a's change-triggered half is not enforced.** "For any change to bootstrap, secrets or
   identity" is policy in prose. `fork-path-cold.yml`'s `pull_request` filter covers only the
   workflow file itself, deliberately, to keep a cold uncached loop off the pull-request critical
