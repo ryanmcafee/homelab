@@ -189,7 +189,48 @@ spec:
           {{- $notify := index .Values "kube-prometheus-stack" "alertmanager" "notifications" }}
           {{- $secretDir := printf "/etc/alertmanager/secrets/%s" $notify.secretName }}
           {{- $githubPR := index .Values "github-pr-exporter" }}
+          {{- $ingress := index .Values "kube-prometheus-stack" "alertmanager" "ingress" }}
+          {{- $grafanaIngress := index .Values "kube-prometheus-stack" "grafana" "ingress" }}
+          {{- if $ingress.enabled }}
+          ingress:
+            enabled: true
+            ingressClassName: {{ $ingress.ingressClassName }}
+            annotations:
+              cert-manager.io/cluster-issuer: letsencrypt
+              external-dns.alpha.kubernetes.io/hostname: {{ index $ingress.hosts 0 }}
+            hosts:
+              {{- range $ingress.hosts }}
+              - {{ . }}
+              {{- end }}
+            tls:
+              {{- toYaml $ingress.tls | nindent 14 }}
+          {{- end }}
+
+          # Notification links: the alert group in Alertmanager, its rule query in Grafana Explore.
+          templateFiles:
+            homelab.tmpl: |-
+              {{`{{ define "homelab.grafanaURL" }}`}}https://{{ index $grafanaIngress.hosts 0 }}{{`{{ end }}`}}
+
+              {{`{{ define "homelab.alertmanagerURL" -}}
+              {{ $filter := printf "alertname=%q" .CommonLabels.alertname -}}
+              {{ if .CommonLabels.namespace }}{{ $filter = printf "%s,namespace=%q" $filter .CommonLabels.namespace }}{{ end -}}
+              {{ .ExternalURL }}/#/alerts?receiver={{ .Receiver | urlquery }}&filter={{ printf "{%s}" $filter | urlquery }}
+              {{- end }}
+
+              {{ define "homelab.grafanaQueryURL" -}}
+              {{ $source := (index .Alerts 0).GeneratorURL -}}
+              {{ $panes := "" -}}
+              {{ if match "[?&]g0\\.expr=" $source -}}
+              {{ $expr := $source | reReplaceAll "^.*[?&]g0\\.expr=([^&]*).*$" "$1" | urlUnescape -}}
+              {{ $panes = dict "a" (dict "datasource" "prometheus" "queries" (list (dict "refId" "A" "expr" $expr))) | toJson | urlquery | reReplaceAll "\\+" "%20" -}}
+              {{ end -}}
+              {{ template "homelab.grafanaURL" }}{{ if and $panes (lt (len $panes) 450) }}/explore?schemaVersion=1&orgId=1&panes={{ $panes | safeUrl }}{{ else }}/alerting/Prometheus/{{ .CommonLabels.alertname | urlquery }}/find{{ end }}
+              {{- end }}`}}
+
           alertmanagerSpec:
+            {{- if $ingress.enabled }}
+            externalUrl: https://{{ index $ingress.hosts 0 }}
+            {{- end }}
             storage:
               {{- toYaml (index .Values "kube-prometheus-stack" "alertmanager" "storage") | nindent 14 }}
 
@@ -260,7 +301,11 @@ spec:
                     send_resolved: true
                     priority: '{{`{{ if eq .Status "firing" }}`}}1{{`{{ else }}`}}0{{`{{ end }}`}}'
                     title: '[{{`{{ .Status | toUpper }}`}}{{`{{ if eq .Status "firing" }}`}}:{{`{{ .Alerts.Firing | len }}`}}{{`{{ end }}`}}] {{`{{ .CommonLabels.alertname }}`}}'
+                    url: '{{`{{ template "homelab.alertmanagerURL" . }}`}}'
+                    url_title: View in Alertmanager
+                    html: true
                     message: |-
+                      <a href="{{`{{ template "homelab.grafanaQueryURL" . }}`}}">Query in Grafana</a>
                       {{`{{ range .Alerts }}`}}{{`{{ .Annotations.summary }}`}}{{`{{ if .Labels.namespace }}`}} ({{`{{ .Labels.namespace }}`}}){{`{{ end }}`}}
                       {{`{{ if .Annotations.description }}`}}{{`{{ .Annotations.description }}`}}{{`{{ end }}`}}
                       {{`{{ end }}`}}
@@ -271,7 +316,11 @@ spec:
                     send_resolved: true
                     priority: "-1"
                     title: '[{{`{{ .Status | toUpper }}`}}{{`{{ if eq .Status "firing" }}`}}:{{`{{ .Alerts.Firing | len }}`}}{{`{{ end }}`}}] {{`{{ .CommonLabels.alertname }}`}}'
+                    url: '{{`{{ template "homelab.alertmanagerURL" . }}`}}'
+                    url_title: View in Alertmanager
+                    html: true
                     message: |-
+                      <a href="{{`{{ template "homelab.grafanaQueryURL" . }}`}}">Query in Grafana</a>
                       {{`{{ range .Alerts }}`}}{{`{{ .Annotations.summary }}`}}{{`{{ if .Labels.namespace }}`}} ({{`{{ .Labels.namespace }}`}}){{`{{ end }}`}}
                       {{`{{ end }}`}}
               {{- end }}

@@ -1097,6 +1097,18 @@ kube-prometheus-stack:
       enabled: {{ and (not $localdev) $onepassword }}
       secretName: alertmanager-notifications
       onePasswordItemPath: "{{ if $onepassword }}{{ .Values.ALERTMANAGER_1P_PATH.Value }}{{ end }}"
+    ingress:
+      enabled: true
+      ingressClassName: {{ .Values.INGRESS_CLASS_INTERNAL.Value }}
+      annotations:
+        cert-manager.io/cluster-issuer: letsencrypt
+        external-dns.alpha.kubernetes.io/hostname: {{ .Values.ALERTMANAGER_HOSTNAME.Value }}
+      hosts:
+        - {{ .Values.ALERTMANAGER_HOSTNAME.Value }}
+      tls:
+        - secretName: alertmanager-tls
+          hosts:
+            - {{ .Values.ALERTMANAGER_HOSTNAME.Value }}
     storage:
       volumeClaimTemplate:
         spec:

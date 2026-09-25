@@ -650,6 +650,17 @@ kube-prometheus-stack:
       secretName: alertmanager-notifications
       onePasswordItemPath: ""
 
+    # Ingress; its host is also the external URL in notification links
+    ingress:
+      enabled: true
+      ingressClassName: traefik
+      hosts:
+        - alertmanager.example.com
+      tls:
+        - secretName: alertmanager-tls
+          hosts:
+            - alertmanager.example.com
+
     # Storage configuration
     storage:
       volumeClaimTemplate:
