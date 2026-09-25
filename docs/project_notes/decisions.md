@@ -610,6 +610,28 @@ Each decision should include:
 - A worker recreate or IP change needs `task tf:apply:component COMPONENT=unifi-gateway`
 - Rolling out needs the addons sync (Cilium CRs) and that apply; order does not matter because the L2 fallback covers the gap
 
+### ADR-024: UniFi syslog and NetFlow exports from the unifi-gateway unit, NetFlow through the controller API (2026-09-24)
+
+**Context:**
+- `HomelabUniFiTelemetrySilent` fired because the gateway exports (ADR-021) were a manual UI step nobody had done
+- `ubiquiti-community/unifi` models remote syslog (`unifi_setting.syslog`, the `rsyslogd` key, since 0.53) but no NetFlow setting; neither do the other UniFi providers
+- The controller accepts `PUT /proxy/network/api/s/<site>/set/setting/netflow` after a cookie + CSRF login, which `restapi`-style providers cannot perform
+
+**Decision:**
+- The `unifi-gateway` unit manages both exports when `LOGGING_ENABLED` is true, targeting `OTEL_LB_IP` from `configuration/resolved.json` (exported by every `tf:*` task)
+- Syslog uses `unifi_setting.syslog`; the provider is pinned to `~> 0.56.0` for this unit only (`versions_override.tf`), because 0.56 turns `unifi_dns_record.ttl` into a string for the other units
+- NetFlow uses `terraform_data` + `local-exec` running `scripts/unifi-setting.ts`, which merges the desired fields into the current setting and reads it back
+
+**Alternatives Considered:**
+- **Ansible `uri`** -> same raw API, but outside the Terraform plan and a second tool for one gateway
+- **`restapi` provider with a UniFi API key** -> needs a new API key credential, and its create/destroy model does not fit a singleton setting that always exists
+- **Bump the provider everywhere** -> forces the `unifi_dns_record` ttl migration on three unrelated units
+
+**Consequences:**
+- NetFlow drift made in the UI is not detected; the script reruns only when the desired values change
+- Disabling the flag stops managing the settings without reverting them
+- The first apply needs `task tf:init:component COMPONENT=unifi-gateway TF_ARGS=-upgrade` to move the lock file to 0.56
+
 ## Tips
 
 - Number decisions sequentially (ADR-001, ADR-002, etc.)

@@ -28,7 +28,7 @@ terragrunt/
 │   ├── talos-image/           # Custom Talos image via Image Factory
 │   ├── talos-cluster/         # Talos VMs and machine configs (CP + workers)
 │   ├── talos-cluster-config/  # Apply configs, bootstrap, kubeconfig
-│   ├── unifi-gateway/         # FRR BGP peer config on the UniFi gateway
+│   ├── unifi-gateway/         # FRR BGP peer config on the UniFi gateway, syslog/NetFlow exports
 │   ├── kind-cluster/          # Kind cluster (legacy; `task localdev:up` is the loop)
 │   └── gitops-bootstrap/      # ArgoCD with GitOps Bridge pattern
 │
@@ -126,7 +126,7 @@ proxmox-cluster
 └─ proxmox-zfs-pool-cp ──┤                        │
 talos-image, talos-image-gpu, talos-image-gpu-intel │
                          └─ talos-cluster ─── talos-cluster-config ─── gitops-bootstrap
-unifi-gateway (independent: FRR BGP peer config on the gateway)
+unifi-gateway (independent: FRR BGP peer config, syslog/NetFlow exports on the gateway)
    └─ ArgoCD takes over from gitops-bootstrap: bootstrap → addons → applications
 ```
 

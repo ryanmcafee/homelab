@@ -500,31 +500,50 @@ tasks:
   tf:validate:
     desc: Validate Terraform configurations
     dir: terragrunt
+    deps:
+      - task: config:export:format
+        vars:
+          FORMAT: json
     cmds:
       - op run --env-file={{.ROOT_DIR}}/.env.op -- terragrunt run --all validate
 
   tf:init:
     desc: Run Terragrunt init for environment
     dir: terragrunt/environments/{{.ENV}}
+    deps:
+      - task: config:export:format
+        vars:
+          ENV: '{{.ENV}}'
+          FORMAT: json
     cmds:
       - op run --env-file={{.ROOT_DIR}}/.env.op -- terragrunt run --all init
     vars:
       ENV: '{{.ENV | default "homelab"}}'
 
   tf:init:component:
-    desc: Run Terragrunt init for a specific component
+    desc: Run Terragrunt init for a specific component (TF_ARGS=-upgrade after a provider version change)
     dir: terragrunt/environments/{{.ENV}}/{{.COMPONENT}}
+    deps:
+      - task: config:export:format
+        vars:
+          ENV: '{{.ENV}}'
+          FORMAT: json
     cmds:
-      - op run --env-file={{.ROOT_DIR}}/.env.op -- terragrunt init
+      - op run --env-file={{.ROOT_DIR}}/.env.op -- terragrunt init {{.TF_ARGS}}
     vars:
       ENV: '{{.ENV | default "homelab"}}'
       COMPONENT: '{{.COMPONENT}}'
+      TF_ARGS: '{{.TF_ARGS | default ""}}'
 
   tf:plan:
     desc: Run Terragrunt plan for environment (auto-syncs rendered files from 1Password)
     dir: terragrunt/environments/{{.ENV}}
     deps:
       - render:sync:silent
+      - task: config:export:format
+        vars:
+          ENV: '{{.ENV}}'
+          FORMAT: json
     cmds:
       - op run --env-file={{.ROOT_DIR}}/.env.op -- terragrunt run --all plan {{.TF_ARGS}}
     vars:
@@ -534,6 +553,11 @@ tasks:
   tf:plan:component:
     desc: Run Terragrunt plan for a specific component (TF_ARGS='-target=...' to narrow it)
     dir: terragrunt/environments/{{.ENV}}/{{.COMPONENT}}
+    deps:
+      - task: config:export:format
+        vars:
+          ENV: '{{.ENV}}'
+          FORMAT: json
     cmds:
       - op run --env-file={{.ROOT_DIR}}/.env.op -- terragrunt plan {{.TF_ARGS}}
     vars:
@@ -547,6 +571,10 @@ tasks:
     deps:
       - render:sync:silent
       - ansible:inventory
+      - task: config:export:format
+        vars:
+          ENV: '{{.ENV}}'
+          FORMAT: json
     cmds:
       - op run --env-file={{.ROOT_DIR}}/.env.op -- terragrunt run --all apply --non-interactive --auto-approve
     vars:
@@ -555,7 +583,12 @@ tasks:
   tf:apply:component:
     desc: Run Terragrunt apply for a specific component (TF_ARGS='-target=...' to apply one resource at a time)
     dir: terragrunt/environments/{{.ENV}}/{{.COMPONENT}}
-    deps: [ansible:inventory]
+    deps:
+      - ansible:inventory
+      - task: config:export:format
+        vars:
+          ENV: '{{.ENV}}'
+          FORMAT: json
     cmds:
       - op run --env-file={{.ROOT_DIR}}/.env.op -- terragrunt apply --non-interactive --auto-approve {{.TF_ARGS}}
     vars:
