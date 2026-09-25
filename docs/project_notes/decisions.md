@@ -673,7 +673,7 @@ Each decision should include:
 - Events are CloudEvents 1.0 structured JSON, narrowed: `datacontenttype` fixed, `dataschema` required, the major version inside `type`, and `tenant` plus `sequence` as required extensions
 - **No path is exactly-once end to end and no document may imply one.** Pub/sub and durable requests are at-least-once, ordered per subject (pub/sub) or unordered (work queue); synchronous request/reply is at-most-once. Consumers are idempotent on `(source, id)`
 - `tenant` is a trust boundary enforced by NATS account and subject permissions, not by consumer-side filtering; homelab runs the same enforcement with the single reserved tenant `local`
-- Three streams: `PF_EVENTS` (7d), `PF_AUDIT` (365d, `discard: new`), `PF_WORK` (work queue). A subject no stream covers is an error, not a warning. *(Revised by ADR-035: `PF_AUDIT` sources from `PF_EVENTS` rather than overlapping it, `PF_DLQ` is a fourth stream, and `PF_WORK` retains for 24h.)*
+- Three streams: `PF_EVENTS` (7d), `PF_AUDIT` (365d, `discard: new`), `PF_WORK` (work queue). A subject no stream covers is an error, not a warning. *(Revised by ADR-038: `PF_AUDIT` sources from `PF_EVENTS` rather than overlapping it, `PF_DLQ` is a fourth stream, and `PF_WORK` retains for 24h.)*
 - The contract is machine-checked: `contracts/events/` plus `task contracts:check`
 - Normative detail: `docs/contracts/event-contract.md`
 
@@ -689,7 +689,7 @@ Each decision should include:
 - Every consumer must be idempotent, which is real work — it is the same property ADR-025 already demands of operators, so the cost is shared rather than doubled
 - Seven fixed tokens force some awkward `<entity>` choices for events that are not about a resource; that is the price of stable wildcards
 - Anything that must outlive stream retention (7d / 365d) lives in Postgres or a CRD `status`, never only in a stream
-- ~~`PF_AUDIT` deliberately duplicates identity and control events already on `PF_EVENTS`; consumers see each twice, which is safe only because of the idempotency rule~~ **Withdrawn by ADR-035.** This consequence described a stream that could not be created: NATS refuses two streams with overlapping subject filters in one account (`10065`). `PF_AUDIT` now sources from `PF_EVENTS`, a consumer binds one stream, and nobody sees anything twice
+- ~~`PF_AUDIT` deliberately duplicates identity and control events already on `PF_EVENTS`; consumers see each twice, which is safe only because of the idempotency rule~~ **Withdrawn by ADR-038.** This consequence described a stream that could not be created: NATS refuses two streams with overlapping subject filters in one account (`10065`). `PF_AUDIT` now sources from `PF_EVENTS`, a consumer binds one stream, and nobody sees anything twice
 
 ### ADR-027: One SDK and one API contract for both surfaces, contract before implementation (2026-09-25)
 
@@ -883,7 +883,9 @@ Each decision should include:
 - Two checks means two owners and one more row in the owner table. Two owners who can each run their own check beats one owner who cannot run half of theirs
 - 3a passing says nothing about 3b. Nobody may write "the fork path is green" without naming which half they mean
 
-### ADR-035: The audit stream is sourced, the work queue has a real dead-letter path, and `rs` is deleted — event-contract revisions from the second-reviewer pass (2026-09-25); refines ADR-026
+### ADR-038: The audit stream is sourced, the work queue has a real dead-letter path, and `rs` is deleted — event-contract revisions from the second-reviewer pass (2026-09-25); refines ADR-026
+
+*Numbering note: `main` carries ADR-001..033. ADR-034 and ADR-035 are each claimed by more than one open pull request (#368, #372, #382, #388), so this decision takes 038 to leave that contested range alone. A gap is cheaper than a duplicate number; sequencing 034-037 is for whoever merges those.*
 
 **Context:**
 - ADR-026 and `contracts/events/` were merged in #339 with `task contracts:check` and 36 unit tests green. The second reviewer did not read the stream config, they **ran it**: `nats-server v2.10.22` with JetStream, creating each stream field for field from `subjects.v1.yaml`

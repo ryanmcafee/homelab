@@ -1,6 +1,6 @@
 # The event contract: CloudEvents over NATS
 
-Normative. Decision records: ADR-026, revised by **ADR-035** after the second-reviewer pass,
+Normative. Decision records: ADR-026, revised by **ADR-038** after the second-reviewer pass,
 in [`docs/project_notes/decisions.md`](../project_notes/decisions.md).
 Machine-checkable artifacts: [`contracts/events/`](../../contracts/events), gated by
 `task contracts:check`.
