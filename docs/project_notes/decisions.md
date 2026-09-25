@@ -632,6 +632,200 @@ Each decision should include:
 - Disabling the flag stops managing the settings without reverting them
 - The first apply needs `task tf:init:component COMPONENT=unifi-gateway TF_ARGS=-upgrade` to move the lock file to 0.56
 
+### ADR-025: Every stateful platform capability is a Kubernetes operator reconciling a CRD (2026-09-25)
+
+**Context:**
+- Homelab and the commercial PaaS must share one architecture; the first place two codebases appear is a capability built as a bespoke service on one surface and as an operator on the other
+- The platform is event-driven over NATS, and every event path it can offer is at-least-once (ADR-026) — a design that carries state in events would be wrong on delivery semantics from day one
+- This repository is already declarative end to end: Talos (ADR-002), ArgoCD (ADR-001), GitOps everywhere. A control plane that is imperative in the middle would be the odd layer out
+
+**Decision:**
+- Every stateful platform capability is delivered by a Kubernetes operator reconciling a CRD, on both surfaces, from one operator image
+- One controller owns one resource's `status` and nothing else's; where an upstream operator already owns a resource (ArgoCD's `Application`), the platform observes it into its own CRD rather than co-owning it
+- Reconcile is a pure function of observed state: server-side apply with a stable field manager, `status.observedGeneration` mandatory, external side effects keyed on `(uid, generation)`, deletion through a finalizer with a documented manual escape
+- Reconciling twice with no intervening change produces zero writes, and that is a required test
+- Events are a hint, never the carrier of state. A periodic resync is the floor; losing every event costs latency, never correctness
+- Observability is part of the interface, not an add-on: reconcile metrics with a `ServiceMonitor`, a span per reconcile linked by `correlationid`, conditions for anything a human waits on, and an SLO with a named owner
+- Normative detail: `docs/contracts/operator-model.md`
+
+**Alternatives Considered:**
+- **Temporal workflows as the primary control loop** -> excellent for a bounded multi-step process with compensation, but a workflow's completion is not the same thing as convergence; it does not self-heal drift. Temporal stays for orchestration above the operators, not underneath them
+- **A bespoke control-plane service holding state in Postgres** -> faster to write, and it makes the cluster's real state a cache the service can disagree with. Two sources of truth is the failure we are trying to avoid
+- **Event-sourced state on JetStream** -> makes correctness depend on never losing an event on an at-least-once bus, and makes recovery a replay problem
+
+**Consequences:**
+- Convergence is slower than an imperative call: a change takes effect on the next reconcile, not immediately
+- CRD schema evolution becomes a first-class obligation (conversion webhooks, storage versions) rather than something deferred
+- Operators are cheap to run and awkward to debug; the observability requirements above are the price of that trade and are not optional
+- An operator being down freezes change but does not break running workloads — an operator that can break serving traffic when it fails needs an explicitly argued exception
+
+### ADR-026: A seven-token NATS subject taxonomy and a narrowed CloudEvents envelope, with no exactly-once path (2026-09-25)
+
+**Context:**
+- The platform is event-driven via CloudEvents over NATS; #50 deploys JetStream and #51 wires Argo Events onto it, so the first streams are about to be named and the naming is hard to walk back
+- CloudEvents 1.0 is permissive: optional `dataschema`, free-form `type`, several content modes. Adopting it unmodified means every producer picks its own conventions
+- NATS JetStream is widely described as "exactly-once" on the strength of its publish de-duplication window, which de-duplicates publishes, not deliveries
+- Subject taxonomies with variable depth make every `*` wildcard a latent bug, because a subject added later can change what an existing subscription matches
+
+**Decision:**
+- Every subject is exactly seven tokens: `pf.<tenant>.<domain>.<entity>.<action>.<major>.<suffix>`, with `suffix` one of `ev` (pub/sub), `wq` (durable work queue), `rq`/`rs` (synchronous request/reply)
+- The suffix carries the delivery guarantee, so a reader knows it from the subject without opening the registry
+- Events are CloudEvents 1.0 structured JSON, narrowed: `datacontenttype` fixed, `dataschema` required, the major version inside `type`, and `tenant` plus `sequence` as required extensions
+- **No path is exactly-once end to end and no document may imply one.** Pub/sub and durable requests are at-least-once, ordered per subject (pub/sub) or unordered (work queue); synchronous request/reply is at-most-once. Consumers are idempotent on `(source, id)`
+- `tenant` is a trust boundary enforced by NATS account and subject permissions, not by consumer-side filtering; homelab runs the same enforcement with the single reserved tenant `local`
+- Three streams: `PF_EVENTS` (7d), `PF_AUDIT` (365d, `discard: new`, deliberately overlapping), `PF_WORK` (work queue). A subject no stream covers is an error, not a warning
+- The contract is machine-checked: `contracts/events/` plus `task contracts:check`
+- Normative detail: `docs/contracts/event-contract.md`
+
+**Alternatives Considered:**
+- **Raw JSON messages with a convention** -> no envelope means no tracing, no tenancy attribute, no versioning, and a per-team convention within a quarter
+- **CloudEvents binary mode over NATS headers** -> better throughput, and it splits the contract across headers and body and makes every debugging session harder. Revisit if throughput ever justifies it
+- **Variable-depth subjects (`pf.tenant.domain.…`)** -> more expressive, and it makes wildcard subscriptions unstable as the taxonomy grows
+- **Claiming exactly-once on the strength of JetStream's `duplicate_window`** -> true of publishes, false of deliveries; a consumer can still crash between handling and acking. Stating it would have every consumer author skip idempotency
+- **A schema registry service** -> a new runtime dependency and a new outage mode for something a versioned file in Git and a CI check already solve
+
+**Consequences:**
+- Renaming a domain or moving a subject is breaking and needs a new major published alongside the old one; the gate enforces this rather than trusting review
+- Every consumer must be idempotent, which is real work — it is the same property ADR-025 already demands of operators, so the cost is shared rather than doubled
+- Seven fixed tokens force some awkward `<entity>` choices for events that are not about a resource; that is the price of stable wildcards
+- Anything that must outlive stream retention (7d / 365d) lives in Postgres or a CRD `status`, never only in a stream
+- `PF_AUDIT` deliberately duplicates identity and control events already on `PF_EVENTS`; consumers see each twice, which is safe only because of the idempotency rule
+
+### ADR-027: One SDK and one API contract for both surfaces, contract before implementation (2026-09-25)
+
+**Context:**
+- Homelab is the adoption funnel for the commercial platform, so the two must stay one product; divergence never arrives as a decision, it arrives as a small convenience taken twice
+- Enterprise-only concerns (billing, entitlement, support tooling) genuinely exist and will be pushed into shared code unless there is a stated rule about where they may live
+- "The code is the contract" means every consumer reads the implementation and every refactor is a breaking change for someone
+
+**Decision:**
+- One SDK package and one OpenAPI 3.1 document, consumed identically by a homelab script and an enterprise service. Enterprise-only concerns layer *above* the SDK; they never branch inside it
+- API-first is an ordering rule enforced at review: the contract lands first, the contract tests land with it and fail, then the implementation turns them green. A PR adding an endpoint or event type with no published contract is rejected
+- Types are generated from OpenAPI and the event schemas; a hand-written duplicate of a generated type is treated as a fork
+- The SDK surface is four seams — `events`, `resources`, `config`, `identity` — and no general-purpose `utils` module
+- The SDK cannot break compatibility on its own: a major bump is permitted only when the underlying contract has already published a new major
+- Normative detail: `docs/contracts/sdk-boundary.md`
+
+**Alternatives Considered:**
+- **Separate homelab and enterprise SDKs with a shared core** -> the "core" boundary is exactly where the divergence hides, and both sides get to decide what belongs in it
+- **Implementation-first with generated OpenAPI** -> the document then describes whatever was built, including the accidents, and there is no moment where compatibility could have been argued
+- **gRPC/protobuf instead of OpenAPI + JSON Schema** -> stronger compatibility tooling, at the cost of browser ergonomics for the React surface and a second serialization to reason about next to CloudEvents JSON
+
+**Consequences:**
+- Every cross-boundary feature is slower to start, because the contract and its failing tests come first
+- The SDK is the highest-fan-out artifact in the platform: a breaking change there reaches further than a broken operator, which is why its gates are the strictest
+- Enterprise features that genuinely need a hook must get a seam designed for them rather than a conditional, which occasionally means saying no to the fastest path
+
+### ADR-028: Bring-your-own cloud, key, identity centre and agent identity are pluggable seams designed before the first customer (2026-09-25)
+
+**Context:**
+- Every serious adopter brings their own cloud, encryption key, identity centre, and increasingly the identities their AI agents act under
+- The standard failure is well understood and always looks reasonable at the time: a customer needs a different provider, a branch is cut, and eighteen months later there are several branches and no product
+- Retrofitting a seam is far more expensive than designing one, because by then callers have taken direct dependencies on the single implementation
+- AI agent identity is the newest trust boundary and has the least industry convention, so its rules have to be written down rather than assumed
+
+**Decision:**
+- Four seams, defined in the SDK in the platform's own vocabulary (`getSigningKey()`, never `getKmsKeyArn()`): BYO cloud, BYO encryption key, BYO identity centre, BYO AI agent identity
+- Provider selection is configuration resolved once at startup, in one factory per seam. No provider conditional in business logic, anywhere
+- A seam is not considered designed until two implementations exist — the homelab default and one alternative — and both pass a shared conformance suite that belongs to the seam, not to an implementation
+- Capability is explicit: a provider declares what it cannot do and the platform fails loudly rather than silently degrading
+- BYO key is envelope encryption only; the platform never holds the root key, and "the customer can revoke and we lose access" is a conformance test, not a promise
+- BYO identity is plain OIDC, and authorization is always against platform roles — never against raw external group names in application code
+- Agent identity is short-lived credentials only (the interface has no method returning a long-lived token), every action attributable to an `AgentIdentity` in the CloudEvents `source`, revocation immediate and tested, and an agent's roles a subset of its creator's, checked at admission
+- Normative detail: `docs/contracts/byo-extension-points.md`
+
+**Alternatives Considered:**
+- **Wait for the first customer to ask** -> the cheapest path today and the one that produces the customer-specific branch; the cost lands on whoever is here in two years
+- **A plugin runtime (WASM, out-of-process providers)** -> maximum flexibility, a large new failure surface, and nothing today needs third-party providers to be loadable at runtime
+- **Adopt one provider's abstraction (e.g. a cloud SDK's credential chain) as the interface** -> free to build, and it embeds that provider's model into every caller, which is the leak we are preventing
+
+**Consequences:**
+- Every seam carries the cost of a second implementation and a conformance suite before it is considered done
+- Some provider-specific capability is unavailable through the interface; the escape hatch is a named, documented, explicitly non-portable extension, not a quiet special case
+- Homelab is not a toy version of the enterprise path — it is a peer implementation, which is what keeps the seam honest and is why homelab exercises the multi-tenant wiring with a single tenant
+- BYO key has the widest blast radius on the platform: losing key access makes data unreadable, and recovery is the customer's key custody, not ours
+
+### ADR-029: Fork-ability is an enforceable rule in the static gate with a named owner (2026-09-25)
+
+**Context:**
+- Homelab is the adoption funnel; a fork that does not come up is a lost ambassador and an early warning that the same hard-coding has reached the commercial product
+- The repository already has the mechanism — a ConfigSet with a gitignored per-environment file, `<KEY>` placeholders, and `homelab.yaml.example` with `REPLACEME-` values — but it was a convention, enforced by whoever noticed
+- Three open issues (#40, #41, #51) specify ingress hostnames with a concrete personal domain in the issue body, which is what a convention with no check produces
+- ADR-009 already established the principle for this repository: the static gate is the gate, with no skip lists
+
+**Decision:**
+- The rule is stated as a merge condition: no feature ships unless a stranger can fork the repository and run it with their own domain, cloud, secrets and identity provider. A feature that only works on the maintainer's cluster is unfinished, not done-with-a-follow-up
+- Three checks, in increasing cost: (1) render every chart against a synthetic ConfigSet and grep the output for real-environment values; (2) assert `homelab.yaml.example` covers every key the render requires; (3) run the documented fork path on a clean machine with none of the maintainer's credentials
+- Checks 1 and 2 are static and belong in level 0, so a violation fails a PR. Check 3 is a per-release run with a written result, because its point is the absence of local state and it cannot be faked in CI
+- A required new key gets **no** default in `defaults.yaml` — failing at render beats coming up wrong, which is why `DOMAIN` is deliberately absent today
+- Owners are named: SRE & Observability Engineer for checks 1–2, DX & Docs Advocate for check 3 and the docs it validates, Principal Platform Architect for the rule and any claimed exception
+- Normative detail: `docs/contracts/fork-ability.md`
+
+**Alternatives Considered:**
+- **Keep it as a convention in `AGENTS.md`** -> it already is, and #40/#41/#51 show what that produces
+- **A secret-scanner-style regex for the maintainer's domain** -> catches one operator's strings and nothing about a fork's actual experience; it would pass a repository that is unforkable for a dozen other reasons
+- **Only the periodic fork run (check 3)** -> honest but slow: a violation is found weeks after it merged, by which time other work is built on it
+
+**Consequences:**
+- Some PRs get slower, in exactly the places (hostnames, secrets, bootstrap, identity) where being slower is correct
+- Check 1 needs a synthetic ConfigSet kept current, which is a small ongoing maintenance cost and an easy thing to let rot — it is a level-0 check so that rot fails visibly
+- A required new configuration key becomes a slightly heavier change: example file, docs, no default
+- Check 3 needs a genuinely clean machine and cannot be delegated to CI, so it is a scheduled human-run activity with an owner rather than an ambient expectation
+
+### ADR-030: Boundary contracts are gated by a frozen baseline and a named rule set, not by review attention (2026-09-25)
+
+**Context:**
+- ADR-026 and ADR-027 are only worth having if a breaking change actually fails; otherwise they are documentation that the next deadline overrides
+- Backward compatibility must assume a consumer that cannot be seen and cannot be redeployed — a stranger's fork on the homelab surface, a customer's integration on the enterprise one
+- Reviewers reliably miss compatibility breaks, because the diff that removes a field looks exactly like the diff that adds one
+- A compatibility checker with no tests of its own quietly stops working, and nobody finds out until it has already passed a break
+
+**Decision:**
+- Every boundary carries a contract test that lives with the contract, built on the same four parts: a frozen baseline in the repository, a diff against it, a named rule set that says which differences are breaking, and tests for the checker itself including a baseline-in-sync test
+- The event gate is the reference implementation: `contracts/events/registry.v1.baseline.json`, `scripts/contract-check.ts`, `scripts/contract-check_test.ts`, `task contracts:check`. OpenAPI and CRD gates follow the same shape
+- One compatibility rule set across events, HTTP and CRDs, so nobody has to remember three
+- Gates slot into the existing ladder: level 0 static (contract diffs, fork-ability), level 1 Kind (operator idempotency, conversion webhooks both directions, upgrade diff), level 2 live (consumer contract tests, rollback and restore drills)
+- Every cross-boundary change states its rollback in one sentence in the PR. A one-way CRD conversion is not a rollback path; a database migration that cannot be rolled back is escalated before it is written
+- A cross-boundary design review states approve / approve-with-conditions / reject against a written checklist. "Looks good" is not a review. The author does not approve their own cross-boundary design
+- Normative detail: `docs/contracts/quality-gates.md`
+
+**Alternatives Considered:**
+- **Rely on review and a documented policy** -> this is the status quo everywhere it fails; the removing diff and the adding diff look the same
+- **A hosted schema-registry service with compatibility modes** -> mature tooling, and a new runtime dependency, a new outage mode, and an authority that lives outside Git for something a file and a CI check already solve
+- **Semver on the SDK as the compatibility story** -> a version number is a claim, not a check, and it is set by the person least likely to notice they broke something
+
+**Consequences:**
+- A deliberate breaking change costs real work: a new major published alongside the old, and the old kept until its consumers are measured gone rather than assumed gone
+- Baselines must be refreshed on additive changes (`task contracts:baseline`); the sync test makes forgetting fail immediately instead of silently widening what the gate permits
+- The meaning-change break — same field name, new semantics — passes every mechanical check and is caught only at review, which is why the review checklist exists alongside the gate
+- Level 1 and 2 gates cost CI minutes; they are the cheapest place to find an upgrade that only works in one direction
+
+### ADR-031: Go for the distributable `homelab` CLI, TypeScript/Bun for repository scripting (2026-09-25); refines ADR-005
+
+**Context:**
+- ADR-005 says "TypeScript for all scripting", and it is right about scripting: `scripts/` is TypeScript run by Bun with Biome and `bun test`
+- The repository has since grown a Go binary, `cmd/homelab`, which is what `task verify` actually runs, with `internal/` packages for config, verification, prereq and scaffolding. The two coexist today without a written rule for which is which
+- Open issue #52 specifies the single bootstrap command in Go (`cmd/homelab/bootstrap.go`) while the company stack is TypeScript/Bun, and the Platform PM flagged the contradiction as needing a decision before implementation
+- The two artifacts have genuinely different distribution problems: repository scripts run inside a checkout that has already installed its toolchain, while the bootstrap CLI is the first thing a forker runs — often before any toolchain exists
+
+**Decision:**
+- The distributable `homelab` CLI stays Go: a single static binary, no runtime to install first, cross-compiled and released. Bootstrap (#52), verification and scaffolding belong to it
+- Repository scripting stays TypeScript on Bun: anything run from a checkout by a developer or by CI, which is what ADR-005 covers and what `scripts/` already is
+- The boundary rule is distribution, not preference: **if a stranger must run it before they have a toolchain, it is Go; otherwise it is TypeScript.** Business logic goes in `internal/`, so the CLI stays a thin command layer
+- Shared platform logic is not duplicated across the two: it lives behind the contracts in `contracts/`, which both consume as data rather than as ported code
+- This refines ADR-005 rather than replacing it; ADR-005 remains the rule for `scripts/`
+
+**Alternatives Considered:**
+- **Port the CLI to TypeScript/Bun for one language** -> honest about the stack, and it makes the first command a forker runs depend on installing Bun first, which is exactly the fork-ability friction ADR-029 is trying to remove. It would also discard working, tested Go in `internal/verify` and `internal/scaffold`
+- **Move everything to Go** -> contradicts ADR-005 for no gain; `scripts/` runs in an environment that already has Bun, and Biome plus `bun test` are working well
+- **Bun's single-file executable compilation** -> genuinely closes some of the distribution gap and is worth revisiting, but it is a newer path with a larger binary and less cross-compilation history than Go's. A reversible decision to leave for later
+
+**Consequences:**
+- Two languages, permanently, with a rule for which is which — the cost is contributor context-switching and two toolchains in `mise.toml`, both of which already exist today
+- A forker downloads one binary and runs it; no runtime prerequisite before the bootstrap can even report what is missing
+- Logic needed by both sides risks being written twice; the mitigation is that anything shared must be expressed as a contract under `contracts/` and consumed as data, and a second implementation of the same logic is a review failure
+- #52 proceeds as specified in Go with no sequencing change
+
 ## Tips
 
 - Number decisions sequentially (ADR-001, ADR-002, etc.)

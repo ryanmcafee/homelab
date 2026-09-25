@@ -1,0 +1,101 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ryanmcafee/homelab/contracts/events/envelope.v1.schema.json",
+  "title": "Platform CloudEvents envelope, v1",
+  "description": "A narrowing profile of CloudEvents 1.0 (structured JSON mode). Every event published to the platform NATS bus MUST validate against this schema. The profile narrows CloudEvents in four places: `source` and `type` have an enforced grammar, `datacontenttype` is fixed to JSON, `dataschema` is required, and the platform extension attributes below are required on every event. See docs/contracts/event-contract.md.",
+  "type": "object",
+  "required": [
+    "specversion",
+    "id",
+    "source",
+    "type",
+    "time",
+    "datacontenttype",
+    "dataschema",
+    "tenant",
+    "sequence"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "specversion": {
+      "const": "1.0",
+      "description": "CloudEvents spec version. Fixed: a second spec version would be a second contract."
+    },
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "description": "Producer-assigned. Unique per (source, id). This is the de-duplication key for every at-least-once path; consumers MUST treat (source, id) as the idempotency key."
+    },
+    "source": {
+      "type": "string",
+      "pattern": "^//[a-z0-9]([a-z0-9-]*[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*/[a-z0-9./-]+$",
+      "maxLength": 253,
+      "description": "URI-reference identifying the producing component, as //<domain>/<component-path>. The domain segment is operator-supplied (the fork-ability contract: no personal domain may be hard-coded here) and the component path is stable across forks."
+    },
+    "type": {
+      "type": "string",
+      "pattern": "^com\\.mcafeeconsulting\\.platform\\.[a-z0-9]+(\\.[a-z0-9]+)*\\.v[1-9][0-9]*$",
+      "maxLength": 128,
+      "description": "Reverse-DNS event type ending in an explicit major version, e.g. com.mcafeeconsulting.platform.workload.deployment.deployed.v1. The version is part of the type, never a separate attribute, so a consumer subscribing to v1 can never be handed a v2 body."
+    },
+    "subject": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "description": "The entity the event is about, as <kind>/<namespace>/<name> for Kubernetes-scoped events. Optional per CloudEvents; required by every operator-sourced type in registry.v1.yaml."
+    },
+    "time": {
+      "type": "string",
+      "format": "date-time",
+      "description": "RFC3339 with timezone, producer clock. Not usable for ordering across producers; use `sequence` within a stream."
+    },
+    "datacontenttype": {
+      "const": "application/json",
+      "description": "Fixed. A second content type is a second serialization contract and a second set of compatibility rules."
+    },
+    "dataschema": {
+      "type": "string",
+      "format": "uri",
+      "description": "Required (CloudEvents makes it optional). Resolves to the JSON Schema for `data` under contracts/events/. A payload whose shape is not published is not a contract."
+    },
+    "data": {
+      "description": "The event body. Shape is governed by `dataschema`, evolved additively within a major version: new optional fields only. Absent only for types declared `dataless: true` in the registry."
+    },
+    "tenant": {
+      "type": "string",
+      "pattern": "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$",
+      "maxLength": 63,
+      "description": "Platform extension. The tenancy boundary the event belongs to. Homelab publishes the reserved value `local`. This attribute is a trust boundary: a subscriber MUST NOT be delivered events whose `tenant` it is not authorized for, and authorization is enforced at the NATS account/subject level, not by consumer-side filtering."
+    },
+    "sequence": {
+      "type": "string",
+      "pattern": "^[0-9]{1,20}$",
+      "description": "Platform extension, per CloudEvents Sequence. The JetStream stream sequence, stringified, assigned on persist. Monotonic per (stream, subject) and meaningful for ordering ONLY within a single subject on a single stream. Producers set `0` before publish; the publishing SDK overwrites it from the PubAck."
+    },
+    "traceparent": {
+      "type": "string",
+      "pattern": "^00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$",
+      "description": "W3C Trace Context. Strongly recommended and set automatically by the SDK; optional so that an event emitted outside a traced request is still valid rather than silently dropped."
+    },
+    "tracestate": {
+      "type": "string",
+      "maxLength": 512,
+      "description": "W3C Trace Context vendor state, carried through untouched."
+    },
+    "correlationid": {
+      "type": "string",
+      "maxLength": 128,
+      "description": "Platform extension. The end-to-end unit of work (e.g. a reconcile pass, a golden-path run). Distinct from traceparent, which is per-request. Required by request/reply types in the registry."
+    },
+    "replyto": {
+      "type": "string",
+      "maxLength": 256,
+      "description": "Platform extension. NATS inbox subject for request/reply. Present only on types whose registry `pattern` is `request_reply`; a consumer that sees it on a pub/sub type MUST ignore it."
+    },
+    "dryrun": {
+      "type": "boolean",
+      "description": "Platform extension. True when the event describes an evaluation that MUST NOT cause side effects. Consumers that cannot honour it MUST drop the event rather than act on it."
+    }
+  }
+}
