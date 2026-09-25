@@ -24,6 +24,8 @@ configs:
   params:
     # Plain HTTP on the NodePort; `argocd login localhost:8080 --plaintext`.
     server.insecure: true
+    # ArgoCD 3 no longer stores resource health in the Application; diagnose reads it there.
+    controller.resource.health.persist: "true"
   cm:
     # Poll the repo often: the loop compares the working tree, not GitHub, so
     # a fresher comparison only makes the OutOfSync marker more accurate.

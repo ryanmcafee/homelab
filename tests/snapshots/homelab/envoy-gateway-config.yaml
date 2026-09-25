@@ -1,4 +1,21 @@
 ---
+# Source: envoy-gateway-config/templates/tracing-backend.yaml
+# An FQDN Backend, not a Service backendRef: Envoy Gateway rejects the Gateway while
+# a referenced Service is missing, and the collector syncs after the Gateways.
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: Backend
+metadata:
+  name: otel-collector-gateway
+  namespace: envoy-gateway-system
+spec:
+  appProtocols:
+    - gateway.envoyproxy.io/h2c
+  endpoints:
+    - fqdn:
+        hostname: otel-collector-gateway.observability.svc.cluster.local
+        port: 4317
+
+---
 # Source: envoy-gateway-config/templates/policies.yaml
 apiVersion: gateway.envoyproxy.io/v1alpha1
 kind: BackendTrafficPolicy
@@ -177,9 +194,9 @@ spec:
       provider:
         type: OpenTelemetry
         backendRefs:
-          - name: otel-collector-gateway
-            namespace: observability
-            port: 4317
+          - group: gateway.envoyproxy.io
+            kind: Backend
+            name: otel-collector-gateway
       customTags:
         gateway:
           type: Literal
@@ -280,9 +297,9 @@ spec:
       provider:
         type: OpenTelemetry
         backendRefs:
-          - name: otel-collector-gateway
-            namespace: observability
-            port: 4317
+          - group: gateway.envoyproxy.io
+            kind: Backend
+            name: otel-collector-gateway
       customTags:
         gateway:
           type: Literal
@@ -458,37 +475,3 @@ spec:
         - action: replace
           targetLabel: gateway
           replacement: envoy-internal
-
----
-# Source: envoy-gateway-config/templates/monitoring.yaml
-apiVersion: gateway.networking.k8s.io/v1beta1
-kind: ReferenceGrant
-metadata:
-  name: envoy-external-tracing
-  namespace: observability
-spec:
-  from:
-    - group: gateway.envoyproxy.io
-      kind: EnvoyProxy
-      namespace: envoy-gateway-system
-  to:
-    - group: ""
-      kind: Service
-      name: otel-collector-gateway
-
----
-# Source: envoy-gateway-config/templates/monitoring.yaml
-apiVersion: gateway.networking.k8s.io/v1beta1
-kind: ReferenceGrant
-metadata:
-  name: envoy-internal-tracing
-  namespace: observability
-spec:
-  from:
-    - group: gateway.envoyproxy.io
-      kind: EnvoyProxy
-      namespace: envoy-gateway-system
-  to:
-    - group: ""
-      kind: Service
-      name: otel-collector-gateway

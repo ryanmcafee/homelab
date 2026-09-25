@@ -24,22 +24,5 @@ spec:
           targetLabel: gateway
           replacement: {{ $v.name }}
 {{- end }}
-{{- if $v.tracing.enabled }}
----
-apiVersion: gateway.networking.k8s.io/v1beta1
-kind: ReferenceGrant
-metadata:
-  name: {{ $v.name }}-tracing
-  namespace: {{ $v.tracing.namespace }}
-spec:
-  from:
-    - group: gateway.envoyproxy.io
-      kind: EnvoyProxy
-      namespace: {{ $.Values.namespace }}
-  to:
-    - group: ""
-      kind: Service
-      name: {{ $v.tracing.service }}
-{{- end }}
 {{- end }}
 {{- end }}

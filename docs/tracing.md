@@ -7,7 +7,7 @@ what makes TraceId links useful. Decision record: ADR-021.
 
 | Sender | How | Sampling |
 |---|---|---|
-| Envoy Gateway (`envoy-internal`, `envoy-external`) | EnvoyProxy `telemetry.tracing` (charts/envoy-gateway-config): starts or continues W3C `traceparent`, forwards it to the backend, OTLP gRPC to the gateway as service `<gateway>.envoy-gateway-system` with tag `gateway`; the JSON access log carries `trace_id` and `traceparent` | `envoy-gateway.gateways.*.config.tracing.samplingRate` in `configuration/templates/helm-addons.tmpl`: 10 homelab, 100 Kind (percent) |
+| Envoy Gateway (`envoy-internal`, `envoy-external`) | EnvoyProxy `telemetry.tracing` (charts/envoy-gateway-config): starts or continues W3C `traceparent`, forwards it to the backend, OTLP gRPC to the gateway collector through the FQDN Backend `otel-collector-gateway` (a Service backendRef would make Envoy Gateway reject both Gateways until the collector exists), as service `<gateway>.envoy-gateway-system` with tag `gateway`; the JSON access log carries `trace_id` and `traceparent` | `envoy-gateway.gateways.*.config.tracing.samplingRate` in `configuration/templates/helm-addons.tmpl`: 10 homelab, 100 Kind (percent) |
 | Istio waypoints | istiod `meshConfig.extensionProviders` `otel-tracing` + Telemetry `istio-system/mesh-default` (charts/istio-config) | `istio.tracing.samplingPercentage`: 10 homelab, 100 Kind |
 | Applications | OTLP to `otel-collector-gateway.observability.svc.cluster.local:4317` (gRPC) or `:4318` (HTTP) | the application's own |
 

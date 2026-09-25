@@ -108,9 +108,9 @@ spec:
       provider:
         type: OpenTelemetry
         backendRefs:
-          - name: {{ $v.tracing.service }}
-            namespace: {{ $v.tracing.namespace }}
-            port: {{ $v.tracing.port }}
+          - group: gateway.envoyproxy.io
+            kind: Backend
+            name: {{ $v.tracing.backend }}
       customTags:
         gateway:
           type: Literal

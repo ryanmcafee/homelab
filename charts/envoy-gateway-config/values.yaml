@@ -62,6 +62,8 @@ defaults:
   tracing:
     enabled: false
     samplingRate: 10
+    # Backend (templates/tracing-backend.yaml) pointing at the collector Service below.
+    backend: otel-collector-gateway
     service: otel-collector-gateway
     namespace: observability
     port: 4317

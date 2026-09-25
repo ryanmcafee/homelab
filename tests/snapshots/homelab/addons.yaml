@@ -1887,6 +1887,12 @@ spec:
           enabled: false
         deployment:
           replicas: 2
+          # The controller reads its config only at startup; the checksum rolls it on change.
+          pod:
+            annotations:
+              prometheus.io/scrape: "true"
+              prometheus.io/port: "19001"
+              checksum/config: 9c5052c7906a56942e0a2a81d79e665bbd998d36b087948b16e372ef1bf68b3d
           envoyGateway:
             resources:
               limits:
@@ -1898,14 +1904,17 @@ spec:
         podDisruptionBudget:
           minAvailable: 1
         config:
+          # extensionApis.enableBackend: FQDN Backends (the tracing collector, charts/envoy-gateway-config).
           envoyGateway:
+            extensionApis:
+              enableBackend: true
             gateway:
               controllerName: gateway.envoyproxy.io/gatewayclass-controller
-            provider:
-              type: Kubernetes
             logging:
               level:
                 default: info
+            provider:
+              type: Kubernetes
   destination:
     server: https://kubernetes.default.svc
     namespace: envoy-gateway-system

@@ -19,6 +19,7 @@ import {
 } from "./lib/assert.ts";
 import { parse as parseYaml } from "./lib/yaml.ts";
 import {
+  ARGOCD_VALUES,
   type AppDiff,
   type Application,
   appState,
@@ -2483,4 +2484,23 @@ test("podNeedsDiagnosis: Running pods with a crash-looping, restarted or not-rea
     podHasRestarted(running([{ ready: true, restartCount: 0 }])),
     false,
   );
+});
+
+test("localdev ArgoCD persists per-resource health, so diagnose can print it", async () => {
+  const values = parseYaml(await Bun.file(ARGOCD_VALUES).text());
+  const configs =
+    typeof values === "object" && values !== null && "configs" in values
+      ? values.configs
+      : undefined;
+  const params =
+    typeof configs === "object" && configs !== null && "params" in configs
+      ? configs.params
+      : undefined;
+  const persist =
+    typeof params === "object" &&
+    params !== null &&
+    "controller.resource.health.persist" in params
+      ? params["controller.resource.health.persist"]
+      : undefined;
+  assertEquals(String(persist), "true");
 });

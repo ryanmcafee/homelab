@@ -57,7 +57,7 @@ sources:
       repo: oci://docker.io/envoyproxy
       name: gateway-crds-helm
     helmArgs: ["--set", "crds.envoyGateway.enabled=true", "--set", "crds.gatewayAPI.enabled=false"]
-    kinds: [EnvoyProxy, ClientTrafficPolicy, BackendTrafficPolicy, SecurityPolicy, EnvoyExtensionPolicy]
+    kinds: [EnvoyProxy, Backend, ClientTrafficPolicy, BackendTrafficPolicy, SecurityPolicy, EnvoyExtensionPolicy]
 
   - name: altinity-clickhouse-operator
     versionKey: altinity-clickhouse-operator

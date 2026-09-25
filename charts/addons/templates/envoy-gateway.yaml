@@ -9,6 +9,7 @@ Routes attach to the https listener of one Gateway (sectionName: https); the
 http listener only redirects.
 */}}
 {{- $eg := index .Values "envoy-gateway" }}
+{{- $egConfig := dict "gateway" (dict "controllerName" "gateway.envoyproxy.io/gatewayclass-controller") "provider" (dict "type" "Kubernetes") "extensionApis" (dict "enableBackend" true) "logging" (dict "level" (dict "default" "info")) }}
 {{- if $eg.enabled }}
 ---
 apiVersion: v1
@@ -92,6 +93,12 @@ spec:
           enabled: false
         deployment:
           replicas: {{ $eg.controller.replicas }}
+          # The controller reads its config only at startup; the checksum rolls it on change.
+          pod:
+            annotations:
+              prometheus.io/scrape: "true"
+              prometheus.io/port: "19001"
+              checksum/config: {{ toJson $egConfig | sha256sum }}
           envoyGateway:
             resources:
               {{- toYaml $eg.controller.resources | nindent 14 }}
@@ -100,14 +107,9 @@ spec:
           minAvailable: 1
         {{- end }}
         config:
+          # extensionApis.enableBackend: FQDN Backends (the tracing collector, charts/envoy-gateway-config).
           envoyGateway:
-            gateway:
-              controllerName: gateway.envoyproxy.io/gatewayclass-controller
-            provider:
-              type: Kubernetes
-            logging:
-              level:
-                default: info
+            {{- toYaml $egConfig | nindent 12 }}
   destination:
     server: https://kubernetes.default.svc
     namespace: {{ $eg.namespace }}
