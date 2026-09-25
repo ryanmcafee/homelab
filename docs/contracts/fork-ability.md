@@ -173,14 +173,34 @@ Three standing conditions follow:
 ### Values are parameterised; so is shape
 
 Checks 1, 2 and 4 all verify that operator-specific *values* come from the ConfigSet. They do not
-verify that the cluster's *shape* does. `homelab.yaml.example` names `CP1_IP`, `CP2_IP`, `CP3_IP`
-and states no count, so a fork with one or five control-plane nodes cannot express its topology
-even with every value correctly externalised — the three keys are individually required, so the
-shape is fixed at three whatever the values are. ADR-035 makes the count derive from the
-`^CP[0-9]+_IP$` key set instead, which turns listing your control plane into the act that states
-your topology; check 3b's non-matching topology is what proves it works. Note the failure mode
-this section is really about: a *pattern* of required keys encodes a shape just as firmly as a
-literal does, and no value-level check can see it.
+verify that the cluster's *shape* does. The failure mode this section is really about: a *pattern*
+of required keys encodes a shape just as firmly as a literal does, and no value-level check can
+see it.
+
+That was the state until MCAA-118. `homelab.yaml.example` named `CP1_IP`, `CP2_IP`, `CP3_IP` and
+stated no count, and all three were individually required — so a fork running one or five
+control-plane nodes could not express its topology even with every value correctly externalised.
+The shape was fixed at three whatever the values were.
+
+ADR-035's rule now holds: the count derives from the `^CP([0-9]+)_IP$` key set, so listing your
+control plane *is* the act that states your topology. In the schema that set is a `keyPatterns`
+entry carrying `role: control-plane-address`; `CP1_IP` stays required on its own and higher
+ordinals are optional. The resolver derives the list once into `ResolvedConfig.ControlPlane`, and
+templates range over that field instead of naming ordinals.
+
+Two things keep this from sliding back into a shape nothing can see:
+
+- `configuration/environments/single-node.yaml.example` is a committed one-control-plane ConfigSet,
+  rendered through every template by `TestExampleRendersEveryTemplate`. Before it existed every
+  environment file in the repository declared three control-plane addresses, so nothing in CI had
+  ever rendered a topology that was not this cluster's. It uses RFC 5737 TEST-NET-1
+  (`192.0.2.0/24`), distinct from the RFC 1918 range above, per the standing condition stated
+  earlier in this document.
+- `TestSyntheticTopologiesRenderEveryTemplate` covers the remaining permitted counts (3, 5, 7), so
+  the contract's `permittedCounts` ceiling is not a set of topologies nothing has ever rendered.
+
+Check 3b's non-matching topology remains the end-to-end proof; the two above are what make a
+regression fail in CI rather than in a stranger's fork.
 
 ## Who owns the check
 

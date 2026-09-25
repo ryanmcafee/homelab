@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"text/template"
 )
@@ -30,29 +31,30 @@ func ValidateValues(schema *Schema, values map[string]string) error {
 			continue
 		}
 
-		if key.Pattern != "" {
-			re, err := regexp.Compile(key.Pattern)
-			if err != nil {
-				errs = append(errs, fmt.Sprintf("key %q has invalid pattern %q: %v", name, key.Pattern, err))
-				continue
-			}
-			if !re.MatchString(val) {
-				errs = append(errs, fmt.Sprintf("key %q value %q does not match pattern %q", name, val, key.Pattern))
-			}
-		}
+		errs = append(errs, validateValue(name, val, key)...)
+	}
 
-		if len(key.Enum) > 0 {
-			found := false
-			for _, allowed := range key.Enum {
-				if val == allowed {
-					found = true
-					break
-				}
-			}
-			if !found {
-				errs = append(errs, fmt.Sprintf("key %q value %q is not in enum %v", name, val, key.Enum))
-			}
+	// Keys no literal declaration covers, but a key pattern does. The literal
+	// always wins: a name present in schema.Keys was validated above and is
+	// skipped here, so CP1_IP is governed by its own entry, never the family's.
+	//
+	// Until this loop existed, a key an environment file declared but the
+	// schema did not name flowed through Eval untouched. The state a fork was
+	// actually in was therefore not "CP4_IP is forbidden" but "CP4_IP is
+	// unvalidated and unread", which is the worse of the two.
+	for _, name := range sortedNames(values) {
+		if _, literal := schema.Keys[name]; literal {
+			continue
 		}
+		kp, ok, err := schema.matchKeyPattern(name)
+		if err != nil {
+			errs = append(errs, err.Error())
+			continue
+		}
+		if !ok || values[name] == "" {
+			continue
+		}
+		errs = append(errs, validateValue(name, values[name], kp.SchemaKey)...)
 	}
 
 	if len(errs) > 0 {
@@ -64,6 +66,49 @@ func ValidateValues(schema *Schema, values map[string]string) error {
 		return fmt.Errorf("validation errors:\n  %s", strings.Join(errs, "\n  "))
 	}
 	return nil
+}
+
+// validateValue checks one non-empty value against a key's value rules and
+// returns the messages, if any. Shared by the literal-key and pattern-key
+// paths so a family member is held to exactly the rules a literal would be.
+func validateValue(name, val string, key SchemaKey) []string {
+	var errs []string
+
+	if key.Pattern != "" {
+		re, err := regexp.Compile(key.Pattern)
+		if err != nil {
+			return append(errs, fmt.Sprintf("key %q has invalid pattern %q: %v", name, key.Pattern, err))
+		}
+		if !re.MatchString(val) {
+			errs = append(errs, fmt.Sprintf("key %q value %q does not match pattern %q", name, val, key.Pattern))
+		}
+	}
+
+	if len(key.Enum) > 0 {
+		found := false
+		for _, allowed := range key.Enum {
+			if val == allowed {
+				found = true
+				break
+			}
+		}
+		if !found {
+			errs = append(errs, fmt.Sprintf("key %q value %q is not in enum %v", name, val, key.Enum))
+		}
+	}
+
+	return errs
+}
+
+// sortedNames returns a map's keys in ascending order, so every loop over a
+// value map produces its diagnostics in the same order run over run.
+func sortedNames(m map[string]string) []string {
+	names := make([]string, 0, len(m))
+	for name := range m {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
 }
 
 // ApplyDefaults fills in missing values from schema defaults. Does not override existing values.
@@ -192,9 +237,81 @@ func Eval(schema *Schema, versions *Versions, setName string, layers ...map[stri
 		}
 	}
 
+	// 6. Derive the control-plane address list. Once, here — every consumer
+	// reads the field instead of re-applying the key-name rule.
+	controlPlane, err := DeriveControlPlane(schema, resolved)
+	if err != nil {
+		return nil, fmt.Errorf("control-plane derivation failed for set %q: %w", setName, err)
+	}
+
 	return &ResolvedConfig{
-		Values:   values,
-		Versions: *versions,
-		Set:      setName,
+		Values:       values,
+		Versions:     *versions,
+		Set:          setName,
+		ControlPlane: controlPlane,
 	}, nil
+}
+
+// DeriveControlPlane resolves the control-plane address list from the schema's
+// RoleControlPlaneAddress key pattern, ascending by ordinal.
+//
+// This is the single implementation of ADR-035's rule "the member count derives
+// from the ConfigSet's control-plane address keys". It returns nil when the
+// schema declares no such family, which is how the small fixture schemas in
+// tests stay unaffected.
+//
+// Failure semantics come from contracts/cluster/topology.v1.yaml
+// (`evaluation.onIndeterminate: unsafe`): a declared address key that cannot be
+// resolved to an address makes the WHOLE set indeterminate, not one member
+// smaller. Omitting an optional higher ordinal is a smaller cluster; declaring
+// CP3_IP and leaving it blank is a question nobody answered, and the caller is
+// on a path that destroys nodes.
+func DeriveControlPlane(schema *Schema, values map[string]string) ([]ControlPlaneMember, error) {
+	cp, ok := schema.controlPlanePattern()
+	if !ok {
+		return nil, nil
+	}
+
+	var members []ControlPlaneMember
+	for _, name := range sortedNames(values) {
+		m := cp.re.FindStringSubmatch(name)
+		if m == nil {
+			continue
+		}
+		value := strings.TrimSpace(values[name])
+		if value == "" {
+			return nil, fmt.Errorf(
+				"control-plane address key %q is declared with an empty value: the member count is indeterminate, "+
+					"which contracts/cluster/topology.v1.yaml treats as unsafe — give it an address or remove the key",
+				name)
+		}
+		ordinal, err := strconv.Atoi(m[1])
+		if err != nil {
+			// Unreachable while the pattern's capture group is digits, but the
+			// pattern is data and a future one may not be.
+			return nil, fmt.Errorf("control-plane address key %q has non-numeric ordinal %q: %w", name, m[1], err)
+		}
+		members = append(members, ControlPlaneMember{Ordinal: ordinal, Key: name, Address: value})
+	}
+
+	if len(members) == 0 {
+		return nil, fmt.Errorf(
+			"no control-plane address key matched %q: the member count is indeterminate, "+
+				"which contracts/cluster/topology.v1.yaml treats as unsafe", cp.pattern)
+	}
+
+	// Ascending by ordinal, not by key name: sorted as strings CP10_IP sorts
+	// before CP2_IP, and cp-10 would then be rendered second.
+	sort.Slice(members, func(i, j int) bool { return members[i].Ordinal < members[j].Ordinal })
+
+	for i := 1; i < len(members); i++ {
+		if members[i].Ordinal == members[i-1].Ordinal {
+			// Two key names, one ordinal (CP1_IP and CP01_IP). Which one is
+			// cp-1 would be arbitrary, so refuse rather than pick.
+			return nil, fmt.Errorf("control-plane keys %q and %q both resolve to ordinal %d",
+				members[i-1].Key, members[i].Key, members[i].Ordinal)
+		}
+	}
+
+	return members, nil
 }
