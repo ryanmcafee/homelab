@@ -24,7 +24,23 @@ Talos on Proxmox, ArgoCD app-of-apps, Cilium BGP to a UniFi gateway, no PII in g
 
 ## Boot it on your laptop
 
-Docker is the only requirement. The Kind loop runs the same charts production does, with fakes
+Install [mise](https://mise.jdx.dev/getting-started.html) first, then run from the clone:
+
+```bash
+mise trust
+mise install
+mise exec -- task install-tools
+```
+
+Python, pipx and Node are declared in `mise.toml`; no preinstalled language runtime,
+Homebrew or homelab credentials are needed. `mise exec -- task ...` works without shell
+activation; activate mise for your shell to use the shorter `task ...` commands below.
+`task toolchain:check` reruns the uncached Linux bootstrap CI gate against **committed HEAD**
+in Docker (linux/amd64, emulated on ARM). Commit changes before running it. The gate
+checks every tool, the Task entrypoint and setup's actionable missing-Docker diagnostic.
+It does not deploy a cluster. Cold runs download the entire toolchain; CI has a 20-minute limit.
+
+Docker is also required for the Kind loop. The loop runs the same charts production does, with fakes
 standing in for 1Password, TrueNAS and the UniFi gateway.
 
 ```bash

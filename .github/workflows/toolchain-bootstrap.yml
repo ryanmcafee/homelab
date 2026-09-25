@@ -1,0 +1,55 @@
+---
+name: Clean toolchain bootstrap
+
+on:
+  pull_request:
+    paths:
+      - 'mise.toml'
+      - 'Taskfile.yml'
+      - 'Dockerfile.toolchain'
+      - 'cmd/**'
+      - 'internal/**'
+      - 'go.mod'
+      - 'go.sum'
+      - 'package.json'
+      - 'bun.lock'
+      - '.github/workflows/toolchain-bootstrap.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'mise.toml'
+      - 'Taskfile.yml'
+      - 'Dockerfile.toolchain'
+      - 'cmd/**'
+      - 'internal/**'
+      - 'go.mod'
+      - 'go.sum'
+      - 'package.json'
+      - 'bun.lock'
+      - '.github/workflows/toolchain-bootstrap.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: toolchain-bootstrap-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  cold-install:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+        with:
+          persist-credentials: false
+
+      # Task on the runner only launches Docker. All tools under test are
+      # installed from scratch inside the container, without a token or cache.
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c  # v4.3.0
+        with:
+          install_args: task
+
+      - name: Install every tool and exercise setup on a fresh machine
+        run: task toolchain:check

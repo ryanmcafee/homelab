@@ -3,6 +3,12 @@
 # See: https://mise.jdx.dev/
 
 [tools]
+# Backend runtimes must be declared: fresh machines have no Python/pipx or
+# Node/npm for the pipx:* and npm:* tools below. Keep exact versions in CI too.
+python = "3.13.15"
+pipx = "1.17.6"
+node = "24.21.0"
+
 # Infrastructure as Code
 terraform = "1.16.2"
 terragrunt = "1.0.8"
