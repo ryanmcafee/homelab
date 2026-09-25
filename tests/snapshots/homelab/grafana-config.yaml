@@ -1,4 +1,125 @@
 ---
+# Source: grafana-config/templates/alert-source.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-alert-query-dashboard
+  namespace: monitoring
+  labels:
+    grafana_dashboard: "1"
+data:
+  alert-query.json: |-
+    {
+      "uid": "alert-query",
+      "title": "Alert query",
+      "tags": [
+        "alerting"
+      ],
+      "editable": false,
+      "schemaVersion": 41,
+      "time": {
+        "from": "now-1h",
+        "to": "now"
+      },
+      "refresh": "1m",
+      "description": "Target of alert Source links: the rule expression from var-expr, evaluated on the Prometheus datasource.",
+      "templating": {
+        "list": [
+          {
+            "name": "expr",
+            "label": "PromQL",
+            "type": "textbox",
+            "query": "vector(0)",
+            "current": {
+              "text": "vector(0)",
+              "value": "vector(0)"
+            },
+            "hide": 0
+          }
+        ]
+      },
+      "panels": [
+        {
+          "id": 1,
+          "type": "timeseries",
+          "title": "Alert expression",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "h": 14,
+            "w": 24,
+            "x": 0,
+            "y": 0
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "${expr:raw}",
+              "legendFormat": "__auto",
+              "range": true
+            }
+          ],
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          }
+        },
+        {
+          "id": 2,
+          "type": "table",
+          "title": "Series firing now",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "h": 10,
+            "w": 24,
+            "x": 0,
+            "y": 14
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "${expr:raw}",
+              "format": "table",
+              "instant": true,
+              "range": false
+            }
+          ],
+          "transformations": [
+            {
+              "id": "organize",
+              "options": {
+                "excludeByName": {
+                  "Time": true
+                }
+              }
+            }
+          ]
+        }
+      ]
+    }
+    
+
+---
 # Source: grafana-config/templates/persistent-volume.yaml
 apiVersion: v1
 kind: PersistentVolume
@@ -43,3 +164,18 @@ spec:
   resources:
     requests:
       storage: 10Gi
+
+---
+# Source: grafana-config/templates/alert-source.yaml
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: grafana-alert-source
+  namespace: monitoring
+  annotations:
+    kubernetes.io/ingress.class: internal
+spec:
+  redirectRegex:
+    regex: ^https?://([^/]+)/graph\?(?:[^#]*&)?g0\.expr=([^&#]*).*$
+    replacement: https://${1}/d/alert-query/alert-query?orgId=1&var-expr=${2}
+    permanent: false

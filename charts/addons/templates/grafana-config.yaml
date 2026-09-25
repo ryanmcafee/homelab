@@ -1,6 +1,6 @@
 {{- if (index .Values "kube-prometheus-stack").enabled }}
 ---
-# Grafana Config: deploys static PV+PVC for Grafana persistent storage
+# Grafana Config: static PV+PVC for Grafana, and the alert source redirect into Grafana
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -25,6 +25,8 @@ spec:
       valuesObject:
         iscsi:
           portal: {{ .Values.global.iscsi.portal | quote }}
+        alertSource:
+          ingressClassName: {{ (index .Values "kube-prometheus-stack" "grafana" "ingress" "ingressClassName") | quote }}
   destination:
     server: https://kubernetes.default.svc
     namespace: {{ (index .Values "kube-prometheus-stack").namespace }}
