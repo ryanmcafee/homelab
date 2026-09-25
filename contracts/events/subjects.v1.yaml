@@ -1,0 +1,140 @@
+# NATS subject taxonomy and stream set, v1.
+#
+# Normative. Checked by `bun scripts/contract-check.ts` (task contracts:check).
+# Reasoning: docs/contracts/event-contract.md. Decision: ADR-026.
+#
+# Every subject on the platform bus is exactly seven tokens:
+#
+#   pf.<tenant>.<domain>.<entity>.<action>.<major>.<pattern>
+#    |    |        |        |        |        |       |
+#    |    |        |        |        |        |       +-- ev | rq | wq | rs
+#    |    |        |        |        |        +---------- v1, v2, ...
+#    |    |        |        |        +------------------- past tense for ev, imperative for rq
+#    |    |        |        +---------------------------- the resource kind
+#    |    |        +------------------------------------- bounded context
+#    |    +---------------------------------------------- tenancy boundary; `local` in homelab
+#    +--------------------------------------------------- fixed platform root
+#
+# Fixed token count is the whole point: `pf.*.workload.*.*.v1.ev` is a legal, stable
+# wildcard for "every v1 workload event in every tenant", and it cannot silently start
+# matching a deeper subject someone added later.
+
+version: 1
+
+grammar:
+  pattern: '^pf\.[a-z0-9][a-z0-9-]{0,62}\.[a-z0-9]+\.[a-z0-9]+\.[a-z0-9]+\.v[1-9][0-9]*\.(ev|rq|wq|rs)$'
+  tokens: 7
+  root: pf
+  suffixes:
+    ev: Pub/sub event. Fan-out, many consumers, no reply. Past tense action.
+    rq: >-
+      Synchronous request on core NATS. Exactly one responder, at-most-once, never
+      persisted. Imperative action. Requires `replyto` and `correlationid`.
+    wq: >-
+      Durable request on the PF_WORK work-queue stream. Deferred work, at-least-once,
+      exactly one consumer group takes each message. Requires `correlationid`.
+    rs: Reply. Published to the requester's inbox, not to a stream. Never persisted.
+
+# Bounded contexts. Adding one is additive; renaming one is breaking.
+domains:
+  control: Control-plane lifecycle — tenants, environments, bootstrap.
+  workload: Application workloads and their rollout state.
+  gitops: ArgoCD Application sync, drift and health.
+  infra: Nodes, storage, network, cluster lifecycle.
+  identity: Principals, AI agent identities, credential lifecycle.
+  observability: SLO burn, alert lifecycle, verification results.
+
+# Streams. A subject that matches no stream is a configuration error, not a warning:
+# it means an event is being published into a void with nothing to replay it.
+streams:
+  - name: PF_EVENTS
+    subjects: ['pf.*.*.*.*.*.ev']
+    storage: file
+    replicas: 3
+    retention: limits
+    max_age: 168h # 7d
+    discard: old
+    duplicate_window: 2m
+    delivery: at_least_once
+    ordering: per_subject
+    notes: >-
+      The general fan-out stream. `duplicate_window` de-duplicates on the `Nats-Msg-Id`
+      header, which the SDK sets to the CloudEvents `id`. That window makes publish
+      effectively-once for a 2-minute retry burst; it does NOT make end-to-end delivery
+      exactly-once, because a consumer can still crash between handling and acking.
+
+  - name: PF_AUDIT
+    subjects: ['pf.*.identity.*.*.*.ev', 'pf.*.control.*.*.*.ev']
+    storage: file
+    replicas: 3
+    retention: limits
+    max_age: 8760h # 365d
+    discard: new
+    duplicate_window: 2m
+    delivery: at_least_once
+    ordering: per_subject
+    notes: >-
+      Overlaps PF_EVENTS deliberately: identity and control-plane events are also audit
+      records and need a year of retention with `discard: new`, so the stream refuses
+      writes when full rather than dropping history. A duplicate copy on two streams is
+      correct here and is why consumers must be idempotent on (source, id).
+
+  - name: PF_WORK
+    subjects: ['pf.*.*.*.*.*.wq']
+    storage: file
+    replicas: 3
+    retention: workqueue
+    max_age: 1h
+    discard: new
+    duplicate_window: 2m
+    delivery: at_least_once
+    ordering: none
+    notes: >-
+      Requests that need durability (deferred work), carried on the `wq` suffix.
+      `retention: workqueue` means exactly one consumer group takes each message.
+      Synchronous request/reply (`rq`, with a live `replyto`) deliberately matches no
+      stream: it is core NATS, at-most-once, nothing persisted. The suffix is what
+      separates them, so a reader of a subject knows the guarantee without opening the
+      registry; `durable_request` in registry.v1.yaml restates it and the checker
+      enforces that the two agree.
+
+# Consumer rules. Enforced by review, not by the checker, but stated so review has a rule.
+consumers:
+  durability: >-
+    Every consumer of a `.ev` subject is a durable pull consumer with an explicit name of
+    the form `<component>-<domain>-v<major>`. Ephemeral consumers are permitted only for
+    human debugging; a service that uses one has no replay story after a restart.
+  ack_policy: explicit
+  max_deliver: 5
+  ack_wait: 30s
+  dead_letter: >-
+    After `max_deliver`, JetStream emits an advisory on
+    `$JS.EVENT.ADVISORY.CONSUMER.MAX_DELIVERIES.>`. A component that has no subscriber on
+    that advisory has no failure path and fails the boundary quality gate (ADR-030).
+  filter: >-
+    Consumers filter by subject, never by decoding the body and discarding. Body-level
+    filtering hides the real coupling from the subject taxonomy and defeats the wildcard
+    guarantees above.
+
+# Delivery guarantee per path. No path is exactly-once end to end. Stated explicitly
+# because the alternative is every reader assuming whichever guarantee suits them.
+guarantees:
+  - path: pub/sub via PF_EVENTS or PF_AUDIT
+    delivery: at_least_once
+    ordering: per_subject
+    dedup: consumer-side on (source, id); publish-side within duplicate_window
+  - path: durable request via PF_WORK (`wq`)
+    delivery: at_least_once
+    ordering: none
+    dedup: consumer-side on (source, id)
+  - path: synchronous request/reply on core NATS (`rq`/`rs`)
+    delivery: at_most_once
+    ordering: none
+    dedup: not applicable; the requester retries and must make the request idempotent
+  - path: operator reconcile (not an event path)
+    delivery: not applicable
+    ordering: not applicable
+    dedup: >-
+      Convergent. The operator reads observed state and rewrites desired state; events are
+      a notification that a reconcile should happen sooner, never the carrier of the state
+      itself. Losing an event must only cost latency, never correctness (ADR-025).

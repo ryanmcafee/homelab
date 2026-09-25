@@ -1,0 +1,136 @@
+# The registered event types, v1.
+#
+# Normative. Checked by `bun scripts/contract-check.ts` (task contracts:check).
+# An event type that is not in here is not published. A type in here may not change
+# shape within its major version except additively.
+#
+# Fields per type:
+#   type            CloudEvents `type`. Its last four tokens mirror the subject:
+#                   <domain>.<entity>.<action>.<major>. The checker enforces that.
+#   subject         The NATS subject template it is published on.
+#   pattern         pubsub | request_reply
+#   durable_request request_reply only: true = PF_WORK, `wq` suffix; false = core
+#                   NATS, `rq` suffix. Must agree with the subject suffix.
+#   delivery        at_least_once | at_most_once. Never "exactly_once".
+#   ordering        per_subject | none
+#   dataschema      Schema for `data`, relative to contracts/events/.
+#   dataless        true when the type carries no body.
+#   requires        Envelope attributes required beyond the envelope schema's own list.
+#   producer        The component that owns the type. One owner, always.
+#   status          stable | experimental. `experimental` types are exempt from the
+#                   compatibility gate and MUST NOT be consumed across a trust boundary.
+
+version: 1
+
+types:
+  - type: com.mcafeeconsulting.platform.workload.deployment.deployed.v1
+    subject: pf.<tenant>.workload.deployment.deployed.v1.ev
+    pattern: pubsub
+    delivery: at_least_once
+    ordering: per_subject
+    dataschema: data/workload.deployed.v1.schema.json
+    requires: [subject]
+    producer: workload-operator
+    status: stable
+
+  - type: com.mcafeeconsulting.platform.workload.deployment.degraded.v1
+    subject: pf.<tenant>.workload.deployment.degraded.v1.ev
+    pattern: pubsub
+    delivery: at_least_once
+    ordering: per_subject
+    dataschema: data/workload.degraded.v1.schema.json
+    requires: [subject]
+    producer: workload-operator
+    status: stable
+
+  - type: com.mcafeeconsulting.platform.gitops.application.synced.v1
+    subject: pf.<tenant>.gitops.application.synced.v1.ev
+    pattern: pubsub
+    delivery: at_least_once
+    ordering: per_subject
+    dataschema: data/gitops.application.synced.v1.schema.json
+    requires: [subject]
+    producer: gitops-bridge
+    status: stable
+
+  - type: com.mcafeeconsulting.platform.gitops.application.drifted.v1
+    subject: pf.<tenant>.gitops.application.drifted.v1.ev
+    pattern: pubsub
+    delivery: at_least_once
+    ordering: per_subject
+    dataschema: data/gitops.application.drifted.v1.schema.json
+    requires: [subject]
+    producer: gitops-bridge
+    status: stable
+
+  - type: com.mcafeeconsulting.platform.infra.node.replaced.v1
+    subject: pf.<tenant>.infra.node.replaced.v1.ev
+    pattern: pubsub
+    delivery: at_least_once
+    ordering: per_subject
+    dataschema: data/infra.node.replaced.v1.schema.json
+    requires: [subject]
+    producer: infra-operator
+    status: stable
+
+  - type: com.mcafeeconsulting.platform.control.bootstrap.progressed.v1
+    subject: pf.<tenant>.control.bootstrap.progressed.v1.ev
+    pattern: pubsub
+    delivery: at_least_once
+    ordering: per_subject
+    dataschema: data/platform.bootstrap.progressed.v1.schema.json
+    requires: [correlationid]
+    producer: homelab-cli
+    status: stable
+
+  - type: com.mcafeeconsulting.platform.identity.principal.issued.v1
+    subject: pf.<tenant>.identity.principal.issued.v1.ev
+    pattern: pubsub
+    delivery: at_least_once
+    ordering: per_subject
+    dataschema: data/identity.principal.issued.v1.schema.json
+    requires: [subject, correlationid]
+    producer: identity-broker
+    status: stable
+
+  - type: com.mcafeeconsulting.platform.identity.principal.revoked.v1
+    subject: pf.<tenant>.identity.principal.revoked.v1.ev
+    pattern: pubsub
+    delivery: at_least_once
+    ordering: per_subject
+    dataschema: data/identity.principal.revoked.v1.schema.json
+    requires: [subject, correlationid]
+    producer: identity-broker
+    status: stable
+
+  - type: com.mcafeeconsulting.platform.observability.slo.burned.v1
+    subject: pf.<tenant>.observability.slo.burned.v1.ev
+    pattern: pubsub
+    delivery: at_least_once
+    ordering: per_subject
+    dataschema: data/observability.slo.burned.v1.schema.json
+    requires: [subject]
+    producer: slo-bridge
+    status: stable
+
+  - type: com.mcafeeconsulting.platform.workload.deployment.describe.v1
+    subject: pf.<tenant>.workload.deployment.describe.v1.rq
+    pattern: request_reply
+    durable_request: false
+    delivery: at_most_once
+    ordering: none
+    dataschema: data/workload.describe.v1.schema.json
+    requires: [replyto, correlationid, subject]
+    producer: platform-api
+    status: stable
+
+  - type: com.mcafeeconsulting.platform.workload.deployment.promote.v1
+    subject: pf.<tenant>.workload.deployment.promote.v1.wq
+    pattern: request_reply
+    durable_request: true
+    delivery: at_least_once
+    ordering: none
+    dataschema: data/workload.promote.v1.schema.json
+    requires: [correlationid, subject]
+    producer: platform-api
+    status: stable
