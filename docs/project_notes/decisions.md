@@ -1566,7 +1566,9 @@ Each decision should include:
 - **Two buses means two sets of stream metrics, and only one of them has alerting.** The platform streams' storage and lag alerting is MCAA-8's; nothing watches the Argo Events bus approaching `maxAge` or `maxBytes`, which is exactly the state in which it starts dropping triggers. That is a hand-off to the SRE & Observability Engineer, and it is the runtime half of this ADR in the same way ADR-042's file-store alert is the runtime half of that one
 - `argoproj.io` is now the first API group in `tests/gitops/crd-providers.yaml` with more than one provider Application, resolved with per-kind overrides rather than by moving the group default, because `argo-workflows` and `argo-events` are independently enabled. Any third `argoproj.io` provider inherits that shape
 - **The exactly-once statement of ADR-026 is unchanged and now covers one more bus: no path is exactly-once end to end.** The trigger bus does not weaken that claim, it extends the set of paths it applies to
-### ADR-040: Schema loading is fail-closed; an unreadable schema file stops the resolve rather than shrinking it (2026-09-25); repairs ADR-028
+
+### ADR-047: Schema loading is fail-closed; an unreadable schema file stops the resolve rather than shrinking it (2026-09-25); repairs ADR-028
+
 
 **Context:**
 - ADR-028's guarantee is that a missing required key fails at resolve rather than rendering somebody else's topology. `internal/config/schema.go` `LoadSchemaDir` did the opposite: it `continue`d past any `*.schema.yaml` it could not load, with the comment "Skip invalid files in directory mode (e.g. test fixtures)"
