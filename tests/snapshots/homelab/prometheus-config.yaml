@@ -102,3 +102,16 @@ metadata:
     app.kubernetes.io/component: alertmanager-notifications
 spec:
   itemPath: "vaults/homelab/items/alertmanager-notifications"
+
+---
+# Source: prometheus-config/templates/github-pr-alerts.yaml
+apiVersion: onepassword.com/v1
+kind: OnePasswordItem
+metadata:
+  name: github-pr-alerts
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/part-of: prometheus
+    app.kubernetes.io/component: github-pr-alerts
+spec:
+  itemPath: "vaults/homelab/items/github-pr-alerts"

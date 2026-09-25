@@ -1,0 +1,18 @@
+{{/*
+Read-only GitHub token of the github-pr-exporter Application
+(docs/runbooks/alerting.md): the 1Password item with field token becomes
+Secret <secretName>, which json_exporter mounts as its Bearer credentials file.
+*/}}
+{{- if .Values.githubPrAlerts.onePasswordItemPath }}
+---
+apiVersion: onepassword.com/v1
+kind: OnePasswordItem
+metadata:
+  name: {{ .Values.githubPrAlerts.secretName }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    app.kubernetes.io/part-of: {{ .Chart.Name | trimSuffix "-config" }}
+    app.kubernetes.io/component: github-pr-alerts
+spec:
+  itemPath: {{ .Values.githubPrAlerts.onePasswordItemPath | quote }}
+{{- end }}

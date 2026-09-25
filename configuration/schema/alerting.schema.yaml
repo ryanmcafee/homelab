@@ -1,0 +1,34 @@
+# Alerting: GitHub pull request review alerts (docs/runbooks/alerting.md)
+keys:
+  GITHUB_PR_ALERTS_ENABLED:
+    description: Whether open pull requests that need review raise a Pushover alert (needs SECRETS_PROVIDER=onepassword for the token and the Pushover credentials)
+    required: true
+    default: "true"
+    enum:
+      - "true"
+      - "false"
+
+  GITHUB_PR_ALERTS_QUERY_UNREVIEWED:
+    description: GitHub search query (GET /search/issues) for open pull requests nobody has reviewed yet; helm-addons.tmpl appends user:<repoUrl owner>
+    required: true
+    default: "is:pr is:open draft:false archived:false review:none"
+
+  GITHUB_PR_ALERTS_QUERY_REQUESTED:
+    description: GitHub search query for open pull requests that request a review from you; helm-addons.tmpl appends user:<owner> review-requested:<owner>
+    required: true
+    default: "is:pr is:open draft:false archived:false"
+
+  GITHUB_PR_ALERTS_EXCLUDE:
+    description: Qualifiers appended to both queries to drop pull requests that need no one (Renovate automerge PRs carry the automerge label)
+    required: false
+    default: "-label:automerge -author:app/dependabot"
+
+  GITHUB_PR_ALERTS_SCRAPE_INTERVAL:
+    description: How often each query runs; stay under Prometheus' 5m lookback so series never go stale between scrapes
+    required: true
+    default: "2m"
+
+  GITHUB_PR_ALERTS_REPEAT_INTERVAL:
+    description: How often Alertmanager re-sends the notification of a pull request that still needs review
+    required: true
+    default: "24h"

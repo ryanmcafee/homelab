@@ -52,6 +52,7 @@ sync wave 1 in homelab). Waves inside the chart run from -1 (namespaces, reposit
 | `external-dns-unifi-crd` | `external-dns` | 1.21.1 | — | — | — |
 | `external-dns-unifi-ingress` | `external-dns` | 1.21.1 | — | — | — |
 | `gateway-api-crds` | `config/crd/standard` | git | — | — | — |
+| `github-pr-exporter` | `prometheus-json-exporter` | 0.20.1 | — | — | — |
 | `grafana-config` | `charts/grafana-config` | git | — | — | — |
 | `intel-device-plugins-operator` | `intel-device-plugins-operator` | 0.36.0 | — | — | — |
 | `intel-gpu-device-plugin` | `intel-device-plugins-gpu` | 0.36.0 | — | — | — |

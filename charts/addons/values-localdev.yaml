@@ -1687,3 +1687,28 @@ blackbox-exporter:
     - name: paperclip-direct
       url: http://paperclip.paperclip.svc.cluster.local:3100/api/health
       module: http_2xx
+
+# ============================================================================
+# GitHub pull request review alerts (templates/github-pr-exporter.yaml)
+# Sync Wave: 10 (docs/runbooks/alerting.md)
+# ============================================================================
+
+github-pr-exporter:
+  enabled: false
+  namespace: monitoring
+  chart:
+    name: prometheus-json-exporter
+    repo: https://prometheus-community.github.io/helm-charts
+    version: "0.20.1"
+  # Secret with field token (a read-only fine-grained PAT), created by the
+  # prometheus-config chart from this 1Password item.
+  secretName: github-pr-alerts
+  onePasswordItemPath: ""
+  scrapeInterval: 2m
+  repeatInterval: 24h
+  # Both queries are scoped to the repositories of repoUrl's owner, who is also the reviewer.
+  queries:
+    - name: unreviewed
+      url: "https://api.github.com/search/issues?q=is%3Apr+is%3Aopen+draft%3Afalse+archived%3Afalse+review%3Anone+user%3Aryanmcafee+-label%3Aautomerge+-author%3Aapp%2Fdependabot&per_page=100"
+    - name: review-requested
+      url: "https://api.github.com/search/issues?q=is%3Apr+is%3Aopen+draft%3Afalse+archived%3Afalse+user%3Aryanmcafee+review-requested%3Aryanmcafee+-label%3Aautomerge+-author%3Aapp%2Fdependabot&per_page=100"

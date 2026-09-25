@@ -1,0 +1,107 @@
+{{- $gh := index .Values "github-pr-exporter" }}
+{{- if $gh.enabled }}
+---
+# Pull requests that need review (docs/runbooks/alerting.md): json_exporter runs
+# each GitHub search query and exports one github_search_pull_request series per
+# matching PR; GitHubPullRequestNeedsReview routes them to Pushover.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: github-pr-exporter
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
+    homelab.local/policy-exempt: "hostname-domain"
+    homelab.local/policy-exempt-reason: "The serviceMonitor target urls are GitHub API endpoints the exporter calls, not hosts served under the cluster domain."
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: {{ $gh.chart.repo }}
+    chart: {{ $gh.chart.name }}
+    targetRevision: {{ $gh.chart.version | quote }}
+    helm:
+      releaseName: github-pr-exporter
+      values: |
+        fullnameOverride: github-pr-exporter
+        configuration:
+          config: |
+            modules:
+              github_search:
+                headers:
+                  Accept: application/vnd.github+json
+                  X-GitHub-Api-Version: "2022-11-28"
+                http_client_config:
+                  authorization:
+                    type: Bearer
+                    credentials_file: /etc/github/token
+                metrics:
+                  - name: github_search
+                    type: object
+                    help: Open pull request matched by the GitHub search query
+                    path: '{ .items[*] }'
+                    labels:
+                      number: '{ .number }'
+                      title: '{ .title }'
+                      url: '{ .html_url }'
+                      author: '{ .user.login }'
+                    values:
+                      pull_request: 1
+                  - name: github_search_total_count
+                    help: Number of issues and pull requests the GitHub search query matched
+                    path: '{ .total_count }'
+        additionalVolumes:
+          - name: github-token
+            secret:
+              secretName: {{ $gh.secretName }}
+        additionalVolumeMounts:
+          - name: github-token
+            mountPath: /etc/github
+            readOnly: true
+        podSecurityContext:
+          runAsNonRoot: true
+          runAsUser: 65534
+          runAsGroup: 65534
+          seccompProfile:
+            type: RuntimeDefault
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop: ["ALL"]
+        resources:
+          requests:
+            cpu: 10m
+            memory: 32Mi
+          limits:
+            cpu: 100m
+            memory: 64Mi
+        serviceMonitor:
+          enabled: true
+          defaults:
+            interval: {{ $gh.scrapeInterval }}
+            scrapeTimeout: 30s
+          targets:
+            {{- range $gh.queries }}
+            - name: {{ .name }}
+              url: {{ .url }}
+              module: github_search
+              additionalRelabels:
+                - targetLabel: query
+                  replacement: {{ .name }}
+            {{- end }}
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: {{ $gh.namespace }}
+  syncPolicy:
+    {{- if .Values.global.automatedSync }}
+    automated:
+      prune: true
+      selfHeal: true
+    {{- end }}
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+{{- end }}

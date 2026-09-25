@@ -6,6 +6,7 @@ The Pushover credentials live in one 1Password item; nothing secret is committed
 
 | Severity | Receiver | Pushover priority | Why |
 |---|---|---|---|
+| `GitHubPullRequestNeedsReview` | `pushover-github-pr` | 0 (normal), never resolved | a pull request waits for you ([below](#github-pull-requests-that-need-review)) |
 | `critical` | `pushover-critical` | 1 (high) while firing, 0 when resolved | wakes you up |
 | `warning` | `pushover-warning` | -1 (low, no sound) | look during the day |
 | `info`, `Watchdog`, `InfoInhibitor` | `null` | — | the chart's heartbeat and inhibitor plumbing; never a page |
@@ -144,6 +145,8 @@ of samples; that is how 16 alerts stood on democratic-csi for three months while
 | homelab-paperclip | `PaperclipAgentFailureRateHigh` | warning | more than 20 % of the agent runs finished in the last hour failed, were interrupted or timed out (at least 5 runs) for 15 m |
 | homelab-paperclip | `PaperclipRecoveryRateBreached` | warning | Paperclip's recovery-observability reports this week above its threshold for 30 m |
 | homelab-paperclip | `PaperclipPhantomAgentStuck` | warning | an agent reports `running` without a live run for 15 m |
+| homelab-github | `GitHubPullRequestNeedsReview` | info (own route) | an open pull request matched a review query for 5 m ([below](#github-pull-requests-that-need-review)) |
+| homelab-github | `GitHubPullRequestExporterFailing` | warning | a GitHub search query failed (bad token, rate limit) or is not scraped for 15 m |
 | homelab-service-mesh | `HomelabIstiodDown` | warning | no istiod answers the scrape for 10 m ([service-mesh.md](../service-mesh.md)) |
 | homelab-service-mesh | `HomelabMeshNodeAgentNotReady` | warning | `ztunnel` or `istio-cni-node` is not ready on every node for 15 m |
 | homelab-service-mesh | `HomelabIstioXdsRejects` | warning | ztunnel or a waypoint rejects istiod's configuration for 15 m |
@@ -170,6 +173,46 @@ carries both in its `Monitoring stack` PR (`.github/renovate.json5`), so merge t
 pair; when bumping by hand, never leave the CRDs behind the operator (`helm show chart
 kube-prometheus-stack --version <v>` prints the operator `appVersion`; pick the
 `prometheus-operator-crds` release with the same one).
+
+## GitHub pull requests that need review
+
+The `github-pr-exporter` Application (prometheus-json-exporter, `monitoring`) runs two GitHub
+search queries (`GET /search/issues`) every 2 m and exports one
+`github_search_pull_request{query, number, title, url, author}` series per matching pull
+request. `GitHubPullRequestNeedsReview` fires per pull request after 5 m and goes to Pushover
+through its own route (`pushover-github-pr`): title `PR needs review: <owner>/<repo>#<n>`,
+the PR title and author as the message, and a tap-through link to the PR. It repeats every
+24 h while the PR still matches and sends nothing when it is merged, closed or reviewed.
+`<owner>` is the GitHub account of `global.repoUrl` (`$githubOwner` in
+`configuration/templates/helm-addons.tmpl`): its repositories are searched and it is the reviewer.
+
+| Key (`configuration/schema/alerting.schema.yaml`) | Default |
+|---|---|
+| `GITHUB_PR_ALERTS_QUERY_UNREVIEWED` (+ `user:<owner>`) | `is:pr is:open draft:false archived:false review:none` |
+| `GITHUB_PR_ALERTS_QUERY_REQUESTED` (+ `user:<owner> review-requested:<owner>`) | `is:pr is:open draft:false archived:false` |
+| `GITHUB_PR_ALERTS_EXCLUDE` (appended to both) | `-label:automerge -author:app/dependabot` |
+| `GITHUB_PR_ALERTS_SCRAPE_INTERVAL` / `_REPEAT_INTERVAL` | `2m` / `24h` |
+| `GITHUB_PR_ALERTS_ENABLED` | `true` (needs `SECRETS_PROVIDER=onepassword`; Kind renders none of it) |
+
+Renovate labels the PRs it will automerge `automerge` (`.github/renovate.json5`), which the
+exclusion drops. Keep the scrape interval under 5 m: a longer one lets the series go stale
+between scrapes and resolves the alert. Two queries every 2 m use 1 of the 30 search requests
+per minute GitHub allows. Preview a query with `gh search prs` or
+`gh api -X GET search/issues -f q='<query>' --jq .total_count`.
+
+**The 1Password item.** `GITHUB_PR_ALERTS_1P_PATH` (default
+`vaults/homelab/items/github-pr-alerts`) names an item with one field, `token`: a fine-grained
+personal access token, resource owner `<owner>`, *All repositories*, repository permissions
+**Metadata: read** and **Pull requests: read**, nothing else. The prometheus-config chart turns
+it into Secret `github-pr-alerts`, mounted as the exporter's Bearer credentials file. Until it
+exists the exporter pod waits for the Secret and `GitHubPullRequestExporterFailing` fires;
+when the token expires or is revoked the probe returns 503 with GitHub's `401` and the same
+alert fires. Check a query by hand:
+
+```bash
+kubectl -n monitoring port-forward svc/github-pr-exporter 7979 &
+curl -s "localhost:7979/probe?module=github_search&target=$(jq -rn --arg u 'https://api.github.com/search/issues?q=is:pr+is:open+user:<owner>' '$u|@uri')"
+```
 
 ## Related
 

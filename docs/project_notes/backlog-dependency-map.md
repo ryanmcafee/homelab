@@ -1,6 +1,6 @@
 # Technical dependency map — the 13 open issues (2026-09-25)
 
-The **technical** blocking relationships between the open `ryanmcafee/homelab` issues, written
+The **technical** blocking relationships between the open issues of this repository, written
 by the Principal Platform Architect so the Platform Product Manager can sequence against
 something other than intuition. This is the dependency map, not the ranking: it says what
 *cannot* be done before what. Priority is the PM's call.

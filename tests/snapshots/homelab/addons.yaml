@@ -2230,6 +2230,114 @@ spec:
       - ApplyOutOfSyncOnly=true
 
 ---
+# Source: addons/templates/github-pr-exporter.yaml
+# Pull requests that need review (docs/runbooks/alerting.md): json_exporter runs
+# each GitHub search query and exports one github_search_pull_request series per
+# matching PR; GitHubPullRequestNeedsReview routes them to Pushover.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: github-pr-exporter
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
+    homelab.local/policy-exempt: "hostname-domain"
+    homelab.local/policy-exempt-reason: "The serviceMonitor target urls are GitHub API endpoints the exporter calls, not hosts served under the cluster domain."
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://prometheus-community.github.io/helm-charts
+    chart: prometheus-json-exporter
+    targetRevision: "0.20.1"
+    helm:
+      releaseName: github-pr-exporter
+      values: |
+        fullnameOverride: github-pr-exporter
+        configuration:
+          config: |
+            modules:
+              github_search:
+                headers:
+                  Accept: application/vnd.github+json
+                  X-GitHub-Api-Version: "2022-11-28"
+                http_client_config:
+                  authorization:
+                    type: Bearer
+                    credentials_file: /etc/github/token
+                metrics:
+                  - name: github_search
+                    type: object
+                    help: Open pull request matched by the GitHub search query
+                    path: '{ .items[*] }'
+                    labels:
+                      number: '{ .number }'
+                      title: '{ .title }'
+                      url: '{ .html_url }'
+                      author: '{ .user.login }'
+                    values:
+                      pull_request: 1
+                  - name: github_search_total_count
+                    help: Number of issues and pull requests the GitHub search query matched
+                    path: '{ .total_count }'
+        additionalVolumes:
+          - name: github-token
+            secret:
+              secretName: github-pr-alerts
+        additionalVolumeMounts:
+          - name: github-token
+            mountPath: /etc/github
+            readOnly: true
+        podSecurityContext:
+          runAsNonRoot: true
+          runAsUser: 65534
+          runAsGroup: 65534
+          seccompProfile:
+            type: RuntimeDefault
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop: ["ALL"]
+        resources:
+          requests:
+            cpu: 10m
+            memory: 32Mi
+          limits:
+            cpu: 100m
+            memory: 64Mi
+        serviceMonitor:
+          enabled: true
+          defaults:
+            interval: 2m
+            scrapeTimeout: 30s
+          targets:
+            - name: unreviewed
+              url: https://api.github.com/search/issues?q=is%3Apr+is%3Aopen+draft%3Afalse+archived%3Afalse+review%3Anone+user%3Aryanmcafee+-label%3Aautomerge+-author%3Aapp%2Fdependabot&per_page=100
+              module: github_search
+              additionalRelabels:
+                - targetLabel: query
+                  replacement: unreviewed
+            - name: review-requested
+              url: https://api.github.com/search/issues?q=is%3Apr+is%3Aopen+draft%3Afalse+archived%3Afalse+user%3Aryanmcafee+review-requested%3Aryanmcafee+-label%3Aautomerge+-author%3Aapp%2Fdependabot&per_page=100
+              module: github_search
+              additionalRelabels:
+                - targetLabel: query
+                  replacement: review-requested
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+
+---
 # Source: addons/templates/grafana-config.yaml
 # Grafana Config: deploys static PV+PVC for Grafana persistent storage
 apiVersion: argoproj.io/v1alpha1
@@ -2993,6 +3101,13 @@ spec:
                 - receiver: "null"
                   matchers:
                     - alertname =~ "Watchdog|InfoInhibitor"
+                # One notification per pull request, repeated while it still
+                # needs review; merging or closing it sends nothing.
+                - receiver: pushover-github-pr
+                  matchers:
+                    - alertname = "GitHubPullRequestNeedsReview"
+                  group_by: [alertname, repo, number]
+                  repeat_interval: 24h
                 - receiver: pushover-critical
                   matchers:
                     - severity = "critical"
@@ -3030,6 +3145,16 @@ spec:
                     message: |-
                       {{ range .Alerts }}{{ .Annotations.summary }}{{ if .Labels.namespace }} ({{ .Labels.namespace }}){{ end }}
                       {{ end }}
+              - name: pushover-github-pr
+                pushover_configs:
+                  - token_file: /etc/alertmanager/secrets/alertmanager-notifications/pushover_token
+                    user_key_file: /etc/alertmanager/secrets/alertmanager-notifications/pushover_user_key
+                    send_resolved: false
+                    priority: "0"
+                    title: 'PR needs review: {{ .CommonLabels.repo }}#{{ .CommonLabels.number }}'
+                    message: '{{ .CommonAnnotations.title }} (by {{ .CommonAnnotations.author }})'
+                    url: '{{ .CommonAnnotations.url }}'
+                    url_title: 'Open pull request'
 
         nodeExporter:
           enabled: true
@@ -3486,6 +3611,30 @@ spec:
                     annotations:
                       summary: '{{ $value }} agents in {{ $labels.company }} report running without a live run'
                       description: 'Agents stuck in status running with no queued or running heartbeat run for 15m. docs/runbooks/paperclip-agents.md.'
+          # Pull requests that need review (docs/runbooks/alerting.md). Metrics:
+          # the github-pr-exporter Application, one series per PR and query.
+          homelab-github:
+            groups:
+              - name: homelab-github
+                rules:
+                  - alert: GitHubPullRequestNeedsReview
+                    expr: 'max by (repo, number, title, url, author) (label_replace(github_search_pull_request{job="github-pr-exporter"}, "repo", "$1", "url", "https://github.com/([^/]+/[^/]+)/pull/[0-9]+"))'
+                    for: 5m
+                    labels:
+                      severity: info
+                    annotations:
+                      summary: '{{ $labels.repo }}#{{ $labels.number }} needs your review'
+                      title: '{{ $labels.title }}'
+                      author: '{{ $labels.author }}'
+                      url: '{{ $labels.url }}'
+                  - alert: GitHubPullRequestExporterFailing
+                    expr: 'max by (query) (up{job="github-pr-exporter"}) == 0 or absent(up{job="github-pr-exporter"})'
+                    for: 15m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: 'The GitHub pull request exporter cannot query GitHub{{ with $labels.query }} ({{ . }}){{ end }}'
+                      description: 'Pull request review alerts are blind. The probe body names the HTTP status: 401 means the github-pr-alerts token is missing, expired or revoked, 403 a rate limit. docs/runbooks/alerting.md.'
           # Service mesh (docs/service-mesh.md). Metrics: charts/istio-config
           # monitors and kube-state-metrics. ztunnel and istio-cni must run on
           # every node or enrolled pods there lose their traffic.
@@ -4459,6 +4608,10 @@ spec:
           notifications:
             secretName: "alertmanager-notifications"
             onePasswordItemPath: "vaults/homelab/items/alertmanager-notifications"
+        # The read-only GitHub token of the github-pr-exporter Application.
+        githubPrAlerts:
+          secretName: "github-pr-alerts"
+          onePasswordItemPath: "vaults/homelab/items/github-pr-alerts"
   destination:
     server: https://kubernetes.default.svc
     namespace: monitoring

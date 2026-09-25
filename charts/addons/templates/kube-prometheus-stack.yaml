@@ -188,6 +188,7 @@ spec:
           {{- if (index .Values "kube-prometheus-stack" "alertmanager" "enabled") }}
           {{- $notify := index .Values "kube-prometheus-stack" "alertmanager" "notifications" }}
           {{- $secretDir := printf "/etc/alertmanager/secrets/%s" $notify.secretName }}
+          {{- $githubPR := index .Values "github-pr-exporter" }}
           alertmanagerSpec:
             storage:
               {{- toYaml (index .Values "kube-prometheus-stack" "alertmanager" "storage") | nindent 14 }}
@@ -224,6 +225,15 @@ spec:
                 - receiver: "null"
                   matchers:
                     - alertname =~ "Watchdog|InfoInhibitor"
+                {{- if and $notify.enabled $githubPR.enabled }}
+                # One notification per pull request, repeated while it still
+                # needs review; merging or closing it sends nothing.
+                - receiver: pushover-github-pr
+                  matchers:
+                    - alertname = "GitHubPullRequestNeedsReview"
+                  group_by: [alertname, repo, number]
+                  repeat_interval: {{ $githubPR.repeatInterval }}
+                {{- end }}
                 {{- if $notify.enabled }}
                 - receiver: pushover-critical
                   matchers:
@@ -264,6 +274,18 @@ spec:
                     message: |-
                       {{`{{ range .Alerts }}`}}{{`{{ .Annotations.summary }}`}}{{`{{ if .Labels.namespace }}`}} ({{`{{ .Labels.namespace }}`}}){{`{{ end }}`}}
                       {{`{{ end }}`}}
+              {{- end }}
+              {{- if and $notify.enabled $githubPR.enabled }}
+              - name: pushover-github-pr
+                pushover_configs:
+                  - token_file: {{ $secretDir }}/pushover_token
+                    user_key_file: {{ $secretDir }}/pushover_user_key
+                    send_resolved: false
+                    priority: "0"
+                    title: 'PR needs review: {{`{{ .CommonLabels.repo }}`}}#{{`{{ .CommonLabels.number }}`}}'
+                    message: '{{`{{ .CommonAnnotations.title }}`}} (by {{`{{ .CommonAnnotations.author }}`}})'
+                    url: '{{`{{ .CommonAnnotations.url }}`}}'
+                    url_title: 'Open pull request'
               {{- end }}
           {{- end }}
 
@@ -730,6 +752,32 @@ spec:
                     annotations:
                       summary: '{{`{{ $value }}`}} agents in {{`{{ $labels.company }}`}} report running without a live run'
                       description: 'Agents stuck in status running with no queued or running heartbeat run for 15m. docs/runbooks/paperclip-agents.md.'
+          {{- if (index .Values "github-pr-exporter" "enabled") }}
+          # Pull requests that need review (docs/runbooks/alerting.md). Metrics:
+          # the github-pr-exporter Application, one series per PR and query.
+          homelab-github:
+            groups:
+              - name: homelab-github
+                rules:
+                  - alert: GitHubPullRequestNeedsReview
+                    expr: 'max by (repo, number, title, url, author) (label_replace(github_search_pull_request{job="github-pr-exporter"}, "repo", "$1", "url", "https://github.com/([^/]+/[^/]+)/pull/[0-9]+"))'
+                    for: 5m
+                    labels:
+                      severity: info
+                    annotations:
+                      summary: '{{`{{ $labels.repo }}`}}#{{`{{ $labels.number }}`}} needs your review'
+                      title: '{{`{{ $labels.title }}`}}'
+                      author: '{{`{{ $labels.author }}`}}'
+                      url: '{{`{{ $labels.url }}`}}'
+                  - alert: GitHubPullRequestExporterFailing
+                    expr: 'max by (query) (up{job="github-pr-exporter"}) == 0 or absent(up{job="github-pr-exporter"})'
+                    for: 15m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: 'The GitHub pull request exporter cannot query GitHub{{`{{ with $labels.query }}`}} ({{`{{ . }}`}}){{`{{ end }}`}}'
+                      description: 'Pull request review alerts are blind. The probe body names the HTTP status: 401 means the github-pr-alerts token is missing, expired or revoked, 403 a rate limit. docs/runbooks/alerting.md.'
+          {{- end }}
           {{- if .Values.istio.enabled }}
           # Service mesh (docs/service-mesh.md). Metrics: charts/istio-config
           # monitors and kube-state-metrics. ztunnel and istio-cni must run on

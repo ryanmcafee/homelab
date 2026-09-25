@@ -50,6 +50,10 @@
       automerge: true,
       automergeType: 'pr',
       platformAutomerge: false,
+      // GITHUB_PR_ALERTS_EXCLUDE (-label:automerge) keeps these PRs out of the review alerts.
+      addLabels: [
+        'automerge',
+      ],
     },
     {
       groupName: 'Kubernetes ecosystem',
