@@ -205,6 +205,10 @@ func Eval(schema *Schema, versions *Versions, setName string, layers ...map[stri
 		return nil, fmt.Errorf("expression resolution failed: %w", err)
 	}
 
+	if err := ValidateAddressRoles(schema, resolved); err != nil {
+		return nil, fmt.Errorf("validation failed for set %q: %w", setName, err)
+	}
+
 	// 5. Build ResolvedConfig with provenance
 	values := make(map[string]ConfigValue, len(resolved))
 	for key, val := range resolved {

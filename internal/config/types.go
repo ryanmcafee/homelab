@@ -4,6 +4,7 @@ import "regexp"
 
 // SchemaKey declares a single configuration key with validation rules.
 type SchemaKey struct {
+	AddressRole string   `yaml:"addressRole,omitempty"`
 	Description string   `yaml:"description"`
 	Required    bool     `yaml:"required"`
 	Pattern     string   `yaml:"pattern,omitempty"`
