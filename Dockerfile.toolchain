@@ -1,0 +1,34 @@
+# Cold bootstrap gate. Run via task toolchain:check; never reuse build caches.
+# No language runtime, Docker socket, credentials or host tool cache is mounted.
+FROM ubuntu:24.04
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates curl git xz-utils unzip && rm -rf /var/lib/apt/lists/*
+RUN for tool in python python3 pipx node npm go bun task; do \
+      if command -v "$tool"; then echo "Unexpected preinstalled runtime: $tool" >&2; exit 1; fi; \
+    done
+
+# Keep the version and checksum together when updating mise.
+RUN curl -fLsS https://github.com/jdx/mise/releases/download/v2026.9.13/mise-v2026.9.13-linux-x64 \
+      -o /usr/local/bin/mise && \
+    echo 'a72f49916b33ba952ba398046c5cc91a58238f0b718fee1d938206ef2af21c6d  /usr/local/bin/mise' | sha256sum -c - && \
+    chmod +x /usr/local/bin/mise
+
+WORKDIR /repo
+# The Taskfile supplies a git-archive context: no .envrc, host caches or secrets.
+COPY . .
+RUN mise trust && mise install -y
+RUN mise exec -- task install-tools && \
+    missing="$(mise ls --missing)" && \
+    if [ -n "$missing" ]; then printf 'Tools still missing:\n%s\n' "$missing" >&2; exit 1; fi
+RUN mise exec -- go test ./cmd/homelab/commands -run 'TestInstallTools|TestBootstrap'
+
+# With no Docker daemon, setup must reach tier detection and give its documented
+# prerequisite fix. Full Kind deployment is covered by the existing Kind CI.
+RUN set +e; mise exec -- task setup -- --yes --environment localdev > /setup.log 2>&1; \
+    result=$?; set -e; cat /setup.log; \
+    test "$result" -ne 0 && \
+    grep -q 'Using environment: localdev' /setup.log && \
+    grep -q 'prerequisite checks failed for localdev' /setup.log && \
+    grep -q 'docker info' /setup.log && \
+    ! grep -q 'mise installation failed' /setup.log
