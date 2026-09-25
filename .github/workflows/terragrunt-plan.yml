@@ -72,6 +72,7 @@ jobs:
             [ -f "terragrunt/files/$f-rendered.yaml" ] || echo "# stub for terraform validate in CI (task render:pull produces the real file)" > "terragrunt/files/$f-rendered.yaml"
           done
           [ -f "$HOME/.ssh/id_ed25519" ] || ssh-keygen -q -t ed25519 -N '' -f "$HOME/.ssh/id_ed25519"
+          [ -f configuration/resolved.json ] || echo '{"values":{"LOGGING_ENABLED":"true","OTEL_LB_IP":"192.0.2.10"}}' > configuration/resolved.json
 
       # mise.toml exports TF_PLUGIN_CACHE_DIR for workstations; a shared cache
       # races across the parallel unit inits here, and an empty value disables it.

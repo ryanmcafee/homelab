@@ -46,6 +46,14 @@ keys:
       - onepassword
       - none
 
+  LOGGING_ENABLED:
+    description: Whether the log pipeline runs (OpenTelemetry collectors, ClickHouse) and the unifi-gateway unit points the UniFi syslog and NetFlow exports at OTEL_LB_IP
+    required: true
+    default: "true"
+    enum:
+      - "true"
+      - "false"
+
   ARGOCD_AUTOMATED_SYNC:
     description: Whether every Application carries syncPolicy.automated (prune + selfHeal); false leaves Applications manual so a working tree can be pushed with `argocd app sync --local` without ArgoCD reverting it to Git
     required: true

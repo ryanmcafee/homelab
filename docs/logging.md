@@ -107,6 +107,32 @@ PVC (iSCSI class supports expansion) or shorten `logging.retention`.
 
 ## UniFi gateway (syslog and NetFlow)
 
+The `unifi-gateway` Terragrunt unit provisions the exports when `LOGGING_ENABLED` is `"true"`
+(the default; the same key turns the log pipeline on in `charts/addons`), pointing them at
+`OTEL_LB_IP` whether or not the collector is up yet:
+
+| Setting (controller key) | Terraform | Values |
+|---|---|---|
+| Activity logging, SIEM server (`rsyslogd`) | `unifi_setting.syslog` (`ubiquiti-community/unifi` >= 0.53) | enabled, `OTEL_LB_IP`:514, all categories; the "this controller" flags stay on |
+| NetFlow (`netflow`) | `terraform_data.netflow` running `scripts/unifi-setting.ts apply netflow` | enabled, `OTEL_LB_IP`:2055, version 10 (IPFIX); network selection and sampling untouched |
+
+```bash
+task tf:init:component COMPONENT=unifi-gateway TF_ARGS=-upgrade   # once: provider 0.41 -> 0.56
+task tf:plan:component COMPONENT=unifi-gateway
+task tf:apply:component COMPONENT=unifi-gateway
+```
+
+The Taskfile exports `configuration/resolved.json` (gitignored) before each `tf:*` task; the unit
+reads `LOGGING_ENABLED` and `OTEL_LB_IP` from it. The provider has no NetFlow setting, so the
+script logs in to the console and merges the fields into the `netflow` setting (ADR-024); it runs
+again only when those values change, so a NetFlow edit made in the UI is not reverted until
+then. `op run --env-file=.env.op -- bun scripts/unifi-setting.ts get netflow --insecure` shows
+the live values. Turning the flag off stops managing both settings and leaves the gateway as it
+is. Neither setting has a source interface: the gateway sends from `GATEWAY_IP`, its address on
+the homelab VLAN, because `OTEL_LB_IP` is in that subnet (inside `loadBalancerSourceRanges`).
+
+The UI paths below are the manual fallback, for example to add per-rule firewall logging.
+
 What UniFi Network exports ([UniFi System Logs & SIEM Integration](https://help.ui.com/hc/en-us/articles/33349041044119-UniFi-System-Logs-SIEM-Integration),
 [Traffic Flows and Traffic Logging](https://help.ui.com/hc/en-us/articles/32201256219799-Traffic-Flows-and-Traffic-Logging-in-UniFi-Network)):
 

@@ -15,6 +15,7 @@
 {{- $csi := eq .Values.STORAGE_PROVIDER.Value "democratic-csi" -}}
 {{- $onepassword := eq .Values.SECRETS_PROVIDER.Value "onepassword" -}}
 {{- $automated := eq .Values.ARGOCD_AUTOMATED_SYNC.Value "true" -}}
+{{- $logging := eq .Values.LOGGING_ENABLED.Value "true" -}}
 # Addons Chart - {{ .Set }} Environment Values
 #
 # GENERATED FILE — do not edit. Source: configuration/templates/helm-addons.tmpl
@@ -1767,7 +1768,7 @@ istio:
 # ============================================================================
 
 logging:
-  enabled: true
+  enabled: {{ $logging }}
   namespace: observability
   database: otel
   # 90 days. The exporter writes it as the otel_logs table TTL when it creates

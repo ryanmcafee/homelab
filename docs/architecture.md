@@ -73,7 +73,7 @@ form the DAG above; `dependency` blocks are the edges.
 | `talos-cluster` | both pools, the three images, truenas | 3 control planes + 3 workers, machine configs with the etcd, CSI and GPU patches |
 | `talos-cluster-config` | talos-cluster | kubeconfig/talosconfig handoff |
 | `gitops-bootstrap` | talos-cluster-config, truenas | ArgoCD and the root Application ([GitOps bridge](#gitops-bridge)) |
-| `unifi-gateway` | — | FRR BGP neighbour config on the UniFi gateway ([networking.md](./networking.md)) |
+| `unifi-gateway` | — | FRR BGP neighbour config on the UniFi gateway ([networking.md](./networking.md)); syslog/NetFlow exports to the OTel gateway collector ([logging.md](./logging.md)) |
 
 `task tf:plan:component COMPONENT=<unit>` / `task tf:apply:component COMPONENT=<unit>` run a
 unit through `op run` so the Proxmox and Talos credentials come from 1Password;
