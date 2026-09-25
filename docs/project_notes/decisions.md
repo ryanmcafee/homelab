@@ -883,15 +883,48 @@ Each decision should include:
 - Two checks means two owners and one more row in the owner table. Two owners who can each run their own check beats one owner who cannot run half of theirs
 - 3a passing says nothing about 3b. Nobody may write "the fork path is green" without naming which half they mean
 
-> **Numbering note (2026-09-25).** `ADR-034` and `ADR-036` are allocated to pull requests that
-> are open and unmerged at the time these two land: `034` to
-> [#368](https://github.com/ryanmcafee/homelab/pull/368) (the generated deployment DAG contract
-> for #53a), whose number is already published in backlog v3.2 and in a completed second review,
-> and `036` to [#372](https://github.com/ryanmcafee/homelab/pull/372) (the triage-agent
-> alert→fix→Pushover DAG). The gap is an allocation, not a lost decision. It is recorded as a
-> blockquote rather than a reserved `### ADR-0xx` stub on purpose: a stub is a heading, and a
-> heading is what produces a duplicate ADR number when the real one merges — which is exactly the
-> hazard this file hit when #365 landed `033`.
+### ADR-034: The deployment DAG is generated per environment, from the rendered app-of-apps graph and an in-process Terragrunt parse (2026-09-25); binds open issue #53a
+
+**Context:**
+- The backlog verdict on #53a requires the deployment DAG to be *derived* from what the repository already declares — ArgoCD sync waves and Terragrunt `dependency` blocks — rather than hand-written, because a third hand-maintained ordering file goes stale the first time someone edits a sync wave. That condition was recorded before anyone read both ordering inputs end to end, and three of the criteria beneath it do not survive contact with the repository at `2f0ddf1`
+- The criteria scope the sync-wave input to `charts/gitops`, `charts/addons` and `charts/applications`. `charts/bootstrap` is also an app-of-apps parent: `charts/gitops/values.yaml` declares an Application at `path: charts/bootstrap` with its own templated wave. `internal/verify/gitops.go` already records why that matters — ArgoCD orders waves only *within* one Application, so the parent wave dominates every child wave beneath it. Omitting a parent orders its children correctly among themselves and puts the whole subtree in the wrong place: a defect that looks fine in review and shows up on a cold cluster
+- The parent waves are environment-specific. `charts/gitops/values.yaml` sets bootstrap 0, addons 2, applications 3; `charts/gitops/values-homelab.yaml` overrides addons to 1 and applications to 10. The order key is `{parent wave, wave}` (`internal/verify/gitops.go`), so one artifact cannot describe both environments — it would be wrong for one of them. Only 5 of the repository's 424 sync-wave occurrences are Helm-templated and 3 of those 5 are exactly these parent waves, so the waves must be read from a render, not from the chart sources
+- There are two deployable environments, not one: 11 Terragrunt units under `terragrunt/environments/homelab` and 2 under `terragrunt/environments/localdev`, and `cmd/homelab/commands/bootstrap.go` already has separate `deployLocaldev` (2 phases) and `deployHomelab` (4 phases) paths. localdev is the path a stranger runs first, so a homelab-only artifact makes #52's `--dry-run` wrong on exactly the surface the fork-ability contract cares about
+- The GitOps half of the graph largely exists — `internal/verify/gitops.go` renders the app-of-apps graph, reads the wave annotations, carries the order key, and runs inside `task verify` as `verify:gitops`. The Terragrunt half does not exist at all: nothing in `internal/` or `cmd/` parses a `dependency` block and `go.mod` has no HCL dependency. #53a therefore carries a choice that decides the artifact's provenance and its failure mode when a unit is added
+- Ordering is declared by `dependencies { paths = [...] }` as well as by `dependency` blocks. `terragrunt/environments/homelab/talos-cluster/terragrunt.hcl` declares an ordering-only edge to `../truenas` that way, with a comment explaining that no output is read from it. A reader that looks only at `dependency` blocks drops that edge silently
+
+**Decision:**
+- **GitOps input is every chart the environment renders, discovered from the render — no hard-coded chart list.** A chart is in scope when an Application in the rendered graph claims `spec.source.path: charts/<name>`; its parent wave is that Application's wave. A hard-coded list is itself a second place to edit, which is the class of defect this ADR exists to prevent, and it is why `charts/bootstrap` was missed in the first place
+- **One artifact per deployable environment**: `configuration/deployment-dag.<env>.yaml`, generated for `localdev` and `homelab`. `homelab-preview` is excluded — it is a render-only verification environment with no Terragrunt units and no bootstrap path. The generator fails when the set of artifacts and the set of environments holding Terragrunt units disagree in either direction, so adding an environment cannot silently skip its artifact
+- **The Terragrunt half is parsed in-process with `hashicorp/hcl/v2`, not by shelling out to `terragrunt`.** The parser reads both `dependency` blocks (`config_path`) and `dependencies { paths }`, resolves each path relative to the declaring unit, and requires a literal string: a `config_path` or `paths` entry that is not a literal is a hard failure naming the file, never a skipped edge
+- **terragrunt stays the authority on meaning, through a test rather than a runtime dependency.** A cross-check test compares the parsed edge set against the DOT output of the pinned terragrunt in `mise.toml` and skips when the binary is absent. That keeps a second opinion on the semantics without putting an external binary in the level-0 gate path
+- The artifact carries `version: 1`, is validated against `configuration/schema/deployment-dag.schema.yaml`, and is serialized deterministically (sorted keys, stable edge order) so the drift gate can be byte-exact
+- **The drift gate is level 0 of `task verify`**, for every environment: regenerate in memory and fail when the committed artifact differs. Cycle and orphan detection run during generation, so a cycle fails a pull request instead of reaching a cluster
+- The artifact stays a repository file read from the checkout, not embedded in the binary. Bootstrap already runs from a checkout, and reading the same file the gate checks keeps "edit a sync wave, regenerate, commit" the only loop
+- It lives under `configuration/`, not `contracts/`. `contracts/` is the normative surface this repository and the commercial control plane both build against; this artifact describes *this* repository's declared order and has one consumer. Promoting the format to `contracts/` when a second consumer appears is additive, and is the reversible path out
+
+**Alternatives Considered:**
+- **Shell out to `terragrunt graph-dependencies` (now `terragrunt dag graph`) and parse the DOT** -> terragrunt is the authority on its own semantics, which is the real argument for it and the reason the cross-check test exists. Against it: it puts a pinned external binary in the path of a level-0 gate that needs none today; the command was renamed in terragrunt's 1.0 CLI redesign, so the shell-out surface is version-coupled where the HCL block syntax is not; DOT is an unversioned text format we would have to parse anyway; and when it fails it fails as an opaque terragrunt error in the middle of a verification run
+- **A hand-written `configuration/deployment-dag.yaml`** -> already rejected as a third source of truth. Restated here because "generated" is the property every other clause in this ADR protects
+- **One artifact with a section per environment** -> tidier on disk, and it makes a change to one environment fail the other environment's gate. Separate files keep a regeneration's blast radius at one environment
+- **`go:embed` the artifact into the CLI** -> removes a file read, and makes a forker who edits a sync wave rebuild the binary before bootstrap agrees with the repository. The gate already guarantees the file matches the repository
+
+**Consequences:**
+- A new Go dependency, `hashicorp/hcl/v2`, and a bounded subset of terragrunt's config semantics re-implemented here — literal `config_path` and `paths` only, fenced by the cross-check test
+- A `config_path` that becomes a computed expression stops the build instead of silently losing an edge. That is the intended trade: a lost edge is a cold-cluster hang at 3am, a hard failure is a five-minute fix
+- Two artifacts to regenerate, and level 0 fails on a pull request that edits a sync wave or a Terragrunt unit without regenerating. That is the point of deriving it; the cost is one command in the loop
+- #52 consumes a committed, schema-validated, per-environment artifact and can dry-run localdev — the surface a stranger reaches first — instead of homelab only
+- The `dependencies { paths }` edge (`talos-cluster` -> `truenas`) survives the move to a generated DAG, along with every other ordering-only edge the repository relies on
+- Blast radius when the generator is wrong: the DAG is wrong for one environment, bootstrap orders that environment wrong, and the failure surfaces on a cold cluster rather than in review. The byte-exact level-0 gate, cycle detection and the terragrunt cross-check are the three things standing in front of that
+- This is a cross-boundary design by its own author, so it is not self-approved: a second reviewer is recorded on the board before #53a starts implementation
+
+> **Numbering note (2026-09-25).** `ADR-036` is allocated to
+> [#372](https://github.com/ryanmcafee/homelab/pull/372) (the triage-agent alert→fix→Pushover
+> DAG), a pull request that is open and unmerged at the time this one lands. The gap is an
+> allocation, not a lost decision. It is recorded as a blockquote rather than a reserved
+> `### ADR-0xx` stub on purpose: a stub is a heading, and a heading is what produces a duplicate
+> ADR number when the real one merges — which is exactly the hazard this file hit when #365
+> landed `033`.
 
 ### ADR-035: Cluster topology and the etcd quorum rule are a data contract, not ported code (2026-09-25); applies ADR-031 to #39
 
