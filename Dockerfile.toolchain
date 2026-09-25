@@ -29,7 +29,7 @@ RUN set -eu; fixture="$(mktemp -d)"; \
       if [ "$result" -eq 0 ]; then \
         echo 'Negative fixture unexpectedly installed ansible-core without backend runtimes' >&2; exit 1; \
       fi; \
-      if ! grep -Eq 'pipx.*(required|not found|not installed|missing)' install.stderr; then \
+      if ! grep -Fq 'pipx is required to install pipx:ansible-core but was not found' install.stderr; then \
         echo 'Negative fixture failed without naming the missing pipx backend; inspect stderr above' >&2; exit 1; \
       fi; \
       echo "Negative fixture passed: real mise rejected missing pipx backend (exit $result)"); \
