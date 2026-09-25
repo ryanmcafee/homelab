@@ -2,6 +2,21 @@
 
 Use 'bd' for task tracking on long-running tasks.
 
+## Before you decide a tool is missing
+
+If `bun`, `go`, `task`, `helm` or `mise` itself is "not found", **everything `mise.toml` pins is
+already installed** — the shims are just not on `PATH`, and this repo's `mise.toml` is untrusted in
+a fresh clone. Never download a toolchain by hand. Two exports fix both:
+
+```bash
+export PATH="$HOME/.local/share/mise/shims:$HOME/.local/bin:$PATH"
+export MISE_TRUSTED_CONFIG_PATHS="$PWD"   # the repo root, if you are not in it
+```
+
+mise reports the trust problem as `error parsing config file: .../mise.toml`, which is not what is
+wrong. Details, the verified versions and the nested-shell caveat: `Claude.md` →
+"If your toolchain looks missing, it isn't".
+
 ## Core Rules
 1. Always analyze plans for parallel execution opportunities before implementing
 2. Fix pre-existing bugs encountered during task execution
