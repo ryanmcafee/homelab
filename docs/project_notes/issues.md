@@ -114,3 +114,8 @@ Each entry should include:
 - Security handoff MCAA-44: remove host mise/Task execution and stream committed HEAD directly to an uncached Docker build; retain read-only token and credential-free checkout.
 - Pin the official Ubuntu manifest digest, preserve mise checksum-before-execution, and add parsed policy tests with negative fixtures. Local task wrappers require trusted checkouts; update instructions are in readme.md.
 - Regression evidence and final cold-build timing are recorded on MCAA-44 and PR #353.
+### 2026-09-25 - Retained cold-bootstrap negative fixture (PR #353)
+
+- Added the missing end-to-end regression check to `Dockerfile.toolchain`, before any valid tool installation. It strips runtime declarations only from a temporary copy and uses an isolated HOME.
+- The real pipx backend must fail and name the missing dependency; unexpected success and unrelated failures fail the gate with a diagnostic. The original config then exercises the successful cold install.
+- Run both with `task toolchain:check` (committed HEAD, Docker required). No credentials or new infrastructure are needed. Hosted CI supplies container verification because this agent has no Docker runtime.

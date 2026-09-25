@@ -17,6 +17,23 @@ RUN curl -fLsS https://github.com/jdx/mise/releases/download/v2026.9.13/mise-v20
 WORKDIR /repo
 # CI and the trusted local wrapper supply only committed files via git archive.
 COPY . .
+# Fail fast, fail loud: exercise the real pipx backend without its declared
+# runtimes before the good install can populate any tool cache. Only the copy
+# is damaged; an isolated HOME keeps fixture state out of the positive gate.
+RUN set -eu; fixture="$(mktemp -d)"; \
+    mkdir -p "$fixture/home"; \
+    sed -E '/^(python|pipx|node)[[:space:]]*=/d' mise.toml > "$fixture/mise.toml"; \
+    (cd "$fixture"; export HOME="$fixture/home"; mise trust; \
+      result=0; mise install -y pipx:ansible-core > install.stdout 2> install.stderr || result=$?; \
+      cat install.stdout; cat install.stderr >&2; \
+      if [ "$result" -eq 0 ]; then \
+        echo 'Negative fixture unexpectedly installed ansible-core without backend runtimes' >&2; exit 1; \
+      fi; \
+      if ! grep -Eq 'pipx.*(required|not found|not installed|missing)' install.stderr; then \
+        echo 'Negative fixture failed without naming the missing pipx backend; inspect stderr above' >&2; exit 1; \
+      fi; \
+      echo "Negative fixture passed: real mise rejected missing pipx backend (exit $result)"); \
+    rm -rf "$fixture"
 RUN mise trust && mise install -y
 RUN mise exec -- task install-tools && \
     missing="$(mise ls --missing)" && \
