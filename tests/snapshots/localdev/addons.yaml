@@ -1663,13 +1663,13 @@ spec:
                       summary: 'Receiver {{ $labels.receiver }} on {{ $labels.pod }} refuses data'
                       description: 'The collector has refused spans or log records on {{ $labels.receiver }} for 10m, usually because memory_limiter is holding it back. Raise the collector memory limit or find the sender flooding it.'
                   - alert: HomelabUniFiTelemetrySilent
-                    expr: 'sum by (receiver) (rate(otelcol_receiver_accepted_log_records{receiver=~"syslog.*|netflow"}[30m])) == 0 or absent(otelcol_receiver_accepted_log_records{receiver=~"syslog.*"}) or absent(otelcol_receiver_accepted_log_records{receiver="netflow"})'
+                    expr: 'sum by (source) (rate(homelab_unifi_telemetry_records_total[30m])) == 0 or absent(homelab_unifi_telemetry_records_total{source="netflow"}) or absent(homelab_unifi_telemetry_records_total{source="syslog"})'
                     for: 30m
                     labels:
                       severity: warning
                     annotations:
-                      summary: 'No UniFi telemetry ({{ $labels.receiver }}) for 30m'
-                      description: 'The gateway collector has received nothing on {{ $labels.receiver }} (empty = syslog) for an hour, or never since it started. Check the UniFi export settings (docs/logging.md, "UniFi gateway") and that otel.<DOMAIN> resolves to OTEL_LB_IP.'
+                      summary: 'No UniFi {{ $labels.source }} telemetry for 30m'
+                      description: 'The gateway collector has counted no UniFi {{ $labels.source }} records for an hour, or none since it started (count connector count/unifi). Check the UniFi export settings (docs/logging.md, "UniFi gateway") and that otel.<DOMAIN> resolves to OTEL_LB_IP.'
                   - alert: HomelabClickHouseDown
                     expr: 'max by (chi, hostname) (chi_clickhouse_metric_fetch_errors{fetch_type="system.metrics"}) > 0 or absent(chi_clickhouse_metric_Uptime)'
                     for: 10m
@@ -2117,7 +2117,7 @@ spec:
               log_statements:
                 - context: resource
                   statements:
-                    - set(attributes["service.name"], attributes["k8s.container.name"]) where attributes["service.name"] == nil
+                    - set(resource.attributes["service.name"], resource.attributes["k8s.container.name"]) where resource.attributes["service.name"] == nil and resource.attributes["k8s.container.name"] != nil
           exporters:
             debug: null
             clickhouse:
@@ -2234,7 +2234,7 @@ spec:
               log_statements:
                 - context: resource
                   statements:
-                    - set(attributes["service.name"], attributes["k8s.container.name"]) where attributes["service.name"] == nil
+                    - set(resource.attributes["service.name"], resource.attributes["k8s.container.name"]) where resource.attributes["service.name"] == nil and resource.attributes["k8s.container.name"] != nil
           exporters:
             debug: null
             clickhouse:
@@ -2362,8 +2362,16 @@ spec:
             containerPort: 2055
             servicePort: 2055
             protocol: UDP
+          unifi-metrics:
+            enabled: true
+            containerPort: 8889
+            servicePort: 8889
+            protocol: TCP
         podMonitor:
           enabled: true
+          metricsEndpoints:
+            - port: metrics
+            - port: unifi-metrics
         extraEnvs:
           - name: CLICKHOUSE_PASSWORD
             valueFrom:
@@ -2415,9 +2423,37 @@ spec:
             # carry no service.name, so the container name stands in.
             transform/service-name:
               log_statements:
+                - context: scope
+                  statements:
+                    - set(resource.attributes["service.name"], "unifi-netflow") where scope.name == "otelcol/netflowreceiver"
                 - context: resource
                   statements:
-                    - set(attributes["service.name"], attributes["k8s.container.name"]) where attributes["service.name"] == nil
+                    - set(resource.attributes["service.name"], resource.attributes["k8s.container.name"]) where resource.attributes["service.name"] == nil and resource.attributes["k8s.container.name"] != nil
+            # One series per source, no job/instance labels; fresh timestamps keep the deltas in order for delta_to_cumulative.
+            transform/unifi-telemetry:
+              metric_statements:
+                - context: resource
+                  statements:
+                    - keep_keys(resource.attributes, [])
+                - context: datapoint
+                  statements:
+                    - set(datapoint.attributes["source"], "netflow") where datapoint.attributes["service.name"] == "unifi-netflow"
+                    - set(datapoint.attributes["source"], "syslog") where datapoint.attributes["service.name"] == "unifi-syslog"
+                    - delete_key(datapoint.attributes, "service.name")
+                    - set(datapoint.start_time, Now())
+                    - set(datapoint.time, Now())
+            delta_to_cumulative:
+              max_stale: 1h
+          connectors:
+            count/unifi:
+              logs:
+                homelab.unifi.telemetry.records:
+                  description: UniFi gateway syslog lines and flow records received by the gateway collector.
+                  conditions:
+                    - instrumentation_scope.name == "otelcol/netflowreceiver"
+                    - resource.attributes["service.name"] == "unifi-syslog"
+                  attributes:
+                    - key: service.name
           exporters:
             debug: null
             clickhouse:
@@ -2437,6 +2473,11 @@ spec:
                 initial_interval: 5s
                 max_interval: 30s
                 max_elapsed_time: 300s
+            # A silent source keeps its last count for an hour before the series expires.
+            prometheus/unifi:
+              endpoint: ${env:MY_POD_IP}:8889
+              metric_expiration: 1h
+              without_scope_info: true
           service:
             pipelines:
               logs:
@@ -2451,6 +2492,7 @@ spec:
                   - batch
                 exporters:
                   - clickhouse
+                  - count/unifi
               traces:
                 receivers:
                   - otlp
@@ -2460,6 +2502,14 @@ spec:
                 exporters:
                   - clickhouse
               metrics: null
+              metrics/unifi:
+                receivers:
+                  - count/unifi
+                processors:
+                  - transform/unifi-telemetry
+                  - delta_to_cumulative
+                exporters:
+                  - prometheus/unifi
   destination:
     server: https://kubernetes.default.svc
     namespace: observability

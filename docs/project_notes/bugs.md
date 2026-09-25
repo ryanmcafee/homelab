@@ -12,6 +12,12 @@ Each entry should include:
 
 ## Entries
 
+### 2026-09-25 - netflowreceiver emits no receiver self-metrics, alert could never clear
+- **Issue**: `HomelabUniFiTelemetrySilent` fired for `netflow` without end although ClickHouse `otel.otel_logs` held thousands of flow records (`ScopeName = otelcol/netflowreceiver`); the flows also had an empty ServiceName and the gateway logged OTTL "silently ignored a nil value" warnings
+- **Root Cause**: The alert read `otelcol_receiver_accepted_log_records{receiver=~"syslog.*|netflow"}`, but the contrib `netflowreceiver` (v0.160.0) does not use the receiver obsreport helper, so Prometheus had no series with `receiver="netflow"` and the `absent()` branch stayed true. `transform/service-name` set `service.name` from `k8s.container.name`, which flows do not carry
+- **Solution**: The gateway logs pipeline also exports to a `count/unifi` connector; `metrics/unifi` (transform, `delta_to_cumulative`, `prometheus/unifi` on 8889, scraped by the gateway PodMonitor) exposes `homelab_unifi_telemetry_records_total{source}`, and the alert fires per source on a zero 30m rate or an absent series. `transform/service-name` sets ServiceName `unifi-netflow` for scope `otelcol/netflowreceiver` and only copies `k8s.container.name` when it exists. The `logging` e2e suite checks the syslog count
+- **Prevention**: Before alerting on `otelcol_receiver_*` for a receiver, confirm Prometheus has a series for it; count records with the count connector when a receiver has no self-metrics. The count connector emits deltas stamped with record times, which the Prometheus exporter does not add up, so restamp them and run `delta_to_cumulative` first
+
 ### 2026-09-23 - Paperclip agents failed with TLS/connection errors calling https://paperclip.<domain>
 - **Issue**: From `paperclip-0`, every request to the public URL (and any host on the traefik-internal LB IP) reset or timed out during the TLS handshake after 10 s (`curl: (35) Recv failure: Connection reset by peer`, node `ECONNRESET`); agents reported this as TLS/signing failures. The same URLs worked from non-paperclip pods and the internet worked from the pod
 - **Root Cause**: Cilium evaluates egress policy after the LoadBalancer DNAT, so a connection to the traefik-internal LB IP on 443 is checked as `traefik-internal:8443`. The operator's NetworkPolicy allows egress only on 53, 443, 4317/4318 and 5432, so Hubble showed `Policy denied DROPPED` on the SYN; ztunnel logged `deadline has elapsed`

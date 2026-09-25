@@ -2,14 +2,15 @@
 # Log and trace pipeline end to end (docs/logging.md, docs/tracing.md): the
 # collectors have written container logs into ClickHouse with the retention
 # TTL, a span sent over OTLP/HTTP to the gateway collector lands in
-# otel_traces, and the read-only grafana user (the datasource's) reads both.
+# otel_traces, the read-only grafana user (the datasource's) reads both, and a
+# syslog line raises the UniFi telemetry counter.
 apiVersion: chainsaw.kyverno.io/v1alpha1
 kind: Test
 metadata:
   name: logging
 spec:
   description: >-
-    Container logs reach otel.otel_logs with the table TTL set, and an OTLP span reaches otel.otel_traces.
+    Container logs reach otel.otel_logs with the table TTL set, an OTLP span reaches otel.otel_traces, and a syslog line is counted in homelab_unifi_telemetry_records_total.
   steps:
     - name: applications-healthy
       description: The ArgoCD Applications behind the log pipeline are Healthy and their last sync Succeeded.
@@ -228,4 +229,83 @@ spec:
         - podLogs:
             namespace: observability
             selector: app.kubernetes.io/instance=otel-collector-agent
+            tail: 50
+    - name: unifi-telemetry-count
+      description: >-
+        A syslog line sent to the gateway collector over TCP shows up in the
+        count/unifi counter homelab_unifi_telemetry_records_total{source="syslog"},
+        which HomelabUniFiTelemetrySilent reads.
+      timeouts:
+        assert: 5m
+      try:
+        - apply:
+            resource:
+              apiVersion: batch/v1
+              kind: Job
+              metadata:
+                name: e2e-unifi-telemetry-count
+                namespace: observability
+              spec:
+                backoffLimit: 0
+                activeDeadlineSeconds: 280
+                template:
+                  spec:
+                    restartPolicy: Never
+                    securityContext:
+                      runAsNonRoot: true
+                      runAsUser: 100
+                      seccompProfile:
+                        type: RuntimeDefault
+                    containers:
+                      - name: curl
+                        # pinned from configuration/versions.yaml images.curl
+                        image: curlimages/curl:8.22.0
+                        securityContext:
+                          allowPrivilegeEscalation: false
+                          capabilities:
+                            drop: ["ALL"]
+                        resources:
+                          requests:
+                            cpu: 10m
+                            memory: 32Mi
+                          limits:
+                            cpu: 100m
+                            memory: 64Mi
+                        env:
+                          - name: GATEWAY
+                            value: "otel-collector-gateway.observability.svc.cluster.local"
+                          - name: ATTEMPTS
+                            value: "20"
+                        command: ["sh", "-c"]
+                        args:
+                          - |
+                            set -u
+                            i=1
+                            while [ "$i" -le "$ATTEMPTS" ]; do
+                              printf '<134>Sep 24 10:00:00 e2e CEF:0|Ubiquiti|UniFi|1|1|e2e|3|msg=e2e\n' | curl -s --max-time 3 "telnet://$GATEWAY:514" >/dev/null
+                              count=$(curl -s --max-time 10 "http://$GATEWAY:8889/metrics" | grep '^homelab_unifi_telemetry_records_total{source="syslog"}')
+                              echo "attempt $i/$ATTEMPTS: $count"
+                              [ -n "$count" ] && exit 0
+                              i=$((i + 1))
+                              sleep 10
+                            done
+                            echo "giving up: no syslog count on $GATEWAY:8889"
+                            exit 1
+        - assert:
+            resource:
+              apiVersion: batch/v1
+              kind: Job
+              metadata:
+                name: e2e-unifi-telemetry-count
+                namespace: observability
+              status:
+                succeeded: 1
+      catch:
+        - podLogs:
+            namespace: observability
+            selector: job-name=e2e-unifi-telemetry-count
+            tail: 50
+        - podLogs:
+            namespace: observability
+            selector: app.kubernetes.io/instance=otel-collector-gateway
             tail: 50

@@ -554,14 +554,16 @@ spec:
                     annotations:
                       summary: 'Receiver {{`{{ $labels.receiver }}`}} on {{`{{ $labels.pod }}`}} refuses data'
                       description: 'The collector has refused spans or log records on {{`{{ $labels.receiver }}`}} for 10m, usually because memory_limiter is holding it back. Raise the collector memory limit or find the sender flooding it.'
+                  {{- if .Values.logging.unifi.enabled }}
                   - alert: HomelabUniFiTelemetrySilent
-                    expr: 'sum by (receiver) (rate(otelcol_receiver_accepted_log_records{receiver=~"syslog.*|netflow"}[30m])) == 0 or absent(otelcol_receiver_accepted_log_records{receiver=~"syslog.*"}) or absent(otelcol_receiver_accepted_log_records{receiver="netflow"})'
+                    expr: 'sum by (source) (rate(homelab_unifi_telemetry_records_total[30m])) == 0 or absent(homelab_unifi_telemetry_records_total{source="netflow"}) or absent(homelab_unifi_telemetry_records_total{source="syslog"})'
                     for: 30m
                     labels:
                       severity: warning
                     annotations:
-                      summary: 'No UniFi telemetry ({{`{{ $labels.receiver }}`}}) for 30m'
-                      description: 'The gateway collector has received nothing on {{`{{ $labels.receiver }}`}} (empty = syslog) for an hour, or never since it started. Check the UniFi export settings (docs/logging.md, "UniFi gateway") and that otel.<DOMAIN> resolves to OTEL_LB_IP.'
+                      summary: 'No UniFi {{`{{ $labels.source }}`}} telemetry for 30m'
+                      description: 'The gateway collector has counted no UniFi {{`{{ $labels.source }}`}} records for an hour, or none since it started (count connector count/unifi). Check the UniFi export settings (docs/logging.md, "UniFi gateway") and that otel.<DOMAIN> resolves to OTEL_LB_IP.'
+                  {{- end }}
                   - alert: HomelabClickHouseDown
                     expr: 'max by (chi, hostname) (chi_clickhouse_metric_fetch_errors{fetch_type="system.metrics"}) > 0 or absent(chi_clickhouse_metric_Uptime)'
                     for: 10m
