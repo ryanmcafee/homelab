@@ -1272,6 +1272,13 @@ blackbox-exporter:
   enabled: false
   namespace: monitoring
 
+# GitHub pull request review alerts (templates/github-pr-exporter.yaml). Placeholder; the CMP template renders the real block.
+github-pr-exporter:
+  enabled: false
+  namespace: monitoring
+  secretName: github-pr-alerts
+  onePasswordItemPath: ""
+
 # Traefik CRDs (templates/traefik-crds.yaml). Placeholder; the CMP template renders the real block.
 traefikCrds:
   enabled: false

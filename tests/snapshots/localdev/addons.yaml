@@ -2637,6 +2637,10 @@ spec:
           notifications:
             secretName: "alertmanager-notifications"
             onePasswordItemPath: ""
+        # The read-only GitHub token of the github-pr-exporter Application.
+        githubPrAlerts:
+          secretName: "github-pr-alerts"
+          onePasswordItemPath: ""
   destination:
     server: https://kubernetes.default.svc
     namespace: monitoring

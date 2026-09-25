@@ -15,3 +15,10 @@ alertmanager:
   notifications:
     secretName: alertmanager-notifications
     onePasswordItemPath: ""
+
+# Read-only GitHub token of the github-pr-exporter Application (field token;
+# docs/runbooks/alerting.md), from the parent's helm.valuesObject
+# (github-pr-exporter, GITHUB_PR_ALERTS_1P_PATH); an empty path renders nothing.
+githubPrAlerts:
+  secretName: github-pr-alerts
+  onePasswordItemPath: ""

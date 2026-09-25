@@ -32,6 +32,10 @@ spec:
           notifications:
             secretName: {{ (index .Values "kube-prometheus-stack" "alertmanager" "notifications" "secretName") | quote }}
             onePasswordItemPath: {{ (index .Values "kube-prometheus-stack" "alertmanager" "notifications" "onePasswordItemPath") | quote }}
+        # The read-only GitHub token of the github-pr-exporter Application.
+        githubPrAlerts:
+          secretName: {{ (index .Values "github-pr-exporter" "secretName") | quote }}
+          onePasswordItemPath: {{ ternary (index .Values "github-pr-exporter" "onePasswordItemPath") "" (index .Values "github-pr-exporter" "enabled") | quote }}
   destination:
     server: https://kubernetes.default.svc
     namespace: {{ (index .Values "kube-prometheus-stack").namespace }}
