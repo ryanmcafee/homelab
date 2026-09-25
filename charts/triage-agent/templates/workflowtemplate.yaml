@@ -1,9 +1,11 @@
 {{- /*
 triage-fix: alert -> triage -> plan -> implement/verify loop -> commit -> PR ->
 CI loop -> notify (docs/runbooks/triage-agent.md). Every step runs the agent
-image as `triage-agent run <stage>`; stages share /work (a per-workflow volume)
-and pass decisions as output parameters (out/<name>). Only triage, plan and
-implement call the model; everything else is deterministic.
+image as `triage-agent run <stage>`; stages share /workspaces/<workflow name>
+on the shared workspace volume and pass decisions as output parameters
+(out/<name>). The exit handler deletes a succeeded workflow's directory; the
+intake janitor reclaims the rest. Only triage, plan and implement call the
+model; everything else is deterministic.
 */}}
 {{- if .Values.enabled }}
 {{- $wf := .Values.workflow }}
@@ -44,20 +46,10 @@ spec:
     fsGroup: 1000
     seccompProfile:
       type: RuntimeDefault
-  volumeClaimTemplates:
-    - metadata:
-        name: work
-      spec:
-        accessModes: [{{ $wf.workspace.accessMode }}]
-        {{- with $wf.workspace.storageClass }}
-        storageClassName: {{ . }}
-        {{- end }}
-        resources:
-          requests:
-            storage: {{ $wf.workspace.size }}
-  volumeClaimGC:
-    strategy: OnWorkflowCompletion
   volumes:
+    - name: workspace
+      persistentVolumeClaim:
+        claimName: {{ .Values.name }}-workspace
     - name: cache
       persistentVolumeClaim:
         claimName: {{ .Values.name }}-cache
@@ -251,6 +243,14 @@ spec:
                   value: {{ `"{{workflow.status}}"` }}
                 - name: workflow-failures
                   value: {{ `"{{workflow.failures}}"` }}
+        - - name: cleanup
+            template: stage
+            arguments:
+              parameters:
+                - name: stage
+                  value: cleanup
+                - name: workflow-status
+                  value: {{ `"{{workflow.status}}"` }}
 
     # Not in the default path: `argo submit --from workflowtemplate/triage-fix
     # --entrypoint argocd-sync -p app=<name>` syncs one Application.
@@ -297,7 +297,7 @@ spec:
           {{- range list "actionable" "passed" "next" "changed" "pr-number" "pr-url" "draft" "ci-state" }}
           - name: {{ . }}
             valueFrom:
-              path: /work/out/{{ . }}
+              path: {{ printf "/workspaces/{{workflow.name}}/out/%s" . }}
               default: ""
           {{- end }}
       container:
@@ -305,7 +305,7 @@ spec:
         args: ["run", {{ `"{{inputs.parameters.stage}}"` }}]
         env:
           - name: WORK_DIR
-            value: /work
+            value: {{ `/workspaces/{{workflow.name}}` }}
           - name: REPO_URL
             value: {{ required "repoUrl is required" .Values.repoUrl | quote }}
           - name: REPO_SLUG
@@ -423,8 +423,8 @@ spec:
         securityContext:
           {{- include "triage-agent.restricted" . | nindent 10 }}
         volumeMounts:
-          - name: work
-            mountPath: /work
+          - name: workspace
+            mountPath: /workspaces
           - name: cache
             mountPath: /cache
           - name: config

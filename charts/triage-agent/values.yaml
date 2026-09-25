@@ -63,7 +63,28 @@ intake:
     - Watchdog
     - InfoInhibitor
     - GitHubPullRequestNeedsReview
+    # The agent's own alerts: a workflow cannot fix the volume it needs.
+    - TriageAgentWorkspaceFillingUp
+    - TriageAgentCacheFillingUp
+    - TriageAgentJanitorFailing
+    - TriageAgentIntakeDown
   maxRecords: 50
+  # Workspace janitor: every intervalSeconds it deletes /workspaces/<workflow>
+  # of succeeded workflows, of failed ones after failedRetentionSeconds and of
+  # vanished ones after orphanGraceSeconds. Above highWatermark (used/capacity)
+  # failed workspaces go at once, and cachePruneDirs (regenerable, relative to
+  # the cache volume) go while no workflow runs. Off in dryRun.
+  janitor:
+    intervalSeconds: 600
+    failedRetentionSeconds: 86400
+    orphanGraceSeconds: 3600
+    highWatermark: 0.8
+    cachePruneDirs:
+      - go/build
+      - mise-cache
+      - npm
+      - uv
+      - bun
   # true: log the Workflow instead of submitting it.
   dryRun: false
   logLevel: info
@@ -106,10 +127,11 @@ workflow:
   ttl:
     secondsAfterSuccess: 86400
     secondsAfterFailure: 259200
-  # Per-workflow clone and stage files, deleted with the workflow.
+  # Shared volume for every workflow's clone and stage files
+  # (/workspaces/<workflow name>); sized for large repositories.
   workspace:
     storageClass: ""
-    size: 5Gi
+    size: 100Gi
     accessMode: ReadWriteOnce
   # Toolchain (mise), Go, npm, uv and bun caches plus the memory MCP graph,
   # shared by every workflow.

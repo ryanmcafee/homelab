@@ -10,6 +10,7 @@ import pino from "pino";
 import { exec } from "./exec.ts";
 import { readIntakeConfig } from "./intake/config.ts";
 import { createIntake } from "./intake/intake.ts";
+import { createJanitor } from "./intake/janitor.ts";
 import { inClusterWorkflowClient, type WorkflowClient } from "./intake/kube.ts";
 import { createHandler } from "./intake/server.ts";
 import { fakeQuery } from "./llm.ts";
@@ -21,6 +22,7 @@ const logger = pino({ level: process.env.LOG_LEVEL ?? "info" });
 const dryRunClient: WorkflowClient = {
   create: async () => "dry-run",
   listActive: async () => [],
+  listStates: async () => new Map(),
 };
 
 async function serve(): Promise<number> {
@@ -29,6 +31,16 @@ async function serve(): Promise<number> {
     ? dryRunClient
     : inClusterWorkflowClient(process.env);
   const intake = createIntake(config, { client, logger });
+  // The dry-run client lists no workflows, which would orphan every workspace.
+  const janitorConfig = config.dryRun ? undefined : config.janitor;
+  const janitor = janitorConfig
+    ? createJanitor({
+        ...janitorConfig,
+        namespace: config.workflowNamespace,
+        client,
+        logger: logger.child({ component: "janitor" }),
+      })
+    : undefined;
   const server = Bun.serve({
     port: config.port,
     fetch: createHandler({
@@ -36,12 +48,17 @@ async function serve(): Promise<number> {
       records: intake.records,
       metrics: intake.metrics,
       queueDepth: intake.queueDepth,
+      ...(janitor ? { extraMetrics: janitor.render } : {}),
     }),
   });
   logger.info({ port: server.port, dryRun: config.dryRun }, "intake listening");
   if (config.sweepIntervalSeconds > 0) {
     void intake.sweep();
     setInterval(() => void intake.sweep(), config.sweepIntervalSeconds * 1000);
+  }
+  if (janitor && janitorConfig) {
+    void janitor.run();
+    setInterval(() => void janitor.run(), janitorConfig.intervalSeconds * 1000);
   }
   return new Promise((resolve) => {
     process.on("SIGTERM", () => {

@@ -263,6 +263,25 @@ spec:
       storage: 20Gi
 
 ---
+# Source: triage-agent/templates/configmaps.yaml
+# One directory per workflow (/workspaces/<workflow name>); a shared claim
+# instead of per-workflow claims, whose Retain PVs would never free TrueNAS space.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: triage-agent-workspace
+  namespace: triage-agent
+  labels:
+    app.kubernetes.io/name: triage-agent
+    app.kubernetes.io/part-of: homelab
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: democratic-csi-nfs
+  resources:
+    requests:
+      storage: 100Gi
+
+---
 # Source: triage-agent/templates/rbac.yaml
 # Read-only by construction: charts/agent-readonly owns homelab-agent-readonly
 # and view never grants Secrets or writes. Nothing here widens either role.
@@ -437,7 +456,7 @@ spec:
             - name: COOLDOWN_SECONDS
               value: "86400"
             - name: IGNORED_ALERTS
-              value: "Watchdog,InfoInhibitor,GitHubPullRequestNeedsReview"
+              value: "Watchdog,InfoInhibitor,GitHubPullRequestNeedsReview,TriageAgentWorkspaceFillingUp,TriageAgentCacheFillingUp,TriageAgentJanitorFailing,TriageAgentIntakeDown"
             - name: MAX_RECORDS
               value: "50"
             - name: DRY_RUN
@@ -446,6 +465,20 @@ spec:
               value: "info"
             - name: BUN_RUNTIME_TRANSPILER_CACHE_PATH
               value: "0"
+            - name: WORKSPACE_ROOT
+              value: /workspaces
+            - name: CACHE_ROOT
+              value: /cache
+            - name: CACHE_PRUNE_DIRS
+              value: "go/build,mise-cache,npm,uv,bun"
+            - name: JANITOR_INTERVAL_SECONDS
+              value: "600"
+            - name: FAILED_RETENTION_SECONDS
+              value: "86400"
+            - name: ORPHAN_GRACE_SECONDS
+              value: "3600"
+            - name: HIGH_WATERMARK
+              value: "0.8"
           ports:
             - name: http
               containerPort: 8080
@@ -475,10 +508,20 @@ spec:
           volumeMounts:
             - name: tmp
               mountPath: /tmp
+            - name: workspace
+              mountPath: /workspaces
+            - name: cache
+              mountPath: /cache
       volumes:
         - name: tmp
           emptyDir:
             sizeLimit: 64Mi
+        - name: workspace
+          persistentVolumeClaim:
+            claimName: triage-agent-workspace
+        - name: cache
+          persistentVolumeClaim:
+            claimName: triage-agent-cache
 
 ---
 # Source: triage-agent/templates/onepassworditems.yaml
@@ -567,18 +610,10 @@ spec:
     fsGroup: 1000
     seccompProfile:
       type: RuntimeDefault
-  volumeClaimTemplates:
-    - metadata:
-        name: work
-      spec:
-        accessModes: [ReadWriteMany]
-        storageClassName: democratic-csi-nfs
-        resources:
-          requests:
-            storage: 5Gi
-  volumeClaimGC:
-    strategy: OnWorkflowCompletion
   volumes:
+    - name: workspace
+      persistentVolumeClaim:
+        claimName: triage-agent-workspace
     - name: cache
       persistentVolumeClaim:
         claimName: triage-agent-cache
@@ -772,6 +807,14 @@ spec:
                   value: "{{workflow.status}}"
                 - name: workflow-failures
                   value: "{{workflow.failures}}"
+        - - name: cleanup
+            template: stage
+            arguments:
+              parameters:
+                - name: stage
+                  value: cleanup
+                - name: workflow-status
+                  value: "{{workflow.status}}"
 
     # Not in the default path: `argo submit --from workflowtemplate/triage-fix
     # --entrypoint argocd-sync -p app=<name>` syncs one Application.
@@ -819,42 +862,42 @@ spec:
         parameters:
           - name: actionable
             valueFrom:
-              path: /work/out/actionable
+              path: /workspaces/{{workflow.name}}/out/actionable
               default: ""
           - name: passed
             valueFrom:
-              path: /work/out/passed
+              path: /workspaces/{{workflow.name}}/out/passed
               default: ""
           - name: next
             valueFrom:
-              path: /work/out/next
+              path: /workspaces/{{workflow.name}}/out/next
               default: ""
           - name: changed
             valueFrom:
-              path: /work/out/changed
+              path: /workspaces/{{workflow.name}}/out/changed
               default: ""
           - name: pr-number
             valueFrom:
-              path: /work/out/pr-number
+              path: /workspaces/{{workflow.name}}/out/pr-number
               default: ""
           - name: pr-url
             valueFrom:
-              path: /work/out/pr-url
+              path: /workspaces/{{workflow.name}}/out/pr-url
               default: ""
           - name: draft
             valueFrom:
-              path: /work/out/draft
+              path: /workspaces/{{workflow.name}}/out/draft
               default: ""
           - name: ci-state
             valueFrom:
-              path: /work/out/ci-state
+              path: /workspaces/{{workflow.name}}/out/ci-state
               default: ""
       container:
         image: ghcr.io/ryanmcafee/homelab-triage-agent:0.1.0
         args: ["run", "{{inputs.parameters.stage}}"]
         env:
           - name: WORK_DIR
-            value: /work
+            value: /workspaces/{{workflow.name}}
           - name: REPO_URL
             value: "https://github.com/ryanmcafee/homelab.git"
           - name: REPO_SLUG
@@ -996,8 +1039,8 @@ spec:
           capabilities:
             drop: ["ALL"]
         volumeMounts:
-          - name: work
-            mountPath: /work
+          - name: workspace
+            mountPath: /workspaces
           - name: cache
             mountPath: /cache
           - name: config

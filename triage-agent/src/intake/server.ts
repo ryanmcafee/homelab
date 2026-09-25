@@ -9,6 +9,8 @@ export interface HandlerDeps {
   records: RecordStore<Submission>;
   metrics: Metrics;
   queueDepth: () => number;
+  /** Further exposition text appended to /metrics (the workspace janitor). */
+  extraMetrics?: () => string;
 }
 
 function badRequest(error: unknown): Response {
@@ -51,9 +53,13 @@ export function createHandler(deps: HandlerDeps) {
       case "/submissions":
         return Response.json(deps.records.list());
       case "/metrics":
-        return new Response(deps.metrics.render(deps.queueDepth()), {
-          headers: { "content-type": "text/plain; version=0.0.4" },
-        });
+        return new Response(
+          deps.metrics.render(deps.queueDepth()) +
+            (deps.extraMetrics?.() ?? ""),
+          {
+            headers: { "content-type": "text/plain; version=0.0.4" },
+          },
+        );
       default:
         return new Response("not found\n", { status: 404 });
     }

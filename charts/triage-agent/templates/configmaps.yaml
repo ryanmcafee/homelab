@@ -41,4 +41,22 @@ spec:
   resources:
     requests:
       storage: {{ .Values.workflow.cache.size }}
+---
+# One directory per workflow (/workspaces/<workflow name>); a shared claim
+# instead of per-workflow claims, whose Retain PVs would never free TrueNAS space.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ .Values.name }}-workspace
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "triage-agent.labels" . | nindent 4 }}
+spec:
+  accessModes: [{{ .Values.workflow.workspace.accessMode }}]
+  {{- with .Values.workflow.workspace.storageClass }}
+  storageClassName: {{ . }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.workflow.workspace.size }}
 {{- end }}

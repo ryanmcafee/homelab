@@ -1,6 +1,7 @@
 import { rmSync } from "node:fs";
 import { implementStage, planStage, triageStage } from "./agent.ts";
 import { ciWatchStage } from "./ci.ts";
+import { cleanupStage } from "./cleanup.ts";
 import type { StageDeps } from "./context.ts";
 import { commitStage, needsHumanStage, prStage } from "./github.ts";
 import { argocdSyncStage, notifyStage } from "./notify.ts";
@@ -17,6 +18,7 @@ export const STAGES = {
   "needs-human": needsHumanStage,
   notify: notifyStage,
   "argocd-sync": argocdSyncStage,
+  cleanup: cleanupStage,
 } satisfies Record<string, (deps: StageDeps) => Promise<unknown>>;
 
 export type StageName = keyof typeof STAGES;

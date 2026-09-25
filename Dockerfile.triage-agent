@@ -66,7 +66,7 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY triage-agent/package.json ./
 COPY triage-agent/src ./src
 
-# HOME, /work, /cache and /tmp are volumes in the pod; the root filesystem stays read-only.
+# HOME, /workspaces, /cache and /tmp are volumes in the pod; the root filesystem stays read-only.
 ENV HOME=/home/agent \
     CLAUDE_CONFIG_DIR=/home/agent/.claude \
     npm_config_update_notifier=false \

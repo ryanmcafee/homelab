@@ -51,6 +51,22 @@ spec:
               value: {{ .Values.intake.logLevel | quote }}
             - name: BUN_RUNTIME_TRANSPILER_CACHE_PATH
               value: "0"
+            {{- with .Values.intake.janitor }}
+            - name: WORKSPACE_ROOT
+              value: /workspaces
+            - name: CACHE_ROOT
+              value: /cache
+            - name: CACHE_PRUNE_DIRS
+              value: {{ join "," .cachePruneDirs | quote }}
+            - name: JANITOR_INTERVAL_SECONDS
+              value: {{ .intervalSeconds | quote }}
+            - name: FAILED_RETENTION_SECONDS
+              value: {{ .failedRetentionSeconds | quote }}
+            - name: ORPHAN_GRACE_SECONDS
+              value: {{ .orphanGraceSeconds | quote }}
+            - name: HIGH_WATERMARK
+              value: {{ .highWatermark | quote }}
+            {{- end }}
           ports:
             - name: http
               containerPort: 8080
@@ -72,10 +88,20 @@ spec:
           volumeMounts:
             - name: tmp
               mountPath: /tmp
+            - name: workspace
+              mountPath: /workspaces
+            - name: cache
+              mountPath: /cache
       volumes:
         - name: tmp
           emptyDir:
             sizeLimit: 64Mi
+        - name: workspace
+          persistentVolumeClaim:
+            claimName: {{ .Values.name }}-workspace
+        - name: cache
+          persistentVolumeClaim:
+            claimName: {{ .Values.name }}-cache
 ---
 apiVersion: v1
 kind: Service

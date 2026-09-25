@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
+import type { WorkflowState } from "./janitor.ts";
 import type { WorkflowManifest } from "./workflow.ts";
 
 const SA_DIR = "/var/run/secrets/kubernetes.io/serviceaccount";
@@ -10,11 +11,26 @@ export interface WorkflowClient {
   create(manifest: WorkflowManifest): Promise<string>;
   /** Names of workflows matching the selector that have not completed. */
   listActive(namespace: string, labelSelector: string): Promise<string[]>;
+  /** Phase and finish time of every workflow in the namespace, by name. */
+  listStates(namespace: string): Promise<Map<string, WorkflowState>>;
 }
 
 const createdSchema = z.object({ metadata: z.object({ name: z.string() }) });
 const listSchema = z.object({
   items: z.array(z.object({ metadata: z.object({ name: z.string() }) })),
+});
+const statesSchema = z.object({
+  items: z.array(
+    z.object({
+      metadata: z.object({ name: z.string() }),
+      status: z
+        .object({
+          phase: z.string().optional(),
+          finishedAt: z.string().nullish(),
+        })
+        .optional(),
+    }),
+  ),
 });
 
 export interface HttpClientOptions {
@@ -67,6 +83,20 @@ export function httpWorkflowClient(opts: HttpClientOptions): WorkflowClient {
         ),
       );
       return list.items.map((i) => i.metadata.name);
+    },
+    async listStates(namespace) {
+      const list = statesSchema.parse(await call(base(namespace)));
+      return new Map(
+        list.items.map((i): [string, WorkflowState] => [
+          i.metadata.name,
+          {
+            phase: i.status?.phase ?? "",
+            ...(i.status?.finishedAt
+              ? { finishedAt: i.status.finishedAt }
+              : {}),
+          },
+        ]),
+      );
     },
   };
 }

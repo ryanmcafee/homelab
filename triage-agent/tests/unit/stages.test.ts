@@ -14,6 +14,7 @@ import {
   classifyChecks,
   runIdsOf,
 } from "../../src/stages/ci.ts";
+import { cleanupStage } from "../../src/stages/cleanup.ts";
 import { readStageConfig } from "../../src/stages/context.ts";
 import {
   commitStage,
@@ -696,5 +697,29 @@ describe("argocd-sync", () => {
     });
     await argocdSyncStage(deps);
     expect(fake.calls).toEqual(["argocd app sync plex --grpc-web"]);
+  });
+});
+
+describe("cleanup", () => {
+  test("removes the workspace of a succeeded workflow and keeps a failed one for the janitor", async () => {
+    const done = stageDeps({
+      root: fresh(),
+      env: { WORKFLOW_STATUS: "Succeeded" },
+    });
+    done.work.writeJson("triage.json", triage);
+    expect(await cleanupStage(done)).toBe(true);
+    expect(existsSync(done.work.root)).toBe(false);
+
+    const failed = stageDeps({
+      root: fresh(),
+      env: { WORKFLOW_STATUS: "Failed" },
+    });
+    failed.work.writeJson("triage.json", triage);
+    expect(await cleanupStage(failed)).toBe(false);
+    expect(failed.work.has("triage.json")).toBe(true);
+  });
+
+  test("is a registered stage", () => {
+    expect(isStageName("cleanup")).toBe(true);
   });
 });

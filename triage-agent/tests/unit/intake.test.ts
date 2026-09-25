@@ -48,6 +48,7 @@ function fakeClient(active: string[] = []) {
       selectors.push(selector);
       return active;
     },
+    listStates: async () => new Map(),
   };
   return { client, created, selectors };
 }
@@ -164,6 +165,7 @@ describe("createIntake", () => {
         throw new Error("forbidden");
       },
       listActive: async () => [],
+      listStates: async () => new Map(),
     };
     const intake = createIntake(config, { client, logger: silent });
     intake.handleAlerts([alert("PlexDown", "p1")]);
@@ -278,7 +280,20 @@ describe("HTTP clients", () => {
       }
       if (url.pathname.startsWith("/apis/")) {
         return Response.json({
-          items: [{ metadata: { name: "triage-a-old" } }],
+          items: [
+            { metadata: { name: "triage-a-old" } },
+            {
+              metadata: { name: "triage-b-done" },
+              status: {
+                phase: "Succeeded",
+                finishedAt: "2026-09-25T11:00:00Z",
+              },
+            },
+            {
+              metadata: { name: "triage-c-run" },
+              status: { phase: "Running", finishedAt: null },
+            },
+          ],
         });
       }
       return new Response("forbidden", { status: 403 });
@@ -316,12 +331,28 @@ describe("HTTP clients", () => {
 
     expect(
       await client.listActive("triage-agent", `${GROUP_LABEL}=abc`),
-    ).toEqual(["triage-a-old"]);
+    ).toEqual(["triage-a-old", "triage-b-done", "triage-c-run"]);
     const listed = requests.at(-1);
     expect(listed?.auth).toBe("Bearer t2");
     expect(decodeURIComponent(listed?.url ?? "")).toContain(
       "workflows.argoproj.io/completed!=true",
     );
+  });
+
+  test("lists every workflow phase in the namespace", async () => {
+    const client = httpWorkflowClient({ baseUrl: base, token: () => "t" });
+    const states = await client.listStates("triage-agent");
+    expect(requests.at(-1)?.url).toBe(
+      "/apis/argoproj.io/v1alpha1/namespaces/triage-agent/workflows",
+    );
+    expect(Object.fromEntries(states)).toEqual({
+      "triage-a-old": { phase: "" },
+      "triage-b-done": {
+        phase: "Succeeded",
+        finishedAt: "2026-09-25T11:00:00Z",
+      },
+      "triage-c-run": { phase: "Running" },
+    });
   });
 
   test("throws with the API status", async () => {
