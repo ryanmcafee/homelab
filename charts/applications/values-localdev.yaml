@@ -12,7 +12,7 @@ global:
   # Environment identifier
   environment: localdev
 
-  # Base domain for ingress resources
+  # Base domain for route hostnames
   domain: homelab.local
 
   # Git repository for local charts
@@ -151,24 +151,21 @@ plex:
       readOnly: false
   # (dev-dri mount is also added by plex.yaml — see note above.)
 
-  # Ingress configuration
-  ingress:
+  # HTTPRoute on the https listener of the external Gateway (GATEWAY_EXTERNAL);
+  # Cloudflare CNAMEs the hostname to EXTERNAL_DNS_DEFAULT_TARGET.
+  httpRoute:
     enabled: true
-    ingressClassName: external
-    url: "https://plex.homelab.local"
     annotations:
-      cert-manager.io/cluster-issuer: letsencrypt
       external-dns.alpha.kubernetes.io/hostname: plex.homelab.local
       external-dns.alpha.kubernetes.io/target: homelab-dev.duckdns.org
-    hosts:
-      - host: plex.homelab.local
-        paths:
-          - path: /
-            pathType: Prefix
-    tls:
-      - secretName: plex-tls
-        hosts:
-          - plex.homelab.local
+    parentRefs:
+      - group: gateway.networking.k8s.io
+        kind: Gateway
+        name: envoy-external
+        namespace: envoy-gateway-system
+        sectionName: https
+    hostnames:
+      - plex.homelab.local
 
   # Environment variables
   extraEnv:
@@ -245,22 +242,20 @@ sonarr:
       type: emptyDir
       mountPath: /downloads
 
-  ingress:
+  # HTTPRoute on the https listener of the internal Gateway (GATEWAY_INTERNAL).
+  route:
     main:
       enabled: true
-      ingressClassName: internal
       annotations:
-        cert-manager.io/cluster-issuer: letsencrypt
         external-dns.alpha.kubernetes.io/hostname: sonarr.homelab.local
-      hosts:
-        - host: sonarr.homelab.local
-          paths:
-            - path: /
-              pathType: Prefix
-      tls:
-        - secretName: sonarr-tls
-          hosts:
-            - sonarr.homelab.local
+      parentRefs:
+        - group: gateway.networking.k8s.io
+          kind: Gateway
+          name: envoy-internal
+          namespace: envoy-gateway-system
+          sectionName: https
+      hostnames:
+        - sonarr.homelab.local
 
   TZ: America/New_York
   securityContext:
@@ -336,22 +331,20 @@ radarr:
       type: emptyDir
       mountPath: /downloads
 
-  ingress:
+  # HTTPRoute on the https listener of the internal Gateway (GATEWAY_INTERNAL).
+  route:
     main:
       enabled: true
-      ingressClassName: internal
       annotations:
-        cert-manager.io/cluster-issuer: letsencrypt
         external-dns.alpha.kubernetes.io/hostname: radarr.homelab.local
-      hosts:
-        - host: radarr.homelab.local
-          paths:
-            - path: /
-              pathType: Prefix
-      tls:
-        - secretName: radarr-tls
-          hosts:
-            - radarr.homelab.local
+      parentRefs:
+        - group: gateway.networking.k8s.io
+          kind: Gateway
+          name: envoy-internal
+          namespace: envoy-gateway-system
+          sectionName: https
+      hostnames:
+        - radarr.homelab.local
 
   TZ: America/New_York
   securityContext:
@@ -415,22 +408,20 @@ prowlarr:
       storageClass: local-path
       size: 1Gi
 
-  ingress:
+  # HTTPRoute on the https listener of the internal Gateway (GATEWAY_INTERNAL).
+  route:
     main:
       enabled: true
-      ingressClassName: internal
       annotations:
-        cert-manager.io/cluster-issuer: letsencrypt
         external-dns.alpha.kubernetes.io/hostname: prowlarr.homelab.local
-      hosts:
-        - host: prowlarr.homelab.local
-          paths:
-            - path: /
-              pathType: Prefix
-      tls:
-        - secretName: prowlarr-tls
-          hosts:
-            - prowlarr.homelab.local
+      parentRefs:
+        - group: gateway.networking.k8s.io
+          kind: Gateway
+          name: envoy-internal
+          namespace: envoy-gateway-system
+          sectionName: https
+      hostnames:
+        - prowlarr.homelab.local
 
   TZ: America/New_York
   securityContext:
@@ -503,22 +494,20 @@ nzbget:
       type: emptyDir
       mountPath: /downloads
 
-  ingress:
+  # HTTPRoute on the https listener of the internal Gateway (GATEWAY_INTERNAL).
+  route:
     main:
       enabled: true
-      ingressClassName: internal
       annotations:
-        cert-manager.io/cluster-issuer: letsencrypt
         external-dns.alpha.kubernetes.io/hostname: nzbget.homelab.local
-      hosts:
-        - host: nzbget.homelab.local
-          paths:
-            - path: /
-              pathType: Prefix
-      tls:
-        - secretName: nzbget-tls
-          hosts:
-            - nzbget.homelab.local
+      parentRefs:
+        - group: gateway.networking.k8s.io
+          kind: Gateway
+          name: envoy-internal
+          namespace: envoy-gateway-system
+          sectionName: https
+      hostnames:
+        - nzbget.homelab.local
 
   TZ: America/New_York
   securityContext:
@@ -574,22 +563,20 @@ tautulli:
       storageClass: local-path
       size: 1Gi
 
-  ingress:
+  # HTTPRoute on the https listener of the internal Gateway (GATEWAY_INTERNAL).
+  route:
     main:
       enabled: true
-      ingressClassName: internal
       annotations:
-        cert-manager.io/cluster-issuer: letsencrypt
         external-dns.alpha.kubernetes.io/hostname: tautulli.homelab.local
-      hosts:
-        - host: tautulli.homelab.local
-          paths:
-            - path: /
-              pathType: Prefix
-      tls:
-        - secretName: tautulli-tls
-          hosts:
-            - tautulli.homelab.local
+      parentRefs:
+        - group: gateway.networking.k8s.io
+          kind: Gateway
+          name: envoy-internal
+          namespace: envoy-gateway-system
+          sectionName: https
+      hostnames:
+        - tautulli.homelab.local
 
   TZ: America/New_York
   securityContext:
@@ -657,22 +644,20 @@ lazylibrarian:
       type: emptyDir
       mountPath: /downloads
 
-  ingress:
+  # HTTPRoute on the https listener of the internal Gateway (GATEWAY_INTERNAL).
+  route:
     main:
       enabled: true
-      ingressClassName: internal
       annotations:
-        cert-manager.io/cluster-issuer: letsencrypt
         external-dns.alpha.kubernetes.io/hostname: lazylibrarian.homelab.local
-      hosts:
-        - host: lazylibrarian.homelab.local
-          paths:
-            - path: /
-              pathType: Prefix
-      tls:
-        - secretName: lazylibrarian-tls
-          hosts:
-            - lazylibrarian.homelab.local
+      parentRefs:
+        - group: gateway.networking.k8s.io
+          kind: Gateway
+          name: envoy-internal
+          namespace: envoy-gateway-system
+          sectionName: https
+      hostnames:
+        - lazylibrarian.homelab.local
 
   TZ: America/New_York
   securityContext:
@@ -732,22 +717,20 @@ homeassistant:
       storageClass: local-path
       size: 1Gi
 
-  ingress:
+  # HTTPRoute on the https listener of the internal Gateway (GATEWAY_INTERNAL).
+  route:
     main:
       enabled: true
-      ingressClassName: internal
       annotations:
-        cert-manager.io/cluster-issuer: letsencrypt
         external-dns.alpha.kubernetes.io/hostname: homeassistant.homelab.local
-      hosts:
-        - host: homeassistant.homelab.local
-          paths:
-            - path: /
-              pathType: Prefix
-      tls:
-        - secretName: homeassistant-tls
-          hosts:
-            - homeassistant.homelab.local
+      parentRefs:
+        - group: gateway.networking.k8s.io
+          kind: Gateway
+          name: envoy-internal
+          namespace: envoy-gateway-system
+          sectionName: https
+      hostnames:
+        - homeassistant.homelab.local
 
   TZ: America/New_York
 
@@ -999,7 +982,7 @@ paperclip:
         memory: 512Mi
 
   # charts/paperclip: the paperclip.inc Instance (external database mode,
-  # authenticated, private exposure behind the internal Traefik).
+  # authenticated, private exposure behind the internal Gateway).
   instance:
     image:
       repository: ghcr.io/paperclipai/paperclip
@@ -1009,8 +992,10 @@ paperclip:
     admin:
       email: admin@homelab.local
       name: Admin
-    ingress:
-      className: internal
+    route:
+      gateway:
+        name: envoy-internal
+        namespace: envoy-gateway-system
     persistence:
       size: 1Gi
       # Block storage, like the database: the server asserts that its secrets

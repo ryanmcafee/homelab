@@ -1207,7 +1207,7 @@ ${green("Kind localdev ready")}
   cluster:   ${ctx.args.cluster}
   context:   ${ctx.args.context}
   ArgoCD:    ${ARGOCD_URL} (after task localdev:argocd)
-  Traefik:   http://localhost:9080  https://localhost:9443
+  Gateway:   http://localhost:9080  https://localhost:9443 (task localdev:gateway)
   registry:  ${
     ctx.args.noRegistry
       ? "disabled (--no-registry)"

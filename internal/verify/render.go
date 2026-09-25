@@ -606,12 +606,12 @@ func prepareEnv(opts RenderOptions, env Env, k8sVersion string) (*envRender, Che
 		return nil, FailCheck(name, start, fmt.Sprintf("creating %s: %v", envDir, err))
 	}
 
-	domain := ""
-	if v, ok := rc.Values["DOMAIN"]; ok {
-		domain = v.Value
-	}
-	data := fmt.Sprintf("env: %s\ndomain: %s\nkubernetes_version: %s\nargocd_automated_sync: %t\n",
-		env.Name, domain, k8sVersion, automatedSync(rc))
+	value := func(key string) string { return rc.Values[key].Value }
+	domain := value("DOMAIN")
+	data := fmt.Sprintf("env: %s\ndomain: %s\nkubernetes_version: %s\nargocd_automated_sync: %t\n"+
+		"gateway_namespace: %s\ngateway_internal: %s\ngateway_external: %s\n",
+		env.Name, domain, k8sVersion, automatedSync(rc),
+		value("GATEWAY_NAMESPACE"), value("GATEWAY_INTERNAL"), value("GATEWAY_EXTERNAL"))
 	if err := os.WriteFile(filepath.Join(envDir, "_data.yaml"), []byte(data), 0o644); err != nil {
 		return nil, FailCheck(name, start, fmt.Sprintf("writing _data.yaml: %v", err))
 	}

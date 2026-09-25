@@ -12,14 +12,14 @@
  *   configuration/versions.yaml            tool and chart versions (badge row)
  *   charts/addons/templates/*.yaml         addon count (one template = one addon)
  *   charts/applications/templates/*.yaml   application count
- *   tests/snapshots/homelab/*.yaml         ArgoCD Applications, ingress inventory
- *                                          (class + host per Application), chart
+ *   tests/snapshots/homelab/*.yaml         ArgoCD Applications, route inventory
+ *                                          (Gateway + host per Application), chart
  *                                          versions, PostSync smoke Jobs
  *   tests/e2e/<suite>/chainsaw-test.yaml   chainsaw suite count and names
  *
  * Generated regions are fenced in Markdown with
  *   <!-- docs-check:begin <key> -->  ...  <!-- docs-check:end <key> -->
- * and replaced whole. Keys: readme `badges`; docs/networking.md `ingress-table`;
+ * and replaced whole. Keys: readme `badges`; docs/networking.md `route-table`;
  * docs/applications.md `addons-table`, `applications-table`.
  *
  * Literal checks (no region, the sentence around them is hand-written):
@@ -27,8 +27,8 @@
  *                        "<N> chainsaw suites"
  *   .github/homelab.svg  "addons · <N>", "applications · <N>",
  *                        "<N> apps synced", "<N>/<N> suites", and one
- *                        "<host>.&lt;DOMAIN&gt;" per internal ingress host
- *                        (the traefik-internal dashboard is deliberately not
+ *                        "<host>.&lt;DOMAIN&gt;" per envoy-internal route host
+ *                        (the echo comparison route is deliberately not
  *                        drawn). Counter steps in the SVG cannot be regenerated
  *                        by --fix; the check says so when the suite count moves.
  *
@@ -47,18 +47,18 @@ import { parse as parseYaml } from "./lib/yaml.ts";
 // Facts
 // ---------------------------------------------------------------------------
 
-export interface IngressRow {
+export interface RouteRow {
   app: string;
   host: string;
-  class: "external" | "internal";
-  kind: "Ingress" | "IngressRoute";
+  gateway: string;
+  kind: "HTTPRoute" | "Chart";
 }
 
 export interface AppRow {
   name: string;
   source: string; // chart name or git path
   version: string; // chart version, or "git" for path sources
-  ingress: string; // "external: a, b" / "internal: c" / "—"
+  route: string; // "envoy-external: a, b" / "envoy-internal: c" / "—"
   e2e: string; // suite name(s) or "—"
   smoke: string; // Job name(s) or "—"
 }
@@ -70,7 +70,7 @@ export interface Facts {
   argoApplications: number;
   e2eSuites: string[];
   smokeJobs: string[];
-  ingress: IngressRow[];
+  routes: RouteRow[];
   addonApps: AppRow[];
   applicationApps: AppRow[];
 }
@@ -111,57 +111,50 @@ export function countApplications(docs: string[]): number {
   return docs.filter((d) => /^kind: Application$/m.test(d)).length;
 }
 
-const HOST_RE = /\b([a-z0-9][a-z0-9-]*)\.REPLACEME-domain\.com\b/g;
-const CLASS_RE =
-  /^\s*(?:ingressClassName|className|ingressClass):\s*(external|internal)\s*$/m;
+const HOST_RE = /\b([a-z0-9][a-z0-9-]*)\.replaceme-domain\.com\b/gi;
+const GATEWAY_RE =
+  /^\s*-?\s*(?:name|gateway):\s*"?(envoy-(?:internal|external))"?\s*$/m;
 // Lines that name a host for routing (not links, not e-mail, not NFS servers).
 const HOST_LINE_RE =
-  /(hostname:|^\s*-?\s*host:|^\s*-\s+[a-z0-9-]+\.REPLACEME|Host\(`)/;
+  /(hostname:|^\s*-?\s*host:|^\s*-\s+"?[a-z0-9-]+\.replaceme)/i;
 const HOST_LINE_SKIP_RE = /(url:|server:|email|@)/;
 
 /**
- * Ingress inventory from rendered snapshot documents. An Application whose
- * values carry an ingress class contributes every host named on a host line;
- * a standalone IngressRoute contributes the Host() of its matchRule, classed
- * by whether its name says "internal".
+ * Route inventory from rendered snapshot documents. An Application whose
+ * values name an Envoy Gateway contributes every host named on a host line
+ * (its chart renders the HTTPRoute); a standalone HTTPRoute contributes its
+ * hostnames, attached to the first Envoy Gateway among its parentRefs.
  */
-export function ingressInventory(docs: string[]): IngressRow[] {
-  const rows: IngressRow[] = [];
+export function routeInventory(docs: string[]): RouteRow[] {
+  const rows: RouteRow[] = [];
   const seen = new Set<string>();
-  const push = (r: IngressRow) => {
-    const k = `${r.host}|${r.class}`;
+  const push = (r: RouteRow) => {
+    const k = `${r.host}|${r.gateway}`;
     if (seen.has(k)) return;
     seen.add(k);
     rows.push(r);
   };
   for (const doc of docs) {
     const kind = field(doc, "kind");
+    if (kind !== "Application" && kind !== "HTTPRoute") continue;
+    const gateway = doc.match(GATEWAY_RE)?.[1];
+    if (!gateway) continue;
     const name = docName(doc) ?? "?";
-    if (kind === "Application") {
-      const cls = doc.match(CLASS_RE)?.[1] as IngressRow["class"] | undefined;
-      if (!cls) continue;
-      for (const line of doc.split("\n")) {
-        if (!HOST_LINE_RE.test(line) || HOST_LINE_SKIP_RE.test(line)) continue;
-        for (const m of line.matchAll(HOST_RE)) {
-          push({
-            app: name,
-            host: m[1],
-            class: cls,
-            kind: /Host\(`/.test(line) ? "IngressRoute" : "Ingress",
-          });
-        }
-      }
-    } else if (kind === "IngressRoute") {
-      const cls: IngressRow["class"] = /internal/.test(name)
-        ? "internal"
-        : "external";
-      for (const m of doc.matchAll(HOST_RE)) {
-        push({ app: name, host: m[1], class: cls, kind: "IngressRoute" });
+    for (const line of doc.split("\n")) {
+      if (!HOST_LINE_RE.test(line) || HOST_LINE_SKIP_RE.test(line)) continue;
+      for (const m of line.matchAll(HOST_RE)) {
+        push({
+          app: name,
+          host: m[1],
+          gateway,
+          kind: kind === "HTTPRoute" ? "HTTPRoute" : "Chart",
+        });
       }
     }
   }
   return rows.sort(
-    (a, b) => a.class.localeCompare(b.class) || a.host.localeCompare(b.host),
+    (a, b) =>
+      a.gateway.localeCompare(b.gateway) || a.host.localeCompare(b.host),
   );
 }
 
@@ -184,8 +177,7 @@ const SMOKE_ALIASES: Record<string, string[]> = {
 const E2E_ALIASES: Record<string, string[]> = {
   argocd: ["argocd-apps"],
   cilium: ["cilium-netpol"],
-  "traefik-external": ["traefik"],
-  "traefik-internal": ["traefik"],
+  "envoy-gateway-config": ["envoy-gateway"],
   "kube-prometheus-stack": ["grafana"],
   "agent-readonly": ["agent-readonly"],
 };
@@ -211,7 +203,7 @@ function matches(
 /** One row per ArgoCD Application in the given documents. */
 export function applicationRows(
   docs: string[],
-  ingress: IngressRow[],
+  routes: RouteRow[],
   e2eSuites: string[],
   smoke: string[],
 ): AppRow[] {
@@ -223,15 +215,14 @@ export function applicationRows(
     const path = doc.match(/^\s+path:\s*(\S+)/m)?.[1];
     const rev =
       doc.match(/^\s+targetRevision:\s*"?([^"\n]+)"?/m)?.[1]?.trim() ?? "";
-    const ing = ingress.filter((r) => r.app === name);
-    const byClass = new Map<string, string[]>();
-    for (const r of ing) {
-      byClass.set(r.class, [...(byClass.get(r.class) ?? []), r.host]);
+    const byGateway = new Map<string, string[]>();
+    for (const r of routes.filter((r) => r.app === name)) {
+      byGateway.set(r.gateway, [...(byGateway.get(r.gateway) ?? []), r.host]);
     }
-    const ingressText =
-      byClass.size === 0
+    const routeText =
+      byGateway.size === 0
         ? "—"
-        : [...byClass.entries()]
+        : [...byGateway.entries()]
             .map(([c, hosts]) => `${c}: ${hosts.join(", ")}`)
             .join("; ");
     const e2e = matches(name, e2eSuites, E2E_ALIASES, "");
@@ -240,7 +231,7 @@ export function applicationRows(
       name,
       source: chart ?? path ?? "?",
       version: chart ? (SEMVER_RE.test(rev) ? rev : rev || "?") : "git",
-      ingress: ingressText,
+      route: routeText,
       e2e: e2e.length ? e2e.join(", ") : "—",
       smoke: sm.length ? sm.join(", ") : "—",
     });
@@ -259,12 +250,12 @@ export function renderTable(header: string[], rows: string[][]): string {
   );
 }
 
-export function renderIngressTable(rows: IngressRow[]): string {
+export function renderRouteTable(rows: RouteRow[]): string {
   return renderTable(
-    ["Host", "Class", "Kind", "Application"],
+    ["Host", "Gateway", "Kind", "Application"],
     rows.map((r) => [
       `\`${r.host}.<DOMAIN>\``,
-      r.class,
+      r.gateway,
       r.kind,
       `\`${r.app}\``,
     ]),
@@ -273,19 +264,12 @@ export function renderIngressTable(rows: IngressRow[]): string {
 
 export function renderAppTable(rows: AppRow[]): string {
   return renderTable(
-    [
-      "Application",
-      "Source",
-      "Version",
-      "Ingress",
-      "chainsaw e2e",
-      "Smoke Job",
-    ],
+    ["Application", "Source", "Version", "Route", "chainsaw e2e", "Smoke Job"],
     rows.map((r) => [
       `\`${r.name}\``,
       `\`${r.source}\``,
       r.version,
-      r.ingress,
+      r.route,
       r.e2e,
       r.smoke,
     ]),
@@ -362,8 +346,8 @@ export interface Literal {
 /** The hand-written sentences that must carry the computed numbers. */
 export function expectedLiterals(f: Facts): Literal[] {
   const n = f.e2eSuites.length;
-  const internalHosts = f.ingress
-    .filter((r) => r.class === "internal" && r.host !== "traefik-internal")
+  const internalHosts = f.routes
+    .filter((r) => r.gateway === "envoy-internal" && r.host !== "echo")
     .map((r) => r.host);
   return [
     {
@@ -471,7 +455,7 @@ export async function collectFacts(root: string): Promise<Facts> {
     }
   }
 
-  const ingress = ingressInventory(allDocs);
+  const routes = routeInventory(allDocs);
   const smoke = smokeJobs(allDocs);
   const addonDocs =
     byFile.get(`${root}/tests/snapshots/homelab/addons.yaml`) ?? [];
@@ -487,9 +471,9 @@ export async function collectFacts(root: string): Promise<Facts> {
     argoApplications: countApplications(allDocs),
     e2eSuites,
     smokeJobs: smoke,
-    ingress,
-    addonApps: applicationRows(addonDocs, ingress, e2eSuites, smoke),
-    applicationApps: applicationRows(appDocs, ingress, e2eSuites, smoke),
+    routes,
+    addonApps: applicationRows(addonDocs, routes, e2eSuites, smoke),
+    applicationApps: applicationRows(appDocs, routes, e2eSuites, smoke),
   };
 }
 
@@ -510,8 +494,8 @@ export function regionSpecs(f: Facts): RegionSpec[] {
     { file: "readme.md", key: "badges", body: renderBadges(f.versions) },
     {
       file: "docs/networking.md",
-      key: "ingress-table",
-      body: renderIngressTable(f.ingress),
+      key: "route-table",
+      body: renderRouteTable(f.routes),
     },
     {
       file: "docs/applications.md",
@@ -660,7 +644,7 @@ async function main(): Promise<number> {
     );
   } else if (remaining.length === 0) {
     console.log(
-      `docs-check: in sync (${facts.addons} addons, ${facts.applications} applications, ${facts.argoApplications} Applications, ${facts.e2eSuites.length} suites, ${facts.ingress.length} ingress hosts)`,
+      `docs-check: in sync (${facts.addons} addons, ${facts.applications} applications, ${facts.argoApplications} Applications, ${facts.e2eSuites.length} suites, ${facts.routes.length} route hosts)`,
     );
   } else {
     for (const d of remaining) {

@@ -31,8 +31,14 @@ global:
   # Environment identifier
   environment: {{ .Set }}
 
-  # Base domain for ingress resources
+  # Base domain for route hostnames
   domain: {{ .Values.DOMAIN.Value }}
+
+  # Gateways every HTTPRoute attaches to (addons.gatewayParentRefs).
+  gateway:
+    namespace: {{ .Values.GATEWAY_NAMESPACE.Value }}
+    internal: {{ .Values.GATEWAY_INTERNAL.Value }}
+    external: {{ .Values.GATEWAY_EXTERNAL.Value }}
 
   # Default storage class for persistent volumes
   storageClass: {{ .Values.STORAGE_CLASS_NFS.Value }}
@@ -109,7 +115,7 @@ kubelet-csr-approver:
       memory: {{ if $localdev }}128Mi{{ else }}96Mi{{ end }}
 
 # ============================================================================
-# metrics-server - metrics.k8s.io for kubectl top and the Traefik HPAs
+# metrics-server - metrics.k8s.io for kubectl top and the Envoy proxy HPAs
 # ============================================================================
 
 metrics-server:
@@ -259,8 +265,8 @@ cilium:
           filePath: /var/run/cilium/hubble/events.log
           # Every flow of the paperclip request path, and every drop or error.
           allowList:
-            - '{"source_pod":["paperclip/","traefik/"]}'
-            - '{"destination_pod":["paperclip/","traefik/"]}'
+            - '{"source_pod":["paperclip/","{{ .Values.GATEWAY_NAMESPACE.Value }}/"]}'
+            - '{"destination_pod":["paperclip/","{{ .Values.GATEWAY_NAMESPACE.Value }}/"]}'
             - '{"verdict":["DROPPED","ERROR"]}'
           fileMaxSizeMb: 50
           fileMaxBackups: 3
@@ -277,14 +283,13 @@ cilium:
 {{- end }}
 
   # charts/cilium-config: ServiceMonitors for the agent, operator and Hubble
-  # metrics, and the Hubble UI ingress, where the Talos values enable them.
+  # metrics, and the Hubble UI HTTPRoute, where the Talos values enable them.
   config:
     monitoring:
       enabled: {{ not $localdev }}
     hubbleUI:
       enabled: {{ not $localdev }}
       host: {{ .Values.HUBBLE_HOSTNAME.Value }}
-      ingressClassName: {{ .Values.INGRESS_CLASS_INTERNAL.Value }}
 
 # ============================================================================
 # Cilium LB IPAM - LoadBalancer IP Management + BGP
@@ -861,12 +866,8 @@ external-dns:
 
   provider: cloudflare
 
-  # Only watch ingress resources for Cloudflare DNS
-  # CRD source has its own dedicated deployment (external-dns-cloudflare-crd)
-  # Ingress class filtering (--ingress-class=external) is applied in the template
-  # to ensure only external ingresses (e.g., Plex) publish to Cloudflare
-  sources:
-    - ingress
+  # Only HTTPRoutes on the external Gateway publish to Cloudflare (e.g. Plex);
+  # templates/external-dns-cloudflare.yaml sets the source and --gateway-name.
 
   cloudflare:
     apiToken: ""
@@ -1006,18 +1007,10 @@ kube-prometheus-stack:
       storageClass: {{ .Values.STORAGE_CLASS_ISCSI.Value }}
       size: {{ if $localdev }}1Gi{{ else }}10Gi{{ end }}
 
-    ingress:
+    # HTTPRoute on the internal Gateway (GATEWAY_INTERNAL).
+    route:
       enabled: true
-      ingressClassName: {{ .Values.INGRESS_CLASS_INTERNAL.Value }}
-      annotations:
-        cert-manager.io/cluster-issuer: letsencrypt
-        external-dns.alpha.kubernetes.io/hostname: {{ .Values.GRAFANA_HOSTNAME.Value }}
-      hosts:
-        - {{ .Values.GRAFANA_HOSTNAME.Value }}
-      tls:
-        - secretName: grafana-tls
-          hosts:
-            - {{ .Values.GRAFANA_HOSTNAME.Value }}
+      hostname: {{ .Values.GRAFANA_HOSTNAME.Value }}
 
     resources:
       requests:
@@ -1042,11 +1035,9 @@ kube-prometheus-stack:
 
     # grafana.com dashboards the Grafana init container downloads into the
     # "homelab" folder; revisions are pinned. The ClickHouse operator chart
-    # ships its own dashboards as sidecar ConfigMaps.
+    # ships its own dashboards as sidecar ConfigMaps, and so does
+    # charts/grafana-config for Envoy Gateway and the ingress overview.
     dashboards:
-      traefik:
-        gnetId: 17347
-        revision: 9
       opentelemetry-collector:
         gnetId: 15983
         revision: 30
@@ -1097,18 +1088,10 @@ kube-prometheus-stack:
       enabled: {{ and (not $localdev) $onepassword }}
       secretName: alertmanager-notifications
       onePasswordItemPath: "{{ if $onepassword }}{{ .Values.ALERTMANAGER_1P_PATH.Value }}{{ end }}"
-    ingress:
+    # HTTPRoute on the internal Gateway (GATEWAY_INTERNAL).
+    route:
       enabled: true
-      ingressClassName: {{ .Values.INGRESS_CLASS_INTERNAL.Value }}
-      annotations:
-        cert-manager.io/cluster-issuer: letsencrypt
-        external-dns.alpha.kubernetes.io/hostname: {{ .Values.ALERTMANAGER_HOSTNAME.Value }}
-      hosts:
-        - {{ .Values.ALERTMANAGER_HOSTNAME.Value }}
-      tls:
-        - secretName: alertmanager-tls
-          hosts:
-            - {{ .Values.ALERTMANAGER_HOSTNAME.Value }}
+      hostname: {{ .Values.ALERTMANAGER_HOSTNAME.Value }}
     storage:
       volumeClaimTemplate:
         spec:
@@ -1207,357 +1190,129 @@ kube-prometheus-stack:
       expect: ["200"]
 
 # ============================================================================
-# Traefik External - External Ingress Controller
-# Sync Wave: 6
+# Gateway API CRDs (standard channel) for Envoy Gateway, the Istio gateways
+# and waypoints
+# Sync Wave: 1
 # ============================================================================
 
-traefikExternal:
+gatewayApi:
   enabled: true
-  namespace: traefik
+  repo: https://github.com/kubernetes-sigs/gateway-api.git
+  version: "{{ index .Versions.Charts "gateway-api" }}"
+
+# ============================================================================
+# Envoy Gateway - internal and external ingress (docs/networking.md)
+# Sync Waves: 4 CRDs, 5 controller, 6 envoy-gateway-config (both Gateways)
+# Routes attach to the https listener of GATEWAY_INTERNAL or GATEWAY_EXTERNAL.
+# ============================================================================
+
+envoy-gateway:
+  enabled: true
+  namespace: {{ .Values.GATEWAY_NAMESPACE.Value }}
 
   chart:
-    name: traefik
-    repo: https://traefik.github.io/charts
-    version: {{ .Versions.Charts.traefik }}
+    repo: docker.io/envoyproxy
+    version: "{{ index .Versions.Charts "envoy-gateway" }}"
 
-  service:
-    type: {{ if $lb }}LoadBalancer{{ else }}NodePort{{ end }}
-    spec:
-      externalTrafficPolicy: Cluster
+  controller:
+    replicas: {{ if $localdev }}1{{ else }}2{{ end }}
+    serviceMonitor: true
+    resources:
+      requests:
+        cpu: {{ if $localdev }}50m{{ else }}100m{{ end }}
+        memory: {{ if $localdev }}128Mi{{ else }}256Mi{{ end }}
+      limits:
+        cpu: "1"
+        memory: 1Gi
+
+  gateways:
+    # LAN and tailnet: every internal hostname (external-dns-unifi publishes
+    # its routes to UniFi DNS).
+    internal:
+      enabled: true
+      config:
+        name: {{ .Values.GATEWAY_INTERNAL.Value }}
+        service:
 {{- if $lb }}
-    # Static IP for predictable port forwarding and DNS
-    annotations:
-      # Cilium LB IPAM annotation for static IP assignment
-      io.cilium/lb-ipam-ips: "{{ .Values.TRAEFIK_STATIC_IP.Value }}"
-      port-forwarding.{{ .Values.DOMAIN.Value }}/enable: "true"
-{{- end }}
-
-  ports:
-    web:
-      port: 8000
-      exposedPort: 80
-      expose:
-        default: true
-      http:
-        redirections:
-          entryPoint:
-            to: websecure
-            scheme: https
-            permanent: true
-    websecure:
-      port: 8443
-      exposedPort: 443
-      expose:
-        default: true
-      asDefault: true
-      http:
-        tls:
-          enabled: true
-      transport:
-        respondingTimeouts:
-          readTimeout: 0
-          writeTimeout: 0
-          idleTimeout: 600s
-    traefik:
-      port: 9000
-      expose:
-        default: true
-
-  # Global arguments moved to additionalArguments in v39+
-  additionalArguments:
-    - --global.checknewversion=false
-    - --global.sendanonymoususage=false
-
-  # JSON access logs on stdout (collected by the OpenTelemetry agents into
-  # ClickHouse, docs/logging.md) and a metrics Service + ServiceMonitor on the
-  # metrics entrypoint (:9100) that kube-prometheus-stack scrapes.
-  logs:
-    access:
-      enabled: true
-      format: json
-      # Every general field is kept (ClientHost, RequestHost/Path/Method,
-      # Duration, OriginDuration, OriginStatus, DownstreamStatus, RouterName,
-      # ServiceURL, RetryAttempts, TraceId, SpanId); of the headers only these.
-      headers:
-        User-Agent: keep
-        Traceparent: keep
-  metrics:
-    serviceMonitor:
-      enabled: true
-  # W3C traceparent is started or continued here and forwarded to the
-  # backend; spans go to the OpenTelemetry gateway collector (docs/tracing.md).
-  tracing:
-    enabled: true
-    endpoint: otel-collector-gateway.observability.svc.cluster.local:4317
-    sampleRate: {{ if $localdev }}1.0{{ else }}0.1{{ end }}
-
-  # OIDC Plugin for authentication (replaces oauth2-proxy)
-  experimental:
-    plugins:
-      traefikoidc:
-        moduleName: github.com/lukaszraczylo/traefikoidc
-        version: {{ index .Versions.Charts "traefik-oidc" }}
-
-  # OIDC middleware configuration (client credentials and session key are 1Password items)
-  oidc:
-    enabled: {{ $onepassword }}
-    providerURL: "{{ .Values.TRAEFIK_OIDC_PROVIDER_URL.Value }}"
-    # Use path format - plugin constructs full URL from request host
-    callbackURL: "/oauth2/callback"
-    logoutURL: "/oauth2/logout"
-    scopes:
-      - openid
-      - profile
-      - email
-    allowedDomains:
-      - {{ .Values.TRAEFIK_OIDC_ALLOWED_DOMAINS.Value }}
-    sessionEncryptionKeyPath: {{ .Values.TRAEFIK_OIDC_SESSION_KEY_PATH.Value }}
-    googleOAuthPath: {{ .Values.TRAEFIK_GOOGLE_OAUTH_PATH.Value }}
-
-  # Volume mounts for OIDC secrets
-{{- if $onepassword }}
-  volumes:
-    - name: google-oauth-credentials
-      mountPath: /etc/traefik/oidc/google
-      type: secret
-    - name: oidc-session-key
-      mountPath: /etc/traefik/oidc/session
-      type: secret
+          type: LoadBalancer
+          staticIP: "{{ .Values.GATEWAY_INTERNAL_STATIC_IP.Value }}"
 {{- else }}
-  volumes: []
+          type: ClusterIP
 {{- end }}
-
-  env: []
-
-  # Persistence disabled - ACME removed
-  persistence:
-    enabled: false
-
-  ingressRoute:
-    dashboard:
-      enabled: true
-      matchRule: Host(`{{ .Values.TRAEFIK_HOSTNAME.Value }}`)
-      entryPoints: ["websecure"]
-      tls:
-        secretName: traefik-dashboard-tls
 {{- if $localdev }}
-
-  # Kind sizing: one replica on a single node, no HPA
-  resources:
-    requests:
-      cpu: 50m
-      memory: 128Mi
-    limits:
-      cpu: 200m
-      memory: 256Mi
-
-  deployment:
-    replicas: 1
-
-  topologySpreadConstraints: []
-
-  autoscaling:
-    enabled: false
+        replicas: 1
+        autoscaling:
+          enabled: false
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 500m
+            memory: 256Mi
 {{- else }}
-
-  resources:
-    requests:
-      cpu: 100m
-      memory: 192Mi
-    limits:
-      cpu: 1000m
-      memory: 320Mi
-
-  deployment:
-    replicas: 2
-
-  topologySpreadConstraints:
-    - maxSkew: 1
-      topologyKey: kubernetes.io/hostname
-      whenUnsatisfiable: DoNotSchedule
-      labelSelector:
-        matchLabels:
-          app.kubernetes.io/name: traefik
-          app.kubernetes.io/instance: traefik-external
-
-  autoscaling:
-    enabled: true
-    minReplicas: 2
-    maxReplicas: 3
-    metrics:
-      - type: Resource
-        resource:
-          name: cpu
-          target:
-            type: Utilization
-            averageUtilization: 80
-{{- end }}
-
-  cloudflare:
-    enabled: {{ $onepassword }}
-    onePasswordItemPath: {{ .Values.TRAEFIK_CLOUDFLARE_1P_PATH.Value }}
-
-  # Values handed to the traefik-external-config child chart through the
-  # traefik-external-config Application's helm.valuesObject. The child's
-  # committed values-homelab.yaml carries no hostnames, IPs or domains.
-  config:
-    dashboard:
-      host: {{ .Values.TRAEFIK_HOSTNAME.Value }}
-      staticIP: "{{ .Values.TRAEFIK_STATIC_IP.Value }}"
-    oidc:
-      host: {{ .Values.AUTH_HOSTNAME.Value }}
-      allowedDomains:
-        - {{ .Values.TRAEFIK_OIDC_ALLOWED_DOMAINS.Value }}
-
-# ============================================================================
-# Traefik Internal - Internal Ingress Controller
-# Sync Wave: 6
-# ============================================================================
-
-traefikInternal:
-  enabled: true
-  namespace: traefik
-
-  chart:
-    name: traefik
-    repo: https://traefik.github.io/charts
-    version: {{ .Versions.Charts.traefik }}
-
-  service:
-    type: {{ if $lb }}LoadBalancer{{ else }}NodePort{{ end }}
-    spec:
-      externalTrafficPolicy: Cluster
-    # No static IP - Cilium LB IPAM assigns dynamically
-    # No port forwarding - internal only
-
-  ports:
-    web:
-      port: 8000
-      exposedPort: 80
-      expose:
-        default: true
-      http:
-        redirections:
-          entryPoint:
-            to: websecure
-            scheme: https
-            permanent: true
-    websecure:
-      port: 8443
-      exposedPort: 443
-      expose:
-        default: true
-      asDefault: true
-      http:
-        tls:
+        replicas: 2
+        autoscaling:
           enabled: true
-      transport:
-        respondingTimeouts:
-          readTimeout: 0
-          writeTimeout: 0
-          idleTimeout: 600s
-    traefik:
-      port: 9000
-      expose:
-        default: true
-
-  additionalArguments:
-    - --global.checknewversion=false
-    - --global.sendanonymoususage=false
-
-  # JSON access logs on stdout (collected by the OpenTelemetry agents into
-  # ClickHouse, docs/logging.md) and a metrics Service + ServiceMonitor on the
-  # metrics entrypoint (:9100) that kube-prometheus-stack scrapes.
-  logs:
-    access:
-      enabled: true
-      format: json
-      # Every general field is kept (ClientHost, RequestHost/Path/Method,
-      # Duration, OriginDuration, OriginStatus, DownstreamStatus, RouterName,
-      # ServiceURL, RetryAttempts, TraceId, SpanId); of the headers only these.
-      headers:
-        User-Agent: keep
-        Traceparent: keep
-  metrics:
-    serviceMonitor:
-      enabled: true
-  # W3C traceparent is started or continued here and forwarded to the
-  # backend; spans go to the OpenTelemetry gateway collector (docs/tracing.md).
-  tracing:
-    enabled: true
-    endpoint: otel-collector-gateway.observability.svc.cluster.local:4317
-    sampleRate: {{ if $localdev }}1.0{{ else }}0.1{{ end }}
-
-  env: []
-
-  persistence:
-    enabled: false
-
-  ingressRoute:
-    dashboard:
-      enabled: true
-      matchRule: Host(`{{ .Values.TRAEFIK_INTERNAL_HOSTNAME.Value }}`)
-      entryPoints: ["websecure"]
-      tls:
-        secretName: traefik-internal-dashboard-tls
-{{- if $localdev }}
-
-  # Kind sizing: one replica on a single node, no HPA
-  resources:
-    requests:
-      cpu: 50m
-      memory: 128Mi
-    limits:
-      cpu: 200m
-      memory: 256Mi
-
-  deployment:
-    replicas: 1
-
-  topologySpreadConstraints: []
-
-  autoscaling:
-    enabled: false
-{{- else }}
-
-  resources:
-    requests:
-      cpu: 100m
-      memory: 48Mi
-    limits:
-      cpu: 1000m
-      memory: 96Mi
-
-  deployment:
-    replicas: 2
-
-  topologySpreadConstraints:
-    - maxSkew: 1
-      topologyKey: kubernetes.io/hostname
-      whenUnsatisfiable: DoNotSchedule
-      labelSelector:
-        matchLabels:
-          app.kubernetes.io/name: traefik
-          app.kubernetes.io/instance: traefik-internal
-
-  autoscaling:
-    enabled: true
-    minReplicas: 2
-    maxReplicas: 3
-    metrics:
-      - type: Resource
-        resource:
-          name: cpu
-          target:
-            type: Utilization
-            averageUtilization: 80
+          minReplicas: 2
+          maxReplicas: 3
+          targetCPUUtilizationPercentage: 80
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: "1"
+            memory: 512Mi
 {{- end }}
+        tracing:
+          enabled: {{ $logging }}
+          samplingRate: {{ if $localdev }}100{{ else }}10{{ end }}
 
-  # Values handed to the traefik-internal-config child chart through the
-  # traefik-internal-config Application's helm.valuesObject.
-  config:
-    dashboard:
-      host: {{ .Values.TRAEFIK_INTERNAL_HOSTNAME.Value }}
+    # Internet: WAN 80/443 are port-forwarded to its static IP; external-dns
+    # publishes its routes to Cloudflare.
+    external:
+      enabled: true
+      config:
+        name: {{ .Values.GATEWAY_EXTERNAL.Value }}
+        service:
+{{- if $lb }}
+          type: LoadBalancer
+          staticIP: "{{ .Values.GATEWAY_EXTERNAL_STATIC_IP.Value }}"
+          annotations:
+            port-forwarding.{{ .Values.DOMAIN.Value }}/enable: "true"
+{{- else }}
+          type: ClusterIP
+{{- end }}
+{{- if $localdev }}
+        replicas: 1
+        autoscaling:
+          enabled: false
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 500m
+            memory: 256Mi
+{{- else }}
+        replicas: 2
+        autoscaling:
+          enabled: true
+          minReplicas: 2
+          maxReplicas: 3
+          targetCPUUtilizationPercentage: 80
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: "1"
+            memory: 512Mi
+{{- end }}
+        tracing:
+          enabled: {{ $logging }}
+          samplingRate: {{ if $localdev }}100{{ else }}10{{ end }}
 
 # ============================================================================
 # UniFi Port Forwarding Controller - Automatic Port Forwards
@@ -1573,7 +1328,7 @@ unifi-port-forward:
   onePasswordItemPath: {{ .Values.UNIFI_PORT_FORWARD_1P_PATH.Value }}
 
 # ============================================================================
-# OAuth2-Proxy - Zero-Trust Authentication (DISABLED - replaced by Traefik OIDC plugin)
+# OAuth2-Proxy - Zero-Trust Authentication (DISABLED)
 # Sync Wave: 6-8
 # ============================================================================
 
@@ -1584,8 +1339,11 @@ oauth2-proxy:
   chart:
     version: "{{ index .Versions.Charts "oauth2-proxy" }}"
 
+  # External route auth.<DOMAIN>; Cloudflare CNAMEs it to this target.
+  externalDNSTarget: {{ .Values.EXTERNAL_DNS_DEFAULT_TARGET.Value }}
+
   # 1Password paths for secrets
-  googleOAuthPath: {{ .Values.TRAEFIK_GOOGLE_OAUTH_PATH.Value }}
+  googleOAuthPath: {{ .Values.GOOGLE_OAUTH_1P_PATH.Value }}
   cookieSecretPath: vaults/homelab/items/oauth2-proxy-cookie
 
   # Allowed email domains for authentication
@@ -1675,7 +1433,7 @@ node-feature-discovery:
 
 # ============================================================================
 # Argo Workflows - Workflow Orchestration
-# Sync Wave: 7 (after core infrastructure)
+# Sync Wave: 9 (after core infrastructure)
 # ============================================================================
 
 argo-workflows:
@@ -1691,21 +1449,10 @@ argo-workflows:
   server:
     authMode: server
 
-    ingress:
+    # HTTPRoute on the internal Gateway (GATEWAY_INTERNAL).
+    route:
       enabled: true
-      ingressClassName: {{ .Values.INGRESS_CLASS_INTERNAL.Value }}
-      annotations:
-        cert-manager.io/cluster-issuer: letsencrypt
-        external-dns.alpha.kubernetes.io/hostname: {{ .Values.WORKFLOWS_HOSTNAME.Value }}
-      hosts:
-        - {{ .Values.WORKFLOWS_HOSTNAME.Value }}
-      paths:
-        - /
-      pathType: Prefix
-      tls:
-        - secretName: argo-workflows-tls
-          hosts:
-            - {{ .Values.WORKFLOWS_HOSTNAME.Value }}
+      hostname: {{ .Values.WORKFLOWS_HOSTNAME.Value }}
 
     resources:
       requests:
@@ -1732,18 +1479,6 @@ argo-workflows:
           secondsAfterFailure: 172800
 
 # ============================================================================
-# Traefik CRDs (traefik.io only) for both Traefik releases
-# Sync Wave: 4 (before traefik-*-dependencies at 5 and the controllers at 6)
-# ============================================================================
-
-traefikCrds:
-  enabled: true
-  chart:
-    name: traefik-crds
-    repo: https://traefik.github.io/charts
-    version: "{{ index .Versions.Charts "traefik-crds" }}"
-
-# ============================================================================
 # Istio ambient mesh + Kiali (docs/service-mesh.md)
 # Sync Waves: 2 istio-base, 3 istiod + istio-cni, 4 ztunnel, 5 istio-config,
 # 10 kiali. No namespace is enrolled here: SERVICE_MESH_AMBIENT_NAMESPACES
@@ -1759,10 +1494,17 @@ istio:
     # The storage.googleapis.com repository ends at 1.30.5; 1.31 is published here.
     repo: https://blob.istio.io/istio-release/charts
     version: "{{ .Versions.Charts.istio }}"
-  # Standard-channel Gateway API CRDs; a waypoint is a Gateway of class istio-waypoint.
-  gatewayApi:
-    repo: https://github.com/kubernetes-sigs/gateway-api.git
-    version: "{{ index .Versions.Charts "gateway-api" }}"
+  # Internal/external Gateways of classes istio-internal/istio-external next to
+  # Envoy Gateway, for comparison only (charts/istio-gateways).
+  gateways:
+    enabled: true
+    config:
+      namespace: istio-ingress
+      serviceType: {{ if $lb }}LoadBalancer{{ else }}ClusterIP{{ end }}
+      echo:
+        envoyGateway:
+          name: {{ .Values.GATEWAY_INTERNAL.Value }}
+          namespace: {{ .Values.GATEWAY_NAMESPACE.Value }}
 
   # Waypoint spans to the OpenTelemetry gateway collector (OTLP gRPC).
   # ztunnel is L4 only and emits no spans (docs/service-mesh.md).
@@ -1819,8 +1561,6 @@ istio:
       repo: https://kiali.org/helm-charts
       version: "{{ index .Versions.Charts "kiali-server" }}"
     hostname: {{ .Values.SERVICEMESH_HOSTNAME.Value }}
-    ingress:
-      className: {{ .Values.INGRESS_CLASS_INTERNAL.Value }}
     prometheusUrl: http://kube-prometheus-stack-prometheus.monitoring.svc.cluster.local:9090
     grafana:
       internalUrl: http://kube-prometheus-stack-grafana.monitoring.svc.cluster.local:80
@@ -1954,23 +1694,11 @@ logging:
         limits:
           cpu: "1"
           memory: 512Mi
-      # OTLP/HTTP with TLS for clients outside the cluster.
-      ingress:
+      # OTLP/HTTP (port 4318) with TLS for clients outside the cluster, on
+      # the internal Gateway.
+      route:
         enabled: true
-        ingressClassName: {{ .Values.INGRESS_CLASS_INTERNAL.Value }}
-        annotations:
-          cert-manager.io/cluster-issuer: letsencrypt
-          external-dns.alpha.kubernetes.io/hostname: {{ .Values.OTLP_HOSTNAME.Value }}
-        hosts:
-          - host: {{ .Values.OTLP_HOSTNAME.Value }}
-            paths:
-              - path: /
-                pathType: Prefix
-                port: 4318
-        tls:
-          - secretName: otlp-tls
-            hosts:
-              - {{ .Values.OTLP_HOSTNAME.Value }}
+        hostname: {{ .Values.OTLP_HOSTNAME.Value }}
 {{- if $lb }}
       service:
         type: LoadBalancer
@@ -2004,9 +1732,9 @@ blackbox-exporter:
     name: prometheus-blackbox-exporter
     repo: https://prometheus-community.github.io/helm-charts
     version: "{{ index .Versions.Charts "prometheus-blackbox-exporter" }}"
-  # Every 15 s: through DNS and traefik-internal (in-cluster, so the LB
-  # address resolves but Cilium short-circuits it to Traefik without the
-  # L2/BGP hop) and straight to the pod's Service, so a failure names the hop.
+  # Every 15 s: through DNS and the internal Envoy Gateway (in-cluster, so the
+  # LB address resolves but Cilium short-circuits it to the Envoy pods without
+  # the L2/BGP hop) and straight to the pod's Service, so a failure names the hop.
   targets:
     - name: paperclip-ingress
       url: https://{{ .Values.PAPERCLIP_HOSTNAME.Value }}/api/health

@@ -1,18 +1,18 @@
 # Policy-as-code (conftest / Rego)
 
 Rego policies enforced over every rendered ArgoCD Application, workload, Secret,
-and hostname object in the GitOps repo. Evaluated by `internal/verify.Policy`
+route and hostname object in the GitOps repo. Evaluated by `internal/verify.Policy`
 (level 0, `policy/<env>` checks) and by this directory's own test suite.
 
 ## Layout
 
 | Path | Purpose |
 |------|---------|
-| `lib.rego` | Shared helpers: `data.domain`, exemption annotations, object id. |
+| `lib.rego` | Shared helpers: `data.domain`, the `data.gateway_*` names, inline Application values, exemption annotations, object id. |
 | `application.rego` | `app-finalizer`, `app-sync-wave`, `app-ssa`, `app-automated`. |
 | `applicationset.rego` | `appset-finalizer`, `appset-ssa`, `appset-project`, `appset-automated` (the `spec.template` of an `ApplicationSet`). |
 | `workload.rego` | `image-latest`, `container-resources`, `cronjob-ttl`. |
-| `ingressroute.rego` | `ingressroute-class`. |
+| `httproute.rego` | `httproute-parent`, `no-ingress`. |
 | `secret.rego` | `inline-secret`. |
 | `hostname.rego` | `hostname-domain`, plus the domain-missing safety net. |
 | `*_test.rego` | Rego unit tests (`conftest verify -p tests/policy`). |
@@ -34,9 +34,10 @@ and hostname object in the GitOps repo. Evaluated by `internal/verify.Policy`
 | `image-latest` | `Deployment`/`StatefulSet`/`DaemonSet`/`Job`/`CronJob`/`Pod` containers, and `image.tag` parsed out of an `Application`'s inline `spec.source.helm.values` | No container image ending in `:latest` or without a tag. A tag is only recognized in the *last* `/`-separated path segment (`registry.local:5000/app` is untagged; `registry.local:5000/app:1.2.3` is pinned), or a `@digest` reference anywhere in the string. |
 | `container-resources` | same workload kinds | Every container sets `resources.requests`/`resources.limits` for both `cpu` and `memory`. |
 | `cronjob-ttl` | `CronJob` | `spec.jobTemplate.spec.ttlSecondsAfterFinished` is a number. `KubeJobFailed` fires for as long as a failed Job object exists, and `failedJobsHistoryLimit` only trims a failed Job when a newer failure replaces it, so without a TTL one transient failure alerts forever. |
-| `ingressroute-class` | Traefik `IngressRoute` | Annotation `kubernetes.io/ingress.class` is `external` or `internal`. Both Traefik instances filter the CRD provider by class, so a route without it is loaded by neither and serves the default certificate. |
+| `httproute-parent` | `HTTPRoute` `parentRefs`, and any `parentRefs` list in an `Application`'s inline helm values | Every parent is the `https` listener (`sectionName: https`) of `data.gateway_internal` or `data.gateway_external` in `data.gateway_namespace` (written into `_data.yaml` from `GATEWAY_*`). The `http` listener only redirects, so it accepts only redirect routes (no `backendRefs`). The Istio comparison gateways (`istio-internal`/`istio-external` in `istio-ingress`) accept only the route `echo`. Inline `parentRefs` must name their namespace. |
+| `no-ingress` | `networking.k8s.io` `Ingress`, and any `ingress...enabled: true` in an `Application`'s inline helm values (outside a `networkPolicy` key) | Absent. Envoy Gateway does not implement Ingress, so an Ingress applies cleanly and is never served; use an HTTPRoute (the chart's native route support). |
 | `inline-secret` | `Secret` | `data`/`stringData` keys are a subset of `name, url, type, enableOCI, project, insecure` (the ArgoCD repository-secret shape). Anything else is treated as inline secret material that should live in 1Password/SOPS instead. |
-| `hostname-domain` | `Ingress` hosts, Traefik `IngressRoute` `Host()` matches, cert-manager `Certificate` `dnsNames`, external-dns `DNSEndpoint` `dnsName`, **and** any hostname embedded in an `Application`'s inline `spec.source.helm.values`/`valuesObject` (any `Host(...)` matcher found in any string, or a value under a `host`/`hostname`/`hosts[]`/`dnsNames[]`/`commonName` key, anywhere in the parsed tree) | Ends with `.` + `data.domain` (the environment's base domain). |
+| `hostname-domain` | `HTTPRoute` `hostnames`, `Gateway` listener `hostname`, cert-manager `Certificate` `dnsNames`, external-dns `DNSEndpoint` `dnsName`, **and** any hostname embedded in an `Application`'s inline `spec.source.helm.values`/`valuesObject` (a value under a `host`/`hostname`/`hosts[]`/`hostnames[]`/`dnsNames[]`/`commonName`/`externalHostname` key, or the host of an http(s) `url`, anywhere in the parsed tree) | Is `data.domain` itself or ends with `.` + `data.domain` (the environment's base domain). |
 
 Deny messages are formatted `[<rule-id>] <Kind>/<namespace>/<name>: <why>`.
 
@@ -53,7 +54,7 @@ a fail-open bug. Two layers guard against it:
    (`policy data missing domain`) without running conftest at all if
    `domain` is missing or empty.
 2. `hostname.rego` carries its own `domain_missing` rule: for the four
-   directly-checked kinds (`Ingress`, `IngressRoute`, `Certificate`,
+   directly-checked kinds (`HTTPRoute`, `Gateway`, `Certificate`,
    `DNSEndpoint`) it denies once per matching document with
    `[hostname-domain] policy data missing domain` if `data.domain` is
    undefined, empty, or `null`. This is defense in depth for anyone running
@@ -96,7 +97,7 @@ Current exemptions in the rendered repo:
 There is no per-environment `hostname-domain` exemption: localdev renders
 `addons`/`applications` from the config-generated, committed
 `charts/*/values-localdev.yaml` (`task config:export:localdev`, issue #263), so
-its Ingress/IngressRoute hostnames derive from `DOMAIN` exactly as homelab's do.
+its route hostnames derive from `DOMAIN` exactly as homelab's do.
 
 ## Running
 

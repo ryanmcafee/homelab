@@ -1,6 +1,6 @@
 {{- if index .Values "argo-workflows" "enabled" }}
 # Argo Workflows - Workflow Orchestration Engine
-# Sync Wave: 9 (after traefik-config for OIDC middleware)
+# Sync Wave: 9
 ---
 apiVersion: v1
 kind: Namespace
@@ -19,7 +19,6 @@ metadata:
   labels:
     {{- include "addons.labels" . | nindent 4 }}
   annotations:
-    # Wave 9: After traefik-config (wave 8) so OIDC middleware is available
     argocd.argoproj.io/sync-wave: "9"
   finalizers:
     - resources-finalizer.argocd.argoproj.io
@@ -35,23 +34,17 @@ spec:
       values: |
         server:
           authMode: {{ index .Values "argo-workflows" "server" "authMode" }}
-          {{- if index .Values "argo-workflows" "server" "ingress" "enabled" }}
-          ingress:
+          {{- with (index .Values "argo-workflows" "server" "route") }}
+          {{- if .enabled }}
+          httproute:
             enabled: true
-            ingressClassName: {{ index .Values "argo-workflows" "server" "ingress" "ingressClassName" }}
-            {{- if index .Values "argo-workflows" "server" "ingress" "annotations" }}
             annotations:
-              {{- toYaml (index .Values "argo-workflows" "server" "ingress" "annotations") | nindent 14 }}
-            {{- end }}
-            hosts:
-              {{- toYaml (index .Values "argo-workflows" "server" "ingress" "hosts") | nindent 14 }}
-            paths:
-              {{- toYaml (index .Values "argo-workflows" "server" "ingress" "paths") | nindent 14 }}
-            pathType: {{ index .Values "argo-workflows" "server" "ingress" "pathType" }}
-            {{- if index .Values "argo-workflows" "server" "ingress" "tls" }}
-            tls:
-              {{- toYaml (index .Values "argo-workflows" "server" "ingress" "tls") | nindent 14 }}
-            {{- end }}
+              external-dns.alpha.kubernetes.io/hostname: {{ .hostname }}
+            parentRefs:
+              {{- include "addons.gatewayParentRefs" (dict "root" $ "gateway" "internal") | nindent 14 }}
+            hostnames:
+              - {{ .hostname }}
+          {{- end }}
           {{- end }}
           resources:
             {{- toYaml (index .Values "argo-workflows" "server" "resources") | nindent 12 }}

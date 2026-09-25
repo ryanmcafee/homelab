@@ -122,10 +122,10 @@ diff --git a/configuration/schema/applications.schema.yaml b/configuration/schem
 diff --git a/configuration/templates/helm-apps.tmpl b/configuration/templates/helm-apps.tmpl
 --- a/configuration/templates/helm-apps.tmpl
 +++ b/configuration/templates/helm-apps.tmpl
-@@ -16,3 +16,65 @@
+@@ -16,3 +16,63 @@
      main:
-       hosts:
-         - host: {{ .Values.SONARR_HOSTNAME.Value }}
+       hostnames:
+         - {{ .Values.SONARR_HOSTNAME.Value }}
 +
 +# ============================================================================
 +# demo-generic - upstream Helm chart (scaffolded)
@@ -167,20 +167,18 @@ diff --git a/configuration/templates/helm-apps.tmpl b/configuration/templates/he
 +        cpu: 500m
 +        memory: 512Mi
 +{{- end }}
-+    ingress:
++    httpRoute:
 +      enabled: true
-+      className: {{ .Values.INGRESS_CLASS_INTERNAL.Value }}
 +      annotations:
-+        cert-manager.io/cluster-issuer: letsencrypt
-+      hosts:
-+        - host: {{ .Values.DEMO_GENERIC_HOSTNAME.Value }}
-+          paths:
-+            - path: /
-+              pathType: Prefix
-+      tls:
-+        - secretName: demo-generic-tls
-+          hosts:
-+            - {{ .Values.DEMO_GENERIC_HOSTNAME.Value }}
++        external-dns.alpha.kubernetes.io/hostname: {{ .Values.DEMO_GENERIC_HOSTNAME.Value }}
++      parentRefs:
++        - group: gateway.networking.k8s.io
++          kind: Gateway
++          name: {{ .Values.GATEWAY_INTERNAL.Value }}
++          namespace: {{ .Values.GATEWAY_NAMESPACE.Value }}
++          sectionName: https
++      hostnames:
++        - {{ .Values.DEMO_GENERIC_HOSTNAME.Value }}
 +
 +  # PostSync smoke hook (charts/applications/templates/_smoke.tpl): curl the
 +  # in-cluster Service after sync; expect lists the accepted HTTP codes.
@@ -242,7 +240,7 @@ diff --git a/tests/e2e/demo-generic/chainsaw-test.yaml b/tests/e2e/demo-generic/
 new file mode 100644
 --- /dev/null
 +++ b/tests/e2e/demo-generic/chainsaw-test.yaml
-@@ -0,0 +1,115 @@
+@@ -0,0 +1,138 @@
 +---
 +# Scaffolded by `homelab scaffold app demo-generic`; see tests/e2e/README.md.
 +apiVersion: chainsaw.kyverno.io/v1alpha1
@@ -251,7 +249,8 @@ new file mode 100644
 +  name: demo-generic
 +spec:
 +  description: >-
-+    demo-generic / answers through the internal Traefik with Host demo-generic.homelab.local.
++    The demo-generic HTTPRoute is accepted by envoy-internal and demo-generic /
++    answers through it with Host demo-generic.homelab.local.
 +  steps:
 +    - name: applications-healthy
 +      description: The ArgoCD Applications behind this test are Healthy and their last sync Succeeded.
@@ -274,10 +273,32 @@ new file mode 100644
 +            kind: Application
 +            name: demo-generic
 +            namespace: argocd
++    - name: route-demo-generic
++      description: The demo-generic HTTPRoute is Accepted by envoy-internal and its backend refs resolve.
++      try:
++        - assert:
++            resource:
++              apiVersion: gateway.networking.k8s.io/v1
++              kind: HTTPRoute
++              metadata:
++                name: demo-generic
++                namespace: media
++              status:
++                (parents[?parentRef.name == 'envoy-internal']):
++                  - (conditions[?type == 'Accepted']):
++                      - status: "True"
++                    (conditions[?type == 'ResolvedRefs']):
++                      - status: "True"
++      catch:
++        - describe:
++            apiVersion: gateway.networking.k8s.io/v1
++            kind: HTTPRoute
++            name: demo-generic
++            namespace: media
 +    - name: curl-demo-generic
 +      description: >-
 +        A curl Job must get one of [200]
-+        from https://demo-generic.homelab.local/ via traefik-internal.traefik.svc.cluster.local.
++        from https://demo-generic.homelab.local/ via envoy-internal.envoy-gateway-system.svc.cluster.local.
 +      timeouts:
 +        assert: 5m
 +      try:
@@ -317,7 +338,7 @@ new file mode 100644
 +                          - name: HOST
 +                            value: "demo-generic.homelab.local"
 +                          - name: GATEWAY
-+                            value: "traefik-internal.traefik.svc.cluster.local"
++                            value: "envoy-internal.envoy-gateway-system.svc.cluster.local"
 +                          - name: URL_PATH
 +                            value: "/"
 +                          - name: EXPECT

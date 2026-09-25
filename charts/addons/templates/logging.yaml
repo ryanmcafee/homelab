@@ -240,9 +240,24 @@ spec:
         service:
           {{- toYaml . | nindent 10 }}
         {{- end }}
-        {{- with $otel.ingress }}
-        ingress:
-          {{- toYaml . | nindent 10 }}
+        {{- with $otel.route }}
+        {{- if .enabled }}
+        httproute:
+          enabled: true
+          annotations:
+            external-dns.alpha.kubernetes.io/hostname: {{ .hostname }}
+          parentRefs:
+            {{- include "addons.gatewayParentRefs" (dict "root" $ "gateway" "internal") | nindent 12 }}
+          hostnames:
+            - {{ .hostname }}
+          rules:
+            - matches:
+                - path:
+                    type: PathPrefix
+                    value: /
+              backendRefs:
+                - port: 4318
+        {{- end }}
         {{- end }}
         {{- end }}
         image:

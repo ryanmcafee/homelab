@@ -210,7 +210,7 @@ func TestScaffoldAppHelpDocumentsTheContract(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		"operator", "helm", "deps-main-config", "cloudnative-pg", "sonarr", "traefik-external",
+		"operator", "helm", "deps-main-config", "cloudnative-pg", "sonarr", "grafana-config",
 		"--chart-repo", "--crd-group", "--huge-crds", "--no-regenerate", "--dry-run",
 		"tests/gitops/crd-providers.yaml", "configuration/versions.yaml", "Exit status",
 	} {

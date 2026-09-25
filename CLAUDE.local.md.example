@@ -18,7 +18,8 @@ CLAUDE.local.md is gitignored and contains environment-specific PII.
 | Worker 2 | 192.168.x.22 |
 | Worker 3 | 192.168.x.23 |
 | LoadBalancer Pool | 192.168.x.x-z |
-| Traefik Static IP | 192.168.x.x |
+| Gateway External Static IP (`envoy-external`) | 192.168.x.x |
+| Gateway Internal Static IP (`envoy-internal`) | 192.168.x.x |
 
 ### Hostnames
 | Service | Hostname |

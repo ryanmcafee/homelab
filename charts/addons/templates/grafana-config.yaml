@@ -25,8 +25,6 @@ spec:
       valuesObject:
         iscsi:
           portal: {{ .Values.global.iscsi.portal | quote }}
-        alertSource:
-          ingressClassName: {{ (index .Values "kube-prometheus-stack" "grafana" "ingress" "ingressClassName") | quote }}
   destination:
     server: https://kubernetes.default.svc
     namespace: {{ (index .Values "kube-prometheus-stack").namespace }}

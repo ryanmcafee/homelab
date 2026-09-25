@@ -26,7 +26,7 @@ global:
   # Environment identifier
   environment: {{ .Set }}
 
-  # Base domain for ingress resources
+  # Base domain for route hostnames
   domain: {{ .Values.DOMAIN.Value }}
 
   # Git repository for local charts
@@ -237,24 +237,21 @@ plex:
       readOnly: false
   # (dev-dri mount is also added by plex.yaml — see note above.)
 
-  # Ingress configuration
-  ingress:
+  # HTTPRoute on the https listener of the external Gateway (GATEWAY_EXTERNAL);
+  # Cloudflare CNAMEs the hostname to EXTERNAL_DNS_DEFAULT_TARGET.
+  httpRoute:
     enabled: true
-    ingressClassName: {{ .Values.INGRESS_CLASS_EXTERNAL.Value }}
-    url: "https://{{ .Values.PLEX_HOSTNAME.Value }}"
     annotations:
-      cert-manager.io/cluster-issuer: letsencrypt
       external-dns.alpha.kubernetes.io/hostname: {{ .Values.PLEX_HOSTNAME.Value }}
       external-dns.alpha.kubernetes.io/target: {{ .Values.EXTERNAL_DNS_DEFAULT_TARGET.Value }}
-    hosts:
-      - host: {{ .Values.PLEX_HOSTNAME.Value }}
-        paths:
-          - path: /
-            pathType: Prefix
-    tls:
-      - secretName: plex-tls
-        hosts:
-          - {{ .Values.PLEX_HOSTNAME.Value }}
+    parentRefs:
+      - group: gateway.networking.k8s.io
+        kind: Gateway
+        name: {{ .Values.GATEWAY_EXTERNAL.Value }}
+        namespace: {{ .Values.GATEWAY_NAMESPACE.Value }}
+        sectionName: https
+    hostnames:
+      - {{ .Values.PLEX_HOSTNAME.Value }}
 
   # Environment variables
   extraEnv:
@@ -349,22 +346,20 @@ sonarr:
 {{- end }}
       mountPath: /downloads
 
-  ingress:
+  # HTTPRoute on the https listener of the internal Gateway (GATEWAY_INTERNAL).
+  route:
     main:
       enabled: true
-      ingressClassName: {{ .Values.INGRESS_CLASS_INTERNAL.Value }}
       annotations:
-        cert-manager.io/cluster-issuer: letsencrypt
         external-dns.alpha.kubernetes.io/hostname: {{ .Values.SONARR_HOSTNAME.Value }}
-      hosts:
-        - host: {{ .Values.SONARR_HOSTNAME.Value }}
-          paths:
-            - path: /
-              pathType: Prefix
-      tls:
-        - secretName: sonarr-tls
-          hosts:
-            - {{ .Values.SONARR_HOSTNAME.Value }}
+      parentRefs:
+        - group: gateway.networking.k8s.io
+          kind: Gateway
+          name: {{ .Values.GATEWAY_INTERNAL.Value }}
+          namespace: {{ .Values.GATEWAY_NAMESPACE.Value }}
+          sectionName: https
+      hostnames:
+        - {{ .Values.SONARR_HOSTNAME.Value }}
 
   TZ: {{ .Values.TIMEZONE.Value }}
   securityContext:
@@ -458,22 +453,20 @@ radarr:
 {{- end }}
       mountPath: /downloads
 
-  ingress:
+  # HTTPRoute on the https listener of the internal Gateway (GATEWAY_INTERNAL).
+  route:
     main:
       enabled: true
-      ingressClassName: {{ .Values.INGRESS_CLASS_INTERNAL.Value }}
       annotations:
-        cert-manager.io/cluster-issuer: letsencrypt
         external-dns.alpha.kubernetes.io/hostname: {{ .Values.RADARR_HOSTNAME.Value }}
-      hosts:
-        - host: {{ .Values.RADARR_HOSTNAME.Value }}
-          paths:
-            - path: /
-              pathType: Prefix
-      tls:
-        - secretName: radarr-tls
-          hosts:
-            - {{ .Values.RADARR_HOSTNAME.Value }}
+      parentRefs:
+        - group: gateway.networking.k8s.io
+          kind: Gateway
+          name: {{ .Values.GATEWAY_INTERNAL.Value }}
+          namespace: {{ .Values.GATEWAY_NAMESPACE.Value }}
+          sectionName: https
+      hostnames:
+        - {{ .Values.RADARR_HOSTNAME.Value }}
 
   TZ: {{ .Values.TIMEZONE.Value }}
   securityContext:
@@ -543,22 +536,20 @@ prowlarr:
       size: 1Gi
 {{- end }}
 
-  ingress:
+  # HTTPRoute on the https listener of the internal Gateway (GATEWAY_INTERNAL).
+  route:
     main:
       enabled: true
-      ingressClassName: {{ .Values.INGRESS_CLASS_INTERNAL.Value }}
       annotations:
-        cert-manager.io/cluster-issuer: letsencrypt
         external-dns.alpha.kubernetes.io/hostname: {{ .Values.PROWLARR_HOSTNAME.Value }}
-      hosts:
-        - host: {{ .Values.PROWLARR_HOSTNAME.Value }}
-          paths:
-            - path: /
-              pathType: Prefix
-      tls:
-        - secretName: prowlarr-tls
-          hosts:
-            - {{ .Values.PROWLARR_HOSTNAME.Value }}
+      parentRefs:
+        - group: gateway.networking.k8s.io
+          kind: Gateway
+          name: {{ .Values.GATEWAY_INTERNAL.Value }}
+          namespace: {{ .Values.GATEWAY_NAMESPACE.Value }}
+          sectionName: https
+      hostnames:
+        - {{ .Values.PROWLARR_HOSTNAME.Value }}
 
   TZ: {{ .Values.TIMEZONE.Value }}
   securityContext:
@@ -643,22 +634,20 @@ nzbget:
 {{- end }}
       mountPath: /downloads
 
-  ingress:
+  # HTTPRoute on the https listener of the internal Gateway (GATEWAY_INTERNAL).
+  route:
     main:
       enabled: true
-      ingressClassName: {{ .Values.INGRESS_CLASS_INTERNAL.Value }}
       annotations:
-        cert-manager.io/cluster-issuer: letsencrypt
         external-dns.alpha.kubernetes.io/hostname: {{ .Values.NZBGET_HOSTNAME.Value }}
-      hosts:
-        - host: {{ .Values.NZBGET_HOSTNAME.Value }}
-          paths:
-            - path: /
-              pathType: Prefix
-      tls:
-        - secretName: nzbget-tls
-          hosts:
-            - {{ .Values.NZBGET_HOSTNAME.Value }}
+      parentRefs:
+        - group: gateway.networking.k8s.io
+          kind: Gateway
+          name: {{ .Values.GATEWAY_INTERNAL.Value }}
+          namespace: {{ .Values.GATEWAY_NAMESPACE.Value }}
+          sectionName: https
+      hostnames:
+        - {{ .Values.NZBGET_HOSTNAME.Value }}
 
   TZ: {{ .Values.TIMEZONE.Value }}
   securityContext:
@@ -720,22 +709,20 @@ tautulli:
       size: 1Gi
 {{- end }}
 
-  ingress:
+  # HTTPRoute on the https listener of the internal Gateway (GATEWAY_INTERNAL).
+  route:
     main:
       enabled: true
-      ingressClassName: {{ .Values.INGRESS_CLASS_INTERNAL.Value }}
       annotations:
-        cert-manager.io/cluster-issuer: letsencrypt
         external-dns.alpha.kubernetes.io/hostname: {{ .Values.TAUTULLI_HOSTNAME.Value }}
-      hosts:
-        - host: {{ .Values.TAUTULLI_HOSTNAME.Value }}
-          paths:
-            - path: /
-              pathType: Prefix
-      tls:
-        - secretName: tautulli-tls
-          hosts:
-            - {{ .Values.TAUTULLI_HOSTNAME.Value }}
+      parentRefs:
+        - group: gateway.networking.k8s.io
+          kind: Gateway
+          name: {{ .Values.GATEWAY_INTERNAL.Value }}
+          namespace: {{ .Values.GATEWAY_NAMESPACE.Value }}
+          sectionName: https
+      hostnames:
+        - {{ .Values.TAUTULLI_HOSTNAME.Value }}
 
   TZ: {{ .Values.TIMEZONE.Value }}
   securityContext:
@@ -821,22 +808,20 @@ lazylibrarian:
 {{- end }}
       mountPath: /downloads
 
-  ingress:
+  # HTTPRoute on the https listener of the internal Gateway (GATEWAY_INTERNAL).
+  route:
     main:
       enabled: true
-      ingressClassName: {{ .Values.INGRESS_CLASS_INTERNAL.Value }}
       annotations:
-        cert-manager.io/cluster-issuer: letsencrypt
         external-dns.alpha.kubernetes.io/hostname: {{ .Values.LAZYLIBRARIAN_HOSTNAME.Value }}
-      hosts:
-        - host: {{ .Values.LAZYLIBRARIAN_HOSTNAME.Value }}
-          paths:
-            - path: /
-              pathType: Prefix
-      tls:
-        - secretName: lazylibrarian-tls
-          hosts:
-            - {{ .Values.LAZYLIBRARIAN_HOSTNAME.Value }}
+      parentRefs:
+        - group: gateway.networking.k8s.io
+          kind: Gateway
+          name: {{ .Values.GATEWAY_INTERNAL.Value }}
+          namespace: {{ .Values.GATEWAY_NAMESPACE.Value }}
+          sectionName: https
+      hostnames:
+        - {{ .Values.LAZYLIBRARIAN_HOSTNAME.Value }}
 
   TZ: {{ .Values.TIMEZONE.Value }}
   securityContext:
@@ -902,22 +887,20 @@ homeassistant:
       size: 1Gi
 {{- end }}
 
-  ingress:
+  # HTTPRoute on the https listener of the internal Gateway (GATEWAY_INTERNAL).
+  route:
     main:
       enabled: true
-      ingressClassName: {{ .Values.INGRESS_CLASS_INTERNAL.Value }}
       annotations:
-        cert-manager.io/cluster-issuer: letsencrypt
         external-dns.alpha.kubernetes.io/hostname: {{ .Values.HOMEASSISTANT_HOSTNAME.Value }}
-      hosts:
-        - host: {{ .Values.HOMEASSISTANT_HOSTNAME.Value }}
-          paths:
-            - path: /
-              pathType: Prefix
-      tls:
-        - secretName: homeassistant-tls
-          hosts:
-            - {{ .Values.HOMEASSISTANT_HOSTNAME.Value }}
+      parentRefs:
+        - group: gateway.networking.k8s.io
+          kind: Gateway
+          name: {{ .Values.GATEWAY_INTERNAL.Value }}
+          namespace: {{ .Values.GATEWAY_NAMESPACE.Value }}
+          sectionName: https
+      hostnames:
+        - {{ .Values.HOMEASSISTANT_HOSTNAME.Value }}
 
   TZ: {{ .Values.TIMEZONE.Value }}
 
@@ -1204,7 +1187,7 @@ paperclip:
 {{- end }}
 
   # charts/paperclip: the paperclip.inc Instance (external database mode,
-  # authenticated, private exposure behind the internal Traefik).
+  # authenticated, private exposure behind the internal Gateway).
   instance:
     image:
       repository: ghcr.io/paperclipai/paperclip
@@ -1214,8 +1197,10 @@ paperclip:
     admin:
       email: {{ .Values.PAPERCLIP_ADMIN_EMAIL.Value }}
       name: Admin
-    ingress:
-      className: {{ .Values.INGRESS_CLASS_INTERNAL.Value }}
+    route:
+      gateway:
+        name: {{ .Values.GATEWAY_INTERNAL.Value }}
+        namespace: {{ .Values.GATEWAY_NAMESPACE.Value }}
     persistence:
 {{- if $localdev }}
       size: 1Gi

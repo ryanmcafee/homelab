@@ -1,7 +1,7 @@
 # Networking
 
 How traffic reaches the cluster and how names resolve, from the repository as it is today:
-Cilium load balancing with BGP to the UniFi gateway, two Traefik ingress lanes, two
+Cilium load balancing with BGP to the UniFi gateway, two Envoy Gateway Gateways, two
 external-dns providers, the port-forwarding controller, and Tailscale for remote access.
 
 Addresses and hostnames are `<KEY>` placeholders resolved from the gitignored
@@ -14,8 +14,8 @@ add-on.
 
 - [Overview](#overview)
 - [Load balancing: Cilium LB IPAM and BGP](#load-balancing-cilium-lb-ipam-and-bgp)
-- [Ingress: two Traefiks](#ingress-two-traefiks)
-- [Ingress inventory](#ingress-inventory)
+- [Ingress: Envoy Gateway](#ingress-envoy-gateway)
+- [Route inventory](#route-inventory)
 - [DNS: external-dns](#dns-external-dns)
 - [Port forwarding](#port-forwarding)
 - [Tailscale](#tailscale)
@@ -38,23 +38,25 @@ flowchart LR
   gw <-->|"BGP: LoadBalancer /32 routes"| cilium
   subgraph cluster["Talos cluster, Cilium AS64512"]
     cilium["CiliumLoadBalancerIPPool default\n<LB_POOL_START>-<LB_POOL_END>"]
-    cilium --> te["traefik-external\n<TRAEFIK_STATIC_IP>, class external\noidc-auth middleware"]
-    cilium --> ti["traefik-internal\nclass internal"]
+    cilium --> te["Gateway envoy-external\n<GATEWAY_EXTERNAL_STATIC_IP>"]
+    cilium --> ti["Gateway envoy-internal\n<GATEWAY_INTERNAL_STATIC_IP>"]
+    cilium --> istio["Gateways istio-internal/istio-external\ncomparison, echo only"]
     cilium --> plexsvc["plex Service <PLEX_LB_IP>:32400"]
     te --> plex[plex]
     ti --> apps["argocd, grafana, workflows, paperclip,\nsonarr, radarr, prowlarr, nzbget, tautulli, lazylibrarian"]
   end
-  cluster -->|external-dns-cloudflare, class external| cf[(Cloudflare DNS)]
-  cluster -->|external-dns-unifi-ingress, class internal| gw
+  cluster -->|external-dns-cloudflare, HTTPRoutes on envoy-external| cf[(Cloudflare DNS)]
+  cluster -->|external-dns-unifi-ingress, HTTPRoutes on envoy-internal| gw
 ```
 
 | Component | Role | Where |
 |-----------|------|-------|
 | UniFi gateway | Router, firewall, DHCP, LAN DNS for `<DOMAIN>`, BGP peer (FRR, AS `<BGP_ROUTER_ASN>` = 64513) | `terragrunt/modules/unifi-gateway` |
 | Cilium | CNI, kube-proxy replacement, LoadBalancer IPAM, BGP speaker (AS 64512), L2 announcements | `charts/addons/templates/cilium.yaml`, `cilium-lb-ipam.yaml` |
-| Traefik ×2 | `external` lane (Internet, OIDC) and `internal` lane (LAN + tailnet) | `charts/addons/templates/traefik-external.yaml`, `traefik-internal.yaml` |
+| Envoy Gateway | Gateway API ingress: Gateway `envoy-external` (Internet) and `envoy-internal` (LAN + tailnet), TLS termination | `charts/addons/templates/envoy-gateway.yaml`, `charts/envoy-gateway-config` |
+| Istio gateways | `istio-internal` / `istio-external`, deployed only to compare with Envoy Gateway | `charts/addons/templates/istio.yaml`, `charts/istio-gateways` |
 | cert-manager | Let's Encrypt via Cloudflare DNS-01 (`CERT_ISSUER=letsencrypt`) | `charts/addons/templates/cert-manager.yaml`, `charts/cert-manager-cluster-issuer` |
-| external-dns | Cloudflare records for the external lane, UniFi records for the internal lane | `charts/addons/templates/external-dns-*.yaml` |
+| external-dns | Cloudflare records for `envoy-external` routes, UniFi records for `envoy-internal` routes | `charts/addons/templates/external-dns-*.yaml` |
 | duckdns | Keeps `<DUCKDNS_SUBDOMAIN>.duckdns.org` on the current WAN address | `charts/applications/templates/duckdns.yaml`, `charts/duckdns` |
 | port-forwarding-controller | Creates UniFi port forwards from annotated Services | `charts/addons/templates/unifi-port-forward.yaml` |
 | Tailscale operator | Subnet router, API server proxy, split DNS | `charts/addons/templates/tailscale-operator.yaml`, `charts/tailscale-config` |
@@ -65,7 +67,7 @@ flowchart LR
 
 ```mermaid
 flowchart LR
-  svc["Service type=LoadBalancer\n(optional io.cilium/lb-ipam-ips: <TRAEFIK_STATIC_IP>)"] --> pool["CiliumLoadBalancerIPPool default\n<LB_POOL_START>-<LB_POOL_END>"]
+  svc["Service type=LoadBalancer\n(optional io.cilium/lb-ipam-ips: <GATEWAY_EXTERNAL_STATIC_IP>)"] --> pool["CiliumLoadBalancerIPPool default\n<LB_POOL_START>-<LB_POOL_END>"]
   pool --> adv["CiliumBGPAdvertisement loadbalancer-ips\nlabel advertise=loadbalancer-ips (advertisementType: Service)"]
   adv --> bgp["CiliumBGPClusterConfig homelab-bgp\nlocalASN 64512, nodeSelector: workers only\nCiliumBGPPeerConfig unifi-gateway-peer (ipv4 unicast, advertise: loadbalancer-ips)"]
   bgp <-->|"TCP 179, /32 per Service IP"| frr["UniFi FRR AS64513\nrouter bgp 64513, neighbor <WORKER1_IP>/<WORKER2_IP>/<WORKER3_IP> remote-as 64512\nmaximum-paths 3 (ECMP)\n(unifi_bgp.this, frr-bgp-64513.conf)"]
@@ -77,7 +79,7 @@ flowchart LR
 
 | Resource | Name | What it does |
 |----------|------|--------------|
-| `CiliumLoadBalancerIPPool` | `default` | Allocates `<LB_POOL_START>`-`<LB_POOL_END>` to `LoadBalancer` Services; a Service pins an address with `io.cilium/lb-ipam-ips` (Traefik external: `<TRAEFIK_STATIC_IP>`, Plex: `<PLEX_LB_IP>`) |
+| `CiliumLoadBalancerIPPool` | `default` | Allocates `<LB_POOL_START>`-`<LB_POOL_END>` to `LoadBalancer` Services; a Service pins an address with `io.cilium/lb-ipam-ips` (`envoy-external`: `<GATEWAY_EXTERNAL_STATIC_IP>`, `envoy-internal`: `<GATEWAY_INTERNAL_STATIC_IP>`, Plex: `<PLEX_LB_IP>`) |
 | `CiliumLoadBalancerIPPool` | `control-plane-vip` | A one-address pool for `<CP_VIP>` selected by `serviceSelector`, for a Service that opts in with the `cilium.io/pool: control-plane-vip` label |
 | `CiliumBGPClusterConfig` | `homelab-bgp` | Local AS `64512`; runs on the workers only (`nodeSelector` control-plane `DoesNotExist`, the same selector as the L2 policy), peering with every entry in `cilium-lb-ipam.bgp.peers` (`<BGP_PEER_IP>` = `<GATEWAY_IP>`, AS `<BGP_ROUTER_ASN>`) |
 | `CiliumBGPPeerConfig` | `unifi-gateway-peer` | Timers, graceful restart and the `ipv4/unicast` family; `families[].advertisements` selects `CiliumBGPAdvertisement`s labelled `advertise: loadbalancer-ips` (without it Cilium advertises nothing) |
@@ -90,83 +92,181 @@ worker, `soft-reconfiguration inbound`, `maximum-paths` = number of neighbors so
 installs an ECMP route across every worker advertising a /32) and uploads it with the `unifi_bgp` resource
 (`task tf:apply:component COMPONENT=unifi-gateway`). Private ASNs per RFC 6996.
 
-In Kind `LOAD_BALANCER_ENABLED=false`: Services are NodePort, none of these CRs render.
+In Kind `LOAD_BALANCER_ENABLED=false`: Services are NodePort or ClusterIP (the Envoy and
+Istio gateway Services are ClusterIP, so their Gateways report the ClusterIP and become
+`Programmed`), and none of these CRs render.
 
 ---
 
-## Ingress: two Traefiks
+## Ingress: Envoy Gateway
 
-Two independent Traefik releases from the same chart (`charts.traefik`) with their own
-IngressClass, so a workload is either reachable from the Internet or only from the LAN and
-tailnet, never by accident both (design: `docs/plans/2026-02-13-dual-traefik-ingress-design.md`).
+Envoy Gateway (`charts.envoy-gateway`, v1.9) runs two Gateways, each with its own
+GatewayClass, EnvoyProxy and LoadBalancer Service, so a workload is either reachable from
+the Internet or only from the LAN and tailnet, never by accident both.
 
-| | `traefik-external` | `traefik-internal` |
+| | `envoy-external` (`GATEWAY_EXTERNAL`) | `envoy-internal` (`GATEWAY_INTERNAL`) |
 |--|--------------------|--------------------|
-| IngressClass | `external` (`INGRESS_CLASS_EXTERNAL`) | `internal` (`INGRESS_CLASS_INTERNAL`) |
-| Service address | `<TRAEFIK_STATIC_IP>` (`io.cilium/lb-ipam-ips`), `externalTrafficPolicy: Cluster` | from the `default` pool |
+| GatewayClass / Gateway / Service | `envoy-external` in `envoy-gateway-system` (`GATEWAY_NAMESPACE`) | `envoy-internal` in `envoy-gateway-system` |
+| Service address | `<GATEWAY_EXTERNAL_STATIC_IP>` (`io.cilium/lb-ipam-ips`), `externalTrafficPolicy: Cluster` | `<GATEWAY_INTERNAL_STATIC_IP>` when set, otherwise from the `default` pool |
 | Reached from | Internet through the UniFi port forward `kube-*` on 80/443, and the LAN | LAN and tailnet only; no port forward, no public DNS |
-| DNS | Cloudflare (`external-dns-cloudflare`, `--ingress-class=external`) | UniFi (`external-dns-unifi-ingress`, `--ingress-class=internal`) |
-| Authentication | `Middleware oidc-auth` (`traefikoidc` plugin, `charts.traefik-oidc`): Google OIDC, `allowedDomains` from `TRAEFIK_OIDC_ALLOWED_DOMAINS`, sessions in `oidc-redis`; callback host `auth.<DOMAIN>` (`IngressRoute auth-oidc`) | none at the edge; apps authenticate themselves |
-| Dashboard | `IngressRoute` on `<TRAEFIK_HOSTNAME>` (`traefik.<DOMAIN>`) | `IngressRoute` on `<TRAEFIK_INTERNAL_HOSTNAME>` (`traefik-internal.<DOMAIN>`) |
-| Child charts | `traefik-external-dependencies` (OnePasswordItems: OAuth client, session key), `traefik-external-config` (middleware, `auth-tls` Certificate, `auth-dns` DNSEndpoint, dashboard route) | `traefik-internal-dependencies`, `traefik-internal-config` |
+| DNS | Cloudflare (`external-dns-cloudflare`, `--gateway-name=envoy-external`) | UniFi (`external-dns-unifi-ingress`, `--gateway-name=envoy-internal`) |
+| Authentication | none at the edge; apps authenticate themselves | none at the edge |
+| Sizing (homelab) | 2-3 replicas (HPA on CPU), topology spread, PDB | same |
 
-`oauth2-proxy` has a template in `charts/addons` but is disabled everywhere
-(`oauth2-proxy.enabled: false`); the OIDC lane is the Traefik plugin. Certificates come from
-cert-manager's `letsencrypt` ClusterIssuer (Cloudflare DNS-01); Kind uses a self-signed
-issuer of the same name (`CERT_ISSUER=selfsigned`). No Gateway API resources exist.
+Applications and Kind wiring:
 
-Every application Ingress sets `ingressClassName` from `global.ingressClassNameExternal` /
-`global.ingressClassNameInternal` in the rendered values; Plex is the only external one.
+- `charts/addons/templates/gateway-api-crds.yaml` (wave 1): standard-channel Gateway API
+  CRDs (`charts.gateway-api`), the only producer; Envoy Gateway and Istio both render
+  without them.
+- `charts/addons/templates/envoy-gateway.yaml`: `envoy-gateway-crds` (wave 4,
+  `gateway.envoyproxy.io` CRDs), `envoy-gateway` (wave 5, controller from the OCI chart
+  `docker.io/envoyproxy/gateway-helm`), and `envoy-gateway-config` (wave 6, `charts/envoy-gateway-config`), which renders both
+  Gateways from `gateways.internal` / `gateways.external` over shared `defaults`, plus the
+  wildcard Certificate.
+- Per Gateway the chart renders GatewayClass, EnvoyProxy (Service, replicas, access log,
+  tracing), Gateway, the http-to-https redirect HTTPRoute, ClientTrafficPolicy,
+  BackendTrafficPolicy and a PodMonitor.
+
+### Listeners and TLS
+
+Each Gateway has two listeners:
+
+| Listener | Port | Hostname | Routes allowed | Purpose |
+|----------|------|----------|----------------|---------|
+| `http` | 80 | any | same namespace only | `<gateway>-https-redirect` answers every request with a 301 to https |
+| `https` | 443 | `*.<DOMAIN>` | all namespaces | TLS terminated with Secret `gateway-wildcard-tls`; every application route attaches here |
+
+TLS is terminated at the Gateway with one cert-manager Certificate for `<DOMAIN>` and
+`*.<DOMAIN>` (issuer `letsencrypt`, Cloudflare DNS-01; self-signed issuer of the same name in
+Kind, `CERT_ISSUER=selfsigned`) in `envoy-gateway-system`. A wildcard needs DNS-01, so HTTP-01
+is gone: `charts/cert-manager-cluster-issuer` fails to render a `letsencrypt` issuer without
+Cloudflare. Routes and applications carry no
+TLS blocks, no cert-manager annotations and no per-app certificates.
+
+### Route convention
+
+Every UI is a Gateway API `HTTPRoute`, rendered through the upstream chart's native route
+support where it has one (TrueCharts `route.main`, grafana `route.main`, argo-cd
+`server.httproute`, argo-workflows `server.httproute`, opentelemetry-collector `httproute`,
+plex-media-server `httpRoute`, Paperclip `spec.networking.httpRoute`) and a plain template
+in our own charts:
+
+```yaml
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: sonarr
+  annotations:
+    external-dns.alpha.kubernetes.io/hostname: sonarr.<DOMAIN>
+    # external routes only:
+    # external-dns.alpha.kubernetes.io/target: <EXTERNAL_DNS_DEFAULT_TARGET>
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: envoy-internal          # GATEWAY_INTERNAL; envoy-external for Internet-facing apps
+      namespace: envoy-gateway-system
+      sectionName: https            # required: the http listener only redirects
+  hostnames: [sonarr.<DOMAIN>]
+  rules:
+    - backendRefs:
+        - name: sonarr
+          port: 8989
+```
+
+Plex is the only external route (`oauth2-proxy` also targets `envoy-external` but is
+disabled everywhere). Adding a route for a new app: [runbooks/envoy-gateway.md](./runbooks/envoy-gateway.md#add-a-route-for-a-new-app).
+
+### Timeouts
+
+`ClientTrafficPolicy` sets a 600 s idle timeout on client connections and `BackendTrafficPolicy`
+sets `requestTimeout: 0s` (no per-request timeout), so Plex streams, SSE and websockets stay
+open while idle connections are still closed.
+
+### Why no Ingress objects
+
+Envoy Gateway implements only the Gateway API; it ignores `networking.k8s.io/Ingress`. Every
+former Ingress and IngressRoute was converted to an HTTPRoute, the `internal`/`external`
+IngressClasses are gone, and the conftest rules `no-ingress` and `httproute-parent` (tests/policy/README.md) fail level 0 on any rendered Ingress or a route without a Gateway `https` parent. The OIDC plugin of the
+previous ingress controller (Middleware `oidc-auth`, `oidc-redis`, the `auth.<DOMAIN>`
+callback) was dropped in the switch (ADR-034): no route used it. When edge authentication is needed, the path is an Envoy Gateway
+`SecurityPolicy` with `oidc` on the HTTPRoute (Google client from `GOOGLE_OAUTH_1P_PATH`).
+
+### Observability
+
+JSON access logs on proxy stdout (container `envoy`, namespace `envoy-gateway-system`) reach
+ClickHouse through the OpenTelemetry agents ([logging.md](./logging.md)); spans go to
+`otel-collector-gateway.observability:4317` (10% sampled in homelab, 100% in Kind) with a
+`gateway` tag ([tracing.md](./tracing.md)). The PodMonitor `<gateway>-proxy` scrapes
+`/stats/prometheus` on port 19001 and adds `gateway=<name>`; the ServiceMonitor
+`envoy-gateway` scrapes the controller.
+
+### Istio gateways (comparison only)
+
+`charts/istio-gateways` (Application `istio-gateways`, namespace `istio-ingress`) runs the
+same pair on Istio: GatewayClasses `istio-internal` / `istio-external` (controller
+`istio.io/gateway-controller`), Gateways, Deployments and LoadBalancer Services of the same
+names, with the same listeners and the same wildcard certificate (read across namespaces
+through a ReferenceGrant). No DNS record or port forward points at them. The only workload
+attached is `echo` (agnhost), whose HTTPRoute binds to both `envoy-internal` and
+`istio-internal` on `echo.<DOMAIN>`, so the same request can be sent through either
+implementation:
+
+```bash
+ISTIO_IP=$(kubectl -n istio-ingress get svc istio-internal -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+curl -sv https://echo.<DOMAIN>/hostname                                     # DNS -> envoy-internal
+curl -sv --resolve echo.<DOMAIN>:443:$ISTIO_IP https://echo.<DOMAIN>/hostname   # istio-internal
+```
+
+Details: [service-mesh.md](./service-mesh.md#istio-gateways-for-comparison).
 
 ---
 
-## Ingress inventory
+## Route inventory
 
 Generated from `tests/snapshots/homelab/*.yaml` by `task docs:check -- --fix`
 (`scripts/docs-check.ts`); do not edit by hand. The `argocd` row comes from
 `charts/bootstrap` (plain Helm), every other one from `charts/addons` or
 `charts/applications`.
 
-<!-- docs-check:begin ingress-table -->
-| Host | Class | Kind | Application |
+<!-- docs-check:begin route-table -->
+| Host | Gateway | Kind | Application |
 | --- | --- | --- | --- |
-| `auth.<DOMAIN>` | external | IngressRoute | `auth-oidc` |
-| `plex.<DOMAIN>` | external | Ingress | `plex` |
-| `traefik.<DOMAIN>` | external | IngressRoute | `traefik-external` |
-| `alertmanager.<DOMAIN>` | internal | Ingress | `kube-prometheus-stack` |
-| `argocd.<DOMAIN>` | internal | Ingress | `argocd` |
-| `grafana.<DOMAIN>` | internal | Ingress | `kube-prometheus-stack` |
-| `hubble.<DOMAIN>` | internal | Ingress | `cilium-config` |
-| `lazylibrarian.<DOMAIN>` | internal | Ingress | `lazylibrarian` |
-| `nzbget.<DOMAIN>` | internal | Ingress | `nzbget` |
-| `otel.<DOMAIN>` | internal | Ingress | `otel-collector-gateway` |
-| `otlp.<DOMAIN>` | internal | Ingress | `otel-collector-gateway` |
-| `paperclip.<DOMAIN>` | internal | Ingress | `paperclip` |
-| `prowlarr.<DOMAIN>` | internal | Ingress | `prowlarr` |
-| `radarr.<DOMAIN>` | internal | Ingress | `radarr` |
-| `servicemesh.<DOMAIN>` | internal | Ingress | `istio-config` |
-| `sonarr.<DOMAIN>` | internal | Ingress | `sonarr` |
-| `tautulli.<DOMAIN>` | internal | Ingress | `tautulli` |
-| `traefik-internal.<DOMAIN>` | internal | IngressRoute | `traefik-internal` |
-| `workflows.<DOMAIN>` | internal | Ingress | `argo-workflows` |
-<!-- docs-check:end ingress-table -->
+| `plex.<DOMAIN>` | envoy-external | Chart | `plex` |
+| `alertmanager.<DOMAIN>` | envoy-internal | Chart | `kube-prometheus-stack` |
+| `argocd.<DOMAIN>` | envoy-internal | Chart | `argocd` |
+| `echo.<DOMAIN>` | envoy-internal | HTTPRoute | `echo` |
+| `grafana.<DOMAIN>` | envoy-internal | Chart | `kube-prometheus-stack` |
+| `hubble.<DOMAIN>` | envoy-internal | Chart | `cilium-config` |
+| `lazylibrarian.<DOMAIN>` | envoy-internal | Chart | `lazylibrarian` |
+| `nzbget.<DOMAIN>` | envoy-internal | Chart | `nzbget` |
+| `otel.<DOMAIN>` | envoy-internal | Chart | `otel-collector-gateway` |
+| `otlp.<DOMAIN>` | envoy-internal | Chart | `otel-collector-gateway` |
+| `paperclip.<DOMAIN>` | envoy-internal | Chart | `paperclip` |
+| `prowlarr.<DOMAIN>` | envoy-internal | Chart | `prowlarr` |
+| `radarr.<DOMAIN>` | envoy-internal | Chart | `radarr` |
+| `servicemesh.<DOMAIN>` | envoy-internal | Chart | `istio-config` |
+| `sonarr.<DOMAIN>` | envoy-internal | Chart | `sonarr` |
+| `tautulli.<DOMAIN>` | envoy-internal | Chart | `tautulli` |
+| `workflows.<DOMAIN>` | envoy-internal | Chart | `argo-workflows` |
+<!-- docs-check:end route-table -->
 
-Three external hosts (Plex, the external dashboard, the OIDC callback) and eleven internal
-ones. Previews (`<app>-pr<N>.<DOMAIN>`, ADR-013) render on the same classes as their app and
-are not part of the snapshot.
+One external host (Plex) and fifteen internal ones, plus `echo`, which also attaches to
+`istio-internal`. "Chart" means the upstream chart renders the route from values. Previews (`<app>-pr<N>.<DOMAIN>`, ADR-013) attach to the same Gateway as their app and are
+not part of the snapshot.
 
 ---
 
 ## DNS: external-dns
 
-Four `external-dns` Applications (chart `charts.external-dns`), two per lane, each with its
+Four `external-dns` Applications (chart `charts.external-dns`), two per Gateway, each with its
 own `txtOwnerId` so they never fight over records:
 
 | Application | Provider | Sources | Selects | Target |
 |-------------|----------|---------|---------|--------|
-| `external-dns-cloudflare` | cloudflare (`proxied` from values) | `ingress` | `--ingress-class=external` plus an `annotationFilter` | `--default-targets=<EXTERNAL_DNS_DEFAULT_TARGET>` (`<DUCKDNS_SUBDOMAIN>.duckdns.org`), so public names are **CNAMEs to the DuckDNS name**, never the LAN address |
-| `external-dns-cloudflare-crd` | cloudflare | `crd` (`DNSEndpoint`) | explicit records such as `auth-dns` from `traefik-external-config` | same default target |
-| `external-dns-unifi-ingress` | UniFi webhook (`charts.external-dns-webhook-unifi`) | `ingress`, `service` | `--ingress-class=internal` | the Ingress/Service LoadBalancer address on the LAN |
+| `external-dns-cloudflare` | cloudflare (`proxied` from values) | `gateway-httproute` | `--gateway-name=envoy-external --gateway-namespace=envoy-gateway-system` plus an `annotationFilter` | `--default-targets=<EXTERNAL_DNS_DEFAULT_TARGET>` (`<DUCKDNS_SUBDOMAIN>.duckdns.org`), so public names are **CNAMEs to the DuckDNS name**, never the LAN address |
+| `external-dns-cloudflare-crd` | cloudflare | `crd` (`DNSEndpoint`) | explicit `DNSEndpoint` records | same default target |
+| `external-dns-unifi-ingress` | UniFi webhook (`charts.external-dns-webhook-unifi`) | `gateway-httproute`, `service` | `--gateway-name=envoy-internal --gateway-namespace=envoy-gateway-system` | the Gateway (or Service) LoadBalancer address on the LAN |
 | `external-dns-unifi-crd` | UniFi webhook | `crd` | `DNSEndpoint` records for the LAN (`charts/external-dns-config`) | as declared |
 
 The `duckdns` Application (`charts/duckdns`, token from `duckdns-dependencies`) refreshes
@@ -178,8 +278,8 @@ Resolution therefore depends on where the client sits:
 
 | Client | `plex.<DOMAIN>` resolves to | Internal names (`sonarr.<DOMAIN>`, ...) |
 |--------|-----------------------------|------------------------------------------|
-| Internet | Cloudflare → CNAME DuckDNS → WAN IP → port forward → `<TRAEFIK_STATIC_IP>` | NXDOMAIN (no public record) |
-| LAN | UniFi answers first (`external-dns-unifi`), otherwise the public CNAME; either way ends at Traefik external | UniFi → `traefik-internal` address |
+| Internet | Cloudflare → CNAME DuckDNS → WAN IP → port forward → `<GATEWAY_EXTERNAL_STATIC_IP>` | NXDOMAIN (no public record) |
+| LAN | UniFi answers first (`external-dns-unifi`), otherwise the public CNAME; either way ends at `envoy-external` | UniFi → `envoy-internal` address |
 | Tailnet | Split DNS sends `<DOMAIN>` to `<GATEWAY_IP>` through the subnet router, same answers as the LAN | same as LAN |
 
 ---
@@ -194,11 +294,11 @@ annotation:
 
 | Service | Address | Ports | Purpose |
 |---------|---------|-------|---------|
-| `traefik-external` | `<TRAEFIK_STATIC_IP>` | 80, 443 | Public ingress (Plex UI, OIDC callback, dashboard) |
+| `envoy-external` (`envoy-gateway-system`) | `<GATEWAY_EXTERNAL_STATIC_IP>` | 80, 443 | Public ingress (Plex UI) |
 | `plex` (`externalTrafficPolicy: Local`) | `<PLEX_LB_IP>` | 32400 | Plex remote access direct to the media server |
 
 Removing the annotation (or the Service) removes the rule. Nothing else is exposed: the
-internal lane, ArgoCD and the API server have no forward.
+internal Gateway, the Istio gateways, ArgoCD and the API server have no forward.
 
 ---
 
@@ -228,18 +328,15 @@ sequenceDiagram
   participant CF as Cloudflare DNS
   participant DD as DuckDNS
   participant GW as UniFi gateway
-  participant TE as traefik-external (<TRAEFIK_STATIC_IP>)
+  participant TE as envoy-external (<GATEWAY_EXTERNAL_STATIC_IP>)
   participant P as plex pod
   B->>CF: A? plex.<DOMAIN>
   CF-->>B: CNAME <DUCKDNS_SUBDOMAIN>.duckdns.org
   B->>DD: A? <DUCKDNS_SUBDOMAIN>.duckdns.org
   DD-->>B: WAN IP (kept current by the duckdns app)
   B->>GW: TLS 443
-  GW->>TE: port-forward rule kube-… → <TRAEFIK_STATIC_IP>:443 (route learned via BGP or ARP)
-  TE->>TE: Ingress plex (class external), cert from cert-manager, middleware oidc-auth
-  alt no session
-    TE-->>B: 302 auth.<DOMAIN> (IngressRoute auth-oidc) → Google OIDC → callback
-  end
+  GW->>TE: port-forward rule kube-… → <GATEWAY_EXTERNAL_STATIC_IP>:443 (route learned via BGP or ARP)
+  TE->>TE: listener https, wildcard cert gateway-wildcard-tls, HTTPRoute plex (sectionName https)
   TE->>P: HTTP 32400
   P-->>B: Plex UI
 ```
@@ -247,7 +344,7 @@ sequenceDiagram
 Plex clients can also connect straight to `<PLEX_LB_IP>:32400` through the second port
 forward, which is what Plex "remote access" uses.
 
-### Tailnet → internal ingress
+### Tailnet → internal Gateway
 
 ```mermaid
 sequenceDiagram
@@ -255,20 +352,20 @@ sequenceDiagram
   participant TS as Tailscale (split DNS)
   participant SR as Connector homelab-subnet-router
   participant GW as UniFi gateway <GATEWAY_IP>
-  participant TI as traefik-internal
+  participant TI as envoy-internal
   participant S as sonarr pod
   C->>TS: A? sonarr.<DOMAIN>
   TS->>SR: forward to nameserver <GATEWAY_IP> (split DNS for <DOMAIN>)
   SR->>GW: DNS query on the LAN
-  GW-->>C: A record written by external-dns-unifi-ingress (traefik-internal address)
+  GW-->>C: A record written by external-dns-unifi-ingress (envoy-internal address)
   C->>SR: TLS 443 to the pool address (subnet route <TAILSCALE_ADVERTISE_ROUTES>)
   SR->>TI: LAN delivery (BGP route on the gateway, ARP from the L2 policy)
-  TI->>TI: Ingress sonarr (class internal), no OIDC at the edge
+  TI->>TI: listener https, wildcard cert, HTTPRoute sonarr (sectionName https)
   TI->>S: HTTP 8989
   S-->>C: response
 ```
 
-The same path serves the LAN without the first two hops. Nothing on the internal lane has a
+The same path serves the LAN without the first two hops. Nothing on `envoy-internal` has a
 public record or a port forward, so the only ways in are the LAN, the tailnet, and the
 API server proxy.
 
@@ -316,20 +413,20 @@ allowed between the workers and `<GATEWAY_IP>`, and that the FRR file uploaded b
 `unifi-gateway` lists the current worker addresses (`task tf:plan:component
 COMPONENT=unifi-gateway` shows drift after a node recreate).
 
-### Ingress not answering
+### Gateway not answering
 
 ```bash
-kubectl -n traefik get pods,svc                      # both Traefiks Running, external has <TRAEFIK_STATIC_IP>
-kubectl get ingress -A                               # class external/internal, ADDRESS filled
-kubectl get ingressroute -A
-kubectl -n media get ingress plex -o yaml
-curl -kI https://plex.<DOMAIN>                       # from outside
-curl -kI --resolve sonarr.<DOMAIN>:443:<traefik-internal address> https://sonarr.<DOMAIN>/ping   # from the LAN
-kubectl -n traefik logs deploy/traefik-external | rg -i 'oidc|error'
+kubectl -n envoy-gateway-system get pods,svc          # proxies Running, envoy-external has <GATEWAY_EXTERNAL_STATIC_IP>
+kubectl get gateway,httproute -A                      # Gateway PROGRAMMED True, routes listed
+kubectl -n media get httproute plex -o yaml           # status.parents[]: Accepted and ResolvedRefs True
+curl -kI https://plex.<DOMAIN>                        # from outside
+curl -kI --resolve sonarr.<DOMAIN>:443:<envoy-internal address> https://sonarr.<DOMAIN>/ping   # from the LAN
+kubectl -n envoy-gateway-system logs deploy/envoy-gateway | rg -i error
 ```
 
-Ingress objects show `Progressing` forever only when no LoadBalancer address arrives; the
-custom health Lua in `charts/bootstrap/files/health/` marks them Healthy otherwise.
+A route whose `sectionName` is missing or `http` never serves (the http listener only
+redirects and allows routes from its own namespace). More in
+[runbooks/envoy-gateway.md](./runbooks/envoy-gateway.md).
 
 ### DNS records missing or wrong
 
@@ -343,8 +440,8 @@ kubectl -n duckdns logs -l app.kubernetes.io/name=duckdns | tail
 ```
 
 An external record pointing at a LAN address means `--default-targets` is missing from the
-Cloudflare instance; an internal name resolving publicly means an Ingress is on the wrong
-class.
+Cloudflare instance; an internal name resolving publicly means an HTTPRoute is attached to
+the wrong Gateway.
 
 ### Port forward missing
 
@@ -382,10 +479,11 @@ kubectl get ciliumnetworkpolicies,networkpolicies -A
 ## References
 
 - [Cilium LB IPAM](https://docs.cilium.io/en/stable/network/lb-ipam/), [Cilium BGP control plane](https://docs.cilium.io/en/stable/network/bgp-control-plane/), [Cilium L2 announcements](https://docs.cilium.io/en/stable/network/l2-announcements/)
-- [Traefik](https://doc.traefik.io/traefik/), [traefikoidc plugin](https://github.com/lukaszraczylo/traefikoidc)
+- [Envoy Gateway](https://gateway.envoyproxy.io/docs/), [Gateway API](https://gateway-api.sigs.k8s.io/), [Istio Gateway API](https://istio.io/latest/docs/tasks/traffic-management/ingress/gateway-api/)
 - [external-dns](https://kubernetes-sigs.github.io/external-dns/), [external-dns UniFi webhook](https://github.com/kashalls/external-dns-unifi-webhook)
 - [port-forwarding-controller](https://github.com/ryanmcafee/port-forwarding-controller)
 - [Tailscale Kubernetes operator](https://tailscale.com/kb/1236/kubernetes-operator), [UniFi BGP](https://help.ui.com/hc/en-us/articles/4407211598612-UniFi-Gateway-BGP)
 - In this repo: [architecture.md](./architecture.md), [applications.md](./applications.md),
   [hardware.md](./hardware.md), [runbooks/readonly-access.md](./runbooks/readonly-access.md),
-  [runbooks/tailscale-dns.md](./runbooks/tailscale-dns.md), `docs/plans/2026-02-13-dual-traefik-ingress-design.md`
+  [runbooks/tailscale-dns.md](./runbooks/tailscale-dns.md), [runbooks/envoy-gateway.md](./runbooks/envoy-gateway.md),
+  ADR-034 in [project_notes/decisions.md](./project_notes/decisions.md)

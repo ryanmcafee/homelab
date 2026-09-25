@@ -36,9 +36,9 @@ spec:
           proxied: {{ index .Values "external-dns" "cloudflare" "proxied" }}
         {{- end }}
 
-        # Only watch ingress resources (CRD source has its own deployment)
+        # HTTPRoutes only (the CRD source has its own deployment)
         sources:
-          - ingress
+          - gateway-httproute
 
         domainFilters:
           {{- range (index .Values "external-dns" "domainFilters") }}
@@ -51,10 +51,11 @@ spec:
         registry: txt
         txtOwnerId: {{ .Values.global.environment }}-cloudflare
 
-        # Only process ingresses with ingressClassName=external (e.g., Plex)
-        # Internal ingresses should only publish DNS to UniFi, not Cloudflare
+        # Only routes on the external Gateway (e.g. Plex); internal routes
+        # publish to UniFi, never to Cloudflare
         extraArgs:
-          - --ingress-class=external
+          - --gateway-name={{ .Values.global.gateway.external }}
+          - --gateway-namespace={{ .Values.global.gateway.namespace }}
         {{- if index .Values "external-dns" "defaultTarget" }}
           - --default-targets={{ index .Values "external-dns" "defaultTarget" }}
         {{- end }}

@@ -779,22 +779,19 @@ spec:
             path: /mnt/storage/downloads
             server: truenas.example.com
             type: emptyDir
-        ingress:
+        route:
           main:
             annotations:
-              cert-manager.io/cluster-issuer: letsencrypt
               external-dns.alpha.kubernetes.io/hostname: lazylibrarian.homelab.local
             enabled: true
-            hosts:
-            - host: lazylibrarian.homelab.local
-              paths:
-              - path: /
-                pathType: Prefix
-            ingressClassName: internal
-            tls:
-            - hosts:
-              - lazylibrarian.homelab.local
-              secretName: lazylibrarian-tls
+            hostnames:
+            - lazylibrarian.homelab.local
+            parentRefs:
+            - group: gateway.networking.k8s.io
+              kind: Gateway
+              name: envoy-internal
+              namespace: envoy-gateway-system
+              sectionName: https
         TZ: "America/New_York"
         securityContext:
           container:
@@ -1048,22 +1045,19 @@ spec:
             path: /mnt/storage/downloads
             server: truenas.example.com
             type: emptyDir
-        ingress:
+        route:
           main:
             annotations:
-              cert-manager.io/cluster-issuer: letsencrypt
               external-dns.alpha.kubernetes.io/hostname: nzbget.homelab.local
             enabled: true
-            hosts:
-            - host: nzbget.homelab.local
-              paths:
-              - path: /
-                pathType: Prefix
-            ingressClassName: internal
-            tls:
-            - hosts:
-              - nzbget.homelab.local
-              secretName: nzbget-tls
+            hostnames:
+            - nzbget.homelab.local
+            parentRefs:
+            - group: gateway.networking.k8s.io
+              kind: Gateway
+              name: envoy-internal
+              namespace: envoy-gateway-system
+              sectionName: https
         TZ: "America/New_York"
         securityContext:
           container:
@@ -1242,7 +1236,7 @@ spec:
       valueFiles:
         - values.yaml
         - values-localdev.yaml
-      # Hostname, admin e-mail, image tag, ingress class and storage classes
+      # Hostname, admin e-mail, image tag, Gateway and storage classes
       # come from configuration/ through this parent (ADR-010); never put them
       # in charts/paperclip/values-homelab.yaml.
       valuesObject:
@@ -1262,8 +1256,6 @@ spec:
         image:
           repository: ghcr.io/paperclipai/paperclip
           tag: 2026.916.1
-        ingress:
-          className: internal
         persistence:
           size: 1Gi
           storageClass: local-path
@@ -1274,6 +1266,10 @@ spec:
           requests:
             cpu: 250m
             memory: 512Mi
+        route:
+          gateway:
+            name: envoy-internal
+            namespace: envoy-gateway-system
   destination:
     server: https://kubernetes.default.svc
     namespace: paperclip
@@ -1398,23 +1394,19 @@ spec:
           externalTrafficPolicy: Local
           port: 32400
           type: NodePort
-        ingress:
+        httpRoute:
           annotations:
-            cert-manager.io/cluster-issuer: letsencrypt
             external-dns.alpha.kubernetes.io/hostname: plex.homelab.local
             external-dns.alpha.kubernetes.io/target: homelab-dev.duckdns.org
           enabled: true
-          hosts:
-          - host: plex.homelab.local
-            paths:
-            - path: /
-              pathType: Prefix
-          ingressClassName: external
-          tls:
-          - hosts:
-            - plex.homelab.local
-            secretName: plex-tls
-          url: https://plex.homelab.local
+          hostnames:
+          - plex.homelab.local
+          parentRefs:
+          - group: gateway.networking.k8s.io
+            kind: Gateway
+            name: envoy-external
+            namespace: envoy-gateway-system
+            sectionName: https
         dnsPolicy: "None"
         dnsConfig:
           nameservers:
@@ -1528,22 +1520,19 @@ spec:
             enabled: true
             size: 1Gi
             storageClass: local-path
-        ingress:
+        route:
           main:
             annotations:
-              cert-manager.io/cluster-issuer: letsencrypt
               external-dns.alpha.kubernetes.io/hostname: prowlarr.homelab.local
             enabled: true
-            hosts:
-            - host: prowlarr.homelab.local
-              paths:
-              - path: /
-                pathType: Prefix
-            ingressClassName: internal
-            tls:
-            - hosts:
-              - prowlarr.homelab.local
-              secretName: prowlarr-tls
+            hostnames:
+            - prowlarr.homelab.local
+            parentRefs:
+            - group: gateway.networking.k8s.io
+              kind: Gateway
+              name: envoy-internal
+              namespace: envoy-gateway-system
+              sectionName: https
         TZ: "America/New_York"
         securityContext:
           container:
@@ -1673,22 +1662,19 @@ spec:
             path: /mnt/storage/movies
             server: truenas.example.com
             type: emptyDir
-        ingress:
+        route:
           main:
             annotations:
-              cert-manager.io/cluster-issuer: letsencrypt
               external-dns.alpha.kubernetes.io/hostname: radarr.homelab.local
             enabled: true
-            hosts:
-            - host: radarr.homelab.local
-              paths:
-              - path: /
-                pathType: Prefix
-            ingressClassName: internal
-            tls:
-            - hosts:
-              - radarr.homelab.local
-              secretName: radarr-tls
+            hostnames:
+            - radarr.homelab.local
+            parentRefs:
+            - group: gateway.networking.k8s.io
+              kind: Gateway
+              name: envoy-internal
+              namespace: envoy-gateway-system
+              sectionName: https
         TZ: "America/New_York"
         securityContext:
           container:
@@ -1818,22 +1804,19 @@ spec:
             path: /mnt/storage/tv
             server: truenas.example.com
             type: emptyDir
-        ingress:
+        route:
           main:
             annotations:
-              cert-manager.io/cluster-issuer: letsencrypt
               external-dns.alpha.kubernetes.io/hostname: sonarr.homelab.local
             enabled: true
-            hosts:
-            - host: sonarr.homelab.local
-              paths:
-              - path: /
-                pathType: Prefix
-            ingressClassName: internal
-            tls:
-            - hosts:
-              - sonarr.homelab.local
-              secretName: sonarr-tls
+            hostnames:
+            - sonarr.homelab.local
+            parentRefs:
+            - group: gateway.networking.k8s.io
+              kind: Gateway
+              name: envoy-internal
+              namespace: envoy-gateway-system
+              sectionName: https
         TZ: "America/New_York"
         securityContext:
           container:
@@ -1943,22 +1926,19 @@ spec:
             enabled: true
             size: 1Gi
             storageClass: local-path
-        ingress:
+        route:
           main:
             annotations:
-              cert-manager.io/cluster-issuer: letsencrypt
               external-dns.alpha.kubernetes.io/hostname: tautulli.homelab.local
             enabled: true
-            hosts:
-            - host: tautulli.homelab.local
-              paths:
-              - path: /
-                pathType: Prefix
-            ingressClassName: internal
-            tls:
-            - hosts:
-              - tautulli.homelab.local
-              secretName: tautulli-tls
+            hostnames:
+            - tautulli.homelab.local
+            parentRefs:
+            - group: gateway.networking.k8s.io
+              kind: Gateway
+              name: envoy-internal
+              namespace: envoy-gateway-system
+              sectionName: https
         TZ: "America/New_York"
         securityContext:
           container:

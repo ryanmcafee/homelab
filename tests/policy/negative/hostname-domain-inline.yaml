@@ -2,29 +2,33 @@
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: traefik-external
+  name: sonarr
   namespace: argocd
   annotations:
-    argocd.argoproj.io/sync-wave: "6"
+    argocd.argoproj.io/sync-wave: "10"
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
   project: default
   source:
-    repoURL: https://traefik.github.io/charts
-    chart: traefik
-    targetRevision: "39.0.0"
+    repoURL: oci.trueforge.org/truecharts
+    chart: sonarr
+    targetRevision: "25.6.3"
     helm:
-      releaseName: traefik-external
+      releaseName: sonarr
       values: |
-        ingressRoute:
-          dashboard:
+        route:
+          main:
             enabled: true
-            matchRule: Host(`traefik.wrong-domain.com`)
-            entryPoints: ["websecure"]
+            parentRefs:
+              - name: envoy-internal
+                namespace: envoy-gateway-system
+                sectionName: https
+            hostnames:
+              - sonarr.wrong-domain.com
   destination:
     server: https://kubernetes.default.svc
-    namespace: traefik
+    namespace: sonarr
   syncPolicy:
     automated:
       prune: true

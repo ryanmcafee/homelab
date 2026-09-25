@@ -7,7 +7,7 @@
 # (CERT_ISSUER=selfsigned in configuration/environments/localdev.yaml), which
 # turns the `letsencrypt` ClusterIssuer into a self-signed issuer under the
 # same name: every `cert-manager.io/cluster-issuer: letsencrypt` annotation
-# keeps working and cert-manager creates the TLS Secrets the Ingresses expect.
+# keeps working and cert-manager creates the TLS Secrets the Gateways expect.
 #
 # cloudflare stays off as well so the manifest never references the
 # cloudflare-api-token Secret nothing creates in Kind; this keeps the chart

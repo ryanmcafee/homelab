@@ -34,21 +34,20 @@
         enabled: true
         storageClass: {{ .Values.STORAGE_CLASS_ISCSI.Value }}
         size: 1Gi
-    ingress:
+    route:
       main:
         enabled: true
-        ingressClassName: {{ .Values.INGRESS_CLASS_INTERNAL.Value }}
+        kind: HTTPRoute
         annotations:
-          cert-manager.io/cluster-issuer: letsencrypt
-        hosts:
-          - host: {{ .Values.[[ .HostnameKey ]].Value }}
-            paths:
-              - path: /
-                pathType: Prefix
-        tls:
-          - secretName: [[ .Name ]]-tls
-            hosts:
-              - {{ .Values.[[ .HostnameKey ]].Value }}
+          external-dns.alpha.kubernetes.io/hostname: {{ .Values.[[ .HostnameKey ]].Value }}
+        parentRefs:
+          - group: gateway.networking.k8s.io
+            kind: Gateway
+            name: {{ .Values.GATEWAY_INTERNAL.Value }}
+            namespace: {{ .Values.GATEWAY_NAMESPACE.Value }}
+            sectionName: https
+        hostnames:
+          - {{ .Values.[[ .HostnameKey ]].Value }}
     TZ: {{ .Values.TIMEZONE.Value }}
 [[- else ]]
 
@@ -57,19 +56,17 @@
   # chart's own values.yaml expects.
   values:
 [[- template "genericResources" . ]]
-    ingress:
+    httpRoute:
       enabled: true
-      className: {{ .Values.INGRESS_CLASS_INTERNAL.Value }}
       annotations:
-        cert-manager.io/cluster-issuer: letsencrypt
-      hosts:
-        - host: {{ .Values.[[ .HostnameKey ]].Value }}
-          paths:
-            - path: /
-              pathType: Prefix
-      tls:
-        - secretName: [[ .Name ]]-tls
-          hosts:
-            - {{ .Values.[[ .HostnameKey ]].Value }}
+        external-dns.alpha.kubernetes.io/hostname: {{ .Values.[[ .HostnameKey ]].Value }}
+      parentRefs:
+        - group: gateway.networking.k8s.io
+          kind: Gateway
+          name: {{ .Values.GATEWAY_INTERNAL.Value }}
+          namespace: {{ .Values.GATEWAY_NAMESPACE.Value }}
+          sectionName: https
+      hostnames:
+        - {{ .Values.[[ .HostnameKey ]].Value }}
 [[- end ]]
 [[- template "smokeValues" . ]]

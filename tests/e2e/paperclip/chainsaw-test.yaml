@@ -8,7 +8,7 @@ spec:
   description: >-
     The four Paperclip Applications are Healthy, the CloudNativePG Cluster paperclip-postgres is
     healthy, the Instance reports phase Running, and /api/health answers 200 through the
-    internal Traefik with Host paperclip.homelab.local.
+    internal Envoy Gateway with Host paperclip.homelab.local.
   steps:
     - name: applications-healthy
       description: >-
@@ -119,10 +119,34 @@ spec:
             namespace: paperclip-operator
             selector: app.kubernetes.io/name=paperclip-operator
             tail: 100
+    - name: route-paperclip
+      description: >-
+        The HTTPRoute for paperclip.homelab.local is Accepted by envoy-internal
+        and its backend refs resolve.
+      try:
+        - assert:
+            resource:
+              apiVersion: gateway.networking.k8s.io/v1
+              kind: HTTPRoute
+              metadata:
+                namespace: paperclip
+              spec:
+                (contains(hostnames, 'paperclip.homelab.local')): true
+              status:
+                (parents[?parentRef.name == 'envoy-internal']):
+                  - (conditions[?type == 'Accepted']):
+                      - status: "True"
+                    (conditions[?type == 'ResolvedRefs']):
+                      - status: "True"
+      catch:
+        - describe:
+            apiVersion: gateway.networking.k8s.io/v1
+            kind: HTTPRoute
+            namespace: paperclip
     - name: curl-paperclip
       description: >-
         A curl Job must get 200 from https://paperclip.homelab.local/api/health via
-        traefik-internal.traefik.svc.cluster.local.
+        envoy-internal.envoy-gateway-system.svc.cluster.local.
       timeouts:
         assert: 5m
       try:
@@ -162,7 +186,7 @@ spec:
                           - name: HOST
                             value: "paperclip.homelab.local"
                           - name: GATEWAY
-                            value: "traefik-internal.traefik.svc.cluster.local"
+                            value: "envoy-internal.envoy-gateway-system.svc.cluster.local"
                           - name: URL_PATH
                             value: "/api/health"
                           - name: EXPECT

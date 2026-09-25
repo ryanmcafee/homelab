@@ -1,0 +1,45 @@
+{{- range $tier, $gw := .Values.gateways }}
+{{- if $gw.enabled }}
+{{- $v := mergeOverwrite (deepCopy $.Values.defaults) $gw }}
+{{- if $v.metrics.podMonitor }}
+---
+# Envoy serves Prometheus stats on the admin port of every proxy pod.
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: {{ $v.name }}-proxy
+  namespace: {{ $.Values.namespace }}
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/managed-by: envoy-gateway
+      app.kubernetes.io/component: proxy
+      gateway.envoyproxy.io/owning-gateway-name: {{ $v.name }}
+  podMetricsEndpoints:
+    - port: metrics
+      path: /stats/prometheus
+      interval: 30s
+      relabelings:
+        - action: replace
+          targetLabel: gateway
+          replacement: {{ $v.name }}
+{{- end }}
+{{- if $v.tracing.enabled }}
+---
+apiVersion: gateway.networking.k8s.io/v1beta1
+kind: ReferenceGrant
+metadata:
+  name: {{ $v.name }}-tracing
+  namespace: {{ $v.tracing.namespace }}
+spec:
+  from:
+    - group: gateway.envoyproxy.io
+      kind: EnvoyProxy
+      namespace: {{ $.Values.namespace }}
+  to:
+    - group: ""
+      kind: Service
+      name: {{ $v.tracing.service }}
+{{- end }}
+{{- end }}
+{{- end }}

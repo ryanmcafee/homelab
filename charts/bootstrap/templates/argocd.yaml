@@ -70,6 +70,8 @@ spec:
       - PruneLast=true
       - ApplyOutOfSyncOnly=true
       - RespectIgnoreDifferences=true
+      # The HTTPRoute CRD arrives with addons wave 1, after this Application.
+      - SkipDryRunOnMissingResource=true
 
   # Ignore differences in fields that change frequently
   ignoreDifferences:

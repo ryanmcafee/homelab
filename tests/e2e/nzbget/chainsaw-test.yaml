@@ -6,7 +6,7 @@ metadata:
   name: nzbget
 spec:
   description: >-
-    NZBGet answers through the internal Traefik with Host nzbget.homelab.local (401 accepted: basic auth).
+    NZBGet answers through the internal Envoy Gateway with Host nzbget.homelab.local (401 accepted: basic auth).
   steps:
     - name: applications-healthy
       description: The ArgoCD Applications behind this test are Healthy and their last sync Succeeded.
@@ -46,10 +46,34 @@ spec:
             kind: Application
             name: nzbget-config
             namespace: argocd
+    - name: route-nzbget
+      description: >-
+        The HTTPRoute for nzbget.homelab.local is Accepted by envoy-internal
+        and its backend refs resolve.
+      try:
+        - assert:
+            resource:
+              apiVersion: gateway.networking.k8s.io/v1
+              kind: HTTPRoute
+              metadata:
+                namespace: media
+              spec:
+                (contains(hostnames, 'nzbget.homelab.local')): true
+              status:
+                (parents[?parentRef.name == 'envoy-internal']):
+                  - (conditions[?type == 'Accepted']):
+                      - status: "True"
+                    (conditions[?type == 'ResolvedRefs']):
+                      - status: "True"
+      catch:
+        - describe:
+            apiVersion: gateway.networking.k8s.io/v1
+            kind: HTTPRoute
+            namespace: media
     - name: curl-nzbget
       description: >-
         A curl Job must get one of [200, 401]
-        from https://nzbget.homelab.local/ via traefik-internal.traefik.svc.cluster.local.
+        from https://nzbget.homelab.local/ via envoy-internal.envoy-gateway-system.svc.cluster.local.
       timeouts:
         assert: 5m
       try:
@@ -89,7 +113,7 @@ spec:
                           - name: HOST
                             value: "nzbget.homelab.local"
                           - name: GATEWAY
-                            value: "traefik-internal.traefik.svc.cluster.local"
+                            value: "envoy-internal.envoy-gateway-system.svc.cluster.local"
                           - name: URL_PATH
                             value: "/"
                           - name: EXPECT

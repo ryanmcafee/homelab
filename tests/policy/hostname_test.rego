@@ -1,60 +1,40 @@
 package homelab.hostname
 
-test_ingress_pass if {
-	obj := {"kind": "Ingress", "metadata": {"name": "x", "namespace": "ns"}, "spec": {"rules": [{"host": "app.example.com"}]}}
+test_httproute_pass if {
+	obj := {"kind": "HTTPRoute", "metadata": {"name": "x", "namespace": "ns"}, "spec": {"hostnames": ["app.example.com"]}}
 	count(deny) == 0 with input as obj with data.domain as "example.com"
 }
 
-test_ingress_fail if {
-	obj := {"kind": "Ingress", "metadata": {"name": "x", "namespace": "ns"}, "spec": {"rules": [{"host": "app.other.com"}]}}
-	some m in deny with input as obj with data.domain as "example.com"
-	startswith(m, "[hostname-domain]")
-}
-
-test_ingressroute_pass if {
-	obj := {
-		"kind": "IngressRoute",
-		"metadata": {"name": "x", "namespace": "ns"},
-		"spec": {"routes": [{"match": "Host(`traefik.example.com`) && Path(`/dashboard`)"}]},
-	}
-	count(deny) == 0 with input as obj with data.domain as "example.com"
-}
-
-test_ingressroute_fail if {
-	obj := {"kind": "IngressRoute", "metadata": {"name": "x", "namespace": "ns"}, "spec": {"routes": [{"match": "Host(`traefik.other.com`)"}]}}
-	some m in deny with input as obj with data.domain as "example.com"
-	startswith(m, "[hostname-domain]")
-}
-
-test_ingressroute_comma_form_pass if {
-	obj := {"kind": "IngressRoute", "metadata": {"name": "x", "namespace": "ns"}, "spec": {"routes": [{"match": "Host(`a.example.com`, `b.example.com`)"}]}}
-	count(deny) == 0 with input as obj with data.domain as "example.com"
-}
-
-test_ingressroute_comma_form_catches_second_host if {
-	obj := {"kind": "IngressRoute", "metadata": {"name": "x", "namespace": "ns"}, "spec": {"routes": [{"match": "Host(`a.example.com`, `b.other.com`)"}]}}
-	some m in deny with input as obj with data.domain as "example.com"
-	contains(m, "b.other.com")
-}
-
-test_ingressroute_or_form_catches_second_call if {
-	obj := {"kind": "IngressRoute", "metadata": {"name": "x", "namespace": "ns"}, "spec": {"routes": [{"match": "Host(`a.example.com`) || Host(`b.other.com`)"}]}}
-	some m in deny with input as obj with data.domain as "example.com"
-	contains(m, "b.other.com")
-}
-
-test_ingressroute_mixed_or_and_comma_form_catches_all if {
-	obj := {"kind": "IngressRoute", "metadata": {"name": "x", "namespace": "ns"}, "spec": {"routes": [{"match": "Host(`a.example.com`) || Host(`b.other.com`, `c.other.com`)"}]}}
+test_httproute_fail if {
+	obj := {"kind": "HTTPRoute", "metadata": {"name": "x", "namespace": "ns"}, "spec": {"hostnames": ["app.example.com", "app.other.com"]}}
 	msgs := {m | some m in deny} with input as obj with data.domain as "example.com"
-	count(msgs) == 2
-	some m1 in msgs
-	contains(m1, "b.other.com")
-	some m2 in msgs
-	contains(m2, "c.other.com")
+	count(msgs) == 1
+	some m in msgs
+	contains(m, "app.other.com")
 }
 
-test_ingressroute_mixed_or_and_comma_form_pass if {
-	obj := {"kind": "IngressRoute", "metadata": {"name": "x", "namespace": "ns"}, "spec": {"routes": [{"match": "Host(`a.example.com`) || Host(`b.example.com`, `c.example.com`)"}]}}
+test_httproute_lookalike_suffix_fails if {
+	obj := {"kind": "HTTPRoute", "metadata": {"name": "x", "namespace": "ns"}, "spec": {"hostnames": ["app.notexample.com"]}}
+	some m in deny with input as obj with data.domain as "example.com"
+	startswith(m, "[hostname-domain]")
+}
+
+test_gateway_wildcard_listener_pass if {
+	obj := {"kind": "Gateway", "metadata": {"name": "envoy-internal", "namespace": "envoy-gateway-system"}, "spec": {"listeners": [
+		{"name": "http", "port": 80},
+		{"name": "https", "port": 443, "hostname": "*.example.com"},
+	]}}
+	count(deny) == 0 with input as obj with data.domain as "example.com"
+}
+
+test_gateway_listener_fail if {
+	obj := {"kind": "Gateway", "metadata": {"name": "envoy-internal", "namespace": "envoy-gateway-system"}, "spec": {"listeners": [{"name": "https", "hostname": "*.other.com"}]}}
+	some m in deny with input as obj with data.domain as "example.com"
+	contains(m, "*.other.com")
+}
+
+test_certificate_apex_and_wildcard_pass if {
+	obj := {"kind": "Certificate", "metadata": {"name": "gateway-wildcard-tls", "namespace": "envoy-gateway-system"}, "spec": {"dnsNames": ["example.com", "*.example.com"]}}
 	count(deny) == 0 with input as obj with data.domain as "example.com"
 }
 
@@ -70,32 +50,32 @@ test_certificate_fail if {
 }
 
 test_dnsendpoint_pass if {
-	obj := {"kind": "DNSEndpoint", "metadata": {"name": "x", "namespace": "ns"}, "spec": {"endpoints": [{"dnsName": "traefik.example.com", "recordType": "A"}]}}
+	obj := {"kind": "DNSEndpoint", "metadata": {"name": "x", "namespace": "ns"}, "spec": {"endpoints": [{"dnsName": "gateway.example.com", "recordType": "A"}]}}
 	count(deny) == 0 with input as obj with data.domain as "example.com"
 }
 
 test_dnsendpoint_fail if {
-	obj := {"kind": "DNSEndpoint", "metadata": {"name": "x", "namespace": "ns"}, "spec": {"endpoints": [{"dnsName": "traefik.other.com", "recordType": "A"}]}}
+	obj := {"kind": "DNSEndpoint", "metadata": {"name": "x", "namespace": "ns"}, "spec": {"endpoints": [{"dnsName": "gateway.other.com", "recordType": "A"}]}}
 	some m in deny with input as obj with data.domain as "example.com"
 	startswith(m, "[hostname-domain]")
 }
 
 test_exempt_hostname if {
 	obj := {
-		"kind": "Ingress",
+		"kind": "HTTPRoute",
 		"metadata": {"name": "x", "namespace": "ns", "annotations": {
 			"homelab.local/policy-exempt": "hostname-domain",
 			"homelab.local/policy-exempt-reason": "test fixture",
 		}},
-		"spec": {"rules": [{"host": "app.other.com"}]},
+		"spec": {"hostnames": ["app.other.com"]},
 	}
 	count(deny) == 0 with input as obj with data.domain as "example.com"
 }
 
 # --- domain-missing safety net ---------------------------------------------
 
-test_domain_missing_fires_for_ingress if {
-	obj := {"kind": "Ingress", "metadata": {"name": "x", "namespace": "ns"}, "spec": {"rules": [{"host": "app.example.com"}]}}
+test_domain_missing_fires_for_httproute if {
+	obj := {"kind": "HTTPRoute", "metadata": {"name": "x", "namespace": "ns"}, "spec": {"hostnames": ["app.example.com"]}}
 	msgs := {m | some m in deny} with input as obj with data.domain as ""
 	msgs == {"[hostname-domain] policy data missing domain"}
 }
@@ -113,22 +93,22 @@ test_domain_missing_does_not_spam_unrelated_kinds if {
 
 # --- inline helm values on Applications ------------------------------------
 
-test_inline_matchrule_pass if {
+test_inline_route_hostnames_pass if {
 	obj := {
 		"kind": "Application",
 		"apiVersion": "argoproj.io/v1alpha1",
-		"metadata": {"name": "traefik-external", "namespace": "argocd"},
-		"spec": {"source": {"helm": {"values": "ingressRoute:\n  dashboard:\n    matchRule: Host(`traefik.example.com`)\n"}}},
+		"metadata": {"name": "sonarr", "namespace": "argocd"},
+		"spec": {"source": {"helm": {"values": "route:\n  main:\n    hostnames:\n      - sonarr.example.com\n"}}},
 	}
 	count(deny) == 0 with input as obj with data.domain as "example.com"
 }
 
-test_inline_matchrule_fail if {
+test_inline_route_hostnames_fail if {
 	obj := {
 		"kind": "Application",
 		"apiVersion": "argoproj.io/v1alpha1",
-		"metadata": {"name": "traefik-external", "namespace": "argocd"},
-		"spec": {"source": {"helm": {"values": "ingressRoute:\n  dashboard:\n    matchRule: Host(`traefik.other.com`)\n"}}},
+		"metadata": {"name": "sonarr", "namespace": "argocd"},
+		"spec": {"source": {"helm": {"values": "route:\n  main:\n    hostnames:\n      - sonarr.other.com\n"}}},
 	}
 	some m in deny with input as obj with data.domain as "example.com"
 	startswith(m, "[hostname-domain]")
@@ -139,7 +119,7 @@ test_inline_host_key_fail if {
 		"kind": "Application",
 		"apiVersion": "argoproj.io/v1alpha1",
 		"metadata": {"name": "app", "namespace": "argocd"},
-		"spec": {"source": {"helm": {"values": "ingress:\n  host: app.other.com\n"}}},
+		"spec": {"source": {"helm": {"values": "route:\n  host: app.other.com\n"}}},
 	}
 	some m in deny with input as obj with data.domain as "example.com"
 	startswith(m, "[hostname-domain]")
@@ -150,7 +130,7 @@ test_inline_hosts_list_fail if {
 		"kind": "Application",
 		"apiVersion": "argoproj.io/v1alpha1",
 		"metadata": {"name": "app", "namespace": "argocd"},
-		"spec": {"source": {"helm": {"values": "ingress:\n  hosts:\n    - app.example.com\n    - app.other.com\n"}}},
+		"spec": {"source": {"helm": {"values": "route:\n  hosts:\n    - app.example.com\n    - app.other.com\n"}}},
 	}
 	some m in deny with input as obj with data.domain as "example.com"
 	startswith(m, "[hostname-domain]")
@@ -183,7 +163,7 @@ test_inline_external_hostname_fail if {
 		"kind": "Application",
 		"apiVersion": "argoproj.io/v1alpha1",
 		"metadata": {"name": "app", "namespace": "argocd"},
-		"spec": {"source": {"helm": {"values": "ingress:\n  externalHostname: app.other.com\n"}}},
+		"spec": {"source": {"helm": {"values": "route:\n  externalHostname: app.other.com\n"}}},
 	}
 	some m in deny with input as obj with data.domain as "example.com"
 	startswith(m, "[hostname-domain]")
@@ -194,7 +174,7 @@ test_inline_external_hostname_pass if {
 		"kind": "Application",
 		"apiVersion": "argoproj.io/v1alpha1",
 		"metadata": {"name": "app", "namespace": "argocd"},
-		"spec": {"source": {"helm": {"values": "ingress:\n  externalHostname: app.example.com\n"}}},
+		"spec": {"source": {"helm": {"values": "route:\n  externalHostname: app.example.com\n"}}},
 	}
 	count(deny) == 0 with input as obj with data.domain as "example.com"
 }
@@ -245,7 +225,7 @@ test_inline_values_object_fail if {
 		"kind": "Application",
 		"apiVersion": "argoproj.io/v1alpha1",
 		"metadata": {"name": "app", "namespace": "argocd"},
-		"spec": {"source": {"helm": {"valuesObject": {"ingress": {"hostname": "app.other.com"}}}}},
+		"spec": {"source": {"helm": {"valuesObject": {"route": {"hostname": "app.other.com"}}}}},
 	}
 	some m in deny with input as obj with data.domain as "example.com"
 	startswith(m, "[hostname-domain]")
@@ -309,7 +289,7 @@ test_inline_exempt_hostname if {
 			"homelab.local/policy-exempt": "hostname-domain",
 			"homelab.local/policy-exempt-reason": "test fixture",
 		}},
-		"spec": {"source": {"helm": {"values": "ingress:\n  host: app.other.com\n"}}},
+		"spec": {"source": {"helm": {"values": "route:\n  host: app.other.com\n"}}},
 	}
 	count(deny) == 0 with input as obj with data.domain as "example.com"
 }

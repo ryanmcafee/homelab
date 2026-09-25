@@ -439,7 +439,7 @@ func TestRenderGitopsDomainMirrorsTerraform(t *testing.T) {
 
 	// homelab: the Terraform root Application sets global.domain as a helm
 	// parameter, so the two-stage env injects the example domain the same way.
-	const set = "--set global.domain=REPLACEME-domain.com"
+	const set = "--set global.domain=replaceme-domain.com"
 	cmd, ok := fr.find("helm", "template gitops ", set)
 	if !ok {
 		t.Fatalf("no homelab helm template gitops with %q; recorded:\n%s", set, fr.dump())
@@ -622,7 +622,7 @@ func TestRenderInheritOnlyGitopsForParentSelection(t *testing.T) {
 	}
 	// gitops deploys bootstrap, so it renders inherit-only (with the
 	// Terraform-mirroring --set); the child-deploying parents are not needed.
-	if _, ok := fr.find("helm", "template gitops ", "--set global.domain=REPLACEME-domain.com"); !ok {
+	if _, ok := fr.find("helm", "template gitops ", "--set global.domain=replaceme-domain.com"); !ok {
 		t.Errorf("gitops was not rendered for inheritance; recorded:\n%s", fr.dump())
 	}
 	for _, parent := range []string{"addons", "applications"} {
@@ -749,7 +749,8 @@ func TestRenderWritesFilesAndData(t *testing.T) {
 	if err != nil {
 		t.Fatalf("_data.yaml: %v", err)
 	}
-	for _, want := range []string{"env: homelab", "domain: REPLACEME-domain.com", "kubernetes_version: ", "argocd_automated_sync: true\n"} {
+	for _, want := range []string{"env: homelab", "domain: replaceme-domain.com", "kubernetes_version: ", "argocd_automated_sync: true\n",
+		"gateway_namespace: envoy-gateway-system\n", "gateway_internal: envoy-internal\n", "gateway_external: envoy-external\n"} {
 		if !strings.Contains(string(raw), want) {
 			t.Errorf("_data.yaml missing %q; got:\n%s", want, string(raw))
 		}

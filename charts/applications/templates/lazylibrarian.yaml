@@ -67,9 +67,9 @@ spec:
           {{- include "homelab.preview.persistence" (dict "root" . "persistence" .Values.lazylibrarian.persistence) | nindent 10 }}
         {{- end }}
 
-        {{- if .Values.lazylibrarian.ingress }}
-        ingress:
-          {{- include "homelab.preview.hosts" (dict "root" . "text" (toYaml .Values.lazylibrarian.ingress)) | nindent 10 }}
+        {{- if .Values.lazylibrarian.route }}
+        route:
+          {{- include "homelab.preview.hosts" (dict "root" . "text" (toYaml .Values.lazylibrarian.route)) | nindent 10 }}
         {{- end }}
 
         {{- if .Values.lazylibrarian.TZ }}

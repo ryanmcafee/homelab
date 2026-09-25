@@ -5,8 +5,9 @@ metadata:
   name: cert-manager
 spec:
   description: >-
-    cert-manager and its config/issuer Applications are Healthy and the Certificate
-    traefik-dashboard-tls in namespace traefik (from the traefik-external-config chart) is Ready.
+    cert-manager and its config/issuer Applications are Healthy and the wildcard Certificate
+    gateway-wildcard-tls in namespace envoy-gateway-system (from the envoy-gateway-config
+    Application) is Ready.
   steps:
     - name: applications-healthy
       description: cert-manager, cert-manager-config and cert-manager-cluster-issuer are Healthy and Succeeded.
@@ -63,18 +64,18 @@ spec:
             kind: Application
             name: cert-manager-cluster-issuer
             namespace: argocd
-    - name: dashboard-certificate-ready
-      description: Certificate traefik-dashboard-tls in namespace traefik has condition Ready=True.
+    - name: wildcard-certificate-ready
+      description: Certificate gateway-wildcard-tls in namespace envoy-gateway-system has condition Ready=True.
       try:
         - assert:
             resource:
               apiVersion: cert-manager.io/v1
               kind: Certificate
               metadata:
-                name: traefik-dashboard-tls
-                namespace: traefik
+                name: gateway-wildcard-tls
+                namespace: envoy-gateway-system
               spec:
-                secretName: traefik-dashboard-tls
+                secretName: gateway-wildcard-tls
               status:
                 (conditions[?type == 'Ready']):
                   - status: 'True'
@@ -83,21 +84,21 @@ spec:
               apiVersion: v1
               kind: Secret
               metadata:
-                name: traefik-dashboard-tls
-                namespace: traefik
+                name: gateway-wildcard-tls
+                namespace: envoy-gateway-system
               type: kubernetes.io/tls
       catch:
         - describe:
             apiVersion: cert-manager.io/v1
             kind: Certificate
-            name: traefik-dashboard-tls
-            namespace: traefik
+            name: gateway-wildcard-tls
+            namespace: envoy-gateway-system
         - describe:
             apiVersion: cert-manager.io/v1
             kind: CertificateRequest
-            namespace: traefik
+            namespace: envoy-gateway-system
         - events:
-            namespace: traefik
+            namespace: envoy-gateway-system
         - podLogs:
             namespace: cert-manager
             selector: app.kubernetes.io/name=cert-manager

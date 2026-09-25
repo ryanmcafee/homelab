@@ -53,3 +53,36 @@ id(obj) := sprintf("%s/%s/%s", [
 	object.get(object.get(obj, "metadata", {}), "namespace", ""),
 	object.get(object.get(obj, "metadata", {}), "name", ""),
 ])
+
+# gateway_namespace / gateway_internal / gateway_external name the Envoy
+# Gateways every HTTPRoute must attach to. The renderer writes them into
+# _data.yaml from GATEWAY_NAMESPACE / GATEWAY_INTERNAL / GATEWAY_EXTERNAL; the
+# defaults match configuration/environments/defaults.yaml.
+default gateway_namespace := "envoy-gateway-system"
+
+gateway_namespace := data.gateway_namespace if is_string(data.gateway_namespace)
+
+default gateway_internal := "envoy-internal"
+
+gateway_internal := data.gateway_internal if is_string(data.gateway_internal)
+
+default gateway_external := "envoy-external"
+
+gateway_external := data.gateway_external if is_string(data.gateway_external)
+
+# inline_values parses an Application's inline helm values: the
+# spec.source.helm.values YAML string merged with helm.valuesObject.
+default helm_values_string(helm) := {}
+
+helm_values_string(helm) := yaml.unmarshal(helm.values) if is_string(helm.values)
+
+default helm_values_object(helm) := {}
+
+helm_values_object(helm) := helm.valuesObject if is_object(helm.valuesObject)
+
+default inline_values(obj) := {}
+
+inline_values(obj) := merged if {
+	helm := object.get(object.get(obj.spec, "source", {}), "helm", {})
+	merged := object.union(helm_values_string(helm), helm_values_object(helm))
+}

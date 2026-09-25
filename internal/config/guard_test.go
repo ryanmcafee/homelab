@@ -88,7 +88,6 @@ func TestIsPIIKey(t *testing.T) {
 		want bool
 	}{
 		{key: "DOMAIN", want: true},
-		{key: "TRAEFIK_OIDC_ALLOWED_DOMAINS", want: true},
 		{key: "ACME_EMAIL", want: true},
 		{key: "NFS_MAPALL_USER", want: true},
 		{key: "EXTERNAL_DNS_DEFAULT_TARGET", want: true},
@@ -104,7 +103,7 @@ func TestIsPIIKey(t *testing.T) {
 		{key: "BGP_K8S_ASN", want: false},
 		{key: "LB_POOL_START", want: false},
 		{key: "STORAGE_CLASS_NFS", want: false},
-		{key: "TRAEFIK_OIDC_PROVIDER_URL", want: false},
+		{key: "GOOGLE_OAUTH_1P_PATH", want: false},
 		{key: "DEMOCRATIC_CSI_1P_PATH", want: false},
 		{key: "MOSQUITTO_MQTT_PORT", want: false},
 	}
@@ -521,21 +520,15 @@ func TestScanFileForPIIShapeHostnames(t *testing.T) {
 			want:     []string{"EXTERNAL_DNS_DEFAULT_TARGET"},
 		},
 		{
-			name:     "allowed domains list",
-			filename: "f.yaml",
-			content:  "TRAEFIK_OIDC_ALLOWED_DOMAINS: ryanmcafee.com\n",
-			want:     []string{"TRAEFIK_OIDC_ALLOWED_DOMAINS"},
-		},
-		{
 			name:     "committed localdev hostnames stay clean",
 			filename: "localdev.yaml",
-			content:  "DOMAIN: homelab.local\nACME_EMAIL: test@homelab.local\nTRAEFIK_OIDC_ALLOWED_DOMAINS: homelab.local\nEXTERNAL_DNS_DEFAULT_TARGET: homelab-dev.duckdns.org\nDUCKDNS_SUBDOMAIN: homelab-dev\nNFS_MAPALL_USER: localdev\n",
+			content:  "DOMAIN: homelab.local\nACME_EMAIL: test@homelab.local\nEXTERNAL_DNS_DEFAULT_TARGET: homelab-dev.duckdns.org\nDUCKDNS_SUBDOMAIN: homelab-dev\nNFS_MAPALL_USER: localdev\n",
 			want:     nil,
 		},
 		{
 			name:     "committed defaults stay clean",
 			filename: "defaults.yaml",
-			content:  "DOMAIN: example.com\nACME_EMAIL: \"\"\nDUCKDNS_SUBDOMAIN: \"\"\nEXTERNAL_DNS_DEFAULT_TARGET: \"\"\nTRAEFIK_OIDC_PROVIDER_URL: \"https://accounts.google.com\"\n",
+			content:  "DOMAIN: example.com\nACME_EMAIL: \"\"\nDUCKDNS_SUBDOMAIN: \"\"\nEXTERNAL_DNS_DEFAULT_TARGET: \"\"\nGATEWAY_NAMESPACE: envoy-gateway-system\n",
 			want:     nil,
 		},
 		{
@@ -735,7 +728,7 @@ func TestIsExamplePlaceholder(t *testing.T) {
 		{name: "loopback CIDR", value: "127.0.0.0/8", want: true},
 		// Allowed: documented placeholder hostnames and mailboxes on them.
 		{name: "placeholder domain", value: "REPLACEME-domain.com", want: true},
-		{name: "placeholder subdomain", value: "traefik.REPLACEME-domain.com", want: true},
+		{name: "placeholder subdomain", value: "gateway.REPLACEME-domain.com", want: true},
 		{name: "placeholder mailbox", value: "you@REPLACEME-domain.com", want: true},
 		{name: "admin mailbox on the placeholder domain", value: "admin@REPLACEME-domain.com", want: true},
 		{name: "example.com", value: "example.com", want: true},
@@ -876,7 +869,7 @@ func TestHasPlaceholderMarker(t *testing.T) {
 		// The convention: REPLACEME on its own, or as a REPLACEME- prefix.
 		// Matching is case-insensitive because hosts are lowercased first.
 		{name: "REPLACEME- prefix form", host: "replaceme-domain.com", want: true},
-		{name: "REPLACEME- prefix on a deeper label", host: "traefik.replaceme-domain.com", want: true},
+		{name: "REPLACEME- prefix on a deeper label", host: "gateway.replaceme-domain.com", want: true},
 		{name: "REPLACEME- prefix with no dot at all", host: "replaceme-username", want: true},
 		{name: "REPLACEME alone as a whole label", host: "replaceme", want: true},
 		{name: "REPLACEME as a deeper label", host: "replaceme.duckdns.org", want: true},
@@ -1373,7 +1366,7 @@ func TestScanFileForPIIShapeHelmKeys(t *testing.T) {
 		// --- hits: the shapes the child charts' values-homelab.yaml carried ---
 		{
 			name:    "nested host with a real hostname",
-			content: "dashboard:\n  enabled: true\n  host: traefik.ryanmcafee.com\n",
+			content: "dashboard:\n  enabled: true\n  host: gateway.ryanmcafee.com\n",
 			want:    []string{"host (real hostname)"},
 		},
 		{
@@ -1433,7 +1426,7 @@ func TestScanFileForPIIShapeHelmKeys(t *testing.T) {
 		},
 		{
 			name:    "several leaks are all reported in line order",
-			content: "global:\n  domain: ryanmcafee.com\ndashboard:\n  host: traefik.ryanmcafee.com\n  staticIP: \"172.16.100.200\"\n",
+			content: "global:\n  domain: ryanmcafee.com\ndashboard:\n  host: gateway.ryanmcafee.com\n  staticIP: \"172.16.100.200\"\n",
 			want:    []string{"domain (real hostname)", "host (real hostname)", "staticIP (routable host IP)"},
 		},
 
@@ -1445,12 +1438,12 @@ func TestScanFileForPIIShapeHelmKeys(t *testing.T) {
 		},
 		{
 			name:    "a reserved test suffix",
-			content: "dashboard:\n  host: traefik.homelab.test\n",
+			content: "dashboard:\n  host: gateway.homelab.test\n",
 			want:    nil,
 		},
 		{
 			name:    "a reserved local suffix and a REPLACEME marker",
-			content: "dashboard:\n  host: traefik.homelab.local\noidc:\n  host: auth.REPLACEME-domain.com\n",
+			content: "dashboard:\n  host: gateway.homelab.local\noidc:\n  host: auth.REPLACEME-domain.com\n",
 			want:    nil,
 		},
 		{
@@ -1485,24 +1478,24 @@ func TestScanFileForPIIShapeHelmKeys(t *testing.T) {
 		},
 		{
 			name:    "a key:value token without a space is not a mapping",
-			content: "cmd: host:traefik.ryanmcafee.com\n",
+			content: "cmd: host:gateway.ryanmcafee.com\n",
 			want:    nil,
 		},
 		{
 			name:    "markdown table rows and JSON strings are not key/value lines",
-			content: "| host | traefik.ryanmcafee.com |\n{\"host\": \"traefik.ryanmcafee.com\"}\n",
+			content: "| host | gateway.ryanmcafee.com |\n{\"host\": \"gateway.ryanmcafee.com\"}\n",
 			want:    nil,
 		},
 		{
 			name:    "a comment naming a host is skipped",
-			content: "# host: traefik.ryanmcafee.com\ndashboard:\n  # portal: 172.16.100.150:3260\n  enabled: true\n",
+			content: "# host: gateway.ryanmcafee.com\ndashboard:\n  # portal: 172.16.100.150:3260\n  enabled: true\n",
 			want:    nil,
 		},
 
 		// --- the two rules never both fire on one line ---
 		{
 			name:    "a SCREAMING key is decided by the config rule alone",
-			content: "DOMAIN: ryanmcafee.com\nIP: 172.16.100.1\nHOST: traefik.ryanmcafee.com\n",
+			content: "DOMAIN: ryanmcafee.com\nIP: 172.16.100.1\nHOST: gateway.ryanmcafee.com\n",
 			// DOMAIN is PII-shaped for the config rule; the bare IP and HOST
 			// are not, and the Helm rule does not second-guess them.
 			want: []string{"DOMAIN (real hostname)"},
@@ -1612,7 +1605,7 @@ func TestScanFileForPIIShapeHelmListKeys(t *testing.T) {
 		},
 		{
 			name:    "a flow mapping on the key line",
-			content: "dashboard: {enabled: true, host: traefik.ryanmcafee.com}\n",
+			content: "dashboard: {enabled: true, host: gateway.ryanmcafee.com}\n",
 			want:    []string{"host (real hostname)"},
 		},
 		{
@@ -1643,13 +1636,13 @@ func TestScanTemplateFileHelmKeysRequirePlaceholders(t *testing.T) {
 	}{
 		{
 			name:    "documented placeholders on Helm keys pass",
-			content: "global:\n  domain: example.com\ndashboard:\n  host: traefik.REPLACEME-domain.com\n  staticIP: \"192.168.1.200\"\nletsencrypt:\n  email: admin@example.com\nvolumes:\n  - csi:\n      volumeAttributes:\n        portal: \"192.168.1.100:3260\"\ndnsZones:\n  - example.com\n  - homelab.local\n",
+			content: "global:\n  domain: example.com\ndashboard:\n  host: gateway.REPLACEME-domain.com\n  staticIP: \"192.168.1.200\"\nletsencrypt:\n  email: admin@example.com\nvolumes:\n  - csi:\n      volumeAttributes:\n        portal: \"192.168.1.100:3260\"\ndnsZones:\n  - example.com\n  - homelab.local\n",
 		},
 		{
 			name:     "a real hostname pasted into a template",
-			content:  "dashboard:\n  host: traefik.ryanmcafee.com\n",
+			content:  "dashboard:\n  host: gateway.ryanmcafee.com\n",
 			wantKeys: []string{"host"},
-			wantVals: []string{"traefik.ryanmcafee.com"},
+			wantVals: []string{"gateway.ryanmcafee.com"},
 		},
 		{
 			name:     "an address outside the documentation subnet",
@@ -1695,7 +1688,7 @@ func TestRunGuardHelmValuesAreDeterministic(t *testing.T) {
 	// out of order, with the config rule and the Helm rule both firing.
 	dir := t.TempDir()
 	for name, body := range map[string]string{
-		"charts/b/values-homelab.yaml": "global:\n  domain: ryanmcafee.com\ndashboard:\n  host: traefik.ryanmcafee.com\n  staticIP: \"172.16.100.200\"\ndnsZones:\n  - ryanmcafee.com\n",
+		"charts/b/values-homelab.yaml": "global:\n  domain: ryanmcafee.com\ndashboard:\n  host: gateway.ryanmcafee.com\n  staticIP: \"172.16.100.200\"\ndnsZones:\n  - ryanmcafee.com\n",
 		"charts/a/values-homelab.yaml": "volumes:\n  - csi:\n      volumeAttributes:\n        portal: \"172.16.100.150:3260\"\n",
 		"configuration/x.yaml":         "TRUENAS_IP: 172.16.100.150\nhost: truenas.ryanmcafee.com\n",
 	} {
@@ -1769,7 +1762,7 @@ func TestDefaultGuardScopeCoversChartHomelabValues(t *testing.T) {
 
 	calls := withTrackedFiles(t, []string{
 		"configuration/environments/localdev.yaml",
-		"charts/traefik-external-config/values-homelab.yaml",
+		"charts/envoy-gateway-config/values-homelab.yaml",
 		"charts/sonarr-config/values-homelab.yaml",
 		".github/homelab.svg",
 		".github/workflows/verify.yml",
@@ -1785,8 +1778,8 @@ func TestDefaultGuardScopeCoversChartHomelabValues(t *testing.T) {
 	wantFiles := []string{
 		".github/homelab.svg",
 		".github/workflows/verify.yml",
+		"charts/envoy-gateway-config/values-homelab.yaml",
 		"charts/sonarr-config/values-homelab.yaml",
-		"charts/traefik-external-config/values-homelab.yaml",
 		"configuration/environments/localdev.yaml",
 	}
 	if strings.Join(files, " ") != strings.Join(wantFiles, " ") {
@@ -1826,7 +1819,7 @@ func TestScanFileForPIIShapeHelmRuleEdges(t *testing.T) {
 		},
 		{
 			name:    "single-quoted key too",
-			content: "  'host': traefik.ryanmcafee.com\n",
+			content: "  'host': gateway.ryanmcafee.com\n",
 			want:    []string{"host (real hostname)"},
 		},
 	}

@@ -7,16 +7,16 @@ what makes TraceId links useful. Decision record: ADR-021.
 
 | Sender | How | Sampling |
 |---|---|---|
-| Traefik (both releases) | starts or continues W3C `traceparent`, forwards it to the backend, OTLP gRPC to the gateway; the JSON access log carries `TraceId` and `SpanId` | `traefik*.tracing.sampleRate` in `configuration/templates/helm-addons.tmpl`: 0.1 homelab, 1.0 Kind |
+| Envoy Gateway (`envoy-internal`, `envoy-external`) | EnvoyProxy `telemetry.tracing` (charts/envoy-gateway-config): starts or continues W3C `traceparent`, forwards it to the backend, OTLP gRPC to the gateway as service `<gateway>.envoy-gateway-system` with tag `gateway`; the JSON access log carries `trace_id` and `traceparent` | `envoy-gateway.gateways.*.config.tracing.samplingRate` in `configuration/templates/helm-addons.tmpl`: 10 homelab, 100 Kind (percent) |
 | Istio waypoints | istiod `meshConfig.extensionProviders` `otel-tracing` + Telemetry `istio-system/mesh-default` (charts/istio-config) | `istio.tracing.samplingPercentage`: 10 homelab, 100 Kind |
 | Applications | OTLP to `otel-collector-gateway.observability.svc.cluster.local:4317` (gRPC) or `:4318` (HTTP) | the application's own |
 
 ztunnel is L4 only and emits no spans: a namespace needs a waypoint
-(`SERVICE_MESH_WAYPOINT_NAMESPACES`, docs/service-mesh.md) for mesh spans. Traefik samples
-independently of the mesh; a request sampled by Traefik carries the sampled flag in
+(`SERVICE_MESH_WAYPOINT_NAMESPACES`, docs/service-mesh.md) for mesh spans. Envoy Gateway samples
+independently of the mesh; a request sampled by Envoy carries the sampled flag in
 `traceparent`, and the waypoint follows it.
 
-Outside the cluster: OTLP/HTTP with TLS at `https://otlp.<DOMAIN>` (internal ingress,
+Outside the cluster: OTLP/HTTP with TLS at `https://otlp.<DOMAIN>` (HTTPRoute on `envoy-internal`,
 `OTLP_HOSTNAME`), or plain OTLP on `otel.<DOMAIN>:4317/4318` (the gateway's LoadBalancer, LAN only).
 
 ## Send traces from an app
@@ -35,14 +35,14 @@ env:
 
 The gateway adds `k8s.*` resource attributes from the sending pod's address. Paperclip keeps its
 Instance `observability.metrics` off: the operator's OTEL preload crashes images without
-instrumentation (docs/apps/paperclip.md); its spans come from Traefik and the waypoint.
+instrumentation (docs/apps/paperclip.md); its spans come from Envoy Gateway and the waypoint.
 
 ## Find a trace in Grafana
 
 - **Explore -> ClickHouse -> Traces**: search by service, span name or duration; the trace view
   opens from a TraceId. In the Logs query type a log line with a `TraceId` links to its trace.
 - **Dashboards**: "OpenTelemetry Traces Explorer" and "OpenTelemetry Logs Explorer" (shipped with
-  the ClickHouse plugin), "Paperclip request path" (click a TraceId in the access-log table).
+  the ClickHouse plugin), "Paperclip request path" (click a trace_id in the access-log table).
 
 ```sql
 SELECT Timestamp, ServiceName, SpanName, Duration / 1e6 AS ms, StatusCode
@@ -50,8 +50,8 @@ FROM otel.otel_traces WHERE TraceId = '<32 hex>' ORDER BY Timestamp;
 
 -- the access-log line of the same request
 SELECT Timestamp, Body FROM otel.otel_logs
-WHERE ResourceAttributes['k8s.namespace.name'] = 'traefik'
-  AND JSONExtractString(Body, 'TraceId') = '<32 hex>';
+WHERE ResourceAttributes['k8s.namespace.name'] = 'envoy-gateway-system'
+  AND JSONExtractString(Body, 'trace_id') = '<32 hex>';
 ```
 
 ## Alerts

@@ -16,7 +16,9 @@
   # [[ .Name ]]-config Application's helm.valuesObject (ADR-010). Never put them
   # in charts/[[ .Name ]]-config/values-homelab.yaml.
   config:
-    ingress:
+    route:
       host: {{ .Values.[[ .HostnameKey ]].Value }}
-      className: {{ .Values.INGRESS_CLASS_INTERNAL.Value }}
+      gateway:
+        name: {{ .Values.GATEWAY_INTERNAL.Value }}
+        namespace: {{ .Values.GATEWAY_NAMESPACE.Value }}
 [[- template "smokeValues" . ]]

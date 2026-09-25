@@ -75,16 +75,14 @@
         'every weekend',
       ],
     },
-    // The traefik chart and its CRD chart are released together; one PR keeps
-    // the CRDs Traefik reads in step with the controller.
+    // versions.yaml tracks gateway-helm only; its one key also pins gateway-crds-helm.
     {
-      groupName: 'Traefik',
+      groupName: 'Envoy Gateway',
       matchPackageNames: [
-        'traefik',
-        'traefik-crds',
+        'docker.io/envoyproxy/gateway-helm',
       ],
       matchDatasources: [
-        'helm',
+        'docker',
       ],
     },
     {

@@ -12,7 +12,7 @@ sonarr:
     name: sonarr
     repo: oci://oci.trueforge.org/truecharts/sonarr
     version: {{ .Versions.Charts.sonarr }}
-  ingress:
+  route:
     main:
-      hosts:
-        - host: {{ .Values.SONARR_HOSTNAME.Value }}
+      hostnames:
+        - {{ .Values.SONARR_HOSTNAME.Value }}

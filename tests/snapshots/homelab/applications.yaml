@@ -871,7 +871,7 @@ spec:
             enabled: true
             mountPath: /books
             path: /mnt/storage/books
-            server: truenas.REPLACEME-domain.com
+            server: truenas.replaceme-domain.com
             type: nfs
           config:
             accessModes:
@@ -884,24 +884,21 @@ spec:
             enabled: true
             mountPath: /downloads
             path: /mnt/storage/downloads
-            server: truenas.REPLACEME-domain.com
+            server: truenas.replaceme-domain.com
             type: nfs
-        ingress:
+        route:
           main:
             annotations:
-              cert-manager.io/cluster-issuer: letsencrypt
-              external-dns.alpha.kubernetes.io/hostname: lazylibrarian.REPLACEME-domain.com
+              external-dns.alpha.kubernetes.io/hostname: lazylibrarian.replaceme-domain.com
             enabled: true
-            hosts:
-            - host: lazylibrarian.REPLACEME-domain.com
-              paths:
-              - path: /
-                pathType: Prefix
-            ingressClassName: internal
-            tls:
-            - hosts:
-              - lazylibrarian.REPLACEME-domain.com
-              secretName: lazylibrarian-tls
+            hostnames:
+            - lazylibrarian.replaceme-domain.com
+            parentRefs:
+            - group: gateway.networking.k8s.io
+              kind: Gateway
+              name: envoy-internal
+              namespace: envoy-gateway-system
+              sectionName: https
         TZ: "America/New_York"
         securityContext:
           container:
@@ -1161,24 +1158,21 @@ spec:
             enabled: true
             mountPath: /downloads
             path: /mnt/storage/downloads
-            server: truenas.REPLACEME-domain.com
+            server: truenas.replaceme-domain.com
             type: nfs
-        ingress:
+        route:
           main:
             annotations:
-              cert-manager.io/cluster-issuer: letsencrypt
-              external-dns.alpha.kubernetes.io/hostname: nzbget.REPLACEME-domain.com
+              external-dns.alpha.kubernetes.io/hostname: nzbget.replaceme-domain.com
             enabled: true
-            hosts:
-            - host: nzbget.REPLACEME-domain.com
-              paths:
-              - path: /
-                pathType: Prefix
-            ingressClassName: internal
-            tls:
-            - hosts:
-              - nzbget.REPLACEME-domain.com
-              secretName: nzbget-tls
+            hostnames:
+            - nzbget.replaceme-domain.com
+            parentRefs:
+            - group: gateway.networking.k8s.io
+              kind: Gateway
+              name: envoy-internal
+              namespace: envoy-gateway-system
+              sectionName: https
         TZ: "America/New_York"
         securityContext:
           container:
@@ -1413,12 +1407,12 @@ spec:
       valueFiles:
         - values.yaml
         - values-homelab.yaml
-      # Hostname, admin e-mail, image tag, ingress class and storage classes
+      # Hostname, admin e-mail, image tag, Gateway and storage classes
       # come from configuration/ through this parent (ADR-010); never put them
       # in charts/paperclip/values-homelab.yaml.
       valuesObject:
         namespace: paperclip
-        hostname: paperclip.REPLACEME-domain.com
+        hostname: paperclip.replaceme-domain.com
         serviceMesh:
           ambient: true
         admin:
@@ -1437,8 +1431,6 @@ spec:
         image:
           repository: ghcr.io/paperclipai/paperclip
           tag: 2026.916.1
-        ingress:
-          className: internal
         persistence:
           size: 200Gi
           storageClass: democratic-csi-iscsi
@@ -1449,6 +1441,10 @@ spec:
           requests:
             cpu: 500m
             memory: 16Gi
+        route:
+          gateway:
+            name: envoy-internal
+            namespace: envoy-gateway-system
   destination:
     server: https://kubernetes.default.svc
     namespace: paperclip
@@ -1535,7 +1531,7 @@ spec:
           repository: plexinc/pms-docker
           tag: latest
         extraEnv:
-          ADVERTISE_IP: https://plex.REPLACEME-domain.com:443
+          ADVERTISE_IP: https://plex.replaceme-domain.com:443
           CHANGE_CONFIG_DIR_OWNERSHIP: "false"
           PLEX_GID: "100"
           PLEX_UID: "568"
@@ -1559,19 +1555,19 @@ spec:
           - name: movies
             nfs:
               path: /mnt/storage/movies
-              server: truenas.REPLACEME-domain.com
+              server: truenas.replaceme-domain.com
           - name: tv
             nfs:
               path: /mnt/storage/tv
-              server: truenas.REPLACEME-domain.com
+              server: truenas.replaceme-domain.com
           - name: music
             nfs:
               path: /mnt/storage/music
-              server: truenas.REPLACEME-domain.com
+              server: truenas.replaceme-domain.com
           - name: pictures
             nfs:
               path: /mnt/storage/pictures
-              server: truenas.REPLACEME-domain.com
+              server: truenas.replaceme-domain.com
           - name: dev-dri
             hostPath:
               path: /dev/dri
@@ -1594,27 +1590,23 @@ spec:
         service:
           annotations:
             io.cilium/lb-ipam-ips: 192.168.1.103
-            port-forwarding.REPLACEME-domain.com/enable: "true"
+            port-forwarding.replaceme-domain.com/enable: "true"
           externalTrafficPolicy: Local
           port: 32400
           type: LoadBalancer
-        ingress:
+        httpRoute:
           annotations:
-            cert-manager.io/cluster-issuer: letsencrypt
-            external-dns.alpha.kubernetes.io/hostname: plex.REPLACEME-domain.com
+            external-dns.alpha.kubernetes.io/hostname: plex.replaceme-domain.com
             external-dns.alpha.kubernetes.io/target: REPLACEME-subdomain.duckdns.org
           enabled: true
-          hosts:
-          - host: plex.REPLACEME-domain.com
-            paths:
-            - path: /
-              pathType: Prefix
-          ingressClassName: external
-          tls:
-          - hosts:
-            - plex.REPLACEME-domain.com
-            secretName: plex-tls
-          url: https://plex.REPLACEME-domain.com
+          hostnames:
+          - plex.replaceme-domain.com
+          parentRefs:
+          - group: gateway.networking.k8s.io
+            kind: Gateway
+            name: envoy-external
+            namespace: envoy-gateway-system
+            sectionName: https
         dnsPolicy: "None"
         dnsConfig:
           nameservers:
@@ -1733,22 +1725,19 @@ spec:
             existingClaim: prowlarr-config
             size: 1Gi
             storageClass: democratic-csi-nfs
-        ingress:
+        route:
           main:
             annotations:
-              cert-manager.io/cluster-issuer: letsencrypt
-              external-dns.alpha.kubernetes.io/hostname: prowlarr.REPLACEME-domain.com
+              external-dns.alpha.kubernetes.io/hostname: prowlarr.replaceme-domain.com
             enabled: true
-            hosts:
-            - host: prowlarr.REPLACEME-domain.com
-              paths:
-              - path: /
-                pathType: Prefix
-            ingressClassName: internal
-            tls:
-            - hosts:
-              - prowlarr.REPLACEME-domain.com
-              secretName: prowlarr-tls
+            hostnames:
+            - prowlarr.replaceme-domain.com
+            parentRefs:
+            - group: gateway.networking.k8s.io
+              kind: Gateway
+              name: envoy-internal
+              namespace: envoy-gateway-system
+              sectionName: https
         TZ: "America/New_York"
         securityContext:
           container:
@@ -1875,30 +1864,27 @@ spec:
             enabled: true
             mountPath: /downloads
             path: /mnt/storage/downloads
-            server: truenas.REPLACEME-domain.com
+            server: truenas.replaceme-domain.com
             type: nfs
           movies:
             enabled: true
             mountPath: /movies
             path: /mnt/storage/movies
-            server: truenas.REPLACEME-domain.com
+            server: truenas.replaceme-domain.com
             type: nfs
-        ingress:
+        route:
           main:
             annotations:
-              cert-manager.io/cluster-issuer: letsencrypt
-              external-dns.alpha.kubernetes.io/hostname: radarr.REPLACEME-domain.com
+              external-dns.alpha.kubernetes.io/hostname: radarr.replaceme-domain.com
             enabled: true
-            hosts:
-            - host: radarr.REPLACEME-domain.com
-              paths:
-              - path: /
-                pathType: Prefix
-            ingressClassName: internal
-            tls:
-            - hosts:
-              - radarr.REPLACEME-domain.com
-              secretName: radarr-tls
+            hostnames:
+            - radarr.replaceme-domain.com
+            parentRefs:
+            - group: gateway.networking.k8s.io
+              kind: Gateway
+              name: envoy-internal
+              namespace: envoy-gateway-system
+              sectionName: https
         TZ: "America/New_York"
         securityContext:
           container:
@@ -2007,7 +1993,7 @@ spec:
               "$schema": "https://docs.renovatebot.com/renovate-schema.json",
               "platform": "github",
               "repositories": ["ryanmcafee/homelab"],
-              "gitAuthor": "Renovate Bot <renovate@REPLACEME-domain.com>",
+              "gitAuthor": "Renovate Bot <renovate@replaceme-domain.com>",
               "onboarding": false,
               "requireConfig": "optional"
             }
@@ -2127,30 +2113,27 @@ spec:
             enabled: true
             mountPath: /downloads
             path: /mnt/storage/downloads
-            server: truenas.REPLACEME-domain.com
+            server: truenas.replaceme-domain.com
             type: nfs
           tv:
             enabled: true
             mountPath: /tv
             path: /mnt/storage/tv
-            server: truenas.REPLACEME-domain.com
+            server: truenas.replaceme-domain.com
             type: nfs
-        ingress:
+        route:
           main:
             annotations:
-              cert-manager.io/cluster-issuer: letsencrypt
-              external-dns.alpha.kubernetes.io/hostname: sonarr.REPLACEME-domain.com
+              external-dns.alpha.kubernetes.io/hostname: sonarr.replaceme-domain.com
             enabled: true
-            hosts:
-            - host: sonarr.REPLACEME-domain.com
-              paths:
-              - path: /
-                pathType: Prefix
-            ingressClassName: internal
-            tls:
-            - hosts:
-              - sonarr.REPLACEME-domain.com
-              secretName: sonarr-tls
+            hostnames:
+            - sonarr.replaceme-domain.com
+            parentRefs:
+            - group: gateway.networking.k8s.io
+              kind: Gateway
+              name: envoy-internal
+              namespace: envoy-gateway-system
+              sectionName: https
         TZ: "America/New_York"
         securityContext:
           container:
@@ -2265,22 +2248,19 @@ spec:
             existingClaim: tautulli-config
             size: 5Gi
             storageClass: democratic-csi-nfs
-        ingress:
+        route:
           main:
             annotations:
-              cert-manager.io/cluster-issuer: letsencrypt
-              external-dns.alpha.kubernetes.io/hostname: tautulli.REPLACEME-domain.com
+              external-dns.alpha.kubernetes.io/hostname: tautulli.replaceme-domain.com
             enabled: true
-            hosts:
-            - host: tautulli.REPLACEME-domain.com
-              paths:
-              - path: /
-                pathType: Prefix
-            ingressClassName: internal
-            tls:
-            - hosts:
-              - tautulli.REPLACEME-domain.com
-              secretName: tautulli-tls
+            hostnames:
+            - tautulli.replaceme-domain.com
+            parentRefs:
+            - group: gateway.networking.k8s.io
+              kind: Gateway
+              name: envoy-internal
+              namespace: envoy-gateway-system
+              sectionName: https
         TZ: "America/New_York"
         securityContext:
           container:

@@ -2,7 +2,7 @@
 # Copy to homelab.yaml and fill in real values.
 # homelab.yaml is GITIGNORED — never commit it.
 
-DOMAIN: REPLACEME-domain.com
+DOMAIN: replaceme-domain.com
 GATEWAY_IP: "192.168.1.1"
 # The LAN the nodes sit on. Terragrunt builds the VM network from this; keep it
 # separate from NFS_SHARE_ALLOW, which you may want to narrow.
@@ -22,7 +22,9 @@ WORKER2_IP: "192.168.1.22"
 WORKER3_IP: "192.168.1.23"
 LB_POOL_START: "192.168.1.100"
 LB_POOL_END: "192.168.1.200"
-TRAEFIK_STATIC_IP: "192.168.1.200"
+GATEWAY_EXTERNAL_STATIC_IP: "192.168.1.200"
+# Pins the internal Gateway to an address (empty: Cilium LB IPAM picks one)
+GATEWAY_INTERNAL_STATIC_IP: "192.168.1.101"
 PLEX_LB_IP: "192.168.1.103"
 # OpenTelemetry gateway collector (UniFi syslog/NetFlow target, otel.<DOMAIN>); a free address in the LB pool
 OTEL_LB_IP: "192.168.1.104"
@@ -45,7 +47,6 @@ GITOPS_REPO_URL: https://github.com/REPLACEME-user/homelab
 
 NFS_MAPALL_USER: REPLACEME-username
 ACME_EMAIL: admin@REPLACEME-domain.com
-TRAEFIK_OIDC_ALLOWED_DOMAINS: REPLACEME-domain.com
 DUCKDNS_SUBDOMAIN: REPLACEME-subdomain
 EXTERNAL_DNS_DEFAULT_TARGET: REPLACEME-subdomain.duckdns.org
 PAPERCLIP_ADMIN_EMAIL: admin@REPLACEME-domain.com

@@ -290,8 +290,8 @@ func evaluateArgoApp(app argoApp, start time.Time, rules argoAppRules) Check {
 	if health == "Healthy" && phase == "Succeeded" && synced {
 		return PassCheck(name, start, detail)
 	}
-	// A chart that renders nothing (charts/traefik-internal-dependencies in
-	// homelab is a comment-only placeholder) never gets a sync operation:
+	// A chart that renders nothing (e.g. a comment-only *-dependencies
+	// placeholder) never gets a sync operation:
 	// ArgoCD has nothing to apply. Synced + Healthy with no resources is
 	// therefore complete, not "never synced". Sync status is required here even
 	// when rules.requireSynced is false: without resources or an operation it

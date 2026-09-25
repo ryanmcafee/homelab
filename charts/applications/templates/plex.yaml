@@ -116,9 +116,9 @@ spec:
           {{- toYaml .Values.plex.service | nindent 10 }}
         {{- end }}
 
-        {{- if .Values.plex.ingress }}
-        ingress:
-          {{- toYaml .Values.plex.ingress | nindent 10 }}
+        {{- if .Values.plex.httpRoute }}
+        httpRoute:
+          {{- toYaml .Values.plex.httpRoute | nindent 10 }}
         {{- end }}
 
         {{- if .Values.plex.dnsPolicy }}

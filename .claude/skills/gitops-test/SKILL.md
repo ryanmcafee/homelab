@@ -19,11 +19,11 @@ triggers:
   - argocd sync failed
   - gitops sync failed
 
-  # Ingress/routing issues
-  - traefik ingress not working
-  - ingress routing issue
-  - ingress not accessible
-  - middleware not working
+  # Gateway/routing issues
+  - envoy gateway not working
+  - httproute not working
+  - routing issue
+  - route not accessible
 
   # Pre-commit / pre-PR validation (CRITICAL - invoke before offering to commit)
   - ready to commit charts
@@ -34,14 +34,12 @@ triggers:
   - create a pr
 
   # Implementation patterns that modify charts
-  - implement.*traefik
-  - implement.*middleware
-  - implement.*ingress
-  - add.*middleware
-  - add.*plugin
+  - implement.*gateway
+  - implement.*httproute
+  - add.*httproute
   - configure.*oidc
   - configure.*authentication
-  - update traefik
+  - update envoy gateway
   - update helm values
   - modify charts
   - bump.*version
@@ -248,11 +246,14 @@ dig TXT _acme-challenge.<domain> +short
 | challenge stuck `pending` | DNS propagation | wait; public resolvers (1.1.1.1, 8.8.8.8) |
 | `CleanUpError` | cannot delete the ACME TXT record | human: Cloudflare token permissions |
 
-**Traefik / ingress**
+**Envoy Gateway / routes**
 ```bash
-kubectl --context "$CTX" get ingressroutes,middlewares -A
-kubectl --context "$CTX" -n traefik get svc traefik -o jsonpath='{.status.loadBalancer.ingress[0].ip}'
+kubectl --context "$CTX" get gatewayclasses,gateways -A
+kubectl --context "$CTX" get httproutes -A -o wide
+kubectl --context "$CTX" -n envoy-gateway-system get svc envoy-internal envoy-external
 ```
+A route is served only when its parent status shows `Accepted` and `ResolvedRefs` True for the
+`https` listener (`kubectl get httproute <name> -n <ns> -o yaml`).
 For routing or TLS changes, a browser check of the affected endpoint (`mcp__puppeteer__puppeteer_navigate`
 to `https://<endpoint-under-test>/`, then a screenshot) is read-only and proves the change; use the
 preview hostname for a preview.

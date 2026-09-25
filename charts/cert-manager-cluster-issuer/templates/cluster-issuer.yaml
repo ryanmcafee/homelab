@@ -36,8 +36,6 @@ spec:
           - {{ . }}
           {{- end }}
     {{- else }}
-    - http01:
-        ingress:
-          class: traefik
+    {{- fail "letsencrypt needs cloudflare.enabled: the Gateways serve a wildcard certificate, which only DNS-01 can issue" }}
     {{- end }}
 {{- end }}

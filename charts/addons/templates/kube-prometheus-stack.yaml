@@ -37,9 +37,9 @@ spec:
 
         prometheus:
           prometheusSpec:
-            {{- if (index .Values "kube-prometheus-stack" "grafana" "ingress" "enabled") }}
-            # Alert generator URLs land on Grafana; the grafana-config Middleware redirects them to a query view.
-            externalUrl: https://{{ index (index .Values "kube-prometheus-stack" "grafana" "ingress" "hosts") 0 }}
+            {{- if (index .Values "kube-prometheus-stack" "grafana" "route" "enabled") }}
+            # Alert generator URLs land on Grafana; the grafana-config redirect sends them to a query view.
+            externalUrl: https://{{ index .Values "kube-prometheus-stack" "grafana" "route" "hostname" }}
             {{- end }}
             retention: {{ index .Values "kube-prometheus-stack" "prometheus" "retention" }}
             retentionSize: {{ index .Values "kube-prometheus-stack" "prometheus" "retentionSize" }}
@@ -92,20 +92,18 @@ spec:
             {{- end }}
             size: {{ index .Values "kube-prometheus-stack" "grafana" "persistence" "size" }}
 
-          {{- if (index .Values "kube-prometheus-stack" "grafana" "ingress" "enabled") }}
-          ingress:
-            enabled: true
-            ingressClassName: {{ index .Values "kube-prometheus-stack" "grafana" "ingress" "ingressClassName" }}
-            annotations:
-              cert-manager.io/cluster-issuer: letsencrypt
-              external-dns.alpha.kubernetes.io/hostname: {{ index (index .Values "kube-prometheus-stack" "grafana" "ingress" "hosts") 0 }}
-              traefik.ingress.kubernetes.io/router.middlewares: {{ index .Values "kube-prometheus-stack" "namespace" }}-grafana-alert-source@kubernetescrd
-            hosts:
-              {{- range (index .Values "kube-prometheus-stack" "grafana" "ingress" "hosts") }}
-              - {{ . }}
-              {{- end }}
-            tls:
-              {{- toYaml (index .Values "kube-prometheus-stack" "grafana" "ingress" "tls") | nindent 14 }}
+          {{- with (index .Values "kube-prometheus-stack" "grafana" "route") }}
+          {{- if .enabled }}
+          route:
+            main:
+              enabled: true
+              annotations:
+                external-dns.alpha.kubernetes.io/hostname: {{ .hostname }}
+              parentRefs:
+                {{- include "addons.gatewayParentRefs" (dict "root" $ "gateway" "internal") | nindent 16 }}
+              hostnames:
+                - {{ .hostname }}
+          {{- end }}
           {{- end }}
 
           resources:
@@ -194,27 +192,24 @@ spec:
           {{- $notify := index .Values "kube-prometheus-stack" "alertmanager" "notifications" }}
           {{- $secretDir := printf "/etc/alertmanager/secrets/%s" $notify.secretName }}
           {{- $githubPR := index .Values "github-pr-exporter" }}
-          {{- $ingress := index .Values "kube-prometheus-stack" "alertmanager" "ingress" }}
-          {{- $grafanaIngress := index .Values "kube-prometheus-stack" "grafana" "ingress" }}
-          {{- if $ingress.enabled }}
-          ingress:
-            enabled: true
-            ingressClassName: {{ $ingress.ingressClassName }}
-            annotations:
-              cert-manager.io/cluster-issuer: letsencrypt
-              external-dns.alpha.kubernetes.io/hostname: {{ index $ingress.hosts 0 }}
-            hosts:
-              {{- range $ingress.hosts }}
-              - {{ . }}
-              {{- end }}
-            tls:
-              {{- toYaml $ingress.tls | nindent 14 }}
+          {{- $route := index .Values "kube-prometheus-stack" "alertmanager" "route" }}
+          {{- $grafanaRoute := index .Values "kube-prometheus-stack" "grafana" "route" }}
+          {{- if $route.enabled }}
+          route:
+            main:
+              enabled: true
+              annotations:
+                external-dns.alpha.kubernetes.io/hostname: {{ $route.hostname }}
+              parentRefs:
+                {{- include "addons.gatewayParentRefs" (dict "root" $ "gateway" "internal") | nindent 16 }}
+              hostnames:
+                - {{ $route.hostname }}
           {{- end }}
 
           # Notification links: the alert group in Alertmanager, its rule query in Grafana Explore.
           templateFiles:
             homelab.tmpl: |-
-              {{`{{ define "homelab.grafanaURL" }}`}}https://{{ index $grafanaIngress.hosts 0 }}{{`{{ end }}`}}
+              {{`{{ define "homelab.grafanaURL" }}`}}https://{{ $grafanaRoute.hostname }}{{`{{ end }}`}}
 
               {{`{{ define "homelab.alertmanagerURL" -}}
               {{ $filter := printf "alertname=%q" .CommonLabels.alertname -}}
@@ -233,8 +228,8 @@ spec:
               {{- end }}`}}
 
           alertmanagerSpec:
-            {{- if $ingress.enabled }}
-            externalUrl: https://{{ index $ingress.hosts 0 }}
+            {{- if $route.enabled }}
+            externalUrl: https://{{ $route.hostname }}
             {{- end }}
             storage:
               {{- toYaml (index .Values "kube-prometheus-stack" "alertmanager" "storage") | nindent 14 }}
@@ -359,6 +354,60 @@ spec:
         kube-state-metrics:
           resources:
             {{- toYaml (index .Values "kube-prometheus-stack" "kubeStateMetrics" "resources") | nindent 12 }}
+          {{- if (index .Values "envoy-gateway" "enabled") }}
+          # Gateway and HTTPRoute conditions for HomelabGatewayNotProgrammed and HomelabHTTPRouteNotAccepted.
+          rbac:
+            extraRules:
+              - apiGroups: [gateway.networking.k8s.io]
+                resources: [gateways, httproutes]
+                verbs: [list, watch]
+          customResourceState:
+            enabled: true
+            config:
+              kind: CustomResourceStateMetrics
+              spec:
+                resources:
+                  - groupVersionKind:
+                      group: gateway.networking.k8s.io
+                      version: v1
+                      kind: Gateway
+                    metricNamePrefix: gatewayapi_gateway
+                    labelsFromPath:
+                      namespace: [metadata, namespace]
+                      name: [metadata, name]
+                      gatewayclass: [spec, gatewayClassName]
+                    metrics:
+                      - name: status
+                        help: Gateway status conditions, 1 when the condition is True.
+                        each:
+                          type: Gauge
+                          gauge:
+                            path: [status, conditions]
+                            labelsFromPath:
+                              type: [type]
+                              reason: [reason]
+                            valueFrom: [status]
+                  - groupVersionKind:
+                      group: gateway.networking.k8s.io
+                      version: v1
+                      kind: HTTPRoute
+                    metricNamePrefix: gatewayapi_httproute
+                    labelsFromPath:
+                      namespace: [metadata, namespace]
+                      name: [metadata, name]
+                      parent: [status, parents, "[controllerName=gateway.envoyproxy.io/gatewayclass-controller]", parentRef, name]
+                    metrics:
+                      - name: status
+                        help: HTTPRoute conditions reported by Envoy Gateway, 1 when the condition is True.
+                        each:
+                          type: Gauge
+                          gauge:
+                            path: [status, parents, "[controllerName=gateway.envoyproxy.io/gatewayclass-controller]", conditions]
+                            labelsFromPath:
+                              type: [type]
+                              reason: [reason]
+                            valueFrom: [status]
+          {{- end }}
         {{- end }}
         {{- with (index .Values "kube-prometheus-stack" "operator") }}
 
@@ -552,37 +601,135 @@ spec:
                       summary: 'Processes experience elevated CPU throttling.'
                       description: '{{`{{ $value | humanizePercentage }}`}} throttling of CPU in namespace {{`{{ $labels.namespace }}`}} for container {{`{{ $labels.container }}`}} in pod {{`{{ $labels.pod }}`}}, which is busy enough for the figure to mean something. Raise the CPU limit; requests govern scheduling, a limit only caps a burst.'
                       runbook_url: 'https://runbooks.prometheus-operator.dev/runbooks/kubernetes/cputhrottlinghigh'
-          # Ingress (docs/runbooks/alerting.md). Metrics: the ServiceMonitors of
-          # both Traefik releases (job = metrics Service, <release>-metrics). Traefik labels the
-          # backend `service`; the scrape renames it to exported_service.
+          {{- $eg := index .Values "envoy-gateway" }}
+          {{- if $eg.enabled }}
+          {{- $fleets := list }}
+          {{- range $tier := list "internal" "external" }}
+          {{- $gw := index $eg.gateways $tier }}
+          {{- if $gw.enabled }}
+          {{- $fleets = append $fleets $gw.config.name }}
+          {{- end }}
+          {{- end }}
+          {{- $routeClusters := `envoy_cluster_name=~"httproute/.*"` }}
+          # Ingress (docs/runbooks/alerting.md). Metrics: the envoy-gateway
+          # ServiceMonitor (controller, job envoy-gateway), the <gateway>-proxy
+          # PodMonitors (label gateway on every proxy series; route clusters are
+          # httproute/<namespace>/<route>/rule/<n>) and the kube-state-metrics
+          # Gateway API custom resource state above.
           homelab-ingress:
             groups:
               - name: homelab-ingress
                 rules:
-                  - alert: HomelabTraefikDown
-                    expr: 'sum by (job) (up{job=~"traefik-internal-metrics|traefik-external-metrics"}) == 0 or absent(up{job="traefik-internal-metrics"}) or absent(up{job="traefik-external-metrics"})'
+                  - alert: HomelabEnvoyGatewayControllerDown
+                    expr: 'absent(up{job="envoy-gateway", namespace="{{ $eg.namespace }}"} == 1)'
+                    for: 10m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: 'The Envoy Gateway controller is not running'
+                      description: 'No envoy-gateway controller pod has answered the metrics scrape for 10m. The proxies keep serving their last configuration, but route, certificate and Gateway changes wait for it. `kubectl -n {{ $eg.namespace }} get pods -l app.kubernetes.io/name=gateway-helm`.'
+                  {{- if $fleets }}
+                  - alert: HomelabEnvoyProxyDown
+                    expr: 'sum by (gateway) (up{gateway=~"{{ join "|" $fleets }}"}) == 0{{ range $fleets }} or absent(up{gateway="{{ . }}"}){{ end }}'
                     for: 5m
                     labels:
                       severity: critical
                     annotations:
-                      summary: 'Traefik {{`{{ $labels.job }}`}} has no reachable instance'
-                      description: 'No {{`{{ $labels.job }}`}} pod has answered the metrics scrape for 5m, so every route on that ingress class is down. `kubectl -n traefik get pods` and the Traefik logs in Grafana (docs/logging.md).'
-                  - alert: HomelabTraefikBackendErrors
-                    expr: 'sum by (job, exported_service) (rate(traefik_service_requests_total{code=~"5.."}[5m])) / sum by (job, exported_service) (rate(traefik_service_requests_total[5m])) > 0.05 and sum by (job, exported_service) (rate(traefik_service_requests_total[5m])) > 0.1'
+                      summary: 'Envoy proxy fleet {{`{{ $labels.gateway }}`}} has no reachable instance'
+                      description: 'No proxy pod of Gateway {{`{{ $labels.gateway }}`}} has answered the metrics scrape for 5m, so every route attached to it is down. `kubectl -n {{ $eg.namespace }} get pods -l gateway.envoyproxy.io/owning-gateway-name={{`{{ $labels.gateway }}`}}` and the Gateway status.'
+                  {{- end }}
+                  - alert: HomelabEnvoyGatewayErrors
+                    expr: 'sum by (gateway) (rate(envoy_http_downstream_rq_xx{gateway!="", envoy_http_conn_manager_prefix=~"https?-.*", envoy_response_code_class="5"}[5m])) / sum by (gateway) (rate(envoy_http_downstream_rq_total{gateway!="", envoy_http_conn_manager_prefix=~"https?-.*"}[5m])) > 0.05 and sum by (gateway) (rate(envoy_http_downstream_rq_total{gateway!="", envoy_http_conn_manager_prefix=~"https?-.*"}[5m])) > 0.1'
                     for: 10m
                     labels:
                       severity: warning
                     annotations:
-                      summary: '{{`{{ $labels.exported_service }}`}} answers 5xx to {{`{{ $value | humanizePercentage }}`}} of requests'
-                      description: 'More than 5 % of the requests {{`{{ $labels.job }}`}} routed to {{`{{ $labels.exported_service }}`}} have failed with 5xx for 10m. The access logs (ServiceName traefik, docs/logging.md) show the failing paths and upstream durations.'
-                  - alert: HomelabTraefikBackendSlow
-                    expr: 'histogram_quantile(0.95, sum by (job, exported_service, le) (rate(traefik_service_request_duration_seconds_bucket[5m]))) > 5 and sum by (job, exported_service) (rate(traefik_service_requests_total[5m])) > 0.05'
+                      summary: 'Gateway {{`{{ $labels.gateway }}`}} answers 5xx to {{`{{ $value | humanizePercentage }}`}} of requests'
+                      description: 'More than 5 % of all requests on {{`{{ $labels.gateway }}`}} have ended in 5xx for 10m, across routes. HomelabEnvoyUpstreamErrors names the route; if it is silent the proxy answers itself (no route, TLS, 503 without endpoints): see response_flags in the access log (docs/logging.md).'
+                  - alert: HomelabEnvoyUpstreamErrors
+                    expr: 'sum by (gateway, envoy_cluster_name) (rate(envoy_cluster_upstream_rq_xx{ {{- $routeClusters }}, envoy_response_code_class="5"}[5m])) / sum by (gateway, envoy_cluster_name) (rate(envoy_cluster_upstream_rq_total{ {{- $routeClusters }}}[5m])) > 0.05 and sum by (gateway, envoy_cluster_name) (rate(envoy_cluster_upstream_rq_total{ {{- $routeClusters }}}[5m])) > 0.1'
                     for: 10m
                     labels:
                       severity: warning
                     annotations:
-                      summary: 'p95 latency of {{`{{ $labels.exported_service }}`}} is {{`{{ $value | humanizeDuration }}`}}'
-                      description: 'The 95th percentile response time {{`{{ $labels.job }}`}} measured for {{`{{ $labels.exported_service }}`}} has been above 5 s for 10m. Streaming endpoints hold requests open by design; check the access logs before tuning.'
+                      summary: '{{`{{ $labels.envoy_cluster_name }}`}} answers 5xx to {{`{{ $value | humanizePercentage }}`}} of requests'
+                      description: 'More than 5 % of the requests {{`{{ $labels.gateway }}`}} sent to {{`{{ $labels.envoy_cluster_name }}`}} (httproute/<namespace>/<route>/rule/<n>) have failed with 5xx for 10m. The access log (upstream_cluster, response_flags, docs/logging.md) shows the failing paths and upstream times.'
+                  - alert: HomelabEnvoyUpstreamSlow
+                    expr: 'histogram_quantile(0.95, sum by (gateway, envoy_cluster_name, le) (rate(envoy_cluster_upstream_rq_time_bucket{ {{- $routeClusters }}}[5m]))) / 1000 > 5 and sum by (gateway, envoy_cluster_name) (rate(envoy_cluster_upstream_rq_total{ {{- $routeClusters }}}[5m])) > 0.05'
+                    for: 10m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: 'p95 latency of {{`{{ $labels.envoy_cluster_name }}`}} is {{`{{ $value | humanizeDuration }}`}}'
+                      description: 'The 95th percentile upstream response time {{`{{ $labels.gateway }}`}} measured for {{`{{ $labels.envoy_cluster_name }}`}} has been above 5 s for 10m. Streaming endpoints hold requests open by design (no request timeout); check the access log before tuning.'
+                  - alert: HomelabEnvoyUpstreamUnhealthy
+                    expr: 'max by (gateway, envoy_cluster_name) (envoy_cluster_membership_healthy{ {{- $routeClusters }}}) == 0'
+                    for: 10m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: 'Route backend {{`{{ $labels.envoy_cluster_name }}`}} has no healthy endpoint'
+                      description: '{{`{{ $labels.gateway }}`}} has had no ready endpoint for {{`{{ $labels.envoy_cluster_name }}`}} for 10m, so the route answers 503 (response flag UH). The backend Service has no ready pod; `kubectl -n <namespace> get endpointslices` for the route namespace.'
+                  - alert: HomelabGatewayNotProgrammed
+                    expr: 'gatewayapi_gateway_status{type=~"Accepted|Programmed"} == 0'
+                    for: 15m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: 'Gateway {{`{{ $labels.namespace }}`}}/{{`{{ $labels.name }}`}} is not {{`{{ $labels.type }}`}}'
+                      description: 'Gateway {{`{{ $labels.name }}`}} (class {{`{{ $labels.gatewayclass }}`}}) has reported {{`{{ $labels.type }}`}}=False ({{`{{ $labels.reason }}`}}) for 15m, so its listeners or its Service address are not in place. `kubectl -n {{`{{ $labels.namespace }}`}} describe gateway {{`{{ $labels.name }}`}}`.'
+                  - alert: HomelabHTTPRouteNotAccepted
+                    expr: 'gatewayapi_httproute_status{type=~"Accepted|ResolvedRefs"} == 0'
+                    for: 15m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: 'HTTPRoute {{`{{ $labels.namespace }}`}}/{{`{{ $labels.name }}`}} is not {{`{{ $labels.type }}`}} on {{`{{ $labels.parent }}`}}'
+                      description: 'Envoy Gateway has reported {{`{{ $labels.type }}`}}=False ({{`{{ $labels.reason }}`}}) for 15m, so the route serves nothing or answers 500. Usually a wrong parentRef/sectionName, a hostname outside the listener or a missing backend Service. `kubectl -n {{`{{ $labels.namespace }}`}} describe httproute {{`{{ $labels.name }}`}}`.'
+                  - alert: HomelabEnvoyGatewayXdsRejected
+                    expr: 'sum(rate(xds_nack_total{job="envoy-gateway"}[5m])) > 0'
+                    for: 10m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: 'Envoy proxies reject the configuration Envoy Gateway sends'
+                      description: 'A proxy has NACKed xDS updates for 10m and keeps running on its last accepted configuration, so recent route or policy changes are not live. The controller log (level error, "NACK") names the resource.'
+                  - alert: HomelabEnvoyGatewayTranslationErrors
+                    expr: 'sum by (runner, message) (rate(watchable_subscribe_total{job="envoy-gateway", status="failure"}[5m])) > 0 or sum(rate(watchable_panics_recovered_total{job="envoy-gateway"}[5m])) > 0 or sum(rate(xds_snapshot_update_total{job="envoy-gateway", status="failure"}[5m])) > 0'
+                    for: 10m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: 'Envoy Gateway fails to translate configuration{{`{{ with $labels.runner }}`}} (runner {{`{{ . }}`}}){{`{{ end }}`}}'
+                      description: 'The controller has failed to turn Gateway API resources into xDS, or to publish the snapshot, for 10m; proxies keep the last good configuration. The controller log and the "Envoy Gateway Global" dashboard name the runner and resource.'
+                  - alert: HomelabEnvoyGatewayResourceErrors
+                    expr: 'sum by (kind) (rate(resource_apply_total{job="envoy-gateway", status="failure"}[5m])) > 0 or sum by (kind) (rate(status_update_total{job="envoy-gateway", status="failure", reason="error"}[5m])) > 0'
+                    for: 15m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: 'Envoy Gateway cannot apply or update {{`{{ $labels.kind }}`}} objects'
+                      description: 'The controller has failed for 15m to apply the proxy {{`{{ $labels.kind }}`}} (Deployment, Service, HPA, ...) or to write route and Gateway status. Usually RBAC or an admission webhook; the controller log names the object.'
+                  - alert: HomelabGatewayCertificateExpiring
+                    expr: '(certmanager_certificate_expiration_timestamp_seconds{namespace="{{ $eg.namespace }}", name="gateway-wildcard-tls"} - time() < 7 * 24 * 3600) or certmanager_certificate_ready_status{namespace="{{ $eg.namespace }}", name="gateway-wildcard-tls", condition="True"} == 0'
+                    for: 1h
+                    labels:
+                      severity: critical
+                    annotations:
+                      summary: 'The gateway wildcard certificate is not ready or expires within 7 days'
+                      description: 'Every Envoy and Istio gateway serves {{ $eg.namespace }}/gateway-wildcard-tls, so its expiry takes all HTTPS hostnames down at once. `kubectl -n {{ $eg.namespace }} describe certificate gateway-wildcard-tls` shows the last DNS-01 attempt.'
+                  {{- if and .Values.istio.enabled .Values.istio.gateways.enabled }}
+                  {{- $istioGw := .Values.istio.gateways.config.namespace }}
+                  - alert: HomelabIstioGatewayDown
+                    expr: 'sum by (gateway) (label_replace(up{namespace="{{ $istioGw }}", pod=~"istio-(internal|external)-.*"}, "gateway", "$1", "pod", "(istio-(?:internal|external))-.*")) == 0{{ range list "istio-internal" "istio-external" }} or label_replace(absent(up{namespace="{{ $istioGw }}", pod=~"{{ . }}-.*"}), "gateway", "{{ . }}", "", ""){{ end }}'
+                    for: 15m
+                    labels:
+                      severity: info
+                    annotations:
+                      summary: 'Istio comparison gateway {{`{{ $labels.gateway }}`}} is down'
+                      description: 'No pod of the Istio comparison gateway in {{ $istioGw }} has answered the scrape for 15m. Only the echo route attaches to it, so no workload is affected. `kubectl -n {{ $istioGw }} get pods,gateway`.'
+                  {{- end }}
+          {{- end }}
           {{- if .Values.logging.enabled }}
           # Log pipeline, adapted from the opentelemetry-collector chart rules and
           # the Altinity clickhouse-operator alert rules (docs/runbooks/alerting.md).
@@ -735,7 +882,7 @@ spec:
                       severity: warning
                     annotations:
                       summary: 'Probe {{`{{ $labels.target }}`}} fails ({{`{{ $labels.instance }}`}})'
-                      description: '{{`{{ $labels.instance }}`}} has not answered 2xx for 2m. If only the -ingress probe fails the break is in DNS or Traefik, if -direct fails too it is the pod; docs/runbooks/paperclip-request-path.md.'
+                      description: '{{`{{ $labels.instance }}`}} has not answered 2xx for 2m. If only the -ingress probe fails the break is in DNS or Envoy Gateway, if -direct fails too it is the pod; docs/runbooks/paperclip-request-path.md.'
                   - alert: HomelabProbeSlow
                     expr: 'max by (target, instance) (probe_duration_seconds) > 2'
                     for: 10m

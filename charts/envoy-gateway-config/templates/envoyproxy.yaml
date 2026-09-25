@@ -1,0 +1,121 @@
+{{- range $tier, $gw := .Values.gateways }}
+{{- if $gw.enabled }}
+{{- $v := mergeOverwrite (deepCopy $.Values.defaults) $gw }}
+{{- $selector := dict "app.kubernetes.io/managed-by" "envoy-gateway" "app.kubernetes.io/component" "proxy" "gateway.envoyproxy.io/owning-gateway-name" $v.name "gateway.envoyproxy.io/owning-gateway-namespace" $.Values.namespace }}
+---
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: EnvoyProxy
+metadata:
+  name: {{ $v.name }}
+  namespace: {{ $.Values.namespace }}
+spec:
+  logging:
+    level:
+      default: warn
+  provider:
+    type: Kubernetes
+    kubernetes:
+      envoyDeployment:
+        {{- if not $v.autoscaling.enabled }}
+        replicas: {{ $v.replicas }}
+        {{- end }}
+        {{- if gt (int $v.replicas) 1 }}
+        pod:
+          topologySpreadConstraints:
+            - maxSkew: 1
+              topologyKey: kubernetes.io/hostname
+              whenUnsatisfiable: DoNotSchedule
+              labelSelector:
+                matchLabels:
+                  {{- toYaml $selector | nindent 18 }}
+          {{- end }}
+        container:
+          resources:
+            {{- toYaml $v.resources | nindent 12 }}
+      envoyService:
+        name: {{ $v.name }}
+        type: {{ $v.service.type }}
+        {{- if eq $v.service.type "LoadBalancer" }}
+        externalTrafficPolicy: Cluster
+        {{- end }}
+        {{- if or $v.service.staticIP $v.service.annotations }}
+        annotations:
+          {{- with $v.service.staticIP }}
+          io.cilium/lb-ipam-ips: {{ . | quote }}
+          {{- end }}
+          {{- with $v.service.annotations }}
+          {{- toYaml . | nindent 10 }}
+          {{- end }}
+        {{- end }}
+      {{- if $v.autoscaling.enabled }}
+      envoyHpa:
+        minReplicas: {{ $v.autoscaling.minReplicas }}
+        maxReplicas: {{ $v.autoscaling.maxReplicas }}
+        metrics:
+          - type: Resource
+            resource:
+              name: cpu
+              target:
+                type: Utilization
+                averageUtilization: {{ $v.autoscaling.targetCPUUtilizationPercentage }}
+      {{- end }}
+      {{- if gt (int $v.replicas) 1 }}
+      envoyPDB:
+        minAvailable: 1
+      {{- end }}
+  telemetry:
+    {{- if $v.accessLog.enabled }}
+    # JSON on stdout: the OpenTelemetry agents ship it to ClickHouse (docs/logging.md).
+    accessLog:
+      settings:
+        - format:
+            type: JSON
+            json:
+              start_time: "%START_TIME%"
+              gateway: {{ $v.name | quote }}
+              client_ip: "%DOWNSTREAM_REMOTE_ADDRESS_WITHOUT_PORT%"
+              x_forwarded_for: "%REQ(X-FORWARDED-FOR)%"
+              method: "%REQ(:METHOD)%"
+              authority: "%REQ(:AUTHORITY)%"
+              path: "%REQ(X-ENVOY-ORIGINAL-PATH?:PATH)%"
+              protocol: "%PROTOCOL%"
+              response_code: "%RESPONSE_CODE%"
+              response_flags: "%RESPONSE_FLAGS%"
+              response_code_details: "%RESPONSE_CODE_DETAILS%"
+              upstream_host: "%UPSTREAM_HOST%"
+              upstream_cluster: "%UPSTREAM_CLUSTER%"
+              route_name: "%ROUTE_NAME%"
+              duration_ms: "%DURATION%"
+              upstream_service_time_ms: "%RESP(X-ENVOY-UPSTREAM-SERVICE-TIME)%"
+              bytes_received: "%BYTES_RECEIVED%"
+              bytes_sent: "%BYTES_SENT%"
+              user_agent: "%REQ(USER-AGENT)%"
+              request_id: "%REQ(X-REQUEST-ID)%"
+              traceparent: "%REQ(TRACEPARENT)%"
+              trace_id: "%TRACE_ID%"
+          sinks:
+            - type: File
+              file:
+                path: /dev/stdout
+    {{- end }}
+    metrics:
+      enableVirtualHostStats: true
+      enableRequestResponseSizesStats: true
+    {{- if $v.tracing.enabled }}
+    # W3C traceparent is started or continued here; spans go to the OTel gateway collector (docs/tracing.md).
+    tracing:
+      samplingRate: {{ $v.tracing.samplingRate }}
+      provider:
+        type: OpenTelemetry
+        backendRefs:
+          - name: {{ $v.tracing.service }}
+            namespace: {{ $v.tracing.namespace }}
+            port: {{ $v.tracing.port }}
+      customTags:
+        gateway:
+          type: Literal
+          literal:
+            value: {{ $v.name | quote }}
+    {{- end }}
+{{- end }}
+{{- end }}

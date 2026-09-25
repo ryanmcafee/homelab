@@ -1,6 +1,6 @@
 ---
 # Paperclip Instance. paperclip-operator turns it into a StatefulSet, Service
-# (port 3100), ConfigMap, PVC, ServiceAccount, NetworkPolicy, Ingress and a
+# (port 3100), ConfigMap, PVC, ServiceAccount, NetworkPolicy, HTTPRoute and a
 # one-time admin bootstrap Job. Health for ArgoCD comes from
 # charts/bootstrap/files/health/paperclip.inc_Instance.lua.
 apiVersion: paperclip.inc/v1alpha1
@@ -73,19 +73,17 @@ spec:
     service:
       type: {{ .Values.service.type }}
       port: {{ .Values.service.port }}
-    {{- if .Values.ingress.enabled }}
-    ingress:
+    {{- if .Values.route.enabled }}
+    httpRoute:
       enabled: true
-      ingressClassName: {{ .Values.ingress.className }}
       annotations:
-        cert-manager.io/cluster-issuer: {{ .Values.ingress.clusterIssuer }}
         external-dns.alpha.kubernetes.io/hostname: {{ .Values.hostname }}
-      hosts:
+      parentRefs:
+        - name: {{ .Values.route.gateway.name }}
+          namespace: {{ .Values.route.gateway.namespace }}
+          sectionName: https
+      hostnames:
         - {{ .Values.hostname }}
-      tls:
-        - hosts:
-            - {{ .Values.hostname }}
-          secretName: {{ .Values.ingress.tlsSecretName }}
     {{- end }}
   security:
     networkPolicy:

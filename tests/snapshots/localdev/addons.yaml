@@ -15,6 +15,15 @@ metadata:
     argocd.argoproj.io/sync-wave: "1"
 
 ---
+# Source: addons/templates/envoy-gateway.yaml
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: envoy-gateway-system
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+
+---
 # Source: addons/templates/istio.yaml
 # istio-cni and ztunnel mount host paths and need NET_ADMIN/SYS_ADMIN, which
 # Talos' default baseline PodSecurity rejects.
@@ -87,14 +96,21 @@ metadata:
     argocd.argoproj.io/sync-wave: "0"
 
 ---
-# Source: addons/templates/traefik-external.yaml
-# Namespace for Traefik external ingress controller
+# Source: addons/templates/envoy-gateway.yaml
 apiVersion: v1
-kind: Namespace
+kind: Secret
 metadata:
-  name: traefik
+  name: envoy-gateway-oci
+  namespace: argocd
+  labels:
+    argocd.argoproj.io/secret-type: repository
   annotations:
-    argocd.argoproj.io/sync-wave: "-1"
+    argocd.argoproj.io/sync-wave: "0"
+stringData:
+  name: envoy-gateway
+  type: helm
+  url: docker.io/envoyproxy
+  enableOCI: "true"
 
 ---
 # Source: addons/templates/spegel.yaml
@@ -690,8 +706,8 @@ spec:
 
 ---
 # Source: addons/templates/cilium.yaml
-# Config Application: the Cilium objects that need CRDs, cert-manager or
-# Traefik, which the Talos-applied release cannot carry (charts/cilium-config).
+# Config Application: the Cilium objects that need the monitoring or Gateway
+# API CRDs, which the Talos-applied release cannot carry (charts/cilium-config).
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -715,9 +731,11 @@ spec:
         hubbleUI:
           enabled: false
           host: hubble.homelab.local
-          ingressClassName: internal
         monitoring:
           enabled: false
+        gateway:
+          name: envoy-internal
+          namespace: envoy-gateway-system
   destination:
     server: https://kubernetes.default.svc
     namespace: kube-system
@@ -829,6 +847,197 @@ spec:
       - ApplyOutOfSyncOnly=true
 
 ---
+# Source: addons/templates/envoy-gateway.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: envoy-gateway-crds
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "4"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: docker.io/envoyproxy
+    chart: gateway-crds-helm
+    targetRevision: "v1.9.1"
+    helm:
+      releaseName: envoy-gateway-crds
+      values: |
+        crds:
+          gatewayAPI:
+            enabled: false
+          envoyGateway:
+            enabled: true
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: envoy-gateway-system
+  syncPolicy:
+    syncOptions:
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+
+---
+# Source: addons/templates/envoy-gateway.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: envoy-gateway
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "5"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: docker.io/envoyproxy
+    chart: gateway-helm
+    targetRevision: "v1.9.1"
+    helm:
+      releaseName: envoy-gateway
+      skipCrds: true
+      values: |
+        crds:
+          enabled: false
+        deployment:
+          replicas: 1
+          envoyGateway:
+            resources:
+              limits:
+                cpu: "1"
+                memory: 1Gi
+              requests:
+                cpu: 50m
+                memory: 128Mi
+        config:
+          envoyGateway:
+            gateway:
+              controllerName: gateway.envoyproxy.io/gatewayclass-controller
+            provider:
+              type: Kubernetes
+            logging:
+              level:
+                default: info
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: envoy-gateway-system
+  syncPolicy:
+    syncOptions:
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+      - RespectIgnoreDifferences=true
+  ignoreDifferences:
+    - group: admissionregistration.k8s.io
+      kind: MutatingWebhookConfiguration
+      jqPathExpressions:
+        - .webhooks[]?.clientConfig.caBundle
+
+---
+# Source: addons/templates/envoy-gateway.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: envoy-gateway-config
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "6"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/ryanmcafee/homelab.git
+    targetRevision: main
+    path: charts/envoy-gateway-config
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-localdev.yaml
+      # Name, domain, static IP and sizing come from configuration/ (via the
+      # CMP in homelab) so the child's committed values files stay PII-free.
+      valuesObject:
+        global:
+          domain: homelab.local
+        namespace: envoy-gateway-system
+        gateways:
+          external:
+            autoscaling:
+              enabled: false
+            enabled: true
+            name: envoy-external
+            replicas: 1
+            resources:
+              limits:
+                cpu: 500m
+                memory: 256Mi
+              requests:
+                cpu: 50m
+                memory: 64Mi
+            service:
+              type: ClusterIP
+            tracing:
+              enabled: true
+              samplingRate: 100
+          internal:
+            autoscaling:
+              enabled: false
+            enabled: true
+            name: envoy-internal
+            replicas: 1
+            resources:
+              limits:
+                cpu: 500m
+                memory: 256Mi
+              requests:
+                cpu: 50m
+                memory: 64Mi
+            service:
+              type: ClusterIP
+            tracing:
+              enabled: true
+              samplingRate: 100
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: envoy-gateway-system
+  syncPolicy:
+    syncOptions:
+      - ServerSideApply=true
+      - SkipDryRunOnMissingResource=true
+
+---
+# Source: addons/templates/gateway-api-crds.yaml
+# Standard-channel Gateway API CRDs for Envoy Gateway, the Istio gateways and
+# waypoints. Envoy Gateway renders with crds.enabled=false and its CRD chart
+# with gatewayAPI.enabled=false, so this is the only producer.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: gateway-api-crds
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+    # Its path is in the gateway-api repository: Kind syncs it from there,
+    # not with --local (scripts/localdev-argocd.ts REMOTE_SYNC_ANNOTATION).
+    homelab.local/localdev-sync: remote
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/kubernetes-sigs/gateway-api.git
+    targetRevision: v1.6.2
+    path: config/crd/standard
+  destination:
+    server: https://kubernetes.default.svc
+  syncPolicy:
+    syncOptions:
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+
+---
 # Source: addons/templates/grafana-config.yaml
 # Grafana Config: static PV+PVC for Grafana, and the alert source redirect into Grafana
 apiVersion: argoproj.io/v1alpha1
@@ -855,8 +1064,6 @@ spec:
       valuesObject:
         iscsi:
           portal: "127.0.0.1:3260"
-        alertSource:
-          ingressClassName: "internal"
   destination:
     server: https://kubernetes.default.svc
     namespace: monitoring
@@ -865,33 +1072,6 @@ spec:
       - CreateNamespace=true
       - ServerSideApply=true
       - SkipDryRunOnMissingResource=true
-
----
-# Source: addons/templates/istio.yaml
-apiVersion: argoproj.io/v1alpha1
-kind: Application
-metadata:
-  name: gateway-api-crds
-  namespace: argocd
-  annotations:
-    argocd.argoproj.io/sync-wave: "1"
-    # Its path is in the gateway-api repository: Kind syncs it from there,
-    # not with --local (scripts/localdev-argocd.ts REMOTE_SYNC_ANNOTATION).
-    homelab.local/localdev-sync: remote
-  finalizers:
-    - resources-finalizer.argocd.argoproj.io
-spec:
-  project: default
-  source:
-    repoURL: https://github.com/kubernetes-sigs/gateway-api.git
-    targetRevision: v1.6.2
-    path: config/crd/standard
-  destination:
-    server: https://kubernetes.default.svc
-  syncPolicy:
-    syncOptions:
-      - ServerSideApply=true
-      - ApplyOutOfSyncOnly=true
 
 ---
 # Source: addons/templates/istio.yaml
@@ -1114,7 +1294,9 @@ spec:
           service: otel-collector-gateway.observability.svc.cluster.local
         kiali:
           host: servicemesh.homelab.local
-          ingressClassName: internal
+          gateway:
+            name: envoy-internal
+            namespace: envoy-gateway-system
   destination:
     server: https://kubernetes.default.svc
     namespace: istio-system
@@ -1126,7 +1308,48 @@ spec:
 
 ---
 # Source: addons/templates/istio.yaml
-# Kiali on the internal ingress at the SERVICEMESH_HOSTNAME of configuration/.
+# Istio internal/external Gateways next to Envoy Gateway, for comparison only:
+# no workload route attaches to them except the echo backend (charts/istio-gateways).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: istio-gateways
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "7"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/ryanmcafee/homelab.git
+    targetRevision: main
+    path: charts/istio-gateways
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-localdev.yaml
+      valuesObject:
+        global:
+          domain: homelab.local
+        echo:
+          envoyGateway:
+            name: envoy-internal
+            namespace: envoy-gateway-system
+        namespace: istio-ingress
+        serviceType: ClusterIP
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: istio-ingress
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - SkipDryRunOnMissingResource=true
+
+---
+# Source: addons/templates/istio.yaml
+# Kiali on the internal Gateway at the SERVICEMESH_HOSTNAME of configuration/.
 # Token login: a user signs in with a ServiceAccount token and sees what that
 # token's RBAC allows (docs/service-mesh.md).
 apiVersion: argoproj.io/v1alpha1
@@ -1158,9 +1381,8 @@ spec:
             requests:
               cpu: 10m
               memory: 128Mi
-          # The Ingress is rendered by charts/istio-config: the chart's own
-          # picks its apiVersion from cluster capabilities, which a local
-          # render does not have, and then never matches the live object.
+          # The HTTPRoute is rendered by charts/istio-config; the chart's own
+          # Ingress stays off.
           ingress:
             enabled: false
         server:
@@ -1217,7 +1439,7 @@ spec:
 
         prometheus:
           prometheusSpec:
-            # Alert generator URLs land on Grafana; the grafana-config Middleware redirects them to a query view.
+            # Alert generator URLs land on Grafana; the grafana-config redirect sends them to a query view.
             externalUrl: https://grafana.homelab.local
             retention: 1d
             retentionSize: 4GB
@@ -1262,19 +1484,19 @@ spec:
             enabled: true
             storageClassName: local-path
             size: 1Gi
-          ingress:
-            enabled: true
-            ingressClassName: internal
-            annotations:
-              cert-manager.io/cluster-issuer: letsencrypt
-              external-dns.alpha.kubernetes.io/hostname: grafana.homelab.local
-              traefik.ingress.kubernetes.io/router.middlewares: monitoring-grafana-alert-source@kubernetescrd
-            hosts:
-              - grafana.homelab.local
-            tls:
-              - hosts:
+          route:
+            main:
+              enabled: true
+              annotations:
+                external-dns.alpha.kubernetes.io/hostname: grafana.homelab.local
+              parentRefs:
+                - group: gateway.networking.k8s.io
+                  kind: Gateway
+                  name: envoy-internal
+                  namespace: envoy-gateway-system
+                  sectionName: https
+              hostnames:
                 - grafana.homelab.local
-                secretName: grafana-tls
 
           resources:
             limits:
@@ -1403,12 +1625,6 @@ spec:
                 datasource:
                   - name: DS_PROMETHEUS
                     value: Prometheus
-              traefik:
-                gnetId: 17347
-                revision: 9
-                datasource:
-                  - name: DS_PROMETHEUS
-                    value: Prometheus
 
           # Use Recreate strategy to avoid Multi-Attach errors with RWO PVC
           deploymentStrategy:
@@ -1429,6 +1645,58 @@ spec:
               memory: 256Mi
             requests:
               memory: 128Mi
+          # Gateway and HTTPRoute conditions for HomelabGatewayNotProgrammed and HomelabHTTPRouteNotAccepted.
+          rbac:
+            extraRules:
+              - apiGroups: [gateway.networking.k8s.io]
+                resources: [gateways, httproutes]
+                verbs: [list, watch]
+          customResourceState:
+            enabled: true
+            config:
+              kind: CustomResourceStateMetrics
+              spec:
+                resources:
+                  - groupVersionKind:
+                      group: gateway.networking.k8s.io
+                      version: v1
+                      kind: Gateway
+                    metricNamePrefix: gatewayapi_gateway
+                    labelsFromPath:
+                      namespace: [metadata, namespace]
+                      name: [metadata, name]
+                      gatewayclass: [spec, gatewayClassName]
+                    metrics:
+                      - name: status
+                        help: Gateway status conditions, 1 when the condition is True.
+                        each:
+                          type: Gauge
+                          gauge:
+                            path: [status, conditions]
+                            labelsFromPath:
+                              type: [type]
+                              reason: [reason]
+                            valueFrom: [status]
+                  - groupVersionKind:
+                      group: gateway.networking.k8s.io
+                      version: v1
+                      kind: HTTPRoute
+                    metricNamePrefix: gatewayapi_httproute
+                    labelsFromPath:
+                      namespace: [metadata, namespace]
+                      name: [metadata, name]
+                      parent: [status, parents, "[controllerName=gateway.envoyproxy.io/gatewayclass-controller]", parentRef, name]
+                    metrics:
+                      - name: status
+                        help: HTTPRoute conditions reported by Envoy Gateway, 1 when the condition is True.
+                        each:
+                          type: Gauge
+                          gauge:
+                            path: [status, parents, "[controllerName=gateway.envoyproxy.io/gatewayclass-controller]", conditions]
+                            labelsFromPath:
+                              type: [type]
+                              reason: [reason]
+                            valueFrom: [status]
 
         # The chart's own CPUThrottlingHigh divides throttled CFS periods by the
         # periods the container ran in at all, with no floor under the
@@ -1590,37 +1858,119 @@ spec:
                       summary: 'Processes experience elevated CPU throttling.'
                       description: '{{ $value | humanizePercentage }} throttling of CPU in namespace {{ $labels.namespace }} for container {{ $labels.container }} in pod {{ $labels.pod }}, which is busy enough for the figure to mean something. Raise the CPU limit; requests govern scheduling, a limit only caps a burst.'
                       runbook_url: 'https://runbooks.prometheus-operator.dev/runbooks/kubernetes/cputhrottlinghigh'
-          # Ingress (docs/runbooks/alerting.md). Metrics: the ServiceMonitors of
-          # both Traefik releases (job = metrics Service, <release>-metrics). Traefik labels the
-          # backend `service`; the scrape renames it to exported_service.
+          # Ingress (docs/runbooks/alerting.md). Metrics: the envoy-gateway
+          # ServiceMonitor (controller, job envoy-gateway), the <gateway>-proxy
+          # PodMonitors (label gateway on every proxy series; route clusters are
+          # httproute/<namespace>/<route>/rule/<n>) and the kube-state-metrics
+          # Gateway API custom resource state above.
           homelab-ingress:
             groups:
               - name: homelab-ingress
                 rules:
-                  - alert: HomelabTraefikDown
-                    expr: 'sum by (job) (up{job=~"traefik-internal-metrics|traefik-external-metrics"}) == 0 or absent(up{job="traefik-internal-metrics"}) or absent(up{job="traefik-external-metrics"})'
+                  - alert: HomelabEnvoyGatewayControllerDown
+                    expr: 'absent(up{job="envoy-gateway", namespace="envoy-gateway-system"} == 1)'
+                    for: 10m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: 'The Envoy Gateway controller is not running'
+                      description: 'No envoy-gateway controller pod has answered the metrics scrape for 10m. The proxies keep serving their last configuration, but route, certificate and Gateway changes wait for it. `kubectl -n envoy-gateway-system get pods -l app.kubernetes.io/name=gateway-helm`.'
+                  - alert: HomelabEnvoyProxyDown
+                    expr: 'sum by (gateway) (up{gateway=~"envoy-internal|envoy-external"}) == 0 or absent(up{gateway="envoy-internal"}) or absent(up{gateway="envoy-external"})'
                     for: 5m
                     labels:
                       severity: critical
                     annotations:
-                      summary: 'Traefik {{ $labels.job }} has no reachable instance'
-                      description: 'No {{ $labels.job }} pod has answered the metrics scrape for 5m, so every route on that ingress class is down. `kubectl -n traefik get pods` and the Traefik logs in Grafana (docs/logging.md).'
-                  - alert: HomelabTraefikBackendErrors
-                    expr: 'sum by (job, exported_service) (rate(traefik_service_requests_total{code=~"5.."}[5m])) / sum by (job, exported_service) (rate(traefik_service_requests_total[5m])) > 0.05 and sum by (job, exported_service) (rate(traefik_service_requests_total[5m])) > 0.1'
+                      summary: 'Envoy proxy fleet {{ $labels.gateway }} has no reachable instance'
+                      description: 'No proxy pod of Gateway {{ $labels.gateway }} has answered the metrics scrape for 5m, so every route attached to it is down. `kubectl -n envoy-gateway-system get pods -l gateway.envoyproxy.io/owning-gateway-name={{ $labels.gateway }}` and the Gateway status.'
+                  - alert: HomelabEnvoyGatewayErrors
+                    expr: 'sum by (gateway) (rate(envoy_http_downstream_rq_xx{gateway!="", envoy_http_conn_manager_prefix=~"https?-.*", envoy_response_code_class="5"}[5m])) / sum by (gateway) (rate(envoy_http_downstream_rq_total{gateway!="", envoy_http_conn_manager_prefix=~"https?-.*"}[5m])) > 0.05 and sum by (gateway) (rate(envoy_http_downstream_rq_total{gateway!="", envoy_http_conn_manager_prefix=~"https?-.*"}[5m])) > 0.1'
                     for: 10m
                     labels:
                       severity: warning
                     annotations:
-                      summary: '{{ $labels.exported_service }} answers 5xx to {{ $value | humanizePercentage }} of requests'
-                      description: 'More than 5 % of the requests {{ $labels.job }} routed to {{ $labels.exported_service }} have failed with 5xx for 10m. The access logs (ServiceName traefik, docs/logging.md) show the failing paths and upstream durations.'
-                  - alert: HomelabTraefikBackendSlow
-                    expr: 'histogram_quantile(0.95, sum by (job, exported_service, le) (rate(traefik_service_request_duration_seconds_bucket[5m]))) > 5 and sum by (job, exported_service) (rate(traefik_service_requests_total[5m])) > 0.05'
+                      summary: 'Gateway {{ $labels.gateway }} answers 5xx to {{ $value | humanizePercentage }} of requests'
+                      description: 'More than 5 % of all requests on {{ $labels.gateway }} have ended in 5xx for 10m, across routes. HomelabEnvoyUpstreamErrors names the route; if it is silent the proxy answers itself (no route, TLS, 503 without endpoints): see response_flags in the access log (docs/logging.md).'
+                  - alert: HomelabEnvoyUpstreamErrors
+                    expr: 'sum by (gateway, envoy_cluster_name) (rate(envoy_cluster_upstream_rq_xx{envoy_cluster_name=~"httproute/.*", envoy_response_code_class="5"}[5m])) / sum by (gateway, envoy_cluster_name) (rate(envoy_cluster_upstream_rq_total{envoy_cluster_name=~"httproute/.*"}[5m])) > 0.05 and sum by (gateway, envoy_cluster_name) (rate(envoy_cluster_upstream_rq_total{envoy_cluster_name=~"httproute/.*"}[5m])) > 0.1'
                     for: 10m
                     labels:
                       severity: warning
                     annotations:
-                      summary: 'p95 latency of {{ $labels.exported_service }} is {{ $value | humanizeDuration }}'
-                      description: 'The 95th percentile response time {{ $labels.job }} measured for {{ $labels.exported_service }} has been above 5 s for 10m. Streaming endpoints hold requests open by design; check the access logs before tuning.'
+                      summary: '{{ $labels.envoy_cluster_name }} answers 5xx to {{ $value | humanizePercentage }} of requests'
+                      description: 'More than 5 % of the requests {{ $labels.gateway }} sent to {{ $labels.envoy_cluster_name }} (httproute/<namespace>/<route>/rule/<n>) have failed with 5xx for 10m. The access log (upstream_cluster, response_flags, docs/logging.md) shows the failing paths and upstream times.'
+                  - alert: HomelabEnvoyUpstreamSlow
+                    expr: 'histogram_quantile(0.95, sum by (gateway, envoy_cluster_name, le) (rate(envoy_cluster_upstream_rq_time_bucket{envoy_cluster_name=~"httproute/.*"}[5m]))) / 1000 > 5 and sum by (gateway, envoy_cluster_name) (rate(envoy_cluster_upstream_rq_total{envoy_cluster_name=~"httproute/.*"}[5m])) > 0.05'
+                    for: 10m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: 'p95 latency of {{ $labels.envoy_cluster_name }} is {{ $value | humanizeDuration }}'
+                      description: 'The 95th percentile upstream response time {{ $labels.gateway }} measured for {{ $labels.envoy_cluster_name }} has been above 5 s for 10m. Streaming endpoints hold requests open by design (no request timeout); check the access log before tuning.'
+                  - alert: HomelabEnvoyUpstreamUnhealthy
+                    expr: 'max by (gateway, envoy_cluster_name) (envoy_cluster_membership_healthy{envoy_cluster_name=~"httproute/.*"}) == 0'
+                    for: 10m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: 'Route backend {{ $labels.envoy_cluster_name }} has no healthy endpoint'
+                      description: '{{ $labels.gateway }} has had no ready endpoint for {{ $labels.envoy_cluster_name }} for 10m, so the route answers 503 (response flag UH). The backend Service has no ready pod; `kubectl -n <namespace> get endpointslices` for the route namespace.'
+                  - alert: HomelabGatewayNotProgrammed
+                    expr: 'gatewayapi_gateway_status{type=~"Accepted|Programmed"} == 0'
+                    for: 15m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: 'Gateway {{ $labels.namespace }}/{{ $labels.name }} is not {{ $labels.type }}'
+                      description: 'Gateway {{ $labels.name }} (class {{ $labels.gatewayclass }}) has reported {{ $labels.type }}=False ({{ $labels.reason }}) for 15m, so its listeners or its Service address are not in place. `kubectl -n {{ $labels.namespace }} describe gateway {{ $labels.name }}`.'
+                  - alert: HomelabHTTPRouteNotAccepted
+                    expr: 'gatewayapi_httproute_status{type=~"Accepted|ResolvedRefs"} == 0'
+                    for: 15m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: 'HTTPRoute {{ $labels.namespace }}/{{ $labels.name }} is not {{ $labels.type }} on {{ $labels.parent }}'
+                      description: 'Envoy Gateway has reported {{ $labels.type }}=False ({{ $labels.reason }}) for 15m, so the route serves nothing or answers 500. Usually a wrong parentRef/sectionName, a hostname outside the listener or a missing backend Service. `kubectl -n {{ $labels.namespace }} describe httproute {{ $labels.name }}`.'
+                  - alert: HomelabEnvoyGatewayXdsRejected
+                    expr: 'sum(rate(xds_nack_total{job="envoy-gateway"}[5m])) > 0'
+                    for: 10m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: 'Envoy proxies reject the configuration Envoy Gateway sends'
+                      description: 'A proxy has NACKed xDS updates for 10m and keeps running on its last accepted configuration, so recent route or policy changes are not live. The controller log (level error, "NACK") names the resource.'
+                  - alert: HomelabEnvoyGatewayTranslationErrors
+                    expr: 'sum by (runner, message) (rate(watchable_subscribe_total{job="envoy-gateway", status="failure"}[5m])) > 0 or sum(rate(watchable_panics_recovered_total{job="envoy-gateway"}[5m])) > 0 or sum(rate(xds_snapshot_update_total{job="envoy-gateway", status="failure"}[5m])) > 0'
+                    for: 10m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: 'Envoy Gateway fails to translate configuration{{ with $labels.runner }} (runner {{ . }}){{ end }}'
+                      description: 'The controller has failed to turn Gateway API resources into xDS, or to publish the snapshot, for 10m; proxies keep the last good configuration. The controller log and the "Envoy Gateway Global" dashboard name the runner and resource.'
+                  - alert: HomelabEnvoyGatewayResourceErrors
+                    expr: 'sum by (kind) (rate(resource_apply_total{job="envoy-gateway", status="failure"}[5m])) > 0 or sum by (kind) (rate(status_update_total{job="envoy-gateway", status="failure", reason="error"}[5m])) > 0'
+                    for: 15m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: 'Envoy Gateway cannot apply or update {{ $labels.kind }} objects'
+                      description: 'The controller has failed for 15m to apply the proxy {{ $labels.kind }} (Deployment, Service, HPA, ...) or to write route and Gateway status. Usually RBAC or an admission webhook; the controller log names the object.'
+                  - alert: HomelabGatewayCertificateExpiring
+                    expr: '(certmanager_certificate_expiration_timestamp_seconds{namespace="envoy-gateway-system", name="gateway-wildcard-tls"} - time() < 7 * 24 * 3600) or certmanager_certificate_ready_status{namespace="envoy-gateway-system", name="gateway-wildcard-tls", condition="True"} == 0'
+                    for: 1h
+                    labels:
+                      severity: critical
+                    annotations:
+                      summary: 'The gateway wildcard certificate is not ready or expires within 7 days'
+                      description: 'Every Envoy and Istio gateway serves envoy-gateway-system/gateway-wildcard-tls, so its expiry takes all HTTPS hostnames down at once. `kubectl -n envoy-gateway-system describe certificate gateway-wildcard-tls` shows the last DNS-01 attempt.'
+                  - alert: HomelabIstioGatewayDown
+                    expr: 'sum by (gateway) (label_replace(up{namespace="istio-ingress", pod=~"istio-(internal|external)-.*"}, "gateway", "$1", "pod", "(istio-(?:internal|external))-.*")) == 0 or label_replace(absent(up{namespace="istio-ingress", pod=~"istio-internal-.*"}), "gateway", "istio-internal", "", "") or label_replace(absent(up{namespace="istio-ingress", pod=~"istio-external-.*"}), "gateway", "istio-external", "", "")'
+                    for: 15m
+                    labels:
+                      severity: info
+                    annotations:
+                      summary: 'Istio comparison gateway {{ $labels.gateway }} is down'
+                      description: 'No pod of the Istio comparison gateway in istio-ingress has answered the scrape for 15m. Only the echo route attaches to it, so no workload is affected. `kubectl -n istio-ingress get pods,gateway`.'
           # Log pipeline, adapted from the opentelemetry-collector chart rules and
           # the Altinity clickhouse-operator alert rules (docs/runbooks/alerting.md).
           homelab-logging:
@@ -1712,7 +2062,7 @@ spec:
                       severity: warning
                     annotations:
                       summary: 'Probe {{ $labels.target }} fails ({{ $labels.instance }})'
-                      description: '{{ $labels.instance }} has not answered 2xx for 2m. If only the -ingress probe fails the break is in DNS or Traefik, if -direct fails too it is the pod; docs/runbooks/paperclip-request-path.md.'
+                      description: '{{ $labels.instance }} has not answered 2xx for 2m. If only the -ingress probe fails the break is in DNS or Envoy Gateway, if -direct fails too it is the pod; docs/runbooks/paperclip-request-path.md.'
                   - alert: HomelabProbeSlow
                     expr: 'max by (target, instance) (probe_duration_seconds) > 2'
                     for: 10m
@@ -2321,22 +2671,25 @@ spec:
         presets:
           kubernetesAttributes:
             enabled: true
-        ingress:
-          annotations:
-            cert-manager.io/cluster-issuer: letsencrypt
-            external-dns.alpha.kubernetes.io/hostname: otlp.homelab.local
+        httproute:
           enabled: true
-          hosts:
-          - host: otlp.homelab.local
-            paths:
-            - path: /
-              pathType: Prefix
-              port: 4318
-          ingressClassName: internal
-          tls:
-          - hosts:
+          annotations:
+            external-dns.alpha.kubernetes.io/hostname: otlp.homelab.local
+          parentRefs:
+            - group: gateway.networking.k8s.io
+              kind: Gateway
+              name: envoy-internal
+              namespace: envoy-gateway-system
+              sectionName: https
+          hostnames:
             - otlp.homelab.local
-            secretName: otlp-tls
+          rules:
+            - matches:
+                - path:
+                    type: PathPrefix
+                    value: /
+              backendRefs:
+                - port: 4318
         image:
           repository: otel/opentelemetry-collector-contrib
         command:
@@ -2540,7 +2893,7 @@ spec:
 ---
 # Source: addons/templates/metrics-server.yaml
 # metrics-server serves metrics.k8s.io: `kubectl top` and every
-# HorizontalPodAutoscaler on a Resource metric (both Traefik HPAs) read it.
+# HorizontalPodAutoscaler on a Resource metric (the Envoy proxy HPAs of both Gateways) read it.
 # Without it an HPA reports `cpu: <unknown>` and never scales.
 # Wave 2: after kubelet-csr-approver (wave 1), which approves the kubelet
 # serving certificates metrics-server verifies.
@@ -2778,495 +3131,20 @@ spec:
       - ApplyOutOfSyncOnly=true
 
 ---
-# Source: addons/templates/traefik-crds.yaml
-# The traefik.io CRDs for traefik-internal and traefik-external, which render
-# with skipCrds. The traefik chart's crds/ also carries Gateway API v1.4
-# CRDs, which the Gateway API v1.6 ValidatingAdmissionPolicy
-# (safe-upgrades.gateway.networking.k8s.io, gateway-api-crds) rejects; Gateway
-# API comes only from gateway-api-crds. Hub, Knative and Gateway API stay off.
-apiVersion: argoproj.io/v1alpha1
-kind: Application
+# Source: addons/templates/envoy-gateway.yaml
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
 metadata:
-  name: traefik-crds
-  namespace: argocd
-  annotations:
-    argocd.argoproj.io/sync-wave: "4"
-  finalizers:
-    - resources-finalizer.argocd.argoproj.io
-spec:
-  project: default
-  source:
-    repoURL: https://traefik.github.io/charts
-    chart: traefik-crds
-    targetRevision: "1.14.1"
-    helm:
-      releaseName: traefik-crds
-      values: |
-        traefik: true
-        gatewayAPI: false
-        gatewayAPIExperimental: false
-        hub: false
-        knative: false
-  destination:
-    server: https://kubernetes.default.svc
-    namespace: traefik
-  syncPolicy:
-    syncOptions:
-      - CreateNamespace=true
-      - ServerSideApply=true
-      - ApplyOutOfSyncOnly=true
-
----
-# Source: addons/templates/traefik-external.yaml
-# Dependencies Application: deploys secrets and OnePasswordItems before traefik-external
-# Wave 5: After external-dns (wave 4), which installs the DNSEndpoint CRD this chart's config child uses
-apiVersion: argoproj.io/v1alpha1
-kind: Application
-metadata:
-  name: traefik-external-dependencies
-  namespace: argocd
+  name: envoy-gateway
+  namespace: envoy-gateway-system
   annotations:
     argocd.argoproj.io/sync-wave: "5"
-  finalizers:
-    - resources-finalizer.argocd.argoproj.io
 spec:
-  project: default
-  source:
-    repoURL: https://github.com/ryanmcafee/homelab.git
-    targetRevision: main
-    path: charts/traefik-external-dependencies
-    helm:
-      valueFiles:
-        - values.yaml
-        - values-localdev.yaml
-  destination:
-    server: https://kubernetes.default.svc
-    namespace: traefik
-  syncPolicy:
-    syncOptions:
-      - CreateNamespace=true
-      - ServerSideApply=true
-      - SkipDryRunOnMissingResource=true
-
----
-# Source: addons/templates/traefik-external.yaml
-apiVersion: argoproj.io/v1alpha1
-kind: Application
-metadata:
-  name: traefik-external
-  namespace: argocd
-  annotations:
-    # Sync wave 6: After traefik-external-dependencies (wave 5) creates secrets
-    argocd.argoproj.io/sync-wave: "6"
-  finalizers:
-    - resources-finalizer.argocd.argoproj.io
-spec:
-  project: default
-  source:
-    repoURL: https://traefik.github.io/charts
-    chart: traefik
-    targetRevision: 39.0.9
-    helm:
-      releaseName: traefik-external
-      # CRDs come from the traefik-crds Application (templates/traefik-crds.yaml).
-      skipCrds: true
-      values: |
-        # IngressClass configuration
-        ingressClass:
-          name: external
-          isDefaultClass: false
-
-        deployment:
-          replicas: 1
-
-        service:
-          type: NodePort
-          spec:
-            externalTrafficPolicy: Cluster
-
-        # Update Ingress status with LoadBalancer IP so ArgoCD sees them as healthy
-        providers:
-          kubernetesIngress:
-            publishedService:
-              enabled: true
-            ingressClass: external
-          # Enable cross-namespace references for middlewares
-          kubernetesCRD:
-            allowCrossNamespace: true
-            ingressClass: external
-
-        ports:
-          web:
-            port: 8000
-            exposedPort: 80
-            expose:
-              default: true
-            http:
-              redirections:
-                entryPoint:
-                  to: websecure
-                  scheme: https
-                  permanent: true
-          websecure:
-            port: 8443
-            exposedPort: 443
-            expose:
-              default: true
-            asDefault: true
-            http:
-              tls:
-                enabled: true
-            transport:
-              respondingTimeouts:
-                idleTimeout: 600s
-                readTimeout: 0
-                writeTimeout: 0
-          traefik:
-            port: 9000
-            expose:
-              default: true
-        additionalArguments:
-          - --global.checknewversion=false
-          - --global.sendanonymoususage=false
-        experimental:
-          plugins:
-            traefikoidc:
-              moduleName: github.com/lukaszraczylo/traefikoidc
-              version: v1.0.32
-
-        logs:
-          access:
-            enabled: true
-            format: json
-            fields:
-              headers:
-                defaultmode: drop
-                names:
-                  Traceparent: keep
-                  User-Agent: keep
-        tracing:
-          sampleRate: 1
-          otlp:
-            enabled: true
-            grpc:
-              enabled: true
-              endpoint: otel-collector-gateway.observability.svc.cluster.local:4317
-              insecure: true
-
-        # The ServiceMonitor selects a dedicated metrics Service; the main
-        # Service does not expose :9100. The API check would fail an offline render.
-        metrics:
-          prometheus:
-            disableAPICheck: true
-            service:
-              enabled: true
-            serviceMonitor:
-              enabled: true
-
-        env:
-          []
-
-        # Disable ACME certificate resolvers (using cert-manager instead for HA)
-        certificatesResolvers: {}
-
-        persistence:
-          enabled: false
-
-        ingressRoute:
-          dashboard:
-            enabled: true
-            matchRule: Host(`traefik.homelab.local`)
-            entryPoints:
-              - websecure
-            tls:
-              secretName: traefik-dashboard-tls
-
-        resources:
-          limits:
-            cpu: 200m
-            memory: 256Mi
-          requests:
-            cpu: 50m
-            memory: 128Mi
-
-  destination:
-    server: https://kubernetes.default.svc
-    namespace: traefik
-
-  syncPolicy:
-    syncOptions:
-      - CreateNamespace=true
-      - ServerSideApply=true
-      - ApplyOutOfSyncOnly=true
-      - RespectIgnoreDifferences=true
-
-  # Ignore differences in dynamic fields
-  ignoreDifferences:
-    - group: admissionregistration.k8s.io
-      kind: ValidatingWebhookConfiguration
-      jqPathExpressions:
-        - .webhooks[].clientConfig.caBundle
-
----
-# Source: addons/templates/traefik-external.yaml
-# Config Application: deploys CRD-dependent resources (IngressRoute, Middleware, DNSEndpoint)
-# Wave 8: After traefik-external (wave 6) installs CRDs and oidc-redis (wave 7) is available
-apiVersion: argoproj.io/v1alpha1
-kind: Application
-metadata:
-  name: traefik-external-config
-  namespace: argocd
-  annotations:
-    argocd.argoproj.io/sync-wave: "8"
-  finalizers:
-    - resources-finalizer.argocd.argoproj.io
-spec:
-  project: default
-  source:
-    repoURL: https://github.com/ryanmcafee/homelab.git
-    targetRevision: main
-    path: charts/traefik-external-config
-    helm:
-      valueFiles:
-        - values.yaml
-        - values-localdev.yaml
-      # Derived values (domain, hostnames, static IP, allowed domains) come from
-      # this parent's values (configuration/ via the CMP in homelab) so the
-      # child's committed values files stay PII-free. valuesObject overrides
-      # valueFiles in ArgoCD.
-      valuesObject:
-        global:
-          domain: homelab.local
-        dashboard:
-          host: traefik.homelab.local
-          staticIP: 127.0.0.200
-        oidc:
-          allowedDomains:
-          - homelab.local
-          host: auth.homelab.local
-  destination:
-    server: https://kubernetes.default.svc
-    namespace: traefik
-  syncPolicy:
-    syncOptions:
-      - CreateNamespace=true
-      - ServerSideApply=true
-      - SkipDryRunOnMissingResource=true
-
----
-# Source: addons/templates/traefik-internal.yaml
-# Dependencies Application: placeholder for future secret needs
-# Wave 5: Maintains consistent pattern with external traefik
-apiVersion: argoproj.io/v1alpha1
-kind: Application
-metadata:
-  name: traefik-internal-dependencies
-  namespace: argocd
-  annotations:
-    argocd.argoproj.io/sync-wave: "5"
-  finalizers:
-    - resources-finalizer.argocd.argoproj.io
-spec:
-  project: default
-  source:
-    repoURL: https://github.com/ryanmcafee/homelab.git
-    targetRevision: main
-    path: charts/traefik-internal-dependencies
-    helm:
-      valueFiles:
-        - values.yaml
-        - values-localdev.yaml
-  destination:
-    server: https://kubernetes.default.svc
-    namespace: traefik
-  syncPolicy:
-    syncOptions:
-      - CreateNamespace=true
-      - ServerSideApply=true
-      - SkipDryRunOnMissingResource=true
-
----
-# Source: addons/templates/traefik-internal.yaml
-apiVersion: argoproj.io/v1alpha1
-kind: Application
-metadata:
-  name: traefik-internal
-  namespace: argocd
-  annotations:
-    argocd.argoproj.io/sync-wave: "6"
-  finalizers:
-    - resources-finalizer.argocd.argoproj.io
-spec:
-  project: default
-  source:
-    repoURL: https://traefik.github.io/charts
-    chart: traefik
-    targetRevision: 39.0.9
-    helm:
-      releaseName: traefik-internal
-      # CRDs come from the traefik-crds Application (templates/traefik-crds.yaml).
-      skipCrds: true
-      values: |
-        # IngressClass configuration
-        ingressClass:
-          name: internal
-          isDefaultClass: false
-
-        deployment:
-          replicas: 1
-
-        service:
-          type: NodePort
-          spec:
-            externalTrafficPolicy: Cluster
-
-        providers:
-          kubernetesIngress:
-            publishedService:
-              enabled: true
-            ingressClass: internal
-          kubernetesCRD:
-            allowCrossNamespace: true
-            ingressClass: internal
-
-        ports:
-          web:
-            port: 8000
-            exposedPort: 80
-            expose:
-              default: true
-            http:
-              redirections:
-                entryPoint:
-                  to: websecure
-                  scheme: https
-                  permanent: true
-          websecure:
-            port: 8443
-            exposedPort: 443
-            expose:
-              default: true
-            asDefault: true
-            http:
-              tls:
-                enabled: true
-            transport:
-              respondingTimeouts:
-                idleTimeout: 600s
-                readTimeout: 0
-                writeTimeout: 0
-          traefik:
-            port: 9000
-            expose:
-              default: true
-        additionalArguments:
-          - --global.checknewversion=false
-          - --global.sendanonymoususage=false
-
-        logs:
-          access:
-            enabled: true
-            format: json
-            fields:
-              headers:
-                defaultmode: drop
-                names:
-                  Traceparent: keep
-                  User-Agent: keep
-        tracing:
-          sampleRate: 1
-          otlp:
-            enabled: true
-            grpc:
-              enabled: true
-              endpoint: otel-collector-gateway.observability.svc.cluster.local:4317
-              insecure: true
-
-        # The ServiceMonitor selects a dedicated metrics Service; the main
-        # Service does not expose :9100. The API check would fail an offline render.
-        metrics:
-          prometheus:
-            disableAPICheck: true
-            service:
-              enabled: true
-            serviceMonitor:
-              enabled: true
-
-        env:
-          []
-
-        certificatesResolvers: {}
-
-        persistence:
-          enabled: false
-
-        ingressRoute:
-          dashboard:
-            enabled: true
-            matchRule: Host(`traefik-internal.homelab.local`)
-            entryPoints:
-              - websecure
-            tls:
-              secretName: traefik-internal-dashboard-tls
-
-        resources:
-          limits:
-            cpu: 200m
-            memory: 256Mi
-          requests:
-            cpu: 50m
-            memory: 128Mi
-
-  destination:
-    server: https://kubernetes.default.svc
-    namespace: traefik
-
-  syncPolicy:
-    syncOptions:
-      - CreateNamespace=true
-      - ServerSideApply=true
-      - ApplyOutOfSyncOnly=true
-      - RespectIgnoreDifferences=true
-
-  ignoreDifferences:
-    - group: admissionregistration.k8s.io
-      kind: ValidatingWebhookConfiguration
-      jqPathExpressions:
-        - .webhooks[].clientConfig.caBundle
-
----
-# Source: addons/templates/traefik-internal.yaml
-# Config Application: deploys CRD-dependent resources (dashboard)
-apiVersion: argoproj.io/v1alpha1
-kind: Application
-metadata:
-  name: traefik-internal-config
-  namespace: argocd
-  annotations:
-    argocd.argoproj.io/sync-wave: "8"
-  finalizers:
-    - resources-finalizer.argocd.argoproj.io
-spec:
-  project: default
-  source:
-    repoURL: https://github.com/ryanmcafee/homelab.git
-    targetRevision: main
-    path: charts/traefik-internal-config
-    helm:
-      valueFiles:
-        - values.yaml
-        - values-localdev.yaml
-      # The dashboard hostname comes from this parent's values (configuration/
-      # via the CMP in homelab) so the child's committed values files stay
-      # PII-free. valuesObject overrides valueFiles in ArgoCD.
-      valuesObject:
-        dashboard:
-          host: traefik-internal.homelab.local
-  destination:
-    server: https://kubernetes.default.svc
-    namespace: traefik
-  syncPolicy:
-    syncOptions:
-      - CreateNamespace=true
-      - ServerSideApply=true
-      - SkipDryRunOnMissingResource=true
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: envoy-gateway
+      app.kubernetes.io/name: gateway-helm
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: 30s

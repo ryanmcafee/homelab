@@ -1,6 +1,6 @@
 # paperclip values: one paperclip.inc/v1alpha1 Instance (wave 14, after the
 # operator at 11, the 1Password items at 12 and the CloudNativePG Cluster at 13).
-# Hostname, admin e-mail, image tag, ingress class and storage class arrive
+# Hostname, admin e-mail, image tag, Gateway and storage class arrive
 # through the parent Application's helm.valuesObject from configuration/
 # (ADR-010); nothing environment-specific lives in this chart.
 
@@ -9,8 +9,8 @@ namespace: paperclip
 # Instance name = StatefulSet, Service and ConfigMap name.
 name: paperclip
 
-# Public hostname (PAPERCLIP_HOSTNAME); publicURL, allowedHostnames, the Ingress
-# host and the certificate are all derived from it.
+# Public hostname (PAPERCLIP_HOSTNAME); publicURL, allowedHostnames and the
+# HTTPRoute hostname are derived from it.
 hostname: ""
 
 # The operator refuses an Instance without a tag or digest (no :latest); the
@@ -20,7 +20,7 @@ image:
   tag: ""
 
 # authenticated + private: sign-in required, reachable only through the internal
-# Traefik (LAN/tailnet), every request must carry an allowed hostname (the
+# Gateway (LAN/tailnet), every request must carry an allowed hostname (the
 # operator always adds the in-cluster Service names for its own bootstrap Job).
 # `public` exposure is not possible with this operator: app 2026.831+ then
 # requires auth.baseUrlMode=explicit, and the operator's onboarding quickstart
@@ -105,13 +105,13 @@ service:
   type: ClusterIP
   port: 3100
 
-# Ingress on the hostname; className comes from INGRESS_CLASS_INTERNAL through
-# the parent. The letsencrypt ClusterIssuer is self-signed in Kind under the same name.
-ingress:
+# HTTPRoute (spec.networking.httpRoute) on the https listener of the internal
+# Gateway, which terminates TLS; the parent passes GATEWAY_INTERNAL/GATEWAY_NAMESPACE.
+route:
   enabled: true
-  className: internal
-  clusterIssuer: letsencrypt
-  tlsSecretName: paperclip-tls
+  gateway:
+    name: envoy-internal
+    namespace: envoy-gateway-system
 
 # In an ambient-enrolled namespace (serviceMesh.ambient, set by the parent)
 # templates/networkpolicy-ambient.yaml adds HBONE (TCP 15008) in both
@@ -121,14 +121,14 @@ serviceMesh:
 
 # The operator's default policy: ingress on the service port from any source,
 # egress to DNS, TCP 443 (LLM APIs), OTLP 4317/4318 and, in external database
-# mode, TCP 5432. That already covers Traefik -> app and app -> paperclip-postgres-rw.
+# mode, TCP 5432. That already covers Envoy -> app and app -> paperclip-postgres-rw.
 security:
   networkPolicy:
     enabled: true
-    # templates/networkpolicy-ingress-controller.yaml: app -> its own public URL (Traefik web/websecure).
+    # templates/networkpolicy-ingress-controller.yaml: app -> its own public URL
+    # through the Envoy proxy of route.gateway (listener container ports http/https).
     ingressController:
-      namespace: traefik
-      ports: [8000, 8443]
+      ports: [10080, 10443]
   # The operator adds a privileged "selinux-relabel" init container (chcon on the
   # data volume) unless told not to. It is rejected by the namespace's PodSecurity
   # baseline admission (no pod is ever created and the Instance stays

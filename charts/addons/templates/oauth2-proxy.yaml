@@ -63,18 +63,17 @@ spec:
                 name: oauth2-proxy-cookie-secret
                 key: cookie_secret
 
-        ingress:
+        gatewayApi:
           enabled: true
-          className: traefik
+          gatewayRef:
+            {{- include "addons.gatewayParentRefs" (dict "root" . "gateway" "external") | fromYamlArray | first | toYaml | nindent 12 }}
           annotations:
-            cert-manager.io/cluster-issuer: letsencrypt
             external-dns.alpha.kubernetes.io/hostname: auth.{{ .Values.global.domain }}
-          hosts:
+            {{- with (index .Values "oauth2-proxy" "externalDNSTarget") }}
+            external-dns.alpha.kubernetes.io/target: {{ . }}
+            {{- end }}
+          hostnames:
             - auth.{{ .Values.global.domain }}
-          tls:
-            - secretName: oauth2-proxy-tls
-              hosts:
-                - auth.{{ .Values.global.domain }}
 
         resources:
           {{- toYaml (index .Values "oauth2-proxy" "resources") | nindent 10 }}

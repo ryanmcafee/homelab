@@ -7,7 +7,7 @@
 # 3. Cert-Manager (TLS Certificates)
 # 4. External-DNS (DNS Management)
 # 5. Kube-Prometheus-Stack (Monitoring)
-# 6. Traefik (Ingress Controller)
+# 6. Envoy Gateway (internal and external Gateways)
 #
 # Note: SOPS secrets and 1Password Operator are deployed via the bootstrap chart
 #
@@ -23,8 +23,14 @@ global:
   # Environment identifier
   environment: homelab
 
-  # Base domain for ingress resources
+  # Base domain for route hostnames
   domain: example.com
+
+  # Gateways every HTTPRoute attaches to (addons.gatewayParentRefs).
+  gateway:
+    namespace: envoy-gateway-system
+    internal: envoy-internal
+    external: envoy-external
 
   # Git repository for SOPS secrets
   repoUrl: https://github.com/ryanmcafee/homelab.git
@@ -445,7 +451,7 @@ local-path-provisioner:
 
 # ============================================================================
 # Cert-Manager - TLS Certificate Management
-# Sync Wave: 3 (needed before ingress resources)
+# Sync Wave: 3 (needed before the Gateway certificate)
 # ============================================================================
 
 cert-manager:
@@ -517,7 +523,7 @@ cert-manager:
 
 # ============================================================================
 # External-DNS - Automatic DNS Record Management
-# Sync Wave: 4 (needed before public ingress)
+# Sync Wave: 4 (needed before public routes)
 # ============================================================================
 
 external-dns:
@@ -616,16 +622,10 @@ kube-prometheus-stack:
       storageClass: democratic-csi-nfs
       size: 10Gi
 
-    # Ingress
-    ingress:
+    # HTTPRoute on the internal Gateway
+    route:
       enabled: true
-      ingressClassName: traefik
-      hosts:
-        - grafana.example.com
-      tls:
-        - secretName: grafana-tls
-          hosts:
-            - grafana.example.com
+      hostname: grafana.example.com
 
     # Resource limits
     resources:
@@ -650,16 +650,10 @@ kube-prometheus-stack:
       secretName: alertmanager-notifications
       onePasswordItemPath: ""
 
-    # Ingress; its host is also the external URL in notification links
-    ingress:
+    # HTTPRoute on the internal Gateway; its host is also the external URL in notification links
+    route:
       enabled: true
-      ingressClassName: traefik
-      hosts:
-        - alertmanager.example.com
-      tls:
-        - secretName: alertmanager-tls
-          hosts:
-            - alertmanager.example.com
+      hostname: alertmanager.example.com
 
     # Storage configuration
     storage:
@@ -736,255 +730,16 @@ kube-prometheus-stack:
       expect: ["200"]
 
 # ============================================================================
-# Traefik External - Ingress Controller (External/Public Traffic)
-# Sync Wave: 6 (last addon, requires Cilium LB IPAM and cert-manager)
+# Gateway API CRDs and Envoy Gateway (templates/gateway-api-crds.yaml,
+# templates/envoy-gateway.yaml). Placeholder; the CMP template renders the real blocks.
 # ============================================================================
 
-traefikExternal:
-  enabled: true
-  namespace: traefik
+gatewayApi:
+  enabled: false
 
-  # Cloudflare integration for ACME DNS challenge (disabled by default)
-  # Use cert-manager instead for HA compatibility
-  cloudflare:
-    enabled: false
-    onePasswordItemPath: ""
-
-  # Chart source
-  chart:
-    name: traefik
-    repo: https://traefik.github.io/charts
-    version: 39.0.0
-
-  # Service configuration
-  service:
-    type: LoadBalancer
-    spec:
-      externalTrafficPolicy: Cluster
-    # Cilium LB IPAM will assign an IP from the pool
-
-  # Ports configuration
-  ports:
-    web:
-      port: 8000
-      exposedPort: 80
-      expose:
-        default: true
-      # Redirect HTTP to HTTPS (v39+ format)
-      http:
-        redirections:
-          entryPoint:
-            to: websecure
-            scheme: https
-            permanent: true
-    websecure:
-      port: 8443
-      exposedPort: 443
-      expose:
-        default: true
-      asDefault: true
-      http:
-        tls:
-          enabled: true
-      transport:
-        respondingTimeouts:
-          readTimeout: 0
-          writeTimeout: 0
-          idleTimeout: 600s
-
-  # Global arguments moved to additionalArguments in v39+
-  additionalArguments:
-    - --global.checknewversion=false
-    - --global.sendanonymoususage=false
-
-  logs:
-    access:
-      enabled: false
-      format: json
-      headers: {}
-  metrics:
-    serviceMonitor:
-      enabled: false
-  tracing:
-    enabled: false
-    endpoint: ""
-    sampleRate: 0.1
-
-  # Environment variables
-  env: []
-
-  # Persistence disabled (ACME removed - using cert-manager)
-  persistence:
-    enabled: false
-
-  # Dashboard
-  ingressRoute:
-    dashboard:
-      enabled: true
-      matchRule: Host(`traefik.example.com`)
-      entryPoints: ["websecure"]
-
-  # Resource limits
-  resources:
-    requests:
-      cpu: 100m
-      memory: 2Gi
-    limits:
-      cpu: 1000m
-      memory: 2Gi
-
-  # Deployment configuration
-  deployment:
-    replicas: 2  # High availability
-
-  # Topology spread constraints - ensure pods spread across nodes
-  topologySpreadConstraints:
-    - maxSkew: 1
-      topologyKey: kubernetes.io/hostname
-      whenUnsatisfiable: DoNotSchedule
-      labelSelector:
-        matchLabels:
-          app.kubernetes.io/name: traefik
-          app.kubernetes.io/instance: traefik-external
-
-  # Autoscaling
-  autoscaling:
-    enabled: true
-    minReplicas: 2
-    maxReplicas: 3
-    metrics:
-      - type: Resource
-        resource:
-          name: cpu
-          target:
-            type: Utilization
-            averageUtilization: 80
-
-  # Values handed to the traefik-external-config child chart through the
-  # traefik-external-config Application's helm.valuesObject. Placeholders
-  # here; the CMP derives the real values from configuration/ in homelab.
-  config:
-    dashboard:
-      host: traefik.example.com
-      staticIP: "10.0.0.200"
-    oidc:
-      host: auth.example.com
-      allowedDomains:
-        - example.com
-
-# ============================================================================
-# Traefik Internal - Ingress Controller (Internal/Private Traffic)
-# Sync Wave: 6 (same wave as external, requires Cilium LB IPAM and cert-manager)
-# ============================================================================
-
-traefikInternal:
-  enabled: true
-  namespace: traefik
-
-  chart:
-    name: traefik
-    repo: https://traefik.github.io/charts
-    version: 39.0.0
-
-  service:
-    type: LoadBalancer
-    spec:
-      externalTrafficPolicy: Cluster
-
-  ports:
-    web:
-      port: 8000
-      exposedPort: 80
-      expose:
-        default: true
-      http:
-        redirections:
-          entryPoint:
-            to: websecure
-            scheme: https
-            permanent: true
-    websecure:
-      port: 8443
-      exposedPort: 443
-      expose:
-        default: true
-      asDefault: true
-      http:
-        tls:
-          enabled: true
-      transport:
-        respondingTimeouts:
-          readTimeout: 0
-          writeTimeout: 0
-          idleTimeout: 600s
-
-  additionalArguments:
-    - --global.checknewversion=false
-    - --global.sendanonymoususage=false
-
-  logs:
-    access:
-      enabled: false
-      format: json
-      headers: {}
-  metrics:
-    serviceMonitor:
-      enabled: false
-  tracing:
-    enabled: false
-    endpoint: ""
-    sampleRate: 0.1
-
-  env: []
-
-  persistence:
-    enabled: false
-
-  ingressRoute:
-    dashboard:
-      enabled: true
-      matchRule: Host(`traefik-internal.example.com`)
-      entryPoints: ["websecure"]
-
-  resources:
-    requests:
-      cpu: 100m
-      memory: 2Gi
-    limits:
-      cpu: 1000m
-      memory: 2Gi
-
-  deployment:
-    replicas: 2
-
-  # Topology spread constraints - ensure pods spread across nodes
-  topologySpreadConstraints:
-    - maxSkew: 1
-      topologyKey: kubernetes.io/hostname
-      whenUnsatisfiable: DoNotSchedule
-      labelSelector:
-        matchLabels:
-          app.kubernetes.io/name: traefik
-          app.kubernetes.io/instance: traefik-internal
-
-  autoscaling:
-    enabled: true
-    minReplicas: 2
-    maxReplicas: 3
-    metrics:
-      - type: Resource
-        resource:
-          name: cpu
-          target:
-            type: Utilization
-            averageUtilization: 80
-
-  # Values handed to the traefik-internal-config child chart through the
-  # traefik-internal-config Application's helm.valuesObject. Placeholder
-  # here; the CMP derives the real hostname from configuration/ in homelab.
-  config:
-    dashboard:
-      host: traefik-internal.example.com
+envoy-gateway:
+  enabled: false
+  namespace: envoy-gateway-system
 
 # ============================================================================
 # UniFi Port Forward Controller - Automatic Port Forwarding
@@ -1204,7 +959,7 @@ cilium:
 
 # ============================================================================
 # Argo Workflows - Workflow Orchestration
-# Sync Wave: 7 (after core infrastructure)
+# Sync Wave: 9 (after core infrastructure)
 # ============================================================================
 
 argo-workflows:
@@ -1222,16 +977,10 @@ argo-workflows:
     # Authentication mode: server (no auth), client (requires token), sso
     authMode: server
 
-    # Ingress
-    ingress:
+    # HTTPRoute on the internal Gateway
+    route:
       enabled: true
-      ingressClassName: traefik
-      hosts:
-        - workflows.example.com
-      tls:
-        - secretName: argo-workflows-tls
-          hosts:
-            - workflows.example.com
+      hostname: workflows.example.com
 
     # Resources
     resources:
@@ -1289,7 +1038,3 @@ github-pr-exporter:
   namespace: monitoring
   secretName: github-pr-alerts
   onePasswordItemPath: ""
-
-# Traefik CRDs (templates/traefik-crds.yaml). Placeholder; the CMP template renders the real block.
-traefikCrds:
-  enabled: false

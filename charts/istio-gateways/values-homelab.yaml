@@ -1,0 +1,5 @@
+# istio-gateways homelab values. Nothing is committed here: the parent
+# Application passes the domain through helm.valuesObject. The file has to
+# exist because the parent Application lists values-homelab.yaml.
+
+namespace: istio-ingress

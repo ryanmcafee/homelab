@@ -1,4 +1,0 @@
-# traefik-internal-dependencies values
-# Currently no secrets needed for internal Traefik
-
-namespace: traefik

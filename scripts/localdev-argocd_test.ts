@@ -171,11 +171,11 @@ const cilium = app({
   parent: "addons",
   chart: "cilium",
 });
-const traefik = app({
-  name: "traefik",
+const envoyGateway = app({
+  name: "envoy-gateway",
   wave: "1",
   parent: "addons",
-  chart: "traefik",
+  chart: "gateway-helm",
 });
 const sonarrConfig = app({
   name: "sonarr-config",
@@ -265,7 +265,7 @@ test("compareTierKey: a parent sorts before its children, even negative-wave one
 test("nextTier: walks the tree root → gitops children → addon children → application children", () => {
   const all = [
     sonarrConfig,
-    traefik,
+    envoyGateway,
     cilium,
     applications,
     addons,
@@ -290,7 +290,7 @@ test("nextTier: walks the tree root → gitops children → addon children → a
     ["argocd"],
     ["addons"],
     ["cilium"],
-    ["traefik"],
+    ["envoy-gateway"],
     ["applications"],
     ["sonarr-config"],
   ]);
@@ -359,7 +359,7 @@ test("appState: a parent whose Running operation waits on child Applications is 
 
 test("appState: a Running operation without child Applications is pending", () => {
   const leaf = app({
-    name: "traefik",
+    name: "envoy-gateway",
     health: "Progressing",
     phase: "Running",
     resourceKinds: ["Deployment", "Service"],
@@ -1229,16 +1229,16 @@ test("discoverable: apps in a lower tier than the one being waited on are synced
     chart: "f",
   });
   const trInt = app({
-    name: "traefik-internal-config",
+    name: "envoy-gateway-config",
     wave: "8",
     parent: "addons",
-    path: "charts/traefik-internal-config",
+    path: "charts/envoy-gateway-config",
   });
   const trExt = app({
-    name: "traefik-external-config",
+    name: "istio-gateways",
     wave: "8",
     parent: "addons",
-    path: "charts/traefik-external-config",
+    path: "charts/istio-gateways",
   });
   const later = app({
     name: "zzz",
@@ -1252,7 +1252,7 @@ test("discoverable: apps in a lower tier than the one being waited on are synced
   const found = discoverable(all, done, active, [0, 3, 12]);
   assertEquals(
     found.map((a) => a.metadata.name),
-    ["traefik-external-config", "traefik-internal-config"],
+    ["envoy-gateway-config", "istio-gateways"],
   );
 });
 
@@ -1345,15 +1345,15 @@ test("tierBlockedBy: with several awaiting parents the lowest one is returned", 
 });
 
 test("pendingChildren: children of a parent that are not done", () => {
-  const all = [gitops, addons, cilium, traefik];
+  const all = [gitops, addons, cilium, envoyGateway];
   assertEquals(
     pendingChildren("addons", all, new Set(["cilium"])).map(
       (a) => a.metadata.name,
     ),
-    ["traefik"],
+    ["envoy-gateway"],
   );
   assertEquals(
-    pendingChildren("addons", all, new Set(["cilium", "traefik"])),
+    pendingChildren("addons", all, new Set(["cilium", "envoy-gateway"])),
     [],
   );
 });
@@ -1416,7 +1416,10 @@ test("degradedChildHint: names the Degraded child Application", () => {
   const viaMessage: Application = {
     metadata: { name: "addons" },
     status: {
-      health: { status: "Degraded", message: "Application/traefik: Degraded" },
+      health: {
+        status: "Degraded",
+        message: "Application/envoy-gateway: Degraded",
+      },
     },
   };
   assert(degradedChildHint(viaMessage));
@@ -1469,20 +1472,20 @@ const REPORT_APPS_JSON = `{
   "items": [
     {
       "metadata": {
-        "name": "traefik",
+        "name": "envoy-gateway",
         "namespace": "argocd",
         "annotations": {
           "argocd.argoproj.io/sync-wave": "1",
-          "argocd.argoproj.io/tracking-id": "addons:argoproj.io/Application:argocd/traefik"
+          "argocd.argoproj.io/tracking-id": "addons:argoproj.io/Application:argocd/envoy-gateway"
         }
       },
-      "spec": { "source": { "chart": "traefik", "repoURL": "https://traefik.github.io/charts" } },
+      "spec": { "source": { "chart": "gateway-helm", "repoURL": "docker.io/envoyproxy" } },
       "status": {
-        "health": { "status": "Degraded", "message": "Deployment traefik: 0/1 available" },
+        "health": { "status": "Degraded", "message": "Deployment envoy-gateway: 0/1 available" },
         "sync": { "status": "OutOfSync" },
         "operationState": {
           "phase": "Failed",
-          "message": "one or more objects failed to apply | reason: Deployment.apps \\"traefik\\" is invalid: spec.template.spec.containers[0].ports[0].containerPort: must be between 1 and 65535\\nsecond line"
+          "message": "one or more objects failed to apply | reason: Deployment.apps \\"envoy-gateway\\" is invalid: spec.template.spec.containers[0].ports[0].containerPort: must be between 1 and 65535\\nsecond line"
         }
       }
     },
@@ -1530,7 +1533,7 @@ const REPORT_APPS_JSON = `{
         "health": { "status": "Healthy" },
         "sync": { "status": "OutOfSync" },
         "operationState": { "phase": "Succeeded" },
-        "resources": [{ "kind": "Application", "name": "cilium" }, { "kind": "Application", "name": "traefik" }]
+        "resources": [{ "kind": "Application", "name": "cilium" }, { "kind": "Application", "name": "envoy-gateway" }]
       }
     },
     {
@@ -1576,7 +1579,7 @@ const reportApps = (JSON.parse(REPORT_APPS_JSON) as { items: Application[] })
 // object, then task's own failure line.
 const VERIFY_FINDINGS = Array.from(
   { length: REPORT_MAX_FINDINGS + 5 },
-  (_, i) => `Deployment traefik/traefik: finding ${i + 1}`,
+  (_, i) => `Deployment envoy-gateway-system/envoy-gateway: finding ${i + 1}`,
 );
 const VERIFY_LEVEL2_TEXT = `${JSON.stringify(
   {
@@ -1584,13 +1587,13 @@ const VERIFY_LEVEL2_TEXT = `${JSON.stringify(
     checks: [
       { name: "argocd/cilium", status: "pass", duration_ms: 3 },
       {
-        name: "argocd/traefik",
+        name: "argocd/envoy-gateway",
         status: "fail",
         duration_ms: 4,
         detail: "health Degraded, operation Failed",
         findings: VERIFY_FINDINGS,
       },
-      { name: "e2e/traefik", status: "skip", duration_ms: 0 },
+      { name: "e2e/envoy-gateway", status: "skip", duration_ms: 0 },
       { name: "render/localdev/addons", status: "pass", duration_ms: 120 },
     ],
     pass: false,
@@ -1604,22 +1607,22 @@ const VERIFY_LEVEL2_TEXT = `${JSON.stringify(
 // "diff -u": argocd runs `diff <live> <target>`, so `-` is the PR (live in
 // Kind) and `+` is main (the target revision).
 const RAW_ADDONS_DIFF = `
-===== argoproj.io/Application argocd/traefik ======
---- /tmp/argocd-diff123/traefik-live.yaml\t2026-09-13 10:00:00.000000000 +0000
-+++ /tmp/argocd-diff123/traefik\t2026-09-13 10:00:00.000000000 +0000
+===== argoproj.io/Application argocd/envoy-gateway ======
+--- /tmp/argocd-diff123/envoy-gateway-live.yaml\t2026-09-13 10:00:00.000000000 +0000
++++ /tmp/argocd-diff123/envoy-gateway\t2026-09-13 10:00:00.000000000 +0000
 @@ -10,6 +10,6 @@ spec:
      helm:
        valuesObject:
-         ports:
--          web: 8081
-+          web: 8080
-     chart: traefik
--    targetRevision: 39.1.0
-+    targetRevision: 39.0.9
+         deployment:
+-          replicas: 2
++          replicas: 1
+     chart: gateway-helm
+-    targetRevision: v1.9.2
++    targetRevision: v1.9.1
 @@ -30 +30 @@
 --- a line whose content starts with three dashes
 +--- the same on main
-===== /ConfigMap traefik/new-in-pr ======
+===== /ConfigMap envoy-gateway-system/new-in-pr ======
 --- /tmp/argocd-diff123/new-in-pr-live.yaml\t2026-09-13 10:00:00.000000000 +0000
 +++ /tmp/argocd-diff123/new-in-pr\t2026-09-13 10:00:00.000000000 +0000
 @@ -1,3 +0,0 @@
@@ -1758,9 +1761,16 @@ test("parseVerifyJson: malformed check entries are dropped", () => {
 test("treeOrder / appsToDiff: tree order; every git-path app is diffed, whatever its sync status", () => {
   assertEquals(
     treeOrder(reportApps).map((a) => a.metadata.name),
-    ["gitops", "addons", "cilium", "traefik", "applications", "agent-readonly"],
+    [
+      "gitops",
+      "addons",
+      "cilium",
+      "envoy-gateway",
+      "applications",
+      "agent-readonly",
+    ],
   );
-  // cilium and traefik are chart sources (no git revision to render at the
+  // cilium and envoy-gateway are chart sources (no git revision to render at the
   // base) and are compared on their parent's diff instead; applications is
   // Synced but still diffed against the base.
   assertEquals(appsToDiff(reportApps), [
@@ -1800,13 +1810,15 @@ test("statusRows: health, sync, last operation and vs base per Application", () 
   assert(by.get("applications")!.operation.startsWith("Running: waiting for"));
   assertEquals(by.get("applications")!.vsMain, "diff unavailable");
   // Failed operation: first line of the message, clipped to the cell width.
-  const traefik = by.get("traefik")!;
-  assertEquals(traefik.health, "Degraded");
-  assert(traefik.operation.startsWith("Failed: one or more objects"));
-  assert(traefik.operation.length <= 80 && traefik.operation.endsWith("…"));
-  assert(!traefik.operation.includes("second line"));
-  // traefik is a chart source (no git revision to render at the base).
-  assertEquals(traefik.vsMain, "chart (compared on its parent)");
+  const envoyGateway = by.get("envoy-gateway")!;
+  assertEquals(envoyGateway.health, "Degraded");
+  assert(envoyGateway.operation.startsWith("Failed: one or more objects"));
+  assert(
+    envoyGateway.operation.length <= 80 && envoyGateway.operation.endsWith("…"),
+  );
+  assert(!envoyGateway.operation.includes("second line"));
+  // envoy-gateway is a chart source (no git revision to render at the base).
+  assertEquals(envoyGateway.vsMain, "chart (compared on its parent)");
   // The base's missing-path error means the chart is new in this PR.
   assertEquals(by.get("agent-readonly")!.vsMain, "not on main");
   assertEquals(by.get("agent-readonly")!.sync, "Unknown");
@@ -1851,10 +1863,10 @@ test("invertUnifiedDiff: main becomes `-`, the PR `+`; temp-file headers dropped
   const inv = invertUnifiedDiff(RAW_ADDONS_DIFF);
   const lines = inv.split("\n");
   assert(!lines.some((l) => l.includes("/tmp/argocd-diff")));
-  assert(lines.includes("-          web: 8080"));
-  assert(lines.includes("+          web: 8081"));
-  assert(lines.includes("-    targetRevision: 39.0.9"));
-  assert(lines.includes("+    targetRevision: 39.1.0"));
+  assert(lines.includes("-          replicas: 1"));
+  assert(lines.includes("+          replicas: 2"));
+  assert(lines.includes("-    targetRevision: v1.9.1"));
+  assert(lines.includes("+    targetRevision: v1.9.2"));
   // Hunk ranges swap; a missing count stays missing.
   assert(lines.includes("@@ -10,6 +10,6 @@ spec:"));
   assert(lines.includes("@@ -30 +30 @@"));
@@ -1864,7 +1876,9 @@ test("invertUnifiedDiff: main becomes `-`, the PR `+`; temp-file headers dropped
   // A resource only the PR has: every line is an addition.
   assert(lines.includes("@@ -0,0 +1,3 @@"));
   assert(lines.includes("+kind: ConfigMap"));
-  assert(lines.includes("===== /ConfigMap traefik/new-in-pr ======"));
+  assert(
+    lines.includes("===== /ConfigMap envoy-gateway-system/new-in-pr ======"),
+  );
 });
 
 test("invertUnifiedDiff: context lines and no-newline markers are kept", () => {
@@ -1913,7 +1927,9 @@ test("argocdErrorMessage: the msg of argocd's JSON fatal line, or the first text
 test("classifyDiffResult: 0 and 1-with-output are diffs, anything else an error", () => {
   const ok = classifyDiffResult("addons", 0, RAW_ADDONS_DIFF, "");
   assertEquals(ok.error, undefined);
-  assert(ok.diff.startsWith("===== argoproj.io/Application argocd/traefik"));
+  assert(
+    ok.diff.startsWith("===== argoproj.io/Application argocd/envoy-gateway"),
+  );
   assertEquals(classifyDiffResult("x", 0, "", ""), { app: "x", diff: "" });
   assertEquals(
     classifyDiffResult("x", 1, RAW_ADDONS_DIFF, "").error,
@@ -2002,7 +2018,7 @@ function fullReport(maxDiffBytes = DEFAULT_MAX_DIFF_BYTES): string {
     [
       { app: "gitops", diff: "" },
       classifyDiffResult("addons", 0, RAW_ADDONS_DIFF, ""),
-      diffOf("traefik", 5000),
+      diffOf("envoy-gateway", 5000),
       { app: "agent-readonly", diff: "", error: "app path does not exist" },
     ],
     maxDiffBytes,
@@ -2051,7 +2067,7 @@ test("renderReport: title, pass/fail line, table, failing checks and one collaps
   );
   assertStringIncludes(
     md,
-    "| traefik | Degraded | OutOfSync | Failed: one or more objects failed to apply \\| reason:",
+    "| envoy-gateway | Degraded | OutOfSync | Failed: one or more objects failed to apply \\| reason:",
   );
   assertStringIncludes(
     md,
@@ -2063,11 +2079,11 @@ test("renderReport: title, pass/fail line, table, failing checks and one collaps
   );
   // Failing checks: the detail and the capped findings.
   assertStringIncludes(md, "### Failing checks (1)");
-  assertStringIncludes(md, "#### `argocd/traefik`");
+  assertStringIncludes(md, "#### `argocd/envoy-gateway`");
   assertStringIncludes(md, "health Degraded, operation Failed");
   assertStringIncludes(
     md,
-    `- Deployment traefik/traefik: finding ${REPORT_MAX_FINDINGS}\n`,
+    `- Deployment envoy-gateway-system/envoy-gateway: finding ${REPORT_MAX_FINDINGS}\n`,
   );
   assert(!md.includes(`finding ${REPORT_MAX_FINDINGS + 1}\n`));
   assertStringIncludes(md, "… 5 more finding(s)");
@@ -2079,7 +2095,7 @@ test("renderReport: title, pass/fail line, table, failing checks and one collaps
   );
   assertStringIncludes(
     md,
-    "```diff\n===== argoproj.io/Application argocd/traefik ======",
+    "```diff\n===== argoproj.io/Application argocd/envoy-gateway ======",
   );
   // An empty diff against the base is "same as main" in the table and gets
   // no collapsed block: the sync status no longer says anything about main.
@@ -2092,13 +2108,16 @@ test("renderReport: title, pass/fail line, table, failing checks and one collaps
     "does not exist on `main`: everything it deploys is new in this PR",
   );
   assert(!md.includes("diff unavailable"));
-  assertStringIncludes(md, "<code>traefik</code> · 1 resource(s)");
+  assertStringIncludes(md, "<code>envoy-gateway</code> · 1 resource(s)");
   assertStringIncludes(md, "· truncated</summary>");
   assertStringIncludes(
     md,
     "line(s) omitted). Full diff: `task localdev:report -- --max-diff-bytes 0`",
   );
-  assertStringIncludes(md, "or `argocd app diff traefik --revision main`");
+  assertStringIncludes(
+    md,
+    "or `argocd app diff envoy-gateway --revision main`",
+  );
   assertEquals(md.split("<details>").length - 1, 3);
   assertEquals(md.split("</details>").length - 1, 3);
 });
@@ -2222,7 +2241,7 @@ test("parentsAwaitingWaves: only parents with a Running operation, sorted", () =
       },
     }) as unknown as Application;
   const apps = [
-    mk("traefik-external", "Running", false), // not a parent
+    mk("envoy-gateway-config", "Running", false), // not a parent
     mk("addons", "Running", true), // holding wave 7 open
     mk("gitops", "Succeeded", true), // settled
     mk("applications", "Running", true),

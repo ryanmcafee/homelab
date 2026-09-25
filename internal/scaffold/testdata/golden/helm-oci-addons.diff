@@ -124,7 +124,7 @@ diff --git a/charts/addons/values.yaml b/charts/addons/values.yaml
 diff --git a/configuration/schema/network.schema.yaml b/configuration/schema/network.schema.yaml
 --- a/configuration/schema/network.schema.yaml
 +++ b/configuration/schema/network.schema.yaml
-@@ -12,3 +12,8 @@
+@@ -16,3 +16,8 @@
    GRAFANA_HOSTNAME:
      description: Grafana dashboard hostname
      const: "grafana.{{.DOMAIN}}"
@@ -136,7 +136,7 @@ diff --git a/configuration/schema/network.schema.yaml b/configuration/schema/net
 diff --git a/configuration/templates/helm-addons.tmpl b/configuration/templates/helm-addons.tmpl
 --- a/configuration/templates/helm-addons.tmpl
 +++ b/configuration/templates/helm-addons.tmpl
-@@ -15,3 +15,65 @@
+@@ -15,3 +15,63 @@
  {{- if $localdev }}
    replicaCount: 1
  {{- end }}
@@ -181,20 +181,18 @@ diff --git a/configuration/templates/helm-addons.tmpl b/configuration/templates/
 +        cpu: 500m
 +        memory: 512Mi
 +{{- end }}
-+    ingress:
++    httpRoute:
 +      enabled: true
-+      className: {{ .Values.INGRESS_CLASS_INTERNAL.Value }}
 +      annotations:
-+        cert-manager.io/cluster-issuer: letsencrypt
-+      hosts:
-+        - host: {{ .Values.DEMO_OCI_HOSTNAME.Value }}
-+          paths:
-+            - path: /
-+              pathType: Prefix
-+      tls:
-+        - secretName: demo-oci-tls
-+          hosts:
-+            - {{ .Values.DEMO_OCI_HOSTNAME.Value }}
++        external-dns.alpha.kubernetes.io/hostname: {{ .Values.DEMO_OCI_HOSTNAME.Value }}
++      parentRefs:
++        - group: gateway.networking.k8s.io
++          kind: Gateway
++          name: {{ .Values.GATEWAY_INTERNAL.Value }}
++          namespace: {{ .Values.GATEWAY_NAMESPACE.Value }}
++          sectionName: https
++      hostnames:
++        - {{ .Values.DEMO_OCI_HOSTNAME.Value }}
 +
 +  # PostSync smoke hook (charts/addons/templates/_smoke.tpl): curl the
 +  # in-cluster Service after sync; expect lists the accepted HTTP codes.
@@ -256,7 +254,7 @@ diff --git a/tests/e2e/demo-oci/chainsaw-test.yaml b/tests/e2e/demo-oci/chainsaw
 new file mode 100644
 --- /dev/null
 +++ b/tests/e2e/demo-oci/chainsaw-test.yaml
-@@ -0,0 +1,115 @@
+@@ -0,0 +1,138 @@
 +---
 +# Scaffolded by `homelab scaffold app demo-oci`; see tests/e2e/README.md.
 +apiVersion: chainsaw.kyverno.io/v1alpha1
@@ -265,7 +263,8 @@ new file mode 100644
 +  name: demo-oci
 +spec:
 +  description: >-
-+    demo-oci / answers through the internal Traefik with Host demo-oci.homelab.local.
++    The demo-oci HTTPRoute is accepted by envoy-internal and demo-oci /
++    answers through it with Host demo-oci.homelab.local.
 +  steps:
 +    - name: applications-healthy
 +      description: The ArgoCD Applications behind this test are Healthy and their last sync Succeeded.
@@ -288,10 +287,32 @@ new file mode 100644
 +            kind: Application
 +            name: demo-oci
 +            namespace: argocd
++    - name: route-demo-oci
++      description: The demo-oci HTTPRoute is Accepted by envoy-internal and its backend refs resolve.
++      try:
++        - assert:
++            resource:
++              apiVersion: gateway.networking.k8s.io/v1
++              kind: HTTPRoute
++              metadata:
++                name: demo-oci
++                namespace: demo-oci
++              status:
++                (parents[?parentRef.name == 'envoy-internal']):
++                  - (conditions[?type == 'Accepted']):
++                      - status: "True"
++                    (conditions[?type == 'ResolvedRefs']):
++                      - status: "True"
++      catch:
++        - describe:
++            apiVersion: gateway.networking.k8s.io/v1
++            kind: HTTPRoute
++            name: demo-oci
++            namespace: demo-oci
 +    - name: curl-demo-oci
 +      description: >-
 +        A curl Job must get one of [200]
-+        from https://demo-oci.homelab.local/ via traefik-internal.traefik.svc.cluster.local.
++        from https://demo-oci.homelab.local/ via envoy-internal.envoy-gateway-system.svc.cluster.local.
 +      timeouts:
 +        assert: 5m
 +      try:
@@ -331,7 +352,7 @@ new file mode 100644
 +                          - name: HOST
 +                            value: "demo-oci.homelab.local"
 +                          - name: GATEWAY
-+                            value: "traefik-internal.traefik.svc.cluster.local"
++                            value: "envoy-internal.envoy-gateway-system.svc.cluster.local"
 +                          - name: URL_PATH
 +                            value: "/"
 +                          - name: EXPECT

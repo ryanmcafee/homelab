@@ -191,7 +191,7 @@ When updating helm chart versions, check these repositories:
 | Cilium | https://github.com/cilium/cilium/blob/main/install/kubernetes/cilium/Chart.yaml |
 | cert-manager | https://github.com/cert-manager/cert-manager/blob/master/deploy/charts/cert-manager/Chart.yaml |
 | external-dns | https://github.com/kubernetes-sigs/external-dns/blob/master/charts/external-dns/Chart.yaml |
-| traefik | https://github.com/traefik/traefik-helm-chart/blob/master/traefik/Chart.yaml |
+| envoy-gateway | https://github.com/envoyproxy/gateway/releases (OCI `docker.io/envoyproxy/gateway-helm`, `gateway-crds-helm`) |
 | kube-prometheus-stack | https://github.com/prometheus-community/helm-charts/blob/main/charts/kube-prometheus-stack/Chart.yaml |
 | democratic-csi | https://github.com/democratic-csi/charts/blob/master/stable/democratic-csi/Chart.yaml |
 | 1password-connect | https://github.com/1Password/connect-helm-charts/blob/main/charts/connect/Chart.yaml |
@@ -236,12 +236,9 @@ charts:
   # move the CRDs behind the operator by hand.
   # renovate: datasource=helm depName=prometheus-operator-crds registryUrl=https://prometheus-community.github.io/helm-charts
   prometheus-operator-crds: "30.0.0"
-  # renovate: datasource=helm depName=traefik registryUrl=https://traefik.github.io/charts
-  traefik: "39.0.9"
-  # CRDs of the traefik chart, installed on their own (traefik-crds Application); released with
-  # the traefik chart, bump both together (1.14.1 ships the CRDs of traefik 39.0.9).
-  # renovate: datasource=helm depName=traefik-crds registryUrl=https://traefik.github.io/charts
-  traefik-crds: "1.14.1"
+  # One key for gateway-helm and gateway-crds-helm: Envoy Gateway releases both charts together.
+  # renovate: datasource=docker depName=docker.io/envoyproxy/gateway-helm
+  envoy-gateway: "v1.9.1"
   # renovate: datasource=helm depName=democratic-csi registryUrl=https://democratic-csi.github.io/charts/
   democratic-csi: "0.15.1"
   # renovate: datasource=helm depName=tailscale-operator registryUrl=https://pkgs.tailscale.com/helmcharts
@@ -296,8 +293,6 @@ charts:
   oauth2-proxy: "10.7.0"
   # renovate: datasource=docker depName=ghcr.io/kashalls/external-dns-unifi-webhook
   external-dns-webhook-unifi: "v0.8.2"
-  # renovate: datasource=github-releases depName=lukaszraczylo/traefikoidc
-  traefik-oidc: "v1.0.32"
   # renovate: datasource=helm depName=port-forwarding registryUrl=https://ryanmcafee.github.io/port-forwarding-controller
   unifi-port-forward: "1.1.1"
   # renovate: datasource=docker depName=ghcr.io/paperclipinc/charts/paperclip-operator
@@ -310,6 +305,8 @@ charts:
   gateway-api: "v1.6.2"
   # renovate: datasource=helm depName=prometheus-blackbox-exporter registryUrl=https://prometheus-community.github.io/helm-charts
   prometheus-blackbox-exporter: "11.18.0"
+  # renovate: datasource=helm depName=prometheus-json-exporter registryUrl=https://prometheus-community.github.io/helm-charts
+  prometheus-json-exporter: "0.20.1"
   # renovate: datasource=helm depName=kiali-server registryUrl=https://kiali.org/helm-charts
   kiali-server: "2.32.0"
   # renovate: datasource=helm depName=opentelemetry-collector registryUrl=https://open-telemetry.github.io/opentelemetry-helm-charts
@@ -317,7 +314,7 @@ charts:
   # renovate: datasource=helm depName=altinity-clickhouse-operator registryUrl=https://helm.altinity.com
   altinity-clickhouse-operator: "0.27.3"
 images:
-  homelab-cmp: "0.1.49"
+  homelab-cmp: "0.1.50"
   # renovate: datasource=docker depName=curlimages/curl
   curl: "8.22.0"
   # renovate: datasource=docker depName=kindest/node
@@ -326,6 +323,9 @@ images:
   versitygw: "v1.8.0"
   # renovate: datasource=docker depName=ghcr.io/paperclipai/paperclip
   paperclip: "2026.916.1"
+  # Runtime of the paperclip agent health exporter (charts/paperclip files/paperclip-exporter.ts).
+  # renovate: datasource=docker depName=oven/bun
+  bun: "1.4.2-alpine"
   # renovate: datasource=docker depName=ghcr.io/cloudnative-pg/postgresql
   cloudnative-pg-postgresql: "17.11"
   # renovate: datasource=docker depName=clickhouse/clickhouse-server
@@ -485,7 +485,8 @@ The homelab environment uses an ArgoCD Config Management Plugin (CMP) sidecar to
 | "OnePasswordItem not found" | 1Password Operator not ready | Check sync wave ordering |
 | "Unable to find valid certification path" | TrueNAS TLS not trusted | Democratic-CSI uses allowInsecure |
 | "dry run failed" | Server-side apply conflicts | Add ServerSideApply=true to syncOptions |
-| Ingress "Progressing" forever | No LoadBalancer IP | Custom health check marks Ingress Healthy |
+| Gateway not `Programmed`, Envoy Service `<pending>` | LoadBalancer IP still held by another Service | `kubectl get svc -A -o wide`; `docs/runbooks/envoy-gateway.md` |
+| HTTPRoute returns 404 | Route not attached to the `https` listener | Set `sectionName: https`; check `status.parents` (`docs/runbooks/envoy-gateway.md`) |
 | API unreachable for seconds, healthy afterwards | etcd fsync stalled by disk contention, leases expire, the Talos VIP moves | `talosctl -n <cp> logs etcd \| rg "slow fdatasync"`; `task apiserver:probe`; `docs/runbooks/control-plane-storage.md` |
 
 ### Debug Commands

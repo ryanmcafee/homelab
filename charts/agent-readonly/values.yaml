@@ -38,7 +38,8 @@ clusterRole:
   crdGroups:
     - argoproj.io
     - cert-manager.io
-    - traefik.io
+    - gateway.networking.k8s.io
+    - gateway.envoyproxy.io
     - cilium.io
     - postgresql.cnpg.io
     - barmancloud.cnpg.io
