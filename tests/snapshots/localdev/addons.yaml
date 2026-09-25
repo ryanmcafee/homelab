@@ -909,7 +909,7 @@ spec:
             annotations:
               prometheus.io/scrape: "true"
               prometheus.io/port: "19001"
-              checksum/config: 9c5052c7906a56942e0a2a81d79e665bbd998d36b087948b16e372ef1bf68b3d
+              checksum/config: c736de0911e7bc2321cde6484e039c7f11817e688688ebdc68ff91072d988ffb
           envoyGateway:
             resources:
               limits:
@@ -919,10 +919,11 @@ spec:
                 cpu: 50m
                 memory: 128Mi
         config:
-          # extensionApis.enableBackend: FQDN Backends (the tracing collector, charts/envoy-gateway-config).
+          # extensionApis: enableBackend for FQDN Backends (tracing collector), enableLua for the Grafana alert-source EnvoyExtensionPolicy.
           envoyGateway:
             extensionApis:
               enableBackend: true
+              enableLua: true
             gateway:
               controllerName: gateway.envoyproxy.io/gatewayclass-controller
             logging:

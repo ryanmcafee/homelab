@@ -9,7 +9,7 @@ Routes attach to the https listener of one Gateway (sectionName: https); the
 http listener only redirects.
 */}}
 {{- $eg := index .Values "envoy-gateway" }}
-{{- $egConfig := dict "gateway" (dict "controllerName" "gateway.envoyproxy.io/gatewayclass-controller") "provider" (dict "type" "Kubernetes") "extensionApis" (dict "enableBackend" true) "logging" (dict "level" (dict "default" "info")) }}
+{{- $egConfig := dict "gateway" (dict "controllerName" "gateway.envoyproxy.io/gatewayclass-controller") "provider" (dict "type" "Kubernetes") "extensionApis" (dict "enableBackend" true "enableLua" true) "logging" (dict "level" (dict "default" "info")) }}
 {{- if $eg.enabled }}
 ---
 apiVersion: v1
@@ -107,7 +107,7 @@ spec:
           minAvailable: 1
         {{- end }}
         config:
-          # extensionApis.enableBackend: FQDN Backends (the tracing collector, charts/envoy-gateway-config).
+          # extensionApis: enableBackend for FQDN Backends (tracing collector), enableLua for the Grafana alert-source EnvoyExtensionPolicy.
           envoyGateway:
             {{- toYaml $egConfig | nindent 12 }}
   destination:
