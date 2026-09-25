@@ -55,6 +55,15 @@ func isNonIdentifyingValue(v string) bool {
 	if net.ParseIP(v) != nil {
 		return !isRoutableHostIP(v)
 	}
+	// A CIDR is judged by its network address for the same reason. This was
+	// missing, and it mattered: localdev's `NFS_SHARE_ALLOW: "127.0.0.0/8"` is
+	// PII-shaped, ParseIP cannot read a CIDR, so the loopback range became a
+	// hunt pattern and reported every file that writes 127.0.0.0/8 down.
+	// isExamplePlaceholder already judges a CIDR this way; this makes the
+	// plain path agree with it.
+	if ip, _, err := net.ParseCIDR(v); err == nil {
+		return !isRoutableHostIP(ip.String())
+	}
 	if hasPlaceholderMarker(v) {
 		return true
 	}
@@ -363,6 +372,15 @@ var DefaultGuardPathspecs = []string{
 	// committed under ansible/ (group_vars, roles, playbooks) must stay free of
 	// addresses.
 	"ansible/**",
+	// cmd/ and internal/ are in scope because ADR-030 makes the Go CLI the
+	// thing a stranger runs first, and a Go flag default is the same construct
+	// as the TypeScript flag default that put scripts/ in scope: `--node
+	// worker-1` in cmd/homelab/commands/talos.go is a node name written into
+	// the binary. Go source also carries the embedded templates and testdata
+	// that render into a cluster, so the YAML under internal/ is as much a
+	// leak surface as the YAML under configuration/.
+	"cmd/**",
+	"internal/**",
 }
 
 // guardScanExtensions are the file types the guard knows how to read. Anything
@@ -381,6 +399,13 @@ var guardScanExtensions = map[string]bool{
 	// text nodes name hostnames, and the scan is line-based text matching, so
 	// XML needs no parser of its own.
 	".svg": true,
+	// .go because cmd/ and internal/ are in scope (ADR-032). The same
+	// reasoning as .ts: a flag default, a const or a struct literal that
+	// pins a real address is a leak the same as one pasted into
+	// configuration/, and the Go half of the repository is what a stranger
+	// runs first. Go is a code file for shape detection (isShapeCodeFile), so
+	// only a quoted literal is judged and an identifier is not.
+	".go": true,
 }
 
 // hasScannableExtension reports whether a path is a file type the guard can
@@ -418,16 +443,54 @@ func gitLsFiles(repoRoot string, pathspecs []string) ([]string, error) {
 	return files, nil
 }
 
-// IsGuardExcluded mirrors the pre-commit hook's exclude list: the real
-// environment file (which legitimately holds the values being guarded) and any
-// generated export.
+// guardSelfPaths are the guard's own definition and its tests. They are
+// excluded for the same reason configuration/environments/homelab.yaml is:
+// they legitimately hold the values being guarded.
 //
-// Only homelab.yaml is out of scope, because only it is gitignored. Every
-// other environment file is committed and is scanned — by shape always, and by
-// value whenever it did not itself supply the patterns (see patternSources).
+// guard.go carries committedSafeHosts, placeholderHosts and
+// examplePlaceholderSubnets — a list of the exact hostnames and ranges the
+// scan is deciding about. guard_test.go carries both sides of every rule: the
+// committed-safe target the guard must clear (homelab-dev.duckdns.org) and a
+// real domain and mailbox it must report, because a test that cannot name a
+// real value cannot prove the guard finds one.
+//
+// This is not a blind spot the widening introduced, it is the widening
+// meeting the one file pair that cannot be written any other way. Both are
+// still reviewed by the humans and agents who change them, and a new
+// committed-safe host is a deliberate, commented addition by construction.
+var guardSelfPaths = map[string]bool{
+	"internal/config/guard.go":      true,
+	"internal/config/guard_test.go": true,
+}
+
+// isFixtureDir reports whether a path sits under a Go testdata/ directory.
+//
+// testdata/ is the toolchain's own marker for a fixture — the go command
+// ignores it when building — so it is "a fixture clearly marked as one" in
+// the words of docs/contracts/fork-ability.md, the same category as an
+// .example file. The fixtures are addresses on purpose: a guard test needs a
+// GATEWAY_IP with something in it.
+func isFixtureDir(path string) bool {
+	return path == "testdata" ||
+		strings.HasPrefix(path, "testdata/") ||
+		strings.Contains(path, "/testdata/")
+}
+
+// IsGuardExcluded mirrors the pre-commit hook's exclude list: the real
+// environment file (which legitimately holds the values being guarded), any
+// generated export, the guard's own source and tests, and Go testdata
+// fixtures.
+//
+// Only homelab.yaml is out of scope among environment files, because only it
+// is gitignored. Every other environment file is committed and is scanned —
+// by shape always, and by value whenever it did not itself supply the
+// patterns (see patternSources).
 func IsGuardExcluded(path string) bool {
 	clean := filepath.ToSlash(filepath.Clean(path))
 	if clean == "configuration/environments/homelab.yaml" {
+		return true
+	}
+	if guardSelfPaths[clean] || isFixtureDir(clean) {
 		return true
 	}
 	// Any path component may carry the marker, so a generated directory such
@@ -1119,8 +1182,16 @@ func ScanFileForPIIShape(path string) (GuardResult, error) {
 // of a hostname without being one, and flagging it blocks a commit over a
 // variable reference. Only a quoted literal in a code file can be a real
 // value, so `host: "truenas.example.com"` is still judged.
+//
+// Go is here for the same reason and it is not optional: a Go composite
+// literal writes `Host: cfg.ProxmoxHost`, and `cfg.ProxmoxHost` has the shape
+// of a hostname — a dotted name whose last label is all letters — so without
+// this every struct field assignment from a variable would be reported as a
+// real hostname. Adding .go to guardScanExtensions without adding it here
+// makes the guard unusable on Go, not stricter.
 func isShapeCodeFile(path string) bool {
-	return strings.EqualFold(filepath.Ext(path), ".ts")
+	ext := filepath.Ext(path)
+	return strings.EqualFold(ext, ".ts") || strings.EqualFold(ext, ".go")
 }
 
 // isQuotedLiteral reports whether a raw value, as written before stripValue
@@ -1141,7 +1212,11 @@ func stripValue(v string) string {
 		v = v[:i]
 	}
 	v = strings.TrimSpace(v)
-	return strings.Trim(v, `"'`)
+	// The backtick is here because isQuotedLiteral already accepts one: a Go
+	// raw string and a TypeScript template literal are quoted literals, so a
+	// hostname written in one must reduce to the hostname rather than keeping
+	// its quotes and failing to parse as a host.
+	return strings.Trim(v, "\"'`")
 }
 
 // isRoutableHostIP reports whether a value is an IP address that could identify
