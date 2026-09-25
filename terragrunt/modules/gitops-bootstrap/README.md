@@ -56,7 +56,7 @@ module "gitops_bootstrap" {
 
   cluster_name = "homelab"
   environment  = "localdev"
-  base_fqdn    = "ryanmcafee.com"
+  base_fqdn    = "<DOMAIN>"
 
   # Git repository
   repo_url        = "https://github.com/username/homelab"
@@ -81,13 +81,13 @@ module "gitops_bootstrap" {
 
   cluster_name = "homelab"
   environment  = "homelab"
-  base_fqdn    = "ryanmcafee.com"
+  base_fqdn    = "<DOMAIN>"
 
   repo_url = "https://github.com/username/homelab"
 
   # Pass infrastructure metadata to ArgoCD
   custom_metadata = {
-    truenas_ip       = "172.16.100.50"
+    truenas_ip       = "<TRUENAS_IP>"
     truenas_nfs_path = "/mnt/storage/kubernetes"
     lb_pool_range    = "<LB_POOL_START>-<LB_POOL_END>"
     cluster_issuer   = "letsencrypt-prod"
@@ -111,13 +111,13 @@ module "gitops_bootstrap" {
 
   cluster_name = "homelab"
   environment  = "homelab"
-  base_fqdn    = "ryanmcafee.com"
+  base_fqdn    = "<DOMAIN>"
 
   repo_url = "https://github.com/username/homelab"
 
   # Enable ArgoCD ingress
   server_ingress_enabled = true
-  server_host            = "argocd.ryanmcafee.com"
+  server_host            = "<ARGOCD_HOSTNAME>"
 
   # Additional Helm values
   argocd_helm_values = {
@@ -141,7 +141,7 @@ kubectl get secret argocd-initial-admin-secret -n argocd -o jsonpath='{.data.pas
 # Login
 # Username: admin
 # Password: <from above>
-# URL: https://localhost:8080 (or https://argocd.ryanmcafee.com)
+# URL: https://localhost:8080 (or https://<ARGOCD_HOSTNAME>)
 ```
 
 ### Verify Bootstrap Application

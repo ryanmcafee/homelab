@@ -156,7 +156,7 @@ variable "network_gateway" {
 }
 
 variable "network_cidr" {
-  description = "Network CIDR for etcd advertised subnets (e.g., '172.16.100.0/24')"
+  description = "Network CIDR for etcd advertised subnets (the ConfigSet's LAN_CIDR, e.g. '192.0.2.0/24')"
   type        = string
 }
 

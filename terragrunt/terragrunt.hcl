@@ -5,10 +5,18 @@ locals {
   # Load environment-specific configuration if it exists
   environment_vars = try(read_terragrunt_config(find_in_parent_folders("env.hcl")), {})
 
-  # Extract commonly used variables
-  env       = try(local.environment_vars.locals.environment, "")
-  project   = "homelab"
-  base_fqdn = "ryanmcafee.com"
+  # Extract commonly used variables. Nothing operator-specific is defined here:
+  # this file is inherited by every unit in the tree, so a value set here is the
+  # least visible kind of hard-coded identity there is. base_fqdn used to live
+  # on this line, and because the inputs merge below put it *after* the
+  # environment's own locals it also overrode any environment that tried to set
+  # its own — including localdev, the environment a fork runs first.
+  # base_fqdn now reaches the modules only through local.environment_vars, i.e.
+  # only when an environment resolved it from the ConfigSet. An environment that
+  # does not set it leaves the module variable unset and terraform stops, which
+  # is the intended failure mode (docs/contracts/fork-ability.md).
+  env     = try(local.environment_vars.locals.environment, "")
+  project = "homelab"
 }
 
 # Configure Terragrunt to automatically store tfstate files in local backend
@@ -77,11 +85,20 @@ generate "provider" {
   EOF
 }
 
-# Input variables that can be overridden by environment
+# Input variables that can be overridden by environment.
+#
+# Every environment local becomes a module input, except `config` — that is the
+# environment's resolved ConfigSet, an implementation detail of env.hcl, and
+# passing the whole map would put a few KB of TF_VAR_config on every unit and
+# collide with any module that ever declares a `config` variable.
+#
+# The second map wins, so anything listed there is an override the environment
+# cannot escape. Keep it to values that are the same for every operator: this
+# used to carry base_fqdn, which is how one operator's domain reached all 13
+# units including localdev.
 inputs = merge(
-  try(local.environment_vars.locals, {}),
+  { for k, v in try(local.environment_vars.locals, {}) : k => v if k != "config" },
   {
-    project   = local.project
-    base_fqdn = local.base_fqdn
+    project = local.project
   }
 )

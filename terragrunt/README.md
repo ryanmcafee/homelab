@@ -33,9 +33,10 @@ terragrunt/
 │   └── gitops-bootstrap/      # ArgoCD with GitOps Bridge pattern
 │
 └── environments/               # Environment-specific configurations
-    ├── _env/
-    │   └── env.hcl            # Base configuration (defaults)
-    │
+    │                           # (no shared defaults file: `find_in_parent_folders("env.hcl")`
+    │                           #  only ever finds the environment's own, so a defaults file
+    │                           #  here is unreachable config that still leaks a topology.
+    │                           #  A new environment starts as a copy of homelab/env.hcl.)
     ├── localdev/              # Kind via Terragrunt (legacy path; see task localdev:up)
     │   ├── env.hcl
     │   ├── kind-cluster/
@@ -53,6 +54,42 @@ terragrunt/
         ├── unifi-gateway/
         └── gitops-bootstrap/
 ```
+
+## Where the values come from
+
+Nothing operator-specific is written in this tree. Every address, the domain, the LAN CIDR, the
+cluster name, the Proxmox node name and the git remote are resolved from the ConfigSet
+(`configuration/environments/<set>.yaml`) through its JSON export:
+
+```hcl
+# terragrunt/environments/homelab/env.hcl
+config = jsondecode(file("${get_repo_root()}/configuration/resolved.json")).values
+```
+
+`configuration/environments/homelab.yaml` is gitignored; `homelab.yaml.example` is what a fork
+copies. Every `task tf:*` target exports the JSON before terragrunt runs. To refresh it by hand:
+
+```bash
+task config:export:format FORMAT=json               # -> configuration/resolved.json
+task config:export:format ENV=localdev FORMAT=json  # -> configuration/resolved.localdev.json
+```
+
+There is deliberately **no default** for any of these in the HCL. A ConfigSet missing a required
+key fails `homelab config eval` with the key named, rather than quietly rendering the values of
+whoever wrote the file (ADR-028, `docs/contracts/fork-ability.md`).
+
+### Upgrading an existing `homelab.yaml`
+
+Five keys moved out of `env.hcl` into the ConfigSet. Four of them have no default, so an existing
+`homelab.yaml` must gain them before `task tf:*` will run:
+
+| Key | What it was in `env.hcl` |
+|---|---|
+| `LAN_CIDR` | `locals.subnet` — the LAN the nodes sit on. Kept separate from `NFS_SHARE_ALLOW`, which an operator may narrow. |
+| `DNS_SERVER_IP` | `locals.dns_servers` — often the same as `GATEWAY_IP`, but not always. |
+| `PROXMOX_NODE` | `locals.proxmox_node` and every node's `host_node`. |
+| `GITOPS_REPO_URL` | `locals.repo_url` — the repository ArgoCD reconciles from. **Point this at your own fork.** |
+| `CLUSTER_NAME` | `locals.cluster_name`. Defaults to `homelab`, so it needs no action. |
 
 ## Quick Start
 

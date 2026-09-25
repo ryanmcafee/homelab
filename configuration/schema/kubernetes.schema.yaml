@@ -2,6 +2,13 @@
 # The pod and service CIDRs are not keys here: Talos sets them in the machine
 # config (terragrunt talos-cluster) and Kind in localdev/kind-config.yaml.
 keys:
+  CLUSTER_NAME:
+    description: Kubernetes/Talos cluster name. A default is safe here - "homelab"
+      is the project's own name, not an operator's - but it is still a key so a
+      fork can name its cluster without editing a committed .hcl file.
+    required: true
+    default: homelab
+
   STORAGE_CLASS_NFS:
     description: StorageClass name for NFS volumes
     required: true

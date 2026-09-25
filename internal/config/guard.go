@@ -19,8 +19,9 @@ var piiKeyPrefixes = []string{
 	"DOMAIN", "ACME_EMAIL", "NFS_MAPALL_USER", "DUCKDNS_SUBDOMAIN",
 	"EXTERNAL_DNS_DEFAULT_TARGET", "TRAEFIK_OIDC_ALLOWED_DOMAINS",
 	// LAN CIDRs: a runbook pasting a real subnet identifies the network as
-	// surely as a host address does.
-	"NFS_SHARE_ALLOW", "NETWORK_NAMES",
+	// surely as a host address does. LAN_CIDR is the terragrunt tree's own
+	// subnet key and holds the same value, so it is judged the same way.
+	"NFS_SHARE_ALLOW", "NETWORK_NAMES", "LAN_CIDR",
 }
 
 // piiKeySuffixes are config key suffixes whose values are likely PII.
