@@ -960,7 +960,7 @@ Each decision should include:
 - **Blank is not zero (2026-09-25 ruling, MCAA-118).** Omitting a higher ordinal means a smaller control plane; declaring `CPn_IP` and leaving it blank is indeterminate and refuses the whole set, per `evaluation.onIndeterminate: unsafe`. The two are not interchangeable because this value gates a destructive operation (#39): "I am shrinking to two" and "I have not filled this in yet" are both honest readings of a blank, and the resolver may not pick one silently
 - One scope note for the ADR-037 owner: `examplePlaceholderSubnets` in `internal/config/guard.go` gained RFC 5737 TEST-NET-1 (`192.0.2.0/24`), because the one-node fixture must not reuse `homelab.yaml.example`'s RFC 1918 range. Only TEST-NET-1 was added; TEST-NET-2/3 stay out so the existing "public address is not a placeholder" case on `203.0.113.10` keeps its meaning
 
-### ADR-036: Backend language runtimes are pinned in mise.toml, and an uncached container proves the cold fork path (2026-09-25)
+### ADR-041: Backend language runtimes are pinned in mise.toml, and an uncached container proves the cold fork path (2026-09-25)
 
 **Context:**
 - `mise.toml` pins five `pipx:*` tools and one `npm:*` tool but declared no Python, pipx or Node, so mise could not bootstrap its own backend: on a machine with only `git` and `curl`, `mise install`, `task install-tools` and `task setup` all failed (#331)
