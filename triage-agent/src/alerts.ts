@@ -19,6 +19,41 @@ export interface AlertGroup {
 
 const CLUSTER_SCOPE = "_cluster";
 
+const storedAlert = z.object({
+  fingerprint: z.string().min(1),
+  name: z.string().min(1),
+  labels: z.record(z.string(), z.string()),
+  annotations: z.record(z.string(), z.string()),
+  startsAt: z.string(),
+  generatorURL: z.string().optional(),
+});
+
+/** An AlertGroup as the intake serialises it into a workflow parameter. */
+export const alertGroupSchema = z
+  .object({
+    key: z.string().min(1),
+    alertname: z.string().min(1),
+    namespace: z.string().optional(),
+    severity: z.string().optional(),
+    alerts: z.array(storedAlert).min(1),
+  })
+  .transform(
+    (g): AlertGroup => ({
+      key: g.key,
+      alertname: g.alertname,
+      ...(g.namespace ? { namespace: g.namespace } : {}),
+      ...(g.severity ? { severity: g.severity } : {}),
+      alerts: g.alerts.map((a) => ({
+        fingerprint: a.fingerprint,
+        name: a.name,
+        labels: a.labels,
+        annotations: a.annotations,
+        startsAt: a.startsAt,
+        ...(a.generatorURL ? { generatorURL: a.generatorURL } : {}),
+      })),
+    }),
+  );
+
 const labels = z
   .record(z.string(), z.string())
   .refine((l) => Boolean(l.alertname), "alert has no alertname label");

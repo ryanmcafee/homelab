@@ -6,7 +6,8 @@
       "scripts/**/*.ts",
       "charts/*/files/*.ts",
       "triage-agent/src/**/*.ts",
-      "triage-agent/tests/**/*.ts"
+      "triage-agent/tests/**/*.ts",
+      "triage-agent/scripts/**/*.ts"
     ]
   },
   "formatter": {

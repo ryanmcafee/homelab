@@ -3,97 +3,119 @@ import {
   existsSync,
   lstatSync,
   mkdirSync,
-  mkdtempSync,
   readFileSync,
   readlinkSync,
-  rmSync,
   writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   assembleConfigDir,
-  gitAuthEnv,
-  runGit,
+  configureGit,
+  prepareBranch,
   syncRepo,
 } from "../../src/workspace.ts";
+import {
+  commitAll,
+  fakeExec,
+  git,
+  makeRepo,
+  realExec,
+  tempRoot,
+} from "./helpers.ts";
 
-const root = mkdtempSync(join(tmpdir(), "workspace-"));
-afterAll(() => rmSync(root, { recursive: true, force: true }));
-
-async function makeRepo(name: string, files: Record<string, string>) {
-  const dir = join(root, name);
-  mkdirSync(dir, { recursive: true });
-  await runGit(["init", "-q", "-b", "main"], dir);
-  for (const [path, content] of Object.entries(files)) {
-    mkdirSync(join(dir, path, ".."), { recursive: true });
-    writeFileSync(join(dir, path), content);
-  }
-  await commitAll(dir, "init");
-  return dir;
-}
-
-async function commitAll(dir: string, message: string) {
-  await runGit(["add", "-A"], dir);
-  await runGit(
-    [
-      "-c",
-      "user.name=test",
-      "-c",
-      "user.email=test@example.invalid",
-      "commit",
-      "-q",
-      "-m",
-      message,
-    ],
-    dir,
-  );
-}
-
-describe("gitAuthEnv", () => {
-  test("is empty without a token", () => {
-    expect(gitAuthEnv(undefined)).toEqual({});
-    expect(gitAuthEnv("")).toEqual({});
-  });
-
-  test("passes the token as an extra header, never in the URL", () => {
-    const env = gitAuthEnv("tok");
-    expect(env.GIT_CONFIG_COUNT).toBe("1");
-    expect(env.GIT_CONFIG_KEY_0).toBe("http.https://github.com/.extraheader");
-    expect(env.GIT_CONFIG_VALUE_0).toBe(
-      `AUTHORIZATION: basic ${btoa("x-access-token:tok")}`,
-    );
-  });
-});
+const { root, cleanup } = tempRoot("workspace-");
+afterAll(cleanup);
 
 describe("syncRepo", () => {
   test("clones shallowly, then resets to the new upstream head", async () => {
-    const upstream = await makeRepo("upstream", { "README.md": "v1\n" });
+    const upstream = await makeRepo(root, "upstream", { "README.md": "v1\n" });
     const clone = join(root, "clone");
+    const opts = { url: `file://${upstream}`, dir: clone, branch: "main" };
 
-    await syncRepo({ url: `file://${upstream}`, dir: clone, branch: "main" });
+    await syncRepo(realExec, opts);
     expect(readFileSync(join(clone, "README.md"), "utf8")).toBe("v1\n");
-    const depth = await runGit(["rev-list", "--count", "HEAD"], clone);
-    expect(depth.trim()).toBe("1");
 
     writeFileSync(join(upstream, "README.md"), "v2\n");
     await commitAll(upstream, "v2");
     writeFileSync(join(clone, "README.md"), "local edit\n");
     writeFileSync(join(clone, "stray.txt"), "x\n");
 
-    await syncRepo({ url: `file://${upstream}`, dir: clone, branch: "main" });
+    await syncRepo(realExec, opts);
     expect(readFileSync(join(clone, "README.md"), "utf8")).toBe("v2\n");
     expect(existsSync(join(clone, "stray.txt"))).toBe(false);
   });
 
   test("fails with git's message when the repository is missing", async () => {
     await expect(
-      syncRepo({
+      syncRepo(realExec, {
         url: `file://${join(root, "nope")}`,
         dir: join(root, "nope-clone"),
         branch: "main",
       }),
     ).rejects.toThrow(/git clone failed/);
+  });
+});
+
+describe("prepareBranch", () => {
+  test("creates the branch from origin/main without tracking", async () => {
+    const upstream = await makeRepo(root, "up-branch", { "a.txt": "1\n" });
+    const clone = join(root, "clone-branch");
+    await syncRepo(realExec, {
+      url: `file://${upstream}`,
+      dir: clone,
+      branch: "main",
+    });
+    const existed = await prepareBranch(realExec, {
+      dir: clone,
+      branch: "triage/x-1",
+      base: "main",
+    });
+    expect(existed).toBe(false);
+    expect((await git(clone, "branch", "--show-current")).trim()).toBe(
+      "triage/x-1",
+    );
+    const tracking = await realExec(
+      ["git", "rev-parse", "--abbrev-ref", "@{upstream}"],
+      { cwd: clone },
+    );
+    expect(tracking.code).not.toBe(0);
+  });
+
+  test("checks out the remote branch an earlier run pushed", async () => {
+    const upstream = await makeRepo(root, "up-existing", { "a.txt": "1\n" });
+    await git(upstream, "switch", "-q", "-c", "triage/x-2");
+    writeFileSync(join(upstream, "fix.txt"), "fix\n");
+    await commitAll(upstream, "fix");
+    await git(upstream, "switch", "-q", "main");
+
+    const clone = join(root, "clone-existing");
+    await syncRepo(realExec, {
+      url: `file://${upstream}`,
+      dir: clone,
+      branch: "main",
+    });
+    const existed = await prepareBranch(realExec, {
+      dir: clone,
+      branch: "triage/x-2",
+      base: "main",
+    });
+    expect(existed).toBe(true);
+    expect(readFileSync(join(clone, "fix.txt"), "utf8")).toBe("fix\n");
+  });
+});
+
+describe("configureGit", () => {
+  test("sets the identity and runs gh auth setup-git only with a token", async () => {
+    const { run, calls } = fakeExec();
+    await configureGit(run, { name: "bot", email: "bot@example.invalid" }, "t");
+    expect(calls).toEqual([
+      "git config --global user.name bot",
+      "git config --global user.email bot@example.invalid",
+      "gh auth setup-git",
+    ]);
+    const second = fakeExec();
+    await configureGit(second.run, { name: "bot", email: "b@x" }, undefined);
+    expect(second.calls.length).toBe(2);
   });
 });
 
@@ -110,18 +132,18 @@ describe("assembleConfigDir", () => {
   });
 
   test("installs the global and profile CLAUDE.md with the profile link", async () => {
-    const dotfiles = await makeRepo("dotfiles", {
+    const dotfiles = await makeRepo(root, "dotfiles", {
       "claude/CLAUDE.md": "# Global\n@profile/CLAUDE.md\n",
       "claude/profiles/personal/CLAUDE.md": "# Personal\n",
     });
     const configDir = join(root, "config-b");
     const settings = join(root, "settings.json");
-    const installed = assembleConfigDir({
+    const opts = {
       configDir,
       settingsPath: settings,
       dotfiles: { dir: dotfiles, profile: "personal" },
-    });
-    expect(installed).toEqual([
+    };
+    expect(assembleConfigDir(opts)).toEqual([
       "settings.json",
       "CLAUDE.md",
       "profiles/personal/CLAUDE.md",
@@ -131,13 +153,7 @@ describe("assembleConfigDir", () => {
     expect(readFileSync(join(configDir, "profile", "CLAUDE.md"), "utf8")).toBe(
       "# Personal\n",
     );
-
-    const again = assembleConfigDir({
-      configDir,
-      settingsPath: settings,
-      dotfiles: { dir: dotfiles, profile: "personal" },
-    });
-    expect(again.length).toBe(4);
+    expect(assembleConfigDir(opts).length).toBe(4);
     expect(lstatSync(join(configDir, "profile")).isSymbolicLink()).toBe(true);
   });
 

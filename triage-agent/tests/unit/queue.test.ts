@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { AlertGroup } from "../../src/alerts.ts";
-import { TriageQueue } from "../../src/queue.ts";
+import { TriageQueue } from "../../src/intake/queue.ts";
 
 const group = (key: string, ...fingerprints: string[]): AlertGroup => ({
   key,

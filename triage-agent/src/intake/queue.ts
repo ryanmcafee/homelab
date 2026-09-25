@@ -1,4 +1,4 @@
-import type { AlertGroup } from "./alerts.ts";
+import type { AlertGroup } from "../alerts.ts";
 
 export type OfferResult = "queued" | "merged" | "running" | "cooldown" | "full";
 

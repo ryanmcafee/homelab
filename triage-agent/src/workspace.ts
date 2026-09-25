@@ -6,77 +6,109 @@ import {
   symlinkSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
+import { type Exec, must } from "./exec.ts";
 
 export interface SyncOptions {
   url: string;
   dir: string;
   branch: string;
-  token?: string;
-}
-
-/**
- * Git config passed through the environment so the token never appears in
- * argv, the remote URL or .git/config.
- */
-export function gitAuthEnv(token: string | undefined): Record<string, string> {
-  if (!token) return {};
-  return {
-    GIT_CONFIG_COUNT: "1",
-    GIT_CONFIG_KEY_0: "http.https://github.com/.extraheader",
-    GIT_CONFIG_VALUE_0: `AUTHORIZATION: basic ${btoa(`x-access-token:${token}`)}`,
-  };
-}
-
-export async function runGit(
-  args: readonly string[],
-  cwd: string,
-  env: Record<string, string> = {},
-): Promise<string> {
-  const proc = Bun.spawn(["git", ...args], {
-    cwd,
-    env: { ...process.env, GIT_TERMINAL_PROMPT: "0", ...env },
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-  const [stdout, stderr, code] = await Promise.all([
-    new Response(proc.stdout).text(),
-    new Response(proc.stderr).text(),
-    proc.exited,
-  ]);
-  if (code !== 0) {
-    throw new Error(`git ${args[0]} failed (exit ${code}): ${stderr.trim()}`);
-  }
-  return stdout;
 }
 
 /** Shallow clone on first use; afterwards fetch and hard-reset to upstream. */
-export async function syncRepo(opts: SyncOptions): Promise<void> {
-  const env = gitAuthEnv(opts.token);
+export async function syncRepo(run: Exec, opts: SyncOptions): Promise<void> {
   if (!existsSync(join(opts.dir, ".git"))) {
     mkdirSync(dirname(opts.dir), { recursive: true });
-    await runGit(
-      [
-        "clone",
-        "--quiet",
-        "--depth",
-        "1",
-        "--branch",
-        opts.branch,
-        opts.url,
-        opts.dir,
-      ],
-      dirname(opts.dir),
-      env,
-    );
+    await must(run, [
+      "git",
+      "clone",
+      "--quiet",
+      "--depth",
+      "50",
+      "--branch",
+      opts.branch,
+      opts.url,
+      opts.dir,
+    ]);
     return;
   }
-  await runGit(
-    ["fetch", "--quiet", "--depth", "1", "origin", opts.branch],
-    opts.dir,
-    env,
+  const git = (...args: string[]) =>
+    must(run, ["git", ...args], { cwd: opts.dir });
+  await git("fetch", "--quiet", "--depth", "50", "origin", opts.branch);
+  await git("reset", "--quiet", "--hard", "FETCH_HEAD");
+  await git("clean", "--quiet", "-fd");
+}
+
+export interface BranchOptions {
+  dir: string;
+  branch: string;
+  base: string;
+}
+
+/**
+ * Checks out the fix branch: the remote branch when an earlier run pushed it
+ * (so an open PR is updated), otherwise a new branch from origin/<base>.
+ * Returns true when the remote branch already existed.
+ */
+export async function prepareBranch(
+  run: Exec,
+  opts: BranchOptions,
+): Promise<boolean> {
+  const git = (...args: string[]) =>
+    must(run, ["git", ...args], { cwd: opts.dir });
+  await git(
+    "fetch",
+    "--quiet",
+    "--depth",
+    "50",
+    "origin",
+    `+refs/heads/${opts.base}:refs/remotes/origin/${opts.base}`,
   );
-  await runGit(["reset", "--quiet", "--hard", "FETCH_HEAD"], opts.dir);
-  await runGit(["clean", "--quiet", "-fd"], opts.dir);
+  const remote = `refs/remotes/origin/${opts.branch}`;
+  const fetched = await run(
+    [
+      "git",
+      "fetch",
+      "--quiet",
+      "--depth",
+      "50",
+      "origin",
+      `+refs/heads/${opts.branch}:${remote}`,
+    ],
+    { cwd: opts.dir },
+  );
+  if (fetched.code === 0) {
+    await git("switch", "--quiet", "--no-track", "-C", opts.branch, remote);
+    return true;
+  }
+  await git(
+    "switch",
+    "--quiet",
+    "--no-track",
+    "-C",
+    opts.branch,
+    `origin/${opts.base}`,
+  );
+  return false;
+}
+
+export interface GitIdentity {
+  name: string;
+  email: string;
+}
+
+/** Global git identity and, with a GitHub token, gh as credential helper. */
+export async function configureGit(
+  run: Exec,
+  identity: GitIdentity,
+  githubToken: string | undefined,
+): Promise<void> {
+  await must(run, ["git", "config", "--global", "user.name", identity.name]);
+  await must(run, ["git", "config", "--global", "user.email", identity.email]);
+  if (githubToken) {
+    await must(run, ["gh", "auth", "setup-git"], {
+      env: { GH_TOKEN: githubToken },
+    });
+  }
 }
 
 export interface ConfigDirOptions {
