@@ -1,7 +1,7 @@
 # paperclip-dependencies values: 1Password items the Paperclip Instance reads
 # (wave 12 < paperclip 14). Item paths arrive through the parent Application's
 # helm.valuesObject from configuration/ (PAPERCLIP_AUTH_1P_PATH,
-# PAPERCLIP_API_KEYS_1P_PATH); nothing here is environment-specific.
+# PAPERCLIP_API_KEYS_1P_PATH, PAPERCLIP_EXPORTER_1P_PATH); nothing here is environment-specific.
 
 namespace: paperclip
 
@@ -16,3 +16,5 @@ onePassword:
   # Secret paperclip-api-keys: field CLAUDE_CODE_OAUTH_TOKEN (Claude subscription, `claude setup-token`);
   # ANTHROPIC_API_KEY / OPENAI_API_KEY each only with charts/paperclip adapters.apiKeys.<provider>.enabled (docs/apps/paperclip.md)
   apiKeysItemPath: ""
+  # Secret paperclip-exporter: field PAPERCLIP_API_KEY, a board API key the agent health exporter reads (docs/runbooks/paperclip-agents.md)
+  exporterItemPath: ""

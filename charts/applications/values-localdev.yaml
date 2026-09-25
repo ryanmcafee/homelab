@@ -977,6 +977,7 @@ paperclip:
       enabled: false
       authItemPath: vaults/homelab/items/paperclip-auth
       apiKeysItemPath: vaults/homelab/items/paperclip-api-keys
+      exporterItemPath: vaults/homelab/items/paperclip-exporter
 
   # charts/paperclip-database: CloudNativePG Cluster paperclip-postgres. The image is
   # pinned (CNPG guidance) so an operator bump never upgrades Postgres by itself.
@@ -1023,6 +1024,11 @@ paperclip:
       limits:
         cpu: "2"
         memory: 2Gi
+    # Agent health exporter for the homelab-paperclip alerts; its board API key
+    # is the paperclip-exporter item (docs/runbooks/paperclip-agents.md).
+    exporter:
+      enabled: true
+      image: "oven/bun:1.4.2-alpine"
 
   # PostSync smoke hook (charts/applications/templates/_smoke.tpl): the
   # operator's health path on the Instance Service (port 3100).

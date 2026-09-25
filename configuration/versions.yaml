@@ -110,6 +110,9 @@ images:
   versitygw: "v1.8.0"
   # renovate: datasource=docker depName=ghcr.io/paperclipai/paperclip
   paperclip: "2026.916.1"
+  # Runtime of the paperclip agent health exporter (charts/paperclip files/paperclip-exporter.ts).
+  # renovate: datasource=docker depName=oven/bun
+  bun: "1.4.2-alpine"
   # renovate: datasource=docker depName=ghcr.io/cloudnative-pg/postgresql
   cloudnative-pg-postgresql: "17.11"
   # renovate: datasource=docker depName=clickhouse/clickhouse-server

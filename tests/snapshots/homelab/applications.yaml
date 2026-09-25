@@ -1313,6 +1313,7 @@ spec:
           apiKeysItemPath: vaults/homelab/items/paperclip-api-keys
           authItemPath: vaults/homelab/items/paperclip-auth
           enabled: true
+          exporterItemPath: vaults/homelab/items/paperclip-exporter
   destination:
     server: https://kubernetes.default.svc
     namespace: paperclip
@@ -1426,6 +1427,9 @@ spec:
         availability:
           nodeSelector:
             paperclip.homelab/pin: "true"
+        exporter:
+          enabled: true
+          image: oven/bun:1.4.2-alpine
         image:
           repository: ghcr.io/paperclipai/paperclip
           tag: 2026.916.1

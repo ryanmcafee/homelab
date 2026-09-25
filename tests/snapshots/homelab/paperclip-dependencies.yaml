@@ -17,3 +17,13 @@ metadata:
   namespace: paperclip
 spec:
   itemPath: "vaults/homelab/items/paperclip-api-keys"
+
+---
+# Source: paperclip-dependencies/templates/secrets.yaml
+apiVersion: onepassword.com/v1
+kind: OnePasswordItem
+metadata:
+  name: paperclip-exporter
+  namespace: paperclip
+spec:
+  itemPath: "vaults/homelab/items/paperclip-exporter"

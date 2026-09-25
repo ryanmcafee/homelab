@@ -1096,6 +1096,7 @@ paperclip:
       enabled: false
       authItemPath: ""
       apiKeysItemPath: ""
+      exporterItemPath: ""
 
   # charts/paperclip-database: CloudNativePG Cluster paperclip-postgres.
   # imageName is pinned from configuration/versions.yaml images.cloudnative-pg-postgresql.
@@ -1134,6 +1135,9 @@ paperclip:
       limits:
         cpu: "2"
         memory: 8Gi
+    exporter:
+      enabled: false
+      image: ""
 
   # PostSync smoke hook (templates/_smoke.tpl): the operator's health path on
   # the Instance Service; the in-cluster Service name is always an allowed
