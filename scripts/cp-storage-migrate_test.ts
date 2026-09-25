@@ -12,7 +12,8 @@ import { assertEquals, assertThrows } from "./lib/assert.ts";
 import {
   type ArgEnv,
   buildConfig,
-  CP_NODE_DEFAULTS,
+  cpKeysFromEnvFile,
+  cpNodeDefaultsFromEnvFile,
   DEFAULT_BWLIMIT,
   DEFAULT_RAFT_TOLERANCE,
   dfRootArgv,
@@ -69,7 +70,7 @@ const PROXMOX_HOST = "192.0.2.250";
 const SSH: SshTarget = { user: "root", host: PROXMOX_HOST };
 const IPS = ["192.0.2.11", "192.0.2.12", "192.0.2.13"];
 const VIP = "192.0.2.10";
-/** The --nodes spec nodesFromEnvFile builds from CP1_IP/CP2_IP/CP3_IP. */
+/** The --nodes spec nodesFromEnvFile derives from the CPn_IP keys present. */
 const NODES = `cp-1=101=${IPS[0]},cp-2=102=${IPS[1]},cp-3=103=${IPS[2]}`;
 /** What readEnvDefaults hands parseArgs when the environment file is complete. */
 const ENV: ArgEnv = { nodes: NODES, proxmoxHost: PROXMOX_HOST, vip: VIP };
@@ -684,21 +685,71 @@ test("envFileValue reads an address and refuses placeholders and junk", () => {
   assertEquals(envFileValue("", "CP_VIP"), null);
 });
 
-test("nodesFromEnvFile builds --nodes from the three CP keys", () => {
+test("nodesFromEnvFile builds --nodes from the CPn_IP keys the file declares", () => {
   assertEquals(nodesFromEnvFile(ENV_YAML), NODES);
   assertEquals(
     parseNodeSpecs(nodesFromEnvFile(ENV_YAML)!).map((n) => [n.name, n.vmid]),
-    CP_NODE_DEFAULTS.map((n) => [n.name, n.vmid]),
+    [
+      ["cp-1", 101],
+      ["cp-2", 102],
+      ["cp-3", 103],
+    ],
+  );
+});
+
+test("the control-plane key set is read from the file, not fixed at three", () => {
+  // ADR-034: the member set is DERIVED from the CPn_IP keys. A fork with one
+  // control plane, or with five, must not be reshaped into this cluster's three.
+  assertEquals(cpKeysFromEnvFile(ENV_YAML), ["CP1_IP", "CP2_IP", "CP3_IP"]);
+  // CP_VIP is the shared virtual IP and the workers are not the control plane;
+  // counting either would migrate a node that is not a control plane.
+  assertEquals(
+    cpKeysFromEnvFile("CP_VIP: 192.0.2.10\nWORKER1_IP: 192.0.2.21\n"),
+    [],
+  );
+
+  const single = `CP_VIP: ${VIP}\nCP1_IP: ${IPS[0]}\n`;
+  assertEquals(nodesFromEnvFile(single), `cp-1=101=${IPS[0]}`);
+
+  // Ordinals need not be contiguous: CP1/CP2/CP5 is three members, not five,
+  // and the ordinal — not the position — decides the name and the VMID.
+  const sparse = `CP1_IP: ${IPS[0]}\nCP5_IP: ${IPS[1]}\nCP10_IP: ${IPS[2]}\n`;
+  assertEquals(
+    nodesFromEnvFile(sparse),
+    `cp-1=101=${IPS[0]},cp-5=105=${IPS[1]},cp-10=110=${IPS[2]}`,
+  );
+  // ...in ascending ordinal order, whatever order the file lists them in.
+  assertEquals(
+    cpKeysFromEnvFile(
+      `CP10_IP: ${IPS[2]}\nCP2_IP: ${IPS[1]}\nCP1_IP: ${IPS[0]}\n`,
+    ),
+    ["CP1_IP", "CP2_IP", "CP10_IP"],
   );
 });
 
 test("nodesFromEnvFile refuses a partial control-plane list rather than migrating a subset", () => {
+  // A declared key whose value is missing, blank or a placeholder is
+  // indeterminate, not absent (contract evaluation.onIndeterminate: unsafe):
+  // silently dropping it would migrate a subset of the control planes.
   for (const key of ["CP1_IP", "CP2_IP", "CP3_IP"]) {
-    const partial = ENV_YAML.replace(new RegExp(`^${key}:.*$`, "m"), "");
-    assertEquals(nodesFromEnvFile(partial), null, key);
-    assertEquals(nodesFromEnvFile(ENV_YAML.replace(IPS[0], "REPLACEME")), null);
+    for (const bad of ["", " ''", " REPLACEME"]) {
+      const broken = ENV_YAML.replace(
+        new RegExp(`^${key}:.*$`, "m"),
+        `${key}:${bad}`,
+      );
+      assertEquals(cpNodeDefaultsFromEnvFile(broken), null, `${key}:${bad}`);
+    }
   }
+  // CP1_IP is the one required address: without it there is no bootstrap node.
+  assertEquals(nodesFromEnvFile(ENV_YAML.replace(/^CP1_IP:.*$/m, "")), null);
+  // Dropping an optional higher ordinal is a smaller cluster, not an error.
+  assertEquals(
+    nodesFromEnvFile(ENV_YAML.replace(/^CP3_IP:.*$/m, "")),
+    `cp-1=101=${IPS[0]},cp-2=102=${IPS[1]}`,
+  );
+  // No CPn_IP key at all states nothing about the control plane.
   assertEquals(nodesFromEnvFile(""), null);
+  assertEquals(nodesFromEnvFile("DOMAIN: example.test\n"), null);
 });
 
 test("buildConfig names the flag and the config key instead of guessing an address", () => {
@@ -719,13 +770,15 @@ test("buildConfig names the flag and the config key instead of guessing an addre
       err.message,
     );
   }
-  assertEquals(
-    assertThrows(
-      () => buildConfig(parseArgs(["status"], {})),
-      UsageError,
-    ).message.includes("CP1_IP, CP2_IP, CP3_IP"),
-    true,
-  );
+  // it names CP1_IP and the CPn_IP pattern, not a fixed three-key list: this
+  // repository does not know how many control planes the operator's fork has.
+  const nodesErr = assertThrows(
+    () => buildConfig(parseArgs(["status"], {})),
+    UsageError,
+  ).message;
+  assertEquals(nodesErr.includes("CP1_IP"), true, nodesErr);
+  assertEquals(nodesErr.includes("CPn_IP"), true, nodesErr);
+  assertEquals(nodesErr.includes("CP3_IP"), false, nodesErr);
 });
 
 test("an explicit flag wins over the environment file", () => {
