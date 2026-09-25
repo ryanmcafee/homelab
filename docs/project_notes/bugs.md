@@ -485,3 +485,9 @@ These are documented errors with known solutions:
 - **Root Cause**: The controller refuses to enable NetFlow without `network_ids`, the networks to monitor. The live setting had none, and the script only merged enabled, server, port and version. The script's dry run cannot catch it, since only the controller validates the write
 - **Solution**: `scripts/unifi-setting.ts apply --all-networks` sets `network_ids` to every enabled `corporate` and `guest` network from `rest/networkconf` (sorted, so re-runs stay idempotent); the unit passes the flag
 - **Prevention**: When a setting is enabled for the first time through the raw API, check which fields the UI sends alongside the toggle
+
+### 2026-09-25 - github-pr-exporter stayed OutOfSync after every sync
+- **Issue**: Application `github-pr-exporter` synced successfully but both ServiceMonitors (`github-pr-exporter-unreviewed`, `-review-requested`) stayed OutOfSync
+- **Root Cause**: The `query` relabeling (`additionalRelabels`) had no `action`; the ServiceMonitor CRD defaults it to `replace`, so the live object always carried a field Git did not
+- **Solution**: Set `action: replace` explicitly in `charts/addons/templates/github-pr-exporter.yaml`
+- **Prevention**: Write every relabeling with an explicit `action`; CRD defaults show up as permanent drift under ServerSideApply

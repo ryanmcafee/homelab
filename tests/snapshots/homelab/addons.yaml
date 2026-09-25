@@ -2318,12 +2318,14 @@ spec:
               module: github_search
               additionalRelabels:
                 - targetLabel: query
+                  action: replace
                   replacement: unreviewed
             - name: review-requested
               url: https://api.github.com/search/issues?q=is%3Apr+is%3Aopen+draft%3Afalse+archived%3Afalse+user%3Aryanmcafee+review-requested%3Aryanmcafee+-label%3Aautomerge+-author%3Aapp%2Fdependabot&per_page=100
               module: github_search
               additionalRelabels:
                 - targetLabel: query
+                  action: replace
                   replacement: review-requested
   destination:
     server: https://kubernetes.default.svc
