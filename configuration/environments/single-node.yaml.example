@@ -23,6 +23,10 @@
 
 DOMAIN: REPLACEME-domain.com
 GATEWAY_IP: "192.0.2.1"
+# The LAN the nodes sit on, and the resolver they are configured with. Both are
+# required with no default (ADR-028): terragrunt/ resolves them from here.
+LAN_CIDR: "192.0.2.0/24"
+DNS_SERVER_IP: "192.0.2.1"
 TRUENAS_IP: "192.0.2.100"
 PROXMOX_IP: "192.0.2.250"
 CP_VIP: "192.0.2.10"
@@ -41,6 +45,13 @@ OTEL_LB_IP: "192.0.2.104"
 NFS_SHARE_ALLOW: "192.0.2.0/24"
 TAILSCALE_ADVERTISE_ROUTES: "192.0.2.0/24"
 BGP_PEER_IP: "192.0.2.1"
+
+# Cluster identity and the Proxmox node that hosts it. Required with no default
+# (ADR-028) — a default that happens to work on one cluster is how a fork ends
+# up reconciling from somebody else's git history.
+PROXMOX_NODE: REPLACEME-proxmox-node
+GITOPS_REPO_URL: https://github.com/REPLACEME-user/homelab
+
 NFS_MAPALL_USER: REPLACEME-username
 ACME_EMAIL: admin@REPLACEME-domain.com
 TRAEFIK_OIDC_ALLOWED_DOMAINS: REPLACEME-domain.com
