@@ -804,6 +804,68 @@ Each decision should include:
 - Logic needed by both sides risks being written twice; the mitigation is that anything shared must be expressed as a contract under `contracts/` and consumed as data, and a second implementation of the same logic is a review failure
 - #52 proceeds as specified in Go with no sequencing change
 
+### ADR-031: Cluster topology and the etcd quorum rule are a data contract, not ported code (2026-09-25); applies ADR-030 to #39
+
+**Context:**
+- Issue #39 adds an etcd quorum guard to the control-plane recreate path. The guard decides whether it is safe to destroy a control-plane node, so it is the highest-blast-radius predicate in the repository: wrong in the permissive direction, it consents to the destruction of a quorum
+- The tested implementation is TypeScript: `scripts/cp-storage-migrate.ts` exports `parseEtcdStatus` (L433), `EtcdHealth`/`etcdHealth` (L465/L476), `EXPECTED_MEMBERS = 3` (L134) and `DEFAULT_RAFT_TOLERANCE = 10` (L132), with unit tests in `cp-storage-migrate_test.ts`
+- The recreate command is Go — `homelab talos recreate` in `cmd/homelab/commands/talos.go` — and ADR-030 puts the distributable CLI there. Today that command contains no etcd logic at all: `grep -rl etcd --include='*.go'` returns nothing. The quorum guard is new work in whichever language it lands in, not an extension of existing Go
+- ADR-030's boundary rule is distribution, not preference. `cp-storage-migrate.ts` is run from a checkout by an operator who already has Bun, so it stays TypeScript. It is not slated to move, and nothing should imply it is
+- Both sides therefore need the same rule permanently. This is exactly the case ADR-030 anticipated and called a review failure: "a second implementation of the same logic is a review failure"
+- `EXPECTED_MEMBERS = 3` is not a tuning constant, it is a topology assumption. `configuration/environments/homelab.yaml.example` encodes the same assumption in the *shape* of its keys — `CP1_IP`, `CP2_IP`, `CP3_IP` — with no key anywhere expressing the control-plane count. A fork running one or five control-plane nodes cannot state that fact, and the guard would refuse to proceed on a healthy cluster
+
+**Decision:**
+- The **rule** is a contract, the **procedure** is code. `contracts/cluster/topology.v1.yaml` holds the control-plane member count, the RAFT INDEX tolerance and the named health predicate; Go and TypeScript consume it as data at build or run time. Neither language owns the numbers
+- The control-plane count is resolved from the ConfigSet key `CONTROL_PLANE_COUNT`, with the contract supplying only the permitted range and the quorum formula. A repository constant that fixes the count is a fork-ability defect (ADR-028), not a default
+- #39 proceeds in Go as the Platform PM's default proposed. The port is approved **on the condition** that it ports the procedure and consumes the contract — a Go file that restates `EXPECTED_MEMBERS = 3` and re-implements `etcdHealth` is rejected at review under ADR-030
+- `parseEtcdStatus` is explicitly **not** shared. It is an adapter to one release of `talosctl`'s human-readable table, it belongs to whichever binary shells out to `talosctl`, and it is the one part where two implementations are acceptable because each is a private detail. Before writing a second one, check whether `talosctl etcd status` offers machine-readable output on the pinned version; if it does, both sides should stop parsing the table
+- The predicate is fail-closed: unparseable output, a member that does not answer, or a missing `CONTROL_PLANE_COUNT` all mean "not safe to proceed". Silence is never consent for a destructive path
+- Each consumer carries a conformance test that asserts its behaviour against the contract's own fixtures, so the two implementations cannot drift apart without a red test — the same shape as the event gate in ADR-029
+
+**Alternatives Considered:**
+- **Port it and accept two copies** -> one day of work now and a permanent fork of the rule that decides whether a control plane survives; the copies drift at the first tolerance change and the drift is silent, because each side's tests pass against its own constants
+- **Keep the recreate path in TypeScript** -> no duplication, and it puts a destructive cluster operation behind a toolchain the operator may not have at the moment they need it, against ADR-030's grain for no gain the contract does not already deliver
+- **Share via a generated Go package emitted from the TypeScript** -> a real option that keeps one source of truth, and it makes the Go binary's build depend on Bun and makes the TypeScript the owner of a rule the Go side is accountable for. A data file both sides read is duller and has no build-order coupling
+- **Leave `EXPECTED_MEMBERS` hard-coded and fix topology later** -> retrofitting the count after two consumers exist means changing both; and it ships a guard that is wrong for any fork that is not shaped like this cluster
+
+**Consequences:**
+- #39 costs more than the one day the port was scoped at: the contract, the ConfigSet key, and two conformance tests. The premium buys one definition of the rule instead of two, and it is paid once
+- `CONTROL_PLANE_COUNT` is a new required key with **no** default in `defaults.yaml` (ADR-028), so a fork that omits it fails at resolve rather than being told it has the wrong number of etcd members
+- A change to the tolerance or the predicate is a contract change and gets the ADR-029 treatment — baseline, diff, rule set — rather than an edit to a constant in one language
+- Two `talosctl` table parsers may exist. That is accepted, bounded, and each is covered by its own fixtures; if the table format changes, exactly one binary breaks and it breaks loudly
+- The moment a third consumer needs the rule, it reads the same file. That is the test of whether this was worth doing
+
+### ADR-032: The fork-ability gate's scope is what it can actually scan; Go source is outside it (2026-09-25); refines ADR-028
+
+**Context:**
+- ADR-028 states the rule repository-wide — `docs/contracts/fork-ability.md` says "No file in this repository may contain … a specific domain name or hostname … a cluster name, node name or hardware serial" — and then enforces it with checks whose real scope is narrower than "no file"
+- The enforcement is `homelab config guard`. Its scope is two lists in `internal/config/guard.go`: `DefaultGuardPathspecs` (L355) covers `configuration/**`, `charts/**/values-homelab.yaml`, `scripts/**`, `docs/**`, `.github/**`, `Taskfile.yml`, `ansible/**`; and `guardScanExtensions` (L370) admits `.yaml .yml .json .md .ts .svg`
+- `cmd/**` and `internal/**` are in neither list, and `.go` is not a scannable extension. The Go half of the repository — the half ADR-030 just made the home of everything a stranger runs first — cannot be scanned by the rule that exists to protect strangers
+- This is not hypothetical and the precedent is written in the file. `guardScanExtensions` admits `.ts` with the comment: "a TypeScript script that hardcodes a real address or hostname as a flag default is a leak the same as one pasted into `configuration/`, and three of them did exactly that before the scope was widened." The identical construct in Go is unguarded: `cmd/homelab/commands/talos.go:61` defaults a node name in `cmd.Flags().StringVar(&node, "node", "worker-1", …)`
+- ADR-031 moves the etcd quorum rule from `scripts/` (scanned) into `cmd/`+`internal/` (unscanned). Executed without this ADR, #39 moves a topology assumption out of the gate's coverage as a side effect of a language decision
+- Checks 1–3 all verify that *values* are parameterised. None verifies that the *shape* is: `homelab.yaml.example` names `CP1_IP`, `CP2_IP`, `CP3_IP` and nothing states a count, so a fork with a different topology fails with every value correctly externalised. Check 3 catches this only if the clean-machine run happens not to copy this cluster's shape, which is luck rather than a check
+
+**Decision:**
+- The gate's scope follows the rule, not the other way round. `DefaultGuardPathspecs` gains `cmd/**`, `internal/**` and `terragrunt/**`; `guardScanExtensions` gains `.go`. Owner: SRE & Observability Engineer, as for checks 1–2
+- Fork-ability gains **check 4 — bootstrap key resolution**: the bootstrap resolves every operator-specific value from the ConfigSet and exits non-zero naming the missing key. This is a runtime check in the Go CLI, distinct from checks 1–2, which look at rendered chart output and at example-file completeness and cannot see the bootstrap's own key requirements. Owner: **Senior Platform Engineer**. The mechanism exists — `internal/config/eval.go:25` already collects `required key %q is missing or empty` for every missing key — so this is wiring bootstrap to the existing resolver, not a new failure mode
+- Check 2 is widened from "every key the render requires" to "every key the render **or the bootstrap** requires". The bootstrap must expose its required-key set as data for the check to consume; a second hand-maintained list in the checker would fork the key list, which is the defect this whole ADR is about
+- Check 3 gains a written condition: the clean-machine run must not reproduce this cluster's topology. A fork run that fills in three control-plane IPs proves nothing about a fork that has one. Owner: DX & Docs Advocate, unchanged
+- The synthetic ConfigSet used by check 1 must use RFC 5737 values distinct from those in `homelab.yaml.example`, which carries plausible RFC 1918 addresses (`192.168.1.x`). If the two overlap, check 1 cannot distinguish a leaked real value from a placeholder
+- Ownership of the four checks is one owner per check, and it is the table in `docs/contracts/fork-ability.md`. Where an issue body assigns "the fork-ability gate" to a single person, it is wrong; the gate is four checks with four owners
+
+**Alternatives Considered:**
+- **Scan every file type in the repository** -> maximal coverage and a flood of false positives from binaries, fixtures and vendored schemas; the extension allowlist exists because line-based matching needs a file it can read
+- **Treat Go as out of scope because it is compiled and reviewed more carefully** -> this is the argument that was already tried for TypeScript, and three leaks landed anyway. Review attention is what ADR-029 exists to stop relying on
+- **Add a topology check to level 0** -> a static check cannot tell a supported topology from an unsupported one without running the thing; the honest place for it is check 3, which is already a run
+- **Leave the count hard-coded and document the three-node requirement** -> defensible for a homelab, and it makes "shared bones, not copies" false the first time an enterprise cluster has five control-plane nodes
+
+**Consequences:**
+- Widening the scan will surface existing violations in `cmd/` and `internal/`; they are found at the moment the scope changes rather than by a stranger, which is the point, but it is a one-off cleanup cost on the SRE's change rather than a clean no-op
+- `--node worker-1` and similar defaulted node keys become things the gate can at least ask about. Whether a generic node key is a violation is a judgment call for the rule's owner; today nothing can raise the question at all
+- Check 4 gives the Senior Platform Engineer a check of their own, which is what removes the two-owners-or-none collision on #52 AC4
+- A fork with a non-three control-plane topology becomes a supported case rather than an accident, and `CONTROL_PLANE_COUNT` (ADR-031) is the key that expresses it
+- The gate is now four checks across three owners plus the rule's owner; that is more coordination than one check, and it is the price of the scope being honest about what it covers
+
 ## Tips
 
 - Number decisions sequentially (ADR-001, ADR-002, etc.)

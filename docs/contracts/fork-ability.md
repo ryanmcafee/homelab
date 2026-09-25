@@ -1,6 +1,7 @@
 # The fork-ability contract
 
-Normative. Decision record: ADR-028 in [`docs/project_notes/decisions.md`](../project_notes/decisions.md).
+Normative. Decision records: ADR-028, refined by ADR-032, in
+[`docs/project_notes/decisions.md`](../project_notes/decisions.md).
 
 ## The rule
 
@@ -41,29 +42,58 @@ fork then comes up wrong instead of failing at render.
 
 ## The check
 
-Fork-ability is checked in three places, in increasing cost:
+Fork-ability is checked in four places, in increasing cost:
 
 | # | Check | When | What it catches |
 |---|---|---|---|
-| 1 | **Render with a synthetic ConfigSet.** Render every chart and manifest against an environment whose values are all synthetic (`DOMAIN: example.invalid`, RFC 5737 addresses), then grep the rendered output for any value from the real environment. | Level-0 static verification, every PR | A literal that escaped the ConfigSet |
-| 2 | **`homelab.yaml.example` completeness.** Every key the render requires appears in the example file with a `REPLACEME-` or clearly synthetic value. | Level-0, every PR | A new required key that a fork cannot discover |
-| 3 | **The fork path itself.** A clean clone, a filled-in ConfigSet, the documented bootstrap, on a machine with none of the maintainer's credentials. | Per release, and for any change to bootstrap, secrets or identity | Documentation drift, undeclared prerequisites, "works because it was already installed" |
+| 1 | **Render with a synthetic ConfigSet.** Render every chart and manifest against an environment whose values are all synthetic (`DOMAIN: example.invalid`, RFC 5737 addresses), then grep the rendered output for any value from the real environment. Paired with `homelab config guard` over the repository's own source. | Level-0 static verification, every PR | A literal that escaped the ConfigSet |
+| 2 | **`homelab.yaml.example` completeness.** Every key the render **or the bootstrap** requires appears in the example file with a `REPLACEME-` or clearly synthetic value. | Level-0, every PR | A new required key that a fork cannot discover |
+| 3 | **The fork path itself.** A clean clone, a filled-in ConfigSet, the documented bootstrap, on a machine with none of the maintainer's credentials **and not in this cluster's topology**. | Per release, and for any change to bootstrap, secrets or identity | Documentation drift, undeclared prerequisites, "works because it was already installed", a shape that only this cluster has |
+| 4 | **Bootstrap key resolution.** The bootstrap resolves every operator-specific value from the ConfigSet and exits non-zero naming the missing key — every missing key, not the first one. | Runtime, in the Go CLI; exercised by check 3 | A value the bootstrap needs that no render requires, so checks 1–2 never see it |
 
-Checks 1 and 2 are static and belong in the existing level-0 gate, so a violation fails a pull
-request rather than being found by a stranger months later. Check 3 cannot be fully automated
-because its whole point is the absence of local state; it is a run, and it produces a written
-result.
+Checks 1, 2 and 4 are mechanical and fail a pull request rather than being found by a stranger
+months later. Check 3 cannot be fully automated because its whole point is the absence of local
+state; it is a run, and it produces a written result.
+
+### The scan scope is part of the check (ADR-032)
+
+Check 1's real scope is two lists in `internal/config/guard.go`: `DefaultGuardPathspecs` and
+`guardScanExtensions`. The rule above says "no file in this repository"; the scan sees only what
+those lists admit. **Any file type or directory outside them is unenforced, whatever this
+document says.** Go source was outside both until ADR-032, which is how a defaulted node name in
+`cmd/homelab/commands/talos.go` sat in a file the gate could not read.
+
+Two standing conditions follow:
+
+- Adding a language or a top-level directory to the repository means adding it to the scan.
+  A new unscanned directory is a silent hole, not a deferred task.
+- The synthetic ConfigSet for check 1 must use RFC 5737 values **distinct from** those in
+  `configuration/environments/homelab.yaml.example`, which carries plausible RFC 1918 addresses
+  (`192.168.1.x`). If the two overlap, the grep cannot tell a leaked real value from a placeholder.
+
+### Values are parameterised; so is shape
+
+Checks 1, 2 and 4 all verify that operator-specific *values* come from the ConfigSet. They do not
+verify that the cluster's *shape* does. `homelab.yaml.example` names `CP1_IP`, `CP2_IP`, `CP3_IP`
+and states no count, so a fork with one or five control-plane nodes cannot express its topology
+even with every value correctly externalised. `CONTROL_PLANE_COUNT` (ADR-031) is the key that
+expresses it, and check 3's non-matching topology is what proves it works.
 
 ## Who owns the check
 
 | Check | Owner |
 |---|---|
-| 1 and 2 (static, in level 0) | **SRE & Observability Engineer** — owner of CI quality gates |
+| 1 and 2 (static, in level 0), and the scan scope | **SRE & Observability Engineer** — owner of CI quality gates |
 | 3 (the fork path run, and the docs it validates) | **DX & Docs Advocate** — owner of fork-path validation and the ambassador funnel |
+| 4 (bootstrap key resolution) | **Senior Platform Engineer** — owner of the bootstrap path |
 | The rule itself, and adjudicating a claimed exception | **Principal Platform Architect** |
 
 Naming an owner is the point. A rule everybody agrees with and nobody runs is a rule that is
 not enforced.
+
+One check, one owner. An issue or acceptance criterion that assigns "the fork-ability gate" to a
+single person is malformed — it resolves to either two owners or none. Split it by check against
+this table.
 
 ## Review conditions
 
