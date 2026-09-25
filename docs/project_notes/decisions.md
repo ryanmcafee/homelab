@@ -1028,10 +1028,44 @@ Each decision should include:
 - A stricter gate means more changes need `baseline --write` and therefore a visible diff and a reviewer. That is the intended cost
 - The operator model, SDK boundary and BYO seams in #339 were out of scope for the review and remain unrevised here
 
+### ADR-039: An ADR number is allocated by a level-0 uniqueness gate at merge, never reserved at authoring time (2026-09-25); refines ADR-030
+
+**Context:**
+- Several branches are open against `docs/project_notes/decisions.md` at any time. Each author appends "the next ADR number" measured against `main`, so they all measure the same number and all take it. Measured 2026-09-25 with `main` at ADR-033: **ADR-034 was claimed by four open pull requests** (#368 deployment DAG contract, #372 alert triage agent, #387 Envoy Gateway, and #388 by inheritance from #382), and a previous instance of the same collision had already been adjudicated by hand a day earlier
+- The failure is silent, not noisy. Whichever branch merges first takes the number; the second branch's rebase appends its heading at a *different* offset in the same file, so git merges both without a conflict and `main` ends up with two `### ADR-034:` headings. Every existing citation of ADR-034 — in contracts, in handoffs, in other ADRs' `refines`/`supersedes` lines — silently becomes ambiguous, and nothing in the repository or in CI reports it
+- The dangerous variant has the same shape. A branch that reserves a number with a placeholder heading (`### ADR-033 **Reserved — lands in #365**`) gets *no* conflict when the real ADR-033 merges: confirmed on #382, where the rebase reported a conflict only in another file and `main`'s ADR-033 was simply gone from the result
+- There is no shortage of numbers and no contention over content. The only thing missing is a mechanism. Each instance was being resolved by an architect enumerating claims across every open branch by hand and writing a ruling — which does not scale, is not durable, and was itself wrong once: a renumber applied on 2026-09-25 moved a branch off the four-way ADR-034 pile straight onto a number a *different* branch already claimed, because the claim table had been enumerated for the number being vacated and not for the number being landed on
+- ADR-030 already settled the governing principle for this class of problem: a boundary is held by a frozen artifact plus a diff plus a named rule, not by review attention. The ADR record is a boundary — it is the repository's decision contract, cited by files that outlive every branch — and it was the one boundary with no gate on it
+
+**Decision:**
+- **The ADR record has one canonical heading shape:** `### ADR-NNN: <title> (<date>)`, three digits, zero-padded, at heading depth three. Nothing else in `decisions.md` may begin a heading with `ADR`
+- **A number is claimed by merging, not by intending.** An author appends the lowest number free at the time of writing and expects no guarantee. If another ADR of that number reaches `main` first, the second author renumbers during the rebase they were doing anyway, keeping the ADR body byte-identical and moving only the heading number
+- **`homelab verify all --level 0` enforces both**, in `internal/verify/decisions.go`, as the checks `decisions/adr-format` and `decisions/adr-numbers`. It reads the repository, needs no cluster, and runs on every pull request through `pr-contract.yml` on the head and `verify.yml` on the merge result. The failure names both line numbers and the next free number, because an author who cannot see which heading to move will guess
+- **A number you intend to use is recorded as prose, never as a heading.** A blockquote above the next real ADR states the intent and can never duplicate; a placeholder heading carries the exact shape that makes the merge ambiguous, so `decisions/adr-format` rejects it
+- **No contiguity and no ordering requirement.** The gate checks uniqueness and shape only. Branches merge out of order, so a gap or an out-of-sequence entry is the *normal* result of the rule above and must not be a failure — a contiguity check would force renumbering on branches that were not in conflict with anything
+- **The checker has its own test**, including one that runs it against the committed `decisions.md` (quality-gates.md §2 point 4). A gate that can be committed green against fixtures while `main` already carries a duplicate is not a gate
+- **Citations follow the number.** Renumbering an ADR that is cited outside `decisions.md` obliges the renumbering author to update those citations in the same commit. Where two branches both carry outside citations, the tiebreak is whichever number is cited in a *published* document or a completed review, because those cannot be edited by rebasing
+
+**Alternatives Considered:**
+- **A central allocator (a registry file, or an architect who hands out numbers)** -> adds a serialization point to every ADR, and the registry file becomes the new hottest conflict in the repository. It also does not detect the failure it is meant to prevent: a branch that ignores the allocator still merges silently
+- **Keep adjudicating collisions by hand** -> what was happening, and it produced a wrong allocation within a day of being written down. It also scales with the number of open branches, which is the wrong direction
+- **Derive the number from the merge commit or the PR number** -> removes the collision and the human-memorable sequence with it. Every existing citation is of the form ADR-0NN; changing the identifier scheme invalidates them all to fix a bookkeeping problem
+- **One file per ADR (`docs/adr/0039-*.md`)** -> genuinely removes the merge ambiguity, since two branches adding different files do not conflict. Rejected for now because it is a migration of 33 entries plus every citation of them, and it does *not* remove the duplicate-number problem — two branches can still create `0039-a.md` and `0039-b.md`. The gate is needed either way, so it lands first; the split stays on the table as a separate decision
+- **Enforce contiguity as well as uniqueness** -> would have forced a renumber on branches that had no conflict at all, purely to close a gap that harms nobody
+- **A lint rule in a pre-commit hook instead of level 0** -> a hook runs on the author's machine before the rebase that creates the duplicate, which is exactly when the file is still clean. The duplicate is created by a merge, so the check has to run on the merge result
+
+**Consequences:**
+- The second branch to rebase onto a taken number gets a red check with both line numbers and the next free number in the message, instead of a green merge and a corrupted record. This moves work onto the second author, deliberately: they are the one already editing the file
+- Level 0 gains two checks and a few milliseconds. It reads one more file and no cluster, so it costs nothing on the critical path
+- `decisions/adr-format` is stricter than the record has historically been. All 33 entries on `main` at the time of writing already conform, so the strictness costs nothing today and prevents the placeholder-heading failure permanently
+- The gate reports a duplicate; it does not choose which ADR keeps the number. That judgment stays with an architect, and the citation tiebreak above is what it is decided on. The gate's contribution is that the decision now happens before the merge rather than being discovered after it
+- An author can no longer assume the number they wrote is the number that ships. Branch names, PR titles and commit messages citing the old number are cosmetic and are left alone; citations in committed files are not, and move with the renumber
+- The one-file-per-ADR split is deferred, not rejected. If the record keeps growing this way, the gate written here is what makes that migration safe to attempt
 
 ## Tips
 
-- Number decisions sequentially (ADR-001, ADR-002, etc.)
+- Number decisions sequentially (ADR-001, ADR-002, etc.). Write the heading as `### ADR-NNN: <title> (<date>)` — three digits, heading depth three — and take the lowest free number. The number is yours when it **merges**, not when you write it: if another branch lands it first, renumber yours during the rebase, keep the body byte-identical, and move the citations with it (ADR-039). `task verify` fails on a duplicate number and on any other heading shape
+- Never reserve a number with a placeholder heading. Say it in a blockquote above the next real ADR instead; a placeholder heading merges cleanly over the real ADR of that number and deletes it
 - Include date for temporal context
 - Be honest about trade-offs (both positive and negative consequences)
 - Keep alternatives brief - just enough to show what was considered
