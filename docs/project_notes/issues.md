@@ -158,3 +158,9 @@ Each entry should include:
 - Level 0: 277 passed / 0 failed / 1 expected preview repository-secret skip. Full scripts initially: 565 passed / 0 failed. Biome and TypeScript pass via `bun x --no-install`; `task scripts:lint` is affected by the runner's nested-shell PATH reset (`biome: command not found`), even after locked dependency installation.
 - Live acceptance remains unverified: await a naturally occurring level-2 image-pull failure and inspect its kubelet event for registry/HTTP status. Do not rerun CI to manufacture this evidence. A `/v2/` mirror response demonstrates reachability only, not a successful upstream image pull.
 - Tooling limits: Serena MCP and `bd` are unavailable in this runner; the Paperclip issue and this log hold continuity. No production or registry configuration changed.
+### 2026-09-25 - Clean-machine toolchain bootstrap (issue #331)
+
+- PR: https://github.com/ryanmcafee/homelab/pull/353; branch: `fix/mcaa-28-clean-toolchain`.
+- Added Python/pipx/Node runtime pins, preserved mise install diagnostics, and added a cold-container CI gate with the local `task toolchain:check` entrypoint (committed HEAD).
+- Reproducibility: explicit backend runtimes and checksum-pinned mise. Fail fast, fail loud: missing runtime and installer stderr regressions. Least-privilege CI: read-only contents, no persisted checkout credentials, no credentials/cache/Docker socket passed into the test container.
+- Local install and tier-detection checks passed; first cold-container CI run passed in 117 s. CI exposed subset installs missing the newly pinned runtime selection; all five pipx workflow consumers now select `python pipx` explicitly. Architecture/security review and final-head CI/QA remain required before merge.
