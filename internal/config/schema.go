@@ -112,6 +112,7 @@ func validateKeyPattern(pattern string, kp SchemaKeyPattern) error {
 
 // LoadSchemaDir loads all .schema.yaml files from a directory and merges them
 // into a single Schema. A .schema.yml file is rejected rather than skipped.
+// An unloadable .schema.yaml file fails the whole load.
 func LoadSchemaDir(dir string) (*Schema, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -142,11 +143,7 @@ func LoadSchemaDir(dir string) (*Schema, error) {
 
 		sf, err := LoadSchemaFile(filepath.Join(dir, entry.Name()))
 		if err != nil {
-			if errors.Is(err, ErrInvalidKeyPattern) {
-				return nil, err
-			}
-			// Skip otherwise-invalid files in directory mode (e.g. test fixtures)
-			continue
+			return nil, err
 		}
 
 		for name, key := range sf.Keys {
