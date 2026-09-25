@@ -79,15 +79,66 @@ Bug investigation:     debugger + kubernetes-specialist + sre-engineer
 Performance issue:     performance-engineer + postgres-pro + network-engineer
 ```
 
+## If your toolchain looks missing, it isn't
+
+**Symptom:** `command -v bun` (or `go`, `task`, `helm`, `talosctl`, …) prints nothing, `mise`
+itself is not on `PATH`, and `task test:scripts` cannot be run as this file tells you to run it.
+It is tempting to conclude the tools are not installed and to download one by hand. **Do not.**
+Every tool `mise.toml` pins is already installed — 63 shims are sitting in mise's shim directory.
+Two things hide them, and both are fixed by exports:
+
+```bash
+export PATH="$HOME/.local/share/mise/shims:$HOME/.local/bin:$PATH"
+export MISE_TRUSTED_CONFIG_PATHS="$PWD"   # the repo root, if you are not in it
+```
+
+1. **The shims are not on the default `PATH`.** mise installs its binary to `~/.local/bin` and its
+   shims to `~/.local/share/mise/shims`; a non-interactive shell (CI runner, agent sandbox, `ssh
+   host cmd`) starts with neither. That is the whole reason `command -v bun` comes back empty.
+2. **This repo's `mise.toml` is untrusted** in a fresh clone or worktree, so every shim fails even
+   once it is on `PATH`. The error's first line is misleading:
+
+   ```
+   mise ERROR error parsing config file: .../homelab/mise.toml
+   mise ERROR Config files in .../homelab/mise.toml are not trusted.
+   mise ERROR Trust them with `mise trust`.
+   ```
+
+   It is **not** a parse error and there is nothing wrong with `mise.toml` — read the second line.
+   Older mise versions print only the first line from a shim invocation; run `mise ls` to see the
+   trust line if you do not get it.
+
+Prefer `MISE_TRUSTED_CONFIG_PATHS` over `mise trust` when the checkout is shared or ephemeral: it
+is per-shell and writes nothing to mise's global trust store or to the working tree. Use
+`mise trust && mise install` when the worktree is yours and long-lived — that is also what makes
+pinned-but-not-yet-installed tools (terraform, terragrunt, kind, talosctl) stop reporting
+"missing".
+
+Verified 2026-09-25 at `358a566`, in a sandbox where all four commands were "not found" beforehand:
+
+| Command | Result |
+|---------|--------|
+| `bun --version` | `1.4.2` |
+| `go version` | `go1.27.1 linux/amd64` |
+| `task --version` | `3.46.4` |
+| `task test:scripts` | `386 pass, 0 fail` across 15 files |
+
+**The caveat that bites:** these are shell exports, and some sandboxes rebuild `PATH` in every
+non-interactive child shell from a `BASH_ENV` startup file. A tool `command -v` just resolved can
+still come back "not found" inside a script you launch — `MISE_TRUSTED_CONFIG_PATHS` survives the
+hop but `PATH` does not. Either re-export `PATH` inside the script, or call the absolute shim path
+(`"$HOME/.local/share/mise/shims/bun" --version` works from any child shell). Check with
+`bash -c 'echo ${PATH%%:*}'` before blaming the tool.
+
 ## Worktrees and Toolchain Gotchas
 
 Learned while landing #261 Section A (PR #264). Each one cost real time once.
 
 | Gotcha | What to do |
 |--------|------------|
-| mise refuses a fresh git worktree ("Config files ... are not trusted") | `mise trust && mise install` right after `git worktree add`. Pinned tools (terraform, terragrunt, kind, talosctl) show as "missing" until installed; the pre-commit `terraform_fmt`/`terragrunt_fmt` hooks fail with "command not found" until then. |
+| mise refuses a fresh git worktree ("Config files ... are not trusted") | `mise trust && mise install` right after `git worktree add`. Pinned tools (terraform, terragrunt, kind, talosctl) show as "missing" until installed; the pre-commit `terraform_fmt`/`terragrunt_fmt` hooks fail with "command not found" until then. The first error line says "error parsing config file" and is misleading — see [If your toolchain looks missing, it isn't](#if-your-toolchain-looks-missing-it-isnt). |
 | Serena is rooted at the directory Claude Code was launched from (`--project-from-cwd`) | Launch Claude Code from the worktree you edit. `.mcp.json` (committed) makes Serena available in every checkout and Serena writes `.serena/project.yml` (gitignored: it rewrites the file on upgrades) on first activation; Serena's edit tools refuse paths outside its root, so use Bash/Edit for files in another worktree. |
-| Non-interactive shells miss the mise shims | Prepend `$HOME/.local/share/mise/shims` to `PATH` (`go`, `helm`, `bun`, `task` are all mise-managed; `mise.toml` pins `go = "1.25"` and `helm = "4.3.0"`). |
+| Non-interactive shells miss the mise shims | Prepend `$HOME/.local/share/mise/shims` to `PATH` (`go`, `helm`, `bun`, `task` are all mise-managed; `mise.toml` pins `go = "1.27.1"` and `helm = "4.3.0"`). Full recipe, including the trust half: [If your toolchain looks missing, it isn't](#if-your-toolchain-looks-missing-it-isnt). |
 | helm version changes rendered bytes | Golden snapshots are byte-exact against `configuration/versions.yaml` `tools.helm`; keep `mise.toml`, `verify.yml` and `versions.yaml` on the same helm. |
 | `go run ./cmd/homelab` collapses child exit codes to 1 | Check exit codes with the built binary (`go build -o bin/homelab ./cmd/homelab`). |
 | Terraform warns about the plugin cache dir | `task install-tools` creates `~/.terraform.d/plugin-cache`: the Taskfile `env:` and `.envrc` set `TF_PLUGIN_CACHE_DIR` to that path and, because `mise.toml` loads `.envrc` after its own `[env]`, it overrides the repo-local path `mise.toml` names. |
@@ -463,7 +514,7 @@ All scripts run on Bun (`mise.toml` pins it; dependencies are in `package.json` 
 ```
 
 Conventions:
-- Run scripts through their `task` entry; `task test:scripts` runs the unit tests (`scripts/<name>_test.ts`, `bun test`), `task scripts:lint` checks format, lint (Biome) and types (tsc), `task scripts:fmt` formats
+- Run scripts through their `task` entry; `task test:scripts` runs the unit tests (`scripts/<name>_test.ts`, `bun test`), `task scripts:lint` checks format, lint (Biome) and types (tsc), `task scripts:fmt` formats. If `bun` or `task` is "not found", they are installed and hidden, not missing — [If your toolchain looks missing, it isn't](#if-your-toolchain-looks-missing-it-isnt)
 - Always include `--help` flag
 - Use `--dry-run` for non-destructive preview
 - Log with colors: cyan=INFO, green=OK, red=ERROR
