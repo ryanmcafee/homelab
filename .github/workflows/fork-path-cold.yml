@@ -1,0 +1,295 @@
+name: Fork path (cold, uncached)
+
+# The newcomer's path, measured instead of asserted (issue #27 follow-up to the
+# fork-ability contract in docs/contracts/fork-ability.md, check 3).
+#
+# tilt-ci.yml already proves the Kind + ArgoCD loop converges, but it proves it
+# for `task localdev:ci` — a different entry point — with a restored registry
+# pull-through cache. Three things the readme promises were therefore never
+# executed anywhere:
+#
+#   1. `task localdev:up`   the readme's first command, the "fork and boot with
+#                           one command" headline. Never run by any workflow.
+#   2. `task localdev:down` never run by any workflow, so teardown was asserted.
+#   3. a cold clock          tilt-ci restores `kind-registry-*`, so its 22-28 min
+#                           is a lower bound, not what a stranger experiences.
+#
+# This workflow runs the readme's three commands verbatim, in order, on a runner
+# with NO cache restore of any kind, and publishes the wall clock. There is
+# deliberately no `actions/cache` step below — not even for kubeconform — and
+# the first step fails if a cache directory somehow already exists. Nothing is
+# saved either, so a later run cannot be warmed by this one.
+#
+#   stranger-bootstrap  curl https://mise.run | sh -> mise trust -> mise install
+#                       docs/tooling.md verbatim. Informational (continue-on-error):
+#                       it is the only place that measures whether a clean
+#                       machine can install the toolchain at all. Kept out of the
+#                       measured job so a bootstrap regression does not hide the
+#                       localdev numbers.
+#   cold-fork-path      task localdev:up -> localdev:report -> localdev:down,
+#                       plus `task localdev:wait` (see its step comment) and an
+#                       assertion that the cluster is actually gone afterwards.
+#
+# Cost: a cold, uncached level-2-sized loop pulls every image from upstream and
+# is expected to take substantially longer than tilt-ci's cached run. It is NOT
+# on the critical path of ordinary pull requests: it runs on demand, weekly, and
+# on a pull request that changes this file (so the workflow is never shipped
+# without having been executed once — the same bar the docs are held to).
+#
+# Tool pins come from mise.toml through jdx/mise-action, matching tilt-ci.yml.
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Sundays 06:17 UTC. Off-peak, and far from the hour so it does not queue
+    # behind every other repository's midnight cron.
+    - cron: '17 6 * * 0'
+  pull_request:
+    paths:
+      - '.github/workflows/fork-path-cold.yml'
+
+concurrency:
+  group: fork-path-cold-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+env:
+  # Every kubectl/argocd call in the scripts pins this context (ADR-009).
+  KIND_CONTEXT: kind-homelab-localdev
+  KIND_CLUSTER: homelab-localdev
+
+jobs:
+  # ============================================================================
+  # docs/tooling.md verbatim on a clean machine. Informational.
+  # ============================================================================
+  stranger-bootstrap:
+    name: Toolchain bootstrap from docs/tooling.md
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      # docs/tooling.md line 1. No mise-action here on purpose: the point is
+      # whether the documented installer works, not whether an Action can
+      # substitute for it.
+      - name: curl https://mise.run | sh
+        id: install_mise
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          curl https://mise.run | sh
+          "$HOME/.local/bin/mise" --version
+
+      # docs/tooling.md documents `eval "$(~/.local/bin/mise activate zsh)"`,
+      # which is zsh-only and a no-op in bash (homelab#332). A non-interactive
+      # shell needs the shims on PATH instead, which is the gotcha the same page
+      # lists further down. Using the documented workaround rather than the
+      # documented headline is itself the finding; #332 tracks it.
+      - name: PATH for a non-interactive shell (docs/tooling.md gotcha 2)
+        if: steps.install_mise.outcome == 'success'
+        run: echo "$HOME/.local/share/mise/shims" >> "$GITHUB_PATH"
+
+      # A fresh clone needs `mise trust` before `mise install` (docs/tooling.md
+      # gotcha 1). `task install-tools` cannot be the first command because
+      # `task` is installed by mise.
+      - name: mise trust && mise install
+        id: mise_install
+        continue-on-error: true
+        if: steps.install_mise.outcome == 'success'
+        run: |
+          "$HOME/.local/bin/mise" trust
+          "$HOME/.local/bin/mise" install
+
+      - name: task validate (the prerequisite table a forker reads)
+        id: validate
+        continue-on-error: true
+        if: steps.mise_install.outcome == 'success'
+        run: task validate
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "## Toolchain bootstrap from docs/tooling.md"
+            echo
+            echo "Informational. Documented commands, in the documented order, on a clean runner."
+            echo
+            echo "| Documented step | Result |"
+            echo "|---|---|"
+            # A bare pipe inside a table cell ends the cell, so the installer is
+            # named rather than quoted verbatim here.
+            echo "| the \`mise.run\` installer | ${{ steps.install_mise.outcome }} |"
+            echo "| \`mise trust && mise install\` | ${{ steps.mise_install.outcome || 'skipped' }} |"
+            echo "| \`task validate\` | ${{ steps.validate.outcome || 'skipped' }} |"
+            echo
+            if [ "${{ steps.mise_install.outcome }}" != "success" ]; then
+              echo "\`mise install\` did not succeed on a clean machine. That is the fork path's"
+              echo "first command failing, and it blocks everything downstream — see homelab#331"
+              echo "(\`pipx:\` backend pinned with no \`python\`/\`pipx\` pin) before assuming a"
+              echo "regression elsewhere."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # ============================================================================
+  # The readme's three commands, cold. This job's verdict is the deliverable.
+  # ============================================================================
+  cold-fork-path:
+    name: readme localdev up -> report -> down (no cache)
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      # The whole value of this job is that nothing is warm. Fail loudly rather
+      # than quietly publishing a flattered number.
+      - name: Assert no warm caches
+        run: |
+          set -euo pipefail
+          fail=0
+          for dir in "$HOME/.cache/homelab-kind-registry" "$HOME/.cache/homelab-kubeconform"; do
+            if [ -e "$dir" ]; then
+              echo "::error::$dir exists; this run would not be cold. Remove the actions/cache step that created it."
+              fail=1
+            fi
+          done
+          if docker image ls --format '{{.Repository}}:{{.Tag}}' | grep -v '^<none>' | grep -q .; then
+            echo "::notice::the runner image ships some prepulled images; listing them for the record"
+            docker image ls
+          fi
+          exit "$fail"
+
+      # Tool pins from mise.toml, same as tilt-ci.yml. This is the one place the
+      # job is not what a stranger does — stranger-bootstrap above covers that,
+      # and keeping them separate means a bootstrap regression cannot silently
+      # become "the readme is slow".
+      - name: Install helm, bun, kind, kubectl, argocd, tilt, task from mise.toml
+        uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+        with:
+          install_args: go helm bun kind kubectl argocd tilt task
+
+      - name: Install script dependencies from bun.lock
+        run: bun install --frozen-lockfile
+
+      - name: Tool versions
+        run: |
+          kind version
+          kubectl version --client
+          argocd version --client
+          tilt version
+          task --version
+
+      # readme.md, first command. Verbatim — `localdev:up`, not `localdev:ci`.
+      # localdev:up is kind -> argocd -> sync; it returns after the last wave is
+      # synced, not after every Application reports Healthy.
+      - name: 'task localdev:up'
+        id: up
+        run: |
+          set -euo pipefail
+          start=$(date +%s)
+          task localdev:up
+          echo "seconds=$(( $(date +%s) - start ))" >> "$GITHUB_OUTPUT"
+
+      # Not a readme command, and that gap is the point: the readme's line for
+      # localdev:up says "all 87 Applications synced", but the command it
+      # documents does not wait for Healthy — tilt-ci gets that from
+      # localdev:ci, which appends localdev:wait. Timed separately so the readme's
+      # claim and the readme's command can be compared honestly.
+      - name: 'task localdev:wait (the gap between the readme command and the readme claim)'
+        id: wait
+        run: |
+          set -euo pipefail
+          start=$(date +%s)
+          task localdev:wait
+          echo "seconds=$(( $(date +%s) - start ))" >> "$GITHUB_OUTPUT"
+
+      # readme.md, second command. Bare, exactly as written: no --out, no
+      # --verify-json, no --base. Whatever a forker sees on stdout is what lands
+      # in the summary.
+      - name: 'task localdev:report'
+        id: report
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          task localdev:report | tee kind-report.md
+
+      # readme.md, third command. Runs even when something above failed: a
+      # teardown that only works after a clean run is not a teardown.
+      - name: 'task localdev:down'
+        id: down
+        if: always()
+        run: |
+          set -euo pipefail
+          start=$(date +%s)
+          task localdev:down
+          echo "seconds=$(( $(date +%s) - start ))" >> "$GITHUB_OUTPUT"
+
+      # `localdev:down` exiting 0 is not the same as the cluster being gone.
+      - name: Assert the cluster is actually gone
+        if: always() && steps.down.outcome == 'success'
+        run: |
+          set -euo pipefail
+          remaining=$(kind get clusters 2>/dev/null || true)
+          echo "kind get clusters: ${remaining:-<none>}"
+          if printf '%s\n' "$remaining" | grep -qx "$KIND_CLUSTER"; then
+            echo "::error::task localdev:down exited 0 but kind still lists $KIND_CLUSTER"
+            exit 1
+          fi
+          if kubectl config get-contexts -o name 2>/dev/null | grep -qx "$KIND_CONTEXT"; then
+            echo "::warning::the cluster is gone but kubeconfig context $KIND_CONTEXT was left behind"
+          fi
+
+      - name: Diagnostics
+        if: failure()
+        run: |
+          task localdev:diagnose || true
+          kubectl --context "$KIND_CONTEXT" -n argocd get applications.argoproj.io -o wide || true
+          kubectl --context "$KIND_CONTEXT" get pods -A || true
+
+      - name: Summary
+        if: always()
+        run: |
+          fmt() {
+            # seconds -> "Nm Ss", or "not reached" when the step never ran
+            if [ -z "${1:-}" ]; then echo 'not reached'; else printf '%dm %02ds\n' $(( $1 / 60 )) $(( $1 % 60 )); fi
+          }
+          up_s='${{ steps.up.outputs.seconds }}'
+          wait_s='${{ steps.wait.outputs.seconds }}'
+          down_s='${{ steps.down.outputs.seconds }}'
+          total_s=''
+          if [ -n "$up_s" ] && [ -n "$wait_s" ]; then total_s=$(( up_s + wait_s )); fi
+          {
+            echo "## Cold fork path — the readme's commands, no cache"
+            echo
+            echo "| readme command | Result | Wall clock |"
+            echo "|---|---|---|"
+            echo "| \`task localdev:up\` | ${{ steps.up.outcome }} | $(fmt "$up_s") |"
+            echo "| \`task localdev:wait\` (not in the readme) | ${{ steps.wait.outcome || 'skipped' }} | $(fmt "$wait_s") |"
+            echo "| \`task localdev:report\` | ${{ steps.report.outcome || 'skipped' }} | — |"
+            echo "| \`task localdev:down\` | ${{ steps.down.outcome }} | $(fmt "$down_s") |"
+            echo
+            echo "**Cold time to first success (up + wait, every image pulled from upstream): $(fmt "$total_s")**"
+            echo
+            echo "Cite this number, not tilt-ci's: \`tilt-ci.yml\` restores a \`kind-registry-*\`"
+            echo "pull-through cache, so its duration is a lower bound rather than a newcomer's"
+            echo "experience. This job restores nothing and saves nothing."
+            echo
+            if [ -s kind-report.md ]; then
+              echo "<details><summary><code>task localdev:report</code> output</summary>"
+              echo
+              cat kind-report.md
+              echo
+              echo "</details>"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: fork-path-cold
+          path: kind-report.md
+          retention-days: 90
+          if-no-files-found: ignore
