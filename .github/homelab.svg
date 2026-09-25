@@ -103,12 +103,13 @@
   @keyframes h10{0%,76.15%{opacity:0}76.45%,78.97%{opacity:1}79.27%,100%{opacity:0}}
   @keyframes h11{0%,79.27%{opacity:0}79.57%,82.08%{opacity:1}82.38%,100%{opacity:0}}
   @keyframes h12{0%,82.38%{opacity:0}82.68%,85.2%{opacity:1}85.5%,100%{opacity:0}}
-  @keyframes h13{0%,85.5%{opacity:0}85.8%,95.7%{opacity:1}96%,100%{opacity:0}}
+  @keyframes h13{0%,85.5%{opacity:0}85.8%,88.32%{opacity:1}88.62%,100%{opacity:0}}
+  @keyframes h14{0%,88.62%{opacity:0}88.92%,95.7%{opacity:1}96%,100%{opacity:0}}
   .h0{animation:h0 27s infinite}.h1{animation:h1 27s infinite}.h2{animation:h2 27s infinite}
   .h3{animation:h3 27s infinite}.h4{animation:h4 27s infinite}.h5{animation:h5 27s infinite}
   .h6{animation:h6 27s infinite}.h7{animation:h7 27s infinite}.h8{animation:h8 27s infinite}
   .h9{animation:h9 27s infinite}.h10{animation:h10 27s infinite}.h11{animation:h11 27s infinite}
-  .h12{animation:h12 27s infinite}.h13{animation:h13 27s infinite}
+  .h12{animation:h12 27s infinite}.h13{animation:h13 27s infinite}.h14{animation:h14 27s infinite}
   /* verdict badges: after the packet lands (S+2.7) until the window ends */
   @keyframes v0{0%,47.7%{opacity:0}48%,49.2%{opacity:1}49.5%,100%{opacity:0}}
   @keyframes v1{0%,52.2%{opacity:0}52.5%,53.7%{opacity:1}54%,100%{opacity:0}}
@@ -198,7 +199,8 @@
   <text class="h10" x="28" y="315"><tspan fill="#2dd4bf">●</tspan> prowlarr.&lt;DOMAIN&gt; <tspan fill="#27c93f">200</tspan> <tspan fill="#8b949e">e2e ✔ smoke ✔</tspan></text>
   <text class="h11" x="28" y="315"><tspan fill="#2dd4bf">●</tspan> nzbget.&lt;DOMAIN&gt; <tspan fill="#27c93f">200</tspan> <tspan fill="#8b949e">e2e ✔ smoke ✔</tspan></text>
   <text class="h12" x="28" y="315"><tspan fill="#2dd4bf">●</tspan> tautulli.&lt;DOMAIN&gt; <tspan fill="#27c93f">200</tspan> <tspan fill="#8b949e">e2e ✔ smoke ✔</tspan></text>
-  <text class="h13" x="28" y="315" font-size="10"><tspan fill="#2dd4bf">●</tspan> lazylibrarian.&lt;DOMAIN&gt; <tspan fill="#27c93f">200</tspan> <tspan fill="#8b949e">e2e ✔ smoke ✔</tspan></text>
+  <text class="h13" x="28" y="315"><tspan fill="#2dd4bf">●</tspan> alertmanager.&lt;DOMAIN&gt; <tspan fill="#27c93f">200</tspan> <tspan fill="#8b949e">pushover links</tspan></text>
+  <text class="h14" x="28" y="315" font-size="10"><tspan fill="#2dd4bf">●</tspan> lazylibrarian.&lt;DOMAIN&gt; <tspan fill="#27c93f">200</tspan> <tspan fill="#8b949e">e2e ✔ smoke ✔</tspan></text>
   <!-- e2e counter -->
   <g fill="#f0883e">
     <text class="c0"  x="28" y="335"><tspan fill="#8b949e">›</tspan> chainsaw e2e   0/19 suites</text>

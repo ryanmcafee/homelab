@@ -15,6 +15,17 @@ A `critical` alert inhibits the `warning`/`info` alert of the same `alertname` i
 namespace. Groups form on `alertname, namespace, severity`; a group waits 30 s, updates every
 5 m and repeats every 4 h. Resolved notifications are sent for both severities.
 
+Every critical and warning notification carries two links, built by the `homelab.tmpl`
+Alertmanager template (`alertmanager.templateFiles`):
+
+- **View in Alertmanager** (the Pushover URL button): `https://alertmanager.<DOMAIN>` filtered to
+  the group's `alertname` and `namespace`. Alertmanager is on the internal ingress
+  (`ALERTMANAGER_HOSTNAME`) and its `externalUrl` is that host.
+- **Query in Grafana** (first line of the message): the rule's PromQL, taken from the alert's
+  Prometheus generator URL, opened in Grafana Explore on the `Prometheus` datasource. When the
+  encoded query would crowd out the 1024-character Pushover message it links the rule's Grafana
+  page instead (`/alerting/Prometheus/<alertname>/find`), which shows the same query and graph.
+
 Where it is defined: `charts/addons/templates/kube-prometheus-stack.yaml` (`alertmanager.config`,
 `alertmanagerSpec.secrets`, `additionalPrometheusRulesMap`), values from
 `configuration/templates/helm-addons.tmpl` (`kube-prometheus-stack.alertmanager.notifications`),
@@ -64,8 +75,8 @@ kubectl -n monitoring logs "$POD" -c alertmanager | rg -i "notify|pushover" | ta
 Both end after two minutes and send a resolved notification. The annotation value is
 double-quoted inside the single quotes because Alertmanager's UTF-8 matcher parser rejects
 unquoted values with spaces (the classic parser still accepts them, with a warning).
-Verified end to end on 2026-09-19: both notifications arrived on Pushover. The Alertmanager UI is not
-exposed; port-forward when you need it: `kubectl -n monitoring port-forward svc/kube-prometheus-stack-alertmanager 9093`.
+Verified end to end on 2026-09-19: both notifications arrived on Pushover. The Alertmanager UI is at
+`https://alertmanager.<DOMAIN>` (internal ingress; Alertmanager itself has no login).
 
 ## Silence, inspect, change
 

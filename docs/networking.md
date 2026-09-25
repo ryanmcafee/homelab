@@ -133,6 +133,7 @@ Generated from `tests/snapshots/homelab/*.yaml` by `task docs:check -- --fix`
 | `auth.<DOMAIN>` | external | IngressRoute | `auth-oidc` |
 | `plex.<DOMAIN>` | external | Ingress | `plex` |
 | `traefik.<DOMAIN>` | external | IngressRoute | `traefik-external` |
+| `alertmanager.<DOMAIN>` | internal | Ingress | `kube-prometheus-stack` |
 | `argocd.<DOMAIN>` | internal | Ingress | `argocd` |
 | `grafana.<DOMAIN>` | internal | Ingress | `kube-prometheus-stack` |
 | `hubble.<DOMAIN>` | internal | Ingress | `cilium-config` |

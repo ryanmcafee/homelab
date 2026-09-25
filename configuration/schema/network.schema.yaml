@@ -118,6 +118,10 @@ keys:
     description: Grafana dashboard hostname
     const: "grafana.{{.DOMAIN}}"
 
+  ALERTMANAGER_HOSTNAME:
+    description: Alertmanager UI hostname on the internal ingress
+    const: "alertmanager.{{.DOMAIN}}"
+
   TRAEFIK_HOSTNAME:
     description: Traefik dashboard hostname
     const: "traefik.{{.DOMAIN}}"

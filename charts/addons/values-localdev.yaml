@@ -919,6 +919,18 @@ kube-prometheus-stack:
       enabled: false
       secretName: alertmanager-notifications
       onePasswordItemPath: ""
+    ingress:
+      enabled: true
+      ingressClassName: internal
+      annotations:
+        cert-manager.io/cluster-issuer: letsencrypt
+        external-dns.alpha.kubernetes.io/hostname: alertmanager.homelab.local
+      hosts:
+        - alertmanager.homelab.local
+      tls:
+        - secretName: alertmanager-tls
+          hosts:
+            - alertmanager.homelab.local
     storage:
       volumeClaimTemplate:
         spec:
