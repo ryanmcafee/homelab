@@ -16,6 +16,13 @@ repos:
         pass_filenames: false
         files: ^(charts/|configuration/|tests/(schemas|policy|gitops|snapshots|health|e2e)/|localdev/|internal/verify/|cmd/homelab/commands/verify)
 
+      - id: toolchain-boundary
+        name: Cold-bootstrap execution boundary
+        entry: task toolchain:policy
+        language: system
+        pass_filenames: false
+        files: ^(Dockerfile\.toolchain$|\.github/workflows/toolchain-bootstrap\.yml$|scripts/toolchain-policy.*|Taskfile\.yml$)
+
       - id: config-guard
         name: PII Guard
         entry: go run ./cmd/homelab config guard --set homelab --

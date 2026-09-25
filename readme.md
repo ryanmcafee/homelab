@@ -38,6 +38,19 @@ activation; activate mise for your shell to use the shorter `task ...` commands 
 `task toolchain:check` reruns the uncached Linux bootstrap CI gate against **committed HEAD**
 in Docker (linux/amd64, emulated on ARM). Commit changes before running it. The gate
 checks every tool, the Task entrypoint and setup's actionable missing-Docker diagnostic.
+The local wrapper is for trusted checkouts: mise and Task execute repository code on your
+host, so it is not a sandbox for untrusted checkouts. CI launches the literal archived
+Docker build directly, without host mise/Task, credentials, cache forwarding, or mounts.
+Committed files are included; git archive is not a secret scanner. Docker still shares
+the runner kernel and permits outbound networking.
+
+Run `task toolchain:policy` for the parsed boundary check and negative fixtures; the
+cold container and matching pre-commit hook also run this check. Update the `ubuntu:24.04@sha256:…` base in
+`Dockerfile.toolchain` through a reviewed digest bump: resolve the official Docker Hub
+manifest with `docker buildx imagetools inspect ubuntu:24.04`, verify its digest, then
+rerun the cold gate. Keep mise's version and SHA-256 together and verify the checksum
+before making the downloaded binary executable. No credentials are needed for these checks.
+
 It does not deploy a cluster. Cold runs download the entire toolchain; CI has a 20-minute limit.
 
 Docker is also required for the Kind loop. The loop runs the same charts production does, with fakes

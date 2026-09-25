@@ -108,3 +108,9 @@ Each entry should include:
 - Added Python/pipx/Node runtime pins, preserved mise install diagnostics, and added a cold-container CI gate with the local `task toolchain:check` entrypoint (committed HEAD).
 - Reproducibility: explicit backend runtimes and checksum-pinned mise. Fail fast, fail loud: missing runtime and installer stderr regressions. Least-privilege CI: read-only contents, no persisted checkout credentials, no credentials/cache/Docker socket passed into the test container.
 - Local install and tier-detection checks passed; first cold-container CI run passed in 117 s. CI exposed subset installs missing the newly pinned runtime selection; all five pipx workflow consumers now select `python pipx` explicitly. Architecture/security review and final-head CI/QA remain required before merge.
+
+### 2026-09-25: Cold-bootstrap CI execution boundary (PR #353)
+
+- Security handoff MCAA-44: remove host mise/Task execution and stream committed HEAD directly to an uncached Docker build; retain read-only token and credential-free checkout.
+- Pin the official Ubuntu manifest digest, preserve mise checksum-before-execution, and add parsed policy tests with negative fixtures. Local task wrappers require trusted checkouts; update instructions are in readme.md.
+- Regression evidence and final cold-build timing are recorded on MCAA-44 and PR #353.
