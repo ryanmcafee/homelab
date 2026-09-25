@@ -322,8 +322,11 @@ const TIER1_HELP = `
 
    > fork-path: not-affected — reworded a comment in docs/tooling.md; no command changed.
 
-   Then press **Re-run failed jobs** on this check. The label and body are read
-   live from the API, so the re-run sees them; no new commit is needed.
+   Then re-run this check: press **Re-run failed jobs** if you have Actions
+   write, or simply **close and reopen** this pull request if you do not —
+   \`reopened\` is one of the events \`verify.yml\` listens for. Either way the
+   label and body are read live from the API, not from the original event
+   payload, so the re-run sees them and **no new commit is needed**.
 
 Route 2 is deliberate and audited. It is not a bypass to be embarrassed about —
 it is the decision point this gate exists to create, and your name is on it.
