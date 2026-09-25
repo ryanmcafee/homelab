@@ -1,9 +1,10 @@
 # The fork-ability contract
 
-Normative. Decision records: ADR-029 and ADR-033 (which splits check 3) in
+Normative. Decision records: ADR-029, refined by ADR-033 (check 3a/3b and the status
+column) and ADR-037 (the scan scope and check 4), in
 [`docs/project_notes/decisions.md`](../project_notes/decisions.md).
 
-**Read [Current status](#current-status) before citing a check.** Of the four checks below, two
+**Read [Current status](#current-status) before citing a check.** Of the five checks below, three
 are specified and not implemented, one has never been executed by anyone, and one is automated and
 passing. The table states what each check *is*; the status section states what has actually run,
 when, and with what result.
@@ -56,15 +57,16 @@ fork then comes up wrong instead of failing at render.
 
 ## The check
 
-Fork-ability is checked in four places, in increasing cost. A check may be listed here as
+Fork-ability is checked in five places, in increasing cost. A check may be listed here as
 specified-and-not-implemented; it may **not** be listed with no status (ADR-033).
 
 | # | Check | When | What it catches | Status |
 |---|---|---|---|---|
-| 1 | **Render with a synthetic ConfigSet.** Render every chart and manifest against an environment whose values are all synthetic (`DOMAIN: example.invalid`, RFC 5737 addresses), then grep the rendered output for any value from the real environment. | Level-0 static verification, every PR | A literal that escaped the ConfigSet | **Specified, not implemented** |
-| 2 | **`homelab.yaml.example` completeness.** Every key the render requires appears in the example file with a `REPLACEME-` or clearly synthetic value. | Level-0, every PR | A new required key that a fork cannot discover | **Specified, not implemented — and fails on `main` today** |
+| 1 | **Render with a synthetic ConfigSet.** Render every chart and manifest against an environment whose values are all synthetic (`DOMAIN: example.invalid`, RFC 5737 addresses), then grep the rendered output for any value from the real environment. Paired with `homelab config guard` over the repository's own source. | Level-0 static verification, every PR | A literal that escaped the ConfigSet | **Specified, not implemented** |
+| 2 | **`homelab.yaml.example` completeness.** Every key the render **or the bootstrap** requires appears in the example file with a `REPLACEME-` or clearly synthetic value. | Level-0, every PR | A new required key that a fork cannot discover | **Specified, not implemented — and fails on `main` today** |
 | 3a | **The cold documented Kind path.** A clean clone with no cache and no local state: `task localdev:up` → `localdev:wait` → `localdev:report` → `localdev:down`, each timed, followed by an assertion that the cluster is actually gone. | Weekly cron and on demand | Documentation drift, "works because it was already installed", a teardown that only works after a clean run | **Automated and passing** in [`.github/workflows/fork-path-cold.yml`](../../.github/workflows/fork-path-cold.yml) — `18m 55s` cold, 2026-09-25 |
-| 3b | **The production bootstrap on foreign hardware.** A filled-in ConfigSet and `task setup -- --environment homelab`, on a machine holding none of the maintainer's credentials. | Before a declared platform milestone | Undeclared physical prerequisites, secret-store and identity assumptions, anything the Kind path cannot reach | **Never executed** |
+| 3b | **The production bootstrap on foreign hardware.** A filled-in ConfigSet and `task setup -- --environment homelab`, on a machine holding none of the maintainer's credentials **and not in this cluster's topology**. | Before a declared platform milestone | Undeclared physical prerequisites, secret-store and identity assumptions, anything the Kind path cannot reach, a shape that only this cluster has | **Never executed** |
+| 4 | **Bootstrap key resolution.** The bootstrap resolves every operator-specific value from the ConfigSet and exits non-zero naming the missing key — every missing key, not the first one. | Runtime, in the Go CLI; exercised by 3b | A value the bootstrap needs that no render requires, so checks 1–2 never see it | **Specified, not implemented** |
 
 Checks 1 and 2 are static and belong in the existing level-0 gate, so a violation fails a pull
 request rather than being found by a stranger months later. Neither is built yet:
@@ -74,6 +76,12 @@ against — `configuration/environments/` holds only `defaults.yaml`, `homelab.y
 synthetic environment, but it uses `homelab.local` and `127.0.0.x` rather than the
 `example.invalid` and RFC 5737 values check 1 specifies. Tracked in
 [homelab#360](https://github.com/ryanmcafee/homelab/issues/360).
+
+Check 4 is mechanical too, but it runs inside the Go CLI rather than in level 0, and 3b is what
+exercises it. It is not built either: ADR-037 records that the resolver it needs already exists —
+`internal/config/eval.go` collects `required key %q is missing or empty` for every missing key —
+so what is missing is the wiring from the bootstrap to that resolver, and the exposure of the
+bootstrap's required-key set as data so check 2 can consume it rather than fork the list.
 
 Check 3 was one check until ADR-033. It read "the documented bootstrap", which in this repository
 means either `task localdev:up` (Kind, Docker only) or `task setup -- --environment homelab`
@@ -128,6 +136,10 @@ Dated, because a check's status is a claim about the past and decays.
   reaches 10 of 16 prerequisites with no hardware present and stops at the `proxmox` row. The
   blocker is hardware and secret access, not effort or priority, and it is escalated as a budget
   question in its own right rather than folded into this document.
+- **4 — specified 2026-09-25, not implemented.** Added by ADR-037 on the same day, so it has
+  never run and no fork has been caught by it. The resolver it will call already exists and is
+  covered; the unwritten part is the bootstrap calling it. Read this row as a commitment, not as
+  coverage.
 
 This section says so plainly because a named check that has never been executed is worse than an
 unnamed one: the table's format invites a reader to assume a listed check has passed. Recording
@@ -136,18 +148,57 @@ the gap is not contingent on the gap being funded (ADR-033).
 Neither 3a nor 3b substitutes for the other. "The fork path is green" is not a statement anyone
 may make without naming which half they mean.
 
+### The scan scope is part of the check (ADR-037)
+
+Check 1's real scope is two lists in `internal/config/guard.go`: `DefaultGuardPathspecs` and
+`guardScanExtensions`. The rule above says "no file in this repository"; the scan sees only what
+those lists admit. **Any file type or directory outside them is unenforced, whatever this
+document says.** Go source was outside both until ADR-037, which is how a defaulted node name in
+`cmd/homelab/commands/talos.go` sat in a file the gate could not read.
+
+Three standing conditions follow:
+
+- Adding a language or a top-level directory to the repository means adding it to the scan.
+  A new unscanned directory is a silent hole, not a deferred task.
+- **`DefaultGuardPathspecs` and the `config-guard` hook in `.pre-commit-config.yaml` are one
+  scope expressed twice and must be changed in the same commit.** `internal/config/guard.go`
+  says so in a comment at the list itself, and the hook is the half a contributor meets first:
+  its `types_or` admits no `go` and its `files:` pattern names neither `cmd/`, `internal/` nor
+  `terragrunt/`. Widening one and not the other produces a gate that passes locally and fails in
+  CI — or, worse, the reverse.
+- The synthetic ConfigSet for check 1 must use RFC 5737 values **distinct from** those in
+  `configuration/environments/homelab.yaml.example`, which carries plausible RFC 1918 addresses
+  (`192.168.1.x`). If the two overlap, the grep cannot tell a leaked real value from a placeholder.
+
+### Values are parameterised; so is shape
+
+Checks 1, 2 and 4 all verify that operator-specific *values* come from the ConfigSet. They do not
+verify that the cluster's *shape* does. `homelab.yaml.example` names `CP1_IP`, `CP2_IP`, `CP3_IP`
+and states no count, so a fork with one or five control-plane nodes cannot express its topology
+even with every value correctly externalised — the three keys are individually required, so the
+shape is fixed at three whatever the values are. ADR-035 makes the count derive from the
+`^CP[0-9]+_IP$` key set instead, which turns listing your control plane into the act that states
+your topology; check 3b's non-matching topology is what proves it works. Note the failure mode
+this section is really about: a *pattern* of required keys encodes a shape just as firmly as a
+literal does, and no value-level check can see it.
+
 ## Who owns the check
 
 | Check | Owner |
 |---|---|
-| 1 and 2 (static, in level 0) | **SRE & Observability Engineer** — owner of CI quality gates |
+| 1 and 2 (static, in level 0), and the scan scope | **SRE & Observability Engineer** — owner of CI quality gates |
 | 3a (the cold Kind workflow, and the docs it validates) | **DX & Docs Advocate** — owner of fork-path validation and the ambassador funnel |
 | 3b (the hardware run, and its written result) | **DX & Docs Advocate** runs it; **Senior Platform Engineer (GitOps & Infrastructure)** supplies the bootstrap path and prerequisites it exercises |
+| 4 (bootstrap key resolution) | **Senior Platform Engineer** — owner of the bootstrap path |
 | The rule itself, and adjudicating a claimed exception | **Principal Platform Architect** |
 
 Naming an owner is the point. A rule everybody agrees with and nobody runs is a rule that is
 not enforced — and splitting check 3 is what lets 3a's owner be accountable for a check they can
 actually run, instead of carrying one they cannot.
+
+One check, one owner. An issue or acceptance criterion that assigns "the fork-ability gate" to a
+single person is malformed — it resolves to either two owners or none. Split it by check against
+this table.
 
 ## Review conditions
 

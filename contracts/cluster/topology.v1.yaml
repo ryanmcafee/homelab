@@ -1,0 +1,302 @@
+# Control-plane topology and the etcd quorum rule, v1.
+#
+# Normative. Reasoning and decision: ADR-035 in docs/project_notes/decisions.md.
+#
+# This file exists because the same safety rule has two consumers in two languages:
+#
+#   - Go:         `homelab talos recreate` (cmd/homelab/commands/talos.go), the
+#                 distributable CLI path — ADR-031.
+#   - TypeScript: scripts/cp-storage-migrate.ts, repository scripting — ADR-005.
+#
+# Neither is slated to move. Under ADR-031 a second implementation of shared logic is a
+# review failure, and this is the rule that decides whether it is safe to destroy a
+# control-plane node. So the rule lives here as data and both sides read it. A constant
+# in either language that restates a value from this file is rejected at review.
+#
+# What is deliberately NOT here: parsing `talosctl etcd status` output. That is an
+# adapter to one release of one CLI's human-readable table, it is private to whichever
+# binary shells out, and two of them are acceptable. See ADR-035.
+
+version: 1
+
+# ---------------------------------------------------------------------------
+# Topology. The count is operator configuration, not a repository constant:
+# a fork is not required to have this cluster's shape (ADR-029, ADR-037).
+# ---------------------------------------------------------------------------
+controlPlane:
+  # The expected member count is DERIVED from the ConfigSet's control-plane address
+  # keys. There is deliberately no CONTROL_PLANE_COUNT key: the address list already
+  # states the control plane, and a second key stating the same fact can disagree with
+  # the first. An operator who adds a node and forgets to bump a count would get a
+  # guard refusing to proceed on a healthy cluster — the failure this contract exists
+  # to prevent. One fact, one source.
+  countSource: config-set-key-pattern
+  countKeyPattern: "^CP([0-9]+)_IP$"
+  # Resolution is a count of DISTINCT matching keys carrying a non-empty value. A key
+  # present with an empty value is indeterminate, not zero, and fails closed below.
+  # Ordinals need not be contiguous: CP1/CP2/CP5 is three members, not five.
+  countRequired: true
+  # MERGE CONDITION on #39, tracked in ADR-035. As of this revision
+  # configuration/schema/network.schema.yaml declares CP1_IP, CP2_IP and CP3_IP as
+  # three individually required scalars, so the pattern above resolves to exactly 3
+  # for every fork — parameterised in form, constant in effect, which is worse than an
+  # honest constant. The schema must admit the pattern with CP1_IP required and higher
+  # ordinals optional before a consumer may rely on this field.
+  #
+  # WHAT `false` MEANS, NORMATIVELY: no declared consumer may implement the
+  # countKeyPattern derivation while this flag is false. A consumer that ships the
+  # derivation early is parameterised in form and fixed at 3 in effect, and the
+  # fixedness is now invisible — strictly worse than the constant it replaced. This is
+  # enforced, not advisory: scripts/topology-contract_test.ts greps every
+  # `consumers[].path` and fails if any of them references countKeyPattern or a
+  # CP[0-9]+_IP-shaped regex while this flag is false. Flipping it to `true` belongs in
+  # the same commit as the network.schema.yaml pattern change, and that commit is what
+  # releases the consumers to implement the derivation.
+  countSourceSchemaReady: false
+  # Odd only. An even member count adds a failure to tolerate without adding a
+  # failure it can survive, and it is nearly always a mistake rather than a choice.
+  permittedCounts: [1, 3, 5, 7]
+  # Single-member control planes have no fault tolerance at all. Permitted, because a
+  # one-node homelab is a real and supported fork, but the guard must say so out loud
+  # rather than report a healthy cluster.
+  degradedCounts: [1]
+
+# ---------------------------------------------------------------------------
+# The quorum rule. `quorum` is the minimum number of members that must be present
+# for the cluster to accept writes; `maxUnavailable` is how many a destructive
+# operation may take away and still leave quorum.
+# ---------------------------------------------------------------------------
+quorum:
+  formula: floor(count / 2) + 1
+  maxUnavailableFormula: count - quorum
+  # Worked values, asserted by each consumer's conformance test against this file.
+  # A consumer that computes a different number for any row here fails its test.
+  table:
+    - { count: 1, quorum: 1, maxUnavailable: 0 }
+    - { count: 3, quorum: 2, maxUnavailable: 1 }
+    - { count: 5, quorum: 3, maxUnavailable: 2 }
+    - { count: 7, quorum: 4, maxUnavailable: 3 }
+  # A count of 1 has maxUnavailable 0, so no removal is ever survivable on it. That is
+  # not a quorum error to report and retry: recreating the only etcd member is a
+  # snapshot-restore operation, not a member removal, and it has its own procedure. The
+  # guard must refuse and say which procedure applies, rather than emit bare arithmetic.
+  removalOfLastMember: refuse
+  removalOfLastMemberGuidance: >-
+    Recreating a single-member control plane is a restore, not a removal: take a
+    snapshot, recreate the node, restore. See docs/runbooks/talos-upgrade.md.
+
+# ---------------------------------------------------------------------------
+# The health conditions. These are atoms: each is true or false of an observed member
+# set. They are composed into the named predicates below, and a consumer evaluates a
+# predicate, never a loose condition. The atoms were previously encoded only in
+# scripts/cp-storage-migrate.ts `etcdHealth` (L476).
+#
+# Scope: a predicate declares whether its conditions are evaluated over every expected
+# member or only over the members that answered. A condition says nothing about scope
+# on its own. "Expected member" means a member of etcd's own membership — see
+# health.memberSetSource — never an address the consumer happened to dial.
+# ---------------------------------------------------------------------------
+health:
+  # WHERE THE MEMBER SET COMES FROM. This is the first thing a consumer implements and
+  # the easiest thing to get wrong, so it is stated before any condition that reads it.
+  #
+  # The observed member set is *etcd's own membership*: the member list etcd itself
+  # reports, from `EtcdStatus`/`MemberList` obtained from at least one reachable
+  # endpoint. It is NOT the set of addresses the consumer dialled, and it is not the
+  # set of addresses derived from the ConfigSet.
+  #
+  # The derived count (controlPlane.countKeyPattern) is the *expectation compared
+  # against* that set. It must never be the enumeration used to build it. If a consumer
+  # derives 3 addresses, dials those 3, and then asserts that 3 answered, `member-count`
+  # is a tautology that validates its own derivation and can never fail.
+  #
+  # The failure this forbids, worked: a real 5-member control plane whose CP4_IP and
+  # CP5_IP are absent from the ConfigSet and whose nodes are already down. A consumer
+  # that enumerates from the ConfigSet derives 3, dials 3, finds 3 healthy, computes
+  # quorum 2 and consents to a removal. Destroying one leaves 2 members of a real quorum
+  # of 3: quorum lost, guard said yes. Reading membership from etcd surfaces 5 expected
+  # and 2 unreachable, `member-count` fails, and the guard refuses.
+  memberSetSource:
+    observed: etcd-membership
+    api: EtcdStatus/MemberList
+    minimumReachableEndpoints: 1
+    # If no endpoint answers, the member set is unknown, not empty. Unknown is
+    # indeterminate, and `evaluation.onIndeterminate` makes that unsafe. A consumer that
+    # treats "nobody answered" as "zero members" turns a total outage into a count
+    # mismatch, or worse, into a vacuous truth.
+    onNoReachableEndpoint: indeterminate
+    derivedCountRole: expectation-compared-against-observed
+  conditions:
+    - id: member-count
+      rule: >-
+        The number of members in etcd's own membership (health.memberSetSource) equals
+        the count derived from the control-plane address keys
+        (controlPlane.countKeyPattern), and every one of those members answered. The
+        derived count is the expectation; etcd's membership is the observation. A
+        consumer that counts only the endpoints it chose to dial has not evaluated this
+        condition, it has restated its own input.
+    - id: quorum-present
+      rule: >-
+        The number of members that answered is at least quorum(count), and the number
+        of members in etcd's membership that did not answer is at most
+        maxUnavailable(count), both taken from the quorum table for the derived count.
+        This is the condition that consumes the quorum rule; without it the table is
+        data no predicate reads.
+    - id: absences-are-declared
+      rule: >-
+        Every expected member that did not answer is a declared target of the operation
+        in progress. An unexplained absence is a second failure the operator did not ask
+        for, and is never tolerated by any predicate — one target absent is a procedure
+        in flight, one target plus one stranger is a degraded cluster.
+    - id: no-errors
+      rule: No member reports a non-empty ERRORS field.
+    - id: no-learners
+      rule: No member is a learner. A learner does not vote and does not count toward quorum.
+    - id: single-leader
+      rule: Exactly one member reports itself leader.
+    - id: raft-index-converged
+      rule: >-
+        Every member's RAFT INDEX is within `raftIndexTolerance` of the highest observed
+        index. Members are queried at slightly different moments on a cluster that keeps
+        writing, so exact equality is not a usable gate; a member many indices behind is
+        still catching up and must not be counted as caught up.
+
+  # How far behind the highest RAFT INDEX a member may be and still count as matching.
+  # Changing this number is a contract change (ADR-030), not an edit to a constant.
+  raftIndexTolerance: 10
+
+  # -------------------------------------------------------------------------
+  # The named predicates. A destructive procedure passes through states where the
+  # cluster is deliberately not whole, so one predicate cannot serve every gate: a
+  # guard that demands `whole` immediately before the removal, or on resume after a
+  # crash, is unsatisfiable by construction and aborts mid-procedure — producing the
+  # degraded control plane it exists to prevent. Two predicates, and each evaluation
+  # point names the one it uses.
+  # -------------------------------------------------------------------------
+  predicates:
+    - id: whole
+      summary: Every expected member is present and converged.
+      evaluatedOver: expected-members
+      conditions:
+        - member-count
+        - no-errors
+        - no-learners
+        - single-leader
+        - raft-index-converged
+      rule: >-
+        The gate for entering and for leaving a destructive procedure. Nothing is
+        destroyed unless the cluster was whole beforehand, and the procedure is not
+        reported successful until it is whole again.
+
+    - id: survivable
+      summary: >-
+        Quorum holds, every member that answered is converged, and the only members
+        absent are the ones this operation declared it would take away.
+      evaluatedOver: answering-members
+      conditions:
+        - quorum-present
+        - absences-are-declared
+        - no-errors
+        - no-learners
+        - single-leader
+        - raft-index-converged
+      rule: >-
+        The gate at the revalidation point and on resume, where the target is already
+        gone or about to be. It is strictly weaker than `whole` in exactly one way — it
+        tolerates the declared target's absence — and no weaker in any other: an absent
+        member that is not a declared target, or more absences than maxUnavailable,
+        is unsafe, and every member that did answer must satisfy every other condition.
+      resumeSemantics: >-
+        This is what makes the idempotent re-run decidable. After a crash between
+        "member removed" and "node rejoined", the target is absent and declared, so
+        `survivable` holds and the run resumes at the next step. If some other member
+        is also absent, `survivable` fails and the run refuses — which is correct,
+        because that cluster has a failure the operator has not seen yet. A guard an
+        operator must bypass to finish a legitimate recovery is not a guard.
+
+# ---------------------------------------------------------------------------
+# Failure semantics. Stated explicitly because the caller is destructive and the
+# cost of the two error directions is not symmetric.
+# ---------------------------------------------------------------------------
+evaluation:
+  # Unparseable output, a member that does not answer, an empty or unresolvable
+  # control-plane address set,
+  # or any condition that cannot be evaluated all mean "not safe to proceed".
+  # Silence is never consent on a path that destroys a node.
+  onIndeterminate: unsafe
+  # The check is a point-in-time observation of a cluster that keeps changing. It is
+  # advisory against a race with an unrelated concurrent failure, and authoritative
+  # against the failure it exists to prevent: acting on a control plane that was
+  # already degraded before anyone touched it.
+  guarantee: point-in-time, fail-closed
+  # A consumer must re-evaluate immediately before the destructive step, not once at
+  # the start of a multi-step procedure.
+  revalidateBeforeDestructiveStep: true
+
+  # THE OBSERVATION BOUND. `revalidateBeforeDestructiveStep: true` is meaningless
+  # without one: an observation that took four minutes to gather is not "immediately
+  # before" anything, and a consumer with no deadline can block indefinitely on a
+  # wedged endpoint and then act on a reading older than the fault it was meant to
+  # catch. So the contract bounds the window rather than leaving it to the caller.
+  #
+  # maxObservationAgeSeconds  — the evaluation is stale once this much wall clock has
+  #                             passed since the member set was read. A stale result is
+  #                             indeterminate, therefore unsafe; it is never reused.
+  # observationDeadlineSeconds — the consumer MUST set a context deadline no longer
+  #                             than this on the whole member-set read, including every
+  #                             endpoint dial and retry. Exceeding it is a failure to
+  #                             observe, which is indeterminate, not "no members".
+  #
+  # The two are separate on purpose: the first bounds how old an answer may be when it
+  # is acted on, the second bounds how long the consumer may wait for one.
+  maxObservationAgeSeconds: 30
+  observationDeadlineSeconds: 10
+
+  # A KNOWN MISATTRIBUTION, stated so a consumer reports it honestly. The Go consumer
+  # reaches etcd through Talos `apid` (pkg/machinery), so "did not answer" conflates two
+  # different faults: etcd is down, and etcd is healthy behind a wedged or unreachable
+  # apid. Both are indeterminate and both refuse — fail-closed is correct either way —
+  # but the operator must not be told the control plane is degraded when the transport
+  # is. A consumer reports the transport error it actually got, and never flattens a
+  # dial or deadline failure into "N member(s) answered".
+  transportFailureIsNotMemberFailure: true
+
+  # Where each predicate applies. This mapping is the contract, not a suggestion: a
+  # consumer that evaluates `whole` at `before-destructive-step` aborts every
+  # procedure, and one that evaluates `survivable` at `preflight` consents to starting
+  # on a cluster that was already one member short before anybody touched it.
+  points:
+    - id: preflight
+      predicate: whole
+      rule: Before anything is drained, tainted, removed or destroyed.
+    - id: before-destructive-step
+      predicate: survivable
+      rule: >-
+        Immediately before the member removal, with the outgoing member declared as the
+        target. Re-evaluated here even if preflight passed seconds ago.
+    - id: resume
+      predicate: survivable
+      rule: >-
+        On a re-run that finds the declared target already absent from the member list.
+        The run skips the removal and continues; it never removes a second member.
+    - id: completion
+      predicate: whole
+      rule: >-
+        After the replacement rejoins. Success means the cluster is whole again, not
+        that a kubelet reported Ready.
+
+# ---------------------------------------------------------------------------
+# Consumers. Each carries a conformance test asserting its behaviour against the
+# `quorum.table` rows, the `health.predicates` and the `evaluation.points` mapping
+# above (ADR-030's shape: the checker is tested, not trusted). A consumer that
+# implements only one predicate is not conformant, however careful that predicate is.
+# ---------------------------------------------------------------------------
+consumers:
+  - id: homelab-cli
+    language: go
+    path: cmd/homelab/commands/talos.go
+    role: Control-plane node recreate guard (#39).
+  - id: cp-storage-migrate
+    language: typescript
+    path: scripts/cp-storage-migrate.ts
+    role: Control-plane storage migration pre/post-flight.
