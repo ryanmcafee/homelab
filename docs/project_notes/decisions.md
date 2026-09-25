@@ -883,15 +883,13 @@ Each decision should include:
 - Two checks means two owners and one more row in the owner table. Two owners who can each run their own check beats one owner who cannot run half of theirs
 - 3a passing says nothing about 3b. Nobody may write "the fork path is green" without naming which half they mean
 
-> **Numbering note (2026-09-25).** `ADR-034` and `ADR-036` are allocated to pull requests that
-> are open and unmerged at the time these two land: `034` to
+> **Numbering note (2026-09-25).** `ADR-034` is allocated to
 > [#368](https://github.com/ryanmcafee/homelab/pull/368) (the generated deployment DAG contract
-> for #53a), whose number is already published in backlog v3.2 and in a completed second review,
-> and `036` to [#372](https://github.com/ryanmcafee/homelab/pull/372) (the triage-agent
-> alert→fix→Pushover DAG). The gap is an allocation, not a lost decision. It is recorded as a
-> blockquote rather than a reserved `### ADR-0xx` stub on purpose: a stub is a heading, and a
-> heading is what produces a duplicate ADR number when the real one merges — which is exactly the
-> hazard this file hit when #365 landed `033`.
+> for #53a), a pull request that is open and unmerged at the time this one lands; its number is
+> already published in backlog v3.2 and in a completed second review. The gap is an allocation,
+> not a lost decision. It is recorded as a blockquote rather than a reserved `### ADR-0xx` stub
+> on purpose: a stub is a heading, and a heading is what produces a duplicate ADR number when the
+> real one merges — which is exactly the hazard this file hit when #365 landed `033`.
 
 ### ADR-035: Cluster topology and the etcd quorum rule are a data contract, not ported code (2026-09-25); applies ADR-031 to #39
 
@@ -959,6 +957,29 @@ Each decision should include:
 - `configuration/environments/single-node.yaml.example` is committed, and it is the part that was missing rather than merely unwritten. Before it, every environment file in the repository declared three control-plane addresses, so **no test had ever rendered a topology that was not this cluster's** — without it the schema's fixed shape would simply have moved into the test matrix. `TestSyntheticTopologiesRenderEveryTemplate` covers counts 3, 5 and 7 alongside it
 - **Blank is not zero (2026-09-25 ruling, MCAA-118).** Omitting a higher ordinal means a smaller control plane; declaring `CPn_IP` and leaving it blank is indeterminate and refuses the whole set, per `evaluation.onIndeterminate: unsafe`. The two are not interchangeable because this value gates a destructive operation (#39): "I am shrinking to two" and "I have not filled this in yet" are both honest readings of a blank, and the resolver may not pick one silently
 - One scope note for the ADR-037 owner: `examplePlaceholderSubnets` in `internal/config/guard.go` gained RFC 5737 TEST-NET-1 (`192.0.2.0/24`), because the one-node fixture must not reuse `homelab.yaml.example`'s RFC 1918 range. Only TEST-NET-1 was added; TEST-NET-2/3 stay out so the existing "public address is not a placeholder" case on `203.0.113.10` keeps its meaning
+
+### ADR-036: An in-cluster alert triage agent that fixes through pull requests, as an Argo Workflows DAG (2026-09-25)
+
+**Context:**
+- Every alert so far was root-caused and fixed by hand from a workstation: read the alert, read the cluster through `homelab-readonly`, change the repository, run the checks, open a PR
+- The read-only identity (`charts/agent-readonly`), the repository's agent instructions and level-0 checks already make that safe to automate; the goal is a fix PR on the phone with no human in the loop until review
+
+**Decision:**
+- An intake (`triage-agent serve`) receives every alert (Alertmanager webhook with `continue: true`, plus a sweep of `/api/v2/alerts`), groups and dedupes it with a 24h cooldown and submits one Workflow per group from the `triage-fix` WorkflowTemplate
+- The DAG shifts verification left: triage -> plan -> implement -> deterministic verify (the repository's own tasks, bounded 3-attempt loop with the log fed back) -> commit -> PR (force-with-lease, update the open PR of the branch) -> CI watch (bounded 2-round loop, then draft + `triage-agent/needs-human`) -> onExit Pushover notification. Only triage, plan and implement call the model
+- The cluster stays read-only: steps run as a ServiceAccount bound to `view` + `homelab-agent-readonly`; a PreToolUse hook denies mutating kubectl, `gh pr merge`, pushes to main and Alertmanager/Prometheus writes. `argocd app sync` is allowed through a dedicated ArgoCD account limited to get + sync; force pushes to non-main branches are allowed
+- The user's global instructions come from the private dotfiles repository at runtime, never from this public repository
+
+**Alternatives Considered:**
+- One long agent run per alert (the first draft of this PR) -> no retries per stage, no deterministic gate, and the model would decide when checks passed
+- Paperclip agents -> built for issue work, not for reacting to Alertmanager; a separate path keeps alert triage independent of Paperclip's health
+- Report only -> leaves the fix to a human at a keyboard, which is what the feature exists to avoid
+
+**Consequences:**
+- Each new alert group costs up to five model runs on the subscription; the semaphore (1 workflow), the mutex per alertname and the cooldown bound it
+- The fine-grained PAT can technically merge; the deny hook and review are what keep merging human
+- exec and in-cluster `curl` GETs stay trust-based (docs/runbooks/triage-agent.md, Security model)
+- Workflows share one 100Gi workspace claim (a directory per workflow) instead of per-workflow claims: the NFS class retains every released PV, so per-workflow claims would leak a TrueNAS dataset per run; the price is a janitor in the intake that must keep deleting finished directories, watched by its own alerts
 
 ### ADR-037: The fork-ability gate's scope is what it can actually scan; Go source is outside it (2026-09-25); refines ADR-029
 **Context:**

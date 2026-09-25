@@ -3,7 +3,7 @@
 Every firing alert becomes an Argo Workflow that diagnoses it with Claude, plans and implements a
 fix in this repository, verifies it with the repository's own checks, opens a pull request,
 watches CI and sends the result to your phone through Pushover. The cluster changes only when
-you merge the pull request (ADR-033).
+you merge the pull request (ADR-036).
 
 | Piece | Where |
 |---|---|
