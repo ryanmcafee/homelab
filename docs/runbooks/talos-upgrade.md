@@ -226,9 +226,16 @@ join (`ryanmcafee/homelab#39`).
 
 Step 4 is the one to understand before you run it:
 
-- If the node is **not** an etcd member — a worker, or a control plane whose member an
-  earlier failed run already removed — the step is a no-op and says so. Re-running the
-  command is therefore safe: it will never remove a second member.
+- If the node is **not** an etcd member the step removes nothing and says so, so re-running
+  the command is always safe: it will never remove a second member. The two reasons a node
+  is not a member get different endings, and the log tells you which one you are in:
+  - **A worker** (its address is not one of the `CP<n>_IP` keys) never had a member. Step 9
+    is skipped too — there is nothing to rejoin.
+  - **A control plane that is missing from the member list** means an earlier run removed it
+    and died before the node rejoined. The command announces that it is resuming and still
+    waits in step 9 for the member count to come back, because the cluster is sitting at
+    N-1 until it does. A resumed run has no snapshot of its own; the one to keep is from the
+    run that did the removal.
 - It **refuses**, non-zero, if removing the member would leave etcd without a quorum, or if
   the surviving members are unhealthy, learners, or more than `--raft-tolerance` (10) raft
   indices behind the leader. The message names the member and the arithmetic. Nothing is
@@ -315,7 +322,10 @@ ls -lh ./etcd-snapshots               # the snapshot the run took before removin
 
 **The safe move in every case is to re-run the same command.** It is idempotent by
 construction: it looks the member up by IP and skips the removal when it is already gone, so
-a second run finishes the replacement rather than compounding the damage.
+a second run finishes the replacement rather than compounding the damage. The re-run still
+holds the full bar — it exits non-zero unless etcd is back to its expected member count and
+passing the health gate, so a green resume means the control plane is whole, not just that
+the node came back Ready.
 
 ```bash
 task talos:recreate:node NODE=cp-2
