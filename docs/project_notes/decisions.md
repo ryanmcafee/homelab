@@ -1101,7 +1101,7 @@ Each decision should include:
 - The cutover needs the renamed keys in `homelab.yaml` and the 1Password `homelab-environment-config` document before merge; there is a short gap between Traefik's Services being pruned and Envoy's receiving the freed addresses (`docs/runbooks/envoy-gateway.md`)
 - The Istio gateways cost two small Deployments and two pool addresses; remove `charts/istio-gateways` once the comparison is done
 
-### ADR-040: Schema loading is fail-closed; an unreadable schema file stops the resolve rather than shrinking it (2026-09-25); repairs ADR-028
+### ADR-042: Schema loading is fail-closed; an unreadable schema file stops the resolve rather than shrinking it (2026-09-25); repairs ADR-028
 
 **Context:**
 - ADR-028's guarantee is that a missing required key fails at resolve rather than rendering somebody else's topology. `internal/config/schema.go` `LoadSchemaDir` did the opposite: it `continue`d past any `*.schema.yaml` it could not load, with the comment "Skip invalid files in directory mode (e.g. test fixtures)"
