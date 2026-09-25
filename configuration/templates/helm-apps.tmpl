@@ -141,10 +141,10 @@ plex:
     resources:
       requests:
         cpu: 4000m
-        memory: 1216Mi
+        memory: 8Gi
       limits:
         cpu: 4000m
-        memory: 1920Mi
+        memory: 8Gi
 {{- end }}
     # NOTE: gpu.intel.com/xe resource limit intentionally NOT set yet.
     # The intel-gpu-device-plugin DaemonSet is Running on talos-lz1-3u1 but is

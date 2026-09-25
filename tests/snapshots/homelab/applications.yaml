@@ -1542,10 +1542,10 @@ spec:
           resources:
             limits:
               cpu: 4000m
-              memory: 1920Mi
+              memory: 8Gi
             requests:
               cpu: 4000m
-              memory: 1216Mi
+              memory: 8Gi
           storageClassName: democratic-csi-iscsi
         extraVolumes:
           - name: movies
