@@ -646,6 +646,67 @@ spec:
                       summary: 'Probe {{`{{ $labels.target }}`}} takes {{`{{ $value | humanizeDuration }}`}}'
                       description: '{{`{{ $labels.instance }}`}} has taken more than 2 s for 10m; compare the -ingress and -direct probes to find the slow hop.'
           {{- end }}
+          # Paperclip agents (docs/runbooks/paperclip-agents.md). Memory from
+          # cAdvisor and kube-state-metrics; the rest from charts/paperclip's exporter.
+          homelab-paperclip:
+            groups:
+              - name: homelab-paperclip
+                rules:
+                  - alert: PaperclipMemoryNearLimit
+                    expr: 'max by (namespace, pod) (container_memory_working_set_bytes{namespace="paperclip", container="paperclip"}) / max by (namespace, pod) (kube_pod_container_resource_limits{namespace="paperclip", container="paperclip", resource="memory"}) > 0.85'
+                    for: 5m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: 'Paperclip {{`{{ $labels.pod }}`}} uses {{`{{ $value | humanizePercentage }}`}} of its memory limit'
+                      description: 'Above 85 % for 5m. Agent runs are child processes of the pod, so reaching the limit kills runs or the whole server; docs/runbooks/paperclip-agents.md.'
+                  - alert: PaperclipMemoryNearLimit
+                    expr: 'max by (namespace, pod) (container_memory_working_set_bytes{namespace="paperclip", container="paperclip"}) / max by (namespace, pod) (kube_pod_container_resource_limits{namespace="paperclip", container="paperclip", resource="memory"}) > 0.95'
+                    for: 2m
+                    labels:
+                      severity: critical
+                    annotations:
+                      summary: 'Paperclip {{`{{ $labels.pod }}`}} is at its memory limit ({{`{{ $value | humanizePercentage }}`}})'
+                      description: 'Above 95 % for 2m: the next allocation is OOM-killed. Pause agents now; docs/runbooks/paperclip-agents.md.'
+                  - alert: PaperclipOOMKilled
+                    expr: 'increase(kube_pod_container_status_restarts_total{namespace="paperclip", container="paperclip"}[15m]) > 0 and on (namespace, pod, container) kube_pod_container_status_last_terminated_reason{namespace="paperclip", container="paperclip", reason="OOMKilled"} == 1'
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: 'Paperclip {{`{{ $labels.pod }}`}} was OOM-killed and restarted'
+                      description: 'Every agent run in flight was lost with the process. docs/runbooks/paperclip-agents.md.'
+                  - alert: PaperclipMetricsUnavailable
+                    expr: 'min by (namespace) (paperclip_up) == 0 or min by (namespace) (up{job="paperclip-exporter"}) == 0'
+                    for: 15m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: 'The Paperclip exporter cannot read the Paperclip API'
+                      description: 'The agent alerts of this group are blind. The exporter log names the endpoint and HTTP status; 401/403 means the paperclip-exporter 1Password item is missing or its key was revoked.'
+                  - alert: PaperclipAgentFailureRateHigh
+                    expr: 'sum by (company_id, company) (paperclip_agent_runs_finished{status=~"failed|interrupted|timed_out"}) / sum by (company_id, company) (paperclip_agent_runs_finished) > 0.2 and sum by (company_id, company) (paperclip_agent_runs_finished) >= 5'
+                    for: 15m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: '{{`{{ $value | humanizePercentage }}`}} of agent runs in {{`{{ $labels.company }}`}} failed in the last hour'
+                      description: 'More than 20 % of at least 5 runs finished in the last hour failed, were interrupted or timed out. paperclip_agent_runs_errors names the error codes; docs/runbooks/paperclip-agents.md.'
+                  - alert: PaperclipRecoveryRateBreached
+                    expr: 'max by (company_id, company) (paperclip_recovery_rate_percent) and on (company_id, company) max by (company_id, company) (paperclip_recovery_breached) == 1'
+                    for: 30m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: 'Paperclip recovery rate in {{`{{ $labels.company }}`}} is {{`{{ $value }}`}} % this week'
+                      description: 'Paperclip reports its recovery-observability threshold (paperclip_recovery_threshold_percent) breached for the current week. docs/runbooks/paperclip-agents.md.'
+                  - alert: PaperclipPhantomAgentStuck
+                    expr: 'max by (company_id, company) (paperclip_agents_phantom_running) > 0'
+                    for: 15m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: '{{`{{ $value }}`}} agents in {{`{{ $labels.company }}`}} report running without a live run'
+                      description: 'Agents stuck in status running with no queued or running heartbeat run for 15m. docs/runbooks/paperclip-agents.md.'
           {{- if .Values.istio.enabled }}
           # Service mesh (docs/service-mesh.md). Metrics: charts/istio-config
           # monitors and kube-state-metrics. ztunnel and istio-cni must run on

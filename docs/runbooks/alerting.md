@@ -138,6 +138,12 @@ of samples; that is how 16 alerts stood on democratic-csi for three months while
 | homelab-network | `HomelabHubbleDropsHigh` | warning | more than 1 dropped packet/s between two namespaces for 15 m |
 | homelab-probes | `HomelabProbeFailing` | warning | a blackbox probe (paperclip-ingress, paperclip-direct) fails for 2 m ([paperclip-request-path.md](./paperclip-request-path.md)) |
 | homelab-probes | `HomelabProbeSlow` | warning | a probe takes more than 2 s for 10 m |
+| homelab-paperclip | `PaperclipMemoryNearLimit` | warning / critical | the paperclip container above 85 % of its memory limit for 5 m / above 95 % for 2 m ([paperclip-agents.md](./paperclip-agents.md)) |
+| homelab-paperclip | `PaperclipOOMKilled` | warning | the paperclip container restarted in the last 15 m and its last termination was OOMKilled |
+| homelab-paperclip | `PaperclipMetricsUnavailable` | warning | the agent health exporter cannot read the Paperclip API (or is not scraped) for 15 m |
+| homelab-paperclip | `PaperclipAgentFailureRateHigh` | warning | more than 20 % of the agent runs finished in the last hour failed, were interrupted or timed out (at least 5 runs) for 15 m |
+| homelab-paperclip | `PaperclipRecoveryRateBreached` | warning | Paperclip's recovery-observability reports this week above its threshold for 30 m |
+| homelab-paperclip | `PaperclipPhantomAgentStuck` | warning | an agent reports `running` without a live run for 15 m |
 | homelab-service-mesh | `HomelabIstiodDown` | warning | no istiod answers the scrape for 10 m ([service-mesh.md](../service-mesh.md)) |
 | homelab-service-mesh | `HomelabMeshNodeAgentNotReady` | warning | `ztunnel` or `istio-cni-node` is not ready on every node for 15 m |
 | homelab-service-mesh | `HomelabIstioXdsRejects` | warning | ztunnel or a waypoint rejects istiod's configuration for 15 m |

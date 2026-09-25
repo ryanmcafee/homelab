@@ -312,8 +312,8 @@ the release as a no-op. `tests/e2e/cilium-netpol` proves NetworkPolicy enforceme
   Traefik Service with `Host: <app>.homelab.local`, a TCP connect for mosquitto, a
   CloudNativePG Cluster, a NetworkPolicy). `tests/e2e/README.md` has the layout and the
   recipe for a new app. Paperclip runs in Kind too (operator, CloudNativePG `Cluster`
-  `paperclip-postgres` on local-path, `Instance`); its two Secrets `paperclip-auth` and
-  `paperclip-api-keys` come from `localdev/fakes/secrets.yaml`.
+  `paperclip-postgres` on local-path, `Instance`); its Secrets `paperclip-auth`,
+  `paperclip-api-keys` and `paperclip-exporter` come from `localdev/fakes/secrets.yaml`.
 
 ---
 

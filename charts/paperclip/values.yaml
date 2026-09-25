@@ -167,3 +167,25 @@ probes:
 # onboarding quickstart honours it but drops the public URL, then fails its own
 # "auth.baseUrlMode=explicit requires auth.publicBaseUrl" check.
 extraEnv: []
+
+# Agent health exporter (templates/exporter.yaml, docs/runbooks/paperclip-agents.md):
+# files/paperclip-exporter.ts run by the stock Bun image reads the REST API with
+# a board API key and serves agent run, phantom-agent and recovery metrics for
+# the homelab-paperclip alerts. The key is the PAPERCLIP_API_KEY field of
+# Secret paperclip-exporter (charts/paperclip-dependencies, localdev/fakes).
+exporter:
+  enabled: false
+  # oven/bun:<tag>, pinned in configuration/versions.yaml images.bun.
+  image: ""
+  secretName: paperclip-exporter
+  secretKey: PAPERCLIP_API_KEY
+  runWindowSeconds: 3600
+  scrapeInterval: 60s
+  scrapeTimeout: 30s
+  resources:
+    requests:
+      cpu: 10m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 192Mi

@@ -1253,6 +1253,9 @@ spec:
         admin:
           email: admin@homelab.local
           name: Admin
+        exporter:
+          enabled: true
+          image: oven/bun:1.4.2-alpine
         image:
           repository: ghcr.io/paperclipai/paperclip
           tag: 2026.916.1

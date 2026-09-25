@@ -3,8 +3,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "fmt": "biome format --write scripts",
-    "lint": "biome check scripts && tsc --noEmit -p .",
+    "fmt": "biome format --write scripts charts",
+    "lint": "biome check scripts charts && tsc --noEmit -p .",
     "test": "bun test scripts"
   },
   "dependencies": {
