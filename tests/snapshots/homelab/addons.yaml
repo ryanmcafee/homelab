@@ -5054,7 +5054,7 @@ spec:
           plugins:
             traefikoidc:
               moduleName: github.com/lukaszraczylo/traefikoidc
-              version: v1.0.32
+              version: v1.0.36
 
         logs:
           access:
