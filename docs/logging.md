@@ -114,7 +114,7 @@ The `unifi-gateway` Terragrunt unit provisions the exports when `LOGGING_ENABLED
 | Setting (controller key) | Terraform | Values |
 |---|---|---|
 | Activity logging, SIEM server (`rsyslogd`) | `unifi_setting.syslog` (`ubiquiti-community/unifi` >= 0.53) | enabled, `OTEL_LB_IP`:514, all categories; the "this controller" flags stay on |
-| NetFlow (`netflow`) | `terraform_data.netflow` running `scripts/unifi-setting.ts apply netflow` | enabled, `OTEL_LB_IP`:2055, version 10 (IPFIX); network selection and sampling untouched |
+| NetFlow (`netflow`) | `terraform_data.netflow` running `scripts/unifi-setting.ts apply netflow` | enabled, `OTEL_LB_IP`:2055, version 10 (IPFIX), `network_ids` = every enabled corporate and guest network (`--all-networks`, required by the controller); sampling untouched |
 
 ```bash
 task tf:init:component COMPONENT=unifi-gateway TF_ARGS=-upgrade   # once: provider 0.41 -> 0.56

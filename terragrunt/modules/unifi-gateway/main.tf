@@ -67,7 +67,7 @@ resource "terraform_data" "netflow" {
 
   provisioner "local-exec" {
     interpreter = concat(
-      ["bun", var.unifi_setting_script, "apply", "netflow", "--site", var.site],
+      ["bun", var.unifi_setting_script, "apply", "netflow", "--site", var.site, "--all-networks"],
       var.unifi_insecure ? ["--insecure"] : [],
       ["--data"],
     )
