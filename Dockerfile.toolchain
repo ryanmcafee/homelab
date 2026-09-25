@@ -1,6 +1,6 @@
 # Cold bootstrap gate. Run via task toolchain:check; never reuse build caches.
 # No language runtime, Docker socket, credentials or host tool cache is mounted.
-FROM ubuntu:24.04
+FROM ubuntu:24.04@sha256:008173c23f95b170204355c12626cb5a965d779a7e1283b09e9cffbb1bf33ca3
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates curl git xz-utils unzip && rm -rf /var/lib/apt/lists/*
@@ -15,12 +15,13 @@ RUN curl -fLsS https://github.com/jdx/mise/releases/download/v2026.9.13/mise-v20
     chmod +x /usr/local/bin/mise
 
 WORKDIR /repo
-# The Taskfile supplies a git-archive context: no .envrc, host caches or secrets.
+# CI and the trusted local wrapper supply only committed files via git archive.
 COPY . .
 RUN mise trust && mise install -y
 RUN mise exec -- task install-tools && \
     missing="$(mise ls --missing)" && \
     if [ -n "$missing" ]; then printf 'Tools still missing:\n%s\n' "$missing" >&2; exit 1; fi
+RUN mise exec -- task toolchain:policy
 RUN mise exec -- go test ./cmd/homelab/commands -run 'TestInstallTools|TestBootstrap'
 
 # With no Docker daemon, setup must reach tier detection and give its documented
