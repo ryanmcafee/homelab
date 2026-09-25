@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ryanmcafee/homelab/contracts/events/data/gitops.application.drifted.v1.schema.json",
+  "title": "gitops.application.drifted v1 data",
+  "description": "An ArgoCD Application's live state diverged from the desired state in Git. Evolved additively within v1: new OPTIONAL fields only. A new required field, a removed field or a retyped field is a v2.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "application",
+    "namespace",
+    "revision",
+    "driftedResourceCount"
+  ],
+  "properties": {
+    "application": {
+      "type": "string",
+      "description": "Object name.",
+      "maxLength": 253
+    },
+    "namespace": {
+      "type": "string",
+      "description": "Kubernetes namespace the object lives in.",
+      "maxLength": 253
+    },
+    "revision": {
+      "type": "string",
+      "description": "Git revision (full SHA) the desired state came from.",
+      "pattern": "^[0-9a-f]{7,40}$"
+    },
+    "driftedResources": {
+      "type": "array",
+      "maxItems": 100,
+      "description": "The diverging resources, truncated at 100. `driftedResourceCount` is the true total: an event is a notification, not a transport (subjects.v1.yaml `limits.body_rule`).",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "name"
+        ],
+        "properties": {
+          "group": {
+            "type": "string",
+            "description": "API group, empty for core.",
+            "maxLength": 253
+          },
+          "kind": {
+            "type": "string",
+            "description": "Resource kind.",
+            "maxLength": 253
+          },
+          "namespace": {
+            "type": "string",
+            "description": "Kubernetes namespace the object lives in.",
+            "maxLength": 253
+          },
+          "name": {
+            "type": "string",
+            "description": "Object name.",
+            "maxLength": 253
+          }
+        }
+      }
+    },
+    "driftedResourceCount": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Total diverging resources, which may exceed `driftedResources` length."
+    }
+  }
+}

@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ryanmcafee/homelab/contracts/events/data/workload.describe.v1.schema.json",
+  "title": "workload.deployment.describe v1 request data",
+  "description": "Synchronous request for the current observed state of a workload. Core NATS, at-most-once: THE RESPONDER MUST BE IDEMPOTENT because the requester retries on timeout and cannot distinguish a lost request from a lost reply. Evolved additively within v1: new OPTIONAL fields only. A new required field, a removed field or a retyped field is a v2.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "namespace",
+    "name"
+  ],
+  "properties": {
+    "namespace": {
+      "type": "string",
+      "description": "Kubernetes namespace the object lives in.",
+      "maxLength": 253
+    },
+    "name": {
+      "type": "string",
+      "description": "Object name.",
+      "maxLength": 253
+    },
+    "includeConditions": {
+      "type": "boolean",
+      "description": "Include the workload's status conditions in the reply. Default false; a reply is bounded by `limits.max_event_bytes` like any other message."
+    }
+  }
+}

@@ -1,128 +1,263 @@
-[
-  {
-    "type": "com.mcafeeconsulting.platform.control.bootstrap.progressed.v1",
-    "subject": "pf.<tenant>.control.bootstrap.progressed.v1.ev",
-    "pattern": "pubsub",
-    "delivery": "at_least_once",
-    "ordering": "per_subject",
-    "dataschema": "data/platform.bootstrap.progressed.v1.schema.json",
-    "requires": [
-      "correlationid"
+{
+  "version": 1,
+  "grammar": {
+    "pattern": "^pf\\.[a-z0-9][a-z0-9-]{0,62}\\.[a-z0-9]+(-[a-z0-9]+)*\\.[a-z0-9]+(-[a-z0-9]+)*\\.[a-z0-9]+(-[a-z0-9]+)*\\.v[1-9][0-9]*\\.(ev|rq|wq|dl)$",
+    "tokens": 7
+  },
+  "envelope": {
+    "required": [
+      "datacontenttype",
+      "dataschema",
+      "id",
+      "source",
+      "specversion",
+      "tenant",
+      "time",
+      "type"
     ]
   },
-  {
-    "type": "com.mcafeeconsulting.platform.gitops.application.drifted.v1",
-    "subject": "pf.<tenant>.gitops.application.drifted.v1.ev",
-    "pattern": "pubsub",
-    "delivery": "at_least_once",
-    "ordering": "per_subject",
-    "dataschema": "data/gitops.application.drifted.v1.schema.json",
-    "requires": [
-      "subject"
-    ]
-  },
-  {
-    "type": "com.mcafeeconsulting.platform.gitops.application.synced.v1",
-    "subject": "pf.<tenant>.gitops.application.synced.v1.ev",
-    "pattern": "pubsub",
-    "delivery": "at_least_once",
-    "ordering": "per_subject",
-    "dataschema": "data/gitops.application.synced.v1.schema.json",
-    "requires": [
-      "subject"
-    ]
-  },
-  {
-    "type": "com.mcafeeconsulting.platform.identity.principal.issued.v1",
-    "subject": "pf.<tenant>.identity.principal.issued.v1.ev",
-    "pattern": "pubsub",
-    "delivery": "at_least_once",
-    "ordering": "per_subject",
-    "dataschema": "data/identity.principal.issued.v1.schema.json",
-    "requires": [
-      "correlationid",
-      "subject"
-    ]
-  },
-  {
-    "type": "com.mcafeeconsulting.platform.identity.principal.revoked.v1",
-    "subject": "pf.<tenant>.identity.principal.revoked.v1.ev",
-    "pattern": "pubsub",
-    "delivery": "at_least_once",
-    "ordering": "per_subject",
-    "dataschema": "data/identity.principal.revoked.v1.schema.json",
-    "requires": [
-      "correlationid",
-      "subject"
-    ]
-  },
-  {
-    "type": "com.mcafeeconsulting.platform.infra.node.replaced.v1",
-    "subject": "pf.<tenant>.infra.node.replaced.v1.ev",
-    "pattern": "pubsub",
-    "delivery": "at_least_once",
-    "ordering": "per_subject",
-    "dataschema": "data/infra.node.replaced.v1.schema.json",
-    "requires": [
-      "subject"
-    ]
-  },
-  {
-    "type": "com.mcafeeconsulting.platform.observability.slo.burned.v1",
-    "subject": "pf.<tenant>.observability.slo.burned.v1.ev",
-    "pattern": "pubsub",
-    "delivery": "at_least_once",
-    "ordering": "per_subject",
-    "dataschema": "data/observability.slo.burned.v1.schema.json",
-    "requires": [
-      "subject"
-    ]
-  },
-  {
-    "type": "com.mcafeeconsulting.platform.workload.deployment.degraded.v1",
-    "subject": "pf.<tenant>.workload.deployment.degraded.v1.ev",
-    "pattern": "pubsub",
-    "delivery": "at_least_once",
-    "ordering": "per_subject",
-    "dataschema": "data/workload.degraded.v1.schema.json",
-    "requires": [
-      "subject"
-    ]
-  },
-  {
-    "type": "com.mcafeeconsulting.platform.workload.deployment.deployed.v1",
-    "subject": "pf.<tenant>.workload.deployment.deployed.v1.ev",
-    "pattern": "pubsub",
-    "delivery": "at_least_once",
-    "ordering": "per_subject",
-    "dataschema": "data/workload.deployed.v1.schema.json",
-    "requires": [
-      "subject"
-    ]
-  },
-  {
-    "type": "com.mcafeeconsulting.platform.workload.deployment.describe.v1",
-    "subject": "pf.<tenant>.workload.deployment.describe.v1.rq",
-    "pattern": "request_reply",
-    "delivery": "at_most_once",
-    "ordering": "none",
-    "dataschema": "data/workload.describe.v1.schema.json",
-    "requires": [
-      "correlationid",
-      "replyto",
-      "subject"
-    ]
-  },
-  {
-    "type": "com.mcafeeconsulting.platform.workload.deployment.promote.v1",
-    "subject": "pf.<tenant>.workload.deployment.promote.v1.wq",
-    "pattern": "request_reply",
-    "delivery": "at_least_once",
-    "ordering": "none",
-    "dataschema": "data/workload.promote.v1.schema.json",
-    "requires": [
-      "correlationid",
-      "subject"
-    ]
-  }
-]
+  "streams": [
+    {
+      "name": "PF_AUDIT",
+      "subjects": [],
+      "sources": [
+        {
+          "name": "PF_EVENTS",
+          "filters": [
+            "pf.*.control.*.*.*.ev",
+            "pf.*.identity.*.*.*.ev"
+          ]
+        }
+      ],
+      "retention": "limits",
+      "max_age": "8760h",
+      "discard": "new",
+      "delivery": "at_least_once",
+      "ordering": "per_subject"
+    },
+    {
+      "name": "PF_DLQ",
+      "subjects": [
+        "pf.*.*.*.*.*.dl"
+      ],
+      "sources": [],
+      "retention": "limits",
+      "max_age": "720h",
+      "discard": "old",
+      "delivery": "at_least_once",
+      "ordering": "per_subject"
+    },
+    {
+      "name": "PF_EVENTS",
+      "subjects": [
+        "pf.*.*.*.*.*.ev"
+      ],
+      "sources": [],
+      "retention": "limits",
+      "max_age": "168h",
+      "discard": "old",
+      "delivery": "at_least_once",
+      "ordering": "per_subject"
+    },
+    {
+      "name": "PF_WORK",
+      "subjects": [
+        "pf.*.*.*.*.*.wq"
+      ],
+      "sources": [],
+      "retention": "workqueue",
+      "max_age": "24h",
+      "discard": "new",
+      "delivery": "at_least_once",
+      "ordering": "none"
+    }
+  ],
+  "types": [
+    {
+      "type": "com.mcafeeconsulting.platform.control.bootstrap.progressed.v1",
+      "subject": "pf.<tenant>.control.bootstrap.progressed.v1.ev",
+      "pattern": "pubsub",
+      "delivery": "at_least_once",
+      "ordering": "per_subject",
+      "dataschema": "data/platform.bootstrap.progressed.v1.schema.json",
+      "dataless": false,
+      "requires": [
+        "correlationid"
+      ],
+      "completion": null,
+      "producer": "homelab-cli",
+      "status": "stable"
+    },
+    {
+      "type": "com.mcafeeconsulting.platform.gitops.application.drifted.v1",
+      "subject": "pf.<tenant>.gitops.application.drifted.v1.ev",
+      "pattern": "pubsub",
+      "delivery": "at_least_once",
+      "ordering": "per_subject",
+      "dataschema": "data/gitops.application.drifted.v1.schema.json",
+      "dataless": false,
+      "requires": [
+        "subject"
+      ],
+      "completion": null,
+      "producer": "gitops-bridge",
+      "status": "stable"
+    },
+    {
+      "type": "com.mcafeeconsulting.platform.gitops.application.synced.v1",
+      "subject": "pf.<tenant>.gitops.application.synced.v1.ev",
+      "pattern": "pubsub",
+      "delivery": "at_least_once",
+      "ordering": "per_subject",
+      "dataschema": "data/gitops.application.synced.v1.schema.json",
+      "dataless": false,
+      "requires": [
+        "subject"
+      ],
+      "completion": null,
+      "producer": "gitops-bridge",
+      "status": "stable"
+    },
+    {
+      "type": "com.mcafeeconsulting.platform.identity.principal.issued.v1",
+      "subject": "pf.<tenant>.identity.principal.issued.v1.ev",
+      "pattern": "pubsub",
+      "delivery": "at_least_once",
+      "ordering": "per_subject",
+      "dataschema": "data/identity.principal.issued.v1.schema.json",
+      "dataless": false,
+      "requires": [
+        "correlationid",
+        "subject"
+      ],
+      "completion": null,
+      "producer": "identity-broker",
+      "status": "stable"
+    },
+    {
+      "type": "com.mcafeeconsulting.platform.identity.principal.revoked.v1",
+      "subject": "pf.<tenant>.identity.principal.revoked.v1.ev",
+      "pattern": "pubsub",
+      "delivery": "at_least_once",
+      "ordering": "per_subject",
+      "dataschema": "data/identity.principal.revoked.v1.schema.json",
+      "dataless": false,
+      "requires": [
+        "correlationid",
+        "subject"
+      ],
+      "completion": null,
+      "producer": "identity-broker",
+      "status": "stable"
+    },
+    {
+      "type": "com.mcafeeconsulting.platform.infra.node.replaced.v1",
+      "subject": "pf.<tenant>.infra.node.replaced.v1.ev",
+      "pattern": "pubsub",
+      "delivery": "at_least_once",
+      "ordering": "per_subject",
+      "dataschema": "data/infra.node.replaced.v1.schema.json",
+      "dataless": false,
+      "requires": [
+        "subject"
+      ],
+      "completion": null,
+      "producer": "infra-operator",
+      "status": "stable"
+    },
+    {
+      "type": "com.mcafeeconsulting.platform.observability.slo.burned.v1",
+      "subject": "pf.<tenant>.observability.slo.burned.v1.ev",
+      "pattern": "pubsub",
+      "delivery": "at_least_once",
+      "ordering": "per_subject",
+      "dataschema": "data/observability.slo.burned.v1.schema.json",
+      "dataless": false,
+      "requires": [
+        "subject"
+      ],
+      "completion": null,
+      "producer": "slo-bridge",
+      "status": "stable"
+    },
+    {
+      "type": "com.mcafeeconsulting.platform.workload.deployment.degraded.v1",
+      "subject": "pf.<tenant>.workload.deployment.degraded.v1.ev",
+      "pattern": "pubsub",
+      "delivery": "at_least_once",
+      "ordering": "per_subject",
+      "dataschema": "data/workload.degraded.v1.schema.json",
+      "dataless": false,
+      "requires": [
+        "subject"
+      ],
+      "completion": null,
+      "producer": "workload-operator",
+      "status": "stable"
+    },
+    {
+      "type": "com.mcafeeconsulting.platform.workload.deployment.deployed.v1",
+      "subject": "pf.<tenant>.workload.deployment.deployed.v1.ev",
+      "pattern": "pubsub",
+      "delivery": "at_least_once",
+      "ordering": "per_subject",
+      "dataschema": "data/workload.deployed.v1.schema.json",
+      "dataless": false,
+      "requires": [
+        "subject"
+      ],
+      "completion": null,
+      "producer": "workload-operator",
+      "status": "stable"
+    },
+    {
+      "type": "com.mcafeeconsulting.platform.workload.deployment.describe.v1",
+      "subject": "pf.<tenant>.workload.deployment.describe.v1.rq",
+      "pattern": "request_reply",
+      "delivery": "at_most_once",
+      "ordering": "none",
+      "dataschema": "data/workload.describe.v1.schema.json",
+      "dataless": false,
+      "requires": [
+        "correlationid",
+        "replyto",
+        "subject"
+      ],
+      "completion": null,
+      "producer": "platform-api",
+      "status": "stable"
+    },
+    {
+      "type": "com.mcafeeconsulting.platform.workload.deployment.promote.v1",
+      "subject": "pf.<tenant>.workload.deployment.promote.v1.wq",
+      "pattern": "request_reply",
+      "delivery": "at_least_once",
+      "ordering": "none",
+      "dataschema": "data/workload.promote.v1.schema.json",
+      "dataless": false,
+      "requires": [
+        "correlationid",
+        "subject"
+      ],
+      "completion": "com.mcafeeconsulting.platform.workload.deployment.promoted.v1",
+      "producer": "platform-api",
+      "status": "stable"
+    },
+    {
+      "type": "com.mcafeeconsulting.platform.workload.deployment.promoted.v1",
+      "subject": "pf.<tenant>.workload.deployment.promoted.v1.ev",
+      "pattern": "pubsub",
+      "delivery": "at_least_once",
+      "ordering": "per_subject",
+      "dataschema": "data/workload.promoted.v1.schema.json",
+      "dataless": false,
+      "requires": [
+        "correlationid",
+        "subject"
+      ],
+      "completion": null,
+      "producer": "workload-operator",
+      "status": "stable"
+    }
+  ]
+}
