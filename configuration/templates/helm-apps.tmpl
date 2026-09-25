@@ -1237,10 +1237,10 @@ paperclip:
 {{- else }}
       requests:
         cpu: 500m
-        memory: 1Gi
+        memory: 8Gi
       limits:
         cpu: "2"
-        memory: 2Gi
+        memory: 8Gi
 {{- end }}
 {{- if not $localdev }}
     # Pin the server and the operator's admin bootstrap Job to one labelled
