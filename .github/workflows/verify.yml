@@ -20,26 +20,22 @@ name: Verify (level 0)
 # commits (issue #261 item 19).
 
 on:
+  # No paths filter on pull_request, deliberately: the level-0 job below is the
+  # merge-result gate ADR-039 puts in main's required contexts (MCAA-164), and GitHub
+  # leaves a required context that never runs *pending forever* instead of treating it
+  # as satisfied. The distinction
+  # that matters: a job skipped by a job-level `if:` still publishes a `skipped` check
+  # run, which does satisfy the requirement (that is how pr-contract.yml's Renovate and
+  # draft exemptions stay mergeable); a workflow filtered out by `paths:` publishes no
+  # check run at all. Measured on PR #345, a workflow-only Renovate bump: `Verification
+  # claim matches level 0` reported `skipped` and the PR merged, while verify.yml
+  # produced no check run whatsoever. 26 of the last 180 commits on main (14%) touched
+  # no path in the filter this replaces. Level 0 costs ~35s and the whole workflow ~3.4
+  # job-minutes, so running it on every pull request is cheaper than any shim that would
+  # keep the filter. Do not reintroduce a paths filter here while the job is required.
   pull_request:
-    paths:
-      - 'charts/**'
-      - 'configuration/**'
-      - 'tests/**'
-      - 'cmd/**'
-      - 'internal/**'
-      - 'scripts/**'
-      - 'readme.md'
-      - 'docs/**'
-      - '.github/homelab.svg'
-      - 'go.mod'
-      - 'go.sum'
-      - 'Taskfile.yml'
-      - 'mise.toml'
-      - 'package.json'
-      - 'bun.lock'
-      - 'tsconfig.json'
-      - 'biome.json'
-      - '.github/workflows/verify.yml'
+  # push keeps its filter: post-merge runs on main gate nothing, so skipping the ones
+  # that cannot be affected is free.
   push:
     branches: [main]
     paths:
