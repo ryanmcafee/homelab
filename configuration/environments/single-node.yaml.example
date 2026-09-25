@@ -4,7 +4,7 @@
 # committed ConfigSet declares three control-plane addresses, so until this
 # existed nothing in CI had ever rendered a topology that was not three: a fork
 # running one or five control planes was unexercised, and the fixed shape was
-# invisible to every check (ADR-034, MCAA-118).
+# invisible to every check (ADR-035, MCAA-118).
 #
 # It states its topology by listing its control plane: one CP1_IP key, so one
 # member. There is deliberately no count key to contradict it. Adding CP2_IP and
