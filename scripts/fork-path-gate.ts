@@ -27,7 +27,7 @@
  *
  *   1. the PR body links a successful `fork-path-cold` run whose head SHA
  *      equals the PR head SHA, or
- *   2. the PR carries the label `fork-path: not-affected` AND the body has a
+ *   2. the PR carries the label `fork-path: cold-run-waived` AND the body has a
  *      one-line reason.
  *
  * Route 2 is a deliberate, audited ten-second escape hatch. It is the point of
@@ -56,7 +56,13 @@
 
 import { spawnSync } from "node:child_process";
 
-export const DISCHARGE_LABEL = "fork-path: not-affected";
+/**
+ * The label names the *act* — a cold run was waived — not the conclusion. A
+ * label that asserts "not affected" can be wrong, permanently, and nothing ever
+ * re-checks it; a waiver can only be unjustified, and the mandatory one-line
+ * reason is what carries the justification.
+ */
+export const DISCHARGE_LABEL = "fork-path: cold-run-waived";
 export const COLD_WORKFLOW_PATH = ".github/workflows/fork-path-cold.yml";
 
 /**
@@ -125,11 +131,13 @@ export function matchesAny(path: string, globs: readonly string[]): boolean {
 /**
  * True when the Taskfile.yml diff adds or removes a line mentioning localdev.
  *
- * This is the measured narrowing the gate exists to make: 20 of the last 92
- * commits on main touch Taskfile.yml, but only 5 touch a line containing
- * `localdev`. A `paths:` glob cannot tell those apart; a diff test can, and it
- * is the difference between a gate that fires on 35% of pull requests and one
- * that fires on 51%.
+ * This is the measured narrowing the gate exists to make. Over the 90 days to
+ * 2026-09-25, 20 of the 94 commits on main touch Taskfile.yml but only 7 touch
+ * a line containing `localdev`; with the narrowing the gate fires on 33 of 94
+ * (35%), without it on roughly half. A `paths:` glob cannot tell those apart; a
+ * diff test can, and that is the difference between a check people read and a
+ * check people mute. This file is the one home for that measurement — the
+ * contract states the effect, not the numbers, so the two cannot drift.
  *
  * `+++ b/Taskfile.yml` / `--- a/Taskfile.yml` are headers, not content, and are
  * skipped — the path itself never counts as a hit.
@@ -169,9 +177,15 @@ export function classify(input: {
 export type RunLink = { owner: string; repo: string; runId: number };
 
 /**
- * Every Actions run URL in the body, in order, deduplicated. A run link in
- * another repository is returned too so the caller can reject it by name
- * rather than silently ignoring it.
+ * Every Actions run URL in the body, in order, deduplicated.
+ *
+ * A run in another repository is returned, and `decide` accepts it. That is
+ * deliberate, not an oversight: a contributor working from a fork cannot
+ * dispatch a workflow here, and the only discharge route open to them is a
+ * `fork-path-cold` run in their own fork. The head SHA still has to match, and
+ * a SHA is what the run proves — the owner of the runner that produced it is
+ * not part of the claim. Do not "fix" this into an owner check; there is a test
+ * pinning cross-repo acceptance.
  */
 export function extractRunLinks(body: string): RunLink[] {
   const re =
@@ -194,6 +208,19 @@ export function hasDischargeLabel(labels: readonly string[]): boolean {
 }
 
 /**
+ * The label text as it appears written in a body line, for stripping: the
+ * literal label, tolerant of the space after the colon. Derived from
+ * DISCHARGE_LABEL so a rename cannot leave the stripper matching the old name.
+ */
+const DISCHARGE_LABEL_RE = new RegExp(
+  DISCHARGE_LABEL.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(
+    /:\s+/,
+    ":?\\s*",
+  ),
+  "i",
+);
+
+/**
  * The one-line reason route 2 requires. A line mentioning `fork-path` that
  * still carries at least 15 non-space characters once list markers, emphasis,
  * the label text itself and any bare URL are stripped. URLs are stripped first
@@ -206,7 +233,7 @@ export function extractDischargeReason(body: string): string | null {
       .replace(/https?:\/\/\S+/g, "")
       .replace(/^[\s>*\-+]*/, "")
       .replace(/[*`_]/g, "")
-      .replace(/fork-path:?\s*not-affected/i, "")
+      .replace(DISCHARGE_LABEL_RE, "")
       .replace(/^[\s:—–|-]+/, "")
       .trim();
     if (stripped.replace(/\s/g, "").length >= 15) return stripped;
@@ -303,7 +330,15 @@ export function decide(input: {
   }
   if (labelled && !reason) {
     messages.push(
-      `The \`${DISCHARGE_LABEL}\` label is present but the body has no one-line reason. Add a line mentioning \`fork-path\` that says why check 3a is not affected.`,
+      `The \`${DISCHARGE_LABEL}\` label is present but the body has no one-line reason. Add a line mentioning \`fork-path\` that says why the cold run can be waived.`,
+    );
+  }
+  // The converse, and the one an outside contributor will actually produce:
+  // the body is the only half of route 2 they can write. Without this they get
+  // the generic help and no clue which half is missing.
+  if (!labelled && reason) {
+    messages.push(
+      `A one-line reason is present but the \`${DISCHARGE_LABEL}\` label is not. Labelling needs write access to this repository — if you are contributing from a fork, say so in the pull request and a maintainer will apply it.`,
     );
   }
 
@@ -317,10 +352,14 @@ const TIER1_HELP = `
    workflow has a **Run workflow** button (\`workflow_dispatch\`) — and paste the run
    URL into the pull request body. The run's head SHA must equal this pull
    request's head SHA. Cost: about 19 minutes, and it is the real check.
-2. Or judge the change not to affect the cold path: add the label
-   \`${DISCHARGE_LABEL}\` and put a one-line reason in the body, for example
 
-   > fork-path: not-affected — reworded a comment in docs/tooling.md; no command changed.
+   Working from a fork? Dispatch it in **your** fork and link that run: a run in
+   another repository is accepted, because the head SHA is what the run proves.
+   You may have to enable Actions in your fork first.
+2. Or waive the cold run: add the label \`${DISCHARGE_LABEL}\` and put a one-line
+   reason in the body, for example
+
+   > ${DISCHARGE_LABEL} — reworded a comment in docs/tooling.md; no command changed.
 
    Then re-run this check: press **Re-run failed jobs** if you have Actions
    write, or simply **close and reopen** this pull request if you do not —
@@ -328,14 +367,44 @@ const TIER1_HELP = `
    label and body are read live from the API, not from the original event
    payload, so the re-run sees them and **no new commit is needed**.
 
-Route 2 is deliberate and audited. It is not a bypass to be embarrassed about —
-it is the decision point this gate exists to create, and your name is on it.
+**Contributing from a fork?** You cannot add a label or re-run a job here, and
+that is expected — route 2 is a maintainer's recorded judgement, not yours.
+Either link a \`fork-path-cold\` run from your own fork at this head SHA (route 1,
+which does work from a fork), or just say in the pull request that you believe
+the cold path is unaffected and why. A maintainer will apply the label. You are
+not blocked on anything you have to learn about this repository first.
 `.trim();
+
+export const CONTRACT_PATH = "docs/contracts/fork-ability.md";
+
+/**
+ * A blob URL for a repository file, pinned to the commit being judged.
+ *
+ * A *relative* link is only rewritten to a repo path when GitHub renders a
+ * file. In a comment body the href is emitted verbatim and the browser resolves
+ * it against the pull-request page, which lands a logged-out reader on a login
+ * page — so the runbook's single pointer to the normative document is worse
+ * than absent. Server and repository come from the environment, so a fork links
+ * its own copy, and pinning to the head SHA shows the contract as it stood on
+ * the commit the gate is judging.
+ */
+export function blobUrl(input: {
+  serverUrl: string;
+  repoSlug: string;
+  sha: string;
+  path: string;
+}): string {
+  const server = (input.serverUrl || "https://github.com").replace(/\/+$/, "");
+  if (!input.repoSlug) return input.path;
+  return `${server}/${input.repoSlug}/blob/${input.sha}/${input.path}`;
+}
 
 export function renderComment(input: {
   classification: Classification;
   decision: Decision;
   headSha: string;
+  serverUrl?: string;
+  repoSlug?: string;
 }): string | null {
   const { tier1, tier2 } = input.classification;
   if (tier1.length === 0 && tier2.length === 0) return null;
@@ -370,8 +439,14 @@ export function renderComment(input: {
     );
   }
 
+  const contractUrl = blobUrl({
+    serverUrl: input.serverUrl ?? "",
+    repoSlug: input.repoSlug ?? "",
+    sha: input.headSha,
+    path: CONTRACT_PATH,
+  });
   out.push(
-    `<sub>Head SHA \`${input.headSha}\` · contract: [docs/contracts/fork-ability.md](docs/contracts/fork-ability.md) · gate: \`scripts/fork-path-gate.ts\`</sub>`,
+    `<sub>Head SHA \`${input.headSha}\` · contract: [${CONTRACT_PATH}](${contractUrl}) · gate: \`scripts/fork-path-gate.ts\`</sub>`,
   );
   return out.join("\n");
 }
@@ -484,7 +559,13 @@ async function main(): Promise<number> {
     runs,
   });
 
-  const comment = renderComment({ classification, decision, headSha });
+  const comment = renderComment({
+    classification,
+    decision,
+    headSha,
+    serverUrl: process.env.GITHUB_SERVER_URL ?? "",
+    repoSlug,
+  });
   if (comment) await Bun.write(commentFile, `${comment}\n`);
 
   const summary = process.env.GITHUB_STEP_SUMMARY;
