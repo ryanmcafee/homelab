@@ -26,7 +26,7 @@ argo = "latest"           # Argo Workflows CLI
 
 # Configuration Management (Python via pipx); ansible-lint.yml and the
 # pre-commit hook run these exact versions.
-"pipx:ansible-core" = "2.20.1"
+"pipx:ansible-core" = "2.21.4"
 "pipx:ansible-lint" = "26.1.1"
 
 # Task Runner
