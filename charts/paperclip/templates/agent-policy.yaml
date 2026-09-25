@@ -1,0 +1,85 @@
+{{- /* Per-agent run cap reconciler; see files/paperclip-agent-policy.ts. */}}
+{{- if .Values.agentPolicy.enabled }}
+{{- $name := printf "%s-agent-policy" .Values.name }}
+{{- $script := .Files.Get "files/paperclip-agent-policy.ts" }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    app.kubernetes.io/name: {{ $name }}
+data:
+  paperclip-agent-policy.ts: |-
+    {{- $script | nindent 4 }}
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    app.kubernetes.io/name: {{ $name }}
+spec:
+  schedule: {{ .Values.agentPolicy.schedule | quote }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: 120
+      ttlSecondsAfterFinished: 3600
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: {{ $name }}
+          annotations:
+            checksum/script: {{ $script | sha256sum }}
+        spec:
+          restartPolicy: Never
+          automountServiceAccountToken: false
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: agent-policy
+              image: {{ required "agentPolicy.image is required" .Values.agentPolicy.image }}
+              command: ["bun", "/app/paperclip-agent-policy.ts"]
+              env:
+                - name: PAPERCLIP_API_URL
+                  value: {{ printf "http://%s.%s.svc.cluster.local:%v/api" .Values.name .Values.namespace .Values.service.port | quote }}
+                - name: PAPERCLIP_API_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: {{ .Values.agentPolicy.secretName }}
+                      key: {{ .Values.agentPolicy.secretKey }}
+                      optional: true
+                - name: MAX_CONCURRENT_RUNS
+                  value: {{ .Values.agentPolicy.maxConcurrentRuns | quote }}
+                - name: BUN_RUNTIME_TRANSPILER_CACHE_PATH
+                  value: "0"
+              resources:
+                {{- toYaml .Values.agentPolicy.resources | nindent 16 }}
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]
+              volumeMounts:
+                - name: script
+                  mountPath: /app
+                  readOnly: true
+                - name: tmp
+                  mountPath: /tmp
+          volumes:
+            - name: script
+              configMap:
+                name: {{ $name }}
+            - name: tmp
+              emptyDir:
+                sizeLimit: 16Mi
+{{- end }}

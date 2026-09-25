@@ -189,3 +189,22 @@ exporter:
     limits:
       cpu: 200m
       memory: 192Mi
+
+# Per-agent run cap (templates/agent-policy.yaml): a CronJob sets
+# runtimeConfig.heartbeat.maxConcurrentRuns on every agent, since Paperclip has
+# no instance-wide cap and defaults new agents to 20. Reuses the exporter key.
+agentPolicy:
+  enabled: false
+  # oven/bun:<tag>, pinned in configuration/versions.yaml images.bun.
+  image: ""
+  secretName: paperclip-exporter
+  secretKey: PAPERCLIP_API_KEY
+  maxConcurrentRuns: 1
+  schedule: "*/5 * * * *"
+  resources:
+    requests:
+      cpu: 10m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 192Mi

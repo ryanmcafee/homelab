@@ -1253,6 +1253,9 @@ spec:
         admin:
           email: admin@homelab.local
           name: Admin
+        agentPolicy:
+          enabled: false
+          image: ""
         exporter:
           enabled: true
           image: oven/bun:1.4.2-alpine

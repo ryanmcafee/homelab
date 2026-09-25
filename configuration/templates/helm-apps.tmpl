@@ -1237,10 +1237,10 @@ paperclip:
 {{- else }}
       requests:
         cpu: 500m
-        memory: 8Gi
+        memory: 16Gi
       limits:
         cpu: "2"
-        memory: 8Gi
+        memory: 16Gi
 {{- end }}
 {{- if not $localdev }}
     # Pin the server and the operator's admin bootstrap Job to one labelled
@@ -1256,6 +1256,14 @@ paperclip:
     exporter:
       enabled: true
       image: "oven/bun:{{ index .Versions.Images "bun" }}"
+{{- if not $localdev }}
+    # One run per agent at a time (templates/agent-policy.yaml). Off in Kind:
+    # the fake board key gets 403 and every Job would fail.
+    agentPolicy:
+      enabled: true
+      image: "oven/bun:{{ index .Versions.Images "bun" }}"
+      maxConcurrentRuns: 1
+{{- end }}
 
   # PostSync smoke hook (charts/applications/templates/_smoke.tpl): the
   # operator's health path on the Instance Service (port 3100).
