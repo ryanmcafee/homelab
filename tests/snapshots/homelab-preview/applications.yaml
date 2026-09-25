@@ -448,10 +448,10 @@ spec:
                   resources:
                     limits:
                       cpu: 1000m
-                      memory: 1Gi
+                      memory: 1152Mi
                     requests:
                       cpu: 100m
-                      memory: 512Mi
+                      memory: 192Mi
         persistence:
           config:
             enabled: true
@@ -521,10 +521,10 @@ spec:
                   resources:
                     limits:
                       cpu: 500m
-                      memory: 512Mi
+                      memory: 288Mi
                     requests:
                       cpu: 100m
-                      memory: 256Mi
+                      memory: 192Mi
         persistence:
           books:
             enabled: true
@@ -621,7 +621,7 @@ spec:
                       memory: 4Gi
                     requests:
                       cpu: 100m
-                      memory: 1Gi
+                      memory: 224Mi
         persistence:
           config:
             enabled: true
@@ -711,18 +711,18 @@ spec:
                   resources:
                     limits:
                       cpu: 200m
-                      memory: 256Mi
+                      memory: 48Mi
                     requests:
                       cpu: 50m
-                      memory: 64Mi
+                      memory: 32Mi
                 main:
                   resources:
                     limits:
                       cpu: 500m
-                      memory: 512Mi
+                      memory: 704Mi
                     requests:
                       cpu: 100m
-                      memory: 256Mi
+                      memory: 448Mi
         persistence:
           config:
             enabled: true
@@ -808,18 +808,18 @@ spec:
                   resources:
                     limits:
                       cpu: 200m
-                      memory: 256Mi
+                      memory: 48Mi
                     requests:
                       cpu: 50m
-                      memory: 64Mi
+                      memory: 32Mi
                 main:
                   resources:
                     limits:
                       cpu: 1000m
-                      memory: 1Gi
+                      memory: 960Mi
                     requests:
                       cpu: 200m
-                      memory: 512Mi
+                      memory: 640Mi
         persistence:
           config:
             enabled: true
@@ -913,18 +913,18 @@ spec:
                   resources:
                     limits:
                       cpu: 200m
-                      memory: 256Mi
+                      memory: 48Mi
                     requests:
                       cpu: 50m
-                      memory: 64Mi
+                      memory: 32Mi
                 main:
                   resources:
                     limits:
                       cpu: 1000m
-                      memory: 1Gi
+                      memory: 1536Mi
                     requests:
                       cpu: 200m
-                      memory: 512Mi
+                      memory: 896Mi
         persistence:
           config:
             enabled: true
@@ -1018,10 +1018,10 @@ spec:
                   resources:
                     limits:
                       cpu: 500m
-                      memory: 512Mi
+                      memory: 448Mi
                     requests:
                       cpu: 100m
-                      memory: 256Mi
+                      memory: 288Mi
         persistence:
           config:
             enabled: true

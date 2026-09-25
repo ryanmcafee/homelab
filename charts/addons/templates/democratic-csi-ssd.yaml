@@ -74,7 +74,27 @@ spec:
               - noatime
         {{- end }}
 
+        {{- with (index .Values "democratic-csi-ssd" "resources" "sidecar") }}
+        csiProxy:
+          resources:
+            {{- toYaml . | nindent 12 }}
+        {{- end }}
+
         controller:
+          {{- with (index .Values "democratic-csi-ssd" "resources" "sidecar") }}
+          externalAttacher:
+            resources:
+              {{- toYaml . | nindent 14 }}
+          externalProvisioner:
+            resources:
+              {{- toYaml . | nindent 14 }}
+          externalResizer:
+            resources:
+              {{- toYaml . | nindent 14 }}
+          externalSnapshotter:
+            resources:
+              {{- toYaml . | nindent 14 }}
+          {{- end }}
           driver:
             resources:
               {{- toYaml (index .Values "democratic-csi-ssd" "resources" "controller") | nindent 14 }}
@@ -86,6 +106,14 @@ spec:
                     key: api_key
 
         node:
+          {{- with (index .Values "democratic-csi-ssd" "resources" "sidecar") }}
+          driverRegistrar:
+            resources:
+              {{- toYaml . | nindent 14 }}
+          cleanup:
+            resources:
+              {{- toYaml . | nindent 14 }}
+          {{- end }}
           driver:
             resources:
               {{- toYaml (index .Values "democratic-csi-ssd" "resources" "node") | nindent 14 }}

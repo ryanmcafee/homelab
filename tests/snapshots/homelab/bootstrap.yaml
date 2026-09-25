@@ -172,23 +172,28 @@ spec:
           resources:
             limits:
               cpu: 200m
-              memory: 128Mi
+              memory: 48Mi
             requests:
               cpu: 50m
-              memory: 64Mi
+              memory: 32Mi
 
         connect:
           create: true
           # Use base64-encoded credentials key - OP_SESSION expects base64-encoded JSON
           credentialsName: onepassword-credentials
           credentialsKey: 1password-credentials.json.b64
-          resources:
-            limits:
-              cpu: 200m
-              memory: 256Mi
-            requests:
-              cpu: 50m
-              memory: 64Mi
+          api:
+            resources:
+              limits:
+                memory: 48Mi
+              requests:
+                memory: 32Mi
+          sync:
+            resources:
+              limits:
+                memory: 48Mi
+              requests:
+                memory: 32Mi
 
   destination:
     server: https://kubernetes.default.svc
@@ -237,10 +242,10 @@ spec:
           resources:
             limits:
               cpu: 200m
-              memory: 256Mi
+              memory: 80Mi
             requests:
               cpu: 50m
-              memory: 128Mi
+              memory: 48Mi
         configs:
           cm:
             accounts.agent: apiKey
@@ -427,10 +432,16 @@ spec:
           resources:
             limits:
               cpu: 1000m
-              memory: 2Gi
+              memory: 3Gi
             requests:
               cpu: 250m
-              memory: 1Gi
+              memory: 1280Mi
+        dex:
+          resources:
+            limits:
+              memory: 80Mi
+            requests:
+              memory: 48Mi
         notifications:
           argocdUrl: https://argocd.REPLACEME-domain.com
           enabled: true
@@ -441,10 +452,16 @@ spec:
           resources:
             limits:
               cpu: 100m
-              memory: 128Mi
+              memory: 80Mi
             requests:
               cpu: 50m
-              memory: 64Mi
+              memory: 48Mi
+        redis:
+          resources:
+            limits:
+              memory: 48Mi
+            requests:
+              memory: 32Mi
         repoServer:
           env:
           - name: XDG_CONFIG_HOME
@@ -459,6 +476,11 @@ spec:
               value: "90"
             image: ghcr.io/ryanmcafee/homelab-cmp:0.1.49
             name: homelab-cmp
+            resources:
+              limits:
+                memory: 96Mi
+              requests:
+                memory: 64Mi
             securityContext:
               runAsNonRoot: true
               runAsUser: 999
@@ -493,10 +515,10 @@ spec:
           resources:
             limits:
               cpu: 500m
-              memory: 512Mi
+              memory: 256Mi
             requests:
               cpu: 100m
-              memory: 256Mi
+              memory: 96Mi
           topologySpreadConstraints:
           - labelSelector:
               matchLabels:
@@ -545,10 +567,10 @@ spec:
           resources:
             limits:
               cpu: 500m
-              memory: 512Mi
+              memory: 112Mi
             requests:
               cpu: 100m
-              memory: 256Mi
+              memory: 64Mi
           topologySpreadConstraints:
           - labelSelector:
               matchLabels:

@@ -27,17 +27,20 @@ sops-secrets:
     operator:
       requests:
         cpu: 50m
-        memory: 64Mi
+        memory: 32Mi
       limits:
         cpu: 200m
-        memory: 128Mi
-    connect:
+        memory: 48Mi
+    connectApi:
       requests:
-        cpu: 50m
-        memory: 64Mi
+        memory: 32Mi
       limits:
-        cpu: 200m
-        memory: 256Mi
+        memory: 48Mi
+    connectSync:
+      requests:
+        memory: 32Mi
+      limits:
+        memory: 48Mi
 
 homelab-environment-config:
   enabled: true
@@ -194,6 +197,11 @@ argocd:
               name: homelab-config
               subPath: homelab.yaml
               readOnly: true
+          resources:
+            requests:
+              memory: 64Mi
+            limits:
+              memory: 96Mi
 
     applicationSet:
       metrics:

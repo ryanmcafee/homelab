@@ -255,17 +255,22 @@ democratic-csi:
     controller:
       requests:
         cpu: 50m
-        memory: 128Mi
+        memory: 96Mi
       limits:
         cpu: 1000m
-        memory: 256Mi
+        memory: 160Mi
     node:
       requests:
         cpu: 50m
-        memory: 128Mi
+        memory: 80Mi
       limits:
         cpu: 1000m
-        memory: 256Mi
+        memory: 128Mi
+    sidecar:
+      requests:
+        memory: 32Mi
+      limits:
+        memory: 48Mi
 
 # ============================================================================
 # Democratic-CSI SSD - NFS Storage Provisioner (SSD-backed)
@@ -312,17 +317,22 @@ democratic-csi-ssd:
     controller:
       requests:
         cpu: 50m
-        memory: 128Mi
+        memory: 112Mi
       limits:
         cpu: 1000m
-        memory: 256Mi
+        memory: 192Mi
     node:
       requests:
         cpu: 50m
-        memory: 128Mi
+        memory: 112Mi
       limits:
         cpu: 1000m
-        memory: 256Mi
+        memory: 192Mi
+    sidecar:
+      requests:
+        memory: 32Mi
+      limits:
+        memory: 48Mi
 
 # ============================================================================
 # Democratic-CSI iSCSI - Block Storage Provisioner (SSD-backed)
@@ -374,17 +384,22 @@ democratic-csi-iscsi:
     controller:
       requests:
         cpu: 50m
-        memory: 128Mi
+        memory: 112Mi
       limits:
         cpu: 1000m
-        memory: 256Mi
+        memory: 192Mi
     node:
       requests:
         cpu: 50m
-        memory: 128Mi
+        memory: 112Mi
       limits:
         cpu: 1000m
-        memory: 256Mi
+        memory: 192Mi
+    sidecar:
+      requests:
+        memory: 32Mi
+      limits:
+        memory: 48Mi
 
 # ============================================================================
 # Democratic-CSI iSCSI HDD - Block Storage Provisioner (HDD-backed)
@@ -433,17 +448,22 @@ democratic-csi-iscsi-hdd:
     controller:
       requests:
         cpu: 50m
-        memory: 128Mi
+        memory: 112Mi
       limits:
         cpu: 1000m
-        memory: 256Mi
+        memory: 192Mi
     node:
       requests:
         cpu: 50m
-        memory: 128Mi
+        memory: 112Mi
       limits:
         cpu: 1000m
-        memory: 256Mi
+        memory: 192Mi
+    sidecar:
+      requests:
+        memory: 32Mi
+      limits:
+        memory: 48Mi
 
 # ============================================================================
 # Tailscale Operator - Tailnet subnet router (homelab advertiser)
@@ -471,6 +491,12 @@ tailscale-operator:
       - "127.0.0.0/24"
     tags:
       - "tag:k8s"
+
+  resources:
+    requests:
+      memory: 112Mi
+    limits:
+      memory: 192Mi
 
 # ============================================================================
 # Agent Read-Only Access - ServiceAccount + ClusterRoles agents use through the
@@ -706,10 +732,10 @@ external-dns:
   resources:
     requests:
       cpu: 20m
-      memory: 64Mi
+      memory: 32Mi
     limits:
       cpu: 100m
-      memory: 128Mi
+      memory: 48Mi
 
 # ============================================================================
 # External-DNS UniFi - Internal DNS Management (Split DNS)
@@ -738,10 +764,16 @@ external-dns-unifi:
   resources:
     requests:
       cpu: 20m
-      memory: 64Mi
+      memory: 32Mi
     limits:
       cpu: 100m
-      memory: 128Mi
+      memory: 48Mi
+
+  webhookResources:
+    requests:
+      memory: 64Mi
+    limits:
+      memory: 96Mi
 
 # ============================================================================
 # Kube-Prometheus-Stack - Monitoring and Alerting
@@ -899,20 +931,18 @@ kube-prometheus-stack:
     resources:
       requests:
         cpu: 50m
-        memory: 128Mi
+        memory: 32Mi
       limits:
         cpu: 200m
-        memory: 256Mi
+        memory: 48Mi
 
   nodeExporter:
     enabled: false
     resources:
       requests:
-        cpu: 50m
-        memory: 64Mi
+        memory: 32Mi
       limits:
-        cpu: 200m
-        memory: 128Mi
+        memory: 48Mi
 
   # The chart's CPUThrottlingHigh divides throttled CFS periods by the periods a
   # container ran in at all, with no floor under the denominator. A container
@@ -928,10 +958,8 @@ kube-prometheus-stack:
     enabled: true
     resources:
       requests:
-        cpu: 50m
         memory: 128Mi
       limits:
-        cpu: 200m
         memory: 256Mi
 
   # kube-proxy scrape and the KubeProxyDown rule. With Cilium as the kube-proxy
@@ -1318,6 +1346,12 @@ intel-device-plugins-operator:
     repo: https://intel.github.io/helm-charts
     version: "0.36.0"
 
+  resources:
+    requests:
+      memory: 32Mi
+    limits:
+      memory: 48Mi
+
 # ============================================================================
 # NodeFeatureDiscovery - hardware feature labeling
 # Sync Wave: 9 (before intel-gpu-device-plugin / nvidia-gpu-operator at wave 10)
@@ -1371,19 +1405,19 @@ argo-workflows:
     resources:
       requests:
         cpu: 50m
-        memory: 128Mi
+        memory: 32Mi
       limits:
         cpu: 200m
-        memory: 256Mi
+        memory: 48Mi
 
   controller:
     resources:
       requests:
         cpu: 100m
-        memory: 256Mi
+        memory: 32Mi
       limits:
         cpu: 500m
-        memory: 512Mi
+        memory: 48Mi
 
     workflowDefaults:
       spec:

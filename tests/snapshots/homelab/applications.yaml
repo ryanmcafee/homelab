@@ -748,10 +748,10 @@ spec:
                   resources:
                     limits:
                       cpu: 1000m
-                      memory: 1Gi
+                      memory: 1152Mi
                     requests:
                       cpu: 100m
-                      memory: 512Mi
+                      memory: 192Mi
         persistence:
           config:
             accessModes:
@@ -862,10 +862,10 @@ spec:
                   resources:
                     limits:
                       cpu: 500m
-                      memory: 512Mi
+                      memory: 288Mi
                     requests:
                       cpu: 100m
-                      memory: 256Mi
+                      memory: 192Mi
         persistence:
           books:
             enabled: true
@@ -1004,10 +1004,10 @@ spec:
                   resources:
                     limits:
                       cpu: 200m
-                      memory: 256Mi
+                      memory: 48Mi
                     requests:
                       cpu: 50m
-                      memory: 128Mi
+                      memory: 32Mi
         persistence:
           config:
             accessModes:
@@ -1148,7 +1148,7 @@ spec:
                       memory: 4Gi
                     requests:
                       cpu: 100m
-                      memory: 1Gi
+                      memory: 224Mi
         persistence:
           config:
             accessModes:
@@ -1542,10 +1542,10 @@ spec:
           resources:
             limits:
               cpu: 4000m
-              memory: 16Gi
+              memory: 1920Mi
             requests:
               cpu: 4000m
-              memory: 16Gi
+              memory: 1216Mi
           storageClassName: democratic-csi-iscsi
         extraVolumes:
           - name: movies
@@ -1705,18 +1705,18 @@ spec:
                   resources:
                     limits:
                       cpu: 200m
-                      memory: 256Mi
+                      memory: 48Mi
                     requests:
                       cpu: 50m
-                      memory: 64Mi
+                      memory: 32Mi
                 main:
                   resources:
                     limits:
                       cpu: 500m
-                      memory: 512Mi
+                      memory: 704Mi
                     requests:
                       cpu: 100m
-                      memory: 256Mi
+                      memory: 448Mi
         persistence:
           config:
             accessModes:
@@ -1843,18 +1843,18 @@ spec:
                   resources:
                     limits:
                       cpu: 200m
-                      memory: 256Mi
+                      memory: 48Mi
                     requests:
                       cpu: 50m
-                      memory: 64Mi
+                      memory: 32Mi
                 main:
                   resources:
                     limits:
                       cpu: 1000m
-                      memory: 1Gi
+                      memory: 960Mi
                     requests:
                       cpu: 200m
-                      memory: 512Mi
+                      memory: 640Mi
         persistence:
           config:
             accessModes:
@@ -2095,18 +2095,18 @@ spec:
                   resources:
                     limits:
                       cpu: 200m
-                      memory: 256Mi
+                      memory: 48Mi
                     requests:
                       cpu: 50m
-                      memory: 64Mi
+                      memory: 32Mi
                 main:
                   resources:
                     limits:
                       cpu: 1000m
-                      memory: 1Gi
+                      memory: 1536Mi
                     requests:
                       cpu: 200m
-                      memory: 512Mi
+                      memory: 896Mi
         persistence:
           config:
             accessModes:
@@ -2245,10 +2245,10 @@ spec:
                   resources:
                     limits:
                       cpu: 500m
-                      memory: 512Mi
+                      memory: 448Mi
                     requests:
                       cpu: 100m
-                      memory: 256Mi
+                      memory: 288Mi
         persistence:
           config:
             accessModes:

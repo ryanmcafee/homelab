@@ -102,10 +102,10 @@ kubelet-csr-approver:
   resources:
     requests:
       cpu: 10m
-      memory: 32Mi
+      memory: {{ if $localdev }}32Mi{{ else }}64Mi{{ end }}
     limits:
       cpu: 100m
-      memory: 128Mi
+      memory: {{ if $localdev }}128Mi{{ else }}96Mi{{ end }}
 
 # ============================================================================
 # metrics-server - metrics.k8s.io for kubectl top and the Traefik HPAs
@@ -129,10 +129,10 @@ metrics-server:
   resources:
     requests:
       cpu: 50m
-      memory: 64Mi
+      memory: {{ if $localdev }}64Mi{{ else }}48Mi{{ end }}
     limits:
       cpu: 200m
-      memory: 256Mi
+      memory: {{ if $localdev }}256Mi{{ else }}80Mi{{ end }}
 
 # ============================================================================
 # Spegel - P2P image distribution; only the chart version comes from
@@ -356,17 +356,22 @@ democratic-csi:
     controller:
       requests:
         cpu: 50m
-        memory: 128Mi
+        memory: 96Mi
       limits:
         cpu: 1000m
-        memory: 256Mi
+        memory: 160Mi
     node:
       requests:
         cpu: 50m
-        memory: 128Mi
+        memory: 80Mi
       limits:
         cpu: 1000m
-        memory: 256Mi
+        memory: 128Mi
+    sidecar:
+      requests:
+        memory: 32Mi
+      limits:
+        memory: 48Mi
 
 # ============================================================================
 # Democratic-CSI SSD - NFS Storage Provisioner (SSD-backed)
@@ -413,17 +418,22 @@ democratic-csi-ssd:
     controller:
       requests:
         cpu: 50m
-        memory: 128Mi
+        memory: 112Mi
       limits:
         cpu: 1000m
-        memory: 256Mi
+        memory: 192Mi
     node:
       requests:
         cpu: 50m
-        memory: 128Mi
+        memory: 112Mi
       limits:
         cpu: 1000m
-        memory: 256Mi
+        memory: 192Mi
+    sidecar:
+      requests:
+        memory: 32Mi
+      limits:
+        memory: 48Mi
 
 # ============================================================================
 # Democratic-CSI iSCSI - Block Storage Provisioner (SSD-backed)
@@ -475,17 +485,22 @@ democratic-csi-iscsi:
     controller:
       requests:
         cpu: 50m
-        memory: 128Mi
+        memory: 112Mi
       limits:
         cpu: 1000m
-        memory: 256Mi
+        memory: 192Mi
     node:
       requests:
         cpu: 50m
-        memory: 128Mi
+        memory: 112Mi
       limits:
         cpu: 1000m
-        memory: 256Mi
+        memory: 192Mi
+    sidecar:
+      requests:
+        memory: 32Mi
+      limits:
+        memory: 48Mi
 
 # ============================================================================
 # Democratic-CSI iSCSI HDD - Block Storage Provisioner (HDD-backed)
@@ -534,17 +549,22 @@ democratic-csi-iscsi-hdd:
     controller:
       requests:
         cpu: 50m
-        memory: 128Mi
+        memory: 112Mi
       limits:
         cpu: 1000m
-        memory: 256Mi
+        memory: 192Mi
     node:
       requests:
         cpu: 50m
-        memory: 128Mi
+        memory: 112Mi
       limits:
         cpu: 1000m
-        memory: 256Mi
+        memory: 192Mi
+    sidecar:
+      requests:
+        memory: 32Mi
+      limits:
+        memory: 48Mi
 
 # ============================================================================
 # Tailscale Operator - Tailnet subnet router (homelab advertiser)
@@ -572,6 +592,12 @@ tailscale-operator:
       - "{{ .Values.TAILSCALE_ADVERTISE_ROUTES.Value }}"
     tags:
       - "tag:k8s"
+
+  resources:
+    requests:
+      memory: 112Mi
+    limits:
+      memory: 192Mi
 
 # ============================================================================
 # Agent Read-Only Access - ServiceAccount + ClusterRoles agents use through the
@@ -670,10 +696,10 @@ cloudnative-pg:
   resources:
     requests:
       cpu: 100m
-      memory: 256Mi
+      memory: 64Mi
     limits:
       cpu: 500m
-      memory: 512Mi
+      memory: 96Mi
 {{- end }}
 
   monitoring:
@@ -713,10 +739,10 @@ cnpg-barman-cloud:
   resources:
     requests:
       cpu: 50m
-      memory: 64Mi
+      memory: 32Mi
     limits:
       cpu: 500m
-      memory: 256Mi
+      memory: 48Mi
 {{- end }}
 
 # ============================================================================
@@ -794,19 +820,19 @@ cert-manager:
   resources:
     requests:
       cpu: 50m
-      memory: 128Mi
+      memory: 48Mi
     limits:
       cpu: 200m
-      memory: 256Mi
+      memory: 80Mi
 
   webhook:
     resources:
       requests:
         cpu: 20m
-        memory: 64Mi
+        memory: 32Mi
       limits:
         cpu: 100m
-        memory: 128Mi
+        memory: 48Mi
 
   cainjector:
     resources:
@@ -815,7 +841,7 @@ cert-manager:
         memory: 128Mi
       limits:
         cpu: 200m
-        memory: 256Mi
+        memory: 192Mi
 {{- end }}
 
 # ============================================================================
@@ -858,10 +884,10 @@ external-dns:
   resources:
     requests:
       cpu: 20m
-      memory: 64Mi
+      memory: 32Mi
     limits:
       cpu: 100m
-      memory: 128Mi
+      memory: 48Mi
 
 # ============================================================================
 # External-DNS UniFi - Internal DNS Management (Split DNS)
@@ -890,10 +916,16 @@ external-dns-unifi:
   resources:
     requests:
       cpu: 20m
-      memory: 64Mi
+      memory: 32Mi
     limits:
       cpu: 100m
-      memory: 128Mi
+      memory: 48Mi
+
+  webhookResources:
+    requests:
+      memory: 64Mi
+    limits:
+      memory: 96Mi
 
 # ============================================================================
 # Kube-Prometheus-Stack - Monitoring and Alerting
@@ -933,10 +965,10 @@ kube-prometheus-stack:
     resources:
       requests:
         cpu: 500m
-        memory: 2Gi
+        memory: 4Gi
       limits:
         cpu: 2000m
-        memory: 4Gi
+        memory: 6Gi
 {{- end }}
 
     # Avoid scheduling on GPU nodes — keep GPU resources for media workloads
@@ -992,7 +1024,15 @@ kube-prometheus-stack:
         memory: {{ if $localdev }}128Mi{{ else }}256Mi{{ end }}
       limits:
         cpu: {{ if $localdev }}200m{{ else }}500m{{ end }}
-        memory: {{ if $localdev }}256Mi{{ else }}512Mi{{ end }}
+        memory: {{ if $localdev }}256Mi{{ else }}768Mi{{ end }}
+{{- if not $localdev }}
+
+    sidecarResources:
+      requests:
+        memory: 112Mi
+      limits:
+        memory: 192Mi
+{{- end }}
 
     # ClickHouse datasource for the cluster logs (docs/logging.md). Grafana
     # installs the plugin at startup and reads the password of the read-only
@@ -1068,20 +1108,34 @@ kube-prometheus-stack:
     resources:
       requests:
         cpu: 50m
-        memory: 128Mi
+        memory: 32Mi
       limits:
         cpu: 200m
-        memory: 256Mi
+        memory: 48Mi
 
   nodeExporter:
     enabled: {{ not $localdev }}
     resources:
       requests:
-        cpu: 50m
-        memory: 64Mi
+        memory: 32Mi
       limits:
-        cpu: 200m
-        memory: 128Mi
+        memory: 48Mi
+{{- if not $localdev }}
+
+  operator:
+    resources:
+      requests:
+        memory: 48Mi
+      limits:
+        memory: 80Mi
+
+  configReloader:
+    resources:
+      requests:
+        memory: 32Mi
+      limits:
+        memory: 48Mi
+{{- end }}
 
   # The chart's CPUThrottlingHigh divides throttled CFS periods by the periods a
   # container ran in at all, with no floor under the denominator. A container
@@ -1097,11 +1151,9 @@ kube-prometheus-stack:
     enabled: true
     resources:
       requests:
-        cpu: 50m
-        memory: 128Mi
+        memory: {{ if $localdev }}128Mi{{ else }}48Mi{{ end }}
       limits:
-        cpu: 200m
-        memory: 256Mi
+        memory: {{ if $localdev }}256Mi{{ else }}80Mi{{ end }}
 
   # kube-proxy scrape and the KubeProxyDown rule. With Cilium as the kube-proxy
   # replacement there is no kube-proxy DaemonSet: the scrape Service has no
@@ -1293,10 +1345,10 @@ traefikExternal:
   resources:
     requests:
       cpu: 100m
-      memory: 2Gi
+      memory: 192Mi
     limits:
       cpu: 1000m
-      memory: 2Gi
+      memory: 320Mi
 
   deployment:
     replicas: 2
@@ -1453,10 +1505,10 @@ traefikInternal:
   resources:
     requests:
       cpu: 100m
-      memory: 2Gi
+      memory: 48Mi
     limits:
       cpu: 1000m
-      memory: 2Gi
+      memory: 96Mi
 
   deployment:
     replicas: 2
@@ -1581,6 +1633,12 @@ intel-device-plugins-operator:
     repo: https://intel.github.io/helm-charts
     version: "{{ index .Versions.Charts "intel-device-plugins-operator" }}"
 
+  resources:
+    requests:
+      memory: 32Mi
+    limits:
+      memory: 48Mi
+
 # ============================================================================
 # NodeFeatureDiscovery - hardware feature labeling
 # Sync Wave: 9 (before intel-gpu-device-plugin / nvidia-gpu-operator at wave 10)
@@ -1634,19 +1692,19 @@ argo-workflows:
     resources:
       requests:
         cpu: 50m
-        memory: 128Mi
+        memory: 32Mi
       limits:
         cpu: 200m
-        memory: 256Mi
+        memory: 48Mi
 
   controller:
     resources:
       requests:
         cpu: 100m
-        memory: 256Mi
+        memory: 32Mi
       limits:
         cpu: 500m
-        memory: 512Mi
+        memory: 48Mi
 
     workflowDefaults:
       spec:
