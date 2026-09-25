@@ -33,9 +33,8 @@ The JSON contract is stable and intended for machines:
 ```
 
 `status` is `pass`, `fail` or `skip`; failing checks carry `detail` and a `findings[]` list
-with one line per problem. Put the `task verify:claim` block (a compact form of this JSON)
-in PR descriptions: `pr-contract.yml` re-runs level 0 on the PR head and fails when the
-claim disagrees (see "Agent contract" below); `verify.yml` uploads its own copy as the
+with one line per problem. `pr-contract.yml` runs level 0 on the PR head (see "Agent
+contract" below); `verify.yml` runs it on the merge result and uploads the JSON as the
 `verify-level0` artifact.
 
 ## What level 0 checks
@@ -290,40 +289,16 @@ the `snapshots-regenerated` artifact of the `snapshot` job, which also posts its
 
 ## Agent contract
 
-Level 0 is wired into the agent loop rather than left to memory, and every pull request
-states the result its author saw; CI checks the statement (issue #261 item 22).
+Level 0 is wired into the agent loop rather than left to memory, and CI re-runs it on every
+pull request head (issue #261 item 22; ADR-032 dropped the PR-body claim).
 
 | Piece | File | What it does |
 |---|---|---|
 | PostToolUse hook | `.claude/settings.json` → `scripts/claude-verify-hook.ts` | After every Claude Code `Edit`/`Write`/`MultiEdit` of a file under `charts/` or `configuration/` of `$CLAUDE_PROJECT_DIR`, builds `./cmd/homelab` and runs `verify all --level 0 --json` in the project root (150 s cap, hook timeout 180 s). Pass: silent, exit 0. Fail: exit 2, and Claude Code hands the agent a summary of at most 60 lines (failing checks, `detail`, up to five findings each, hints such as `task test:snapshot -- --update` for intended snapshot drift). A build error or timeout is reported the same way. |
-| Claim | `task verify:claim` (`scripts/verify-claim.ts render`) | Prints the level-0 result as a PR-body block (format below). Exit 0 for any valid result; a failing level 0 is recorded as `"pass":false`, never hidden. |
-| PR template | `.github/pull_request_template.md` | A Verification section with the marker and a placeholder to replace. |
-| CI comparison | `.github/workflows/pr-contract.yml`, job `claim` | On opened/edited/synchronize/reopened/ready_for_review (no paths filter; drafts and `renovate/*` heads skipped): runs `task verify` on the PR **head**, then `verify-claim.ts compare`. Verdict in the job summary and the sticky `verify-claim` comment; the job fails on a missing or mismatched claim. |
+| CI | `.github/workflows/pr-contract.yml`, job `claim` (the required check "Verification claim matches level 0") | On opened/synchronize/reopened/ready_for_review (no paths filter; drafts and `renovate/*` heads skipped): runs `task verify` on the PR **head** and fails when level 0 fails. The job summary lists the non-passing checks and the findings of failing ones. |
 
-The block, one check per line and sorted:
-
-````
-<!-- verify-level0 -->
-```json
-{"level":0,"pass":true,"checks":{
-"gitops/homelab/crd-order":"pass",
-...
-"snapshot/localdev/traefik-internal-dependencies":"pass"
-}}
-```
-````
-
-Compare rules: a missing or unparseable block fails with instructions; the claimed `level`
-must be 0; the claimed and CI check-name sets must be identical (a difference means the claim
-is stale: re-run `task verify:claim` after the last change); a per-check difference with
-`fail` on either side fails; `skip`↔`pass` is only a warning (a tool missing on one side); a
-different overall `pass` fails. When the PR template's placeholder and a pasted block are both
-present, the last well-formed block counts. Editing the description re-runs the job. A claim
-that honestly says `"pass":false` matches; `verify.yml` is what fails the PR for it.
-
-The PR body reaches the script only through `env: PR_BODY`; it is never expanded inside a
-`run:` script. The comparison runs on the head commit because that is what the author
-verified; `verify.yml` verifies the merge result.
+The PR description carries no verification block: CI verifies the head itself, so a pasted
+result would add nothing. `verify.yml` verifies the merge result.
 
 Hook notes:
 

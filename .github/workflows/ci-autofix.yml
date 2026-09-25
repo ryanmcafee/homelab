@@ -88,9 +88,9 @@ jobs:
           permission-pull-requests: write
           permission-actions: read
 
-      # The PR number is needed for labels, the body (claim block) and the
-      # sticky comment. workflow_run.pull_requests is populated for same-repo
-      # PRs but not always; fall back to a lookup by head branch.
+      # The PR number is needed for labels and the sticky comment.
+      # workflow_run.pull_requests is populated for same-repo PRs but not
+      # always; fall back to a lookup by head branch.
       - name: Resolve the pull request
         id: pr
         if: steps.creds.outputs.enabled == 'true'
@@ -235,11 +235,6 @@ jobs:
                whichever the failing job ran). If the failing job needs a Kind cluster
                (Verify (Kind, levels 1-2)), you cannot run it here: fix what the log proves
                and say so.
-               If your change touched charts/, configuration/ or tests/, refresh the
-               level-0 claim in the PR body: `task verify:claim` prints the block that
-               starts with the marker in scripts/verify-claim.ts (MARKER); replace the
-               existing block in the body (read it with `gh pr view ${{ steps.pr.outputs.number }} --json body -q .body`,
-               write the new body with `gh pr edit ${{ steps.pr.outputs.number }} --body-file`).
                Commit as the bot:
                  git -c user.name="${{ env.AUTOFIX_BOT_NAME }}" -c user.email="${{ env.AUTOFIX_BOT_EMAIL }}" commit -m "fix(ci): <what and why, one line>" -m "Ci-Autofix-Run: ${{ github.event.workflow_run.id }}"
                and push with `git push origin HEAD:${{ github.event.workflow_run.head_branch }}`.

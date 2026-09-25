@@ -287,7 +287,7 @@ flowchart LR
   edit[Edit charts/ or configuration/] --> l0["Level 0: task verify\nrender · kubeconform · pluto · gitops graph · snapshots · policy · versions\n(< 5 s, PostToolUse hook, verify.yml)"]
   l0 --> l1["Level 1: task verify LEVEL=1\nserver-side dry run on Kind (dryrun/localdev/<chart>)"]
   l1 --> l2["Level 2: task verify LEVEL=2\nargocd/<app> Healthy + Succeeded · e2e/<suite> chainsaw\nPostSync smoke-<app> Jobs (tilt-ci.yml kind-argocd)"]
-  l2 --> pr["PR: verify:claim block (pr-contract.yml)\nupgrade.yml diff + CRD revalidation\nkind-preview comment"]
+  l2 --> pr["PR: level 0 on the head (pr-contract.yml)\nupgrade.yml diff + CRD revalidation\nkind-preview comment"]
   pr --> prev["Preview on real hardware\nlabel preview → <app>-pr<N> (ADR-013)"]
   pr --> gate["Renovate: upgrade/automerge-gate\nnon-major bumps automerge when green (ADR-014)"]
   gate --> main[main → ArgoCD syncs homelab]
@@ -311,8 +311,8 @@ polls `<app>.smoke.url` until an expected status comes back, so a sync only reac
 `charts/bootstrap/files/health/` (`task test:health` evaluates it against fixtures without a
 cluster). [applications.md](./applications.md) shows which apps have a suite and a smoke Job.
 
-**Pull requests.** `task verify:claim` prints the level-0 claim for the PR body and
-`pr-contract.yml` re-runs it on the head; `upgrade.yml` renders the upstream chart at the
+**Pull requests.** `pr-contract.yml` runs level 0 on the PR head (the required check, ADR-032);
+`upgrade.yml` renders the upstream chart at the
 base ref against the PR (`task verify:upgrade -- --base origin/main`) and revalidates every
 custom resource; the Kind loop posts `task localdev:report` as the sticky `kind-preview`
 comment. A maintainer can label a PR `preview` (+ `preview:<app>`) to render it on the real

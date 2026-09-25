@@ -93,8 +93,7 @@ The `/gitops-test` skill MUST be invoked automatically in these scenarios:
 | Modified `tests/**`, `localdev/**`, `internal/verify/**` (not watched by the hook) | Run `task verify:text` (level 0); fix every finding |
 | ArgoCD sync failure or unhealthy Application on Kind | `task localdev:diagnose`, fix, `task localdev:sync -- --only <app>`, `task verify:text LEVEL=2` |
 | ArgoCD or production question | Read-only only: `task verify:prod`, `task prod:status`, `task prod:diff -- <app>` (`docs/runbooks/readonly-access.md`) |
-| Before creating or updating a GitOps PR | `task verify:claim` → paste the block into the PR body's Verification section |
-| After pushing | `gh pr checks --watch`: `verify.yml` (level 0), `pr-contract.yml` (claim = CI), `tilt-ci.yml` (Kind level 2 + report), `upgrade.yml` (version bumps) |
+| After pushing | `gh pr checks --watch`: `verify.yml` (level 0), `pr-contract.yml` (level 0 on the PR head), `tilt-ci.yml` (Kind level 2 + report), `upgrade.yml` (version bumps) |
 
 **Do NOT wait for explicit `/gitops-test` command** - invoke proactively when conditions match.
 
@@ -113,11 +112,9 @@ The `/gitops-test` skill MUST be invoked automatically in these scenarios:
    `task localdev:diagnose` on failure, `task localdev:sync -- --only <app>` to re-sync one,
    `task localdev:report -- --base main` for this branch vs main (Applications track the PR head)
 5. Commit (the pre-commit hook re-runs level 0)
-6. `task verify:claim` on the final tree; paste the block into the PR body (Verification section)
-7. Push to a feature branch, create the PR, `gh pr checks --watch`:
-   verify.yml (level 0), pr-contract.yml (the claim matches CI's level 0 on the head),
+6. Push to a feature branch, create the PR, `gh pr checks --watch`:
+   verify.yml (level 0), pr-contract.yml (re-runs level 0 on the PR head; no block in the body),
    tilt-ci.yml kind-argocd (level 2 + sticky Kind report), upgrade.yml for version bumps.
-   Refresh the claim after any push that changes the result.
 8. Optional preview on the homelab cluster: ask the maintainer to add the `preview` and
    `preview:<app>` labels (docs/runbooks/previews.md)
 9. After merge, observe production read-only: `task verify:prod`, `task prod:status`,

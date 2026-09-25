@@ -49,7 +49,7 @@ import {
   parseVerifyResult,
   type VerifyCheck,
   type VerifyResult,
-} from "./verify-claim.ts";
+} from "./lib/verify-result.ts";
 
 // ============================================================================
 // Logging (only for --dry-run and --help; the hook itself is silent on pass)

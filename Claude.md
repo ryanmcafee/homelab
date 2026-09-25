@@ -355,7 +355,6 @@ Run `task --list` for full list. Most commonly used:
 | `task verify` | Level-0 static verification: render, kubeconform, gitops graph, snapshots, policy (JSON, < 5 s); the committed PostToolUse hook runs it after every agent edit under `charts/` or `configuration/` |
 | `task verify:text` | Level-0 verification, human-readable |
 | `task verify LEVEL=1` / `LEVEL=2` | + server-side dry run on Kind (`dryrun/localdev/<chart>`) / + Application health and chainsaw e2e (`argocd/<app>`, `e2e/<test>`) |
-| `task verify:claim` | Level-0 claim block for the PR body; `pr-contract.yml` re-runs level 0 on the head and fails on a mismatch |
 | `task verify:upgrade -- --base origin/main` | Upstream chart manifests at the base ref vs the working tree (what a version bump really changes) |
 | `task verify:prod` / `task prod:status` / `task prod:diff -- <app>` | Read-only production: Application health, table, `argocd app diff` (context `homelab-readonly`, `task prod:kubeconfig` once; `docs/runbooks/readonly-access.md`) |
 | `task apiserver:probe` / `task apiserver:stress` | Read-only Kubernetes API probe and GET load ramp; probes the VIP and each control plane side by side, so a VIP failover is distinguishable from an API outage (`docs/runbooks/control-plane-storage.md`) |

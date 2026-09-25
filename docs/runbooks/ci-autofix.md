@@ -13,7 +13,7 @@ for CI on the new head. The outcome lands in the sticky PR comment `ci-autofix`.
 | Golden snapshot drift | `task test:snapshot -- --update`, push |
 | Stale localdev values, CRD schemas, doc numbers | `task config:export:localdev`, `task schemas:vendor`, `task docs:check -- --fix`, push |
 | A unit, policy or health test the PR broke | fix the code or the test the PR added, run it, push |
-| Level-0 claim mismatch (`PR contract`) | re-run `task verify:claim`, update the PR body |
+| Level 0 on the PR head (`PR contract`) | same fixes as the level-0 rows above, push |
 | Runner lost, checkout/install failure, registry timeout before any test ran | re-run the failed jobs once, push nothing |
 | Kind loop (levels 1-2) failures | fix what the log proves, push; the re-run is the verification (no Kind here) |
 | Needs a design decision, credentials, hardware, or the check itself would have to be weakened | comment with the diagnosis and a proposed patch, push nothing |
