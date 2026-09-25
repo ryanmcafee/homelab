@@ -3613,6 +3613,18 @@ spec:
                     annotations:
                       summary: '{{ $value }} agents in {{ $labels.company }} report running without a live run'
                       description: 'Agents stuck in status running with no queued or running heartbeat run for 15m. docs/runbooks/paperclip-agents.md.'
+                  # Three or more agents stuck at once is the signature of a
+                  # batch sandbox drop, and with no live run left there is no
+                  # agent able to clear it: every repair lever needs a board
+                  # account. That is a stalled board, not one stuck agent.
+                  - alert: PaperclipPhantomAgentStuck
+                    expr: 'max by (company_id, company) (paperclip_agents_phantom_running) >= 3 and on (company_id, company) max by (company_id, company) (paperclip_agent_runs_live) == 0'
+                    for: 30m
+                    labels:
+                      severity: critical
+                    annotations:
+                      summary: '{{ $labels.company }} has {{ $value }} phantom agents and no live run: the board is stalled'
+                      description: 'No agent has a queued or running run while at least three report running, so no queued wake can dispatch and nothing self-heals. Clear the agent status from the board; docs/runbooks/paperclip-agents.md.'
           # Pull requests that need review (docs/runbooks/alerting.md). Metrics:
           # the github-pr-exporter Application, one series per PR and query.
           homelab-github:

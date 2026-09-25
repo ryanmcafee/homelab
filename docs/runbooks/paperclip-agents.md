@@ -87,11 +87,35 @@ the week once the rate is high, so silence it after acting:
 `amtool silence add alertname=PaperclipRecoveryRateBreached --duration=24h` ([alerting.md](./alerting.md)).
 `GET /api/companies/<id>/recovery-observability` `byCause` names the causes.
 
-### PaperclipPhantomAgentStuck (warning, 15 m)
+### PaperclipPhantomAgentStuck (warning > 0 for 15 m, critical >= 3 with no live run for 30 m)
 
 An agent reports `running` but has no queued or running run, so it never picks up new work. It
 usually follows an OOM kill or restart. In the UI open the agent and clear its error or pause and
 resume it (`clear_agent_error`, `pause_agent` / `resume_agent`); the gauge drops on the next scrape.
+
+The critical tier adds `paperclip_agent_runs_live == 0`: three or more agents stuck at once is the
+signature of a batch sandbox drop, and with nothing live there is no run left that could clear it.
+Every repair lever (`clear_agent_error`, `pause_agent` / `resume_agent`, terminate, reset session,
+resolving a board-owned recovery action) answers `403 Board access required` to an agent, so an
+agent cannot self-heal this and cannot heal a peer. The page is deliberate: recovery time here is
+bounded by a board account being available.
+
+```promql
+# who is stuck, and is anything running at all
+paperclip_agents{status="running"}  -  ignoring(status) paperclip_agent_runs_live
+paperclip_agent_runs_live
+```
+
+1. Confirm the drop was a batch: `paperclip_agent_runs_errors{error_code="orphaned_running_run"}`
+   rising in one scrape, against `process_lost` for ordinary single-process deaths.
+2. Clear each agent's status from the board (UI, or `clear_agent_error` with a board key). Runs
+   that fail `process_lost` reset themselves; `orphaned_running_run` does not, which is why these
+   agents stay stuck.
+3. Check `PaperclipOOMKilled` and `PaperclipMemoryNearLimit` for the cause, and the node for an
+   eviction or a rollout at the same second.
+
+Silence with a bound while you work through the roster:
+`amtool silence add alertname=PaperclipPhantomAgentStuck --duration=2h` ([alerting.md](./alerting.md)).
 
 ## Related
 
