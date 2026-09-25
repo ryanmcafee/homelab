@@ -1243,6 +1243,24 @@ data:
     
 
 ---
+# Source: paperclip/templates/pvc.yaml
+# paperclip-operator 0.19.1 creates <name>-data but never resizes it, so ArgoCD applies the size.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: paperclip-data
+  namespace: paperclip
+  annotations:
+    argocd.argoproj.io/sync-options: Prune=false,Delete=false
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: democratic-csi-iscsi
+  resources:
+    requests:
+      storage: 200Gi
+
+---
 # Source: paperclip/templates/exporter.yaml
 apiVersion: v1
 kind: Service
@@ -1397,7 +1415,7 @@ spec:
   storage:
     persistence:
       enabled: true
-      size: 10Gi
+      size: 200Gi
       storageClass: democratic-csi-iscsi
   networking:
     service:
