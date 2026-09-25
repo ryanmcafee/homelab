@@ -153,8 +153,20 @@ may make without naming which half they mean.
 Check 1's real scope is two lists in `internal/config/guard.go`: `DefaultGuardPathspecs` and
 `guardScanExtensions`. The rule above says "no file in this repository"; the scan sees only what
 those lists admit. **Any file type or directory outside them is unenforced, whatever this
-document says.** Go source was outside both until ADR-037, which is how a defaulted node name in
-`cmd/homelab/commands/talos.go` sat in a file the gate could not read.
+document says.** Go source is outside both today: that is how a defaulted node name in
+`cmd/homelab/commands/talos.go` sits in a file the gate cannot read. ADR-037 decided that
+`cmd/**`, `internal/**` and `.go` are admitted; that half of the decision is not implemented
+yet, so read the two lists in `guard.go` — not this paragraph and not the ADR — for what is
+actually scanned.
+
+`terragrunt/**`, `talos/**` and `packer/**` are admitted, with `.hcl` and `.tf`, as of the
+widening that followed #393 — the pull request that removed a literal domain, a literal
+address, a cluster name and a Proxmox node name from `terragrunt/`. That leak is the worked
+example for this whole section: a human sweep caught it, and the guard could not, because
+`terragrunt/` was outside the scan on the pathspec axis and the extension axis at once. Note
+what the widening does and does not buy: those trees are now covered for the **literal-leak
+class only**. Undeclared hardware prerequisites, topology shape, and secret-store and identity
+assumptions in them remain the business of check 3b, which has never been executed.
 
 Three standing conditions follow:
 
@@ -162,10 +174,13 @@ Three standing conditions follow:
   A new unscanned directory is a silent hole, not a deferred task.
 - **`DefaultGuardPathspecs` and the `config-guard` hook in `.pre-commit-config.yaml` are one
   scope expressed twice and must be changed in the same commit.** `internal/config/guard.go`
-  says so in a comment at the list itself, and the hook is the half a contributor meets first:
-  its `types_or` admits no `go` and its `files:` pattern names neither `cmd/`, `internal/` nor
-  `terragrunt/`. Widening one and not the other produces a gate that passes locally and fails in
-  CI — or, worse, the reverse.
+  says so in a comment at the list itself, and the hook is the half a contributor meets first.
+  Both halves name `terragrunt/`, `talos/` and `packer/`, and the hook now spells its extension
+  list out in `files:` — `yaml yml json md ts svg hcl tf`, plus a template suffix — rather than
+  delegating it to `types_or:`, so the two can be diffed by eye and the hook stops silently
+  dropping `homelab.yaml.example`. What neither half admits is Go: no `cmd/`, no `internal/`,
+  no `.go`. Widening one and not the other produces a gate that passes locally and fails in CI
+  — or, worse, the reverse.
 - The synthetic ConfigSet for check 1 must use RFC 5737 values **distinct from** those in
   `configuration/environments/homelab.yaml.example`, which carries plausible RFC 1918 addresses
   (`192.168.1.x`). If the two overlap, the grep cannot tell a leaked real value from a placeholder.

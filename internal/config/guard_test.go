@@ -1762,6 +1762,9 @@ func TestDefaultGuardScopeCoversChartHomelabValues(t *testing.T) {
 		".github/**",
 		"Taskfile.yml",
 		"ansible/**",
+		"terragrunt/**",
+		"talos/**",
+		"packer/**",
 	}
 	if strings.Join(DefaultGuardPathspecs, " ") != strings.Join(want, " ") {
 		t.Fatalf("DefaultGuardPathspecs = %v, want %v", DefaultGuardPathspecs, want)
@@ -2085,5 +2088,117 @@ func TestShapeRulesNeedALiteralInCodeFiles(t *testing.T) {
 				t.Fatalf("matches = %d, want %d (%v)", len(res.Matches), tc.want, res.Matches)
 			}
 		})
+	}
+}
+
+// trackedUnderPathspecs is a lister that honours the pathspecs it is handed,
+// so a test that removes a pathspec really does lose the files under it. The
+// stub in withTrackedFiles deliberately ignores them, which is right for tests
+// about ordering and exclusion but useless for a test about scope.
+func trackedUnderPathspecs(t *testing.T, files []string) {
+	t.Helper()
+	prev := TrackedFiles
+	TrackedFiles = func(_ string, pathspecs []string) ([]string, error) {
+		var out []string
+		for _, f := range files {
+			for _, spec := range pathspecs {
+				prefix := strings.TrimSuffix(spec, "**")
+				if f == spec || (prefix != spec && strings.HasPrefix(f, prefix)) {
+					out = append(out, f)
+					break
+				}
+			}
+		}
+		return out, nil
+	}
+	t.Cleanup(func() { TrackedFiles = prev })
+}
+
+// TestGuardReadsTheBootstrapTrees is the negative fixture for the scan-scope
+// widening. It reproduces the defect class #393 had to remove by hand - an
+// operator-specific value written into a .hcl under terragrunt/, which the
+// guard could not report because that tree was outside the scan on both axes
+// at once - and requires the default scope to catch it with no --paths
+// argument.
+//
+// It is built to fail if either axis is reverted, which is the whole point of
+// the fixture: a pathspec without .hcl in guardScanExtensions admits a file
+// the guard then refuses to read, and .hcl without the pathspec has nothing to
+// read. Both reversions were exercised before this was committed.
+//
+// The planted value is 198.51.100.24, TEST-NET-2 from RFC 5737. The guard is
+// bound by the fork-ability contract it enforces, so its own fixtures may not
+// carry a real address or domain; a reserved-suffix domain is not usable here
+// because buildGuardPatterns drops it as non-identifying, which is what makes
+// the documentation address the only honest choice for a value-mode fixture.
+func TestGuardReadsTheBootstrapTrees(t *testing.T) {
+	const planted = "198.51.100.24"
+
+	repo := t.TempDir()
+	writeFixture := func(rel, body string) string {
+		t.Helper()
+		full := filepath.Join(repo, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return rel
+	}
+
+	env := filepath.Join(repo, "environment.yaml")
+	if err := os.WriteFile(env, []byte("TRUENAS_IP: "+planted+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// The #393 shape: the root unit pinned the value and merged it after the
+	// environment's own locals, so every unit inherited it.
+	leak := writeFixture("terragrunt/terragrunt.hcl", "locals {\n  truenas_ip = \""+planted+"\"\n}\n")
+	// One file per tree added with it, in the language that tree is written in.
+	moduleLeak := writeFixture("terragrunt/modules/truenas/variables.tf",
+		"variable \"truenas_host\" {\n  default = \""+planted+"\"\n}\n")
+	talosLeak := writeFixture("talos/patches/csi-nfs.yaml", "TRUENAS_IP: "+planted+"\n")
+	packerLeak := writeFixture("packer/truenas/truenas.pkr.hcl", "variable \"host\" {\n  default = \""+planted+"\"\n}\n")
+	// The post-#393 shape resolves from the ConfigSet and must stay clean, or
+	// the widening would just trade a silent hole for noise on every unit.
+	clean := writeFixture("terragrunt/environments/homelab/env.hcl",
+		"locals {\n  truenas_ip = local.resolved.TRUENAS_IP\n}\n")
+	// Still out of scope on the extension axis: .tpl is not a suffix
+	// hasScannableExtension looks through. Pinned so that the day someone
+	// admits it, they see this fixture and decide deliberately.
+	tpl := writeFixture("talos/machine-config/controlplane.yaml.tpl", "certSANs:\n  - "+planted+"\n")
+
+	trackedUnderPathspecs(t, []string{leak, moduleLeak, talosLeak, packerLeak, clean, tpl})
+
+	report, err := RunGuard(GuardOptions{RepoRoot: repo, CI: true, EnvPath: env})
+	if err != nil {
+		t.Fatalf("RunGuard: %v", err)
+	}
+	if len(report.Unreadable) != 0 {
+		t.Fatalf("every in-scope file must be readable, got %+v", report.Unreadable)
+	}
+
+	scanned := strings.Join(report.Files, " ")
+	for _, want := range []string{leak, moduleLeak, talosLeak, packerLeak, clean} {
+		if !strings.Contains(scanned, want) {
+			t.Errorf("%s is not in the scan scope; the pathspec or its extension was lost.\nscanned: %v", want, report.Files)
+		}
+	}
+	if strings.Contains(scanned, tpl) {
+		t.Errorf("%s is in scope, but .tpl is not a scannable extension; update this fixture and the talos/ note in guard.go together", tpl)
+	}
+
+	found := map[string]int{}
+	for _, res := range report.Results {
+		found[res.File] = len(res.Matches)
+	}
+	for _, want := range []string{leak, moduleLeak, talosLeak, packerLeak} {
+		if found[want] == 0 {
+			t.Errorf("the planted operator value in %s was not reported: this is the #393 defect class, and catching it is the only reason the scope was widened", want)
+		}
+	}
+	if n := found[clean]; n != 0 {
+		t.Errorf("%s resolves its value from the ConfigSet and must not be reported, got %d match(es)", clean, n)
 	}
 }
