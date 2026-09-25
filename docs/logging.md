@@ -157,10 +157,19 @@ the collector), so the source address seen by the collector is a node's; the sys
 carries the gateway's hostname and flow records carry the flow's own addresses.
 
 Records: syslog lines get ServiceName `unifi-syslog`, the CEF header in `LogAttributes`
-(`cef_vendor`, `cef_product`, `cef_name`, `cef_severity`, `cef_extension`); flows come from
-scope `netflowreceiver` with `source.address`, `source.port`, `destination.address`,
+(`cef_vendor`, `cef_product`, `cef_name`, `cef_severity`, `cef_extension`); flows get
+ServiceName `unifi-netflow` (set by `transform/service-name`) and come from scope
+`otelcol/netflowreceiver` with `source.address`, `source.port`, `destination.address`,
 `destination.port`, `network.transport`, `flow.io.bytes`, `flow.io.packets`, `flow.start`,
 `flow.end`. Dashboard: "UniFi gateway flows and firewall" (top talkers, ports, denies).
+
+Counter: the `netflow` receiver emits no `otelcol_receiver_*` self-metrics, so the gateway
+counts UniFi records itself. The logs pipeline also exports to the `count/unifi` connector,
+which counts records from scope `otelcol/netflowreceiver` and ServiceName `unifi-syslog`; the
+`metrics/unifi` pipeline turns the counts into `homelab_unifi_telemetry_records_total{source="netflow"|"syslog"}`
+on port 8889 (`prometheus/unifi`, `unifi-metrics` endpoint of the gateway PodMonitor). A
+series appears with the first record of its source and expires one hour after the last, so
+`HomelabUniFiTelemetrySilent` fires on a zero rate or an absent series per source.
 
 ## Operate
 

@@ -288,9 +288,19 @@ spec:
             containerPort: 2055
             servicePort: 2055
             protocol: UDP
+          unifi-metrics:
+            enabled: true
+            containerPort: 8889
+            servicePort: 8889
+            protocol: TCP
           {{- end }}
         podMonitor:
           enabled: true
+          {{- if and (eq $collector "gateway") $log.unifi.enabled }}
+          metricsEndpoints:
+            - port: metrics
+            - port: unifi-metrics
+          {{- end }}
         extraEnvs:
           - name: CLICKHOUSE_PASSWORD
             valueFrom:
@@ -361,9 +371,43 @@ spec:
             # carry no service.name, so the container name stands in.
             transform/service-name:
               log_statements:
+                {{- if and (eq $collector "gateway") $log.unifi.enabled }}
+                - context: scope
+                  statements:
+                    - set(resource.attributes["service.name"], "unifi-netflow") where scope.name == "otelcol/netflowreceiver"
+                {{- end }}
                 - context: resource
                   statements:
-                    - set(attributes["service.name"], attributes["k8s.container.name"]) where attributes["service.name"] == nil
+                    - set(resource.attributes["service.name"], resource.attributes["k8s.container.name"]) where resource.attributes["service.name"] == nil and resource.attributes["k8s.container.name"] != nil
+            {{- if and (eq $collector "gateway") $log.unifi.enabled }}
+            # One series per source, no job/instance labels; fresh timestamps keep the deltas in order for delta_to_cumulative.
+            transform/unifi-telemetry:
+              metric_statements:
+                - context: resource
+                  statements:
+                    - keep_keys(resource.attributes, [])
+                - context: datapoint
+                  statements:
+                    - set(datapoint.attributes["source"], "netflow") where datapoint.attributes["service.name"] == "unifi-netflow"
+                    - set(datapoint.attributes["source"], "syslog") where datapoint.attributes["service.name"] == "unifi-syslog"
+                    - delete_key(datapoint.attributes, "service.name")
+                    - set(datapoint.start_time, Now())
+                    - set(datapoint.time, Now())
+            delta_to_cumulative:
+              max_stale: 1h
+            {{- end }}
+          {{- if and (eq $collector "gateway") $log.unifi.enabled }}
+          connectors:
+            count/unifi:
+              logs:
+                homelab.unifi.telemetry.records:
+                  description: UniFi gateway syslog lines and flow records received by the gateway collector.
+                  conditions:
+                    - instrumentation_scope.name == "otelcol/netflowreceiver"
+                    - resource.attributes["service.name"] == "unifi-syslog"
+                  attributes:
+                    - key: service.name
+          {{- end }}
           exporters:
             debug: null
             clickhouse:
@@ -383,6 +427,13 @@ spec:
                 initial_interval: 5s
                 max_interval: 30s
                 max_elapsed_time: 300s
+            {{- if and (eq $collector "gateway") $log.unifi.enabled }}
+            # A silent source keeps its last count for an hour before the series expires.
+            prometheus/unifi:
+              endpoint: ${env:MY_POD_IP}:8889
+              metric_expiration: 1h
+              without_scope_info: true
+            {{- end }}
           service:
             pipelines:
               logs:
@@ -404,6 +455,9 @@ spec:
                   - batch
                 exporters:
                   - clickhouse
+                  {{- if and (eq $collector "gateway") $log.unifi.enabled }}
+                  - count/unifi
+                  {{- end }}
               {{- if eq $collector "gateway" }}
               traces:
                 receivers:
@@ -417,6 +471,16 @@ spec:
               traces: null
               {{- end }}
               metrics: null
+              {{- if and (eq $collector "gateway") $log.unifi.enabled }}
+              metrics/unifi:
+                receivers:
+                  - count/unifi
+                processors:
+                  - transform/unifi-telemetry
+                  - delta_to_cumulative
+                exporters:
+                  - prometheus/unifi
+              {{- end }}
   destination:
     server: https://kubernetes.default.svc
     namespace: {{ $log.namespace }}
