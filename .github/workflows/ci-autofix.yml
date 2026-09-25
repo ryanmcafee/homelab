@@ -162,7 +162,7 @@ jobs:
         if: steps.guard.outputs.run == 'true'
         uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
         with:
-          install_args: go helm bun kubeconform conftest pluto task pipx:yamllint
+          install_args: python pipx go helm bun kubeconform conftest pluto task pipx:yamllint
 
       - name: Install script dependencies from bun.lock
         if: steps.guard.outputs.run == 'true'
