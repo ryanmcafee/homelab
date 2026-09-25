@@ -2341,7 +2341,7 @@ spec:
 
 ---
 # Source: addons/templates/grafana-config.yaml
-# Grafana Config: deploys static PV+PVC for Grafana persistent storage
+# Grafana Config: static PV+PVC for Grafana, and the alert source redirect into Grafana
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -2366,6 +2366,8 @@ spec:
       valuesObject:
         iscsi:
           portal: "192.168.1.100:3260"
+        alertSource:
+          ingressClassName: "internal"
   destination:
     server: https://kubernetes.default.svc
     namespace: monitoring
@@ -2846,6 +2848,8 @@ spec:
 
         prometheus:
           prometheusSpec:
+            # Alert generator URLs land on Grafana; the grafana-config Middleware redirects them to a query view.
+            externalUrl: https://grafana.REPLACEME-domain.com
             retention: 30d
             retentionSize: 50GB
 
@@ -2904,6 +2908,7 @@ spec:
             annotations:
               cert-manager.io/cluster-issuer: letsencrypt
               external-dns.alpha.kubernetes.io/hostname: grafana.REPLACEME-domain.com
+              traefik.ingress.kubernetes.io/router.middlewares: monitoring-grafana-alert-source@kubernetescrd
             hosts:
               - grafana.REPLACEME-domain.com
             tls:

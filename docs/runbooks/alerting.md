@@ -26,6 +26,11 @@ Alertmanager template (`alertmanager.templateFiles`):
   encoded query would crowd out the 1024-character Pushover message it links the rule's Grafana
   page instead (`/alerting/Prometheus/<alertname>/find`), which shows the same query and graph.
 
+The **Source** link of an alert in the Alertmanager UI is Prometheus's generator URL. Prometheus's
+`externalUrl` is the Grafana host, so it reads `https://grafana.<DOMAIN>/graph?g0.expr=...`; the
+`grafana-alert-source` Traefik Middleware (`charts/grafana-config`) redirects that to the
+**Alert query** dashboard, which plots the expression on the `Prometheus` datasource.
+
 Where it is defined: `charts/addons/templates/kube-prometheus-stack.yaml` (`alertmanager.config`,
 `alertmanagerSpec.secrets`, `additionalPrometheusRulesMap`), values from
 `configuration/templates/helm-addons.tmpl` (`kube-prometheus-stack.alertmanager.notifications`),

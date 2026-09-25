@@ -6,3 +6,11 @@ volumes: []
 # never commit a real portal here.
 iscsi:
   portal: ""
+
+# Alert "Source" links (Prometheus generatorURL, /graph?g0.expr=...) on the
+# Grafana host redirect to the Alert query dashboard. The parent Application
+# sets ingressClassName so the CRD provider of that Traefik loads the Middleware.
+alertSource:
+  ingressClassName: ""
+  middlewareName: grafana-alert-source
+  dashboardUid: alert-query

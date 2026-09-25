@@ -37,6 +37,10 @@ spec:
 
         prometheus:
           prometheusSpec:
+            {{- if (index .Values "kube-prometheus-stack" "grafana" "ingress" "enabled") }}
+            # Alert generator URLs land on Grafana; the grafana-config Middleware redirects them to a query view.
+            externalUrl: https://{{ index (index .Values "kube-prometheus-stack" "grafana" "ingress" "hosts") 0 }}
+            {{- end }}
             retention: {{ index .Values "kube-prometheus-stack" "prometheus" "retention" }}
             retentionSize: {{ index .Values "kube-prometheus-stack" "prometheus" "retentionSize" }}
 
@@ -95,6 +99,7 @@ spec:
             annotations:
               cert-manager.io/cluster-issuer: letsencrypt
               external-dns.alpha.kubernetes.io/hostname: {{ index (index .Values "kube-prometheus-stack" "grafana" "ingress" "hosts") 0 }}
+              traefik.ingress.kubernetes.io/router.middlewares: {{ index .Values "kube-prometheus-stack" "namespace" }}-grafana-alert-source@kubernetescrd
             hosts:
               {{- range (index .Values "kube-prometheus-stack" "grafana" "ingress" "hosts") }}
               - {{ . }}
