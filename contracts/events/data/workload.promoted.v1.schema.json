@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ryanmcafee/homelab/contracts/events/data/workload.promoted.v1.schema.json",
+  "title": "workload.deployment.promoted v1 data",
+  "description": "The completion event for a durable promote request. Carries the outcome the requester cannot get from a reply, and is joined to its request by the envelope `correlationid`. Evolved additively within v1: new OPTIONAL fields only. A new required field, a removed field or a retyped field is a v2.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "namespace",
+    "name",
+    "toRevision",
+    "outcome"
+  ],
+  "properties": {
+    "namespace": {
+      "type": "string",
+      "description": "Kubernetes namespace the object lives in.",
+      "maxLength": 253
+    },
+    "name": {
+      "type": "string",
+      "description": "Object name.",
+      "maxLength": 253
+    },
+    "fromRevision": {
+      "type": "string",
+      "description": "Revision the workload was on before the promote.",
+      "pattern": "^[0-9a-f]{7,40}$"
+    },
+    "toRevision": {
+      "type": "string",
+      "description": "Git revision (full SHA) the desired state came from.",
+      "pattern": "^[0-9a-f]{7,40}$"
+    },
+    "outcome": {
+      "type": "string",
+      "enum": [
+        "succeeded",
+        "failed",
+        "rolled-back",
+        "superseded"
+      ],
+      "description": "Terminal outcome of the promote. `superseded` means a newer promote for the same target took over; the requester's work is done but not by this request."
+    },
+    "reason": {
+      "type": "string",
+      "description": "Machine-readable reason, required when `outcome` is not `succeeded`.",
+      "maxLength": 128
+    },
+    "message": {
+      "type": "string",
+      "description": "Human-readable detail. Never parsed.",
+      "maxLength": 2048
+    }
+  }
+}

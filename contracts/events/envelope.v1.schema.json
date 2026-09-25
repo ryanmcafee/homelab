@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/ryanmcafee/homelab/contracts/events/envelope.v1.schema.json",
   "title": "Platform CloudEvents envelope, v1",
-  "description": "A narrowing profile of CloudEvents 1.0 (structured JSON mode). Every event published to the platform NATS bus MUST validate against this schema. The profile narrows CloudEvents in four places: `source` and `type` have an enforced grammar, `datacontenttype` is fixed to JSON, `dataschema` is required, and the platform extension attributes below are required on every event. See docs/contracts/event-contract.md.",
+  "description": "A narrowing profile of CloudEvents 1.0 (structured JSON mode). Every event published to the platform NATS bus MUST validate against this schema. The profile narrows CloudEvents in four places: `source` and `type` have an enforced grammar, `datacontenttype` is fixed to JSON, `dataschema` is required, and the platform extension attributes below are required on every event. `additionalProperties` is false, so a NEW OPTIONAL ATTRIBUTE IS NOT A UNILATERALLY ADDITIVE CHANGE: a producer that ships one has its events rejected by any consumer still validating against an older copy of this file. Adding an attribute is a COORDINATED ROLLOUT \u2014 every validator is updated first, producers second \u2014 and the gate pins this schema's `required` array so the ordering cannot be skipped by accident. See docs/contracts/event-contract.md.",
   "type": "object",
   "required": [
     "specversion",
@@ -12,8 +12,7 @@
     "time",
     "datacontenttype",
     "dataschema",
-    "tenant",
-    "sequence"
+    "tenant"
   ],
   "additionalProperties": false,
   "properties": {
@@ -35,9 +34,9 @@
     },
     "type": {
       "type": "string",
-      "pattern": "^com\\.mcafeeconsulting\\.platform\\.[a-z0-9]+(\\.[a-z0-9]+)*\\.v[1-9][0-9]*$",
+      "pattern": "^com\\.mcafeeconsulting\\.platform\\.[a-z0-9]+(-[a-z0-9]+)*(\\.[a-z0-9]+(-[a-z0-9]+)*)*\\.v[1-9][0-9]*$",
       "maxLength": 128,
-      "description": "Reverse-DNS event type ending in an explicit major version, e.g. com.mcafeeconsulting.platform.workload.deployment.deployed.v1. The version is part of the type, never a separate attribute, so a consumer subscribing to v1 can never be handed a v2 body."
+      "description": "Reverse-DNS event type ending in an explicit major version, e.g. com.mcafeeconsulting.platform.workload.deployment.deployed.v1. The version is part of the type, never a separate attribute, so a consumer subscribing to v1 can never be handed a v2 body. The `com.mcafeeconsulting.platform.` prefix is FIXED AND A FORK DOES NOT CHANGE IT: it identifies the platform software, which a fork still runs, and is what makes an event from a forked install recognisable to the same SDK. The operator's own identity travels in `source`, which is parameterised."
     },
     "subject": {
       "type": "string",
@@ -57,10 +56,10 @@
     "dataschema": {
       "type": "string",
       "format": "uri",
-      "description": "Required (CloudEvents makes it optional). Resolves to the JSON Schema for `data` under contracts/events/. A payload whose shape is not published is not a contract."
+      "description": "Required (CloudEvents makes it optional). The JSON Schema for `data`. RESOLUTION IS DEFINED, not left to each producer: the wire value is `<contracts_base_uri>` + the registry's relative `dataschema` path, where `contracts_base_uri` is a single operator-supplied setting ending in `/` (homelab default: the raw contracts path of the operator's own fork). The registry stores the relative path and the compatibility gate compares relative paths; only the base differs between installs. A payload whose shape is not published is not a contract."
     },
     "data": {
-      "description": "The event body. Shape is governed by `dataschema`, evolved additively within a major version: new optional fields only. Absent only for types declared `dataless: true` in the registry."
+      "description": "The event body. Shape is governed by `dataschema`, evolved additively within a major version: new optional fields only. Absent only for types declared `dataless: true` in the registry. The whole event \u2014 envelope plus body \u2014 must fit inside the bus message limit (subjects.v1.yaml `limits.max_event_bytes`, 1 MiB); a larger payload is referenced by URI, never embedded."
     },
     "tenant": {
       "type": "string",
@@ -71,7 +70,7 @@
     "sequence": {
       "type": "string",
       "pattern": "^[0-9]{1,20}$",
-      "description": "Platform extension, per CloudEvents Sequence. The JetStream stream sequence, stringified, assigned on persist. Monotonic per (stream, subject) and meaningful for ordering ONLY within a single subject on a single stream. Producers set `0` before publish; the publishing SDK overwrites it from the PubAck."
+      "description": "Platform extension, per CloudEvents Sequence. The JetStream stream sequence, stringified, assigned on persist by the ONE stream that ingested the event (PF_EVENTS for `.ev`, PF_WORK for `.wq`); PF_AUDIT sources from PF_EVENTS and its internal sequences are never this value. Monotonic per (stream, subject) and meaningful for ordering ONLY within a single subject on a single stream \u2014 and see subjects.v1.yaml `consumers.ordering_reality` before relying on it. OPTIONAL, because only the broker can assign it: a producer does not set it, the publishing SDK fills it from the PubAck, and on the core-NATS `rq` path there is no stream and no PubAck at all. Present on every event a consumer receives from a stream; absent on a synchronous request. A required attribute that a producer must fill with a placeholder is a lie in the schema (ADR-035)."
     },
     "traceparent": {
       "type": "string",
@@ -91,7 +90,7 @@
     "replyto": {
       "type": "string",
       "maxLength": 256,
-      "description": "Platform extension. NATS inbox subject for request/reply. Present only on types whose registry `pattern` is `request_reply`; a consumer that sees it on a pub/sub type MUST ignore it."
+      "description": "Platform extension. NATS inbox subject (`_INBOX.\u2026`) for synchronous request/reply. Present ONLY on `rq` types; a consumer that sees it on a pub/sub type MUST ignore it. A `wq` durable request has no `replyto` \u2014 an inbox does not survive the wait that made the request durable \u2014 and reports its outcome through the `completion` event named in the registry."
     },
     "dryrun": {
       "type": "boolean",

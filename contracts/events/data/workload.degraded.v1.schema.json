@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ryanmcafee/homelab/contracts/events/data/workload.degraded.v1.schema.json",
+  "title": "workload.deployment.degraded v1 data",
+  "description": "A workload stopped meeting its readiness or availability target. Evolved additively within v1: new OPTIONAL fields only. A new required field, a removed field or a retyped field is a v2.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "namespace",
+    "name",
+    "reason",
+    "observedGeneration"
+  ],
+  "properties": {
+    "namespace": {
+      "type": "string",
+      "description": "Kubernetes namespace the object lives in.",
+      "maxLength": 253
+    },
+    "name": {
+      "type": "string",
+      "description": "Object name.",
+      "maxLength": 253
+    },
+    "reason": {
+      "type": "string",
+      "enum": [
+        "ProgressDeadlineExceeded",
+        "CrashLoopBackOff",
+        "ImagePullFailure",
+        "ReadinessFailing",
+        "InsufficientCapacity",
+        "Unknown"
+      ],
+      "description": "Why the workload is degraded. `Unknown` is deliberate: a consumer must handle a reason it does not recognise rather than fail closed on an enum it was compiled against."
+    },
+    "message": {
+      "type": "string",
+      "description": "Human-readable detail. Never parsed by a consumer \u2014 the machine-readable fact is `reason`.",
+      "maxLength": 2048
+    },
+    "readyReplicas": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Ready replicas observed."
+    },
+    "desiredReplicas": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Replicas the spec asks for."
+    },
+    "observedGeneration": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "metadata.generation the controller had reconciled."
+    }
+  }
+}

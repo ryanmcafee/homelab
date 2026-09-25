@@ -673,7 +673,7 @@ Each decision should include:
 - Events are CloudEvents 1.0 structured JSON, narrowed: `datacontenttype` fixed, `dataschema` required, the major version inside `type`, and `tenant` plus `sequence` as required extensions
 - **No path is exactly-once end to end and no document may imply one.** Pub/sub and durable requests are at-least-once, ordered per subject (pub/sub) or unordered (work queue); synchronous request/reply is at-most-once. Consumers are idempotent on `(source, id)`
 - `tenant` is a trust boundary enforced by NATS account and subject permissions, not by consumer-side filtering; homelab runs the same enforcement with the single reserved tenant `local`
-- Three streams: `PF_EVENTS` (7d), `PF_AUDIT` (365d, `discard: new`, deliberately overlapping), `PF_WORK` (work queue). A subject no stream covers is an error, not a warning
+- Three streams: `PF_EVENTS` (7d), `PF_AUDIT` (365d, `discard: new`), `PF_WORK` (work queue). A subject no stream covers is an error, not a warning. *(Revised by ADR-035: `PF_AUDIT` sources from `PF_EVENTS` rather than overlapping it, `PF_DLQ` is a fourth stream, and `PF_WORK` retains for 24h.)*
 - The contract is machine-checked: `contracts/events/` plus `task contracts:check`
 - Normative detail: `docs/contracts/event-contract.md`
 
@@ -689,7 +689,7 @@ Each decision should include:
 - Every consumer must be idempotent, which is real work — it is the same property ADR-025 already demands of operators, so the cost is shared rather than doubled
 - Seven fixed tokens force some awkward `<entity>` choices for events that are not about a resource; that is the price of stable wildcards
 - Anything that must outlive stream retention (7d / 365d) lives in Postgres or a CRD `status`, never only in a stream
-- `PF_AUDIT` deliberately duplicates identity and control events already on `PF_EVENTS`; consumers see each twice, which is safe only because of the idempotency rule
+- ~~`PF_AUDIT` deliberately duplicates identity and control events already on `PF_EVENTS`; consumers see each twice, which is safe only because of the idempotency rule~~ **Withdrawn by ADR-035.** This consequence described a stream that could not be created: NATS refuses two streams with overlapping subject filters in one account (`10065`). `PF_AUDIT` now sources from `PF_EVENTS`, a consumer binds one stream, and nobody sees anything twice
 
 ### ADR-027: One SDK and one API contract for both surfaces, contract before implementation (2026-09-25)
 
@@ -982,6 +982,43 @@ Each decision should include:
 - Check 4 gives the Senior Platform Engineer a check of their own, which is what removes the two-owners-or-none collision on #52 AC4
 - A fork with a non-three control-plane topology becomes a supported case rather than an accident: ADR-035 derives the count from the `^CP[0-9]+_IP$` key set, so the address list is what expresses it
 - The gate is now four checks across three owners plus the rule's owner; that is more coordination than one check, and it is the price of the scope being honest about what it covers
+
+### ADR-035: The audit stream is sourced, the work queue has a real dead-letter path, and `rs` is deleted — event-contract revisions from the second-reviewer pass (2026-09-25); refines ADR-026
+
+**Context:**
+- ADR-026 and `contracts/events/` were merged in #339 with `task contracts:check` and 36 unit tests green. The second reviewer did not read the stream config, they **ran it**: `nats-server v2.10.22` with JetStream, creating each stream field for field from `subjects.v1.yaml`
+- Three of the things the contract specified, the server refuses outright, and a fourth loses data silently. The gate was green on all four, which is the more important finding: a boundary gate that is green on a configuration the broker rejects is worse than no gate, because it converts "someone will notice in review" into "CI said it was fine"
+- Every error quoted below is the server's own, and every gate result below was re-run against the real files in this repository
+
+**Decision:**
+- **`PF_AUDIT` sources from `PF_EVENTS`; it has no subject filters of its own.** Two streams in one account may not have overlapping subject filters (`subjects overlap with an existing stream`, 10065), and `PF_AUDIT`'s filters were a strict subset of `PF_EVENTS`'. The stream as specified could not be created. Sourcing also deletes the "consumers see each twice" cost entirely and makes the envelope `sequence` unambiguous: one publish, one PubAck, one sequence, from `PF_EVENTS`
+- **`replicas` is the operator-supplied placeholder `<replicas>` on every stream**, defaults per surface (homelab `1`, commercial `3`, needing a 3-peer meta-group). A hard-coded `3` made every stream uncreatable on a single-node fork (`replicas > 1 not supported in non-clustered mode`, 10074)
+- **`PF_WORK.max_age` is 24h, and age expiry there is documented as a silent-loss path** covered by a stream-level alert on `state.first_ts`, not by a consumer advisory. `max_age` on a work queue deletes unacked work with no per-message signal at all, and the max-deliveries advisory does not fire because nothing was ever redelivered
+- **A real dead-letter path: a `dl` suffix and a `PF_DLQ` stream.** On final failure a consumer republishes the **full original envelope** to the derived `dl` subject, preserving `id`, `source` and `correlationid`, then `Term()`s the original. JetStream's advisory is metadata-only — no payload, no subject, no correlation id — and fires only on the next fetch after exhaustion
+- **Every `PF_WORK` consumer binds exactly one fully-specified subject**, named `<component>-<entity>-<action>-v<major>`. Work-queue consumer filters must be unique and non-overlapping (10100), and `PF_WORK` spans every domain, so one domain-wide consumer would foreclose every other component in that domain
+- **`rs` is deleted from the grammar and every `wq` type must name a `completion` type** — a registered `.ev` event carrying the same `correlationid`. A reply goes to the requester's `_INBOX.…`, which is outside this subject space by construction, so `rs` was unconstructible; and a durable request with no defined reply left the requester no way to learn the work finished
+- **`durable_request` is removed from the registry**; durability is derived from the subject suffix, which is the one place a reader already sees it. Three gate rules existed only to reconcile the two copies
+- **`sequence` becomes optional**, `ordering: per_subject` is documented as a stream property and not a delivery property with `max_ack_pending` given an explicit default, and the `duplicate_window` claim becomes a rule on producers rather than a property of the stream
+- **`domain`, `entity` and `action` allow internal hyphens**, and a `delivery` domain is added for pipeline and progressive-delivery events, which had no honest home
+- **The gate now pins the whole contract, not just the type list**: the envelope's `required` array, the stream set (filters, sources, retention, discard, delivery, ordering) and the subject grammar. It rejects status demotion, `dataless` body removal, `requires` *removal*, `producer` reassignment, filter narrowing, retention shortening, a hard-coded tenant in a new type, a `dataschema` that resolves to no file, and — statically — an overlapping stream set
+- Normative detail: `docs/contracts/event-contract.md`. `pf.>` is reserved for the platform bus; third-party buses get their own root and their own NATS account
+
+**Alternatives Considered:**
+- **Exclude identity and control from `PF_EVENTS` instead of sourcing** -> removes the overlap, and a consumer wanting "every v1 event" would then bind two streams and reconcile two sequence spaces. That is the cost sourcing avoids, moved somewhere less visible
+- **Treat the max-deliveries advisory as the dead-letter path and document its limits** -> cheaper, and it leaves recovery of the actual work requiring `$JS.API.STREAM.MSG.GET` by sequence, i.e. stream-admin rights the failing component does not have. "Every event traceable end to end" has to survive the failure path or it is not a property
+- **Define `rs` properly as a persisted completion subject and fix the gate to allow it** -> workable, and it invents a fourth delivery path to do what the `.ev` path already does durably. Reuse beat symmetry
+- **Keep `replicas: 3` and call single-node a deployment concern** -> it is a fork-ability failure at the first stream a stranger creates, which is the definition of the contract we said we would not break
+- **Accept the six gate gaps and rely on review** -> ADR-030 exists precisely because "review will catch it" is not a control. Each of the six was demonstrated passing, and each now fails
+
+**Consequences:**
+- `PF_AUDIT` holds a second physical copy of identity and control events on disk. That cost is real and was always going to be paid; what is gone is the per-consumer duplicate delivery
+- The stream set grows to four. `PF_DLQ` needs its own retention budget (30d) and its own operator attention — a DLQ nobody reads is a slower silent loss
+- Every `wq` producer now ships two types, the request and its completion. That is more registry surface for a genuinely better property: the requester has a durable, replayable outcome instead of a reply it may not be alive to receive
+- The compatibility baseline changes shape, from a bare array of types to an object pinning grammar, envelope, streams and types. It is regenerated once in this change; no previously-tracked field of any stable type changed, which was verified against the pre-change baseline before regenerating
+- `sequence` moving from required to optional is a relaxation of a promise to consumers, which this ADR otherwise treats as breaking. It is taken here because no producer exists yet — the eleven payload schemas the contract referenced did not exist on disk until this change — and it is taken *in the same commit that first pins the envelope*, so the pin starts at the corrected shape. After this, both directions are rejected
+- A stricter gate means more changes need `baseline --write` and therefore a visible diff and a reviewer. That is the intended cost
+- The operator model, SDK boundary and BYO seams in #339 were out of scope for the review and remain unrevised here
+
 
 ## Tips
 

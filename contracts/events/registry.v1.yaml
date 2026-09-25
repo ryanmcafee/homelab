@@ -9,16 +9,30 @@
 #                   <domain>.<entity>.<action>.<major>. The checker enforces that.
 #   subject         The NATS subject template it is published on.
 #   pattern         pubsub | request_reply
-#   durable_request request_reply only: true = PF_WORK, `wq` suffix; false = core
-#                   NATS, `rq` suffix. Must agree with the subject suffix.
 #   delivery        at_least_once | at_most_once. Never "exactly_once".
 #   ordering        per_subject | none
-#   dataschema      Schema for `data`, relative to contracts/events/.
-#   dataless        true when the type carries no body.
+#   dataschema      Schema for `data`, relative to contracts/events/. Must resolve to a
+#                   file that exists; the checker opens it.
+#   dataless        true when the type carries no body. Mutually exclusive with
+#                   `dataschema`.
 #   requires        Envelope attributes required beyond the envelope schema's own list.
-#   producer        The component that owns the type. One owner, always.
+#                   Both a promise to consumers and an obligation on the producer, so
+#                   ADDING one and REMOVING one are each breaking.
+#   completion      `wq` types only, and required on them: the registered `.ev` type that
+#                   reports the outcome, correlated by `correlationid`. A durable request
+#                   has no synchronous reply, so without this a requester has no way to
+#                   learn the work finished.
+#   producer        The component that owns the type. One owner, always. This is a TRUST
+#                   BOUNDARY — publish permission is granted per subject prefix to this
+#                   component's NATS credential — so reassigning it is breaking and needs
+#                   an ADR, not a passing gate.
 #   status          stable | experimental. `experimental` types are exempt from the
 #                   compatibility gate and MUST NOT be consumed across a trust boundary.
+#                   Demoting stable -> experimental is breaking.
+#
+# There is NO `durable_request` field. Durability is derived from the subject suffix
+# (`wq` = PF_WORK and durable, `rq` = core NATS and not), which is the one place a reader
+# already sees it. A second source of truth for the same fact only creates drift (ADR-035).
 
 version: 1
 
@@ -116,7 +130,6 @@ types:
   - type: com.mcafeeconsulting.platform.workload.deployment.describe.v1
     subject: pf.<tenant>.workload.deployment.describe.v1.rq
     pattern: request_reply
-    durable_request: false
     delivery: at_most_once
     ordering: none
     dataschema: data/workload.describe.v1.schema.json
@@ -127,10 +140,25 @@ types:
   - type: com.mcafeeconsulting.platform.workload.deployment.promote.v1
     subject: pf.<tenant>.workload.deployment.promote.v1.wq
     pattern: request_reply
-    durable_request: true
     delivery: at_least_once
     ordering: none
     dataschema: data/workload.promote.v1.schema.json
     requires: [correlationid, subject]
+    completion: com.mcafeeconsulting.platform.workload.deployment.promoted.v1
     producer: platform-api
+    status: stable
+
+  # The completion half of the durable request above. A `wq` request cannot be answered
+  # on a `_INBOX` reply subject — the inbox will not survive the wait that made the
+  # request durable in the first place — so the outcome comes back as a normal persisted
+  # event carrying the request's `correlationid`. That reuses the pub/sub path and its
+  # durability instead of inventing a fourth delivery path (ADR-035).
+  - type: com.mcafeeconsulting.platform.workload.deployment.promoted.v1
+    subject: pf.<tenant>.workload.deployment.promoted.v1.ev
+    pattern: pubsub
+    delivery: at_least_once
+    ordering: per_subject
+    dataschema: data/workload.promoted.v1.schema.json
+    requires: [subject, correlationid]
+    producer: workload-operator
     status: stable

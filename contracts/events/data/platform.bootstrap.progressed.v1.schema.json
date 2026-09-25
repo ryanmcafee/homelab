@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ryanmcafee/homelab/contracts/events/data/platform.bootstrap.progressed.v1.schema.json",
+  "title": "control.bootstrap.progressed v1 data",
+  "description": "A bootstrap run advanced one stage. Emitted by the CLI so a dashboard can follow a fork operator's first install; every event of one run shares a `correlationid`. Evolved additively within v1: new OPTIONAL fields only. A new required field, a removed field or a retyped field is a v2.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "stage",
+    "stageIndex",
+    "stageCount",
+    "outcome"
+  ],
+  "properties": {
+    "stage": {
+      "type": "string",
+      "description": "Stage identifier, stable across runs and forks (e.g. `talos-config`, `cilium`, `argocd`, `app-of-apps`).",
+      "maxLength": 64
+    },
+    "stageIndex": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Zero-based position of this stage in the run."
+    },
+    "stageCount": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Total stages in the run, so a consumer can render progress without knowing the stage list."
+    },
+    "outcome": {
+      "type": "string",
+      "enum": [
+        "started",
+        "succeeded",
+        "failed",
+        "skipped"
+      ],
+      "description": "What happened to this stage."
+    },
+    "durationSeconds": {
+      "type": "number",
+      "minimum": 0,
+      "description": "Wall-clock seconds for the stage; absent on `started`."
+    },
+    "message": {
+      "type": "string",
+      "description": "Human-readable detail. Never parsed, and MUST NOT carry secrets or rendered config.",
+      "maxLength": 2048
+    }
+  }
+}
