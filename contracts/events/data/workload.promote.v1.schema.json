@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ryanmcafee/homelab/contracts/events/data/workload.promote.v1.schema.json",
+  "title": "workload.deployment.promote v1 request data",
+  "description": "Durable request to promote a workload to a revision. At-least-once on PF_WORK, so the handler MUST be idempotent on the envelope `(source, id)`. The outcome comes back as workload.deployment.promoted.v1 carrying this request's `correlationid`, never as a reply. Evolved additively within v1: new OPTIONAL fields only. A new required field, a removed field or a retyped field is a v2.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "namespace",
+    "name",
+    "toRevision"
+  ],
+  "properties": {
+    "namespace": {
+      "type": "string",
+      "description": "Kubernetes namespace the object lives in.",
+      "maxLength": 253
+    },
+    "name": {
+      "type": "string",
+      "description": "Object name.",
+      "maxLength": 253
+    },
+    "toRevision": {
+      "type": "string",
+      "description": "Git revision (full SHA) the desired state came from.",
+      "pattern": "^[0-9a-f]{7,40}$"
+    },
+    "fromRevision": {
+      "type": "string",
+      "description": "Revision the requester believes the workload is on. When present the handler MUST refuse the promote if the live revision differs \u2014 an optimistic-concurrency guard against two promotes racing.",
+      "pattern": "^[0-9a-f]{7,40}$"
+    },
+    "strategy": {
+      "type": "string",
+      "enum": [
+        "rolling",
+        "canary",
+        "blue-green"
+      ],
+      "description": "Promotion strategy. Absent means the workload's configured default."
+    },
+    "requestedBy": {
+      "type": "string",
+      "description": "Principal id that asked for the promote. Audit trail for an action that changes running state.",
+      "maxLength": 128
+    }
+  }
+}

@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ryanmcafee/homelab/contracts/events/data/gitops.application.synced.v1.schema.json",
+  "title": "gitops.application.synced v1 data",
+  "description": "An ArgoCD Application reached Synced at a revision. Evolved additively within v1: new OPTIONAL fields only. A new required field, a removed field or a retyped field is a v2.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "application",
+    "namespace",
+    "revision",
+    "health"
+  ],
+  "properties": {
+    "application": {
+      "type": "string",
+      "description": "Object name.",
+      "maxLength": 253
+    },
+    "namespace": {
+      "type": "string",
+      "description": "Kubernetes namespace the object lives in.",
+      "maxLength": 253
+    },
+    "revision": {
+      "type": "string",
+      "description": "Git revision (full SHA) the desired state came from.",
+      "pattern": "^[0-9a-f]{7,40}$"
+    },
+    "destinationNamespace": {
+      "type": "string",
+      "description": "Namespace the Application deploys into.",
+      "maxLength": 253
+    },
+    "health": {
+      "type": "string",
+      "enum": [
+        "Healthy",
+        "Progressing",
+        "Degraded",
+        "Suspended",
+        "Missing",
+        "Unknown"
+      ],
+      "description": "ArgoCD health status at the moment of sync. Sync and health are separate facts and a consumer that conflates them will act on a synced-but-degraded app."
+    },
+    "syncedAt": {
+      "type": "string",
+      "description": "RFC3339 time ArgoCD recorded the sync. Distinct from the envelope `time`, which is when the bridge published.",
+      "format": "date-time"
+    }
+  }
+}

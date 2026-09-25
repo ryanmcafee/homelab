@@ -1,15 +1,15 @@
 # NATS subject taxonomy and stream set, v1.
 #
 # Normative. Checked by `bun scripts/contract-check.ts` (task contracts:check).
-# Reasoning: docs/contracts/event-contract.md. Decision: ADR-026.
+# Reasoning: docs/contracts/event-contract.md. Decision: ADR-026, revised by ADR-038.
 #
 # Every subject on the platform bus is exactly seven tokens:
 #
 #   pf.<tenant>.<domain>.<entity>.<action>.<major>.<pattern>
 #    |    |        |        |        |        |       |
-#    |    |        |        |        |        |       +-- ev | rq | wq | rs
+#    |    |        |        |        |        |       +-- ev | rq | wq | dl
 #    |    |        |        |        |        +---------- v1, v2, ...
-#    |    |        |        |        +------------------- past tense for ev, imperative for rq
+#    |    |        |        |        +------------------- past tense for ev, imperative for rq/wq
 #    |    |        |        +---------------------------- the resource kind
 #    |    |        +------------------------------------- bounded context
 #    |    +---------------------------------------------- tenancy boundary; `local` in homelab
@@ -18,31 +18,67 @@
 # Fixed token count is the whole point: `pf.*.workload.*.*.v1.ev` is a legal, stable
 # wildcard for "every v1 workload event in every tenant", and it cannot silently start
 # matching a deeper subject someone added later.
+#
+# `pf.>` IS RESERVED for the platform bus. No third-party bus — Argo Events, Temporal,
+# anything added later — may place a stream, a consumer or a publish permission under it.
+# This is not style: two streams in one NATS account may not have overlapping subject
+# filters, and the server refuses the second one with `subjects overlap with an existing
+# stream (10065)`. A third-party bus that widens into `pf.>` does not degrade the platform
+# bus, it makes a platform stream uncreatable. Third-party buses get their own root AND
+# their own NATS account (ADR-038).
 
 version: 1
 
 grammar:
-  pattern: '^pf\.[a-z0-9][a-z0-9-]{0,62}\.[a-z0-9]+\.[a-z0-9]+\.[a-z0-9]+\.v[1-9][0-9]*\.(ev|rq|wq|rs)$'
+  # `domain`, `entity` and `action` allow internal hyphens. A hyphen is not a NATS token
+  # separator, so `analysis-run` is still exactly one token and every wildcard guarantee
+  # above is untouched — but `analysis-run.step-completed` is readable where
+  # `analysisrun.stepcompleted` is a puzzle.
+  pattern: '^pf\.[a-z0-9][a-z0-9-]{0,62}\.[a-z0-9]+(-[a-z0-9]+)*\.[a-z0-9]+(-[a-z0-9]+)*\.[a-z0-9]+(-[a-z0-9]+)*\.v[1-9][0-9]*\.(ev|rq|wq|dl)$'
   tokens: 7
   root: pf
   suffixes:
     ev: Pub/sub event. Fan-out, many consumers, no reply. Past tense action.
     rq: >-
       Synchronous request on core NATS. Exactly one responder, at-most-once, never
-      persisted. Imperative action. Requires `replyto` and `correlationid`.
+      persisted. Imperative action. Requires `replyto` and `correlationid`. The REPLY
+      goes to the requester's private `_INBOX.…` subject, which is outside this grammar
+      by construction — that is why there is no `rs` suffix (ADR-038).
     wq: >-
       Durable request on the PF_WORK work-queue stream. Deferred work, at-least-once,
-      exactly one consumer group takes each message. Requires `correlationid`.
-    rs: Reply. Published to the requester's inbox, not to a stream. Never persisted.
+      exactly one consumer group takes each message. Requires `correlationid`. A `wq`
+      type has no synchronous reply; it MUST name a `completion` type — a registered
+      `.ev` event correlated by `correlationid` — which is how the requester learns the
+      work finished.
+    dl: >-
+      Dead letter. Carries the FULL original envelope of a `wq` message that a consumer
+      gave up on, republished by that consumer before it terminates the original. Not
+      directly registerable: a `dl` subject is derived from its `wq` subject by swapping
+      the suffix, so it is never listed as a type's own `subject`.
 
 # Bounded contexts. Adding one is additive; renaming one is breaking.
 domains:
   control: Control-plane lifecycle — tenants, environments, bootstrap.
   workload: Application workloads and their rollout state.
   gitops: ArgoCD Application sync, drift and health.
+  delivery: >-
+    Pipeline, workflow and progressive-delivery lifecycle — Argo Workflows runs, Argo
+    Rollouts steps and analysis, golden-path CI/CD and quality gates. Distinct from
+    `gitops` (which is ArgoCD Application state) and from `workload` (which is the
+    deployed thing, not the pipeline that moved it).
   infra: Nodes, storage, network, cluster lifecycle.
   identity: Principals, AI agent identities, credential lifecycle.
   observability: SLO burn, alert lifecycle, verification results.
+
+# Stream sizing is operator-supplied, not contract. `replicas` is the literal placeholder
+# `<replicas>` on every stream and the checker enforces that it stays a placeholder: a
+# hard-coded `3` means a stranger forking this repo onto a single-node Talos box cannot
+# create ANY stream — the server refuses with `replicas > 1 not supported in
+# non-clustered mode (10074)`. That is the fork-ability contract failing at stream one.
+replicas_defaults:
+  homelab: 1
+  commercial: 3
+  commercial_minimum_peers: 3 # R=3 needs a 3-peer JetStream meta-group; size #50 for it
 
 # Streams. A subject that matches no stream is a configuration error, not a warning:
 # it means an event is being published into a void with nothing to replay it.
@@ -50,23 +86,31 @@ streams:
   - name: PF_EVENTS
     subjects: ['pf.*.*.*.*.*.ev']
     storage: file
-    replicas: 3
+    replicas: <replicas>
     retention: limits
     max_age: 168h # 7d
+    max_msg_size: 1048576 # 1 MiB; see `limits.max_event_bytes` below
     discard: old
     duplicate_window: 2m
     delivery: at_least_once
     ordering: per_subject
     notes: >-
-      The general fan-out stream. `duplicate_window` de-duplicates on the `Nats-Msg-Id`
-      header, which the SDK sets to the CloudEvents `id`. That window makes publish
-      effectively-once for a 2-minute retry burst; it does NOT make end-to-end delivery
-      exactly-once, because a consumer can still crash between handling and acking.
+      The general fan-out stream, and the ONLY ingestion point for `.ev`. `duplicate_window`
+      de-duplicates on the `Nats-Msg-Id` header, which the SDK sets to the CloudEvents `id`.
+      That window makes publish effectively-once for a retry burst SHORTER THAN THE WINDOW
+      and nothing more: see `limits.publish_retry_budget`. It does NOT make end-to-end
+      delivery exactly-once, because a consumer can still crash between handling and acking.
 
   - name: PF_AUDIT
-    subjects: ['pf.*.identity.*.*.*.ev', 'pf.*.control.*.*.*.ev']
+    # Deliberately EMPTY. PF_AUDIT ingests nothing directly; it sources from PF_EVENTS.
+    subjects: []
+    sources:
+      - name: PF_EVENTS
+        filters:
+          - 'pf.*.identity.*.*.*.ev'
+          - 'pf.*.control.*.*.*.ev'
     storage: file
-    replicas: 3
+    replicas: <replicas>
     retention: limits
     max_age: 8760h # 365d
     discard: new
@@ -74,17 +118,23 @@ streams:
     delivery: at_least_once
     ordering: per_subject
     notes: >-
-      Overlaps PF_EVENTS deliberately: identity and control-plane events are also audit
-      records and need a year of retention with `discard: new`, so the stream refuses
-      writes when full rather than dropping history. A duplicate copy on two streams is
-      correct here and is why consumers must be idempotent on (source, id).
+      A retention policy applied to a subset of the event log, NOT a second ingestion path.
+      An earlier draft gave PF_AUDIT its own subject filters overlapping PF_EVENTS; a real
+      nats-server refuses that with `subjects overlap with an existing stream (10065)`, so
+      the stream could not be created at all. Sourcing fixes three things at once: the
+      stream is creatable; a consumer binds ONE stream so nobody sees an event twice; and
+      one publish yields one PubAck and therefore one unambiguous envelope `sequence`, from
+      PF_EVENTS. `discard: new` still means what it should — when the audit stream is full
+      it refuses ITS OWN writes rather than dropping history, and it no longer blocks live
+      publishes on PF_EVENTS. PF_AUDIT's own stream sequences are internal and are never
+      the envelope's `sequence`. (ADR-038)
 
   - name: PF_WORK
     subjects: ['pf.*.*.*.*.*.wq']
     storage: file
-    replicas: 3
+    replicas: <replicas>
     retention: workqueue
-    max_age: 1h
+    max_age: 24h
     discard: new
     duplicate_window: 2m
     delivery: at_least_once
@@ -95,22 +145,144 @@ streams:
       Synchronous request/reply (`rq`, with a live `replyto`) deliberately matches no
       stream: it is core NATS, at-most-once, nothing persisted. The suffix is what
       separates them, so a reader of a subject knows the guarantee without opening the
-      registry; `durable_request` in registry.v1.yaml restates it and the checker
-      enforces that the two agree.
+      registry — the registry does not restate durability, it is DERIVED from the suffix.
+      `discard: new` is deliberate and stays: when the queue fills, publishers get an
+      error instead of the stream silently dropping work. Backpressure belongs on the
+      producer. See `silent_loss` below for what `max_age` costs here.
+    silent_loss: >-
+      AGE EXPIRY ON THIS STREAM IS A SILENT DATA-LOSS PATH. `max_age` deletes unacked
+      work-queue messages with no per-message signal on the path that matters, and
+      `$JS.EVENT.ADVISORY.CONSUMER.MAX_DELIVERIES.>` does not fire because nothing was ever
+      redelivered. Precisely: a message that was IN FLIGHT on a consumer when the budget
+      expired emits exactly one `io.nats.jetstream.advisory.v1.terminated`; a message that
+      was QUEUED AND NEVER DELIVERED emits nothing at all. The second is the shape of every
+      consumer outage — a consumer that is down fetches nothing, so nothing is ever in
+      flight — which is why the advisory cannot be the control here. Measured: 8s `max_age`,
+      3 messages, 1 fetched, 1 `terminated`, nothing for the other two (MCAA-134). A consumer
+      outage longer than `max_age` destroys every queued request without a trace, and the
+      blast radius is the whole tenant's deferred work, not one message. `max_age` is
+      therefore set to exceed
+      the worst consumer outage the platform intends to survive (24h — longer than a
+      weekend on-call gap), and the loss is covered by a STREAM-level monitor, not a
+      consumer advisory: alert when PF_WORK's oldest unacked message approaches `max_age`.
+      The metric is `nats_stream_first_seq{stream_name="PF_WORK"}` from
+      prometheus-nats-exporter (`-jsz=all`), NOT the stream's `state.first_ts`: the exporter
+      publishes no message age and no timestamp at all — pinned against 0.18.0, the tag the
+      NATS chart pins, and against the exporter's `main`. On a work queue the head leaves
+      only when it is acked, so a `first_seq` frozen while the stream was never empty IS the
+      age of the oldest unacked message; depth (`nats_stream_total_messages`) cannot
+      substitute, because a queue nobody drains and a busy queue have identical depth. The
+      alerts are `PFWorkOldestUnackedAging` (warning at 12h of head age, critical at 18h,
+      leaving 6h of the budget to act), `PFWorkMessagesExpiredUnacked` (the head advanced
+      further than every consumer ack floor, so messages left unacked) and
+      `PFWorkStreamMetricsAbsent` (the monitor went blind), in the `homelab-nats-jetstream`
+      group of charts/addons; runbook docs/runbooks/pf-work-age-expiry.md. The REQUIREMENT
+      that the alert exists is contract, and a PF_WORK consumer with no such alert fails the
+      boundary quality gate (ADR-030).
+
+  - name: PF_DLQ
+    subjects: ['pf.*.*.*.*.*.dl']
+    storage: file
+    replicas: <replicas>
+    retention: limits
+    max_age: 720h # 30d
+    discard: old
+    duplicate_window: 2m
+    delivery: at_least_once
+    ordering: per_subject
+    notes: >-
+      The real dead-letter path for `wq` work. JetStream's max-deliveries advisory is
+      metadata only — it carries `stream`, `consumer`, `stream_seq` and `deliveries`, and
+      NO body, NO subject and NO `correlationid` — so an operator holding one cannot tell
+      what the work was without stream-admin rights the failing component does not have,
+      and the poison message then sits in the workqueue undeliverable until `max_age`
+      deletes it silently. PF_DLQ carries the full original envelope instead. See
+      `consumers.dead_letter`. (ADR-038)
+
+# Hard limits a producer would otherwise discover at publish time.
+limits:
+  max_event_bytes: 1048576 # 1 MiB, matching the nats-server default `max_payload`
+  body_rule: >-
+    The whole structured-JSON event — envelope plus `data` — must fit inside
+    `max_event_bytes`. A payload that does not is REFERENCED, never embedded: publish a
+    URI or an object key in `data` and leave the bytes where they already live. An event
+    is a notification, not a transport.
+  publish_retry_budget: >-
+    A publisher MUST cap its TOTAL publish-retry duration below the target stream's
+    `duplicate_window` (2m), or treat the publish as plainly at-least-once and rely on
+    consumer idempotency on `(source, id)`. Retrying the same `Nats-Msg-Id` at window+1s
+    persists a genuine duplicate. The de-duplication window is a bound on a retry burst,
+    not a property of the stream.
 
 # Consumer rules. Enforced by review, not by the checker, but stated so review has a rule.
 consumers:
   durability: >-
     Every consumer of a `.ev` subject is a durable pull consumer with an explicit name of
     the form `<component>-<domain>-v<major>`. Ephemeral consumers are permitted only for
-    human debugging; a service that uses one has no replay story after a restart.
+    human debugging; a service that uses one has no replay story after a restart. This
+    domain-scoped naming rule applies to `.ev` CONSUMERS ONLY — see `workqueue_binding`.
+  workqueue_binding: >-
+    EVERY PF_WORK CONSUMER BINDS EXACTLY ONE FULLY-SPECIFIED SUBJECT, NEVER A WILDCARD,
+    and is named `<component>-<entity>-<action>-v<major>`. On a work-queue stream consumer
+    filters must be unique and non-overlapping: the server rejects the second one with
+    `filtered consumer not unique on workqueue stream (10100)`. Because PF_WORK spans
+    every domain, the first component to create a domain-wide `wq` consumer would
+    permanently foreclose every other component in that domain, and it would be discovered
+    in whichever environment the second component deployed to. (ADR-038)
+  workqueue_tenancy: >-
+    THIS RULE ASSUMES ONE NATS ACCOUNT, AND THEREFORE ONE PF_WORK, PER TENANT. That is what
+    makes "exactly one fully-specified subject" and a tenant-free consumer name mutually
+    consistent: a fully-specified subject names a concrete `<tenant>` token, the consumer
+    name grammar has no tenant token, so the tenant must be constant within the account.
+    See security.tenancy in `docs/contracts/event-contract.md` §5, which this makes explicit
+    rather than implied. It is normative because the single-account reading fails SILENTLY
+    and destructively, and `10100` does not catch it: a durable consumer create with an
+    EXISTING NAME is an UPDATE, not a conflict. Two tenants' `platform-api` deployments both
+    create `platform-api-deployment-promote-v1`; the second repoints the first's filter with
+    no error and no warning. Tenant one's queued `wq` work then has no consumer at all — and
+    because a work queue RETAINS rather than drops it, nothing alerts until `max_age` deletes
+    it 24h later down the no-advisory path in PF_WORK's `silent_loss`. `10100` fires on an
+    overlapping filter under a DIFFERENT name and stays silent on an identical one, which is
+    exactly the asymmetry that makes this reachable by a routine second-tenant deployment
+    rather than by a misconfiguration. (ADR-038, D2)
   ack_policy: explicit
   max_deliver: 5
   ack_wait: 30s
+  max_ack_pending: 256
+  ordering_reality: >-
+    `ordering: per_subject` IS A PROPERTY OF THE STREAM, NOT OF DELIVERY. A consumer with
+    `max_deliver > 1` observes reordering after any failure: a message that fails and waits
+    out `ack_wait` is redelivered AFTER later messages on the same subject have already
+    been handled and acked. `max_ack_pending` (256 by default above) puts that many
+    messages in flight concurrently, which removes delivery order entirely. Ordered
+    handling requires `max_ack_pending: 1` AND serial processing, and costs throughput;
+    take it deliberately. Otherwise use the envelope `sequence` to DETECT reordering
+    rather than assuming its absence. `sequence` is OPTIONAL in the envelope: it is present
+    on every event a consumer received from a stream (the broker assigns it from the
+    PubAck), and absent on the `rq` path, which has no stream and no PubAck to assign one
+    from. A `.ev` or `wq` consumer may therefore rely on it; a responder on `rq` has no
+    sequence to reason about and no ordering claim to check. The gate pins the attribute's
+    presence and type in the envelope baseline (`envelope-attribute-removed`,
+    `envelope-attribute-retyped`), so this instruction cannot outlive the field.
   dead_letter: >-
-    After `max_deliver`, JetStream emits an advisory on
-    `$JS.EVENT.ADVISORY.CONSUMER.MAX_DELIVERIES.>`. A component that has no subscriber on
-    that advisory has no failure path and fails the boundary quality gate (ADR-030).
+    On final failure of a `wq` message — the delivery on which `max_deliver` exhausts, or
+    an error the handler knows is not retryable — the consumer REPUBLISHES THE FULL
+    ORIGINAL ENVELOPE to the `dl` subject derived from the message's own subject (same
+    seven tokens, suffix `wq` -> `dl`), preserving the original `id`, `source` and
+    `correlationid`, and THEN calls `Term()` on the original. The consumer does this itself
+    because only the consumer holds the body. JetStream's
+    `$JS.EVENT.ADVISORY.CONSUMER.MAX_DELIVERIES.>` advisory remains useful as a counter and
+    an alert source, but it is NOT the dead-letter path: it carries no payload, no subject
+    and no `correlationid`, and it only fires on the next fetch attempt after exhaustion,
+    so a consumer that crashes at exhaustion emits nothing at all. A component with no `dl`
+    republish path has no failure path and fails the boundary quality gate (ADR-030).
+  no_core_nats_bridge: >-
+    ANYTHING CONSUMING A `.ev` SUBJECT DOES SO THROUGH A DURABLE PULL CONSUMER. In
+    particular, an Argo Events `nats` EventSource is a CORE-NATS subscribe — at-most-once,
+    no durability, no replay — and pointing one at a `.ev` subject silently downgrades an
+    at-least-once path to at-most-once with nothing in its own documentation to warn you.
+    The bridge between this bus and the Argo Events bus is an explicit component with a
+    named durable consumer, never an event source pointed at `pf.>`.
   filter: >-
     Consumers filter by subject, never by decoding the body and discarding. Body-level
     filtering hides the real coupling from the subject taxonomy and defeats the wildcard
@@ -119,18 +291,29 @@ consumers:
 # Delivery guarantee per path. No path is exactly-once end to end. Stated explicitly
 # because the alternative is every reader assuming whichever guarantee suits them.
 guarantees:
-  - path: pub/sub via PF_EVENTS or PF_AUDIT
+  - path: pub/sub via PF_EVENTS (mirrored to PF_AUDIT by sourcing)
     delivery: at_least_once
-    ordering: per_subject
+    ordering: per_subject on the stream; NOT on delivery — see consumers.ordering_reality
     dedup: consumer-side on (source, id); publish-side within duplicate_window
   - path: durable request via PF_WORK (`wq`)
     delivery: at_least_once
     ordering: none
     dedup: consumer-side on (source, id)
-  - path: synchronous request/reply on core NATS (`rq`/`rs`)
+    completion: >-
+      No synchronous reply. The requester learns the outcome from the `wq` type's declared
+      `completion` type, a registered `.ev` event carrying the same `correlationid`.
+  - path: dead letter via PF_DLQ (`dl`)
+    delivery: at_least_once
+    ordering: per_subject
+    dedup: consumer-side on (source, id) — the ORIGINAL id is preserved
+  - path: synchronous request/reply on core NATS (`rq`, reply to `_INBOX.…`)
     delivery: at_most_once
     ordering: none
-    dedup: not applicable; the requester retries and must make the request idempotent
+    dedup: >-
+      Not applicable at the transport. THE RESPONDER MUST BE IDEMPOTENT: the requester
+      retries on timeout and cannot tell a lost request from a lost reply, so a second
+      identical request must not cause a second effect. The obligation is the responder's;
+      the requester's retry is what creates it.
   - path: operator reconcile (not an event path)
     delivery: not applicable
     ordering: not applicable

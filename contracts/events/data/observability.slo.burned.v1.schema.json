@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/ryanmcafee/homelab/contracts/events/data/observability.slo.burned.v1.schema.json",
+  "title": "observability.slo.burned v1 data",
+  "description": "An SLO error budget is burning fast enough to need attention. Evolved additively within v1: new OPTIONAL fields only. A new required field, a removed field or a retyped field is a v2.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "slo",
+    "service",
+    "window",
+    "burnRate",
+    "threshold"
+  ],
+  "properties": {
+    "slo": {
+      "type": "string",
+      "description": "SLO identifier, stable across forks.",
+      "maxLength": 128
+    },
+    "service": {
+      "type": "string",
+      "description": "Service the SLO is about.",
+      "maxLength": 253
+    },
+    "namespace": {
+      "type": "string",
+      "description": "Kubernetes namespace the object lives in.",
+      "maxLength": 253
+    },
+    "window": {
+      "type": "string",
+      "description": "Burn-rate evaluation window (e.g. `1h`, `6h`).",
+      "pattern": "^[0-9]+[smhd]$"
+    },
+    "burnRate": {
+      "type": "number",
+      "minimum": 0,
+      "description": "Observed burn rate as a multiple of the budget-neutral rate. 1.0 exhausts the budget exactly at the end of the SLO period."
+    },
+    "threshold": {
+      "type": "number",
+      "minimum": 0,
+      "description": "Burn rate that triggered this event, so a consumer need not know the alerting rules to render severity."
+    },
+    "budgetRemaining": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1,
+      "description": "Fraction of the error budget left, 0..1."
+    }
+  }
+}
