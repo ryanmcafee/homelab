@@ -848,6 +848,41 @@ Each decision should include:
 - The required check no longer records what the author saw, only what CI saw on the head; that was the part that mattered
 - The check name now describes the old behaviour; renaming it needs a coordinated branch-protection update
 
+### ADR-033: Fork-ability check 3 splits into an automated cold path (3a) and a never-executed hardware path (3b), triggered by cadence rather than a release anchor (2026-09-25); refines ADR-029
+
+**Context:**
+- ADR-029 named check 3 as a single check — "a clean clone, a filled-in ConfigSet, the documented bootstrap, on a machine with none of the maintainer's credentials" — with one owner and one trigger, "per release, and for any change to bootstrap, secrets or identity"
+- "The documented bootstrap" has two readings in this repository, and they differ by a hardware budget: `task localdev:up` (Kind, Docker only) and `task setup -- --environment homelab` (a Proxmox VE host, a 1Password account with a `homelab` vault, a BGP-capable UniFi gateway). One check name covering both means neither half has a determinate pass state
+- The DX & Docs Advocate attempted the check and reported it unrunnable as one unit. Measured on the hardware reading: `task validate -- --environment homelab` reaches 10 of 16 prerequisites with no hardware present and stops at the `proxmox` row
+- "Per release" cannot be looked up: the repository has zero git tags and no release workflow, so the trigger has nothing to hang on and is honoured by nobody
+- A named check that has never been executed is worse than an unnamed one, because the table's format invites a reader to assume a listed check has passed
+
+**Decision:**
+- Check 3 becomes two checks with separate owners, triggers and pass criteria:
+  - **3a — the cold documented Kind path.** `task localdev:up` → `localdev:wait` → `localdev:report` → `localdev:down` on an ephemeral runner with no cache restored and none saved. Automated in `.github/workflows/fork-path-cold.yml`. An ephemeral runner is an honest proxy for 3a specifically, because the property under test is the absence of local state, not the presence of hardware
+  - **3b — the production bootstrap on foreign hardware.** `task setup -- --environment homelab` with a filled-in ConfigSet, on a machine holding none of the maintainer's credentials. Not automatable, because its prerequisites are physical
+- **3b is recorded as never executed, now, and independently of whether hardware is ever funded.** The candour is not contingent on the budget answer: "never executed" is a true statement today and costs nothing to write, whereas leaving the row implicitly green is a false statement that the table's own format manufactures. The hardware question is escalated separately, on its own merits
+- The check table carries a **Status** column. A check may be listed as specified-and-not-implemented; it may not be listed with no status at all. This applies to checks 1 and 2 as much as to 3b
+- **The release anchor is replaced by a cadence**, because a trigger a reader cannot look up is a trigger that gets missed: 3a runs weekly by cron and on demand; 3b runs before a declared platform milestone, and its written result is dated in `docs/contracts/fork-ability.md`
+- **"For any change to bootstrap, secrets or identity" is enforced by a `paths:` trigger, not by a CODEOWNERS rule.** `.github/CODEOWNERS` assigns `* @ryanmcafee` and gives every listed path that same single owner, so a CODEOWNERS entry cannot carry this obligation in this repository — it would be prose wearing a machine-readable costume. `fork-path-cold.yml`'s current `paths:` filter covers only the workflow file itself, so this part of check 3a is specified and not yet enforced
+- Checks 1 and 2 remain unchanged in intent and unimplemented in fact. ADR-029's "belong in the existing level-0 gate" is a specification, not a description of `main`: `internal/verify/` has no fork-ability module, and there is no synthetic ConfigSet to render against
+- Normative detail and per-check status: `docs/contracts/fork-ability.md`
+
+**Alternatives Considered:**
+- **Keep check 3 as one check, scoped to the Kind path only** -> makes the table green by quietly narrowing the claim; the fork path that actually loses ambassadors is the hardware one, so this hides the gap instead of naming it
+- **Keep check 3 as one check and wait for hardware** -> leaves the automatable half unautomated for a budget reason that does not apply to it, and 3a is the half that catches documentation drift every week
+- **Record 3b's status only after the founder answers the hardware question** -> makes an honest status report conditional on a spend decision. If the answer is "not now", the reader keeps the false table for longer, which is the opposite of what the delay was for
+- **Delete 3b from the contract** -> the contract's entire subject is the stranger's machine; removing the only check that involves one guts it
+- **Enforce the bootstrap/secrets/identity trigger through CODEOWNERS** -> unavailable here: one owner on every path, so the rule cannot discriminate
+
+**Consequences:**
+- The fork-ability table stops being a list of checks and becomes a list of checks with states. It is less flattering and more useful, and it will read as partly red for a while
+- 3a's published number is a cold wall clock and will be substantially worse than `tilt-ci.yml`'s cached figure. That is the point — the cached figure was never the newcomer's experience — and the fork path must not be quoted from tilt-ci
+- 3b stays unexecuted until hardware exists. The gap now lives in the repository rather than in one agent's head, and it is escalated as a budget question in its own right
+- A weekly cron on a cold, uncached Kind loop is a standing CI cost. It is kept off the pull-request critical path deliberately
+- Two checks means two owners and one more row in the owner table. Two owners who can each run their own check beats one owner who cannot run half of theirs
+- 3a passing says nothing about 3b. Nobody may write "the fork path is green" without naming which half they mean
+
 ## Tips
 
 - Number decisions sequentially (ADR-001, ADR-002, etc.)
