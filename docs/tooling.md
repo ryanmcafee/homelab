@@ -42,3 +42,5 @@ homelab scaffold app     new application from a pattern (operator | helm | deps-
 ```
 
 Every command accepts `--help`; the ones that change something accept `--dry-run`.
+
+<!-- MCAA-139 gate evidence: a single HTML comment; no command, pin or documented step changed. -->
