@@ -159,8 +159,8 @@ trusting a prose table.
 | Fact | Value |
 |------|-------|
 | Agent hook | `.claude/settings.json` PostToolUse → `scripts/claude-verify-hook.ts` (level 0 after edits under `charts/`/`configuration/`; `HOMELAB_VERIFY_HOOK=off`) |
-| PR claim | `task verify:claim` → `<!-- verify-level0 -->` block in the PR body; `pr-contract.yml` compares it with level 0 on the head (skips `renovate/*` and drafts) |
-| Sticky PR comments | `snapshot-diff` (verify.yml), `kind-preview` (tilt-ci.yml), `upgrade-diff` (upgrade.yml), `verify-claim` (pr-contract.yml) |
+| PR level 0 | `pr-contract.yml` job `claim` (required check "Verification claim matches level 0") runs `task verify` on the PR head; no block in the PR body (ADR-032; skips `renovate/*` and drafts) |
+| Sticky PR comments | `snapshot-diff` (verify.yml), `kind-preview` (tilt-ci.yml), `upgrade-diff` (upgrade.yml) |
 | Automerge gate | commit status `upgrade/automerge-gate` on `renovate/*` heads: success only when no upstream manifest changed and CRs revalidate; Renovate `platformAutomerge: false` everywhere |
 | Regeneration bot | optional; secrets `HOMELAB_BOT_APP_ID` / `HOMELAB_BOT_PRIVATE_KEY` (GitHub App, human step); commits as `homelab-regen-bot <homelab-regen-bot@users.noreply.github.com>` (Renovate `gitIgnoredAuthors`) |
 | Previews | labels `preview` + `preview:<app>`; ApplicationSet `previews` + AppProject `previews` (charts/gitops, homelab only); namespace `preview-<N>` (ArgoCD `application.namespaces: preview-*`); Applications `<app>-pr<N>`; hosts `<app>-pr<N>.<domain>`; level-0 env `homelab-preview` |

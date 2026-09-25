@@ -1,23 +1,17 @@
 name: PR contract
 
-# Verification claim (issue #261 item 22, docs/runbooks/verification.md "Agent
-# contract"). Every pull request states in its description the level-0 result
-# its author saw: `task verify:claim` prints a `<!-- verify-level0 -->` block.
-# This workflow re-runs level 0 on the PR head and fails when the claim is
-# missing or disagrees with it (same check names, no pass<->fail difference,
-# same overall result; skip<->pass is reported, not failed).
+# Level 0 on the PR head (docs/runbooks/verification.md "Agent contract"): runs
+# `task verify` on the head commit and fails when level 0 fails, with the
+# failing checks in the job summary. verify.yml runs level 0 on the merge
+# result. The job name is the required status check on main; keep it stable.
 #
-# The PR body reaches the script only through `env:` (PR_BODY). It is never
-# expanded inside a `run:` script: the body is attacker-controlled text and
-# `${{ }}` in a script is a shell-injection vector.
-#
-# Skipped for Renovate (renovate/* heads: a bot writes no claim; upgrade.yml
-# gates bumps) and for drafts (runs again on ready_for_review). No paths
-# filter: the claim is part of every pull request.
+# Skipped for Renovate (renovate/* heads; upgrade.yml gates bumps) and for
+# drafts (runs again on ready_for_review). No paths filter: every pull request
+# gets the required check.
 
 on:
   pull_request:
-    types: [opened, edited, synchronize, reopened, ready_for_review]
+    types: [opened, synchronize, reopened, ready_for_review]
 
 concurrency:
   group: pr-contract-${{ github.event.pull_request.number }}
@@ -36,24 +30,15 @@ jobs:
     if: github.event.pull_request.draft == false && !startsWith(github.head_ref, 'renovate/')
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    permissions:
-      contents: read
-      # Sticky comment only.
-      pull-requests: write
     steps:
-      # The claim is made on the PR head, so compare against the head, not the
-      # merge commit (verify.yml verifies the merge result).
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ github.event.pull_request.head.sha }}
 
-      - name: Install go, helm, bun, kubeconform, conftest, pluto, task from mise.toml
+      - name: Install go, helm, kubeconform, conftest, pluto, task from mise.toml
         uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
         with:
-          install_args: go helm bun kubeconform conftest pluto task
-
-      - name: Install script dependencies from bun.lock
-        run: bun install --frozen-lockfile
+          install_args: go helm kubeconform conftest pluto task
 
       - name: Cache kubeconform core schemas
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
@@ -61,56 +46,37 @@ jobs:
           path: ~/.cache/homelab-kubeconform
           key: kubeconform-${{ hashFiles('configuration/versions.yaml') }}
 
-      # A failing level 0 is not a contract failure by itself (an honest claim
-      # can say "fail"; verify.yml gates that), so this step never fails.
       - name: task verify (level 0 on the PR head)
         run: |
-          set +e
-          task verify > verify-level0.raw
-          echo "task verify exited $?"
-          # task prints its own failure line after the JSON; keep only the object.
-          sed -n '/^{/,/^}/p' verify-level0.raw > verify-level0.json
-          if ! jq -e . verify-level0.json >/dev/null 2>&1; then
-            cat verify-level0.raw
-            echo "::error::level 0 produced no JSON result; see the log above."
-          fi
-          exit 0
+          set -o pipefail
+          task verify | tee verify-level0.json
 
-      - name: Compare with the claim in the PR description
-        id: compare
-        env:
-          PR_BODY: ${{ github.event.pull_request.body }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      - name: Summary
+        if: always()
         run: |
-          set +e
-          bun scripts/verify-claim.ts compare \
-            --actual verify-level0.json --ref "${HEAD_SHA:0:7}" > claim-result.md
-          rc=$?
-          cat claim-result.md >> "$GITHUB_STEP_SUMMARY"
-          echo "rc=$rc" >> "$GITHUB_OUTPUT"
-          exit 0
+          # task prints its own failure line after the JSON; keep only the object.
+          if [ -f verify-level0.json ] && sed -n '/^{/,/^}/p' verify-level0.json > verify-level0.clean.json && jq -e . verify-level0.clean.json >/dev/null 2>&1; then
+            mv verify-level0.clean.json verify-level0.json
+            {
+              echo "## Level 0 on the PR head"
+              echo
+              jq -r '"**Result:** \(if .pass then "PASS" else "FAIL" end) in \(.duration_ms) ms"' verify-level0.json
+              echo
+              echo "| Check | Status | ms | Findings |"
+              echo "|---|---|---:|---:|"
+              jq -r '.checks[] | select(.status != "pass") | "| \(.name) | \(.status) | \(.duration_ms) | \(.findings // [] | length) |"' verify-level0.json
+              echo
+              jq -r '.checks[] | select(.status == "fail") | "### \(.name)\n\(.detail // "")\n" + ((.findings // []) | map("- " + .) | join("\n"))' verify-level0.json
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::error::level 0 produced no JSON result; see the task verify step log."
+          fi
 
       - name: Upload level-0 JSON
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: verify-claim-level0
+          name: pr-contract-level0
           path: verify-level0.json
           retention-days: 14
           if-no-files-found: ignore
-
-      # Fork PRs get a read-only GITHUB_TOKEN; the job summary still carries
-      # the verdict there.
-      - name: Sticky comment with the verdict
-        if: always() && steps.compare.outputs.rc != '' && github.event.pull_request.head.repo.full_name == github.repository
-        continue-on-error: true
-        uses: marocchino/sticky-pull-request-comment@5770ad5eb8f42dd2c4f34da00c94c5381e49af88 # v3.0.5
-        with:
-          header: verify-claim
-          path: claim-result.md
-
-      - name: Fail on a missing or mismatched claim
-        if: steps.compare.outputs.rc != '0'
-        run: |
-          echo "::error::The level-0 claim in the PR description is missing or does not match CI. Run 'task verify:claim' on the PR head and paste its output into the Verification section (see the job summary)."
-          exit 1

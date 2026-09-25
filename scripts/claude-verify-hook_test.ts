@@ -24,7 +24,7 @@ import {
   tryAcquireLock,
   watchedPaths,
 } from "./claude-verify-hook.ts";
-import type { VerifyCheck, VerifyResult } from "./verify-claim.ts";
+import type { VerifyCheck, VerifyResult } from "./lib/verify-result.ts";
 
 const ROOT = "/work/homelab";
 
@@ -107,7 +107,7 @@ test("watchedPaths: only charts/ and configuration/ of the project root", () => 
     `${ROOT}/charts/addons/templates/traefik.yaml`,
     `${ROOT}/configuration/versions.yaml`,
     `${ROOT}/docs/runbooks/verification.md`,
-    `${ROOT}/scripts/verify-claim.ts`,
+    `${ROOT}/scripts/lib/verify-result.ts`,
     `${ROOT}/chartsy/nope.yaml`,
     "/elsewhere/charts/addons/values.yaml",
   ];

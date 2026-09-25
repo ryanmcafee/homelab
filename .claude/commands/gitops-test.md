@@ -24,10 +24,9 @@ Never touches production; production is read-only (ADR-009). Details: the `gitop
 3. **Level 2 (Kind)**: `task localdev:up` (or `task localdev:sync -- --only <app>` on a running loop),
    then `task verify:text LEVEL=2`; on failure `task localdev:diagnose`. `task localdev:report` shows the
    working tree against `main`.
-4. **Claim**: `task verify:claim`, pasted into the PR body's Verification section.
-5. **CI**: push, open or update the PR (`gh pr create` / `gh pr edit`), `gh pr checks --watch`
-   (`verify.yml`, `pr-contract.yml`, `tilt-ci.yml`, `upgrade.yml` for bumps).
-6. **Production (read-only, after merge)**: `task verify:prod`, `task prod:status`, `task prod:diff -- <app>`.
+4. **CI**: push, open or update the PR (`gh pr create` / `gh pr edit`), `gh pr checks --watch`
+   (`verify.yml`, `pr-contract.yml` re-runs level 0 on the PR head, `tilt-ci.yml`, `upgrade.yml` for bumps).
+5. **Production (read-only, after merge)**: `task verify:prod`, `task prod:status`, `task prod:diff -- <app>`.
 
 ## Prerequisites
 

@@ -1,6 +1,6 @@
 ---
 name: gitops-test
-description: Verify GitOps changes with the single verification contract. Level 0 runs automatically after every edit to charts/ or configuration/ (PostToolUse hook) and must pass; levels 1-2 run on Kind; `task verify:claim` goes into the PR body and CI checks it. Production is read-only for agents (task verify:prod, task prod:status, task prod:diff). MUST be used before offering to commit or open a PR for chart/configuration changes.
+description: Verify GitOps changes with the single verification contract. Level 0 runs automatically after every edit to charts/ or configuration/ (PostToolUse hook) and must pass; levels 1-2 run on Kind; CI re-runs level 0 on the PR head (pr-contract.yml). Production is read-only for agents (task verify:prod, task prod:status, task prod:diff). MUST be used before offering to commit or open a PR for chart/configuration changes.
 triggers:
   # Explicit invocation
   - /gitops-test
@@ -77,7 +77,7 @@ exit 0 pass / 1 fail / 2 usage). Full reference: `docs/runbooks/verification.md`
 | Level 0 (static) | **automatic** after every Edit/Write/MultiEdit under `charts/` or `configuration/` (PostToolUse hook); pre-commit; CI | `task verify:text` / `task verify` | no cluster |
 | Level 1 (server-side dry run) | the agent | `task verify:text LEVEL=1` | Kind only |
 | Level 2 (Applications + e2e) | the agent; CI on every PR | `task verify:text LEVEL=2` | Kind only |
-| Claim | the agent, before opening/updating a PR | `task verify:claim` → PR body | CI compares it (`pr-contract.yml`) |
+| PR check | CI, on every PR | `task verify` on the PR head | `pr-contract.yml` |
 | Production | nobody applies; ArgoCD after merge | read-only: `task verify:prod`, `task prod:status`, `task prod:diff -- <app>` | homelab, read-only |
 
 ## Authority (ADR-009)
@@ -97,7 +97,6 @@ Before saying "ready to commit", "would you like me to commit?" or opening a PR,
 ```
 □ Level 0 is green for the current tree (hook output was silent, or `task verify:text` passes)
 □ Chart/configuration change → level 1 and, when Applications changed, level 2 on Kind
-□ `task verify:claim` block is in the PR body (refreshed after the last change that alters the result)
 ```
 
 Do not wait for an explicit `/gitops-test`.
@@ -158,30 +157,11 @@ task localdev:up   && task verify:text LEVEL=2   # + argocd/<app> Healthy+Succee
   still judges health and the last operation, never sync status.
 - One test: `task test:e2e -- --test-dir tests/e2e/<app>`; health Lua: `task test:health`.
 
-## The claim in the PR body
+## Level 0 on the PR head
 
-```bash
-task verify:claim
-```
-
-prints
-
-````
-<!-- verify-level0 -->
-```json
-{"level":0,"pass":true,"checks":{
-"gitops/homelab/crd-order":"pass",
-...
-}}
-```
-````
-
-Paste it into the **Verification** section of the PR description (`.github/pull_request_template.md`),
-replacing the placeholder. `pr-contract.yml` re-runs level 0 on the PR head and fails when the block is
-missing, the check-name sets differ, any check differs as `pass`↔`fail` (or `fail`↔`skip`), or the
-overall `pass` differs; `skip`↔`pass` is only a warning. Its verdict is the sticky `verify-claim` comment.
-After a push that changes the result, run it again and replace the block; editing the description re-runs
-the check. A claim of `"pass":false` is honest and matches, but `verify.yml` still fails the PR.
+The PR description carries no verification block. `pr-contract.yml` (required check "Verification claim
+matches level 0") runs `task verify` on the PR head and fails when level 0 fails; the job summary lists the
+failing checks.
 
 ## After pushing
 
@@ -189,7 +169,7 @@ the check. A claim of `"pass":false` is honest and matches, but `verify.yml` sti
 gh pr checks --watch
 ```
 
-`verify.yml` (level 0 on the merge result), `pr-contract.yml` (claim), `tilt-ci.yml` `kind-argocd`
+`verify.yml` (level 0 on the merge result), `pr-contract.yml` (level 0 on the PR head), `tilt-ci.yml` `kind-argocd`
 (level 2 + Kind report), and for version bumps `upgrade.yml` (upstream manifest diff). Read failing jobs
 with `gh run view <id> --log-failed`; download `verify-level0` / `verify-level2` artifacts for the JSON.
 
@@ -302,7 +282,7 @@ Edit charts/** or configuration/**
 Kind: task verify:text LEVEL=1, then LEVEL=2 after task localdev:up
   │  fail → task localdev:diagnose, fix, task localdev:sync -- --only <app>
   ▼
-Commit (pre-commit re-runs level 0) → task verify:claim → PR body
+Commit (pre-commit re-runs level 0)
   ▼
 Push → gh pr checks: verify.yml, pr-contract.yml, tilt-ci.yml (+ upgrade.yml for bumps)
   │  optional: ask the maintainer for the preview labels

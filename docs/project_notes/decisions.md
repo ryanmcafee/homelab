@@ -826,6 +826,28 @@ Each decision should include:
 - Logic needed by both sides risks being written twice; the mitigation is that anything shared must be expressed as a contract under `contracts/` and consumed as data, and a second implementation of the same logic is a review failure
 - #52 proceeds as specified in Go with no sequencing change
 
+### ADR-032: No level-0 claim in PR descriptions; CI runs level 0 on the head (2026-09-24); supersedes the PR-body claim of ADR-014 item 22
+
+**Context:**
+- ADR-014 item 22 made every pull request carry a `<!-- verify-level0 -->` JSON block from `task verify:claim`, and `pr-contract.yml` failed when it disagreed with level 0 on the head
+- The block runs to roughly 270 lines, one per check, and sits in every PR description: it buries the summary and has to be refreshed after every push that changes the result
+- The workflow already re-ran level 0 on the head to compare against the claim, so the pasted block added no verification CI did not do itself
+
+**Decision:**
+- PR descriptions carry no verification block; `task verify:claim` and `scripts/verify-claim.ts` are removed
+- `pr-contract.yml` job `claim` keeps its name, because "Verification claim matches level 0" is the required check on `main`, and now passes exactly when `task verify` passes on the PR head, with the failing checks in the job summary
+- The PostToolUse hook and the rest of ADR-014 item 22 are unchanged
+
+**Alternatives Considered:**
+- Delete the workflow and require `verify.yml`'s level-0 job instead -> a branch-protection change, and `verify.yml` has a paths filter, so PRs outside it would never report the required check
+- Keep the claim but collapse it into a `<details>` block -> still noise to write and refresh, and still verifies nothing CI does not
+- Run the job on Renovate branches too -> makes level 0 a merge gate for bot bumps, a policy change outside this decision; `upgrade.yml` keeps gating them
+
+**Consequences:**
+- Shorter PR descriptions and one fewer step for agents and `ci-autofix.yml`
+- The required check no longer records what the author saw, only what CI saw on the head; that was the part that mattered
+- The check name now describes the old behaviour; renaming it needs a coordinated branch-protection update
+
 ## Tips
 
 - Number decisions sequentially (ADR-001, ADR-002, etc.)

@@ -64,7 +64,7 @@ tasks:
       - bun run lint
 
   test:scripts:
-    desc: Unit tests of scripts/ (bun test; task test:scripts -- scripts/verify-claim_test.ts for one file)
+    desc: Unit tests of scripts/ (bun test; task test:scripts -- scripts/claude-verify-hook_test.ts for one file)
     deps: [bun:install]
     cmds:
       - bun test {{.CLI_ARGS | default "scripts"}}
@@ -858,13 +858,6 @@ tasks:
     desc: Read-only Application health of the homelab cluster through the homelab-readonly context (docs/runbooks/readonly-access.md)
     cmds:
       - go run ./cmd/homelab verify prod {{.CLI_ARGS}}
-
-  verify:claim:
-    desc: Print the level-0 verification claim block for a PR body (CI re-runs level 0 and compares it)
-    deps: [bun:install]
-    silent: true
-    cmds:
-      - go run ./cmd/homelab verify all --level 0 --json {{.CLI_ARGS}} | bun scripts/verify-claim.ts render
 
   test:drill:
     desc: CloudNativePG backup/restore drill (chainsaw, tests/drills) against the running Kind loop

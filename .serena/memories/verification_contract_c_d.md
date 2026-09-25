@@ -5,9 +5,8 @@ Agent contract
   `scripts/claude-verify-hook.ts` after Edit/Write/MultiEdit under `charts/` or `configuration/`:
   builds `./cmd/homelab`, runs level 0 (150 s cap), silent on pass, exit 2 + ≤60-line summary on fail.
   `HOMELAB_VERIFY_HOOK=off` disables; per-root lock in `$TMPDIR`; a fresh worktree needs `mise trust`.
-- `task verify:claim` → `<!-- verify-level0 -->` + compact `{"level":0,"pass":..,"checks":{name:status}}`
-  for the PR body; `pr-contract.yml` re-runs level 0 on the PR head and compares (names must match,
-  any `fail` difference or different overall pass fails, skip↔pass warns). Skips `renovate/*`, drafts.
+- No verification block in PR bodies (ADR-032): `pr-contract.yml` job `claim` (required check name
+  kept) runs `task verify` on the PR head and fails iff level 0 fails. Skips `renovate/*`, drafts.
 - gitops-test skill has no apply/patch/sync/repoint-prod command at all (Tiers 3/4 deleted).
 
 Previews (item 16)
