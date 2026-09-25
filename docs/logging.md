@@ -128,8 +128,10 @@ script logs in to the console and merges the fields into the `netflow` setting (
 again only when those values change, so a NetFlow edit made in the UI is not reverted until
 then. `op run --env-file=.env.op -- bun scripts/unifi-setting.ts get netflow --insecure` shows
 the live values. Turning the flag off stops managing both settings and leaves the gateway as it
-is. Neither setting has a source interface: the gateway sends from `GATEWAY_IP`, its address on
-the homelab VLAN, because `OTEL_LB_IP` is in that subnet (inside `loadBalancerSourceRanges`).
+is. NetFlow leaves the gateway from `GATEWAY_IP`, its address on the homelab VLAN, because
+`OTEL_LB_IP` is in that subnet. Syslog does not: the console and every switch and access point
+send it from their own management addresses on other networks, so those CIDRs go in
+`OTEL_SOURCE_RANGES` or Cilium drops them and `HomelabUniFiTelemetrySilent` fires for `syslog`.
 
 The UI paths below are the manual fallback, for example to add per-rule firewall logging.
 
@@ -149,7 +151,7 @@ the IPFIX export sending only templates; `HomelabUniFiTelemetrySilent` fires if 
 The gateway collector listens on 5514 (syslog, UDP and TCP, RFC 3164) and 2055 (NetFlow v5/v9,
 IPFIX) behind the Service ports 514 and 2055 of the LoadBalancer `otel-collector-gateway`
 (`io.cilium/lb-ipam-ips: OTEL_LB_IP`, external-dns `otel.<DOMAIN>`), which also serves OTLP
-4317/4318. `loadBalancerSourceRanges` limits it to the LAN (`NFS_SHARE_ALLOW`); Cilium enforces
+4317/4318. `loadBalancerSourceRanges` limits it to `NFS_SHARE_ALLOW` plus `OTEL_SOURCE_RANGES`; Cilium enforces
 it at the load balancer before any NAT. There is no authentication on syslog or NetFlow, so the
 address stays internal: never forward these ports on the gateway. The Service keeps
 `externalTrafficPolicy: Cluster` (the L2 announcement and BGP speakers are not the nodes running

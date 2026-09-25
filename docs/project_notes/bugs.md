@@ -497,3 +497,9 @@ These are documented errors with known solutions:
 - **Root Cause**: The 10Gi iSCSI volume held agent workspaces (3.2G) plus tool caches in the home directory (mise 2.5G, npm 2.5G, go-build 0.6G). paperclip-operator 0.19.1 only creates the PVC (`reconcilePVC`) and never resizes it, so raising `spec.storage.persistence.size` alone changes nothing
 - **Solution**: Homelab size is 200Gi (`configuration/templates/helm-apps.tmpl`), and `charts/paperclip/templates/pvc.yaml` renders `paperclip-data` so ArgoCD (ServerSideApply) expands it in place; `democratic-csi-iscsi` allows expansion. `Prune=false,Delete=false` keep the data if the template goes away
 - **Prevention**: For operator-owned PVCs, check whether the operator reconciles size before relying on its CR field
+
+### 2026-09-25 - HomelabUniFiTelemetrySilent: no UniFi syslog ever reached the gateway collector
+- **Issue**: `HomelabUniFiTelemetrySilent{source="syslog"}` kept firing; ClickHouse held NetFlow rows but not one `unifi-syslog` row, although the controller's `rsyslogd` setting pointed at `OTEL_LB_IP`:514
+- **Root Cause**: `otel-collector-gateway` allowed only `NFS_SHARE_ALLOW` (the homelab VLAN) in `loadBalancerSourceRanges`. NetFlow leaves the gateway from its homelab VLAN address, but syslog comes from each UniFi device's management address (Default LAN and the wired LAN), which Cilium dropped at the load balancer
+- **Solution**: New optional key `OTEL_SOURCE_RANGES` (comma-separated CIDRs) appended to the collector's `loadBalancerSourceRanges`; homelab sets the two UniFi device networks in `homelab.yaml` and the `homelab-environment-config` document
+- **Prevention**: When an export reaches a source-restricted LoadBalancer, check the sender's source address, not only the destination; one working export from the same device proves nothing about another

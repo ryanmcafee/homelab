@@ -6,6 +6,7 @@
 BGP_K8S_ASN: "64512"
 BGP_ROUTER_ASN: "64513"
 NETWORK_NAMES: ""
+OTEL_SOURCE_RANGES: ""
 
 # Kubernetes
 STORAGE_CLASS_NFS: democratic-csi-nfs
