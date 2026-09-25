@@ -519,6 +519,37 @@ use `task localdev:ui` / `task localdev:traefik` ([Host ports on macOS](#host-po
 
 Level 0 runs separately in `.github/workflows/verify.yml`.
 
+### The cold fork path (`.github/workflows/fork-path-cold.yml`)
+
+`tilt-ci.yml` proves the loop converges, but it does not measure what a newcomer experiences,
+for two reasons worth stating plainly: it runs `task localdev:ci`, not the `task localdev:up`
+the quickstart above puts first, and it restores the `kind-registry-*` pull-through cache, so
+its wall clock is a lower bound rather than a cold clone.
+
+`fork-path-cold.yml` closes both gaps. It runs on demand (`workflow_dispatch`), weekly, and on
+a pull request that edits the workflow itself — never on an ordinary pull request, because a
+cold uncached run pulls every image from upstream and does not belong on the critical path.
+
+| Job | What it runs | Decides the run |
+|-----|--------------|-----------------|
+| `stranger-bootstrap` | `docs/tooling.md` verbatim on a clean runner: the `mise.run` installer, `mise trust && mise install`, `task validate`. Every step `continue-on-error`; the Job Summary reports which documented command failed. | no |
+| `cold-fork-path` | No `actions/cache` step at all, and it fails if a cache directory already exists. Then `task localdev:up` → `task localdev:wait` → `task localdev:report` → `task localdev:down`, each timed, followed by an assertion that `kind get clusters` no longer lists `homelab-localdev`. | yes |
+
+Two things to read out of its Job Summary:
+
+- **Cold time to first success** = `localdev:up` + `localdev:wait`. This is the number to quote
+  for the fork path. Do not quote tilt-ci's duration for it.
+- `localdev:wait` is timed separately on purpose. `task localdev:up` is `kind` → `argocd` →
+  `sync`; it returns when the last wave is synced, **not** when every Application reports
+  Healthy. `localdev:ci` appends `localdev:wait`, which is why CI sees convergence and a
+  newcomer following the quickstart does not, until they wait or open the UI.
+
+This is fork-ability check 3 in [`docs/contracts/fork-ability.md`](contracts/fork-ability.md)
+partly mechanised: it replaces the "does the documented command still work, uncached" half. The
+half that cannot be automated — a real machine with none of the maintainer's credentials, a
+filled-in ConfigSet, and the production bootstrap — is still a run that produces a written
+result.
+
 ### Run the CI loop locally
 
 ```bash
