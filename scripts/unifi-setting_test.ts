@@ -9,6 +9,7 @@
 import { test } from "bun:test";
 import { assert, assertEquals, assertThrows } from "./lib/assert.ts";
 import {
+  lanNetworkIds,
   parseArgs,
   planSetting,
   settingPath,
@@ -115,4 +116,25 @@ test("settingPath builds the UniFi OS Network API paths for a site", () => {
     settingPath("set", "my site", "rsyslogd"),
     "/proxy/network/api/s/my%20site/set/setting/rsyslogd",
   );
+});
+
+test("parseArgs apply accepts --all-networks", () => {
+  const args = parseArgs(
+    ["apply", "netflow", "--all-networks", "--data", "{}"],
+    {},
+  );
+  assert(args.allNetworks);
+  assert(!parseArgs(["apply", "netflow", "--data", "{}"], {}).allNetworks);
+});
+
+test("lanNetworkIds keeps enabled corporate and guest networks, sorted", () => {
+  const ids = lanNetworkIds([
+    { _id: "c", purpose: "corporate", enabled: true },
+    { _id: "w", purpose: "wan", enabled: true },
+    { _id: "a", purpose: "guest", enabled: true },
+    { _id: "v", purpose: "remote-user-vpn", enabled: true },
+    { _id: "d", purpose: "corporate", enabled: false },
+    { _id: "b", purpose: "corporate" },
+  ]);
+  assertEquals(ids, ["a", "b", "c"]);
 });

@@ -14,6 +14,8 @@
  *                             setting and PUT it. Idempotent: no write when every
  *                             field already matches; the result is read back.
  *                             --dry-run prints the planned changes without writing.
+ *                             --all-networks sets network_ids to every enabled
+ *                             LAN network (netflow requires network_ids).
  *
  * Credentials come from the environment, as for the Terraform provider
  * (`op run --env-file .env.op`): UNIFI_API (console URL), UNIFI_USERNAME,
@@ -58,6 +60,7 @@ export interface Args {
   site: string;
   insecure: boolean;
   dryRun: boolean;
+  allNetworks: boolean;
   data: Setting;
 }
 
@@ -87,6 +90,7 @@ export function parseArgs(
     site: env.UNIFI_SITE || "default",
     insecure: false,
     dryRun: false,
+    allNetworks: false,
     data: {},
   };
   const positional: string[] = [];
@@ -102,6 +106,10 @@ export function parseArgs(
     }
     if (arg === "--insecure") {
       args.insecure = true;
+      continue;
+    }
+    if (arg === "--all-networks") {
+      args.allNetworks = true;
       continue;
     }
     let value: string | undefined;
@@ -169,6 +177,20 @@ export function planSetting(current: Setting, desired: Setting): Plan {
   };
 }
 
+const LAN_PURPOSES = new Set(["corporate", "guest"]);
+
+export function lanNetworkIds(networks: Setting[]): string[] {
+  return networks
+    .filter(
+      (n) =>
+        LAN_PURPOSES.has(String(n.purpose)) &&
+        n.enabled !== false &&
+        typeof n._id === "string",
+    )
+    .map((n) => String(n._id))
+    .sort();
+}
+
 export function settingPath(
   verb: "get" | "set",
   site: string,
@@ -226,7 +248,7 @@ class UnifiApi {
     method: "GET" | "PUT",
     path: string,
     body?: Setting,
-  ): Promise<Setting> {
+  ): Promise<Setting[]> {
     const res = await fetch(`${this.base}${path}`, {
       method,
       tls: { rejectUnauthorized: !this.insecure },
@@ -244,17 +266,32 @@ class UnifiApi {
       );
     }
     const json: { data?: Setting[] } = JSON.parse(text);
-    const [setting] = json.data ?? [];
+    return json.data ?? [];
+  }
+
+  private async one(
+    method: "GET" | "PUT",
+    path: string,
+    body?: Setting,
+  ): Promise<Setting> {
+    const [setting] = await this.request(method, path, body);
     if (!setting) throw new Error(`${method} ${path} returned no setting`);
     return setting;
   }
 
   get(site: string, key: string): Promise<Setting> {
-    return this.request("GET", settingPath("get", site, key));
+    return this.one("GET", settingPath("get", site, key));
   }
 
   set(site: string, key: string, body: Setting): Promise<Setting> {
-    return this.request("PUT", settingPath("set", site, key), body);
+    return this.one("PUT", settingPath("set", site, key), body);
+  }
+
+  networks(site: string): Promise<Setting[]> {
+    return this.request(
+      "GET",
+      `/proxy/network/api/s/${encodeURIComponent(site)}/rest/networkconf`,
+    );
   }
 }
 
@@ -270,7 +307,13 @@ async function cmdGet(args: Args): Promise<number> {
 
 async function cmdApply(args: Args): Promise<number> {
   const api = await UnifiApi.login(args.insecure);
-  const plan = planSetting(await api.get(args.site, args.key), args.data);
+  const desired = args.allNetworks
+    ? {
+        ...args.data,
+        network_ids: lanNetworkIds(await api.networks(args.site)),
+      }
+    : args.data;
+  const plan = planSetting(await api.get(args.site, args.key), desired);
   if (!plan.changed) {
     log.ok(`${args.key} already matches; nothing to do`);
     return 0;
@@ -280,7 +323,7 @@ async function cmdApply(args: Args): Promise<number> {
   }
   if (args.dryRun) return 0;
   const after = await api.set(args.site, args.key, plan.body);
-  const verify = planSetting(after, args.data);
+  const verify = planSetting(after, desired);
   if (verify.changed) {
     throw new Error(
       `PUT accepted but ${args.key} still differs: ${verify.changes.join(", ")}`,
@@ -296,7 +339,7 @@ function printHelp(): void {
 
 Usage:
   scripts/unifi-setting.ts get <key> [--site <site>] [--insecure]
-  scripts/unifi-setting.ts apply <key> --data <json> [--site <site>] [--insecure] [--dry-run]
+  scripts/unifi-setting.ts apply <key> --data <json> [--site <site>] [--insecure] [--dry-run] [--all-networks]
 
 Subcommands:
   get      Print the setting (e.g. netflow, rsyslogd) as JSON.
@@ -306,6 +349,7 @@ Subcommands:
 Flags:
   --site      UniFi site name (default: UNIFI_SITE, else "default")
   --insecure  Accept the console's self-signed TLS certificate
+  --all-networks  Set network_ids to every enabled LAN network (apply only)
 
 Environment: UNIFI_API, UNIFI_USERNAME, UNIFI_PASSWORD, UNIFI_SITE (op run --env-file=.env.op).
 
