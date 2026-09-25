@@ -115,7 +115,9 @@ jobs:
             yq "select(.kind == \"ConfigMap\" and .metadata.name == \"triage-agent\") | .data[\"$f\"]" \
               tests/snapshots/homelab/triage-agent.yaml > "$etc/$f"
           done
+          chmod 0755 "$etc"
           work="$(mktemp -d)"
+          # The container runs as uid 1000, not the runner's user.
           chmod 0777 "$work"
           group='{"key":"SmokeAlert/_cluster","alertname":"SmokeAlert","alerts":[{"fingerprint":"f1","name":"SmokeAlert","labels":{"alertname":"SmokeAlert"},"annotations":{},"startsAt":"2026-09-25T00:00:00Z"}]}'
           run_stage() {
