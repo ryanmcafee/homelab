@@ -850,7 +850,7 @@ func classifyHostValue(value string) string {
 	}
 	switch {
 	case isRoutableHostIP(hostOf(value)):
-		return "routable host IP"
+		return hostIPFindingKind(hostOf(value))
 	case isRealHostname(value):
 		return "real hostname"
 	}
@@ -1018,7 +1018,7 @@ func ScanFileForPIIShape(path string) (GuardResult, error) {
 			var kind string
 			switch {
 			case isRoutableHostIP(value):
-				kind = "routable host IP"
+				kind = hostIPFindingKind(value)
 			case isRealHostname(value):
 				kind = "real hostname"
 			default:
@@ -1154,6 +1154,59 @@ func isRoutableHostIP(v string) bool {
 	}
 	return !ip.IsLoopback() && !ip.IsUnspecified() &&
 		!ip.IsLinkLocalUnicast() && !ip.IsLinkLocalMulticast() && !ip.IsMulticast()
+}
+
+// documentationSubnets are the ranges reserved for documentation and examples:
+// RFC 5737 TEST-NET-1/2/3 and RFC 3849. They are routable in shape, so
+// isRoutableHostIP reports them and must keep doing so — a non-template file
+// has a placeholder convention of its own and does not get to spend an address
+// range instead. This list only refines the finding's wording.
+//
+// It is deliberately separate from examplePlaceholderSubnets. That list says
+// what a *template* may hold and is a closed allowlist; this one says what a
+// finding in a *non-template* file should be called. Merging them would let a
+// documentation range clear the non-template rule, which is the failure this
+// package exists to prevent.
+var documentationSubnets = []string{
+	"192.0.2.0/24",    // RFC 5737 TEST-NET-1
+	"198.51.100.0/24", // RFC 5737 TEST-NET-2
+	"203.0.113.0/24",  // RFC 5737 TEST-NET-3
+	"2001:db8::/32",   // RFC 3849
+}
+
+// isDocumentationAddress reports whether v is an address reserved for
+// documentation. It is only ever asked about values isRoutableHostIP already
+// flagged.
+func isDocumentationAddress(v string) bool {
+	ip := net.ParseIP(strings.TrimSpace(v))
+	if ip == nil {
+		return false
+	}
+	return ipInAny(ip, documentationSubnets)
+}
+
+// docAddressFinding is the finding wording for a documentation-reserved
+// address outside a template file.
+//
+// The address is still reported: fail-closed is the whole point, and the guard
+// cannot tell a deliberate TEST-NET example from a real value that happens to
+// land there. But "routable host IP" is a dead end for the person who wrote it,
+// because a runbook is the one place that may not use the range the example
+// ConfigSets were blessed to use. Naming the convention turns the finding into
+// a signpost. See docs/runbooks/tailscale-dns.md.
+const docAddressFinding = "documentation address (RFC 5737/3849) — outside a template file, " +
+	"write it as a <KEY> placeholder such as <CP1_IP>; see docs/runbooks/tailscale-dns.md"
+
+// hostIPFindingKind names what an address-shaped value is for a finding
+// message, or "" when the value is not an address that can identify a host.
+func hostIPFindingKind(v string) string {
+	if !isRoutableHostIP(v) {
+		return ""
+	}
+	if isDocumentationAddress(v) {
+		return docAddressFinding
+	}
+	return "routable host IP"
 }
 
 // ---------------------------------------------------------------------------
