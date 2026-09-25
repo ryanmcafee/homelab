@@ -16,13 +16,27 @@ repos:
         pass_filenames: false
         files: ^(charts/|configuration/|tests/(schemas|policy|gitops|snapshots|health|e2e)/|localdev/|internal/verify/|cmd/homelab/commands/verify)
 
+      # This is the same scan scope as DefaultGuardPathspecs and
+      # guardScanExtensions in internal/config/guard.go, expressed a second
+      # time for the hook. It is one scope written twice: change both in the
+      # same commit or the hook and CI drift, and a tree guarded in CI stops
+      # being guarded before you push. The extension list is spelled out here
+      # rather than left to `types_or:` so the two can be diffed by eye:
+      # yaml/yml/json/md/ts/svg/hcl/tf, and terragrunt/ talos/ packer/ joined
+      # the directory list with the .hcl/.tf admission that makes them
+      # readable. The trailing (example|template|sample|dist) group mirrors
+      # hasScannableExtension looking through a template suffix: without it the
+      # hook silently dropped homelab.yaml.example and homelab.yml.example,
+      # the two files the guard most wants to read, while CI still scanned
+      # them.
+
       - id: config-guard
         name: PII Guard
         entry: go run ./cmd/homelab config guard --set homelab --
         language: system
         pass_filenames: true
-        types_or: [yaml, json, markdown, ts, svg]
-        files: ^(configuration/|charts/.*/values-homelab\.yaml$|scripts/|docs/|\.github/|Taskfile\.yml$|ansible/)
+        types: [text]
+        files: ^(Taskfile\.yml|charts/.*/values-homelab\.yaml|(configuration|scripts|docs|\.github|ansible|terragrunt|talos|packer)/.*\.(yaml|yml|json|md|ts|svg|hcl|tf)(\.(example|template|sample|dist))?)$
         exclude: |
           (?x)(
             ^configuration/environments/homelab\.yaml$|
