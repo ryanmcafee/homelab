@@ -26,7 +26,7 @@ See `CLAUDE.local.md` for IP addresses and hostnames.
 - Purpose: Cilium advertises LoadBalancer IPs to UniFi router
 - Speakers: the three workers only (control planes excluded); the gateway installs ECMP routes (`maximum-paths`)
 
-**Ingress (Envoy Gateway, ADR-034):**
+**Ingress (Envoy Gateway, ADR-040):**
 - Gateways `envoy-internal` (LAN + tailnet, UniFi DNS) and `envoy-external` (Internet, Cloudflare DNS), namespace `envoy-gateway-system`; GatewayClass, EnvoyProxy and Service share the Gateway's name
 - Listeners: `http` 80 (301 redirect only) and `https` 443 (`*.<DOMAIN>`, Secret `gateway-wildcard-tls`); every HTTPRoute sets `sectionName: https`
 - No Ingress objects anywhere (Envoy Gateway implements Gateway API only); external-dns uses the `gateway-httproute` source filtered by `--gateway-name`

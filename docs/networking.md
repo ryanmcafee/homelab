@@ -189,7 +189,7 @@ Envoy Gateway implements only the Gateway API; it ignores `networking.k8s.io/Ing
 former Ingress and IngressRoute was converted to an HTTPRoute, the `internal`/`external`
 IngressClasses are gone, and the conftest rules `no-ingress` and `httproute-parent` (tests/policy/README.md) fail level 0 on any rendered Ingress or a route without a Gateway `https` parent. The OIDC plugin of the
 previous ingress controller (Middleware `oidc-auth`, `oidc-redis`, the `auth.<DOMAIN>`
-callback) was dropped in the switch (ADR-034): no route used it. When edge authentication is needed, the path is an Envoy Gateway
+callback) was dropped in the switch (ADR-040): no route used it. When edge authentication is needed, the path is an Envoy Gateway
 `SecurityPolicy` with `oidc` on the HTTPRoute (Google client from `GOOGLE_OAUTH_1P_PATH`).
 
 ### Observability
@@ -486,4 +486,4 @@ kubectl get ciliumnetworkpolicies,networkpolicies -A
 - In this repo: [architecture.md](./architecture.md), [applications.md](./applications.md),
   [hardware.md](./hardware.md), [runbooks/readonly-access.md](./runbooks/readonly-access.md),
   [runbooks/tailscale-dns.md](./runbooks/tailscale-dns.md), [runbooks/envoy-gateway.md](./runbooks/envoy-gateway.md),
-  ADR-034 in [project_notes/decisions.md](./project_notes/decisions.md)
+  ADR-040 in [project_notes/decisions.md](./project_notes/decisions.md)

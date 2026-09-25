@@ -1,6 +1,6 @@
 # Envoy Gateway: cutover, debugging, new routes
 
-Envoy Gateway is the cluster's ingress (ADR-034). Two Gateways in `envoy-gateway-system`:
+Envoy Gateway is the cluster's ingress (ADR-040). Two Gateways in `envoy-gateway-system`:
 `envoy-internal` (LAN + tailnet) and `envoy-external` (Internet). Design and request paths:
 [networking.md](../networking.md#ingress-envoy-gateway).
 

@@ -107,7 +107,7 @@ kubectl -n istio-system create token kiali --duration 8h
 `charts/istio-gateways` (Application `istio-gateways`, addons wave 7, namespace
 `istio-ingress`) deploys Istio's Gateway API implementation next to Envoy Gateway, to compare
 the two on the same traffic before choosing whether ingress should ever move into the mesh
-(ADR-034). It takes no production traffic: no DNS record or port forward points at it.
+(ADR-040). It takes no production traffic: no DNS record or port forward points at it.
 
 | | Istio | Envoy Gateway |
 |--|-------|---------------|

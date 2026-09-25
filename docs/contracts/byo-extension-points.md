@@ -82,7 +82,7 @@ discovery, a configurable claims mapping, and a group-to-role mapping expressed 
 configuration.
 
 **Implementations:** any OIDC provider. Homelab uses one (Google, as an Envoy Gateway
-`SecurityPolicy` on the HTTPRoute, ADR-034); enterprise customers bring Okta, Entra, Keycloak or their own.
+`SecurityPolicy` on the HTTPRoute, ADR-040); enterprise customers bring Okta, Entra, Keycloak or their own.
 The platform stores a stable subject identifier and never the provider's internal user object.
 
 **Rule:** authorization decisions are made against **platform roles**, never against raw

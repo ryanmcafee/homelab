@@ -401,7 +401,7 @@ Each decision should include:
 
 - **2026-02-11: ArgoCD CMP for PII removal** — Moved config generation from commit-time to ArgoCD render-time using a Config Management Plugin sidecar. Bootstrap chart breaks chicken-and-egg with 1Password operator. All committed values files sanitized to safe defaults. The design doc (`docs/plans/2026-02-11-argocd-cmp-pii-removal-design.md`) was removed in c4daa10 once implemented; the mechanism is documented in `Claude.md` "CMP Architecture" and extended to child charts by ADR-010.
 
-- **2026-02-13: Dual Traefik Ingress Controllers** — Split single Traefik into external (`external` IngressClass, static IP <TRAEFIK_STATIC_IP>, OIDC, port forwarding) and internal (`internal` IngressClass, dynamic IP, no OIDC). Plex uses external; all other apps use internal. OIDC middleware annotations removed from internal apps. Superseded by ADR-034 (Envoy Gateway); the design doc was removed with it.
+- **2026-02-13: Dual Traefik Ingress Controllers** — Split single Traefik into external (`external` IngressClass, static IP <TRAEFIK_STATIC_IP>, OIDC, port forwarding) and internal (`internal` IngressClass, dynamic IP, no OIDC). Plex uses external; all other apps use internal. OIDC middleware annotations removed from internal apps. Superseded by ADR-040 (Envoy Gateway); the design doc was removed with it.
 
 ### ADR-016: etcd gets its own disk; the control planes leave the shared VM pool (2026-09-15)
 
@@ -1073,7 +1073,7 @@ Each decision should include:
 - **Blast radius when a duplicate does land:** the checks read the repository, not the diff, so a duplicate on `main` turns the required check red on *every* open pull request until `main` is fixed, urgent ones included. The recovery is fix-forward and takes seconds — renumber the later heading on `main` and every PR goes green on its next run — and the only bypass is the repository owner merging past the required check under `enforcement_level: non_admins` with the reason in the issue. There is no per-file exemption annotation for these checks; `docs/runbooks/verification.md` carries the procedure
 - The one-file-per-ADR split is deferred, not rejected. If the record keeps growing this way, the gate written here is what makes that migration safe to attempt
 
-### ADR-034: Envoy Gateway replaces Traefik; Istio gateways deployed for comparison (2026-09-25); supersedes the 2026-02-13 dual-ingress entry
+### ADR-040: Envoy Gateway replaces Traefik; Istio gateways deployed for comparison (2026-09-25); supersedes the 2026-02-13 dual-ingress entry
 
 **Context:**
 - Two Traefik releases served every UI through Ingress objects plus Traefik-only CRDs (IngressRoute, Middleware), so routing was tied to one vendor's API

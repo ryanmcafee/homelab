@@ -125,7 +125,7 @@ The PM's reasoning was that both should reuse the OIDC middleware #51 establishe
 stand up a second auth path. The premise is wrong, and checkably so.
 
 **Edge OIDC does not depend on #51.** The ingress OIDC middleware this map originally
-pointed at was dropped with the move to Envoy Gateway (ADR-034) because no route used it.
+pointed at was dropped with the move to Envoy Gateway (ADR-040) because no route used it.
 Edge authentication for #40 and #41 is an Envoy Gateway `SecurityPolicy` with `oidc` on their
 HTTPRoutes (Google client from `GOOGLE_OAUTH_1P_PATH`), which needs nothing from #51.
 

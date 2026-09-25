@@ -348,7 +348,7 @@ installed by mise (`mise.toml`); this table names the pieces, the file has the n
 | Host configuration | Ansible | `ansible/` |
 | GitOps | ArgoCD (`charts.argocd`, CLI `tools.argocd`), Helm (`tools.helm`) | `charts/gitops`, `charts/bootstrap` |
 | CNI, load balancer | Cilium (`charts.cilium`) with LB IPAM + BGP to the UniFi gateway | [networking.md](./networking.md) |
-| Ingress | Envoy Gateway (`charts.envoy-gateway`), Gateway API only: Gateways `envoy-external`, `envoy-internal`, wildcard TLS at the Gateway (cert-manager); external-dns `gateway-httproute` (Cloudflare, UniFi); Istio gateways for comparison (ADR-034) | [networking.md](./networking.md) |
+| Ingress | Envoy Gateway (`charts.envoy-gateway`), Gateway API only: Gateways `envoy-external`, `envoy-internal`, wildcard TLS at the Gateway (cert-manager); external-dns `gateway-httproute` (Cloudflare, UniFi); Istio gateways for comparison (ADR-040) | [networking.md](./networking.md) |
 | Remote access | Tailscale operator (`charts.tailscale-operator`) | [networking.md](./networking.md) |
 | Secrets | 1Password Connect + operator (`charts.onepassword-connect`), SOPS/age via ksops | [Secrets and configuration](#secrets-and-configuration) |
 | Storage | democratic-csi (`charts.democratic-csi`), CloudNativePG (`charts.cloudnative-pg`, `charts.plugin-barman-cloud`), Spegel (`charts.spegel`) | [Storage](#storage) |
