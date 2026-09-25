@@ -1131,11 +1131,14 @@ paperclip:
     resources:
       requests:
         cpu: 500m
-        memory: 8Gi
+        memory: 16Gi
       limits:
         cpu: "2"
-        memory: 8Gi
+        memory: 16Gi
     exporter:
+      enabled: false
+      image: ""
+    agentPolicy:
       enabled: false
       image: ""
 

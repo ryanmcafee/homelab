@@ -1424,6 +1424,10 @@ spec:
         admin:
           email: admin@REPLACEME-domain.com
           name: Admin
+        agentPolicy:
+          enabled: true
+          image: oven/bun:1.4.2-alpine
+          maxConcurrentRuns: 1
         availability:
           nodeSelector:
             paperclip.homelab/pin: "true"
@@ -1441,10 +1445,10 @@ spec:
         resources:
           limits:
             cpu: "2"
-            memory: 8Gi
+            memory: 16Gi
           requests:
             cpu: 500m
-            memory: 8Gi
+            memory: 16Gi
   destination:
     server: https://kubernetes.default.svc
     namespace: paperclip

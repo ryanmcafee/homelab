@@ -34,10 +34,19 @@ board API key. Unit tests: `task test:scripts -- scripts/paperclip-exporter_test
 `PAPERCLIP_EXPORTER_1P_PATH` (default `vaults/homelab/items/paperclip-exporter`) names one item
 with one field, `PAPERCLIP_API_KEY`: a Paperclip board API key (created with the
 `create_board_api_key` operation of the Paperclip API or MCP server). The `paperclip-dependencies` Application turns it
-into Secret `paperclip-exporter`. The key is read-only in use: the exporter only sends GETs.
+into Secret `paperclip-exporter`. The exporter only sends GETs; the `paperclip-agent-policy`
+CronJob uses the same key to PATCH agents (see "Run cap" below).
 Until the item exists the OnePasswordItem is Degraded, the exporter runs without a key and
 `PaperclipMetricsUnavailable` fires. Kind seeds a placeholder (`localdev/fakes/secrets.yaml`),
 so there the exporter always reports `paperclip_up 0`.
+
+## Run cap
+
+Paperclip has no instance-wide run limit, only `runtimeConfig.heartbeat.maxConcurrentRuns` per
+agent (default 20). The `paperclip-agent-policy` CronJob (every 5 minutes, homelab only) sets it
+to `paperclip.instance.agentPolicy.maxConcurrentRuns` (1) on every agent that is not terminated,
+so a new agent is capped within 5 minutes. A cap changed in the UI is reverted on the next run.
+Logs: `kubectl -n paperclip logs job/<latest paperclip-agent-policy job>`.
 
 ## Alerts
 
