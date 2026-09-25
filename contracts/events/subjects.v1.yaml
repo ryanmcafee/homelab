@@ -157,12 +157,21 @@ streams:
       destroys every queued request without a trace. `max_age` is therefore set to exceed
       the worst consumer outage the platform intends to survive (24h — longer than a
       weekend on-call gap), and the loss is covered by a STREAM-level monitor, not a
-      consumer advisory: alert when PF_WORK's oldest unacked message approaches `max_age`,
-      derived from the stream's `state.first_ts` (JetStream `$JS.API.STREAM.INFO.PF_WORK`,
-      exported by prometheus-nats-exporter). The exact metric name is pinned by the SRE &
-      Observability Engineer against the deployed exporter; the REQUIREMENT that the alert
-      exists is contract, and a PF_WORK consumer with no such alert fails the boundary
-      quality gate (ADR-030).
+      consumer advisory: alert when PF_WORK's oldest unacked message approaches `max_age`.
+      The metric is `nats_stream_first_seq{stream_name="PF_WORK"}` from
+      prometheus-nats-exporter (`-jsz=all`), NOT the stream's `state.first_ts`: the exporter
+      publishes no message age and no timestamp at all — pinned against 0.18.0, the tag the
+      NATS chart pins, and against the exporter's `main`. On a work queue the head leaves
+      only when it is acked, so a `first_seq` frozen while the stream was never empty IS the
+      age of the oldest unacked message; depth (`nats_stream_total_messages`) cannot
+      substitute, because a queue nobody drains and a busy queue have identical depth. The
+      alerts are `PFWorkOldestUnackedAging` (warning at 12h of head age, critical at 18h,
+      leaving 6h of the budget to act), `PFWorkMessagesExpiredUnacked` (the head advanced
+      further than every consumer ack floor, so messages left unacked) and
+      `PFWorkStreamMetricsAbsent` (the monitor went blind), in the `homelab-nats-jetstream`
+      group of charts/addons; runbook docs/runbooks/pf-work-age-expiry.md. The REQUIREMENT
+      that the alert exists is contract, and a PF_WORK consumer with no such alert fails the
+      boundary quality gate (ADR-030).
 
   - name: PF_DLQ
     subjects: ['pf.*.*.*.*.*.dl']
