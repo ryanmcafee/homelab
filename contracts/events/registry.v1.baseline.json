@@ -20,97 +20,129 @@
         "type": "string",
         "pattern": null,
         "format": null,
-        "const": null
+        "const": null,
+        "minLength": null,
+        "maxLength": 128
       },
       "data": {
         "type": "unknown",
         "pattern": null,
         "format": null,
-        "const": null
+        "const": null,
+        "minLength": null,
+        "maxLength": null
       },
       "datacontenttype": {
         "type": "unknown",
         "pattern": null,
         "format": null,
-        "const": "\"application/json\""
+        "const": "\"application/json\"",
+        "minLength": null,
+        "maxLength": null
       },
       "dataschema": {
         "type": "string",
         "pattern": null,
         "format": "uri",
-        "const": null
+        "const": null,
+        "minLength": null,
+        "maxLength": null
       },
       "dryrun": {
         "type": "boolean",
         "pattern": null,
         "format": null,
-        "const": null
+        "const": null,
+        "minLength": null,
+        "maxLength": null
       },
       "id": {
         "type": "string",
         "pattern": null,
         "format": null,
-        "const": null
+        "const": null,
+        "minLength": 1,
+        "maxLength": 128
       },
       "replyto": {
         "type": "string",
         "pattern": null,
         "format": null,
-        "const": null
+        "const": null,
+        "minLength": null,
+        "maxLength": 256
       },
       "sequence": {
         "type": "string",
         "pattern": "^[0-9]{1,20}$",
         "format": null,
-        "const": null
+        "const": null,
+        "minLength": null,
+        "maxLength": null
       },
       "source": {
         "type": "string",
         "pattern": "^//[a-z0-9]([a-z0-9-]*[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*/[a-z0-9./-]+$",
         "format": null,
-        "const": null
+        "const": null,
+        "minLength": null,
+        "maxLength": 253
       },
       "specversion": {
         "type": "unknown",
         "pattern": null,
         "format": null,
-        "const": "\"1.0\""
+        "const": "\"1.0\"",
+        "minLength": null,
+        "maxLength": null
       },
       "subject": {
         "type": "string",
         "pattern": null,
         "format": null,
-        "const": null
+        "const": null,
+        "minLength": 1,
+        "maxLength": 256
       },
       "tenant": {
         "type": "string",
         "pattern": "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$",
         "format": null,
-        "const": null
+        "const": null,
+        "minLength": null,
+        "maxLength": 63
       },
       "time": {
         "type": "string",
         "pattern": null,
         "format": "date-time",
-        "const": null
+        "const": null,
+        "minLength": null,
+        "maxLength": null
       },
       "traceparent": {
         "type": "string",
         "pattern": "^00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$",
         "format": null,
-        "const": null
+        "const": null,
+        "minLength": null,
+        "maxLength": null
       },
       "tracestate": {
         "type": "string",
         "pattern": null,
         "format": null,
-        "const": null
+        "const": null,
+        "minLength": null,
+        "maxLength": 512
       },
       "type": {
         "type": "string",
         "pattern": "^com\\.mcafeeconsulting\\.platform\\.[a-z0-9]+(-[a-z0-9]+)*(\\.[a-z0-9]+(-[a-z0-9]+)*)*\\.v[1-9][0-9]*$",
         "format": null,
-        "const": null
+        "const": null,
+        "minLength": null,
+        "maxLength": 128
       }
     },
     "additionalProperties": false
@@ -195,6 +227,16 @@
           "durationSeconds": "number",
           "message": "string"
         },
+        "lengths": {
+          "stage": {
+            "minLength": null,
+            "maxLength": 64
+          },
+          "message": {
+            "minLength": null,
+            "maxLength": 2048
+          }
+        },
         "required": [
           "outcome",
           "stage",
@@ -225,6 +267,16 @@
           "revision": "string",
           "driftedResources": "array",
           "driftedResourceCount": "integer"
+        },
+        "lengths": {
+          "application": {
+            "minLength": null,
+            "maxLength": 253
+          },
+          "namespace": {
+            "minLength": null,
+            "maxLength": 253
+          }
         },
         "required": [
           "application",
@@ -257,6 +309,20 @@
           "destinationNamespace": "string",
           "health": "string",
           "syncedAt": "string"
+        },
+        "lengths": {
+          "application": {
+            "minLength": null,
+            "maxLength": 253
+          },
+          "namespace": {
+            "minLength": null,
+            "maxLength": 253
+          },
+          "destinationNamespace": {
+            "minLength": null,
+            "maxLength": 253
+          }
         },
         "required": [
           "application",
@@ -291,6 +357,20 @@
           "scopes": "array",
           "expiresAt": "string"
         },
+        "lengths": {
+          "principalId": {
+            "minLength": null,
+            "maxLength": 128
+          },
+          "issuer": {
+            "minLength": null,
+            "maxLength": 512
+          },
+          "credentialRef": {
+            "minLength": null,
+            "maxLength": 512
+          }
+        },
         "required": [
           "issuer",
           "principalId",
@@ -321,6 +401,16 @@
           "reason": "string",
           "revokedBy": "string",
           "effectiveAt": "string"
+        },
+        "lengths": {
+          "principalId": {
+            "minLength": null,
+            "maxLength": 128
+          },
+          "revokedBy": {
+            "minLength": null,
+            "maxLength": 128
+          }
         },
         "required": [
           "principalId",
@@ -353,6 +443,20 @@
           "talosVersion": "string",
           "etcdMemberRemoved": "boolean"
         },
+        "lengths": {
+          "oldNode": {
+            "minLength": null,
+            "maxLength": 253
+          },
+          "newNode": {
+            "minLength": null,
+            "maxLength": 253
+          },
+          "talosVersion": {
+            "minLength": null,
+            "maxLength": 64
+          }
+        },
         "required": [
           "newNode",
           "reason",
@@ -384,6 +488,20 @@
           "burnRate": "number",
           "threshold": "number",
           "budgetRemaining": "number"
+        },
+        "lengths": {
+          "slo": {
+            "minLength": null,
+            "maxLength": 128
+          },
+          "service": {
+            "minLength": null,
+            "maxLength": 253
+          },
+          "namespace": {
+            "minLength": null,
+            "maxLength": 253
+          }
         },
         "required": [
           "burnRate",
@@ -419,6 +537,20 @@
           "desiredReplicas": "integer",
           "observedGeneration": "integer"
         },
+        "lengths": {
+          "namespace": {
+            "minLength": null,
+            "maxLength": 253
+          },
+          "name": {
+            "minLength": null,
+            "maxLength": 253
+          },
+          "message": {
+            "minLength": null,
+            "maxLength": 2048
+          }
+        },
         "required": [
           "name",
           "namespace",
@@ -451,6 +583,20 @@
           "replicas": "integer",
           "observedGeneration": "integer"
         },
+        "lengths": {
+          "namespace": {
+            "minLength": null,
+            "maxLength": 253
+          },
+          "name": {
+            "minLength": null,
+            "maxLength": 253
+          },
+          "image": {
+            "minLength": null,
+            "maxLength": 512
+          }
+        },
         "required": [
           "name",
           "namespace",
@@ -482,6 +628,16 @@
           "name": "string",
           "includeConditions": "boolean"
         },
+        "lengths": {
+          "namespace": {
+            "minLength": null,
+            "maxLength": 253
+          },
+          "name": {
+            "minLength": null,
+            "maxLength": 253
+          }
+        },
         "required": [
           "name",
           "namespace"
@@ -512,6 +668,20 @@
           "fromRevision": "string",
           "strategy": "string",
           "requestedBy": "string"
+        },
+        "lengths": {
+          "namespace": {
+            "minLength": null,
+            "maxLength": 253
+          },
+          "name": {
+            "minLength": null,
+            "maxLength": 253
+          },
+          "requestedBy": {
+            "minLength": null,
+            "maxLength": 128
+          }
         },
         "required": [
           "name",
@@ -545,6 +715,24 @@
           "outcome": "string",
           "reason": "string",
           "message": "string"
+        },
+        "lengths": {
+          "namespace": {
+            "minLength": null,
+            "maxLength": 253
+          },
+          "name": {
+            "minLength": null,
+            "maxLength": 253
+          },
+          "reason": {
+            "minLength": null,
+            "maxLength": 128
+          },
+          "message": {
+            "minLength": null,
+            "maxLength": 2048
+          }
         },
         "required": [
           "name",
