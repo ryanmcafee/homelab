@@ -747,6 +747,7 @@ func TestIsExamplePlaceholder(t *testing.T) {
 		{name: "reserved local suffix", value: "truenas.local", want: true},
 		{name: "empty", value: "", want: true},
 		{name: "empty quoted", value: `""`, want: true},
+		{name: "named documentation CIDRs", value: "homelab=192.168.1.0/25,lan=192.168.1.128/25", want: true},
 
 		// Rejected: anything a real environment would contain.
 		{name: "real private address", value: "172.16.100.10", want: false},
@@ -759,6 +760,8 @@ func TestIsExamplePlaceholder(t *testing.T) {
 		{name: "real username", value: "rmcafee", want: false},
 		{name: "real duckdns target", value: "homelab-dev.duckdns.org", want: false},
 		{name: "real CIDR", value: "172.16.100.0/24", want: false},
+		{name: "named real CIDR", value: "homelab=192.168.1.0/24,lan=172.16.10.0/24", want: false},
+		{name: "named list with a non-CIDR item", value: "homelab=192.168.1.0/24,lan", want: false},
 	}
 
 	for _, tc := range tests {

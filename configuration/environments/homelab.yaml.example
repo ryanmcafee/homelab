@@ -24,6 +24,8 @@ OTEL_LB_IP: "192.168.1.104"
 NFS_SHARE_ALLOW: "192.168.1.0/24"
 # Homelab LAN CIDR advertised onto the tailnet by the Tailscale Connector subnet router
 TAILSCALE_ADVERTISE_ROUTES: "192.168.1.0/24"
+# Subnet names on the network flows dashboard (name=CIDR, comma-separated)
+NETWORK_NAMES: "homelab=192.168.1.0/25,lan=192.168.1.128/25"
 BGP_PEER_IP: "192.168.1.1"
 NFS_MAPALL_USER: REPLACEME-username
 ACME_EMAIL: admin@REPLACEME-domain.com

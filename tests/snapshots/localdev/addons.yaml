@@ -2005,6 +2005,7 @@ spec:
         namespace: observability
         database: otel
         image: clickhouse/clickhouse-server:26.8.10.6
+        networkNames: ""
         resources:
           limits:
             cpu: "1"

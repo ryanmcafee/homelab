@@ -9,5 +9,5 @@ metadata:
 data:
   {{- range $path, $_ := .Files.Glob "dashboards/*.json" }}
   {{ base $path }}: |-
-    {{- $.Files.Get $path | nindent 4 }}
+    {{- $.Files.Get $path | replace "__NETWORK_NAMES__" $.Values.networkNames | nindent 4 }}
   {{- end }}

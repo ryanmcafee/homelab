@@ -3726,6 +3726,7 @@ spec:
         namespace: observability
         database: otel
         image: clickhouse/clickhouse-server:26.8.10.6
+        networkNames: homelab=192.168.1.0/25,lan=192.168.1.128/25
         resources:
           limits:
             cpu: "2"

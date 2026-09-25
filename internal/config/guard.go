@@ -18,9 +18,9 @@ import (
 var piiKeyPrefixes = []string{
 	"DOMAIN", "ACME_EMAIL", "NFS_MAPALL_USER", "DUCKDNS_SUBDOMAIN",
 	"EXTERNAL_DNS_DEFAULT_TARGET", "TRAEFIK_OIDC_ALLOWED_DOMAINS",
-	// The LAN CIDR: a runbook pasting the real subnet identifies the network
-	// as surely as a host address does.
-	"NFS_SHARE_ALLOW",
+	// LAN CIDRs: a runbook pasting a real subnet identifies the network as
+	// surely as a host address does.
+	"NFS_SHARE_ALLOW", "NETWORK_NAMES",
 }
 
 // piiKeySuffixes are config key suffixes whose values are likely PII.
@@ -616,6 +616,15 @@ func isExamplePlaceholder(value string) bool {
 	if ip, _, err := net.ParseCIDR(v); err == nil {
 		return ipInAny(ip, examplePlaceholderSubnets)
 	}
+	// A name=CIDR list (NETWORK_NAMES) must keep every CIDR inside one.
+	if cidrs, ok := namedCIDRs(v); ok {
+		for _, ip := range cidrs {
+			if !ipInAny(ip, examplePlaceholderSubnets) {
+				return false
+			}
+		}
+		return true
+	}
 
 	host := hostOf(v)
 	for _, h := range examplePlaceholderHosts {
@@ -630,6 +639,20 @@ func isExamplePlaceholder(value string) bool {
 		}
 	}
 	return false
+}
+
+// namedCIDRs parses a comma-separated name=CIDR list into the network addresses.
+func namedCIDRs(v string) ([]net.IP, bool) {
+	var ips []net.IP
+	for _, item := range strings.Split(v, ",") {
+		_, cidr, found := strings.Cut(item, "=")
+		ip, _, err := net.ParseCIDR(strings.TrimSpace(cidr))
+		if !found || err != nil {
+			return nil, false
+		}
+		ips = append(ips, ip)
+	}
+	return ips, true
 }
 
 // ipInAny reports whether ip falls inside any of the given CIDRs.

@@ -163,3 +163,9 @@ keys:
     description: TrueNAS address on the storage LAN (VLAN 10) with prefix length, used by the Ansible inventory
     required: false
     pattern: "^(?:\\d{1,3}\\.){3}\\d{1,3}/\\d{1,2}$"
+
+  NETWORK_NAMES:
+    description: Subnet names on the "Network flows and security" Grafana dashboard, comma-separated
+      name=CIDR pairs; unnamed private addresses show as their /24
+    required: false
+    pattern: "^$|^[A-Za-z0-9_-]+=[0-9A-Fa-f:.]+/\\d{1,3}(,[A-Za-z0-9_-]+=[0-9A-Fa-f:.]+/\\d{1,3})*$"
