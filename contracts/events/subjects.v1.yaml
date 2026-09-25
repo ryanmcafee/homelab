@@ -151,10 +151,17 @@ streams:
       producer. See `silent_loss` below for what `max_age` costs here.
     silent_loss: >-
       AGE EXPIRY ON THIS STREAM IS A SILENT DATA-LOSS PATH. `max_age` deletes unacked
-      work-queue messages with NO per-message signal of any kind: there is no advisory for
-      age-based deletion, and `$JS.EVENT.ADVISORY.CONSUMER.MAX_DELIVERIES.>` does not fire
-      because nothing was ever redelivered. A consumer outage longer than `max_age`
-      destroys every queued request without a trace. `max_age` is therefore set to exceed
+      work-queue messages with no per-message signal on the path that matters, and
+      `$JS.EVENT.ADVISORY.CONSUMER.MAX_DELIVERIES.>` does not fire because nothing was ever
+      redelivered. Precisely: a message that was IN FLIGHT on a consumer when the budget
+      expired emits exactly one `io.nats.jetstream.advisory.v1.terminated`; a message that
+      was QUEUED AND NEVER DELIVERED emits nothing at all. The second is the shape of every
+      consumer outage — a consumer that is down fetches nothing, so nothing is ever in
+      flight — which is why the advisory cannot be the control here. Measured: 8s `max_age`,
+      3 messages, 1 fetched, 1 `terminated`, nothing for the other two (MCAA-134). A consumer
+      outage longer than `max_age` destroys every queued request without a trace, and the
+      blast radius is the whole tenant's deferred work, not one message. `max_age` is
+      therefore set to exceed
       the worst consumer outage the platform intends to survive (24h — longer than a
       weekend on-call gap), and the loss is covered by a STREAM-level monitor, not a
       consumer advisory: alert when PF_WORK's oldest unacked message approaches `max_age`.
@@ -222,6 +229,22 @@ consumers:
     every domain, the first component to create a domain-wide `wq` consumer would
     permanently foreclose every other component in that domain, and it would be discovered
     in whichever environment the second component deployed to. (ADR-038)
+  workqueue_tenancy: >-
+    THIS RULE ASSUMES ONE NATS ACCOUNT, AND THEREFORE ONE PF_WORK, PER TENANT. That is what
+    makes "exactly one fully-specified subject" and a tenant-free consumer name mutually
+    consistent: a fully-specified subject names a concrete `<tenant>` token, the consumer
+    name grammar has no tenant token, so the tenant must be constant within the account.
+    See security.tenancy in `docs/contracts/event-contract.md` §5, which this makes explicit
+    rather than implied. It is normative because the single-account reading fails SILENTLY
+    and destructively, and `10100` does not catch it: a durable consumer create with an
+    EXISTING NAME is an UPDATE, not a conflict. Two tenants' `platform-api` deployments both
+    create `platform-api-deployment-promote-v1`; the second repoints the first's filter with
+    no error and no warning. Tenant one's queued `wq` work then has no consumer at all — and
+    because a work queue RETAINS rather than drops it, nothing alerts until `max_age` deletes
+    it 24h later down the no-advisory path in PF_WORK's `silent_loss`. `10100` fires on an
+    overlapping filter under a DIFFERENT name and stays silent on an identical one, which is
+    exactly the asymmetry that makes this reachable by a routine second-tenant deployment
+    rather than by a misconfiguration. (ADR-038, D2)
   ack_policy: explicit
   max_deliver: 5
   ack_wait: 30s
@@ -234,7 +257,13 @@ consumers:
     messages in flight concurrently, which removes delivery order entirely. Ordered
     handling requires `max_ack_pending: 1` AND serial processing, and costs throughput;
     take it deliberately. Otherwise use the envelope `sequence` to DETECT reordering
-    rather than assuming its absence.
+    rather than assuming its absence. `sequence` is OPTIONAL in the envelope: it is present
+    on every event a consumer received from a stream (the broker assigns it from the
+    PubAck), and absent on the `rq` path, which has no stream and no PubAck to assign one
+    from. A `.ev` or `wq` consumer may therefore rely on it; a responder on `rq` has no
+    sequence to reason about and no ordering claim to check. The gate pins the attribute's
+    presence and type in the envelope baseline (`envelope-attribute-removed`,
+    `envelope-attribute-retyped`), so this instruction cannot outlive the field.
   dead_letter: >-
     On final failure of a `wq` message — the delivery on which `max_deliver` exhausts, or
     an error the handler knows is not retryable — the consumer REPUBLISHES THE FULL
