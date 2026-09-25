@@ -1,0 +1,16 @@
+{{- if .Values.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Values.name }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "triage-agent.labels" . | nindent 4 }}
+data:
+  settings.json: |
+    {{- toPrettyJson .Values.settings | nindent 4 }}
+  agent.json: |
+    {{- toPrettyJson .Values.agent | nindent 4 }}
+  mcp-servers.json: |
+    {{- toPrettyJson .Values.mcpServers | nindent 4 }}
+{{- end }}

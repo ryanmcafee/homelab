@@ -1,0 +1,7 @@
+# triage-agent localdev values
+#
+# Off in Kind: there is no secret store for the Claude token and no
+# Alertmanager to triage (SECRETS_PROVIDER=none), so the addons chart never
+# renders the parent Application there. The file exists because the parent
+# Application always appends values-<environment>.yaml.
+enabled: false

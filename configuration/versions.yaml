@@ -99,6 +99,9 @@ charts:
   altinity-clickhouse-operator: "0.27.3"
 images:
   homelab-cmp: "0.1.51"
+  # Alert triage agent image (Dockerfile.triage-agent, .github/workflows/triage-agent-image.yml);
+  # bump it with every change under triage-agent/ so main publishes a new tag.
+  triage-agent: "0.1.0"
   # renovate: datasource=docker depName=curlimages/curl
   curl: "8.22.0"
   # renovate: datasource=docker depName=kindest/node

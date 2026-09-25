@@ -1501,3 +1501,19 @@ github-pr-exporter:
       url: "https://api.github.com/search/issues?q=is%3Apr+is%3Aopen+draft%3Afalse+archived%3Afalse+review%3Anone+user%3Aryanmcafee+-label%3Aautomerge+-author%3Aapp%2Fdependabot&per_page=100"
     - name: review-requested
       url: "https://api.github.com/search/issues?q=is%3Apr+is%3Aopen+draft%3Afalse+archived%3Afalse+user%3Aryanmcafee+review-requested%3Aryanmcafee+-label%3Aautomerge+-author%3Aapp%2Fdependabot&per_page=100"
+
+# ============================================================================
+# Alert triage agent (templates/triage-agent.yaml, charts/triage-agent)
+# Sync Wave: 10 (docs/runbooks/triage-agent.md)
+# ============================================================================
+
+triage-agent:
+  enabled: false
+  namespace: triage-agent
+  image: "ghcr.io/ryanmcafee/homelab-triage-agent:0.1.0"
+  # Secret triage-agent: CLAUDE_CODE_OAUTH_TOKEN plus optional fields (docs/runbooks/triage-agent.md).
+  onePasswordItemPath: ""
+  memory:
+    persistence:
+      enabled: true
+      storageClass: local-path

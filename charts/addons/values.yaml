@@ -1038,3 +1038,14 @@ github-pr-exporter:
   namespace: monitoring
   secretName: github-pr-alerts
   onePasswordItemPath: ""
+
+# Alert triage agent (templates/triage-agent.yaml, charts/triage-agent). Placeholder; the CMP template renders the real block.
+triage-agent:
+  enabled: false
+  namespace: triage-agent
+  image: ""
+  onePasswordItemPath: ""
+  memory:
+    persistence:
+      enabled: false
+      storageClass: ""

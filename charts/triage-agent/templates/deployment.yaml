@@ -1,0 +1,145 @@
+{{- if .Values.enabled }}
+{{- $optionalSecretKeys := list "GITHUB_TOKEN" "DOTFILES_REPO" "PAPERCLIP_API_KEY" "PAPERCLIP_COMPANY_ID" "SLACK_WEBHOOK_URL" }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.name }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "triage-agent.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  # One writer for the memory volume and one triage queue.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "triage-agent.selector" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "triage-agent.labels" . | nindent 8 }}
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+    spec:
+      serviceAccountName: {{ .Values.name }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: triage-agent
+          image: {{ required "image is required" .Values.image }}
+          env:
+            - name: ALERTMANAGER_URL
+              value: {{ required "alertmanagerUrl is required" .Values.alertmanagerUrl | quote }}
+            - name: REPO_URL
+              value: {{ required "repoUrl is required" .Values.repoUrl | quote }}
+            - name: REPO_BRANCH
+              value: {{ .Values.repoBranch | quote }}
+            - name: SWEEP_INTERVAL_SECONDS
+              value: {{ .Values.sweepIntervalSeconds | quote }}
+            - name: COOLDOWN_SECONDS
+              value: {{ .Values.cooldownSeconds | quote }}
+            - name: IGNORED_ALERTS
+              value: {{ join "," .Values.ignoredAlerts | quote }}
+            - name: MAX_REPORTS
+              value: {{ .Values.maxReports | quote }}
+            - name: DRY_RUN
+              value: {{ .Values.dryRun | quote }}
+            - name: LOG_LEVEL
+              value: {{ .Values.logLevel | quote }}
+            - name: HOME
+              value: /home/agent
+            - name: CLAUDE_CONFIG_DIR
+              value: /home/agent/.claude
+            - name: WORKSPACE_DIR
+              value: /workspace/homelab
+            - name: DOTFILES_DIR
+              value: /workspace/dotfiles
+            - name: MEMORY_DIR
+              value: /data
+            - name: TMPDIR
+              value: /tmp
+            - name: BUN_RUNTIME_TRANSPILER_CACHE_PATH
+              value: "0"
+            - name: CLAUDE_CODE_OAUTH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secretName }}
+                  key: CLAUDE_CODE_OAUTH_TOKEN
+                  optional: {{ .Values.dryRun }}
+            {{- range $optionalSecretKeys }}
+            - name: {{ . }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $.Values.secretName }}
+                  key: {{ . }}
+                  optional: true
+            {{- end }}
+          ports:
+            - name: http
+              containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 30
+            failureThreshold: 5
+          # The dotfiles sync runs before the server listens.
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 10
+            failureThreshold: 30
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: config
+              mountPath: /etc/triage-agent
+              readOnly: true
+            - name: home
+              mountPath: /home/agent
+            - name: workspace
+              mountPath: /workspace
+            - name: data
+              mountPath: /data
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: config
+          configMap:
+            name: {{ .Values.name }}
+        # npm, uv and Claude caches plus the config dir; rebuilt on start.
+        - name: home
+          emptyDir:
+            sizeLimit: 4Gi
+        - name: workspace
+          emptyDir:
+            sizeLimit: 2Gi
+        - name: tmp
+          emptyDir:
+            sizeLimit: 1Gi
+        - name: data
+          {{- if .Values.memory.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ .Values.name }}-memory
+          {{- else }}
+          emptyDir:
+            sizeLimit: 256Mi
+          {{- end }}
+{{- end }}

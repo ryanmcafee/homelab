@@ -1,0 +1,216 @@
+# triage-agent default values (docs/runbooks/triage-agent.md)
+#
+# The parent addons Application (charts/addons/templates/triage-agent.yaml)
+# passes namespace, image, repoUrl, alertmanagerUrl, onePassword.itemPath and
+# memory.storageClass through helm.valuesObject, all derived from
+# configuration/ (ADR-010); nothing here is environment-specific.
+
+enabled: true
+
+namespace: triage-agent
+name: triage-agent
+
+# ghcr.io/<owner>/homelab-triage-agent:<configuration/versions.yaml images.triage-agent>
+image: ""
+# The GitOps repository the agent clones as its working directory (public; a
+# GITHUB_TOKEN from the 1Password item is used when present).
+repoUrl: ""
+repoBranch: main
+# In-cluster Alertmanager API (kube-prometheus-stack-alertmanager service).
+alertmanagerUrl: ""
+
+# Secret <secretName> from the 1Password item: CLAUDE_CODE_OAUTH_TOKEN
+# (required), GITHUB_TOKEN, DOTFILES_REPO, PAPERCLIP_API_KEY,
+# PAPERCLIP_COMPANY_ID and SLACK_WEBHOOK_URL (all optional).
+secretName: triage-agent
+onePassword:
+  itemPath: ""
+
+# ClusterRoles the ServiceAccount is bound to: the built-in view role and the
+# role charts/agent-readonly owns (exec, port-forward, cluster-scoped reads).
+clusterRoles:
+  - view
+  - homelab-agent-readonly
+
+# Sweep GET /api/v2/alerts every sweepIntervalSeconds (0 = webhook only); a
+# group triaged within cooldownSeconds runs again only for a new fingerprint.
+sweepIntervalSeconds: 300
+cooldownSeconds: 86400
+ignoredAlerts:
+  - Watchdog
+  - InfoInhibitor
+  - GitHubPullRequestNeedsReview
+maxReports: 50
+# true: log the prompt instead of calling Claude (no token needed).
+dryRun: false
+logLevel: info
+
+# Claude Agent SDK run limits (agent.json).
+agent:
+  model: opus[1m]
+  maxTurns: 60
+  timeoutSeconds: 1200
+
+# User-scope settings.json (CLAUDE_CONFIG_DIR). The SDK runs with
+# permissionMode dontAsk: every tool call outside permissions.allow is denied,
+# never prompted. The ServiceAccount's RBAC is the boundary; this list keeps
+# the agent on read and diagnose commands.
+settings:
+  model: opus[1m]
+  env:
+    CLAUDE_CODE_ENABLE_TELEMETRY: "0"
+    ENABLE_TOOL_SEARCH: "1"
+    DISABLE_AUTOUPDATER: "1"
+  enableAllProjectMcpServers: true
+  includeCoAuthoredBy: false
+  permissions:
+    defaultMode: dontAsk
+    allow:
+      - Read
+      - Grep
+      - Glob
+      - WebFetch
+      - WebSearch
+      - ToolSearch
+      - TodoWrite
+      - Bash(kubectl get:*)
+      - Bash(kubectl describe:*)
+      - Bash(kubectl logs:*)
+      - Bash(kubectl top:*)
+      - Bash(kubectl events:*)
+      - Bash(kubectl explain:*)
+      - Bash(kubectl api-resources:*)
+      - Bash(kubectl auth can-i:*)
+      - Bash(kubectl version:*)
+      - Bash(kubectl exec:*)
+      - Bash(kubectl port-forward:*)
+      - Bash(curl:*)
+      - Bash(git log:*)
+      - Bash(git show:*)
+      - Bash(git diff:*)
+      - Bash(git grep:*)
+      - Bash(git blame:*)
+      - Bash(rg:*)
+      - Bash(grep:*)
+      - Bash(jq:*)
+      - Bash(head:*)
+      - Bash(tail:*)
+      - Bash(sort:*)
+      - Bash(uniq:*)
+      - Bash(wc:*)
+      - Bash(date:*)
+      - mcp__sequential-thinking
+      - mcp__context7
+      - mcp__memory
+      - mcp__serena__initial_instructions
+      - mcp__serena__list_memories
+      - mcp__serena__read_memory
+      - mcp__serena__list_dir
+      - mcp__serena__find_file
+      - mcp__serena__search_for_pattern
+      - mcp__serena__get_symbols_overview
+      - mcp__serena__find_symbol
+      - mcp__serena__find_referencing_symbols
+      - mcp__serena__think_about_collected_information
+      - mcp__serena__think_about_task_adherence
+      - mcp__serena__think_about_whether_you_are_done
+      - mcp__paperclip__whoami
+      - mcp__paperclip__get_health
+      - mcp__paperclip__get_dashboard
+      - mcp__paperclip__list_agents
+      - mcp__paperclip__get_agent
+      - mcp__paperclip__list_issues
+      - mcp__paperclip__get_issue
+      - mcp__paperclip__list_live_runs
+      - mcp__paperclip__list_agent_runs
+      - mcp__paperclip__get_run
+      - mcp__paperclip__list_activity
+      - mcp__puppeteer__puppeteer_navigate
+      - mcp__puppeteer__puppeteer_screenshot
+    deny:
+      - Edit
+      - Write
+      - NotebookEdit
+      - Bash(git push:*)
+      - Bash(git commit:*)
+      - Bash(kubectl get secret:*)
+      - Bash(kubectl get secrets:*)
+      - Bash(kubectl describe secret:*)
+      - Bash(kubectl describe secrets:*)
+
+# MCP servers of the SDK `mcpServers` option (mcp-servers.json). ${VAR} in
+# args or env comes from the pod environment; a server that references an
+# unset variable is skipped, so the paperclip server needs PAPERCLIP_API_KEY
+# and PAPERCLIP_COMPANY_ID in the 1Password item. serena also comes from the
+# repository's .mcp.json; the project copy wins and this one is skipped.
+# codesearch is a workstation binary and has no in-cluster equivalent.
+mcpServers:
+  sequential-thinking:
+    enabled: true
+    command: npx
+    args: ["-y", "@modelcontextprotocol/server-sequential-thinking@2026.8.31"]
+  context7:
+    enabled: true
+    command: npx
+    args: ["-y", "@upstash/context7-mcp@4.1.1"]
+  memory:
+    enabled: true
+    command: npx
+    args: ["-y", "@modelcontextprotocol/server-memory@2026.8.31"]
+    env:
+      MEMORY_FILE_PATH: "${MEMORY_DIR}/memory.json"
+  # Deprecated upstream and needs a Chromium the image does not carry.
+  puppeteer:
+    enabled: false
+    command: npx
+    args: ["-y", "@modelcontextprotocol/server-puppeteer@2025.5.12"]
+  serena:
+    enabled: true
+    command: uvx
+    args:
+      - --from
+      - git+https://github.com/oraios/serena
+      - serena
+      - start-mcp-server
+      - --context=claude-code
+      - --project-from-cwd
+  paperclip:
+    enabled: true
+    command: uvx
+    args:
+      - --from
+      - git+https://github.com/wizarck/paperclip-mcp@v0.2.0
+      - paperclip-mcp
+      - --transport
+      - stdio
+    env:
+      PAPERCLIP_API_URL: http://paperclip.paperclip.svc.cluster.local:3100
+      PAPERCLIP_API_KEY: "${PAPERCLIP_API_KEY}"
+      PAPERCLIP_COMPANY_ID: "${PAPERCLIP_COMPANY_ID}"
+
+# Knowledge graph of the memory MCP server. Without persistence it lives on an
+# emptyDir and is lost with the pod.
+memory:
+  persistence:
+    enabled: false
+    storageClass: ""
+    size: 1Gi
+
+# Only the monitoring namespace (Alertmanager webhook, Prometheus scrape) may
+# connect; egress stays open (Claude API, GitHub, npm, PyPI, Kubernetes API).
+networkPolicy:
+  enabled: true
+  allowedNamespaces:
+    - monitoring
+
+serviceMonitor:
+  enabled: true
+  interval: 60s
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 512Mi
+  limits:
+    cpu: "2"
+    memory: 3Gi

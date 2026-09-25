@@ -13,6 +13,10 @@ Each entry should include:
 
 ## Recent Work
 
+### 2026-09-25 - In-cluster alert triage agent (Claude Agent SDK)
+- **Status**: PR open; before it runs create 1Password item `triage-agent` (field `CLAUDE_CODE_OAUTH_TOKEN`, optional `GITHUB_TOKEN`, `DOTFILES_REPO`, `PAPERCLIP_API_KEY`, `PAPERCLIP_COMPANY_ID`, `SLACK_WEBHOOK_URL`) and make the `homelab-triage-agent` package public after the first publish
+- **Description**: `triage-agent/` service + `charts/triage-agent`: Alertmanager webhook and sweep, grouped and deduplicated alerts, one read-only triage run at a time with view + homelab-agent-readonly RBAC, repository clone as cwd, MCP servers from chart values. ADR-033, docs/runbooks/triage-agent.md
+
 ### 2026-09-23 - Observability: Traefik logs+metrics, OTel -> ClickHouse logs and traces, Hubble, UniFi flows, Istio ambient + Kiali, paperclip request path
 - **Status**: PR #321 open; before merge create 1Password items `clickhouse-otel` and `clickhouse-grafana` (field `password`) and add `OTEL_LB_IP` to homelab.yaml and the homelab-environment-config document; after merge a human runs `task render && task render:push && task tf:apply`, restarts Cilium, and points UniFi syslog/IPFIX at `OTEL_LB_IP`
 - **Description**: The Paperclip API occasionally fails to respond with no 5xx at Traefik. Every hop now leaves correlated data: Traefik JSON access logs (TraceId, timings, client) and metrics, OpenTelemetry collectors writing container logs, events, OTLP traces, the filtered Hubble flow log and UniFi syslog/IPFIX into ClickHouse (Altinity operator, iSCSI 100Gi, 90-day TTL), Istio 1.31 ambient with paperclip enrolled behind a waypoint, blackbox probes (ingress vs direct), Kiali, Hubble UI and the "Paperclip request path" dashboard with its runbook. ADR-019..022

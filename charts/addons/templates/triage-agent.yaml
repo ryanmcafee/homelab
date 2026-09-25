@@ -1,0 +1,64 @@
+{{- $ta := index .Values "triage-agent" }}
+{{- if $ta.enabled }}
+---
+# The agent runs non-root with every capability dropped and a read-only root
+# filesystem, so restricted fits. docs/runbooks/triage-agent.md
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ $ta.namespace }}
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
+---
+# Alert triage agent: Alertmanager webhook + sweep -> one read-only Claude
+# Agent SDK run per alert group. Needs the 1Password item (Claude token), so
+# only rendered where a secret store exists; after kube-prometheus-stack (9).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: triage-agent
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: {{ .Values.global.repoUrl }}
+    targetRevision: {{ .Values.global.targetRevision }}
+    path: charts/triage-agent
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-{{ .Values.global.environment }}.yaml
+      # Derived from configuration/ (ADR-010); the child's values stay environment-free.
+      valuesObject:
+        namespace: {{ $ta.namespace | quote }}
+        image: {{ $ta.image | quote }}
+        repoUrl: {{ .Values.global.repoUrl | quote }}
+        alertmanagerUrl: {{ printf "http://kube-prometheus-stack-alertmanager.%s.svc:9093" (index .Values "kube-prometheus-stack" "namespace") | quote }}
+        onePassword:
+          itemPath: {{ $ta.onePasswordItemPath | quote }}
+        memory:
+          persistence:
+            enabled: {{ $ta.memory.persistence.enabled }}
+            storageClass: {{ $ta.memory.persistence.storageClass | quote }}
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: {{ $ta.namespace }}
+  syncPolicy:
+    {{- if .Values.global.automatedSync }}
+    automated:
+      prune: true
+      selfHeal: true
+    {{- end }}
+    syncOptions:
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+      - SkipDryRunOnMissingResource=true
+{{- end }}

@@ -227,6 +227,7 @@ spec:
               {{ template "homelab.grafanaURL" }}{{ if and $panes (lt (len $panes) 450) }}/explore?schemaVersion=1&orgId=1&panes={{ $panes | safeUrl }}{{ else }}/alerting/Prometheus/{{ .CommonLabels.alertname | urlquery }}/find{{ end }}
               {{- end }}`}}
 
+          {{- $triage := index .Values "triage-agent" }}
           alertmanagerSpec:
             {{- if $route.enabled }}
             externalUrl: https://{{ $route.hostname }}
@@ -248,6 +249,7 @@ spec:
           # Routing (docs/runbooks/alerting.md): critical -> Pushover at high
           # priority, warning -> Pushover at low priority (no sound), everything
           # else (info, the always-firing Watchdog and InfoInhibitor) -> null.
+          # Everything but Watchdog and InfoInhibitor also reaches the triage agent.
           # A critical alert inhibits the warning of the same name in the same
           # namespace. Alertmanager's own templating is escaped so Helm leaves
           # it untouched.
@@ -266,6 +268,12 @@ spec:
                 - receiver: "null"
                   matchers:
                     - alertname =~ "Watchdog|InfoInhibitor"
+                {{- if $triage.enabled }}
+                # Every other alert also goes to the triage agent
+                # (docs/runbooks/triage-agent.md); continue keeps the routes below.
+                - receiver: triage-agent
+                  continue: true
+                {{- end }}
                 {{- if and $notify.enabled $githubPR.enabled }}
                 # One notification per pull request, repeated while it still
                 # needs review; merging or closing it sends nothing.
@@ -291,6 +299,12 @@ spec:
                 equal: [alertname, namespace]
             receivers:
               - name: "null"
+              {{- if $triage.enabled }}
+              - name: triage-agent
+                webhook_configs:
+                  - url: http://triage-agent.{{ $triage.namespace }}.svc:8080/webhook
+                    send_resolved: false
+              {{- end }}
               {{- if $notify.enabled }}
               # Pushover priorities: 1 = high (bypasses quiet hours), 0 = normal,
               # -1 = low (no sound). Resolved notifications always go out normal.
