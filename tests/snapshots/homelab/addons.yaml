@@ -3294,7 +3294,6 @@ spec:
               {{ end -}}
               {{ template "homelab.grafanaURL" }}{{ if and $panes (lt (len $panes) 450) }}/explore?schemaVersion=1&orgId=1&panes={{ $panes | safeUrl }}{{ else }}/alerting/Prometheus/{{ .CommonLabels.alertname | urlquery }}/find{{ end }}
               {{- end }}
-
           alertmanagerSpec:
             externalUrl: https://alertmanager.replaceme-domain.com
             storage:
