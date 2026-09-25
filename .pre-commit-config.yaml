@@ -22,7 +22,7 @@ repos:
       # same commit or the hook and CI drift, and a tree guarded in CI stops
       # being guarded before you push. The extension list is spelled out here
       # rather than left to `types_or:` so the two can be diffed by eye:
-      # yaml/yml/json/md/ts/svg/hcl/tf/tftpl, and terragrunt/ talos/ packer/ joined
+      # yaml/yml/json/md/ts/svg/hcl/tf/tftpl/go, and terragrunt/ talos/ packer/ joined
       # the directory list with the .hcl/.tf admission that makes them
       # readable. The trailing (example|template|sample|dist|tpl) group mirrors
       # hasScannableExtension looking through a template suffix: without it the
@@ -36,10 +36,16 @@ repos:
         language: system
         pass_filenames: true
         types: [text]
-        files: ^(Taskfile\.yml|charts/.*/values-homelab\.yaml|(configuration|scripts|docs|\.github|ansible|terragrunt|talos|packer)/.*\.(yaml|yml|json|md|ts|svg|hcl|tf|tftpl)(\.(example|template|sample|dist|tpl))?)$
+        files: ^(Taskfile\.yml|charts/.*/values-homelab\.yaml|(configuration|scripts|docs|\.github|ansible|terragrunt|talos|packer|cmd|internal)/.*\.(yaml|yml|json|md|ts|svg|hcl|tf|tftpl|go)(\.(example|template|sample|dist|tpl))?)$
+        # Mirrors internal/config.IsGuardExcluded. guard.go and guard_test.go
+        # are the guard's own allowlists and the tests that name both a
+        # committed-safe host and a real one; testdata/ is the toolchain's
+        # marker for a fixture.
         exclude: |
           (?x)(
             ^configuration/environments/homelab\.yaml$|
+            ^internal/config/guard(_test)?\.go$|
+            (^|/)testdata/|
             \.generated\.
           )
 
