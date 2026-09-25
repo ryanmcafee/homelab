@@ -491,3 +491,9 @@ These are documented errors with known solutions:
 - **Root Cause**: The `query` relabeling (`additionalRelabels`) had no `action`; the ServiceMonitor CRD defaults it to `replace`, so the live object always carried a field Git did not
 - **Solution**: Set `action: replace` explicitly in `charts/addons/templates/github-pr-exporter.yaml`
 - **Prevention**: Write every relabeling with an explicit `action`; CRD defaults show up as permanent drift under ServerSideApply
+
+### 2026-09-25 - Paperclip agent runs failed with ENOSPC on a full paperclip-data volume
+- **Issue**: `KubePersistentVolumeFillingUp` (paperclip-data 0% free), `PaperclipAgentFailureRateHigh` (100% of runs failed) and `PaperclipRecoveryRateBreached`; the server logged `ENOSPC: no space left on device` writing `workspace-operation-logs`
+- **Root Cause**: The 10Gi iSCSI volume held agent workspaces (3.2G) plus tool caches in the home directory (mise 2.5G, npm 2.5G, go-build 0.6G). paperclip-operator 0.19.1 only creates the PVC (`reconcilePVC`) and never resizes it, so raising `spec.storage.persistence.size` alone changes nothing
+- **Solution**: Homelab size is 200Gi (`configuration/templates/helm-apps.tmpl`), and `charts/paperclip/templates/pvc.yaml` renders `paperclip-data` so ArgoCD (ServerSideApply) expands it in place; `democratic-csi-iscsi` allows expansion. `Prune=false,Delete=false` keep the data if the template goes away
+- **Prevention**: For operator-owned PVCs, check whether the operator reconciles size before relying on its CR field

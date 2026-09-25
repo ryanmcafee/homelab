@@ -1440,7 +1440,7 @@ spec:
         ingress:
           className: internal
         persistence:
-          size: 10Gi
+          size: 200Gi
           storageClass: democratic-csi-iscsi
         resources:
           limits:
