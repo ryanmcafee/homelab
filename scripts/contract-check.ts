@@ -121,6 +121,36 @@ export interface Envelope {
   properties: Record<string, { pattern?: string }>;
 }
 
+/**
+ * A payload (`dataschema`) file, read only for the fields the gate pins.
+ *
+ * `additionalProperties` is read because it decides whether the additive path
+ * this contract calls non-breaking is actually available to a consumer: a
+ * consumer validating against a vendored copy with `additionalProperties: false`
+ * rejects every event carrying a property added after it shipped.
+ */
+export interface PayloadSchema {
+  properties?: Record<string, { type?: string | string[] }>;
+  required?: string[];
+  additionalProperties?: boolean;
+}
+
+/**
+ * The compatibility-relevant projection of one payload schema.
+ *
+ * ADR-038 published the eleven payload files the registry had always
+ * referenced, which turned `dataschema` from a dangling path into a boundary
+ * contract. The gate pinned the *path* and nothing inside it, so adding a
+ * required payload property — a hard break for every producer and consumer —
+ * passed. ADR-030's rule is that boundary contracts are gated, not reviewed.
+ */
+export interface BaselinePayload {
+  /** Property name -> declared JSON type, `"unknown"` when untyped. */
+  properties: Record<string, string>;
+  required: string[];
+  additionalProperties: boolean;
+}
+
 /** One violation. `rule` is stable so CI output can be grepped. */
 export interface Violation {
   rule: string;
@@ -149,6 +179,8 @@ export interface BaselineEntry {
   completion: string | null;
   producer: string;
   status: Status;
+  /** Null for a `dataless` type, or when the file did not resolve. */
+  payload: BaselinePayload | null;
 }
 
 /** The compatibility-relevant projection of a stream. */
@@ -723,22 +755,51 @@ export function validateRegistry(
 // Rule 2 — backward compatibility
 // ============================================================================
 
-export function toBaselineTypes(registry: Registry): BaselineEntry[] {
+/**
+ * Project a payload schema down to the fields a consumer can actually break on.
+ * Only top-level properties are pinned: nesting is deliberately out of scope so
+ * the baseline stays reviewable by eye, and a nested break still surfaces as a
+ * type change on the property that contains it.
+ */
+export function toBaselinePayload(schema: PayloadSchema): BaselinePayload {
+  const properties: Record<string, string> = {};
+  for (const [name, def] of Object.entries(schema.properties ?? {})) {
+    const t = def?.type;
+    properties[name] = Array.isArray(t)
+      ? [...t].sort().join("|")
+      : (t ?? "unknown");
+  }
+  return {
+    properties,
+    required: [...(schema.required ?? [])].sort(),
+    // Absent means "additions allowed" in JSON Schema; record the effective value.
+    additionalProperties: schema.additionalProperties ?? true,
+  };
+}
+
+export function toBaselineTypes(
+  registry: Registry,
+  payloads: Map<string, PayloadSchema> = new Map(),
+): BaselineEntry[] {
   return registry.types
     .filter((t) => t.status === "stable")
-    .map((t) => ({
-      type: t.type,
-      subject: t.subject,
-      pattern: t.pattern,
-      delivery: t.delivery,
-      ordering: t.ordering,
-      dataschema: t.dataschema ?? null,
-      dataless: t.dataless ?? false,
-      requires: [...(t.requires ?? [])].sort(),
-      completion: t.completion ?? null,
-      producer: t.producer,
-      status: t.status,
-    }))
+    .map((t) => {
+      const schema = payloads.get(t.type);
+      return {
+        type: t.type,
+        subject: t.subject,
+        pattern: t.pattern,
+        delivery: t.delivery,
+        ordering: t.ordering,
+        dataschema: t.dataschema ?? null,
+        dataless: t.dataless ?? false,
+        requires: [...(t.requires ?? [])].sort(),
+        completion: t.completion ?? null,
+        producer: t.producer,
+        status: t.status,
+        payload: schema ? toBaselinePayload(schema) : null,
+      };
+    })
     .sort((a, b) => a.type.localeCompare(b.type));
 }
 
@@ -764,6 +825,7 @@ export function toBaseline(
   registry: Registry,
   taxonomy: Taxonomy,
   envelope: Envelope,
+  payloads: Map<string, PayloadSchema> = new Map(),
 ): Baseline {
   return {
     version: 1,
@@ -773,7 +835,7 @@ export function toBaseline(
     },
     envelope: { required: [...envelope.required].sort() },
     streams: toBaselineStreams(taxonomy),
-    types: toBaselineTypes(registry),
+    types: toBaselineTypes(registry, payloads),
   };
 }
 
@@ -883,6 +945,85 @@ export function checkCompatibility(
       v(
         "completion-changed",
         `completion type changed ${wasCompletion} -> ${isCompletion}; requesters are waiting on the old one`,
+      );
+  }
+
+  return out;
+}
+
+/**
+ * The twelve payload schemas, field by field.
+ *
+ * Until this rule existed the gate pinned the `dataschema` *path* and nothing
+ * inside the file, so every one of these passed on a stable type: adding a
+ * required property, deleting a property, retyping one, and closing the schema
+ * to additions. Each is a break a consumer discovers at runtime.
+ */
+export function checkPayloadCompatibility(
+  baseline: Baseline,
+  payloads: Map<string, PayloadSchema>,
+): Violation[] {
+  const out: Violation[] = [];
+
+  for (const was of baseline.types) {
+    if (!was.payload) continue;
+    const v = (rule: string, message: string) =>
+      out.push({ rule, subject: was.type, message });
+
+    const raw = payloads.get(was.type);
+    if (!raw) {
+      // `dataschema-missing-file` reports the unreadable path; this reports the
+      // compatibility consequence — the pinned shape can no longer be checked.
+      v(
+        "payload-schema-unreadable",
+        `the payload schema for this stable type no longer loads, so its ${
+          Object.keys(was.payload.properties).length
+        } pinned properties are unguarded; restore ${was.dataschema} or cut a new major`,
+      );
+      continue;
+    }
+    const is = toBaselinePayload(raw);
+
+    const addedRequired = is.required.filter(
+      (r) => !was.payload!.required.includes(r),
+    );
+    if (addedRequired.length > 0)
+      v(
+        "payload-required-added",
+        `newly required payload properties [${addedRequired.join(", ")}] on a stable type; every already-deployed producer emits events that now fail validation. Add it optional, or cut a new major`,
+      );
+
+    const droppedRequired = was.payload.required.filter(
+      (r) => !is.required.includes(r),
+    );
+    if (droppedRequired.length > 0)
+      v(
+        "payload-required-removed",
+        `payload properties no longer required: [${droppedRequired.join(", ")}]; consumers were promised these are always present and do not null-check them`,
+      );
+
+    const removed = Object.keys(was.payload.properties).filter(
+      (p) => !(p in is.properties),
+    );
+    if (removed.length > 0)
+      v(
+        "payload-property-removed",
+        `payload properties removed: [${removed.join(", ")}]; a consumer reading them gets undefined. Deprecate in place instead`,
+      );
+
+    for (const [name, wasType] of Object.entries(was.payload.properties)) {
+      const isType = is.properties[name];
+      if (isType !== undefined && isType !== wasType)
+        v(
+          "payload-property-retyped",
+          `payload property "${name}" changed type ${wasType} -> ${isType}; a consumer that parsed the old type fails on the new one`,
+        );
+    }
+
+    if (was.payload.additionalProperties && !is.additionalProperties)
+      v(
+        "payload-closed-to-additions",
+        `additionalProperties tightened true -> false on a stable type; a consumer validating against this schema now rejects any event carrying a property added later, which forecloses the additive evolution path this contract calls non-breaking`,
       );
   }
 
@@ -1056,6 +1197,30 @@ export function loadBaseline(dir = CONTRACTS_DIR): Baseline {
   return JSON.parse(readFileSync(join(dir, BASELINE_FILE), "utf8")) as Baseline;
 }
 
+/**
+ * Every resolvable `dataschema`, keyed by CloudEvents type. A path that does not
+ * resolve or does not parse is simply absent: `dataschema-missing-file` already
+ * reports the first, and `payload-schema-unreadable` reports the compatibility
+ * consequence for a type that was previously pinned.
+ */
+export function loadPayloads(
+  registry: Registry,
+  dir = CONTRACTS_DIR,
+): Map<string, PayloadSchema> {
+  const out = new Map<string, PayloadSchema>();
+  for (const t of registry.types) {
+    if (!t.dataschema) continue;
+    const path = join(dir, t.dataschema);
+    if (!existsSync(path)) continue;
+    try {
+      out.set(t.type, JSON.parse(readFileSync(path, "utf8")) as PayloadSchema);
+    } catch {
+      // Left absent on purpose; an unparseable schema is an unreadable schema.
+    }
+  }
+  return out;
+}
+
 export function renderViolations(violations: Violation[]): string {
   if (violations.length === 0) return "contract ok";
   return violations
@@ -1072,16 +1237,22 @@ async function main(argv: string[]): Promise<number> {
   const dir = CONTRACTS_DIR;
 
   if (cmd === "baseline") {
+    const baselineRegistry = loadRegistry(dir);
     const baseline = toBaseline(
-      loadRegistry(dir),
+      baselineRegistry,
       loadTaxonomy(dir),
       loadEnvelope(dir),
+      loadPayloads(baselineRegistry, dir),
     );
     const body = `${JSON.stringify(baseline, null, 2)}\n`;
     if (argv.includes("--write")) {
       writeFileSync(join(dir, BASELINE_FILE), body);
+      const pinnedProps = baseline.types.reduce(
+        (n, t) => n + Object.keys(t.payload?.properties ?? {}).length,
+        0,
+      );
       log.ok(
-        `wrote ${join(dir, BASELINE_FILE)} (${baseline.types.length} stable types, ${baseline.streams.length} streams, ${baseline.envelope.required.length} required envelope attributes)`,
+        `wrote ${join(dir, BASELINE_FILE)} (${baseline.types.length} stable types, ${baseline.streams.length} streams, ${baseline.envelope.required.length} required envelope attributes, ${pinnedProps} payload properties)`,
       );
       return 0;
     }
@@ -1099,12 +1270,15 @@ async function main(argv: string[]): Promise<number> {
   const envelope = loadEnvelope(dir);
   const baseline = loadBaseline(dir);
 
+  const payloads = loadPayloads(registry, dir);
+
   const violations = [
     ...validateTaxonomy(taxonomy),
     ...validateRegistry(registry, taxonomy, envelope, dir),
     ...checkCompatibility(baseline, registry),
     ...checkEnvelopeCompatibility(baseline, envelope),
     ...checkTaxonomyCompatibility(baseline, taxonomy),
+    ...checkPayloadCompatibility(baseline, payloads),
   ];
 
   if (violations.length > 0) {
@@ -1113,8 +1287,12 @@ async function main(argv: string[]): Promise<number> {
     return 1;
   }
 
+  const pinnedProps = baseline.types.reduce(
+    (n, t) => n + Object.keys(t.payload?.properties ?? {}).length,
+    0,
+  );
   log.ok(
-    `${registry.types.length} registered types across ${taxonomy.streams.length} streams; ${baseline.types.length} stable types, ${baseline.streams.length} streams, the envelope's ${baseline.envelope.required.length} required attributes and the subject grammar all compatible with the baseline`,
+    `${registry.types.length} registered types across ${taxonomy.streams.length} streams; ${baseline.types.length} stable types, ${baseline.streams.length} streams, the envelope's ${baseline.envelope.required.length} required attributes, ${pinnedProps} payload properties and the subject grammar all compatible with the baseline`,
   );
   return 0;
 }

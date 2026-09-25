@@ -124,10 +124,18 @@ rejected at review.
 Within a major version, change is **additive only**:
 
 - new event types — additive
-- new optional fields in `data` — additive
+- new **optional** fields in `data` — additive, subject to the consumer obligation below
 - new subjects under an existing stream filter — additive
 - a new domain in `subjects.v1.yaml` — additive
 - a new stream, or a *widened* filter on an existing one — additive
+
+**A new optional `data` field is additive only because consumers are required to tolerate it.**
+Every schema in `contracts/events/data/` is `additionalProperties: false`, which is correct for a
+producer validating what it emits and wrong for a consumer validating what it receives: a consumer
+that validates an incoming payload against the copy it shipped against would *reject* every event
+carrying a field added after that copy. So the obligation is normative, not advisory — see §6.
+The gate pins each stable type's payload properties, its `required` list and the
+`additionalProperties` flag itself, so neither side of this can drift silently.
 
 **New envelope attributes are not unilaterally additive.** `envelope.v1.schema.json` is
 `additionalProperties: false`, so a producer that ships a new attribute has its events
@@ -148,14 +156,24 @@ release of the platform. The breaking set the gate rejects outright:
 - adding *or removing* an attribute from a type's `requires`. `requires` is equally a promise
   **to consumers** that the attribute is always present, which is why they do not null-check it
 - adding or removing a required **envelope** attribute
+- adding or removing a required **payload** property, removing a payload property outright, or
+  changing a payload property's declared type. `dataschema` files are boundary contracts: pinning
+  the *path* while leaving the contents unpinned is the same defect as a gate that is green on a
+  stream the broker refuses
+- **closing a payload schema to additions** (`additionalProperties` `true` → `false`) on a stable
+  type, which withdraws the additive path above from every consumer validating against it
+- deleting or breaking a payload schema a stable type points at, which silently un-pins every
+  property it was guarding
 - **narrowing a stream's subject filter, or a sourced stream's source filter** — the events
   stop being captured, and `no-stream` only fires when *nothing* matches
 - **shortening a stream's `max_age`**, or changing its `retention` or `discard` policy
 - **changing the subject grammar**, including `grammar.tokens`
 
-Two of these are only checkable because the baseline pins more than the type list. It pins the
+Most of these are only checkable because the baseline pins more than the type list. It pins the
 subject grammar (otherwise the gate compiles the grammar from the file under test and validates
-it happily against itself), the envelope's `required` array, and the whole stream set.
+it happily against itself), the envelope's `required` array, the whole stream set, and each stable
+type's payload properties. Payload pinning is top-level only, so the baseline diff stays readable
+by eye; a nested break surfaces as a type change on the property that contains it.
 
 `bun scripts/contract-check.ts baseline --write` regenerates the baseline after a genuinely
 additive change. It is not a bypass to be hidden in: it produces a visible diff in the pull
@@ -190,6 +208,13 @@ just declared for one.
   one has no replay story after a restart.
 - `ack_policy: explicit`, `max_deliver: 5`, `ack_wait: 30s`, `max_ack_pending: 256` (see §3
   before assuming that last one is free).
+- **Ignore unknown `data` properties.** A consumer MUST NOT reject an event because its payload
+  carries a property the consumer's copy of the schema does not know about. In practice: validate
+  incoming payloads with `additionalProperties` relaxed, or strip unknowns before validating —
+  never by asserting the vendored schema verbatim. The published schemas are
+  `additionalProperties: false` so a *producer* cannot emit an unregistered field by accident;
+  reusing that same strictness on the receiving side turns §4's additive path into a breaking one
+  and is the single easiest way for one consumer to make every producer undeployable.
 - **`.ev` consumers** are named `<component>-<domain>-v<major>`.
 - **`PF_WORK` consumers bind exactly one fully-specified subject, never a wildcard**, and are
   named `<component>-<entity>-<action>-v<major>`. On a work-queue stream consumer filters must

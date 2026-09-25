@@ -14,8 +14,10 @@ import { test } from "bun:test";
 import { assert, assertEquals, assertStringIncludes } from "./lib/assert.ts";
 import {
   type Baseline,
+  type BaselinePayload,
   checkCompatibility,
   checkEnvelopeCompatibility,
+  checkPayloadCompatibility,
   checkTaxonomyCompatibility,
   deadLetterSubjectOf,
   durationSeconds,
@@ -24,9 +26,12 @@ import {
   filtersOverlap,
   loadBaseline,
   loadEnvelope,
+  loadPayloads,
   loadRegistry,
   loadTaxonomy,
   parseSubject,
+  type PayloadSchema,
+  toBaselinePayload,
   type RegisteredType,
   type Registry,
   renderSubject,
@@ -872,8 +877,147 @@ test("the envelope's own required list is pinned, in both directions", () => {
 });
 
 // ============================================================================
+// Payload (dataschema) compatibility
+// ============================================================================
+
+/** The shape the twelve published payload schemas actually use. */
+const PAYLOAD: PayloadSchema = {
+  properties: {
+    namespace: { type: "string" },
+    name: { type: "string" },
+    revision: { type: "string" },
+    replicas: { type: "integer" },
+  },
+  required: ["namespace", "name"],
+  additionalProperties: false,
+};
+
+/** A baseline pinning DEPLOYED's payload, the way `baseline --write` now does. */
+const payloadBase = (schema: PayloadSchema = PAYLOAD): Baseline =>
+  toBaseline(
+    registry(DEPLOYED),
+    TAXONOMY,
+    ENVELOPE,
+    new Map([[DEPLOYED.type, schema]]),
+  );
+
+const payloadCompat = (after: PayloadSchema, before: PayloadSchema = PAYLOAD) =>
+  checkPayloadCompatibility(
+    payloadBase(before),
+    new Map([[DEPLOYED.type, after]]),
+  ).map((v) => v.rule);
+
+test("an unchanged payload schema is compatible", () => {
+  assertEquals(payloadCompat(PAYLOAD), []);
+});
+
+test("adding an optional payload property is additive", () => {
+  assertEquals(
+    payloadCompat({
+      ...PAYLOAD,
+      properties: { ...PAYLOAD.properties, image: { type: "string" } },
+    }),
+    [],
+  );
+});
+
+test("a newly required payload property is breaking", () => {
+  // This is the gap ADR-038 left open: it published the payload schemas and
+  // made them normative, while the gate pinned only the `dataschema` path. A
+  // required addition passed, and every deployed producer would fail validation.
+  assertEquals(
+    payloadCompat({ ...PAYLOAD, required: ["namespace", "name", "revision"] }),
+    ["payload-required-added"],
+  );
+});
+
+test("un-requiring a payload property is breaking", () => {
+  // Same reasoning as `required-attribute-removed` on the envelope: consumers
+  // were promised presence and do not null-check.
+  assertEquals(payloadCompat({ ...PAYLOAD, required: ["namespace"] }), [
+    "payload-required-removed",
+  ]);
+});
+
+test("removing a payload property is breaking", () => {
+  const { revision: _dropped, ...rest } = PAYLOAD.properties!;
+  assertEquals(payloadCompat({ ...PAYLOAD, properties: rest }), [
+    "payload-property-removed",
+  ]);
+});
+
+test("retyping a payload property is breaking", () => {
+  assertEquals(
+    payloadCompat({
+      ...PAYLOAD,
+      properties: { ...PAYLOAD.properties, replicas: { type: "string" } },
+    }),
+    ["payload-property-retyped"],
+  );
+});
+
+test("closing a payload schema to additions forecloses the additive path", () => {
+  // The one direction that is breaking for CONSUMERS rather than producers: a
+  // consumer validating against this schema starts rejecting events that carry
+  // a property added after it shipped.
+  assertEquals(
+    payloadCompat(
+      { ...PAYLOAD, additionalProperties: false },
+      {
+        ...PAYLOAD,
+        additionalProperties: true,
+      },
+    ),
+    ["payload-closed-to-additions"],
+  );
+  // Opening it back up is a relaxation, and safe.
+  assertEquals(payloadCompat({ ...PAYLOAD, additionalProperties: true }), []);
+});
+
+test("a payload schema that stops resolving is breaking, not invisible", () => {
+  // Deleting the file must not silently un-pin 4 properties on a stable type.
+  assertEquals(
+    checkPayloadCompatibility(payloadBase(), new Map()).map((v) => v.rule),
+    ["payload-schema-unreadable"],
+  );
+});
+
+test("an absent additionalProperties is recorded as open, per JSON Schema", () => {
+  const open: BaselinePayload = toBaselinePayload({
+    properties: { a: { type: "string" } },
+    required: [],
+  });
+  assertEquals(open.additionalProperties, true);
+  // An untyped property is pinned as "unknown" rather than dropped, so adding a
+  // type to it later still reads as a change a reviewer sees.
+  assertEquals(
+    toBaselinePayload({ properties: { a: {} } }).properties.a,
+    "unknown",
+  );
+});
+
+// ============================================================================
 // The real contract in contracts/events/
 // ============================================================================
+
+test("every stable type's payload schema is pinned by the baseline", () => {
+  // The rules above are only worth anything if the baseline actually carries a
+  // payload for each stable type; a null payload silently skips every one.
+  const unpinned = loadBaseline()
+    .types.filter((t) => !t.dataless && t.payload === null)
+    .map((t) => t.type);
+  assertEquals(unpinned, []);
+});
+
+test("the checked-in payload schemas are compatible with the baseline", () => {
+  const registry = loadRegistry();
+  assertEquals(
+    renderViolations(
+      checkPayloadCompatibility(loadBaseline(), loadPayloads(registry)),
+    ),
+    "contract ok",
+  );
+});
 
 test("the checked-in contract is internally consistent", () => {
   assertEquals(
@@ -913,12 +1057,18 @@ test("every registered dataschema resolves to a file that exists", () => {
   assertEquals(missing, []);
 });
 
-test("the baseline file is in sync with the registry, streams and envelope", () => {
+test("the baseline file is in sync with the registry, streams, envelope and payloads", () => {
   // Guards the failure mode where someone edits registry.v1.yaml additively and
   // forgets `bun scripts/contract-check.ts baseline --write`; the next breaking
   // change would then be diffed against a stale, permissive baseline.
+  const registry = loadRegistry();
   assertEquals(
     loadBaseline(),
-    toBaseline(loadRegistry(), loadTaxonomy(), loadEnvelope()),
+    toBaseline(
+      registry,
+      loadTaxonomy(),
+      loadEnvelope(),
+      loadPayloads(registry),
+    ),
   );
 });
