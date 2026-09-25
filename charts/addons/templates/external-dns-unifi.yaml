@@ -98,6 +98,10 @@ spec:
                 port: 8080
               initialDelaySeconds: 10
               timeoutSeconds: 5
+            {{- with (index .Values "external-dns-unifi" "webhookResources") }}
+            resources:
+              {{- toYaml . | nindent 14 }}
+            {{- end }}
 
         sources:
           - crd
@@ -184,6 +188,10 @@ spec:
                 port: 8080
               initialDelaySeconds: 10
               timeoutSeconds: 5
+            {{- with (index .Values "external-dns-unifi" "webhookResources") }}
+            resources:
+              {{- toYaml . | nindent 14 }}
+            {{- end }}
 
         sources:
           - ingress

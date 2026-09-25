@@ -51,6 +51,11 @@ spec:
             iaa: false
             qat: false
             sgx: false
+        {{- with (index .Values "intel-device-plugins-operator" "resources") }}
+
+        resources:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
 
   destination:
     server: https://kubernetes.default.svc

@@ -327,10 +327,10 @@ spec:
             - containerPort: 6379
           resources:
             requests:
-              memory: "64Mi"
+              memory: "32Mi"
               cpu: "50m"
             limits:
-              memory: "128Mi"
+              memory: "48Mi"
               cpu: "100m"
 
 ---
@@ -638,18 +638,18 @@ spec:
           resources:
             limits:
               cpu: 200m
-              memory: 256Mi
+              memory: 48Mi
             requests:
               cpu: 50m
-              memory: 128Mi
+              memory: 32Mi
         controller:
           resources:
             limits:
               cpu: 500m
-              memory: 512Mi
+              memory: 48Mi
             requests:
               cpu: 100m
-              memory: 256Mi
+              memory: 32Mi
           workflowDefaults:
             spec:
               ttlStrategy:
@@ -772,10 +772,10 @@ spec:
         resources:
           limits:
             cpu: 200m
-            memory: 256Mi
+            memory: 80Mi
           requests:
             cpu: 50m
-            memory: 128Mi
+            memory: 48Mi
         # ServiceMonitor for the controller metrics; the CRD comes from the
         # bootstrap chart's prometheus-operator-crds (wave -1), so it applies
         # here at wave 4 and kube-prometheus-stack (wave 9) discovers it. The
@@ -789,15 +789,15 @@ spec:
           resources:
             limits:
               cpu: 100m
-              memory: 128Mi
+              memory: 48Mi
             requests:
               cpu: 20m
-              memory: 64Mi
+              memory: 32Mi
         cainjector:
           resources:
             limits:
               cpu: 200m
-              memory: 256Mi
+              memory: 192Mi
             requests:
               cpu: 50m
               memory: 128Mi
@@ -1121,10 +1121,10 @@ spec:
         resources:
           limits:
             cpu: 500m
-            memory: 512Mi
+            memory: 96Mi
           requests:
             cpu: 100m
-            memory: 256Mi
+            memory: 64Mi
         monitoring:
           grafanaDashboard:
             create: false
@@ -1185,10 +1185,10 @@ spec:
         resources:
           limits:
             cpu: 500m
-            memory: 256Mi
+            memory: 48Mi
           requests:
             cpu: 50m
-            memory: 64Mi
+            memory: 32Mi
 
   destination:
     server: https://kubernetes.default.svc
@@ -1273,16 +1273,46 @@ spec:
             allowVolumeExpansion: true
             parameters:
               fsType: ext4
+        csiProxy:
+          resources:
+            limits:
+              memory: 48Mi
+            requests:
+              memory: 32Mi
 
         controller:
+          externalAttacher:
+            resources:
+              limits:
+                memory: 48Mi
+              requests:
+                memory: 32Mi
+          externalProvisioner:
+            resources:
+              limits:
+                memory: 48Mi
+              requests:
+                memory: 32Mi
+          externalResizer:
+            resources:
+              limits:
+                memory: 48Mi
+              requests:
+                memory: 32Mi
+          externalSnapshotter:
+            resources:
+              limits:
+                memory: 48Mi
+              requests:
+                memory: 32Mi
           driver:
             resources:
               limits:
                 cpu: 1000m
-                memory: 256Mi
+                memory: 192Mi
               requests:
                 cpu: 50m
-                memory: 128Mi
+                memory: 112Mi
             extraEnv:
               - name: TRUENAS_API_KEY
                 valueFrom:
@@ -1291,14 +1321,26 @@ spec:
                     key: api_key
 
         node:
+          driverRegistrar:
+            resources:
+              limits:
+                memory: 48Mi
+              requests:
+                memory: 32Mi
+          cleanup:
+            resources:
+              limits:
+                memory: 48Mi
+              requests:
+                memory: 32Mi
           driver:
             resources:
               limits:
                 cpu: 1000m
-                memory: 256Mi
+                memory: 192Mi
               requests:
                 cpu: 50m
-                memory: 128Mi
+                memory: 112Mi
             extraEnv:
               - name: TRUENAS_API_KEY
                 valueFrom:
@@ -1388,16 +1430,46 @@ spec:
             allowVolumeExpansion: true
             parameters:
               fsType: ext4
+        csiProxy:
+          resources:
+            limits:
+              memory: 48Mi
+            requests:
+              memory: 32Mi
 
         controller:
+          externalAttacher:
+            resources:
+              limits:
+                memory: 48Mi
+              requests:
+                memory: 32Mi
+          externalProvisioner:
+            resources:
+              limits:
+                memory: 48Mi
+              requests:
+                memory: 32Mi
+          externalResizer:
+            resources:
+              limits:
+                memory: 48Mi
+              requests:
+                memory: 32Mi
+          externalSnapshotter:
+            resources:
+              limits:
+                memory: 48Mi
+              requests:
+                memory: 32Mi
           driver:
             resources:
               limits:
                 cpu: 1000m
-                memory: 256Mi
+                memory: 192Mi
               requests:
                 cpu: 50m
-                memory: 128Mi
+                memory: 112Mi
             extraEnv:
               - name: TRUENAS_API_KEY
                 valueFrom:
@@ -1406,14 +1478,26 @@ spec:
                     key: api_key
 
         node:
+          driverRegistrar:
+            resources:
+              limits:
+                memory: 48Mi
+              requests:
+                memory: 32Mi
+          cleanup:
+            resources:
+              limits:
+                memory: 48Mi
+              requests:
+                memory: 32Mi
           driver:
             resources:
               limits:
                 cpu: 1000m
-                memory: 256Mi
+                memory: 192Mi
               requests:
                 cpu: 50m
-                memory: 128Mi
+                memory: 112Mi
             extraEnv:
               - name: TRUENAS_API_KEY
                 valueFrom:
@@ -1506,16 +1590,46 @@ spec:
             mountOptions:
               - nfsvers=4
               - noatime
+        csiProxy:
+          resources:
+            limits:
+              memory: 48Mi
+            requests:
+              memory: 32Mi
 
         controller:
+          externalAttacher:
+            resources:
+              limits:
+                memory: 48Mi
+              requests:
+                memory: 32Mi
+          externalProvisioner:
+            resources:
+              limits:
+                memory: 48Mi
+              requests:
+                memory: 32Mi
+          externalResizer:
+            resources:
+              limits:
+                memory: 48Mi
+              requests:
+                memory: 32Mi
+          externalSnapshotter:
+            resources:
+              limits:
+                memory: 48Mi
+              requests:
+                memory: 32Mi
           driver:
             resources:
               limits:
                 cpu: 1000m
-                memory: 256Mi
+                memory: 192Mi
               requests:
                 cpu: 50m
-                memory: 128Mi
+                memory: 112Mi
             extraEnv:
               - name: TRUENAS_API_KEY
                 valueFrom:
@@ -1524,14 +1638,26 @@ spec:
                     key: api_key
 
         node:
+          driverRegistrar:
+            resources:
+              limits:
+                memory: 48Mi
+              requests:
+                memory: 32Mi
+          cleanup:
+            resources:
+              limits:
+                memory: 48Mi
+              requests:
+                memory: 32Mi
           driver:
             resources:
               limits:
                 cpu: 1000m
-                memory: 256Mi
+                memory: 192Mi
               requests:
                 cpu: 50m
-                memory: 128Mi
+                memory: 112Mi
             extraEnv:
               - name: TRUENAS_API_KEY
                 valueFrom:
@@ -1615,16 +1741,46 @@ spec:
             mountOptions:
               - nfsvers=4
               - noatime
+        csiProxy:
+          resources:
+            limits:
+              memory: 48Mi
+            requests:
+              memory: 32Mi
 
         controller:
+          externalAttacher:
+            resources:
+              limits:
+                memory: 48Mi
+              requests:
+                memory: 32Mi
+          externalProvisioner:
+            resources:
+              limits:
+                memory: 48Mi
+              requests:
+                memory: 32Mi
+          externalResizer:
+            resources:
+              limits:
+                memory: 48Mi
+              requests:
+                memory: 32Mi
+          externalSnapshotter:
+            resources:
+              limits:
+                memory: 48Mi
+              requests:
+                memory: 32Mi
           driver:
             resources:
               limits:
                 cpu: 1000m
-                memory: 256Mi
+                memory: 160Mi
               requests:
                 cpu: 50m
-                memory: 128Mi
+                memory: 96Mi
             extraEnv:
               - name: TRUENAS_API_KEY
                 valueFrom:
@@ -1633,14 +1789,26 @@ spec:
                     key: api_key
 
         node:
+          driverRegistrar:
+            resources:
+              limits:
+                memory: 48Mi
+              requests:
+                memory: 32Mi
+          cleanup:
+            resources:
+              limits:
+                memory: 48Mi
+              requests:
+                memory: 32Mi
           driver:
             resources:
               limits:
                 cpu: 1000m
-                memory: 256Mi
+                memory: 128Mi
               requests:
                 cpu: 50m
-                memory: 128Mi
+                memory: 80Mi
             extraEnv:
               - name: TRUENAS_API_KEY
                 valueFrom:
@@ -1745,10 +1913,10 @@ spec:
         resources:
           limits:
             cpu: 100m
-            memory: 128Mi
+            memory: 48Mi
           requests:
             cpu: 20m
-            memory: 64Mi
+            memory: 32Mi
 
   destination:
     server: https://kubernetes.default.svc
@@ -1819,10 +1987,10 @@ spec:
         resources:
           limits:
             cpu: 100m
-            memory: 128Mi
+            memory: 48Mi
           requests:
             cpu: 20m
-            memory: 64Mi
+            memory: 32Mi
 
   destination:
     server: https://kubernetes.default.svc
@@ -1925,6 +2093,11 @@ spec:
                 port: 8080
               initialDelaySeconds: 10
               timeoutSeconds: 5
+            resources:
+              limits:
+                memory: 96Mi
+              requests:
+                memory: 64Mi
 
         sources:
           - crd
@@ -1941,10 +2114,10 @@ spec:
         resources:
           limits:
             cpu: 100m
-            memory: 128Mi
+            memory: 48Mi
           requests:
             cpu: 20m
-            memory: 64Mi
+            memory: 32Mi
 
   destination:
     server: https://kubernetes.default.svc
@@ -2014,6 +2187,11 @@ spec:
                 port: 8080
               initialDelaySeconds: 10
               timeoutSeconds: 5
+            resources:
+              limits:
+                memory: 96Mi
+              requests:
+                memory: 64Mi
 
         sources:
           - ingress
@@ -2033,10 +2211,10 @@ spec:
         resources:
           limits:
             cpu: 100m
-            memory: 128Mi
+            memory: 48Mi
           requests:
             cpu: 20m
-            memory: 64Mi
+            memory: 32Mi
 
   destination:
     server: https://kubernetes.default.svc
@@ -2123,6 +2301,12 @@ spec:
             iaa: false
             qat: false
             sgx: false
+
+        resources:
+          limits:
+            memory: 48Mi
+          requests:
+            memory: 32Mi
 
   destination:
     server: https://kubernetes.default.svc
@@ -2558,10 +2742,10 @@ spec:
             resources:
               limits:
                 cpu: 2000m
-                memory: 4Gi
+                memory: 6Gi
               requests:
                 cpu: 500m
-                memory: 2Gi
+                memory: 4Gi
 
             storageSpec:
               volumeClaimTemplate:
@@ -2620,10 +2804,16 @@ spec:
           resources:
             limits:
               cpu: 500m
-              memory: 512Mi
+              memory: 768Mi
             requests:
               cpu: 100m
               memory: 256Mi
+          sidecar:
+            resources:
+              limits:
+                memory: 192Mi
+              requests:
+                memory: 112Mi
 
           securityContext:
             fsGroup: 100
@@ -2771,10 +2961,10 @@ spec:
             resources:
               limits:
                 cpu: 200m
-                memory: 256Mi
+                memory: 48Mi
               requests:
                 cpu: 50m
-                memory: 128Mi
+                memory: 32Mi
 
             # The notification credentials Secret (prometheus-config chart, from
             # 1Password) is mounted at /etc/alertmanager/secrets/alertmanager-notifications; the receivers read the
@@ -2843,23 +3033,36 @@ spec:
 
         nodeExporter:
           enabled: true
+
+        prometheus-node-exporter:
           resources:
             limits:
-              cpu: 200m
-              memory: 128Mi
+              memory: 48Mi
             requests:
-              cpu: 50m
-              memory: 64Mi
+              memory: 32Mi
 
         kubeStateMetrics:
           enabled: true
+
+        kube-state-metrics:
           resources:
             limits:
-              cpu: 200m
-              memory: 256Mi
+              memory: 80Mi
             requests:
-              cpu: 50m
-              memory: 128Mi
+              memory: 48Mi
+
+        prometheusOperator:
+          resources:
+            limits:
+              memory: 80Mi
+            requests:
+              memory: 48Mi
+          prometheusConfigReloader:
+            resources:
+              limits:
+                memory: 48Mi
+              requests:
+                memory: 32Mi
 
         # The chart's own CPUThrottlingHigh divides throttled CFS periods by the
         # periods the container ran in at all, with no floor under the
@@ -3308,10 +3511,10 @@ spec:
         resources:
           limits:
             cpu: 100m
-            memory: 128Mi
+            memory: 96Mi
           requests:
             cpu: 10m
-            memory: 32Mi
+            memory: 64Mi
 
   destination:
     server: https://kubernetes.default.svc
@@ -4008,10 +4211,10 @@ spec:
         resources:
           limits:
             cpu: 200m
-            memory: 256Mi
+            memory: 80Mi
           requests:
             cpu: 50m
-            memory: 64Mi
+            memory: 48Mi
 
   destination:
     server: https://kubernetes.default.svc
@@ -4064,10 +4267,10 @@ spec:
           resources:
             requests:
               cpu: 50m
-              memory: 64Mi
+              memory: 80Mi
             limits:
               cpu: 300m
-              memory: 256Mi
+              memory: 128Mi
 
         worker:
           enabled: true
@@ -4087,11 +4290,16 @@ spec:
               memory: 64Mi
             limits:
               cpu: 200m
-              memory: 256Mi
+              memory: 96Mi
 
         # Garbage collector cleans up stale NodeFeature CRs when nodes disappear
         gc:
           enabled: true
+          resources:
+            requests:
+              memory: 32Mi
+            limits:
+              memory: 48Mi
 
   destination:
     server: https://kubernetes.default.svc
@@ -4197,7 +4405,7 @@ spec:
         resources:
           limits:
             cpu: 100m
-            memory: 128Mi
+            memory: 48Mi
           requests:
             cpu: 10m
             memory: 32Mi
@@ -4244,6 +4452,11 @@ spec:
           hostname: tailscale-operator-homelab
           defaultTags:
             - "tag:k8s-operator"
+          resources:
+            limits:
+              memory: 192Mi
+            requests:
+              memory: 112Mi
         proxyConfig:
           defaultTags: "tag:k8s"
         # "noauth": the operator runs an in-process Kubernetes API server proxy
@@ -4524,10 +4737,10 @@ spec:
         resources:
           limits:
             cpu: 1000m
-            memory: 2Gi
+            memory: 320Mi
           requests:
             cpu: 100m
-            memory: 2Gi
+            memory: 192Mi
         topologySpreadConstraints:
           - labelSelector:
               matchLabels:
@@ -4780,10 +4993,10 @@ spec:
         resources:
           limits:
             cpu: 1000m
-            memory: 2Gi
+            memory: 96Mi
           requests:
             cpu: 100m
-            memory: 2Gi
+            memory: 48Mi
         topologySpreadConstraints:
           - labelSelector:
               matchLabels:
@@ -4901,7 +5114,7 @@ spec:
             memory: 32Mi
           limits:
             cpu: 100m
-            memory: 64Mi
+            memory: 48Mi
   destination:
     server: https://kubernetes.default.svc
     namespace: port-forwarding

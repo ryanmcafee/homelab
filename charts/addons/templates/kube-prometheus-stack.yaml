@@ -106,6 +106,12 @@ spec:
           resources:
             {{- toYaml (index .Values "kube-prometheus-stack" "grafana" "resources") | nindent 12 }}
 
+          {{- with (index .Values "kube-prometheus-stack" "grafana" "sidecarResources") }}
+          sidecar:
+            resources:
+              {{- toYaml . | nindent 14 }}
+          {{- end }}
+
           securityContext:
             {{- toYaml (index .Values "kube-prometheus-stack" "grafana" "securityContext") | nindent 12 }}
 
@@ -263,17 +269,32 @@ spec:
 
         nodeExporter:
           enabled: {{ index .Values "kube-prometheus-stack" "nodeExporter" "enabled" }}
-          {{- if (index .Values "kube-prometheus-stack" "nodeExporter" "enabled") }}
+        {{- if (index .Values "kube-prometheus-stack" "nodeExporter" "enabled") }}
+
+        prometheus-node-exporter:
           resources:
             {{- toYaml (index .Values "kube-prometheus-stack" "nodeExporter" "resources") | nindent 12 }}
-          {{- end }}
+        {{- end }}
 
         kubeStateMetrics:
           enabled: {{ index .Values "kube-prometheus-stack" "kubeStateMetrics" "enabled" }}
-          {{- if (index .Values "kube-prometheus-stack" "kubeStateMetrics" "enabled") }}
+        {{- if (index .Values "kube-prometheus-stack" "kubeStateMetrics" "enabled") }}
+
+        kube-state-metrics:
           resources:
             {{- toYaml (index .Values "kube-prometheus-stack" "kubeStateMetrics" "resources") | nindent 12 }}
+        {{- end }}
+        {{- with (index .Values "kube-prometheus-stack" "operator") }}
+
+        prometheusOperator:
+          resources:
+            {{- toYaml .resources | nindent 12 }}
+          {{- with (index $.Values "kube-prometheus-stack" "configReloader") }}
+          prometheusConfigReloader:
+            resources:
+              {{- toYaml .resources | nindent 14 }}
           {{- end }}
+        {{- end }}
 
         # The chart's own CPUThrottlingHigh divides throttled CFS periods by the
         # periods the container ran in at all, with no floor under the

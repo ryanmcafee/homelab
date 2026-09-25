@@ -43,6 +43,10 @@ spec:
           hostname: {{ index .Values "tailscale-operator" "hostname" | default "tailscale-operator-homelab" }}
           defaultTags:
             - "tag:k8s-operator"
+          {{- with (index .Values "tailscale-operator" "resources") }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
         proxyConfig:
           defaultTags: "tag:k8s"
         # "noauth": the operator runs an in-process Kubernetes API server proxy

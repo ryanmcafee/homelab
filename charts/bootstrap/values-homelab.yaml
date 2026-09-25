@@ -35,24 +35,20 @@ argocd:
       resources:
         requests:
           cpu: 100m
-          memory: 256Mi
+          memory: 64Mi
         limits:
           cpu: 500m
-          memory: 512Mi
+          memory: 112Mi
 
     controller:
-      # Bumped from 512Mi/1Gi after argocd-application-controller-0 was OOMKilled
-      # 11 times (exit code 137). Homelab fleet sits ~30 ArgoCD Applications and
-      # the controller's working set needs ~1Gi steady-state, spiking higher
-      # during sync storms. Upstream base is 2Gi/4Gi; 1Gi/2Gi is a middle ground
-      # sized for this cluster's load.
+      # OOMKilled at 512Mi/1Gi and again at 1Gi/2Gi; sync storms spike well above the steady ~1Gi.
       resources:
         requests:
           cpu: 250m
-          memory: 1Gi
+          memory: 1280Mi
         limits:
           cpu: 1000m
-          memory: 2Gi
+          memory: 3Gi
 
     repoServer:
       # HA configuration - 2 replicas spread across different hosts
@@ -68,10 +64,10 @@ argocd:
       resources:
         requests:
           cpu: 100m
-          memory: 256Mi
+          memory: 96Mi
         limits:
           cpu: 500m
-          memory: 512Mi
+          memory: 256Mi
 
     applicationSet:
       # HA configuration - 2 replicas
@@ -79,20 +75,34 @@ argocd:
       resources:
         requests:
           cpu: 50m
-          memory: 128Mi
+          memory: 48Mi
         limits:
           cpu: 200m
-          memory: 256Mi
+          memory: 80Mi
 
     notifications:
       enabled: true
       resources:
         requests:
           cpu: 50m
-          memory: 64Mi
+          memory: 48Mi
         limits:
           cpu: 100m
-          memory: 128Mi
+          memory: 80Mi
+
+    dex:
+      resources:
+        requests:
+          memory: 48Mi
+        limits:
+          memory: 80Mi
+
+    redis:
+      resources:
+        requests:
+          memory: 32Mi
+        limits:
+          memory: 48Mi
 
     # Read-only API account for agents (issue #261 item 18,
     # docs/runbooks/readonly-access.md): API key only (no UI login), bound to

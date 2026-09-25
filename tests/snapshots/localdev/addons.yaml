@@ -1417,12 +1417,12 @@ spec:
 
         kubeStateMetrics:
           enabled: true
+
+        kube-state-metrics:
           resources:
             limits:
-              cpu: 200m
               memory: 256Mi
             requests:
-              cpu: 50m
               memory: 128Mi
 
         # The chart's own CPUThrottlingHigh divides throttled CFS periods by the
@@ -2498,10 +2498,10 @@ spec:
           resources:
             requests:
               cpu: 50m
-              memory: 64Mi
+              memory: 80Mi
             limits:
               cpu: 300m
-              memory: 256Mi
+              memory: 128Mi
 
         worker:
           enabled: true
@@ -2521,11 +2521,16 @@ spec:
               memory: 64Mi
             limits:
               cpu: 200m
-              memory: 256Mi
+              memory: 96Mi
 
         # Garbage collector cleans up stale NodeFeature CRs when nodes disappear
         gc:
           enabled: true
+          resources:
+            requests:
+              memory: 32Mi
+            limits:
+              memory: 48Mi
 
   destination:
     server: https://kubernetes.default.svc
@@ -2625,7 +2630,7 @@ spec:
         resources:
           limits:
             cpu: 100m
-            memory: 128Mi
+            memory: 48Mi
           requests:
             cpu: 10m
             memory: 32Mi

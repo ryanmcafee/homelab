@@ -109,7 +109,7 @@ spegel:
       memory: 32Mi
     limits:
       cpu: 100m
-      memory: 128Mi
+      memory: 48Mi
 
 # ============================================================================
 # Kubelet CSR Approver - Automatic Kubelet Certificate Approval
@@ -674,11 +674,9 @@ kube-prometheus-stack:
     enabled: true
     resources:
       requests:
-        cpu: 50m
-        memory: 64Mi
+        memory: 32Mi
       limits:
-        cpu: 200m
-        memory: 128Mi
+        memory: 48Mi
 
   # Kube-state-metrics
   # The chart's CPUThrottlingHigh divides throttled CFS periods by the periods a
@@ -695,11 +693,9 @@ kube-prometheus-stack:
     enabled: true
     resources:
       requests:
-        cpu: 50m
-        memory: 128Mi
+        memory: 48Mi
       limits:
-        cpu: 200m
-        memory: 256Mi
+        memory: 80Mi
 
   # etcd scrape: Talos exposes etcd metrics on <control-plane IP>:2381 when
   # cluster.etcd.extraArgs.listen-metrics-urls is set (terragrunt talos-cluster).

@@ -141,10 +141,10 @@ plex:
     resources:
       requests:
         cpu: 4000m
-        memory: 16Gi
+        memory: 8Gi
       limits:
         cpu: 4000m
-        memory: 16Gi
+        memory: 8Gi
 {{- end }}
     # NOTE: gpu.intel.com/xe resource limit intentionally NOT set yet.
     # The intel-gpu-device-plugin DaemonSet is Running on talos-lz1-3u1 but is
@@ -302,18 +302,18 @@ sonarr:
             resources:
               requests:
                 cpu: 200m
-                memory: 512Mi
+                memory: {{ if $localdev }}512Mi{{ else }}896Mi{{ end }}
               limits:
                 cpu: 1000m
-                memory: 1Gi
+                memory: {{ if $localdev }}1Gi{{ else }}1536Mi{{ end }}
           exportarr:
             resources:
               requests:
                 cpu: 50m
-                memory: 64Mi
+                memory: {{ if $localdev }}64Mi{{ else }}32Mi{{ end }}
               limits:
                 cpu: 200m
-                memory: 256Mi
+                memory: {{ if $localdev }}256Mi{{ else }}48Mi{{ end }}
 
   persistence:
     config:
@@ -411,18 +411,18 @@ radarr:
             resources:
               requests:
                 cpu: 200m
-                memory: 512Mi
+                memory: {{ if $localdev }}512Mi{{ else }}640Mi{{ end }}
               limits:
                 cpu: 1000m
-                memory: 1Gi
+                memory: {{ if $localdev }}1Gi{{ else }}960Mi{{ end }}
           exportarr:
             resources:
               requests:
                 cpu: 50m
-                memory: 64Mi
+                memory: {{ if $localdev }}64Mi{{ else }}32Mi{{ end }}
               limits:
                 cpu: 200m
-                memory: 256Mi
+                memory: {{ if $localdev }}256Mi{{ else }}48Mi{{ end }}
 
   persistence:
     config:
@@ -520,18 +520,18 @@ prowlarr:
             resources:
               requests:
                 cpu: 100m
-                memory: 256Mi
+                memory: {{ if $localdev }}256Mi{{ else }}448Mi{{ end }}
               limits:
                 cpu: 500m
-                memory: 512Mi
+                memory: {{ if $localdev }}512Mi{{ else }}704Mi{{ end }}
           exportarr:
             resources:
               requests:
                 cpu: 50m
-                memory: 64Mi
+                memory: {{ if $localdev }}64Mi{{ else }}32Mi{{ end }}
               limits:
                 cpu: 200m
-                memory: 256Mi
+                memory: {{ if $localdev }}256Mi{{ else }}48Mi{{ end }}
 
   persistence:
     config:
@@ -616,7 +616,7 @@ nzbget:
               # file in the archive set (4K BluRay REMUX easily exceeds 2Gi).
               requests:
                 cpu: 100m
-                memory: 1Gi
+                memory: {{ if $localdev }}1Gi{{ else }}224Mi{{ end }}
               limits:
                 cpu: 1000m
                 memory: 4Gi
@@ -705,10 +705,10 @@ tautulli:
             resources:
               requests:
                 cpu: 100m
-                memory: 256Mi
+                memory: {{ if $localdev }}256Mi{{ else }}288Mi{{ end }}
               limits:
                 cpu: 500m
-                memory: 512Mi
+                memory: {{ if $localdev }}512Mi{{ else }}448Mi{{ end }}
 
   persistence:
     config:
@@ -782,10 +782,10 @@ lazylibrarian:
             resources:
               requests:
                 cpu: 100m
-                memory: 256Mi
+                memory: {{ if $localdev }}256Mi{{ else }}192Mi{{ end }}
               limits:
                 cpu: 500m
-                memory: 512Mi
+                memory: {{ if $localdev }}512Mi{{ else }}288Mi{{ end }}
 
   persistence:
     config:
@@ -958,10 +958,10 @@ mosquitto:
             resources:
               requests:
                 cpu: 50m
-                memory: 128Mi
+                memory: {{ if $localdev }}128Mi{{ else }}32Mi{{ end }}
               limits:
                 cpu: 200m
-                memory: 256Mi
+                memory: {{ if $localdev }}256Mi{{ else }}48Mi{{ end }}
 
   persistence:
     config:
@@ -1069,10 +1069,10 @@ flaresolverr:
             resources:
               requests:
                 cpu: 100m
-                memory: 512Mi
+                memory: {{ if $localdev }}512Mi{{ else }}192Mi{{ end }}
               limits:
                 cpu: 1000m
-                memory: 1Gi
+                memory: {{ if $localdev }}1Gi{{ else }}1152Mi{{ end }}
 
   persistence:
     config:
