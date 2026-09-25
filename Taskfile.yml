@@ -892,6 +892,11 @@ tasks:
     cmds:
       - bun scripts/scaffold-selftest.ts {{.CLI_ARGS}}
 
+  test:talos-recreate:
+    desc: "Drive `homelab talos recreate` against a fake 3-node control plane (etcd removal, quorum refusal, idempotency); no cluster required"
+    cmds:
+      - tests/talos-recreate/run.sh {{.CLI_ARGS}}
+
   # ==========================================================================
   # Kubernetes Operations
   # ==========================================================================
@@ -988,6 +993,7 @@ tasks:
       - task: test:scripts
       - task: tf:validate
       - task: test:go
+      - task: test:talos-recreate
       - task: verify
       - task: test:policy
 
