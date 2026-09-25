@@ -1427,10 +1427,10 @@ spec:
   resources:
     limits:
       cpu: "2"
-      memory: 2Gi
+      memory: 8Gi
     requests:
       cpu: 500m
-      memory: 1Gi
+      memory: 8Gi
   probes:
     startup:
       failureThreshold: 120
