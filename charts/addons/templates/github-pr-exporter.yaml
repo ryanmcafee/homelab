@@ -89,6 +89,7 @@ spec:
               module: github_search
               additionalRelabels:
                 - targetLabel: query
+                  action: replace
                   replacement: {{ .name }}
             {{- end }}
   destination:
