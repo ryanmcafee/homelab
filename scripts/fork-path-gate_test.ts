@@ -14,8 +14,10 @@ import { test } from "bun:test";
 import { assert, assertEquals } from "./lib/assert.ts";
 import {
   COLD_WORKFLOW_PATH,
+  CONTRACT_PATH,
   DISCHARGE_LABEL,
   type RunFact,
+  blobUrl,
   classify,
   decide,
   extractDischargeReason,
@@ -207,6 +209,22 @@ test("decide: a successful cold run at the PR head discharges Tier 1", () => {
   assertEquals(d.dischargedBy, "run");
 });
 
+test("decide: a cold run owned by a FORK discharges, deliberately", () => {
+  // Route 1 is the only discharge an outside contributor can execute: they
+  // cannot dispatch a workflow here and cannot apply a label. The head SHA is
+  // what the run proves; the owner of the runner that produced it is not part
+  // of the claim. Do not "fix" this into an owner check.
+  const d = decide({
+    classification: { tier1: ["mise.toml"], tier2: [] },
+    headSha: HEAD,
+    labels: [],
+    body: "https://github.com/a-stranger/their-fork/actions/runs/99",
+    runs: [coldRun({ owner: "a-stranger", repo: "their-fork" })],
+  });
+  assertEquals(d.verdict, "pass");
+  assertEquals(d.dischargedBy, "run");
+});
+
 test("decide: a run on a different head SHA fails and says so", () => {
   const d = decide({
     classification: { tier1: ["docs/tooling.md"], tier2: [] },
@@ -270,7 +288,7 @@ test("decide: an unreadable run fails closed and names the error", () => {
 
 test("hasDischargeLabel: exact label, case- and space-insensitive", () => {
   assertEquals(hasDischargeLabel([DISCHARGE_LABEL]), true);
-  assertEquals(hasDischargeLabel(["  Fork-Path: Not-Affected "]), true);
+  assertEquals(hasDischargeLabel(["  Fork-Path: Cold-Run-Waived "]), true);
   assertEquals(hasDischargeLabel(["fork-path"]), false);
   assertEquals(hasDischargeLabel([]), false);
 });
@@ -278,14 +296,14 @@ test("hasDischargeLabel: exact label, case- and space-insensitive", () => {
 test("extractDischargeReason: a real one-line reason is accepted", () => {
   assertEquals(
     extractDischargeReason(
-      "Some preamble.\n\nfork-path: not-affected — reworded a comment only; no command changed.\n",
+      "Some preamble.\n\nfork-path: cold-run-waived — reworded a comment only; no command changed.\n",
     ),
     "reworded a comment only; no command changed.",
   );
   // Markdown list markers and emphasis are noise, not content.
   assert(
     extractDischargeReason(
-      "- **fork-path: not-affected**: only the table of contents moved in docs/tooling.md",
+      "- **fork-path: cold-run-waived**: only the table of contents moved in docs/tooling.md",
     ) !== null,
   );
 });
@@ -302,7 +320,7 @@ test("extractDischargeReason: a bare run link is not a reason", () => {
 
 test("extractDischargeReason: a body with nothing to say is rejected", () => {
   assertEquals(extractDischargeReason(""), null);
-  assertEquals(extractDischargeReason("fork-path: not-affected"), null);
+  assertEquals(extractDischargeReason("fork-path: cold-run-waived"), null);
   assertEquals(extractDischargeReason("fork-path: n/a"), null);
   assertEquals(extractDischargeReason("Unrelated body text entirely."), null);
 });
@@ -316,7 +334,7 @@ test("decide: label plus reason discharges; label alone does not", () => {
   const good = decide({
     ...base,
     labels: [DISCHARGE_LABEL],
-    body: "fork-path: not-affected — only a typo in prose; no command changed.",
+    body: "fork-path: cold-run-waived — only a typo in prose; no command changed.",
   });
   assertEquals(good.verdict, "pass");
   assertEquals(good.dischargedBy, "label");
@@ -328,9 +346,14 @@ test("decide: label plus reason discharges; label alone does not", () => {
   const reasonOnly = decide({
     ...base,
     labels: [],
-    body: "fork-path: not-affected — only a typo in prose; no command changed.",
+    body: "fork-path: cold-run-waived — only a typo in prose; no command changed.",
   });
   assertEquals(reasonOnly.verdict, "fail");
+  // A reason with no label is the half an outside contributor can actually
+  // write. Failing it with no diagnostics tells them nothing about which half
+  // is missing, and labelling is the half they are not permitted to do.
+  assert(reasonOnly.messages.some((m) => m.includes("label is not")));
+  assert(reasonOnly.messages.some((m) => m.includes("fork")));
 });
 
 // --- the overall verdict --------------------------------------------------
@@ -383,6 +406,57 @@ test("renderComment: a Tier 1 failure always carries both discharge routes", () 
   assert(c.includes(DISCHARGE_LABEL));
   assert(c.includes("Re-run failed jobs"));
   assert(c.includes("docs/contracts/fork-ability.md"));
+  // The stranger is this document's whole subject, and neither the label nor a
+  // re-run is a verb they are allowed. If the runbook stops saying so, their
+  // first impression of the gate is "I tripped something I cannot clear".
+  assert(c.includes("Contributing from a fork?"));
+  assert(c.includes("A maintainer will apply the label."));
+});
+
+test("renderComment: the contract link is absolute and pinned to the head SHA", () => {
+  // A relative link is NOT rewritten in a comment body: it resolves against the
+  // pull-request page and lands a logged-out reader on a login page. The single
+  // pointer from the runbook to the normative document has to survive that.
+  const classification = { tier1: [], tier2: [CONTRACT_PATH] };
+  const c = renderComment({
+    classification,
+    decision: decide({
+      classification,
+      headSha: HEAD,
+      labels: [],
+      body: "",
+      runs: [],
+    }),
+    headSha: HEAD,
+    serverUrl: "https://github.com",
+    repoSlug: "someone/their-fork",
+  }) as string;
+  assert(
+    c.includes(
+      `](https://github.com/someone/their-fork/blob/${HEAD}/${CONTRACT_PATH})`,
+    ),
+  );
+  assert(!c.includes(`](${CONTRACT_PATH})`));
+});
+
+test("blobUrl: server and repository come from the environment, never a constant", () => {
+  // Fork-ability applies to the fork-ability gate: a fork must link its own
+  // copy, on its own server, and nothing here may name one operator's repo.
+  assertEquals(
+    blobUrl({
+      serverUrl: "https://ghe.example.invalid/",
+      repoSlug: "a/b",
+      sha: "abc",
+      path: "p.md",
+    }),
+    "https://ghe.example.invalid/a/b/blob/abc/p.md",
+  );
+  // No repository in the environment (a local run): degrade to the bare path
+  // rather than inventing an owner.
+  assertEquals(
+    blobUrl({ serverUrl: "", repoSlug: "", sha: "abc", path: "p.md" }),
+    "p.md",
+  );
 });
 
 test("renderComment: nothing to say produces no comment at all", () => {
