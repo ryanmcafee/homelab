@@ -176,3 +176,9 @@ Changed the localdev architecture override to a chart-schema-valid empty string.
 - Diagnosis now selects Healthy/Succeeded/OutOfSync Applications, prints the failing `status.sync.status` field and sync detail, and collects their destination namespace diagnostics.
 - Regression demonstrated before the fix: OutOfSync failed and Synced passed. After: both pass; all 139 ArgoCD script tests pass (53 ms); TypeScript and level 0 pass (271 checks, 1 intentional skip, 10.177 s).
 - QA verified the real CI Diagnostics path on MCAA-470: two Healthy/Succeeded/OutOfSync Applications named `status.sync.status` and yielded namespace evidence; Synced controls stayed quiet. ADR-012 allows sync-only drift in Kind level 2. No production mutation. Ready-path API count is unchanged; drift runs the existing namespace collector (~1.57 s for 57 Applications in QA's Kind run).
+### 2026-09-25 - Clean-machine toolchain bootstrap (issue #331)
+
+- PR: https://github.com/ryanmcafee/homelab/pull/353; branch: `fix/mcaa-28-clean-toolchain`.
+- Added Python/pipx/Node runtime pins, preserved mise install diagnostics, and added a cold-container CI gate with the local `task toolchain:check` entrypoint (committed HEAD).
+- Reproducibility: explicit backend runtimes and checksum-pinned mise. Fail fast, fail loud: missing runtime and installer stderr regressions. Least-privilege CI: read-only contents, no persisted checkout credentials, no credentials/cache/Docker socket passed into the test container.
+- Local install and tier-detection checks passed; first cold-container CI run passed in 117 s. CI exposed subset installs missing the newly pinned runtime selection; all five pipx workflow consumers now select `python pipx` explicitly. Architecture/security review and final-head CI/QA remain required before merge.

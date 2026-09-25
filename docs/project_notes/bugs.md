@@ -655,3 +655,8 @@ These are documented errors with known solutions:
 - **Cause**: `cmdDiagnose` called `isReady(app, false)` and returned before namespace collection.
 - **Fix**: Require sync readiness in diagnosis; print `status.sync.status` and full sync detail, then collect destination namespace evidence. Preserve the existing new-empty-chart exception.
 - **Verification**: Command regression fails for OutOfSync before the fix and passes after; Synced control stays quiet. QA verified the real CI Diagnostics entrypoint names drift and collects namespace evidence while Kind level 2 permits sync-only drift (ADR-012; MCAA-470).
+### 2026-09-25 - Fresh clones cannot bootstrap pipx/npm tools (issue #331)
+
+- **Cause**: `mise.toml` declared pipx/npm packages without their Python, pipx and Node runtimes. `installTools` discarded the stderr that identified the missing backend.
+- **Fix**: Declare exact runtime versions, retain installer stderr and the execution error, and exercise the install in an uncached runtime-free Ubuntu container via `task toolchain:check`.
+- **Verification**: Missing-pipx fixture fails with the tool name (0.10 s); all 33 tools installed after the fix (61.3 s for 32 downloads with Go already present), and `task install-tools` repeats successfully (0.33 s). `task setup` reaches localdev tier detection and the actionable missing-Docker row. The initial cold-container CI gate passed in 117 s; full Kind setup still requires QA. Installer regressions fail on the original code (1.49 s) and pass after the fix (0.011 s package runtime). Subset CI installs must explicitly select `python pipx` too; the fresh YAML subset passed in 12.6 s.
