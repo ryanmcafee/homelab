@@ -9,6 +9,22 @@ keys:
     required: true
     pattern: "^(?:\\d{1,3}\\.){3}\\d{1,3}$"
 
+  LAN_CIDR:
+    description: CIDR of the LAN the cluster nodes sit on. Terragrunt builds the
+      VM network from it. Deliberately its own key rather than a reuse of
+      NFS_SHARE_ALLOW or TAILSCALE_ADVERTISE_ROUTES - those are an export ACL and
+      a route advertisement, which an operator may narrow below the LAN without
+      meaning to move the cluster onto a different subnet.
+    required: true
+    pattern: "^(?:\\d{1,3}\\.){3}\\d{1,3}/\\d{1,2}$"
+
+  DNS_SERVER_IP:
+    description: Upstream DNS resolver the cluster nodes are configured with. Often
+      the same address as GATEWAY_IP, but not always, and no default is supplied
+      because a wrong resolver fails after the cluster is already built.
+    required: true
+    pattern: "^(?:\\d{1,3}\\.){3}\\d{1,3}$"
+
   TRUENAS_IP:
     description: TrueNAS storage server IP
     required: true

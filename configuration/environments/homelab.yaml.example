@@ -4,6 +4,11 @@
 
 DOMAIN: REPLACEME-domain.com
 GATEWAY_IP: "192.168.1.1"
+# The LAN the nodes sit on. Terragrunt builds the VM network from this; keep it
+# separate from NFS_SHARE_ALLOW, which you may want to narrow.
+LAN_CIDR: "192.168.1.0/24"
+# Resolver the nodes are configured with — often the gateway, sometimes not.
+DNS_SERVER_IP: "192.168.1.1"
 TRUENAS_IP: "192.168.1.100"
 TRUENAS_LAN_IP: "192.168.1.150/24"
 PROXMOX_IP: "192.168.1.250"
@@ -29,6 +34,15 @@ TAILSCALE_ADVERTISE_ROUTES: "192.168.1.0/24"
 # Subnet names on the network flows dashboard (name=CIDR, comma-separated)
 NETWORK_NAMES: "homelab=192.168.1.0/25,lan=192.168.1.128/25"
 BGP_PEER_IP: "192.168.1.1"
+
+# Cluster identity and the Proxmox node that hosts it.
+CLUSTER_NAME: homelab
+# `pvesh get /nodes` on your hypervisor. The Proxmox installer default is "pve".
+PROXMOX_NODE: REPLACEME-proxmox-node
+# YOUR fork. ArgoCD reconciles the cluster from this repository, so leaving the
+# upstream URL here points your cluster at somebody else's git history.
+GITOPS_REPO_URL: https://github.com/REPLACEME-user/homelab
+
 NFS_MAPALL_USER: REPLACEME-username
 ACME_EMAIL: admin@REPLACEME-domain.com
 TRAEFIK_OIDC_ALLOWED_DOMAINS: REPLACEME-domain.com

@@ -20,6 +20,15 @@ OTEL_LB_IP: "127.0.0.104"
 NFS_SHARE_ALLOW: "127.0.0.0/8"
 BGP_PEER_IP: "127.0.0.1"
 TAILSCALE_ADVERTISE_ROUTES: "127.0.0.0/24"
+# Kind runs on loopback; nothing in localdev builds a VM network from these.
+LAN_CIDR: "127.0.0.0/8"
+DNS_SERVER_IP: "127.0.0.53"
+CLUSTER_NAME: homelab-local
+# Kind, not Proxmox — no hypervisor node exists, but the key is required.
+PROXMOX_NODE: none
+# localdev's ArgoCD reconciles the working tree (`argocd app sync --local`), so
+# this URL is only what the bootstrap Application records.
+GITOPS_REPO_URL: https://github.com/ryanmcafee/homelab
 NFS_BASE_PATH: /tmp/storage
 NFS_MAPALL_USER: localdev
 ACME_EMAIL: test@homelab.local

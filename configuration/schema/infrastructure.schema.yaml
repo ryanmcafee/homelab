@@ -1,5 +1,20 @@
 # Infrastructure configuration — Proxmox, TrueNAS, storage paths, PCI passthrough
 keys:
+  PROXMOX_NODE:
+    description: >-
+      Name of the Proxmox node VMs are created on (pvesh get /nodes). Required
+      with no default on purpose - the Proxmox installer's own default is pve,
+      so any default here would silently target the wrong node on every fork
+      that did not happen to match it.
+    required: true
+
+  GITOPS_REPO_URL:
+    description: >-
+      Git repository ArgoCD reconciles the cluster from. A fork must point this
+      at its own remote, so there is no default - the bootstrap Application
+      would otherwise sync every fork against the upstream repository.
+    required: true
+
   NFS_BASE_PATH:
     description: Base NFS path on TrueNAS
     required: true

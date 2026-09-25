@@ -4,6 +4,18 @@
 
 locals {
 
+  # Every operator-specific value — the domain, every address, the LAN CIDR, the
+  # cluster and Proxmox node names, the git remote — is resolved from the
+  # ConfigSet and never written into this file.
+  # configuration/environments/homelab.yaml is gitignored; homelab.yaml.example
+  # is a fork's starting point.
+  #
+  # Every `task tf:*` target exports this file first. By hand:
+  #   task config:export:format FORMAT=json
+  # A key the ConfigSet is missing stops the export instead of rendering
+  # somebody else's topology (ADR-028, docs/contracts/fork-ability.md).
+  config = jsondecode(file("${get_repo_root()}/configuration/resolved.json")).values
+
   # Environment-specific settings
   environment = "homelab"
 
@@ -11,10 +23,10 @@ locals {
   # API token is read from TF_VAR_proxmox_api_token_id and TF_VAR_proxmox_api_token_secret
   proxmox_api_token_id     = get_env("TF_VAR_proxmox_api_token_id", "")
   proxmox_api_token_secret = get_env("TF_VAR_proxmox_api_token_secret", "")
-  proxmox_endpoint         = "https://172.16.100.250:8006"
-  proxmox_node             = "proxmox"
+  proxmox_endpoint         = "https://${local.config.PROXMOX_IP}:8006"
+  proxmox_node             = local.config.PROXMOX_NODE
   proxmox_insecure         = true
-  proxmox_host             = "172.16.100.250"
+  proxmox_host             = local.config.PROXMOX_IP
   proxmox_ssh_user         = "root"
   proxmox_ssh_private_key  = "~/.ssh/id_ed25519"
   proxmox_ssh_port         = 22
@@ -24,27 +36,29 @@ locals {
   cp_storage_pool  = "cp-storage" # Dedicated NVMe datastore for control-plane (etcd) system disks
   iso_storage_pool = "local"
 
-  # Network configuration
+  # Network configuration. vlan_id stays a literal: it is a tagging choice, not
+  # an identity, and it names no host, network or person.
   vlan_id     = 100
-  subnet      = "172.16.100.0/24"
-  gateway     = "172.16.100.1"
-  dns_servers = ["172.16.100.1"]
+  subnet      = local.config.LAN_CIDR
+  gateway     = local.config.GATEWAY_IP
+  dns_servers = [local.config.DNS_SERVER_IP]
 
   # LoadBalancer pool (Cilium LB IPAM + BGP); gitops-bootstrap writes the range
   # into the informational gitops-metadata ConfigMap
   lb_ipam_enabled = true
-  lb_pool_start   = "172.16.100.100"
-  lb_pool_end     = "172.16.100.200"
+  lb_pool_start   = local.config.LB_POOL_START
+  lb_pool_end     = local.config.LB_POOL_END
 
-  # BGP configuration
-  bgp_asn_k8s   = 64512
-  bgp_asn_unifi = 64513
-  bgp_peer_ip   = "172.16.100.1"
+  # BGP configuration. ConfigSet values are strings; these are numbers to the
+  # unifi provider and the Cilium templates.
+  bgp_asn_k8s   = tonumber(local.config.BGP_K8S_ASN)
+  bgp_asn_unifi = tonumber(local.config.BGP_ROUTER_ASN)
+  bgp_peer_ip   = local.config.BGP_PEER_IP
 
   # Cluster configuration
-  cluster_name     = "homelab"
-  cluster_endpoint = "172.16.100.11"
-  vip_endpoint     = "172.16.100.10"
+  cluster_name     = local.config.CLUSTER_NAME
+  cluster_endpoint = local.config.CP1_IP
+  vip_endpoint     = local.config.CP_VIP
 
   # Talos configuration (using latest stable versions)
   talos_version      = "v1.12.2"
@@ -81,17 +95,17 @@ locals {
 
   # TrueNAS configuration
   truenas_vm_id    = 150
-  truenas_ip       = "172.16.100.150"
-  truenas_nfs_path = "/mnt/storage/k8s"
+  truenas_ip       = local.config.TRUENAS_IP
+  truenas_nfs_path = "${local.config.NFS_BASE_PATH}/k8s"
 
   # Media NFS paths (granular storage)
   truenas_media_paths = {
-    movies    = "/mnt/storage/movies"
-    tv        = "/mnt/storage/tv"
-    music     = "/mnt/storage/music"
-    pictures  = "/mnt/storage/pictures"
-    documents = "/mnt/storage/documents"
-    downloads = "/mnt/storage/downloads"
+    movies    = "${local.config.NFS_BASE_PATH}/movies"
+    tv        = "${local.config.NFS_BASE_PATH}/tv"
+    music     = "${local.config.NFS_BASE_PATH}/music"
+    pictures  = "${local.config.NFS_BASE_PATH}/pictures"
+    documents = "${local.config.NFS_BASE_PATH}/documents"
+    downloads = "${local.config.NFS_BASE_PATH}/downloads"
   }
 
   # HBA devices for TrueNAS direct disk access
@@ -125,7 +139,7 @@ locals {
   gpu_vendor = "intel"
 
   # GPU passthrough (NVIDIA Quadro P2200)
-  # Verified via: ssh root@172.16.100.250 'lspci -nn | grep -i nvidia'
+  # Verified via: ssh root@<PROXMOX_IP> 'lspci -nn | grep -i nvidia'
   # c1:00.0 VGA compatible controller: NVIDIA Corporation GP106GL [Quadro P2200] [10de:1c31]
   gpu_pci_id = "0000:c1:00.0"
 
@@ -153,15 +167,16 @@ locals {
     description  = "Intel Arc Pro B50 for Plex transcoding"
   }
 
-  # Git repository
-  repo_url        = "https://github.com/ryanmcafee/homelab"
+  # Git repository ArgoCD reconciles from — a fork's own remote, not upstream.
+  repo_url        = local.config.GITOPS_REPO_URL
   target_revision = "main"
 
-  # Base FQDN
-  base_fqdn = "ryanmcafee.com"
+  # Base FQDN. The root terragrunt.hcl deliberately has no default for this, so
+  # an environment that fails to resolve it stops rather than inheriting one.
+  base_fqdn = local.config.DOMAIN
 
-  # TrueNAS hostname for DNS and certificates
-  truenas_hostname = "truenas.${local.base_fqdn}"
+  # TrueNAS hostname for DNS and certificates (a ConfigSet const key derived from DOMAIN)
+  truenas_hostname = local.config.TRUENAS_HOSTNAME
 
   # UniFi configuration (credentials via environment variables)
   unifi_api_url  = get_env("UNIFI_API", "")
@@ -175,24 +190,26 @@ locals {
   # Workers: 3 nodes x 50GB = 150GB total
   # Total cluster memory: 174GB
 
+  # Addresses and the hosting node come from the ConfigSet; the sizes stay here
+  # because they are a capacity choice, not the operator's identity.
   control_plane_nodes = {
     "cp-1" = {
-      ip        = "172.16.100.11"
-      host_node = "proxmox"
+      ip        = local.config.CP1_IP
+      host_node = local.config.PROXMOX_NODE
       cores     = 2
       memory    = 8192 # 8GB
       disk_size = 50
     }
     "cp-2" = {
-      ip        = "172.16.100.12"
-      host_node = "proxmox"
+      ip        = local.config.CP2_IP
+      host_node = local.config.PROXMOX_NODE
       cores     = 2
       memory    = 8192 # 8GB
       disk_size = 50
     }
     "cp-3" = {
-      ip        = "172.16.100.13"
-      host_node = "proxmox"
+      ip        = local.config.CP3_IP
+      host_node = local.config.PROXMOX_NODE
       cores     = 2
       memory    = 8192 # 8GB
       disk_size = 50
@@ -201,24 +218,24 @@ locals {
 
   worker_nodes = {
     "worker-1" = {
-      ip        = "172.16.100.21"
-      host_node = "proxmox"
+      ip        = local.config.WORKER1_IP
+      host_node = local.config.PROXMOX_NODE
       cores     = 8
       memory    = 51200 # 50GB
       disk_size = 100
       gpu       = true # GPU worker: Intel Arc (gpu_vendor); the NVIDIA Quadro P2200 is installed but unused
     }
     "worker-2" = {
-      ip        = "172.16.100.22"
-      host_node = "proxmox"
+      ip        = local.config.WORKER2_IP
+      host_node = local.config.PROXMOX_NODE
       cores     = 4
       memory    = 51200 # 50GB
       disk_size = 100
       gpu       = false
     }
     "worker-3" = {
-      ip        = "172.16.100.23"
-      host_node = "proxmox"
+      ip        = local.config.WORKER3_IP
+      host_node = local.config.PROXMOX_NODE
       cores     = 4
       memory    = 51200 # 50GB
       disk_size = 100

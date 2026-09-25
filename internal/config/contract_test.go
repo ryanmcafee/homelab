@@ -29,6 +29,17 @@ var consumedOutsideTemplates = map[string]string{
 		"never directly referenced by a template",
 	"ARGOCD_HOSTNAME": "read by `homelab bootstrap` (cmd/homelab/commands/bootstrap.go) to print the " +
 		"ArgoCD URL; its last template reference was the removed ingress-verification list",
+
+	// The terragrunt tree reads these five out of configuration/resolved*.json
+	// (the `json` export), not through a helm template: terragrunt/environments/
+	// */env.hcl jsondecode()s that file. They are what stops terragrunt
+	// committing one operator's subnet, resolver, cluster name, hypervisor node
+	// name and git remote.
+	"LAN_CIDR":        "terragrunt/environments/homelab/env.hcl — locals.subnet, and the netmask of truenas_static_ip",
+	"DNS_SERVER_IP":   "terragrunt/environments/{homelab,localdev}/env.hcl — locals.dns_servers",
+	"CLUSTER_NAME":    "terragrunt/environments/{homelab,localdev}/env.hcl — locals.cluster_name",
+	"PROXMOX_NODE":    "terragrunt/environments/homelab/env.hcl — locals.proxmox_node and every node's host_node",
+	"GITOPS_REPO_URL": "terragrunt/environments/{homelab,localdev}/env.hcl — locals.repo_url, the repository ArgoCD reconciles from",
 }
 
 // templateRef is a single recognized expression found on one line of a
