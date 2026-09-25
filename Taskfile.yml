@@ -1169,7 +1169,7 @@ tasks:
       - go run ./cmd/homelab config export --set localdev --format helm-apps
 
   config:guard:
-    desc: "Scan every tracked file in the guard scope for PII: configuration/, charts/**/values-homelab.yaml, scripts/, docs/, .github/, Taskfile.yml"
+    desc: "Scan every tracked file in the guard scope for PII: configuration/, charts/**/values-homelab.yaml, scripts/, docs/, .github/, ansible/, terragrunt/, Taskfile.yml"
     # --ci is not optional here: without it (and without file arguments) the
     # guard resolves an empty scan scope, checks nothing and exits 0.
     cmds:

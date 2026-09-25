@@ -107,3 +107,10 @@ Each entry should include:
 - Update status if work gets blocked or resumed
 - Don't duplicate issue details - link to source of truth
 - Clean out very old entries periodically (3+ months)
+
+### 2026-09-25 - MCAA-129: config guard and address-role enforcement
+- Work isolated on `fix/mcaa-129-config-guard`; unrelated shared-tree changes preserved.
+- Literal scanning now respects the existing closed template placeholder policy without globally exempting deployment addresses. HCL/Terraform source and variable-default scanning use a pinned parser. Hook filters include example suffixes.
+- Source guard and rendered Helm G2 are separate surfaces. Platform co-land work is MCAA-130; no live-literal allowlist or claim of complete acceptance.
+- Local full-scan runtime before/after: 0.254s / 0.281s (202 / 257 tracked files, compiled CLI). Actual hook good/bad examples and HCL references/literals pass/fail correctly.
+- Role validator runs after expression resolution, excludes dedicated infrastructure and control-plane VIP, and requires intended LB allocations inside inclusive endpoints. Missing schema roles fail closed; full config suite awaits platform annotations. CLI positive/negative fixtures assert exit codes and absence of false success.
