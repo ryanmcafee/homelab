@@ -19,6 +19,8 @@
 #   E  a worker is recreated without touching etcd at all
 #   F  a failed graceful `etcd leave` falls back to `remove-member`
 #   G  no snapshot means no removal
+#   H  it refuses to remove a SECOND member after an earlier run crashed
+#   I  a resume refuses when a survivor has died since the crash
 #
 # Usage: tests/talos-recreate/run.sh   (or: task test:talos-recreate)
 set -euo pipefail
@@ -173,7 +175,9 @@ touch "$FAKE_STATE/down_192.168.1.13"
 rc=$(recreate "$SANDBOX/c.log" --node=cp-2)
 assert_eq   "exits non-zero" "$rc" "1"
 assert_contains "names the reason" "$SANDBOX/c.log" "refusing to remove etcd member"
-assert_contains "names the quorum arithmetic" "$SANDBOX/c.log" "needing a quorum of 2"
+assert_contains "names the quorum arithmetic" "$SANDBOX/c.log" "a quorum of 2 is required"
+assert_contains "names the member at fault, not just \"unhealthy\"" "$SANDBOX/c.log" \
+  "192.168.1.13 are absent and are not a declared target"
 assert_eq   "nothing was removed" "$(members_count)" "3"
 assert_absent "nothing was applied" "$SANDBOX/c.log" "Apply complete"
 
@@ -212,6 +216,47 @@ rc=$(recreate "$SANDBOX/g.log" --node=cp-2 --etcd-snapshot-dir=/proc/sys/no-such
 assert_eq   "exits non-zero" "$rc" "1"
 assert_contains "refuses without a backup" "$SANDBOX/g.log" "refusing to remove etcd member"
 assert_eq   "nothing was removed" "$(members_count)" "3"
+
+# ---------------------------------------------------------------------------
+# The defect from the review of PR #364. A crashed recreate of cp-2 left
+# membership at {cp-1, cp-3}; the operator now recreates cp-3. Sized off the
+# LIVE member list the arithmetic consents: two live members meet Quorum(2)=2,
+# and after the removal the one survivor meets Quorum(1)=1 — so the guard would
+# take a three-node control plane down to a single etcd member, as the
+# aftermath of this very command. Sized off the configured CP<n>_IP count it
+# refuses. A member that is *down* was always caught, because it stays in the
+# list and fails to answer; a member already *removed* is not there to be
+# missed, which is why this case needs its own gate.
+say "H  refuses to remove a second member after an earlier run crashed"
+reset_cluster
+awk -F'\t' '$3 != "192.168.1.12"' "$FAKE_STATE/members" > "$FAKE_STATE/m" && mv "$FAKE_STATE/m" "$FAKE_STATE/members"
+rc=$(recreate "$SANDBOX/h.log" --node=cp-3)
+assert_eq   "exits non-zero" "$rc" "1"
+assert_contains "names the member an earlier run left out" "$SANDBOX/h.log" \
+  "192.168.1.12 are absent and are not a declared target"
+assert_contains "measures against the configured control-plane count" "$SANDBOX/h.log" \
+  "of 3 expected member(s) answered"
+assert_eq   "no second member was removed" "$(members_count)" "2"
+assert_absent "nothing was applied" "$SANDBOX/h.log" "Apply complete"
+assert_absent "no snapshot was taken, because nothing was destroyed" "$SANDBOX/h.log" "etcd snapshot verified"
+
+# ---------------------------------------------------------------------------
+# The resume path must evaluate a predicate, not just report that there is
+# nothing to remove. A crashed run left {cp-1, cp-3} and cp-3 has since died:
+# etcd has no quorum, the replacement's member add cannot commit, and going
+# ahead would destroy the VM only to spend the rejoin timeout failing. The
+# refusal has to come before the taint.
+say "I  a resume refuses when a survivor has died since the crash"
+reset_cluster
+awk -F'\t' '$3 != "192.168.1.12"' "$FAKE_STATE/members" > "$FAKE_STATE/m" && mv "$FAKE_STATE/m" "$FAKE_STATE/members"
+touch "$FAKE_STATE/down_192.168.1.13"
+rc=$(recreate "$SANDBOX/i.log" --node=cp-2)
+assert_eq   "exits non-zero" "$rc" "1"
+assert_contains "evaluates the predicate at the resume point" "$SANDBOX/i.log" \
+  'does not satisfy `survivable` at resume'
+assert_contains "names the dead survivor" "$SANDBOX/i.log" "192.168.1.13"
+assert_absent "does not destroy the VM first" "$SANDBOX/i.log" "Apply complete"
+assert_eq   "membership untouched" "$(members_count)" "2"
 
 # ---------------------------------------------------------------------------
 printf '\n%s\n' "-----------------------------------------------"

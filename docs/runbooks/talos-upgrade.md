@@ -235,21 +235,46 @@ Step 4 is the one to understand before you run it:
     and died before the node rejoined. The command announces that it is resuming and still
     waits in step 9 for the member count to come back, because the cluster is sitting at
     N-1 until it does. A resumed run has no snapshot of its own; the one to keep is from the
-    run that did the removal.
+    run that did the removal. A resume is **still gated** — see below.
 - It **refuses**, non-zero, if removing the member would leave etcd without a quorum, or if
   the surviving members are unhealthy, learners, or more than `--raft-tolerance` (10) raft
   indices behind the leader. The message names the member and the arithmetic. Nothing is
   destroyed on a refusal.
+- The quorum arithmetic is measured against the **configured** control-plane count — the
+  number of `CP<n>_IP` keys that have a value — never against however many members happen to
+  be alive. This matters in one specific case, and that case is the aftermath of this very
+  command: if an earlier run left the cluster at 2 of 3 and you now recreate a *different*
+  node, sizing the check off the live list would consent (two live members are a quorum of
+  two, and afterwards one survivor is a quorum of one) and take the control plane down to a
+  single etcd member. Measured against the configured three it refuses. So a cluster that is
+  already short a member has to be made whole before another node is replaced: bring the
+  missing one back, or finish the interrupted run for the node it belongs to.
+- A member absent because **you** declared it — the node named by `--node` — is expected. Any
+  *other* absence means the cluster is degraded rather than mid-procedure, and the command
+  says so in those words and stops.
+- The gate is evaluated **three** times, not once: before the removal, again immediately
+  before the terragrunt taint (a leader election can follow the removal, so the cluster the
+  taint acts on is not the one that was measured a minute earlier), and on a resume before
+  the taint. A refusal at the second point leaves the member removed and the VM intact — fix
+  the cluster and re-run the same command; it resumes.
 - It takes a **verified etcd snapshot** into `--etcd-snapshot-dir` (default
   `./etcd-snapshots`) before the removal and refuses if the file is missing or empty. That
-  snapshot is the rollback path; keep it until step 9 is green.
+  snapshot is the rollback path; keep it until step 9 is green. There is deliberately **no
+  flag to skip it**: the run most likely to want to skip the snapshot is the run on a cluster
+  that is already unhappy, which is the run that will need it.
+- Step 9 requires the cluster to be **whole**: every configured `CP<n>_IP` present as a
+  member, answering, and converged. A member count alone is not enough — a cluster carrying
+  both a stale member and the rebuilt one at the same address has the right number of members
+  and is broken, which is #39's own failure shape.
 
 ```bash
 # Useful flags
 --node=cp-2                       # terragrunt node key, not the Talos hostname
 --etcd-snapshot-dir=/mnt/backups  # where the pre-removal snapshot lands
---skip-etcd-snapshot              # only with an off-cluster backup you have verified
---raft-tolerance=10               # how far behind a survivor may be and still count
+--raft-tolerance=10               # how far behind a survivor may be and still count.
+                                  # May only be tightened; a larger value is rejected,
+                                  # because loosening a gate on a destructive path is a
+                                  # bypass with a nicer name.
 --dry-run                         # prints the plan; stops short of every mutation
 ```
 
@@ -343,6 +368,26 @@ Only if you have to finish by hand:
 **Never remove a second member to "clean up".** Two removals from a three-member cluster
 leave one member and no quorum, which turns a degraded control plane into a dead one. If you
 believe a second member must go, restore to three first.
+
+The command now enforces that rather than trusting you to remember it, and there are two
+refusals you will meet here:
+
+- **Recreating a *different* node while the cluster is short.** Say a run for `cp-2` died and
+  left `{cp-1, cp-3}`, and you now run it for `cp-3`. It exits non-zero with
+  `192.168.x.12 are absent and are not a declared target of this operation … this cluster is
+  degraded, not mid-procedure`. That is correct: finish or undo the `cp-2` replacement first,
+  then come back. The fix is to re-run for `cp-2`, not to add a flag.
+- **Resuming when a survivor has died since the crash.** Re-running for `cp-2` while `cp-3`
+  is also down exits non-zero at the `resume` gate instead of destroying the VM and spending
+  the 15-minute rejoin timeout failing — with no quorum the replacement's member add cannot
+  commit, so the run could not have succeeded. Bring `cp-3` back first; if it is
+  unrecoverable and etcd is below quorum, you are in
+  [Scenario 1](#scenario-1-etcd-quorum-lost).
+
+Neither refusal touches the cluster, and neither has an override. If you are convinced one is
+wrong, the member list in the message is the thing to check first — the gate is reading the
+`CP<n>_IP` keys in `configuration/environments/<env>.yaml`, so a control plane you have
+retired but not removed from the config will look absent forever.
 
 If etcd is already below quorum when you start, you are in
 [Scenario 1](#scenario-1-etcd-quorum-lost), not here — restore the snapshot rather than
