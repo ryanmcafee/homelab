@@ -103,6 +103,14 @@ func validateKeyPattern(pattern string, kp SchemaKeyPattern) error {
 }
 
 // LoadSchemaDir loads all .schema.yaml files from a directory and merges them into a single Schema.
+//
+// It is fail-closed: if any *.schema.yaml in the directory cannot be loaded,
+// the whole load fails. Skipping an unloadable file instead would silently drop
+// every key that file declares -- including every `required: true` in it -- so
+// a single YAML slip would quietly disable the ADR-028 guarantee that a missing
+// required key fails at resolve rather than rendering somebody else's topology.
+// Callers that need an intentionally-invalid fixture must keep it outside the
+// schema directory they load (see internal/config/testdata/schemas_invalid).
 func LoadSchemaDir(dir string) (*Schema, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -122,11 +130,7 @@ func LoadSchemaDir(dir string) (*Schema, error) {
 
 		sf, err := LoadSchemaFile(filepath.Join(dir, entry.Name()))
 		if err != nil {
-			if errors.Is(err, ErrInvalidKeyPattern) {
-				return nil, err
-			}
-			// Skip otherwise-invalid files in directory mode (e.g. test fixtures)
-			continue
+			return nil, err
 		}
 
 		for name, key := range sf.Keys {

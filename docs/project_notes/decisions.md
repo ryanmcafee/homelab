@@ -1101,6 +1101,34 @@ Each decision should include:
 - The cutover needs the renamed keys in `homelab.yaml` and the 1Password `homelab-environment-config` document before merge; there is a short gap between Traefik's Services being pruned and Envoy's receiving the freed addresses (`docs/runbooks/envoy-gateway.md`)
 - The Istio gateways cost two small Deployments and two pool addresses; remove `charts/istio-gateways` once the comparison is done
 
+### ADR-040: Schema loading is fail-closed; an unreadable schema file stops the resolve rather than shrinking it (2026-09-25); repairs ADR-028
+
+**Context:**
+- ADR-028's guarantee is that a missing required key fails at resolve rather than rendering somebody else's topology. `internal/config/schema.go` `LoadSchemaDir` did the opposite: it `continue`d past any `*.schema.yaml` it could not load, with the comment "Skip invalid files in directory mode (e.g. test fixtures)"
+- The effect is not a partial load, it is a silent one. A YAML slip anywhere in a file removes **every key that file declares, including every `required: true` in it**, and `homelab config validate`, `eval` and `export` all still exit 0. Measured on a copy of `configuration/` with one plain-scalar slip injected into `infrastructure.schema.yaml` and `PROXMOX_NODE` deleted from the ConfigSet: intact schema exits 1 with `required key "PROXMOX_NODE" is missing or empty`; broken schema exits **0** with `[OK] Configuration valid`
+- The blast radius is every consumer, not just the CLI: `cmd/homelab/commands/config.go`, `internal/verify/render.go`, `internal/prereq/prereq.go`, and `internal/scaffold/{regenerate,scaffold}.go` all call `LoadSchemaDir`. A fork's bootstrap prereq check would pass against a schema that had quietly lost half its required keys
+- It was found the way this class of defect is always found — a negative test that passed too quietly. Stripping four required keys from a ConfigSet reported only two missing. The tell was `NFS_MAPALL_USER`, a long-standing required key that stopped being required because of a typo several lines away in the same file (found while landing [#393](https://github.com/ryanmcafee/homelab/pull/393))
+- The skip existed for exactly one fixture: `internal/config/testdata/schemas/invalid_no_keys.schema.yaml`, which `TestLoadSchemaFile` needs in *file* mode and which happened to sit in the directory `TestLoadSchemaDir` and `TestEval` load. One test fixture bought a permanent hole in the production resolver
+
+**Decision:**
+- `LoadSchemaDir` returns the error. Any `*.schema.yaml` in the directory that cannot be loaded — unparseable YAML, no `keys:` field, empty — fails the whole load. There is no opt-in, no `_fixtures/` escape and no lenient parameter
+- An intentionally-invalid fixture lives **outside the directory under test**. `invalid_no_keys.schema.yaml` moves to `internal/config/testdata/schemas_invalid/`, leaving `testdata/schemas/` all-valid. This is the rule a future fixture follows too, and it is stated at the function
+- Fail-closed applies only to files the loader claims. Non-`*.schema.yaml` files sharing the directory are still ignored, so a `README.md` next to the schemas does not become an outage
+- Regression tests pin the behaviour, not just the fix: a directory with one unloadable file must error, the error must **name the offending file**, and no `required: true` key — from the broken file or an unrelated one — may come back absent or optional
+
+**Alternatives Considered:**
+- **Keep the skip but gate it on an explicit opt-in (a `_fixtures/` directory name or a `lenient bool` parameter)** -> this was the suggested fix and it works, but it keeps a code path whose entire purpose is to produce a schema known to be short, reachable from a resolver five packages depend on. Boring is a feature: moving one fixture file deletes the hazard instead of parameterising it
+- **Warn to stderr and continue** -> preserves today's exit codes, which is the problem. A warning on a CI log nobody reads is how the defect survived; the ADR-028 guarantee is a gate or it is decoration
+- **Validate schemas in a separate `config lint` command and leave the loader lenient** -> two sources of truth about whether a schema is usable, and the one that runs in bootstrap is the lenient one
+- **Make `LoadSchemaFile` tolerant of a partial parse and load the keys it could read** -> worst of both. A file that half-parses yields a key set nobody wrote, and `required` would depend on where the parser stopped
+
+**Consequences:**
+- A malformed schema file now breaks `homelab config`, `verify`, `prereq` and `scaffold` together, loudly, instead of degrading them quietly and separately. That is a wider *visible* failure for the same defect, and it is the trade this ADR is buying
+- The error names the file and the YAML line (`parsing schema …/infrastructure.schema.yaml: yaml: line 5: mapping values are not allowed in this context`), so the wider failure is also a shorter diagnosis than the silent one it replaces
+- No behaviour change on any healthy schema directory: verified byte-identical output against the pre-fix binary on an untouched `configuration/`, and on an intact schema with a required key missing from the ConfigSet. The only inputs whose behaviour changes are ones that were already broken
+- Anyone adding a deliberately-invalid schema fixture must put it outside the directory a `LoadSchemaDir` test loads, or they will fail that test. This is a real constraint on test authors and it is the point
+- ADR-028's guarantee is now enforceable rather than assumed. It does not extend to a schema file that parses but is *wrong* — a misspelled `requred: true` still silently yields a non-required key, because `SchemaKey` is decoded without `KnownFields`. That is a separate, narrower hole and it is not closed here
+
 ## Tips
 
 - Number decisions sequentially (ADR-001, ADR-002, etc.). Write the heading as `### ADR-NNN: <title> (<date>)` — three digits, heading depth three — and take the lowest free number. The number is yours when it **merges**, not when you write it: if another branch lands it first, renumber yours during the rebase, keep the body byte-identical, and move the citations with it (ADR-039). `task verify` fails on a duplicate number and on any other heading shape
