@@ -121,6 +121,11 @@ async function readKubernetesVersion(): Promise<string> {
   return version.replace(/^v/, "");
 }
 
+function schemaVersion(k8sVersion: string): string {
+  const parts = k8sVersion.split(".");
+  return parts.length === 3 ? `${parts[0]}.${parts[1]}.0` : k8sVersion;
+}
+
 // ============================================================================
 // CLI args
 // ============================================================================
@@ -399,7 +404,7 @@ async function kubeconformVendor(
     "-schema-location",
     "tests/schemas/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json",
     "-kubernetes-version",
-    KUBERNETES_VERSION,
+    schemaVersion(KUBERNETES_VERSION),
   ];
   const a = await run(["kubeconform", ...args, addonsRendered]);
   if (a.code !== 0) {
