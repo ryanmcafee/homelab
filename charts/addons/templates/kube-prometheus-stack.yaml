@@ -494,7 +494,7 @@ spec:
               - name: homelab-logging
                 rules:
                   - alert: HomelabLogExportFailing
-                    expr: 'sum by (namespace, pod) (rate(otelcol_exporter_send_failed_log_records_total[5m])) > 0'
+                    expr: 'sum by (namespace, pod) (rate(otelcol_exporter_send_failed_log_records[5m])) > 0'
                     for: 15m
                     labels:
                       severity: warning
@@ -510,7 +510,7 @@ spec:
                       summary: 'Collector {{`{{ $labels.pod }}`}} send queue is {{`{{ $value | humanizePercentage }}`}} full'
                       description: 'The ClickHouse exporter queue of {{`{{ $labels.pod }}`}} has been above 80 % for 10m; new batches are refused when it fills. ClickHouse is slow or unreachable.'
                   - alert: HomelabLogsNotArriving
-                    expr: 'sum(rate(otelcol_receiver_accepted_log_records_total{receiver=~"file_?log.*"}[15m])) == 0 or absent(otelcol_receiver_accepted_log_records_total{receiver=~"file_?log.*"})'
+                    expr: 'sum(rate(otelcol_receiver_accepted_log_records{receiver=~"file_?log.*"}[15m])) == 0 or absent(otelcol_receiver_accepted_log_records{receiver=~"file_?log.*"})'
                     for: 30m
                     labels:
                       severity: warning
@@ -518,7 +518,7 @@ spec:
                       summary: 'No container logs are being collected'
                       description: 'The OpenTelemetry agents have read no container log line for 30m. Check the otel-collector-agent DaemonSet in {{ .Values.logging.namespace }} and its hostPath mounts of /var/log/pods.'
                   - alert: HomelabTraceExportFailing
-                    expr: 'sum by (namespace, pod) (rate(otelcol_exporter_send_failed_spans_total[5m])) > 0'
+                    expr: 'sum by (namespace, pod) (rate(otelcol_exporter_send_failed_spans[5m])) > 0'
                     for: 15m
                     labels:
                       severity: warning
@@ -526,7 +526,7 @@ spec:
                       summary: 'Collector {{`{{ $labels.pod }}`}} cannot write spans to ClickHouse'
                       description: '{{`{{ $labels.pod }}`}} has failed to export spans for 15m; they are dropped once retries and the send queue run out (docs/tracing.md).'
                   - alert: HomelabTelemetryRefused
-                    expr: 'sum by (namespace, pod, receiver) (rate(otelcol_receiver_refused_spans_total[5m]) or rate(otelcol_receiver_refused_log_records_total[5m])) > 0'
+                    expr: 'sum by (namespace, pod, receiver) (rate(otelcol_receiver_refused_spans[5m]) or rate(otelcol_receiver_refused_log_records[5m])) > 0'
                     for: 10m
                     labels:
                       severity: warning
@@ -534,13 +534,13 @@ spec:
                       summary: 'Receiver {{`{{ $labels.receiver }}`}} on {{`{{ $labels.pod }}`}} refuses data'
                       description: 'The collector has refused spans or log records on {{`{{ $labels.receiver }}`}} for 10m, usually because memory_limiter is holding it back. Raise the collector memory limit or find the sender flooding it.'
                   - alert: HomelabUniFiTelemetrySilent
-                    expr: 'sum by (receiver) (rate(otelcol_receiver_accepted_log_records_total{receiver=~"syslog.*|netflow"}[30m])) == 0'
+                    expr: 'sum by (receiver) (rate(otelcol_receiver_accepted_log_records{receiver=~"syslog.*|netflow"}[30m])) == 0 or absent(otelcol_receiver_accepted_log_records{receiver=~"syslog.*"}) or absent(otelcol_receiver_accepted_log_records{receiver="netflow"})'
                     for: 30m
                     labels:
                       severity: warning
                     annotations:
-                      summary: 'No UniFi {{`{{ $labels.receiver }}`}} records for 30m'
-                      description: 'The gateway collector has received nothing on {{`{{ $labels.receiver }}`}} for an hour. Check the UniFi export settings (docs/logging.md, "UniFi gateway") and that otel.<DOMAIN> resolves to OTEL_LB_IP.'
+                      summary: 'No UniFi telemetry ({{`{{ $labels.receiver }}`}}) for 30m'
+                      description: 'The gateway collector has received nothing on {{`{{ $labels.receiver }}`}} (empty = syslog) for an hour, or never since it started. Check the UniFi export settings (docs/logging.md, "UniFi gateway") and that otel.<DOMAIN> resolves to OTEL_LB_IP.'
                   - alert: HomelabClickHouseDown
                     expr: 'max by (chi, hostname) (chi_clickhouse_metric_fetch_errors{fetch_type="system.metrics"}) > 0 or absent(chi_clickhouse_metric_Uptime)'
                     for: 10m

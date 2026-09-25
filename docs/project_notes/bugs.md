@@ -467,3 +467,9 @@ These are documented errors with known solutions:
 - **Root Cause**: The PR #321 DaemonSets (istio-cni, ztunnel, OTel agents) landed on top of four Traefik pods requesting 500m each while using 1-2m
 - **Solution**: Traefik CPU requests 500m -> 100m (limit stays 1000m; the HPA target is relative to the request), which frees 1.6 CPU
 - **Prevention**: Size requests from `container_cpu_usage_seconds_total`, not from defaults
+
+### 2026-09-23 - Log-pipeline alerts matched otelcol_*_total names the collector does not expose
+- **Issue**: `HomelabLogsNotArriving` fired while the agents read ~70 container log lines/s; `HomelabLogExportFailing`, `HomelabTraceExportFailing` and `HomelabTelemetryRefused` could never fire, and `HomelabUniFiTelemetrySilent` stayed quiet although no UniFi syslog or NetFlow record had ever arrived
+- **Root Cause**: The rules (PR #321, taken from the opentelemetry-collector chart) used `otelcol_receiver_accepted_log_records_total` and friends. The deployed collector exports its own metrics without the `_total` suffix (`otelcol_receiver_accepted_log_records`, `otelcol_exporter_send_failed_spans`, ...), so rates were empty and `absent()` always true. The UniFi rule compared a rate to 0, which returns nothing when the receiver has never produced a series
+- **Solution**: Every otelcol name in `homelab-logging` without `_total`; `HomelabUniFiTelemetrySilent` also fires on `absent()` of the syslog and netflow series. Verified against live Prometheus: LogsNotArriving, the export, refused and queue rules return nothing; UniFiTelemetrySilent returns syslog and netflow, because the gateway has received neither since it started (a real gap: the UniFi export is not configured yet)
+- **Prevention**: Check a rule's metric names with `/api/v1/label/__name__/values` on the live Prometheus, and give every rate-based "silent" alert an `absent()` branch
