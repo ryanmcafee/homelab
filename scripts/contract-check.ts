@@ -31,7 +31,7 @@
  *      `...v1`. `baseline --write` exists for genuinely additive change and is
  *      deliberately a visible diff in the pull request, not a silent one.
  *
- * ADR-035 records why each of these rules exists; every one of them was added
+ * ADR-038 records why each of these rules exists; every one of them was added
  * because a real breaking change walked past the gate green.
  *
  * Usage:
@@ -891,7 +891,7 @@ export function checkCompatibility(
 
 /**
  * The envelope schema's own `required` list, which the gate did not read at all
- * until ADR-035 — while the documentation claimed it rejected a newly required
+ * until ADR-038 — while the documentation claimed it rejected a newly required
  * envelope attribute. Both directions are breaking: adding one rejects every
  * event from a producer that has not shipped yet, and removing one withdraws a
  * guarantee consumers were told to rely on.

@@ -32,7 +32,7 @@
 #
 # There is NO `durable_request` field. Durability is derived from the subject suffix
 # (`wq` = PF_WORK and durable, `rq` = core NATS and not), which is the one place a reader
-# already sees it. A second source of truth for the same fact only creates drift (ADR-035).
+# already sees it. A second source of truth for the same fact only creates drift (ADR-038).
 
 version: 1
 
@@ -152,7 +152,7 @@ types:
   # on a `_INBOX` reply subject — the inbox will not survive the wait that made the
   # request durable in the first place — so the outcome comes back as a normal persisted
   # event carrying the request's `correlationid`. That reuses the pub/sub path and its
-  # durability instead of inventing a fourth delivery path (ADR-035).
+  # durability instead of inventing a fourth delivery path (ADR-038).
   - type: com.mcafeeconsulting.platform.workload.deployment.promoted.v1
     subject: pf.<tenant>.workload.deployment.promoted.v1.ev
     pattern: pubsub

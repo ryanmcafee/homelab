@@ -1,7 +1,7 @@
 # NATS subject taxonomy and stream set, v1.
 #
 # Normative. Checked by `bun scripts/contract-check.ts` (task contracts:check).
-# Reasoning: docs/contracts/event-contract.md. Decision: ADR-026, revised by ADR-035.
+# Reasoning: docs/contracts/event-contract.md. Decision: ADR-026, revised by ADR-038.
 #
 # Every subject on the platform bus is exactly seven tokens:
 #
@@ -25,7 +25,7 @@
 # filters, and the server refuses the second one with `subjects overlap with an existing
 # stream (10065)`. A third-party bus that widens into `pf.>` does not degrade the platform
 # bus, it makes a platform stream uncreatable. Third-party buses get their own root AND
-# their own NATS account (ADR-035).
+# their own NATS account (ADR-038).
 
 version: 1
 
@@ -43,7 +43,7 @@ grammar:
       Synchronous request on core NATS. Exactly one responder, at-most-once, never
       persisted. Imperative action. Requires `replyto` and `correlationid`. The REPLY
       goes to the requester's private `_INBOX.…` subject, which is outside this grammar
-      by construction — that is why there is no `rs` suffix (ADR-035).
+      by construction — that is why there is no `rs` suffix (ADR-038).
     wq: >-
       Durable request on the PF_WORK work-queue stream. Deferred work, at-least-once,
       exactly one consumer group takes each message. Requires `correlationid`. A `wq`
@@ -127,7 +127,7 @@ streams:
       PF_EVENTS. `discard: new` still means what it should — when the audit stream is full
       it refuses ITS OWN writes rather than dropping history, and it no longer blocks live
       publishes on PF_EVENTS. PF_AUDIT's own stream sequences are internal and are never
-      the envelope's `sequence`. (ADR-035)
+      the envelope's `sequence`. (ADR-038)
 
   - name: PF_WORK
     subjects: ['pf.*.*.*.*.*.wq']
@@ -181,7 +181,7 @@ streams:
       what the work was without stream-admin rights the failing component does not have,
       and the poison message then sits in the workqueue undeliverable until `max_age`
       deletes it silently. PF_DLQ carries the full original envelope instead. See
-      `consumers.dead_letter`. (ADR-035)
+      `consumers.dead_letter`. (ADR-038)
 
 # Hard limits a producer would otherwise discover at publish time.
 limits:
@@ -212,7 +212,7 @@ consumers:
     `filtered consumer not unique on workqueue stream (10100)`. Because PF_WORK spans
     every domain, the first component to create a domain-wide `wq` consumer would
     permanently foreclose every other component in that domain, and it would be discovered
-    in whichever environment the second component deployed to. (ADR-035)
+    in whichever environment the second component deployed to. (ADR-038)
   ack_policy: explicit
   max_deliver: 5
   ack_wait: 30s

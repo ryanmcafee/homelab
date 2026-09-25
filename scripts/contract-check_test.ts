@@ -349,7 +349,7 @@ test("durability is read off the subject suffix, not declared twice", () => {
   // There is no `durable_request` field to disagree with the suffix any more.
   // `wq` IS durable and `rq` is not, and the delivery rules follow from that
   // alone — so the class of drift those three old rules existed to reconcile
-  // cannot occur (ADR-035).
+  // cannot occur (ADR-038).
   assertEquals(rules(registry(PROMOTE, PROMOTED)), []);
   assertEquals(rules(registry(DESCRIBE)), []);
 });
