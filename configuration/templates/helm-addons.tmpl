@@ -1961,8 +1961,7 @@ logging:
           io.cilium/lb-ipam-ips: "{{ .Values.OTEL_LB_IP.Value }}"
           external-dns.alpha.kubernetes.io/hostname: {{ .Values.OTEL_HOSTNAME.Value }}
         # Cilium drops anything from outside these ranges at the load balancer.
-        loadBalancerSourceRanges:
-          - "{{ .Values.NFS_SHARE_ALLOW.Value }}"
+        loadBalancerSourceRanges: [{{ .Values.NFS_SHARE_ALLOW.Value }}{{ with .Values.OTEL_SOURCE_RANGES.Value }}, {{ . }}{{ end }}]
 {{- end }}
 
   # UniFi gateway syslog (CEF) and NetFlow receivers on otel-collector-gateway.
