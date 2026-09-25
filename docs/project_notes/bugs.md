@@ -503,3 +503,9 @@ These are documented errors with known solutions:
 - **Root Cause**: `otel-collector-gateway` allowed only `NFS_SHARE_ALLOW` (the homelab VLAN) in `loadBalancerSourceRanges`. NetFlow leaves the gateway from its homelab VLAN address, but syslog comes from each UniFi device's management address (Default LAN and the wired LAN), which Cilium dropped at the load balancer
 - **Solution**: New optional key `OTEL_SOURCE_RANGES` (comma-separated CIDRs) appended to the collector's `loadBalancerSourceRanges`; homelab sets the two UniFi device networks in `homelab.yaml` and the `homelab-environment-config` document
 - **Prevention**: When an export reaches a source-restricted LoadBalancer, check the sender's source address, not only the destination; one working export from the same device proves nothing about another
+
+### 2026-09-25 - UniFi controller sent no syslog to the SIEM server
+- **Issue**: After PR #377 widened the collector's source ranges, `HomelabUniFiTelemetrySilent{source="syslog"}` still fired; a test line from 172.16.10.x reached ClickHouse, but the collector counted no UniFi syslog record
+- **Root Cause**: `unifi_setting.syslog` set `this_controller = true` and `this_controller_encrypted_only = true`; `this_controller` makes the controller itself the syslog destination and excludes the remote SIEM server
+- **Solution**: Both flags are `false` in `terragrunt/modules/unifi-gateway/main.tf`; apply with `task tf:apply:component COMPONENT=unifi-gateway`
+- **Prevention**: Test an export end to end with one synthetic message before trusting the controller's setting page
