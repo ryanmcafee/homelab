@@ -132,12 +132,15 @@ export function matchesAny(path: string, globs: readonly string[]): boolean {
  * True when the Taskfile.yml diff adds or removes a line mentioning localdev.
  *
  * This is the measured narrowing the gate exists to make. Over the 90 days to
- * 2026-09-25, 20 of the 94 commits on main touch Taskfile.yml but only 7 touch
- * a line containing `localdev`; with the narrowing the gate fires on 33 of 94
- * (35%), without it on roughly half. A `paths:` glob cannot tell those apart; a
+ * 2026-09-25, 20 of the 96 commits on main touch Taskfile.yml but only 7 touch
+ * a line containing `localdev`; with the narrowing the gate fires on 33 of 96
+ * (34%), without it on roughly half. A `paths:` glob cannot tell those apart; a
  * diff test can, and that is the difference between a check people read and a
  * check people mute. This file is the one home for that measurement — the
  * contract states the effect, not the numbers, so the two cannot drift.
+ *
+ * Reproduce it by replaying `classify` over `git log --since="90 days ago"`;
+ * note that a shallow clone silently truncates the window and undercounts.
  *
  * `+++ b/Taskfile.yml` / `--- a/Taskfile.yml` are headers, not content, and are
  * skipped — the path itself never counts as a hit.
