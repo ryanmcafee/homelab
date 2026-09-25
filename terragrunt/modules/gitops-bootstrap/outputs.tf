@@ -5,7 +5,7 @@ output "argocd_namespace" {
 
 output "argocd_server_url" {
   description = "ArgoCD server URL"
-  value       = var.server_ingress_enabled && var.server_host != "" ? "https://${var.server_host}" : "http://localhost:8080"
+  value       = var.server_route_enabled && var.server_host != "" ? "https://${var.server_host}" : "http://localhost:8080"
 }
 
 output "argocd_admin_password" {

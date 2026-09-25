@@ -30,17 +30,19 @@ configs:
       return hs
 
 server:
-  ingress:
-    enabled: ${server_ingress_enabled}
-    ingressClassName: internal
-    hostname: ${server_host}
+  # TLS terminates at the Gateway (wildcard certificate); argocd-server serves plain HTTP.
+  httproute:
+    enabled: ${server_route_enabled}
     annotations:
-      cert-manager.io/cluster-issuer: letsencrypt
       external-dns.alpha.kubernetes.io/hostname: ${server_host}
-    extraTls:
-      - hosts:
-          - ${server_host}
-        secretName: argocd-server-tls
+    hostnames:
+      - ${server_host}
+    parentRefs:
+      - group: gateway.networking.k8s.io
+        kind: Gateway
+        name: envoy-internal
+        namespace: envoy-gateway-system
+        sectionName: https
 
 dex:
   enabled: ${dex_enabled}
