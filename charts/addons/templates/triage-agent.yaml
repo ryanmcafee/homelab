@@ -1,22 +1,23 @@
 {{- $ta := index .Values "triage-agent" }}
-{{- if $ta.enabled }}
+{{- if and $ta.enabled (index .Values "argo-workflows" "enabled") }}
 ---
-# The agent runs non-root with every capability dropped and a read-only root
-# filesystem, so restricted fits. docs/runbooks/triage-agent.md
+# Baseline, not restricted: the Argo Workflows executor containers the
+# controller injects into every step pod carry no container securityContext.
+# docs/runbooks/triage-agent.md
 apiVersion: v1
 kind: Namespace
 metadata:
   name: {{ $ta.namespace }}
   labels:
-    pod-security.kubernetes.io/enforce: restricted
-    pod-security.kubernetes.io/audit: restricted
-    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/audit: baseline
+    pod-security.kubernetes.io/warn: baseline
   annotations:
     argocd.argoproj.io/sync-wave: "10"
 ---
-# Alert triage agent: Alertmanager webhook + sweep -> one read-only Claude
-# Agent SDK run per alert group. Needs the 1Password item (Claude token), so
-# only rendered where a secret store exists; after kube-prometheus-stack (9).
+# Alert triage agent: the intake turns every Alertmanager alert group into a
+# triage-fix Workflow (triage -> plan -> fix -> PR -> CI -> Pushover). Needs
+# the 1Password item (Claude and GitHub tokens) and Argo Workflows (wave 9).
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -41,13 +42,20 @@ spec:
         namespace: {{ $ta.namespace | quote }}
         image: {{ $ta.image | quote }}
         repoUrl: {{ .Values.global.repoUrl | quote }}
+        repoSlug: {{ $ta.repoSlug | quote }}
         alertmanagerUrl: {{ printf "http://kube-prometheus-stack-alertmanager.%s.svc:9093" (index .Values "kube-prometheus-stack" "namespace") | quote }}
+        workflowUiUrl: {{ $ta.workflowUiUrl | quote }}
         onePassword:
           itemPath: {{ $ta.onePasswordItemPath | quote }}
-        memory:
-          persistence:
-            enabled: {{ $ta.memory.persistence.enabled }}
-            storageClass: {{ $ta.memory.persistence.storageClass | quote }}
+        pushover:
+          itemPath: {{ $ta.pushoverItemPath | quote }}
+        workflow:
+          workspace:
+            storageClass: {{ $ta.storageClass | quote }}
+            accessMode: ReadWriteMany
+          cache:
+            storageClass: {{ $ta.storageClass | quote }}
+            accessMode: ReadWriteMany
   destination:
     server: https://kubernetes.default.svc
     namespace: {{ $ta.namespace }}

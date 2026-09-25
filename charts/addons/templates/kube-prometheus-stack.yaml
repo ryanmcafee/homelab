@@ -228,6 +228,7 @@ spec:
               {{- end }}`}}
 
           {{- $triage := index .Values "triage-agent" }}
+          {{- $triageOn := and $triage.enabled (index .Values "argo-workflows" "enabled") }}
           alertmanagerSpec:
             {{- if $route.enabled }}
             externalUrl: https://{{ $route.hostname }}
@@ -268,7 +269,7 @@ spec:
                 - receiver: "null"
                   matchers:
                     - alertname =~ "Watchdog|InfoInhibitor"
-                {{- if $triage.enabled }}
+                {{- if $triageOn }}
                 # Every other alert also goes to the triage agent
                 # (docs/runbooks/triage-agent.md); continue keeps the routes below.
                 - receiver: triage-agent
@@ -299,7 +300,7 @@ spec:
                 equal: [alertname, namespace]
             receivers:
               - name: "null"
-              {{- if $triage.enabled }}
+              {{- if $triageOn }}
               - name: triage-agent
                 webhook_configs:
                   - url: http://triage-agent.{{ $triage.namespace }}.svc:8080/webhook

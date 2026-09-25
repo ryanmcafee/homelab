@@ -1044,8 +1044,8 @@ triage-agent:
   enabled: false
   namespace: triage-agent
   image: ""
+  repoSlug: ""
+  workflowUiUrl: ""
   onePasswordItemPath: ""
-  memory:
-    persistence:
-      enabled: false
-      storageClass: ""
+  pushoverItemPath: ""
+  storageClass: ""

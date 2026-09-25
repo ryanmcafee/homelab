@@ -1782,9 +1782,11 @@ triage-agent:
   enabled: {{ $triage }}
   namespace: triage-agent
   image: "ghcr.io/{{ $githubOwner }}/homelab-triage-agent:{{ index .Versions.Images "triage-agent" }}"
-  # Secret triage-agent: CLAUDE_CODE_OAUTH_TOKEN plus optional fields (docs/runbooks/triage-agent.md).
+  repoSlug: "{{ $githubOwner }}/homelab"
+  workflowUiUrl: "https://{{ .Values.WORKFLOWS_HOSTNAME.Value }}"
+  # Secret triage-agent: CLAUDE_CODE_OAUTH_TOKEN, GITHUB_TOKEN plus optional fields (docs/runbooks/triage-agent.md).
   onePasswordItemPath: "{{ if $onepassword }}{{ .Values.TRIAGE_AGENT_1P_PATH.Value }}{{ end }}"
-  memory:
-    persistence:
-      enabled: {{ eq .Values.TRIAGE_AGENT_MEMORY_PERSISTENCE.Value "true" }}
-      storageClass: {{ .Values.STORAGE_CLASS_NFS.Value }}
+  # The Alertmanager Pushover item, reused for the workflow's notification.
+  pushoverItemPath: "{{ if $onepassword }}{{ .Values.ALERTMANAGER_1P_PATH.Value }}{{ end }}"
+  # Workspace and cache volumes; shared across step pods on any node, so RWX.
+  storageClass: {{ .Values.STORAGE_CLASS_NFS.Value }}

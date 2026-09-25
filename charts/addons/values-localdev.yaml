@@ -1511,9 +1511,11 @@ triage-agent:
   enabled: false
   namespace: triage-agent
   image: "ghcr.io/ryanmcafee/homelab-triage-agent:0.1.0"
-  # Secret triage-agent: CLAUDE_CODE_OAUTH_TOKEN plus optional fields (docs/runbooks/triage-agent.md).
+  repoSlug: "ryanmcafee/homelab"
+  workflowUiUrl: "https://workflows.homelab.local"
+  # Secret triage-agent: CLAUDE_CODE_OAUTH_TOKEN, GITHUB_TOKEN plus optional fields (docs/runbooks/triage-agent.md).
   onePasswordItemPath: ""
-  memory:
-    persistence:
-      enabled: true
-      storageClass: local-path
+  # The Alertmanager Pushover item, reused for the workflow's notification.
+  pushoverItemPath: ""
+  # Workspace and cache volumes; shared across step pods on any node, so RWX.
+  storageClass: local-path

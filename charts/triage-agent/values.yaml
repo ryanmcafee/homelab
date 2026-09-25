@@ -1,9 +1,9 @@
 # triage-agent default values (docs/runbooks/triage-agent.md)
 #
 # The parent addons Application (charts/addons/templates/triage-agent.yaml)
-# passes namespace, image, repoUrl, alertmanagerUrl, onePassword.itemPath and
-# memory.storageClass through helm.valuesObject, all derived from
-# configuration/ (ADR-010); nothing here is environment-specific.
+# passes namespace, image, repoUrl, repoSlug, alertmanagerUrl, workflowUiUrl,
+# the 1Password item paths and the storage class through helm.valuesObject,
+# all derived from configuration/ (ADR-010); nothing here is environment-specific.
 
 enabled: true
 
@@ -12,49 +12,140 @@ name: triage-agent
 
 # ghcr.io/<owner>/homelab-triage-agent:<configuration/versions.yaml images.triage-agent>
 image: ""
-# The GitOps repository the agent clones as its working directory (public; a
-# GITHUB_TOKEN from the 1Password item is used when present).
+# The GitOps repository the workflow clones, fixes and opens PRs against.
 repoUrl: ""
+# owner/name of repoUrl, for gh.
+repoSlug: ""
 repoBranch: main
 # In-cluster Alertmanager API (kube-prometheus-stack-alertmanager service).
 alertmanagerUrl: ""
+# Argo Workflows UI base URL; notifications without a PR link to the workflow.
+workflowUiUrl: ""
 
-# Secret <secretName> from the 1Password item: CLAUDE_CODE_OAUTH_TOKEN
-# (required), GITHUB_TOKEN, DOTFILES_REPO, PAPERCLIP_API_KEY,
-# PAPERCLIP_COMPANY_ID and SLACK_WEBHOOK_URL (all optional).
+# Secret <secretName> from the 1Password item: CLAUDE_CODE_OAUTH_TOKEN and
+# GITHUB_TOKEN (required for fixes), DOTFILES_REPO, PAPERCLIP_API_KEY,
+# PAPERCLIP_COMPANY_ID, ARGOCD_AUTH_TOKEN (optional).
 secretName: triage-agent
 onePassword:
   itemPath: ""
 
-# ClusterRoles the ServiceAccount is bound to: the built-in view role and the
-# role charts/agent-readonly owns (exec, port-forward, cluster-scoped reads).
+# The Alertmanager Pushover item (ALERTMANAGER_1P_PATH), read a second time
+# into this namespace: fields pushover_token and pushover_user_key.
+pushover:
+  secretName: triage-agent-pushover
+  itemPath: ""
+
+# Commit identity; the default is not a person.
+git:
+  userName: homelab-triage-agent
+  userEmail: homelab-triage-agent@users.noreply.github.com
+
+# ArgoCD API for `argocd app sync` (account triage-agent, get + sync only;
+# charts/bootstrap/values-homelab.yaml). The server runs with server.insecure.
+argocd:
+  server: argocd-server.argocd.svc:80
+  opts: "--plaintext --grpc-web"
+
+# ClusterRoles the workflow ServiceAccount is bound to: the built-in view role
+# and the role charts/agent-readonly owns (exec, port-forward, cluster reads).
 clusterRoles:
   - view
   - homelab-agent-readonly
 
-# Sweep GET /api/v2/alerts every sweepIntervalSeconds (0 = webhook only); a
-# group triaged within cooldownSeconds runs again only for a new fingerprint.
-sweepIntervalSeconds: 300
-cooldownSeconds: 86400
-ignoredAlerts:
-  - Watchdog
-  - InfoInhibitor
-  - GitHubPullRequestNeedsReview
-maxReports: 50
-# true: log the prompt instead of calling Claude (no token needed).
-dryRun: false
-logLevel: info
+# Intake Deployment: webhook + sweep -> one Workflow per alert group.
+intake:
+  # Sweep GET /api/v2/alerts every sweepIntervalSeconds (0 = webhook only); a
+  # group handled within cooldownSeconds is submitted again only for a new fingerprint.
+  sweepIntervalSeconds: 300
+  cooldownSeconds: 86400
+  # A PR-review alert must never trigger a fix PR.
+  ignoredAlerts:
+    - Watchdog
+    - InfoInhibitor
+    - GitHubPullRequestNeedsReview
+  maxRecords: 50
+  # true: log the Workflow instead of submitting it.
+  dryRun: false
+  logLevel: info
+  resources:
+    requests:
+      cpu: 10m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 192Mi
 
-# Claude Agent SDK run limits (agent.json).
+# The triage-fix WorkflowTemplate.
+workflow:
+  templateName: triage-fix
+  # Workflows running at once (semaphore); one per alertname at most (mutex).
+  maxConcurrent: 1
+  activeDeadlineSeconds: 18000
+  # Bounded semantic loops: implement+verify attempts, then CI fix rounds.
+  fixAttempts: 3
+  ciAttempts: 2
+  ciTimeoutSeconds: 3600
+  # Canned model answers (TRIAGE_AGENT_FAKE_LLM): the DAG runs without Claude.
+  fakeLlm: false
+  # Per-stage deadlines (seconds).
+  deadlines:
+    triage: 1500
+    plan: 900
+    implement: 3600
+    verify: 2400
+    ciWatch: 4200
+    step: 600
+  # Infrastructure retries of a failed step (pod lost, API error, model crash);
+  # check failures are outputs, not errors, and loop instead.
+  retry:
+    limit: 2
+    backoff:
+      duration: 30s
+      factor: 2
+      maxDuration: 10m
+  ttl:
+    secondsAfterSuccess: 86400
+    secondsAfterFailure: 259200
+  # Per-workflow clone and stage files, deleted with the workflow.
+  workspace:
+    storageClass: ""
+    size: 5Gi
+    accessMode: ReadWriteOnce
+  # Toolchain (mise), Go, npm, uv and bun caches plus the memory MCP graph,
+  # shared by every workflow.
+  cache:
+    storageClass: ""
+    size: 20Gi
+    accessMode: ReadWriteOnce
+  # Tools `mise install` takes from the repository's mise.toml.
+  tools: go helm bun kubeconform conftest pluto task yq
+  resources:
+    requests:
+      cpu: 250m
+      memory: 1Gi
+    limits:
+      cpu: "2"
+      memory: 4Gi
+
+# Claude Agent SDK model and per-stage limits (agent.json).
 agent:
   model: opus[1m]
-  maxTurns: 60
-  timeoutSeconds: 1200
+  stages:
+    triage:
+      maxTurns: 60
+      timeoutSeconds: 1200
+    plan:
+      maxTurns: 30
+      timeoutSeconds: 600
+    implement:
+      maxTurns: 150
+      timeoutSeconds: 3300
 
-# User-scope settings.json (CLAUDE_CONFIG_DIR). The SDK runs with
-# permissionMode dontAsk: every tool call outside permissions.allow is denied,
-# never prompted. The ServiceAccount's RBAC is the boundary; this list keeps
-# the agent on read and diagnose commands.
+# User-scope settings.json (CLAUDE_CONFIG_DIR). Every stage runs with
+# permissionMode dontAsk behind a PreToolUse deny hook (triage-agent/src/policy.ts:
+# mutating kubectl, gh pr merge, pushes to main, Alertmanager/Prometheus writes).
+# This allow list is what triage and plan may use; implement adds Bash, Edit
+# and Write. RBAC stays the boundary for the cluster.
 settings:
   model: opus[1m]
   env:
@@ -84,12 +175,19 @@ settings:
       - Bash(kubectl version:*)
       - Bash(kubectl exec:*)
       - Bash(kubectl port-forward:*)
+      - Bash(argocd app get:*)
+      - Bash(argocd app list:*)
+      - Bash(argocd app diff:*)
+      - Bash(argocd app sync:*)
       - Bash(curl:*)
       - Bash(git log:*)
       - Bash(git show:*)
       - Bash(git diff:*)
       - Bash(git grep:*)
       - Bash(git blame:*)
+      - Bash(gh pr list:*)
+      - Bash(gh pr view:*)
+      - Bash(gh run view:*)
       - Bash(rg:*)
       - Bash(grep:*)
       - Bash(jq:*)
@@ -127,16 +225,6 @@ settings:
       - mcp__paperclip__list_activity
       - mcp__puppeteer__puppeteer_navigate
       - mcp__puppeteer__puppeteer_screenshot
-    deny:
-      - Edit
-      - Write
-      - NotebookEdit
-      - Bash(git push:*)
-      - Bash(git commit:*)
-      - Bash(kubectl get secret:*)
-      - Bash(kubectl get secrets:*)
-      - Bash(kubectl describe secret:*)
-      - Bash(kubectl describe secrets:*)
 
 # MCP servers of the SDK `mcpServers` option (mcp-servers.json). ${VAR} in
 # args or env comes from the pod environment; a server that references an
@@ -188,16 +276,8 @@ mcpServers:
       PAPERCLIP_API_KEY: "${PAPERCLIP_API_KEY}"
       PAPERCLIP_COMPANY_ID: "${PAPERCLIP_COMPANY_ID}"
 
-# Knowledge graph of the memory MCP server. Without persistence it lives on an
-# emptyDir and is lost with the pod.
-memory:
-  persistence:
-    enabled: false
-    storageClass: ""
-    size: 1Gi
-
 # Only the monitoring namespace (Alertmanager webhook, Prometheus scrape) may
-# connect; egress stays open (Claude API, GitHub, npm, PyPI, Kubernetes API).
+# reach the intake; egress stays open (Claude API, GitHub, npm, PyPI, APIs).
 networkPolicy:
   enabled: true
   allowedNamespaces:
@@ -206,11 +286,3 @@ networkPolicy:
 serviceMonitor:
   enabled: true
   interval: 60s
-
-resources:
-  requests:
-    cpu: 100m
-    memory: 512Mi
-  limits:
-    cpu: "2"
-    memory: 3Gi

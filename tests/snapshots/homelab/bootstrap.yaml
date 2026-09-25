@@ -249,6 +249,7 @@ spec:
         configs:
           cm:
             accounts.agent: apiKey
+            accounts.triage-agent: apiKey
             kustomize.buildOptions: --enable-alpha-plugins --enable-exec
             resource.customizations.health.argoproj.io_Application: |
               -- ArgoCD Application: propagate the child Application's own health so the
@@ -457,6 +458,9 @@ spec:
           rbac:
             policy.csv: |
               g, agent, role:readonly
+              p, role:triage-agent, applications, get, */*, allow
+              p, role:triage-agent, applications, sync, */*, allow
+              g, triage-agent, role:triage-agent
         controller:
           metrics:
             enabled: true

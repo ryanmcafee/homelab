@@ -19,6 +19,7 @@ ArgoCD syncs all of this. Nothing works end to end until the human steps below a
 | Group `homelab:agent-readonly` | both bindings | Same roles for a future Tailscale "auth" mode (impersonation). Unused today |
 | Tailscale API server proxy | `charts/addons/templates/tailscale-operator.yaml` `apiServerProxyConfig.mode: "noauth"` | `https://tailscale-operator-homelab.<tailnet>.ts.net` forwards requests without adding authentication, so the caller's bearer token authenticates it |
 | ArgoCD account `agent` | `charts/bootstrap/values-homelab.yaml` `configs.cm."accounts.agent": apiKey`, `configs.rbac."policy.csv": g, agent, role:readonly` | API token only (no UI login). `role:readonly` can view and diff but not sync, delete or exec |
+| ArgoCD account `triage-agent` | same file, `accounts.triage-agent: apiKey`, `p, role:triage-agent, applications, get` and `sync` | The alert triage agent's sync identity (docs/runbooks/triage-agent.md): get and sync Applications, nothing else |
 | GitHub notifier (off) | `charts/bootstrap/values-homelab.yaml` `argocd.notificationsGithub` | `service.github`, templates `app-deployed`, `app-sync-failed`, `app-health-degraded`, triggers `on-deployed`, `on-sync-failed`, `on-health-degraded`, OnePasswordItem `argocd-notifications-secret` |
 | Subscriptions (off) | `charts/gitops/values*.yaml` `notifications.github` → annotations on `bootstrap`, `addons`, `applications` | `notifications.argoproj.io/subscribe.<trigger>.github: ""` |
 

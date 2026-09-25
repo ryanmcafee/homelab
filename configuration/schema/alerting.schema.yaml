@@ -35,15 +35,7 @@ keys:
     default: "24h"
 
   TRIAGE_AGENT_ENABLED:
-    description: Whether the in-cluster alert triage agent runs and Alertmanager sends it every firing alert (needs SECRETS_PROVIDER=onepassword for the Claude token)
-    required: true
-    default: "true"
-    enum:
-      - "true"
-      - "false"
-
-  TRIAGE_AGENT_MEMORY_PERSISTENCE:
-    description: Whether the triage agent's memory MCP knowledge graph lives on a PVC of STORAGE_CLASS_NFS instead of an emptyDir
+    description: Whether the alert triage agent runs; Alertmanager sends it every firing alert and it opens fix PRs through Argo Workflows (needs SECRETS_PROVIDER=onepassword for the Claude and GitHub tokens)
     required: true
     default: "true"
     enum:
