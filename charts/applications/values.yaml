@@ -1130,10 +1130,10 @@ paperclip:
     resources:
       requests:
         cpu: 500m
-        memory: 1Gi
+        memory: 8Gi
       limits:
         cpu: "2"
-        memory: 2Gi
+        memory: 8Gi
 
   # PostSync smoke hook (templates/_smoke.tpl): the operator's health path on
   # the Instance Service; the in-cluster Service name is always an allowed
