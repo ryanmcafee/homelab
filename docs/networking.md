@@ -158,8 +158,6 @@ metadata:
   name: sonarr
   annotations:
     external-dns.alpha.kubernetes.io/hostname: sonarr.<DOMAIN>
-    # external routes only:
-    # external-dns.alpha.kubernetes.io/target: <EXTERNAL_DNS_DEFAULT_TARGET>
 spec:
   parentRefs:
     - group: gateway.networking.k8s.io
@@ -260,13 +258,19 @@ not part of the snapshot.
 ## DNS: external-dns
 
 Four `external-dns` Applications (chart `charts.external-dns`), two per Gateway, each with its
-own `txtOwnerId` so they never fight over records:
+own `txtOwnerId` so they never fight over records.
+
+The `gateway-httproute` source takes a route's targets from its Gateway only: the Gateway's
+`external-dns.alpha.kubernetes.io/target` annotation, else `status.addresses`. A route's own
+target annotation is ignored (policy `httproute-target`). Both Envoy Gateways carry the
+annotation (`dnsTarget` in `charts/envoy-gateway-config`), so records survive while a Gateway
+has no address; with `policy: sync` an empty address list would delete every record.
 
 | Application | Provider | Sources | Selects | Target |
 |-------------|----------|---------|---------|--------|
 | `external-dns-cloudflare` | cloudflare (`proxied` from values) | `gateway-httproute` | `--gateway-name=envoy-external --gateway-namespace=envoy-gateway-system` plus an `annotationFilter` | `--default-targets=<EXTERNAL_DNS_DEFAULT_TARGET>` (`<DUCKDNS_SUBDOMAIN>.duckdns.org`), so public names are **CNAMEs to the DuckDNS name**, never the LAN address |
 | `external-dns-cloudflare-crd` | cloudflare | `crd` (`DNSEndpoint`) | explicit `DNSEndpoint` records | same default target |
-| `external-dns-unifi-ingress` | UniFi webhook (`charts.external-dns-webhook-unifi`) | `gateway-httproute`, `service` | `--gateway-name=envoy-internal --gateway-namespace=envoy-gateway-system` | the Gateway (or Service) LoadBalancer address on the LAN |
+| `external-dns-unifi-ingress` | UniFi webhook (`charts.external-dns-webhook-unifi`) | `gateway-httproute`, `service` | `--gateway-name=envoy-internal --gateway-namespace=envoy-gateway-system` | the Gateway's `external-dns.alpha.kubernetes.io/target` (`GATEWAY_INTERNAL_STATIC_IP`), else its address; a Service's LoadBalancer address |
 | `external-dns-unifi-crd` | UniFi webhook | `crd` | `DNSEndpoint` records for the LAN (`charts/external-dns-config`) | as declared |
 
 The `duckdns` Application (`charts/duckdns`, token from `duckdns-dependencies`) refreshes

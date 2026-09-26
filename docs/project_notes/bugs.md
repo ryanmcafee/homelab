@@ -12,6 +12,12 @@ Each entry should include:
 
 ## Entries
 
+### 2026-09-26 - HTTPRoute hostnames stopped resolving after the Envoy Gateway cutover (#387)
+- **Issue**: `argocd.<domain>`, `grafana.<domain>` and every other route host returned no answer from UniFi DNS; Cloudflare logged `DELETE plex.<domain>`. `envoy-internal`/`envoy-external` reported `Programmed` False (`AddressNotAssigned`) with their Services `<pending>`
+- **Root Cause**: A manual `addons` sync without prune left the Traefik Applications `PruneSkipped`, so their Services kept the pinned addresses, and the sync waited forever on `envoy-gateway-config` health. external-dns's `gateway-httproute` source takes targets only from the Gateway (target annotation, else `status.addresses`); with no address and `policy: sync` it deleted every record. The route-level `target` annotation on Plex and oauth2-proxy was never read
+- **Solution**: `charts/envoy-gateway-config` annotates each Gateway with `external-dns.alpha.kubernetes.io/target` (`dnsTarget`: `GATEWAY_INTERNAL_STATIC_IP` internal, `EXTERNAL_DNS_DEFAULT_TARGET` external), route-level targets were removed and policy `httproute-target` rejects them. Recovery on the cluster: `argocd app terminate-op addons`, then `argocd app sync addons --prune`
+- **Prevention**: Sync `addons` with prune whenever an Application is removed that holds a LoadBalancer address. DNS for Gateway routes never depends on LoadBalancer status
+
 ### 2026-09-26 - addons/applications ComparisonError: required keys missing, then a stale CMP subPath mount
 - **Issue**: After #393 made `DNS_SERVER_IP`, `GITOPS_REPO_URL`, `LAN_CIDR` and `PROXMOX_NODE` required, `addons` and `applications` failed with `validation failed for set "homelab"`; adding the keys to the 1Password document `homelab-environment-config` synced the Secret but the error stayed
 - **Root Cause**: The production env doc never got the four keys. Once added, the `homelab-cmp` sidecar still read the old file: it mounted the Secret with `subPath: homelab.yaml`, and kubelet never refreshes `subPath` mounts. ArgoCD then served the failure from its manifest cache (`Manifest generation error (cached)`)

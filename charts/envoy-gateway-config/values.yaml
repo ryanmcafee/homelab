@@ -25,6 +25,9 @@ gateways:
     name: envoy-external
 
 defaults:
+  # DNS target external-dns publishes for every route on this Gateway; empty uses the Gateway address.
+  dnsTarget: ""
+
   service:
     # ClusterIP where no LoadBalancer exists (Kind): the Gateway then reports the ClusterIP as its address.
     type: LoadBalancer

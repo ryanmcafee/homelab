@@ -94,6 +94,30 @@ deny contains msg if {
 	msg := sprintf("[httproute-parent] %s: inline values %s: parentRef %s/%s sectionName %q, want %s", [lib.id(input), concat(".", [sprintf("%v", [p]) | some p in path]), ns, object.get(ref, "name", ""), object.get(ref, "sectionName", ""), want])
 }
 
+dns_target_annotation := "external-dns.alpha.kubernetes.io/target"
+
+# httproute-target: external-dns takes route targets from the Gateway only, so a
+# route-level target is silently ignored.
+deny contains msg if {
+	input.kind == "HTTPRoute"
+	not lib.is_exempt(input, "httproute-target")
+	object.get(object.get(object.get(input, "metadata", {}), "annotations", {}), dns_target_annotation, null) != null
+	msg := sprintf("[httproute-target] %s: external-dns ignores %s on a route; set dnsTarget on the Gateway", [lib.id(input), dns_target_annotation])
+}
+
+deny contains msg if {
+	input.kind == "Application"
+	input.apiVersion == "argoproj.io/v1alpha1"
+	not lib.is_exempt(input, "httproute-target")
+	walk(lib.inline_values(input), [path, annotations])
+	count(path) > 1
+	path[count(path) - 1] == "annotations"
+	lower(sprintf("%v", [path[count(path) - 2]])) in {"httproute", "gatewayapi"}
+	is_object(annotations)
+	object.get(annotations, dns_target_annotation, null) != null
+	msg := sprintf("[httproute-target] %s: inline values %s sets %s, which external-dns ignores on a route; set dnsTarget on the Gateway", [lib.id(input), concat(".", [sprintf("%v", [p]) | some p in path]), dns_target_annotation])
+}
+
 # no-ingress: Envoy Gateway does not implement networking.k8s.io Ingress, so an
 # Ingress is never served.
 deny contains msg if {

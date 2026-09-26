@@ -313,6 +313,9 @@ kind: Gateway
 metadata:
   name: envoy-external
   namespace: envoy-gateway-system
+  annotations:
+    # external-dns publishes this instead of status.addresses, which is empty until the LB IP binds.
+    external-dns.alpha.kubernetes.io/target: "REPLACEME-subdomain.duckdns.org"
 spec:
   gatewayClassName: envoy-external
   listeners:
@@ -342,6 +345,9 @@ kind: Gateway
 metadata:
   name: envoy-internal
   namespace: envoy-gateway-system
+  annotations:
+    # external-dns publishes this instead of status.addresses, which is empty until the LB IP binds.
+    external-dns.alpha.kubernetes.io/target: "192.168.1.101"
 spec:
   gatewayClassName: envoy-internal
   listeners:

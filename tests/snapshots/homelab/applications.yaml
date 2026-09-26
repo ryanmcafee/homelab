@@ -1597,7 +1597,6 @@ spec:
         httpRoute:
           annotations:
             external-dns.alpha.kubernetes.io/hostname: plex.replaceme-domain.com
-            external-dns.alpha.kubernetes.io/target: REPLACEME-subdomain.duckdns.org
           enabled: true
           hostnames:
           - plex.replaceme-domain.com

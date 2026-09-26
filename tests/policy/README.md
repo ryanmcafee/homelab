@@ -12,7 +12,7 @@ route and hostname object in the GitOps repo. Evaluated by `internal/verify.Poli
 | `application.rego` | `app-finalizer`, `app-sync-wave`, `app-ssa`, `app-automated`. |
 | `applicationset.rego` | `appset-finalizer`, `appset-ssa`, `appset-project`, `appset-automated` (the `spec.template` of an `ApplicationSet`). |
 | `workload.rego` | `image-latest`, `container-resources`, `cronjob-ttl`. |
-| `httproute.rego` | `httproute-parent`, `no-ingress`. |
+| `httproute.rego` | `httproute-parent`, `httproute-target`, `no-ingress`. |
 | `secret.rego` | `inline-secret`. |
 | `hostname.rego` | `hostname-domain`, plus the domain-missing safety net. |
 | `*_test.rego` | Rego unit tests (`conftest verify -p tests/policy`). |
@@ -35,6 +35,7 @@ route and hostname object in the GitOps repo. Evaluated by `internal/verify.Poli
 | `container-resources` | same workload kinds | Every container sets `resources.requests`/`resources.limits` for both `cpu` and `memory`. |
 | `cronjob-ttl` | `CronJob` | `spec.jobTemplate.spec.ttlSecondsAfterFinished` is a number. `KubeJobFailed` fires for as long as a failed Job object exists, and `failedJobsHistoryLimit` only trims a failed Job when a newer failure replaces it, so without a TTL one transient failure alerts forever. |
 | `httproute-parent` | `HTTPRoute` `parentRefs`, and any `parentRefs` list in an `Application`'s inline helm values | Every parent is the `https` listener (`sectionName: https`) of `data.gateway_internal` or `data.gateway_external` in `data.gateway_namespace` (written into `_data.yaml` from `GATEWAY_*`). The `http` listener only redirects, so it accepts only redirect routes (no `backendRefs`). The Istio comparison gateways (`istio-internal`/`istio-external` in `istio-ingress`) accept only the route `echo`. Inline `parentRefs` must name their namespace. |
+| `httproute-target` | `HTTPRoute` annotations, and `annotations` under an `httpRoute`/`gatewayApi` key in an `Application`'s inline helm values | No `external-dns.alpha.kubernetes.io/target`. The `gateway-httproute` source ignores it on a route and takes targets from the Gateway (`dnsTarget` in `charts/envoy-gateway-config`). |
 | `no-ingress` | `networking.k8s.io` `Ingress`, and any `ingress...enabled: true` in an `Application`'s inline helm values (outside a `networkPolicy` key) | Absent. Envoy Gateway does not implement Ingress, so an Ingress applies cleanly and is never served; use an HTTPRoute (the chart's native route support). |
 | `inline-secret` | `Secret` | `data`/`stringData` keys are a subset of `name, url, type, enableOCI, project, insecure` (the ArgoCD repository-secret shape). Anything else is treated as inline secret material that should live in 1Password/SOPS instead. |
 | `hostname-domain` | `HTTPRoute` `hostnames`, `Gateway` listener `hostname`, cert-manager `Certificate` `dnsNames`, external-dns `DNSEndpoint` `dnsName`, **and** any hostname embedded in an `Application`'s inline `spec.source.helm.values`/`valuesObject` (a value under a `host`/`hostname`/`hosts[]`/`hostnames[]`/`dnsNames[]`/`commonName`/`externalHostname` key, or the host of an http(s) `url`, anywhere in the parsed tree) | Is `data.domain` itself or ends with `.` + `data.domain` (the environment's base domain). |

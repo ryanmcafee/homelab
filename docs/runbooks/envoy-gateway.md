@@ -42,6 +42,10 @@ Envoy Gateway is the cluster's ingress (ADR-040). Two Gateways in `envoy-gateway
 | `applications` syncs | App Ingresses are pruned and their HTTPRoutes created; between the two syncs those hosts answer 404 from Envoy |
 | external-dns | Switches to the `gateway-httproute` source with the same owner IDs, so records are adopted, not recreated |
 
+Sync `addons` with prune: automated sync does, a manual sync needs `argocd app sync addons --prune`.
+Without prune the old ingress Services keep the addresses, `envoy-gateway-config` never turns
+Healthy and the sync waits forever. Recover with `argocd app terminate-op addons`, then a prune sync.
+
 ### Checks after the sync
 
 ```bash
@@ -67,6 +71,7 @@ pruned and the addresses move back. The old keys must still be in the 1Password 
 | Symptom | Look at |
 |---------|---------|
 | Gateway not `Programmed` | `kubectl -n envoy-gateway-system describe gateway envoy-internal`; Service `<pending>` means the address is taken (`kubectl get svc -A -o wide \| rg <ip>`) |
+| Names stop resolving | `kubectl -n envoy-gateway-system get gateway -o yaml \| rg dns.alpha`: each Gateway needs its `external-dns.alpha.kubernetes.io/target`; then `kubectl -n external-dns-unifi logs deploy/external-dns-unifi-ingress -c external-dns \| rg -v 'up to date'` |
 | Route not served (404) | `kubectl -n <ns> get httproute <name> -o yaml`: `status.parents[].conditions` must show `Accepted` and `ResolvedRefs` True; `sectionName: https` and the hostname under `*.<DOMAIN>` |
 | 503 / `no healthy upstream` | backend Service name/port in `backendRefs`, endpoints (`kubectl -n <ns> get endpointslices`), NetworkPolicies allowing `envoy-gateway-system` |
 | TLS error | `kubectl -n envoy-gateway-system get certificate gateway-wildcard-tls`, `kubectl describe certificaterequest -n envoy-gateway-system` |
@@ -124,7 +129,9 @@ timeout, `NR` no route, `DC` downstream disconnect).
      - {{ .Values.APP_HOSTNAME.Value }}
    ```
 
-   External routes also set `external-dns.alpha.kubernetes.io/target: <EXTERNAL_DNS_DEFAULT_TARGET>`.
+   Never set `external-dns.alpha.kubernetes.io/target` on a route: external-dns ignores it and
+   takes the target from the Gateway (`dnsTarget`), `EXTERNAL_DNS_DEFAULT_TARGET` for the
+   external Gateway, `GATEWAY_INTERNAL_STATIC_IP` for the internal one.
 3. No TLS block, cert-manager annotation or Certificate: the wildcard covers `*.<DOMAIN>`.
 4. `task verify:text`, then `task docs:check -- --fix` to add the host to the route inventory in
    networking.md.
