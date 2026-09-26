@@ -8,7 +8,15 @@
  *   bun test scripts/renovate-regen_test.ts
  */
 
-import { readFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { test } from "bun:test";
 import {
   assert,
@@ -22,9 +30,11 @@ import {
   COMMITTER_READ_FROM_MAJOR,
   committerIsRead,
   deployedMajorFindings,
+  changedPaths,
   generatedOnlyError,
   identityParityError,
   parseGitIgnoredAuthors,
+  parsePorcelainPaths,
   parseRegenIdentity,
   readDeployedRenovate,
   RENOVATE_CONFIG_PATH,
@@ -554,5 +564,143 @@ test("every rule id the script can emit is documented in the runbook", () => {
       runbook.includes(ruleId),
       `${ruleId} is emitted by scripts/renovate-regen.ts but never documented in ${RUNBOOK_PATH}`,
     );
+  }
+});
+
+// --- porcelain parsing -------------------------------------------------------
+//
+// `git status --porcelain` lines start with a two-character status field, and
+// for a worktree-modified, unstaged file that field is `" M"` — a leading space
+// that is *data*. Trimming the blob before splitting removes it from the first
+// line only, so a fixed `slice(3)` eats the first character of exactly one path.
+// That is the homelab#255 failure: `charts/addons/values-localdev.yaml` arrived
+// as `harts/...`, matched nothing in GENERATED_PATHS, and the generated-only
+// guard rejected the one file `task renovate:regen` exists to regenerate.
+
+/** Real `git status --porcelain` bytes: two generated files edited in the
+ * worktree and not staged, charts/ first because the output is path-sorted. */
+const PORCELAIN_UNSTAGED =
+  " M charts/addons/values-localdev.yaml\n M tests/schemas/x.json\n";
+
+test("parsePorcelainPaths keeps the first path intact when it is unstaged", () => {
+  // The regression: the *first* line is the only one a leading trim() can
+  // damage, so the fixture must put the modified file first.
+  assertEquals(parsePorcelainPaths(PORCELAIN_UNSTAGED), [
+    "charts/addons/values-localdev.yaml",
+    "tests/schemas/x.json",
+  ]);
+});
+
+test("parsePorcelainPaths handles every status field a regeneration produces", () => {
+  assertEquals(
+    parsePorcelainPaths(
+      " M charts/applications/values-localdev.yaml\n" + // unstaged edit
+        "M  tests/snapshots/homelab/x.yaml\n" + // staged edit
+        "?? tests/schemas/new.json\n" + // untracked
+        "MM readme.md\n", // staged + unstaged
+    ),
+    [
+      "charts/applications/values-localdev.yaml",
+      "tests/snapshots/homelab/x.yaml",
+      "tests/schemas/new.json",
+      "readme.md",
+    ],
+  );
+});
+
+test("parsePorcelainPaths on a clean tree yields no paths", () => {
+  // "nothing to regenerate" must not come back as one empty path, which would
+  // reach `git add -- ''`.
+  assertEquals(parsePorcelainPaths(""), []);
+  assertEquals(parsePorcelainPaths("\n"), []);
+});
+
+test("the generated-only guard accepts a regeneration whose first file is unstaged", () => {
+  // End-to-end over the two units that homelab#255 tripped: parse, then judge.
+  // Before the fix this returned the `harts/...` rejection.
+  assertEquals(
+    generatedOnlyError(parsePorcelainPaths(PORCELAIN_UNSTAGED)),
+    null,
+  );
+});
+
+test("a trimmed porcelain blob is what the bug looked like", () => {
+  // Pins the mechanism, so a future refactor that reintroduces the trim fails
+  // here with an explanation rather than in production with a mangled path.
+  const damaged = PORCELAIN_UNSTAGED.trim()
+    .split("\n")
+    .map((line) => line.slice(3).trim());
+  assertEquals(damaged[0], "harts/addons/values-localdev.yaml");
+  assert(
+    generatedOnlyError(damaged) !== null,
+    "the damaged path must still be rejected by the guard — that rejection was the symptom",
+  );
+});
+
+test("no porcelain read goes through the trimming capture()", () => {
+  // The fix is only durable if the *reader* stays raw, and the call site is one
+  // `capture(` away from the bug at any time.
+  const source = readFileSync("scripts/renovate-regen.ts", "utf8").replace(
+    /\s+/g,
+    " ",
+  );
+  const readers = [
+    ...source.matchAll(/(\w+)\(\[ ?"git", "status", "--porcelain"/g),
+  ].map((m) => m[1]);
+  assert(readers.length >= 2, `expected the porcelain reads, found ${readers}`);
+  for (const reader of readers) {
+    assertEquals(
+      reader,
+      "captureRaw",
+      "git status --porcelain must be read untrimmed: capture() trims the leading status space off the first line and slice(3) then eats a character of that path",
+    );
+  }
+});
+
+test("changedPaths reads real git output without damaging the first path", async () => {
+  // The integration half of the regression. The fixture tests above pin the
+  // parser; this one pins the *read*, which is where the `.trim()` lived. It
+  // builds a throwaway repository, edits two tracked generated files without
+  // staging them — the `" M"` shape — and asserts the guard accepts the result.
+  const repo = mkdtempSync(join(tmpdir(), "renovate-regen-"));
+  const git = (...args: string[]) => {
+    const r = Bun.spawnSync(["git", ...args], {
+      cwd: repo,
+      env: {
+        ...process.env,
+        // A bare CI runner has no git identity, and this runner's is blank; any
+        // valid one will do, the test does not read it back.
+        GIT_AUTHOR_NAME: "regen-test",
+        GIT_AUTHOR_EMAIL: "regen-test@example.invalid",
+        GIT_COMMITTER_NAME: "regen-test",
+        GIT_COMMITTER_EMAIL: "regen-test@example.invalid",
+      },
+    });
+    assert(
+      r.exitCode === 0,
+      `git ${args.join(" ")} failed: ${r.stderr.toString()}`,
+    );
+  };
+  try {
+    mkdirSync(join(repo, "charts/addons"), { recursive: true });
+    mkdirSync(join(repo, "tests/schemas"), { recursive: true });
+    writeFileSync(join(repo, "charts/addons/values-localdev.yaml"), "v: 1\n");
+    writeFileSync(join(repo, "tests/schemas/x.json"), "{}\n");
+    git("init", "-q", "--initial-branch=main", ".");
+    git("add", "-A");
+    git("-c", "commit.gpgsign=false", "commit", "-qm", "init");
+    // Unstaged edits of tracked files: porcelain reports " M <path>", and git
+    // sorts by path, so charts/ is first — the only line a leading trim harms.
+    writeFileSync(join(repo, "charts/addons/values-localdev.yaml"), "v: 2\n");
+    writeFileSync(join(repo, "tests/schemas/x.json"), '{"a":1}\n');
+
+    const changed = await changedPaths(repo);
+    assertEquals(changed, [
+      "charts/addons/values-localdev.yaml",
+      "tests/schemas/x.json",
+    ]);
+    assertEquals(generatedOnlyError(changed), null);
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
   }
 });

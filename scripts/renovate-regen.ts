@@ -437,6 +437,33 @@ export function commitIdentityFindings(
   return { error, warning };
 }
 
+/**
+ * Split `git status --porcelain` (v1) output into paths.
+ *
+ * Takes the **untrimmed** output on purpose. Every porcelain line begins with a
+ * two-character status field, and for a file modified in the worktree but not
+ * staged that field is `" M"` — a leading *space*. Trimming the whole blob eats
+ * that space on the first line only, and a fixed `slice(3)` then eats the first
+ * character of the path with it: `" M charts/addons/values-localdev.yaml"`
+ * became `"harts/addons/values-localdev.yaml"`, which matches nothing in
+ * {@link GENERATED_PATHS}, so {@link generatedOnlyError} rejected the very file
+ * this script exists to regenerate. Lines 2..n kept their space and parsed
+ * correctly, which is the tell: exactly one of N changed files is flagged, and
+ * always the alphabetically first one. Measured on `renovate/monitoring-stack`
+ * (homelab#255), where it made `task renovate:regen` — the documented fallback
+ * for an unconfigured regeneration bot — impossible to run at all.
+ *
+ * So: never hand this function a trimmed string, and never trim a line before
+ * removing its status field.
+ */
+export function parsePorcelainPaths(raw: string): string[] {
+  return raw
+    .split("\n")
+    .filter((line) => line.length > 0)
+    .map((line) => line.slice(3).trim())
+    .filter(Boolean);
+}
+
 export function generatedOnlyError(changed: string[]): string | null {
   const foreign = changed.filter(
     (p) =>
@@ -455,11 +482,16 @@ export function generatedOnlyError(changed: string[]): string | null {
   ].join("\n");
 }
 
-async function run(cmd: string[], quiet = false): Promise<string> {
+async function run(
+  cmd: string[],
+  quiet = false,
+  cwd?: string,
+): Promise<string> {
   const p = Bun.spawn(cmd, {
     stdin: "inherit",
     stdout: quiet ? "pipe" : "inherit",
     stderr: "pipe",
+    ...(cwd ? { cwd } : {}),
   });
   const [stdout, stderr, code] = await Promise.all([
     new Response(p.stdout).text(),
@@ -468,11 +500,35 @@ async function run(cmd: string[], quiet = false): Promise<string> {
   ]);
   if (code !== 0)
     throw new Error(`Command failed: ${cmd.join(" ")}\n${stderr}`);
-  return stdout.trim();
+  return stdout;
 }
 
+/** Command output with surrounding whitespace removed — for the single-value
+ * reads (`rev-parse`, `log --format`) where the trailing newline is noise. */
 async function capture(cmd: string[]): Promise<string> {
-  return run(cmd, true);
+  return (await run(cmd, true)).trim();
+}
+
+/** Command output byte-for-byte. Required for anything whose *leading*
+ * whitespace is data, i.e. `git status --porcelain` — see
+ * {@link parsePorcelainPaths}. */
+async function captureRaw(cmd: string[], cwd?: string): Promise<string> {
+  return run(cmd, true, cwd);
+}
+
+/**
+ * The paths git reports as changed, read and parsed.
+ *
+ * Exported, and `cwd`-parameterised, so the *read* is covered by a test that
+ * runs real git in a real repository. A unit test over a string fixture cannot
+ * see a `.trim()` reintroduced inside the capture helper, and that trim is
+ * precisely what broke this — so the fixture-level tests alone would let the
+ * bug back in. See {@link parsePorcelainPaths}.
+ */
+export async function changedPaths(cwd?: string): Promise<string[]> {
+  return parsePorcelainPaths(
+    await captureRaw(["git", "status", "--porcelain"], cwd),
+  );
 }
 
 /**
@@ -555,13 +611,13 @@ async function main(): Promise<void> {
     );
   }
 
-  const dirty = await capture(["git", "status", "--porcelain"]);
+  const dirty = await captureRaw(["git", "status", "--porcelain"]);
   if (dirty) {
     console.error(
       red(
         "renovate-regen/clean-tree: the working tree is dirty. Regeneration output has to be\n" +
           "  the only thing in the commit, so commit or stash your changes first.\n" +
-          dirty,
+          dirty.trimEnd(),
       ),
     );
     process.exit(1);
@@ -572,10 +628,7 @@ async function main(): Promise<void> {
     await run(step.cmd);
   }
 
-  const changed = (await capture(["git", "status", "--porcelain"]))
-    .split("\n")
-    .filter(Boolean)
-    .map((line) => line.slice(3).trim());
+  const changed = await changedPaths();
   if (changed.length === 0) {
     console.log(
       `${green("[OK]")} nothing to regenerate; the branch is already current`,
