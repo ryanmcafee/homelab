@@ -8,7 +8,15 @@
  *   bun test scripts/renovate-regen_test.ts
  */
 
-import { readFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
 import { test } from "bun:test";
 import {
   assert,
@@ -27,6 +35,7 @@ import {
   identityParityError,
   parseGitIgnoredAuthors,
   parseRegenIdentity,
+  readChangedPaths,
   readDeployedRenovate,
   RENOVATE_CONFIG_PATH,
   WORKFLOW_PATH,
@@ -582,4 +591,55 @@ test("changedPaths reports a rename's new path and skips its source path", () =>
 
 test("changedPaths returns nothing for a clean tree", () => {
   assertEquals(changedPaths(""), []);
+});
+
+/** Builds a repo whose first porcelain entry is worktree-modified, i.e. " M path". */
+function repoWithUnstagedEdits(paths: string[]): string {
+  const dir = mkdtempSync(join(tmpdir(), "regen-read-"));
+  const git = (...args: string[]) =>
+    Bun.spawnSync(["git", "-C", dir, ...args], {
+      env: {
+        ...Bun.env,
+        GIT_AUTHOR_NAME: "t",
+        GIT_AUTHOR_EMAIL: "t@example.com",
+        GIT_COMMITTER_NAME: "t",
+        GIT_COMMITTER_EMAIL: "t@example.com",
+      },
+    });
+  git("init", "-q", "-b", "main");
+  for (const p of paths) {
+    mkdirSync(dirname(join(dir, p)), { recursive: true });
+    writeFileSync(join(dir, p), "before\n");
+  }
+  git("add", "-A");
+  git("commit", "-qm", "seed");
+  for (const p of paths) writeFileSync(join(dir, p), "after\n");
+  return dir;
+}
+
+// The bug lived in the read, not the parser: a trimmed first entry became "harts/...".
+test("readChangedPaths keeps the first path intact against a real git worktree", async () => {
+  const dir = repoWithUnstagedEdits([
+    "charts/addons/values-localdev.yaml",
+    "tests/snapshots/localdev/addons.yaml",
+  ]);
+  try {
+    const changed = await readChangedPaths(dir);
+    assertEquals(changed, [
+      "charts/addons/values-localdev.yaml",
+      "tests/snapshots/localdev/addons.yaml",
+    ]);
+    assertEquals(generatedOnlyError(changed), null);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("readChangedPaths returns nothing for a real clean worktree", async () => {
+  const dir = repoWithUnstagedEdits([]);
+  try {
+    assertEquals(await readChangedPaths(dir), []);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
