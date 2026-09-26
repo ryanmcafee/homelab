@@ -1094,9 +1094,6 @@ oauth2-proxy:
   chart:
     version: "10.7.0"
 
-  # External route auth.<DOMAIN>; Cloudflare CNAMEs it to this target.
-  externalDNSTarget: homelab-dev.duckdns.org
-
   # 1Password paths for secrets
   googleOAuthPath: vaults/homelab/items/google-oauth
   cookieSecretPath: vaults/homelab/items/oauth2-proxy-cookie

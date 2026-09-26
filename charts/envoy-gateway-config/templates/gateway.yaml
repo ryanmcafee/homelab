@@ -19,6 +19,11 @@ kind: Gateway
 metadata:
   name: {{ $v.name }}
   namespace: {{ $.Values.namespace }}
+  {{- with $v.dnsTarget }}
+  annotations:
+    # external-dns publishes this instead of status.addresses, which is empty until the LB IP binds.
+    external-dns.alpha.kubernetes.io/target: {{ . | quote }}
+  {{- end }}
 spec:
   gatewayClassName: {{ $v.name }}
   listeners:

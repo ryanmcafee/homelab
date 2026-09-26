@@ -1232,6 +1232,9 @@ envoy-gateway:
       enabled: true
       config:
         name: {{ .Values.GATEWAY_INTERNAL.Value }}
+{{- if $lb }}
+        dnsTarget: "{{ .Values.GATEWAY_INTERNAL_STATIC_IP.Value }}"
+{{- end }}
         service:
 {{- if $lb }}
           type: LoadBalancer
@@ -1275,6 +1278,9 @@ envoy-gateway:
       enabled: true
       config:
         name: {{ .Values.GATEWAY_EXTERNAL.Value }}
+{{- if $lb }}
+        dnsTarget: "{{ .Values.EXTERNAL_DNS_DEFAULT_TARGET.Value }}"
+{{- end }}
         service:
 {{- if $lb }}
           type: LoadBalancer
@@ -1338,9 +1344,6 @@ oauth2-proxy:
 
   chart:
     version: "{{ index .Versions.Charts "oauth2-proxy" }}"
-
-  # External route auth.<DOMAIN>; Cloudflare CNAMEs it to this target.
-  externalDNSTarget: {{ .Values.EXTERNAL_DNS_DEFAULT_TARGET.Value }}
 
   # 1Password paths for secrets
   googleOAuthPath: {{ .Values.GOOGLE_OAUTH_1P_PATH.Value }}

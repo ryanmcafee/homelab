@@ -1397,7 +1397,6 @@ spec:
         httpRoute:
           annotations:
             external-dns.alpha.kubernetes.io/hostname: plex.homelab.local
-            external-dns.alpha.kubernetes.io/target: homelab-dev.duckdns.org
           enabled: true
           hostnames:
           - plex.homelab.local

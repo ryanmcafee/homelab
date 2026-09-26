@@ -164,3 +164,25 @@ test_inline_ingress_disabled_passes if {
 test_inline_network_policy_ingress_passes if {
 	count(deny) == 0 with input as application("networkPolicy:\n  ingress:\n    enabled: true\n")
 }
+
+test_route_target_annotation_is_denied if {
+	obj := json.patch(route("plex", "plex", [ref("envoy-external", "envoy-gateway-system", "https")]), [{"op": "add", "path": "/metadata/annotations", "value": {"external-dns.alpha.kubernetes.io/target": "lab.duckdns.org"}}])
+	some m in deny with input as obj
+	startswith(m, "[httproute-target]")
+}
+
+test_route_hostname_annotation_passes if {
+	obj := json.patch(route("plex", "plex", [ref("envoy-external", "envoy-gateway-system", "https")]), [{"op": "add", "path": "/metadata/annotations", "value": {"external-dns.alpha.kubernetes.io/hostname": "plex.example.com"}}])
+	count(deny) == 0 with input as obj
+}
+
+test_inline_route_target_annotation_is_denied if {
+	app := {
+		"apiVersion": "argoproj.io/v1alpha1",
+		"kind": "Application",
+		"metadata": {"name": "plex", "namespace": "argocd"},
+		"spec": {"source": {"helm": {"valuesObject": {"httpRoute": {"annotations": {"external-dns.alpha.kubernetes.io/target": "lab.duckdns.org"}}}}}},
+	}
+	some m in deny with input as app
+	startswith(m, "[httproute-target]")
+}

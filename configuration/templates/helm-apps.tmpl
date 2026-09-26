@@ -238,12 +238,11 @@ plex:
   # (dev-dri mount is also added by plex.yaml — see note above.)
 
   # HTTPRoute on the https listener of the external Gateway (GATEWAY_EXTERNAL);
-  # Cloudflare CNAMEs the hostname to EXTERNAL_DNS_DEFAULT_TARGET.
+  # Cloudflare CNAMEs the hostname to the Gateway's target, EXTERNAL_DNS_DEFAULT_TARGET.
   httpRoute:
     enabled: true
     annotations:
       external-dns.alpha.kubernetes.io/hostname: {{ .Values.PLEX_HOSTNAME.Value }}
-      external-dns.alpha.kubernetes.io/target: {{ .Values.EXTERNAL_DNS_DEFAULT_TARGET.Value }}
     parentRefs:
       - group: gateway.networking.k8s.io
         kind: Gateway

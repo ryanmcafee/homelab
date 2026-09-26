@@ -69,9 +69,6 @@ spec:
             {{- include "addons.gatewayParentRefs" (dict "root" . "gateway" "external") | fromYamlArray | first | toYaml | nindent 12 }}
           annotations:
             external-dns.alpha.kubernetes.io/hostname: auth.{{ .Values.global.domain }}
-            {{- with (index .Values "oauth2-proxy" "externalDNSTarget") }}
-            external-dns.alpha.kubernetes.io/target: {{ . }}
-            {{- end }}
           hostnames:
             - auth.{{ .Values.global.domain }}
 

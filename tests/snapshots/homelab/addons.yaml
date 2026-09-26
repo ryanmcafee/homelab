@@ -1967,6 +1967,7 @@ spec:
               maxReplicas: 3
               minReplicas: 2
               targetCPUUtilizationPercentage: 80
+            dnsTarget: REPLACEME-subdomain.duckdns.org
             enabled: true
             name: envoy-external
             replicas: 2
@@ -1991,6 +1992,7 @@ spec:
               maxReplicas: 3
               minReplicas: 2
               targetCPUUtilizationPercentage: 80
+            dnsTarget: 192.168.1.101
             enabled: true
             name: envoy-internal
             replicas: 2
