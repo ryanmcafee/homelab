@@ -25,26 +25,50 @@ function response(
   };
 }
 
+const NO_STORED_TOKEN = () => null;
+
 test("githubApiHeaders authenticates from GITHUB_TOKEN", () => {
-  const headers = githubApiHeaders({ GITHUB_TOKEN: "ci-token" });
+  const headers = githubApiHeaders(
+    { GITHUB_TOKEN: "ci-token" },
+    NO_STORED_TOKEN,
+  );
   assertEquals(headers.Authorization, "Bearer ci-token");
 });
 
 test("githubApiHeaders authenticates from GH_TOKEN when GITHUB_TOKEN is unset", () => {
-  const headers = githubApiHeaders({ GH_TOKEN: "gh-cli-token" });
+  const headers = githubApiHeaders(
+    { GH_TOKEN: "gh-cli-token" },
+    NO_STORED_TOKEN,
+  );
   assertEquals(headers.Authorization, "Bearer gh-cli-token");
 });
 
 test("githubApiHeaders prefers GITHUB_TOKEN over GH_TOKEN", () => {
-  const headers = githubApiHeaders({
-    GITHUB_TOKEN: "ci-token",
-    GH_TOKEN: "gh-cli-token",
-  });
+  const headers = githubApiHeaders(
+    { GITHUB_TOKEN: "ci-token", GH_TOKEN: "gh-cli-token" },
+    NO_STORED_TOKEN,
+  );
   assertEquals(headers.Authorization, "Bearer ci-token");
 });
 
-test("githubApiHeaders treats an empty token as absent", () => {
-  const headers = githubApiHeaders({ GITHUB_TOKEN: "", GH_TOKEN: "" });
+test("githubApiHeaders falls back to gh's stored token", () => {
+  const headers = githubApiHeaders({}, () => "keyring-token");
+  assertEquals(headers.Authorization, "Bearer keyring-token");
+});
+
+test("githubApiHeaders prefers the environment over gh's stored token", () => {
+  const headers = githubApiHeaders(
+    { GITHUB_TOKEN: "ci-token" },
+    () => "keyring-token",
+  );
+  assertEquals(headers.Authorization, "Bearer ci-token");
+});
+
+test("githubApiHeaders stays unauthenticated when nothing has a token", () => {
+  const headers = githubApiHeaders(
+    { GITHUB_TOKEN: "", GH_TOKEN: "" },
+    NO_STORED_TOKEN,
+  );
   assert(
     !("Authorization" in headers),
     "an empty token must not produce an Authorization header",
