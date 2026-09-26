@@ -44,6 +44,42 @@ clearest case) shows red in the checks list without stopping the merge. Rebasing
 turns it into a head failure, which does block. Treat a red merge-result level 0 as a
 merge blocker even though GitHub will not.
 
+**And on a draft or a `renovate/*` head, nothing blocks at all.** The `claim` job is
+`if:`-guarded against both, and GitHub draws a distinction that decides the outcome here:
+
+| how a job is suppressed | check run published | required context |
+|---|---|---|
+| job-level `if:` is false | yes, conclusion `skipped` | **satisfied** |
+| workflow-level `paths:` does not match | none at all | **pending forever** |
+
+So on a `renovate/*` pull request `main`'s only required check is satisfied *vacuously* —
+no head run, no merge-result run, nothing gating the merge button. Measured 2026-09-26:
+5 of 23 open pull requests (22%) were in exactly that state, each with
+`Level 0 (render, schema, gitops, snapshot, policy)` green but not required. `upgrade.yml`,
+which `pr-contract.yml`'s header comment offers as the reason the Renovate exemption is
+safe, is not in the required set either, so it gates nothing at the merge button. Drafts are
+the benign half: `claim` triggers on `ready_for_review`, so the head run lands before the
+pull request can merge. Until `Level 0 (render, schema, gitops, snapshot, policy)` is added
+to `main`'s required contexts (MCAA-164 — the write needs repository admin; every other
+identity gets `403` on both branch protection and rulesets), **read `verify.yml`'s result by
+hand before merging a `renovate/*` pull request.**
+
+To check what is required on a pull request without repository admin, read `isRequired` off
+the check rollup — `branches/main/protection` is admin-only, this is not:
+
+```sh
+gh api graphql -F n=<pr> -f query='query($n:Int!){repository(owner:"ryanmcafee",name:"homelab"){
+  pullRequest(number:$n){commits(last:1){nodes{commit{statusCheckRollup{contexts(first:100){nodes{
+    ... on CheckRun{name conclusion isRequired(pullRequestNumber:$n)}
+    ... on StatusContext{context state isRequired(pullRequestNumber:$n)}}}}}}}}}'
+```
+
+Two readings that will mislead you: a `SKIPPED` required context is the draft or Renovate
+guard above and is *satisfied*, not pending; and a rollup reporting **zero** required
+contexts means the context is **absent**, not that the branch is unprotected — a `DIRTY`
+pull request runs no `pull_request` workflows at all, so its required check never appears
+and the merge is blocked as pending, which is the correct outcome.
+
 ## What level 0 checks
 
 | Check name | What it proves | Fix when it fails |
@@ -316,7 +352,7 @@ pull request head (issue #261 item 22; ADR-032 dropped the PR-body claim).
 | Piece | File | What it does |
 |---|---|---|
 | PostToolUse hook | `.claude/settings.json` → `scripts/claude-verify-hook.ts` | After every Claude Code `Edit`/`Write`/`MultiEdit` of a file under `charts/` or `configuration/` of `$CLAUDE_PROJECT_DIR`, builds `./cmd/homelab` and runs `verify all --level 0 --json` in the project root (150 s cap, hook timeout 180 s). Pass: silent, exit 0. Fail: exit 2, and Claude Code hands the agent a summary of at most 60 lines (failing checks, `detail`, up to five findings each, hints such as `task test:snapshot -- --update` for intended snapshot drift). A build error or timeout is reported the same way. |
-| CI | `.github/workflows/pr-contract.yml`, job `claim` (the required check "Verification claim matches level 0") | On opened/synchronize/reopened/ready_for_review (no paths filter; drafts and `renovate/*` heads skipped): runs `task verify` on the PR **head** and fails when level 0 fails. The job summary lists the non-passing checks and the findings of failing ones. |
+| CI | `.github/workflows/pr-contract.yml`, job `claim` (the required check "Verification claim matches level 0") | On opened/synchronize/reopened/ready_for_review (no paths filter; drafts and `renovate/*` heads skipped — and a skip *satisfies* the required context, see "Only the `pr-contract.yml` job" above): runs `task verify` on the PR **head** and fails when level 0 fails. The job summary lists the non-passing checks and the findings of failing ones. |
 
 The PR description carries no verification block: CI verifies the head itself, so a pasted
 result would add nothing. `verify.yml` verifies the merge result.
