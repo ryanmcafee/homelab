@@ -19,7 +19,7 @@ All four are rendered by `charts/applications/templates/paperclip.yaml`, gated o
 | 13 | `paperclip-database` | `charts/paperclip-database` | CloudNativePG `Cluster` `paperclip-postgres`: 1 instance, image `ghcr.io/cloudnative-pg/postgresql:17.11` (`images.cloudnative-pg-postgresql`), `STORAGE_CLASS_ISCSI_SSD` (iSCSI block on the SSD pool; NFS classes fail initdb with "wrong ownership", bugs.md 2026-09-15) / 10Gi (local-path / 1Gi in Kind), PodMonitor on. CNPG generates Secret `paperclip-postgres-app`; its `uri` key is the app's `DATABASE_URL` |
 | 14 | `paperclip` | `charts/paperclip` | `paperclip.inc/v1alpha1` `Instance` `paperclip` + PostSync smoke Job `smoke-paperclip` |
 
-The `Instance`: image `ghcr.io/paperclipai/paperclip` at `images.paperclip` (2026.916.1);
+The `Instance`: image `ghcr.io/paperclipai/paperclip` at `images.paperclip` (sha-d3e0f0a);
 `database.mode: external` with `externalURLSecretRef {paperclip-postgres-app, uri}`;
 `deployment.mode: authenticated`, `exposure: private` (the instance sits behind the `envoy-internal` Gateway only; `public` cannot be onboarded by operator 0.19.1 with app 2026.831+, see the values comment), `publicURL: https://paperclip.<domain>`;
 admin bootstrapped once from `PAPERCLIP_ADMIN_EMAIL` + `ADMIN_PASSWORD`, `disableSignUp: false` for now (the bootstrap Job signs the admin up through the same API, see the values comment and bugs.md 2026-09-15; the instance has reported `status.bootstrap` since 2026-09-15, so flipping it back to `true` is an open follow-up);

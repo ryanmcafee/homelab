@@ -314,15 +314,19 @@ charts:
   # renovate: datasource=helm depName=altinity-clickhouse-operator registryUrl=https://helm.altinity.com
   altinity-clickhouse-operator: "0.27.3"
 images:
-  homelab-cmp: "0.1.50"
+  homelab-cmp: "0.1.52"
+  # Alert triage agent image (Dockerfile.triage-agent, .github/workflows/triage-agent-image.yml);
+  # bump it with every change under triage-agent/ so main publishes a new tag.
+  triage-agent: "0.1.1"
   # renovate: datasource=docker depName=curlimages/curl
   curl: "8.22.0"
   # renovate: datasource=docker depName=kindest/node
   kind-node: "v1.36.1"
   # renovate: datasource=docker depName=versity/versitygw
   versitygw: "v1.8.0"
+  # Master build for paperclipai/paperclip#13515; move back to the first release tag that contains it.
   # renovate: datasource=docker depName=ghcr.io/paperclipai/paperclip
-  paperclip: "2026.916.1"
+  paperclip: "sha-d3e0f0a"
   # Runtime of the paperclip agent health exporter (charts/paperclip files/paperclip-exporter.ts).
   # renovate: datasource=docker depName=oven/bun
   bun: "1.4.2-alpine"
@@ -339,15 +343,19 @@ tools:
   # reason in tests/gitops/version-drift.yaml `pins:` or level 0 `versions/pins` fails
   # (docs/runbooks/talos-upgrade.md, docs/plans/2026-09-17-talos-kubernetes-upgrade.md).
   # renovate: datasource=github-releases depName=siderolabs/talos
-  talos: "v1.14.0"
+  talos: "v1.14.1"
   # renovate: datasource=github-releases depName=kubernetes/kubernetes
-  kubernetes: "v1.37.0"
+  kubernetes: "v1.37.1"
   # renovate: datasource=github-releases depName=hashicorp/terraform
-  terraform: "1.16.2"
+  terraform: "1.16.4"
   # renovate: datasource=github-releases depName=helm/helm
   helm: "4.3.0"
   # renovate: datasource=github-releases depName=kubernetes-sigs/kind
   kind: "v0.33.0"
+  # Code search MCP server of the Paperclip agents (PAPERCLIP_MCP_CODESEARCH), from the
+  # PAPERCLIP_CODESEARCH_REPO default; another repository sets PAPERCLIP_CODESEARCH_VERSION.
+  # renovate: datasource=git-tags depName=https://github.com/ryanmcafee/codesearch
+  codesearch: "v1.6.1"
   # renovate: datasource=github-releases depName=kyverno/chainsaw
   chainsaw: "v0.2.15"
   # renovate: datasource=github-releases depName=argoproj/argo-cd
