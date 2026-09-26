@@ -28,6 +28,20 @@ func TestKubernetesVersionMissingIsError(t *testing.T) {
 	}
 }
 
+func TestSchemaVersionUsesMinorRelease(t *testing.T) {
+	tests := []struct{ in, want string }{
+		{"1.37.1", "1.37.0"},
+		{"1.37.0", "1.37.0"},
+		{"1.38.12", "1.38.0"},
+		{"master", "master"},
+	}
+	for _, tt := range tests {
+		if got := SchemaVersion(tt.in); got != tt.want {
+			t.Errorf("SchemaVersion(%q) = %q, want %q", tt.in, got, tt.want)
+		}
+	}
+}
+
 func TestIsShimMissing(t *testing.T) {
 	tests := []struct {
 		name   string
