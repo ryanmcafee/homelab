@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# Fake `op run --env-file=... -- <cmd>`: no 1Password, just run the command.
+export PATH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd):$PATH"
+set -euo pipefail
+
+while [[ "${1:-}" != "--" ]]; do
+  [[ $# -eq 0 ]] && { echo "fake op: no -- separator" >&2; exit 64; }
+  shift
+done
+shift
+exec "$@"

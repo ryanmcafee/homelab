@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+# Fake terragrunt for tests/talos-recreate/run.sh.
+#
+#   state list        prints $FAKE_STATE/tfstate
+#   apply -replace=X  simulates the rebuild of X: the VM comes back at the
+#                     SAME static IP under a NEW Talos hostname, and — if it
+#                     is a control plane ($FAKE_STATE/is_cp_<ip>) — rejoins
+#                     etcd under a NEW member ID. That pair (same IP, new
+#                     identity) is the exact shape of homelab #39.
+export PATH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd):$PATH"
+set -euo pipefail
+
+S="$FAKE_STATE"
+mode=""
+addr=""
+for a in "$@"; do
+  case "$a" in
+    state) mode=list;;
+    apply) mode=apply;;
+    -replace=*) addr="${a#-replace=}";;
+  esac
+done
+
+if [[ "$mode" == "list" ]]; then
+  cat "$S/tfstate"
+  exit 0
+fi
+
+key=$(sed -E 's/.*\["([^"]+)"\].*/\1/' <<< "$addr")
+ip=$(awk -F'\t' -v k="$key" '$1==k{print $2}' "$S/vmips")
+[[ -z "$ip" ]] && { echo "fake terragrunt: no VM for key '$key'" >&2; exit 1; }
+
+newname="talos-$(printf %04x $((RANDOM)))-$(printf %04x $((RANDOM)))"
+awk -F'\t' -v ip="$ip" '$2 != ip' "$S/k8snodes" > "$S/k8snodes.new"
+mv "$S/k8snodes.new" "$S/k8snodes"
+printf '%s\t%s\n' "$newname" "$ip" >> "$S/k8snodes"
+
+if [[ -f "$S/is_cp_$ip" ]]; then
+  printf '%s\t%s\t%s\n' "b$(printf %015x $((RANDOM * RANDOM + 7)))" "$newname" "$ip" >> "$S/members"
+fi
+
+echo "Apply complete! Resources: 1 added, 0 changed, 1 destroyed."
