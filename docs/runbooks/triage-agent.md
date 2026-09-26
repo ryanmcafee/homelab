@@ -109,6 +109,11 @@ Every workflow clones into `/workspaces/<workflow name>` on one shared claim,
 share it). Per-workflow claims are not used: the NFS StorageClass is `reclaimPolicy: Retain`,
 so each deleted claim would leave its dataset on TrueNAS.
 
+The NFS share maps every write to one TrueNAS uid, so files on both volumes belong to that uid,
+not to the pod's 1000. The image trusts every repository (`safe.directory = *` in
+`/etc/gitconfig`); without it each git command after the clone fails with
+`detected dubious ownership in repository`.
+
 Space comes back in two ways:
 
 1. The `cleanup` exit step deletes the directory of a succeeded workflow at once.
