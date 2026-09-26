@@ -45,7 +45,7 @@
  * talosctl and kubectl are expected on PATH.
  *
  * No address is hardcoded here. --nodes, --vip and --proxmox-host default to
- * CP1_IP/CP2_IP/CP3_IP, CP_VIP and PROXMOX_IP from the gitignored
+ * the CPn_IP keys, CP_VIP and PROXMOX_IP from the gitignored
  * configuration/environments/homelab.yaml (override the path with
  * HOMELAB_ENV_FILE); an explicit flag always wins, and a value that neither
  * supplies is a usage error rather than a guess.
@@ -98,19 +98,20 @@ export const DEFAULT_DISK = "scsi0";
  */
 export const HOMELAB_ENV_FILE = "configuration/environments/homelab.yaml";
 /**
- * The control planes, in migration order: the Proxmox object names and VMIDs
- * (not network facts, so they can live here) paired with the
- * configuration/schema/network.schema.yaml key holding each node's address.
+ * The ConfigSet keys that state the control plane, from
+ * contracts/cluster/topology.v1.yaml `controlPlane.countKeyPattern` (ADR-034):
+ * the members are the DISTINCT matching keys carrying a value, and there is no
+ * count key. Ordinals need not be contiguous — CP1/CP2/CP5 is three members,
+ * not five — so nothing here may assume a fixed number of rows.
  */
-export const CP_NODE_DEFAULTS: readonly {
-  name: string;
-  vmid: number;
-  key: string;
-}[] = [
-  { name: "cp-1", vmid: 101, key: "CP1_IP" },
-  { name: "cp-2", vmid: 102, key: "CP2_IP" },
-  { name: "cp-3", vmid: 103, key: "CP3_IP" },
-];
+export const CP_KEY_PATTERN = /^CP([0-9]+)_IP$/;
+/**
+ * The one control-plane address a fork must supply: `talos:gen` bootstraps from
+ * it (Taskfile.yml). Higher ordinals are optional, one per further member.
+ */
+export const CP_FIRST_KEY = "CP1_IP";
+/** How the usage text and the errors below name the key set. */
+export const CP_KEY_LABEL = "CPn_IP";
 /** configuration key behind --vip: the Talos layer-2 API VIP. */
 export const VIP_KEY = "CP_VIP";
 /** configuration key behind --proxmox-host. */
@@ -288,19 +289,83 @@ export function envFileValue(text: string, key: string): string | null {
   return v;
 }
 
+/** The CPn_IP keys the environment file declares, in ascending ordinal order. */
+export function cpKeysFromEnvFile(text: string): string[] {
+  let parsed: unknown;
+  try {
+    parsed = parseYaml(text);
+  } catch {
+    return [];
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return [];
+  return Object.keys(parsed as Record<string, unknown>)
+    .filter((k) => CP_KEY_PATTERN.test(k))
+    .sort(
+      (a, b) =>
+        Number(CP_KEY_PATTERN.exec(a)![1]) - Number(CP_KEY_PATTERN.exec(b)![1]),
+    );
+}
+
+/** One control plane the environment file names, with its default Proxmox identity. */
+export interface CpNodeDefault {
+  /** The CPn_IP ordinal, e.g. 2 for CP2_IP. Not an index: ordinals may skip. */
+  ordinal: number;
+  name: string;
+  vmid: number;
+  key: string;
+  ip: string;
+}
+
+/**
+ * The control planes the environment file names, in migration order, or null
+ * when the set is indeterminate.
+ *
+ * The member set is DERIVED from the CPn_IP keys present (ADR-034) rather than
+ * from a fixed table here: a fork is not required to have this cluster's shape,
+ * and this repository must not decide how many control planes a fork has.
+ *
+ * Only the addresses come from the file. `cp-<ordinal>` and VMID `100+ordinal`
+ * are this cluster's Proxmox naming convention, used as a *default* an operator
+ * overrides with an explicit --nodes; they are not network facts and no guard
+ * reads them.
+ *
+ * Null (refuse, never a partial list) when:
+ *   - no CPn_IP key is present at all — nothing states the control plane;
+ *   - CP1_IP is absent — it is the one required address;
+ *   - a CPn_IP key is present but its value is empty, a REPLACEME placeholder
+ *     or not an address. A key present without a usable value is indeterminate,
+ *     not absent (contract `evaluation.onIndeterminate: unsafe`); treating it as
+ *     absent would quietly migrate a subset of the control planes.
+ */
+export function cpNodeDefaultsFromEnvFile(
+  text: string,
+): readonly CpNodeDefault[] | null {
+  const keys = cpKeysFromEnvFile(text);
+  if (keys.length === 0 || !keys.includes(CP_FIRST_KEY)) return null;
+  const nodes: CpNodeDefault[] = [];
+  for (const key of keys) {
+    const ip = envFileValue(text, key);
+    if (ip === null) return null;
+    const ordinal = Number(CP_KEY_PATTERN.exec(key)![1]);
+    nodes.push({
+      ordinal,
+      name: `cp-${ordinal}`,
+      vmid: 100 + ordinal,
+      key,
+      ip,
+    });
+  }
+  return nodes;
+}
+
 /**
  * The default --nodes spec ("cp-1=101=<CP1_IP>,...") from the environment YAML,
- * or null when any of CP1_IP/CP2_IP/CP3_IP is missing: a partial list would
- * quietly migrate a subset of the control planes, so it is refused instead.
+ * or null when cpNodeDefaultsFromEnvFile refuses the set.
  */
 export function nodesFromEnvFile(text: string): string | null {
-  const entries: string[] = [];
-  for (const node of CP_NODE_DEFAULTS) {
-    const ip = envFileValue(text, node.key);
-    if (ip === null) return null;
-    entries.push(`${node.name}=${node.vmid}=${ip}`);
-  }
-  return entries.join(",");
+  const nodes = cpNodeDefaultsFromEnvFile(text);
+  if (nodes === null) return null;
+  return nodes.map((n) => `${n.name}=${n.vmid}=${n.ip}`).join(",");
 }
 
 /** --only cp-2 / --only cp-1,cp-3 -> the subset, in --nodes order. */
@@ -979,9 +1044,8 @@ export interface Config {
 export function buildConfig(args: Args): Config {
   if (args.nodes === undefined) {
     throw new UsageError(
-      `--nodes is required (or fill ${CP_NODE_DEFAULTS.map((n) => n.key).join(
-        ", ",
-      )} in ${HOMELAB_ENV_FILE})`,
+      `--nodes is required (or fill ${CP_FIRST_KEY}, and one further ` +
+        `${CP_KEY_LABEL} key per additional control plane, in ${HOMELAB_ENV_FILE})`,
     );
   }
   if (args.proxmoxHost === undefined) {
@@ -2105,9 +2169,8 @@ Flags:
   --prometheus-url      verify only: query up{job="kube-etcd"} directly
 
 Defaults (from ${HOMELAB_ENV_FILE}, gitignored; no address is hardcoded here):
-  --nodes        ${CP_NODE_DEFAULTS.map((n) => n.key).join(", ")} (as ${CP_NODE_DEFAULTS.map(
-    (n) => `${n.name}=${n.vmid}`,
-  ).join(", ")})
+  --nodes        every ${CP_KEY_LABEL} key present (${CP_FIRST_KEY} required, one per
+                 control plane, ordinals may skip; as cp-<n>=<100+n>)
   --vip          ${VIP_KEY}          --proxmox-host  ${PROXMOX_HOST_KEY}
   A flag always wins over the file; a value neither flag nor file supplies is a
   usage error, never a guess. HOMELAB_ENV_FILE overrides the path of that file.
