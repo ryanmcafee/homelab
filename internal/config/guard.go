@@ -353,6 +353,30 @@ func IsPIIKey(key string) bool {
 // Talos, the Proxmox template) address real hosts; those values now come from
 // the gitignored homelab.yaml through Taskfile vars, and the guard is what
 // keeps a literal from creeping back.
+//
+// terragrunt/ is in scope because it is the tree that most recently wrote one
+// operator's identity into source, and the guard was not allowed to read it.
+// The root terragrunt.hcl set base_fqdn to a literal domain and merged it
+// after each environment's own locals, so it overrode all 13 units including
+// both localdev ones: a fork that parameterised env.hcl and nothing else still
+// built against the maintainer's domain. A human sweep caught that (#393); the
+// guard could not, because terragrunt/ was outside the scan on both axes at
+// once - no pathspec and no .hcl/.tf extension. It is also the only tree added
+// here with real regression pressure: it changed on 18 of the 96 commits to
+// main in the 90 days to 2026-09-25. Since #393 env.hcl resolves from
+// configuration/resolved.json, so the value detector reads that HCL unchanged.
+//
+// talos/ and packer/ are in scope because the fork-ability contract makes an
+// unscanned top-level directory a hole rather than a deferred task: "adding a
+// language or a top-level directory to the repository means adding it to the
+// scan". Neither changed in those same 90 days, so they are listed to stop the
+// hole reopening, not because they carry churn - do not read their presence
+// here as evidence they were a live risk. talos/ commits image schematics and
+// machine-config patches that name the cluster endpoint; packer/ commits the
+// TrueNAS image build, which addresses a real host. Note that talos/'s two
+// .yaml.tpl files stay out on the extension axis: .tpl is not a template
+// suffix hasScannableExtension looks through, so 6 of talos/'s 8 tracked files
+// are scanned.
 var DefaultGuardPathspecs = []string{
 	"configuration/**",
 	"charts/**/values-homelab.yaml",
@@ -364,6 +388,12 @@ var DefaultGuardPathspecs = []string{
 	// committed under ansible/ (group_vars, roles, playbooks) must stay free of
 	// addresses.
 	"ansible/**",
+	// The bootstrap trees below the cluster: Terragrunt units and the modules
+	// they call, the Talos image and machine-config inputs, and the Packer
+	// image build. See the note above each of them in this comment block.
+	"terragrunt/**",
+	"talos/**",
+	"packer/**",
 }
 
 // guardScanExtensions are the file types the guard knows how to read. Anything
@@ -382,6 +412,20 @@ var guardScanExtensions = map[string]bool{
 	// text nodes name hostnames, and the scan is line-based text matching, so
 	// XML needs no parser of its own.
 	".svg": true,
+	// .hcl and .tf because terragrunt/ and packer/ are in scope and are
+	// written in nothing else: the units and env.hcl are .hcl, the modules
+	// they call are .tf, and packer/truenas is .pkr.hcl. The literal domain
+	// #393 removed lived in a .hcl, so a pathspec without these extensions
+	// would have left that file unread and the scope change a no-op.
+	//
+	// This map is global, so admitting them widens detection over every path
+	// already in scope at the same moment, not just the directories added with
+	// them. That was measured against main at 90894ea before merging: the two
+	// extensions add 52 files (50 under terragrunt/, 2 under packer/) and zero
+	// files anywhere else, because no other in-scope tree commits .hcl or .tf.
+	// Detection is line-based text matching, which HCL needs no parser for.
+	".hcl": true,
+	".tf":  true,
 }
 
 // hasScannableExtension reports whether a path is a file type the guard can
