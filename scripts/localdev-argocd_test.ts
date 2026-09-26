@@ -22,6 +22,7 @@ import {
   type AppDiff,
   type Application,
   appState,
+  applicationLines,
   appsToDiff,
   argocdErrorMessage,
   branchFromUpstream,
@@ -48,12 +49,18 @@ import {
   fenceFor,
   finalPassDecision,
   findFreePort,
+  formatResource,
+  formatResourceStatus,
+  formatSyncTask,
   gitRefForRevision,
   hasComparisonError,
+  headTail,
+  healthRollup,
   indexApps,
   invertUnifiedDiff,
   isAppComplete,
   isAutomated,
+  isFailedSyncTask,
   isNewEmptyApp,
   isOperationInProgress,
   isParentApp,
@@ -64,6 +71,7 @@ import {
   mdCell,
   mentionsMissingPath,
   nextTier,
+  NO_HEALTH,
   parentOf,
   parentResyncDecision,
   parentsAwaitingWaves,
@@ -88,8 +96,11 @@ import {
   serverFlags,
   setFileArgs,
   sourceKind,
+  statusArgs,
   statusRows,
   syncArgs,
+  type SyncResultResource,
+  syncTaskLines,
   tierBlockedBy,
   tierKey,
   treeOrder,
@@ -2371,7 +2382,7 @@ test("describeArgs: kind.group singular form, namespaced or not", () => {
 test("resourceLines: a not-Healthy app lists every resource, health or not", () => {
   const [, , paperclip] = unhealthyApps();
   assertEquals(resourceLines(paperclip), [
-    "paperclip.inc/Instance paperclip/paperclip: -",
+    `paperclip.inc/Instance paperclip/paperclip: ${NO_HEALTH}`,
   ]);
   paperclip.status!.resources!.push({
     group: "apps",
@@ -2381,7 +2392,7 @@ test("resourceLines: a not-Healthy app lists every resource, health or not", () 
     health: { status: "Progressing", message: "Waiting for 1 pods" },
   });
   assertEquals(resourceLines(paperclip), [
-    "paperclip.inc/Instance paperclip/paperclip: -",
+    `paperclip.inc/Instance paperclip/paperclip: ${NO_HEALTH}`,
     "apps/StatefulSet paperclip/operator: Progressing — Waiting for 1 pods",
   ]);
 });
@@ -2400,9 +2411,278 @@ test("resourceLines: a Healthy app (failed operation) lists only resources that 
   ];
   assertEquals(resourceLines(a), [
     "batch/Job argocd/smoke: Degraded",
-    "Secret argocd/nohealth: -",
+    `Secret argocd/nohealth: ${NO_HEALTH}`,
   ]);
   assertEquals(resourceLines(app({ name: "bare", health: "Progressing" })), []);
+});
+
+test("formatResource: a resource ArgoCD never assessed is named, not dashed", () => {
+  const a = app({ name: "x", health: "Degraded" });
+  a.spec!.destination = { namespace: "x-ns" };
+  assertEquals(
+    formatResource(
+      { group: "gateway.networking.k8s.io", kind: "Gateway", name: "eg" },
+      a,
+    ),
+    `gateway.networking.k8s.io/Gateway x-ns/eg: ${NO_HEALTH}`,
+  );
+  assertEquals(
+    formatResource(
+      { kind: "Service", name: "svc", health: { status: "Healthy" } },
+      a,
+    ),
+    "Service x-ns/svc: Healthy",
+  );
+  // The whole point: unassessed must not render as a glanced-over dash.
+  assertStringIncludes(NO_HEALTH, "no health check");
+});
+
+test("headTail: keeps the top of the output, where a resource's conditions are", () => {
+  // The shape that made the level-2 loop unreadable: a Gateway describe whose
+  // conditions are at the top and whose listeners fill the last 40 lines.
+  const describe = [
+    "Name:         envoy-gateway",
+    "Namespace:    envoy-gateway-system",
+    "Status:",
+    "  Conditions:",
+    "    Type:     Accepted",
+    "    Status:   True",
+    "    Type:     Programmed",
+    "    Status:   False",
+    "    Message:  address unassigned",
+    ...Array.from({ length: 120 }, (_, i) => `  Listener ${i}:`),
+  ].join("\n");
+  const out = headTail(describe, 30, 40);
+  assertStringIncludes(out, "Type:     Accepted");
+  assertStringIncludes(out, "Type:     Programmed");
+  assertStringIncludes(out, "... (59 lines omitted) ...");
+  assertStringIncludes(out, "  Listener 119:");
+});
+
+test("headTail: output that fits is returned whole, with no marker", () => {
+  const text = "a\nb\nc\n";
+  assertEquals(headTail(text, 2, 1), "a\nb\nc");
+  assertEquals(
+    headTail("a\nb\nc\nd", 2, 1),
+    "a\nb\n... (1 line omitted) ...\nd",
+  );
+});
+
+test("statusArgs: kubectl get -o json, namespaced or not", () => {
+  assertEquals(
+    statusArgs({
+      group: "gateway.networking.k8s.io",
+      kind: "Gateway",
+      ns: "envoy-gateway-system",
+      name: "eg",
+    }),
+    [
+      "get",
+      "gateway.gateway.networking.k8s.io",
+      "eg",
+      "-n",
+      "envoy-gateway-system",
+      "-o",
+      "json",
+    ],
+  );
+  assertEquals(
+    statusArgs({ group: "", kind: "Node", ns: "", name: "worker-1" }),
+    ["get", "Node", "worker-1", "-o", "json"],
+  );
+});
+
+test("formatResourceStatus: prints .status head-first; says so when there is none", () => {
+  const out = formatResourceStatus(
+    JSON.stringify({
+      kind: "Gateway",
+      spec: { gatewayClassName: "eg" },
+      status: { conditions: [{ type: "Programmed", status: "False" }] },
+    }),
+  );
+  assertStringIncludes(out, '"type": "Programmed"');
+  assert(!out.includes("gatewayClassName"));
+  assertEquals(
+    formatResourceStatus('{"kind":"Gateway"}'),
+    "(the resource reports no .status)",
+  );
+  assertEquals(
+    formatResourceStatus("Error from server (NotFound)"),
+    "(kubectl get -o json did not return JSON)",
+  );
+});
+
+test("formatResourceStatus: a huge .status keeps its head and marks the gap", () => {
+  const listeners = Array.from({ length: 400 }, (_, i) => ({ name: `l${i}` }));
+  const out = formatResourceStatus(
+    JSON.stringify({
+      status: { conditions: [{ type: "Accepted" }], listeners },
+    }),
+  );
+  assertStringIncludes(out, '"type": "Accepted"');
+  assertStringIncludes(out, "lines omitted");
+  assertStringIncludes(out, '"name": "l399"');
+});
+
+test("healthRollup: names the Degraded resources, worst first, unassessed last", () => {
+  const a = app({ name: "envoy-gateway-config", health: "Degraded" });
+  a.spec!.destination = { namespace: "envoy-gateway-system" };
+  a.status!.resources = [
+    { kind: "Service", name: "svc", health: { status: "Healthy" } },
+    { kind: "ConfigMap", name: "cm" },
+    {
+      group: "gateway.networking.k8s.io",
+      kind: "Gateway",
+      name: "eg",
+      health: { status: "Degraded" },
+    },
+    {
+      group: "gateway.networking.k8s.io",
+      kind: "GatewayClass",
+      name: "eg",
+      health: { status: "Progressing" },
+    },
+  ];
+  assertEquals(healthRollup(a), [
+    "Degraded (1): gateway.networking.k8s.io/Gateway envoy-gateway-system/eg",
+    "Progressing (1): gateway.networking.k8s.io/GatewayClass envoy-gateway-system/eg",
+    "Healthy (1): Service envoy-gateway-system/svc",
+    `${NO_HEALTH} (1): ConfigMap envoy-gateway-system/cm`,
+  ]);
+  assertEquals(healthRollup(app({ name: "bare", health: "Degraded" })), []);
+});
+
+test("healthRollup: a long bucket is elided after the first names", () => {
+  const a = app({ name: "addons", health: "Degraded" });
+  a.status!.resources = Array.from({ length: 11 }, (_, i) => ({
+    kind: "Secret",
+    name: `s${i}`,
+  }));
+  const [line] = healthRollup(a);
+  assertStringIncludes(line, `${NO_HEALTH} (11):`);
+  assertStringIncludes(line, "Secret argocd/s7");
+  assert(!line.includes("Secret argocd/s8"));
+  assertStringIncludes(line, "+3 more");
+});
+
+test("isFailedSyncTask: failed applies and failed hooks, not successful ones", () => {
+  const t = (o: SyncResultResource) => isFailedSyncTask(o);
+  assert(t({ status: "SyncFailed" }));
+  assert(t({ status: "Failed" }));
+  assert(t({ status: "Error" }));
+  assert(t({ status: "Unknown" }));
+  assert(t({ status: "Synced", hookPhase: "Failed" }));
+  assert(t({ hookPhase: "Error" }));
+  assert(!t({ status: "Synced" }));
+  assert(!t({ status: "Synced", hookPhase: "Succeeded" }));
+  assert(!t({}));
+});
+
+test("formatSyncTask: the message the Application-level line never carries", () => {
+  assertEquals(
+    formatSyncTask({
+      group: "gateway.networking.k8s.io",
+      kind: "Gateway",
+      namespace: "envoy-gateway-system",
+      name: "eg",
+      status: "SyncFailed",
+      syncPhase: "Sync",
+      message: 'admission webhook denied the request: listener "http" invalid',
+    }),
+    'gateway.networking.k8s.io/Gateway envoy-gateway-system/eg: Sync SyncFailed — admission webhook denied the request: listener "http" invalid',
+  );
+  assertEquals(
+    formatSyncTask({ kind: "Job", name: "smoke", hookPhase: "Failed" }),
+    "Job smoke: Failed — (no message reported)",
+  );
+});
+
+test("syncTaskLines: the per-task failure behind a failed parent operation", () => {
+  const a = app({ name: "addons", health: "Degraded", phase: "Failed" });
+  a.status!.operationState!.message =
+    "one or more synchronization tasks completed unsuccessfully (retried 5 times)";
+  a.status!.operationState!.syncResult = {
+    resources: [
+      { kind: "ConfigMap", namespace: "argocd", name: "ok", status: "Synced" },
+      {
+        group: "gateway.networking.k8s.io",
+        kind: "Gateway",
+        namespace: "envoy-gateway-system",
+        name: "eg",
+        status: "SyncFailed",
+        syncPhase: "Sync",
+        message: "no matches for kind Gateway",
+      },
+    ],
+  };
+  assertEquals(syncTaskLines(a), [
+    "failed sync tasks (1):",
+    "  gateway.networking.k8s.io/Gateway envoy-gateway-system/eg: Sync SyncFailed — no matches for kind Gateway",
+  ]);
+});
+
+test("syncTaskLines: a failed operation with no per-task detail says so", () => {
+  const a = app({ name: "addons", health: "Degraded", phase: "Failed" });
+  assertEquals(syncTaskLines(a), [
+    "failed sync tasks: (none recorded in status.operationState.syncResult; ArgoCD stored no syncResult)",
+  ]);
+  a.status!.operationState!.syncResult = { resources: [{ status: "Synced" }] };
+  assertEquals(syncTaskLines(a), [
+    "failed sync tasks: (none recorded in status.operationState.syncResult; no task reported a failure)",
+  ]);
+  // A healthy operation stays quiet.
+  assertEquals(syncTaskLines(app({ name: "ok", phase: "Succeeded" })), []);
+  assertEquals(syncTaskLines(app({ name: "none" })), []);
+});
+
+test("applicationLines: the MCAA-151 shape now names the Degraded resource", () => {
+  // Reproduces what the level-2 loop printed for envoy-gateway-config: an app
+  // held Degraded for 35 minutes with an empty health message and resources
+  // ArgoCD never assessed. The old block rendered every resource as `-` and
+  // omitted the health-message line entirely.
+  const a = app({
+    name: "envoy-gateway-config",
+    health: "Degraded",
+    sync: "Synced",
+    phase: "Succeeded",
+  });
+  a.spec!.destination = { namespace: "envoy-gateway-system" };
+  a.status!.resources = [
+    {
+      group: "gateway.networking.k8s.io",
+      kind: "Gateway",
+      name: "eg",
+      health: { status: "Degraded" },
+    },
+    { group: "gateway.envoyproxy.io", kind: "EnvoyProxy", name: "proxy" },
+    { kind: "ConfigMap", name: "cm" },
+  ];
+  assertEquals(applicationLines(a), [
+    "=== envoy-gateway-config ===",
+    "  health: Degraded  sync: Synced  operation: Succeeded",
+    "  health message: (none reported by ArgoCD)",
+    "  resource health:",
+    "    Degraded (1): gateway.networking.k8s.io/Gateway envoy-gateway-system/eg",
+    `    ${NO_HEALTH} (2): gateway.envoyproxy.io/EnvoyProxy envoy-gateway-system/proxy, ConfigMap envoy-gateway-system/cm`,
+    "  resources:",
+    "    gateway.networking.k8s.io/Gateway envoy-gateway-system/eg: Degraded",
+    `    gateway.envoyproxy.io/EnvoyProxy envoy-gateway-system/proxy: ${NO_HEALTH}`,
+    `    ConfigMap envoy-gateway-system/cm: ${NO_HEALTH}`,
+  ]);
+});
+
+test("applicationLines: a Healthy app keeps the block it always had", () => {
+  const a = app({
+    name: "gitops",
+    health: "Healthy",
+    sync: "Synced",
+    phase: "Succeeded",
+  });
+  assertEquals(applicationLines(a), [
+    "=== gitops ===",
+    "  health: Healthy  sync: Synced  operation: Succeeded",
+    "  resources: (none reported)",
+  ]);
 });
 
 test("podNeedsDiagnosis: Running pods with a crash-looping, restarted or not-ready container are diagnosed", () => {
