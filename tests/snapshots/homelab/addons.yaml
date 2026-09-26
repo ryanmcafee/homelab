@@ -5327,7 +5327,7 @@ spec:
       # Derived from configuration/ (ADR-010); the child's values stay environment-free.
       valuesObject:
         namespace: "triage-agent"
-        image: "ghcr.io/ryanmcafee/homelab-triage-agent:0.1.0"
+        image: "ghcr.io/ryanmcafee/homelab-triage-agent:0.1.1"
         repoUrl: "https://github.com/ryanmcafee/homelab.git"
         repoSlug: "ryanmcafee/homelab"
         alertmanagerUrl: "http://kube-prometheus-stack-alertmanager.monitoring.svc:9093"

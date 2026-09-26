@@ -1508,7 +1508,7 @@ github-pr-exporter:
 triage-agent:
   enabled: false
   namespace: triage-agent
-  image: "ghcr.io/ryanmcafee/homelab-triage-agent:0.1.0"
+  image: "ghcr.io/ryanmcafee/homelab-triage-agent:0.1.1"
   repoSlug: "ryanmcafee/homelab"
   workflowUiUrl: "https://workflows.homelab.local"
   # Secret triage-agent: CLAUDE_CODE_OAUTH_TOKEN, GITHUB_TOKEN plus optional fields (docs/runbooks/triage-agent.md).

@@ -32,9 +32,11 @@ ARG MISE_VERSION=v2026.9.13
 # renovate: datasource=github-releases depName=argoproj/argo-cd
 ARG ARGOCD_VERSION=v3.5.3
 
+# The NFS volumes map every write to one uid, so git sees repos owned by another user.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates curl git jq ripgrep xz-utils \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && git config --system --add safe.directory '*'
 
 # Every download is checked against the checksum file its release publishes.
 RUN set -eu; \

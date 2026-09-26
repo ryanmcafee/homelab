@@ -132,6 +132,9 @@ jobs:
           }
           run_stage triage
           test "$(jq -r .actionable "$work/triage.json")" = false
+          # NFS maps every write to one uid, so the clone is owned by another user.
+          docker run --rm --read-only --user 1001:1001 --tmpfs /home/agent:uid=1001,gid=1001 \
+            -v "$work:/work" --entrypoint git homelab-triage-agent:smoke -C /work/repo status --short
           run_stage plan
           test -s "$work/plan.md"
           run_stage notify | tee "$work/notify.log"
