@@ -1352,6 +1352,12 @@ spec:
       valuesObject:
         namespace: paperclip
         ambientOptOut: true
+        backup:
+          artifacts:
+            itemPath: vaults/homelab/items/argo-workflows-artifacts
+          enabled: true
+          storageClass: democratic-csi-nfs
+          timezone: America/New_York
         imageName: ghcr.io/cloudnative-pg/postgresql:17.11
         instances: 1
         resources:

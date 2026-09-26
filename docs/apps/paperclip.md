@@ -240,6 +240,9 @@ repository only, field `GIT_TOKEN`); the init container waits for the Secret.
 - **Reset the admin password**: the bootstrap Job runs once, so for an existing admin change the
   password in the app UI. The `ADMIN_PASSWORD` value in 1Password only matters before the first
   bootstrap or for a fresh database.
+- **Back up and restore the database**: daily `pg_dump` and a one-command restore, both Argo
+  Workflows ([paperclip-db-restore.md](../runbooks/paperclip-db-restore.md)). Take a backup before
+  an image bump: a newer image migrates the schema and the old one cannot read it.
 - **Bump the image**: Renovate opens a PR on `images.paperclip`; `upgrade.yml` posts the rendered
   diff and the Kind loop proves the rollout. Never edit the chart files by hand.
 - **Database (CloudNativePG)**:

@@ -980,6 +980,14 @@ paperclip:
       limits:
         cpu: "1"
         memory: 512Mi
+    # Daily pg_dump and the ad hoc restore as Argo Workflows; they need the
+    # argo-workflows addon, which Kind does not run (docs/runbooks/paperclip-db-restore.md).
+    backup:
+      enabled: false
+      timezone: America/New_York
+      storageClass: local-path
+      artifacts:
+        itemPath: ""
 
   # charts/paperclip: the paperclip.inc Instance (external database mode,
   # authenticated, private exposure behind the internal Gateway).
