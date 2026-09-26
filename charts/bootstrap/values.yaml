@@ -84,6 +84,8 @@ argocd:
     configs:
       params:
         server.insecure: true
+        # Diff against a server-side dry run so CRD defaults (Gateway API, ServiceMonitor) do not report OutOfSync.
+        controller.diff.server.side: "true"
       cm:
         # Enable ksops plugin for SOPS decryption
         kustomize.buildOptions: "--enable-alpha-plugins --enable-exec"

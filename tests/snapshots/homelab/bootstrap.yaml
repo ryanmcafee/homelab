@@ -454,6 +454,7 @@ spec:
               return hs
           params:
             application.namespaces: preview-*
+            controller.diff.server.side: "true"
             server.insecure: true
           rbac:
             policy.csv: |
