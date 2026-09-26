@@ -80,6 +80,44 @@ contexts means the context is **absent**, not that the branch is unprotected —
 pull request runs no `pull_request` workflows at all, so its required check never appears
 and the merge is blocked as pending, which is the correct outcome.
 
+### A green merge-result level 0 is only as current as the base it ran against
+
+`verify.yml` verifies `refs/pull/N/merge` **as of when it last ran**, and `pull_request`
+fires only on head events (`opened`, `synchronize`, `reopened`). **A base-branch advance does
+not re-trigger it.** So the green persists, unchanged, while `main` moves underneath it, and
+the verdict is about a merge result that no longer exists.
+
+That is not hypothetical here, because "require branches to be up to date" (`strict`) is off
+on `main`, which is what lets a pull request stay behind and still be mergeable. Measured
+2026-09-26 against `main@918598c3`, all 24 open pull requests: **20 behind `main` (83%), 16
+behind and `mergeStateStatus: CLEAN` (67%), and all 16 of those carrying a green
+`Level 0` whose `completed_at` predates `main`'s current head commit** — the worst 19 commits
+and ~21 h stale (#367, #363, #361, #252).
+
+Adding `Level 0 (render, schema, gitops, snapshot, policy)` to the required contexts does not
+close this, and it is the one thing the flip does *not* fix: those stale greens become
+*satisfied* required contexts. Walk the ADR-039 collision through it — PR X runs level 0
+against `main@T1` and is green, PR Y merges `### ADR-034:` at T2, PR X is now one commit
+behind and `CLEAN` with a green required level 0, and the duplicate lands. Closing it needs
+one of two admin-only settings on `main`, and they are not equivalent today:
+
+| lever | in-repo prerequisite | cost |
+|---|---|---|
+| `strict` = require branches up to date | none | every merge forces an update first, so merges serialize and behind pull requests need a rebase; `renovate/*` branches are not reliably rebased here, so they stall |
+| merge queue | **unmet** — a merge queue runs required checks on `merge_group` events, and no workflow in `.github/workflows/` has a `merge_group:` trigger (16 of 16, verified on `main` 2026-09-26), so entries would wait on checks that never run | no contributor rebase, batched merge-result testing |
+
+**Until one of them is on, check staleness by hand before trusting a green level 0** — the
+sibling of the `renovate/*` manual step above:
+
+```sh
+gh api repos/ryanmcafee/homelab/compare/main...<head-sha> --jq .behind_by
+```
+
+Non-zero means the green above it was computed against a base that has since moved; re-run
+level 0 on an up-to-date branch before merging. `behind_by` is the right field for *this*
+question (how stale is the verdict) — do not use it to decide whether GitHub will force a
+rebase, because `strict` is off and a pull request 29 commits behind still reports `CLEAN`.
+
 ## What level 0 checks
 
 | Check name | What it proves | Fix when it fails |
