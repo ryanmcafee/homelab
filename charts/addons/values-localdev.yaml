@@ -951,6 +951,7 @@ kube-prometheus-stack:
 
   kubeStateMetrics:
     enabled: true
+    # Gateway API customResourceState makes it cache every CRD: ~120Mi heap on homelab.
     resources:
       requests:
         memory: 128Mi

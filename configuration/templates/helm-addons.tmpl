@@ -1145,11 +1145,12 @@ kube-prometheus-stack:
 
   kubeStateMetrics:
     enabled: true
+    # Gateway API customResourceState makes it cache every CRD: ~120Mi heap on homelab.
     resources:
       requests:
-        memory: {{ if $localdev }}128Mi{{ else }}48Mi{{ end }}
+        memory: {{ if $localdev }}128Mi{{ else }}160Mi{{ end }}
       limits:
-        memory: {{ if $localdev }}256Mi{{ else }}80Mi{{ end }}
+        memory: 256Mi
 
   # kube-proxy scrape and the KubeProxyDown rule. With Cilium as the kube-proxy
   # replacement there is no kube-proxy DaemonSet: the scrape Service has no
