@@ -292,6 +292,15 @@
     {
       customType: 'regex',
       managerFilePatterns: [
+        '/^charts/bootstrap/values\\.yaml$/',
+      ],
+      matchStrings: [
+        '# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)( registryUrl=(?<registryUrl>\\S+))?\\n\\s+chart:\\n(?:.*\\n){0,2}?\\s+version: "(?<currentValue>[^"]+)"',
+      ],
+    },
+    {
+      customType: 'regex',
+      managerFilePatterns: [
         '/^Taskfile\\.yml$/',
       ],
       matchStrings: [

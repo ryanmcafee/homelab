@@ -55,10 +55,11 @@ homelab-environment-config:
 # kube-prometheus-stack bundles.
 prometheus-operator-crds:
   enabled: true
+  # renovate: datasource=helm depName=prometheus-operator-crds registryUrl=https://prometheus-community.github.io/helm-charts
   chart:
     name: prometheus-operator-crds
     repo: https://prometheus-community.github.io/helm-charts
-    version: "30.0.0"
+    version: "30.0.1"
 
 # ============================================================================
 # ArgoCD - Self-Management (Bootstrap -> Addon handoff)
