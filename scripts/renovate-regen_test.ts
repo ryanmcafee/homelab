@@ -235,7 +235,7 @@ const COMPLETE_RECIPE = [
   "```",
   "If the committer is not the bot address, a wrapper pinned it; use the API instead:",
   "```sh",
-  "gh api -X PUT repos/{owner}/{repo}/contents/{path} -f branch=\"$BRANCH\" \\",
+  'gh api -X PUT repos/{owner}/{repo}/contents/{path} -f branch="$BRANCH" \\',
   "  -f 'author[email]=homelab-regen-bot@users.noreply.github.com' \\",
   "  -f 'committer[email]=homelab-regen-bot@users.noreply.github.com'",
   "```",
@@ -300,8 +300,14 @@ test("commitIdentityError names the committer when only the author is right", ()
   );
   assert(error !== null);
   assertStringIncludes(error, "renovate-regen/commit-identity");
-  assertStringIncludes(error, "committer: 2336262+operator@users.noreply.github.com");
-  assert(!error.includes("author:"), "the author was correct and must not be reported");
+  assertStringIncludes(
+    error,
+    "committer: 2336262+operator@users.noreply.github.com",
+  );
+  assert(
+    !error.includes("author:"),
+    "the author was correct and must not be reported",
+  );
   assertStringIncludes(error, "committer[email]");
 });
 

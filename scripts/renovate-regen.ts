@@ -193,7 +193,9 @@ export function commitIdentityError(
   if (wrong.length === 0) return null;
   return [
     "renovate-regen/commit-identity: the commit does not carry the regeneration identity.",
-    ...wrong.map(([role, got]) => `  ${role}: ${got} (expected ${identity.email})`),
+    ...wrong.map(
+      ([role, got]) => `  ${role}: ${got} (expected ${identity.email})`,
+    ),
     "  Renovate reads the author AND the committer of every commit ahead of the base branch,",
     "  so this commit takes the branch out of Renovate's hands. On an ordinary machine amend it:",
     `    git -c user.name="${identity.name}" -c user.email="${identity.email}" \\`,
