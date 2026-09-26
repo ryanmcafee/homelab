@@ -117,6 +117,15 @@ func KubernetesVersion(repoRoot string) (string, error) {
 	return strings.TrimPrefix(strings.TrimSpace(k), "v"), nil
 }
 
+// SchemaVersion returns the X.Y.0 kubeconform schema set for k8sVersion; patch releases never change the API.
+func SchemaVersion(k8sVersion string) string {
+	parts := strings.Split(k8sVersion, ".")
+	if len(parts) != 3 {
+		return k8sVersion
+	}
+	return parts[0] + "." + parts[1] + ".0"
+}
+
 // DefaultCacheDir returns the kubeconform schema cache directory.
 func DefaultCacheDir(repoRoot string) string {
 	if x := os.Getenv("XDG_CACHE_HOME"); x != "" {

@@ -859,7 +859,7 @@ func TestKubeconformArgsUseVersionsYaml(t *testing.T) {
 	}
 	line := cmd.line()
 	wants := []string{
-		"-kubernetes-version " + wantVersion,
+		"-kubernetes-version " + SchemaVersion(wantVersion),
 		"-strict",
 		"-summary",
 		"-output json",

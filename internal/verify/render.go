@@ -975,7 +975,7 @@ func kubeconformCheck(ctx context.Context, opts RenderOptions, env Env, k8sVersi
 		"-strict",
 		"-summary",
 		"-output", "json",
-		"-kubernetes-version", k8sVersion,
+		"-kubernetes-version", SchemaVersion(k8sVersion),
 		"-cache", cacheDir,
 		"-schema-location", "default",
 		"-schema-location", filepath.Join(opts.SchemaDir, "{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json"),
