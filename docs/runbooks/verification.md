@@ -9,7 +9,7 @@ production (ADR-009). The production feedback loop is tracked in
 
 | Level | Command | Needs | Adds |
 |---|---|---|---|
-| 0 | `task verify` | nothing | render, lint, kubeconform, pluto, gitops graph, snapshots, policy, ADR record |
+| 0 | `task verify` | nothing | render, lint, kubeconform, pluto, gitops graph, snapshots, policy, ADR record, merge-result gate |
 | 1 | `task verify LEVEL=1` | a Kind cluster (`task localdev:kind` is enough) | server-side dry run of every localdev chart |
 | 2 | `task verify LEVEL=2` | the synced loop (`task localdev:up` or `localdev:ci`) | ArgoCD Application state, chainsaw e2e suite |
 
@@ -44,6 +44,18 @@ clearest case) shows red in the checks list without stopping the merge. Rebasing
 turns it into a head failure, which does block. Treat a red merge-result level 0 as a
 merge blocker even though GitHub will not.
 
+**The merge-result property is a pair of absences, and level 0 guards them.** What makes
+`verify.yml`'s level-0 job a merge-result gate is that its `actions/checkout` step has no
+`with: ref:` (a bare checkout on a `pull_request` event checks out `refs/pull/N/merge`) and
+that its `pull_request` trigger has no `paths:` filter (so the check run is published on
+every pull request). Neither property is stated by anything in the file except a comment,
+and losing either one leaves **every check green** while the gate silently stops seeing
+merge-result-only failures. So both are asserted by level 0 itself —
+`workflows/level0-merge-ref` and `workflows/level0-pull-request-paths`, in
+`internal/verify/workflows.go`. Note the deliberate asymmetry with `pr-contract.yml`'s
+`claim` job, which *is* head-pinned: the two jobs exist to check two different commits, and
+copying the pin from one into the other is the regression these checks catch.
+
 ## What level 0 checks
 
 | Check name | What it proves | Fix when it fails |
@@ -66,6 +78,9 @@ merge blocker even though GitHub will not.
 | `policy/<env>` | conftest policies in `tests/policy/` pass (finalizers, sync waves, SSA, automated sync, no `:latest`, resources on every container, no inline secrets, hostnames under the configured domain). | Fix the chart, or add `homelab.<DOMAIN>/policy-exempt: "<rule-id>"` plus `homelab.<DOMAIN>/policy-exempt-reason` on the object. |
 | `decisions/adr-record` | `docs/project_notes/decisions.md` exists, parses, and contains at least one ADR. Emitted **instead of** the two checks below when the parse cannot be trusted — an unterminated fence hides every heading under it, and a record with no ADRs would otherwise report "0 ADRs, no duplicate number" as a green. | The finding names the line. Close (or delete) the stray fence; a record with no ADR heading is a wrong path or a truncated file, not a passing record. |
 | `decisions/adr-format` | Every ADR heading in `docs/project_notes/decisions.md` is `### ADR-NNN: <title>` — three digits, heading depth three, at most three spaces of indent (four is a code block and is not read). A heading that names *no* number (`## ADR numbering conventions`) is prose and is not checked; one that names a number at any other depth (`#### ADR-034 rollout notes`) **is** a failure, because it is byte-adjacent to the placeholder shape below and the two cannot be told apart. | Fix the heading — a sub-heading inside an ADR body must not repeat the number. A number you intend to use goes in a blockquote above the next real ADR, never in a heading: a placeholder heading merges cleanly over the real ADR of that number and deletes it (ADR-039). |
+| `workflows/merge-result-gate` | `.github/workflows/verify.yml` exists, parses, and still contains a `level-0` job named exactly `Level 0 (render, schema, gitops, snapshot, policy)` with at least one `actions/checkout` step and an `on.pull_request` trigger. Emitted **instead of** the two checks below whenever any of that is missing — a guard pointed at a job it can no longer find would otherwise report both rules as vacuously green. | The finding names what was not found. If the job was renamed on purpose, `main`'s required context is matched by that exact string and a rename makes it *absent* (pending forever, not red): update `Level0JobID`/`Level0ContextName` in `internal/verify/workflows.go` and the required context together (MCAA-203). |
+| `workflows/level0-merge-ref` | No `actions/checkout` step in `verify.yml`'s `level-0` job sets `with: ref:`. The bare checkout is what makes the job read `refs/pull/N/merge`, i.e. the merge result, which is the only reason it belongs in main's required contexts (ADR-039, MCAA-164). | Delete the `with: ref:` block; `findings` names the line. If you copied it from `pr-contract.yml`'s `claim` job, that job is deliberately head-pinned and this one is deliberately not — that is why both jobs exist. A `with:` block with no `ref:` (e.g. `fetch-depth`) is fine. |
+| `workflows/level0-pull-request-paths` | `verify.yml`'s `on.pull_request` trigger has no `paths:` or `paths-ignore:`. A job skipped by a job-level `if:` still publishes a `skipped` check run, which **satisfies** a required context; a workflow filtered out by `paths:` publishes no check run at all, and GitHub leaves a required context that never runs pending forever. | Remove the filter; `findings` names the line. Use a job-level `if:` for an exemption instead (that is how `pr-contract.yml`'s Renovate and draft exemptions stay mergeable). The `push` trigger's own paths filter is not checked — post-merge runs on `main` gate nothing. |
 | `decisions/adr-numbers` | No ADR number is defined twice. Branches that each appended "the next number" merge without a conflict, so this is the only thing that sees the duplicate. | `findings` names every line. The number belongs to whichever ADR merged first: renumber the one this branch adds to the next free number, keep its body byte-identical, and update the citations that name the old number (ADR-039). |
 
 **When a duplicate ADR number reaches `main`.** The `decisions/*` checks read the
@@ -78,6 +93,30 @@ check — `main`'s legacy protection is `enforcement_level: non_admins`, and the
 `bypass_actors: []`, so no agent and no non-admin contributor can — and the reason goes in
 the merging issue. That is the only bypass; there is no per-file exemption annotation for
 the ADR checks the way `policy-exempt` works for conftest.
+
+**Emergency path for the `workflows/*` checks.** Same shape, for the same reason: they read
+the repository, not the render, so there is no per-file exemption annotation and no
+environment variable that turns them off. Three routes, in the order to try them:
+
+1. **Fix forward.** Every finding names a file and a line, and every fix is a deletion —
+   remove the `with: ref:` block or the `paths:` filter. This is seconds of work and is
+   almost always the right answer, because these checks only fire on an edit to
+   `verify.yml` itself.
+2. **Deliberate redesign.** If the gate genuinely should move — a different job becomes the
+   required context, or the required context is retired — the checks are configuration in
+   code, not a law: change `Level0JobID`, `Level0ContextName` or the rules in
+   `internal/verify/workflows.go` in the **same commit** as the workflow change and the ADR
+   that records the decision, and update `main`'s required contexts to match. Changing the
+   workflow without the constants is what fails; changing both together is a normal,
+   reviewable change.
+3. **Genuine emergency merge.** The repository owner merges past the required check.
+   `main`'s legacy protection is `enforcement_level: non_admins` and the ruleset has
+   `bypass_actors: []`, so no agent and no non-admin contributor can do this, and the reason
+   goes in the merging issue. Locally, `SKIP=verify-level-0 git commit …` skips the
+   pre-commit hook — it does not skip CI, and it is not a way to land the change.
+
+Route 1 is not a bypass and route 2 is not either; route 3 is the only real one, and like
+the ADR checks it is owner-only and audited in the merging issue.
 
 Level 0 renders a third environment, `homelab-preview`: the homelab two-stage render of
 `charts/applications` alone in preview mode (`global.preview.pr=123`, every app in

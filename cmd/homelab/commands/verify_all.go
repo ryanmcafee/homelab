@@ -25,7 +25,7 @@ const defaultKubeContext = "kind-homelab-localdev"
 
 // newVerifyAllCmd wires every check of a verification level into one command:
 //
-//	level 0: render → gitops graph → golden snapshots → conftest policy → ADR record
+//	level 0: render → gitops graph → golden snapshots → conftest policy → ADR record → merge-result gate
 //	level 1: level 0 → kubectl server-side dry run of the localdev render
 //	level 2: level 1 → ArgoCD Application state → chainsaw e2e
 //
@@ -54,7 +54,10 @@ vendored CRD schemas and the Kubernetes version from configuration/versions.yaml
 plus pluto), checked against the GitOps graph rules (tests/gitops/), diffed
 against tests/snapshots/, and evaluated with the conftest policies in tests/policy/.
 It also reads docs/project_notes/decisions.md and fails when an ADR heading is not
-"### ADR-NNN: <title>" or when two headings claim the same number (ADR-039).
+"### ADR-NNN: <title>" or when two headings claim the same number (ADR-039), and
+reads .github/workflows/verify.yml and fails when its level-0 job stops being a
+merge-result gate — a pinned checkout ref or a paths filter on the pull_request
+trigger (MCAA-203).
 
 Level 1 runs level 0, then server-side dry-run applies every rendered localdev
 chart against the Kind cluster selected by --kube-context (checks
@@ -156,7 +159,14 @@ Exit code 0 when every check passes, 1 when any check fails, 2 on usage error.`,
 			// conflict fails here instead of landing silently on main.
 			result.Add(verify.ADRRecord(repoRoot)...)
 
-			// 6. Cluster-backed levels. Every check reads the Kind cluster
+			// 6. The merge-result gate guards itself: verify.yml's level-0 job
+			// keeps a bare actions/checkout and a paths-free pull_request
+			// trigger (MCAA-203). Both are *absences*, neither turns anything
+			// red on its own, and either one being lost demotes the required
+			// context of ADR-039 while every check stays green.
+			result.Add(verify.MergeResultGate(repoRoot)...)
+
+			// 7. Cluster-backed levels. Every check reads the Kind cluster
 			// through the same Runner, so the fake in tests covers them too.
 			if level >= levelDryRun {
 				cluster := verify.ClusterOptions{
@@ -193,7 +203,7 @@ Exit code 0 when every check passes, 1 when any check fails, 2 on usage error.`,
 		},
 	}
 
-	cmd.Flags().IntVar(&level, "level", levelStatic, "Verification level: 0 = static (render, schema, gitops graph, snapshots, policy, ADR record); 1 = level 0 + server-side dry run of the localdev render against Kind; 2 = level 1 + ArgoCD Application state + chainsaw e2e")
+	cmd.Flags().IntVar(&level, "level", levelStatic, "Verification level: 0 = static (render, schema, gitops graph, snapshots, policy, ADR record, merge-result gate); 1 = level 0 + server-side dry run of the localdev render against Kind; 2 = level 1 + ArgoCD Application state + chainsaw e2e")
 	cmd.Flags().StringVar(&envList, "env", "all", "Environments to verify (all, localdev, homelab, homelab-preview, or a comma-separated list); levels 1 and 2 need localdev")
 	cmd.Flags().BoolVar(&asJSON, "json", false, "Emit the machine-readable result contract")
 	cmd.Flags().BoolVar(&keep, "keep-render-dir", false, "Keep the temporary render directory and print its path")

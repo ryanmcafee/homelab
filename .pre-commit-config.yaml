@@ -7,6 +7,14 @@ repos:
   # Level-0 static verification (render + lint + kubeconform + pluto + gitops graph +
   # snapshots + conftest policy). Replaces the former helm-lint/helm-template/kubeconform
   # hooks; no -skip lists — CRD schemas are vendored under tests/schemas.
+  #
+  # `files:` is level 0's local scope and must not drift from CI's. CI runs level 0 on
+  # *every* pull request (verify.yml's pull_request trigger has no paths filter, and
+  # pr-contract.yml's has none either), so anything this regex omits is checked in CI
+  # but not locally. `.github/workflows/verify.yml` is listed because level 0 now guards
+  # that file itself (`workflows/level0-merge-ref`, MCAA-203): a commit that pins the
+  # checkout ref touches nothing else, so without it the one hook that catches the
+  # regression is the one the commit skips.
   - repo: local
     hooks:
       - id: verify-level-0
@@ -14,7 +22,7 @@ repos:
         entry: task verify:text
         language: system
         pass_filenames: false
-        files: ^(charts/|configuration/|tests/(schemas|policy|gitops|snapshots|health|e2e)/|localdev/|internal/verify/|cmd/homelab/commands/verify)
+        files: ^(charts/|configuration/|tests/(schemas|policy|gitops|snapshots|health|e2e)/|localdev/|internal/verify/|cmd/homelab/commands/verify|docs/project_notes/decisions\.md$|\.github/workflows/verify\.yml$)
 
       - id: config-guard
         name: PII Guard
