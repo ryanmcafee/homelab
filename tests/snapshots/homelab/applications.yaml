@@ -1625,6 +1625,15 @@ spec:
     server: https://kubernetes.default.svc
     namespace: media
 
+  ignoreDifferences:
+    # The upstream chart omits backendRef fields the API server defaults.
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      jqPathExpressions:
+        - .spec.rules[]?.backendRefs[]? | select(.group == "") | .group
+        - .spec.rules[]?.backendRefs[]? | select(.kind == "Service") | .kind
+        - .spec.rules[]?.backendRefs[]? | select(.weight == 1) | .weight
+
   syncPolicy:
     automated:
       prune: true

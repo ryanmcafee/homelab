@@ -5051,6 +5051,14 @@ spec:
                   - delta_to_cumulative
                 exporters:
                   - prometheus/unifi
+  ignoreDifferences:
+    # The upstream chart omits backendRef fields the API server defaults.
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      jqPathExpressions:
+        - .spec.rules[]?.backendRefs[]? | select(.group == "") | .group
+        - .spec.rules[]?.backendRefs[]? | select(.kind == "Service") | .kind
+        - .spec.rules[]?.backendRefs[]? | select(.weight == 1) | .weight
   destination:
     server: https://kubernetes.default.svc
     namespace: observability
