@@ -48,6 +48,7 @@ func TestConfigGuardCLI(t *testing.T) {
 			for _, args := range [][]string{{"init", "--quiet"}, {"add", "."}, {"-c", "user.name=Fixture", "-c", "user.email=fixture@example.com", "commit", "--quiet", "-m", "fixture"}} {
 				cmd := exec.Command("git", args...)
 				cmd.Dir = fixture
+				cmd.Env = fixtureEnv()
 				if out, err := cmd.CombinedOutput(); err != nil {
 					t.Fatalf("git: %v %s", err, out)
 				}
@@ -56,6 +57,7 @@ func TestConfigGuardCLI(t *testing.T) {
 				args := append([]string{"config", "guard", "--env-file", filepath.Join(fixture, "environment.yaml")}, mode...)
 				cmd := exec.Command(binary, args...)
 				cmd.Dir = fixture
+				cmd.Env = fixtureEnv()
 				output, err := cmd.CombinedOutput()
 				text := string(output)
 				if (err != nil) != tc.bad {
@@ -139,5 +141,26 @@ func TestConfigValidatePoolCLI(t *testing.T) {
 				t.Fatalf("missing success:\n%s", text)
 			}
 		})
+	}
+}
+
+// fixtureEnv drops the GIT_* variables a git hook exports, so fixture commands cannot reach the outer repository.
+func fixtureEnv() []string {
+	var env []string
+	for _, kv := range os.Environ() {
+		if !strings.HasPrefix(kv, "GIT_") {
+			env = append(env, kv)
+		}
+	}
+	return env
+}
+
+func TestConfigGuardFixtureEnvDropsGitVariables(t *testing.T) {
+	t.Setenv("GIT_DIR", "/outer/.git")
+	t.Setenv("GIT_INDEX_FILE", "/outer/.git/index")
+	for _, kv := range fixtureEnv() {
+		if strings.HasPrefix(kv, "GIT_") {
+			t.Fatalf("fixture env leaks %s", kv)
+		}
 	}
 }

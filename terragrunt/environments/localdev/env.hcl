@@ -26,7 +26,7 @@ locals {
   # identical in every fork, so it is not a ConfigSet value.
   vlan_id     = null
   subnet      = "10.244.0.0/16"
-  gateway     = "10.244.0.1"
+  gateway     = cidrhost(local.subnet, 1)
   dns_servers = [local.config.DNS_SERVER_IP]
 
   # Git repository

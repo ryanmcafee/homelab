@@ -19,20 +19,20 @@ all:
     truenas:
       hosts:
         truenas-server:
-          ansible_host: 192.168.1.100
+          ansible_host: 192.168.1.50
           ansible_user: root
           ansible_ssh_private_key_file: ~/.ssh/id_ed25519
-          truenas_api_url: https://192.168.1.100
+          truenas_api_url: https://192.168.1.50
       vars:
         # truenas_api_key comes from group_vars/truenas.yml (env lookup, no address)
         truenas_hostname: truenas.REPLACEME-domain.com
         nfs_mapall_user: REPLACEME-username
-        truenas_static_ip: "192.168.1.100/24"
+        truenas_static_ip: "192.168.1.50/24"
         truenas_gateway: "192.168.1.1"
         truenas_dns_servers:
           - "192.168.1.1"
         # Optional (TRUENAS_LAN_IP); empty skips the LAN interface tasks
-        truenas_lan_static_ip: "192.168.1.150/24"
+        truenas_lan_static_ip: "192.168.1.51/24"
         truenas_nfs_allowed_networks:
           - "192.168.1.0/24"
         # truenas-full-setup.yml talks to Proxmox to (re)boot the VM

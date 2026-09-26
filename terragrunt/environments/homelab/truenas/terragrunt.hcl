@@ -124,10 +124,10 @@ inputs = {
   cloudflare_api_token   = get_env("CLOUDFLARE_API_TOKEN", "")
 
   # DNS records for TrueNAS
-  dns_entries = [
-    { fqdn = "truenas.home.lab", type = "A", host = include.env.locals.truenas_ip },
-    { fqdn = "truenas.${include.env.locals.base_fqdn}", type = "A", host = include.env.locals.truenas_ip },
-    { fqdn = "nas.home.lab", type = "A", host = include.env.locals.truenas_ip },
-    { fqdn = "nas.${include.env.locals.base_fqdn}", type = "A", host = include.env.locals.truenas_ip }
-  ]
+  dns_entries = flatten([
+    for domain in compact([include.env.locals.local_dns_domain, include.env.locals.base_fqdn]) : [
+      { fqdn = "truenas.${domain}", type = "A", host = include.env.locals.truenas_ip },
+      { fqdn = "nas.${domain}", type = "A", host = include.env.locals.truenas_ip }
+    ]
+  ])
 }

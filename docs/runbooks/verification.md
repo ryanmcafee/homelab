@@ -583,7 +583,7 @@ pool is enabled. Schema `addressRole` declares pool endpoints (`lb-pool-range`),
 allocations that must be inside (`lb-allocation`), addresses that must stay outside
 (`infrastructure-address`, `dedicated-pool-allocation`), and containing network
 ranges (`network-range`). Both endpoints are inclusive; address/prefix values use
-the host address. Traefik, Plex, and OTEL belong inside the pool. TrueNAS and the
+the host address. The Envoy Gateways, Plex, and OTEL belong inside the pool. TrueNAS and the
 control-plane VIP must stay outside. Existing forks must check their own ignored
 `homelab.yaml`: updating the example does not fix a previously copied NAS collision.
 
