@@ -131,9 +131,9 @@ repoServer:
           name: plugins
         - mountPath: /tmp
           name: cmp-tmp
-        - mountPath: /config/homelab.yaml
+        # No subPath: kubelet refreshes only whole-volume secret mounts, so env doc edits reach the CMP live.
+        - mountPath: /config
           name: homelab-config
-          subPath: homelab.yaml
           readOnly: true
 
 applicationSet:

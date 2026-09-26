@@ -524,10 +524,9 @@ spec:
               name: plugins
             - mountPath: /tmp
               name: cmp-tmp
-            - mountPath: /config/homelab.yaml
+            - mountPath: /config
               name: homelab-config
               readOnly: true
-              subPath: homelab.yaml
           initContainers:
           - args:
             - /usr/local/bin/ksops
