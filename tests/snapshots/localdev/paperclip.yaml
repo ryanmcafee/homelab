@@ -1380,7 +1380,7 @@ metadata:
 spec:
   image:
     repository: ghcr.io/paperclipai/paperclip
-    tag: "2026.916.1"
+    tag: "sha-d3e0f0a"
   # Optional keys of the credentials Secret (the enabled per-provider API keys,
   # then extraSecretEnv) followed by extraEnv; both containers receive spec.env.
   env:

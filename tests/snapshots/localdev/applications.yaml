@@ -1255,7 +1255,7 @@ spec:
           image: oven/bun:1.4.2-alpine
         image:
           repository: ghcr.io/paperclipai/paperclip
-          tag: 2026.916.1
+          tag: sha-d3e0f0a
         persistence:
           size: 1Gi
           storageClass: local-path
