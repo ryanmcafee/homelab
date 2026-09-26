@@ -3423,9 +3423,9 @@ spec:
         kube-state-metrics:
           resources:
             limits:
-              memory: 80Mi
+              memory: 256Mi
             requests:
-              memory: 48Mi
+              memory: 160Mi
           # Gateway and HTTPRoute conditions for HomelabGatewayNotProgrammed and HomelabHTTPRouteNotAccepted.
           rbac:
             extraRules:

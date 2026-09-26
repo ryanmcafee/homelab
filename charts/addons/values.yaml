@@ -698,9 +698,9 @@ kube-prometheus-stack:
     enabled: true
     resources:
       requests:
-        memory: 48Mi
+        memory: 160Mi
       limits:
-        memory: 80Mi
+        memory: 256Mi
 
   # etcd scrape: Talos exposes etcd metrics on <control-plane IP>:2381 when
   # cluster.etcd.extraArgs.listen-metrics-urls is set (terragrunt talos-cluster).

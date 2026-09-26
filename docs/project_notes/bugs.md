@@ -12,6 +12,12 @@ Each entry should include:
 
 ## Entries
 
+### 2026-09-26 - kube-state-metrics OOMKilled after the Gateway API custom-resource metrics (#387)
+- **Issue**: `kube-prometheus-stack-kube-state-metrics` crash-looped with `OOMKilled` about one second after start, under its 80Mi limit
+- **Root Cause**: #387 enabled `customResourceState` for Gateway and HTTPRoute. With a custom-resource config, kube-state-metrics runs CRD discovery and caches every CRD; homelab has 139 CRDs (52 MB of JSON). Run locally against the cluster with the same config, its Go heap held at ~115Mi (was ~31Mi without it)
+- **Solution**: homelab memory request 160Mi, limit 256Mi (`configuration/templates/helm-addons.tmpl`)
+- **Prevention**: Size kube-state-metrics for the CRD count, not for the objects it exports, whenever `customResourceState` is on
+
 ### 2026-09-26 - HTTPRoute hostnames stopped resolving after the Envoy Gateway cutover (#387)
 - **Issue**: `argocd.<domain>`, `grafana.<domain>` and every other route host returned no answer from UniFi DNS; Cloudflare logged `DELETE plex.<domain>`. `envoy-internal`/`envoy-external` reported `Programmed` False (`AddressNotAssigned`) with their Services `<pending>`
 - **Root Cause**: A manual `addons` sync without prune left the Traefik Applications `PruneSkipped`, so their Services kept the pinned addresses, and the sync waited forever on `envoy-gateway-config` health. external-dns's `gateway-httproute` source takes targets only from the Gateway (target annotation, else `status.addresses`); with no address and `policy: sync` it deleted every record. The route-level `target` annotation on Plex and oauth2-proxy was never read
