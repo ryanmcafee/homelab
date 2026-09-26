@@ -78,10 +78,35 @@ permissions:
 
 jobs:
   level-0:
+    # `name:` is the exact string main's required status checks match (ADR-039,
+    # MCAA-164). Renaming it does not turn the context red, it makes it *absent*,
+    # and GitHub leaves a required context that never reports pending forever.
     name: Level 0 (render, schema, gitops, snapshot, policy)
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
+      # Do not pin a ref here. The bare checkout IS the merge-result gate: on a
+      # `pull_request` event actions/checkout with no `with: ref:` checks out
+      # `refs/pull/N/merge`, so this job verifies the merge result rather than the
+      # branch head. That is the whole reason this job is in main's required
+      # contexts (MCAA-164) and the reason pr-contract.yml's head-pinned `claim`
+      # job is a *separate* job rather than this one.
+      #
+      # Adding `with: ref: ${{ github.event.pull_request.head.sha }}` — which is
+      # exactly what `claim` does two files over, so it reads as consistency —
+      # silently demotes this to a head gate with **every check still green**.
+      # Failures that exist only in the merge result then become invisible again:
+      # the ADR-number collision of ADR-039 is the clearest case, where two
+      # branches each append "the next number", both are green on their own head,
+      # and the duplicate exists only after the merge.
+      #
+      # Because that regression is an *absence* and shows up nowhere in a status
+      # list, it is enforced, not just documented: level 0's
+      # `workflows/level0-merge-ref` check (internal/verify/workflows.go) fails
+      # when this step acquires a `ref:`, and `workflows/level0-pull-request-paths`
+      # fails when the trigger above acquires a paths filter. The emergency path
+      # is in docs/runbooks/verification.md; deliberate redesign means moving the
+      # constants in internal/verify/workflows.go in the same commit as an ADR.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Install go, helm, kubeconform, conftest, pluto, task from mise.toml
