@@ -113,12 +113,20 @@ argocd:
     # repositories, logs; never sync, exec or delete). A human generates its
     # token with `argocd account generate-token --account agent` and stores it
     # in 1Password; `task prod:diff` reads it from there.
+    #
+    # triage-agent (docs/runbooks/triage-agent.md): API key only, may read and
+    # sync Applications, nothing else (no create, update, delete, override,
+    # exec). Its token is the ARGOCD_AUTH_TOKEN field of the triage-agent item.
     configs:
       cm:
         accounts.agent: apiKey
+        accounts.triage-agent: apiKey
       rbac:
         policy.csv: |
           g, agent, role:readonly
+          p, role:triage-agent, applications, get, */*, allow
+          p, role:triage-agent, applications, sync, */*, allow
+          g, triage-agent, role:triage-agent
       # Per-PR previews (issue #261 item 16, docs/runbooks/previews.md): the
       # controller and server also reconcile Applications in preview-*
       # namespaces ("apps in any namespace"). Only the `previews` AppProject

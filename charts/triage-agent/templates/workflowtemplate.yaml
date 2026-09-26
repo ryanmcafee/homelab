@@ -1,0 +1,444 @@
+{{- /*
+triage-fix: alert -> triage -> plan -> implement/verify loop -> commit -> PR ->
+CI loop -> notify (docs/runbooks/triage-agent.md). Every step runs the agent
+image as `triage-agent run <stage>`; stages share /workspaces/<workflow name>
+on the shared workspace volume and pass decisions as output parameters
+(out/<name>). The exit handler deletes a succeeded workflow's directory; the
+intake janitor reclaims the rest. Only triage, plan and implement call the
+model; everything else is deterministic.
+*/}}
+{{- if .Values.enabled }}
+{{- $wf := .Values.workflow }}
+{{- $optionalSecret := list "DOTFILES_REPO" "PAPERCLIP_API_KEY" "PAPERCLIP_COMPANY_ID" "ARGOCD_AUTH_TOKEN" }}
+apiVersion: argoproj.io/v1alpha1
+kind: WorkflowTemplate
+metadata:
+  name: {{ $wf.templateName }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "triage-agent.labels" . | nindent 4 }}
+spec:
+  entrypoint: main
+  onExit: exit-handler
+  serviceAccountName: {{ include "triage-agent.workflowServiceAccount" . }}
+  activeDeadlineSeconds: {{ $wf.activeDeadlineSeconds }}
+  arguments:
+    parameters:
+      - name: alertname
+      - name: branch
+      - name: alert-group
+  # One workflow per alertname at a time, and at most maxConcurrent overall.
+  synchronization:
+    semaphores:
+      - configMapKeyRef:
+          name: {{ .Values.name }}-sync
+          key: workflows
+    mutexes:
+      - name: {{ `triage-{{workflow.parameters.alertname}}` }}
+  podGC:
+    strategy: OnPodSuccess
+  ttlStrategy:
+    {{- toYaml $wf.ttl | nindent 4 }}
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    runAsGroup: 1000
+    fsGroup: 1000
+    seccompProfile:
+      type: RuntimeDefault
+  volumes:
+    - name: workspace
+      persistentVolumeClaim:
+        claimName: {{ .Values.name }}-workspace
+    - name: cache
+      persistentVolumeClaim:
+        claimName: {{ .Values.name }}-cache
+    - name: config
+      configMap:
+        name: {{ .Values.name }}
+  templates:
+    - name: main
+      dag:
+        tasks:
+          - name: triage
+            template: stage
+            arguments:
+              parameters:
+                - name: stage
+                  value: triage
+                - name: deadline
+                  value: {{ $wf.deadlines.triage | quote }}
+          - name: plan
+            depends: triage.Succeeded
+            when: {{ `"{{tasks.triage.outputs.parameters.actionable}} == true"` }}
+            template: stage
+            arguments:
+              parameters:
+                - name: stage
+                  value: plan
+                - name: deadline
+                  value: {{ $wf.deadlines.plan | quote }}
+          # `depends: x` alone also fires when x was skipped; .Succeeded does not.
+          - name: fix
+            depends: plan.Succeeded
+            template: fix-loop
+            arguments:
+              parameters:
+                - name: attempt
+                  value: "1"
+                - name: feedback
+                  value: none
+          - name: commit
+            depends: fix.Succeeded
+            template: stage
+            arguments:
+              parameters:
+                - name: stage
+                  value: commit
+          - name: pr
+            depends: commit.Succeeded
+            when: {{ `"{{tasks.commit.outputs.parameters.changed}} == true"` }}
+            template: stage
+            arguments:
+              parameters:
+                - name: stage
+                  value: pr
+          - name: ci
+            depends: pr.Succeeded
+            when: {{ `"{{tasks.pr.outputs.parameters.draft}} == false"` }}
+            template: ci-loop
+            arguments:
+              parameters:
+                - name: attempt
+                  value: "1"
+
+    # Bounded fix loop: implement, then deterministic verify; verify's `next`
+    # (loopDecision in triage-agent/src/stages/loop.ts) decides another round.
+    - name: fix-loop
+      inputs:
+        parameters:
+          - name: attempt
+          - name: feedback
+      steps:
+        - - name: implement
+            template: stage
+            arguments:
+              parameters:
+                - name: stage
+                  value: implement
+                - name: attempt
+                  value: {{ `"{{inputs.parameters.attempt}}"` }}
+                - name: max-attempts
+                  value: {{ $wf.fixAttempts | quote }}
+                - name: feedback
+                  value: {{ `"{{inputs.parameters.feedback}}"` }}
+                - name: deadline
+                  value: {{ $wf.deadlines.implement | quote }}
+        - - name: verify
+            template: stage
+            arguments:
+              parameters:
+                - name: stage
+                  value: verify
+                - name: attempt
+                  value: {{ `"{{inputs.parameters.attempt}}"` }}
+                - name: max-attempts
+                  value: {{ $wf.fixAttempts | quote }}
+                - name: deadline
+                  value: {{ $wf.deadlines.verify | quote }}
+        - - name: again
+            when: {{ `"{{steps.verify.outputs.parameters.next}} == retry"` }}
+            template: fix-loop
+            arguments:
+              parameters:
+                - name: attempt
+                  value: {{ `"{{=asInt(inputs.parameters.attempt) + 1}}"` }}
+                - name: feedback
+                  value: verify
+
+    # Bounded CI loop: watch the PR's checks; on red feed the failing logs back
+    # through implement, verify, commit and push; when exhausted hand it to a human.
+    - name: ci-loop
+      inputs:
+        parameters:
+          - name: attempt
+      steps:
+        - - name: watch
+            template: stage
+            arguments:
+              parameters:
+                - name: stage
+                  value: ci-watch
+                - name: attempt
+                  value: {{ `"{{inputs.parameters.attempt}}"` }}
+                - name: max-attempts
+                  value: {{ $wf.ciAttempts | quote }}
+                - name: deadline
+                  value: {{ $wf.deadlines.ciWatch | quote }}
+        - - name: implement
+            when: {{ `"{{steps.watch.outputs.parameters.next}} == retry"` }}
+            template: stage
+            arguments:
+              parameters:
+                - name: stage
+                  value: implement
+                - name: attempt
+                  value: {{ `"{{inputs.parameters.attempt}}"` }}
+                - name: max-attempts
+                  value: {{ $wf.ciAttempts | quote }}
+                - name: feedback
+                  value: ci
+                - name: deadline
+                  value: {{ $wf.deadlines.implement | quote }}
+          - name: needs-human
+            when: {{ `"{{steps.watch.outputs.parameters.next}} == exhausted"` }}
+            template: stage
+            arguments:
+              parameters:
+                - name: stage
+                  value: needs-human
+        - - name: verify
+            when: {{ `"{{steps.watch.outputs.parameters.next}} == retry"` }}
+            template: stage
+            arguments:
+              parameters:
+                - name: stage
+                  value: verify
+                - name: deadline
+                  value: {{ $wf.deadlines.verify | quote }}
+        - - name: commit
+            when: {{ `"{{steps.watch.outputs.parameters.next}} == retry"` }}
+            template: stage
+            arguments:
+              parameters:
+                - name: stage
+                  value: commit
+                - name: feedback
+                  value: ci
+        - - name: push
+            when: {{ `"{{steps.watch.outputs.parameters.next}} == retry"` }}
+            template: stage
+            arguments:
+              parameters:
+                - name: stage
+                  value: pr
+        - - name: again
+            when: {{ `"{{steps.watch.outputs.parameters.next}} == retry"` }}
+            template: ci-loop
+            arguments:
+              parameters:
+                - name: attempt
+                  value: {{ `"{{=asInt(inputs.parameters.attempt) + 1}}"` }}
+
+    # Always runs, success or failure: Pushover with the PR link or the report.
+    - name: exit-handler
+      steps:
+        - - name: notify
+            template: stage
+            arguments:
+              parameters:
+                - name: stage
+                  value: notify
+                - name: workflow-status
+                  value: {{ `"{{workflow.status}}"` }}
+                - name: workflow-failures
+                  value: {{ `"{{workflow.failures}}"` }}
+        - - name: cleanup
+            template: stage
+            arguments:
+              parameters:
+                - name: stage
+                  value: cleanup
+                - name: workflow-status
+                  value: {{ `"{{workflow.status}}"` }}
+
+    # Not in the default path: `argo submit --from workflowtemplate/triage-fix
+    # --entrypoint argocd-sync -p app=<name>` syncs one Application.
+    - name: argocd-sync
+      inputs:
+        parameters:
+          - name: app
+      steps:
+        - - name: sync
+            template: stage
+            arguments:
+              parameters:
+                - name: stage
+                  value: argocd-sync
+                - name: argocd-app
+                  value: {{ `"{{inputs.parameters.app}}"` }}
+
+    - name: stage
+      inputs:
+        parameters:
+          - name: stage
+          - name: attempt
+            value: "1"
+          - name: max-attempts
+            value: "1"
+          - name: feedback
+            value: none
+          - name: deadline
+            value: {{ $wf.deadlines.step | quote }}
+          - name: argocd-app
+            value: ""
+          - name: workflow-status
+            value: ""
+          - name: workflow-failures
+            value: ""
+      activeDeadlineSeconds: {{ `"{{inputs.parameters.deadline}}"` }}
+      retryStrategy:
+        limit: {{ $wf.retry.limit | quote }}
+        retryPolicy: Always
+        backoff:
+          {{- toYaml $wf.retry.backoff | nindent 10 }}
+      outputs:
+        parameters:
+          {{- range list "actionable" "passed" "next" "changed" "pr-number" "pr-url" "draft" "ci-state" }}
+          - name: {{ . }}
+            valueFrom:
+              path: {{ printf "/workspaces/{{workflow.name}}/out/%s" . }}
+              default: ""
+          {{- end }}
+      container:
+        image: {{ required "image is required" .Values.image }}
+        args: ["run", {{ `"{{inputs.parameters.stage}}"` }}]
+        env:
+          - name: WORK_DIR
+            value: {{ `/workspaces/{{workflow.name}}` }}
+          - name: REPO_URL
+            value: {{ required "repoUrl is required" .Values.repoUrl | quote }}
+          - name: REPO_SLUG
+            value: {{ required "repoSlug is required" .Values.repoSlug | quote }}
+          - name: BASE_BRANCH
+            value: {{ .Values.repoBranch | quote }}
+          - name: BRANCH
+            value: {{ `"{{workflow.parameters.branch}}"` }}
+          - name: ALERT_GROUP
+            value: {{ `"{{workflow.parameters.alert-group}}"` }}
+          - name: ALERTMANAGER_URL
+            value: {{ required "alertmanagerUrl is required" .Values.alertmanagerUrl | quote }}
+          - name: ATTEMPT
+            value: {{ `"{{inputs.parameters.attempt}}"` }}
+          - name: MAX_ATTEMPTS
+            value: {{ `"{{inputs.parameters.max-attempts}}"` }}
+          - name: FEEDBACK
+            value: {{ `"{{inputs.parameters.feedback}}"` }}
+          - name: CI_TIMEOUT_SECONDS
+            value: {{ $wf.ciTimeoutSeconds | quote }}
+          - name: WORKFLOW_NAME
+            value: {{ `"{{workflow.name}}"` }}
+          - name: WORKFLOW_STATUS
+            value: {{ `"{{inputs.parameters.workflow-status}}"` }}
+          - name: WORKFLOW_FAILURES
+            value: {{ `"{{inputs.parameters.workflow-failures}}"` }}
+          - name: WORKFLOW_UI_URL
+            value: {{ .Values.workflowUiUrl | quote }}
+          - name: ARGOCD_APP
+            value: {{ `"{{inputs.parameters.argocd-app}}"` }}
+          - name: ARGOCD_SERVER
+            value: {{ .Values.argocd.server | quote }}
+          - name: ARGOCD_OPTS
+            value: {{ .Values.argocd.opts | quote }}
+          - name: TRIAGE_AGENT_FAKE_LLM
+            value: {{ $wf.fakeLlm | quote }}
+          - name: GIT_USER_NAME
+            value: {{ .Values.git.userName | quote }}
+          - name: GIT_USER_EMAIL
+            value: {{ .Values.git.userEmail | quote }}
+          - name: MISE_TOOLS
+            value: {{ $wf.tools | quote }}
+          - name: HOME
+            value: /home/agent
+          - name: CLAUDE_CONFIG_DIR
+            value: /home/agent/.claude
+          - name: DOTFILES_DIR
+            value: /home/agent/dotfiles
+          - name: MEMORY_DIR
+            value: /cache/memory
+          - name: TMPDIR
+            value: /tmp
+          - name: PATH
+            value: /cache/mise/shims:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+          - name: MISE_DATA_DIR
+            value: /cache/mise
+          - name: MISE_CACHE_DIR
+            value: /cache/mise-cache
+          - name: MISE_YES
+            value: "1"
+          - name: GOPATH
+            value: /cache/go
+          - name: GOMODCACHE
+            value: /cache/go/mod
+          - name: GOCACHE
+            value: /cache/go/build
+          - name: npm_config_cache
+            value: /cache/npm
+          - name: UV_CACHE_DIR
+            value: /cache/uv
+          - name: BUN_INSTALL_CACHE_DIR
+            value: /cache/bun
+          - name: BUN_RUNTIME_TRANSPILER_CACHE_PATH
+            value: "0"
+          - name: CLAUDE_CODE_OAUTH_TOKEN
+            valueFrom:
+              secretKeyRef:
+                name: {{ .Values.secretName }}
+                key: CLAUDE_CODE_OAUTH_TOKEN
+                optional: {{ $wf.fakeLlm }}
+          - name: GITHUB_TOKEN
+            valueFrom:
+              secretKeyRef:
+                name: {{ .Values.secretName }}
+                key: GITHUB_TOKEN
+                optional: true
+          - name: GH_TOKEN
+            valueFrom:
+              secretKeyRef:
+                name: {{ .Values.secretName }}
+                key: GITHUB_TOKEN
+                optional: true
+          {{- range $optionalSecret }}
+          - name: {{ . }}
+            valueFrom:
+              secretKeyRef:
+                name: {{ $.Values.secretName }}
+                key: {{ . }}
+                optional: true
+          {{- end }}
+          - name: PUSHOVER_TOKEN
+            valueFrom:
+              secretKeyRef:
+                name: {{ .Values.pushover.secretName }}
+                key: pushover_token
+                optional: true
+          - name: PUSHOVER_USER_KEY
+            valueFrom:
+              secretKeyRef:
+                name: {{ .Values.pushover.secretName }}
+                key: pushover_user_key
+                optional: true
+        resources:
+          {{- toYaml $wf.resources | nindent 10 }}
+        securityContext:
+          {{- include "triage-agent.restricted" . | nindent 10 }}
+        volumeMounts:
+          - name: workspace
+            mountPath: /workspaces
+          - name: cache
+            mountPath: /cache
+          - name: config
+            mountPath: /etc/triage-agent
+            readOnly: true
+          - name: home
+            mountPath: /home/agent
+          - name: tmp
+            mountPath: /tmp
+      volumes:
+        - name: home
+          emptyDir:
+            sizeLimit: 2Gi
+        - name: tmp
+          emptyDir:
+            sizeLimit: 2Gi
+{{- end }}

@@ -46,6 +46,7 @@ on:
       - 'cmd/**'
       - 'internal/**'
       - 'scripts/**'
+      - 'triage-agent/**'
       - 'readme.md'
       - 'docs/**'
       - '.github/homelab.svg'
@@ -177,6 +178,8 @@ jobs:
           set -euo pipefail
           task scripts:lint
           task test:scripts
+          task triage-agent:lint
+          task test:triage-agent
 
       # The README badge row, the tables in docs/ and the counts drawn into
       # .github/homelab.svg are computed from versions.yaml, the chart

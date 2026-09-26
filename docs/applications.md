@@ -78,6 +78,7 @@ sync wave 1 in homelab). Waves inside the chart run from -1 (namespaces, reposit
 | `spegel` | `spegel` | 0.6.0 | — | — | — |
 | `tailscale-config` | `charts/tailscale-config` | git | — | — | — |
 | `tailscale-operator` | `tailscale-operator` | 1.98.4 | — | — | — |
+| `triage-agent` | `charts/triage-agent` | git | — | — | — |
 | `ztunnel` | `ztunnel` | 1.31.1 | — | — | — |
 <!-- docs-check:end addons-table -->
 

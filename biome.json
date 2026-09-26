@@ -1,7 +1,15 @@
 {
   "$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
   "vcs": { "enabled": true, "clientKind": "git", "useIgnoreFile": true },
-  "files": { "includes": ["scripts/**/*.ts", "charts/*/files/*.ts"] },
+  "files": {
+    "includes": [
+      "scripts/**/*.ts",
+      "charts/*/files/*.ts",
+      "triage-agent/src/**/*.ts",
+      "triage-agent/tests/**/*.ts",
+      "triage-agent/scripts/**/*.ts"
+    ]
+  },
   "formatter": {
     "enabled": true,
     "indentStyle": "space",

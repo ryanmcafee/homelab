@@ -1,0 +1,79 @@
+# Alert triage agent (triage-agent/, docs/runbooks/triage-agent.md).
+#
+# One image for the intake (`serve`) and every workflow step (`run <stage>`):
+# node for the npx MCP servers, bun for the service, uv for the uvx MCP servers,
+# git + gh for branches and PRs, kubectl + argocd for diagnosis and sync, and
+# mise, which installs the repository's pinned toolchain (go, helm, task, ...)
+# from its mise.toml into the cache volume at run time. Every stage resolves to
+# the TARGET platform so `bun install` picks the matching Claude Code binary.
+
+# renovate: datasource=docker depName=oven/bun
+FROM oven/bun:1.4.2-debian AS bun
+
+# renovate: datasource=docker depName=ghcr.io/astral-sh/uv
+FROM ghcr.io/astral-sh/uv:0.12.19 AS uv
+
+FROM bun AS deps
+WORKDIR /app
+COPY triage-agent/package.json triage-agent/bun.lock ./
+RUN bun install --frozen-lockfile --production
+
+# renovate: datasource=docker depName=node
+FROM node:24-bookworm-slim
+
+ARG TARGETARCH
+# renovate: datasource=github-releases depName=kubernetes/kubernetes
+ARG KUBECTL_VERSION=v1.37.1
+# renovate: datasource=github-releases depName=cli/cli
+ARG GH_VERSION=v2.101.0
+# renovate: datasource=github-releases depName=jdx/mise
+ARG MISE_VERSION=v2026.9.13
+# versions.yaml tools.argocd
+# renovate: datasource=github-releases depName=argoproj/argo-cd
+ARG ARGOCD_VERSION=v3.5.3
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates curl git jq ripgrep xz-utils \
+    && rm -rf /var/lib/apt/lists/*
+
+# Every download is checked against the checksum file its release publishes.
+RUN set -eu; \
+    cd /tmp; \
+    curl -fsSLo kubectl "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${TARGETARCH}/kubectl"; \
+    echo "$(curl -fsSL "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${TARGETARCH}/kubectl.sha256")  kubectl" | sha256sum -c -; \
+    install -m 0755 kubectl /usr/local/bin/kubectl; \
+    gh_tar="gh_${GH_VERSION#v}_linux_${TARGETARCH}.tar.gz"; \
+    curl -fsSLO "https://github.com/cli/cli/releases/download/${GH_VERSION}/${gh_tar}"; \
+    curl -fsSL "https://github.com/cli/cli/releases/download/${GH_VERSION}/gh_${GH_VERSION#v}_checksums.txt" | grep " ${gh_tar}\$" | sha256sum -c -; \
+    tar -xzf "${gh_tar}"; \
+    install -m 0755 "gh_${GH_VERSION#v}_linux_${TARGETARCH}/bin/gh" /usr/local/bin/gh; \
+    mise_arch="$([ "${TARGETARCH}" = amd64 ] && echo x64 || echo "${TARGETARCH}")"; \
+    mise_bin="mise-${MISE_VERSION}-linux-${mise_arch}"; \
+    curl -fsSLO "https://github.com/jdx/mise/releases/download/${MISE_VERSION}/${mise_bin}"; \
+    curl -fsSL "https://github.com/jdx/mise/releases/download/${MISE_VERSION}/SHASUMS256.txt" | grep "${mise_bin}\$" | sed 's# \./# #' | sha256sum -c -; \
+    install -m 0755 "${mise_bin}" /usr/local/bin/mise; \
+    argocd_bin="argocd-linux-${TARGETARCH}"; \
+    curl -fsSLO "https://github.com/argoproj/argo-cd/releases/download/${ARGOCD_VERSION}/${argocd_bin}"; \
+    curl -fsSL "https://github.com/argoproj/argo-cd/releases/download/${ARGOCD_VERSION}/cli_checksums.txt" | grep " ${argocd_bin}\$" | sha256sum -c -; \
+    install -m 0755 "${argocd_bin}" /usr/local/bin/argocd; \
+    rm -rf /tmp/*
+
+COPY --from=bun /usr/local/bin/bun /usr/local/bin/bun
+COPY --from=uv /uv /uvx /usr/local/bin/
+
+WORKDIR /app
+COPY --from=deps /app/node_modules ./node_modules
+COPY triage-agent/package.json ./
+COPY triage-agent/src ./src
+
+# HOME, /workspaces, /cache and /tmp are volumes in the pod; the root filesystem stays read-only.
+ENV HOME=/home/agent \
+    CLAUDE_CONFIG_DIR=/home/agent/.claude \
+    npm_config_update_notifier=false \
+    UV_NO_PROGRESS=1 \
+    GH_PROMPT_DISABLED=1 \
+    GH_NO_UPDATE_NOTIFIER=1
+USER 1000:1000
+EXPOSE 8080
+ENTRYPOINT ["bun", "/app/src/main.ts"]
+CMD ["serve"]

@@ -1,0 +1,310 @@
+# triage-agent default values (docs/runbooks/triage-agent.md)
+#
+# The parent addons Application (charts/addons/templates/triage-agent.yaml)
+# passes namespace, image, repoUrl, repoSlug, alertmanagerUrl, workflowUiUrl,
+# the 1Password item paths and the storage class through helm.valuesObject,
+# all derived from configuration/ (ADR-010); nothing here is environment-specific.
+
+enabled: true
+
+namespace: triage-agent
+name: triage-agent
+
+# ghcr.io/<owner>/homelab-triage-agent:<configuration/versions.yaml images.triage-agent>
+image: ""
+# The GitOps repository the workflow clones, fixes and opens PRs against.
+repoUrl: ""
+# owner/name of repoUrl, for gh.
+repoSlug: ""
+repoBranch: main
+# In-cluster Alertmanager API (kube-prometheus-stack-alertmanager service).
+alertmanagerUrl: ""
+# Argo Workflows UI base URL; notifications without a PR link to the workflow.
+workflowUiUrl: ""
+
+# Secret <secretName> from the 1Password item: CLAUDE_CODE_OAUTH_TOKEN and
+# GITHUB_TOKEN (required for fixes), DOTFILES_REPO, PAPERCLIP_API_KEY,
+# PAPERCLIP_COMPANY_ID, ARGOCD_AUTH_TOKEN (optional).
+secretName: triage-agent
+onePassword:
+  itemPath: ""
+
+# The Alertmanager Pushover item (ALERTMANAGER_1P_PATH), read a second time
+# into this namespace: fields pushover_token and pushover_user_key.
+pushover:
+  secretName: triage-agent-pushover
+  itemPath: ""
+
+# Commit identity; the default is not a person.
+git:
+  userName: homelab-triage-agent
+  userEmail: homelab-triage-agent@users.noreply.github.com
+
+# ArgoCD API for `argocd app sync` (account triage-agent, get + sync only;
+# charts/bootstrap/values-homelab.yaml). The server runs with server.insecure.
+argocd:
+  server: argocd-server.argocd.svc:80
+  opts: "--plaintext --grpc-web"
+
+# ClusterRoles the workflow ServiceAccount is bound to: the built-in view role
+# and the role charts/agent-readonly owns (exec, port-forward, cluster reads).
+clusterRoles:
+  - view
+  - homelab-agent-readonly
+
+# Intake Deployment: webhook + sweep -> one Workflow per alert group.
+intake:
+  # Sweep GET /api/v2/alerts every sweepIntervalSeconds (0 = webhook only); a
+  # group handled within cooldownSeconds is submitted again only for a new fingerprint.
+  sweepIntervalSeconds: 300
+  cooldownSeconds: 86400
+  # A PR-review alert must never trigger a fix PR.
+  ignoredAlerts:
+    - Watchdog
+    - InfoInhibitor
+    - GitHubPullRequestNeedsReview
+    # The agent's own alerts: a workflow cannot fix the volume it needs.
+    - TriageAgentWorkspaceFillingUp
+    - TriageAgentCacheFillingUp
+    - TriageAgentJanitorFailing
+    - TriageAgentIntakeDown
+  maxRecords: 50
+  # Workspace janitor: every intervalSeconds it deletes /workspaces/<workflow>
+  # of succeeded workflows, of failed ones after failedRetentionSeconds and of
+  # vanished ones after orphanGraceSeconds. Above highWatermark (used/capacity)
+  # failed workspaces go at once, and cachePruneDirs (regenerable, relative to
+  # the cache volume) go while no workflow runs. Off in dryRun.
+  janitor:
+    intervalSeconds: 600
+    failedRetentionSeconds: 86400
+    orphanGraceSeconds: 3600
+    highWatermark: 0.8
+    cachePruneDirs:
+      - go/build
+      - mise-cache
+      - npm
+      - uv
+      - bun
+  # true: log the Workflow instead of submitting it.
+  dryRun: false
+  logLevel: info
+  resources:
+    requests:
+      cpu: 10m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 192Mi
+
+# The triage-fix WorkflowTemplate.
+workflow:
+  templateName: triage-fix
+  # Workflows running at once (semaphore); one per alertname at most (mutex).
+  maxConcurrent: 1
+  activeDeadlineSeconds: 18000
+  # Bounded semantic loops: implement+verify attempts, then CI fix rounds.
+  fixAttempts: 3
+  ciAttempts: 2
+  ciTimeoutSeconds: 3600
+  # Canned model answers (TRIAGE_AGENT_FAKE_LLM): the DAG runs without Claude.
+  fakeLlm: false
+  # Per-stage deadlines (seconds).
+  deadlines:
+    triage: 1500
+    plan: 900
+    implement: 3600
+    verify: 2400
+    ciWatch: 4200
+    step: 600
+  # Infrastructure retries of a failed step (pod lost, API error, model crash);
+  # check failures are outputs, not errors, and loop instead.
+  retry:
+    limit: 2
+    backoff:
+      duration: 30s
+      factor: 2
+      maxDuration: 10m
+  ttl:
+    secondsAfterSuccess: 86400
+    secondsAfterFailure: 259200
+  # Shared volume for every workflow's clone and stage files
+  # (/workspaces/<workflow name>); sized for large repositories.
+  workspace:
+    storageClass: ""
+    size: 100Gi
+    accessMode: ReadWriteOnce
+  # Toolchain (mise), Go, npm, uv and bun caches plus the memory MCP graph,
+  # shared by every workflow.
+  cache:
+    storageClass: ""
+    size: 20Gi
+    accessMode: ReadWriteOnce
+  # Tools `mise install` takes from the repository's mise.toml.
+  tools: go helm bun kubeconform conftest pluto task yq
+  resources:
+    requests:
+      cpu: 250m
+      memory: 1Gi
+    limits:
+      cpu: "2"
+      memory: 4Gi
+
+# Claude Agent SDK model and per-stage limits (agent.json).
+agent:
+  model: opus[1m]
+  stages:
+    triage:
+      maxTurns: 60
+      timeoutSeconds: 1200
+    plan:
+      maxTurns: 30
+      timeoutSeconds: 600
+    implement:
+      maxTurns: 150
+      timeoutSeconds: 3300
+
+# User-scope settings.json (CLAUDE_CONFIG_DIR). Every stage runs with
+# permissionMode dontAsk behind a PreToolUse deny hook (triage-agent/src/policy.ts:
+# mutating kubectl, gh pr merge, pushes to main, Alertmanager/Prometheus writes).
+# This allow list is what triage and plan may use; implement adds Bash, Edit
+# and Write. RBAC stays the boundary for the cluster.
+settings:
+  model: opus[1m]
+  env:
+    CLAUDE_CODE_ENABLE_TELEMETRY: "0"
+    ENABLE_TOOL_SEARCH: "1"
+    DISABLE_AUTOUPDATER: "1"
+  enableAllProjectMcpServers: true
+  includeCoAuthoredBy: false
+  permissions:
+    defaultMode: dontAsk
+    allow:
+      - Read
+      - Grep
+      - Glob
+      - WebFetch
+      - WebSearch
+      - ToolSearch
+      - TodoWrite
+      - Bash(kubectl get:*)
+      - Bash(kubectl describe:*)
+      - Bash(kubectl logs:*)
+      - Bash(kubectl top:*)
+      - Bash(kubectl events:*)
+      - Bash(kubectl explain:*)
+      - Bash(kubectl api-resources:*)
+      - Bash(kubectl auth can-i:*)
+      - Bash(kubectl version:*)
+      - Bash(kubectl exec:*)
+      - Bash(kubectl port-forward:*)
+      - Bash(argocd app get:*)
+      - Bash(argocd app list:*)
+      - Bash(argocd app diff:*)
+      - Bash(argocd app sync:*)
+      - Bash(curl:*)
+      - Bash(git log:*)
+      - Bash(git show:*)
+      - Bash(git diff:*)
+      - Bash(git grep:*)
+      - Bash(git blame:*)
+      - Bash(gh pr list:*)
+      - Bash(gh pr view:*)
+      - Bash(gh run view:*)
+      - Bash(rg:*)
+      - Bash(grep:*)
+      - Bash(jq:*)
+      - Bash(head:*)
+      - Bash(tail:*)
+      - Bash(sort:*)
+      - Bash(uniq:*)
+      - Bash(wc:*)
+      - Bash(date:*)
+      - mcp__sequential-thinking
+      - mcp__context7
+      - mcp__memory
+      - mcp__serena__initial_instructions
+      - mcp__serena__list_memories
+      - mcp__serena__read_memory
+      - mcp__serena__list_dir
+      - mcp__serena__find_file
+      - mcp__serena__search_for_pattern
+      - mcp__serena__get_symbols_overview
+      - mcp__serena__find_symbol
+      - mcp__serena__find_referencing_symbols
+      - mcp__serena__think_about_collected_information
+      - mcp__serena__think_about_task_adherence
+      - mcp__serena__think_about_whether_you_are_done
+      - mcp__paperclip__whoami
+      - mcp__paperclip__get_health
+      - mcp__paperclip__get_dashboard
+      - mcp__paperclip__list_agents
+      - mcp__paperclip__get_agent
+      - mcp__paperclip__list_issues
+      - mcp__paperclip__get_issue
+      - mcp__paperclip__list_live_runs
+      - mcp__paperclip__list_agent_runs
+      - mcp__paperclip__get_run
+      - mcp__paperclip__list_activity
+      - mcp__puppeteer__puppeteer_navigate
+      - mcp__puppeteer__puppeteer_screenshot
+
+# MCP servers of the SDK `mcpServers` option (mcp-servers.json). ${VAR} in
+# args or env comes from the pod environment; a server that references an
+# unset variable is skipped, so the paperclip server needs PAPERCLIP_API_KEY
+# and PAPERCLIP_COMPANY_ID in the 1Password item. serena also comes from the
+# repository's .mcp.json; the project copy wins and this one is skipped.
+# codesearch is a workstation binary and has no in-cluster equivalent.
+mcpServers:
+  sequential-thinking:
+    enabled: true
+    command: npx
+    args: ["-y", "@modelcontextprotocol/server-sequential-thinking@2026.8.31"]
+  context7:
+    enabled: true
+    command: npx
+    args: ["-y", "@upstash/context7-mcp@4.1.1"]
+  memory:
+    enabled: true
+    command: npx
+    args: ["-y", "@modelcontextprotocol/server-memory@2026.8.31"]
+    env:
+      MEMORY_FILE_PATH: "${MEMORY_DIR}/memory.json"
+  # Deprecated upstream and needs a Chromium the image does not carry.
+  puppeteer:
+    enabled: false
+    command: npx
+    args: ["-y", "@modelcontextprotocol/server-puppeteer@2025.5.12"]
+  serena:
+    enabled: true
+    command: uvx
+    args:
+      - --from
+      - git+https://github.com/oraios/serena
+      - serena
+      - start-mcp-server
+      - --context=claude-code
+      - --project-from-cwd
+  paperclip:
+    enabled: true
+    command: uvx
+    args:
+      - --from
+      - git+https://github.com/wizarck/paperclip-mcp@v0.2.0
+      - paperclip-mcp
+      - --transport
+      - stdio
+    env:
+      PAPERCLIP_API_URL: http://paperclip.paperclip.svc.cluster.local:3100
+      PAPERCLIP_API_KEY: "${PAPERCLIP_API_KEY}"
+      PAPERCLIP_COMPANY_ID: "${PAPERCLIP_COMPANY_ID}"
+
+# Only the monitoring namespace (Alertmanager webhook, Prometheus scrape) may
+# reach the intake; egress stays open (Claude API, GitHub, npm, PyPI, APIs).
+networkPolicy:
+  enabled: true
+  allowedNamespaces:
+    - monitoring
+
+serviceMonitor:
+  enabled: true
+  interval: 60s

@@ -36,7 +36,7 @@ sources:
       ref: "argo-workflows-{version}"
       paths:
         - charts/argo-workflows/files/crds/full
-    kinds: [CronWorkflow]
+    kinds: [CronWorkflow, WorkflowTemplate]
 
   - name: cert-manager
     versionKey: cert-manager

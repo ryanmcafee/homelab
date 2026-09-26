@@ -1,0 +1,1059 @@
+---
+# Source: triage-agent/templates/intake.yaml
+# The webhook takes unauthenticated alerts, so only the listed namespaces
+# (Alertmanager, Prometheus) may reach the intake.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: triage-agent-intake
+  namespace: triage-agent
+  labels:
+    app.kubernetes.io/name: triage-agent
+    app.kubernetes.io/part-of: homelab
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: triage-agent
+      app.kubernetes.io/component: intake
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - protocol: TCP
+          port: 8080
+
+---
+# Source: triage-agent/templates/rbac.yaml
+# Intake: submits Workflows and nothing else; no cluster read access.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: triage-agent
+  namespace: triage-agent
+  labels:
+    app.kubernetes.io/name: triage-agent
+    app.kubernetes.io/part-of: homelab
+
+---
+# Source: triage-agent/templates/rbac.yaml
+# Workflow steps: read the cluster (view + homelab-agent-readonly), and report
+# step results to the Argo controller (workflowtaskresults).
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: triage-agent-workflow
+  namespace: triage-agent
+  labels:
+    app.kubernetes.io/name: triage-agent
+    app.kubernetes.io/part-of: homelab
+
+---
+# Source: triage-agent/templates/configmaps.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: triage-agent
+  namespace: triage-agent
+  labels:
+    app.kubernetes.io/name: triage-agent
+    app.kubernetes.io/part-of: homelab
+data:
+  settings.json: |
+    {
+      "enableAllProjectMcpServers": true,
+      "env": {
+        "CLAUDE_CODE_ENABLE_TELEMETRY": "0",
+        "DISABLE_AUTOUPDATER": "1",
+        "ENABLE_TOOL_SEARCH": "1"
+      },
+      "includeCoAuthoredBy": false,
+      "model": "opus[1m]",
+      "permissions": {
+        "allow": [
+          "Read",
+          "Grep",
+          "Glob",
+          "WebFetch",
+          "WebSearch",
+          "ToolSearch",
+          "TodoWrite",
+          "Bash(kubectl get:*)",
+          "Bash(kubectl describe:*)",
+          "Bash(kubectl logs:*)",
+          "Bash(kubectl top:*)",
+          "Bash(kubectl events:*)",
+          "Bash(kubectl explain:*)",
+          "Bash(kubectl api-resources:*)",
+          "Bash(kubectl auth can-i:*)",
+          "Bash(kubectl version:*)",
+          "Bash(kubectl exec:*)",
+          "Bash(kubectl port-forward:*)",
+          "Bash(argocd app get:*)",
+          "Bash(argocd app list:*)",
+          "Bash(argocd app diff:*)",
+          "Bash(argocd app sync:*)",
+          "Bash(curl:*)",
+          "Bash(git log:*)",
+          "Bash(git show:*)",
+          "Bash(git diff:*)",
+          "Bash(git grep:*)",
+          "Bash(git blame:*)",
+          "Bash(gh pr list:*)",
+          "Bash(gh pr view:*)",
+          "Bash(gh run view:*)",
+          "Bash(rg:*)",
+          "Bash(grep:*)",
+          "Bash(jq:*)",
+          "Bash(head:*)",
+          "Bash(tail:*)",
+          "Bash(sort:*)",
+          "Bash(uniq:*)",
+          "Bash(wc:*)",
+          "Bash(date:*)",
+          "mcp__sequential-thinking",
+          "mcp__context7",
+          "mcp__memory",
+          "mcp__serena__initial_instructions",
+          "mcp__serena__list_memories",
+          "mcp__serena__read_memory",
+          "mcp__serena__list_dir",
+          "mcp__serena__find_file",
+          "mcp__serena__search_for_pattern",
+          "mcp__serena__get_symbols_overview",
+          "mcp__serena__find_symbol",
+          "mcp__serena__find_referencing_symbols",
+          "mcp__serena__think_about_collected_information",
+          "mcp__serena__think_about_task_adherence",
+          "mcp__serena__think_about_whether_you_are_done",
+          "mcp__paperclip__whoami",
+          "mcp__paperclip__get_health",
+          "mcp__paperclip__get_dashboard",
+          "mcp__paperclip__list_agents",
+          "mcp__paperclip__get_agent",
+          "mcp__paperclip__list_issues",
+          "mcp__paperclip__get_issue",
+          "mcp__paperclip__list_live_runs",
+          "mcp__paperclip__list_agent_runs",
+          "mcp__paperclip__get_run",
+          "mcp__paperclip__list_activity",
+          "mcp__puppeteer__puppeteer_navigate",
+          "mcp__puppeteer__puppeteer_screenshot"
+        ],
+        "defaultMode": "dontAsk"
+      }
+    }
+  agent.json: |
+    {
+      "model": "opus[1m]",
+      "stages": {
+        "implement": {
+          "maxTurns": 150,
+          "timeoutSeconds": 3300
+        },
+        "plan": {
+          "maxTurns": 30,
+          "timeoutSeconds": 600
+        },
+        "triage": {
+          "maxTurns": 60,
+          "timeoutSeconds": 1200
+        }
+      }
+    }
+  mcp-servers.json: |
+    {
+      "context7": {
+        "args": [
+          "-y",
+          "@upstash/context7-mcp@4.1.1"
+        ],
+        "command": "npx",
+        "enabled": true
+      },
+      "memory": {
+        "args": [
+          "-y",
+          "@modelcontextprotocol/server-memory@2026.8.31"
+        ],
+        "command": "npx",
+        "enabled": true,
+        "env": {
+          "MEMORY_FILE_PATH": "${MEMORY_DIR}/memory.json"
+        }
+      },
+      "paperclip": {
+        "args": [
+          "--from",
+          "git+https://github.com/wizarck/paperclip-mcp@v0.2.0",
+          "paperclip-mcp",
+          "--transport",
+          "stdio"
+        ],
+        "command": "uvx",
+        "enabled": true,
+        "env": {
+          "PAPERCLIP_API_KEY": "${PAPERCLIP_API_KEY}",
+          "PAPERCLIP_API_URL": "http://paperclip.paperclip.svc.cluster.local:3100",
+          "PAPERCLIP_COMPANY_ID": "${PAPERCLIP_COMPANY_ID}"
+        }
+      },
+      "puppeteer": {
+        "args": [
+          "-y",
+          "@modelcontextprotocol/server-puppeteer@2025.5.12"
+        ],
+        "command": "npx",
+        "enabled": false
+      },
+      "sequential-thinking": {
+        "args": [
+          "-y",
+          "@modelcontextprotocol/server-sequential-thinking@2026.8.31"
+        ],
+        "command": "npx",
+        "enabled": true
+      },
+      "serena": {
+        "args": [
+          "--from",
+          "git+https://github.com/oraios/serena",
+          "serena",
+          "start-mcp-server",
+          "--context=claude-code",
+          "--project-from-cwd"
+        ],
+        "command": "uvx",
+        "enabled": true
+      }
+    }
+
+---
+# Source: triage-agent/templates/configmaps.yaml
+# Argo Workflows semaphore: how many triage-fix workflows run at once.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: triage-agent-sync
+  namespace: triage-agent
+  labels:
+    app.kubernetes.io/name: triage-agent
+    app.kubernetes.io/part-of: homelab
+data:
+  workflows: "1"
+
+---
+# Source: triage-agent/templates/configmaps.yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: triage-agent-cache
+  namespace: triage-agent
+  labels:
+    app.kubernetes.io/name: triage-agent
+    app.kubernetes.io/part-of: homelab
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: democratic-csi-nfs
+  resources:
+    requests:
+      storage: 20Gi
+
+---
+# Source: triage-agent/templates/configmaps.yaml
+# One directory per workflow (/workspaces/<workflow name>); a shared claim
+# instead of per-workflow claims, whose Retain PVs would never free TrueNAS space.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: triage-agent-workspace
+  namespace: triage-agent
+  labels:
+    app.kubernetes.io/name: triage-agent
+    app.kubernetes.io/part-of: homelab
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: democratic-csi-nfs
+  resources:
+    requests:
+      storage: 100Gi
+
+---
+# Source: triage-agent/templates/rbac.yaml
+# Read-only by construction: charts/agent-readonly owns homelab-agent-readonly
+# and view never grants Secrets or writes. Nothing here widens either role.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: triage-agent-view
+  labels:
+    app.kubernetes.io/name: triage-agent
+    app.kubernetes.io/part-of: homelab
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: view
+subjects:
+  - kind: ServiceAccount
+    name: triage-agent-workflow
+    namespace: triage-agent
+
+---
+# Source: triage-agent/templates/rbac.yaml
+# Read-only by construction: charts/agent-readonly owns homelab-agent-readonly
+# and view never grants Secrets or writes. Nothing here widens either role.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: triage-agent-homelab-agent-readonly
+  labels:
+    app.kubernetes.io/name: triage-agent
+    app.kubernetes.io/part-of: homelab
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: homelab-agent-readonly
+subjects:
+  - kind: ServiceAccount
+    name: triage-agent-workflow
+    namespace: triage-agent
+
+---
+# Source: triage-agent/templates/rbac.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: triage-agent-submit
+  namespace: triage-agent
+  labels:
+    app.kubernetes.io/name: triage-agent
+    app.kubernetes.io/part-of: homelab
+rules:
+  - apiGroups: [argoproj.io]
+    resources: [workflows]
+    verbs: [create, get, list]
+
+---
+# Source: triage-agent/templates/rbac.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: triage-agent-executor
+  namespace: triage-agent
+  labels:
+    app.kubernetes.io/name: triage-agent
+    app.kubernetes.io/part-of: homelab
+rules:
+  - apiGroups: [argoproj.io]
+    resources: [workflowtaskresults]
+    verbs: [create, patch]
+
+---
+# Source: triage-agent/templates/rbac.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: triage-agent-submit
+  namespace: triage-agent
+  labels:
+    app.kubernetes.io/name: triage-agent
+    app.kubernetes.io/part-of: homelab
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: triage-agent-submit
+subjects:
+  - kind: ServiceAccount
+    name: triage-agent
+    namespace: triage-agent
+
+---
+# Source: triage-agent/templates/rbac.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: triage-agent-executor
+  namespace: triage-agent
+  labels:
+    app.kubernetes.io/name: triage-agent
+    app.kubernetes.io/part-of: homelab
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: triage-agent-executor
+subjects:
+  - kind: ServiceAccount
+    name: triage-agent-workflow
+    namespace: triage-agent
+
+---
+# Source: triage-agent/templates/intake.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: triage-agent
+  namespace: triage-agent
+  labels:
+    app.kubernetes.io/name: triage-agent
+    app.kubernetes.io/part-of: homelab
+    app.kubernetes.io/component: intake
+spec:
+  selector:
+    app.kubernetes.io/name: triage-agent
+    app.kubernetes.io/component: intake
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+
+---
+# Source: triage-agent/templates/intake.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: triage-agent
+  namespace: triage-agent
+  labels:
+    app.kubernetes.io/name: triage-agent
+    app.kubernetes.io/part-of: homelab
+    app.kubernetes.io/component: intake
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: triage-agent
+      app.kubernetes.io/component: intake
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: triage-agent
+        app.kubernetes.io/part-of: homelab
+        app.kubernetes.io/component: intake
+    spec:
+      serviceAccountName: triage-agent
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: intake
+          image: ghcr.io/ryanmcafee/homelab-triage-agent:0.1.0
+          args: ["serve"]
+          env:
+            - name: ALERTMANAGER_URL
+              value: "http://kube-prometheus-stack-alertmanager.monitoring.svc:9093"
+            - name: WORKFLOW_NAMESPACE
+              value: "triage-agent"
+            - name: WORKFLOW_TEMPLATE
+              value: "triage-fix"
+            - name: SWEEP_INTERVAL_SECONDS
+              value: "300"
+            - name: COOLDOWN_SECONDS
+              value: "86400"
+            - name: IGNORED_ALERTS
+              value: "Watchdog,InfoInhibitor,GitHubPullRequestNeedsReview,TriageAgentWorkspaceFillingUp,TriageAgentCacheFillingUp,TriageAgentJanitorFailing,TriageAgentIntakeDown"
+            - name: MAX_RECORDS
+              value: "50"
+            - name: DRY_RUN
+              value: "false"
+            - name: LOG_LEVEL
+              value: "info"
+            - name: BUN_RUNTIME_TRANSPILER_CACHE_PATH
+              value: "0"
+            - name: WORKSPACE_ROOT
+              value: /workspaces
+            - name: CACHE_ROOT
+              value: /cache
+            - name: CACHE_PRUNE_DIRS
+              value: "go/build,mise-cache,npm,uv,bun"
+            - name: JANITOR_INTERVAL_SECONDS
+              value: "600"
+            - name: FAILED_RETENTION_SECONDS
+              value: "86400"
+            - name: ORPHAN_GRACE_SECONDS
+              value: "3600"
+            - name: HIGH_WATERMARK
+              value: "0.8"
+          ports:
+            - name: http
+              containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 30
+            failureThreshold: 5
+          resources:
+            limits:
+              cpu: 200m
+              memory: 192Mi
+            requests:
+              cpu: 10m
+              memory: 64Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: workspace
+              mountPath: /workspaces
+            - name: cache
+              mountPath: /cache
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi
+        - name: workspace
+          persistentVolumeClaim:
+            claimName: triage-agent-workspace
+        - name: cache
+          persistentVolumeClaim:
+            claimName: triage-agent-cache
+
+---
+# Source: triage-agent/templates/onepassworditems.yaml
+apiVersion: onepassword.com/v1
+kind: OnePasswordItem
+metadata:
+  name: triage-agent
+  namespace: triage-agent
+  labels:
+    app.kubernetes.io/name: triage-agent
+    app.kubernetes.io/part-of: homelab
+spec:
+  itemPath: "vaults/homelab/items/triage-agent"
+
+---
+# Source: triage-agent/templates/onepassworditems.yaml
+# The Alertmanager Pushover item, read into this namespace for the notify step.
+apiVersion: onepassword.com/v1
+kind: OnePasswordItem
+metadata:
+  name: triage-agent-pushover
+  namespace: triage-agent
+  labels:
+    app.kubernetes.io/name: triage-agent
+    app.kubernetes.io/part-of: homelab
+spec:
+  itemPath: "vaults/homelab/items/alertmanager-notifications"
+
+---
+# Source: triage-agent/templates/intake.yaml
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: triage-agent
+  namespace: triage-agent
+  labels:
+    app.kubernetes.io/name: triage-agent
+    app.kubernetes.io/part-of: homelab
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: triage-agent
+      app.kubernetes.io/component: intake
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 60s
+
+---
+# Source: triage-agent/templates/workflowtemplate.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: WorkflowTemplate
+metadata:
+  name: triage-fix
+  namespace: triage-agent
+  labels:
+    app.kubernetes.io/name: triage-agent
+    app.kubernetes.io/part-of: homelab
+spec:
+  entrypoint: main
+  onExit: exit-handler
+  serviceAccountName: triage-agent-workflow
+  activeDeadlineSeconds: 18000
+  arguments:
+    parameters:
+      - name: alertname
+      - name: branch
+      - name: alert-group
+  # One workflow per alertname at a time, and at most maxConcurrent overall.
+  synchronization:
+    semaphores:
+      - configMapKeyRef:
+          name: triage-agent-sync
+          key: workflows
+    mutexes:
+      - name: triage-{{workflow.parameters.alertname}}
+  podGC:
+    strategy: OnPodSuccess
+  ttlStrategy:
+    secondsAfterFailure: 259200
+    secondsAfterSuccess: 86400
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    runAsGroup: 1000
+    fsGroup: 1000
+    seccompProfile:
+      type: RuntimeDefault
+  volumes:
+    - name: workspace
+      persistentVolumeClaim:
+        claimName: triage-agent-workspace
+    - name: cache
+      persistentVolumeClaim:
+        claimName: triage-agent-cache
+    - name: config
+      configMap:
+        name: triage-agent
+  templates:
+    - name: main
+      dag:
+        tasks:
+          - name: triage
+            template: stage
+            arguments:
+              parameters:
+                - name: stage
+                  value: triage
+                - name: deadline
+                  value: "1500"
+          - name: plan
+            depends: triage.Succeeded
+            when: "{{tasks.triage.outputs.parameters.actionable}} == true"
+            template: stage
+            arguments:
+              parameters:
+                - name: stage
+                  value: plan
+                - name: deadline
+                  value: "900"
+          # `depends: x` alone also fires when x was skipped; .Succeeded does not.
+          - name: fix
+            depends: plan.Succeeded
+            template: fix-loop
+            arguments:
+              parameters:
+                - name: attempt
+                  value: "1"
+                - name: feedback
+                  value: none
+          - name: commit
+            depends: fix.Succeeded
+            template: stage
+            arguments:
+              parameters:
+                - name: stage
+                  value: commit
+          - name: pr
+            depends: commit.Succeeded
+            when: "{{tasks.commit.outputs.parameters.changed}} == true"
+            template: stage
+            arguments:
+              parameters:
+                - name: stage
+                  value: pr
+          - name: ci
+            depends: pr.Succeeded
+            when: "{{tasks.pr.outputs.parameters.draft}} == false"
+            template: ci-loop
+            arguments:
+              parameters:
+                - name: attempt
+                  value: "1"
+
+    # Bounded fix loop: implement, then deterministic verify; verify's `next`
+    # (loopDecision in triage-agent/src/stages/loop.ts) decides another round.
+    - name: fix-loop
+      inputs:
+        parameters:
+          - name: attempt
+          - name: feedback
+      steps:
+        - - name: implement
+            template: stage
+            arguments:
+              parameters:
+                - name: stage
+                  value: implement
+                - name: attempt
+                  value: "{{inputs.parameters.attempt}}"
+                - name: max-attempts
+                  value: "3"
+                - name: feedback
+                  value: "{{inputs.parameters.feedback}}"
+                - name: deadline
+                  value: "3600"
+        - - name: verify
+            template: stage
+            arguments:
+              parameters:
+                - name: stage
+                  value: verify
+                - name: attempt
+                  value: "{{inputs.parameters.attempt}}"
+                - name: max-attempts
+                  value: "3"
+                - name: deadline
+                  value: "2400"
+        - - name: again
+            when: "{{steps.verify.outputs.parameters.next}} == retry"
+            template: fix-loop
+            arguments:
+              parameters:
+                - name: attempt
+                  value: "{{=asInt(inputs.parameters.attempt) + 1}}"
+                - name: feedback
+                  value: verify
+
+    # Bounded CI loop: watch the PR's checks; on red feed the failing logs back
+    # through implement, verify, commit and push; when exhausted hand it to a human.
+    - name: ci-loop
+      inputs:
+        parameters:
+          - name: attempt
+      steps:
+        - - name: watch
+            template: stage
+            arguments:
+              parameters:
+                - name: stage
+                  value: ci-watch
+                - name: attempt
+                  value: "{{inputs.parameters.attempt}}"
+                - name: max-attempts
+                  value: "2"
+                - name: deadline
+                  value: "4200"
+        - - name: implement
+            when: "{{steps.watch.outputs.parameters.next}} == retry"
+            template: stage
+            arguments:
+              parameters:
+                - name: stage
+                  value: implement
+                - name: attempt
+                  value: "{{inputs.parameters.attempt}}"
+                - name: max-attempts
+                  value: "2"
+                - name: feedback
+                  value: ci
+                - name: deadline
+                  value: "3600"
+          - name: needs-human
+            when: "{{steps.watch.outputs.parameters.next}} == exhausted"
+            template: stage
+            arguments:
+              parameters:
+                - name: stage
+                  value: needs-human
+        - - name: verify
+            when: "{{steps.watch.outputs.parameters.next}} == retry"
+            template: stage
+            arguments:
+              parameters:
+                - name: stage
+                  value: verify
+                - name: deadline
+                  value: "2400"
+        - - name: commit
+            when: "{{steps.watch.outputs.parameters.next}} == retry"
+            template: stage
+            arguments:
+              parameters:
+                - name: stage
+                  value: commit
+                - name: feedback
+                  value: ci
+        - - name: push
+            when: "{{steps.watch.outputs.parameters.next}} == retry"
+            template: stage
+            arguments:
+              parameters:
+                - name: stage
+                  value: pr
+        - - name: again
+            when: "{{steps.watch.outputs.parameters.next}} == retry"
+            template: ci-loop
+            arguments:
+              parameters:
+                - name: attempt
+                  value: "{{=asInt(inputs.parameters.attempt) + 1}}"
+
+    # Always runs, success or failure: Pushover with the PR link or the report.
+    - name: exit-handler
+      steps:
+        - - name: notify
+            template: stage
+            arguments:
+              parameters:
+                - name: stage
+                  value: notify
+                - name: workflow-status
+                  value: "{{workflow.status}}"
+                - name: workflow-failures
+                  value: "{{workflow.failures}}"
+        - - name: cleanup
+            template: stage
+            arguments:
+              parameters:
+                - name: stage
+                  value: cleanup
+                - name: workflow-status
+                  value: "{{workflow.status}}"
+
+    # Not in the default path: `argo submit --from workflowtemplate/triage-fix
+    # --entrypoint argocd-sync -p app=<name>` syncs one Application.
+    - name: argocd-sync
+      inputs:
+        parameters:
+          - name: app
+      steps:
+        - - name: sync
+            template: stage
+            arguments:
+              parameters:
+                - name: stage
+                  value: argocd-sync
+                - name: argocd-app
+                  value: "{{inputs.parameters.app}}"
+
+    - name: stage
+      inputs:
+        parameters:
+          - name: stage
+          - name: attempt
+            value: "1"
+          - name: max-attempts
+            value: "1"
+          - name: feedback
+            value: none
+          - name: deadline
+            value: "600"
+          - name: argocd-app
+            value: ""
+          - name: workflow-status
+            value: ""
+          - name: workflow-failures
+            value: ""
+      activeDeadlineSeconds: "{{inputs.parameters.deadline}}"
+      retryStrategy:
+        limit: "2"
+        retryPolicy: Always
+        backoff:
+          duration: 30s
+          factor: 2
+          maxDuration: 10m
+      outputs:
+        parameters:
+          - name: actionable
+            valueFrom:
+              path: /workspaces/{{workflow.name}}/out/actionable
+              default: ""
+          - name: passed
+            valueFrom:
+              path: /workspaces/{{workflow.name}}/out/passed
+              default: ""
+          - name: next
+            valueFrom:
+              path: /workspaces/{{workflow.name}}/out/next
+              default: ""
+          - name: changed
+            valueFrom:
+              path: /workspaces/{{workflow.name}}/out/changed
+              default: ""
+          - name: pr-number
+            valueFrom:
+              path: /workspaces/{{workflow.name}}/out/pr-number
+              default: ""
+          - name: pr-url
+            valueFrom:
+              path: /workspaces/{{workflow.name}}/out/pr-url
+              default: ""
+          - name: draft
+            valueFrom:
+              path: /workspaces/{{workflow.name}}/out/draft
+              default: ""
+          - name: ci-state
+            valueFrom:
+              path: /workspaces/{{workflow.name}}/out/ci-state
+              default: ""
+      container:
+        image: ghcr.io/ryanmcafee/homelab-triage-agent:0.1.0
+        args: ["run", "{{inputs.parameters.stage}}"]
+        env:
+          - name: WORK_DIR
+            value: /workspaces/{{workflow.name}}
+          - name: REPO_URL
+            value: "https://github.com/ryanmcafee/homelab.git"
+          - name: REPO_SLUG
+            value: "ryanmcafee/homelab"
+          - name: BASE_BRANCH
+            value: "main"
+          - name: BRANCH
+            value: "{{workflow.parameters.branch}}"
+          - name: ALERT_GROUP
+            value: "{{workflow.parameters.alert-group}}"
+          - name: ALERTMANAGER_URL
+            value: "http://kube-prometheus-stack-alertmanager.monitoring.svc:9093"
+          - name: ATTEMPT
+            value: "{{inputs.parameters.attempt}}"
+          - name: MAX_ATTEMPTS
+            value: "{{inputs.parameters.max-attempts}}"
+          - name: FEEDBACK
+            value: "{{inputs.parameters.feedback}}"
+          - name: CI_TIMEOUT_SECONDS
+            value: "3600"
+          - name: WORKFLOW_NAME
+            value: "{{workflow.name}}"
+          - name: WORKFLOW_STATUS
+            value: "{{inputs.parameters.workflow-status}}"
+          - name: WORKFLOW_FAILURES
+            value: "{{inputs.parameters.workflow-failures}}"
+          - name: WORKFLOW_UI_URL
+            value: "https://workflows.replaceme-domain.com"
+          - name: ARGOCD_APP
+            value: "{{inputs.parameters.argocd-app}}"
+          - name: ARGOCD_SERVER
+            value: "argocd-server.argocd.svc:80"
+          - name: ARGOCD_OPTS
+            value: "--plaintext --grpc-web"
+          - name: TRIAGE_AGENT_FAKE_LLM
+            value: "false"
+          - name: GIT_USER_NAME
+            value: "homelab-triage-agent"
+          - name: GIT_USER_EMAIL
+            value: "homelab-triage-agent@users.noreply.github.com"
+          - name: MISE_TOOLS
+            value: "go helm bun kubeconform conftest pluto task yq"
+          - name: HOME
+            value: /home/agent
+          - name: CLAUDE_CONFIG_DIR
+            value: /home/agent/.claude
+          - name: DOTFILES_DIR
+            value: /home/agent/dotfiles
+          - name: MEMORY_DIR
+            value: /cache/memory
+          - name: TMPDIR
+            value: /tmp
+          - name: PATH
+            value: /cache/mise/shims:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+          - name: MISE_DATA_DIR
+            value: /cache/mise
+          - name: MISE_CACHE_DIR
+            value: /cache/mise-cache
+          - name: MISE_YES
+            value: "1"
+          - name: GOPATH
+            value: /cache/go
+          - name: GOMODCACHE
+            value: /cache/go/mod
+          - name: GOCACHE
+            value: /cache/go/build
+          - name: npm_config_cache
+            value: /cache/npm
+          - name: UV_CACHE_DIR
+            value: /cache/uv
+          - name: BUN_INSTALL_CACHE_DIR
+            value: /cache/bun
+          - name: BUN_RUNTIME_TRANSPILER_CACHE_PATH
+            value: "0"
+          - name: CLAUDE_CODE_OAUTH_TOKEN
+            valueFrom:
+              secretKeyRef:
+                name: triage-agent
+                key: CLAUDE_CODE_OAUTH_TOKEN
+                optional: false
+          - name: GITHUB_TOKEN
+            valueFrom:
+              secretKeyRef:
+                name: triage-agent
+                key: GITHUB_TOKEN
+                optional: true
+          - name: GH_TOKEN
+            valueFrom:
+              secretKeyRef:
+                name: triage-agent
+                key: GITHUB_TOKEN
+                optional: true
+          - name: DOTFILES_REPO
+            valueFrom:
+              secretKeyRef:
+                name: triage-agent
+                key: DOTFILES_REPO
+                optional: true
+          - name: PAPERCLIP_API_KEY
+            valueFrom:
+              secretKeyRef:
+                name: triage-agent
+                key: PAPERCLIP_API_KEY
+                optional: true
+          - name: PAPERCLIP_COMPANY_ID
+            valueFrom:
+              secretKeyRef:
+                name: triage-agent
+                key: PAPERCLIP_COMPANY_ID
+                optional: true
+          - name: ARGOCD_AUTH_TOKEN
+            valueFrom:
+              secretKeyRef:
+                name: triage-agent
+                key: ARGOCD_AUTH_TOKEN
+                optional: true
+          - name: PUSHOVER_TOKEN
+            valueFrom:
+              secretKeyRef:
+                name: triage-agent-pushover
+                key: pushover_token
+                optional: true
+          - name: PUSHOVER_USER_KEY
+            valueFrom:
+              secretKeyRef:
+                name: triage-agent-pushover
+                key: pushover_user_key
+                optional: true
+        resources:
+          limits:
+            cpu: "2"
+            memory: 4Gi
+          requests:
+            cpu: 250m
+            memory: 1Gi
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop: ["ALL"]
+        volumeMounts:
+          - name: workspace
+            mountPath: /workspaces
+          - name: cache
+            mountPath: /cache
+          - name: config
+            mountPath: /etc/triage-agent
+            readOnly: true
+          - name: home
+            mountPath: /home/agent
+          - name: tmp
+            mountPath: /tmp
+      volumes:
+        - name: home
+          emptyDir:
+            sizeLimit: 2Gi
+        - name: tmp
+          emptyDir:
+            sizeLimit: 2Gi

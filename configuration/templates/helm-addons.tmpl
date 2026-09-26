@@ -1774,3 +1774,23 @@ github-pr-exporter:
       url: "https://api.github.com/search/issues?q={{ urlquery (printf "%s user:%s %s" .Values.GITHUB_PR_ALERTS_QUERY_UNREVIEWED.Value $githubOwner $prExclude) }}&per_page=100"
     - name: review-requested
       url: "https://api.github.com/search/issues?q={{ urlquery (printf "%s user:%s review-requested:%s %s" .Values.GITHUB_PR_ALERTS_QUERY_REQUESTED.Value $githubOwner $githubOwner $prExclude) }}&per_page=100"
+
+# ============================================================================
+# Alert triage agent (templates/triage-agent.yaml, charts/triage-agent)
+# Sync Wave: 10 (docs/runbooks/triage-agent.md)
+# ============================================================================
+
+{{- $triage := and $onepassword (eq .Values.TRIAGE_AGENT_ENABLED.Value "true") }}
+
+triage-agent:
+  enabled: {{ $triage }}
+  namespace: triage-agent
+  image: "ghcr.io/{{ $githubOwner }}/homelab-triage-agent:{{ index .Versions.Images "triage-agent" }}"
+  repoSlug: "{{ $githubOwner }}/homelab"
+  workflowUiUrl: "https://{{ .Values.WORKFLOWS_HOSTNAME.Value }}"
+  # Secret triage-agent: CLAUDE_CODE_OAUTH_TOKEN, GITHUB_TOKEN plus optional fields (docs/runbooks/triage-agent.md).
+  onePasswordItemPath: "{{ if $onepassword }}{{ .Values.TRIAGE_AGENT_1P_PATH.Value }}{{ end }}"
+  # The Alertmanager Pushover item, reused for the workflow's notification.
+  pushoverItemPath: "{{ if $onepassword }}{{ .Values.ALERTMANAGER_1P_PATH.Value }}{{ end }}"
+  # Workspace and cache volumes; shared across step pods on any node, so RWX.
+  storageClass: {{ .Values.STORAGE_CLASS_NFS.Value }}

@@ -1,0 +1,7 @@
+# triage-agent homelab values
+#
+# Nothing differs from values.yaml: image, repository URL, Alertmanager URL, the
+# 1Password item path and the storage class come from configuration/ through
+# the parent Application's helm.valuesObject (ADR-010). The file exists because
+# the parent Application always appends values-<environment>.yaml.
+enabled: true
