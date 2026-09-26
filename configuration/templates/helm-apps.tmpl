@@ -1154,6 +1154,7 @@ paperclip:
       authItemPath: {{ .Values.PAPERCLIP_AUTH_1P_PATH.Value }}
       apiKeysItemPath: {{ .Values.PAPERCLIP_API_KEYS_1P_PATH.Value }}
       exporterItemPath: {{ .Values.PAPERCLIP_EXPORTER_1P_PATH.Value }}
+      dotfilesItemPath: "{{ if .Values.PAPERCLIP_DOTFILES_REPO_URL.Value }}{{ .Values.PAPERCLIP_DOTFILES_1P_PATH.Value }}{{ end }}"
 
   # charts/paperclip-database: CloudNativePG Cluster paperclip-postgres. The image is
   # pinned (CNPG guidance) so an operator bump never upgrades Postgres by itself.
@@ -1234,6 +1235,32 @@ paperclip:
     availability:
       nodeSelector:
         paperclip.homelab/pin: "true"
+{{- end }}
+{{- if .Values.PAPERCLIP_DOTFILES_REPO_URL.Value }}
+    # The operator's Claude Code setup from a dotfiles repository (charts/paperclip
+    # dotfiles); a private repository reads GIT_TOKEN from the paperclip-dotfiles item.
+    dotfiles:
+      enabled: true
+      repoUrl: {{ .Values.PAPERCLIP_DOTFILES_REPO_URL.Value | printf "%q" }}
+      ref: {{ .Values.PAPERCLIP_DOTFILES_REF.Value | printf "%q" }}
+      claudeDir: {{ .Values.PAPERCLIP_DOTFILES_CLAUDE_DIR.Value | printf "%q" }}
+      profile: {{ .Values.PAPERCLIP_DOTFILES_PROFILE.Value | printf "%q" }}
+      setupCommand: {{ .Values.PAPERCLIP_DOTFILES_SETUP_COMMAND.Value | printf "%q" }}
+{{- if and $onepassword .Values.PAPERCLIP_DOTFILES_1P_PATH.Value }}
+      gitToken:
+        secretName: paperclip-dotfiles
+{{- end }}
+      bunVersion: "{{ index .Versions.Images "bun" }}"
+{{- if eq .Values.PAPERCLIP_MCP_CODESEARCH.Value "true" }}
+      codesearch:
+        repo: {{ .Values.PAPERCLIP_CODESEARCH_REPO.Value | printf "%q" }}
+        version: "{{ with .Values.PAPERCLIP_CODESEARCH_VERSION.Value }}{{ . }}{{ else }}{{ .Versions.Tools.codesearch }}{{ end }}"
+      mcpServers:
+        codesearch:
+          type: stdio
+          command: /paperclip/.local/bin/codesearch
+          args: ["mcp"]
+{{- end }}
 {{- end }}
     # Agent health exporter for the homelab-paperclip alerts; its board API key
     # is the paperclip-exporter item (docs/runbooks/paperclip-agents.md).

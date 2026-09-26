@@ -1,0 +1,71 @@
+{{- /* Operator's Claude Code setup for the agents; see files/paperclip-dotfiles.ts. */}}
+{{- define "paperclip.dotfiles.script" }}{{ .Files.Get "files/paperclip-dotfiles.ts" }}{{ end }}
+{{- define "paperclip.dotfiles" }}
+{{- $d := .Values.dotfiles }}
+{{- $name := printf "%s-dotfiles" .Values.name }}
+podAnnotations:
+  checksum/dotfiles: {{ include "paperclip.dotfiles.script" . | sha256sum }}
+initContainers:
+  - name: dotfiles
+    image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+    command: ["node", "/opt/dotfiles/paperclip-dotfiles.ts"]
+    env:
+      - name: HOME
+        value: {{ $d.home | quote }}
+      - name: DOTFILES_REPO_URL
+        value: {{ required "dotfiles.repoUrl is required when dotfiles.enabled" $d.repoUrl | quote }}
+      - name: DOTFILES_REF
+        value: {{ $d.ref | quote }}
+      - name: DOTFILES_CLAUDE_DIR
+        value: {{ $d.claudeDir | quote }}
+      - name: DOTFILES_PROFILE
+        value: {{ $d.profile | quote }}
+      - name: DOTFILES_SETUP_COMMAND
+        value: {{ $d.setupCommand | quote }}
+      {{- with $d.gitToken.secretName }}
+      - name: DOTFILES_GIT_TOKEN
+        valueFrom:
+          secretKeyRef:
+            name: {{ . }}
+            key: {{ $d.gitToken.secretKey }}
+      {{- end }}
+      - name: BUN_VERSION
+        value: {{ regexReplaceAll "-.*$" $d.bunVersion "" | quote }}
+      - name: CODESEARCH_REPO
+        value: {{ $d.codesearch.repo | quote }}
+      - name: CODESEARCH_VERSION
+        value: {{ $d.codesearch.version | quote }}
+      - name: MCP_SERVERS
+        value: {{ $d.mcpServers | toJson | quote }}
+    resources:
+      {{- toYaml $d.resources | nindent 6 }}
+    securityContext:
+      allowPrivilegeEscalation: false
+      runAsNonRoot: true
+      capabilities:
+        drop: ["ALL"]
+      seccompProfile:
+        type: RuntimeDefault
+    volumeMounts:
+      - name: {{ $d.dataVolume }}
+        mountPath: {{ $d.home }}
+      - name: {{ $name }}
+        mountPath: /opt/dotfiles
+        readOnly: true
+extraVolumes:
+  - name: {{ $name }}
+    configMap:
+      name: {{ $name }}
+{{- end }}
+{{- if .Values.dotfiles.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ printf "%s-dotfiles" .Values.name }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    app.kubernetes.io/name: {{ printf "%s-dotfiles" .Values.name }}
+data:
+  paperclip-dotfiles.ts: |-
+    {{- include "paperclip.dotfiles.script" . | nindent 4 }}
+{{- end }}
