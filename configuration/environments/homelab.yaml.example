@@ -3,14 +3,16 @@
 # homelab.yaml is GITIGNORED — never commit it.
 
 DOMAIN: replaceme-domain.com
+# Optional local DNS zone; Terragrunt also publishes proxmox, k8s, truenas and nas A records under it
+LOCAL_DNS_DOMAIN: ""
 GATEWAY_IP: "192.168.1.1"
 # The LAN the nodes sit on. Terragrunt builds the VM network from this; keep it
 # separate from NFS_SHARE_ALLOW, which you may want to narrow.
 LAN_CIDR: "192.168.1.0/24"
 # Resolver the nodes are configured with — often the gateway, sometimes not.
 DNS_SERVER_IP: "192.168.1.1"
-TRUENAS_IP: "192.168.1.100"
-TRUENAS_LAN_IP: "192.168.1.150/24"
+TRUENAS_IP: "192.168.1.50"
+TRUENAS_LAN_IP: "192.168.1.51/24"
 PROXMOX_IP: "192.168.1.250"
 IPMI_IP: "192.168.1.26"
 CP_VIP: "192.168.1.10"

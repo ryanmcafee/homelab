@@ -533,12 +533,12 @@ holds the reason.
 ## PII guard
 
 `homelab config guard` runs in pre-commit (staged files matching the default scope) and in
-CI (`--ci`: every tracked YAML/JSON/Markdown/SVG file in scope). The default scope
+CI (`--ci`: every tracked YAML/JSON/Markdown/TypeScript/SVG/HCL/Terraform file in scope). The default scope
 (`DefaultGuardPathspecs` in `internal/config/guard.go`, mirrored by the pre-commit hook's
 `files:` pattern) is `configuration/**`, `charts/**/values-homelab.yaml` (the committed
 child-chart values, which must stay PII-free because derived values reach children through
 the parent Application's `helm.valuesObject`, see ADR-010), `scripts/**`, `docs/**`,
-`.github/**`, `Taskfile.yml` and `ansible/**` (the inventory is rendered from
+`.github/**`, `Taskfile.yml`, `terragrunt/**` (including module READMEs) and `ansible/**` (the inventory is rendered from
 `configuration/` and gitignored, so what is committed there carries no addresses). Real
 values come from the gitignored `environments/homelab.yaml` when present (every `*_IP`,
 `*_VIP`, `*_HOSTNAME`, `DOMAIN`, `ACME_EMAIL`, `NFS_MAPALL_USER`, ... value at least four
@@ -556,3 +556,37 @@ not checked. Example/template files are held to a closed placeholder allowlist
 (`192.168.1.0/24`, `REPLACEME` / `REPLACEME-*` labels, `example.com`, loopback, `.local`):
 any other value on a PII-shaped key fails. A new placeholder convention must be added to
 the allowlist in `internal/config/guard.go`. Widen or narrow the scope with `--paths`.
+
+
+Literal matching uses that same placeholder policy only inside files ending in
+`.example`, `.template`, `.sample`, or `.dist`. These files remain scanned; real
+hostnames, email addresses, and other private addresses still fail. The documented
+subnet is not globally exempt: the same address in a deployment file is a finding.
+The pre-commit filter examines text filenames so example suffixes cannot hide a file.
+Agent-prose memory directories (`docs/project_notes/`, `.claude/`, `.serena/`, `.agents/`)
+are explicitly excluded; contributor runbooks and Terragrunt documentation remain in scope.
+
+HCL assignments, nested object fields, and Terraform variable defaults are checked
+using their identity key (for example `base_fqdn`, `truenas_hostname`, or `ip`).
+Computed references are not treated as literal hostnames. Syntax errors fail with
+file/line diagnostics. The source inventory fixtures live in
+`internal/config/guard_hcl_test.go`; they name the root Terragrunt configuration,
+environment configuration, and TrueNAS variable-default surfaces explicitly.
+
+The source guard covers Terragrunt source and module defaults. Gate G2 covers
+rendered Helm output. Neither proves the other's surface: keep separate negative
+fixtures for each, and require the platform owner's rendered-output proof when
+changing ConfigSet threading.
+
+Use `task config:validate` to validate address roles when Cilium's load balancer
+pool is enabled. Schema `addressRole` declares pool endpoints (`lb-pool-range`),
+allocations that must be inside (`lb-allocation`), addresses that must stay outside
+(`infrastructure-address`, `dedicated-pool-allocation`), and containing network
+ranges (`network-range`). Both endpoints are inclusive; address/prefix values use
+the host address. The Envoy Gateways, Plex, and OTEL belong inside the pool. TrueNAS and the
+control-plane VIP must stay outside. Existing forks must check their own ignored
+`homelab.yaml`: updating the example does not fix a previously copied NAS collision.
+
+`task config:guard` remains the full tracked-file entrypoint. Neither check needs
+cluster credentials. CI and the `config-regressions` pre-commit hook execute the
+same secret-free guard and pool regression tests.

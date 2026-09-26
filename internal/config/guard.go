@@ -263,6 +263,7 @@ func isForgeOwnerAt(line string, start, end int) bool {
 // the one failure mode a PII guard must not have.
 func ScanFileForPII(path string, patterns []string) (GuardResult, error) {
 	result := GuardResult{File: path}
+	template := IsTemplateFile(path)
 
 	f, err := os.Open(path)
 	if err != nil {
@@ -276,6 +277,11 @@ func ScanFileForPII(path string, patterns []string) (GuardResult, error) {
 		lineNum++
 		line := scanner.Text()
 		for _, p := range patterns {
+			// The documentation subnet is safe only in an approved template
+			// context. Keep it in the pattern set for every deployment file.
+			if template && isExamplePlaceholder(p) {
+				continue
+			}
 			if lineMatchesPattern(line, p) {
 				result.Matches = append(result.Matches, GuardMatch{
 					Line:    lineNum,
@@ -364,15 +370,19 @@ var DefaultGuardPathspecs = []string{
 	// committed under ansible/ (group_vars, roles, playbooks) must stay free of
 	// addresses.
 	"ansible/**",
+	"terragrunt/**",
 }
 
 // guardScanExtensions are the file types the guard knows how to read. Anything
-// else (templates, binaries, .example files) is out of scope.
+// else is out of scope; template suffixes are stripped before selection.
 var guardScanExtensions = map[string]bool{
-	".yaml": true,
-	".yml":  true,
-	".json": true,
-	".md":   true,
+	".yaml":   true,
+	".yml":    true,
+	".json":   true,
+	".hcl":    true,
+	".tf":     true,
+	".tfvars": true,
+	".md":     true,
 	// .ts because scripts/ is in scope: a TypeScript script that hardcodes a real
 	// address or hostname as a flag default is a leak the same as one pasted
 	// into configuration/, and three of them did exactly that before the
@@ -428,6 +438,14 @@ func gitLsFiles(repoRoot string, pathspecs []string) ([]string, error) {
 // value whenever it did not itself supply the patterns (see patternSources).
 func IsGuardExcluded(path string) bool {
 	clean := filepath.ToSlash(filepath.Clean(path))
+	if strings.HasPrefix(clean, "docs/project_notes/") {
+		return true
+	}
+	for _, component := range strings.Split(clean, "/") {
+		if component == ".claude" || component == ".serena" || component == ".agents" {
+			return true
+		}
+	}
 	if clean == "configuration/environments/homelab.yaml" {
 		return true
 	}
@@ -886,6 +904,9 @@ func classifyHostValue(value string) string {
 // documented placeholder, and anything else is reported. See IsTemplateFile.
 // An unreadable file is an error, never an empty (clean) result.
 func ScanFileForPIIShape(path string) (GuardResult, error) {
+	if isGuardHCL(path) {
+		return scanHCLShape(path)
+	}
 	result := GuardResult{File: path}
 	template := IsTemplateFile(path)
 	// In a code file only a quoted literal can be a real value; see

@@ -40,7 +40,7 @@ Rules that CI enforces:
 - `task config:guard` (the pre-commit hook on staged files, `config-validation.yml` on every
   tracked file in scope) fails on any real IP, hostname, e-mail or domain in `configuration/**`,
   `charts/**/values-homelab.yaml`, `scripts/**`, `docs/**`, `.github/**`, `Taskfile.yml` and
-  `ansible/**` (the Ansible inventory is rendered from `configuration/` and gitignored).
+  `terragrunt/**` (including module documentation) and `ansible/**` (the Ansible inventory is rendered from `configuration/` and gitignored).
   Use `<KEY>` placeholders and RFC 5737 addresses in docs and tests.
 - The 1Password paths themselves are not secrets and are committed as `*_1P_PATH` keys in
   `configuration/schema/secrets.schema.yaml`.
