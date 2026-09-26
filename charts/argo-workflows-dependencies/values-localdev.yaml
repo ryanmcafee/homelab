@@ -1,0 +1,5 @@
+# argo-workflows-dependencies local development values. Kind does not run Argo
+# Workflows, so the parent never creates this Application; the file exists for
+# a render with localdev values.
+
+namespace: argo-workflows

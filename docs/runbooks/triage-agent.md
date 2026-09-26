@@ -10,7 +10,7 @@ you merge the pull request (ADR-036).
 | Service + stages (Bun + TypeScript) | `triage-agent/src/`, tests in `triage-agent/tests/unit/` (`task test:triage-agent`) |
 | Image | `Dockerfile.triage-agent`, published by `.github/workflows/triage-agent-image.yml` as `ghcr.io/<owner>/homelab-triage-agent:<images.triage-agent>` |
 | Chart | `charts/triage-agent`: intake Deployment, WorkflowTemplate `triage-fix`, ServiceAccounts, workspace and cache PVCs, ConfigMaps, OnePasswordItems |
-| Application | `charts/addons/templates/triage-agent.yaml`, wave 10, only with a secret store and Argo Workflows |
+| Application | `charts/addons/templates/triage-agent.yaml`, wave 13, only with a secret store and Argo Workflows |
 | Alertmanager route + alerts | `charts/addons/templates/kube-prometheus-stack.yaml`: receiver `triage-agent`, `continue: true` (not for `TriageAgent*`); rule group `homelab-triage-agent` |
 | ArgoCD account | `charts/bootstrap/values-homelab.yaml`: `accounts.triage-agent: apiKey`, role `get` + `sync` on applications |
 

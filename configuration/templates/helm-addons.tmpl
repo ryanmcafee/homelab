@@ -1437,7 +1437,7 @@ node-feature-discovery:
 
 # ============================================================================
 # Argo Workflows - Workflow Orchestration
-# Sync Wave: 9 (after core infrastructure)
+# Sync Wave: 11 dependencies, 12 controller (after cloudnative-pg at 10)
 # ============================================================================
 
 argo-workflows:
@@ -1475,12 +1475,50 @@ argo-workflows:
         cpu: 500m
         memory: 48Mi
 
+    # Garbage collection of live objects. Completed workflows stay browsable in
+    # the archive (retentionDays) after their TTL removes them from the cluster.
     workflowDefaults:
       spec:
         ttlStrategy:
-          secondsAfterCompletion: 86400
-          secondsAfterSuccess: 43200
-          secondsAfterFailure: 172800
+          secondsAfterSuccess: 86400
+          secondsAfterFailure: 604800
+          secondsAfterCompletion: 604800
+        podGC:
+          strategy: OnPodSuccess
+          deleteDelayDuration: 10m
+
+  # How long archived workflows and their step logs stay reviewable.
+  retentionDays: 30
+
+  # Workflow archive: CloudNativePG Cluster in charts/argo-workflows-dependencies
+  # (needs the cloudnative-pg addon).
+  archive:
+    enabled: true
+    database:
+      name: argo-workflows-postgres
+      database: argo
+      owner: argo
+      instances: 1
+      imageName: "ghcr.io/cloudnative-pg/postgresql:{{ index .Versions.Images "cloudnative-pg-postgresql" }}"
+      # Block storage: PostgreSQL refuses the NFS classes (bugs.md 2026-09-15).
+      storageClass: {{ .Values.STORAGE_CLASS_ISCSI_SSD.Value }}
+      storageSize: 5Gi
+
+  # Step log archive to a versitygw S3 store in charts/argo-workflows-dependencies.
+  # Needs the 1Password item ARGO_WORKFLOWS_ARTIFACTS_1P_PATH (fields accessKey,
+  # secretKey); without a secret store the executors could not upload.
+  logArchive:
+    enabled: {{ $onepassword }}
+    store:
+      name: argo-workflows-logs
+      bucket: argo-workflows-logs
+      image: "versity/versitygw:{{ index .Versions.Images "versitygw" }}"
+      # Block storage: the POSIX backend keeps object metadata in xattrs.
+      storageClass: {{ .Values.STORAGE_CLASS_ISCSI_SSD.Value }}
+      storageSize: 20Gi
+      secretName: argo-workflows-artifacts
+      onePassword:
+        itemPath: "{{ if $onepassword }}{{ .Values.ARGO_WORKFLOWS_ARTIFACTS_1P_PATH.Value }}{{ end }}"
 
 # ============================================================================
 # Istio ambient mesh + Kiali (docs/service-mesh.md)
@@ -1777,7 +1815,7 @@ github-pr-exporter:
 
 # ============================================================================
 # Alert triage agent (templates/triage-agent.yaml, charts/triage-agent)
-# Sync Wave: 10 (docs/runbooks/triage-agent.md)
+# Sync Wave: 13 (docs/runbooks/triage-agent.md)
 # ============================================================================
 
 {{- $triage := and $onepassword (eq .Values.TRIAGE_AGENT_ENABLED.Value "true") }}
@@ -1792,5 +1830,7 @@ triage-agent:
   onePasswordItemPath: "{{ if $onepassword }}{{ .Values.TRIAGE_AGENT_1P_PATH.Value }}{{ end }}"
   # The Alertmanager Pushover item, reused for the workflow's notification.
   pushoverItemPath: "{{ if $onepassword }}{{ .Values.ALERTMANAGER_1P_PATH.Value }}{{ end }}"
+  # The Argo Workflows log store credentials, read into this namespace for the executors.
+  artifactsItemPath: "{{ if $onepassword }}{{ .Values.ARGO_WORKFLOWS_ARTIFACTS_1P_PATH.Value }}{{ end }}"
   # Workspace and cache volumes; shared across step pods on any node, so RWX.
   storageClass: {{ .Values.STORAGE_CLASS_NFS.Value }}

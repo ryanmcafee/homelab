@@ -551,6 +551,20 @@ spec:
   itemPath: "vaults/homelab/items/alertmanager-notifications"
 
 ---
+# Source: triage-agent/templates/onepassworditems.yaml
+# The Argo Workflows log store credentials, read into this namespace for the executors.
+apiVersion: onepassword.com/v1
+kind: OnePasswordItem
+metadata:
+  name: argo-workflows-artifacts
+  namespace: triage-agent
+  labels:
+    app.kubernetes.io/name: triage-agent
+    app.kubernetes.io/part-of: homelab
+spec:
+  itemPath: "vaults/homelab/items/argo-workflows-artifacts"
+
+---
 # Source: triage-agent/templates/intake.yaml
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor

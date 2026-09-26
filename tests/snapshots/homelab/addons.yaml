@@ -185,7 +185,7 @@ metadata:
     pod-security.kubernetes.io/audit: baseline
     pod-security.kubernetes.io/warn: baseline
   annotations:
-    argocd.argoproj.io/sync-wave: "10"
+    argocd.argoproj.io/sync-wave: "13"
 
 ---
 # Source: addons/templates/unifi-port-forward.yaml
@@ -522,7 +522,7 @@ spec:
 ---
 # Source: addons/templates/argo-workflows.yaml
 # Argo Workflows - Workflow Orchestration Engine
-# Sync Wave: 9
+# Sync Wave: 11 dependencies (archive database, log store), 12 controller + server
 
 ---
 # Source: addons/templates/agent-readonly.yaml
@@ -574,6 +574,78 @@ spec:
 
 ---
 # Source: addons/templates/argo-workflows.yaml
+# Workflow archive database and S3 log store; after the cloudnative-pg addon
+# (wave 10) because the database is a CNPG Cluster. ArgoCD waits for a ready
+# Cluster before the controller, which exits when the archive is unreachable.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: argo-workflows-dependencies
+  namespace: argocd
+  labels:
+    helm.sh/chart: addons-1.0.0
+    app.kubernetes.io/name: addons
+    app.kubernetes.io/instance: addons
+    app.kubernetes.io/version: "1.0"
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    argocd.argoproj.io/sync-wave: "11"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/ryanmcafee/homelab.git
+    targetRevision: main
+    path: charts/argo-workflows-dependencies
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-homelab.yaml
+      # Derived from configuration/ (ADR-010); the child values stay environment-free.
+      valuesObject:
+        namespace: argo-workflows
+        database:
+          enabled: true
+          database: argo
+          imageName: ghcr.io/cloudnative-pg/postgresql:17.11
+          instances: 1
+          name: argo-workflows-postgres
+          owner: argo
+          storageClass: democratic-csi-iscsi
+          storageSize: 5Gi
+        logStore:
+          enabled: true
+          retentionDays: 30
+          bucket: argo-workflows-logs
+          image: versity/versitygw:v1.8.0
+          name: argo-workflows-logs
+          onePassword:
+            itemPath: vaults/homelab/items/argo-workflows-artifacts
+          secretName: argo-workflows-artifacts
+          storageClass: democratic-csi-iscsi
+          storageSize: 20Gi
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argo-workflows
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - SkipDryRunOnMissingResource=true
+    # The Cluster CRD comes from the cloudnative-pg addon; retry until it is served.
+    retry:
+      limit: 5
+      backoff:
+        duration: 30s
+        factor: 2
+        maxDuration: 5m
+
+---
+# Source: addons/templates/argo-workflows.yaml
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -586,7 +658,7 @@ metadata:
     app.kubernetes.io/version: "1.0"
     app.kubernetes.io/managed-by: Helm
   annotations:
-    argocd.argoproj.io/sync-wave: "9"
+    argocd.argoproj.io/sync-wave: "12"
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
@@ -630,10 +702,48 @@ spec:
               memory: 32Mi
           workflowDefaults:
             spec:
+              podGC:
+                deleteDelayDuration: 10m
+                strategy: OnPodSuccess
               ttlStrategy:
-                secondsAfterCompletion: 86400
-                secondsAfterFailure: 172800
-                secondsAfterSuccess: 43200
+                secondsAfterCompletion: 604800
+                secondsAfterFailure: 604800
+                secondsAfterSuccess: 86400
+          # Completed workflows stay browsable in the UI (Archived Workflows)
+          # after their TTL deletes them from the cluster.
+          persistence:
+            archive: true
+            archiveTTL: 30d
+            postgresql:
+              host: argo-workflows-postgres-rw.argo-workflows.svc
+              port: 5432
+              database: argo
+              tableName: argo_workflows
+              userNameSecret:
+                name: argo-workflows-postgres-app
+                key: username
+              passwordSecret:
+                name: argo-workflows-postgres-app
+                key: password
+              ssl: true
+              sslMode: require
+        # Every step archives its main container log to the log store; the UI
+        # reads it once the pod is gone. The Secret must exist in each
+        # namespace that runs workflows.
+        useStaticCredentials: true
+        artifactRepository:
+          archiveLogs: true
+          s3:
+            endpoint: argo-workflows-logs.argo-workflows.svc:7070
+            bucket: argo-workflows-logs
+            insecure: true
+            keyFormat: "{{workflow.namespace}}/{{workflow.name}}/{{pod.name}}"
+            accessKeySecret:
+              name: argo-workflows-artifacts
+              key: accessKey
+            secretKeySecret:
+              name: argo-workflows-artifacts
+              key: secretKey
 
   destination:
     server: https://kubernetes.default.svc
@@ -5304,14 +5414,14 @@ spec:
 # Source: addons/templates/triage-agent.yaml
 # Alert triage agent: the intake turns every Alertmanager alert group into a
 # triage-fix Workflow (triage -> plan -> fix -> PR -> CI -> Pushover). Needs
-# the 1Password item (Claude and GitHub tokens) and Argo Workflows (wave 9).
+# the 1Password item (Claude and GitHub tokens) and Argo Workflows (wave 12).
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
   name: triage-agent
   namespace: argocd
   annotations:
-    argocd.argoproj.io/sync-wave: "10"
+    argocd.argoproj.io/sync-wave: "13"
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
@@ -5336,6 +5446,9 @@ spec:
           itemPath: "vaults/homelab/items/triage-agent"
         pushover:
           itemPath: "vaults/homelab/items/alertmanager-notifications"
+        artifacts:
+          secretName: "argo-workflows-artifacts"
+          itemPath: "vaults/homelab/items/argo-workflows-artifacts"
         workflow:
           workspace:
             storageClass: "democratic-csi-nfs"

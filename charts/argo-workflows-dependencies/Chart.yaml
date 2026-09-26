@@ -1,0 +1,6 @@
+apiVersion: v2
+name: argo-workflows-dependencies
+description: Workflow archive database (CloudNativePG) and S3 log store (versitygw) for Argo Workflows, synced before the controller
+type: application
+version: 1.0.0
+appVersion: "1.0"

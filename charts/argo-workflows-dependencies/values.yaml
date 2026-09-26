@@ -1,0 +1,55 @@
+# argo-workflows-dependencies values: the workflow archive database and the S3
+# store the executors archive step logs to (wave 11, after the cloudnative-pg
+# addon at 10, before the argo-workflows controller at 12).
+# Storage classes, sizes, image pins and the 1Password path arrive through the
+# parent Application's helm.valuesObject from configuration/ (ADR-010).
+
+namespace: argo-workflows
+
+# CloudNativePG Cluster holding the workflow archive. CNPG creates the Secret
+# <name>-app (username, password) the controller reads and Service <name>-rw.
+database:
+  enabled: false
+  name: argo-workflows-postgres
+  instances: 1
+  imageName: ""
+  storageClass: ""
+  storageSize: 5Gi
+  database: argo
+  owner: argo
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  monitoring:
+    enablePodMonitor: true
+  postgresql:
+    parameters:
+      max_connections: "50"
+      shared_buffers: 64MB
+
+# S3 endpoint (versitygw, POSIX backend) for archived step logs. A sidecar
+# deletes objects older than retentionDays; the archive TTL uses the same value.
+logStore:
+  enabled: false
+  name: argo-workflows-logs
+  image: ""
+  bucket: argo-workflows-logs
+  retentionDays: 30
+  # Block storage: the POSIX backend keeps object metadata in xattrs.
+  storageClass: ""
+  storageSize: 20Gi
+  # Secret with fields accessKey and secretKey, from the 1Password item.
+  secretName: argo-workflows-artifacts
+  onePassword:
+    itemPath: ""
+  resources:
+    requests:
+      cpu: 25m
+      memory: 64Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi

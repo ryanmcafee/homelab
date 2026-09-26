@@ -13,18 +13,18 @@ metadata:
     pod-security.kubernetes.io/audit: baseline
     pod-security.kubernetes.io/warn: baseline
   annotations:
-    argocd.argoproj.io/sync-wave: "10"
+    argocd.argoproj.io/sync-wave: "13"
 ---
 # Alert triage agent: the intake turns every Alertmanager alert group into a
 # triage-fix Workflow (triage -> plan -> fix -> PR -> CI -> Pushover). Needs
-# the 1Password item (Claude and GitHub tokens) and Argo Workflows (wave 9).
+# the 1Password item (Claude and GitHub tokens) and Argo Workflows (wave 12).
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
   name: triage-agent
   namespace: argocd
   annotations:
-    argocd.argoproj.io/sync-wave: "10"
+    argocd.argoproj.io/sync-wave: "13"
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
@@ -49,6 +49,12 @@ spec:
           itemPath: {{ $ta.onePasswordItemPath | quote }}
         pushover:
           itemPath: {{ $ta.pushoverItemPath | quote }}
+        {{- $logs := index .Values "argo-workflows" "logArchive" }}
+        {{- if $logs.enabled }}
+        artifacts:
+          secretName: {{ $logs.store.secretName | quote }}
+          itemPath: {{ $ta.artifactsItemPath | quote }}
+        {{- end }}
         workflow:
           workspace:
             storageClass: {{ $ta.storageClass | quote }}

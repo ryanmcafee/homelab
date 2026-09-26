@@ -1,0 +1,153 @@
+{{- with .Values.logStore }}
+{{- if .enabled }}
+{{- $labels := dict "app.kubernetes.io/name" "versitygw" "app.kubernetes.io/instance" .name }}
+{{- $securityContext := dict "allowPrivilegeEscalation" false "readOnlyRootFilesystem" true "capabilities" (dict "drop" (list "ALL")) }}
+{{- if .onePassword.itemPath }}
+---
+apiVersion: onepassword.com/v1
+kind: OnePasswordItem
+metadata:
+  name: {{ .secretName }}
+  namespace: {{ $.Values.namespace }}
+spec:
+  itemPath: {{ .onePassword.itemPath | quote }}
+{{- end }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ .name }}
+  namespace: {{ $.Values.namespace }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  {{- with .storageClass }}
+  storageClassName: {{ . }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .storageSize }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .name }}
+  namespace: {{ $.Values.namespace }}
+  labels:
+    {{- toYaml $labels | nindent 4 }}
+spec:
+  replicas: 1
+  # ReadWriteOnce volume: the old pod must release it first.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- toYaml $labels | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- toYaml $labels | nindent 8 }}
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        # POSIX backend: every top-level directory is a bucket.
+        - name: bucket
+          image: {{ .image }}
+          command: ["/bin/sh", "-c", "mkdir -p /data/{{ .bucket }}"]
+          resources:
+            {{- toYaml .resources | nindent 12 }}
+          securityContext:
+            {{- toYaml $securityContext | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      containers:
+        - name: versitygw
+          image: {{ .image }}
+          args: ["--port", ":7070", "--health", "/health", "posix", "/data"]
+          env:
+            - name: ROOT_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .secretName }}
+                  key: accessKey
+            - name: ROOT_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .secretName }}
+                  key: secretKey
+          ports:
+            - name: s3
+              containerPort: 7070
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: s3
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: s3
+            periodSeconds: 30
+          resources:
+            {{- toYaml .resources | nindent 12 }}
+          securityContext:
+            {{- toYaml $securityContext | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: tmp
+              mountPath: /tmp
+        # Hourly: delete log objects older than retentionDays, then empty directories.
+        - name: retention
+          image: {{ .image }}
+          command:
+            - /bin/sh
+            - -c
+            - |
+              while true; do
+                find /data/{{ .bucket }} -mindepth 1 -type f -mmin +{{ mul .retentionDays 1440 }} -delete
+                find /data/{{ .bucket }} -mindepth 1 -type d -empty -delete
+                sleep 3600
+              done
+          resources:
+            requests:
+              cpu: 5m
+              memory: 8Mi
+            limits:
+              cpu: 100m
+              memory: 32Mi
+          securityContext:
+            {{- toYaml $securityContext | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ .name }}
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .name }}
+  namespace: {{ $.Values.namespace }}
+  labels:
+    {{- toYaml $labels | nindent 4 }}
+spec:
+  selector:
+    {{- toYaml $labels | nindent 4 }}
+  ports:
+    - name: s3
+      port: 7070
+      targetPort: s3
+{{- end }}
+{{- end }}
