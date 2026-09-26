@@ -12,6 +12,12 @@ Each entry should include:
 
 ## Entries
 
+### 2026-09-26 - plex and otel-collector-gateway permanently OutOfSync on their HTTPRoute (#387)
+- **Issue**: After the Envoy Gateway cutover, `plex` and `otel-collector-gateway` stayed `OutOfSync`/`Healthy` with only the HTTPRoute out of sync; `argocd app diff` showed nothing
+- **Root Cause**: The `plex-media-server` and `opentelemetry-collector` chart templates render `backendRefs` with only `name` and `port` and accept no `group`/`kind`, so the API server adds `group: ""`, `kind: Service` and `weight: 1`, which the controller's diff flags on every refresh
+- **Solution**: Both Applications ignore those three fields only when they hold the API server default (`jqPathExpressions` with `select`), so a real backend change still shows as drift
+- **Prevention**: When a chart's HTTPRoute template cannot set every defaulted backendRef field, add the same `ignoreDifferences` block to its Application
+
 ### 2026-09-26 - kube-state-metrics OOMKilled after the Gateway API custom-resource metrics (#387)
 - **Issue**: `kube-prometheus-stack-kube-state-metrics` crash-looped with `OOMKilled` about one second after start, under its 80Mi limit
 - **Root Cause**: #387 enabled `customResourceState` for Gateway and HTTPRoute. With a custom-resource config, kube-state-metrics runs CRD discovery and caches every CRD; homelab has 139 CRDs (52 MB of JSON). Run locally against the cluster with the same config, its Go heap held at ~115Mi (was ~31Mi without it)
