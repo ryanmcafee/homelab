@@ -31,7 +31,7 @@ EOF
 
 inputs = {
   dns_entries = [
-    { fqdn = "proxmox.home.lab", type = "A", host = include.env.locals.proxmox_host },
-    { fqdn = "proxmox.${include.env.locals.base_fqdn}", type = "A", host = include.env.locals.proxmox_host }
+    for domain in compact([include.env.locals.local_dns_domain, include.env.locals.base_fqdn]) :
+    { fqdn = "proxmox.${domain}", type = "A", host = include.env.locals.proxmox_host }
   ]
 }

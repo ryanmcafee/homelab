@@ -36,6 +36,7 @@ keys:
     description: Default gateway / router IP
     required: true
     pattern: "^(?:\\d{1,3}\\.){3}\\d{1,3}$"
+    addressRole: infrastructure-address
 
   LAN_CIDR:
     description: CIDR of the LAN the cluster nodes sit on. Terragrunt builds the
@@ -45,6 +46,7 @@ keys:
       meaning to move the cluster onto a different subnet.
     required: true
     pattern: "^(?:\\d{1,3}\\.){3}\\d{1,3}/\\d{1,2}$"
+    addressRole: network-range
 
   DNS_SERVER_IP:
     description: Upstream DNS resolver the cluster nodes are configured with. Often
@@ -52,27 +54,32 @@ keys:
       because a wrong resolver fails after the cluster is already built.
     required: true
     pattern: "^(?:\\d{1,3}\\.){3}\\d{1,3}$"
+    addressRole: infrastructure-address
 
   TRUENAS_IP:
     description: TrueNAS storage server IP
     required: true
     pattern: "^(?:\\d{1,3}\\.){3}\\d{1,3}$"
+    addressRole: infrastructure-address
 
   PROXMOX_IP:
     description: Proxmox hypervisor IP
     required: true
     pattern: "^(?:\\d{1,3}\\.){3}\\d{1,3}$"
+    addressRole: infrastructure-address
 
   IPMI_IP:
     description: Proxmox BMC/IPMI out-of-band management IP (documentation and
       the PII guard only; no template renders it)
     required: false
     pattern: "^(?:\\d{1,3}\\.){3}\\d{1,3}$"
+    addressRole: infrastructure-address
 
   CP_VIP:
     description: Kubernetes control plane virtual IP
     required: true
     pattern: "^(?:\\d{1,3}\\.){3}\\d{1,3}$"
+    addressRole: dedicated-pool-allocation
 
   # The first control-plane address, and the only one that is individually
   # required: a control plane with no first address is a typo rather than a
@@ -82,56 +89,67 @@ keys:
     description: Control plane node 1 IP
     required: true
     pattern: "^(?:\\d{1,3}\\.){3}\\d{1,3}$"
+    addressRole: infrastructure-address
 
   WORKER1_IP:
     description: Worker node 1 IP (GPU node)
     required: true
     pattern: "^(?:\\d{1,3}\\.){3}\\d{1,3}$"
+    addressRole: infrastructure-address
 
   WORKER2_IP:
     description: Worker node 2 IP
     required: true
     pattern: "^(?:\\d{1,3}\\.){3}\\d{1,3}$"
+    addressRole: infrastructure-address
 
   WORKER3_IP:
     description: Worker node 3 IP
     required: true
     pattern: "^(?:\\d{1,3}\\.){3}\\d{1,3}$"
+    addressRole: infrastructure-address
 
   LB_POOL_START:
     description: First IP in Cilium LB IPAM pool
     required: true
     pattern: "^(?:\\d{1,3}\\.){3}\\d{1,3}$"
+    addressRole: lb-pool-range
 
   LB_POOL_END:
     description: Last IP in Cilium LB IPAM pool
     required: true
     pattern: "^(?:\\d{1,3}\\.){3}\\d{1,3}$"
+    addressRole: lb-pool-range
 
   GATEWAY_EXTERNAL_STATIC_IP:
     description: Static LoadBalancer IP of the external Envoy Gateway (WAN port forwards target it)
     required: true
     pattern: "^(?:\\d{1,3}\\.){3}\\d{1,3}$"
+    addressRole: lb-allocation
 
   GATEWAY_INTERNAL_STATIC_IP:
     description: Static LoadBalancer IP of the internal Envoy Gateway; empty lets Cilium LB IPAM pick one
     required: false
     pattern: "^$|^(?:\\d{1,3}\\.){3}\\d{1,3}$"
+    addressRole: lb-allocation
 
   PLEX_LB_IP:
     description: Static LoadBalancer IP for Plex
     required: true
     pattern: "^(?:\\d{1,3}\\.){3}\\d{1,3}$"
+    addressRole: lb-allocation
 
   NFS_SHARE_ALLOW:
     description: CIDR allowed to access NFS shares
     required: true
     pattern: "^(?:\\d{1,3}\\.){3}\\d{1,3}/\\d{1,2}$"
+    addressRole: network-range
 
   TAILSCALE_ADVERTISE_ROUTES:
     description: Homelab LAN CIDR advertised onto the tailnet by the Tailscale subnet router (Connector)
     required: true
     pattern: "^(?:\\d{1,3}\\.){3}\\d{1,3}/\\d{1,2}$"
+    addressRole: network-range
 
   BGP_K8S_ASN:
     description: Cilium BGP autonomous system number
@@ -147,6 +165,7 @@ keys:
     description: BGP peer IP (upstream router)
     required: true
     pattern: "^(?:\\d{1,3}\\.){3}\\d{1,3}$"
+    addressRole: infrastructure-address
 
   # Computed hostnames — derived from DOMAIN
   TRUENAS_HOSTNAME:
@@ -189,12 +208,20 @@ keys:
     description: Fixed LoadBalancer address of the OpenTelemetry gateway collector (inside LB_POOL_START..LB_POOL_END); target of the UniFi syslog/NetFlow export
     required: true
     pattern: "^(?:\\d{1,3}\\.){3}\\d{1,3}$"
+    addressRole: lb-allocation
 
   OTEL_SOURCE_RANGES:
     description: CIDRs allowed to reach OTEL_LB_IP besides NFS_SHARE_ALLOW, comma-separated; UniFi switches, access points
       and the console send syslog from their own management addresses, not from the cluster network
     required: false
     pattern: "^$|^(?:\\d{1,3}\\.){3}\\d{1,3}/\\d{1,2}(,(?:\\d{1,3}\\.){3}\\d{1,3}/\\d{1,2})*$"
+    addressRole: network-range
+
+  LOCAL_DNS_DOMAIN:
+    description: Optional local DNS zone that Terragrunt also publishes proxmox, k8s,
+      truenas and nas A records under; empty publishes records under DOMAIN only
+    required: false
+    pattern: "^$|^(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\\.)+[a-z]{2,63}$"
 
   SERVICEMESH_HOSTNAME:
     description: Kiali (Istio service mesh console) hostname on the internal ingress
@@ -204,6 +231,7 @@ keys:
     description: TrueNAS address on the storage LAN (VLAN 10) with prefix length, used by the Ansible inventory
     required: false
     pattern: "^(?:\\d{1,3}\\.){3}\\d{1,3}/\\d{1,2}$"
+    addressRole: infrastructure-address
 
   NETWORK_NAMES:
     description: Subnet names on the "Network flows and security" Grafana dashboard, comma-separated
