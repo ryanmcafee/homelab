@@ -172,6 +172,22 @@ metadata:
     argocd.argoproj.io/sync-wave: "1"
 
 ---
+# Source: addons/templates/triage-agent.yaml
+# Baseline, not restricted: the Argo Workflows executor containers the
+# controller injects into every step pod carry no container securityContext.
+# docs/runbooks/triage-agent.md
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: triage-agent
+  labels:
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/audit: baseline
+    pod-security.kubernetes.io/warn: baseline
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
+
+---
 # Source: addons/templates/unifi-port-forward.yaml
 apiVersion: v1
 kind: Namespace
@@ -3323,6 +3339,7 @@ spec:
           # Routing (docs/runbooks/alerting.md): critical -> Pushover at high
           # priority, warning -> Pushover at low priority (no sound), everything
           # else (info, the always-firing Watchdog and InfoInhibitor) -> null.
+          # Everything but Watchdog and InfoInhibitor also reaches the triage agent.
           # A critical alert inhibits the warning of the same name in the same
           # namespace. Alertmanager's own templating is escaped so Helm leaves
           # it untouched.
@@ -3341,6 +3358,12 @@ spec:
                 - receiver: "null"
                   matchers:
                     - alertname =~ "Watchdog|InfoInhibitor"
+                # Every other alert also goes to the triage agent
+                # (docs/runbooks/triage-agent.md); continue keeps the routes below.
+                - receiver: triage-agent
+                  matchers:
+                    - alertname !~ "TriageAgent.+"
+                  continue: true
                 # One notification per pull request, repeated while it still
                 # needs review; merging or closing it sends nothing.
                 - receiver: pushover-github-pr
@@ -3362,6 +3385,10 @@ spec:
                 equal: [alertname, namespace]
             receivers:
               - name: "null"
+              - name: triage-agent
+                webhook_configs:
+                  - url: http://triage-agent.triage-agent.svc:8080/webhook
+                    send_resolved: false
               # Pushover priorities: 1 = high (bypasses quiet hours), 0 = normal,
               # -1 = low (no sound). Resolved notifications always go out normal.
               - name: pushover-critical
@@ -4108,6 +4135,52 @@ spec:
                     annotations:
                       summary: 'Proxies reject the configuration istiod sends'
                       description: 'ztunnel or a waypoint has rejected xDS configuration for 15m, so it keeps running on stale config. `istioctl proxy-status` and the istiod logs name the resource.'
+          # Alert triage agent (docs/runbooks/triage-agent.md). Metrics: the
+          # intake's /metrics (workspace janitor, volume usage by statfs).
+          homelab-triage-agent:
+            groups:
+              - name: homelab-triage-agent
+                rules:
+                  - alert: TriageAgentWorkspaceFillingUp
+                    expr: 'max by (namespace) (triage_agent_volume_used_bytes{volume="workspace"} / triage_agent_volume_capacity_bytes{volume="workspace"}) > 0.85'
+                    for: 15m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: 'The triage agent workspace volume is {{ $value | humanizePercentage }} full'
+                      description: 'Above 85 % for 15m although the janitor deletes failed workspaces from 80 %: running workflows hold the space or the janitor cannot delete. Check triage_agent_workspace_directories and the intake log; docs/runbooks/triage-agent.md.'
+                  - alert: TriageAgentWorkspaceFillingUp
+                    expr: 'max by (namespace) (triage_agent_volume_used_bytes{volume="workspace"} / triage_agent_volume_capacity_bytes{volume="workspace"}) > 0.95'
+                    for: 5m
+                    labels:
+                      severity: critical
+                    annotations:
+                      summary: 'The triage agent workspace volume is {{ $value | humanizePercentage }} full'
+                      description: 'Above 95 % for 5m: the next clone fails with ENOSPC. Past the watermark the janitor already deleted every finished workspace, so running workflows hold the rest; grow workflow.workspace.size in charts/triage-agent; docs/runbooks/triage-agent.md.'
+                  - alert: TriageAgentCacheFillingUp
+                    expr: 'max by (namespace) (triage_agent_volume_used_bytes{volume="cache"} / triage_agent_volume_capacity_bytes{volume="cache"}) > 0.9'
+                    for: 30m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: 'The triage agent cache volume is {{ $value | humanizePercentage }} full'
+                      description: 'The janitor prunes the regenerable caches only while no workflow runs; above 90 % for 30m it has had no idle window or the toolchain alone fills the claim. docs/runbooks/triage-agent.md.'
+                  - alert: TriageAgentJanitorFailing
+                    expr: 'increase(triage_agent_janitor_errors_total[30m]) > 0 or time() - triage_agent_janitor_last_success_timestamp_seconds > 3600'
+                    for: 15m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: 'The triage agent workspace janitor is failing'
+                      description: 'No clean janitor round for an hour or errors in the last 30m, so finished workspaces are not reclaimed. The intake log names the path or the Kubernetes API error; docs/runbooks/triage-agent.md.'
+                  - alert: TriageAgentIntakeDown
+                    expr: 'absent(up{job="triage-agent", namespace="triage-agent"} == 1)'
+                    for: 15m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: 'The triage agent intake is not scraped'
+                      description: 'No alert reaches the triage agent and the workspace alerts above are blind. `kubectl -n triage-agent get deploy triage-agent`; docs/runbooks/triage-agent.md.'
 
   destination:
     server: https://kubernetes.default.svc
@@ -5224,6 +5297,61 @@ spec:
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
+
+---
+# Source: addons/templates/triage-agent.yaml
+# Alert triage agent: the intake turns every Alertmanager alert group into a
+# triage-fix Workflow (triage -> plan -> fix -> PR -> CI -> Pushover). Needs
+# the 1Password item (Claude and GitHub tokens) and Argo Workflows (wave 9).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: triage-agent
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/ryanmcafee/homelab.git
+    targetRevision: main
+    path: charts/triage-agent
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-homelab.yaml
+      # Derived from configuration/ (ADR-010); the child's values stay environment-free.
+      valuesObject:
+        namespace: "triage-agent"
+        image: "ghcr.io/ryanmcafee/homelab-triage-agent:0.1.0"
+        repoUrl: "https://github.com/ryanmcafee/homelab.git"
+        repoSlug: "ryanmcafee/homelab"
+        alertmanagerUrl: "http://kube-prometheus-stack-alertmanager.monitoring.svc:9093"
+        workflowUiUrl: "https://workflows.replaceme-domain.com"
+        onePassword:
+          itemPath: "vaults/homelab/items/triage-agent"
+        pushover:
+          itemPath: "vaults/homelab/items/alertmanager-notifications"
+        workflow:
+          workspace:
+            storageClass: "democratic-csi-nfs"
+            accessMode: ReadWriteMany
+          cache:
+            storageClass: "democratic-csi-nfs"
+            accessMode: ReadWriteMany
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: triage-agent
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+      - SkipDryRunOnMissingResource=true
 
 ---
 # Source: addons/templates/unifi-port-forward.yaml

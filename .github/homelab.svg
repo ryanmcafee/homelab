@@ -183,7 +183,7 @@
   <text class="a21_5" x="28" y="192" fill="#8b949e">    1password operator</text>
   <text class="a23"   x="28" y="209" fill="#8b949e">    environment-config</text>
   <text class="a25"   x="28" y="226"><tspan fill="#8b949e">›</tspan> cmp      <tspan fill="#a371f7">export|helm template</tspan></text>
-  <text class="a26_5" x="28" y="243"><tspan fill="#8b949e">›</tspan> argocd   <tspan fill="#8b949e">84 apps synced</tspan></text>
+  <text class="a26_5" x="28" y="243"><tspan fill="#8b949e">›</tspan> argocd   <tspan fill="#8b949e">85 apps synced</tspan></text>
   <text class="a33"   x="28" y="260"><tspan fill="#8b949e">›</tspan> bgp      <tspan fill="#8b949e">64512 ⇄ 64513</tspan> <tspan fill="#27c93f">up</tspan></text>
   <text class="a36"   x="28" y="277"><tspan fill="#8b949e">›</tspan> unifi    <tspan fill="#8b949e">kube-* forwards</tspan> <tspan fill="#27c93f">✔</tspan></text>
   <text class="a46"   x="28" y="298"><tspan fill="#a371f7">●</tspan> plex.&lt;DOMAIN&gt; <tspan fill="#27c93f">200</tspan> <tspan fill="#8b949e">e2e ✔ smoke ✔</tspan></text>
@@ -273,7 +273,7 @@
 <path class="w d25" d="M732 180 H744"/>
 <g class="a25"><rect class="box" x="744" y="164" width="104" height="32" rx="6" stroke="#a371f7"/><text class="n" x="796" y="177" text-anchor="middle">homelab-cmp</text><text class="n2" x="796" y="189" text-anchor="middle">config export | helm template</text></g>
 <path class="w d26_5" d="M848 180 H860"/>
-<g class="a26_5"><rect class="box" x="860" y="164" width="104" height="32" rx="6"/><text class="n" x="912" y="177" text-anchor="middle">addons · 34</text><text class="n2" x="912" y="189" text-anchor="middle">rendered by cmp</text></g>
+<g class="a26_5"><rect class="box" x="860" y="164" width="104" height="32" rx="6"/><text class="n" x="912" y="177" text-anchor="middle">addons · 35</text><text class="n2" x="912" y="189" text-anchor="middle">rendered by cmp</text></g>
 <path class="w d28" d="M964 180 H976"/>
 <g class="a28"><rect class="box" x="976" y="164" width="104" height="32" rx="6"/><text class="n" x="1028" y="177" text-anchor="middle">applications · 16</text><text class="n2" x="1028" y="189" text-anchor="middle">rendered by cmp</text></g>
 

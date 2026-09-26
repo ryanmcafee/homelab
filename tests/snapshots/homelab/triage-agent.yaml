@@ -925,7 +925,7 @@ spec:
           - name: WORKFLOW_FAILURES
             value: "{{inputs.parameters.workflow-failures}}"
           - name: WORKFLOW_UI_URL
-            value: "https://workflows.REPLACEME-domain.com"
+            value: "https://workflows.replaceme-domain.com"
           - name: ARGOCD_APP
             value: "{{inputs.parameters.argocd-app}}"
           - name: ARGOCD_SERVER
