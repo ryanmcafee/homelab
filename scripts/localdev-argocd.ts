@@ -187,7 +187,13 @@ const DEFAULT_SYNC_TIMEOUT_MS = 40 * 60_000;
 const DEFAULT_WAIT_TIMEOUT_MS = 20 * 60_000;
 const HELM_WAIT_TIMEOUT = "10m";
 const EVENTS_TAIL = 30;
+const DESCRIBE_HEAD = 30;
 const DESCRIBE_TAIL = 40;
+/** `.status` is printed head-first: a resource's conditions live at its top. */
+const STATUS_HEAD = 200;
+const STATUS_TAIL = 20;
+/** Resource names listed per health bucket in the roll-up before eliding. */
+const ROLLUP_NAMES = 8;
 const LOGS_TAIL = "50";
 const PORT_FORWARD_READY_MS = 60_000;
 const PORT_FORWARD_PROBE_MS = 500;
@@ -265,6 +271,25 @@ export interface AppResource {
   health?: { status?: string; message?: string };
 }
 
+/**
+ * One entry of `status.operationState.syncResult.resources`: the per-task
+ * result of a sync. The parent Application's operation message only says "one
+ * or more synchronization tasks completed unsuccessfully"; the task that
+ * actually failed, and why, is here.
+ */
+export interface SyncResultResource {
+  group?: string;
+  version?: string;
+  kind?: string;
+  namespace?: string;
+  name?: string;
+  status?: string;
+  message?: string;
+  hookPhase?: string;
+  hookType?: string;
+  syncPhase?: string;
+}
+
 export interface AppSource {
   repoURL?: string;
   path?: string;
@@ -293,6 +318,7 @@ export interface Application {
       message?: string;
       startedAt?: string;
       finishedAt?: string;
+      syncResult?: { revision?: string; resources?: SyncResultResource[] };
     };
     resources?: AppResource[];
     conditions?: Array<{ type?: string; message?: string }>;
@@ -3221,6 +3247,23 @@ function tail(text: string, n: number): string {
   return lines.slice(Math.max(0, lines.length - n)).join("\n");
 }
 
+/**
+ * First `head` and last `tailN` lines with a marker in between. `tail` alone
+ * throws away the top of a resource's output, which is exactly where its
+ * conditions are: for a Gateway the last 40 lines of a describe land inside
+ * `.status.listeners`, so `Accepted`/`Programmed` never reach the CI log.
+ */
+export function headTail(text: string, head: number, tailN: number): string {
+  const lines = text.trimEnd().split("\n");
+  if (lines.length <= head + tailN) return lines.join("\n");
+  const omitted = lines.length - head - tailN;
+  return [
+    ...lines.slice(0, head),
+    `... (${omitted} line${omitted === 1 ? "" : "s"} omitted) ...`,
+    ...lines.slice(lines.length - tailN),
+  ].join("\n");
+}
+
 interface ContainerStatusSummary {
   name?: string;
   ready?: boolean;
@@ -3292,13 +3335,132 @@ function resourceNotHealthy(r: AppResource): boolean {
   return r.health?.status !== "Healthy";
 }
 
-/** `<group/>kind ns/name: <health or "-">[ — message]` for one resource. */
-export function formatResource(r: AppResource, app: Application): string {
-  const ns = resourceNamespace(r, app);
-  const msg = r.health?.message ? ` — ${r.health.message}` : "";
+/**
+ * What `formatResource` prints when ArgoCD reported no health at all for a
+ * resource. `-` was indistinguishable from a resource ArgoCD assessed and
+ * found fine, so a log full of `-` read as "nothing wrong here".
+ */
+export const NO_HEALTH = "(no health check registered)";
+
+/** `<group>/<kind> <ns>/<name>` — the resource reference used in every line. */
+function resourceRef(
+  r: { group?: string; kind?: string; name?: string },
+  ns: string,
+): string {
   return `${r.group ? `${r.group}/` : ""}${r.kind ?? "?"} ${
     ns ? `${ns}/` : ""
-  }${r.name ?? "?"}: ${r.health?.status ?? "-"}${msg}`;
+  }${r.name ?? "?"}`;
+}
+
+/** `<group/>kind ns/name: <health or NO_HEALTH>[ — message]` for one resource. */
+export function formatResource(r: AppResource, app: Application): string {
+  const msg = r.health?.message ? ` — ${r.health.message}` : "";
+  return `${resourceRef(r, resourceNamespace(r, app))}: ${
+    r.health?.status ?? NO_HEALTH
+  }${msg}`;
+}
+
+/** Roll-up bucket order: what a reader should look at first, worst first. */
+const HEALTH_ORDER = [
+  "Degraded",
+  "Missing",
+  "Unknown",
+  "Progressing",
+  "Suspended",
+  "Healthy",
+];
+
+function healthRank(status: string): number {
+  const i = HEALTH_ORDER.indexOf(status);
+  if (i >= 0) return i;
+  // An unrecognised status is still an assessment: rank it after the known
+  // ones but before the resources ArgoCD never assessed at all.
+  return status === NO_HEALTH ? HEALTH_ORDER.length + 1 : HEALTH_ORDER.length;
+}
+
+/**
+ * One line per health bucket, e.g.
+ * `Degraded (1): gateway.networking.k8s.io/Gateway envoy-gateway-system/eg`.
+ * Answers "which resource is Degraded?" without reading 17 resource lines,
+ * and names the unassessed ones separately so an empty health column cannot be
+ * mistaken for a clean bill of health.
+ */
+export function healthRollup(app: Application): string[] {
+  const buckets = new Map<string, string[]>();
+  for (const r of app.status?.resources ?? []) {
+    if (!r) continue;
+    const status = r.health?.status ?? NO_HEALTH;
+    const refs = buckets.get(status) ?? [];
+    refs.push(resourceRef(r, resourceNamespace(r, app)));
+    buckets.set(status, refs);
+  }
+  return [...buckets.entries()]
+    .sort(
+      ([a], [b]) =>
+        healthRank(a) - healthRank(b) || (a < b ? -1 : a > b ? 1 : 0),
+    )
+    .map(([status, refs]) => {
+      const shown = refs.slice(0, ROLLUP_NAMES).join(", ");
+      const more =
+        refs.length > ROLLUP_NAMES
+          ? `, +${refs.length - ROLLUP_NAMES} more`
+          : "";
+      return `${status} (${refs.length}): ${shown}${more}`;
+    });
+}
+
+/** A sync task ArgoCD did not complete: a failed apply, or a failed hook. */
+export function isFailedSyncTask(r: SyncResultResource): boolean {
+  const status = r.status ?? "";
+  const hook = r.hookPhase ?? "";
+  return (
+    status === "SyncFailed" ||
+    status === "Failed" ||
+    status === "Error" ||
+    status === "Unknown" ||
+    hook === "Failed" ||
+    hook === "Error"
+  );
+}
+
+/** `<group/>kind ns/name: <syncPhase> <status>/<hookPhase> — <message>`. */
+export function formatSyncTask(r: SyncResultResource): string {
+  const ref = resourceRef(r, r.namespace ?? "");
+  const phase = r.syncPhase ? `${r.syncPhase} ` : "";
+  const state = [r.status, r.hookPhase].filter((s) => !!s).join("/") || "-";
+  const msg = r.message ? ` — ${r.message}` : " — (no message reported)";
+  return `${ref}: ${phase}${state}${msg}`;
+}
+
+/**
+ * The per-task failures behind a failed operation. `one or more
+ * synchronization tasks completed unsuccessfully (retried 5 times)` is the
+ * only thing the Application-level message says; the task that failed is in
+ * `syncResult.resources`. When the operation failed and ArgoCD recorded no
+ * per-task detail, say that out loud rather than printing nothing — silence
+ * here reads as "the tool does not print this".
+ */
+export function syncTaskLines(app: Application): string[] {
+  const op = app.status?.operationState;
+  if (!op) return [];
+  const failed = (op.syncResult?.resources ?? []).filter(
+    (r) => r != null && isFailedSyncTask(r),
+  );
+  if (failed.length > 0) {
+    return [
+      `failed sync tasks (${failed.length}):`,
+      ...failed.map((r) => `  ${formatSyncTask(r)}`),
+    ];
+  }
+  const phase = op.phase ?? "";
+  if (phase !== "Failed" && phase !== "Error") return [];
+  return [
+    `failed sync tasks: (none recorded in status.operationState.syncResult; ${
+      op.syncResult
+        ? "no task reported a failure"
+        : "ArgoCD stored no syncResult"
+    })`,
+  ];
 }
 
 /**
@@ -3367,12 +3529,48 @@ export function describeTargets(unhealthy: Application[]): DescribeTarget[] {
   return out;
 }
 
+/** `<kind>.<group>` (or a bare core kind) as kubectl names the resource. */
+function kubectlResource(t: DescribeTarget): string {
+  return t.group ? `${t.kind.toLowerCase()}.${t.group}` : t.kind;
+}
+
 /** `kubectl describe <kind>.<group> <name> [-n <ns>]` arguments for a target. */
 export function describeArgs(t: DescribeTarget): string[] {
-  const resource = t.group ? `${t.kind.toLowerCase()}.${t.group}` : t.kind;
+  const resource = kubectlResource(t);
   return t.ns
     ? ["describe", resource, t.name, "-n", t.ns]
     : ["describe", resource, t.name];
+}
+
+/**
+ * `kubectl get <kind>.<group> <name> [-n <ns>] -o json` arguments. The full
+ * object is fetched so `.status` can be printed from the top; `describe` is
+ * still run for the events, which `get` does not carry.
+ */
+export function statusArgs(t: DescribeTarget): string[] {
+  const resource = kubectlResource(t);
+  return t.ns
+    ? ["get", resource, t.name, "-n", t.ns, "-o", "json"]
+    : ["get", resource, t.name, "-o", "json"];
+}
+
+/**
+ * The `.status` of a `kubectl get -o json` response, pretty-printed head-first.
+ * Conditions (`Accepted`, `Programmed`, `Ready`) are the first keys of a typical
+ * `.status`, and they are exactly what a health check reads.
+ */
+export function formatResourceStatus(stdout: string): string {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(stdout);
+  } catch {
+    return "(kubectl get -o json did not return JSON)";
+  }
+  const status = (parsed as { status?: unknown } | null)?.status;
+  if (status === undefined || status === null) {
+    return "(the resource reports no .status)";
+  }
+  return headTail(JSON.stringify(status, null, 2), STATUS_HEAD, STATUS_TAIL);
 }
 
 async function diagnoseEvents(ns: string): Promise<void> {
@@ -3489,13 +3687,19 @@ async function diagnoseWorkloads(ns: string): Promise<void> {
 
 async function describeResources(targets: DescribeTarget[]): Promise<void> {
   for (const t of targets) {
+    const ref = `${t.group}/${t.kind} ${t.ns}/${t.name}`;
+    console.log(`\n--- ${ref}: .status ---`);
+    const s = await run(kubectl(...statusArgs(t)));
     console.log(
-      `\n--- ${t.group}/${t.kind} ${t.ns}/${t.name}: describe tail ---`,
+      (s.code === 0 ? formatResourceStatus(s.stdout) : s.stderr.trim()) ||
+        "(no output)",
     );
+    console.log(`\n--- ${ref}: describe head+tail ---`);
     const d = await run(kubectl(...describeArgs(t)));
     console.log(
-      (d.code === 0 ? tail(d.stdout, DESCRIBE_TAIL) : d.stderr.trim()) ||
-        "(no output)",
+      (d.code === 0
+        ? headTail(d.stdout, DESCRIBE_HEAD, DESCRIBE_TAIL)
+        : d.stderr.trim()) || "(no output)",
     );
   }
 }
@@ -3510,30 +3714,54 @@ async function diagnoseNamespace(
   await describeResources(targets.filter((t) => t.ns === ns));
 }
 
-function printApplication(app: Application): void {
+/**
+ * The whole diagnose block for one Application, as lines. Pure so the block a
+ * CI reader actually sees can be asserted in a unit test; `printApplication`
+ * only writes it out.
+ */
+export function applicationLines(app: Application): string[] {
   const st = app.status ?? {};
-  console.log(`\n=== ${app.metadata.name} ===`);
-  console.log(
+  const out = [
+    `=== ${app.metadata.name} ===`,
     `  health: ${st.health?.status ?? "-"}  sync: ${
       st.sync?.status ?? "-"
     }  operation: ${st.operationState?.phase ?? "-"}`,
-  );
+  ];
   if (st.health?.message) {
-    console.log(`  health message: ${st.health.message}`);
+    out.push(`  health message: ${st.health.message}`);
+  } else if ((st.health?.status ?? "-") !== "Healthy") {
+    // The line used to be absent, which reads as "the tool does not print
+    // this" — it cost a full investigation cycle on a Degraded app.
+    out.push("  health message: (none reported by ArgoCD)");
   }
+  const phase = st.operationState?.phase;
   if (st.operationState?.message) {
-    console.log(`  operation message: ${st.operationState.message}`);
+    out.push(`  operation message: ${st.operationState.message}`);
+  } else if (phase === "Failed" || phase === "Error") {
+    out.push("  operation message: (none reported by ArgoCD)");
   }
   for (const c of st.conditions ?? []) {
-    console.log(`  condition ${c?.type ?? "?"}: ${c?.message ?? ""}`);
+    out.push(`  condition ${c?.type ?? "?"}: ${c?.message ?? ""}`);
+  }
+  for (const line of syncTaskLines(app)) out.push(`  ${line}`);
+  const rollup = healthRollup(app);
+  if (rollup.length > 0) {
+    out.push("  resource health:");
+    for (const line of rollup) out.push(`    ${line}`);
   }
   const lines = resourceLines(app);
   if (lines.length > 0) {
-    console.log("  resources:");
-    for (const line of lines) console.log(`    ${line}`);
+    out.push("  resources:");
+    for (const line of lines) out.push(`    ${line}`);
   } else if ((st.resources ?? []).length === 0) {
-    console.log("  resources: (none reported)");
+    out.push("  resources: (none reported)");
   }
+  return out;
+}
+
+function printApplication(app: Application): void {
+  console.log("");
+  for (const line of applicationLines(app)) console.log(line);
 }
 
 async function cmdDiagnose(): Promise<number> {
