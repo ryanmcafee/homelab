@@ -46,7 +46,9 @@ them with no conflict and nothing else in the repository notices. `decisions/adr
 is point 4, including a test that runs the checker against the committed record. Note what
 "gated" means here today: level 0 on the PR **head** is `main`'s required check, and the
 merge-result run reports without blocking, so the collision stops the merge at the rebase
-rather than at the merge button (ADR-039, `docs/runbooks/verification.md`).
+rather than at the merge button — and on a draft or a `renovate/*` head, where that required
+job is skipped and **a skipped check run satisfies a required context**, it does not stop the
+merge at all (ADR-039, `docs/runbooks/verification.md`).
 
 Consumer-side: each consumer of an event type keeps a fixture of the event it expects and
 asserts it validates against the published schema. That is what catches "the producer's
