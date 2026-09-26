@@ -57,7 +57,7 @@ repos:
   # v1.105.0+ supports terragrunt 0.78+ which replaced `hclfmt` with `hcl format`
   # (mise.toml pins terragrunt 1.x, which only supports the new CLI).
   - repo: https://github.com/antonbabenko/pre-commit-terraform
-    rev: v1.105.0
+    rev: v1.109.1
     hooks:
       - id: terraform_fmt
       - id: terragrunt_fmt
