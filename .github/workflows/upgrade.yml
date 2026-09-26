@@ -18,6 +18,14 @@ name: Upgrade verification
 #               commit status: success only when no rendered manifest changed
 #               and revalidation passed. Renovate (platformAutomerge false)
 #               automerges only when every status is green.
+#   renovate-regime
+#               renovate/* heads only. Decodes the base64 renovate-debug blob
+#               Renovate appends to its own PR bodies and fails as
+#               renovate-regen/deployed-major once the deployed major reaches 44,
+#               where isBranchModified() reads the committer as well as the
+#               author. Past that boundary every rebase under a foreign identity
+#               orphans its branch while changing no bytes, so the regime has to
+#               move with the deployment rather than with somebody's memory.
 #   regenerate  renovate/* heads only, and only when the regeneration bot's
 #               GitHub App secrets (HOMELAB_BOT_APP_ID, HOMELAB_BOT_PRIVATE_KEY)
 #               exist; otherwise a notice. Regenerates the committed localdev
@@ -235,6 +243,41 @@ jobs:
             ok=false
           fi
           [ "$ok" = true ]
+
+  renovate-regime:
+    name: Deployed Renovate still matches the committer regime
+    # renovate/* heads only: this reads the deployed version out of Renovate's
+    # own PR bodies, and the bump that changes it is itself a renovate/* PR.
+    if: startsWith(github.head_ref, 'renovate/')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      # gh pr list over the open renovate/* PRs, to read their debug blobs.
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Install bun, task from mise.toml
+        uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+        with:
+          install_args: bun task
+
+      - name: Install script dependencies from bun.lock
+        run: bun install --frozen-lockfile
+
+      # Fails as renovate-regen/deployed-major once the deployed major reaches
+      # COMMITTER_READ_FROM_MAJOR while this repository still treats a committer
+      # mismatch as advisory. Advisory here means every rebase of a renovate/*
+      # branch under a foreign identity orphans it while changing no bytes, and
+      # under a strict base branch that is a permanent merge block. The check
+      # reads the version rather than remembering it; see
+      # docs/runbooks/verification.md.
+      - name: Read the deployed Renovate major
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: task renovate:deployed-major
 
   regenerate:
     name: Regenerate snapshots, schemas and localdev values (Renovate)

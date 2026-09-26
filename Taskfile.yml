@@ -873,6 +873,21 @@ tasks:
     cmds:
       - bun scripts/renovate-regen.ts {{.CLI_ARGS}}
 
+  renovate:deployed-major:
+    desc: "Read the deployed Renovate major out of an open renovate/* PR body and fail if it reached 44 (where isBranchModified reads the committer) while this repo still treats a committer mismatch as advisory"
+    deps: [bun:install]
+    cmds:
+      - |
+        set -euo pipefail
+        bodies="$(gh pr list --repo "${GITHUB_REPOSITORY:-ryanmcafee/homelab}" --state open --limit 100 \
+          --json headRefName,body \
+          --jq '[.[] | select(.headRefName | startswith("renovate/")) | .body] | join("\n")')"
+        if [ -z "$bodies" ]; then
+          echo "::notice title=No Renovate PRs open::nothing advertises a renovate-debug blob, so the deployed major cannot be read this run"
+          exit 0
+        fi
+        printf '%s' "$bodies" | bun scripts/renovate-regen.ts --deployed-major {{.CLI_ARGS}}
+
   verify:upgrade:
     desc: Render every upstream chart at a base ref and at the working tree and diff the manifests (task verify:upgrade -- --base origin/main)
     cmds:

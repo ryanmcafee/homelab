@@ -326,6 +326,7 @@ and verifies both on the commit it just made. It refuses to run when:
 | `renovate-regen/generated-only` | Regeneration touched a file outside the generated set. No bypass: commit that file separately under your own author — which keeps the branch out of Renovate's hands, and for a real change that is the correct outcome. |
 | `renovate-regen/clean-tree` | The working tree was already dirty, so the commit would not be regeneration output alone. |
 | `renovate-regen/commit-identity` | The commit it just made does not carry the bot address as *both* author and committer. Fires after the commit, so the branch is still recoverable with one `--amend`; no bypass, because a commit that fails it is exactly the commit that orphans the branch. Where a wrapper pins the committer, the error points at the API form below. |
+| `renovate-regen/deployed-major` | `task renovate:deployed-major` read a deployed Renovate of `44.x` or later out of an open `renovate/*` PR body while this repository still treats a committer mismatch as advisory. Fires on the version, not on a commit: past 44 every rebase under a foreign identity orphans its branch while changing no bytes, so the regime has to move with the deployment. Also fires when the version cannot be read at all — an unmeasurable version is not evidence of a pre-44 deployment. Bypass: pin `RENOVATE_MAJOR` to the version you actually measured, and say where you measured it. |
 
 Do **not** "fix" the orphaning by adding a personal address to `gitIgnoredAuthors`. It would
 let Renovate force-push over genuine human edits to a bump branch, and it hard-codes one
@@ -341,16 +342,26 @@ is human-edited and Renovate stops touching it
 ([`lib/util/git/index.ts`](https://github.com/renovatebot/renovate/blob/main/lib/util/git/index.ts)).
 What it collects per commit changed at the 43 → 44 major:
 
-| deployed Renovate | addresses read | `gitIgnoredAuthors` matching |
-| --- | --- | --- |
-| **43.x** (43.163.0 and earlier) | `%ae` only | exact literal only |
-| **44.x** (44.0.0 and later) | `%ae` **and** `%ce` | literal, regex or glob |
+| deployed Renovate | addresses read | `gitIgnoredAuthors` matching | manual regeneration form to use |
+| --- | --- | --- | --- |
+| **43.x** (43.163.0 and earlier) | `%ae` only | exact literal only | either; the git form below is sufficient because the committer is ignored |
+| **44.x** (44.0.0 and later) | `%ae` **and** `%ce` | literal, regex or glob | **the API form below is the default.** It is the only form that lands `%ce` where a credential wrapper pins the committer, and a rebase rewrites every committer |
 
-Read the deployed version out of the `renovate-debug` comment at the foot of any Renovate PR
-body — it is base64 JSON with `createdInVer`/`updatedInVer`. On 2026-09-26 this repository was
-on **43.110.14**, so only the author counted, and the Dependency Dashboard's *PR Edited
-(Blocked)* section agreed: branches whose only foreign address was the committer were listed
-under *Open*, and the one branch with a foreign **author** was the only entry under *Blocked*.
+Do not take the deployed version from this table, from a chart value, or from memory — **read
+it**, with `task renovate:deployed-major`. It decodes the base64 `renovate-debug` comment at
+the foot of every Renovate PR body (JSON with `createdInVer`/`updatedInVer`; `updatedInVer` is
+the version that last ran) and fails as `renovate-regen/deployed-major` the moment the
+deployed major reaches 44 while this repository is still driving the 43 regime. It takes the
+*highest* major across every open `renovate/*` PR, because an abandoned branch keeps
+advertising the version that abandoned it and a stale body must not mask a live upgrade. It
+fails closed when no blob is readable: an unmeasurable version is not evidence of 43.x.
+
+On 2026-09-26 that check read **43.110.14**, so only the author counted, and the Dependency
+Dashboard's *PR Edited (Blocked)* section agreed independently: branches whose only foreign
+address was the committer were listed under *Open*, and the one branch with a foreign
+**author** was the only entry under *Blocked*. Re-run the same natural experiment in the
+opposite direction after the upgrade — a branch rebased under a foreign identity must then
+appear under *PR Edited (Blocked)*.
 
 Two consequences that are easy to get wrong in opposite directions:
 
@@ -361,8 +372,14 @@ Two consequences that are easy to get wrong in opposite directions:
   event and must not be reported as one. Repairing it costs a full CI cycle per branch and
   buys nothing until the 44 upgrade lands.
 
-The recipe below satisfies both regimes, which is why it is written this way even though half
-of it is inert on 43.x. So if you regenerate by hand, set both and then read them back:
+**The API form is the default for manual regeneration; the git form below is the
+ordinary-machine variant.** That ordering is deliberate: the git form's outcome depends on
+whether your environment has a credential wrapper, and it is inert-or-correct on 43.x but
+silently wrong on 44.x, whereas the API form takes both addresses as explicit fields and so
+lands the same commit under either regime and on either kind of machine. Use the git form when
+you have already read `%ce` back on that machine and seen it land.
+
+On an ordinary machine, then, set both and read them back — never one without the other:
 
 ```sh
 git -c user.name=homelab-regen-bot \
@@ -419,11 +436,31 @@ here.
 `task renovate:regen` runs the same check on its own commit as
 `renovate-regen/commit-identity`. A wrong **author** fails it; a wrong **committer** prints a
 warning naming the 44 boundary and does not fail, because on the deployed 43.x the commit is
-genuinely fine and a gate that rejects its own correct output is worse than no gate. When this
-repository upgrades to Renovate 44, flip `COMMITTER_READ_FROM_MAJOR`'s consequence by running
-`task renovate:regen -- --committer-strict` (or set `RENOVATE_MAJOR=44` in the environment),
-and switch manual regeneration to the API form above, which is the only path that lands both
-addresses on a runner whose wrapper pins the committer.
+genuinely fine and a gate that rejects its own correct output is worse than no gate.
+
+**Moving to the 44 regime.** Do not wait to remember: `task renovate:deployed-major` is the
+trigger, and it goes red as `renovate-regen/deployed-major` on the first Renovate run after the
+`ghcr.io/renovatebot/charts/renovate` bump lands (it sits in the Dependency Dashboard's
+rate-limited *Container images* group, so the date is Renovate's, not yours). When it does:
+
+1. Run `task renovate:regen -- --committer-strict`, or set `RENOVATE_MAJOR` to the version the
+   check printed, so a committer mismatch becomes `renovate-regen/commit-identity`'s error
+   rather than its warning. `RENOVATE_MAJOR` is the honest input — it holds a version somebody
+   measured; `--committer-strict` is for a dry run of the far side of the boundary.
+2. Regenerate by hand through the API form above only. On a runner whose wrapper pins the
+   committer, no git invocation can produce a commit that Renovate 44 still manages.
+3. Audit every open `renovate/*` branch for a commit whose committer is not
+   `REGEN_BOT_EMAIL`: past 44 those are orphaned, and the upgrade orphans them retroactively
+   because `isBranchModified()` re-reads the whole branch. Repair one without changing a byte
+   with `POST /repos/{owner}/{repo}/git/commits`, passing the existing head's `tree` and
+   `parents` and setting `committer` equal to `author`, then move the ref. Confirm the tree SHA
+   is unchanged before and after — a rebase would change it and cost a full CI cycle.
+4. Confirm it took, from Renovate rather than from this document: a branch rebased under a
+   foreign identity must appear under *PR Edited (Blocked)* on the Dependency Dashboard, which
+   publishes a live `isBranchModified()` readout.
+
+Under a `strict` base branch none of this is cosmetic: an orphaned branch is never rebased
+again, so it can never be up to date, so it can never merge — and no agent can undo that.
 
 **What the bot buys, and why it is not optional under a strict base branch.** Without it,
 regeneration is manual, and every manual regeneration freezes its branch until somebody

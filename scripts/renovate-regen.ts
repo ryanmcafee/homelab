@@ -31,6 +31,9 @@ import { readFile } from "node:fs/promises";
  *   task renovate:regen -- --check       identity parity only, no writes
  *   task renovate:regen -- --no-commit   regenerate, leave the tree dirty
  *   task renovate:regen -- --any-branch  escape hatch, see BYPASS below
+ *   task renovate:deployed-major         read the deployed Renovate major from a
+ *                                        PR body and fail if it crossed 44
+ *                                        while this repo still runs the 43 regime
  *
  * BYPASS. The branch guard exists so the bot identity is never used to sign a
  * commit on a human PR (that would invite Renovate to force-push over real
@@ -209,6 +212,177 @@ export interface CommitIdentityFindings {
 }
 
 /**
+ * Renovate appends `<!--renovate-debug:<base64 JSON>-->` to the foot of every PR
+ * body it writes. It is the only in-band source of the *deployed* version found:
+ * the chart's image tag lives in the cluster, `renovate/config-validation` does
+ * not print a version, and the Dependency Dashboard names the versions it wants
+ * to install rather than the one installing them. The JSON carries
+ * `createdInVer` (the version that opened the PR) and `updatedInVer` (the
+ * version that last touched it) — `updatedInVer` is the deployed one.
+ */
+const RENOVATE_DEBUG_RE = /<!--\s*renovate-debug:([A-Za-z0-9+/=]+?)\s*-->/g;
+
+export interface DeployedRenovate {
+  /** The full version string as Renovate wrote it, e.g. `43.110.14`. */
+  version: string;
+  major: number;
+  /** Which key it came from. `updatedInVer` is the deployed version. */
+  field: "updatedInVer" | "createdInVer";
+}
+
+/**
+ * The outcome of trying to read the deployed version. `absent` and `unreadable`
+ * are distinct from `read` on purpose: this check exists because a version was
+ * assumed rather than measured, so "I could not measure it" must not collapse
+ * into "it is fine". Both fail the gate.
+ */
+export type DeployedRenovateRead =
+  | { kind: "read"; deployed: DeployedRenovate; blobs: number }
+  | { kind: "unreadable"; blobs: number }
+  | { kind: "absent"; blobs: 0 };
+
+function decodeDebugBlob(base64: string): Record<string, unknown> | null {
+  try {
+    const json = Buffer.from(base64, "base64").toString("utf8");
+    const parsed: unknown = JSON.parse(json);
+    return parsed && typeof parsed === "object"
+      ? (parsed as Record<string, unknown>)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Read the highest deployed major advertised by any `renovate-debug` blob in the
+ * supplied PR bodies.
+ *
+ * Highest, not first: a PR body is only rewritten when Renovate next touches
+ * that PR, so a branch Renovate has abandoned keeps advertising the version that
+ * abandoned it. Taking the maximum means one stale body cannot mask a live
+ * upgrade — the direction that matters, because the failure being guarded here is
+ * running the 43.x regime under a 44.x deployment.
+ */
+export function readDeployedRenovate(prBodies: string[]): DeployedRenovateRead {
+  let blobs = 0;
+  let best: DeployedRenovate | null = null;
+  for (const body of prBodies) {
+    for (const match of body.matchAll(RENOVATE_DEBUG_RE)) {
+      blobs += 1;
+      const debug = decodeDebugBlob(match[1] ?? "");
+      if (!debug) continue;
+      for (const field of ["updatedInVer", "createdInVer"] as const) {
+        const raw = debug[field];
+        if (typeof raw !== "string") continue;
+        const major = /^(\d+)\./.exec(raw);
+        if (!major) continue;
+        const candidate: DeployedRenovate = {
+          version: raw,
+          major: Number(major[1]),
+          field,
+        };
+        // Prefer a higher major; at the same major prefer updatedInVer, which is
+        // the version that last ran rather than the one that opened the PR.
+        if (
+          !best ||
+          candidate.major > best.major ||
+          (candidate.major === best.major &&
+            candidate.field === "updatedInVer" &&
+            best.field === "createdInVer")
+        ) {
+          best = candidate;
+        }
+      }
+    }
+  }
+  if (best) return { kind: "read", deployed: best, blobs };
+  if (blobs > 0) return { kind: "unreadable", blobs };
+  return { kind: "absent", blobs: 0 };
+}
+
+const DEPLOYED_MAJOR_RULE = "renovate-regen/deployed-major";
+
+const HOW_TO_FLIP = [
+  `  Flip the regime: run \`task renovate:regen -- --committer-strict\`, or set RENOVATE_MAJOR in`,
+  "  the environment, and regenerate through the API form in docs/runbooks/verification.md —",
+  "  on a runner whose credential wrapper pins the committer it is the only form that lands it.",
+];
+
+/**
+ * Fail when the deployed Renovate reads the committer but this repository is
+ * still driving the pre-44 regime, where a committer mismatch is only a warning.
+ *
+ * This is the whole point of the check: the 43 → 44 boundary is invisible from
+ * inside the repository, the upgrade arrives on Renovate's own schedule through
+ * a rate-limited image bump, and the symptom on the far side of it is a branch
+ * that silently stops being rebased — under a `strict` base branch, a permanent
+ * merge block no agent can undo. So read the boundary instead of remembering it.
+ *
+ * The inverse (configured for 44, deployed on 43) is a warning, not an error:
+ * being stricter than the deployment costs a correct commit nothing.
+ */
+export function deployedMajorFindings(
+  read: DeployedRenovateRead,
+  options: { committerIsRead: boolean },
+): CommitIdentityFindings {
+  if (read.kind === "absent") {
+    return {
+      error: [
+        `${DEPLOYED_MAJOR_RULE}: no renovate-debug blob in the supplied PR body/bodies, so the`,
+        "  deployed Renovate version could not be read.",
+        "  Renovate appends `<!--renovate-debug:...-->` to every PR body it writes, and that blob",
+        "  is the only in-band source of the deployed version. Its absence means either the input",
+        "  is not a Renovate PR body, or Renovate is no longer writing these PRs — both of which",
+        "  leave the 43/44 committer boundary unmeasured, which is the state this gate exists to",
+        "  end. Pass the body of an open renovate/* PR.",
+      ].join("\n"),
+      warning: null,
+    };
+  }
+  if (read.kind === "unreadable") {
+    return {
+      error: [
+        `${DEPLOYED_MAJOR_RULE}: found ${read.blobs} renovate-debug blob(s) but none carried a`,
+        "  readable createdInVer/updatedInVer.",
+        "  The blob format changed, or the body was mangled in transit. Fail closed: an unreadable",
+        "  version is not evidence of a pre-44 deployment. Decode it by hand",
+        "  (`base64 -d` the comment payload) and pin RENOVATE_MAJOR until this parser is updated.",
+      ].join("\n"),
+      warning: null,
+    };
+  }
+  const { deployed } = read;
+  if (deployed.major >= COMMITTER_READ_FROM_MAJOR && !options.committerIsRead) {
+    return {
+      error: [
+        `${DEPLOYED_MAJOR_RULE}: deployed Renovate is ${deployed.version} (${deployed.field}),`,
+        `  but this repository is still configured for the pre-${COMMITTER_READ_FROM_MAJOR} regime.`,
+        `  From Renovate ${COMMITTER_READ_FROM_MAJOR}, isBranchModified() reads the committer (%ce) as`,
+        "  well as the author (%ae) of every commit ahead of the base branch. A rebase re-commits",
+        "  every commit and so rewrites every committer, so under this deployment any rebase of a",
+        "  renovate/* branch under a foreign identity orphans it while changing no bytes — and a",
+        "  committer mismatch is an orphaning event, not the warning this repository still treats",
+        "  it as.",
+        ...HOW_TO_FLIP,
+      ].join("\n"),
+      warning: null,
+    };
+  }
+  if (deployed.major < COMMITTER_READ_FROM_MAJOR && options.committerIsRead) {
+    return {
+      error: null,
+      warning: [
+        `${DEPLOYED_MAJOR_RULE}: deployed Renovate is ${deployed.version}, which reads only the`,
+        `  author, but the committer is being enforced as if it were ${COMMITTER_READ_FROM_MAJOR}.x.`,
+        "  Harmless — stricter than the deployment — but it will reject a commit the deployed",
+        "  Renovate would have kept managing. Drop --committer-strict/RENOVATE_MAJOR to match.",
+      ].join("\n"),
+    };
+  }
+  return { error: null, warning: null };
+}
+
+/**
  * A wrong **author** takes the branch out of Renovate's hands on every version,
  * so it is an error. A wrong **committer** does so only from
  * {@link COMMITTER_READ_FROM_MAJOR}; before that it is a warning, because on the
@@ -301,8 +475,48 @@ async function capture(cmd: string[]): Promise<string> {
   return run(cmd, true);
 }
 
+/**
+ * `--deployed-major` mode: read the deployed Renovate version out of one or more
+ * Renovate PR bodies and fail if it has crossed the committer boundary while this
+ * repository is still driving the pre-44 regime.
+ *
+ * Bodies come in on stdin or as file paths so the check is offline and testable;
+ * the caller supplies them, e.g.
+ *
+ *   gh pr list --json headRefName,body \
+ *     --jq '.[] | select(.headRefName|startswith("renovate/")) | .body' \
+ *     | bun scripts/renovate-regen.ts --deployed-major
+ */
+async function deployedMajorCommand(args: string[]): Promise<void> {
+  const paths = args.filter((a) => !a.startsWith("-"));
+  const bodies = paths.length
+    ? await Promise.all(paths.map((p) => readFile(p, "utf8")))
+    : [await Bun.stdin.text()];
+  const read = readDeployedRenovate(bodies);
+  const committerRead =
+    args.includes("--committer-strict") ||
+    committerIsRead(Number.parseInt(Bun.env.RENOVATE_MAJOR ?? "", 10) || null);
+  const { error, warning } = deployedMajorFindings(read, {
+    committerIsRead: committerRead,
+  });
+  if (error) {
+    console.error(red(error));
+    process.exit(1);
+  }
+  if (warning) console.warn(yellow(warning));
+  if (read.kind === "read") {
+    console.log(
+      `${green("[OK]")} deployed Renovate ${cyan(read.deployed.version)} (${read.deployed.field}, ${read.blobs} blob(s)); committer is ${committerRead ? cyan("read — enforced") : cyan("ignored — advisory")}`,
+    );
+  }
+}
+
 async function main(): Promise<void> {
   const args = Bun.argv.slice(2);
+  if (args.includes("--deployed-major")) {
+    await deployedMajorCommand(args);
+    return;
+  }
   const checkOnly = args.includes("--check");
   const noCommit = args.includes("--no-commit");
   const anyBranch = args.includes("--any-branch");
