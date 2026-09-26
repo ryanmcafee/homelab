@@ -272,6 +272,15 @@
     {
       customType: 'regex',
       managerFilePatterns: [
+        '/^charts/bootstrap/values\\.yaml$/',
+      ],
+      matchStrings: [
+        '# renovate: datasource=(?<datasource>.*?) depName=(?<depName>.*?)( registryUrl=(?<registryUrl>.*?))?\\s+version:\\s*"(?<currentValue>[^"]+)"',
+      ],
+    },
+    {
+      customType: 'regex',
+      managerFilePatterns: [
         '/talos/image/schematic\\.yaml$/',
       ],
       matchStrings: [

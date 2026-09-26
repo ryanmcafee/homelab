@@ -245,6 +245,7 @@ func TestCheckPins(t *testing.T) {
 		{"lag entry without a reason is rejected", envHCL, bootstrap, strings.Replace(talosLag, "    reason: upgrade in progress\n", "", 1), StatusFail, "has no reason"},
 		{"bootstrap argocd chart drifted", envHCL, strings.Replace(bootstrap, "9.7.1", "9.4.7", 1), "", StatusFail, "charts.argocd at 9.4.7"},
 		{"one cmp tag stale", envHCL, strings.Replace(bootstrap, "homelab-cmp:0.1.31\n      extraContainers", "homelab-cmp:0.1.30\n      extraContainers", 1), "", StatusFail, "images.homelab-cmp at 0.1.30"},
+		{"renovate annotation above the version line", envHCL, strings.ReplaceAll(bootstrap, "    version: ", "    # renovate: datasource=helm depName=x\n    version: "), "", StatusPass, "6 pin(s)"},
 		{"pin missing", "locals {}\n", bootstrap, "", StatusFail, "no pin found for tools.talos"},
 	}
 	for _, tc := range tests {
