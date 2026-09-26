@@ -5,7 +5,8 @@
  * gives the agents the operator's own Claude Code setup from any dotfiles repository.
  *
  *   1. clone or fast-forward DOTFILES_REPO_URL@DOTFILES_REF into DOTFILES_DIR
- *   2. install pinned tools into ~/.local/bin (bun, codesearch) when asked for
+ *   2. install pinned tools into ~/.local/bin (bun, codesearch and its codesearch-mcp.ts
+ *      wrapper) when asked for
  *   3. run DOTFILES_SETUP_COMMAND in the checkout (e.g. render a settings profile)
  *   4. symlink every entry of DOTFILES_DIR/DOTFILES_CLAUDE_DIR into ~/.claude
  *   5. add the marketplaces and install the plugins ~/.claude/settings.json enables
@@ -46,7 +47,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { isAbsolute, join, normalize } from "node:path";
+import { dirname, isAbsolute, join, normalize } from "node:path";
 
 type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
 type JsonObject = { [key: string]: Json };
@@ -309,6 +310,10 @@ async function installCodesearch(
 ) {
   const { repo, version } = config.codesearch;
   const want = `${repo}@${version}`;
+  copyFileSync(
+    join(dirname(import.meta.filename), "codesearch-mcp.ts"),
+    join(binDir, "codesearch-mcp.ts"),
+  );
   const marker = join(config.home, ".codesearch", "installed-from");
   const bin = join(binDir, "codesearch");
   if (
