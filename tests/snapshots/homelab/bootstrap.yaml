@@ -165,6 +165,7 @@ spec:
         operator:
           create: true
           autoRestart: true
+          pollingInterval: 60
           # Use token from the SOPS-encrypted credentials secret
           token:
             name: onepassword-credentials
