@@ -83,6 +83,7 @@ func TestConfigGuardPreCommit(t *testing.T) {
 	write("configuration/environments/homelab.yaml", "TRUENAS_IP: 192.168.1.50\nDOMAIN: corp.acme.org\nACME_EMAIL: admin@corp.acme.org\n")
 	init := exec.Command("git", "init", "--quiet")
 	init.Dir = fixture
+	init.Env = fixtureEnv()
 	if out, err := init.CombinedOutput(); err != nil {
 		t.Fatalf("git init: %v %s", err, out)
 	}
@@ -102,6 +103,7 @@ func TestConfigGuardPreCommit(t *testing.T) {
 			write(tc.name, tc.body)
 			cmd := exec.Command(hookEngine, "run", "config-guard", "--files", tc.name)
 			cmd.Dir = fixture
+			cmd.Env = fixtureEnv()
 			output, err := cmd.CombinedOutput()
 			text := string(output)
 			if (err != nil) != tc.bad || strings.Contains(text, "Skipped") {

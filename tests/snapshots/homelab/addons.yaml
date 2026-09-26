@@ -1493,7 +1493,7 @@ spec:
 
             httpConnection:
               protocol: https
-              host: 198.51.100.100
+              host: 198.51.100.50
               port: 443
               allowInsecure: true
               apiKey: "${TRUENAS_API_KEY}"
@@ -1506,7 +1506,7 @@ spec:
               zvolBlocksize: 16K
 
             iscsi:
-              targetPortal: "198.51.100.100:3260"
+              targetPortal: "198.51.100.50:3260"
               namePrefix: csi-
               nameSuffix: "-homelab"
               targetGroups:
@@ -1650,7 +1650,7 @@ spec:
 
             httpConnection:
               protocol: https
-              host: 198.51.100.100
+              host: 198.51.100.50
               port: 443
               allowInsecure: true
               apiKey: "${TRUENAS_API_KEY}"
@@ -1663,7 +1663,7 @@ spec:
               zvolBlocksize: 16K
 
             iscsi:
-              targetPortal: "198.51.100.100:3260"
+              targetPortal: "198.51.100.50:3260"
               namePrefix: csi-
               nameSuffix: "-homelab"
               targetGroups:
@@ -1811,7 +1811,7 @@ spec:
 
             httpConnection:
               protocol: https
-              host: 198.51.100.100
+              host: 198.51.100.50
               port: 443
               allowInsecure: true
               apiKey: "${TRUENAS_API_KEY}"
@@ -1826,7 +1826,7 @@ spec:
               datasetPermissionsGroup: 100
 
             nfs:
-              shareHost: 198.51.100.100
+              shareHost: 198.51.100.50
               shareAlldirs: false
               shareAllowedHosts: []
               shareAllowedNetworks:
@@ -1961,7 +1961,7 @@ spec:
 
             httpConnection:
               protocol: https
-              host: 198.51.100.100
+              host: 198.51.100.50
               port: 443
               allowInsecure: true
               apiKey: "${TRUENAS_API_KEY}"
@@ -1977,7 +1977,7 @@ spec:
               datasetPermissionsGroup: 100
 
             nfs:
-              shareHost: 198.51.100.100
+              shareHost: 198.51.100.50
               shareAlldirs: false
               shareAllowedHosts: []
               shareAllowedNetworks:
@@ -2857,7 +2857,7 @@ spec:
       # via the CMP in homelab) so the child's committed values stay PII-free.
       valuesObject:
         iscsi:
-          portal: "198.51.100.100:3260"
+          portal: "198.51.100.50:3260"
   destination:
     server: https://kubernetes.default.svc
     namespace: monitoring
@@ -5697,7 +5697,7 @@ spec:
       # via the CMP in homelab) so the child's committed values stay PII-free.
       valuesObject:
         iscsi:
-          portal: "198.51.100.100:3260"
+          portal: "198.51.100.50:3260"
         # The Alertmanager notification credentials: the child renders the
         # OnePasswordItem that becomes Secret <secretName>, which the
         # kube-prometheus-stack Application mounts into Alertmanager.
