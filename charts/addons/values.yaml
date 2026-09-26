@@ -959,7 +959,7 @@ cilium:
 
 # ============================================================================
 # Argo Workflows - Workflow Orchestration
-# Sync Wave: 9 (after core infrastructure)
+# Sync Wave: 11 dependencies, 12 controller (after cloudnative-pg at 10)
 # ============================================================================
 
 argo-workflows:
@@ -1001,13 +1001,36 @@ argo-workflows:
         cpu: 500m
         memory: 512Mi
 
-    # Workflow defaults
+    # Garbage collection of live objects. Completed workflows stay browsable in
+    # the archive (retentionDays) after their TTL removes them from the cluster.
     workflowDefaults:
       spec:
         ttlStrategy:
-          secondsAfterCompletion: 86400  # 24 hours
-          secondsAfterSuccess: 43200     # 12 hours
-          secondsAfterFailure: 172800    # 48 hours
+          secondsAfterSuccess: 86400
+          secondsAfterFailure: 604800
+          secondsAfterCompletion: 604800
+        podGC:
+          strategy: OnPodSuccess
+          deleteDelayDuration: 10m
+
+  # How long archived workflows and their step logs stay reviewable.
+  retentionDays: 30
+
+  # Workflow archive: CloudNativePG Cluster in charts/argo-workflows-dependencies.
+  archive:
+    enabled: false
+    database:
+      name: argo-workflows-postgres
+      database: argo
+      owner: argo
+
+  # Step log archive to the versitygw S3 store in charts/argo-workflows-dependencies.
+  logArchive:
+    enabled: false
+    store:
+      name: argo-workflows-logs
+      bucket: argo-workflows-logs
+      secretName: argo-workflows-artifacts
 
 # ============================================================================
 # Istio ambient mesh + Kiali (templates/istio.yaml, docs/service-mesh.md)
@@ -1048,4 +1071,5 @@ triage-agent:
   workflowUiUrl: ""
   onePasswordItemPath: ""
   pushoverItemPath: ""
+  artifactsItemPath: ""
   storageClass: ""

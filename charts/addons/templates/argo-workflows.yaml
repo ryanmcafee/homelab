@@ -1,15 +1,75 @@
-{{- if index .Values "argo-workflows" "enabled" }}
+{{- $aw := index .Values "argo-workflows" }}
+{{- if $aw.enabled }}
+{{- $archive := and $aw.archive.enabled (index .Values "cloudnative-pg" "enabled") }}
+{{- $logs := $aw.logArchive.enabled }}
 # Argo Workflows - Workflow Orchestration Engine
-# Sync Wave: 9
+# Sync Wave: 11 dependencies (archive database, log store), 12 controller + server
 ---
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: {{ index .Values "argo-workflows" "namespace" }}
+  name: {{ $aw.namespace }}
   labels:
     {{- include "addons.labels" . | nindent 4 }}
   annotations:
     argocd.argoproj.io/sync-wave: "-1"
+{{- if or $archive $logs }}
+---
+# Workflow archive database and S3 log store; after the cloudnative-pg addon
+# (wave 10) because the database is a CNPG Cluster. ArgoCD waits for a ready
+# Cluster before the controller, which exits when the archive is unreachable.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: argo-workflows-dependencies
+  namespace: argocd
+  labels:
+    {{- include "addons.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "11"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: {{ .Values.global.repoUrl }}
+    targetRevision: {{ .Values.global.targetRevision }}
+    path: charts/argo-workflows-dependencies
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-{{ .Values.global.environment }}.yaml
+      # Derived from configuration/ (ADR-010); the child values stay environment-free.
+      valuesObject:
+        namespace: {{ $aw.namespace }}
+        database:
+          enabled: {{ $archive }}
+          {{- toYaml $aw.archive.database | nindent 10 }}
+        logStore:
+          enabled: {{ $logs }}
+          retentionDays: {{ $aw.retentionDays }}
+          {{- toYaml $aw.logArchive.store | nindent 10 }}
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: {{ $aw.namespace }}
+  syncPolicy:
+    {{- if .Values.global.automatedSync }}
+    automated:
+      prune: true
+      selfHeal: true
+    {{- end }}
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - SkipDryRunOnMissingResource=true
+    # The Cluster CRD comes from the cloudnative-pg addon; retry until it is served.
+    retry:
+      limit: 5
+      backoff:
+        duration: 30s
+        factor: 2
+        maxDuration: 5m
+{{- end }}
 ---
 apiVersion: argoproj.io/v1alpha1
 kind: Application
@@ -19,7 +79,7 @@ metadata:
   labels:
     {{- include "addons.labels" . | nindent 4 }}
   annotations:
-    argocd.argoproj.io/sync-wave: "9"
+    argocd.argoproj.io/sync-wave: "12"
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
@@ -53,10 +113,49 @@ spec:
             {{- toYaml (index .Values "argo-workflows" "controller" "resources") | nindent 12 }}
           workflowDefaults:
             {{- toYaml (index .Values "argo-workflows" "controller" "workflowDefaults") | nindent 12 }}
+          {{- if $archive }}
+          # Completed workflows stay browsable in the UI (Archived Workflows)
+          # after their TTL deletes them from the cluster.
+          persistence:
+            archive: true
+            archiveTTL: {{ $aw.retentionDays }}d
+            postgresql:
+              host: {{ $aw.archive.database.name }}-rw.{{ $aw.namespace }}.svc
+              port: 5432
+              database: {{ $aw.archive.database.database }}
+              tableName: argo_workflows
+              userNameSecret:
+                name: {{ $aw.archive.database.name }}-app
+                key: username
+              passwordSecret:
+                name: {{ $aw.archive.database.name }}-app
+                key: password
+              ssl: true
+              sslMode: require
+          {{- end }}
+        {{- if $logs }}
+        # Every step archives its main container log to the log store; the UI
+        # reads it once the pod is gone. The Secret must exist in each
+        # namespace that runs workflows.
+        useStaticCredentials: true
+        artifactRepository:
+          archiveLogs: true
+          s3:
+            endpoint: {{ $aw.logArchive.store.name }}.{{ $aw.namespace }}.svc:7070
+            bucket: {{ $aw.logArchive.store.bucket }}
+            insecure: true
+            keyFormat: {{ `"{{workflow.namespace}}/{{workflow.name}}/{{pod.name}}"` }}
+            accessKeySecret:
+              name: {{ $aw.logArchive.store.secretName }}
+              key: accessKey
+            secretKeySecret:
+              name: {{ $aw.logArchive.store.secretName }}
+              key: secretKey
+        {{- end }}
 
   destination:
     server: https://kubernetes.default.svc
-    namespace: {{ index .Values "argo-workflows" "namespace" }}
+    namespace: {{ $aw.namespace }}
 
   syncPolicy:
     {{- if .Values.global.automatedSync }}

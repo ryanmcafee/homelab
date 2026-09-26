@@ -35,6 +35,12 @@ pushover:
   secretName: triage-agent-pushover
   itemPath: ""
 
+# The Argo Workflows log store credentials (ARGO_WORKFLOWS_ARTIFACTS_1P_PATH),
+# read into this namespace so the executors can archive step logs.
+artifacts:
+  secretName: argo-workflows-artifacts
+  itemPath: ""
+
 # Commit identity; the default is not a person.
 git:
   userName: homelab-triage-agent
