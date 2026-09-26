@@ -342,6 +342,21 @@ so the committer may stay whoever pushed. You can also commit the `snapshots-reg
 artifact of the `snapshot` job, which posts its own `snapshot-diff` comment with the
 in-repository manifest diff — but author it the same way.
 
+Measured on the agent runner, same repository, one tree, both commands exiting `0`:
+
+| invocation | resulting author |
+|---|---|
+| `git -c user.email=homelab-regen-bot@… commit` | the operator's address — **overridden, branch orphaned** |
+| `git commit --author "homelab-regen-bot <…>"` | `homelab-regen-bot@users.noreply.github.com` |
+
+`upgrade.yml` uses the `-c user.email` form and is right to: CI has no such wrapper. Copying
+it into the manual path is the failure mode, because it fails silently — nothing warns, the
+commit succeeds, and the branch is orphaned. `task test:scripts` enforces the distinction as
+`renovate-regen/runbook-authorship`: this runbook has to show the `--author` form with the
+address `upgrade.yml` declares, and must not show a `-c user.email` form carrying it. If a
+documentation change turns that check red, replace the recipe rather than deleting the test —
+there is no bypass, because the copy-pasted command *is* the product here.
+
 **What the bot buys, and why it is not optional under a strict base branch.** Without it,
 regeneration is manual, and every manual regeneration freezes its branch until somebody
 rebases it again — a closed loop. `task renovate:regen` keeps the branch Renovate-managed,

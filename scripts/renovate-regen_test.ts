@@ -161,3 +161,90 @@ test("the repository's own regeneration identity is one Renovate ignores", () =>
     );
   }
 });
+
+/**
+ * The runbook is the third place the regeneration identity appears, and the
+ * only one a person copy-pastes. `upgrade.yml` applies it with `git -c
+ * user.email=...`, which is correct *in CI*. It is not correct in the manual
+ * procedure: a git wrapper that exports `GIT_AUTHOR_EMAIL` overrides `-c
+ * user.email` and leaves `--author` alone, and the agents that sweep these
+ * bumps run behind exactly such a wrapper. Reproduced 2026-09-26 on the
+ * Paperclip runner, same repository, same tree:
+ *
+ *   git -c user.email=homelab-regen-bot@... commit   -> author 2336262+…
+ *   git commit --author "homelab-regen-bot <…>"      -> author homelab-regen-bot@…
+ *
+ * Both exit 0. So copying the CI form into the manual procedure produces, with
+ * no error and no warning, the very orphaning commit the procedure exists to
+ * prevent. The runbook must teach `--author`, and must not teach `-c
+ * user.email` for the bot address.
+ */
+const RUNBOOK_PATH = "docs/runbooks/verification.md";
+
+function runbookAuthorshipErrors(markdown: string, email: string): string[] {
+  const errors: string[] = [];
+  const quoted = email.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const banned = new RegExp(`-c\\s+user\\.email\\s*=\\s*['"]?${quoted}`, "g");
+  for (const match of markdown.matchAll(banned)) {
+    const line = markdown.slice(0, match.index ?? 0).split("\n").length;
+    errors.push(
+      `renovate-regen/runbook-authorship: ${RUNBOOK_PATH}:${line} sets the regeneration author with \`-c user.email\`, which a git wrapper that exports GIT_AUTHOR_EMAIL silently overrides. Use \`git commit --author\`.`,
+    );
+  }
+  const teachesWorkingForm = [...markdown.matchAll(/--author/g)].some((match) =>
+    markdown.slice(match.index ?? 0, (match.index ?? 0) + 160).includes(email),
+  );
+  if (!teachesWorkingForm) {
+    errors.push(
+      `renovate-regen/runbook-authorship: ${RUNBOOK_PATH} never shows \`--author\` with ${email}, so the manual regeneration path has no authorship recipe that survives a git wrapper.`,
+    );
+  }
+  return errors;
+}
+
+const BOT_EMAIL_FIXTURE = "homelab-regen-bot@users.noreply.github.com";
+
+test("runbookAuthorshipErrors accepts the --author recipe", () => {
+  assertEquals(
+    runbookAuthorshipErrors(
+      'Author it yourself: `git commit --author "homelab-regen-bot <homelab-regen-bot@users.noreply.github.com>"`.\n',
+      BOT_EMAIL_FIXTURE,
+    ),
+    [],
+  );
+});
+
+test("runbookAuthorshipErrors rejects the CI `-c user.email` form", () => {
+  // Verbatim shape of the recipe proposed for the manual fallback.
+  const errors = runbookAuthorshipErrors(
+    [
+      "```sh",
+      "git -c user.name=homelab-regen-bot \\",
+      "    -c user.email=homelab-regen-bot@users.noreply.github.com \\",
+      "    commit -m 'chore(deps): regenerate'",
+      "```",
+      'Elsewhere: `git commit --author "homelab-regen-bot <homelab-regen-bot@users.noreply.github.com>"`.',
+    ].join("\n"),
+    BOT_EMAIL_FIXTURE,
+  );
+  assertEquals(errors.length, 1);
+  assertStringIncludes(errors[0]!, "renovate-regen/runbook-authorship");
+  assertStringIncludes(errors[0]!, `${RUNBOOK_PATH}:3`);
+});
+
+test("runbookAuthorshipErrors fails closed when the recipe is dropped", () => {
+  const errors = runbookAuthorshipErrors(
+    "Run `task config:export:localdev` and `task test:snapshot -- --update` on the branch and commit.\n",
+    BOT_EMAIL_FIXTURE,
+  );
+  assertEquals(errors.length, 1);
+  assertStringIncludes(errors[0]!, "never shows `--author`");
+});
+
+test("the runbook's manual regeneration recipe survives a git wrapper", () => {
+  const identity = parseRegenIdentity(readFileSync(WORKFLOW_PATH, "utf8"));
+  assertEquals(
+    runbookAuthorshipErrors(readFileSync(RUNBOOK_PATH, "utf8"), identity.email),
+    [],
+  );
+});
