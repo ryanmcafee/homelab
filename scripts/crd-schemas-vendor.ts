@@ -429,20 +429,40 @@ interface GithubContentEntry {
   download_url: string | null;
 }
 
+let ghTokenCache: string | null | undefined;
+let budgetLogged = false;
+
+/**
+ * `gh`'s own token, for the manual path. On a workstation `gh` keeps it in the
+ * keyring and on a wrapped runner the wrapper injects it into `gh` alone, so in
+ * both cases it is reachable here and absent from the environment.
+ */
+function ghStoredToken(): string | null {
+  if (ghTokenCache !== undefined) return ghTokenCache;
+  try {
+    const p = Bun.spawnSync(["gh", "auth", "token"], { stderr: "ignore" });
+    ghTokenCache = p.exitCode === 0 ? p.stdout.toString().trim() || null : null;
+  } catch {
+    ghTokenCache = null;
+  }
+  return ghTokenCache;
+}
+
 /**
  * Headers for the contents API. Unauthenticated calls share a 60/hour per-IP
  * budget that four calls per source exhaust quickly; a token raises it to
- * 5000/hour. CI populates `GITHUB_TOKEN`, `gh` populates `GH_TOKEN`, and
- * `task schemas:vendor` exports neither by itself, so read both. The raw file
- * downloads in {@link fetchGithubCRDs} need no auth.
+ * 5000/hour. `upgrade.yml` exports `GITHUB_TOKEN`, but `task schemas:vendor`
+ * run by hand exports nothing, which is the path a Renovate bump is repaired
+ * on. The raw file downloads in {@link fetchGithubCRDs} need no auth.
  */
 export function githubApiHeaders(
   env: Record<string, string | undefined>,
+  storedToken: () => string | null = ghStoredToken,
 ): Record<string, string> {
   const headers: Record<string, string> = {
     "User-Agent": "homelab-crd-schemas-vendor",
   };
-  const token = env.GITHUB_TOKEN || env.GH_TOKEN;
+  const token = env.GITHUB_TOKEN || env.GH_TOKEN || storedToken();
   if (token) headers.Authorization = `Bearer ${token}`;
   return headers;
 }
@@ -490,11 +510,13 @@ async function fetchOk(
   init: RequestInit,
   sourceName: string,
   describeFailure?: (res: Response) => string,
+  onResponse?: (res: Response) => void,
 ): Promise<Response> {
   try {
     return await withRetry(
       async () => {
         const res = await fetch(url, init);
+        onResponse?.(res);
         if (!res.ok)
           throw new Error(
             describeFailure?.(res) ?? `${res.status} ${res.statusText}`,
@@ -524,13 +546,20 @@ async function fetchGithubCRDs(
     )}`;
     log.info(`[${source.name}] GET ${apiUrl}`);
     const headers = githubApiHeaders(process.env);
-    const res = await fetchOk(apiUrl, { headers }, source.name, (response) =>
-      contentsApiError(
-        source.name,
-        apiUrl,
-        response,
-        "Authorization" in headers,
-      ),
+    const authenticated = "Authorization" in headers;
+    const res = await fetchOk(
+      apiUrl,
+      { headers },
+      source.name,
+      (response) =>
+        contentsApiError(source.name, apiUrl, response, authenticated),
+      (response) => {
+        if (budgetLogged) return;
+        budgetLogged = true;
+        log.info(
+          `contents API budget: ${response.headers.get("x-ratelimit-remaining") ?? "?"} of ${response.headers.get("x-ratelimit-limit") ?? "?"} per hour remaining (${authenticated ? "authenticated" : "unauthenticated, shared per IP"})`,
+        );
+      },
     );
     const entries = (await res.json()) as GithubContentEntry[];
     const yamlFiles = entries.filter(
