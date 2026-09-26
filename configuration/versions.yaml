@@ -81,7 +81,7 @@ charts:
   # renovate: datasource=docker depName=ghcr.io/kashalls/external-dns-unifi-webhook
   external-dns-webhook-unifi: "v0.8.2"
   # renovate: datasource=github-releases depName=lukaszraczylo/traefikoidc
-  traefik-oidc: "v1.0.32"
+  traefik-oidc: "v1.0.36"
   # renovate: datasource=helm depName=port-forwarding registryUrl=https://ryanmcafee.github.io/port-forwarding-controller
   unifi-port-forward: "1.1.1"
   # renovate: datasource=docker depName=ghcr.io/paperclipinc/charts/paperclip-operator

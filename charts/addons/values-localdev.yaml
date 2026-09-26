@@ -1088,7 +1088,7 @@ traefikExternal:
     plugins:
       traefikoidc:
         moduleName: github.com/lukaszraczylo/traefikoidc
-        version: v1.0.32
+        version: v1.0.36
 
   # OIDC middleware configuration (client credentials and session key are 1Password items)
   oidc:
