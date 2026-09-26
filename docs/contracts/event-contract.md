@@ -136,14 +136,20 @@ Within a major version, change is **additive only**:
 - new subjects under an existing stream filter — additive
 - a new domain in `subjects.v1.yaml` — additive
 - a new stream, or a *widened* filter on an existing one — additive
+- a **relaxed** `minLength`/`maxLength` on an envelope attribute or a payload property — additive.
+  Every value that validated before still validates. The gate passes it deliberately: a gate that
+  blocked a widening would teach people to regenerate the baseline past red
 
 **A new optional `data` field is additive only because consumers are required to tolerate it.**
 Every schema in `contracts/events/data/` is `additionalProperties: false`, which is correct for a
 producer validating what it emits and wrong for a consumer validating what it receives: a consumer
 that validates an incoming payload against the copy it shipped against would *reject* every event
 carrying a field added after that copy. So the obligation is normative, not advisory — see §6.
-The gate pins each stable type's payload properties, its `required` list and the
-`additionalProperties` flag itself, so neither side of this can drift silently.
+The gate pins each stable type's payload properties, its `required` list, each property's
+`minLength`/`maxLength` window (`payload-length-narrowed`, one direction only) and the
+`additionalProperties` flag itself, so neither side of this can drift silently. It does **not** yet
+pin a payload property's `pattern`, `enum`, `minimum` or `maximum` — narrowing one of those is
+still a silent break on this side, and is the next residual to close.
 
 **New envelope attributes are not unilaterally additive.** `envelope.v1.schema.json` is
 `additionalProperties: false`, so a producer that ships a new attribute has its events
@@ -152,8 +158,10 @@ The gate pins each stable type's payload properties, its `required` list and the
 envelope attribute by attribute, not just its `required` array: the property set in both
 directions (`envelope-attribute-added`, `envelope-attribute-removed`), each attribute's declared
 type (`envelope-attribute-retyped`), each attribute's `pattern`, `format` and `const`
-(`envelope-pattern-changed`), and the `additionalProperties` flag this whole paragraph rests on
-(`envelope-additional-properties-changed`). Pinning `required` alone could not see any of it: an
+(`envelope-pattern-changed`), each attribute's `minLength`/`maxLength` window in the narrowing
+direction only (`envelope-length-narrowed`), and the `additionalProperties` flag this whole
+paragraph rests on (`envelope-additional-properties-changed`). Pinning `required` alone could not
+see any of it: an
 attribute added *optionally* is the exact hazard described here and is not required, and deleting
 `sequence` outright removed it from `properties` and `required` together, so the diff was
 invisible to the gate. Payload schemas were pinned property by property while the one file every
@@ -177,6 +185,12 @@ release of the platform. The breaking set the gate rejects outright:
   changing a payload property's declared type. `dataschema` files are boundary contracts: pinning
   the *path* while leaving the contents unpinned is the same defect as a gate that is green on a
   stream the broker refuses
+- **narrowing a `minLength`/`maxLength` window** on an envelope attribute or a payload property —
+  raising `minLength`, lowering `maxLength`, or introducing either where the schema declared none
+  (no bound is *unbounded*, so adding one rejects values that validated a moment ago).
+  `source.maxLength` 253 → 64 rejects every fully-qualified service URI longer than 64 characters,
+  and the comparator was blind to it while its own doc comment claimed to pin "every constraint that
+  can reject a value which used to validate". Relaxing a window is additive — see the list above
 - **closing a payload schema to additions** (`additionalProperties` `true` → `false`) on a stable
   type, which withdraws the additive path above from every consumer validating against it
 - deleting or breaking a payload schema a stable type points at, which silently un-pins every
@@ -190,7 +204,12 @@ Most of these are only checkable because the baseline pins more than the type li
 subject grammar (otherwise the gate compiles the grammar from the file under test and validates
 it happily against itself), the envelope's `required` array, the whole stream set, and each stable
 type's payload properties. Payload pinning is top-level only, so the baseline diff stays readable
-by eye; a nested break surfaces as a type change on the property that contains it.
+by eye; a nested break surfaces as a type change on the property that contains it. For the same
+reason the payload projection keeps `properties` a flat name → type map and records length windows
+in a sibling `lengths` map, present only for the properties that declare one; on the envelope side,
+where each attribute is already an object, `minLength`/`maxLength` sit on the attribute itself. In
+both places a *missing* pin is adopted by the next `baseline --write` rather than failing the build,
+which is what lets an older baseline take a new pin in one reviewable diff.
 
 `bun scripts/contract-check.ts baseline --write` regenerates the baseline after a genuinely
 additive change. It is not a bypass to be hidden in: it produces a visible diff in the pull

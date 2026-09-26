@@ -29,6 +29,7 @@ import {
   loadPayloads,
   loadRegistry,
   loadTaxonomy,
+  narrowedLengthBounds,
   parseSubject,
   type PayloadSchema,
   toBaselinePayload,
@@ -93,8 +94,10 @@ const ENVELOPE: Envelope = {
       pattern:
         "^com\\.mcafeeconsulting\\.platform\\.[a-z0-9]+(-[a-z0-9]+)*(\\.[a-z0-9]+(-[a-z0-9]+)*)*\\.v[1-9][0-9]*$",
     },
-    id: { type: "string" },
-    source: { type: "string" },
+    // The length window the real envelope declares on these two. `source` is
+    // the M19 repro below; `id` is the only attribute with both bounds.
+    id: { type: "string", minLength: 1, maxLength: 128 },
+    source: { type: "string", maxLength: 253 },
     time: { type: "string", format: "date-time" },
     specversion: { const: "1.0" },
     // Optional, and the attribute `consumers.ordering_reality` tells every
@@ -967,6 +970,126 @@ test("opening the envelope to additional properties is rejected", () => {
   );
 });
 
+// --- length bounds, both directions ----------------------------------------
+// The four constraint keys above — type, pattern, format, const — were the whole
+// comparator, and `minLength`/`maxLength` appeared nowhere in the file. M19:
+// `source.maxLength` 253 -> 64 passed `contracts:check` clean while rejecting
+// every fully-qualified service URI longer than 64 characters.
+
+/** Replace one envelope attribute wholesale. */
+const envelopeWith = (attr: string, def: Envelope["properties"][string]) => ({
+  ...ENVELOPE,
+  properties: { ...ENVELOPE.properties, [attr]: def },
+});
+
+test("narrowing an envelope maxLength is rejected (M19)", () => {
+  assertEquals(
+    envelopeRules(
+      envelopeWith("source", { type: "string", maxLength: 64 }),
+    ).filter((r) => r === "envelope-length-narrowed"),
+    ["envelope-length-narrowed"],
+  );
+});
+
+test("widening an envelope maxLength passes", () => {
+  // Additive: every value that validated still validates. A gate that blocked
+  // this would teach people to regenerate the baseline past red, which is how a
+  // real narrowing gets waved through later.
+  assertEquals(
+    envelopeRules(envelopeWith("source", { type: "string", maxLength: 512 })),
+    [],
+  );
+  // Dropping the bound entirely is the widest widening there is.
+  assertEquals(envelopeRules(envelopeWith("source", { type: "string" })), []);
+});
+
+test("introducing an envelope maxLength where there was none is a narrowing", () => {
+  // No `maxLength` means unbounded in JSON Schema, so this rejects values that
+  // validated a moment ago — the same break as tightening an existing bound.
+  assertEquals(
+    envelopeRules(
+      envelopeWith("sequence", {
+        type: "string",
+        pattern: "^[0-9]{1,20}$",
+        maxLength: 20,
+      }),
+    ),
+    ["envelope-length-narrowed"],
+  );
+});
+
+test("an envelope minLength narrows upward and widens downward", () => {
+  assertEquals(
+    envelopeRules(
+      envelopeWith("id", { type: "string", minLength: 8, maxLength: 128 }),
+    ),
+    ["envelope-length-narrowed"],
+  );
+  assertEquals(
+    envelopeRules(
+      envelopeWith("id", { type: "string", minLength: 0, maxLength: 128 }),
+    ),
+    [],
+  );
+  // Absent is the same constraint as 0, so neither narrows the other.
+  assertEquals(
+    envelopeRules(envelopeWith("id", { type: "string", maxLength: 128 })),
+    [],
+  );
+});
+
+test("an envelope baseline predating the length pin adopts its bounds", () => {
+  // The properties block is pinned but each attribute object is missing the two
+  // new keys. Reading absent as "unbounded" would fail the build on every
+  // bounded attribute at once — `baseline --write` must be able to adopt.
+  const base = baselineOf(DEPLOYED);
+  const legacy = {
+    ...base,
+    envelope: {
+      ...base.envelope,
+      properties: Object.fromEntries(
+        Object.entries(base.envelope.properties).map(([name, p]) => {
+          const { minLength: _min, maxLength: _max, ...rest } = p;
+          return [name, rest];
+        }),
+      ),
+    },
+  } as Baseline;
+  assertEquals(checkEnvelopeCompatibility(legacy, ENVELOPE), []);
+  // And the adoption is not a blanket amnesty: the other four keys still fire.
+  assertEquals(
+    checkEnvelopeCompatibility(
+      legacy,
+      envelopeWith("source", { type: "integer", maxLength: 253 }),
+    ).map((v) => v.rule),
+    ["envelope-attribute-retyped"],
+  );
+});
+
+test("absent, null and a number are three distinct states for a bound", () => {
+  // The distinction the adoption path rests on, stated directly.
+  assertEquals(
+    narrowedLengthBounds(undefined, { minLength: 1, maxLength: 8 }),
+    [
+      // A baseline predating the pin compares as nothing at all.
+    ],
+  );
+  assertEquals(
+    narrowedLengthBounds(
+      { minLength: null, maxLength: null },
+      { minLength: null, maxLength: 8 },
+    ),
+    ["maxLength (none) -> 8"],
+  );
+  assertEquals(
+    narrowedLengthBounds(
+      { minLength: null, maxLength: 8 },
+      { minLength: null, maxLength: null },
+    ),
+    [],
+  );
+});
+
 test("an envelope baseline predating the properties pin is adopted, not failed", () => {
   // `baseline --write` is the documented way to take the new pin; an older
   // baseline must not fail the build on every attribute at once.
@@ -985,14 +1108,23 @@ test("an envelope baseline predating the properties pin is adopted, not failed",
 /** The shape the twelve published payload schemas actually use. */
 const PAYLOAD: PayloadSchema = {
   properties: {
-    namespace: { type: "string" },
-    name: { type: "string" },
+    namespace: { type: "string", maxLength: 253 },
+    name: { type: "string", maxLength: 253 },
     revision: { type: "string" },
     replicas: { type: "integer" },
   },
   required: ["namespace", "name"],
   additionalProperties: false,
 };
+
+/** Replace one payload property wholesale. */
+const payloadWith = (
+  prop: string,
+  def: NonNullable<PayloadSchema["properties"]>[string],
+): PayloadSchema => ({
+  ...PAYLOAD,
+  properties: { ...PAYLOAD.properties, [prop]: def },
+});
 
 /** A baseline pinning DEPLOYED's payload, the way `baseline --write` now does. */
 const payloadBase = (schema: PayloadSchema = PAYLOAD): Baseline =>
@@ -1076,6 +1208,73 @@ test("closing a payload schema to additions forecloses the additive path", () =>
   assertEquals(payloadCompat({ ...PAYLOAD, additionalProperties: true }), []);
 });
 
+// --- the same gap on the payload side --------------------------------------
+// One gap on both sides of the same comparator: neither pinned a length bound.
+// All twelve published payload schemas declare at least one `maxLength`.
+
+test("narrowing a payload maxLength is rejected", () => {
+  assertEquals(
+    payloadCompat(payloadWith("namespace", { type: "string", maxLength: 63 })),
+    ["payload-length-narrowed"],
+  );
+});
+
+test("widening a payload maxLength passes", () => {
+  assertEquals(
+    payloadCompat(payloadWith("namespace", { type: "string", maxLength: 512 })),
+    [],
+  );
+  assertEquals(payloadCompat(payloadWith("namespace", { type: "string" })), []);
+});
+
+test("introducing a payload length bound on an existing property is a narrowing", () => {
+  // `revision` is unbounded in the baseline, so every value longer than 40
+  // characters validated until this edit.
+  assertEquals(
+    payloadCompat(payloadWith("revision", { type: "string", maxLength: 40 })),
+    ["payload-length-narrowed"],
+  );
+});
+
+test("a length bound on a newly added payload property is additive", () => {
+  // Adding an optional property is additive, and so are the bounds it arrives
+  // with — there is no older, wider window for them to narrow.
+  assertEquals(
+    payloadCompat({
+      ...PAYLOAD,
+      properties: {
+        ...PAYLOAD.properties,
+        image: { type: "string", maxLength: 512 },
+      },
+    }),
+    [],
+  );
+});
+
+test("a payload baseline predating the length pin adopts its bounds", () => {
+  // Same adoption precedent as `envelope.properties`: an older baseline has no
+  // `lengths` map at all, and must not fail the build on every bounded property.
+  const base = payloadBase();
+  const legacy = {
+    ...base,
+    types: base.types.map((t) =>
+      t.payload ? { ...t, payload: { ...t.payload, lengths: undefined } } : t,
+    ),
+  } as Baseline;
+  assertEquals(
+    checkPayloadCompatibility(legacy, new Map([[DEPLOYED.type, PAYLOAD]])),
+    [],
+  );
+  // Adoption is scoped to the new keys; the pre-existing rules still fire.
+  assertEquals(
+    checkPayloadCompatibility(
+      legacy,
+      new Map([[DEPLOYED.type, payloadWith("namespace", { type: "integer" })]]),
+    ).map((v) => v.rule),
+    ["payload-property-retyped"],
+  );
+});
+
 test("a payload schema that stops resolving is breaking, not invisible", () => {
   // Deleting the file must not silently un-pin 4 properties on a stable type.
   assertEquals(
@@ -1090,6 +1289,9 @@ test("an absent additionalProperties is recorded as open, per JSON Schema", () =
     required: [],
   });
   assertEquals(open.additionalProperties, true);
+  // A schema with no bounds pins an EMPTY lengths map, not an absent one: absent
+  // is reserved for a baseline predating the pin, and the two must not collide.
+  assertEquals(open.lengths, {});
   // An untyped property is pinned as "unknown" rather than dropped, so adding a
   // type to it later still reads as a change a reviewer sees.
   assertEquals(

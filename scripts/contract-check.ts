@@ -125,6 +125,8 @@ export interface Envelope {
       pattern?: string;
       format?: string;
       const?: unknown;
+      minLength?: number;
+      maxLength?: number;
     }
   >;
   additionalProperties?: boolean;
@@ -139,9 +141,26 @@ export interface Envelope {
  * rejects every event carrying a property added after it shipped.
  */
 export interface PayloadSchema {
-  properties?: Record<string, { type?: string | string[] }>;
+  properties?: Record<
+    string,
+    { type?: string | string[]; minLength?: number; maxLength?: number }
+  >;
   required?: string[];
   additionalProperties?: boolean;
+}
+
+/**
+ * A declared string-length window, as the baseline records it.
+ *
+ * `null` on a side means the schema declares no bound there, which JSON Schema
+ * reads as unbounded — so `null -> 64` is a narrowing, not an addition. The
+ * *key* being absent means something different again: a baseline written before
+ * this pin existed, which `baseline --write` adopts rather than failing. See
+ * `narrowedLengthBounds`.
+ */
+export interface BaselineLengthBounds {
+  minLength: number | null;
+  maxLength: number | null;
 }
 
 /**
@@ -152,22 +171,40 @@ export interface PayloadSchema {
  * contract. The gate pinned the *path* and nothing inside it, so adding a
  * required payload property — a hard break for every producer and consumer —
  * passed. ADR-030's rule is that boundary contracts are gated, not reviewed.
+ *
+ * `properties` stays a flat name -> type map so the baseline diff is readable by
+ * eye, so the length window lives in a sibling `lengths` map rather than inside
+ * it. The two are pinned; `pattern`, `enum`, `minimum` and `maximum` on a
+ * payload property are **not** — narrowing one of those is still a silent break
+ * on this side of the comparator. Named so the next person extending this does
+ * not have to rediscover it (MCAA-157 is the residual).
  */
 export interface BaselinePayload {
   /** Property name -> declared JSON type, `"unknown"` when untyped. */
   properties: Record<string, string>;
+  /**
+   * Property name -> its declared length window, for the properties that
+   * declare one. Sparse on purpose: absent from a *present* map means the
+   * property is unbounded, and the whole map absent means a baseline predating
+   * the pin. Both readings are load-bearing — see `narrowedLengthBounds`.
+   */
+  lengths: Record<string, BaselineLengthBounds>;
   required: string[];
   additionalProperties: boolean;
 }
 
 /**
  * One envelope attribute, pinned by every constraint that can reject a value
- * which used to validate.
+ * which used to validate: its declared type, `pattern`, `format`, `const` and
+ * its `minLength`/`maxLength` window.
  *
  * `pattern`, `format` and `const` are here and not only `type` because
  * narrowing any of them is a silent break: tightening `type`'s pattern to drop
  * hyphen support rejects every event of a hyphenated type the grammar
- * explicitly allows, and nothing about the attribute's *type* changed.
+ * explicitly allows, and nothing about the attribute's *type* changed. The
+ * length window is here for the same reason and was the counter-example to this
+ * comment's own claim: `source.maxLength` 253 -> 64 passed the gate clean while
+ * rejecting every fully-qualified service URI longer than 64 characters.
  */
 export interface BaselineEnvelopeProperty {
   /** Declared JSON type, `"unknown"` for a `const`-only or untyped attribute. */
@@ -176,6 +213,9 @@ export interface BaselineEnvelopeProperty {
   format: string | null;
   /** `const` rendered as JSON, because changing it is a wire-format change. */
   const: string | null;
+  /** Dense here, unlike the payload side: the attribute object already exists. */
+  minLength: number | null;
+  maxLength: number | null;
 }
 
 /**
@@ -805,14 +845,21 @@ export function validateRegistry(
  */
 export function toBaselinePayload(schema: PayloadSchema): BaselinePayload {
   const properties: Record<string, string> = {};
+  const lengths: Record<string, BaselineLengthBounds> = {};
   for (const [name, def] of Object.entries(schema.properties ?? {})) {
     const t = def?.type;
     properties[name] = Array.isArray(t)
       ? [...t].sort().join("|")
       : (t ?? "unknown");
+    if (def?.minLength !== undefined || def?.maxLength !== undefined)
+      lengths[name] = {
+        minLength: def.minLength ?? null,
+        maxLength: def.maxLength ?? null,
+      };
   }
   return {
     properties,
+    lengths,
     required: [...(schema.required ?? [])].sort(),
     // Absent means "additions allowed" in JSON Schema; record the effective value.
     additionalProperties: schema.additionalProperties ?? true,
@@ -873,6 +920,8 @@ export function toBaselineEnvelope(envelope: Envelope): BaselineEnvelope {
       pattern: def.pattern ?? null,
       format: def.format ?? null,
       const: def.const === undefined ? null : JSON.stringify(def.const),
+      minLength: def.minLength ?? null,
+      maxLength: def.maxLength ?? null,
     };
   }
   return {
@@ -912,6 +961,58 @@ const DELIVERY_RANK: Record<Delivery, number> = {
   at_least_once: 1,
 };
 const ORDERING_RANK: Record<Ordering, number> = { none: 0, per_subject: 1 };
+
+/** For a message: an absent bound is unbounded, and says so. */
+const showBound = (n: number | null | undefined) =>
+  n === null || n === undefined ? "(none)" : String(n);
+
+/**
+ * The narrowings between two declared length windows, as message fragments —
+ * empty when the window is unchanged or wider. Shared by the envelope and
+ * payload comparators so the two sides cannot drift apart.
+ *
+ * Direction is the whole point, and it is why this is not folded into
+ * `envelope-pattern-changed`: that rule fires on any inequality, while a length
+ * bound is breaking in exactly one direction. **Widening must pass.** Raising
+ * `maxLength` accepts every value that validated before, and a gate that blocks
+ * it teaches people to regenerate the baseline past red — which is how a real
+ * narrowing gets waved through later.
+ *
+ * Three states per side, not two:
+ *
+ * - a number — the declared bound
+ * - `null` — the schema declares no bound, i.e. unbounded. So `null -> 64` on
+ *   `maxLength` IS a narrowing: every longer value validated a moment ago.
+ * - the key absent (`undefined`) — a baseline written before this pin existed.
+ *   Compared as nothing, so an older baseline adopts on the next
+ *   `baseline --write` instead of failing on every attribute at once. Reading it
+ *   as "unbounded" would fail the build on the checked-in envelope immediately,
+ *   which is the trap the `envelope.properties` pin already had to avoid.
+ */
+export function narrowedLengthBounds(
+  was: Partial<BaselineLengthBounds> | undefined,
+  is: BaselineLengthBounds,
+): string[] {
+  if (!was) return [];
+  const out: string[] = [];
+  if (was.maxLength !== undefined) {
+    const ceiling = was.maxLength ?? Number.POSITIVE_INFINITY;
+    if ((is.maxLength ?? Number.POSITIVE_INFINITY) < ceiling)
+      out.push(
+        `maxLength ${showBound(was.maxLength)} -> ${showBound(is.maxLength)}`,
+      );
+  }
+  if (was.minLength !== undefined) {
+    // No `minLength` is the same constraint as `minLength: 0`, so neither is a
+    // narrowing of the other.
+    const floor = was.minLength ?? 0;
+    if ((is.minLength ?? 0) > floor)
+      out.push(
+        `minLength ${showBound(was.minLength)} -> ${showBound(is.minLength)}`,
+      );
+  }
+  return out;
+}
 
 export function checkCompatibility(
   baseline: Baseline,
@@ -1082,6 +1183,28 @@ export function checkPayloadCompatibility(
         );
     }
 
+    // `lengths` is sparse, so iterate the *current* map: a bound that was
+    // dropped altogether is a widening, and every narrowing — tightened, or
+    // introduced where there was none — leaves an entry here. A whole map
+    // missing from the baseline predates this pin and adopts.
+    const wasLengths = was.payload.lengths;
+    if (wasLengths) {
+      for (const [name, isBounds] of Object.entries(is.lengths)) {
+        // A property that is new here is reported by nothing: adding an optional
+        // property is additive, and so are the bounds it arrives with.
+        if (!(name in was.payload.properties)) continue;
+        const wasBounds = wasLengths[name] ?? {
+          minLength: null,
+          maxLength: null,
+        };
+        for (const narrowing of narrowedLengthBounds(wasBounds, isBounds))
+          v(
+            "payload-length-narrowed",
+            `payload property "${name}" narrowed its ${narrowing}; every already-deployed producer that emits a value outside the new window now fails validation. Widening is additive and passes — narrowing is a v2`,
+          );
+      }
+    }
+
     if (was.payload.additionalProperties && !is.additionalProperties)
       v(
         "payload-closed-to-additions",
@@ -1164,6 +1287,11 @@ export function checkEnvelopeCompatibility(
           `envelope attribute "${name}" changed its ${key} constraint ${wasProp[key] ?? "(none)"} -> ${isProp[key] ?? "(none)"}; a value that validated before may not now, and every producer and consumer shares this one file`,
         );
     }
+    for (const narrowing of narrowedLengthBounds(wasProp, isProp))
+      v(
+        "envelope-length-narrowed",
+        `envelope attribute "${name}" narrowed its ${narrowing}; every value outside the new window validated a moment ago and is rejected now, and every producer and consumer shares this one file. Widening is additive and passes — narrowing needs an ADR and a new major`,
+      );
   }
 
   const wasOpen = baseline.envelope?.additionalProperties;
@@ -1337,6 +1465,24 @@ export function loadPayloads(
   return out;
 }
 
+/**
+ * How many length windows the baseline actually pins, envelope and payloads
+ * together. Reported by both commands because a pin whose count silently drops
+ * to zero — a fork whose schemas declare no bounds, a projection that stopped
+ * reading the keys — is indistinguishable from a passing gate otherwise.
+ */
+export function pinnedLengthCount(baseline: Baseline): number {
+  return (
+    Object.values(baseline.envelope?.properties ?? {}).filter(
+      (p) => p.minLength != null || p.maxLength != null,
+    ).length +
+    baseline.types.reduce(
+      (n, t) => n + Object.keys(t.payload?.lengths ?? {}).length,
+      0,
+    )
+  );
+}
+
 export function renderViolations(violations: Violation[]): string {
   if (violations.length === 0) return "contract ok";
   return violations
@@ -1368,7 +1514,7 @@ async function main(argv: string[]): Promise<number> {
         0,
       );
       log.ok(
-        `wrote ${join(dir, BASELINE_FILE)} (${baseline.types.length} stable types, ${baseline.streams.length} streams, ${Object.keys(baseline.envelope.properties).length} envelope attributes of which ${baseline.envelope.required.length} required, ${pinnedProps} payload properties)`,
+        `wrote ${join(dir, BASELINE_FILE)} (${baseline.types.length} stable types, ${baseline.streams.length} streams, ${Object.keys(baseline.envelope.properties).length} envelope attributes of which ${baseline.envelope.required.length} required, ${pinnedProps} payload properties, ${pinnedLengthCount(baseline)} length bounds)`,
       );
       return 0;
     }
@@ -1408,7 +1554,7 @@ async function main(argv: string[]): Promise<number> {
     0,
   );
   log.ok(
-    `${registry.types.length} registered types across ${taxonomy.streams.length} streams; ${baseline.types.length} stable types, ${baseline.streams.length} streams, the envelope's ${Object.keys(baseline.envelope.properties ?? {}).length} attributes (${baseline.envelope.required.length} required), ${pinnedProps} payload properties and the subject grammar all compatible with the baseline`,
+    `${registry.types.length} registered types across ${taxonomy.streams.length} streams; ${baseline.types.length} stable types, ${baseline.streams.length} streams, the envelope's ${Object.keys(baseline.envelope.properties ?? {}).length} attributes (${baseline.envelope.required.length} required), ${pinnedProps} payload properties, ${pinnedLengthCount(baseline)} length bounds and the subject grammar all compatible with the baseline`,
   );
   return 0;
 }
