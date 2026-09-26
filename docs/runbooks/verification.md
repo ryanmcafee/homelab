@@ -99,12 +99,33 @@ close this, and it is the one thing the flip does *not* fix: those stale greens 
 *satisfied* required contexts. Walk the ADR-039 collision through it — PR X runs level 0
 against `main@T1` and is green, PR Y merges `### ADR-034:` at T2, PR X is now one commit
 behind and `CLEAN` with a green required level 0, and the duplicate lands. Closing it needs
-one of two admin-only settings on `main`, and they are not equivalent today:
+one of two admin-only settings on `main`. **Both have an unmet in-repository prerequisite,
+and turning either on before its prerequisite lands makes things worse, not better:**
 
-| lever | in-repo prerequisite | cost |
-|---|---|---|
-| `strict` = require branches up to date | none | every merge forces an update first, so merges serialize and behind pull requests need a rebase; `renovate/*` branches are not reliably rebased here, so they stall |
-| merge queue | **unmet** — a merge queue runs required checks on `merge_group` events, and no workflow in `.github/workflows/` has a `merge_group:` trigger (16 of 16, verified on `main` 2026-09-26), so entries would wait on checks that never run | no contributor rebase, batched merge-result testing |
+| lever | in-repository prerequisite | who can land it | if it is turned on anyway |
+|---|---|---|---|
+| `strict` = require branches up to date | **unmet** — Renovate stops rebasing a branch as soon as it carries a commit by an author outside `gitIgnoredAuthors`, and the manual-regeneration fallback below is what puts one there | agent (a procedure change, see below) | the 3 `renovate/*` branches that are already behind stop being mergeable until each is rebased by hand, and #252 is `CLEAN` today |
+| merge queue | **unmet** — a merge queue runs required checks on `merge_group` events, and no workflow in `.github/workflows/` has a `merge_group:` trigger (16 of 16, verified on `main` 2026-09-26) | agent (a prep pull request), then admin | every queued entry waits on a required check that never runs — and the prep pull request must also make `claim` safe on a `merge_group` event, or it goes green without checking anything |
+
+**Why `strict` is blocked, measured 2026-09-26.** `.github/renovate.json5` sets
+`rebaseWhen: 'behind-base-branch'`, so Renovate should keep every bump branch current, and
+for two of them it does. What decides the other three is commit authorship, not throughput:
+
+| `renovate/*` pull request | behind `main` | authors of the commits ahead of `main` | rebased |
+|---|---|---|---|
+| #374, #373 | 0 | Renovate's own git author, only | yes, 2026-09-26T04:00Z |
+| #274, #255, #252 | 19, 10, 19 | Renovate's, plus an operator address not in `gitIgnoredAuthors` | no, not since 2026-09-25 |
+
+Every foreign-authored commit in that lower row is a regeneration commit, made by following
+the manual fallback below. So the procedure this runbook documents is what converts a
+Renovate-managed branch into one Renovate will not touch again, and `strict` would turn that
+into "cannot merge" rather than merely "out of date". The fix is the authorship note in
+**Renovate bumps** below; clearing the three branches that are already in that state is
+tracked separately.
+
+`prConcurrentLimit`/`prHourlyLimit` saturation is *not* the cause, and it is the plausible
+wrong answer: there are exactly 5 open `renovate/*` pull requests against
+`prConcurrentLimit: 5`. #374 and #373 rebasing in that same window is what rules it out.
 
 **Until one of them is on, check staleness by hand before trusting a green level 0** — the
 sibling of the `renovate/*` manual step above:
@@ -381,6 +402,22 @@ To accept a bump without the bot: run `task config:export:localdev`, `task
 schemas:vendor` and `task test:snapshot -- --update` on the branch and commit, or commit
 the `snapshots-regenerated` artifact of the `snapshot` job, which also posts its own
 `snapshot-diff` comment with the in-repository manifest diff.
+
+**Author that commit as the regeneration bot**, or Renovate stops managing the branch:
+
+```sh
+git -c user.name=homelab-regen-bot \
+    -c user.email=homelab-regen-bot@users.noreply.github.com \
+    commit -m 'chore(deps): regenerate snapshots, schemas and localdev values'
+```
+
+`gitIgnoredAuthors` is an allowlist of identities whose commits do not count as a human
+editing the branch, and a mechanical regeneration is not a human edit — that is the whole
+reason the entry exists. The address costs nothing to adopt: it is `REGEN_BOT_EMAIL`, a
+plain workflow-level value in `upgrade.yml`, applied with `git -c user.email` at commit
+time. The App secrets authenticate the bot's *push*; they do not grant the *authorship*.
+Commit under your own address instead and Renovate treats the branch as edited by hand and
+never rebases it again, which is how #274, #255 and #252 ended up 10–19 commits behind.
 
 ## Agent contract
 
