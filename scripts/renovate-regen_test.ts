@@ -33,6 +33,7 @@ import {
   changedPaths,
   generatedOnlyError,
   identityParityError,
+  unwrappedGit,
   parseGitIgnoredAuthors,
   parseRegenIdentity,
   readChangedPaths,
@@ -642,4 +643,39 @@ test("readChangedPaths returns nothing for a real clean worktree", async () => {
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test("unwrappedGit skips the PATH git and takes the first real one that exists", () => {
+  const wrapper = "/tmp/paperclip-github-runtime/abc/git";
+  assertEquals(
+    unwrappedGit(wrapper, (p) => p === "/usr/bin/git"),
+    "/usr/bin/git",
+  );
+});
+
+test("unwrappedGit honours candidate order", () => {
+  assertEquals(
+    unwrappedGit("/wrapper/git", () => true),
+    "/usr/bin/git",
+  );
+  assertEquals(
+    unwrappedGit("/wrapper/git", (p) => p === "/opt/homebrew/bin/git"),
+    "/opt/homebrew/bin/git",
+  );
+});
+
+test("unwrappedGit returns null when the PATH git is already the real one", () => {
+  // Nothing to bypass: amending through the same binary would change nothing
+  // while rewriting the commit, so the caller must not do it.
+  assertEquals(
+    unwrappedGit("/usr/bin/git", (p) => p === "/usr/bin/git"),
+    null,
+  );
+});
+
+test("unwrappedGit returns null when no candidate exists", () => {
+  assertEquals(
+    unwrappedGit("/wrapper/git", () => false),
+    null,
+  );
 });
