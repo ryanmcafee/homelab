@@ -44,6 +44,101 @@ clearest case) shows red in the checks list without stopping the merge. Rebasing
 turns it into a head failure, which does block. Treat a red merge-result level 0 as a
 merge blocker even though GitHub will not.
 
+**And on a draft or a `renovate/*` head, nothing blocks at all.** The `claim` job is
+`if:`-guarded against both, and GitHub draws a distinction that decides the outcome here:
+
+| how a job is suppressed | check run published | required context |
+|---|---|---|
+| job-level `if:` is false | yes, conclusion `skipped` | **satisfied** |
+| workflow-level `paths:` does not match | none at all | **pending forever** |
+
+So on a `renovate/*` pull request `main`'s only required check is satisfied *vacuously* —
+no head run, no merge-result run, nothing gating the merge button. Measured 2026-09-26:
+5 of 23 open pull requests (22%) were in exactly that state, each with
+`Level 0 (render, schema, gitops, snapshot, policy)` green but not required. `upgrade.yml`,
+which `pr-contract.yml`'s header comment offers as the reason the Renovate exemption is
+safe, is not in the required set either, so it gates nothing at the merge button. Drafts are
+the benign half: `claim` triggers on `ready_for_review`, so the head run lands before the
+pull request can merge. Until `Level 0 (render, schema, gitops, snapshot, policy)` is added
+to `main`'s required contexts (MCAA-164 — the write needs repository admin; every other
+identity gets `403` on both branch protection and rulesets), **read `verify.yml`'s result by
+hand before merging a `renovate/*` pull request.**
+
+To check what is required on a pull request without repository admin, read `isRequired` off
+the check rollup — `branches/main/protection` is admin-only, this is not:
+
+```sh
+gh api graphql -F n=<pr> -f query='query($n:Int!){repository(owner:"ryanmcafee",name:"homelab"){
+  pullRequest(number:$n){commits(last:1){nodes{commit{statusCheckRollup{contexts(first:100){nodes{
+    ... on CheckRun{name conclusion isRequired(pullRequestNumber:$n)}
+    ... on StatusContext{context state isRequired(pullRequestNumber:$n)}}}}}}}}}'
+```
+
+Two readings that will mislead you: a `SKIPPED` required context is the draft or Renovate
+guard above and is *satisfied*, not pending; and a rollup reporting **zero** required
+contexts means the context is **absent**, not that the branch is unprotected — a `DIRTY`
+pull request runs no `pull_request` workflows at all, so its required check never appears
+and the merge is blocked as pending, which is the correct outcome.
+
+### A green merge-result level 0 is only as current as the base it ran against
+
+`verify.yml` verifies `refs/pull/N/merge` **as of when it last ran**, and `pull_request`
+fires only on head events (`opened`, `synchronize`, `reopened`). **A base-branch advance does
+not re-trigger it.** So the green persists, unchanged, while `main` moves underneath it, and
+the verdict is about a merge result that no longer exists.
+
+That is not hypothetical here, because "require branches to be up to date" (`strict`) is off
+on `main`, which is what lets a pull request stay behind and still be mergeable. Measured
+2026-09-26 against `main@918598c3`, all 24 open pull requests: **20 behind `main` (83%), 16
+behind and `mergeStateStatus: CLEAN` (67%), and all 16 of those carrying a green
+`Level 0` whose `completed_at` predates `main`'s current head commit** — the worst 19 commits
+and ~21 h stale (#367, #363, #361, #252).
+
+Adding `Level 0 (render, schema, gitops, snapshot, policy)` to the required contexts does not
+close this, and it is the one thing the flip does *not* fix: those stale greens become
+*satisfied* required contexts. Walk the ADR-039 collision through it — PR X runs level 0
+against `main@T1` and is green, PR Y merges `### ADR-034:` at T2, PR X is now one commit
+behind and `CLEAN` with a green required level 0, and the duplicate lands. Closing it needs
+one of two admin-only settings on `main`. **Both have an unmet in-repository prerequisite,
+and turning either on before its prerequisite lands makes things worse, not better:**
+
+| lever | in-repository prerequisite | who can land it | if it is turned on anyway |
+|---|---|---|---|
+| `strict` = require branches up to date | **unmet** — Renovate stops rebasing a branch as soon as it carries a commit by an author outside `gitIgnoredAuthors`, and the manual-regeneration fallback below is what puts one there | agent (a procedure change, see below) | the 3 `renovate/*` branches that are already behind stop being mergeable until each is rebased by hand, and #252 is `CLEAN` today |
+| merge queue | **unmet** — a merge queue runs required checks on `merge_group` events, and no workflow in `.github/workflows/` has a `merge_group:` trigger (16 of 16, verified on `main` 2026-09-26) | agent (a prep pull request), then admin | every queued entry waits on a required check that never runs — and the prep pull request must also make `claim` safe on a `merge_group` event, or it goes green without checking anything |
+
+**Why `strict` is blocked, measured 2026-09-26.** `.github/renovate.json5` sets
+`rebaseWhen: 'behind-base-branch'`, so Renovate should keep every bump branch current, and
+for two of them it does. What decides the other three is commit authorship, not throughput:
+
+| `renovate/*` pull request | behind `main` | authors of the commits ahead of `main` | rebased |
+|---|---|---|---|
+| #374, #373 | 0 | Renovate's own git author, only | yes, 2026-09-26T04:00Z |
+| #274, #255, #252 | 19, 10, 19 | Renovate's, plus an operator address not in `gitIgnoredAuthors` | no, not since 2026-09-25 |
+
+Every foreign-authored commit in that lower row is a regeneration commit, made by following
+the manual fallback below. So the procedure this runbook documents is what converts a
+Renovate-managed branch into one Renovate will not touch again, and `strict` would turn that
+into "cannot merge" rather than merely "out of date". The fix is the authorship note in
+**Renovate bumps** below; clearing the three branches that are already in that state is
+tracked separately.
+
+`prConcurrentLimit`/`prHourlyLimit` saturation is *not* the cause, and it is the plausible
+wrong answer: there are exactly 5 open `renovate/*` pull requests against
+`prConcurrentLimit: 5`. #374 and #373 rebasing in that same window is what rules it out.
+
+**Until one of them is on, check staleness by hand before trusting a green level 0** — the
+sibling of the `renovate/*` manual step above:
+
+```sh
+gh api repos/ryanmcafee/homelab/compare/main...<head-sha> --jq .behind_by
+```
+
+Non-zero means the green above it was computed against a base that has since moved; re-run
+level 0 on an up-to-date branch before merging. `behind_by` is the right field for *this*
+question (how stale is the verdict) — do not use it to decide whether GitHub will force a
+rebase, because `strict` is off and a pull request 29 commits behind still reports `CLEAN`.
+
 ## What level 0 checks
 
 | Check name | What it proves | Fix when it fails |
@@ -308,6 +403,22 @@ schemas:vendor` and `task test:snapshot -- --update` on the branch and commit, o
 the `snapshots-regenerated` artifact of the `snapshot` job, which also posts its own
 `snapshot-diff` comment with the in-repository manifest diff.
 
+**Author that commit as the regeneration bot**, or Renovate stops managing the branch:
+
+```sh
+git -c user.name=homelab-regen-bot \
+    -c user.email=homelab-regen-bot@users.noreply.github.com \
+    commit -m 'chore(deps): regenerate snapshots, schemas and localdev values'
+```
+
+`gitIgnoredAuthors` is an allowlist of identities whose commits do not count as a human
+editing the branch, and a mechanical regeneration is not a human edit — that is the whole
+reason the entry exists. The address costs nothing to adopt: it is `REGEN_BOT_EMAIL`, a
+plain workflow-level value in `upgrade.yml`, applied with `git -c user.email` at commit
+time. The App secrets authenticate the bot's *push*; they do not grant the *authorship*.
+Commit under your own address instead and Renovate treats the branch as edited by hand and
+never rebases it again, which is how #274, #255 and #252 ended up 10–19 commits behind.
+
 ## Agent contract
 
 Level 0 is wired into the agent loop rather than left to memory, and CI re-runs it on every
@@ -316,7 +427,7 @@ pull request head (issue #261 item 22; ADR-032 dropped the PR-body claim).
 | Piece | File | What it does |
 |---|---|---|
 | PostToolUse hook | `.claude/settings.json` → `scripts/claude-verify-hook.ts` | After every Claude Code `Edit`/`Write`/`MultiEdit` of a file under `charts/` or `configuration/` of `$CLAUDE_PROJECT_DIR`, builds `./cmd/homelab` and runs `verify all --level 0 --json` in the project root (150 s cap, hook timeout 180 s). Pass: silent, exit 0. Fail: exit 2, and Claude Code hands the agent a summary of at most 60 lines (failing checks, `detail`, up to five findings each, hints such as `task test:snapshot -- --update` for intended snapshot drift). A build error or timeout is reported the same way. |
-| CI | `.github/workflows/pr-contract.yml`, job `claim` (the required check "Verification claim matches level 0") | On opened/synchronize/reopened/ready_for_review (no paths filter; drafts and `renovate/*` heads skipped): runs `task verify` on the PR **head** and fails when level 0 fails. The job summary lists the non-passing checks and the findings of failing ones. |
+| CI | `.github/workflows/pr-contract.yml`, job `claim` (the required check "Verification claim matches level 0") | On opened/synchronize/reopened/ready_for_review (no paths filter; drafts and `renovate/*` heads skipped — and a skip *satisfies* the required context, see "Only the `pr-contract.yml` job" above): runs `task verify` on the PR **head** and fails when level 0 fails. The job summary lists the non-passing checks and the findings of failing ones. |
 
 The PR description carries no verification block: CI verifies the head itself, so a pasted
 result would add nothing. `verify.yml` verifies the merge result.
