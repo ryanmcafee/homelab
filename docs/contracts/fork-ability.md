@@ -64,7 +64,7 @@ specified-and-not-implemented; it may **not** be listed with no status (ADR-033)
 |---|---|---|---|---|
 | 1 | **Render with a synthetic ConfigSet.** Render every chart and manifest against an environment whose values are all synthetic (`DOMAIN: example.invalid`, RFC 5737 addresses), then grep the rendered output for any value from the real environment. Paired with `homelab config guard` over the repository's own source. | Level-0 static verification, every PR | A literal that escaped the ConfigSet | **Specified, not implemented** |
 | 2 | **`homelab.yaml.example` completeness.** Every key the render **or the bootstrap** requires appears in the example file with a `REPLACEME-` or clearly synthetic value. | Level-0, every PR | A new required key that a fork cannot discover | **Specified, not implemented — and fails on `main` today** |
-| 3a | **The cold documented Kind path.** A clean clone with no cache and no local state: `task localdev:up` → `localdev:wait` → `localdev:report` → `localdev:down`, each timed, followed by an assertion that the cluster is actually gone. | Weekly cron and on demand | Documentation drift, "works because it was already installed", a teardown that only works after a clean run | **Automated and passing** in [`.github/workflows/fork-path-cold.yml`](../../.github/workflows/fork-path-cold.yml) — `18m 55s` cold, 2026-09-25 |
+| 3a | **The cold documented Kind path.** A clean clone with no cache and no local state: `task localdev:up` → `localdev:wait` → `localdev:report` → `localdev:down`, each timed, followed by an assertion that the cluster is actually gone. | Weekly cron, on demand, **and every pull request that changes the surface 3a executes** — enforced by the `Fork-ability check 3a change gate` job in [`verify.yml`](../../.github/workflows/verify.yml); two discharge routes, see [Current status](#current-status) | Documentation drift, "works because it was already installed", a teardown that only works after a clean run | **Automated and passing** in [`.github/workflows/fork-path-cold.yml`](../../.github/workflows/fork-path-cold.yml) — `18m 55s` cold, 2026-09-25 |
 | 3b | **The production bootstrap on foreign hardware.** A filled-in ConfigSet and `task setup -- --environment homelab`, on a machine holding none of the maintainer's credentials **and not in this cluster's topology**. | Before a declared platform milestone | Undeclared physical prerequisites, secret-store and identity assumptions, anything the Kind path cannot reach, a shape that only this cluster has | **Never executed** |
 | 4 | **Bootstrap key resolution.** The bootstrap resolves every operator-specific value from the ConfigSet and exits non-zero naming the missing key — every missing key, not the first one. | Runtime, in the Go CLI; exercised by 3b | A value the bootstrap needs that no render requires, so checks 1–2 never see it | **Specified, not implemented** |
 
@@ -125,12 +125,43 @@ Dated, because a check's status is a claim about the past and decays.
   caused, and a check that cries wolf gets muted. A regression is therefore read by a human from
   the trend, not enforced by CI. If that stops being good enough, the fix is a threshold on a
   rolling median across runs, not on a single run.
-- **3a's change-triggered half is not enforced.** "For any change to bootstrap, secrets or
-  identity" is policy in prose. `fork-path-cold.yml`'s `pull_request` filter covers only the
-  workflow file itself, deliberately, to keep a cold uncached loop off the pull-request critical
-  path. A CODEOWNERS rule cannot carry the obligation either: `.github/CODEOWNERS` assigns
-  `*` to the single repository owner, so every path already has that one owner and the rule cannot
-  discriminate. Closing this needs a `paths:`-triggered check, not a review assignment.
+- **3a's change-triggered half is enforced as of 2026-09-25**, by the `Fork-ability check 3a
+  change gate` job in [`verify.yml`](../../.github/workflows/verify.yml)
+  ([`scripts/fork-path-gate.ts`](../../scripts/fork-path-gate.ts)). It replaced a sentence of
+  prose. `fork-path-cold.yml`'s own `pull_request` filter still covers only the workflow file,
+  deliberately, because a cold uncached loop costs ~19 minutes and must stay off the critical
+  path; and a CODEOWNERS rule could never have carried the obligation, because
+  `.github/CODEOWNERS` assigns `*` to the single repository owner and therefore cannot
+  discriminate one path from another. What the gate does instead is classify the changed
+  files and make somebody decide:
+  - **Tier 1 — hard fail, dischargeable.** Exactly the surface `fork-path-cold.yml` executes:
+    the tool pins, the `localdev` scripts, the documented commands a stranger types, and the cold
+    workflow itself. A regression here is invisible to every static check —
+    [#331](https://github.com/ryanmcafee/homelab/issues/331), the `pipx:` backend pinned with no
+    `python`/`pipx` pin, is the real-world instance. The authoritative list is `TIER1_PATHS` in
+    `scripts/fork-path-gate.ts`. `Taskfile.yml` counts only when the diff touches a line
+    mentioning `localdev`: most changes to that file have nothing to do with the cold path, a
+    `paths:` glob cannot tell them apart, and without the narrowing the gate would fire on
+    roughly half of all pull requests instead of a third — the difference between a check people
+    read and a check people mute.
+  - **Tier 2 — advisory, never fails.** The configuration, secrets and identity surface
+    (`TIER2_PATHS` in the same file, and this document). Genuinely "secrets or identity", but the
+    literal-leak class is already caught on every pull request by checks 1 and 2, so a second
+    hard gate over the same surface would buy detection we already have.
+  - **Deliberately excluded:** `terragrunt/**`, `talos/**`, `ansible/**`, `packer/**`. Real
+    fork-ability surface, but check 3a executes none of it — it is a Kind/ArgoCD localdev loop.
+    Telling an author who touched `terragrunt/` to "run the cold fork path" demands a run that
+    structurally cannot detect their regression, and a gate that greenlights an unchecked change
+    is worse than no gate. That is a separate, unclosed gap: that surface has no
+    change-triggered fork-path check of any kind, and check 3b, the only check that would cover
+    it, has never been executed.
+  - **The escape hatch is the point.** The label `fork-path: cold-run-waived` plus a one-line
+    reason discharges a Tier 1 hit in about ten seconds. Before the gate there was no decision
+    point at all, so nobody was ever recorded as having judged a bootstrap change safe; now
+    somebody is, by name, in the pull request. Using it is not a bypass to apologise for — using
+    it *without* reading the diff is. **A contributor working from a fork cannot apply a label**,
+    and should not be expected to: for them the discharge is a `fork-path-cold` run in their own
+    fork at the same head SHA, or a maintainer recording the waiver on their behalf.
 - **3b — never executed, by anyone, as of 2026-09-25.** Not "overdue" and not "pending": it has
   never been run. The nearest measurement is `task validate -- --environment homelab`, which
   reaches 10 of 16 prerequisites with no hardware present and stops at the `proxmox` row. The

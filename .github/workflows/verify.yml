@@ -11,6 +11,7 @@ name: Verify (level 0)
 #   schemas     task schemas:check vendored CRD schemas match configuration/versions.yaml
 #   cmp-parity  task test:cmp-parity  pinned homelab-cmp image == source `config export`
 #   scaffold    task test:scaffold one scaffolded app per pattern passes level 0 in a temp copy
+#   fork-path-gate  changed-path classification for fork-ability check 3a (no cluster)
 #
 # Snapshot drift fails the `snapshot` job for every author. On a pull request the job
 # also regenerates the snapshots into the runner's working tree, uploads them as the
@@ -58,6 +59,11 @@ on:
       - 'tsconfig.json'
       - 'biome.json'
       - '.github/workflows/verify.yml'
+      # The four fork-path-gate tier paths the list above did not reach.
+      - 'localdev/**'
+      - '.sops.yaml'
+      - 'policy.sops.hujson'
+      - '.env.op'
   workflow_dispatch:
 
 # Superseded pushes to a PR cancel each other; pushes to main do not, so every
@@ -352,3 +358,77 @@ jobs:
       # (preinstalled on the runner) still checks the generated YAML.
       - name: task test:scaffold
         run: task test:scaffold
+
+  # Fork-ability check 3a's change trigger (docs/contracts/fork-ability.md,
+  # ADR-033). The contract says 3a runs "for any change to bootstrap, secrets or
+  # identity"; that sentence was prose until this job existed, so a bootstrap
+  # regression was found by the weekly cron or by a stranger, whichever came
+  # first.
+  #
+  # This job classifies the changed paths and boots nothing. It is a job inside
+  # verify.yml rather than a workflow of its own because the required status
+  # check on main (pr-contract.yml's "Verification claim matches level 0")
+  # deliberately carries no paths filter: a paths-filtered workflow that is made
+  # required is reported as *skipped* on a pull request that misses the filter,
+  # and a skipped required check leaves the pull request pending forever. A job
+  # inside an existing paths-filtered workflow cannot fall into that trap.
+  #
+  # Cost: a checkout, bun, and a diff classification — seconds. The full cold
+  # fork path is ~19 minutes and stays off the critical path of every pull
+  # request, which is the whole reason this gate is cheap and dischargeable.
+  fork-path-gate:
+    name: Fork-ability check 3a change gate
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      # Resolving a linked fork-path-cold run, and reading the live labels and
+      # body (see scripts/fork-path-gate.ts on why not the event payload).
+      actions: read
+      pull-requests: write
+    steps:
+      # Full history: the classification diffs against the merge base with the
+      # target branch, so both the base and the head commit must be present.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+
+      - name: Install bun from mise.toml
+        uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+        with:
+          install_args: bun
+
+      # No `bun install`: the gate imports nothing outside the standard library,
+      # so it starts in milliseconds and cannot be broken by a lockfile bump.
+      - name: Classify the changed paths against the fork-path tiers
+        id: gate
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          bun scripts/fork-path-gate.ts \
+            --base-sha "${{ github.event.pull_request.base.sha }}" \
+            --head-sha "${{ github.event.pull_request.head.sha }}"
+
+      # Sticky, so a re-run updates one comment instead of stacking them, and
+      # non-fatal: a pull request from a fork gets a read-only token, and the
+      # verdict must not depend on whether a comment could be posted. The job
+      # summary carries the same content either way.
+      - name: Sticky comment with the fork-path classification
+        if: always() && hashFiles('fork-path-gate-comment.md') != ''
+        continue-on-error: true
+        uses: marocchino/sticky-pull-request-comment@5770ad5eb8f42dd2c4f34da00c94c5381e49af88 # v3.0.5
+        with:
+          header: fork-path-gate
+          path: fork-path-gate-comment.md
+
+      # Nothing to report means the previous comment is stale; remove it rather
+      # than leaving a warning about paths this pull request no longer touches.
+      - name: Remove a stale fork-path comment
+        if: always() && hashFiles('fork-path-gate-comment.md') == ''
+        continue-on-error: true
+        uses: marocchino/sticky-pull-request-comment@5770ad5eb8f42dd2c4f34da00c94c5381e49af88 # v3.0.5
+        with:
+          header: fork-path-gate
+          delete: true
