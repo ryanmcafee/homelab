@@ -18,6 +18,7 @@ import {
 } from "./lib/assert.ts";
 import {
   branchGuardError,
+  commitIdentityError,
   generatedOnlyError,
   identityParityError,
   parseGitIgnoredAuthors,
@@ -164,72 +165,121 @@ test("the repository's own regeneration identity is one Renovate ignores", () =>
 
 /**
  * The runbook is the third place the regeneration identity appears, and the
- * only one a person copy-pastes. `upgrade.yml` applies it with `git -c
- * user.email=...`, which is correct *in CI*. It is not correct in the manual
- * procedure: a git wrapper that exports `GIT_AUTHOR_EMAIL` overrides `-c
- * user.email` and leaves `--author` alone, and the agents that sweep these
- * bumps run behind exactly such a wrapper. Reproduced 2026-09-26 on the
- * Paperclip runner, same repository, same tree:
+ * only one a person copy-pastes. Both halves of the recipe are load-bearing,
+ * because Renovate's `isBranchModified()` unions `%ae` *and* `%ce` over every
+ * commit in `origin/<base>..origin/<branch>` and abandons the branch if any
+ * address survives removing the git author, `gitIgnoredAuthors` and the
+ * platform's own `noreply@github.com` (renovatebot/renovate
+ * `lib/util/git/index.ts`; `lib/modules/platform/github/index.ts` for the
+ * platform list). Measured 2026-09-26 on the Paperclip runner, one tree, three
+ * invocations, all exiting 0:
  *
- *   git -c user.email=homelab-regen-bot@... commit   -> author 2336262+…
- *   git commit --author "homelab-regen-bot <…>"      -> author homelab-regen-bot@…
+ *   git -c user.email=<bot> commit                    -> author <op>  committer <op>
+ *   GIT_COMMITTER_EMAIL=<bot> git commit --author <bot> -> author <bot> committer <op>
+ *   git commit --author <bot>                         -> author <bot> committer <op>
  *
- * Both exit 0. So copying the CI form into the manual procedure produces, with
- * no error and no warning, the very orphaning commit the procedure exists to
- * prevent. The runbook must teach `--author`, and must not teach `-c
- * user.email` for the bot address.
+ * So `-c user.email` is what carries the committer on an ordinary machine and
+ * `--author` is the only form that survives a wrapper exporting
+ * `GIT_AUTHOR_EMAIL`; neither alone produces a Renovate-managed commit, and
+ * where the committer is pinned no git invocation can. The runbook therefore
+ * has to show both forms, show the `%ce` read-back that detects the pinned
+ * case, and show the API fallback that is the only way out of it.
  */
 const RUNBOOK_PATH = "docs/runbooks/verification.md";
 
 function runbookAuthorshipErrors(markdown: string, email: string): string[] {
   const errors: string[] = [];
   const quoted = email.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const banned = new RegExp(`-c\\s+user\\.email\\s*=\\s*['"]?${quoted}`, "g");
-  for (const match of markdown.matchAll(banned)) {
-    const line = markdown.slice(0, match.index ?? 0).split("\n").length;
-    errors.push(
-      `renovate-regen/runbook-authorship: ${RUNBOOK_PATH}:${line} sets the regeneration author with \`-c user.email\`, which a git wrapper that exports GIT_AUTHOR_EMAIL silently overrides. Use \`git commit --author\`.`,
+  const near = (re: RegExp, window = 200): boolean =>
+    [...markdown.matchAll(re)].some((match) =>
+      markdown
+        .slice(match.index ?? 0, (match.index ?? 0) + window)
+        .includes(email),
     );
-  }
-  const teachesWorkingForm = [...markdown.matchAll(/--author/g)].some((match) =>
-    markdown.slice(match.index ?? 0, (match.index ?? 0) + 160).includes(email),
-  );
-  if (!teachesWorkingForm) {
-    errors.push(
-      `renovate-regen/runbook-authorship: ${RUNBOOK_PATH} never shows \`--author\` with ${email}, so the manual regeneration path has no authorship recipe that survives a git wrapper.`,
-    );
+  const required: [boolean, string][] = [
+    [
+      near(/--author/g, 160),
+      `never shows \`git commit --author\` with ${email}, so the manual path has no author recipe that survives a wrapper exporting GIT_AUTHOR_EMAIL`,
+    ],
+    [
+      new RegExp(`-c\\s+user\\.email\\s*=\\s*['"]?${quoted}`).test(markdown),
+      `never shows \`-c user.email=${email}\`, so the manual path sets no committer — and Renovate reads the committer of every commit ahead of the base branch, not just the author`,
+    ],
+    [
+      /%ce/.test(markdown),
+      "never shows the `%ce` read-back, so an operator whose committer is pinned by a credential wrapper cannot tell that the commit they just made orphaned the branch",
+    ],
+    [
+      near(/committer\[email\]/g, 120),
+      `never shows the API fallback (\`committer[email]=${email}\`), which is the only path left when a wrapper pins the committer`,
+    ],
+  ];
+  for (const [satisfied, why] of required) {
+    if (!satisfied) {
+      errors.push(`renovate-regen/runbook-authorship: ${RUNBOOK_PATH} ${why}.`);
+    }
   }
   return errors;
 }
 
 const BOT_EMAIL_FIXTURE = "homelab-regen-bot@users.noreply.github.com";
 
-test("runbookAuthorshipErrors accepts the --author recipe", () => {
-  assertEquals(
-    runbookAuthorshipErrors(
-      'Author it yourself: `git commit --author "homelab-regen-bot <homelab-regen-bot@users.noreply.github.com>"`.\n',
-      BOT_EMAIL_FIXTURE,
-    ),
-    [],
-  );
+/** A minimal runbook section that satisfies all four requirements. */
+const COMPLETE_RECIPE = [
+  "```sh",
+  "git -c user.name=homelab-regen-bot \\",
+  "    -c user.email=homelab-regen-bot@users.noreply.github.com \\",
+  '    commit --author "homelab-regen-bot <homelab-regen-bot@users.noreply.github.com>" \\',
+  "    -m 'chore(deps): regenerate'",
+  "git log -1 --format='%ae %ce'   # both must be the bot address",
+  "```",
+  "If the committer is not the bot address, a wrapper pinned it; use the API instead:",
+  "```sh",
+  "gh api -X PUT repos/{owner}/{repo}/contents/{path} -f branch=\"$BRANCH\" \\",
+  "  -f 'author[email]=homelab-regen-bot@users.noreply.github.com' \\",
+  "  -f 'committer[email]=homelab-regen-bot@users.noreply.github.com'",
+  "```",
+].join("\n");
+
+test("runbookAuthorshipErrors accepts the complete recipe", () => {
+  assertEquals(runbookAuthorshipErrors(COMPLETE_RECIPE, BOT_EMAIL_FIXTURE), []);
 });
 
-test("runbookAuthorshipErrors rejects the CI `-c user.email` form", () => {
-  // Verbatim shape of the recipe proposed for the manual fallback.
+test("runbookAuthorshipErrors rejects an --author-only recipe", () => {
+  // The shape this gate shipped with: correct author, committer left foreign.
   const errors = runbookAuthorshipErrors(
-    [
-      "```sh",
-      "git -c user.name=homelab-regen-bot \\",
-      "    -c user.email=homelab-regen-bot@users.noreply.github.com \\",
-      "    commit -m 'chore(deps): regenerate'",
-      "```",
-      'Elsewhere: `git commit --author "homelab-regen-bot <homelab-regen-bot@users.noreply.github.com>"`.',
-    ].join("\n"),
+    COMPLETE_RECIPE.replace(
+      "    -c user.email=homelab-regen-bot@users.noreply.github.com \\\n",
+      "",
+    ),
     BOT_EMAIL_FIXTURE,
   );
   assertEquals(errors.length, 1);
   assertStringIncludes(errors[0]!, "renovate-regen/runbook-authorship");
-  assertStringIncludes(errors[0]!, `${RUNBOOK_PATH}:3`);
+  assertStringIncludes(errors[0]!, "sets no committer");
+});
+
+test("runbookAuthorshipErrors rejects a recipe with no committer read-back", () => {
+  const errors = runbookAuthorshipErrors(
+    COMPLETE_RECIPE.replace(
+      "git log -1 --format='%ae %ce'   # both must be the bot address\n",
+      "",
+    ),
+    BOT_EMAIL_FIXTURE,
+  );
+  assertEquals(errors.length, 1);
+  assertStringIncludes(errors[0]!, "renovate-regen/runbook-authorship");
+  assertStringIncludes(errors[0]!, "`%ce` read-back");
+});
+
+test("runbookAuthorshipErrors rejects a recipe with no API fallback", () => {
+  const errors = runbookAuthorshipErrors(
+    COMPLETE_RECIPE.split("If the committer is not the bot address")[0]!,
+    BOT_EMAIL_FIXTURE,
+  );
+  assertEquals(errors.length, 1);
+  assertStringIncludes(errors[0]!, "renovate-regen/runbook-authorship");
+  assertStringIncludes(errors[0]!, "API fallback");
 });
 
 test("runbookAuthorshipErrors fails closed when the recipe is dropped", () => {
@@ -237,8 +287,34 @@ test("runbookAuthorshipErrors fails closed when the recipe is dropped", () => {
     "Run `task config:export:localdev` and `task test:snapshot -- --update` on the branch and commit.\n",
     BOT_EMAIL_FIXTURE,
   );
-  assertEquals(errors.length, 1);
-  assertStringIncludes(errors[0]!, "never shows `--author`");
+  assertEquals(errors.length, 4);
+  assertStringIncludes(errors[0]!, "never shows `git commit --author`");
+});
+
+test("commitIdentityError names the committer when only the author is right", () => {
+  const identity = { name: "homelab-regen-bot", email: BOT_EMAIL_FIXTURE };
+  const error = commitIdentityError(
+    identity,
+    BOT_EMAIL_FIXTURE,
+    "2336262+operator@users.noreply.github.com",
+  );
+  assert(error !== null);
+  assertStringIncludes(error, "renovate-regen/commit-identity");
+  assertStringIncludes(error, "committer: 2336262+operator@users.noreply.github.com");
+  assert(!error.includes("author:"), "the author was correct and must not be reported");
+  assertStringIncludes(error, "committer[email]");
+});
+
+test("commitIdentityError passes only when both addresses are the bot", () => {
+  const identity = { name: "homelab-regen-bot", email: BOT_EMAIL_FIXTURE };
+  assertEquals(
+    commitIdentityError(identity, BOT_EMAIL_FIXTURE, BOT_EMAIL_FIXTURE),
+    null,
+  );
+  assert(
+    commitIdentityError(identity, "operator@example.com", BOT_EMAIL_FIXTURE) !==
+      null,
+  );
 });
 
 test("the runbook's manual regeneration recipe survives a git wrapper", () => {

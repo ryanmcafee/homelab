@@ -315,9 +315,9 @@ to two days, 19, 19 and 10 commits behind.
 
 `task renovate:regen` runs `config:export:localdev`, `schemas:vendor`, `test:snapshot --
 --update` and `docs:check -- --fix` (a chart bump also moves the readme version badges and
-the addons table), then commits the result with `--author` set to `REGEN_BOT_NAME
-<REGEN_BOT_EMAIL>` from `upgrade.yml` — the same identity CI would have used. It refuses to
-run when:
+the addons table), then commits the result with both the author and the committer set to
+`REGEN_BOT_NAME <REGEN_BOT_EMAIL>` from `upgrade.yml` — the same identity CI would have used —
+and verifies both on the commit it just made. It refuses to run when:
 
 | Guard | Why |
 |---|---|
@@ -325,6 +325,7 @@ run when:
 | `renovate-regen/branch-scope` | HEAD is not a `renovate/*` branch. Signing a human PR's commit as the bot would invite Renovate to force-push over real work. Bypass: `-- --any-branch`, with the reason in the commit or PR body. |
 | `renovate-regen/generated-only` | Regeneration touched a file outside the generated set. No bypass: commit that file separately under your own author — which keeps the branch out of Renovate's hands, and for a real change that is the correct outcome. |
 | `renovate-regen/clean-tree` | The working tree was already dirty, so the commit would not be regeneration output alone. |
+| `renovate-regen/commit-identity` | The commit it just made does not carry the bot address as *both* author and committer. Fires after the commit, so the branch is still recoverable with one `--amend`; no bypass, because a commit that fails it is exactly the commit that orphans the branch. Where a wrapper pins the committer, the error points at the API form below. |
 
 Do **not** "fix" the orphaning by adding a personal address to `gitIgnoredAuthors`. It would
 let Renovate force-push over genuine human edits to a bump branch, and it hard-codes one
@@ -333,29 +334,73 @@ operator's address into a config every fork inherits: a forker's regeneration co
 `gitIgnoredAuthors` entry is a generic `@users.noreply.github.com` bot address for that
 reason.
 
-If you regenerate by hand anyway, author the commit yourself — `git commit --author
-"homelab-regen-bot <homelab-regen-bot@users.noreply.github.com>"`. Use `--author`, not `git
--c user.email=...`: a wrapper or credential shim can pin `user.email` *and*
-`GIT_AUTHOR_EMAIL` for every invocation (the Paperclip agent runner does, to the maintainer's
-noreply address), and only `--author` survives that. `gitIgnoredAuthors` matches the author,
-so the committer may stay whoever pushed. You can also commit the `snapshots-regenerated`
-artifact of the `snapshot` job, which posts its own `snapshot-diff` comment with the
-in-repository manifest diff — but author it the same way.
+**Renovate reads the committer too, and it reads every commit.** `isBranchModified()` unions
+`%ae` *and* `%ce` across every commit in `origin/<base>..origin/<branch>`, then removes the
+git author, every `gitIgnoredAuthors` entry and the platform's own `noreply@github.com`; if
+anything is left, the branch is human-edited and Renovate stops
+([`lib/util/git/index.ts`](https://github.com/renovatebot/renovate/blob/main/lib/util/git/index.ts),
+`lib/modules/platform/github/index.ts` for the platform list). Two consequences that are easy
+to get wrong:
 
-Measured on the agent runner, same repository, one tree, both commands exiting `0`:
+- `--author` alone is **not** enough. The committer is not a free field.
+- A **rebase** re-commits every commit, so it rewrites every committer. Rebasing a
+  `renovate/*` branch under your own identity orphans it even if you change nothing — which
+  is why the three stuck branches carry the operator's address as the committer of Renovate's
+  *own* commits.
 
-| invocation | resulting author |
-|---|---|
-| `git -c user.email=homelab-regen-bot@… commit` | the operator's address — **overridden, branch orphaned** |
-| `git commit --author "homelab-regen-bot <…>"` | `homelab-regen-bot@users.noreply.github.com` |
+So if you regenerate by hand, set both and then read them back:
 
-`upgrade.yml` uses the `-c user.email` form and is right to: CI has no such wrapper. Copying
-it into the manual path is the failure mode, because it fails silently — nothing warns, the
-commit succeeds, and the branch is orphaned. `task test:scripts` enforces the distinction as
-`renovate-regen/runbook-authorship`: this runbook has to show the `--author` form with the
-address `upgrade.yml` declares, and must not show a `-c user.email` form carrying it. If a
+```sh
+git -c user.name=homelab-regen-bot \
+    -c user.email=homelab-regen-bot@users.noreply.github.com \
+    commit --author "homelab-regen-bot <homelab-regen-bot@users.noreply.github.com>" \
+    -m 'chore(deps): regenerate snapshots, schemas and localdev values'
+git log -1 --format='%ae %ce'   # both must be homelab-regen-bot@users.noreply.github.com
+```
+
+`-c user.email` is what carries the *committer*; `--author` is the only form that survives a
+credential wrapper exporting `GIT_AUTHOR_EMAIL`. Neither alone is sufficient, which is why
+the recipe uses both and why the read-back is part of it rather than advice.
+
+Measured on the agent runner, one repository, one tree, three invocations, all exiting `0`:
+
+| invocation | author | committer |
+|---|---|---|
+| `git -c user.email=homelab-regen-bot@… commit` | operator | operator |
+| `GIT_COMMITTER_EMAIL=homelab-regen-bot@… git commit --author "…"` | **bot** | operator |
+| `git commit --author "homelab-regen-bot <…>"` | **bot** | operator |
+
+`upgrade.yml` uses the `-c user.email` form and is right to: CI has no wrapper, so it lands
+both. Where a wrapper pins the committer — the Paperclip agent runner strips and re-sets
+`GIT_COMMITTER_*` for every invocation — **no git invocation can win**, and the API is the
+only path that takes both as explicit fields:
+
+```sh
+gh api -X PUT "repos/$OWNER/$REPO/contents/$PATH" -f branch="$BRANCH" \
+  -f message='chore(deps): regenerate snapshots, schemas and localdev values' \
+  -f content="$(base64 -w0 "$PATH")" -f sha="$BLOB_SHA" \
+  -f 'author[name]=homelab-regen-bot' \
+  -f 'author[email]=homelab-regen-bot@users.noreply.github.com' \
+  -f 'committer[name]=homelab-regen-bot' \
+  -f 'committer[email]=homelab-regen-bot@users.noreply.github.com'
+```
+
+Verified 2026-09-26 on a throwaway branch: the resulting commit reads back
+`author.email == committer.email == homelab-regen-bot@users.noreply.github.com`. It needs no
+secret and no personal address. One request per file, so it suits a two-or-three-file
+regeneration, not a snapshot sweep.
+
+You can also commit the `snapshots-regenerated` artifact of the `snapshot` job, which posts
+its own `snapshot-diff` comment with the in-repository manifest diff — but commit it the same
+way, and read `%ce` back.
+
+`task test:scripts` enforces all of that as `renovate-regen/runbook-authorship`: this runbook
+has to show the `--author` form, a `-c user.email` form, the `%ce` read-back and the
+`committer[email]` fallback, each carrying the address `upgrade.yml` declares. If a
 documentation change turns that check red, replace the recipe rather than deleting the test —
 there is no bypass, because the copy-pasted command *is* the product here.
+`task renovate:regen` runs the same check on its own commit as
+`renovate-regen/commit-identity`, so the orphaning case fails loudly instead of landing.
 
 **What the bot buys, and why it is not optional under a strict base branch.** Without it,
 regeneration is manual, and every manual regeneration freezes its branch until somebody
