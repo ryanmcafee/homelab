@@ -449,6 +449,14 @@ export function changedPaths(porcelainZ: string): string[] {
   return paths;
 }
 
+/** Reads the worktree's changed paths; untrimmed because trimming eats the first entry's status space. */
+export async function readChangedPaths(repoDir?: string): Promise<string[]> {
+  const git = repoDir ? ["git", "-C", repoDir] : ["git"];
+  return changedPaths(
+    await run([...git, "status", "--porcelain", "-z"], true, false),
+  );
+}
+
 export function generatedOnlyError(changed: string[]): string | null {
   const foreign = changed.filter(
     (p) =>
@@ -584,9 +592,7 @@ async function main(): Promise<void> {
     await run(step.cmd);
   }
 
-  const changed = changedPaths(
-    await run(["git", "status", "--porcelain", "-z"], true, false),
-  );
+  const changed = await readChangedPaths();
   if (changed.length === 0) {
     console.log(
       `${green("[OK]")} nothing to regenerate; the branch is already current`,
