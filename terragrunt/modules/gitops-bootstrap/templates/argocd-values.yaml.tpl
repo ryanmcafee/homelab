@@ -7,6 +7,7 @@ global:
 configs:
   params:
     server.insecure: true
+    controller.diff.server.side: "true"
   cm:
     admin.enabled: ${admin_enabled}
     timeout.reconciliation: 60s
