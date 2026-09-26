@@ -38,6 +38,7 @@ import {
   readChangedPaths,
   readDeployedRenovate,
   RENOVATE_CONFIG_PATH,
+  resolveCommitterRegime,
   WORKFLOW_PATH,
 } from "./renovate-regen.ts";
 
@@ -340,15 +341,76 @@ test("a pinned committer is advisory on the deployed 43.x, not an error", () => 
     IDENTITY_FIXTURE,
     BOT_EMAIL_FIXTURE,
     PINNED_COMMITTER,
-    { committerIsRead: false },
+    { committerIsRead: false, measuredMajor: 43 },
   );
   assertEquals(error, null);
   assert(warning !== null);
   assertStringIncludes(warning, "renovate-regen/commit-identity");
   assertStringIncludes(warning, PINNED_COMMITTER);
-  assertStringIncludes(warning, "Renovate");
+  assertStringIncludes(warning, "measured Renovate 43.x");
   assertStringIncludes(warning, "44");
   assertStringIncludes(warning, "committer[email]");
+});
+
+test("an unmeasured deployment is reported as unmeasured, not as harmless", () => {
+  // The defect: with RENOVATE_MAJOR unset -- the default for every manual and
+  // agent run -- this warning used to assert "harmless on the deployed 43.x".
+  // If the deployment has crossed 44 the same run has already orphaned the
+  // branch, and a green-looking advisory is what hides it.
+  const { error, warning } = commitIdentityFindings(
+    IDENTITY_FIXTURE,
+    BOT_EMAIL_FIXTURE,
+    PINNED_COMMITTER,
+    { committerIsRead: false, measuredMajor: null },
+  );
+  assertEquals(error, null);
+  assert(warning !== null);
+  assertStringIncludes(warning, "NOT read this run");
+  assertStringIncludes(warning, "task renovate:deployed-major");
+  assertStringIncludes(warning, "already orphaned the branch");
+  assert(
+    !warning.includes("Harmless"),
+    "an unmeasured regime must not be called harmless",
+  );
+  assert(
+    !/deployed Renovate 4\d\.x/.test(warning),
+    "an unmeasured regime must not name a version",
+  );
+});
+
+test("resolveCommitterRegime reports what it measured, not what it enforces", () => {
+  assertEquals(resolveCommitterRegime([], {}), {
+    committerIsRead: false,
+    measuredMajor: null,
+  });
+  assertEquals(resolveCommitterRegime([], { RENOVATE_MAJOR: "43" }), {
+    committerIsRead: false,
+    measuredMajor: 43,
+  });
+  assertEquals(resolveCommitterRegime([], { RENOVATE_MAJOR: "44" }), {
+    committerIsRead: true,
+    measuredMajor: 44,
+  });
+  assertEquals(
+    resolveCommitterRegime(["--committer-strict"], {}),
+    { committerIsRead: true, measuredMajor: null },
+    "--committer-strict enforces the regime without measuring it",
+  );
+  assertEquals(resolveCommitterRegime([], { RENOVATE_MAJOR: "" }), {
+    committerIsRead: false,
+    measuredMajor: null,
+  });
+});
+
+test("an explicitly measured null is treated as unmeasured", () => {
+  const { warning } = commitIdentityFindings(
+    IDENTITY_FIXTURE,
+    BOT_EMAIL_FIXTURE,
+    PINNED_COMMITTER,
+    { committerIsRead: false, measuredMajor: null },
+  );
+  assert(warning !== null);
+  assertStringIncludes(warning, "NOT read this run");
 });
 
 test("the same pinned committer is an error once Renovate reads it", () => {
@@ -356,7 +418,7 @@ test("the same pinned committer is an error once Renovate reads it", () => {
     IDENTITY_FIXTURE,
     BOT_EMAIL_FIXTURE,
     PINNED_COMMITTER,
-    { committerIsRead: true },
+    { committerIsRead: true, measuredMajor: 44 },
   );
   assertEquals(warning, null);
   assert(error !== null);
@@ -374,7 +436,7 @@ test("a wrong author is an error in both regimes", () => {
       IDENTITY_FIXTURE,
       "operator@example.com",
       BOT_EMAIL_FIXTURE,
-      { committerIsRead: read },
+      { committerIsRead: read, measuredMajor: read ? 44 : 43 },
     );
     assert(
       error !== null,
@@ -391,7 +453,7 @@ test("a fully correct commit is clean in both regimes", () => {
         IDENTITY_FIXTURE,
         BOT_EMAIL_FIXTURE,
         BOT_EMAIL_FIXTURE,
-        { committerIsRead: read },
+        { committerIsRead: read, measuredMajor: read ? 44 : 43 },
       ),
       { error: null, warning: null },
     );
