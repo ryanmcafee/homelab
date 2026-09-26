@@ -18,7 +18,9 @@ import {
 } from "./lib/assert.ts";
 import {
   branchGuardError,
-  commitIdentityError,
+  commitIdentityFindings,
+  COMMITTER_READ_FROM_MAJOR,
+  committerIsRead,
   generatedOnlyError,
   identityParityError,
   parseGitIgnoredAuthors,
@@ -166,12 +168,14 @@ test("the repository's own regeneration identity is one Renovate ignores", () =>
 /**
  * The runbook is the third place the regeneration identity appears, and the
  * only one a person copy-pastes. Both halves of the recipe are load-bearing,
- * because Renovate's `isBranchModified()` unions `%ae` *and* `%ce` over every
- * commit in `origin/<base>..origin/<branch>` and abandons the branch if any
- * address survives removing the git author, `gitIgnoredAuthors` and the
- * platform's own `noreply@github.com` (renovatebot/renovate
- * `lib/util/git/index.ts`; `lib/modules/platform/github/index.ts` for the
- * platform list). Measured 2026-09-26 on the Paperclip runner, one tree, three
+ * but for different Renovate majors: `isBranchModified()` collects `%ae` only
+ * through 43.x and `%ae` *and* `%ce` from 44.0.0, then abandons the branch if
+ * any address survives removing the git author and `gitIgnoredAuthors`
+ * (renovatebot/renovate `lib/util/git/index.ts`; see
+ * COMMITTER_READ_FROM_MAJOR). This repository ran 43.110.14 on 2026-09-26, so
+ * the author is what counts today and the committer is what will count after
+ * the 44 upgrade — the recipe has to satisfy both, and the runbook has to say
+ * which is which. Measured 2026-09-26 on the Paperclip runner, one tree, three
  * invocations, all exiting 0:
  *
  *   git -c user.email=<bot> commit                    -> author <op>  committer <op>
@@ -203,7 +207,7 @@ function runbookAuthorshipErrors(markdown: string, email: string): string[] {
     ],
     [
       new RegExp(`-c\\s+user\\.email\\s*=\\s*['"]?${quoted}`).test(markdown),
-      `never shows \`-c user.email=${email}\`, so the manual path sets no committer — and Renovate reads the committer of every commit ahead of the base branch, not just the author`,
+      `never shows \`-c user.email=${email}\`, so the manual path sets no committer — inert on the deployed Renovate 43.x, but from Renovate ${COMMITTER_READ_FROM_MAJOR} the committer of every commit ahead of the base branch counts too`,
     ],
     [
       /%ce/.test(markdown),
@@ -212,6 +216,12 @@ function runbookAuthorshipErrors(markdown: string, email: string): string[] {
     [
       near(/committer\[email\]/g, 120),
       `never shows the API fallback (\`committer[email]=${email}\`), which is the only path left when a wrapper pins the committer`,
+    ],
+    [
+      new RegExp(
+        `Renovate\\s+${COMMITTER_READ_FROM_MAJOR}\\b|\\b${COMMITTER_READ_FROM_MAJOR}\\.x\\b`,
+      ).test(markdown),
+      `never names Renovate ${COMMITTER_READ_FROM_MAJOR} as the major at which the committer starts counting, so a reader cannot tell whether a committer mismatch is an orphaning event today or only after the upgrade`,
     ],
   ];
   for (const [satisfied, why] of required) {
@@ -233,6 +243,7 @@ const COMPLETE_RECIPE = [
   "    -m 'chore(deps): regenerate'",
   "git log -1 --format='%ae %ce'   # both must be the bot address",
   "```",
+  "The committer only counts from Renovate 44; on the deployed 43.x it is ignored.",
   "If the committer is not the bot address, a wrapper pinned it; use the API instead:",
   "```sh",
   'gh api -X PUT repos/{owner}/{repo}/contents/{path} -f branch="$BRANCH" \\',
@@ -287,40 +298,92 @@ test("runbookAuthorshipErrors fails closed when the recipe is dropped", () => {
     "Run `task config:export:localdev` and `task test:snapshot -- --update` on the branch and commit.\n",
     BOT_EMAIL_FIXTURE,
   );
-  assertEquals(errors.length, 4);
+  assertEquals(errors.length, 5);
   assertStringIncludes(errors[0]!, "never shows `git commit --author`");
+  assertStringIncludes(
+    errors[4]!,
+    `never names Renovate ${COMMITTER_READ_FROM_MAJOR}`,
+  );
 });
 
-test("commitIdentityError names the committer when only the author is right", () => {
-  const identity = { name: "homelab-regen-bot", email: BOT_EMAIL_FIXTURE };
-  const error = commitIdentityError(
-    identity,
+const IDENTITY_FIXTURE = {
+  name: "homelab-regen-bot",
+  email: BOT_EMAIL_FIXTURE,
+};
+/** What the agent runner's git wrapper actually pins the committer to. */
+const PINNED_COMMITTER = "2336262+operator@users.noreply.github.com";
+
+test("committerIsRead tracks the 43 -> 44 boundary", () => {
+  assertEquals(COMMITTER_READ_FROM_MAJOR, 44);
+  assertEquals(committerIsRead(43), false);
+  assertEquals(committerIsRead(44), true);
+  assertEquals(committerIsRead(null), false, "unknown must not fail closed");
+});
+
+test("a pinned committer is advisory on the deployed 43.x, not an error", () => {
+  // The regression this replaces: erroring here made `task renovate:regen`
+  // exit 1 after a commit that Renovate 43.110.14 tracks perfectly well, i.e.
+  // the tool rejected its own correct output for its only intended actor.
+  const { error, warning } = commitIdentityFindings(
+    IDENTITY_FIXTURE,
     BOT_EMAIL_FIXTURE,
-    "2336262+operator@users.noreply.github.com",
+    PINNED_COMMITTER,
+    { committerIsRead: false },
   );
+  assertEquals(error, null);
+  assert(warning !== null);
+  assertStringIncludes(warning, "renovate-regen/commit-identity");
+  assertStringIncludes(warning, PINNED_COMMITTER);
+  assertStringIncludes(warning, "Renovate");
+  assertStringIncludes(warning, "44");
+  assertStringIncludes(warning, "committer[email]");
+});
+
+test("the same pinned committer is an error once Renovate reads it", () => {
+  const { error, warning } = commitIdentityFindings(
+    IDENTITY_FIXTURE,
+    BOT_EMAIL_FIXTURE,
+    PINNED_COMMITTER,
+    { committerIsRead: true },
+  );
+  assertEquals(warning, null);
   assert(error !== null);
   assertStringIncludes(error, "renovate-regen/commit-identity");
-  assertStringIncludes(
-    error,
-    "committer: 2336262+operator@users.noreply.github.com",
-  );
+  assertStringIncludes(error, `committer: ${PINNED_COMMITTER}`);
   assert(
     !error.includes("author:"),
     "the author was correct and must not be reported",
   );
-  assertStringIncludes(error, "committer[email]");
 });
 
-test("commitIdentityError passes only when both addresses are the bot", () => {
-  const identity = { name: "homelab-regen-bot", email: BOT_EMAIL_FIXTURE };
-  assertEquals(
-    commitIdentityError(identity, BOT_EMAIL_FIXTURE, BOT_EMAIL_FIXTURE),
-    null,
-  );
-  assert(
-    commitIdentityError(identity, "operator@example.com", BOT_EMAIL_FIXTURE) !==
-      null,
-  );
+test("a wrong author is an error in both regimes", () => {
+  for (const read of [false, true]) {
+    const { error } = commitIdentityFindings(
+      IDENTITY_FIXTURE,
+      "operator@example.com",
+      BOT_EMAIL_FIXTURE,
+      { committerIsRead: read },
+    );
+    assert(
+      error !== null,
+      `author mismatch must fail with committerIsRead=${read}`,
+    );
+    assertStringIncludes(error, "author: operator@example.com");
+  }
+});
+
+test("a fully correct commit is clean in both regimes", () => {
+  for (const read of [false, true]) {
+    assertEquals(
+      commitIdentityFindings(
+        IDENTITY_FIXTURE,
+        BOT_EMAIL_FIXTURE,
+        BOT_EMAIL_FIXTURE,
+        { committerIsRead: read },
+      ),
+      { error: null, warning: null },
+    );
+  }
 });
 
 test("the runbook's manual regeneration recipe survives a git wrapper", () => {

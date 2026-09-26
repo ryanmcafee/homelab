@@ -168,43 +168,99 @@ export function branchGuardError(
 }
 
 /**
- * Renovate's `isBranchModified()` unions `%ae` *and* `%ce` over every commit in
- * `origin/<base>..origin/<branch>` and fails the branch if any address is left
- * after removing the git author, `gitIgnoredAuthors` and the platform's own
- * `noreply@github.com` (renovatebot/renovate `lib/util/git/index.ts`, and
- * `lib/modules/platform/github/index.ts` for the platform list). So the
- * committer is not a free field, and `--author` alone is not enough.
+ * The Renovate major at which `isBranchModified()` starts reading the committer.
  *
- * `git -c user.email=… commit --author=…` sets both on an ordinary machine.
- * Where a credential wrapper pins the committer it cannot (the Paperclip agent
- * runner strips and re-sets `GIT_COMMITTER_EMAIL`, measured: `--author` lands,
- * every committer form does not), and this is the check that says so out loud
- * instead of letting the orphaning commit land silently.
+ * Measured against the published sources, not assumed — the assumption is what
+ * produced two wrong diagnoses on this branch:
+ *
+ * - `43.163.0` `lib/util/git/index.ts`: `git.log(['origin/base..origin/branch'])`
+ *   and `committedAuthors.add(commit.author_email)`. `%ae` only, and
+ *   `gitIgnoredAuthors` is matched with `Set.delete(literal)`.
+ * - `44.0.0` and later: the same log requests `{ author_email: '%ae',
+ *   committer_email: '%ce' }` and adds both, then subtracts `gitIgnoredAuthors`
+ *   through `matchRegexOrGlobList` plus the platform's `noreply@github.com`.
+ *   Upstream `ff2a83d9` (2026-05-07) landed it, `2239c753` reverted it a day
+ *   later, `8e6a7fc2` (2026-07-18) re-landed it; glob support is `65ee1f18`.
+ *
+ * Read the deployed version from the base64 `renovate-debug` comment at the foot
+ * of any Renovate PR body. This repository was on 43.110.14 on 2026-09-26, and
+ * the Dependency Dashboard's "PR Edited (Blocked)" section confirmed the
+ * behaviour independently: branches whose only foreign address was the committer
+ * were listed as Open.
  */
-export function commitIdentityError(
+export const COMMITTER_READ_FROM_MAJOR = 44;
+
+/**
+ * Whether the deployed Renovate reads `%ce`. `RENOVATE_MAJOR` lets CI and the
+ * runbook pin it explicitly; absent that we assume the pre-44 behaviour, which
+ * is the one measured here, and the committer finding stays advisory.
+ */
+export function committerIsRead(
+  renovateMajor: number | null | undefined,
+): boolean {
+  return (renovateMajor ?? 0) >= COMMITTER_READ_FROM_MAJOR;
+}
+
+export interface CommitIdentityFindings {
+  /** Orphans the branch on every Renovate version. Fails the command. */
+  error: string | null;
+  /** Orphans the branch only from Renovate 44. Advisory before then. */
+  warning: string | null;
+}
+
+/**
+ * A wrong **author** takes the branch out of Renovate's hands on every version,
+ * so it is an error. A wrong **committer** does so only from
+ * {@link COMMITTER_READ_FROM_MAJOR}; before that it is a warning, because on the
+ * deployed 43.x the commit is genuinely Renovate-managed and failing it would
+ * reject the tool's own correct output. On this runner the committer is *always*
+ * wrong — the credential wrapper strips and re-sets `GIT_COMMITTER_EMAIL`, and
+ * measurement says `--author` lands while every committer form does not — so
+ * erroring on it would make `renovate:regen` unrunnable by its intended actor.
+ */
+export function commitIdentityFindings(
   identity: RegenIdentity,
   authorEmail: string,
   committerEmail: string,
-): string | null {
-  const wrong = [
-    authorEmail === identity.email ? null : ["author", authorEmail],
-    committerEmail === identity.email ? null : ["committer", committerEmail],
-  ].filter(Boolean) as string[][];
-  if (wrong.length === 0) return null;
-  return [
-    "renovate-regen/commit-identity: the commit does not carry the regeneration identity.",
-    ...wrong.map(
-      ([role, got]) => `  ${role}: ${got} (expected ${identity.email})`,
-    ),
-    "  Renovate reads the author AND the committer of every commit ahead of the base branch,",
-    "  so this commit takes the branch out of Renovate's hands. On an ordinary machine amend it:",
+  options: { committerIsRead: boolean },
+): CommitIdentityFindings {
+  const remedy = [
+    "  On an ordinary machine amend it:",
     `    git -c user.name="${identity.name}" -c user.email="${identity.email}" \\`,
     `      commit --amend --no-edit --author="${identity.name} <${identity.email}>"`,
     "  If the committer is still wrong after that, a credential wrapper is pinning it and no git",
     "  invocation can win. Commit through the API instead, which takes both as explicit fields:",
     "    gh api -X PUT repos/{owner}/{repo}/contents/{path} -f branch=... -f content=... \\",
     `      -f 'author[email]=${identity.email}' -f 'committer[email]=${identity.email}'`,
-  ].join("\n");
+  ];
+  const authorWrong = authorEmail !== identity.email;
+  const committerWrong = committerEmail !== identity.email;
+  const wrong: string[] = [];
+  if (authorWrong) wrong.push(`  author: ${authorEmail}`);
+  const error =
+    authorWrong || (committerWrong && options.committerIsRead)
+      ? [
+          "renovate-regen/commit-identity: the commit does not carry the regeneration identity.",
+          ...wrong,
+          ...(committerWrong && options.committerIsRead
+            ? [`  committer: ${committerEmail}`]
+            : []),
+          `  (expected ${identity.email})`,
+          `  Renovate reads the author${options.committerIsRead ? " AND the committer" : ""} of every commit ahead of`,
+          "  the base branch, so this commit takes the branch out of Renovate's hands.",
+          ...remedy,
+        ].join("\n")
+      : null;
+  const warning =
+    committerWrong && !options.committerIsRead
+      ? [
+          `renovate-regen/commit-identity: committer is ${committerEmail}, not ${identity.email}.`,
+          `  Harmless on the deployed Renovate 43.x, which reads only the author. From Renovate`,
+          `  ${COMMITTER_READ_FROM_MAJOR} this orphans the branch, so fix it before that upgrade lands.`,
+          ...remedy,
+        ].join("\n")
+      : null;
+  return { error, warning };
 }
 
 export function generatedOnlyError(changed: string[]): string | null {
@@ -250,6 +306,11 @@ async function main(): Promise<void> {
   const checkOnly = args.includes("--check");
   const noCommit = args.includes("--no-commit");
   const anyBranch = args.includes("--any-branch");
+  // `RENOVATE_MAJOR` is the honest input (read it out of a PR's renovate-debug
+  // blob); `--committer-strict` is the manual override for a dry run.
+  const committerRead =
+    args.includes("--committer-strict") ||
+    committerIsRead(Number.parseInt(Bun.env.RENOVATE_MAJOR ?? "", 10) || null);
 
   const [workflowYaml, renovateConfig] = await Promise.all([
     readFile(WORKFLOW_PATH, "utf8"),
@@ -342,17 +403,17 @@ async function main(): Promise<void> {
   const [authored, committed] = (
     await capture(["git", "log", "-1", "--format=%ae%n%ce"])
   ).split("\n");
-  const identityError = commitIdentityError(
-    identity,
-    authored ?? "",
-    committed ?? "",
-  );
+  const { error: identityError, warning: identityWarning } =
+    commitIdentityFindings(identity, authored ?? "", committed ?? "", {
+      committerIsRead: committerRead,
+    });
   if (identityError) {
     console.error(red(identityError));
     process.exit(1);
   }
+  if (identityWarning) console.warn(yellow(identityWarning));
   console.log(
-    `${green("[OK]")} committed ${await capture(["git", "rev-parse", "--short", "HEAD"])} as ${cyan(authored ?? "")} (author and committer)`,
+    `${green("[OK]")} committed ${await capture(["git", "rev-parse", "--short", "HEAD"])} as ${cyan(authored ?? "")} (author${identityWarning ? "" : " and committer"})`,
   );
 }
 
