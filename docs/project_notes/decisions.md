@@ -960,6 +960,36 @@ Each decision should include:
 - **Blank is not zero (2026-09-25 ruling, MCAA-118).** Omitting a higher ordinal means a smaller control plane; declaring `CPn_IP` and leaving it blank is indeterminate and refuses the whole set, per `evaluation.onIndeterminate: unsafe`. The two are not interchangeable because this value gates a destructive operation (#39): "I am shrinking to two" and "I have not filled this in yet" are both honest readings of a blank, and the resolver may not pick one silently
 - One scope note for the ADR-037 owner: `examplePlaceholderSubnets` in `internal/config/guard.go` gained RFC 5737 TEST-NET-1 (`192.0.2.0/24`), because the one-node fixture must not reuse `homelab.yaml.example`'s RFC 1918 range. Only TEST-NET-1 was added; TEST-NET-2/3 stay out so the existing "public address is not a placeholder" case on `203.0.113.10` keeps its meaning
 
+### ADR-041: Backend language runtimes are pinned in mise.toml, and an uncached container proves the cold fork path (2026-09-25)
+
+**Context:**
+- `mise.toml` pins five `pipx:*` tools and one `npm:*` tool but declared no Python, pipx or Node, so mise could not bootstrap its own backend: on a machine with only `git` and `curl`, `mise install`, `task install-tools` and `task setup` all failed (#331)
+- This is the first command a forker runs, so it affects every forker; the fork-ability contract makes it a product defect, not a chore
+- The five backend tools are lint and policy gates (`yamllint`, `ansible-lint`, `ansible-core`, `checkov`, `pre-commit`) whose verdicts the repository treats as stable inputs, so the interpreter underneath them is part of the result
+- No gate could catch the regression: every GitHub-hosted runner ships Python, Node and Go, so CI passed on machines that already had what the fork path was missing
+
+**Decision:**
+- Declare `python`, `pipx` and `node` in `[tools]` at exact patch versions, consistent with every other pin in the file, and keep `mise.toml` the single declaration consumed by operators, `jdx/mise-action` in CI, and the cold container
+- Treat the runtime pins as ordinary Renovate-tracked dependencies: patch bumps automerge only behind green checks, like the rest of the file
+- Accept the coupling this creates: mise turns a declared runtime into a required install dependency of every tool on that backend, so any `mise-action` `install_args` naming a `pipx:`/`npm:` tool must also name its runtime, and that invariant is enforced by a repository check rather than by review attention
+- Prove the cold path in an uncached `ubuntu:24.04` container built from `git archive HEAD` with no host cache, Docker socket or credentials (`Dockerfile.toolchain`, `task toolchain:check`, `toolchain-bootstrap.yml`): it asserts no preinstalled runtime, installs every tool, reruns `task install-tools`, asserts completeness and the bootstrap regressions, and asserts that `task setup` reaches tier detection and prints its documented missing-Docker fix rather than a swallowed installer error
+- Scope the gate to `linux/amd64`; macOS and arm64 stay operator-verified, and cluster behaviour stays with the existing Kind CI
+
+**Alternatives Considered:**
+- `python = "latest"` / `pipx = "latest"` -> fixes the bootstrap but floats the interpreter under five gates, so a lint verdict can change with no commit; a pinned tool on a moving runtime is not a pin
+- Leave the runtimes undeclared and let the backends use the system PATH (mise's own hint) -> that is the defect: a fresh machine has no Python
+- Pin the minor only (`python = "3.13"`) -> smaller bump traffic, but cold builds stop being reproducible and patch-level runtime CVEs arrive with no Renovate signal
+- Run the cold check directly on a GitHub runner -> the assertion that matters ("no language runtime is present") cannot be made on an image that ships three
+- Allow a build cache or mount the host tool cache -> faster, but a warm cache is precisely the condition the gate exists to exclude
+
+**Consequences:**
+- A stranger with `git` and `curl` installs the whole toolchain from `mise.toml` alone: no Homebrew, no system Python, no preinstalled Node, no credentials
+- Declaring a runtime is not free. Partial installs must name it, so the subset-install convention in every workflow becomes load-bearing; without the enforcing check this is rediscovered as a red build on an unrelated pull request
+- Runtime upgrades now travel the same Renovate path as every other pin, and the cold gate runs on them before automerge
+- CI gains a job that downloads the entire toolchain on any change to `mise.toml`, `Taskfile.yml`, `Dockerfile.toolchain`, the CLI sources or the lockfiles (~2 minutes measured on a GitHub-hosted runner, 20-minute ceiling)
+- The gate asserts a failure: `task setup` must exit non-zero with the missing-Docker diagnostic. If the container ever gains a Docker socket the assertion inverts and must be rewritten
+- The mise binary itself is now pinned in a second place (`Dockerfile.toolchain`, version plus sha256). That pin matches no Renovate manager, so it freezes silently until it is given its own annotation
+
 ### ADR-037: The fork-ability gate's scope is what it can actually scan; Go source is outside it (2026-09-25); refines ADR-029
 **Context:**
 - ADR-029 states the rule repository-wide — `docs/contracts/fork-ability.md` says "No file in this repository may contain … a specific domain name or hostname … a cluster name, node name or hardware serial" — and then enforces it with checks whose real scope is narrower than "no file"
