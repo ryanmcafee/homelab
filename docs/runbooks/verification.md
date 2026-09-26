@@ -303,10 +303,182 @@ create a GitHub App owned by the repository owner with repository permission
 **Contents: read and write**, install it on this repository only, and store its App ID and
 a private key as the Actions secrets `HOMELAB_BOT_APP_ID` and `HOMELAB_BOT_PRIVATE_KEY`.
 
-To accept a bump without the bot: run `task config:export:localdev`, `task
-schemas:vendor` and `task test:snapshot -- --update` on the branch and commit, or commit
-the `snapshots-regenerated` artifact of the `snapshot` job, which also posts its own
-`snapshot-diff` comment with the in-repository manifest diff.
+**Accepting a bump without the bot: `task renovate:regen`.** This is the path that matters
+when the secrets are not set, and the author of the commit it makes is not a detail.
+`gitIgnoredAuthors` lists exactly one address. A commit ahead of the base branch by anybody
+else makes Renovate treat the branch as human-edited and **stop rebasing it permanently** —
+`rebaseWhen: 'behind-base-branch'` does not help, because Renovate never looks at the branch
+again. Measured on 2026-09-26: of the five open `renovate/*` PRs, the two carrying only
+Renovate's own commits were rebased to 0-behind within ~70 minutes of `main` moving, and all
+three carrying a regeneration commit pushed under a personal address had been stuck for up
+to two days, 19, 19 and 10 commits behind.
+
+`task renovate:regen` runs `config:export:localdev`, `schemas:vendor`, `test:snapshot --
+--update` and `docs:check -- --fix` (a chart bump also moves the readme version badges and
+the addons table), then commits the result with both the author and the committer set to
+`REGEN_BOT_NAME <REGEN_BOT_EMAIL>` from `upgrade.yml` — the same identity CI would have used —
+and verifies both on the commit it just made. It refuses to run when:
+
+| Guard | Why |
+|---|---|
+| `renovate-regen/identity-parity` | `upgrade.yml`'s `REGEN_BOT_EMAIL` is not in `renovate.json5`'s `gitIgnoredAuthors`. Three places have to agree and nothing else checks that they do; `scripts/renovate-regen_test.ts` asserts it against the real files, so drift fails `task test:scripts` instead of silently orphaning every future branch. |
+| `renovate-regen/branch-scope` | HEAD is not a `renovate/*` branch. Signing a human PR's commit as the bot would invite Renovate to force-push over real work. Bypass: `-- --any-branch`, with the reason in the commit or PR body. |
+| `renovate-regen/generated-only` | Regeneration touched a file outside the generated set. No bypass: commit that file separately under your own author — which keeps the branch out of Renovate's hands, and for a real change that is the correct outcome. |
+| `renovate-regen/clean-tree` | The working tree was already dirty, so the commit would not be regeneration output alone. |
+| `renovate-regen/commit-identity` | The commit it just made does not carry the bot address as *both* author and committer. Fires after the commit, so the branch is still recoverable with one `--amend`; no bypass, because a commit that fails it is exactly the commit that orphans the branch. Where a wrapper pins the committer, the error points at the API form below. |
+| `renovate-regen/deployed-major` | `task renovate:deployed-major` read a deployed Renovate of `44.x` or later out of an open `renovate/*` PR body while this repository still treats a committer mismatch as advisory. Fires on the version, not on a commit: past 44 every rebase under a foreign identity orphans its branch while changing no bytes, so the regime has to move with the deployment. Also fires when the version cannot be read at all — an unmeasurable version is not evidence of a pre-44 deployment. Bypass: pin `RENOVATE_MAJOR` to the version you actually measured, and say where you measured it. |
+
+Do **not** "fix" the orphaning by adding a personal address to `gitIgnoredAuthors`. It would
+let Renovate force-push over genuine human edits to a bump branch, and it hard-codes one
+operator's address into a config every fork inherits: a forker's regeneration commits carry
+*their* address, so the entry would only ever work on one repository. The test asserts every
+`gitIgnoredAuthors` entry is a generic `@users.noreply.github.com` bot address for that
+reason.
+
+**Which addresses Renovate reads depends on its major version, so write commits that satisfy
+both.** `isBranchModified()` walks every commit in `origin/<base>..origin/<branch>` and
+removes the git author and every `gitIgnoredAuthors` entry; if an address is left, the branch
+is human-edited and Renovate stops touching it
+([`lib/util/git/index.ts`](https://github.com/renovatebot/renovate/blob/main/lib/util/git/index.ts)).
+What it collects per commit changed at the 43 → 44 major:
+
+| deployed Renovate | addresses read | `gitIgnoredAuthors` matching | manual regeneration form to use |
+| --- | --- | --- | --- |
+| **43.x** (43.163.0 and earlier) | `%ae` only | exact literal only | either; the git form below is sufficient because the committer is ignored |
+| **44.x** (44.0.0 and later) | `%ae` **and** `%ce` | literal, regex or glob | **the API form below is the default.** It is the only form that lands `%ce` where a credential wrapper pins the committer, and a rebase rewrites every committer |
+
+Do not take the deployed version from this table, from a chart value, or from memory — **read
+it**, with `task renovate:deployed-major`. It decodes the base64 `renovate-debug` comment at
+the foot of every Renovate PR body (JSON with `createdInVer`/`updatedInVer`; `updatedInVer` is
+the version that last ran) and fails as `renovate-regen/deployed-major` the moment the
+deployed major reaches 44 while this repository is still driving the 43 regime. It takes the
+*highest* major across every open `renovate/*` PR, because an abandoned branch keeps
+advertising the version that abandoned it and a stale body must not mask a live upgrade. It
+fails closed when no blob is readable: an unmeasurable version is not evidence of 43.x.
+
+It also fails closed on an empty *listing*, which is the failure that looks like success. In
+CI the check only runs on a `renovate/*` head, so the PR it is running on must appear among
+the open `renovate/*` PRs it lists; when `GITHUB_HEAD_REF` is set and that head is missing,
+the listing was truncated or read with a token lacking `pull-requests: read` — returning `[]`
+with a `200` — and the check fails instead of emitting its "no Renovate PRs open" notice. The
+notice path survives only for a local run or a fork where Renovate writes no PRs at all, and
+there the gate has nothing to protect.
+
+On 2026-09-26 that check read **43.110.14**, so only the author counted, and the Dependency
+Dashboard's *PR Edited (Blocked)* section agreed independently: branches whose only foreign
+address was the committer were listed under *Open*, and the one branch with a foreign
+**author** was the only entry under *Blocked*. Re-run the same natural experiment in the
+opposite direction after the upgrade — a branch rebased under a foreign identity must then
+appear under *PR Edited (Blocked)*.
+
+Two consequences that are easy to get wrong in opposite directions:
+
+- On **44.x**, `--author` alone is not enough, and a **rebase** re-commits every commit and so
+  rewrites every committer — rebasing a `renovate/*` branch under your own identity would
+  orphan it while changing nothing.
+- On **43.x**, the committer is ignored, so a committer-only mismatch is *not* an orphaning
+  event and must not be reported as one. Repairing it costs a full CI cycle per branch and
+  buys nothing until the 44 upgrade lands.
+
+**The API form is the default for manual regeneration; the git form below is the
+ordinary-machine variant.** That ordering is deliberate: the git form's outcome depends on
+whether your environment has a credential wrapper, and it is inert-or-correct on 43.x but
+silently wrong on 44.x, whereas the API form takes both addresses as explicit fields and so
+lands the same commit under either regime and on either kind of machine. Use the git form when
+you have already read `%ce` back on that machine and seen it land.
+
+On an ordinary machine, then, set both and read them back — never one without the other:
+
+```sh
+git -c user.name=homelab-regen-bot \
+    -c user.email=homelab-regen-bot@users.noreply.github.com \
+    commit --author "homelab-regen-bot <homelab-regen-bot@users.noreply.github.com>" \
+    -m 'chore(deps): regenerate snapshots, schemas and localdev values'
+git log -1 --format='%ae %ce'   # both must be homelab-regen-bot@users.noreply.github.com
+```
+
+`-c user.email` is what carries the *committer*; `--author` is the only form that survives a
+credential wrapper exporting `GIT_AUTHOR_EMAIL`. Neither alone is sufficient, which is why
+the recipe uses both and why the read-back is part of it rather than advice.
+
+Measured on the agent runner, one repository, one tree, three invocations, all exiting `0`:
+
+| invocation | author | committer |
+|---|---|---|
+| `git -c user.email=homelab-regen-bot@… commit` | operator | operator |
+| `GIT_COMMITTER_EMAIL=homelab-regen-bot@… git commit --author "…"` | **bot** | operator |
+| `git commit --author "homelab-regen-bot <…>"` | **bot** | operator |
+
+`upgrade.yml` uses the `-c user.email` form and is right to: CI has no wrapper, so it lands
+both. Where a wrapper pins the committer — the Paperclip agent runner strips and re-sets
+`GIT_COMMITTER_*` for every invocation — **no git invocation can win**, and the API is the
+only path that takes both as explicit fields:
+
+```sh
+gh api -X PUT "repos/$OWNER/$REPO/contents/$PATH" -f branch="$BRANCH" \
+  -f message='chore(deps): regenerate snapshots, schemas and localdev values' \
+  -f content="$(base64 -w0 "$PATH")" -f sha="$BLOB_SHA" \
+  -f 'author[name]=homelab-regen-bot' \
+  -f 'author[email]=homelab-regen-bot@users.noreply.github.com' \
+  -f 'committer[name]=homelab-regen-bot' \
+  -f 'committer[email]=homelab-regen-bot@users.noreply.github.com'
+```
+
+Verified 2026-09-26 on a throwaway branch: the resulting commit reads back
+`author.email == committer.email == homelab-regen-bot@users.noreply.github.com`. It needs no
+secret and no personal address. One request per file, so it suits a two-or-three-file
+regeneration, not a snapshot sweep.
+
+You can also commit the `snapshots-regenerated` artifact of the `snapshot` job, which posts
+its own `snapshot-diff` comment with the in-repository manifest diff — but commit it the same
+way, and read `%ce` back.
+
+`task test:scripts` enforces all of that as `renovate-regen/runbook-authorship`: this runbook
+has to show the `--author` form, a `-c user.email` form, the `%ce` read-back, the
+`committer[email]` fallback — each carrying the address `upgrade.yml` declares — and the
+Renovate major at which the committer starts counting, so the table above cannot quietly rot
+past the upgrade. If a documentation change turns that check red, replace the recipe rather
+than deleting the test — there is no bypass, because the copy-pasted command *is* the product
+here.
+
+`task renovate:regen` runs the same check on its own commit as
+`renovate-regen/commit-identity`. A wrong **author** fails it; a wrong **committer** prints a
+warning naming the 44 boundary and does not fail, because on the deployed 43.x the commit is
+genuinely fine and a gate that rejects its own correct output is worse than no gate.
+
+**Moving to the 44 regime.** Do not wait to remember: `task renovate:deployed-major` is the
+trigger, and it goes red as `renovate-regen/deployed-major` on the first Renovate run after the
+`ghcr.io/renovatebot/charts/renovate` bump lands (it sits in the Dependency Dashboard's
+rate-limited *Container images* group, so the date is Renovate's, not yours). When it does:
+
+1. Run `task renovate:regen -- --committer-strict`, or set `RENOVATE_MAJOR` to the version the
+   check printed, so a committer mismatch becomes `renovate-regen/commit-identity`'s error
+   rather than its warning. `RENOVATE_MAJOR` is the honest input — it holds a version somebody
+   measured; `--committer-strict` is for a dry run of the far side of the boundary.
+2. Regenerate by hand through the API form above only. On a runner whose wrapper pins the
+   committer, no git invocation can produce a commit that Renovate 44 still manages.
+3. Audit every open `renovate/*` branch for a commit whose committer is not
+   `REGEN_BOT_EMAIL`: past 44 those are orphaned, and the upgrade orphans them retroactively
+   because `isBranchModified()` re-reads the whole branch. Repair one without changing a byte
+   with `POST /repos/{owner}/{repo}/git/commits`, passing the existing head's `tree` and
+   `parents` and setting `committer` equal to `author`, then move the ref. Confirm the tree SHA
+   is unchanged before and after — a rebase would change it and cost a full CI cycle.
+4. Confirm it took, from Renovate rather than from this document: a branch rebased under a
+   foreign identity must appear under *PR Edited (Blocked)* on the Dependency Dashboard, which
+   publishes a live `isBranchModified()` readout.
+
+Under a `strict` base branch none of this is cosmetic: an orphaned branch is never rebased
+again, so it can never be up to date, so it can never merge — and no agent can undo that.
+
+**What the bot buys, and why it is not optional under a strict base branch.** Without it,
+regeneration is manual, and every manual regeneration freezes its branch until somebody
+rebases it again — a closed loop. `task renovate:regen` keeps the branch Renovate-managed,
+but Renovate *drops* an ignored author's commits when it rebases, and with no bot to remake
+them the branch goes red on snapshot drift until a human regenerates again. So the loop
+closes either way; only the bot (which regenerates on every new head automatically) breaks
+it. If `main` ever requires branches to be up to date before merging ("Require branches to be
+up to date", `strict`), that loop stops being cosmetic drift and becomes a permanent merge
+block, so configure the bot **before** flipping it.
 
 ## Agent contract
 

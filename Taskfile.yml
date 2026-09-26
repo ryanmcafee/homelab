@@ -867,6 +867,39 @@ tasks:
     cmds:
       - bun scripts/crd-schemas-vendor.ts --check
 
+  renovate:regen:
+    desc: "Regenerate what a Renovate bump needs and commit it as the regeneration bot so Renovate keeps rebasing the branch (-- --check for identity parity only, -- --no-commit to leave the tree dirty)"
+    deps: [bun:install]
+    cmds:
+      - bun scripts/renovate-regen.ts {{.CLI_ARGS}}
+
+  renovate:deployed-major:
+    desc: "Read the deployed Renovate major out of an open renovate/* PR body and fail if it reached 44 (where isBranchModified reads the committer) while this repo still treats a committer mismatch as advisory"
+    deps: [bun:install]
+    cmds:
+      - |
+        set -euo pipefail
+        prs="$(gh pr list --repo "${GITHUB_REPOSITORY:-ryanmcafee/homelab}" --state open --limit 100 \
+          --json headRefName,body \
+          --jq '[.[] | select(.headRefName | startswith("renovate/"))]')"
+        # In the workflow this gate runs only on a renovate/* head, so the PR it is
+        # running on is itself open and must appear in that listing. When it does
+        # not, the listing is wrong rather than empty -- truncated at the limit, or
+        # read with a token that lacks pull-requests:read and so returns [] with a
+        # 200 -- and the notice below would then report an unmeasured deployment as
+        # if it were pre-44. Fail on the head that is actually under test.
+        if [ -n "${GITHUB_HEAD_REF:-}" ] &&
+          ! printf '%s' "$prs" | jq -e --arg head "$GITHUB_HEAD_REF" 'any(.[]; .headRefName == $head)' > /dev/null; then
+          echo "renovate-regen/deployed-major: the open renovate/* PR listing does not contain ${GITHUB_HEAD_REF}, the head this gate is running on, so the deployed Renovate version was not read at all. An empty or truncated listing is not evidence of a pre-44 deployment. Check the pull-requests:read permission and the --limit above." >&2
+          exit 1
+        fi
+        bodies="$(printf '%s' "$prs" | jq -r '[.[].body] | join("\n")')"
+        if [ -z "$bodies" ]; then
+          echo "::notice title=No Renovate PRs open::nothing advertises a renovate-debug blob, so the deployed major cannot be read this run"
+          exit 0
+        fi
+        printf '%s' "$bodies" | bun scripts/renovate-regen.ts --deployed-major {{.CLI_ARGS}}
+
   verify:upgrade:
     desc: Render every upstream chart at a base ref and at the working tree and diff the manifests (task verify:upgrade -- --base origin/main)
     cmds:
