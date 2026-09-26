@@ -50,6 +50,19 @@ ACME_EMAIL: admin@REPLACEME-domain.com
 DUCKDNS_SUBDOMAIN: REPLACEME-subdomain
 EXTERNAL_DNS_DEFAULT_TARGET: REPLACEME-subdomain.duckdns.org
 PAPERCLIP_ADMIN_EMAIL: admin@REPLACEME-domain.com
+# Optional: give the Paperclip agents your own Claude Code setup (settings, CLAUDE.md,
+# hooks, plugins) from your dotfiles fork. Empty URL keeps the stock configuration.
+PAPERCLIP_DOTFILES_REPO_URL: ""
+# PAPERCLIP_DOTFILES_REF: main
+# PAPERCLIP_DOTFILES_CLAUDE_DIR: claude
+# PAPERCLIP_DOTFILES_PROFILE: personal
+# PAPERCLIP_DOTFILES_SETUP_COMMAND: "bun claude/scripts/render-settings.ts"
+# Private repository: a 1Password item whose GIT_TOKEN field can read it.
+# PAPERCLIP_DOTFILES_1P_PATH: vaults/homelab/items/paperclip-dotfiles
+# PAPERCLIP_MCP_CODESEARCH: "true"
+# Another codesearch repository than the default (versions.yaml tools.codesearch pins that one):
+# PAPERCLIP_CODESEARCH_REPO: https://github.com/<owner>/codesearch
+# PAPERCLIP_CODESEARCH_VERSION: v1.6.1
 
 # GPU
 GPU_VENDOR: "intel"

@@ -960,6 +960,7 @@ paperclip:
       authItemPath: vaults/homelab/items/paperclip-auth
       apiKeysItemPath: vaults/homelab/items/paperclip-api-keys
       exporterItemPath: vaults/homelab/items/paperclip-exporter
+      dotfilesItemPath: ""
 
   # charts/paperclip-database: CloudNativePG Cluster paperclip-postgres. The image is
   # pinned (CNPG guidance) so an operator bump never upgrades Postgres by itself.

@@ -27,11 +27,17 @@ spec:
   {{- end }}
   {{- end }}
   {{- $env := concat $secretEnv (.Values.extraEnv | default list) }}
+  {{- if .Values.dotfiles.enabled }}
+  {{- $env = append $env (dict "name" "PATH" "value" (printf "%s/.local/bin:%s" .Values.dotfiles.home .Values.dotfiles.basePath)) }}
+  {{- end }}
   {{- with $env }}
   # Optional keys of the credentials Secret (the enabled per-provider API keys,
   # then extraSecretEnv) followed by extraEnv; both containers receive spec.env.
   env:
     {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- if .Values.dotfiles.enabled }}
+  {{- include "paperclip.dotfiles" . | nindent 2 }}
   {{- end }}
   deployment:
     mode: {{ .Values.deployment.mode }}
