@@ -1,0 +1,6 @@
+apiVersion: v2
+name: istio-gateways
+description: Istio GatewayClasses and internal/external Gateways for side-by-side comparison with Envoy Gateway, plus an echo backend routed through both
+type: application
+version: 1.0.0
+appVersion: "1.0"

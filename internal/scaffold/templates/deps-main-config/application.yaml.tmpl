@@ -3,7 +3,7 @@
 Three Applications (rule gitops/<env>/waves: -dependencies < main, -config != main):
   wave [[ .DepsWave ]]  [[ .Name ]]-dependencies  charts/[[ .Name ]]-dependencies (Secrets, OnePasswordItems)
   wave [[ .Wave ]]  [[ .Name ]]               upstream chart [[ .ChartName ]]
-  wave [[ .ConfigWave ]]  [[ .Name ]]-config        charts/[[ .Name ]]-config (Ingress; anything needing the main chart)
+  wave [[ .ConfigWave ]]  [[ .Name ]]-config        charts/[[ .Name ]]-config (HTTPRoute; anything needing the main chart)
 Derived values reach the -config child through helm.valuesObject (ADR-010).
 */}}
 [[- template "namespace" . ]]

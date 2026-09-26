@@ -49,8 +49,8 @@ here touches the homelab cluster: agents may mutate only Kind (ADR-009).
 │  │  argocd/   ArgoCD (chart from versions.yaml│  │ ghcr, quay, k8s,   │  │
 │  │            + health Lua from bootstrap)    │  │ lscr) -> ~/.cache  │  │
 │  │     └─ gitops ─┬─ (bootstrap: not created)   │  └────────────────────┘  │
-│  │                ├─ addons (cilium, traefik, │                          │
-│  │                │   cert-manager, ...)      │  localhost:8080 ArgoCD   │
+│  │                ├─ addons (cilium, envoy-   │                          │
+│  │                │   gateway, cert-manager)  │  localhost:8080 ArgoCD   │
 │  │                └─ applications (plex, *arr,│  localhost:9080/9443     │
 │  │                    mosquitto, ...)         │    (Kind ports 80/443)   │
 │  │  fakes: StorageClass aliases, seeded       │                          │
@@ -152,7 +152,7 @@ NAME                    SYNC STATUS   HEALTH STATUS
 gitops                  OutOfSync     Healthy
 addons                  OutOfSync     Healthy
 cilium                  OutOfSync     Healthy
-traefik-internal        OutOfSync     Healthy
+envoy-gateway           OutOfSync     Healthy
 ...
 ```
 
@@ -189,7 +189,7 @@ On Linux the Kind port mapping (NodePort 30080 to host 8080) serves the UI direc
 | `task localdev:warm` | kind + argocd + `sync --warm`: operators and CRDs up, applications left for a later `task localdev:sync`. | |
 | `task localdev:ci` | kind + argocd + sync + wait + `test:e2e`. What the `kind-argocd` job in `tilt-ci.yml` runs (the workflow keeps its historical file name). | |
 | `task localdev:ui` | `kubectl port-forward` to `argocd-server` so the UI is on http://localhost:8080 (needed on macOS, optional on Linux). | |
-| `task localdev:traefik` | `kubectl port-forward` to Traefik internal on localhost:9080 / 9443, for `curl -H 'Host: <app>.homelab.local'` from the host. | |
+| `task localdev:gateway` | `kubectl port-forward` to the `envoy-internal` Gateway Service on localhost:9080 / 9443, for `curl --resolve <app>.homelab.local:9443:127.0.0.1` from the host. | |
 | `task localdev:fakes` | Re-apply `localdev/fakes/`. | `scripts/localdev-kind.ts fakes` |
 | `task localdev:registry -- up\|down\|status` | Manage the pull-through caches. | `scripts/localdev-kind.ts registry` |
 | `task localdev:down` | Delete the cluster (stops a legacy Tilt session first if one is running); `-- --purge-cache` also removes the caches and their directory. | `scripts/localdev-kind.ts down` |
@@ -216,7 +216,7 @@ the cluster for this; use the port-forward tasks:
 
 ```bash
 task localdev:ui        # ArgoCD UI on http://localhost:8080
-task localdev:traefik   # Traefik internal on http://localhost:9080 and https://localhost:9443
+task localdev:gateway   # envoy-internal on http://localhost:9080 and https://localhost:9443
 ```
 
 Everything that matters (smoke hooks, e2e tests, `task verify LEVEL=2`) runs in-cluster
@@ -309,7 +309,7 @@ the release as a no-op. `tests/e2e/cilium-netpol` proves NetworkPolicy enforceme
   `smoke.enabled: false` opts out (mosquitto has no HTTP).
 - **Chainsaw e2e** (`tests/e2e/<name>/chainsaw-test.yaml`): assert the Applications are
   Healthy/Succeeded, then exercise the feature from inside the cluster (curl through the
-  Traefik Service with `Host: <app>.homelab.local`, a TCP connect for mosquitto, a
+  `envoy-internal` Service with `<app>.homelab.local` as SNI and Host, a TCP connect for mosquitto, a
   CloudNativePG Cluster, a NetworkPolicy). `tests/e2e/README.md` has the layout and the
   recipe for a new app. Paperclip runs in Kind too (operator, CloudNativePG `Cluster`
   `paperclip-postgres` on local-path, `Instance`); its Secrets `paperclip-auth`,
@@ -336,7 +336,7 @@ the release as a no-op. `tests/e2e/cilium-netpol` proves NetworkPolicy enforceme
 6. Commit; CI re-runs level 0 and the whole loop
 ```
 
-### Example: Modify Traefik Configuration
+### Example: Modify Envoy Gateway Configuration
 
 **Step 1**: Edit the source, not the generated file
 
@@ -347,11 +347,14 @@ the release as a no-op. `tests/e2e/cilium-netpol` proves NetworkPolicy enforceme
 
 ```yaml
 # configuration/templates/helm-addons.tmpl, localdev branch
-traefikExternal:
-  resources:
-    requests:
-      cpu: 100m  # Changed from 50m
-      memory: 256Mi  # Changed from 128Mi
+envoy-gateway:
+  gateways:
+    internal:
+      config:
+        resources:
+          requests:
+            cpu: 100m  # Changed from 50m
+            memory: 128Mi  # Changed from 64Mi
 ```
 
 **Step 2**: Regenerate the committed values file and check it renders
@@ -364,8 +367,8 @@ task verify:text              # level 0
 **Step 3**: Sync the working tree into Kind
 
 ```bash
-task localdev:sync -- --only traefik-external
-kubectl --context kind-homelab-localdev -n traefik get pods -o yaml | rg -A5 'resources:'
+task localdev:sync -- --only envoy-gateway-config
+kubectl --context kind-homelab-localdev -n envoy-gateway-system get pods -l gateway.envoyproxy.io/owning-gateway-name=envoy-internal -o yaml | rg -A5 'resources:'
 ```
 
 **Step 4**: Verify and commit both files together
@@ -373,7 +376,7 @@ kubectl --context kind-homelab-localdev -n traefik get pods -o yaml | rg -A5 're
 ```bash
 task verify:text LEVEL=2
 git add configuration/templates/helm-addons.tmpl charts/addons/values-localdev.yaml tests/snapshots
-git commit -m "feat(traefik): raise Kind resource requests"
+git commit -m "feat(envoy-gateway): raise Kind resource requests"
 ```
 
 ### Example: Add a New Application
@@ -454,20 +457,21 @@ argocd app sync <app> --local charts/<path> --local-repo-root . --prune   # what
 K="kubectl --context kind-homelab-localdev"
 $K get pods -A
 $K -n argocd get applications -o wide
-$K describe pod -n traefik <pod>
-$K logs -n traefik <pod> --all-containers --previous
+$K describe pod -n envoy-gateway-system <pod>
+$K logs -n envoy-gateway-system <pod> --all-containers --previous
 $K get events -n <ns> --sort-by='.lastTimestamp' | tail -30
 $K run -it --rm debug --image=nicolaka/netshoot --restart=Never -- bash
 ```
 
 ### Reaching an app from the host
 
-Traefik has no LoadBalancer in Kind, so port-forward the Traefik Service and send the
-`Host` header (or port-forward the app's own Service):
+The Gateway Services are ClusterIP in Kind (no load balancer), so port-forward the
+`envoy-internal` Service (or the app's own Service). The https listener selects on SNI
+`*.homelab.local`, so resolve the name to localhost instead of only setting `Host`:
 
 ```bash
-task localdev:traefik   # Traefik internal on localhost:9080 / 9443 (keep it running)
-curl -sk -H 'Host: sonarr.homelab.local' https://localhost:9443/ping
+task localdev:gateway   # envoy-internal on localhost:9080 / 9443 (keep it running)
+curl -sk --resolve sonarr.homelab.local:9443:127.0.0.1 https://sonarr.homelab.local:9443/ping
 ```
 
 On Linux the Kind mappings of container ports 80/443 to host 9080/9443 also work without
@@ -496,12 +500,12 @@ tier table printed by the script names the app and its operation phase.
 **Kind cluster out of resources**: `docker stats`; raise Docker Desktop CPU/RAM; or use
 `task localdev:warm` and sync only the applications you work on with `--only`.
 
-**Ports in use**: host 8080 (ArgoCD, `task localdev:ui`), 9080/9443 (Traefik, `task
-localdev:traefik`); ArgoCD NodePort 30080, mosquitto NodePorts 31883/31901, spegel 30021
+**Ports in use**: host 8080 (ArgoCD, `task localdev:ui`), 9080/9443 (`envoy-internal`, `task
+localdev:gateway`); ArgoCD NodePort 30080, mosquitto NodePorts 31883/31901, spegel 30021
 (and 10350 if the legacy Tilt UI is running).
 
 **`localhost:8080` or `:9080` hangs on macOS**: expected with Cilium on Docker Desktop;
-use `task localdev:ui` / `task localdev:traefik` ([Host ports on macOS](#host-ports-on-macos)).
+use `task localdev:ui` / `task localdev:gateway` ([Host ports on macOS](#host-ports-on-macos)).
 
 ---
 
@@ -514,7 +518,7 @@ use `task localdev:ui` / `task localdev:traefik` ([Host ports on macOS](#host-po
 | Job | What it runs | Required |
 |-----|--------------|----------|
 | `kind-argocd` | pinned tools from `versions.yaml` (kind, kubectl, helm, argocd, chainsaw, task, bun), `actions/cache` on `~/.cache/homelab-kind-registry`, `task localdev:ci`, `task verify LEVEL=2` (JSON to the Job Summary and the `verify-level2` artifact), `task localdev:diagnose` on every outcome, then `task localdev:report` as the sticky PR comment `kind-preview` (same-repo PRs; never decides the check). 45 minute budget. | yes |
-| `kind-direct` | Legacy: `task localdev:kind -- --no-registry`, `tilt ci --timeout 15m` with the direct-mode Tiltfile, asserts the Traefik and cert-manager Deployments. Kept while `localdev/Tiltfile` exists; not the loop. | |
+| `kind-direct` | Legacy: `task localdev:kind -- --no-registry`, `tilt ci --timeout 15m` with the direct-mode Tiltfile, asserts the Envoy Gateway controller and cert-manager Deployments and the Gateway API CRDs (Gateways `Programmed` is checked by the `envoy-gateway` chainsaw suite in `kind-argocd`). Kept while `localdev/Tiltfile` exists; not the loop. | |
 | `yaml-lint` | `yamllint` over `charts/`, `localdev/`, `tests/e2e`, `tests/health` | |
 
 Level 0 runs separately in `.github/workflows/verify.yml`.
@@ -611,9 +615,9 @@ thin wrapper: `task localdev:tilt:argocd` (`tilt up -- --mode=argocd`) runs
 `task localdev:argocd` on start and re-runs `task localdev:sync` whenever `charts/` or
 `configuration/` change, with `argocd-wait` / `argocd-diagnose` as manual triggers
 (`tilt trigger <resource>`); plain `task localdev:tilt` (direct mode) installs
-local-path-provisioner, Traefik and cert-manager into Kind with `helm_resource` and no
+local-path-provisioner, the Envoy Gateway controller and cert-manager into Kind with `helm_resource` and no
 ArgoCD, which is what the `kind-direct` CI job still exercises. Both need `task localdev:kind`
-first, the direct mode conflicts with the ArgoCD-managed `traefik` namespace, and the Tilt UI
+first, the direct mode conflicts with the ArgoCD-managed `envoy-gateway-system` namespace, and the Tilt UI
 is on http://localhost:10350. Prefer `task localdev:sync` and `task localdev:wait`;
 `tilt down` leaves the cluster and everything ArgoCD deployed in place.
 

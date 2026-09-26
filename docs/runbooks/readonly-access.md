@@ -15,7 +15,7 @@ ArgoCD syncs all of this. Nothing works end to end until the human steps below a
 | Application `agent-readonly` | same file (wave 2) → `charts/agent-readonly` | Enabled in homelab **and** Kind |
 | ServiceAccount `agent-readonly` + Secret `agent-readonly-token` | `charts/agent-readonly/templates/serviceaccount.yaml` | Long-lived token (`kubernetes.io/service-account-token`) that the token controller fills |
 | ClusterRoleBinding `agent-readonly-view` → built-in `view` | `charts/agent-readonly/templates/rbac.yaml` | Read access to namespaced workloads, Services, ConfigMaps and `pods/log`. Never Secrets |
-| ClusterRole + binding `homelab-agent-readonly` | same | `get/create` on `pods/exec` and `pods/portforward` (diagnosis: `amtool`, port-forward to Prometheus/Alertmanager). `get/list/watch` on nodes, namespaces, persistentvolumes, events, storageclasses, ingressclasses and CRDs, plus `*` in `argoproj.io`, `cert-manager.io`, `traefik.io`, `cilium.io`, `postgresql.cnpg.io`, `barmancloud.cnpg.io`, `monitoring.coreos.com`, `onepassword.com`, `tailscale.com`, `externaldns.k8s.io` |
+| ClusterRole + binding `homelab-agent-readonly` | same | `get/create` on `pods/exec` and `pods/portforward` (diagnosis: `amtool`, port-forward to Prometheus/Alertmanager). `get/list/watch` on nodes, namespaces, persistentvolumes, events, storageclasses, ingressclasses and CRDs, plus `*` in `argoproj.io`, `cert-manager.io`, `gateway.networking.k8s.io`, `gateway.envoyproxy.io`, `cilium.io`, `postgresql.cnpg.io`, `barmancloud.cnpg.io`, `monitoring.coreos.com`, `onepassword.com`, `tailscale.com`, `externaldns.k8s.io` |
 | Group `homelab:agent-readonly` | both bindings | Same roles for a future Tailscale "auth" mode (impersonation). Unused today |
 | Tailscale API server proxy | `charts/addons/templates/tailscale-operator.yaml` `apiServerProxyConfig.mode: "noauth"` | `https://tailscale-operator-homelab.<tailnet>.ts.net` forwards requests without adding authentication, so the caller's bearer token authenticates it |
 | ArgoCD account `agent` | `charts/bootstrap/values-homelab.yaml` `configs.cm."accounts.agent": apiKey`, `configs.rbac."policy.csv": g, agent, role:readonly` | API token only (no UI login). `role:readonly` can view and diff but not sync, delete or exec |
@@ -30,7 +30,7 @@ Certificates, can `exec` and port-forward, and cannot read Secrets, create Confi
 delete pods, `attach`, patch Applications or delete CRDs.
 
 `pods/exec` and `pods/portforward` are the diagnostic channel: Alertmanager and Prometheus have no
-Ingress, so `amtool alert` (exec) or a port-forward is how an agent reads what is firing
+route, so `amtool alert` (exec) or a port-forward is how an agent reads what is firing
 (`docs/runbooks/alerting.md`). API objects stay read-only, but exec is not: a shell in a container
 can read the Secrets that container mounts and change state inside it. Agents use it to inspect,
 never to change anything; revoking the token (below) closes it in one command.
@@ -56,7 +56,7 @@ task prod:diff -- <app>               # argocd app diff as the read-only ArgoCD 
   must carry the helm parameter `global.domain` that `terragrunt/modules/gitops-bootstrap` injects
   (the domain never lives in git), and no Application may embed the chart placeholder `example.com`
   in `helm.values`, `helm.valuesObject` or `helm.parameters`. It fails, naming the Applications,
-  when the module was changed but not applied — the ArgoCD Ingress then reads `argocd.example.com`
+  when the module was changed but not applied — the ArgoCD HTTPRoute then reads `argocd.example.com`
   (`docs/project_notes/bugs.md` 2026-09-13). The fix is a human `task tf:apply:component
   COMPONENT=gitops-bootstrap`, never an agent action.
 - `task prod:diff` passes the ArgoCD token in `ARGOCD_AUTH_TOKEN` rather than on the command line.

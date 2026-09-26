@@ -24,7 +24,7 @@ cluster, rendered from the PR head. Issue #261 item 16; decision record ADR-013.
 | Parent Application (namespace `argocd`) | `preview-pr<N>`, project `previews`, source = PR head SHA |
 | Namespace | `preview-<N>` (PodSecurity `baseline`, ResourceQuota + LimitRange `preview`) |
 | App Applications (namespace `preview-<N>`) | `<app>-pr<N>`, project `previews` |
-| URL | `https://<app>-pr<N>.<domain>` (internal ingress class, same as production) |
+| URL | `https://<app>-pr<N>.<domain>` (`envoy-internal` Gateway, same as production) |
 | Smoke check | PostSync Job `smoke-<app>` in `preview-<N>` curls `<svc>.preview-<N>.svc` |
 
 Check status read-only: `task prod:status`, or in the ArgoCD UI filter on project `previews`.

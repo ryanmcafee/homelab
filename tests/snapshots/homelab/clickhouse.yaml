@@ -108,12 +108,12 @@ data:
         {
           "id": 2,
           "type": "table",
-          "title": "Traefik requests: 5xx or slower than 1 s",
+          "title": "Envoy Gateway requests: 5xx or slower than 1 s",
           "datasource": {
             "type": "grafana-clickhouse-datasource",
             "uid": "clickhouse-logs"
           },
-          "description": "JSON access logs of traefik-internal and traefik-external (Duration is in nanoseconds).",
+          "description": "JSON access logs of envoy-internal and envoy-external (duration_ms is in milliseconds; response_code 0 = no response, see flags).",
           "gridPos": {
             "h": 10,
             "w": 24,
@@ -130,7 +130,7 @@ data:
               "editorType": "sql",
               "queryType": "sql",
               "format": 1,
-              "rawSql": "SELECT Timestamp, ResourceAttributes['k8s.pod.name'] AS pod, JSONExtractString(Body, 'RequestHost') AS host, JSONExtractString(Body, 'RequestMethod') AS method, JSONExtractString(Body, 'RequestPath') AS path, JSONExtractInt(Body, 'DownstreamStatus') AS status, round(JSONExtractFloat(Body, 'Duration') / 1e6) AS duration_ms, JSONExtractString(Body, 'ServiceName') AS backend FROM otel.otel_logs WHERE $__timeFilter(Timestamp) AND ResourceAttributes['k8s.namespace.name'] = 'traefik' AND JSONHas(Body, 'DownstreamStatus') AND (JSONExtractInt(Body, 'DownstreamStatus') >= 500 OR JSONExtractFloat(Body, 'Duration') > 1e9) ORDER BY Timestamp DESC LIMIT 500",
+              "rawSql": "SELECT Timestamp, JSONExtractString(Body, 'gateway') AS gateway, JSONExtractString(Body, 'authority') AS host, JSONExtractString(Body, 'method') AS method, JSONExtractString(Body, 'path') AS path, JSONExtractInt(Body, 'response_code') AS status, JSONExtractString(Body, 'response_flags') AS flags, JSONExtractFloat(Body, 'duration_ms') AS duration_ms, JSONExtractString(Body, 'upstream_cluster') AS backend, JSONExtractString(Body, 'trace_id') AS trace_id FROM otel.otel_logs WHERE $__timeFilter(Timestamp) AND ResourceAttributes['k8s.namespace.name'] = 'envoy-gateway-system' AND JSONHas(Body, 'response_code') AND (JSONExtractInt(Body, 'response_code') >= 500 OR JSONExtractFloat(Body, 'duration_ms') > 1000) ORDER BY Timestamp DESC LIMIT 500",
               "pluginVersion": ""
             }
           ]
@@ -1026,7 +1026,7 @@ data:
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "description": "Requests per second into the internal and external Traefik, by status class (Prometheus).",
+          "description": "Requests per second into envoy-internal and envoy-external, by listener and status class (Prometheus).",
           "gridPos": {
             "h": 8,
             "w": 24,
@@ -1041,13 +1041,13 @@ data:
                 "uid": "prometheus"
               },
               "editorType": "code",
-              "expr": "sum by (container, entrypoint, code_class) (label_replace(rate(traefik_entrypoint_requests_total[$__rate_interval]), \"code_class\", \"${1}xx\", \"code\", \"([0-9])..\"))",
-              "legendFormat": "{{container}} {{entrypoint}} {{code_class}}",
+              "expr": "sum by (gateway, envoy_http_conn_manager_prefix, code_class) (label_replace(rate(envoy_http_downstream_rq_xx{envoy_http_conn_manager_prefix=~\"https?-.*\"}[$__rate_interval]), \"code_class\", \"${1}xx\", \"envoy_response_code_class\", \"([0-9])\"))",
+              "legendFormat": "{{gateway}} {{envoy_http_conn_manager_prefix}} {{code_class}}",
               "range": true,
               "refId": "A"
             }
           ],
-          "title": "Traefik requests by entrypoint",
+          "title": "Envoy Gateway requests by listener",
           "type": "timeseries",
           "fieldConfig": {
             "defaults": {

@@ -124,11 +124,10 @@ invent. Hand-off to the DX & Docs Advocate.
 The PM's reasoning was that both should reuse the OIDC middleware #51 establishes rather than
 stand up a second auth path. The premise is wrong, and checkably so.
 
-**The OIDC middleware already exists in this repository.**
-`charts/traefik-external-config/templates/oidc.yaml` defines the `oidc-auth` Traefik
-`Middleware` and the `auth-oidc` chain, backed by the `oauth2-proxy` and `oidc-redis` addons,
-configured from `TRAEFIK_OIDC_PROVIDER_URL` and `TRAEFIK_OIDC_ALLOWED_DOMAINS` in the
-ConfigSet. #40 and #41 annotate their IngressRoutes with it and are done.
+**Edge OIDC does not depend on #51.** The ingress OIDC middleware this map originally
+pointed at was dropped with the move to Envoy Gateway (ADR-040) because no route used it.
+Edge authentication for #40 and #41 is an Envoy Gateway `SecurityPolicy` with `oidc` on their
+HTTPRoutes (Google client from `GOOGLE_OAUTH_1P_PATH`), which needs nothing from #51.
 
 What #51b adds is **native OIDC inside Argo Workflows** — the application authenticating
 users itself, which Argo needs because its UI carries per-user RBAC. That is a different

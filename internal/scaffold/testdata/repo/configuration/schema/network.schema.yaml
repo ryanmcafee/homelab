@@ -4,9 +4,13 @@ keys:
     description: Base domain
     required: true
 
-  INGRESS_CLASS_INTERNAL:
-    description: Internal IngressClass
-    default: "internal"
+  GATEWAY_NAMESPACE:
+    description: Namespace of the Envoy Gateways
+    default: "envoy-gateway-system"
+
+  GATEWAY_INTERNAL:
+    description: Internal Gateway (LAN-only routes)
+    default: "envoy-internal"
 
   # Computed hostnames — derived from DOMAIN
   GRAFANA_HOSTNAME:

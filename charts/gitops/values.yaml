@@ -18,7 +18,7 @@ global:
   # Environment identifier (localdev, homelab)
   environment: homelab
 
-  # Base domain for ingress resources
+  # Base domain for route hostnames
   domain: example.com
 
   # Git repository containing chart sources
@@ -263,5 +263,5 @@ previews:
       name: ""
       key: token
   # Poll interval in seconds: GitHub webhooks cannot reach the internal-only
-  # ArgoCD ingress.
+  # ArgoCD route.
   requeueAfterSeconds: 300

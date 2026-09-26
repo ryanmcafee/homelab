@@ -129,7 +129,7 @@ charts/addons/values-homelab.yaml
 charts/addons/values-homelab.generated.yaml
 charts/applications/values-homelab.yaml
 charts/applications/values-homelab.generated.yaml
-# Note: child charts/*/values-homelab.yaml (e.g. sonarr-config, traefik-external-config,
+# Note: child charts/*/values-homelab.yaml (e.g. sonarr-config, envoy-gateway-config,
 # cert-manager-cluster-issuer, duckdns) ARE committed so the child Applications render,
 # and MUST stay PII-free: only non-derived settings (enabled flags, volume lists,
 # namespaces, 1Password item paths). Anything derived from configuration/ (domain,

@@ -29,15 +29,20 @@ keys:
     required: true
     default: "democratic-csi-iscsi"
 
-  INGRESS_CLASS_EXTERNAL:
-    description: IngressClass name for externally-facing services
+  GATEWAY_NAMESPACE:
+    description: Namespace of the Envoy Gateway controller, both Gateways and their Envoy proxies
     required: true
-    default: "external"
+    default: "envoy-gateway-system"
 
-  INGRESS_CLASS_INTERNAL:
-    description: IngressClass name for internal services
+  GATEWAY_EXTERNAL:
+    description: Name of the external Gateway (and its GatewayClass); routes published to the internet attach to it
     required: true
-    default: "internal"
+    default: "envoy-external"
+
+  GATEWAY_INTERNAL:
+    description: Name of the internal Gateway (and its GatewayClass); LAN and tailnet routes attach to it
+    required: true
+    default: "envoy-internal"
 
   TIMEZONE:
     description: Default timezone for all workloads

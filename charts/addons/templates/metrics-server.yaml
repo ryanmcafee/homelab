@@ -1,7 +1,7 @@
 {{- if index .Values "metrics-server" "enabled" }}
 ---
 # metrics-server serves metrics.k8s.io: `kubectl top` and every
-# HorizontalPodAutoscaler on a Resource metric (both Traefik HPAs) read it.
+# HorizontalPodAutoscaler on a Resource metric (the Envoy proxy HPAs of both Gateways) read it.
 # Without it an HPA reports `cpu: <unknown>` and never scales.
 # Wave 2: after kubelet-csr-approver (wave 1), which approves the kubelet
 # serving certificates metrics-server verifies.

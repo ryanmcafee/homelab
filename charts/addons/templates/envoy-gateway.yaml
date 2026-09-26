@@ -1,0 +1,194 @@
+{{- /*
+Envoy Gateway: the cluster's ingress (docs/networking.md).
+  wave 1  gateway-api-crds        standard-channel Gateway API CRDs (templates/gateway-api-crds.yaml)
+  wave 4  envoy-gateway-crds      gateway.envoyproxy.io CRDs only
+  wave 5  envoy-gateway           controller, renders with crds.enabled=false
+  wave 6  envoy-gateway-config    charts/envoy-gateway-config: wildcard certificate and two Envoy fleets,
+                                  envoy-internal (LAN/tailnet) and envoy-external (internet, WAN port forwards)
+Routes attach to the https listener of one Gateway (sectionName: https); the
+http listener only redirects.
+*/}}
+{{- $eg := index .Values "envoy-gateway" }}
+{{- $egConfig := dict "gateway" (dict "controllerName" "gateway.envoyproxy.io/gatewayclass-controller") "provider" (dict "type" "Kubernetes") "extensionApis" (dict "enableBackend" true "enableLua" true) "logging" (dict "level" (dict "default" "info")) }}
+{{- if $eg.enabled }}
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ $eg.namespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: envoy-gateway-oci
+  namespace: argocd
+  labels:
+    argocd.argoproj.io/secret-type: repository
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+stringData:
+  name: envoy-gateway
+  type: helm
+  url: {{ $eg.chart.repo }}
+  enableOCI: "true"
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: envoy-gateway-crds
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "4"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: {{ $eg.chart.repo }}
+    chart: gateway-crds-helm
+    targetRevision: {{ $eg.chart.version | quote }}
+    helm:
+      releaseName: envoy-gateway-crds
+      values: |
+        crds:
+          gatewayAPI:
+            enabled: false
+          envoyGateway:
+            enabled: true
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: {{ $eg.namespace }}
+  syncPolicy:
+    {{- if .Values.global.automatedSync }}
+    automated:
+      prune: true
+      selfHeal: true
+    {{- end }}
+    syncOptions:
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: envoy-gateway
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "5"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: {{ $eg.chart.repo }}
+    chart: gateway-helm
+    targetRevision: {{ $eg.chart.version | quote }}
+    helm:
+      releaseName: envoy-gateway
+      skipCrds: true
+      values: |
+        crds:
+          enabled: false
+        deployment:
+          replicas: {{ $eg.controller.replicas }}
+          # The controller reads its config only at startup; the checksum rolls it on change.
+          pod:
+            annotations:
+              prometheus.io/scrape: "true"
+              prometheus.io/port: "19001"
+              checksum/config: {{ toJson $egConfig | sha256sum }}
+          envoyGateway:
+            resources:
+              {{- toYaml $eg.controller.resources | nindent 14 }}
+        {{- if gt (int $eg.controller.replicas) 1 }}
+        podDisruptionBudget:
+          minAvailable: 1
+        {{- end }}
+        config:
+          # extensionApis: enableBackend for FQDN Backends (tracing collector), enableLua for the Grafana alert-source EnvoyExtensionPolicy.
+          envoyGateway:
+            {{- toYaml $egConfig | nindent 12 }}
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: {{ $eg.namespace }}
+  syncPolicy:
+    {{- if .Values.global.automatedSync }}
+    automated:
+      prune: true
+      selfHeal: true
+    {{- end }}
+    syncOptions:
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+      - RespectIgnoreDifferences=true
+  ignoreDifferences:
+    - group: admissionregistration.k8s.io
+      kind: MutatingWebhookConfiguration
+      jqPathExpressions:
+        - .webhooks[]?.clientConfig.caBundle
+{{- if $eg.controller.serviceMonitor }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: envoy-gateway
+  namespace: {{ $eg.namespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "5"
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: envoy-gateway
+      app.kubernetes.io/name: gateway-helm
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: 30s
+{{- end }}
+{{- $gateways := dict }}
+{{- range $tier, $gw := $eg.gateways }}
+{{- $_ := set $gateways $tier (merge (dict "enabled" $gw.enabled) ($gw.config | default dict)) }}
+{{- end }}
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: envoy-gateway-config
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "6"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: {{ .Values.global.repoUrl }}
+    targetRevision: {{ .Values.global.targetRevision }}
+    path: charts/envoy-gateway-config
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-{{ .Values.global.environment }}.yaml
+      # Name, domain, static IP and sizing come from configuration/ (via the
+      # CMP in homelab) so the child's committed values files stay PII-free.
+      valuesObject:
+        global:
+          domain: {{ .Values.global.domain }}
+        namespace: {{ $eg.namespace }}
+        gateways:
+          {{- toYaml $gateways | nindent 10 }}
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: {{ $eg.namespace }}
+  syncPolicy:
+    {{- if .Values.global.automatedSync }}
+    automated:
+      prune: true
+      selfHeal: true
+    {{- end }}
+    syncOptions:
+      - ServerSideApply=true
+      - SkipDryRunOnMissingResource=true
+{{- end }}

@@ -1,0 +1,623 @@
+{
+  "title": "Ingress overview",
+  "uid": "ingress-overview",
+  "description": "envoy-internal / envoy-external (Envoy Gateway) next to istio-internal / istio-external (comparison): traffic, 5xx, latency and connections per gateway.",
+  "tags": [
+    "ingress",
+    "envoy-gateway",
+    "istio"
+  ],
+  "editable": false,
+  "schemaVersion": 39,
+  "version": 1,
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "refresh": "1m",
+  "timezone": "browser",
+  "graphTooltip": 1,
+  "templating": {
+    "list": [
+      {
+        "name": "istio_namespace",
+        "label": "Istio gateway namespace",
+        "type": "constant",
+        "query": "istio-ingress",
+        "hide": 2
+      }
+    ]
+  },
+  "annotations": {
+    "list": []
+  },
+  "links": [
+    {
+      "title": "Envoy Global",
+      "type": "link",
+      "url": "/d/heHhNSFf6Na8vIZWRs8H"
+    },
+    {
+      "title": "Envoy Clusters",
+      "type": "link",
+      "url": "/d/8WkEOMnANKE6PW5hhpVv"
+    },
+    {
+      "title": "Envoy Gateway Global",
+      "type": "link",
+      "url": "/d/bdn8lriao7myoa"
+    }
+  ],
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Proxy pods up",
+      "description": "Proxy pods answering the metrics scrape, per gateway.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 4
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value_and_name"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "refId": "A",
+          "expr": "sum by (gateway) (up{gateway!=\"\"})",
+          "legendFormat": "{{gateway}}",
+          "range": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "refId": "B",
+          "expr": "sum by (gateway) (label_replace(up{namespace=\"$istio_namespace\", pod=~\"istio-(internal|external)-.*\"}, \"gateway\", \"$1\", \"pod\", \"(istio-(?:internal|external))-.*\"))",
+          "legendFormat": "{{gateway}}",
+          "range": true
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Requests per second",
+      "description": "Downstream requests on the http and https listeners. Envoy Gateway: envoy_http_downstream_rq_total; Istio: istio_requests_total (reporter source).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 4,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "mean",
+            "max",
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "refId": "A",
+          "expr": "sum by (gateway) (rate(envoy_http_downstream_rq_total{gateway!=\"\", envoy_http_conn_manager_prefix=~\"https?-.*\"}[$__rate_interval]))",
+          "legendFormat": "{{gateway}}",
+          "range": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "refId": "B",
+          "expr": "label_replace(sum by (source_workload) (rate(istio_requests_total{reporter=\"source\", source_workload_namespace=\"$istio_namespace\", source_workload=~\"istio-(internal|external)\"}[$__rate_interval])), \"gateway\", \"$1\", \"source_workload\", \"(.*)\")",
+          "legendFormat": "{{gateway}}",
+          "range": true
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "5xx ratio",
+      "description": "Share of downstream responses with a 5xx status, including responses the proxy generates itself (no route, no healthy upstream).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 4,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "mean",
+            "max",
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "refId": "A",
+          "expr": "sum by (gateway) (rate(envoy_http_downstream_rq_xx{gateway!=\"\", envoy_http_conn_manager_prefix=~\"https?-.*\", envoy_response_code_class=\"5\"}[$__rate_interval])) / sum by (gateway) (rate(envoy_http_downstream_rq_total{gateway!=\"\", envoy_http_conn_manager_prefix=~\"https?-.*\"}[$__rate_interval]))",
+          "legendFormat": "{{gateway}}",
+          "range": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "refId": "B",
+          "expr": "label_replace(sum by (source_workload) (rate(istio_requests_total{reporter=\"source\", source_workload_namespace=\"$istio_namespace\", source_workload=~\"istio-(internal|external)\", response_code=~\"5..\"}[$__rate_interval])) / sum by (source_workload) (rate(istio_requests_total{reporter=\"source\", source_workload_namespace=\"$istio_namespace\", source_workload=~\"istio-(internal|external)\"}[$__rate_interval])), \"gateway\", \"$1\", \"source_workload\", \"(.*)\")",
+          "legendFormat": "{{gateway}}",
+          "range": true
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "p50 latency",
+      "description": "50th percentile of the whole request as the gateway measures it (downstream request time).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 12,
+        "w": 8,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "mean",
+            "max",
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "refId": "A",
+          "expr": "histogram_quantile(0.5, sum by (gateway, le) (rate(envoy_http_downstream_rq_time_bucket{gateway!=\"\", envoy_http_conn_manager_prefix=~\"https?-.*\"}[$__rate_interval])))",
+          "legendFormat": "{{gateway}}",
+          "range": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "refId": "B",
+          "expr": "label_replace(histogram_quantile(0.5, sum by (source_workload, le) (rate(istio_request_duration_milliseconds_bucket{reporter=\"source\", source_workload_namespace=\"$istio_namespace\", source_workload=~\"istio-(internal|external)\"}[$__rate_interval]))), \"gateway\", \"$1\", \"source_workload\", \"(.*)\")",
+          "legendFormat": "{{gateway}}",
+          "range": true
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "p95 latency",
+      "description": "95th percentile of the whole request as the gateway measures it (downstream request time).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 12,
+        "w": 8,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "mean",
+            "max",
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "refId": "A",
+          "expr": "histogram_quantile(0.95, sum by (gateway, le) (rate(envoy_http_downstream_rq_time_bucket{gateway!=\"\", envoy_http_conn_manager_prefix=~\"https?-.*\"}[$__rate_interval])))",
+          "legendFormat": "{{gateway}}",
+          "range": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "refId": "B",
+          "expr": "label_replace(histogram_quantile(0.95, sum by (source_workload, le) (rate(istio_request_duration_milliseconds_bucket{reporter=\"source\", source_workload_namespace=\"$istio_namespace\", source_workload=~\"istio-(internal|external)\"}[$__rate_interval]))), \"gateway\", \"$1\", \"source_workload\", \"(.*)\")",
+          "legendFormat": "{{gateway}}",
+          "range": true
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "p99 latency",
+      "description": "99th percentile of the whole request as the gateway measures it (downstream request time).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 12,
+        "w": 8,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "mean",
+            "max",
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "refId": "A",
+          "expr": "histogram_quantile(0.99, sum by (gateway, le) (rate(envoy_http_downstream_rq_time_bucket{gateway!=\"\", envoy_http_conn_manager_prefix=~\"https?-.*\"}[$__rate_interval])))",
+          "legendFormat": "{{gateway}}",
+          "range": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "refId": "B",
+          "expr": "label_replace(histogram_quantile(0.99, sum by (source_workload, le) (rate(istio_request_duration_milliseconds_bucket{reporter=\"source\", source_workload_namespace=\"$istio_namespace\", source_workload=~\"istio-(internal|external)\"}[$__rate_interval]))), \"gateway\", \"$1\", \"source_workload\", \"(.*)\")",
+          "legendFormat": "{{gateway}}",
+          "range": true
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Active connections",
+      "description": "Open downstream connections per gateway (envoy_server_total_connections on every proxy pod).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 20,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "mean",
+            "max",
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "refId": "A",
+          "expr": "sum by (gateway) (envoy_server_total_connections{gateway!=\"\"})",
+          "legendFormat": "{{gateway}}",
+          "range": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "refId": "B",
+          "expr": "sum by (gateway) (label_replace(envoy_server_total_connections{namespace=\"$istio_namespace\", pod=~\"istio-(internal|external)-.*\"}, \"gateway\", \"$1\", \"pod\", \"(istio-(?:internal|external))-.*\"))",
+          "legendFormat": "{{gateway}}",
+          "range": true
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Responses by status class (Envoy Gateway)",
+      "description": "Downstream responses per gateway and status class.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 20,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "mean",
+            "max",
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "refId": "A",
+          "expr": "sum by (gateway, envoy_response_code_class) (rate(envoy_http_downstream_rq_xx{gateway!=\"\", envoy_http_conn_manager_prefix=~\"https?-.*\"}[$__rate_interval]))",
+          "legendFormat": "{{gateway}} {{envoy_response_code_class}}xx",
+          "range": true
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Top routes by requests (Envoy Gateway)",
+      "description": "Upstream requests per route cluster (httproute/<namespace>/<route>/rule/<n>).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 28,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "mean",
+            "max",
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "refId": "A",
+          "expr": "topk(15, sum by (gateway, envoy_cluster_name) (rate(envoy_cluster_upstream_rq_total{envoy_cluster_name=~\"httproute/.*\"}[$__rate_interval])))",
+          "legendFormat": "{{gateway}} {{envoy_cluster_name}}",
+          "range": true
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Upstream p95 by route (Envoy Gateway)",
+      "description": "95th percentile upstream response time per route cluster; HomelabEnvoyUpstreamSlow fires above 5 s.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 28,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "mean",
+            "max",
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "refId": "A",
+          "expr": "topk(15, histogram_quantile(0.95, sum by (gateway, envoy_cluster_name, le) (rate(envoy_cluster_upstream_rq_time_bucket{envoy_cluster_name=~\"httproute/.*\"}[$__rate_interval]))))",
+          "legendFormat": "{{gateway}} {{envoy_cluster_name}}",
+          "range": true
+        }
+      ]
+    }
+  ]
+}

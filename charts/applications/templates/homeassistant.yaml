@@ -79,9 +79,9 @@ spec:
           {{- toYaml .Values.homeassistant.persistence | nindent 10 }}
         {{- end }}
 
-        {{- if .Values.homeassistant.ingress }}
-        ingress:
-          {{- toYaml .Values.homeassistant.ingress | nindent 10 }}
+        {{- if .Values.homeassistant.route }}
+        route:
+          {{- toYaml .Values.homeassistant.route | nindent 10 }}
         {{- end }}
 
         {{- if .Values.homeassistant.TZ }}

@@ -11,7 +11,9 @@ tracing:
   provider: ""
   samplingPercentage: 10
 
-# Kiali (Service kiali:20001) on the internal ingress; empty host renders nothing.
+# Kiali (Service kiali:20001) on the internal Gateway; empty host renders nothing.
 kiali:
   host: ""
-  ingressClassName: internal
+  gateway:
+    name: envoy-internal
+    namespace: envoy-gateway-system

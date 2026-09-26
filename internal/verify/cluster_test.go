@@ -67,7 +67,7 @@ func (f *fakeClusterRunner) Run(_ context.Context, dir, name string, args ...str
 			if stderr, ok := f.applyStderr[filepath.Base(file)]; ok {
 				return nil, []byte(stderr), fmt.Errorf("exit status 1")
 			}
-			return []byte("application.argoproj.io/cilium serverside-applied (server dry run)\napplication.argoproj.io/traefik serverside-applied (server dry run)\n"), nil, nil
+			return []byte("application.argoproj.io/cilium serverside-applied (server dry run)\napplication.argoproj.io/envoy-gateway serverside-applied (server dry run)\n"), nil, nil
 		}
 		return []byte(f.getStdout), []byte(f.getStderr), f.getErr
 	case "chainsaw":
@@ -733,8 +733,8 @@ func TestHasYAMLDocument(t *testing.T) {
 	}
 }
 
-// An Application whose chart renders no resources (charts/traefik-internal-
-// dependencies in homelab is a comment-only placeholder) never gets a sync
+// An Application whose chart renders no resources (e.g. a comment-only
+// *-dependencies placeholder) never gets a sync
 // operation: ArgoCD has nothing to apply, so operationState stays empty while
 // sync is Synced and health is Healthy. That is a pass, not "never synced".
 // The never-synced finding stays for Applications that do have resources.
@@ -744,7 +744,7 @@ func TestEvaluateArgoAppWithoutResources(t *testing.T) {
   "kind": "List",
   "items": [
     {
-      "metadata": {"name": "traefik-internal-dependencies", "namespace": "argocd"},
+      "metadata": {"name": "sonarr-dependencies", "namespace": "argocd"},
       "status": {"sync": {"status": "Synced"}, "health": {"status": "Healthy"}, "resources": []}
     },
     {
@@ -755,7 +755,7 @@ func TestEvaluateArgoAppWithoutResources(t *testing.T) {
       "metadata": {"name": "has-resources", "namespace": "argocd"},
       "status": {
         "sync": {"status": "Synced"}, "health": {"status": "Healthy"},
-        "resources": [{"kind": "ConfigMap", "namespace": "traefik", "name": "x", "health": {"status": "Healthy"}}]
+        "resources": [{"kind": "ConfigMap", "namespace": "media", "name": "x", "health": {"status": "Healthy"}}]
       }
     },
     {
@@ -785,12 +785,12 @@ func TestEvaluateArgoAppWithoutResources(t *testing.T) {
 		wantDetail string
 		wantHint   bool
 	}{
-		{"prod: empty Synced Healthy passes", prodAppRules(true), "traefik-internal-dependencies", StatusPass, "no resources", false},
+		{"prod: empty Synced Healthy passes", prodAppRules(true), "sonarr-dependencies", StatusPass, "no resources", false},
 		{"prod: resources field absent counts as empty", prodAppRules(true), "no-resources-field", StatusPass, "no resources", false},
 		{"prod: resources without an operation still fails", prodAppRules(true), "has-resources", StatusFail, "", true},
 		{"prod: empty but OutOfSync fails", prodAppRules(true), "empty-but-outofsync", StatusFail, "", true},
 		{"prod: empty but not Healthy fails", prodAppRules(true), "empty-but-missing", StatusFail, "", true},
-		{"kind: empty Synced Healthy passes", kindAppRules, "traefik-internal-dependencies", StatusPass, "no resources", false},
+		{"kind: empty Synced Healthy passes", kindAppRules, "sonarr-dependencies", StatusPass, "no resources", false},
 		{"kind: resources without an operation still fails", kindAppRules, "has-resources", StatusFail, "", true},
 		{"kind: empty but OutOfSync fails even without requireSynced", kindAppRules, "empty-but-outofsync", StatusFail, "", true},
 	}

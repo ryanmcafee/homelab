@@ -1,0 +1,33 @@
+# istio-gateways values. The parent Application (charts/addons
+# templates/istio.yaml) passes the domain and the Envoy Gateway names through
+# helm.valuesObject, so these are placeholders.
+
+global:
+  domain: example.com
+
+namespace: istio-ingress
+
+# The wildcard certificate the internal Envoy Gateway issues; read across
+# namespaces through a ReferenceGrant.
+certificate:
+  namespace: envoy-gateway-system
+  secretName: gateway-wildcard-tls
+
+# Comparison only: no WAN port forward and no DNS record points at these.
+# ClusterIP where no LoadBalancer exists (Kind).
+serviceType: LoadBalancer
+gateways:
+  internal:
+    enabled: true
+  external:
+    enabled: true
+
+# agnhost netexec answers on the same hostname through both implementations:
+# DNS resolves echo.<domain> to Envoy, `curl --resolve` reaches Istio.
+echo:
+  enabled: true
+  image: registry.k8s.io/e2e-test-images/agnhost:2.53
+  hostname: echo
+  envoyGateway:
+    name: envoy-internal
+    namespace: envoy-gateway-system

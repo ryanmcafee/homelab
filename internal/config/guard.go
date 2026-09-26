@@ -17,7 +17,7 @@ import (
 // piiKeyPrefixes are config key prefixes whose values are likely PII (IPs, domains, usernames, emails).
 var piiKeyPrefixes = []string{
 	"DOMAIN", "ACME_EMAIL", "NFS_MAPALL_USER", "DUCKDNS_SUBDOMAIN",
-	"EXTERNAL_DNS_DEFAULT_TARGET", "TRAEFIK_OIDC_ALLOWED_DOMAINS",
+	"EXTERNAL_DNS_DEFAULT_TARGET",
 	// LAN CIDRs: a runbook pasting a real subnet identifies the network as
 	// surely as a host address does. LAN_CIDR is the terragrunt tree's own
 	// subnet key and holds the same value, so it is judged the same way.
@@ -752,8 +752,8 @@ func isRealHostname(v string) bool {
 
 // chartPIIKeys are the lowercase and camelCase Helm values keys whose scalar
 // value names a host, address or mailbox. They are the keys the child charts'
-// values-homelab.yaml files hand to ingresses, iSCSI volumes, cluster issuers
-// and OIDC middleware, which is where the production identity used to live.
+// values-homelab.yaml files hand to routes, iSCSI volumes, cluster issuers
+// and gateways, which is where the production identity used to live.
 // Keys are compared lowercased, so `staticIP`, `staticip` and `StaticIP` are
 // the same entry.
 //

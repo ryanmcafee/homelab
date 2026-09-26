@@ -39,3 +39,16 @@ Usage: {{ include "addons.configHash" (dict "values" .Values.myApp) }}
 {{- define "addons.configHash" -}}
 {{- .values | toJson | sha256sum | trunc 8 }}
 {{- end }}
+
+{{/*
+Gateway API parentRefs (a YAML list) to one listener of global.gateway.<gateway>
+(internal or external); sectionName defaults to https, the http listener only redirects.
+Usage: {{ include "addons.gatewayParentRefs" (dict "root" . "gateway" "internal") }}
+*/}}
+{{- define "addons.gatewayParentRefs" -}}
+- group: gateway.networking.k8s.io
+  kind: Gateway
+  name: {{ required (printf "global.gateway.%s is required" .gateway) (index .root.Values.global.gateway .gateway) }}
+  namespace: {{ required "global.gateway.namespace is required" .root.Values.global.gateway.namespace }}
+  sectionName: {{ .sectionName | default "https" }}
+{{- end }}

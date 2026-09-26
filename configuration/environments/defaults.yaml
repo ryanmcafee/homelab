@@ -13,8 +13,9 @@ STORAGE_CLASS_NFS: democratic-csi-nfs
 STORAGE_CLASS_ISCSI: democratic-csi-iscsi-hdd
 STORAGE_CLASS_SSD: democratic-csi-ssd
 STORAGE_CLASS_ISCSI_SSD: democratic-csi-iscsi
-INGRESS_CLASS_EXTERNAL: external
-INGRESS_CLASS_INTERNAL: internal
+GATEWAY_NAMESPACE: envoy-gateway-system
+GATEWAY_EXTERNAL: envoy-external
+GATEWAY_INTERNAL: envoy-internal
 TIMEZONE: "America/New_York"
 
 # Infrastructure
@@ -23,7 +24,6 @@ TRUENAS_ZONE_PARENT: storage/k8s
 TRUENAS_ZONE_SSD_PARENT: ssd/k8s
 TRUENAS_ISCSI_PARENT: ssd/iscsi
 TRUENAS_ISCSI_HDD_PARENT: storage/k8s
-TRAEFIK_OIDC_PROVIDER_URL: "https://accounts.google.com"
 
 # Application defaults
 MEDIA_APP_UID: "568"
@@ -37,9 +37,7 @@ TAILSCALE_OPERATOR_1P_PATH: vaults/homelab/items/tailscale-operator-oauth
 CERT_MANAGER_1P_PATH: vaults/homelab/items/cloudflare
 EXTERNAL_DNS_1P_PATH: vaults/homelab/items/cloudflare
 EXTERNAL_DNS_UNIFI_1P_PATH: vaults/homelab/items/unifi
-TRAEFIK_OIDC_SESSION_KEY_PATH: vaults/homelab/items/oidc-session-key
-TRAEFIK_GOOGLE_OAUTH_PATH: vaults/homelab/items/google-oauth
-TRAEFIK_CLOUDFLARE_1P_PATH: vaults/homelab/items/cloudflare
+GOOGLE_OAUTH_1P_PATH: vaults/homelab/items/google-oauth
 UNIFI_PORT_FORWARD_1P_PATH: vaults/homelab/items/unifi
 DUCKDNS_1P_PATH: vaults/homelab/items/duckdns
 PAPERCLIP_AUTH_1P_PATH: vaults/homelab/items/paperclip-auth

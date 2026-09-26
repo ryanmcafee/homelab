@@ -12,8 +12,14 @@ global:
   # Environment identifier
   environment: localdev
 
-  # Base domain for ingress resources
+  # Base domain for route hostnames
   domain: homelab.local
+
+  # Gateways every HTTPRoute attaches to (addons.gatewayParentRefs).
+  gateway:
+    namespace: envoy-gateway-system
+    internal: envoy-internal
+    external: envoy-external
 
   # Default storage class for persistent volumes
   storageClass: local-path
@@ -90,7 +96,7 @@ kubelet-csr-approver:
       memory: 128Mi
 
 # ============================================================================
-# metrics-server - metrics.k8s.io for kubectl top and the Traefik HPAs
+# metrics-server - metrics.k8s.io for kubectl top and the Envoy proxy HPAs
 # ============================================================================
 
 metrics-server:
@@ -175,14 +181,13 @@ cilium:
       pullPolicy: IfNotPresent
 
   # charts/cilium-config: ServiceMonitors for the agent, operator and Hubble
-  # metrics, and the Hubble UI ingress, where the Talos values enable them.
+  # metrics, and the Hubble UI HTTPRoute, where the Talos values enable them.
   config:
     monitoring:
       enabled: false
     hubbleUI:
       enabled: false
       host: hubble.homelab.local
-      ingressClassName: internal
 
 # ============================================================================
 # Cilium LB IPAM - LoadBalancer IP Management + BGP
@@ -708,12 +713,8 @@ external-dns:
 
   provider: cloudflare
 
-  # Only watch ingress resources for Cloudflare DNS
-  # CRD source has its own dedicated deployment (external-dns-cloudflare-crd)
-  # Ingress class filtering (--ingress-class=external) is applied in the template
-  # to ensure only external ingresses (e.g., Plex) publish to Cloudflare
-  sources:
-    - ingress
+  # Only HTTPRoutes on the external Gateway publish to Cloudflare (e.g. Plex);
+  # templates/external-dns-cloudflare.yaml sets the source and --gateway-name.
 
   cloudflare:
     apiToken: ""
@@ -838,18 +839,10 @@ kube-prometheus-stack:
       storageClass: local-path
       size: 1Gi
 
-    ingress:
+    # HTTPRoute on the internal Gateway (GATEWAY_INTERNAL).
+    route:
       enabled: true
-      ingressClassName: internal
-      annotations:
-        cert-manager.io/cluster-issuer: letsencrypt
-        external-dns.alpha.kubernetes.io/hostname: grafana.homelab.local
-      hosts:
-        - grafana.homelab.local
-      tls:
-        - secretName: grafana-tls
-          hosts:
-            - grafana.homelab.local
+      hostname: grafana.homelab.local
 
     resources:
       requests:
@@ -866,11 +859,9 @@ kube-prometheus-stack:
 
     # grafana.com dashboards the Grafana init container downloads into the
     # "homelab" folder; revisions are pinned. The ClickHouse operator chart
-    # ships its own dashboards as sidecar ConfigMaps.
+    # ships its own dashboards as sidecar ConfigMaps, and so does
+    # charts/grafana-config for Envoy Gateway and the ingress overview.
     dashboards:
-      traefik:
-        gnetId: 17347
-        revision: 9
       opentelemetry-collector:
         gnetId: 15983
         revision: 30
@@ -919,18 +910,10 @@ kube-prometheus-stack:
       enabled: false
       secretName: alertmanager-notifications
       onePasswordItemPath: ""
-    ingress:
+    # HTTPRoute on the internal Gateway (GATEWAY_INTERNAL).
+    route:
       enabled: true
-      ingressClassName: internal
-      annotations:
-        cert-manager.io/cluster-issuer: letsencrypt
-        external-dns.alpha.kubernetes.io/hostname: alertmanager.homelab.local
-      hosts:
-        - alertmanager.homelab.local
-      tls:
-        - secretName: alertmanager-tls
-          hosts:
-            - alertmanager.homelab.local
+      hostname: alertmanager.homelab.local
     storage:
       volumeClaimTemplate:
         spec:
@@ -1006,270 +989,85 @@ kube-prometheus-stack:
       expect: ["200"]
 
 # ============================================================================
-# Traefik External - External Ingress Controller
-# Sync Wave: 6
+# Gateway API CRDs (standard channel) for Envoy Gateway, the Istio gateways
+# and waypoints
+# Sync Wave: 1
 # ============================================================================
 
-traefikExternal:
+gatewayApi:
   enabled: true
-  namespace: traefik
+  repo: https://github.com/kubernetes-sigs/gateway-api.git
+  version: "v1.6.2"
+
+# ============================================================================
+# Envoy Gateway - internal and external ingress (docs/networking.md)
+# Sync Waves: 4 CRDs, 5 controller, 6 envoy-gateway-config (both Gateways)
+# Routes attach to the https listener of GATEWAY_INTERNAL or GATEWAY_EXTERNAL.
+# ============================================================================
+
+envoy-gateway:
+  enabled: true
+  namespace: envoy-gateway-system
 
   chart:
-    name: traefik
-    repo: https://traefik.github.io/charts
-    version: 39.0.9
+    repo: docker.io/envoyproxy
+    version: "v1.9.1"
 
-  service:
-    type: NodePort
-    spec:
-      externalTrafficPolicy: Cluster
-
-  ports:
-    web:
-      port: 8000
-      exposedPort: 80
-      expose:
-        default: true
-      http:
-        redirections:
-          entryPoint:
-            to: websecure
-            scheme: https
-            permanent: true
-    websecure:
-      port: 8443
-      exposedPort: 443
-      expose:
-        default: true
-      asDefault: true
-      http:
-        tls:
-          enabled: true
-      transport:
-        respondingTimeouts:
-          readTimeout: 0
-          writeTimeout: 0
-          idleTimeout: 600s
-    traefik:
-      port: 9000
-      expose:
-        default: true
-
-  # Global arguments moved to additionalArguments in v39+
-  additionalArguments:
-    - --global.checknewversion=false
-    - --global.sendanonymoususage=false
-
-  # JSON access logs on stdout (collected by the OpenTelemetry agents into
-  # ClickHouse, docs/logging.md) and a metrics Service + ServiceMonitor on the
-  # metrics entrypoint (:9100) that kube-prometheus-stack scrapes.
-  logs:
-    access:
-      enabled: true
-      format: json
-      # Every general field is kept (ClientHost, RequestHost/Path/Method,
-      # Duration, OriginDuration, OriginStatus, DownstreamStatus, RouterName,
-      # ServiceURL, RetryAttempts, TraceId, SpanId); of the headers only these.
-      headers:
-        User-Agent: keep
-        Traceparent: keep
-  metrics:
-    serviceMonitor:
-      enabled: true
-  # W3C traceparent is started or continued here and forwarded to the
-  # backend; spans go to the OpenTelemetry gateway collector (docs/tracing.md).
-  tracing:
-    enabled: true
-    endpoint: otel-collector-gateway.observability.svc.cluster.local:4317
-    sampleRate: 1.0
-
-  # OIDC Plugin for authentication (replaces oauth2-proxy)
-  experimental:
-    plugins:
-      traefikoidc:
-        moduleName: github.com/lukaszraczylo/traefikoidc
-        version: v1.0.32
-
-  # OIDC middleware configuration (client credentials and session key are 1Password items)
-  oidc:
-    enabled: false
-    providerURL: "https://accounts.google.com"
-    # Use path format - plugin constructs full URL from request host
-    callbackURL: "/oauth2/callback"
-    logoutURL: "/oauth2/logout"
-    scopes:
-      - openid
-      - profile
-      - email
-    allowedDomains:
-      - homelab.local
-    sessionEncryptionKeyPath: vaults/homelab/items/oidc-session-key
-    googleOAuthPath: vaults/homelab/items/google-oauth
-
-  # Volume mounts for OIDC secrets
-  volumes: []
-
-  env: []
-
-  # Persistence disabled - ACME removed
-  persistence:
-    enabled: false
-
-  ingressRoute:
-    dashboard:
-      enabled: true
-      matchRule: Host(`traefik.homelab.local`)
-      entryPoints: ["websecure"]
-      tls:
-        secretName: traefik-dashboard-tls
-
-  # Kind sizing: one replica on a single node, no HPA
-  resources:
-    requests:
-      cpu: 50m
-      memory: 128Mi
-    limits:
-      cpu: 200m
-      memory: 256Mi
-
-  deployment:
+  controller:
     replicas: 1
+    serviceMonitor: true
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        cpu: "1"
+        memory: 1Gi
 
-  topologySpreadConstraints: []
-
-  autoscaling:
-    enabled: false
-
-  cloudflare:
-    enabled: false
-    onePasswordItemPath: vaults/homelab/items/cloudflare
-
-  # Values handed to the traefik-external-config child chart through the
-  # traefik-external-config Application's helm.valuesObject. The child's
-  # committed values-homelab.yaml carries no hostnames, IPs or domains.
-  config:
-    dashboard:
-      host: traefik.homelab.local
-      staticIP: "127.0.0.200"
-    oidc:
-      host: auth.homelab.local
-      allowedDomains:
-        - homelab.local
-
-# ============================================================================
-# Traefik Internal - Internal Ingress Controller
-# Sync Wave: 6
-# ============================================================================
-
-traefikInternal:
-  enabled: true
-  namespace: traefik
-
-  chart:
-    name: traefik
-    repo: https://traefik.github.io/charts
-    version: 39.0.9
-
-  service:
-    type: NodePort
-    spec:
-      externalTrafficPolicy: Cluster
-    # No static IP - Cilium LB IPAM assigns dynamically
-    # No port forwarding - internal only
-
-  ports:
-    web:
-      port: 8000
-      exposedPort: 80
-      expose:
-        default: true
-      http:
-        redirections:
-          entryPoint:
-            to: websecure
-            scheme: https
-            permanent: true
-    websecure:
-      port: 8443
-      exposedPort: 443
-      expose:
-        default: true
-      asDefault: true
-      http:
-        tls:
+  gateways:
+    # LAN and tailnet: every internal hostname (external-dns-unifi publishes
+    # its routes to UniFi DNS).
+    internal:
+      enabled: true
+      config:
+        name: envoy-internal
+        service:
+          type: ClusterIP
+        replicas: 1
+        autoscaling:
+          enabled: false
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 500m
+            memory: 256Mi
+        tracing:
           enabled: true
-      transport:
-        respondingTimeouts:
-          readTimeout: 0
-          writeTimeout: 0
-          idleTimeout: 600s
-    traefik:
-      port: 9000
-      expose:
-        default: true
+          samplingRate: 100
 
-  additionalArguments:
-    - --global.checknewversion=false
-    - --global.sendanonymoususage=false
-
-  # JSON access logs on stdout (collected by the OpenTelemetry agents into
-  # ClickHouse, docs/logging.md) and a metrics Service + ServiceMonitor on the
-  # metrics entrypoint (:9100) that kube-prometheus-stack scrapes.
-  logs:
-    access:
+    # Internet: WAN 80/443 are port-forwarded to its static IP; external-dns
+    # publishes its routes to Cloudflare.
+    external:
       enabled: true
-      format: json
-      # Every general field is kept (ClientHost, RequestHost/Path/Method,
-      # Duration, OriginDuration, OriginStatus, DownstreamStatus, RouterName,
-      # ServiceURL, RetryAttempts, TraceId, SpanId); of the headers only these.
-      headers:
-        User-Agent: keep
-        Traceparent: keep
-  metrics:
-    serviceMonitor:
-      enabled: true
-  # W3C traceparent is started or continued here and forwarded to the
-  # backend; spans go to the OpenTelemetry gateway collector (docs/tracing.md).
-  tracing:
-    enabled: true
-    endpoint: otel-collector-gateway.observability.svc.cluster.local:4317
-    sampleRate: 1.0
-
-  env: []
-
-  persistence:
-    enabled: false
-
-  ingressRoute:
-    dashboard:
-      enabled: true
-      matchRule: Host(`traefik-internal.homelab.local`)
-      entryPoints: ["websecure"]
-      tls:
-        secretName: traefik-internal-dashboard-tls
-
-  # Kind sizing: one replica on a single node, no HPA
-  resources:
-    requests:
-      cpu: 50m
-      memory: 128Mi
-    limits:
-      cpu: 200m
-      memory: 256Mi
-
-  deployment:
-    replicas: 1
-
-  topologySpreadConstraints: []
-
-  autoscaling:
-    enabled: false
-
-  # Values handed to the traefik-internal-config child chart through the
-  # traefik-internal-config Application's helm.valuesObject.
-  config:
-    dashboard:
-      host: traefik-internal.homelab.local
+      config:
+        name: envoy-external
+        service:
+          type: ClusterIP
+        replicas: 1
+        autoscaling:
+          enabled: false
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 500m
+            memory: 256Mi
+        tracing:
+          enabled: true
+          samplingRate: 100
 
 # ============================================================================
 # UniFi Port Forwarding Controller - Automatic Port Forwards
@@ -1285,7 +1083,7 @@ unifi-port-forward:
   onePasswordItemPath: vaults/homelab/items/unifi
 
 # ============================================================================
-# OAuth2-Proxy - Zero-Trust Authentication (DISABLED - replaced by Traefik OIDC plugin)
+# OAuth2-Proxy - Zero-Trust Authentication (DISABLED)
 # Sync Wave: 6-8
 # ============================================================================
 
@@ -1295,6 +1093,9 @@ oauth2-proxy:
 
   chart:
     version: "10.7.0"
+
+  # External route auth.<DOMAIN>; Cloudflare CNAMEs it to this target.
+  externalDNSTarget: homelab-dev.duckdns.org
 
   # 1Password paths for secrets
   googleOAuthPath: vaults/homelab/items/google-oauth
@@ -1387,7 +1188,7 @@ node-feature-discovery:
 
 # ============================================================================
 # Argo Workflows - Workflow Orchestration
-# Sync Wave: 7 (after core infrastructure)
+# Sync Wave: 9 (after core infrastructure)
 # ============================================================================
 
 argo-workflows:
@@ -1403,21 +1204,10 @@ argo-workflows:
   server:
     authMode: server
 
-    ingress:
+    # HTTPRoute on the internal Gateway (GATEWAY_INTERNAL).
+    route:
       enabled: true
-      ingressClassName: internal
-      annotations:
-        cert-manager.io/cluster-issuer: letsencrypt
-        external-dns.alpha.kubernetes.io/hostname: workflows.homelab.local
-      hosts:
-        - workflows.homelab.local
-      paths:
-        - /
-      pathType: Prefix
-      tls:
-        - secretName: argo-workflows-tls
-          hosts:
-            - workflows.homelab.local
+      hostname: workflows.homelab.local
 
     resources:
       requests:
@@ -1444,18 +1234,6 @@ argo-workflows:
           secondsAfterFailure: 172800
 
 # ============================================================================
-# Traefik CRDs (traefik.io only) for both Traefik releases
-# Sync Wave: 4 (before traefik-*-dependencies at 5 and the controllers at 6)
-# ============================================================================
-
-traefikCrds:
-  enabled: true
-  chart:
-    name: traefik-crds
-    repo: https://traefik.github.io/charts
-    version: "1.14.1"
-
-# ============================================================================
 # Istio ambient mesh + Kiali (docs/service-mesh.md)
 # Sync Waves: 2 istio-base, 3 istiod + istio-cni, 4 ztunnel, 5 istio-config,
 # 10 kiali. No namespace is enrolled here: SERVICE_MESH_AMBIENT_NAMESPACES
@@ -1471,10 +1249,17 @@ istio:
     # The storage.googleapis.com repository ends at 1.30.5; 1.31 is published here.
     repo: https://blob.istio.io/istio-release/charts
     version: "1.31.1"
-  # Standard-channel Gateway API CRDs; a waypoint is a Gateway of class istio-waypoint.
-  gatewayApi:
-    repo: https://github.com/kubernetes-sigs/gateway-api.git
-    version: "v1.6.2"
+  # Internal/external Gateways of classes istio-internal/istio-external next to
+  # Envoy Gateway, for comparison only (charts/istio-gateways).
+  gateways:
+    enabled: true
+    config:
+      namespace: istio-ingress
+      serviceType: ClusterIP
+      echo:
+        envoyGateway:
+          name: envoy-internal
+          namespace: envoy-gateway-system
 
   # Waypoint spans to the OpenTelemetry gateway collector (OTLP gRPC).
   # ztunnel is L4 only and emits no spans (docs/service-mesh.md).
@@ -1531,8 +1316,6 @@ istio:
       repo: https://kiali.org/helm-charts
       version: "2.32.0"
     hostname: servicemesh.homelab.local
-    ingress:
-      className: internal
     prometheusUrl: http://kube-prometheus-stack-prometheus.monitoring.svc.cluster.local:9090
     grafana:
       internalUrl: http://kube-prometheus-stack-grafana.monitoring.svc.cluster.local:80
@@ -1654,23 +1437,11 @@ logging:
         limits:
           cpu: "1"
           memory: 512Mi
-      # OTLP/HTTP with TLS for clients outside the cluster.
-      ingress:
+      # OTLP/HTTP (port 4318) with TLS for clients outside the cluster, on
+      # the internal Gateway.
+      route:
         enabled: true
-        ingressClassName: internal
-        annotations:
-          cert-manager.io/cluster-issuer: letsencrypt
-          external-dns.alpha.kubernetes.io/hostname: otlp.homelab.local
-        hosts:
-          - host: otlp.homelab.local
-            paths:
-              - path: /
-                pathType: Prefix
-                port: 4318
-        tls:
-          - secretName: otlp-tls
-            hosts:
-              - otlp.homelab.local
+        hostname: otlp.homelab.local
 
   # UniFi gateway syslog (CEF) and NetFlow receivers on otel-collector-gateway.
   unifi:
@@ -1695,9 +1466,9 @@ blackbox-exporter:
     name: prometheus-blackbox-exporter
     repo: https://prometheus-community.github.io/helm-charts
     version: "11.18.0"
-  # Every 15 s: through DNS and traefik-internal (in-cluster, so the LB
-  # address resolves but Cilium short-circuits it to Traefik without the
-  # L2/BGP hop) and straight to the pod's Service, so a failure names the hop.
+  # Every 15 s: through DNS and the internal Envoy Gateway (in-cluster, so the
+  # LB address resolves but Cilium short-circuits it to the Envoy pods without
+  # the L2/BGP hop) and straight to the pod's Service, so a failure names the hop.
   targets:
     - name: paperclip-ingress
       url: https://paperclip.homelab.local/api/health

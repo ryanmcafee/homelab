@@ -34,12 +34,12 @@ and wire it into every registry level 0 checks.
 Patterns:
   operator          One Application for an upstream operator chart that installs CRDs
                     (reference: cloudnative-pg). Requires --crd-group and --crd-kinds.
-  helm              One Application for an upstream chart with an Ingress on
+  helm              One Application for an upstream chart with an HTTPRoute on
                     <name>.<domain> and a PostSync smoke hook; no -config child
                     (reference: sonarr). Default tier: applications.
   deps-main-config  <name>-dependencies (wave-1) < <name> (wave) < <name>-config (wave+2);
                     derived values reach the children through helm.valuesObject
-                    (reference: traefik-external, ADR-010).
+                    (reference: grafana-config, ADR-010).
 
 Writes:
   charts/<tier>/templates/<name>.yaml      Application(s): finalizer, sync-wave, SSA,
@@ -121,7 +121,7 @@ func newScaffoldAppCmd() *cobra.Command {
 	f.StringVar(&o.ChartRepo, "chart-repo", "", "Upstream Helm repository: https://... or oci://<registry path> without the chart name (required)")
 	f.StringVar(&o.ChartName, "chart-name", "", "Upstream chart name (default: <name>)")
 	f.StringVar(&o.ChartVersion, "chart-version", "", "Chart version pinned in configuration/versions.yaml (required)")
-	f.IntVar(&port, "port", 0, "Service port for the smoke hook and the -config Ingress (default 80; operator: 0 = no smoke hook)")
+	f.IntVar(&port, "port", 0, "Service port for the smoke hook and the -config HTTPRoute (default 80; operator: 0 = no smoke hook)")
 	f.StringVar(&o.HealthPath, "health-path", "/", "Unauthenticated path the smoke hook and e2e test request")
 	f.StringSliceVar(&expect, "expect", []string{"200"}, "Accepted HTTP status codes (comma-separated)")
 	f.StringVar(&o.CRDGroup, "crd-group", "", "API group whose CRDs the chart installs (required for operator)")

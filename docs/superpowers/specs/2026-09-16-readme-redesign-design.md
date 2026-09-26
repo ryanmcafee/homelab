@@ -29,7 +29,7 @@ system; the architecture docs are regenerated from the current repo instead of p
 | Bootstrap bugs | Fixed in this PR, Go changes with table-driven tests |
 | Header | v10 of the companion mock-up: terminal on the left, dependency snake on the right, two traffic lanes, chainsaw counter, finale "homelab is online. systems nominal." |
 | Wave numbers | Not in the header; they live in `docs/architecture.md` |
-| Internal hosts shown | 10 (traefik-internal dashboard excluded) |
+| Internal hosts shown | 10 |
 
 ## 1. Header: `.github/homelab.svg`
 
@@ -40,7 +40,7 @@ GitHub). Canvas 1100×404, 27-second loop:
 |---|---|
 | 0–1 s | terminal types `$ task setup` |
 | 1–11 s | snake builds row by row: ANSIBLE → TERRAGRUNT (proxmox-cluster → zfs-pool/-cp → truenas → talos-cluster → cluster-config → gitops-bootstrap); GITOPS BRIDGE (argocd helm + homelab-cmp sidecar → sops-age-key → bridge metadata → root Application), right-to-left; ARGOCD (gitops → sops→ksops → 1password operator → environment-config → homelab-cmp → addons · 32 → applications · 15); NETWORK · VERIFY (chainsaw e2e, tailscale operator, unifi-gateway unit, port-forward ctl, cilium bgp, unifi gateway hub; BGP handshake AS64512 ⇄ AS64513 turns green; `kube-*` rule packet) |
-| 11–12 s | TRAFFIC lanes draw: internet → plex (cloudflare → duckdns → unifi wan :443 → port forward kube-plex → bgp route → traefik-external → service → deployment); tailnet → internal (tailnet user → split dns → unifi → subnet router → bgp route → traefik-internal → service → deployment) |
+| 11–12 s | TRAFFIC lanes draw: internet → plex (cloudflare → duckdns → unifi wan :443 → port forward kube-plex → bgp route → envoy-external → service → deployment); tailnet → internal (tailnet user → split dns → unifi → subnet router → bgp route → envoy-internal → service → deployment) |
 | 12–24 s | tailnet lane cycles 10 internal hosts, 1.2 s each, packet traverses the full route, FQDN/service/deployment labels swap, verdict badge under the deployment; chainsaw counter ticks 0 → 17/17 in the terminal and under the chainsaw node; chainsaw node pulses per route |
 | 24.5 s | `✔ homelab is online. systems nominal.`; chainsaw node outline turns green |
 | 26–27 s | fade, restart |
@@ -54,7 +54,7 @@ Facts baked into the file and where they come from:
 | bootstrap secret chain | `charts/bootstrap/templates/{sops-secrets,1password-operator,homelab-environment-config}.yaml` |
 | addons · 32, applications · 15 | template counts in `charts/addons`, `charts/applications` |
 | BGP ASNs | `BGP_K8S_ASN`, `BGP_ROUTER_ASN` in `configuration/` |
-| internal hosts (10) | `tests/snapshots/homelab/*.yaml`, `ingressClassName: internal` |
+| internal hosts (10) | `tests/snapshots/homelab/*.yaml`, routes on the `envoy-internal` Gateway |
 | plex external path | `external-dns-cloudflare` annotationFilter + `duckdns` app target |
 | chainsaw 17 suites | `tests/e2e/*/chainsaw-test.yaml` |
 | per-host verdict | e2e suite exists in `tests/e2e/<host>`; smoke = `smoke-<host>` Job in snapshots. argocd: e2e via `argocd-apps`, no smoke. workflows: neither |
@@ -99,9 +99,9 @@ version of a header row so README and docs tell the same story.
 4. Storage — democratic-csi NFS + iSCSI (ssd, hdd) → TrueNAS; local-path in Kind; CloudNativePG + barman-cloud; Spegel.
 5. Verification — level 0/1/2, chainsaw suites, PostSync smoke Jobs, PR previews (ADR-013), read-only production, restore drill, Renovate gate (ADR-014).
 
-**`docs/networking.md`** — Cilium LB IPAM + BGP (AS64512 ⇄ AS64513; FRR neighbor config written by `unifi-gateway`); two Traefiks; ingress inventory table (3 external, 10 internal; generated); external-dns cloudflare + unifi; port-forwarding controller; Tailscale operator (subnet router `homelab-subnet-router`, API server proxy, split DNS `<DOMAIN>` → gateway); DNS resolution flow for both lanes. MetalLB removed everywhere. Addresses as `<KEY>` placeholders.
+**`docs/networking.md`** — Cilium LB IPAM + BGP (AS64512 ⇄ AS64513; FRR neighbor config written by `unifi-gateway`); Envoy Gateway (`envoy-external`, `envoy-internal`); route inventory table (generated); external-dns cloudflare + unifi; port-forwarding controller; Tailscale operator (subnet router `homelab-subnet-router`, API server proxy, split DNS `<DOMAIN>` → gateway); DNS resolution flow for both lanes. MetalLB removed everywhere. Addresses as `<KEY>` placeholders.
 
-**New `docs/applications.md`** — full addon + application table: name, chart, version (from `versions.yaml`), ingress class, e2e suite, smoke Job. `workflows` row shows the coverage gap with a TODO.
+**New `docs/applications.md`** — full addon + application table: name, chart, version (from `versions.yaml`), Gateway, e2e suite, smoke Job. `workflows` row shows the coverage gap with a TODO.
 
 **Also updated:** `docs/hardware.md` (3 CPs, cp-storage, Intel GPU, remove NVIDIA as current);
 `docs/runbooks/talos-upgrade.md` (stale subnet); `docs/local-development.md` (Tilt wording →

@@ -4,10 +4,10 @@
 //	operator          one Application for an upstream operator chart that installs
 //	                  CRDs (reference: cloudnative-pg); registers the CRD group,
 //	                  vendors-to-be schema source and health Lua for its kinds
-//	helm              one Application for an upstream chart with an Ingress and a
+//	helm              one Application for an upstream chart with an HTTPRoute and a
 //	                  PostSync smoke hook, no -config child (reference: sonarr)
 //	deps-main-config  <name>-dependencies < <name> < <name>-config, children fed
-//	                  through helm.valuesObject (reference: traefik-external, ADR-010)
+//	                  through helm.valuesObject (reference: grafana-config, ADR-010)
 //
 // Build computes every file it would create or change as a Plan (nothing is
 // written); Plan.Diff renders it as a git-style patch for --dry-run, Plan.Apply
@@ -63,7 +63,7 @@ var tierExport = map[string]string{TierAddons: "helm-addons.tmpl", TierApplicati
 var tierSchema = map[string]string{TierAddons: "network.schema.yaml", TierApplications: "applications.schema.yaml"}
 
 // defaultWave is the main Application's sync wave per tier: after the
-// operators and ingress controllers in addons (cloudnative-pg is 10), next to
+// operators and gateway controllers in addons (cloudnative-pg is 10), next to
 // the media apps in applications (sonarr is 13).
 var defaultWave = map[string]int{TierAddons: 10, TierApplications: 13}
 
@@ -77,9 +77,13 @@ var reservedNames = map[string]bool{
 	"secrets": true, "global": true,
 }
 
-// traefikGateway is the in-cluster Service the e2e curl Job connects through
-// for the internal IngressClass (tests/e2e/README.md).
-const traefikGateway = "traefik-internal.traefik.svc.cluster.local"
+// routeGateway is the Gateway every scaffolded HTTPRoute attaches to; the e2e
+// curl Job connects through its Service (tests/e2e/README.md).
+const (
+	routeGateway          = "envoy-internal"
+	routeGatewayNamespace = "envoy-gateway-system"
+	routeGatewayService   = routeGateway + "." + routeGatewayNamespace + ".svc.cluster.local"
+)
 
 // trueChartsRepo is the TrueCharts OCI registry as ArgoCD spells it.
 const trueChartsRepo = "oci.trueforge.org/truecharts"
@@ -117,7 +121,7 @@ type Options struct {
 	ChartName string
 	// ChartVersion is written to configuration/versions.yaml.
 	ChartVersion string
-	// Port is the Service port the smoke hook and the -config Ingress use
+	// Port is the Service port the smoke hook and the -config HTTPRoute use
 	// (default 80; 0 for operator, which disables the smoke hook).
 	Port *int
 	// Wave is the main Application's sync wave (default 10 in addons, 13 in
@@ -254,7 +258,7 @@ func (o *Options) Normalize() error {
 	case *o.Port < 0 || *o.Port > 65535:
 		return inputErrorf("--port %d is out of range", *o.Port)
 	case *o.Port == 0 && o.Pattern != PatternOperator:
-		return inputErrorf("--port is required for the %s pattern (the smoke hook and Ingress target it)", o.Pattern)
+		return inputErrorf("--port is required for the %s pattern (the smoke hook and HTTPRoute target it)", o.Pattern)
 	}
 	if o.Wave == nil {
 		w := defaultWave[o.Tier]
@@ -315,7 +319,8 @@ type tmplData struct {
 	Expect                           []string
 	Smoke                            bool
 	SmokeURL                         string
-	Ingress                          bool
+	Route                            bool
+	RouteGateway                     string
 	LocaldevHost, Gateway, CurlImage string
 	Wave, DepsWave, ConfigWave       int
 	CRDGroup                         string
@@ -445,8 +450,8 @@ func Build(o Options) (*Plan, error) {
 		return nil, err
 	}
 
-	// 5. Hostname schema key for apps with an Ingress.
-	if d.Ingress {
+	// 5. Hostname schema key for apps with an HTTPRoute.
+	if d.Route {
 		key, err := execDefine("schemaKey", d)
 		if err != nil {
 			return nil, err
@@ -465,7 +470,7 @@ func Build(o Options) (*Plan, error) {
 			if child == "dependencies" {
 				files = append(files, "templates/secrets.yaml")
 			} else {
-				files = append(files, "templates/ingress.yaml")
+				files = append(files, "templates/httproute.yaml")
 			}
 			for _, f := range files {
 				dest := fmt.Sprintf("charts/%s-%s/%s", o.Name, child, f)
@@ -815,8 +820,9 @@ func (r *repo) templateData(o Options) (*tmplData, error) {
 		HealthPath:   o.HealthPath,
 		Expect:       o.Expect,
 		Smoke:        *o.Port > 0,
-		Ingress:      o.Pattern != PatternOperator,
-		Gateway:      traefikGateway,
+		Route:        o.Pattern != PatternOperator,
+		RouteGateway: routeGateway,
+		Gateway:      routeGatewayService,
 		CurlImage:    curl,
 		Wave:         *o.Wave,
 		DepsWave:     *o.Wave - 1,

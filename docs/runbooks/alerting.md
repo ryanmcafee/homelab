@@ -28,8 +28,8 @@ Alertmanager template (`alertmanager.templateFiles`):
 
 The **Source** link of an alert in the Alertmanager UI is Prometheus's generator URL. Prometheus's
 `externalUrl` is the Grafana host, so it reads `https://grafana.<DOMAIN>/graph?g0.expr=...`; the
-`grafana-alert-source` Traefik Middleware (`charts/grafana-config`) redirects that to the
-**Alert query** dashboard, which plots the expression on the `Prometheus` datasource.
+`grafana-alert-source` EnvoyExtensionPolicy (`charts/grafana-config`, a Lua filter on the Grafana
+HTTPRoute) redirects that to the **Alert query** dashboard, which plots the expression on the `Prometheus` datasource.
 
 Where it is defined: `charts/addons/templates/kube-prometheus-stack.yaml` (`alertmanager.config`,
 `alertmanagerSpec.secrets`, `additionalPrometheusRulesMap`), values from
@@ -135,9 +135,19 @@ of samples; that is how 16 alerts stood on democratic-csi for three months while
 | homelab-infrastructure | `HomelabClusterDNSFailing` | critical | CoreDNS answers SERVFAIL for more than 10 % of queries for 15 m ([cluster-dns.md](./cluster-dns.md)) |
 | homelab-infrastructure | `HomelabClusterDNSUpstreamDown` | critical | CoreDNS has no healthy upstream resolver for 10 m ([cluster-dns.md](./cluster-dns.md)) |
 | homelab-infrastructure | `CPUThrottlingHigh` | info | more than 25 % of CFS periods throttled for 15 m, **and** the container ran in more than 300 of the 3000 periods in the window |
-| homelab-ingress | `HomelabTraefikDown` | critical | no pod of `traefik-internal` or `traefik-external` answers the scrape for 5 m |
-| homelab-ingress | `HomelabTraefikBackendErrors` | warning | more than 5 % of a backend's requests are 5xx for 10 m (at least 0.1 req/s) |
-| homelab-ingress | `HomelabTraefikBackendSlow` | warning | a backend's p95 response time is above 5 s for 10 m |
+| homelab-ingress | `HomelabEnvoyGatewayControllerDown` | warning | no `envoy-gateway` controller pod answers the scrape for 10 m; proxies keep their last configuration |
+| homelab-ingress | `HomelabEnvoyProxyDown` | critical | no proxy pod of `envoy-internal` or `envoy-external` (label `gateway`) answers the scrape for 5 m |
+| homelab-ingress | `HomelabEnvoyGatewayErrors` | warning | more than 5 % of a gateway's downstream responses are 5xx for 10 m (at least 0.1 req/s), proxy-generated ones included |
+| homelab-ingress | `HomelabEnvoyUpstreamErrors` | warning | more than 5 % of a route cluster's upstream requests are 5xx for 10 m (at least 0.1 req/s) |
+| homelab-ingress | `HomelabEnvoyUpstreamSlow` | warning | a route cluster's p95 upstream response time is above 5 s for 10 m |
+| homelab-ingress | `HomelabEnvoyUpstreamUnhealthy` | warning | a route cluster has no healthy endpoint for 10 m (the route answers 503, flag `UH`) |
+| homelab-ingress | `HomelabGatewayNotProgrammed` | warning | a Gateway reports `Accepted` or `Programmed` False for 15 m |
+| homelab-ingress | `HomelabHTTPRouteNotAccepted` | warning | Envoy Gateway reports an HTTPRoute `Accepted` or `ResolvedRefs` False for 15 m |
+| homelab-ingress | `HomelabEnvoyGatewayXdsRejected` | warning | a proxy NACKs the controller's xDS updates for 10 m |
+| homelab-ingress | `HomelabEnvoyGatewayTranslationErrors` | warning | a controller runner fails (or panics) translating resources, or an xDS snapshot update fails, for 10 m |
+| homelab-ingress | `HomelabEnvoyGatewayResourceErrors` | warning | the controller fails to apply proxy resources or write status (not conflicts) for 15 m |
+| homelab-ingress | `HomelabGatewayCertificateExpiring` | critical | `gateway-wildcard-tls` is not Ready or expires within 7 days, for 1 h |
+| homelab-ingress | `HomelabIstioGatewayDown` | info | no pod of `istio-internal` or `istio-external` (comparison only) answers the scrape for 15 m |
 | homelab-logging | `HomelabLogExportFailing` | warning | a collector fails to export log records to ClickHouse for 15 m ([logging.md](../logging.md)) |
 | homelab-logging | `HomelabLogExportQueueFull` | warning | a collector's ClickHouse send queue is above 80 % for 10 m |
 | homelab-logging | `HomelabLogsNotArriving` | warning | the agents read no container log line for 30 m |
@@ -172,9 +182,43 @@ of samples; that is how 16 alerts stood on democratic-csi for three months while
 
 The `homelab-logging` rules follow the opentelemetry-collector chart's default rules and
 Altinity's `prometheus-alert-rules-clickhouse.yaml`, restated at `warning` (the chart's own are
-all `critical`); the log store is diagnostic, so its failures never page at night. The Traefik
-rules read `exported_service`: the scrape's own `service` label (the metrics Service) displaces
-Traefik's backend label.
+all `critical`); the log store is diagnostic, so its failures never page at night.
+
+## Ingress (Envoy Gateway)
+
+The `homelab-ingress` rules read four sources:
+
+- **Controller** (`job="envoy-gateway"`, ServiceMonitor `envoy-gateway`): `xds_nack_total`,
+  `watchable_subscribe_total`, `watchable_panics_recovered_total`, `xds_snapshot_update_total`,
+  `resource_apply_total` and `status_update_total` (failures carry `status="failure"`).
+- **Proxies** (PodMonitors `<gateway>-proxy`, `/stats/prometheus` on port 19001): every series
+  carries `gateway`. Route clusters are named `httproute/<namespace>/<route>/rule/<n>`
+  (`envoy_cluster_name`); listener stats carry `envoy_http_conn_manager_prefix` `http-10080` /
+  `https-10443`. Upstream times are milliseconds.
+- **Gateway API status** (kube-state-metrics custom resource state in
+  `charts/addons/templates/kube-prometheus-stack.yaml`): `gatewayapi_gateway_status` and
+  `gatewayapi_httproute_status` (`type`, `reason`, 1 when True). The HTTPRoute metric reads the
+  parent Envoy Gateway reports (`parent` label); Istio parents are not covered.
+- **Istio comparison gateways**: `up` of the `istio-proxy` pods in `istio-ingress` through the
+  `envoy-stats-monitor` PodMonitor. Only the echo route uses them, so they alert at `info`.
+
+Triage, in order:
+
+| Alert | First look |
+|---|---|
+| `HomelabEnvoyProxyDown` | `kubectl -n envoy-gateway-system get pods -l gateway.envoyproxy.io/owning-gateway-name=<gateway>`; if none exist, the controller cannot apply the Deployment (`HomelabEnvoyGatewayResourceErrors`, controller log) |
+| `HomelabEnvoyGatewayControllerDown` | `kubectl -n envoy-gateway-system get pods -l app.kubernetes.io/name=gateway-helm`; traffic keeps flowing, only changes wait |
+| `HomelabEnvoyGatewayErrors` without `HomelabEnvoyUpstreamErrors` | the proxy answers itself: `response_flags` in the access log (`NR` no route, `UH` no healthy upstream, `UF` connect failure, `DC` client gave up; [logging.md](../logging.md)) |
+| `HomelabEnvoyUpstreamErrors` / `Slow` | "Envoy Clusters" dashboard for the cluster, then the backend's own logs; streaming endpoints (Plex, SSE) are slow by design since there is no request timeout |
+| `HomelabEnvoyUpstreamUnhealthy` | `kubectl -n <namespace> get endpointslices`: the backend Service has no ready pod |
+| `HomelabGatewayNotProgrammed` | `kubectl -n <ns> describe gateway <name>`: usually no LoadBalancer address (Cilium LB IPAM pool, static IP taken) or a missing certificate Secret |
+| `HomelabHTTPRouteNotAccepted` | `kubectl -n <ns> describe httproute <name>`: `NotAllowedByListeners` / `NoMatchingListenerHostname` = wrong `sectionName` or hostname outside `*.<DOMAIN>`; `BackendNotFound` = wrong Service name or port |
+| `HomelabEnvoyGatewayXdsRejected`, `TranslationErrors`, `ResourceErrors` | controller log (`kubectl -n envoy-gateway-system logs deploy/envoy-gateway`) and the "Envoy Gateway Global" dashboard; roll back the last policy or route change |
+| `HomelabGatewayCertificateExpiring` | `kubectl -n envoy-gateway-system describe certificate gateway-wildcard-tls` and the cert-manager challenge; every HTTPS hostname shares it |
+| `HomelabIstioGatewayDown` | `kubectl -n istio-ingress get pods,gateway`; comparison only, no workload affected |
+
+Dashboards: "Ingress overview" (all four gateways side by side), "Envoy Global", "Envoy Clusters",
+"Envoy Gateway Global" and "Resources Monitor" (`charts/grafana-config/dashboards`).
 
 The `homelab-nats-jetstream` rules exist before the stream they watch: a cluster without NATS has
 no `nats_stream_*` series, so they sit silent rather than firing or going absent. They are the

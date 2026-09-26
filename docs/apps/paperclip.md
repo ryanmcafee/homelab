@@ -21,9 +21,9 @@ All four are rendered by `charts/applications/templates/paperclip.yaml`, gated o
 
 The `Instance`: image `ghcr.io/paperclipai/paperclip` at `images.paperclip` (2026.916.1);
 `database.mode: external` with `externalURLSecretRef {paperclip-postgres-app, uri}`;
-`deployment.mode: authenticated`, `exposure: private` (the instance sits behind the internal Traefik only; `public` cannot be onboarded by operator 0.19.1 with app 2026.831+, see the values comment), `publicURL: https://paperclip.<domain>`;
+`deployment.mode: authenticated`, `exposure: private` (the instance sits behind the `envoy-internal` Gateway only; `public` cannot be onboarded by operator 0.19.1 with app 2026.831+, see the values comment), `publicURL: https://paperclip.<domain>`;
 admin bootstrapped once from `PAPERCLIP_ADMIN_EMAIL` + `ADMIN_PASSWORD`, `disableSignUp: false` for now (the bootstrap Job signs the admin up through the same API, see the values comment and bugs.md 2026-09-15; the instance has reported `status.bootstrap` since 2026-09-15, so flipping it back to `true` is an open follow-up);
-Ingress class `internal` with cert-manager `letsencrypt` and external-dns, TLS Secret `paperclip-tls`;
+`spec.networking.httpRoute` on the `https` listener of `envoy-internal` with external-dns (TLS is the Gateway's wildcard certificate, no per-app Secret);
 Service `paperclip` port 3100, health path `/api/health`; the operator's default NetworkPolicy stays
 enabled; `security.seLinuxRelabel: false` (the operator's default privileged relabel init container is rejected by the namespace's PodSecurity baseline, and chcon has no purpose on Talos or NFS); Instance metrics off (the OTEL preload and collector do not exist here); persistence 10Gi
 on `STORAGE_CLASS_ISCSI_SSD` (block storage: the server refuses a secrets directory not owned by uid 1000, which rules out the NFS classes; the volume is `/paperclip`, the container's `HOME`, so the bundled `claude`
@@ -182,7 +182,7 @@ that provider's wiring alone. No agent runs there.
 
 - **First login**: open `https://paperclip.<domain>` and sign in with `PAPERCLIP_ADMIN_EMAIL` and
   the `ADMIN_PASSWORD` field of `paperclip-auth`. Self-service sign-up is still **enabled**
-  (`auth.disableSignUp: false`, the bootstrap workaround); only the internal Traefik reaches the
+  (`auth.disableSignUp: false`, the bootstrap workaround); only the `envoy-internal` Gateway reaches the
   instance, so the exposure is LAN/tailnet-only until the follow-up flips it back.
 - **Rotate `BETTER_AUTH_SECRET`**: edit the field in the 1Password item; the operator's
   `OnePasswordItem` sync updates the Secret. Then restart the workload, which invalidates every

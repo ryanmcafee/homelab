@@ -129,7 +129,7 @@ Dated, because a check's status is a claim about the past and decays.
   identity" is policy in prose. `fork-path-cold.yml`'s `pull_request` filter covers only the
   workflow file itself, deliberately, to keep a cold uncached loop off the pull-request critical
   path. A CODEOWNERS rule cannot carry the obligation either: `.github/CODEOWNERS` assigns
-  `* @ryanmcafee`, so every path already has the same single owner and the rule cannot
+  `*` to the single repository owner, so every path already has that one owner and the rule cannot
   discriminate. Closing this needs a `paths:`-triggered check, not a review assignment.
 - **3b — never executed, by anyone, as of 2026-09-25.** Not "overdue" and not "pending": it has
   never been run. The nearest measurement is `task validate -- --environment homelab`, which

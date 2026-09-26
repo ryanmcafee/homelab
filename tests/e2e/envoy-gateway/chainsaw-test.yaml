@@ -1,0 +1,451 @@
+---
+# Generated shape shared by every HTTP e2e test; see tests/e2e/README.md.
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: envoy-gateway
+spec:
+  description: >-
+    The Envoy Gateway controller is Available, both Gateways are Programmed, an HTTPRoute on the
+    https listener of envoy-internal serves a test backend, and the http listener answers 301.
+  steps:
+    - name: applications-healthy
+      description: The ArgoCD Applications behind this test are Healthy and their last sync Succeeded.
+      try:
+        - assert:
+            resource:
+              apiVersion: argoproj.io/v1alpha1
+              kind: Application
+              metadata:
+                name: gateway-api-crds
+                namespace: argocd
+              status:
+                health:
+                  status: Healthy
+                operationState:
+                  phase: Succeeded
+        - assert:
+            resource:
+              apiVersion: argoproj.io/v1alpha1
+              kind: Application
+              metadata:
+                name: envoy-gateway-crds
+                namespace: argocd
+              status:
+                health:
+                  status: Healthy
+                operationState:
+                  phase: Succeeded
+        - assert:
+            resource:
+              apiVersion: argoproj.io/v1alpha1
+              kind: Application
+              metadata:
+                name: envoy-gateway
+                namespace: argocd
+              status:
+                health:
+                  status: Healthy
+                operationState:
+                  phase: Succeeded
+        - assert:
+            resource:
+              apiVersion: argoproj.io/v1alpha1
+              kind: Application
+              metadata:
+                name: envoy-gateway-config
+                namespace: argocd
+              status:
+                health:
+                  status: Healthy
+                operationState:
+                  phase: Succeeded
+      catch:
+        - describe:
+            apiVersion: argoproj.io/v1alpha1
+            kind: Application
+            name: gateway-api-crds
+            namespace: argocd
+        - describe:
+            apiVersion: argoproj.io/v1alpha1
+            kind: Application
+            name: envoy-gateway-crds
+            namespace: argocd
+        - describe:
+            apiVersion: argoproj.io/v1alpha1
+            kind: Application
+            name: envoy-gateway
+            namespace: argocd
+        - describe:
+            apiVersion: argoproj.io/v1alpha1
+            kind: Application
+            name: envoy-gateway-config
+            namespace: argocd
+    - name: controller-available
+      description: Deployment envoy-gateway in envoy-gateway-system has condition Available=True.
+      try:
+        - assert:
+            resource:
+              apiVersion: apps/v1
+              kind: Deployment
+              metadata:
+                name: envoy-gateway
+                namespace: envoy-gateway-system
+              status:
+                (conditions[?type == 'Available']):
+                  - status: "True"
+      catch:
+        - describe:
+            apiVersion: apps/v1
+            kind: Deployment
+            name: envoy-gateway
+            namespace: envoy-gateway-system
+        - podLogs:
+            namespace: envoy-gateway-system
+            selector: app.kubernetes.io/name=gateway-helm
+            tail: 100
+    - name: gateways-programmed
+      description: >-
+        GatewayClasses envoy-internal and envoy-external are Accepted and the Gateways of the same names in
+        envoy-gateway-system are Programmed.
+      try:
+        - assert:
+            resource:
+              apiVersion: gateway.networking.k8s.io/v1
+              kind: GatewayClass
+              metadata:
+                name: envoy-internal
+              spec:
+                controllerName: gateway.envoyproxy.io/gatewayclass-controller
+              status:
+                (conditions[?type == 'Accepted']):
+                  - status: "True"
+        - assert:
+            resource:
+              apiVersion: gateway.networking.k8s.io/v1
+              kind: Gateway
+              metadata:
+                name: envoy-internal
+                namespace: envoy-gateway-system
+              status:
+                (conditions[?type == 'Programmed']):
+                  - status: "True"
+        - assert:
+            resource:
+              apiVersion: gateway.networking.k8s.io/v1
+              kind: GatewayClass
+              metadata:
+                name: envoy-external
+              spec:
+                controllerName: gateway.envoyproxy.io/gatewayclass-controller
+              status:
+                (conditions[?type == 'Accepted']):
+                  - status: "True"
+        - assert:
+            resource:
+              apiVersion: gateway.networking.k8s.io/v1
+              kind: Gateway
+              metadata:
+                name: envoy-external
+                namespace: envoy-gateway-system
+              status:
+                (conditions[?type == 'Programmed']):
+                  - status: "True"
+      catch:
+        - describe:
+            apiVersion: gateway.networking.k8s.io/v1
+            kind: GatewayClass
+            name: envoy-internal
+        - describe:
+            apiVersion: gateway.networking.k8s.io/v1
+            kind: Gateway
+            name: envoy-internal
+            namespace: envoy-gateway-system
+        - describe:
+            apiVersion: gateway.networking.k8s.io/v1
+            kind: GatewayClass
+            name: envoy-external
+        - describe:
+            apiVersion: gateway.networking.k8s.io/v1
+            kind: Gateway
+            name: envoy-external
+            namespace: envoy-gateway-system
+        - events:
+            namespace: envoy-gateway-system
+    - name: test-route
+      description: >-
+        A backend and an HTTPRoute for e2e-envoy-gateway.homelab.local on the https listener of
+        envoy-internal; the route is Accepted and its backend ref resolves.
+      try:
+        - apply:
+            resource:
+              apiVersion: apps/v1
+              kind: Deployment
+              metadata:
+                name: e2e-echo
+              spec:
+                replicas: 1
+                selector:
+                  matchLabels:
+                    app.kubernetes.io/name: e2e-echo
+                template:
+                  metadata:
+                    labels:
+                      app.kubernetes.io/name: e2e-echo
+                  spec:
+                    securityContext:
+                      runAsNonRoot: true
+                      runAsUser: 65534
+                      seccompProfile:
+                        type: RuntimeDefault
+                    containers:
+                      - name: echo
+                        image: registry.k8s.io/e2e-test-images/agnhost:2.53
+                        args: ["netexec", "--http-port=8080"]
+                        ports:
+                          - name: http
+                            containerPort: 8080
+                        readinessProbe:
+                          httpGet:
+                            path: /healthz
+                            port: http
+                        securityContext:
+                          allowPrivilegeEscalation: false
+                          readOnlyRootFilesystem: true
+                          capabilities:
+                            drop: ["ALL"]
+                        resources:
+                          requests:
+                            cpu: 10m
+                            memory: 16Mi
+                          limits:
+                            cpu: 100m
+                            memory: 64Mi
+        - apply:
+            resource:
+              apiVersion: v1
+              kind: Service
+              metadata:
+                name: e2e-echo
+              spec:
+                selector:
+                  app.kubernetes.io/name: e2e-echo
+                ports:
+                  - name: http
+                    port: 80
+                    targetPort: http
+        - apply:
+            resource:
+              apiVersion: gateway.networking.k8s.io/v1
+              kind: HTTPRoute
+              metadata:
+                name: e2e-echo
+              spec:
+                parentRefs:
+                  - name: envoy-internal
+                    namespace: envoy-gateway-system
+                    sectionName: https
+                hostnames:
+                  - e2e-envoy-gateway.homelab.local
+                rules:
+                  - backendRefs:
+                      - name: e2e-echo
+                        port: 80
+        - assert:
+            resource:
+              apiVersion: gateway.networking.k8s.io/v1
+              kind: HTTPRoute
+              metadata:
+                name: e2e-echo
+              status:
+                (parents[?parentRef.name == 'envoy-internal']):
+                  - (conditions[?type == 'Accepted']):
+                      - status: "True"
+                    (conditions[?type == 'ResolvedRefs']):
+                      - status: "True"
+      catch:
+        - describe:
+            apiVersion: gateway.networking.k8s.io/v1
+            kind: HTTPRoute
+            name: e2e-echo
+        - podLogs:
+            namespace: envoy-gateway-system
+            selector: app.kubernetes.io/name=gateway-helm
+            tail: 100
+    - name: curl-envoy-internal
+      description: >-
+        A curl Job must get one of [200]
+        from https://e2e-envoy-gateway.homelab.local/healthz via envoy-internal.envoy-gateway-system.svc.cluster.local.
+      timeouts:
+        assert: 5m
+      try:
+        - apply:
+            resource:
+              apiVersion: batch/v1
+              kind: Job
+              metadata:
+                name: curl-envoy-internal
+              spec:
+                backoffLimit: 0
+                activeDeadlineSeconds: 300
+                template:
+                  spec:
+                    restartPolicy: Never
+                    securityContext:
+                      runAsNonRoot: true
+                      runAsUser: 100
+                      seccompProfile:
+                        type: RuntimeDefault
+                    containers:
+                      - name: curl
+                        # pinned from configuration/versions.yaml images.curl
+                        image: curlimages/curl:8.22.0
+                        securityContext:
+                          allowPrivilegeEscalation: false
+                          capabilities:
+                            drop: ["ALL"]
+                        resources:
+                          requests:
+                            cpu: 10m
+                            memory: 32Mi
+                          limits:
+                            cpu: 100m
+                            memory: 64Mi
+                        env:
+                          - name: HOST
+                            value: "e2e-envoy-gateway.homelab.local"
+                          - name: GATEWAY
+                            value: "envoy-internal.envoy-gateway-system.svc.cluster.local"
+                          - name: URL_PATH
+                            value: "/healthz"
+                          - name: EXPECT
+                            value: "200"
+                          - name: ATTEMPTS
+                            value: "20"
+                        command: ["sh", "-c"]
+                        args:
+                          - |
+                            set -u
+                            i=1
+                            while [ "$i" -le "$ATTEMPTS" ]; do
+                              code=$(curl -sk -o /dev/null -w '%{http_code}' -L --max-redirs 5 --max-time 20 \
+                                --connect-to "$HOST:443:$GATEWAY:443" --connect-to "$HOST:80:$GATEWAY:80" \
+                                "https://$HOST$URL_PATH")
+                              echo "attempt $i/$ATTEMPTS: HTTP $code for https://$HOST$URL_PATH via $GATEWAY"
+                              for ok in $EXPECT; do [ "$code" = "$ok" ] && exit 0; done
+                              i=$((i + 1))
+                              sleep 6
+                            done
+                            echo "giving up: last HTTP code $code, expected one of: $EXPECT"
+                            exit 1
+        - assert:
+            resource:
+              apiVersion: batch/v1
+              kind: Job
+              metadata:
+                name: curl-envoy-internal
+              status:
+                succeeded: 1
+      catch:
+        - events: {}
+        - podLogs:
+            selector: job-name=curl-envoy-internal
+            tail: 50
+        - describe:
+            apiVersion: gateway.networking.k8s.io/v1
+            kind: HTTPRoute
+            name: e2e-echo
+        - podLogs:
+            namespace: envoy-gateway-system
+            selector: app.kubernetes.io/name=gateway-helm
+            tail: 100
+    - name: curl-envoy-internal-redirect
+      description: >-
+        A curl Job must get a redirect to https with one of [301]
+        from http://e2e-envoy-gateway.homelab.local/healthz via envoy-internal.envoy-gateway-system.svc.cluster.local.
+      timeouts:
+        assert: 5m
+      try:
+        - apply:
+            resource:
+              apiVersion: batch/v1
+              kind: Job
+              metadata:
+                name: curl-envoy-internal-redirect
+              spec:
+                backoffLimit: 0
+                activeDeadlineSeconds: 300
+                template:
+                  spec:
+                    restartPolicy: Never
+                    securityContext:
+                      runAsNonRoot: true
+                      runAsUser: 100
+                      seccompProfile:
+                        type: RuntimeDefault
+                    containers:
+                      - name: curl
+                        # pinned from configuration/versions.yaml images.curl
+                        image: curlimages/curl:8.22.0
+                        securityContext:
+                          allowPrivilegeEscalation: false
+                          capabilities:
+                            drop: ["ALL"]
+                        resources:
+                          requests:
+                            cpu: 10m
+                            memory: 32Mi
+                          limits:
+                            cpu: 100m
+                            memory: 64Mi
+                        env:
+                          - name: HOST
+                            value: "e2e-envoy-gateway.homelab.local"
+                          - name: GATEWAY
+                            value: "envoy-internal.envoy-gateway-system.svc.cluster.local"
+                          - name: URL_PATH
+                            value: "/healthz"
+                          - name: EXPECT
+                            value: "301"
+                          - name: ATTEMPTS
+                            value: "20"
+                        command: ["sh", "-c"]
+                        args:
+                          - |
+                            set -u
+                            i=1
+                            while [ "$i" -le "$ATTEMPTS" ]; do
+                              out=$(curl -s -o /dev/null -w '%{http_code} %{redirect_url}' --max-time 20 \
+                                --connect-to "$HOST:80:$GATEWAY:80" "http://$HOST$URL_PATH")
+                              code=${out%% *}
+                              location=${out#* }
+                              echo "attempt $i/$ATTEMPTS: HTTP $code -> $location via $GATEWAY"
+                              if [ "$location" = "https://$HOST$URL_PATH" ]; then
+                                for ok in $EXPECT; do [ "$code" = "$ok" ] && exit 0; done
+                              fi
+                              i=$((i + 1))
+                              sleep 6
+                            done
+                            echo "giving up: last HTTP $code -> $location, expected $EXPECT -> https://$HOST$URL_PATH"
+                            exit 1
+        - assert:
+            resource:
+              apiVersion: batch/v1
+              kind: Job
+              metadata:
+                name: curl-envoy-internal-redirect
+              status:
+                succeeded: 1
+      catch:
+        - events: {}
+        - podLogs:
+            selector: job-name=curl-envoy-internal-redirect
+            tail: 50
+        - describe:
+            apiVersion: gateway.networking.k8s.io/v1
+            kind: HTTPRoute
+            name: e2e-echo
+        - podLogs:
+            namespace: envoy-gateway-system
+            selector: app.kubernetes.io/name=gateway-helm
+            tail: 100

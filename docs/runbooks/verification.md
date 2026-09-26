@@ -209,8 +209,8 @@ change as a patch that `git apply` accepts; nothing is written).
 | Pattern | Modelled on | Generates |
 |---|---|---|
 | `operator` | cloudnative-pg | one Application (addons, wave 10); the CRD group in `tests/gitops/crd-providers.yaml` (and `huge-crd-charts.yaml` with `--huge-crds`), a `tests/schemas/sources.yaml` source, Ready-condition health Lua + fixtures per `--crd-kinds` |
-| `helm` | sonarr | one Application (applications, wave 13) with an Ingress on `<name>.<domain>` (new `<NAME>_HOSTNAME` schema key) and a PostSync smoke hook; TrueCharts charts join the Renovate group |
-| `deps-main-config` | traefik-external | `<name>-dependencies` < `<name>` < `<name>-config`, child charts fed through `helm.valuesObject` (ADR-010) |
+| `helm` | sonarr | one Application (applications, wave 13) with an HTTPRoute on `<name>.<domain>` (new `<NAME>_HOSTNAME` schema key, `sectionName: https`) and a PostSync smoke hook; TrueCharts charts join the Renovate group |
+| `deps-main-config` | grafana-config | `<name>-dependencies` < `<name>` < `<name>-config`, child charts fed through `helm.valuesObject` (ADR-010) |
 
 Every pattern also writes the placeholder block in `charts/<tier>/values.yaml`, the real values
 in `configuration/templates/helm-*.tmpl`, the `versions.yaml` pin with its Renovate marker,

@@ -2,7 +2,7 @@
 # CRDs), synced after [[ .Name ]] (wave [[ .ConfigWave ]]). Scaffolded by
 # `homelab scaffold app [[ .Name ]]`.
 #
-# global.domain, ingress.host and ingress.className are placeholders: the
+# global.domain, route.host and route.gateway are placeholders: the
 # [[ .Name ]]-config Application in charts/[[ .Tier ]] passes the real values through
 # helm.valuesObject (ADR-010).
 
@@ -11,10 +11,12 @@ global:
 
 namespace: [[ .Namespace ]]
 
-ingress:
+route:
   enabled: true
   host: [[ .Name ]].example.com
-  className: internal
+  gateway:
+    name: envoy-internal
+    namespace: envoy-gateway-system
   # The Service the upstream chart creates for release [[ .Name ]].
   service:
     name: [[ .Name ]]

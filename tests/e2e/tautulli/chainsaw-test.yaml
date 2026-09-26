@@ -6,7 +6,7 @@ metadata:
   name: tautulli
 spec:
   description: >-
-    Tautulli /status answers through the internal Traefik with Host tautulli.homelab.local.
+    Tautulli /status answers through the internal Envoy Gateway with Host tautulli.homelab.local.
   steps:
     - name: applications-healthy
       description: The ArgoCD Applications behind this test are Healthy and their last sync Succeeded.
@@ -46,10 +46,34 @@ spec:
             kind: Application
             name: tautulli-config
             namespace: argocd
+    - name: route-tautulli
+      description: >-
+        The HTTPRoute for tautulli.homelab.local is Accepted by envoy-internal
+        and its backend refs resolve.
+      try:
+        - assert:
+            resource:
+              apiVersion: gateway.networking.k8s.io/v1
+              kind: HTTPRoute
+              metadata:
+                namespace: media
+              spec:
+                (contains(hostnames, 'tautulli.homelab.local')): true
+              status:
+                (parents[?parentRef.name == 'envoy-internal']):
+                  - (conditions[?type == 'Accepted']):
+                      - status: "True"
+                    (conditions[?type == 'ResolvedRefs']):
+                      - status: "True"
+      catch:
+        - describe:
+            apiVersion: gateway.networking.k8s.io/v1
+            kind: HTTPRoute
+            namespace: media
     - name: curl-tautulli
       description: >-
         A curl Job must get one of [200]
-        from https://tautulli.homelab.local/status via traefik-internal.traefik.svc.cluster.local.
+        from https://tautulli.homelab.local/status via envoy-internal.envoy-gateway-system.svc.cluster.local.
       timeouts:
         assert: 5m
       try:
@@ -89,7 +113,7 @@ spec:
                           - name: HOST
                             value: "tautulli.homelab.local"
                           - name: GATEWAY
-                            value: "traefik-internal.traefik.svc.cluster.local"
+                            value: "envoy-internal.envoy-gateway-system.svc.cluster.local"
                           - name: URL_PATH
                             value: "/status"
                           - name: EXPECT

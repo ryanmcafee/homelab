@@ -9,7 +9,7 @@ maintainers:
 keywords:
   - infrastructure
   - addons
-  - traefik
+  - envoy-gateway
   - cert-manager
   - prometheus
   - storage

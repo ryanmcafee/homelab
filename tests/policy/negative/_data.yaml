@@ -1,1 +1,4 @@
 domain: example.com
+gateway_namespace: envoy-gateway-system
+gateway_internal: envoy-internal
+gateway_external: envoy-external

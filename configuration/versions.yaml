@@ -20,12 +20,9 @@ charts:
   # move the CRDs behind the operator by hand.
   # renovate: datasource=helm depName=prometheus-operator-crds registryUrl=https://prometheus-community.github.io/helm-charts
   prometheus-operator-crds: "30.0.0"
-  # renovate: datasource=helm depName=traefik registryUrl=https://traefik.github.io/charts
-  traefik: "39.0.9"
-  # CRDs of the traefik chart, installed on their own (traefik-crds Application); released with
-  # the traefik chart, bump both together (1.14.1 ships the CRDs of traefik 39.0.9).
-  # renovate: datasource=helm depName=traefik-crds registryUrl=https://traefik.github.io/charts
-  traefik-crds: "1.14.1"
+  # One key for gateway-helm and gateway-crds-helm: Envoy Gateway releases both charts together.
+  # renovate: datasource=docker depName=docker.io/envoyproxy/gateway-helm
+  envoy-gateway: "v1.9.1"
   # renovate: datasource=helm depName=democratic-csi registryUrl=https://democratic-csi.github.io/charts/
   democratic-csi: "0.15.1"
   # renovate: datasource=helm depName=tailscale-operator registryUrl=https://pkgs.tailscale.com/helmcharts
@@ -80,8 +77,6 @@ charts:
   oauth2-proxy: "10.7.0"
   # renovate: datasource=docker depName=ghcr.io/kashalls/external-dns-unifi-webhook
   external-dns-webhook-unifi: "v0.8.2"
-  # renovate: datasource=github-releases depName=lukaszraczylo/traefikoidc
-  traefik-oidc: "v1.0.32"
   # renovate: datasource=helm depName=port-forwarding registryUrl=https://ryanmcafee.github.io/port-forwarding-controller
   unifi-port-forward: "1.1.1"
   # renovate: datasource=docker depName=ghcr.io/paperclipinc/charts/paperclip-operator

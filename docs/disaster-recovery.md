@@ -767,7 +767,7 @@ After any restore operation:
 - [ ] All nodes in Ready state
 - [ ] All pods in Running state
 - [ ] All PVCs bound
-- [ ] All Ingress resources have IPs
+- [ ] Gateways `envoy-internal` / `envoy-external` are `Programmed` and every HTTPRoute is `Accepted` (`kubectl get gateway,httproute -A`)
 - [ ] DNS resolution working
 - [ ] TLS certificates valid
 - [ ] Application functionality verified

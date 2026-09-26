@@ -18,13 +18,20 @@ See `CLAUDE.local.md` for IP addresses and hostnames.
 **Key Ranges:**
 - Control Plane VIP: Single IP for API server access
 - LoadBalancer Pool: Range for Cilium LB IPAM
-- Traefik Static IP: Fixed IP at end of LB pool
+- Gateway static IPs: `GATEWAY_EXTERNAL_STATIC_IP` (`envoy-external`, WAN port forwards 80/443; the former external ingress address) and `GATEWAY_INTERNAL_STATIC_IP` (`envoy-internal`, optional; homelab pins the former internal ingress address)
 
 **BGP Configuration:**
 - Kubernetes ASN: 64512 (Cilium)
 - Router ASN: 64513 (UniFi)
 - Purpose: Cilium advertises LoadBalancer IPs to UniFi router
 - Speakers: the three workers only (control planes excluded); the gateway installs ECMP routes (`maximum-paths`)
+
+**Ingress (Envoy Gateway, ADR-040):**
+- Gateways `envoy-internal` (LAN + tailnet, UniFi DNS) and `envoy-external` (Internet, Cloudflare DNS), namespace `envoy-gateway-system`; GatewayClass, EnvoyProxy and Service share the Gateway's name
+- Listeners: `http` 80 (301 redirect only) and `https` 443 (`*.<DOMAIN>`, Secret `gateway-wildcard-tls`); every HTTPRoute sets `sectionName: https`
+- No Ingress objects anywhere (Envoy Gateway implements Gateway API only); external-dns uses the `gateway-httproute` source filtered by `--gateway-name`
+- Timeouts: no per-request timeout, 600 s idle; Envoy admin on pod port 19000, metrics 19001
+- Istio comparison Gateways `istio-internal` / `istio-external` in `istio-ingress`; only `echo.<DOMAIN>` attaches (also on `envoy-internal`)
 
 ## Kubernetes Cluster
 
@@ -50,10 +57,10 @@ See `CLAUDE.local.md` for IP addresses and hostnames.
   - `democratic-csi-iscsi` - iSCSI block storage on SSD pool (`STORAGE_CLASS_ISCSI_SSD`; SQLite, PostgreSQL and ClickHouse workloads, e.g. `paperclip-postgres`, `ClickHouseInstallation/logs`)
 
 **Observability:**
-- Container logs + Kubernetes events: OpenTelemetry collectors -> ClickHouse `otel.otel_logs` (namespace `observability`), 90-day table TTL; Traefik access logs are JSON in the same table (docs/logging.md)
-- Traefik metrics: ServiceMonitors on the `metrics` entrypoint (:9100) of both releases, jobs `traefik-internal` / `traefik-external`
+- Container logs + Kubernetes events: OpenTelemetry collectors -> ClickHouse `otel.otel_logs` (namespace `observability`), 90-day table TTL; Envoy Gateway access logs (JSON, container `envoy` in `envoy-gateway-system`) are in the same table (docs/logging.md)
+- Envoy Gateway metrics: PodMonitor `<gateway>-proxy` on proxy port 19001 `/stats/prometheus` with label `gateway=envoy-internal|envoy-external`; ServiceMonitor `envoy-gateway` for the controller
 - Istio 1.31.1 ambient (namespace `istio-system`); `paperclip` enrolled with a waypoint (`SERVICE_MESH_AMBIENT_NAMESPACES`, `SERVICE_MESH_WAYPOINT_NAMESPACES`), its database opted out; Cilium runs `cni.exclusive=false`, `socketLB.hostNamespaceOnly=true` (docs/service-mesh.md)
-- Traces: OTLP to `otel-collector-gateway.observability.svc.cluster.local:4317/4318` -> ClickHouse `otel.otel_traces` (90 days); Traefik and waypoints sample 10 % (docs/tracing.md)
+- Traces: OTLP to `otel-collector-gateway.observability.svc.cluster.local:4317/4318` -> ClickHouse `otel.otel_traces` (90 days); Envoy Gateway and waypoints sample 10 % (docs/tracing.md)
 - Hubble: UI at `hubble.{domain}`, flow metrics, filtered flow log in ClickHouse (ServiceName `hubble`) (docs/hubble.md)
 - UniFi syslog (514) and IPFIX (2055) to `OTEL_LB_IP` (`otel.{domain}`), LAN-only (docs/logging.md); blackbox probes `paperclip-ingress` / `paperclip-direct` every 15 s (docs/runbooks/paperclip-request-path.md)
 
@@ -79,10 +86,10 @@ that parent renders):
 | Parent | Child wave range | Notable ordering |
 |---|---|---|
 | `bootstrap` | -3 .. 1 | -3 namespace + secret-transformer RBAC, -2 SOPS secrets, -1 credentials-transformer Job and 1Password operator, 0 homelab-environment-config, 1 ArgoCD itself |
-| `addons` | -1 .. 10 | 0 cert-manager, 1 its ClusterIssuer, 3 external-dns config, 4 external-dns, 5-8 Traefik |
+| `addons` | -1 .. 10 | 0 cert-manager, 1 its ClusterIssuer, 3 external-dns config, 4 external-dns, 4 `envoy-gateway-crds`, 5 `envoy-gateway`, 6 `envoy-gateway-config` (both Gateways + the wildcard certificate) |
 | `applications` | 10 .. 15 | each `*-config` chart before the workload that consumes it |
 | `applications` (Paperclip, `paperclip.yaml`) | 10 .. 14 | 10 Namespaces `paperclip-operator` + `paperclip`, 11 `paperclip-operator` (OCI chart, ServerSideApply), 12 `paperclip-dependencies` (OnePasswordItems), 13 `paperclip-database` (CloudNativePG `Cluster` `paperclip-postgres`), 14 `paperclip` (`Instance` + smoke Job) |
-| `addons` (Istio, `istio.yaml`) | 1 .. 10 | 1 `gateway-api-crds`, 2 `istio-base`, 3 `istiod` + `istio-cni`, 4 `ztunnel`, 5 `istio-config` (monitors), 10 `kiali` (`servicemesh.<DOMAIN>`, docs/service-mesh.md) |
+| `addons` (Istio, `istio.yaml`) | 1 .. 10 | 1 `gateway-api-crds` (`gateway-api-crds.yaml`), 2 `istio-base`, 3 `istiod` + `istio-cni`, 4 `ztunnel`, 5 `istio-config` (monitors), 7 `istio-gateways` (comparison Gateways + echo), 10 `kiali` (`servicemesh.<DOMAIN>`, docs/service-mesh.md) |
 | `addons` (logs, `logging.yaml`) | 8 .. 12 | 8 `clickhouse-dependencies` (before Grafana at 9), 10 `clickhouse-operator`, 11 `clickhouse` (`ClickHouseInstallation/logs`), 12 `otel-collector-agent` + `otel-collector-cluster` + `otel-collector-gateway` (docs/logging.md, docs/tracing.md); 8 `cilium-config` (Hubble/Cilium monitors, Hubble UI); 10 `blackbox-exporter` |
 
 `homelab verify gitops` enforces the conventions this table describes
@@ -139,14 +146,14 @@ trusting a prose table.
 | Domain | `homelab.local` (`configuration/environments/localdev.yaml` `DOMAIN`) |
 | ArgoCD | namespace `argocd`, root Application `gitops` (`localdev/argocd/gitops-app.yaml`; its placeholder `main` is replaced by the PR head at install), chart `charts.argocd`, values `localdev/values/argocd-values.yaml` |
 | ArgoCD UI | http://localhost:8080, `admin` / `argocd-initial-admin-secret`. Linux: NodePort 30080 mapped by Kind. macOS: `task localdev:ui` (`kubectl port-forward` to `argocd-server`); the script logs the CLI in through its own port-forward on `127.0.0.1:18080` (`--local-port`) with `--plaintext --insecure --grpc-web` |
-| Host ports | 8080 ArgoCD; 9080 / 9443 Traefik internal; 10350 Tilt. On Linux 8080/9080/9443 are the Kind `extraPortMappings` (30080, 80, 443). On macOS the mappings never complete a TCP handshake with Cilium (Docker Desktop bad TCP checksums, bugs.md 2026-09-13): use `task localdev:ui` and `task localdev:traefik` (port-forwards) |
-| Reaching apps from the host | `task localdev:traefik` then `curl -sk -H 'Host: <app>.homelab.local' https://localhost:9443/...`; from a pod, the Traefik Service directly |
-| NodePorts | 30080 ArgoCD; 31883 / 31901 mosquitto (MQTT / WebSocket); 30021 spegel (hostPort 30020); direct-mode Tilt Traefik 30080 / 30443 (no ArgoCD in that mode) |
+| Host ports | 8080 ArgoCD; 9080 / 9443 the `envoy-internal` Gateway; 10350 Tilt. On Linux 8080/9080/9443 are the Kind `extraPortMappings` (30080, 80, 443). On macOS the mappings never complete a TCP handshake with Cilium (Docker Desktop bad TCP checksums, bugs.md 2026-09-13): use `task localdev:ui` and `task localdev:gateway` (port-forwards) |
+| Reaching apps from the host | `task localdev:gateway` then `curl -sk --resolve <app>.homelab.local:9443:127.0.0.1 https://<app>.homelab.local:9443/...` (the https listener matches SNI `*.homelab.local`); from a pod, the `envoy-internal` Service directly |
+| NodePorts | 30080 ArgoCD; 31883 / 31901 mosquitto (MQTT / WebSocket); 30021 spegel (hostPort 30020) |
 | Registry caches | containers `kind-registry-<name>` for docker.io, ghcr.io, quay.io, registry.k8s.io, lscr.io on the `kind` network; blobs in `~/.cache/homelab-kind-registry` (`HOMELAB_KIND_CACHE_DIR`), restored in CI with `actions/cache` key `kind-registry-<hash>` |
 | Fakes | `localdev/fakes/` (StorageClass aliases, Namespaces + Secrets, OnePasswordItem CRD), applied by `task localdev:kind` / `localdev:fakes` |
 | Health Lua | `charts/bootstrap/files/health/<group>_<kind>.lua`, fixtures `tests/health/<group>_<kind>/*.yaml` |
 | e2e | `tests/e2e/<name>/chainsaw-test.yaml`, config `tests/e2e/.chainsaw.yaml` (4 parallel, assert 10m) |
-| Reaching apps | in-cluster through `traefik-internal.traefik.svc.cluster.local` (or `traefik-external`) port 443 with `Host: <app>.homelab.local`; from the host, port-forward the Traefik Service |
+| Reaching apps | in-cluster through `envoy-internal.envoy-gateway-system.svc.cluster.local` (or `envoy-external`) port 443 with SNI and `Host: <app>.homelab.local`; from the host, `task localdev:gateway` |
 | CI | `.github/workflows/tilt-ci.yml`: `kind-argocd` (required, 45 min, artifact `verify-level2`), `kind-direct`, `yaml-lint` |
 | Tracked revision | `task localdev:argocd -- --revision <ref>` / `LOCALDEV_REVISION`; default the upstream branch of HEAD, `main` (with a warning) when the branch is not pushed. Flows root → `addons`/`applications` via `helm.valuesObject.global.targetRevision` → every git-path child. CI sets it to the PR head SHA (same-repo PRs; `github.sha` on push) |
 | Expected state | every Application `Synced` (tree equals the pushed head) after a local sync; `OutOfSync` = unpushed local changes or the `main` fallback; `Healthy` + `Succeeded` is the contract, sync status never decides |

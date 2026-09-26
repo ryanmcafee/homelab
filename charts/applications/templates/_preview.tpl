@@ -14,7 +14,7 @@ global.preview.pr / global.preview.apps. With global.preview.pr set:
   - no *-config children, no repository Secrets, no prod namespaces, and never
     plex, renovate, duckdns, homeassistant or mosquitto;
   - namespaces.yaml renders Namespace preview-<N> + ResourceQuota + LimitRange;
-  - ingress hosts <x>.<domain> become <x>-pr<N>.<domain>;
+  - route hostnames <x>.<domain> become <x>-pr<N>.<domain>;
   - every TrueCharts persistence entry (config PVC and NFS media mounts) becomes
     an emptyDir: a preview claims no volume and leaves nothing behind;
   - smoke Jobs run in preview-<N> and curl <svc>.preview-<N>.svc.
@@ -130,9 +130,9 @@ default
 
 {{/*
 homelab.preview.hosts: rewrites every <label>.<domain> in text to
-<label>-pr<pr>.<domain> in preview mode (ingress hosts, TLS hosts, the
-external-dns hostname annotation); text is returned unchanged otherwise.
-Usage: include "homelab.preview.hosts" (dict "root" . "text" (toYaml .Values.sonarr.ingress))
+<label>-pr<pr>.<domain> in preview mode (route hostnames and the external-dns
+hostname annotation); text is returned unchanged otherwise.
+Usage: include "homelab.preview.hosts" (dict "root" . "text" (toYaml .Values.sonarr.route))
 */}}
 {{- define "homelab.preview.hosts" -}}
 {{- if include "homelab.preview.enabled" .root -}}

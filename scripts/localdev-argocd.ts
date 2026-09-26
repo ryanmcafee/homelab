@@ -460,7 +460,7 @@ export function appState(app: Application): AppState {
 /**
  * Parents whose operation is still Running: ArgoCD holds a sync wave open on
  * them, and their remaining child Applications only appear once that wave's
- * resources are Healthy (e.g. traefik's wave 7 before the wave-8 children).
+ * resources are Healthy (e.g. envoy-gateway's wave 5 before the wave-6 children).
  * When nothing else is selected (`--warm`, `--only`) the sync loop must keep
  * polling for those children instead of ending; otherwise the final pass waits
  * forever on a parent whose later children nobody syncs. Sorted by name.

@@ -189,7 +189,7 @@ func TestCommittedValuesRendersTheNewBlockForLocaldev(t *testing.T) {
 		"demo-generic:\n  enabled: true",
 		`version: "0.3.1"`,
 		"replicaCount: 1",
-		"- host: demo-generic.homelab.local",
+		"- demo-generic.homelab.local",
 		"url: http://demo-generic.demo-generic.svc.cluster.local:80/",
 	} {
 		if !strings.Contains(out, want) {
@@ -305,7 +305,7 @@ func TestBuildRefusesWhatExists(t *testing.T) {
 		{"versions pin only", Options{Name: "unifi-port-forward", Pattern: PatternHelm}, "already pins"},
 		{"application rendered elsewhere", Options{Name: "external-dns-cloudflare-crd", Pattern: PatternHelm}, "already rendered"},
 		{"crd group", Options{Name: "demo", Pattern: PatternOperator, CRDGroup: "postgresql.cnpg.io", CRDKinds: []string{"Cluster"}}, "already provided"},
-		{"huge crd chart", Options{Name: "traefik-external", Pattern: PatternOperator, CRDGroup: "traefik.example.com", CRDKinds: []string{"Route"}, HugeCRDs: true}, "huge-crd-charts"},
+		{"huge crd chart", Options{Name: "envoy-gateway", Pattern: PatternOperator, CRDGroup: "gateway.example.com", CRDKinds: []string{"Route"}, HugeCRDs: true}, "huge-crd-charts"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

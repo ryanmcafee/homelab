@@ -60,12 +60,3 @@ keys:
   DUCKDNS_SUBDOMAIN:
     description: DuckDNS subdomain for dynamic DNS
     required: true
-
-  TRAEFIK_OIDC_PROVIDER_URL:
-    description: OIDC provider URL for Traefik auth
-    required: true
-    default: "https://accounts.google.com"
-
-  TRAEFIK_OIDC_ALLOWED_DOMAINS:
-    description: Comma-separated list of allowed OIDC domains
-    required: true

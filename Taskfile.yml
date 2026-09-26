@@ -165,10 +165,10 @@ tasks:
     cmds:
       - kubectl --context kind-homelab-localdev -n argocd port-forward svc/argocd-server 8080:80 --address 127.0.0.1
 
-  localdev:traefik:
-    desc: "Traefik internal ingress at http://localhost:9080 and https://localhost:9443 via kubectl port-forward (use a Host header or /etc/hosts entries for *.homelab.local)"
+  localdev:gateway:
+    desc: "Envoy Gateway envoy-internal at http://localhost:9080 and https://localhost:9443 via kubectl port-forward (use a Host header or /etc/hosts entries for *.homelab.local)"
     cmds:
-      - kubectl --context kind-homelab-localdev -n traefik port-forward svc/traefik-internal 9080:80 9443:443 --address 127.0.0.1
+      - kubectl --context kind-homelab-localdev -n envoy-gateway-system port-forward svc/envoy-internal 9080:80 9443:443 --address 127.0.0.1
 
   localdev:warm:
     desc: "Warm cluster: Kind + registry cache + ArgoCD + bootstrap/addons synced (operators and CRDs), applications left for localdev:sync"

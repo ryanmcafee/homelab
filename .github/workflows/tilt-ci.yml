@@ -9,7 +9,7 @@ name: Verify (Kind, levels 1-2)
 #                task verify LEVEL=2     level 0 + server-side dry run (dryrun/localdev/<chart>)
 #                                        + Application state (argocd/<app>) + e2e (e2e/<test>)
 #   kind-direct  tilt ci                 Tilt direct mode (a few charts installed straight
-#                                        into Kind, no ArgoCD); asserts Traefik + cert-manager
+#                                        into Kind, no ArgoCD); asserts Envoy Gateway + cert-manager
 #   yaml-lint    yamllint                charts/, localdev/, tests/e2e, tests/health
 #
 # kind-argocd is the required check: it has no continue-on-error, and a failing
@@ -308,10 +308,12 @@ jobs:
                 kubectl --context "$KIND_CONTEXT" logs -n "$ns" "$pod" --all-containers --tail=50 || true
               done
 
-      - name: Traefik is available
+      # Direct mode installs only the controller; Gateways Programmed is asserted by the kind-argocd e2e suite.
+      - name: Envoy Gateway is available
         run: |
-          kubectl --context "$KIND_CONTEXT" wait --for=condition=available --timeout=120s deployment/traefik -n traefik
-          kubectl --context "$KIND_CONTEXT" get svc -n traefik
+          kubectl --context "$KIND_CONTEXT" wait --for=condition=available --timeout=120s deployment/envoy-gateway -n envoy-gateway-system
+          kubectl --context "$KIND_CONTEXT" wait --for=condition=established --timeout=60s crd/gatewayclasses.gateway.networking.k8s.io crd/gateways.gateway.networking.k8s.io crd/httproutes.gateway.networking.k8s.io
+          kubectl --context "$KIND_CONTEXT" get svc -n envoy-gateway-system
 
       - name: cert-manager is available
         run: |

@@ -21,7 +21,7 @@ global:
   # Environment identifier
   environment: homelab
 
-  # Base domain for ingress resources
+  # Base domain for route hostnames
   domain: example.com
 
   # Git repository for local charts
@@ -224,19 +224,19 @@ plex:
       mountPath: /pictures
       readOnly: false
 
-  # Ingress configuration
-  # Note: Plex chart uses 'url' field instead of 'hosts' array
-  ingress:
+  # HTTPRoute on the https listener of the external Gateway
+  httpRoute:
     enabled: true
-    ingressClassName: external
-    url: "https://plex.example.com"
     annotations:
-      cert-manager.io/cluster-issuer: letsencrypt
       external-dns.alpha.kubernetes.io/hostname: plex.example.com
-    tls:
-      - secretName: plex-tls
-        hosts:
-          - plex.example.com
+    parentRefs:
+      - group: gateway.networking.k8s.io
+        kind: Gateway
+        name: envoy-external
+        namespace: envoy-gateway-system
+        sectionName: https
+    hostnames:
+      - plex.example.com
 
   # Environment variables
   extraEnv:
@@ -331,23 +331,20 @@ sonarr:
       path: /mnt/storage/downloads
       mountPath: /downloads
 
-  # Ingress configuration
-  ingress:
+  # HTTPRoute on the https listener of the internal Gateway
+  route:
     main:
       enabled: true
-      ingressClassName: internal
       annotations:
-        cert-manager.io/cluster-issuer: letsencrypt
         external-dns.alpha.kubernetes.io/hostname: sonarr.example.com
-      hosts:
-        - host: sonarr.example.com
-          paths:
-            - path: /
-              pathType: Prefix
-      tls:
-        - secretName: sonarr-tls
-          hosts:
-            - sonarr.example.com
+      parentRefs:
+        - group: gateway.networking.k8s.io
+          kind: Gateway
+          name: envoy-internal
+          namespace: envoy-gateway-system
+          sectionName: https
+      hostnames:
+        - sonarr.example.com
 
   TZ: UTC
   securityContext:
@@ -426,23 +423,20 @@ radarr:
       path: /mnt/storage/downloads
       mountPath: /downloads
 
-  # Ingress configuration
-  ingress:
+  # HTTPRoute on the https listener of the internal Gateway
+  route:
     main:
       enabled: true
-      ingressClassName: internal
       annotations:
-        cert-manager.io/cluster-issuer: letsencrypt
         external-dns.alpha.kubernetes.io/hostname: radarr.example.com
-      hosts:
-        - host: radarr.example.com
-          paths:
-            - path: /
-              pathType: Prefix
-      tls:
-        - secretName: radarr-tls
-          hosts:
-            - radarr.example.com
+      parentRefs:
+        - group: gateway.networking.k8s.io
+          kind: Gateway
+          name: envoy-internal
+          namespace: envoy-gateway-system
+          sectionName: https
+      hostnames:
+        - radarr.example.com
 
   TZ: UTC
   securityContext:
@@ -505,23 +499,20 @@ prowlarr:
       accessModes:
         - ReadWriteOnce
 
-  # Ingress configuration
-  ingress:
+  # HTTPRoute on the https listener of the internal Gateway
+  route:
     main:
       enabled: true
-      ingressClassName: internal
       annotations:
-        cert-manager.io/cluster-issuer: letsencrypt
         external-dns.alpha.kubernetes.io/hostname: prowlarr.example.com
-      hosts:
-        - host: prowlarr.example.com
-          paths:
-            - path: /
-              pathType: Prefix
-      tls:
-        - secretName: prowlarr-tls
-          hosts:
-            - prowlarr.example.com
+      parentRefs:
+        - group: gateway.networking.k8s.io
+          kind: Gateway
+          name: envoy-internal
+          namespace: envoy-gateway-system
+          sectionName: https
+      hostnames:
+        - prowlarr.example.com
 
   TZ: UTC
   securityContext:
@@ -600,23 +591,20 @@ nzbget:
       path: /mnt/storage/downloads
       mountPath: /downloads
 
-  # Ingress configuration
-  ingress:
+  # HTTPRoute on the https listener of the internal Gateway
+  route:
     main:
       enabled: true
-      ingressClassName: internal
       annotations:
-        cert-manager.io/cluster-issuer: letsencrypt
         external-dns.alpha.kubernetes.io/hostname: nzbget.example.com
-      hosts:
-        - host: nzbget.example.com
-          paths:
-            - path: /
-              pathType: Prefix
-      tls:
-        - secretName: nzbget-tls
-          hosts:
-            - nzbget.example.com
+      parentRefs:
+        - group: gateway.networking.k8s.io
+          kind: Gateway
+          name: envoy-internal
+          namespace: envoy-gateway-system
+          sectionName: https
+      hostnames:
+        - nzbget.example.com
 
   TZ: UTC
   securityContext:
@@ -671,23 +659,20 @@ tautulli:
       accessModes:
         - ReadWriteOnce
 
-  # Ingress configuration
-  ingress:
+  # HTTPRoute on the https listener of the internal Gateway
+  route:
     main:
       enabled: true
-      ingressClassName: internal
       annotations:
-        cert-manager.io/cluster-issuer: letsencrypt
         external-dns.alpha.kubernetes.io/hostname: tautulli.example.com
-      hosts:
-        - host: tautulli.example.com
-          paths:
-            - path: /
-              pathType: Prefix
-      tls:
-        - secretName: tautulli-tls
-          hosts:
-            - tautulli.example.com
+      parentRefs:
+        - group: gateway.networking.k8s.io
+          kind: Gateway
+          name: envoy-internal
+          namespace: envoy-gateway-system
+          sectionName: https
+      hostnames:
+        - tautulli.example.com
 
   TZ: UTC
   securityContext:
@@ -758,23 +743,20 @@ lazylibrarian:
       path: /mnt/storage/downloads
       mountPath: /downloads
 
-  # Ingress configuration
-  ingress:
+  # HTTPRoute on the https listener of the internal Gateway
+  route:
     main:
       enabled: true
-      ingressClassName: internal
       annotations:
-        cert-manager.io/cluster-issuer: letsencrypt
         external-dns.alpha.kubernetes.io/hostname: lazylibrarian.example.com
-      hosts:
-        - host: lazylibrarian.example.com
-          paths:
-            - path: /
-              pathType: Prefix
-      tls:
-        - secretName: lazylibrarian-tls
-          hosts:
-            - lazylibrarian.example.com
+      parentRefs:
+        - group: gateway.networking.k8s.io
+          kind: Gateway
+          name: envoy-internal
+          namespace: envoy-gateway-system
+          sectionName: https
+      hostnames:
+        - lazylibrarian.example.com
 
   TZ: UTC
   securityContext:
@@ -839,23 +821,20 @@ homeassistant:
       accessModes:
         - ReadWriteOnce
 
-  # Ingress configuration
-  ingress:
+  # HTTPRoute on the https listener of the internal Gateway
+  route:
     main:
       enabled: true
-      ingressClassName: internal
       annotations:
-        cert-manager.io/cluster-issuer: letsencrypt
         external-dns.alpha.kubernetes.io/hostname: homeassistant.example.com
-      hosts:
-        - host: homeassistant.example.com
-          paths:
-            - path: /
-              pathType: Prefix
-      tls:
-        - secretName: homeassistant-tls
-          hosts:
-            - homeassistant.example.com
+      parentRefs:
+        - group: gateway.networking.k8s.io
+          kind: Gateway
+          name: envoy-internal
+          namespace: envoy-gateway-system
+          sectionName: https
+      hostnames:
+        - homeassistant.example.com
 
   TZ: UTC
 
@@ -1123,8 +1102,10 @@ paperclip:
     admin:
       email: ""
       name: Admin
-    ingress:
-      className: internal
+    route:
+      gateway:
+        name: envoy-internal
+        namespace: envoy-gateway-system
     persistence:
       size: 10Gi
       storageClass: ""

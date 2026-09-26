@@ -537,22 +537,19 @@ spec:
             enabled: true
             mountPath: /downloads
             type: emptyDir
-        ingress:
+        route:
           main:
             annotations:
-              cert-manager.io/cluster-issuer: letsencrypt
-              external-dns.alpha.kubernetes.io/hostname: lazylibrarian-pr123.REPLACEME-domain.com
+              external-dns.alpha.kubernetes.io/hostname: lazylibrarian-pr123.replaceme-domain.com
             enabled: true
-            hosts:
-            - host: lazylibrarian-pr123.REPLACEME-domain.com
-              paths:
-              - path: /
-                pathType: Prefix
-            ingressClassName: internal
-            tls:
-            - hosts:
-              - lazylibrarian-pr123.REPLACEME-domain.com
-              secretName: lazylibrarian-tls
+            hostnames:
+            - lazylibrarian-pr123.replaceme-domain.com
+            parentRefs:
+            - group: gateway.networking.k8s.io
+              kind: Gateway
+              name: envoy-internal
+              namespace: envoy-gateway-system
+              sectionName: https
         TZ: "America/New_York"
         securityContext:
           container:
@@ -630,22 +627,19 @@ spec:
             enabled: true
             mountPath: /downloads
             type: emptyDir
-        ingress:
+        route:
           main:
             annotations:
-              cert-manager.io/cluster-issuer: letsencrypt
-              external-dns.alpha.kubernetes.io/hostname: nzbget-pr123.REPLACEME-domain.com
+              external-dns.alpha.kubernetes.io/hostname: nzbget-pr123.replaceme-domain.com
             enabled: true
-            hosts:
-            - host: nzbget-pr123.REPLACEME-domain.com
-              paths:
-              - path: /
-                pathType: Prefix
-            ingressClassName: internal
-            tls:
-            - hosts:
-              - nzbget-pr123.REPLACEME-domain.com
-              secretName: nzbget-tls
+            hostnames:
+            - nzbget-pr123.replaceme-domain.com
+            parentRefs:
+            - group: gateway.networking.k8s.io
+              kind: Gateway
+              name: envoy-internal
+              namespace: envoy-gateway-system
+              sectionName: https
         TZ: "America/New_York"
         securityContext:
           container:
@@ -727,22 +721,19 @@ spec:
           config:
             enabled: true
             type: emptyDir
-        ingress:
+        route:
           main:
             annotations:
-              cert-manager.io/cluster-issuer: letsencrypt
-              external-dns.alpha.kubernetes.io/hostname: prowlarr-pr123.REPLACEME-domain.com
+              external-dns.alpha.kubernetes.io/hostname: prowlarr-pr123.replaceme-domain.com
             enabled: true
-            hosts:
-            - host: prowlarr-pr123.REPLACEME-domain.com
-              paths:
-              - path: /
-                pathType: Prefix
-            ingressClassName: internal
-            tls:
-            - hosts:
-              - prowlarr-pr123.REPLACEME-domain.com
-              secretName: prowlarr-tls
+            hostnames:
+            - prowlarr-pr123.replaceme-domain.com
+            parentRefs:
+            - group: gateway.networking.k8s.io
+              kind: Gateway
+              name: envoy-internal
+              namespace: envoy-gateway-system
+              sectionName: https
         TZ: "America/New_York"
         securityContext:
           container:
@@ -832,22 +823,19 @@ spec:
             enabled: true
             mountPath: /movies
             type: emptyDir
-        ingress:
+        route:
           main:
             annotations:
-              cert-manager.io/cluster-issuer: letsencrypt
-              external-dns.alpha.kubernetes.io/hostname: radarr-pr123.REPLACEME-domain.com
+              external-dns.alpha.kubernetes.io/hostname: radarr-pr123.replaceme-domain.com
             enabled: true
-            hosts:
-            - host: radarr-pr123.REPLACEME-domain.com
-              paths:
-              - path: /
-                pathType: Prefix
-            ingressClassName: internal
-            tls:
-            - hosts:
-              - radarr-pr123.REPLACEME-domain.com
-              secretName: radarr-tls
+            hostnames:
+            - radarr-pr123.replaceme-domain.com
+            parentRefs:
+            - group: gateway.networking.k8s.io
+              kind: Gateway
+              name: envoy-internal
+              namespace: envoy-gateway-system
+              sectionName: https
         TZ: "America/New_York"
         securityContext:
           container:
@@ -937,22 +925,19 @@ spec:
             enabled: true
             mountPath: /tv
             type: emptyDir
-        ingress:
+        route:
           main:
             annotations:
-              cert-manager.io/cluster-issuer: letsencrypt
-              external-dns.alpha.kubernetes.io/hostname: sonarr-pr123.REPLACEME-domain.com
+              external-dns.alpha.kubernetes.io/hostname: sonarr-pr123.replaceme-domain.com
             enabled: true
-            hosts:
-            - host: sonarr-pr123.REPLACEME-domain.com
-              paths:
-              - path: /
-                pathType: Prefix
-            ingressClassName: internal
-            tls:
-            - hosts:
-              - sonarr-pr123.REPLACEME-domain.com
-              secretName: sonarr-tls
+            hostnames:
+            - sonarr-pr123.replaceme-domain.com
+            parentRefs:
+            - group: gateway.networking.k8s.io
+              kind: Gateway
+              name: envoy-internal
+              namespace: envoy-gateway-system
+              sectionName: https
         TZ: "America/New_York"
         securityContext:
           container:
@@ -1026,22 +1011,19 @@ spec:
           config:
             enabled: true
             type: emptyDir
-        ingress:
+        route:
           main:
             annotations:
-              cert-manager.io/cluster-issuer: letsencrypt
-              external-dns.alpha.kubernetes.io/hostname: tautulli-pr123.REPLACEME-domain.com
+              external-dns.alpha.kubernetes.io/hostname: tautulli-pr123.replaceme-domain.com
             enabled: true
-            hosts:
-            - host: tautulli-pr123.REPLACEME-domain.com
-              paths:
-              - path: /
-                pathType: Prefix
-            ingressClassName: internal
-            tls:
-            - hosts:
-              - tautulli-pr123.REPLACEME-domain.com
-              secretName: tautulli-tls
+            hostnames:
+            - tautulli-pr123.replaceme-domain.com
+            parentRefs:
+            - group: gateway.networking.k8s.io
+              kind: Gateway
+              name: envoy-internal
+              namespace: envoy-gateway-system
+              sectionName: https
         TZ: "America/New_York"
         securityContext:
           container:

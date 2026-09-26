@@ -4,7 +4,7 @@ Istio runs in ambient mode: no sidecars, a per-node `ztunnel` carries mTLS and L
 enrolled pods, and `istio-cni` redirects their traffic into it. Only the namespaces listed in
 `SERVICE_MESH_AMBIENT_NAMESPACES` are enrolled; the default is `paperclip` (with a waypoint), so
 the paperclip request path has L7 metrics and spans; every other workload is untouched. Kiali
-shows the mesh graph at `https://servicemesh.<DOMAIN>` on the internal ingress. Decision
+shows the mesh graph at `https://servicemesh.<DOMAIN>` on the `envoy-internal` Gateway. Decision
 records: ADR-020, ADR-021 in `docs/project_notes/decisions.md`.
 
 Istio 1.31.1 (`charts.istio`, from `https://blob.istio.io/istio-release/charts`; the old
@@ -14,12 +14,13 @@ upgrading the cluster past 1.36 needs an Istio release that supports it first.
 
 | Application | Chart (`configuration/versions.yaml`) | Wave | Notes |
 |---|---|---|---|
-| `gateway-api-crds` | kubernetes-sigs/gateway-api `config/crd/standard` (`charts.gateway-api`) | 1 | Gateway API CRDs; a waypoint is a Gateway |
+| `gateway-api-crds` | kubernetes-sigs/gateway-api `config/crd/standard` (`charts.gateway-api`) | 1 | Gateway API CRDs (`charts/addons/templates/gateway-api-crds.yaml`), shared with Envoy Gateway and the Istio gateways; a waypoint is a Gateway |
 | `istio-base` | `base` (`charts.istio`) | 2 | CRDs, default validating webhook (`validationFailurePolicy: Fail` in base and istiod, so istiod never flips it under server-side apply) |
 | `istiod` | `istiod` (`charts.istio`), `profile: ambient` | 3 | control plane |
 | `istio-cni` | `cni` (`charts.istio`), `profile: ambient` | 3 | DaemonSet `istio-cni-node`, chained after Cilium in `/etc/cni/net.d` |
 | `ztunnel` | `ztunnel` (`charts.istio`) | 4 | DaemonSet, one per node |
-| `istio-config` | `charts/istio-config` | 5 | upstream ServiceMonitor (istiod) and PodMonitor (waypoints), PodMonitors for ztunnel and istio-cni, Telemetry `mesh-default` (tracing), the Kiali Ingress |
+| `istio-config` | `charts/istio-config` | 5 | upstream ServiceMonitor (istiod) and PodMonitor (waypoints), PodMonitors for ztunnel and istio-cni, Telemetry `mesh-default` (tracing), the Kiali HTTPRoute |
+| `istio-gateways` | `charts/istio-gateways` | 7 | comparison Gateways `istio-internal` / `istio-external` and the `echo` backend ([below](#istio-gateways-for-comparison)) |
 | `kiali` | `kiali-server` (`charts.kiali-server`) | 10 | Prometheus and Grafana of kube-prometheus-stack |
 
 All four Istio charts share one version key, so Renovate bumps them together. Namespace
@@ -73,7 +74,7 @@ SERVICE_MESH_WAYPOINT_NAMESPACES: "paperclip"        # must also be enrolled
 
 `charts/applications/templates/_mesh.tpl` labels each listed Namespace
 `istio.io/dataplane-mode: ambient`; with a waypoint also `istio.io/use-waypoint: waypoint` and
-`istio.io/ingress-use-waypoint: "true"` (traffic from outside the mesh, i.e. Traefik, goes
+`istio.io/ingress-use-waypoint: "true"` (traffic from outside the mesh, i.e. Envoy Gateway, goes
 through the waypoint too), and `templates/waypoints.yaml` renders the Gateway `waypoint`
 (class `istio-waypoint`, HBONE 15008). Pods are captured on their next start; hostNetwork pods
 never are. For a namespace outside the applications chart, add the labels to its Namespace
@@ -92,15 +93,46 @@ service-mesh e2e tests go through it). Two adjustments:
 
 ## Kiali
 
-`https://servicemesh.<DOMAIN>` (`SERVICEMESH_HOSTNAME`, derived from `DOMAIN`), IngressClass
-`internal`, certificate `kiali-tls` from the `letsencrypt` ClusterIssuer, record published by
-external-dns. The Ingress lives in `charts/istio-config`: the kiali-server chart picks the
-Ingress apiVersion from cluster capabilities, which a local render lacks, so its own Ingress
-never matched the live object. Login uses a Kubernetes token and shows what that token may read:
+`https://servicemesh.<DOMAIN>` (`SERVICEMESH_HOSTNAME`, derived from `DOMAIN`), an HTTPRoute on
+the `https` listener of `envoy-internal` (TLS is the Gateway's wildcard certificate), record
+published by external-dns. The route lives in `charts/istio-config`: the kiali-server chart only
+renders an Ingress, which Envoy Gateway does not serve. Login uses a Kubernetes token and shows what that token may read:
 
 ```bash
 kubectl -n istio-system create token kiali --duration 8h
 ```
+
+## Istio gateways for comparison
+
+`charts/istio-gateways` (Application `istio-gateways`, addons wave 7, namespace
+`istio-ingress`) deploys Istio's Gateway API implementation next to Envoy Gateway, to compare
+the two on the same traffic before choosing whether ingress should ever move into the mesh
+(ADR-040). It takes no production traffic: no DNS record or port forward points at it.
+
+| | Istio | Envoy Gateway |
+|--|-------|---------------|
+| GatewayClass | `istio-internal`, `istio-external` (controller `istio.io/gateway-controller`) | `envoy-internal`, `envoy-external` |
+| Gateway, Deployment, Service | same names in `istio-ingress` (`gateway.istio.io/name-override`) | same names in `envoy-gateway-system` |
+| Listeners | `http` 80 (301 redirect), `https` 443 `*.<DOMAIN>` | identical |
+| Certificate | `gateway-wildcard-tls` from `envoy-gateway-system`, read through ReferenceGrant `istio-gateways-certificate` | owner of the Secret |
+| Metrics | `envoy-stats-monitor` PodMonitor (`charts/istio-config`) | PodMonitor `<gateway>-proxy` |
+| Routes | only `echo` | every application |
+
+The `echo` Deployment (agnhost `netexec`) has one HTTPRoute with two parents,
+`envoy-internal` and `istio-internal`, on `echo.<DOMAIN>`. DNS sends the name to Envoy; to
+send the same request through Istio, pin the name to the Istio Service address:
+
+```bash
+ISTIO_IP=$(kubectl -n istio-ingress get svc istio-internal -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+curl -s https://echo.<DOMAIN>/hostname                                        # envoy-internal
+curl -s --resolve echo.<DOMAIN>:443:$ISTIO_IP https://echo.<DOMAIN>/hostname      # istio-internal
+curl -s -o /dev/null -w '%{time_connect} %{time_appconnect} %{time_total}\n' \
+  --resolve echo.<DOMAIN>:443:$ISTIO_IP https://echo.<DOMAIN>/hostname
+```
+
+Compare latency (the `-w` timings, or a load tool with `--resolve`), resource use
+(`kubectl top pod -n istio-ingress` vs `-n envoy-gateway-system`) and the per-gateway metrics in
+Grafana. Remove `charts/istio-gateways` and its Application once the comparison is done.
 
 ## Metrics, alerts, dashboards
 

@@ -108,10 +108,15 @@ keys:
     required: true
     pattern: "^(?:\\d{1,3}\\.){3}\\d{1,3}$"
 
-  TRAEFIK_STATIC_IP:
-    description: Static LoadBalancer IP for Traefik ingress
+  GATEWAY_EXTERNAL_STATIC_IP:
+    description: Static LoadBalancer IP of the external Envoy Gateway (WAN port forwards target it)
     required: true
     pattern: "^(?:\\d{1,3}\\.){3}\\d{1,3}$"
+
+  GATEWAY_INTERNAL_STATIC_IP:
+    description: Static LoadBalancer IP of the internal Envoy Gateway; empty lets Cilium LB IPAM pick one
+    required: false
+    pattern: "^$|^(?:\\d{1,3}\\.){3}\\d{1,3}$"
 
   PLEX_LB_IP:
     description: Static LoadBalancer IP for Plex
@@ -157,24 +162,12 @@ keys:
     const: "grafana.{{.DOMAIN}}"
 
   ALERTMANAGER_HOSTNAME:
-    description: Alertmanager UI hostname on the internal ingress
+    description: Alertmanager UI hostname on the internal Gateway
     const: "alertmanager.{{.DOMAIN}}"
-
-  TRAEFIK_HOSTNAME:
-    description: Traefik dashboard hostname
-    const: "traefik.{{.DOMAIN}}"
-
-  TRAEFIK_INTERNAL_HOSTNAME:
-    description: Traefik internal dashboard hostname
-    const: "traefik-internal.{{.DOMAIN}}"
 
   WORKFLOWS_HOSTNAME:
     description: Argo Workflows hostname
     const: "workflows.{{.DOMAIN}}"
-
-  AUTH_HOSTNAME:
-    description: OAuth2 proxy hostname
-    const: "auth.{{.DOMAIN}}"
 
   OP_CONNECT_HOSTNAME:
     description: 1Password Connect hostname

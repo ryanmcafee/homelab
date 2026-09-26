@@ -14,8 +14,8 @@
 ---
 providers:
   cert-manager.io: cert-manager
-  # traefik-crds (wave 4) installs them; both Traefik releases render with skipCrds.
-  traefik.io: traefik-crds
+  # envoy-gateway-crds (wave 4) installs them; the controller renders with skipCrds.
+  gateway.envoyproxy.io: envoy-gateway-crds
   onepassword.com: onepassword-operator
   tailscale.com: tailscale-operator
   cilium.io: cilium
@@ -28,7 +28,7 @@ providers:
   # (crdHook off); charts/clickhouse (wave 11) renders the installation after it (10).
   clickhouse.altinity.com: clickhouse-operator
   # Istio's CRDs (Telemetry, ...) come from the base chart (wave 2); the
-  # waypoint Gateway needs the standard Gateway API CRDs (wave 1).
+  # waypoint Gateway and every Gateway/HTTPRoute need the standard Gateway API CRDs (wave 1).
   telemetry.istio.io: istio-base
   gateway.networking.k8s.io: gateway-api-crds
   # The CRD-only companion chart in the bootstrap chart (wave -1) installs the

@@ -5,9 +5,9 @@ argocd:
   enabled: true
 
   values:
-    # The Ingress health Lua (Healthy even without a loadBalancer address, so
-    # the initial sync does not wait on Traefik) now lives in
-    # files/health/networking.k8s.io_Ingress.lua and is injected by
+    # The HTTPRoute health Lua (Healthy before the Gateway exists, so the
+    # initial sync does not wait on addons wave 6) lives in
+    # files/health/gateway.networking.k8s.io_HTTPRoute.lua and is injected by
     # templates/argocd.yaml for every environment.
     server:
       # HA configuration - 3 replicas spread across different hosts
@@ -20,16 +20,19 @@ argocd:
             matchLabels:
               app.kubernetes.io/name: argocd-server
 
-      # Ingress for web UI
-      # hostname, the external-dns hostname annotation and extraTls are NOT set
-      # here: the gitops parent Application derives them from global.domain and
-      # passes them via spec.source.helm.valuesObject (see
+      # HTTPRoute for the web UI on the internal Gateway, which terminates TLS
+      # (server.insecure). Hostnames and the external-dns hostname annotation
+      # are NOT set here: the gitops parent Application derives them from
+      # global.domain and passes them via spec.source.helm.valuesObject (see
       # charts/gitops/templates/bootstrap.yaml). Never commit the real domain.
-      ingress:
+      httproute:
         enabled: true
-        ingressClassName: internal
-        annotations:
-          cert-manager.io/cluster-issuer: letsencrypt
+        parentRefs:
+          - group: gateway.networking.k8s.io
+            kind: Gateway
+            name: envoy-internal
+            namespace: envoy-gateway-system
+            sectionName: https
 
       # Production resource limits
       resources:

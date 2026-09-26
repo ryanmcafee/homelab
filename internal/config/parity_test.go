@@ -76,18 +76,17 @@ func TestParityHelmAddons(t *testing.T) {
 
 	// Verify key PII values appear in output
 	requiredValues := map[string]string{
-		"DOMAIN":            rc.Values["DOMAIN"].Value,
-		"TRUENAS_IP":        rc.Values["TRUENAS_IP"].Value,
-		"ACME_EMAIL":        rc.Values["ACME_EMAIL"].Value,
-		"ARGOCD_HOSTNAME":   rc.Values["ARGOCD_HOSTNAME"].Value,
-		"GRAFANA_HOSTNAME":  rc.Values["GRAFANA_HOSTNAME"].Value,
-		"TRAEFIK_STATIC_IP": rc.Values["TRAEFIK_STATIC_IP"].Value,
-		"TRAEFIK_HOSTNAME":  rc.Values["TRAEFIK_HOSTNAME"].Value,
-		"CP_VIP":            rc.Values["CP_VIP"].Value,
-		"LB_POOL_START":     rc.Values["LB_POOL_START"].Value,
-		"LB_POOL_END":       rc.Values["LB_POOL_END"].Value,
-		"GATEWAY_IP":        rc.Values["GATEWAY_IP"].Value,
-		"NFS_SHARE_ALLOW":   rc.Values["NFS_SHARE_ALLOW"].Value,
+		"DOMAIN":                     rc.Values["DOMAIN"].Value,
+		"TRUENAS_IP":                 rc.Values["TRUENAS_IP"].Value,
+		"ACME_EMAIL":                 rc.Values["ACME_EMAIL"].Value,
+		"ARGOCD_HOSTNAME":            rc.Values["ARGOCD_HOSTNAME"].Value,
+		"GRAFANA_HOSTNAME":           rc.Values["GRAFANA_HOSTNAME"].Value,
+		"GATEWAY_EXTERNAL_STATIC_IP": rc.Values["GATEWAY_EXTERNAL_STATIC_IP"].Value,
+		"CP_VIP":                     rc.Values["CP_VIP"].Value,
+		"LB_POOL_START":              rc.Values["LB_POOL_START"].Value,
+		"LB_POOL_END":                rc.Values["LB_POOL_END"].Value,
+		"GATEWAY_IP":                 rc.Values["GATEWAY_IP"].Value,
+		"NFS_SHARE_ALLOW":            rc.Values["NFS_SHARE_ALLOW"].Value,
 	}
 
 	for key, val := range requiredValues {
@@ -100,7 +99,7 @@ func TestParityHelmAddons(t *testing.T) {
 	// charts/bootstrap, which is plain Helm and pinned by versions/pins).
 	requiredVersions := []string{
 		"cilium", "democratic-csi", "cert-manager",
-		"external-dns", "kube-prometheus-stack", "traefik", "spegel",
+		"external-dns", "kube-prometheus-stack", "envoy-gateway", "spegel",
 	}
 	for _, chart := range requiredVersions {
 		ver := rc.Versions.Charts[chart]

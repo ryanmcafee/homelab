@@ -311,21 +311,54 @@ spec:
                 hs.message = "Waiting for external-dns to observe generation " .. tostring(generation) .. " (observed " .. tostring(observed) .. ")"
               end
               return hs
-            resource.customizations.health.networking.k8s.io_Ingress: |
-              -- Ingress: treat as Healthy even without a loadBalancer address.
-              -- This prevents a circular dependency during the initial sync when Traefik
-              -- (which would populate status.loadBalancer) is not deployed yet.
+            resource.customizations.health.gateway.networking.k8s.io_HTTPRoute: |
+              -- HTTPRoute: Degraded when a Gateway rejects it or a reference is invalid;
+              -- Healthy otherwise, also before any Gateway has written status. Routes sync
+              -- before their Gateway exists (argocd at bootstrap wave 1, Gateways at addons
+              -- wave 6), so waiting for status, as the built-in check does, would deadlock.
               hs = {}
               hs.status = "Healthy"
-              hs.message = ""
-              if obj.status ~= nil then
-                if obj.status.loadBalancer ~= nil then
-                  if obj.status.loadBalancer.ingress ~= nil then
-                    hs.message = "Load balancer ingress configured"
-                  else
-                    hs.message = "Waiting for load balancer (non-blocking)"
+              hs.message = "Waiting for the Gateway to accept the route (non-blocking)"
+              local generation = nil
+              if obj.metadata ~= nil then
+                generation = obj.metadata.generation
+              end
+              if obj.status == nil or obj.status.parents == nil then
+                return hs
+              end
+              local accepted = 0
+              local pending = nil
+              for _, parent in ipairs(obj.status.parents) do
+                local name = ""
+                if parent.parentRef ~= nil and parent.parentRef.name ~= nil then
+                  name = parent.parentRef.name
+                end
+                if parent.conditions ~= nil then
+                  for _, condition in ipairs(parent.conditions) do
+                    local current = generation == nil or condition.observedGeneration == nil or condition.observedGeneration == generation
+                    if current and (condition.type == "Accepted" or condition.type == "ResolvedRefs") then
+                      if condition.type == "ResolvedRefs" and condition.status == "False" and condition.reason == "BackendNotFound" then
+                        -- The backend often syncs later (kiali at wave 10); HomelabHTTPRouteNotAccepted alerts if it never appears.
+                        pending = "Gateway " .. name .. ": backend not found yet"
+                      elseif condition.status == "False" then
+                        hs.status = "Degraded"
+                        hs.message = "Gateway " .. name .. ": " .. condition.type .. " is False"
+                        if condition.message ~= nil and condition.message ~= "" then
+                          hs.message = hs.message .. ": " .. condition.message
+                        end
+                        return hs
+                      end
+                      if condition.type == "Accepted" and condition.status == "True" then
+                        accepted = accepted + 1
+                      end
+                    end
                   end
                 end
+              end
+              if pending ~= nil then
+                hs.message = pending
+              elseif accepted > 0 then
+                hs.message = "Accepted by " .. accepted .. " Gateway(s)"
               end
               return hs
             resource.customizations.health.onepassword.com_OnePasswordItem: |
@@ -443,7 +476,7 @@ spec:
             requests:
               memory: 48Mi
         notifications:
-          argocdUrl: https://argocd.REPLACEME-domain.com
+          argocdUrl: https://argocd.replaceme-domain.com
           enabled: true
           metrics:
             enabled: true
@@ -548,17 +581,20 @@ spec:
               optional: true
               secretName: homelab-environment-config
         server:
-          ingress:
+          httproute:
             annotations:
-              cert-manager.io/cluster-issuer: letsencrypt
-              external-dns.alpha.kubernetes.io/hostname: argocd.REPLACEME-domain.com
+              external-dns.alpha.kubernetes.io/hostname: argocd.replaceme-domain.com
             enabled: true
-            extraTls:
-            - hosts:
-              - argocd.REPLACEME-domain.com
-              secretName: argocd-server-tls
-            hostname: argocd.REPLACEME-domain.com
-            ingressClassName: internal
+            hostnames:
+            - argocd.replaceme-domain.com
+            parentRefs:
+            - group: gateway.networking.k8s.io
+              kind: Gateway
+              name: envoy-internal
+              namespace: envoy-gateway-system
+              sectionName: https
+          ingress:
+            enabled: false
           metrics:
             enabled: true
             serviceMonitor:
@@ -593,6 +629,8 @@ spec:
       - PruneLast=true
       - ApplyOutOfSyncOnly=true
       - RespectIgnoreDifferences=true
+      # The HTTPRoute CRD arrives with addons wave 1, after this Application.
+      - SkipDryRunOnMissingResource=true
 
   # Ignore differences in fields that change frequently
   ignoreDifferences:

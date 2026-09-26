@@ -401,7 +401,7 @@ Each decision should include:
 
 - **2026-02-11: ArgoCD CMP for PII removal** — Moved config generation from commit-time to ArgoCD render-time using a Config Management Plugin sidecar. Bootstrap chart breaks chicken-and-egg with 1Password operator. All committed values files sanitized to safe defaults. The design doc (`docs/plans/2026-02-11-argocd-cmp-pii-removal-design.md`) was removed in c4daa10 once implemented; the mechanism is documented in `Claude.md` "CMP Architecture" and extended to child charts by ADR-010.
 
-- **2026-02-13: Dual Traefik Ingress Controllers** — Split single Traefik into external (`external` IngressClass, static IP <TRAEFIK_STATIC_IP>, OIDC, port forwarding) and internal (`internal` IngressClass, dynamic IP, no OIDC). Plex uses external; all other apps use internal. OIDC middleware annotations removed from internal apps. Design doc: `docs/plans/2026-02-13-dual-traefik-ingress-design.md`.
+- **2026-02-13: Dual Traefik Ingress Controllers** — Split single Traefik into external (`external` IngressClass, static IP <TRAEFIK_STATIC_IP>, OIDC, port forwarding) and internal (`internal` IngressClass, dynamic IP, no OIDC). Plex uses external; all other apps use internal. OIDC middleware annotations removed from internal apps. Superseded by ADR-040 (Envoy Gateway); the design doc was removed with it.
 
 ### ADR-016: etcd gets its own disk; the control planes leave the shared VM pool (2026-09-15)
 
@@ -864,7 +864,7 @@ Each decision should include:
 - **3b is recorded as never executed, now, and independently of whether hardware is ever funded.** The candour is not contingent on the budget answer: "never executed" is a true statement today and costs nothing to write, whereas leaving the row implicitly green is a false statement that the table's own format manufactures. The hardware question is escalated separately, on its own merits
 - The check table carries a **Status** column. A check may be listed as specified-and-not-implemented; it may not be listed with no status at all. This applies to checks 1 and 2 as much as to 3b
 - **The release anchor is replaced by a cadence**, because a trigger a reader cannot look up is a trigger that gets missed: 3a runs weekly by cron and on demand; 3b runs before a declared platform milestone, and its written result is dated in `docs/contracts/fork-ability.md`
-- **"For any change to bootstrap, secrets or identity" is enforced by a `paths:` trigger, not by a CODEOWNERS rule.** `.github/CODEOWNERS` assigns `* @ryanmcafee` and gives every listed path that same single owner, so a CODEOWNERS entry cannot carry this obligation in this repository — it would be prose wearing a machine-readable costume. `fork-path-cold.yml`'s current `paths:` filter covers only the workflow file itself, so this part of check 3a is specified and not yet enforced
+- **"For any change to bootstrap, secrets or identity" is enforced by a `paths:` trigger, not by a CODEOWNERS rule.** `.github/CODEOWNERS` assigns `*` to the single repository owner and gives every listed path that same single owner, so a CODEOWNERS entry cannot carry this obligation in this repository — it would be prose wearing a machine-readable costume. `fork-path-cold.yml`'s current `paths:` filter covers only the workflow file itself, so this part of check 3a is specified and not yet enforced
 - Checks 1 and 2 remain unchanged in intent and unimplemented in fact. ADR-029's "belong in the existing level-0 gate" is a specification, not a description of `main`: `internal/verify/` has no fork-ability module, and there is no synthetic ConfigSet to render against
 - Normative detail and per-check status: `docs/contracts/fork-ability.md`
 
@@ -1072,6 +1072,34 @@ Each decision should include:
 - An author can no longer assume the number they wrote is the number that ships. Branch names, PR titles and commit messages citing the old number are cosmetic and are left alone; citations in committed files are not, and move with the renumber
 - **Blast radius when a duplicate does land:** the checks read the repository, not the diff, so a duplicate on `main` turns the required check red on *every* open pull request until `main` is fixed, urgent ones included. The recovery is fix-forward and takes seconds — renumber the later heading on `main` and every PR goes green on its next run — and the only bypass is the repository owner merging past the required check under `enforcement_level: non_admins` with the reason in the issue. There is no per-file exemption annotation for these checks; `docs/runbooks/verification.md` carries the procedure
 - The one-file-per-ADR split is deferred, not rejected. If the record keeps growing this way, the gate written here is what makes that migration safe to attempt
+
+### ADR-040: Envoy Gateway replaces Traefik; Istio gateways deployed for comparison (2026-09-25); supersedes the 2026-02-13 dual-ingress entry
+
+**Context:**
+- Two Traefik releases served every UI through Ingress objects plus Traefik-only CRDs (IngressRoute, Middleware), so routing was tied to one vendor's API
+- Gateway API is the Kubernetes routing standard; its CRDs were already installed for Istio waypoints (ADR-020), and every upstream chart in use already renders an HTTPRoute
+- Each app requested its own certificate through cert-manager annotations, and the Traefik OIDC plugin (Middleware `oidc-auth`, `oidc-redis`, `auth.<DOMAIN>`) was deployed but attached to no route
+
+**Decision:**
+- Envoy Gateway v1.9 (OCI charts `gateway-helm` + `gateway-crds-helm`, one key `charts.envoy-gateway`) runs two Gateways with their own GatewayClass, EnvoyProxy and LoadBalancer Service: `envoy-internal` (LAN + tailnet, UniFi DNS) and `envoy-external` (Internet, WAN port forwards, Cloudflare DNS), namespace `envoy-gateway-system`
+- The Envoy Services take over the Traefik addresses (`GATEWAY_EXTERNAL_STATIC_IP`, was `TRAEFIK_STATIC_IP`; `GATEWAY_INTERNAL_STATIC_IP` pins the old internal address) so DNS records and port forwards do not change at cutover
+- One wildcard certificate (`<DOMAIN>`, `*.<DOMAIN>`) terminates TLS at the `https` listener of both Gateways; the `http` listener only redirects
+- Every Ingress and IngressRoute becomes an HTTPRoute with `sectionName: https`, through the upstream chart's route support where it exists; external-dns switches to the `gateway-httproute` source filtered by Gateway name
+- The OIDC plugin is dropped; edge authentication, when needed, will be an Envoy Gateway `SecurityPolicy`
+- Gateway API CRDs (standard channel) get their own Application at wave 1, the only producer for Envoy Gateway, Istio gateways and waypoints
+- `charts/istio-gateways` deploys `istio-internal` / `istio-external` with the same listeners and certificate, but only an `echo` route attaches to them (plus `envoy-internal`), so both implementations can be compared on the same request without taking traffic
+
+**Alternatives Considered:**
+- **Traefik's Gateway API provider** -> keeps the controller, but the Kubernetes Gateway provider lags Traefik's own CRDs and the OIDC plugin/middlewares would still be Traefik-only
+- **Cilium Gateway API** -> no extra controller, but it ties ingress to the CNI's release and configuration (inline Talos manifest, `task render` + `tf apply` for every change) and exposes little of Envoy's access log and policy surface
+- **Istio gateway as the ingress** -> istiod is already running, but it would make the opt-in mesh (ADR-020) a hard dependency of every UI; deployed side by side for measurement instead
+
+**Consequences:**
+- Networking objects are portable Gateway API resources; no vendor CRD sits between an app and its route
+- No Ingress object may exist: Envoy Gateway ignores them, so a chart that can only render an Ingress needs an HTTPRoute template of our own
+- Per-app certificates and their cert-manager annotations disappear; one renewal covers every host, and a host outside `*.<DOMAIN>` needs its own listener
+- The cutover needs the renamed keys in `homelab.yaml` and the 1Password `homelab-environment-config` document before merge; there is a short gap between Traefik's Services being pruned and Envoy's receiving the freed addresses (`docs/runbooks/envoy-gateway.md`)
+- The Istio gateways cost two small Deployments and two pool addresses; remove `charts/istio-gateways` once the comparison is done
 
 ## Tips
 

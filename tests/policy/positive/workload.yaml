@@ -25,17 +25,17 @@ spec:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: oidc-redis
-  namespace: traefik-external
+  name: cache
+  namespace: cache
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: oidc-redis
+      app: cache
   template:
     metadata:
       labels:
-        app: oidc-redis
+        app: cache
     spec:
       containers:
         - name: redis

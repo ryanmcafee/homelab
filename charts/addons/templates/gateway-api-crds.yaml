@@ -1,0 +1,35 @@
+{{- if .Values.gatewayApi.enabled }}
+---
+# Standard-channel Gateway API CRDs for Envoy Gateway, the Istio gateways and
+# waypoints. Envoy Gateway renders with crds.enabled=false and its CRD chart
+# with gatewayAPI.enabled=false, so this is the only producer.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: gateway-api-crds
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+    # Its path is in the gateway-api repository: Kind syncs it from there,
+    # not with --local (scripts/localdev-argocd.ts REMOTE_SYNC_ANNOTATION).
+    homelab.local/localdev-sync: remote
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: {{ .Values.gatewayApi.repo }}
+    targetRevision: {{ .Values.gatewayApi.version }}
+    path: config/crd/standard
+  destination:
+    server: https://kubernetes.default.svc
+  syncPolicy:
+    {{- if .Values.global.automatedSync }}
+    automated:
+      prune: true
+      selfHeal: true
+    {{- end }}
+    syncOptions:
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+{{- end }}

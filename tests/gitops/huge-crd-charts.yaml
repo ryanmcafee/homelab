@@ -19,6 +19,8 @@ charts:
   - democratic-csi-iscsi
   - democratic-csi-iscsi-hdd
   - democratic-csi-ssd
+  # the EnvoyProxy CRD alone is well past the limit
+  - envoy-gateway-crds
   - external-dns-cloudflare-crd
   - intel-device-plugins-operator
   - kube-prometheus-stack
@@ -28,5 +30,3 @@ charts:
   # the Prometheus and Alertmanager CRDs alone exceed the limit several times over
   - prometheus-operator-crds
   - tailscale-operator
-  - traefik-external
-  - traefik-internal

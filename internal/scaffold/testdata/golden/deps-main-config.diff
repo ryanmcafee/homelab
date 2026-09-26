@@ -16,7 +16,7 @@ new file mode 100644
 +Three Applications (rule gitops/<env>/waves: -dependencies < main, -config != main):
 +  wave 9  demo-stack-dependencies  charts/demo-stack-dependencies (Secrets, OnePasswordItems)
 +  wave 10  demo-stack               upstream chart stack
-+  wave 12  demo-stack-config        charts/demo-stack-config (Ingress; anything needing the main chart)
++  wave 12  demo-stack-config        charts/demo-stack-config (HTTPRoute; anything needing the main chart)
 +Derived values reach the -config child through helm.valuesObject (ADR-010).
 +*/}}
 +---
@@ -192,41 +192,37 @@ new file mode 100644
 @@ -0,0 +1,6 @@
 +apiVersion: v2
 +name: demo-stack-config
-+description: Configuration for demo-stack that needs the main chart (Ingress), synced after it
++description: Configuration for demo-stack that needs the main chart (HTTPRoute), synced after it
 +type: application
 +version: 1.0.0
 +appVersion: "1.0"
-diff --git a/charts/demo-stack-config/templates/ingress.yaml b/charts/demo-stack-config/templates/ingress.yaml
+diff --git a/charts/demo-stack-config/templates/httproute.yaml b/charts/demo-stack-config/templates/httproute.yaml
 new file mode 100644
 --- /dev/null
-+++ b/charts/demo-stack-config/templates/ingress.yaml
-@@ -0,0 +1,27 @@
-+{{- if .Values.ingress.enabled }}
++++ b/charts/demo-stack-config/templates/httproute.yaml
+@@ -0,0 +1,23 @@
++{{- if .Values.route.enabled }}
 +---
-+apiVersion: networking.k8s.io/v1
-+kind: Ingress
++apiVersion: gateway.networking.k8s.io/v1
++kind: HTTPRoute
 +metadata:
 +  name: demo-stack
 +  namespace: {{ .Values.namespace }}
 +  annotations:
-+    cert-manager.io/cluster-issuer: letsencrypt
++    external-dns.alpha.kubernetes.io/hostname: {{ .Values.route.host }}
 +spec:
-+  ingressClassName: {{ .Values.ingress.className }}
++  parentRefs:
++    - group: gateway.networking.k8s.io
++      kind: Gateway
++      name: {{ .Values.route.gateway.name }}
++      namespace: {{ .Values.route.gateway.namespace }}
++      sectionName: https
++  hostnames:
++    - {{ .Values.route.host }}
 +  rules:
-+    - host: {{ .Values.ingress.host }}
-+      http:
-+        paths:
-+          - path: /
-+            pathType: Prefix
-+            backend:
-+              service:
-+                name: {{ .Values.ingress.service.name }}
-+                port:
-+                  number: {{ .Values.ingress.service.port }}
-+  tls:
-+    - secretName: demo-stack-tls
-+      hosts:
-+        - {{ .Values.ingress.host }}
++    - backendRefs:
++        - name: {{ .Values.route.service.name }}
++          port: {{ .Values.route.service.port }}
 +{{- end }}
 diff --git a/charts/demo-stack-config/values-homelab.yaml b/charts/demo-stack-config/values-homelab.yaml
 new file mode 100644
@@ -255,12 +251,12 @@ diff --git a/charts/demo-stack-config/values.yaml b/charts/demo-stack-config/val
 new file mode 100644
 --- /dev/null
 +++ b/charts/demo-stack-config/values.yaml
-@@ -0,0 +1,21 @@
+@@ -0,0 +1,23 @@
 +# demo-stack-config values: objects that need the main chart (its Service, its
 +# CRDs), synced after demo-stack (wave 12). Scaffolded by
 +# `homelab scaffold app demo-stack`.
 +#
-+# global.domain, ingress.host and ingress.className are placeholders: the
++# global.domain, route.host and route.gateway are placeholders: the
 +# demo-stack-config Application in charts/addons passes the real values through
 +# helm.valuesObject (ADR-010).
 +
@@ -269,10 +265,12 @@ new file mode 100644
 +
 +namespace: demo-stack
 +
-+ingress:
++route:
 +  enabled: true
 +  host: demo-stack.example.com
-+  className: internal
++  gateway:
++    name: envoy-internal
++    namespace: envoy-gateway-system
 +  # The Service the upstream chart creates for release demo-stack.
 +  service:
 +    name: demo-stack
@@ -354,7 +352,7 @@ new file mode 100644
 diff --git a/configuration/schema/network.schema.yaml b/configuration/schema/network.schema.yaml
 --- a/configuration/schema/network.schema.yaml
 +++ b/configuration/schema/network.schema.yaml
-@@ -12,3 +12,8 @@
+@@ -16,3 +16,8 @@
    GRAFANA_HOSTNAME:
      description: Grafana dashboard hostname
      const: "grafana.{{.DOMAIN}}"
@@ -366,7 +364,7 @@ diff --git a/configuration/schema/network.schema.yaml b/configuration/schema/net
 diff --git a/configuration/templates/helm-addons.tmpl b/configuration/templates/helm-addons.tmpl
 --- a/configuration/templates/helm-addons.tmpl
 +++ b/configuration/templates/helm-addons.tmpl
-@@ -15,3 +15,59 @@
+@@ -15,3 +15,61 @@
  {{- if $localdev }}
    replicaCount: 1
  {{- end }}
@@ -416,9 +414,11 @@ diff --git a/configuration/templates/helm-addons.tmpl b/configuration/templates/
 +  # demo-stack-config Application's helm.valuesObject (ADR-010). Never put them
 +  # in charts/demo-stack-config/values-homelab.yaml.
 +  config:
-+    ingress:
++    route:
 +      host: {{ .Values.DEMO_STACK_HOSTNAME.Value }}
-+      className: {{ .Values.INGRESS_CLASS_INTERNAL.Value }}
++      gateway:
++        name: {{ .Values.GATEWAY_INTERNAL.Value }}
++        namespace: {{ .Values.GATEWAY_NAMESPACE.Value }}
 +
 +  # PostSync smoke hook (charts/addons/templates/_smoke.tpl): curl the
 +  # in-cluster Service after sync; expect lists the accepted HTTP codes.
@@ -482,7 +482,7 @@ diff --git a/tests/e2e/demo-stack/chainsaw-test.yaml b/tests/e2e/demo-stack/chai
 new file mode 100644
 --- /dev/null
 +++ b/tests/e2e/demo-stack/chainsaw-test.yaml
-@@ -0,0 +1,159 @@
+@@ -0,0 +1,182 @@
 +---
 +# Scaffolded by `homelab scaffold app demo-stack`; see tests/e2e/README.md.
 +apiVersion: chainsaw.kyverno.io/v1alpha1
@@ -491,7 +491,8 @@ new file mode 100644
 +  name: demo-stack
 +spec:
 +  description: >-
-+    demo-stack /alive answers through the internal Traefik with Host demo-stack.homelab.local.
++    The demo-stack HTTPRoute is accepted by envoy-internal and demo-stack /alive
++    answers through it with Host demo-stack.homelab.local.
 +  steps:
 +    - name: applications-healthy
 +      description: The ArgoCD Applications behind this test are Healthy and their last sync Succeeded.
@@ -548,10 +549,32 @@ new file mode 100644
 +            kind: Application
 +            name: demo-stack-config
 +            namespace: argocd
++    - name: route-demo-stack
++      description: The demo-stack HTTPRoute is Accepted by envoy-internal and its backend refs resolve.
++      try:
++        - assert:
++            resource:
++              apiVersion: gateway.networking.k8s.io/v1
++              kind: HTTPRoute
++              metadata:
++                name: demo-stack
++                namespace: demo-stack
++              status:
++                (parents[?parentRef.name == 'envoy-internal']):
++                  - (conditions[?type == 'Accepted']):
++                      - status: "True"
++                    (conditions[?type == 'ResolvedRefs']):
++                      - status: "True"
++      catch:
++        - describe:
++            apiVersion: gateway.networking.k8s.io/v1
++            kind: HTTPRoute
++            name: demo-stack
++            namespace: demo-stack
 +    - name: curl-demo-stack
 +      description: >-
 +        A curl Job must get one of [200]
-+        from https://demo-stack.homelab.local/alive via traefik-internal.traefik.svc.cluster.local.
++        from https://demo-stack.homelab.local/alive via envoy-internal.envoy-gateway-system.svc.cluster.local.
 +      timeouts:
 +        assert: 5m
 +      try:
@@ -591,7 +614,7 @@ new file mode 100644
 +                          - name: HOST
 +                            value: "demo-stack.homelab.local"
 +                          - name: GATEWAY
-+                            value: "traefik-internal.traefik.svc.cluster.local"
++                            value: "envoy-internal.envoy-gateway-system.svc.cluster.local"
 +                          - name: URL_PATH
 +                            value: "/alive"
 +                          - name: EXPECT

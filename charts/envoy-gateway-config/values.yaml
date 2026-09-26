@@ -1,0 +1,69 @@
+# envoy-gateway-config values. The parent Application (charts/addons
+# templates/envoy-gateway.yaml) passes every derived value (names, domain,
+# static IPs, sizing) through helm.valuesObject, so these are placeholders.
+
+global:
+  domain: example.com
+
+namespace: envoy-gateway-system
+
+# Wildcard certificate for *.<domain> and <domain>, shared by both Envoy
+# Gateways and, through a ReferenceGrant, the Istio gateways.
+certificate:
+  create: true
+  secretName: gateway-wildcard-tls
+  issuer: letsencrypt
+
+# One GatewayClass, EnvoyProxy, Gateway and Envoy fleet per entry; each entry
+# overrides `defaults`. name is the GatewayClass, EnvoyProxy, Gateway and Service name.
+gateways:
+  internal:
+    enabled: true
+    name: envoy-internal
+  external:
+    enabled: true
+    name: envoy-external
+
+defaults:
+  service:
+    # ClusterIP where no LoadBalancer exists (Kind): the Gateway then reports the ClusterIP as its address.
+    type: LoadBalancer
+    # Empty lets Cilium LB IPAM pick an address from the pool.
+    staticIP: ""
+    annotations: {}
+
+  replicas: 2
+  autoscaling:
+    enabled: false
+    minReplicas: 2
+    maxReplicas: 3
+    targetCPUUtilizationPercentage: 80
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: "1"
+      memory: 512Mi
+
+  # Streams (Plex, SSE, websockets) stay open: no per-request timeout, idle
+  # connections close after idleTimeout.
+  timeouts:
+    request: 0s
+    idle: 600s
+
+  accessLog:
+    enabled: true
+
+  metrics:
+    podMonitor: true
+
+  tracing:
+    enabled: false
+    samplingRate: 10
+    # Backend (templates/tracing-backend.yaml) pointing at the collector Service below.
+    backend: otel-collector-gateway
+    service: otel-collector-gateway
+    namespace: observability
+    port: 4317

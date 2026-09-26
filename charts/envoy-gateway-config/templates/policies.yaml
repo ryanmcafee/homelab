@@ -1,0 +1,35 @@
+{{- range $tier, $gw := .Values.gateways }}
+{{- if $gw.enabled }}
+{{- $v := mergeOverwrite (deepCopy $.Values.defaults) $gw }}
+---
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: ClientTrafficPolicy
+metadata:
+  name: {{ $v.name }}
+  namespace: {{ $.Values.namespace }}
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: {{ $v.name }}
+  timeout:
+    http:
+      idleTimeout: {{ $v.timeouts.idle }}
+  http1:
+    enableTrailers: true
+---
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: BackendTrafficPolicy
+metadata:
+  name: {{ $v.name }}
+  namespace: {{ $.Values.namespace }}
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: {{ $v.name }}
+  timeout:
+    http:
+      requestTimeout: {{ $v.timeouts.request }}
+{{- end }}
+{{- end }}

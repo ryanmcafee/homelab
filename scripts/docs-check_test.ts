@@ -21,13 +21,13 @@ import {
   docName,
   expectedLiterals,
   type Facts,
-  ingressInventory,
   parseArgs,
   parseVersions,
   readRegion,
   renderBadges,
-  renderIngressTable,
+  renderRouteTable,
   replaceRegion,
+  routeInventory,
   smokeJobs,
   splitDocs,
 } from "./docs-check.ts";
@@ -44,13 +44,16 @@ spec:
     targetRevision: 1.6.0
     helm:
       valuesObject:
-        ingress:
+        httpRoute:
           annotations:
             external-dns.alpha.kubernetes.io/hostname: plex.REPLACEME-domain.com
             external-dns.alpha.kubernetes.io/target: REPLACEME-subdomain.duckdns.org
-          ingressClassName: external
+          parentRefs:
+            - name: envoy-external
+              namespace: envoy-gateway-system
+              sectionName: https
           url: https://plex.REPLACEME-domain.com
-          hosts:
+          hostnames:
             - plex.REPLACEME-domain.com
 ---
 apiVersion: argoproj.io/v1alpha1
@@ -63,11 +66,13 @@ spec:
     targetRevision: main
     helm:
       valuesObject:
-        ingress:
+        route:
           main:
-            hosts:
-              - host: sonarr.REPLACEME-domain.com
-            ingressClassName: internal
+            hostnames:
+              - sonarr.REPLACEME-domain.com
+            parentRefs:
+              - name: envoy-internal
+                sectionName: https
         nfs:
           server: truenas.REPLACEME-domain.com
 ---
@@ -84,14 +89,30 @@ spec:
         links:
           - url: https://grafana.REPLACEME-domain.com
 ---
-apiVersion: traefik.io/v1alpha1
-kind: IngressRoute
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
 metadata:
-  name: traefik-internal-dashboard-redirect
-  namespace: traefik
+  name: echo
+  namespace: istio-ingress
 spec:
-  routes:
-    - match: Host(\`traefik-internal.REPLACEME-domain.com\`) && Path(\`/dashboard\`)
+  parentRefs:
+    - name: envoy-internal
+      namespace: envoy-gateway-system
+      sectionName: https
+    - name: istio-internal
+      sectionName: https
+  hostnames:
+    - "echo.REPLACEME-domain.com"
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: envoy-internal-https-redirect
+  namespace: envoy-gateway-system
+spec:
+  parentRefs:
+    - name: envoy-internal
+      sectionName: http
 ---
 apiVersion: batch/v1
 kind: Job
@@ -103,26 +124,43 @@ metadata:
 
 test("splitDocs and docName", () => {
   const docs = splitDocs(SNAPSHOT);
-  assertEquals(docs.length, 5);
+  assertEquals(docs.length, 6);
   assertEquals(docName(docs[0]), "plex");
-  assertEquals(docName(docs[3]), "traefik-internal-dashboard-redirect");
+  assertEquals(docName(docs[3]), "echo");
 });
 
 test("countApplications counts only kind: Application", () => {
   assertEquals(countApplications(splitDocs(SNAPSHOT)), 3);
 });
 
-test("ingressInventory: classed hosts from host lines, links and NFS servers ignored", () => {
-  const rows = ingressInventory(splitDocs(SNAPSHOT));
+test("routeInventory: hosts per Gateway, links, NFS servers and redirects ignored", () => {
+  const rows = routeInventory(splitDocs(SNAPSHOT));
   assertEquals(rows, [
-    { app: "plex", host: "plex", class: "external", kind: "Ingress" },
-    { app: "sonarr", host: "sonarr", class: "internal", kind: "Ingress" },
-    {
-      app: "traefik-internal-dashboard-redirect",
-      host: "traefik-internal",
-      class: "internal",
-      kind: "IngressRoute",
-    },
+    { app: "plex", host: "plex", gateway: "envoy-external", kind: "Chart" },
+    { app: "echo", host: "echo", gateway: "envoy-internal", kind: "HTTPRoute" },
+    { app: "sonarr", host: "sonarr", gateway: "envoy-internal", kind: "Chart" },
+  ]);
+});
+
+test("routeInventory: lower-case placeholder domain of Gateway API hostnames", () => {
+  const doc = `apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: sonarr
+spec:
+  source:
+    helm:
+      values: |
+        route:
+          main:
+            hostnames:
+            - sonarr.replaceme-domain.com
+            parentRefs:
+            - name: envoy-internal
+              namespace: envoy-gateway-system
+              sectionName: https`;
+  assertEquals(routeInventory([doc]), [
+    { app: "sonarr", host: "sonarr", gateway: "envoy-internal", kind: "Chart" },
   ]);
 });
 
@@ -130,11 +168,11 @@ test("smokeJobs lists PostSync smoke Job names", () => {
   assertEquals(smokeJobs(splitDocs(SNAPSHOT)), ["smoke-plex"]);
 });
 
-test("applicationRows: chart version vs git, ingress, e2e and smoke columns", () => {
+test("applicationRows: chart version vs git, route, e2e and smoke columns", () => {
   const docs = splitDocs(SNAPSHOT);
   const rows = applicationRows(
     docs,
-    ingressInventory(docs),
+    routeInventory(docs),
     ["plex", "sonarr", "argocd-apps"],
     ["smoke-plex"],
   );
@@ -145,14 +183,14 @@ test("applicationRows: chart version vs git, ingress, e2e and smoke columns", ()
   const plex = rows[1];
   assertEquals(plex.source, "plex-media-server");
   assertEquals(plex.version, "1.6.0");
-  assertEquals(plex.ingress, "external: plex");
+  assertEquals(plex.route, "envoy-external: plex");
   assertEquals(plex.e2e, "plex");
   assertEquals(plex.smoke, "smoke-plex");
   const sonarr = rows[2];
   assertEquals(sonarr.version, "git");
-  assertEquals(sonarr.ingress, "internal: sonarr");
+  assertEquals(sonarr.route, "envoy-internal: sonarr");
   assertEquals(sonarr.smoke, "—");
-  assertEquals(rows[0].ingress, "—");
+  assertEquals(rows[0].route, "—");
   assertEquals(rows[0].e2e, "—");
 });
 
@@ -183,17 +221,20 @@ test("renderBadges uses versions.yaml and fails on a missing key", () => {
   );
 });
 
-test("renderIngressTable is a Markdown table with placeholders", () => {
-  const t = renderIngressTable([
+test("renderRouteTable is a Markdown table with placeholders", () => {
+  const t = renderRouteTable([
     {
       app: "plex",
       host: "plex",
-      class: "external",
-      kind: "Ingress",
+      gateway: "envoy-external",
+      kind: "Chart",
     },
   ]);
-  assertStringIncludes(t, "| `plex.<DOMAIN>` | external | Ingress | `plex` |");
-  assert(t.startsWith("| Host | Class | Kind | Application |\n| --- |"));
+  assertStringIncludes(
+    t,
+    "| `plex.<DOMAIN>` | envoy-external | Chart | `plex` |",
+  );
+  assert(t.startsWith("| Host | Gateway | Kind | Application |\n| --- |"));
 });
 
 test("regions: read, replace, missing", () => {
@@ -223,14 +264,19 @@ function facts(): Facts {
     argoApplications: 68,
     e2eSuites: ["plex", "grafana"],
     smokeJobs: ["smoke-plex"],
-    ingress: [
-      { app: "plex", host: "plex", class: "external", kind: "Ingress" },
-      { app: "grafana", host: "grafana", class: "internal", kind: "Ingress" },
+    routes: [
+      { app: "plex", host: "plex", gateway: "envoy-external", kind: "Chart" },
       {
-        app: "traefik-internal-dashboard-redirect",
-        host: "traefik-internal",
-        class: "internal",
-        kind: "IngressRoute",
+        app: "kube-prometheus-stack",
+        host: "grafana",
+        gateway: "envoy-internal",
+        kind: "Chart",
+      },
+      {
+        app: "echo",
+        host: "echo",
+        gateway: "envoy-internal",
+        kind: "HTTPRoute",
       },
     ],
     addonApps: [],
@@ -238,13 +284,14 @@ function facts(): Facts {
   };
 }
 
-test("expectedLiterals: internal hosts except the traefik-internal dashboard", () => {
+test("expectedLiterals: envoy-internal hosts except the echo comparison route", () => {
   const lits = expectedLiterals(facts());
   const svg = lits
     .filter((l) => l.file === ".github/homelab.svg")
     .map((l) => l.expect);
   assert(svg.includes("grafana.&lt;DOMAIN&gt;"));
-  assert(!svg.includes("traefik-internal.&lt;DOMAIN&gt;"));
+  assert(!svg.includes("echo.&lt;DOMAIN&gt;"));
+  assert(!svg.includes("plex.&lt;DOMAIN&gt;"));
   assert(svg.includes("2/2 suites"));
   assert(svg.includes("68 apps synced"));
 });
@@ -269,14 +316,14 @@ test("check: reports stale regions and literals, --fix rewrites what it can", ()
   const { drift, fixed } = check(files, f);
   const whats = drift.map((d) => `${d.file}: ${d.what}`);
   assert(whats.includes("readme.md: region badges is stale"));
-  assert(whats.includes("docs/networking.md: region ingress-table missing"));
+  assert(whats.includes("docs/networking.md: region route-table missing"));
   assert(whats.includes('readme.md: expected "29 addons"'));
   assert(whats.includes('readme.md: expected "68 Applications"'));
   assert(whats.includes('readme.md: expected "68 ArgoCD Applications"'));
   assert(whats.includes('.github/homelab.svg: expected "addons · 29"'));
   assertEquals(
     drift.filter((d) => !d.fixable).map((d) => d.what),
-    ["region ingress-table missing"],
+    ["region route-table missing"],
   );
   const readme = fixed.get("readme.md")!;
   assertStringIncludes(readme, "badge/Talos-v1.14.0-");
@@ -302,7 +349,7 @@ test("check: in-sync input yields no drift", () => {
       ],
       [
         "docs/networking.md",
-        "<!-- docs-check:begin ingress-table -->\n\n<!-- docs-check:end ingress-table -->",
+        "<!-- docs-check:begin route-table -->\n\n<!-- docs-check:end route-table -->",
       ],
       [
         "docs/applications.md",

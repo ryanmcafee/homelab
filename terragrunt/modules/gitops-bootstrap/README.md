@@ -115,14 +115,13 @@ module "gitops_bootstrap" {
 
   repo_url = "https://github.com/username/homelab"
 
-  # Enable ArgoCD ingress
-  server_ingress_enabled = true
-  server_host            = "<ARGOCD_HOSTNAME>"
+  # Enable the ArgoCD HTTPRoute
+  server_route_enabled = true
+  server_host          = "<ARGOCD_HOSTNAME>"
 
   # Additional Helm values
   argocd_helm_values = {
-    "configs.params.server.insecure" = "false"
-    "server.ingress.tls"             = "true"
+    "server.replicas" = "2"
   }
 }
 ```

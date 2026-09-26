@@ -55,17 +55,10 @@ spec:
       kind: Service
     - group: apps
       kind: Deployment
-    - group: networking.k8s.io
-      kind: Ingress
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
     - group: monitoring.coreos.com
       kind: ServiceMonitor
-    # TrueCharts ingress integrations (not rendered by today's values; allowed
-    # so turning one on does not need a project change). cert-manager's
-    # ingress-shim creates the TLS Certificates itself, outside ArgoCD.
-    - group: traefik.io
-      kind: Middleware
-    - group: cert-manager.io
-      kind: Certificate
 
 ---
 # Source: gitops/templates/addons.yaml
@@ -193,24 +186,21 @@ spec:
       # bootstrap installs the CMP, so it runs before the CMP exists and cannot
       # read configuration/. Terraform injects global.domain into the root
       # (gitops) Application via helm.parameters; level 0 mirrors it with --set.
-      # The ArgoCD ingress hostname is derived here and handed to the child.
+      # The ArgoCD route hostname is derived here and handed to the child.
       valuesObject:
         argocd:
           values:
             server:
-              ingress:
-                hostname: argocd.REPLACEME-domain.com
+              httproute:
+                hostnames:
+                  - argocd.replaceme-domain.com
                 annotations:
-                  external-dns.alpha.kubernetes.io/hostname: argocd.REPLACEME-domain.com
-                extraTls:
-                  - hosts:
-                      - argocd.REPLACEME-domain.com
-                    secretName: argocd-server-tls
+                  external-dns.alpha.kubernetes.io/hostname: argocd.replaceme-domain.com
             # Link target of ArgoCD notifications ({{.context.argocdUrl}}),
             # e.g. the GitHub commit status and PR comment
             # (docs/runbooks/readonly-access.md).
             notifications:
-              argocdUrl: https://argocd.REPLACEME-domain.com
+              argocdUrl: https://argocd.replaceme-domain.com
 
   destination:
     server: https://kubernetes.default.svc
@@ -248,7 +238,7 @@ spec:
 # preview mode (templates/_preview.tpl). Closing the PR or removing the label
 # deletes the Application; the finalizer cascades to the preview namespace.
 #
-# The ArgoCD server ingress is internal-only, so GitHub webhooks cannot reach
+# The ArgoCD server route is internal-only, so GitHub webhooks cannot reach
 # the ApplicationSet controller: it polls every requeueAfterSeconds.
 #
 # The {{ }} expressions are ApplicationSet Go templates, escaped from Helm

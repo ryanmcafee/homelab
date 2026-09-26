@@ -79,7 +79,7 @@ inputs = {
   admin_enabled     = true
 
   # No ingress for local dev (use port-forward)
-  server_ingress_enabled = false
+  server_route_enabled = false
 
   # Local dev metadata
   custom_metadata = {

@@ -6,8 +6,9 @@ metadata:
   name: [[ .Name ]]
 spec:
   description: >-
-[[- if .Ingress ]]
-    [[ .Name ]] [[ .HealthPath ]] answers through the internal Traefik with Host [[ .LocaldevHost ]].
+[[- if .Route ]]
+    The [[ .Name ]] HTTPRoute is accepted by [[ .RouteGateway ]] and [[ .Name ]] [[ .HealthPath ]]
+    answers through it with Host [[ .LocaldevHost ]].
 [[- else ]]
     The [[ .Name ]] Application is Healthy and its last sync Succeeded.
 [[- end ]]
@@ -37,7 +38,29 @@ spec:
             name: [[ . ]]
             namespace: argocd
 [[- end ]]
-[[- if .Ingress ]]
+[[- if .Route ]]
+    - name: route-[[ .Name ]]
+      description: The [[ .Name ]] HTTPRoute is Accepted by [[ .RouteGateway ]] and its backend refs resolve.
+      try:
+        - assert:
+            resource:
+              apiVersion: gateway.networking.k8s.io/v1
+              kind: HTTPRoute
+              metadata:
+                name: [[ .Name ]]
+                namespace: [[ .Namespace ]]
+              status:
+                (parents[?parentRef.name == '[[ .RouteGateway ]]']):
+                  - (conditions[?type == 'Accepted']):
+                      - status: "True"
+                    (conditions[?type == 'ResolvedRefs']):
+                      - status: "True"
+      catch:
+        - describe:
+            apiVersion: gateway.networking.k8s.io/v1
+            kind: HTTPRoute
+            name: [[ .Name ]]
+            namespace: [[ .Namespace ]]
     - name: curl-[[ .Name ]]
       description: >-
         A curl Job must get one of [[ flowListBare .Expect ]]

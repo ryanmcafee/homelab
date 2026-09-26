@@ -2,9 +2,10 @@
 
 Every container log line, every Kubernetes event, the filtered Hubble flow log, the UniFi
 gateway's syslog and NetFlow/IPFIX records and OTLP logs from applications land in ClickHouse,
-and Grafana queries them through the ClickHouse datasource. Traefik writes JSON access logs to
-stdout, so ingress requests (client, host, path, status, durations, backend, TraceId) are in the
-same store. Traces: docs/tracing.md. Decision records: ADR-019, ADR-021.
+and Grafana queries them through the ClickHouse datasource. The Envoy Gateway proxies write JSON
+access logs to stdout (EnvoyProxy `telemetry.accessLog`, charts/envoy-gateway-config), so ingress
+requests (gateway, client, host, path, status, response flags, durations, upstream, trace_id) are
+in the same store. Traces: docs/tracing.md. Decision records: ADR-019, ADR-021.
 
 ```mermaid
 flowchart LR
@@ -12,7 +13,7 @@ flowchart LR
   hubble["Hubble flow log\n/var/run/cilium/hubble"] --> agent
   api["Kubernetes events"] --> cluster["otel-collector-cluster\n1 replica: k8sobjects"]
   unifi["UniFi gateway\nsyslog 514, IPFIX 2055"] --> gw["otel-collector-gateway\nOTLP, syslog, netflow"]
-  apps["apps, Traefik, waypoints (OTLP)"] --> gw
+  apps["apps, Envoy Gateway, waypoints (OTLP)"] --> gw
   agent --> ch[("ClickHouse logs\notel.otel_logs + otel_traces, TTL 90 d")]
   cluster --> ch
   gw --> ch
@@ -46,7 +47,7 @@ throwaway values from `localdev/fakes/secrets.yaml`.
 
 ## Query logs in Grafana
 
-- **Dashboards -> "Cluster logs"**: log volume per namespace, Traefik requests
+- **Dashboards -> "Cluster logs"**: log volume per namespace, Envoy Gateway requests
   that returned 5xx or took longer than 1 s, and a log panel filtered by namespace and a
   "Contains" search box.
 - **Explore -> ClickHouse**: switch the query type to *Logs*; the OpenTelemetry mode already
@@ -60,17 +61,27 @@ WHERE Timestamp > now() - INTERVAL 15 MINUTE
   AND ResourceAttributes['k8s.namespace.name'] = 'paperclip'
 ORDER BY Timestamp DESC LIMIT 200;
 
--- slow or failing requests to one host, from the Traefik access log
+-- slow or failing requests to one host, from the Envoy Gateway access log
 SELECT Timestamp,
-       JSONExtractString(Body, 'RequestPath') AS path,
-       JSONExtractInt(Body, 'DownstreamStatus') AS status,
-       JSONExtractFloat(Body, 'Duration') / 1e6 AS ms
+       JSONExtractString(Body, 'gateway') AS gateway,
+       JSONExtractString(Body, 'path') AS path,
+       JSONExtractInt(Body, 'response_code') AS status,
+       JSONExtractString(Body, 'response_flags') AS flags,
+       JSONExtractFloat(Body, 'duration_ms') AS ms
 FROM otel.otel_logs
-WHERE ResourceAttributes['k8s.namespace.name'] = 'traefik'
-  AND JSONExtractString(Body, 'RequestHost') LIKE 'paperclip.%'
-  AND (status >= 500 OR ms > 1000)
+WHERE ResourceAttributes['k8s.namespace.name'] = 'envoy-gateway-system'
+  AND JSONExtractString(Body, 'authority') LIKE 'paperclip.%'
+  AND (status >= 500 OR status = 0 OR ms > 1000)
 ORDER BY Timestamp DESC LIMIT 200;
 ```
+
+Access log fields (one JSON object per request, container `envoy`): `start_time`, `gateway`,
+`client_ip`, `x_forwarded_for`, `method`, `authority`, `path`, `protocol`, `response_code`,
+`response_flags` (Envoy's short codes: `DC` client gave up, `UF`/`UH`/`UR`/`UT` upstream
+failure, no healthy host, reset, timeout, `NR` no route), `response_code_details`,
+`upstream_host`, `upstream_cluster` (`httproute/<namespace>/<route>/rule/<n>`), `route_name`,
+`duration_ms`, `upstream_service_time_ms`, `bytes_received`, `bytes_sent`, `user_agent`,
+`request_id`, `traceparent`, `trace_id`.
 
 Useful resource attributes: `k8s.namespace.name`, `k8s.pod.name`, `k8s.container.name`,
 `k8s.deployment.name`, `k8s.node.name`. `ServiceName` is the pod's `service.name` if it sets
@@ -92,8 +103,8 @@ Check the current TTL with `SELECT engine_full FROM system.tables WHERE name = '
 (the `logging` e2e test asserts it is set; `otel_traces` gets the same TTL).
 
 **Sizing (100Gi in homelab).** Estimate for 90 days, ClickHouse compressing text about 8-10x:
-container logs ~2-4 GB/day raw -> 20-40 GB; Traefik access logs are part of that; Hubble flow
-log (paperclip + traefik + drops) ~0.2 GB/day -> ~2 GB; UniFi IPFIX for a home network,
+container logs ~2-4 GB/day raw -> 20-40 GB; Envoy access logs are part of that; Hubble flow
+log (paperclip + envoy-gateway-system + drops) ~0.2 GB/day -> ~2 GB; UniFi IPFIX for a home network,
 ~50k flows/h at ~60 B compressed -> ~6 GB; traces at 10 % sampling -> a few GB. Total ~35-55 GB,
 so 100Gi leaves headroom. Measure the real rate after a week:
 
@@ -174,7 +185,7 @@ protocol, source and destination IP:
 | Row | Panels |
 |---|---|
 | Overview | bytes, packets, flow records, active local hosts, top protocol, threat events, firewall blocks, Hubble policy drops |
-| Traffic | throughput by source network and by direction (egress, ingress, internal), network-to-network matrix, top sources and destinations, Traefik requests by entrypoint |
+| Traffic | throughput by source network and by direction (egress, ingress, internal), network-to-network matrix, top sources and destinations, Envoy Gateway requests by listener |
 | Flows | top conversations, protocol mix, top destination ports with service names, flow records |
 | Security | UniFi security events over time, top blocked sources, IDS/IPS and threat events (CEF `UNIFIcategory=Security`), risky destination ports (SMB, RDP, databases, ...), inbound from the internet to service ports, scan-like local hosts, hourly egress outliers (z-score), Hubble drops by reason and policy drops |
 | UniFi syslog | raw lines (collapsed) |
@@ -204,5 +215,6 @@ kubectl -n observability exec -it chi-logs-logs-0-0-0 -- clickhouse-client \
 
 Alerts (`homelab-logging`, `homelab-ingress`): [runbooks/alerting.md](runbooks/alerting.md).
 Paperclip end to end: [runbooks/paperclip-request-path.md](runbooks/paperclip-request-path.md).
-Dashboards: "OpenTelemetry Collector" (grafana.com 15983), "Traefik Official Kubernetes
-Dashboard" (17347) and the Altinity ClickHouse dashboards shipped by the operator chart.
+Dashboards: "OpenTelemetry Collector" (grafana.com 15983), "Envoy Gateway Global", "Envoy
+Global", "Envoy Clusters", "Resources Monitor" and "Ingress overview" (charts/grafana-config) and
+the Altinity ClickHouse dashboards shipped by the operator chart.

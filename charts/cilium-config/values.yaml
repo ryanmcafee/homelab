@@ -1,7 +1,7 @@
-# cilium-config values (wave 8, after cert-manager and Traefik). Cilium is
+# cilium-config values (wave 8, after cert-manager and the Gateways). Cilium is
 # installed outside ArgoCD, before any CRD exists, so the objects that need the
-# monitoring CRDs, cert-manager or Traefik are rendered here instead of by the
-# Cilium chart. Host and toggles arrive through the parent Application's
+# monitoring or Gateway API CRDs are rendered here instead of by the Cilium
+# chart. Host and toggles arrive through the parent Application's
 # helm.valuesObject from configuration/ (ADR-010).
 
 namespace: kube-system
@@ -11,8 +11,12 @@ namespace: kube-system
 monitoring:
   enabled: false
 
-# Hubble UI (Service hubble-ui:80) on the internal ingress.
+# Hubble UI (Service hubble-ui:80) on the internal Gateway.
 hubbleUI:
   enabled: false
   host: hubble.example.com
-  ingressClassName: internal
+
+# Gateway the HTTPRoute attaches to (https listener); the parent passes global.gateway.
+gateway:
+  name: envoy-internal
+  namespace: envoy-gateway-system

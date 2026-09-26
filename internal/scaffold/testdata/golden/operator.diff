@@ -330,7 +330,7 @@ diff --git a/tests/gitops/huge-crd-charts.yaml b/tests/gitops/huge-crd-charts.ya
    - cert-manager
    - cloudnative-pg
 +  - demo-operator
-   - traefik-external
+   - envoy-gateway
 diff --git a/tests/health/demo.example.com_Gadget/degraded.yaml b/tests/health/demo.example.com_Gadget/degraded.yaml
 new file mode 100644
 --- /dev/null

@@ -107,7 +107,7 @@ func TestProdKubectlArgsAreReadOnly(t *testing.T) {
 	}
 }
 
-const prodOutOfSyncJSON = `{"items":[{"metadata":{"name":"traefik"},"status":{"sync":{"status":"OutOfSync"},"health":{"status":"Healthy"},"operationState":{"phase":"Succeeded"}}}]}`
+const prodOutOfSyncJSON = `{"items":[{"metadata":{"name":"envoy-gateway"},"status":{"sync":{"status":"OutOfSync"},"health":{"status":"Healthy"},"operationState":{"phase":"Succeeded"}}}]}`
 
 func TestProdArgoCDAppsRequireSynced(t *testing.T) {
 	tests := []struct {
@@ -124,7 +124,7 @@ func TestProdArgoCDAppsRequireSynced(t *testing.T) {
 			r := &fakeClusterRunner{getStdout: prodOutOfSyncJSON}
 			opts := prodOpts(t, r)
 			opts.RequireSynced = tc.requireSynced
-			c := clusterCheck(t, ProdArgoCDApps(context.Background(), opts), "prod/argocd/traefik")
+			c := clusterCheck(t, ProdArgoCDApps(context.Background(), opts), "prod/argocd/envoy-gateway")
 			if c.Status != tc.wantStatus {
 				t.Fatalf("status = %s, want %s (%v)", c.Status, tc.wantStatus, c.Findings)
 			}

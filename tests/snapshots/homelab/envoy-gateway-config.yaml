@@ -1,0 +1,477 @@
+---
+# Source: envoy-gateway-config/templates/tracing-backend.yaml
+# An FQDN Backend, not a Service backendRef: Envoy Gateway rejects the Gateway while
+# a referenced Service is missing, and the collector syncs after the Gateways.
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: Backend
+metadata:
+  name: otel-collector-gateway
+  namespace: envoy-gateway-system
+spec:
+  appProtocols:
+    - gateway.envoyproxy.io/h2c
+  endpoints:
+    - fqdn:
+        hostname: otel-collector-gateway.observability.svc.cluster.local
+        port: 4317
+
+---
+# Source: envoy-gateway-config/templates/policies.yaml
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: BackendTrafficPolicy
+metadata:
+  name: envoy-external
+  namespace: envoy-gateway-system
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: envoy-external
+  timeout:
+    http:
+      requestTimeout: 0s
+
+---
+# Source: envoy-gateway-config/templates/policies.yaml
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: BackendTrafficPolicy
+metadata:
+  name: envoy-internal
+  namespace: envoy-gateway-system
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: envoy-internal
+  timeout:
+    http:
+      requestTimeout: 0s
+
+---
+# Source: envoy-gateway-config/templates/certificate.yaml
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: gateway-wildcard-tls
+  namespace: envoy-gateway-system
+spec:
+  secretName: gateway-wildcard-tls
+  issuerRef:
+    name: letsencrypt
+    kind: ClusterIssuer
+  dnsNames:
+    - "replaceme-domain.com"
+    - "*.replaceme-domain.com"
+
+---
+# Source: envoy-gateway-config/templates/policies.yaml
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: ClientTrafficPolicy
+metadata:
+  name: envoy-external
+  namespace: envoy-gateway-system
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: envoy-external
+  timeout:
+    http:
+      idleTimeout: 600s
+  http1:
+    enableTrailers: true
+
+---
+# Source: envoy-gateway-config/templates/policies.yaml
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: ClientTrafficPolicy
+metadata:
+  name: envoy-internal
+  namespace: envoy-gateway-system
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: envoy-internal
+  timeout:
+    http:
+      idleTimeout: 600s
+  http1:
+    enableTrailers: true
+
+---
+# Source: envoy-gateway-config/templates/envoyproxy.yaml
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: EnvoyProxy
+metadata:
+  name: envoy-external
+  namespace: envoy-gateway-system
+spec:
+  logging:
+    level:
+      default: warn
+  provider:
+    type: Kubernetes
+    kubernetes:
+      envoyDeployment:
+        pod:
+          topologySpreadConstraints:
+            - maxSkew: 1
+              topologyKey: kubernetes.io/hostname
+              whenUnsatisfiable: DoNotSchedule
+              labelSelector:
+                matchLabels:
+                  app.kubernetes.io/component: proxy
+                  app.kubernetes.io/managed-by: envoy-gateway
+                  gateway.envoyproxy.io/owning-gateway-name: envoy-external
+                  gateway.envoyproxy.io/owning-gateway-namespace: envoy-gateway-system
+        container:
+          resources:
+            limits:
+              cpu: "1"
+              memory: 512Mi
+            requests:
+              cpu: 100m
+              memory: 128Mi
+      envoyService:
+        name: envoy-external
+        type: LoadBalancer
+        externalTrafficPolicy: Cluster
+        annotations:
+          io.cilium/lb-ipam-ips: "192.168.1.200"
+          port-forwarding.replaceme-domain.com/enable: "true"
+      envoyHpa:
+        minReplicas: 2
+        maxReplicas: 3
+        metrics:
+          - type: Resource
+            resource:
+              name: cpu
+              target:
+                type: Utilization
+                averageUtilization: 80
+      envoyPDB:
+        minAvailable: 1
+  telemetry:
+    # JSON on stdout: the OpenTelemetry agents ship it to ClickHouse (docs/logging.md).
+    accessLog:
+      settings:
+        - format:
+            type: JSON
+            json:
+              start_time: "%START_TIME%"
+              gateway: "envoy-external"
+              client_ip: "%DOWNSTREAM_REMOTE_ADDRESS_WITHOUT_PORT%"
+              x_forwarded_for: "%REQ(X-FORWARDED-FOR)%"
+              method: "%REQ(:METHOD)%"
+              authority: "%REQ(:AUTHORITY)%"
+              path: "%REQ(X-ENVOY-ORIGINAL-PATH?:PATH)%"
+              protocol: "%PROTOCOL%"
+              response_code: "%RESPONSE_CODE%"
+              response_flags: "%RESPONSE_FLAGS%"
+              response_code_details: "%RESPONSE_CODE_DETAILS%"
+              upstream_host: "%UPSTREAM_HOST%"
+              upstream_cluster: "%UPSTREAM_CLUSTER%"
+              route_name: "%ROUTE_NAME%"
+              duration_ms: "%DURATION%"
+              upstream_service_time_ms: "%RESP(X-ENVOY-UPSTREAM-SERVICE-TIME)%"
+              bytes_received: "%BYTES_RECEIVED%"
+              bytes_sent: "%BYTES_SENT%"
+              user_agent: "%REQ(USER-AGENT)%"
+              request_id: "%REQ(X-REQUEST-ID)%"
+              traceparent: "%REQ(TRACEPARENT)%"
+              trace_id: "%TRACE_ID%"
+          sinks:
+            - type: File
+              file:
+                path: /dev/stdout
+    metrics:
+      enableVirtualHostStats: true
+      enableRequestResponseSizesStats: true
+    # W3C traceparent is started or continued here; spans go to the OTel gateway collector (docs/tracing.md).
+    tracing:
+      samplingRate: 10
+      provider:
+        type: OpenTelemetry
+        backendRefs:
+          - group: gateway.envoyproxy.io
+            kind: Backend
+            name: otel-collector-gateway
+      customTags:
+        gateway:
+          type: Literal
+          literal:
+            value: "envoy-external"
+
+---
+# Source: envoy-gateway-config/templates/envoyproxy.yaml
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: EnvoyProxy
+metadata:
+  name: envoy-internal
+  namespace: envoy-gateway-system
+spec:
+  logging:
+    level:
+      default: warn
+  provider:
+    type: Kubernetes
+    kubernetes:
+      envoyDeployment:
+        pod:
+          topologySpreadConstraints:
+            - maxSkew: 1
+              topologyKey: kubernetes.io/hostname
+              whenUnsatisfiable: DoNotSchedule
+              labelSelector:
+                matchLabels:
+                  app.kubernetes.io/component: proxy
+                  app.kubernetes.io/managed-by: envoy-gateway
+                  gateway.envoyproxy.io/owning-gateway-name: envoy-internal
+                  gateway.envoyproxy.io/owning-gateway-namespace: envoy-gateway-system
+        container:
+          resources:
+            limits:
+              cpu: "1"
+              memory: 512Mi
+            requests:
+              cpu: 100m
+              memory: 128Mi
+      envoyService:
+        name: envoy-internal
+        type: LoadBalancer
+        externalTrafficPolicy: Cluster
+        annotations:
+          io.cilium/lb-ipam-ips: "192.168.1.101"
+      envoyHpa:
+        minReplicas: 2
+        maxReplicas: 3
+        metrics:
+          - type: Resource
+            resource:
+              name: cpu
+              target:
+                type: Utilization
+                averageUtilization: 80
+      envoyPDB:
+        minAvailable: 1
+  telemetry:
+    # JSON on stdout: the OpenTelemetry agents ship it to ClickHouse (docs/logging.md).
+    accessLog:
+      settings:
+        - format:
+            type: JSON
+            json:
+              start_time: "%START_TIME%"
+              gateway: "envoy-internal"
+              client_ip: "%DOWNSTREAM_REMOTE_ADDRESS_WITHOUT_PORT%"
+              x_forwarded_for: "%REQ(X-FORWARDED-FOR)%"
+              method: "%REQ(:METHOD)%"
+              authority: "%REQ(:AUTHORITY)%"
+              path: "%REQ(X-ENVOY-ORIGINAL-PATH?:PATH)%"
+              protocol: "%PROTOCOL%"
+              response_code: "%RESPONSE_CODE%"
+              response_flags: "%RESPONSE_FLAGS%"
+              response_code_details: "%RESPONSE_CODE_DETAILS%"
+              upstream_host: "%UPSTREAM_HOST%"
+              upstream_cluster: "%UPSTREAM_CLUSTER%"
+              route_name: "%ROUTE_NAME%"
+              duration_ms: "%DURATION%"
+              upstream_service_time_ms: "%RESP(X-ENVOY-UPSTREAM-SERVICE-TIME)%"
+              bytes_received: "%BYTES_RECEIVED%"
+              bytes_sent: "%BYTES_SENT%"
+              user_agent: "%REQ(USER-AGENT)%"
+              request_id: "%REQ(X-REQUEST-ID)%"
+              traceparent: "%REQ(TRACEPARENT)%"
+              trace_id: "%TRACE_ID%"
+          sinks:
+            - type: File
+              file:
+                path: /dev/stdout
+    metrics:
+      enableVirtualHostStats: true
+      enableRequestResponseSizesStats: true
+    # W3C traceparent is started or continued here; spans go to the OTel gateway collector (docs/tracing.md).
+    tracing:
+      samplingRate: 10
+      provider:
+        type: OpenTelemetry
+        backendRefs:
+          - group: gateway.envoyproxy.io
+            kind: Backend
+            name: otel-collector-gateway
+      customTags:
+        gateway:
+          type: Literal
+          literal:
+            value: "envoy-internal"
+
+---
+# Source: envoy-gateway-config/templates/gateway.yaml
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: envoy-external
+  namespace: envoy-gateway-system
+spec:
+  gatewayClassName: envoy-external
+  listeners:
+    - name: http
+      protocol: HTTP
+      port: 80
+      allowedRoutes:
+        namespaces:
+          from: Same
+    - name: https
+      protocol: HTTPS
+      port: 443
+      hostname: "*.replaceme-domain.com"
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - kind: Secret
+            name: gateway-wildcard-tls
+      allowedRoutes:
+        namespaces:
+          from: All
+
+---
+# Source: envoy-gateway-config/templates/gateway.yaml
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: envoy-internal
+  namespace: envoy-gateway-system
+spec:
+  gatewayClassName: envoy-internal
+  listeners:
+    - name: http
+      protocol: HTTP
+      port: 80
+      allowedRoutes:
+        namespaces:
+          from: Same
+    - name: https
+      protocol: HTTPS
+      port: 443
+      hostname: "*.replaceme-domain.com"
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - kind: Secret
+            name: gateway-wildcard-tls
+      allowedRoutes:
+        namespaces:
+          from: All
+
+---
+# Source: envoy-gateway-config/templates/gateway.yaml
+apiVersion: gateway.networking.k8s.io/v1
+kind: GatewayClass
+metadata:
+  name: envoy-external
+spec:
+  controllerName: gateway.envoyproxy.io/gatewayclass-controller
+  parametersRef:
+    group: gateway.envoyproxy.io
+    kind: EnvoyProxy
+    name: envoy-external
+    namespace: envoy-gateway-system
+
+---
+# Source: envoy-gateway-config/templates/gateway.yaml
+apiVersion: gateway.networking.k8s.io/v1
+kind: GatewayClass
+metadata:
+  name: envoy-internal
+spec:
+  controllerName: gateway.envoyproxy.io/gatewayclass-controller
+  parametersRef:
+    group: gateway.envoyproxy.io
+    kind: EnvoyProxy
+    name: envoy-internal
+    namespace: envoy-gateway-system
+
+---
+# Source: envoy-gateway-config/templates/gateway.yaml
+# Plain HTTP only redirects; routes attach to the https listener (sectionName: https).
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: envoy-external-https-redirect
+  namespace: envoy-gateway-system
+spec:
+  parentRefs:
+    - name: envoy-external
+      sectionName: http
+  rules:
+    - filters:
+        - type: RequestRedirect
+          requestRedirect:
+            scheme: https
+            statusCode: 301
+
+---
+# Source: envoy-gateway-config/templates/gateway.yaml
+# Plain HTTP only redirects; routes attach to the https listener (sectionName: https).
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: envoy-internal-https-redirect
+  namespace: envoy-gateway-system
+spec:
+  parentRefs:
+    - name: envoy-internal
+      sectionName: http
+  rules:
+    - filters:
+        - type: RequestRedirect
+          requestRedirect:
+            scheme: https
+            statusCode: 301
+
+---
+# Source: envoy-gateway-config/templates/monitoring.yaml
+# Envoy serves Prometheus stats on the admin port of every proxy pod.
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: envoy-external-proxy
+  namespace: envoy-gateway-system
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/managed-by: envoy-gateway
+      app.kubernetes.io/component: proxy
+      gateway.envoyproxy.io/owning-gateway-name: envoy-external
+  podMetricsEndpoints:
+    - port: metrics
+      path: /stats/prometheus
+      interval: 30s
+      relabelings:
+        - action: replace
+          targetLabel: gateway
+          replacement: envoy-external
+
+---
+# Source: envoy-gateway-config/templates/monitoring.yaml
+# Envoy serves Prometheus stats on the admin port of every proxy pod.
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: envoy-internal-proxy
+  namespace: envoy-gateway-system
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/managed-by: envoy-gateway
+      app.kubernetes.io/component: proxy
+      gateway.envoyproxy.io/owning-gateway-name: envoy-internal
+  podMetricsEndpoints:
+    - port: metrics
+      path: /stats/prometheus
+      interval: 30s
+      relabelings:
+        - action: replace
+          targetLabel: gateway
+          replacement: envoy-internal
