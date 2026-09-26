@@ -21,11 +21,17 @@ repos:
         entry: go run ./cmd/homelab config guard --set homelab --
         language: system
         pass_filenames: true
-        types_or: [yaml, json, markdown, ts, svg]
-        files: ^(configuration/|charts/.*/values-homelab\.yaml$|scripts/|docs/|\.github/|Taskfile\.yml$|ansible/)
+        types_or: [yaml, json, markdown, ts, svg, go]
+        files: ^(configuration/|charts/.*/values-homelab\.yaml$|scripts/|docs/|\.github/|Taskfile\.yml$|ansible/|cmd/|internal/)
+        # Mirrors internal/config.IsGuardExcluded. guard.go and guard_test.go
+        # are the guard's own allowlists and the tests that name both a
+        # committed-safe host and a real one; testdata/ is the toolchain's
+        # marker for a fixture.
         exclude: |
           (?x)(
             ^configuration/environments/homelab\.yaml$|
+            ^internal/config/guard(_test)?\.go$|
+            (^|/)testdata/|
             \.generated\.
           )
 

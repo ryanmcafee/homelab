@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -1747,6 +1748,9 @@ func TestDefaultGuardScopeCoversChartHomelabValues(t *testing.T) {
 	// and several did while scripts/ was out of scope. .github/ is in scope
 	// because the README header SVG spells out hostnames as <DOMAIN>
 	// placeholders and the guard is what keeps a real one out of it.
+	// cmd/ and internal/ are in scope under ADR-032: a Go flag default is the
+	// same construct as the TypeScript one, and ADR-030 makes the Go CLI the
+	// first thing a stranger runs.
 	want := []string{
 		"configuration/**",
 		"charts/**/values-homelab.yaml",
@@ -1755,6 +1759,8 @@ func TestDefaultGuardScopeCoversChartHomelabValues(t *testing.T) {
 		".github/**",
 		"Taskfile.yml",
 		"ansible/**",
+		"cmd/**",
+		"internal/**",
 	}
 	if strings.Join(DefaultGuardPathspecs, " ") != strings.Join(want, " ") {
 		t.Fatalf("DefaultGuardPathspecs = %v, want %v", DefaultGuardPathspecs, want)
@@ -2078,5 +2084,145 @@ func TestShapeRulesNeedALiteralInCodeFiles(t *testing.T) {
 				t.Fatalf("matches = %d, want %d (%v)", len(res.Matches), tc.want, res.Matches)
 			}
 		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// ADR-032: the Go half of the repository is in scope
+// ---------------------------------------------------------------------------
+
+// TestGoSourceIsScannable pins the two lists ADR-032 changed. They are the
+// whole scope of check 1 over source, so a silent revert of either is the
+// defect the ADR was written about.
+func TestGoSourceIsScannable(t *testing.T) {
+	if !hasScannableExtension("cmd/homelab/commands/talos.go") {
+		t.Error("`.go` is not a scannable extension; the Go half of the repository is unguarded (ADR-032)")
+	}
+	for _, want := range []string{"cmd/**", "internal/**"} {
+		if !slices.Contains(DefaultGuardPathspecs, want) {
+			t.Errorf("DefaultGuardPathspecs is missing %q (ADR-032)", want)
+		}
+	}
+}
+
+// TestGoIsACodeFileForShapeRules is the condition on admitting `.go`, not a
+// nicety. A Go composite literal writes `Host: cfg.ProxmoxHost`, and
+// `cfg.ProxmoxHost` has the shape of a hostname — dotted, alphabetic last
+// label — so without the code-file rule every struct field assigned from a
+// variable is reported and the guard cannot be run on Go at all.
+func TestGoIsACodeFileForShapeRules(t *testing.T) {
+	tests := []struct {
+		name    string
+		content string
+		want    int
+	}{
+		{
+			name:    "struct field from a variable is not a hostname",
+			content: "\t\tHost: cfg.ProxmoxHost,\n",
+			want:    0,
+		},
+		{
+			name:    "struct field from a selector chain is not a hostname",
+			content: "\t\tAddress: opts.Cluster.VIP,\n",
+			want:    0,
+		},
+		{
+			name:    "map literal from a variable is not a hostname",
+			content: "\t\t\"domain\": resolved.Domain,\n",
+			want:    0,
+		},
+		{
+			name:    "a real hostname in a Go string literal is caught",
+			content: "\t\tHost: \"truenas.acme-corp.net\",\n",
+			want:    1,
+		},
+		{
+			name:    "a routable address in a Go string literal is caught",
+			content: "\t\tAddress: \"203.0.113.9\",\n",
+			want:    1,
+		},
+		{
+			name:    "a raw-string literal is caught too",
+			content: "\t\tHost: `truenas.acme-corp.net`,\n",
+			want:    1,
+		},
+		{
+			name:    "a SCREAMING_SNAKE key in Go needs a literal too",
+			content: "\t\tPROXMOX_IP: hostFlag,\n",
+			want:    0,
+		},
+		{
+			name:    "a SCREAMING_SNAKE key with a literal is caught",
+			content: "\t\tPROXMOX_IP: \"203.0.113.250\",\n",
+			want:    1,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "leak.go")
+			if err := os.WriteFile(path, []byte(tc.content), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			res, err := ScanFileForPIIShape(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(res.Matches) != tc.want {
+				t.Fatalf("matches = %d, want %d (%v)", len(res.Matches), tc.want, res.Matches)
+			}
+		})
+	}
+}
+
+// TestGuardSelfAndFixturesAreExcluded covers the two exclusions the widening
+// forced. Both files below are a catalogue of the values the guard decides
+// about — guard_test.go has to name a real domain to prove the guard reports
+// one — so scanning them reports the guard's own definition as a leak.
+func TestGuardSelfAndFixturesAreExcluded(t *testing.T) {
+	excluded := []string{
+		"internal/config/guard.go",
+		"internal/config/guard_test.go",
+		"internal/config/testdata/environments/test.yaml",
+		"internal/verify/testdata/render/out.yaml",
+		"testdata/top-level.yaml",
+	}
+	for _, path := range excluded {
+		if !IsGuardExcluded(path) {
+			t.Errorf("IsGuardExcluded(%q) = false, want true", path)
+		}
+	}
+
+	// The exclusion is exactly two files and the fixture directories; nothing
+	// else under internal/config/ gets a pass, and a path that merely contains
+	// the word is not a fixture directory.
+	included := []string{
+		"internal/config/eval.go",
+		"internal/config/export.go",
+		"cmd/homelab/commands/talos.go",
+		"internal/verify/mytestdata/x.yaml",
+		"internal/verify/testdataloader.go",
+	}
+	for _, path := range included {
+		if IsGuardExcluded(path) {
+			t.Errorf("IsGuardExcluded(%q) = true, want false", path)
+		}
+	}
+}
+
+// TestLoopbackCIDRIsNeverAPattern covers the defect the widening surfaced.
+// localdev's `NFS_SHARE_ALLOW: "127.0.0.0/8"` is PII-shaped and net.ParseIP
+// cannot read a CIDR, so the loopback range became a hunt pattern and reported
+// every file that writes 127.0.0.0/8 down — including the guard's own
+// examplePlaceholderSubnets.
+func TestLoopbackCIDRIsNeverAPattern(t *testing.T) {
+	got := BuildGuardPatterns(map[string]string{
+		"NFS_SHARE_ALLOW": "127.0.0.0/8",
+		"CP_VIP":          "127.0.0.1",
+		"TRUENAS_IP":      "203.0.113.150",
+	})
+	want := []string{"203.0.113.150"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("BuildGuardPatterns = %v, want %v", got, want)
 	}
 }
