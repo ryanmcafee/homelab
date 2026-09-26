@@ -1258,8 +1258,8 @@ paperclip:
       mcpServers:
         codesearch:
           type: stdio
-          command: /paperclip/.local/bin/codesearch
-          args: ["mcp"]
+          command: node
+          args: ["/paperclip/.local/bin/codesearch-mcp.ts"]
 {{- end }}
 {{- end }}
     # Agent health exporter for the homelab-paperclip alerts; its board API key

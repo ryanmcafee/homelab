@@ -201,8 +201,13 @@ run by the image's Node.js) that, on every pod start:
    `<name>.pre-dotfiles-<timestamp>`);
 5. adds the marketplaces and installs the plugins `~/.claude/settings.json` enables
    (claude-mem, for example, arrives this way);
-6. registers `dotfiles.mcpServers` at user scope (codesearch runs `codesearch mcp`, which
-   indexes the agent's working repository on first use).
+6. registers `dotfiles.mcpServers` at user scope. codesearch runs through
+   `~/.local/bin/codesearch-mcp.ts` (`files/codesearch-mcp.ts`): agents start in a project
+   directory holding several clones and worktrees, which a bare `codesearch mcp` refuses
+   (`Cannot create a single index spanning multiple repos`). The wrapper starts one
+   `codesearch serve` hub per pod on `127.0.0.1:39725`, registers the repository around the
+   working directory or every git repository directly below it (indexed in the background,
+   on the pod's CPU), then runs `codesearch mcp --mode client` against the hub.
 
 A failing step fails the init container, so a broken repository shows up as
 `Init:CrashLoopBackOff` rather than as agents silently running without the setup. Hooks in
