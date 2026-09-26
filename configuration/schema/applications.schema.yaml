@@ -91,6 +91,47 @@ keys:
     description: Login e-mail of the Paperclip admin the operator bootstraps once (spec.auth.adminUser); PII, set per environment
     required: true
 
+  PAPERCLIP_DOTFILES_REPO_URL:
+    description: https clone URL of a dotfiles repository whose Claude Code setup the Paperclip agents use (charts/paperclip dotfiles); empty keeps the image's stock configuration
+    required: false
+    pattern: "^$|^https://"
+
+  PAPERCLIP_DOTFILES_REF:
+    description: Branch, tag or commit of PAPERCLIP_DOTFILES_REPO_URL
+    required: true
+    default: main
+
+  PAPERCLIP_DOTFILES_CLAUDE_DIR:
+    description: Directory in the dotfiles repository that mirrors ~/.claude
+    required: true
+    default: claude
+
+  PAPERCLIP_DOTFILES_PROFILE:
+    description: Profile name exported to PAPERCLIP_DOTFILES_SETUP_COMMAND as DOTFILES_PROFILE
+    required: false
+
+  PAPERCLIP_DOTFILES_SETUP_COMMAND:
+    description: sh command run in the dotfiles checkout before ~/.claude is linked (e.g. render settings.json from a profile)
+    required: false
+
+  PAPERCLIP_MCP_CODESEARCH:
+    description: Install codesearch (configuration/versions.yaml tools.codesearch) and register it as a Paperclip agent MCP server
+    required: true
+    default: "false"
+    enum:
+      - "true"
+      - "false"
+
+  PAPERCLIP_CODESEARCH_REPO:
+    description: GitHub repository URL whose releases publish codesearch-linux-x86_64.tar.gz for PAPERCLIP_MCP_CODESEARCH
+    required: true
+    default: https://github.com/ryanmcafee/codesearch
+    pattern: "^https://"
+
+  PAPERCLIP_CODESEARCH_VERSION:
+    description: codesearch release tag of PAPERCLIP_CODESEARCH_REPO; empty uses configuration/versions.yaml tools.codesearch (the pin for the default repository)
+    required: false
+
   # PVC names — per-app persistent volume claims
   PLEX_CONFIG_PVC:
     description: PVC name for Plex config

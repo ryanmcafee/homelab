@@ -168,6 +168,54 @@ probes:
 # "auth.baseUrlMode=explicit requires auth.publicBaseUrl" check.
 extraEnv: []
 
+# The operator's own Claude Code setup for the agents (templates/dotfiles.yaml,
+# files/paperclip-dotfiles.ts): an init container clones any dotfiles repository
+# into the data volume, runs its setup command, symlinks its Claude directory into
+# ~/.claude, installs the plugins that settings.json enables and registers
+# mcpServers. Off by default: without a repository the agents keep the image's
+# stock Claude Code configuration.
+dotfiles:
+  enabled: false
+  # https clone URL of the dotfiles repository (any fork).
+  repoUrl: ""
+  # Branch, tag or commit.
+  ref: main
+  # Directory in the repository that mirrors ~/.claude.
+  claudeDir: claude
+  # Exported to setupCommand as DOTFILES_PROFILE; the repository decides what it means.
+  profile: ""
+  # sh command run in the checkout before linking, e.g. to render settings.json
+  # from a profile. It sees HOME, DOTFILES_DIR, DOTFILES_PROFILE and ~/.local/bin on PATH.
+  setupCommand: ""
+  # Token for a private repository (sent as an HTTP header, never written to disk);
+  # empty secretName = public repository.
+  gitToken:
+    secretName: ""
+    secretKey: GIT_TOKEN
+  # bun release installed from npm into ~/.local/bin for setupCommand and plugin
+  # hooks that need it; an oven/bun image tag works too (the variant suffix is
+  # dropped). Empty skips it.
+  bunVersion: ""
+  # codesearch release (GitHub repository URL + tag publishing
+  # codesearch-linux-x86_64.tar.gz) installed into ~/.local/bin; empty version skips it.
+  codesearch:
+    repo: ""
+    version: ""
+  # Claude Code MCP servers registered at user scope, name -> server config.
+  mcpServers: {}
+  # The operator's data volume and its mount path, which is also HOME.
+  dataVolume: paperclip-data
+  home: /paperclip
+  # PATH of the image; ~/.local/bin is prepended for the server and the agents.
+  basePath: /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+
 # Agent health exporter (templates/exporter.yaml, docs/runbooks/paperclip-agents.md):
 # files/paperclip-exporter.ts run by the stock Bun image reads the REST API with
 # a board API key and serves agent run, phantom-agent and recovery metrics for
