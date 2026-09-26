@@ -22,6 +22,7 @@ import {
   COMMITTER_READ_FROM_MAJOR,
   committerIsRead,
   deployedMajorFindings,
+  changedPaths,
   generatedOnlyError,
   identityParityError,
   parseGitIgnoredAuthors,
@@ -555,4 +556,30 @@ test("every rule id the script can emit is documented in the runbook", () => {
       `${ruleId} is emitted by scripts/renovate-regen.ts but never documented in ${RUNBOOK_PATH}`,
     );
   }
+});
+
+test("changedPaths keeps the first path intact when its status starts with a space", () => {
+  assertEquals(
+    changedPaths(
+      " M charts/addons/values-localdev.yaml\0M  tests/snapshots/localdev/addons.yaml\0?? tests/schemas/new.json\0",
+    ),
+    [
+      "charts/addons/values-localdev.yaml",
+      "tests/snapshots/localdev/addons.yaml",
+      "tests/schemas/new.json",
+    ],
+  );
+});
+
+test("changedPaths reports a rename's new path and skips its source path", () => {
+  assertEquals(
+    changedPaths(
+      "R  tests/schemas/new.json\0tests/schemas/old.json\0 D docs/a.md\0",
+    ),
+    ["tests/schemas/new.json", "docs/a.md"],
+  );
+});
+
+test("changedPaths returns nothing for a clean tree", () => {
+  assertEquals(changedPaths(""), []);
 });

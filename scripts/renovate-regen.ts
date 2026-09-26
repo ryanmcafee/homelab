@@ -437,6 +437,18 @@ export function commitIdentityFindings(
   return { error, warning };
 }
 
+// Parses `git status --porcelain -z`; the untrimmed NUL form keeps a leading-space status column intact.
+export function changedPaths(porcelainZ: string): string[] {
+  const entries = porcelainZ.split("\0").filter(Boolean);
+  const paths: string[] = [];
+  for (let i = 0; i < entries.length; i++) {
+    const status = entries[i].slice(0, 2);
+    paths.push(entries[i].slice(3));
+    if (status.includes("R") || status.includes("C")) i++;
+  }
+  return paths;
+}
+
 export function generatedOnlyError(changed: string[]): string | null {
   const foreign = changed.filter(
     (p) =>
@@ -455,7 +467,7 @@ export function generatedOnlyError(changed: string[]): string | null {
   ].join("\n");
 }
 
-async function run(cmd: string[], quiet = false): Promise<string> {
+async function run(cmd: string[], quiet = false, trim = true): Promise<string> {
   const p = Bun.spawn(cmd, {
     stdin: "inherit",
     stdout: quiet ? "pipe" : "inherit",
@@ -468,7 +480,7 @@ async function run(cmd: string[], quiet = false): Promise<string> {
   ]);
   if (code !== 0)
     throw new Error(`Command failed: ${cmd.join(" ")}\n${stderr}`);
-  return stdout.trim();
+  return trim ? stdout.trim() : stdout;
 }
 
 async function capture(cmd: string[]): Promise<string> {
@@ -572,10 +584,9 @@ async function main(): Promise<void> {
     await run(step.cmd);
   }
 
-  const changed = (await capture(["git", "status", "--porcelain"]))
-    .split("\n")
-    .filter(Boolean)
-    .map((line) => line.slice(3).trim());
+  const changed = changedPaths(
+    await run(["git", "status", "--porcelain", "-z"], true, false),
+  );
   if (changed.length === 0) {
     console.log(
       `${green("[OK]")} nothing to regenerate; the branch is already current`,
