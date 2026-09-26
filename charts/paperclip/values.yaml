@@ -182,6 +182,12 @@ exporter:
   runWindowSeconds: 3600
   scrapeInterval: 60s
   scrapeTimeout: 30s
+  # Wake-stranding sweep (docs/runbooks/paperclip-wake-stranding.md). It costs
+  # one request per open issue because Paperclip has no company-level wake
+  # endpoint, so it runs on its own interval rather than on every scrape.
+  staleWakeMinutes: 30
+  staleWakeIntervalSeconds: 300
+  staleWakeMaxIssues: 200
   resources:
     requests:
       cpu: 10m

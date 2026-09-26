@@ -10,11 +10,14 @@ import { afterAll, beforeAll, test } from "bun:test";
 import {
   collect,
   type ExporterConfig,
+  isStrandedByWake,
   parseAgents,
   parseCompanies,
+  parseIssues,
   parseLiveRuns,
   parseRecovery,
   parseRuns,
+  parseWakeEvents,
   readConfig,
   renderMetrics,
   startServer,
@@ -58,7 +61,50 @@ const AGENTS = [
   { id: "a3", status: "idle" },
 ];
 
-const LIVE_RUNS = [{ id: "r1", agentId: "a1", status: "running" }];
+const LIVE_RUNS = [{ id: "live-run-1", agentId: "a1", status: "running" }];
+
+const OPEN_ISSUES = [
+  { id: "i-clean", identifier: "ACME-1" },
+  { id: "i-stranded", identifier: "ACME-2" },
+  { id: "i-live", identifier: "ACME-3" },
+];
+
+function wake(
+  status: string,
+  runId: string | null,
+  claimedAt: string | null,
+  finishedAt: string | null,
+) {
+  return {
+    kind: "wake_request",
+    reason: "issue_assigned",
+    status,
+    runId,
+    claimedAt,
+    finishedAt,
+  };
+}
+
+// i-clean: every claim finished. i-stranded: claimed 20h ago by a run that is
+// gone. i-live: claimed 2min ago by a run that is still in LIVE_RUNS.
+const WAKES: Record<string, { events: unknown[] }> = {
+  "i-clean": {
+    events: [
+      wake(
+        "finished",
+        "dead-run",
+        "2026-09-24T08:00:00Z",
+        "2026-09-24T08:05:00Z",
+      ),
+    ],
+  },
+  "i-stranded": {
+    events: [wake("claimed", "dead-run", "2026-09-24T08:00:00Z", null)],
+  },
+  "i-live": {
+    events: [wake("claimed", "live-run-1", "2026-09-25T03:58:00Z", null)],
+  },
+};
 
 const RECOVERY = {
   thresholdPercent: 2,
@@ -97,7 +143,17 @@ beforeAll(() => {
         [`/api/companies/${ACTIVE}/agents`]: AGENTS,
         [`/api/companies/${ACTIVE}/live-runs`]: LIVE_RUNS,
         [`/api/companies/${ACTIVE}/recovery-observability`]: RECOVERY,
+        [`/api/companies/${ACTIVE}/issues`]: OPEN_ISSUES,
       };
+      const wakeMatch = url.pathname.match(
+        /^\/api\/issues\/([^/]+)\/diagnostics\/wakes$/,
+      );
+      if (wakeMatch) {
+        const found = WAKES[wakeMatch[1] as string];
+        return found === undefined
+          ? Response.json({ error: "not found" }, { status: 404 })
+          : Response.json(found);
+      }
       const body = routes[url.pathname];
       return body === undefined
         ? Response.json({ error: "not found" }, { status: 404 })
@@ -118,6 +174,9 @@ function config(overrides: Partial<ExporterConfig> = {}): ExporterConfig {
     runLimit: 500,
     requestTimeoutMs: 2000,
     port: 0,
+    staleWakeMinutes: 30,
+    staleWakeIntervalSeconds: 300,
+    staleWakeMaxIssues: 200,
     ...overrides,
   };
 }
@@ -199,6 +258,7 @@ test("renderMetrics escapes label values and emits a zero for every terminal sta
     up: true,
     durationSeconds: 0.25,
     windowSeconds: HOUR,
+    nowMs: NOW,
     companies: [
       {
         company: { id: ACTIVE, name: 'Acme "Labs"', status: "active" },
@@ -222,6 +282,13 @@ test("renderMetrics escapes label values and emits a zero for every terminal sta
           recoveryActions: 0,
           ratePercent: 0,
         },
+        wakeSweep: {
+          openIssues: 65,
+          sweptIssues: 65,
+          stranded: 10,
+          truncated: false,
+          sweptAtMs: NOW - 120_000,
+        },
       },
     ],
   });
@@ -233,6 +300,12 @@ test("renderMetrics escapes label values and emits a zero for every terminal sta
   );
   assertStringIncludes(text, `paperclip_recovery_breached{${labels}} 0\n`);
   assertStringIncludes(text, "paperclip_agent_runs_window_seconds 3600\n");
+  assertStringIncludes(text, `paperclip_issues_wake_stranded{${labels}} 10\n`);
+  assertStringIncludes(text, `paperclip_issues_open{${labels}} 65\n`);
+  assertStringIncludes(
+    text,
+    `paperclip_wake_sweep_age_seconds{${labels}} 120\n`,
+  );
 });
 
 test("renderMetrics reports only paperclip_up 0 when the scrape failed", () => {
@@ -240,10 +313,14 @@ test("renderMetrics reports only paperclip_up 0 when the scrape failed", () => {
     up: false,
     durationSeconds: 1,
     windowSeconds: HOUR,
+    nowMs: NOW,
     companies: [],
   });
   assertStringIncludes(text, "paperclip_up 0\n");
   assert(!text.includes("paperclip_agent_runs_finished"));
+  // No sweep means no series at all, so the alert cannot read a missing sweep
+  // as zero stranded issues.
+  assert(!text.includes("paperclip_issues_wake_stranded"));
 });
 
 test("collect reads every endpoint of each active company with the bearer key", async () => {
@@ -319,4 +396,174 @@ test("startServer serves /metrics and /healthz", async () => {
   } finally {
     exporter.stop(true);
   }
+});
+
+test("isStrandedByWake flags a dead claimant but not a finished or live one", () => {
+  const live = new Set(["live-run-1"]);
+  const claimed = (runId: string, claimedAt: string) => [
+    {
+      kind: "wake_request",
+      status: "claimed",
+      runId,
+      claimedAt,
+      finishedAt: null,
+    },
+  ];
+  // Claimed 20h ago by a run that is not live: the ledger record leaked.
+  assert(
+    isStrandedByWake(
+      claimed("dead-run", "2026-09-24T08:00:00Z"),
+      live,
+      NOW,
+      30,
+    ),
+    "a claim held by a dead run should be stranded",
+  );
+  // Same age, but the claimant is still running: a long run, not a leak.
+  assertEquals(
+    isStrandedByWake(
+      claimed("live-run-1", "2026-09-24T08:00:00Z"),
+      live,
+      NOW,
+      30,
+    ),
+    false,
+  );
+  // Dead claimant, but only 2min old: inside the age floor, so not yet stale.
+  assertEquals(
+    isStrandedByWake(
+      claimed("dead-run", "2026-09-25T03:58:00Z"),
+      live,
+      NOW,
+      30,
+    ),
+    false,
+  );
+  // A claim that finished is the healthy case.
+  assertEquals(
+    isStrandedByWake(
+      [
+        {
+          kind: "wake_request",
+          status: "claimed",
+          runId: "dead-run",
+          claimedAt: "2026-09-24T08:00:00Z",
+          finishedAt: "2026-09-24T08:05:00Z",
+        },
+      ],
+      live,
+      NOW,
+      30,
+    ),
+    false,
+  );
+});
+
+test("parseIssues accepts a bare array and an {issues} envelope", () => {
+  assertEquals(parseIssues([{ id: "a", identifier: "X-1" }]).length, 1);
+  assertEquals(
+    parseIssues({ issues: [{ id: "a", identifier: "X-1" }] })[0]?.id,
+    "a",
+  );
+  assertThrows(() => parseIssues({ nope: 1 }), Error, "issues");
+});
+
+test("parseWakeEvents reads events and tolerates an empty ledger", () => {
+  assertEquals(parseWakeEvents({ events: [] }), []);
+  const [event] = parseWakeEvents({
+    events: [
+      {
+        kind: "wake_request",
+        status: "claimed",
+        runId: "r",
+        claimedAt: "2026-09-24T08:00:00Z",
+        finishedAt: null,
+      },
+    ],
+  });
+  assertEquals(event?.status, "claimed");
+  assertEquals(event?.finishedAt, null);
+  assertThrows(() => parseWakeEvents([]), Error, "diagnostics/wakes");
+});
+
+test("collect counts stranded issues and exposes them as metrics", async () => {
+  const result = await collect(config(), NOW, () => {}, new Map());
+  const sweep = result.companies[0]?.wakeSweep;
+  assertEquals(sweep?.openIssues, 3);
+  assertEquals(sweep?.sweptIssues, 3);
+  // Only i-stranded: i-clean finished, i-live is held by a live run.
+  assertEquals(sweep?.stranded, 1);
+  assertEquals(sweep?.truncated, false);
+  const text = renderMetrics(result);
+  assertStringIncludes(text, "paperclip_issues_wake_stranded{company_id=");
+  assertStringIncludes(text, "} 1\n");
+  assertStringIncludes(text, "paperclip_issues_open");
+  assertStringIncludes(text, "paperclip_wake_sweep_age_seconds");
+});
+
+test("collect reuses the cached sweep until the interval elapses", async () => {
+  const cache = new Map();
+  const wakePaths = () =>
+    seenPaths.filter((p) => p.includes("/diagnostics/wakes")).length;
+  seenPaths.length = 0;
+  await collect(config(), NOW, () => {}, cache);
+  const first = wakePaths();
+  assert(first > 0, "the first scrape should sweep");
+  // Second scrape one minute later, well inside the 300s interval.
+  await collect(config(), NOW + 60_000, () => {}, cache);
+  assertEquals(wakePaths(), first);
+  // Past the interval it sweeps again.
+  await collect(config(), NOW + 400_000, () => {}, cache);
+  assert(wakePaths() > first, "the sweep should re-run after the interval");
+});
+
+test("collect caps the sweep and reports it as truncated", async () => {
+  const result = await collect(
+    config({ staleWakeMaxIssues: 2 }),
+    NOW,
+    () => {},
+    new Map(),
+  );
+  const sweep = result.companies[0]?.wakeSweep;
+  assertEquals(sweep?.sweptIssues, 2);
+  assertEquals(sweep?.truncated, true);
+  assertEquals(sweep?.openIssues, 3);
+});
+
+test("a failed sweep keeps the previous count instead of reporting zero", async () => {
+  const cache = new Map();
+  await collect(config(), NOW, () => {}, cache);
+  assertEquals(cache.get(ACTIVE)?.stranded, 1);
+  const errors: string[] = [];
+  // Re-sweep past the interval against an API that now rejects the key, so the
+  // sweep throws while the cached result is still present.
+  const result = await collect(
+    config({ apiKey: "wrong" }),
+    NOW + 400_000,
+    (msg) => errors.push(msg),
+    cache,
+  );
+  // The whole scrape is down, but the cached sweep survived for the next one.
+  assertEquals(result.up, false);
+  assertEquals(cache.get(ACTIVE)?.stranded, 1);
+  assertEquals(cache.get(ACTIVE)?.sweptAtMs, NOW);
+});
+
+test("readConfig applies the stale-wake defaults", () => {
+  const cfg = readConfig({
+    PAPERCLIP_API_URL: "http://paperclip:3100/api",
+    PAPERCLIP_API_KEY: "k",
+  });
+  assertEquals(cfg.staleWakeMinutes, 30);
+  assertEquals(cfg.staleWakeIntervalSeconds, 300);
+  assertEquals(cfg.staleWakeMaxIssues, 200);
+  assertThrows(
+    () =>
+      readConfig({
+        PAPERCLIP_API_URL: "http://x/api",
+        STALE_WAKE_MINUTES: "never",
+      }),
+    Error,
+    "STALE_WAKE_MINUTES",
+  );
 });
