@@ -1,0 +1,319 @@
+#!/usr/bin/env bun
+
+import { readFile } from "node:fs/promises";
+
+/**
+ * renovate-regen.ts
+ *
+ * Regenerate the committed artefacts a Renovate bump needs, then commit them
+ * under the generic regeneration identity so Renovate keeps managing — and
+ * rebasing — the branch.
+ *
+ * Why the identity is the whole point. `.github/renovate.json5` lists exactly
+ * one address in `gitIgnoredAuthors`. A commit ahead of the base branch by
+ * anybody else makes Renovate treat the branch as human-edited and stop
+ * rebasing it, permanently; `rebaseWhen: 'behind-base-branch'` does not save
+ * you, because Renovate never looks at the branch again. Measured on
+ * 2026-09-26: of the five open `renovate/*` PRs, the two carrying only
+ * Renovate's own commits were rebased to 0-behind within ~70 minutes of `main`
+ * moving, and all three carrying a regeneration commit pushed under a personal
+ * address had been stuck for up to two days (19, 19 and 10 commits behind).
+ *
+ * `.github/workflows/upgrade.yml` job `regenerate` does this in CI, but only
+ * when the regeneration bot's GitHub App secrets exist. Without them the job
+ * prints a notice and does nothing, and regeneration falls to whoever sweeps
+ * the PR. This script is that path, using the same identity so the outcome is
+ * the same one Renovate already trusts. A fork inherits it with no setup: the
+ * address is a generic `users.noreply.github.com` bot address that lives in the
+ * repository, not a personal one.
+ *
+ *   task renovate:regen                  regenerate, then commit as the bot
+ *   task renovate:regen -- --check       identity parity only, no writes
+ *   task renovate:regen -- --no-commit   regenerate, leave the tree dirty
+ *   task renovate:regen -- --any-branch  escape hatch, see BYPASS below
+ *
+ * BYPASS. The branch guard exists so the bot identity is never used to sign a
+ * commit on a human PR (that would invite Renovate to force-push over real
+ * work). For a genuine emergency on a branch that is not named `renovate/*` —
+ * a bump branch renamed by hand, a fork whose PR branch has another prefix —
+ * pass `--any-branch` and say why in the commit or PR body. The generated-only
+ * guard has no bypass: if regeneration touched a non-generated file, that file
+ * belongs in its own commit under its own author.
+ */
+
+const cyan = (s: string) => `\x1b[36m${s}\x1b[0m`;
+const green = (s: string) => `\x1b[32m${s}\x1b[0m`;
+const red = (s: string) => `\x1b[31m${s}\x1b[0m`;
+const yellow = (s: string) => `\x1b[33m${s}\x1b[0m`;
+
+export const WORKFLOW_PATH = ".github/workflows/upgrade.yml";
+export const RENOVATE_CONFIG_PATH = ".github/renovate.json5";
+
+/** The committed artefacts a bump regenerates. Anything else is not ours. */
+export const GENERATED_PATHS = [
+  "charts/addons/values-localdev.yaml",
+  "charts/applications/values-localdev.yaml",
+  "tests/schemas/",
+  "tests/snapshots/",
+  "readme.md",
+  "docs/",
+  ".github/homelab.svg",
+];
+
+/** The regeneration steps, in dependency order: values and schemas feed the
+ * snapshots, so the snapshots are regenerated last. Same set, same order as
+ * `upgrade.yml` job `regenerate`, plus `docs:check --fix`, which owns the
+ * readme version badges and the addons table that a chart bump also moves. */
+export const REGEN_STEPS: { desc: string; cmd: string[] }[] = [
+  { desc: "localdev values", cmd: ["task", "config:export:localdev"] },
+  { desc: "vendored CRD schemas", cmd: ["task", "schemas:vendor"] },
+  {
+    desc: "golden snapshots",
+    cmd: ["task", "test:snapshot", "--", "--update"],
+  },
+  { desc: "generated doc regions", cmd: ["task", "docs:check", "--", "--fix"] },
+];
+
+export interface RegenIdentity {
+  name: string;
+  email: string;
+}
+
+/**
+ * Read `REGEN_BOT_NAME` / `REGEN_BOT_EMAIL` out of upgrade.yml's `env:` block.
+ * The workflow is the authority: it is what CI commits as when the bot is
+ * configured, so a manual regeneration has to match it or the two paths
+ * produce differently-authored commits for the same work.
+ */
+export function parseRegenIdentity(workflowYaml: string): RegenIdentity {
+  const read = (key: string): string => {
+    const m = workflowYaml.match(
+      new RegExp(`^\\s*${key}:\\s*(?:'([^']*)'|"([^"]*)"|([^\\s#]+))`, "m"),
+    );
+    const value = m ? (m[1] ?? m[2] ?? m[3] ?? "") : "";
+    if (!value) {
+      throw new Error(
+        `${WORKFLOW_PATH} does not define ${key}; the regeneration identity has no source of truth.`,
+      );
+    }
+    return value;
+  };
+  return { name: read("REGEN_BOT_NAME"), email: read("REGEN_BOT_EMAIL") };
+}
+
+/**
+ * Extract the string literals of renovate.json5's `gitIgnoredAuthors` array.
+ * Hand-parsed rather than JSON5-parsed: the file is JSON5 with comments and
+ * this script must not pull in a parser just to read one array.
+ */
+export function parseGitIgnoredAuthors(json5: string): string[] {
+  const start = json5.search(/^\s*gitIgnoredAuthors\s*:\s*\[/m);
+  if (start === -1) {
+    throw new Error(
+      `${RENOVATE_CONFIG_PATH} has no gitIgnoredAuthors array; every regeneration commit would orphan its branch.`,
+    );
+  }
+  const open = json5.indexOf("[", start);
+  const close = json5.indexOf("]", open);
+  if (close === -1) {
+    throw new Error(
+      `${RENOVATE_CONFIG_PATH}: gitIgnoredAuthors array is not closed.`,
+    );
+  }
+  const body = json5
+    .slice(open + 1, close)
+    .replace(/\/\/[^\n]*/g, "")
+    .replace(/\/\*[\s\S]*?\*\//g, "");
+  return [...body.matchAll(/'([^']*)'|"([^"]*)"/g)].map(
+    (m) => m[1] ?? m[2] ?? "",
+  );
+}
+
+/**
+ * Fail closed when the workflow identity is not one Renovate ignores. This is
+ * the gate: three files have to agree (the workflow's env, renovate.json5's
+ * gitIgnoredAuthors, and this script's commits), and until now nothing checked
+ * that they did. Drift here is silent and its only symptom is a branch that
+ * quietly stops being rebased.
+ */
+export function identityParityError(
+  identity: RegenIdentity,
+  ignoredAuthors: string[],
+): string | null {
+  if (ignoredAuthors.includes(identity.email)) return null;
+  return [
+    "renovate-regen/identity-parity: the regeneration identity is not ignored by Renovate.",
+    `  ${WORKFLOW_PATH} REGEN_BOT_EMAIL:           ${identity.email}`,
+    `  ${RENOVATE_CONFIG_PATH} gitIgnoredAuthors: ${ignoredAuthors.join(", ") || "(empty)"}`,
+    "  A commit by an author Renovate does not ignore makes Renovate treat the branch as",
+    "  human-edited and stop rebasing it. Add the address to gitIgnoredAuthors, or point",
+    "  REGEN_BOT_EMAIL at one already listed. Never add a personal address: a fork's",
+    "  regeneration commits carry the forker's address, so a personal entry only ever",
+    "  works on one repository.",
+  ].join("\n");
+}
+
+/** The bot identity signs generated files only, on a Renovate branch only. */
+export function branchGuardError(
+  branch: string,
+  anyBranch: boolean,
+): string | null {
+  if (anyBranch || branch.startsWith("renovate/")) return null;
+  return [
+    `renovate-regen/branch-scope: ${branch} is not a renovate/* branch.`,
+    "  Committing as the regeneration bot here would tell Renovate it may force-push over",
+    "  this branch. Regenerate and commit under your own author instead, or pass",
+    "  --any-branch with a documented reason.",
+  ].join("\n");
+}
+
+export function generatedOnlyError(changed: string[]): string | null {
+  const foreign = changed.filter(
+    (p) =>
+      !GENERATED_PATHS.some((g) =>
+        g.endsWith("/") ? p.startsWith(g) : p === g,
+      ),
+  );
+  if (foreign.length === 0) return null;
+  return [
+    "renovate-regen/generated-only: regeneration changed files that are not generated artefacts.",
+    ...foreign.map((p) => `  ${p}`),
+    "  These must not land in a bot-authored commit: Renovate is allowed to force-push over",
+    "  that author, so a real change hidden in one can be silently destroyed on the next",
+    "  rebase. Commit them separately under your own author (that keeps the branch out of",
+    "  Renovate's hands, which for a real change is the correct outcome).",
+  ].join("\n");
+}
+
+async function run(cmd: string[], quiet = false): Promise<string> {
+  const p = Bun.spawn(cmd, {
+    stdin: "inherit",
+    stdout: quiet ? "pipe" : "inherit",
+    stderr: "pipe",
+  });
+  const [stdout, stderr, code] = await Promise.all([
+    new Response(p.stdout).text(),
+    new Response(p.stderr).text(),
+    p.exited,
+  ]);
+  if (code !== 0)
+    throw new Error(`Command failed: ${cmd.join(" ")}\n${stderr}`);
+  return stdout.trim();
+}
+
+async function capture(cmd: string[]): Promise<string> {
+  return run(cmd, true);
+}
+
+async function main(): Promise<void> {
+  const args = Bun.argv.slice(2);
+  const checkOnly = args.includes("--check");
+  const noCommit = args.includes("--no-commit");
+  const anyBranch = args.includes("--any-branch");
+
+  const [workflowYaml, renovateConfig] = await Promise.all([
+    readFile(WORKFLOW_PATH, "utf8"),
+    readFile(RENOVATE_CONFIG_PATH, "utf8"),
+  ]);
+  const identity = parseRegenIdentity(workflowYaml);
+  const ignoredAuthors = parseGitIgnoredAuthors(renovateConfig);
+
+  const parity = identityParityError(identity, ignoredAuthors);
+  if (parity) {
+    console.error(red(parity));
+    process.exit(1);
+  }
+  console.log(
+    `${green("[OK]")} regeneration identity ${cyan(`${identity.name} <${identity.email}>`)} is in ${RENOVATE_CONFIG_PATH} gitIgnoredAuthors`,
+  );
+  if (checkOnly) return;
+
+  const branch = await capture(["git", "rev-parse", "--abbrev-ref", "HEAD"]);
+  const branchError = branchGuardError(branch, anyBranch);
+  if (branchError) {
+    console.error(red(branchError));
+    process.exit(1);
+  }
+  if (anyBranch && !branch.startsWith("renovate/")) {
+    console.log(
+      yellow(`[BYPASS] --any-branch: committing as the bot on ${branch}`),
+    );
+  }
+
+  const dirty = await capture(["git", "status", "--porcelain"]);
+  if (dirty) {
+    console.error(
+      red(
+        "renovate-regen/clean-tree: the working tree is dirty. Regeneration output has to be\n" +
+          "  the only thing in the commit, so commit or stash your changes first.\n" +
+          dirty,
+      ),
+    );
+    process.exit(1);
+  }
+
+  for (const step of REGEN_STEPS) {
+    console.log(cyan(`==> ${step.desc}: ${step.cmd.join(" ")}`));
+    await run(step.cmd);
+  }
+
+  const changed = (await capture(["git", "status", "--porcelain"]))
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => line.slice(3).trim());
+  if (changed.length === 0) {
+    console.log(
+      `${green("[OK]")} nothing to regenerate; the branch is already current`,
+    );
+    return;
+  }
+
+  const foreignError = generatedOnlyError(changed);
+  if (foreignError) {
+    console.error(red(foreignError));
+    process.exit(1);
+  }
+  console.log(`${green("[OK]")} ${changed.length} generated file(s) changed:`);
+  for (const p of changed) console.log(`      ${p}`);
+  if (noCommit) {
+    console.log(yellow("--no-commit: leaving the tree dirty"));
+    return;
+  }
+
+  await run(["git", "add", "--", ...changed]);
+  // --author, not `git -c user.email`: a wrapper or credential shim can pin
+  // user.email and GIT_AUTHOR_EMAIL for every invocation (the Paperclip runner
+  // does), and only --author survives that. `gitIgnoredAuthors` matches the
+  // author, so the committer is allowed to stay whoever pushed.
+  await run([
+    "git",
+    "commit",
+    "--author",
+    `${identity.name} <${identity.email}>`,
+    "-m",
+    "chore(deps): regenerate snapshots, schemas and localdev values",
+    "-m",
+    `Generated by scripts/renovate-regen.ts on ${branch}. Authored as ${identity.email} so Renovate keeps rebasing this branch (.github/renovate.json5 gitIgnoredAuthors).`,
+  ]);
+  const authored = await capture(["git", "log", "-1", "--format=%ae"]);
+  if (authored !== identity.email) {
+    console.error(
+      red(
+        `renovate-regen/commit-author: the commit was authored as ${authored}, not ${identity.email}.\n` +
+          "  Renovate will abandon this branch. Fix with:\n" +
+          `    git commit --amend --no-edit --author="${identity.name} <${identity.email}>"`,
+      ),
+    );
+    process.exit(1);
+  }
+  console.log(
+    `${green("[OK]")} committed ${await capture(["git", "rev-parse", "--short", "HEAD"])} as ${cyan(authored)}`,
+  );
+}
+
+if (import.meta.main) {
+  main().catch((err) => {
+    console.error(red(err instanceof Error ? err.message : String(err)));
+    process.exit(1);
+  });
+}

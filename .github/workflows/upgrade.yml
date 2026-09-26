@@ -255,7 +255,7 @@ jobs:
           PRIVATE_KEY: ${{ secrets.HOMELAB_BOT_PRIVATE_KEY }}
         run: |
           if [ -z "$APP_ID" ] || [ -z "$PRIVATE_KEY" ]; then
-            echo "::notice title=Regeneration bot not configured::HOMELAB_BOT_APP_ID and HOMELAB_BOT_PRIVATE_KEY are not set, so nothing is regenerated. Run task config:export:localdev, task schemas:vendor and task test:snapshot -- --update locally, or configure the bot (docs/runbooks/verification.md, Renovate bumps)."
+            echo "::notice title=Regeneration bot not configured::HOMELAB_BOT_APP_ID and HOMELAB_BOT_PRIVATE_KEY are not set, so nothing is regenerated. Run task renovate:regen on the branch: it regenerates and commits as ${REGEN_BOT_EMAIL}, which renovate.json5 gitIgnoredAuthors lists, so Renovate keeps rebasing this branch. Committing the same files under your own address makes Renovate abandon the branch permanently. Or configure the bot (docs/runbooks/verification.md, Renovate bumps)."
             echo "enabled=false" >> "$GITHUB_OUTPUT"
           else
             echo "enabled=true" >> "$GITHUB_OUTPUT"

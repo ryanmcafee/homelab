@@ -867,6 +867,12 @@ tasks:
     cmds:
       - bun scripts/crd-schemas-vendor.ts --check
 
+  renovate:regen:
+    desc: "Regenerate what a Renovate bump needs and commit it as the regeneration bot so Renovate keeps rebasing the branch (-- --check for identity parity only, -- --no-commit to leave the tree dirty)"
+    deps: [bun:install]
+    cmds:
+      - bun scripts/renovate-regen.ts {{.CLI_ARGS}}
+
   verify:upgrade:
     desc: Render every upstream chart at a base ref and at the working tree and diff the manifests (task verify:upgrade -- --base origin/main)
     cmds:

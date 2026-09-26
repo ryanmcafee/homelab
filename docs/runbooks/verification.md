@@ -303,10 +303,54 @@ create a GitHub App owned by the repository owner with repository permission
 **Contents: read and write**, install it on this repository only, and store its App ID and
 a private key as the Actions secrets `HOMELAB_BOT_APP_ID` and `HOMELAB_BOT_PRIVATE_KEY`.
 
-To accept a bump without the bot: run `task config:export:localdev`, `task
-schemas:vendor` and `task test:snapshot -- --update` on the branch and commit, or commit
-the `snapshots-regenerated` artifact of the `snapshot` job, which also posts its own
-`snapshot-diff` comment with the in-repository manifest diff.
+**Accepting a bump without the bot: `task renovate:regen`.** This is the path that matters
+when the secrets are not set, and the author of the commit it makes is not a detail.
+`gitIgnoredAuthors` lists exactly one address. A commit ahead of the base branch by anybody
+else makes Renovate treat the branch as human-edited and **stop rebasing it permanently** —
+`rebaseWhen: 'behind-base-branch'` does not help, because Renovate never looks at the branch
+again. Measured on 2026-09-26: of the five open `renovate/*` PRs, the two carrying only
+Renovate's own commits were rebased to 0-behind within ~70 minutes of `main` moving, and all
+three carrying a regeneration commit pushed under a personal address had been stuck for up
+to two days, 19, 19 and 10 commits behind.
+
+`task renovate:regen` runs `config:export:localdev`, `schemas:vendor`, `test:snapshot --
+--update` and `docs:check -- --fix` (a chart bump also moves the readme version badges and
+the addons table), then commits the result with `--author` set to `REGEN_BOT_NAME
+<REGEN_BOT_EMAIL>` from `upgrade.yml` — the same identity CI would have used. It refuses to
+run when:
+
+| Guard | Why |
+|---|---|
+| `renovate-regen/identity-parity` | `upgrade.yml`'s `REGEN_BOT_EMAIL` is not in `renovate.json5`'s `gitIgnoredAuthors`. Three places have to agree and nothing else checks that they do; `scripts/renovate-regen_test.ts` asserts it against the real files, so drift fails `task test:scripts` instead of silently orphaning every future branch. |
+| `renovate-regen/branch-scope` | HEAD is not a `renovate/*` branch. Signing a human PR's commit as the bot would invite Renovate to force-push over real work. Bypass: `-- --any-branch`, with the reason in the commit or PR body. |
+| `renovate-regen/generated-only` | Regeneration touched a file outside the generated set. No bypass: commit that file separately under your own author — which keeps the branch out of Renovate's hands, and for a real change that is the correct outcome. |
+| `renovate-regen/clean-tree` | The working tree was already dirty, so the commit would not be regeneration output alone. |
+
+Do **not** "fix" the orphaning by adding a personal address to `gitIgnoredAuthors`. It would
+let Renovate force-push over genuine human edits to a bump branch, and it hard-codes one
+operator's address into a config every fork inherits: a forker's regeneration commits carry
+*their* address, so the entry would only ever work on one repository. The test asserts every
+`gitIgnoredAuthors` entry is a generic `@users.noreply.github.com` bot address for that
+reason.
+
+If you regenerate by hand anyway, author the commit yourself — `git commit --author
+"homelab-regen-bot <homelab-regen-bot@users.noreply.github.com>"`. Use `--author`, not `git
+-c user.email=...`: a wrapper or credential shim can pin `user.email` *and*
+`GIT_AUTHOR_EMAIL` for every invocation (the Paperclip agent runner does, to the maintainer's
+noreply address), and only `--author` survives that. `gitIgnoredAuthors` matches the author,
+so the committer may stay whoever pushed. You can also commit the `snapshots-regenerated`
+artifact of the `snapshot` job, which posts its own `snapshot-diff` comment with the
+in-repository manifest diff — but author it the same way.
+
+**What the bot buys, and why it is not optional under a strict base branch.** Without it,
+regeneration is manual, and every manual regeneration freezes its branch until somebody
+rebases it again — a closed loop. `task renovate:regen` keeps the branch Renovate-managed,
+but Renovate *drops* an ignored author's commits when it rebases, and with no bot to remake
+them the branch goes red on snapshot drift until a human regenerates again. So the loop
+closes either way; only the bot (which regenerates on every new head automatically) breaks
+it. If `main` ever requires branches to be up to date before merging ("Require branches to be
+up to date", `strict`), that loop stops being cosmetic drift and becomes a permanent merge
+block, so configure the bot **before** flipping it.
 
 ## Agent contract
 
