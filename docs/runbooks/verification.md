@@ -356,6 +356,14 @@ deployed major reaches 44 while this repository is still driving the 43 regime. 
 advertising the version that abandoned it and a stale body must not mask a live upgrade. It
 fails closed when no blob is readable: an unmeasurable version is not evidence of 43.x.
 
+It also fails closed on an empty *listing*, which is the failure that looks like success. In
+CI the check only runs on a `renovate/*` head, so the PR it is running on must appear among
+the open `renovate/*` PRs it lists; when `GITHUB_HEAD_REF` is set and that head is missing,
+the listing was truncated or read with a token lacking `pull-requests: read` — returning `[]`
+with a `200` — and the check fails instead of emitting its "no Renovate PRs open" notice. The
+notice path survives only for a local run or a fork where Renovate writes no PRs at all, and
+there the gate has nothing to protect.
+
 On 2026-09-26 that check read **43.110.14**, so only the author counted, and the Dependency
 Dashboard's *PR Edited (Blocked)* section agreed independently: branches whose only foreign
 address was the committer were listed under *Open*, and the one branch with a foreign
