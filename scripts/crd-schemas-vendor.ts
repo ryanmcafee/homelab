@@ -429,16 +429,76 @@ interface GithubContentEntry {
   download_url: string | null;
 }
 
+/**
+ * Headers for the contents API. Unauthenticated calls share a 60/hour per-IP
+ * budget that four calls per source exhaust quickly; a token raises it to
+ * 5000/hour. CI populates `GITHUB_TOKEN`, `gh` populates `GH_TOKEN`, and
+ * `task schemas:vendor` exports neither by itself, so read both. The raw file
+ * downloads in {@link fetchGithubCRDs} need no auth.
+ */
+export function githubApiHeaders(
+  env: Record<string, string | undefined>,
+): Record<string, string> {
+  const headers: Record<string, string> = {
+    "User-Agent": "homelab-crd-schemas-vendor",
+  };
+  const token = env.GITHUB_TOKEN || env.GH_TOKEN;
+  if (token) headers.Authorization = `Bearer ${token}`;
+  return headers;
+}
+
+interface RateLimitedResponse {
+  status: number;
+  statusText: string;
+  headers: { get(name: string): string | null };
+}
+
+/**
+ * A 403 carrying `x-ratelimit-remaining: 0` is an exhausted budget, not a bad
+ * source: `403 Forbidden` alone reads like a vendoring or permissions fault and
+ * sends the next reader into sources.yaml instead of at a clock.
+ */
+export function contentsApiError(
+  sourceName: string,
+  apiUrl: string,
+  res: RateLimitedResponse,
+  authenticated: boolean,
+): string {
+  const remaining = res.headers.get("x-ratelimit-remaining");
+  const rateLimited =
+    (res.status === 403 || res.status === 429) && remaining === "0";
+  if (!rateLimited) {
+    return `GitHub contents API failed for source "${sourceName}" (${apiUrl}): ${res.status} ${res.statusText}`;
+  }
+  const limit = res.headers.get("x-ratelimit-limit") ?? "unknown";
+  const reset = res.headers.get("x-ratelimit-reset");
+  const resetAt = reset
+    ? new Date(Number(reset) * 1000).toISOString()
+    : "unknown";
+  return [
+    `schemas-vendor/rate-limit: the GitHub contents API budget is exhausted, so source "${sourceName}" was not vendored.`,
+    `  ${apiUrl}`,
+    `  ${res.status} ${res.statusText}; limit ${limit}/hour, 0 remaining, resets at ${resetAt}.`,
+    authenticated
+      ? "  The request was authenticated, so wait for the reset rather than adding a token."
+      : "  The request was unauthenticated: 60/hour per IP. Export GITHUB_TOKEN or GH_TOKEN (`gh auth token`) for 5000/hour.",
+  ].join("\n");
+}
+
 async function fetchOk(
   url: string,
   init: RequestInit,
   sourceName: string,
+  describeFailure?: (res: Response) => string,
 ): Promise<Response> {
   try {
     return await withRetry(
       async () => {
         const res = await fetch(url, init);
-        if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+        if (!res.ok)
+          throw new Error(
+            describeFailure?.(res) ?? `${res.status} ${res.statusText}`,
+          );
         return res;
       },
       fetchRetry(`[${sourceName}] GET`),
@@ -463,15 +523,15 @@ async function fetchGithubCRDs(
       ref,
     )}`;
     log.info(`[${source.name}] GET ${apiUrl}`);
-    // Unauthenticated calls share a 60/hour per-IP budget that shared CI
-    // runners exhaust (403 Forbidden); a token raises it to 5000/hour. The
-    // raw file downloads below need no auth.
-    const headers: Record<string, string> = {
-      "User-Agent": "homelab-crd-schemas-vendor",
-    };
-    const token = process.env.GITHUB_TOKEN;
-    if (token) headers["Authorization"] = `Bearer ${token}`;
-    const res = await fetchOk(apiUrl, { headers }, source.name);
+    const headers = githubApiHeaders(process.env);
+    const res = await fetchOk(apiUrl, { headers }, source.name, (response) =>
+      contentsApiError(
+        source.name,
+        apiUrl,
+        response,
+        "Authorization" in headers,
+      ),
+    );
     const entries = (await res.json()) as GithubContentEntry[];
     const yamlFiles = entries.filter(
       (e) => e.type === "file" && e.name.endsWith(".yaml"),
