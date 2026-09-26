@@ -12,6 +12,12 @@ Each entry should include:
 
 ## Entries
 
+### 2026-09-26 - addons/applications ComparisonError: required keys missing, then a stale CMP subPath mount
+- **Issue**: After #393 made `DNS_SERVER_IP`, `GITOPS_REPO_URL`, `LAN_CIDR` and `PROXMOX_NODE` required, `addons` and `applications` failed with `validation failed for set "homelab"`; adding the keys to the 1Password document `homelab-environment-config` synced the Secret but the error stayed
+- **Root Cause**: The production env doc never got the four keys. Once added, the `homelab-cmp` sidecar still read the old file: it mounted the Secret with `subPath: homelab.yaml`, and kubelet never refreshes `subPath` mounts. ArgoCD then served the failure from its manifest cache (`Manifest generation error (cached)`)
+- **Solution**: Added the keys to the env doc, restarted `argocd-repo-server` and hard-refreshed the Applications. The sidecar now mounts the whole Secret volume at `/config` (`charts/bootstrap/values.yaml`, `terragrunt/modules/gitops-bootstrap/templates/argocd-values.yaml.tpl`), so doc edits arrive without a restart
+- **Prevention**: When a PR adds a required key, add it to the 1Password env doc before merge. Never mount a Secret the CMP reads with `subPath`; after fixing a CMP render error, hard-refresh the Application to drop the cached failure
+
 ### 2026-09-25 - netflowreceiver emits no receiver self-metrics, alert could never clear
 - **Issue**: `HomelabUniFiTelemetrySilent` fired for `netflow` without end although ClickHouse `otel.otel_logs` held thousands of flow records (`ScopeName = otelcol/netflowreceiver`); the flows also had an empty ServiceName and the gateway logged OTTL "silently ignored a nil value" warnings
 - **Root Cause**: The alert read `otelcol_receiver_accepted_log_records{receiver=~"syslog.*|netflow"}`, but the contrib `netflowreceiver` (v0.160.0) does not use the receiver obsreport helper, so Prometheus had no series with `receiver="netflow"` and the `absent()` branch stayed true. `transform/service-name` set `service.name` from `k8s.container.name`, which flows do not carry

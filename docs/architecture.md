@@ -199,7 +199,8 @@ files for the real values (`task config:validate | eval | export | guard`, a pre
 and `config-validation.yml` in CI).
 
 **Production render.** The operator writes the `homelab-environment-config` Secret; the repo
-server mounts it into the `homelab-cmp` container at `/config/homelab.yaml`; for every
+server mounts it into the `homelab-cmp` container at `/config/homelab.yaml` (a whole-volume mount, never `subPath`, so
+an edit to the 1Password document reaches the sidecar within about a minute, no restart); for every
 Application that names plugin `homelab-config-helm-v1.0` (`cmp/plugin.yaml`, image built by
 `Dockerfile.cmp`) the sidecar runs `homelab config export --set homelab --format
 $ARGOCD_ENV_FORMAT --env-file /config/homelab.yaml --stdout` and pipes the result into
