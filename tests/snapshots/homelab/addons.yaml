@@ -706,7 +706,6 @@ spec:
                 deleteDelayDuration: 10m
                 strategy: OnPodSuccess
               ttlStrategy:
-                secondsAfterCompletion: 604800
                 secondsAfterFailure: 604800
                 secondsAfterSuccess: 86400
           # Completed workflows stay browsable in the UI (Archived Workflows)
