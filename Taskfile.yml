@@ -810,6 +810,24 @@ tasks:
       - conftest verify -p tests/policy
       - bun scripts/policy-test.ts {{.CLI_ARGS}}
 
+  test:alerts:
+    desc: Unit-test the Prometheus alerting rules with promtool against the rules the addons chart actually renders (tests/alerts)
+    cmds:
+      # The rules are extracted from the rendered Application instead of being
+      # copied into tests/, so a test can never assert about an expression that
+      # is not deployed. promtool check rules covers every group; the unit tests
+      # in tests/alerts cover the ones whose thresholds carry a decision.
+      - |
+        set -euo pipefail
+        out="$(mktemp -d)"
+        trap 'rm -rf "$out"' EXIT
+        helm template addons charts/addons -f charts/addons/values-localdev.yaml \
+          | yq -r 'select(.kind=="Application" and .metadata.name=="kube-prometheus-stack") | .spec.source.helm.values' \
+          | yq -r '{"groups": [.additionalPrometheusRulesMap[].groups[]]}' > "$out/rules.yaml"
+        promtool check rules "$out/rules.yaml"
+        cp tests/alerts/*.test.yaml "$out/"
+        cd "$out" && promtool test rules ./*.test.yaml
+
   test:e2e:
     desc: Declarative Kind e2e tests (chainsaw) against the running localdev cluster (task test:e2e -- --test-dir tests/e2e/plex)
     cmds:

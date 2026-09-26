@@ -3673,6 +3673,54 @@ spec:
                     annotations:
                       summary: '{{ $labels.company }} has {{ $value }} phantom agents and no live run: the board is stalled'
                       description: 'No agent has a queued or running run while at least three report running, so no queued wake can dispatch and nothing self-heals. Clear the agent status from the board; docs/runbooks/paperclip-agents.md.'
+          # JetStream work queue (docs/runbooks/pf-work-age-expiry.md). PF_WORK
+          # age expiry deletes unacked work with no advisory and no per-message
+          # signal of any kind, so these rules are the only thing standing
+          # between a consumer outage and silent data loss (ADR-038, ADR-030).
+          # The SLI is the head of the stream, not its depth: a queue full of
+          # work nobody takes and a busy queue have the same depth, and
+          # prometheus-nats-exporter exports no message age at all - pinned
+          # against 0.18.0 (the nats chart pin) and against its main branch,
+          # neither of which has a state.first_ts metric. Every window is
+          # therefore derived from nats_stream_first_seq, which only moves when
+          # a message leaves the head. No series exists until the NATS
+          # Application ships an exporter with -jsz=all, and the rules are
+          # silent (not firing, not absent) until then.
+          homelab-nats-jetstream:
+            groups:
+              - name: homelab-nats-jetstream
+                rules:
+                  - alert: PFWorkOldestUnackedAging
+                    expr: 'changes(nats_stream_first_seq{stream_name="PF_WORK",is_stream_leader="true"}[12h]) == 0 and min_over_time(nats_stream_total_messages{stream_name="PF_WORK",is_stream_leader="true"}[5m]) > 0 and min_over_time(nats_stream_total_messages{stream_name="PF_WORK",is_stream_leader="true"}[12h]) > 0 and count_over_time(nats_stream_first_seq{stream_name="PF_WORK",is_stream_leader="true"}[12h]) >= 11 * count_over_time(nats_stream_first_seq{stream_name="PF_WORK",is_stream_leader="true"}[1h])'
+                    for: 15m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: 'The oldest unacked PF_WORK message has been queued for more than 12h'
+                      description: 'nats_stream_first_seq has not moved for 12h while the stream was never empty, so the head message is at least 12h old and PF_WORK max_age is 24h. Age expiry deletes it with no advisory and no per-message signal. docs/runbooks/pf-work-age-expiry.md.'
+                  - alert: PFWorkOldestUnackedAging
+                    expr: 'changes(nats_stream_first_seq{stream_name="PF_WORK",is_stream_leader="true"}[18h]) == 0 and min_over_time(nats_stream_total_messages{stream_name="PF_WORK",is_stream_leader="true"}[5m]) > 0 and min_over_time(nats_stream_total_messages{stream_name="PF_WORK",is_stream_leader="true"}[18h]) > 0 and count_over_time(nats_stream_first_seq{stream_name="PF_WORK",is_stream_leader="true"}[18h]) >= 16 * count_over_time(nats_stream_first_seq{stream_name="PF_WORK",is_stream_leader="true"}[1h])'
+                    for: 15m
+                    labels:
+                      severity: critical
+                    annotations:
+                      summary: 'PF_WORK work is 18h old and max_age deletes it silently in under 6h'
+                      description: 'The head of PF_WORK has been unacked for 18h of its 24h max_age. When the budget runs out the messages are deleted with no advisory of any kind. Get a consumer taking work, or copy the queue out now. docs/runbooks/pf-work-age-expiry.md.'
+                  - alert: PFWorkMessagesExpiredUnacked
+                    expr: '(max by (stream_name) (max_over_time(nats_stream_first_seq{stream_name="PF_WORK",is_stream_leader="true"}[15m])) - max by (stream_name) (min_over_time(nats_stream_first_seq{stream_name="PF_WORK",is_stream_leader="true"}[15m]))) - (sum by (stream_name) (max_over_time(nats_consumer_ack_floor_stream_seq{stream_name="PF_WORK",is_consumer_leader="true"}[15m]) - min_over_time(nats_consumer_ack_floor_stream_seq{stream_name="PF_WORK",is_consumer_leader="true"}[15m])) or (max by (stream_name) (max_over_time(nats_stream_first_seq{stream_name="PF_WORK",is_stream_leader="true"}[15m])) * 0)) > 0'
+                    labels:
+                      severity: critical
+                    annotations:
+                      summary: '{{ $value }} PF_WORK messages left the stream without being acked'
+                      description: 'The stream head advanced further than every consumer ack floor did, so that many durable requests were removed unacked: max_age expiry, a purge or a delete. Nothing else reports this - there is no advisory for age-based deletion. docs/runbooks/pf-work-age-expiry.md.'
+                  - alert: PFWorkStreamMetricsAbsent
+                    expr: 'absent(nats_stream_first_seq{stream_name="PF_WORK",is_stream_leader="true"}) and on (stream_name) max by (stream_name) (count_over_time(nats_stream_first_seq{stream_name="PF_WORK"}[6h])) > 0'
+                    for: 30m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: 'PF_WORK stream metrics stopped arriving, so the silent-loss monitor is blind'
+                      description: 'prometheus-nats-exporter reported PF_WORK within the last 6h and no longer does. While this is firing nothing watches the 24h age budget. Check the exporter sidecar and its -jsz=all argument. docs/runbooks/pf-work-age-expiry.md.'
           # Pull requests that need review (docs/runbooks/alerting.md). Metrics:
           # the github-pr-exporter Application, one series per PR and query.
           homelab-github:
