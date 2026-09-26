@@ -1,0 +1,63 @@
+# ConfigSet "single-node" — a one-control-plane-node fork.
+#
+# This file is not this cluster's shape, and that is the point. Every other
+# committed ConfigSet declares three control-plane addresses, so until this
+# existed nothing in CI had ever rendered a topology that was not three: a fork
+# running one or five control planes was unexercised, and the fixed shape was
+# invisible to every check (ADR-035, MCAA-118).
+#
+# It states its topology by listing its control plane: one CP1_IP key, so one
+# member. There is deliberately no count key to contradict it. Adding CP2_IP and
+# CP3_IP here makes it a three-node cluster with no other edit; that is the
+# whole contract.
+#
+# A one-member control plane is PERMITTED and DEGRADED (topology.v1.yaml
+# `degradedCounts: [1]`): quorum is 1, maxUnavailable is 0, and no member
+# removal is ever survivable on it — recreating the only etcd member is a
+# snapshot-restore, not a removal. See docs/runbooks/talos-upgrade.md.
+#
+# Addresses are RFC 5737 TEST-NET-1 (192.0.2.0/24), reserved for documentation
+# and distinct from the RFC 1918 range in homelab.yaml.example so the
+# fork-ability grep can still tell a leaked real value from a placeholder
+# (docs/contracts/fork-ability.md). Copy it, then replace every value.
+
+DOMAIN: REPLACEME-domain.com
+GATEWAY_IP: "192.0.2.1"
+# The LAN the nodes sit on, and the resolver they are configured with. Both are
+# required with no default (ADR-028): terragrunt/ resolves them from here.
+LAN_CIDR: "192.0.2.0/24"
+DNS_SERVER_IP: "192.0.2.1"
+TRUENAS_IP: "192.0.2.100"
+PROXMOX_IP: "192.0.2.250"
+CP_VIP: "192.0.2.10"
+
+# The control plane, as a list. One key, one member.
+CP1_IP: "192.0.2.11"
+
+WORKER1_IP: "192.0.2.21"
+WORKER2_IP: "192.0.2.22"
+WORKER3_IP: "192.0.2.23"
+LB_POOL_START: "192.0.2.120"
+LB_POOL_END: "192.0.2.200"
+TRAEFIK_STATIC_IP: "192.0.2.200"
+PLEX_LB_IP: "192.0.2.103"
+OTEL_LB_IP: "192.0.2.104"
+NFS_SHARE_ALLOW: "192.0.2.0/24"
+TAILSCALE_ADVERTISE_ROUTES: "192.0.2.0/24"
+BGP_PEER_IP: "192.0.2.1"
+
+# Cluster identity and the Proxmox node that hosts it. Required with no default
+# (ADR-028) — a default that happens to work on one cluster is how a fork ends
+# up reconciling from somebody else's git history.
+PROXMOX_NODE: REPLACEME-proxmox-node
+GITOPS_REPO_URL: https://github.com/REPLACEME-user/homelab
+
+NFS_MAPALL_USER: REPLACEME-username
+ACME_EMAIL: admin@REPLACEME-domain.com
+TRAEFIK_OIDC_ALLOWED_DOMAINS: REPLACEME-domain.com
+DUCKDNS_SUBDOMAIN: REPLACEME-subdomain
+EXTERNAL_DNS_DEFAULT_TARGET: REPLACEME-subdomain.duckdns.org
+PAPERCLIP_ADMIN_EMAIL: admin@REPLACEME-domain.com
+
+# GPU
+GPU_VENDOR: "intel"

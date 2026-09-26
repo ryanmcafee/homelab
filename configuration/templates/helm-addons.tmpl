@@ -1177,15 +1177,20 @@ kube-prometheus-stack:
   # etcd scrape on <control-plane IP>:2381 (Talos cluster.etcd.extraArgs
   # listen-metrics-urls). Kind runs etcd inside the control-plane container with
   # no reachable metrics endpoint, so the scrape is off there.
+  #
+  # .ControlPlane is the resolver's derived address list (ADR-035), ascending by
+  # ordinal — one endpoint per member the ConfigSet declares, whether that is one
+  # or seven. Naming CP1/CP2/CP3 here is what used to pin the scrape to this
+  # cluster's shape.
   kubeEtcd:
     port: 2381
 {{- if $localdev }}
     endpoints: []
 {{- else }}
     endpoints:
-      - {{ .Values.CP1_IP.Value }}
-      - {{ .Values.CP2_IP.Value }}
-      - {{ .Values.CP3_IP.Value }}
+{{- range .ControlPlane }}
+      - {{ .Address }}
+{{- end }}
 {{- end }}
 
   # PostSync smoke hooks (charts/addons/templates/_smoke.tpl): curl the

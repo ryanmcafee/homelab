@@ -578,6 +578,18 @@ func IsTemplateFile(path string) bool {
 var examplePlaceholderSubnets = []string{
 	"192.168.1.0/24",
 	"127.0.0.0/8",
+	// RFC 5737 TEST-NET-1, reserved for documentation and unroutable by
+	// definition — so unlike 192.168.1.0/24 it cannot be a real address a paste
+	// smuggled in. configuration/environments/single-node.yaml.example uses it,
+	// deliberately distinct from the RFC 1918 range in homelab.yaml.example:
+	// docs/contracts/fork-ability.md requires the two not to overlap, or the
+	// grep cannot tell a leaked real value from a placeholder.
+	//
+	// Only TEST-NET-1 is listed. TEST-NET-2 (198.51.100.0/24) and TEST-NET-3
+	// (203.0.113.0/24) are equally reserved but unused here, and 203.0.113.10
+	// is an existing isExamplePlaceholder case asserting a public address is
+	// NOT a placeholder — widening to all three would silently retire it.
+	"192.0.2.0/24",
 }
 
 // examplePlaceholderHosts are the documented placeholder domains a template

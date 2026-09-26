@@ -36,23 +36,22 @@ controlPlane:
   # present with an empty value is indeterminate, not zero, and fails closed below.
   # Ordinals need not be contiguous: CP1/CP2/CP5 is three members, not five.
   countRequired: true
-  # MERGE CONDITION on #39, tracked in ADR-035. As of this revision
-  # configuration/schema/network.schema.yaml declares CP1_IP, CP2_IP and CP3_IP as
-  # three individually required scalars, so the pattern above resolves to exactly 3
-  # for every fork — parameterised in form, constant in effect, which is worse than an
-  # honest constant. The schema must admit the pattern with CP1_IP required and higher
-  # ordinals optional before a consumer may rely on this field.
+  # The MERGE CONDITION on #39 tracked in ADR-035 is SATISFIED (MCAA-118).
+  # configuration/schema/network.schema.yaml declares the pattern above as a
+  # `keyPatterns` entry with `role: control-plane-address`: CP1_IP is required on its
+  # own and higher ordinals are optional, so a fork states one member or seven by
+  # listing that many addresses. The resolver derives the list ONCE into
+  # ResolvedConfig.ControlPlane and consumers read that field instead of re-applying
+  # this pattern.
   #
-  # WHAT `false` MEANS, NORMATIVELY: no declared consumer may implement the
-  # countKeyPattern derivation while this flag is false. A consumer that ships the
-  # derivation early is parameterised in form and fixed at 3 in effect, and the
-  # fixedness is now invisible — strictly worse than the constant it replaced. This is
-  # enforced, not advisory: scripts/topology-contract_test.ts greps every
-  # `consumers[].path` and fails if any of them references countKeyPattern or a
-  # CP[0-9]+_IP-shaped regex while this flag is false. Flipping it to `true` belongs in
-  # the same commit as the network.schema.yaml pattern change, and that commit is what
-  # releases the consumers to implement the derivation.
-  countSourceSchemaReady: false
+  # Two tests hold the claim honest, and neither is satisfiable by narration:
+  # scripts/topology-contract_test.ts fails if this flag disagrees with the schema in
+  # either direction, and internal/config's TestControlPlaneKeyPatternMatchesContract
+  # fails if the schema's pattern string stops being character-identical to the one
+  # above. While the schema still had three required scalars, setting this true would
+  # have meant "resolves to 3 for every fork on earth" — parameterised in form,
+  # constant in effect, which is worse than an honest constant because it looks solved.
+  countSourceSchemaReady: true
   # Odd only. An even member count adds a failure to tolerate without adding a
   # failure it can survive, and it is nearly always a mistake rather than a choice.
   permittedCounts: [1, 3, 5, 7]

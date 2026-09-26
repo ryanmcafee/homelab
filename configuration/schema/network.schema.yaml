@@ -1,4 +1,32 @@
 # Network configuration — IPs, CIDRs, BGP, load balancer pool
+
+# Key FAMILIES, declared by key-name pattern rather than by literal name. The map
+# key is the pattern; it must be anchored, and it may not be required, const or
+# defaulted (internal/config.validateKeyPattern rejects all three at load).
+keyPatterns:
+  # The control plane, as a list. Listing your control-plane addresses IS the act
+  # of stating your topology — there is deliberately no CONTROL_PLANE_COUNT key,
+  # because a second key stating the same fact can disagree with the first, and
+  # the operator who adds a node and forgets to bump a count gets a guard
+  # refusing to proceed on a healthy cluster (ADR-035).
+  #
+  # This string MUST equal contracts/cluster/topology.v1.yaml
+  # controlPlane.countKeyPattern. TestControlPlaneKeyPatternMatchesContract
+  # asserts they are identical, so the rule has one statement and not two: a copy
+  # here that drifted from the contract would be the duplication ADR-035 removed,
+  # reintroduced in the file whose job is to end it.
+  #
+  # The capture group is the member ordinal, and it is what lets a template name
+  # cp-N without re-deriving the key-name rule. Ordinals need not be contiguous:
+  # CP1/CP2/CP5 is a three-member control plane, not a five-member one.
+  #
+  # CP_VIP is the shared virtual IP and is not a member; the anchors are what
+  # keep it, WORKER1_IP and a stray OLD_CP1_IP_BACKUP out of the count.
+  "^CP([0-9]+)_IP$":
+    description: Control plane node IP, one key per member (CP1_IP, CP2_IP, ...)
+    role: control-plane-address
+    pattern: "^(?:\\d{1,3}\\.){3}\\d{1,3}$"
+
 keys:
   DOMAIN:
     description: Base domain for all services
@@ -46,18 +74,12 @@ keys:
     required: true
     pattern: "^(?:\\d{1,3}\\.){3}\\d{1,3}$"
 
+  # The first control-plane address, and the only one that is individually
+  # required: a control plane with no first address is a typo rather than a
+  # topology, and Taskfile.yml:689 bootstraps the cluster from this key by name.
+  # Every other member is admitted by the CPn_IP pattern under keyPatterns.
   CP1_IP:
     description: Control plane node 1 IP
-    required: true
-    pattern: "^(?:\\d{1,3}\\.){3}\\d{1,3}$"
-
-  CP2_IP:
-    description: Control plane node 2 IP
-    required: true
-    pattern: "^(?:\\d{1,3}\\.){3}\\d{1,3}$"
-
-  CP3_IP:
-    description: Control plane node 3 IP
     required: true
     pattern: "^(?:\\d{1,3}\\.){3}\\d{1,3}$"
 
