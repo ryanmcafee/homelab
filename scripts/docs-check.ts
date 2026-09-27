@@ -15,6 +15,7 @@
  *   tests/snapshots/homelab/*.yaml         ArgoCD Applications, route inventory
  *                                          (Gateway + host per Application), chart
  *                                          versions, PostSync smoke Jobs
+ *   tests/snapshots/localdev/*.yaml        Applications the Kind loop syncs
  *   tests/e2e/<suite>/chainsaw-test.yaml   chainsaw suite count and names
  *
  * Generated regions are fenced in Markdown with
@@ -23,8 +24,10 @@
  * docs/applications.md `addons-table`, `applications-table`.
  *
  * Literal checks (no region, the sentence around them is hand-written):
- *   readme.md            "<N> addons", "<N> applications", "<N> Applications",
- *                        "<N> chainsaw suites"
+ *   readme.md            "<N> addons", "<N> applications", "<N> chainsaw
+ *                        suites", "<N> ArgoCD Applications" (production) and
+ *                        "<N> Applications synced from your working tree"
+ *                        (the Kind loop — a different, smaller count)
  *   .github/homelab.svg  "addons · <N>", "applications · <N>",
  *                        "<N> apps synced", "<N>/<N> suites", and one
  *                        "<host>.&lt;DOMAIN&gt;" per envoy-internal route host
@@ -68,6 +71,7 @@ export interface Facts {
   addons: number;
   applications: number;
   argoApplications: number;
+  localdevApplications: number;
   e2eSuites: string[];
   smokeJobs: string[];
   routes: RouteRow[];
@@ -361,9 +365,14 @@ export function expectedLiterals(f: Facts): Literal[] {
       fix: [/\b\d+ applications\b/g, `${f.applications} applications`],
     },
     {
+      // The `task localdev:up` line. Kind syncs the localdev overlay, which is
+      // smaller than production: the fakes do not stand in for every addon.
       file: "readme.md",
-      expect: `${f.argoApplications} Applications`,
-      fix: [/\b\d+ Applications\b/g, `${f.argoApplications} Applications`],
+      expect: `${f.localdevApplications} Applications`,
+      fix: [
+        /\b\d+ Applications synced from your working tree\b/g,
+        `${f.localdevApplications} Applications synced from your working tree`,
+      ],
     },
     {
       // "<N> ArgoCD Applications in all" is a separate phrase: the generic
@@ -445,6 +454,13 @@ export async function collectFacts(root: string): Promise<Facts> {
   }
   const allDocs = [...byFile.values()].flat();
 
+  const localdevDocs: string[] = [];
+  for (const f of await listFiles(`${root}/tests/snapshots/localdev`, (n) =>
+    n.endsWith(".yaml"),
+  )) {
+    localdevDocs.push(...splitDocs(await readFile(f, "utf8")));
+  }
+
   const e2eSuites: string[] = [];
   for (const d of await listDirs(`${root}/tests/e2e`)) {
     try {
@@ -469,6 +485,7 @@ export async function collectFacts(root: string): Promise<Facts> {
     addons,
     applications,
     argoApplications: countApplications(allDocs),
+    localdevApplications: countApplications(localdevDocs),
     e2eSuites,
     smokeJobs: smoke,
     routes,
@@ -644,7 +661,7 @@ async function main(): Promise<number> {
     );
   } else if (remaining.length === 0) {
     console.log(
-      `docs-check: in sync (${facts.addons} addons, ${facts.applications} applications, ${facts.argoApplications} Applications, ${facts.e2eSuites.length} suites, ${facts.routes.length} route hosts)`,
+      `docs-check: in sync (${facts.addons} addons, ${facts.applications} applications, ${facts.argoApplications} Applications, ${facts.localdevApplications} in the Kind loop, ${facts.e2eSuites.length} suites, ${facts.routes.length} route hosts)`,
     );
   } else {
     for (const d of remaining) {
