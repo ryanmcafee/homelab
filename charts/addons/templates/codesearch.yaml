@@ -1,0 +1,135 @@
+{{- /*
+codesearch (docs/apps/codesearch.md): the upstream chart plus a homelab
+dependencies chart. Chart, version and values come from the `codesearch:` block
+of configuration/templates/helm-addons.tmpl.
+  wave 13  codesearch-dependencies  charts/codesearch-dependencies (OnePasswordItems, backup/restore workflows;
+                                    Argo CRs sync after the argo-workflows Application at 12)
+  wave 14  codesearch               upstream chart codesearch
+*/}}
+{{- $app := index .Values "codesearch" }}
+{{- if $app.enabled }}
+{{- $aw := index .Values "argo-workflows" }}
+{{- $backups := and $aw.enabled $aw.logArchive.enabled }}
+{{- $urls := list }}
+{{- range splitList "," $app.repos }}
+{{- with trim . }}{{ $urls = append $urls . }}{{ end }}
+{{- end }}
+{{- $values := deepCopy $app.values }}
+{{- $repositories := merge (dict "urls" $urls) (get $values "repositories" | default dict) }}
+{{- $_ := set $values "repositories" $repositories }}
+---
+# Baseline, not restricted: the Argo Workflows executor containers the
+# controller injects into the backup and restore pods carry no container
+# securityContext.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ $app.namespace }}
+  labels:
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/audit: baseline
+    pod-security.kubernetes.io/warn: baseline
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+---
+# Dependencies Application: the git token and log store credentials, and the
+# backup CronWorkflow and restore WorkflowTemplate.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: codesearch-dependencies
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "13"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: {{ $.Values.global.repoUrl }}
+    targetRevision: {{ $.Values.global.targetRevision }}
+    path: charts/codesearch-dependencies
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-{{ $.Values.global.environment }}.yaml
+      # Derived from configuration/ (ADR-010); the child's values stay environment-free.
+      valuesObject:
+        namespace: {{ $app.namespace | quote }}
+        image: {{ $app.dependencies.image | quote }}
+        git:
+          itemPath: {{ $app.dependencies.gitItemPath | quote }}
+        workflows:
+          enabled: {{ $backups }}
+          {{- if $backups }}
+          artifacts:
+            secretName: {{ $aw.logArchive.store.secretName | quote }}
+            itemPath: {{ $app.dependencies.artifactsItemPath | quote }}
+          store:
+            endpoint: {{ printf "%s.%s.svc:7070" $aw.logArchive.store.name $aw.namespace | quote }}
+            bucket: {{ $app.dependencies.backupBucket | quote }}
+          {{- end }}
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: {{ $app.namespace }}
+  syncPolicy:
+    {{- if $.Values.global.automatedSync }}
+    automated:
+      prune: true
+      selfHeal: true
+    {{- end }}
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - SkipDryRunOnMissingResource=true
+---
+# The service: clones the repositories, keeps them indexed and serves MCP at
+# http://codesearch.<namespace>.svc.cluster.local:39725/mcp to namespaces
+# labelled codesearch-client.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: codesearch
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "14"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: {{ $app.chart.repo }}
+    chart: {{ $app.chart.name }}
+    targetRevision: {{ $app.chart.version | quote }}
+    helm:
+      releaseName: codesearch
+      values: |
+        {{- toYaml $values | nindent 8 }}
+  # The restore workflow's restart annotation must survive selfHeal.
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      name: codesearch
+      jsonPointers:
+        - /spec/template/metadata/annotations/homelab.codesearch~1restored-at
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: {{ $app.namespace }}
+  syncPolicy:
+    {{- if $.Values.global.automatedSync }}
+    automated:
+      prune: true
+      selfHeal: true
+    {{- end }}
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - RespectIgnoreDifferences=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+{{- include "homelab.smokeJob" (dict "name" "codesearch" "namespace" $app.namespace "smoke" $app.smoke "wave" "14" "image" $.Values.global.images.curl) }}
+{{- end }}

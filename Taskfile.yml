@@ -1022,7 +1022,8 @@ tasks:
     cmds:
       - |
         set -euo pipefail
-        repo="${GITHUB_REPOSITORY:-ryanmcafee/homelab}"
+        repo="${GITHUB_REPOSITORY:-}"
+        if [ -z "$repo" ]; then repo="$(gh repo view --json nameWithOwner --jq .nameWithOwner)"; fi
         # gh api --paginate fetches every page; jq -s reads the page arrays as
         # one input. Only the base repository's Renovate branches can establish
         # the deployed version. A fork PR with the same ref cannot impersonate one.

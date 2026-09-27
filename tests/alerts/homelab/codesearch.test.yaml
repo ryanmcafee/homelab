@@ -1,0 +1,49 @@
+# promtool unit tests for the homelab-codesearch rules in
+# charts/addons/templates/kube-prometheus-stack.yaml (docs/runbooks/codesearch.md).
+# The upstream codesearch chart ships and tests the service alerts; homelab adds
+# only the backup freshness alert of charts/codesearch-dependencies.
+#
+# `task test:alerts` extracts the rules the addons chart renders (homelab
+# snapshot + Kind render) into rules.yaml next to this file. The group renders
+# only where Argo Workflows and its log store run (homelab).
+rule_files:
+  - rules.yaml
+
+evaluation_interval: 1m
+
+tests:
+  # The last success was at t=0; the daily backup then stops succeeding.
+  - interval: 1m
+    name: backup older than 36h
+    input_series:
+      - series: 'argo_workflows_codesearch_backup_last_success_timestamp_seconds'
+        values: '0x2400'
+    alert_rule_test:
+      - eval_time: 35h
+        alertname: CodesearchBackupMissing
+        exp_alerts: []
+      - eval_time: 37h
+        alertname: CodesearchBackupMissing
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              reason: stale
+            exp_annotations:
+              summary: 'No codesearch backup for 1d 13h 0m 0s'
+              description: 'The daily codesearch-backup CronWorkflow has not succeeded for over 36h. `argo -n codesearch list`; docs/runbooks/codesearch.md.'
+
+  - interval: 10m
+    name: no backup recorded at all
+    alert_rule_test:
+      - eval_time: 35h
+        alertname: CodesearchBackupMissing
+        exp_alerts: []
+      - eval_time: 37h
+        alertname: CodesearchBackupMissing
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              reason: absent
+            exp_annotations:
+              summary: 'No codesearch backup recorded for 36h'
+              description: 'The workflow controller has exported no successful codesearch backup for 36h (none ran since it started, or its metrics are not scraped). `argo -n codesearch cron get codesearch-backup`; docs/runbooks/codesearch.md.'

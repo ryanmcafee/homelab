@@ -39,6 +39,9 @@ logStore:
   image: ""
   bucket: argo-workflows-logs
   retentionDays: 30
+  # Buckets the log retention never touches (codesearch backups): the newest
+  # `keep` objects by key survive; keys must sort by time.
+  backupBuckets: []
   # Block storage: the POSIX backend keeps object metadata in xattrs.
   storageClass: ""
   storageSize: 20Gi

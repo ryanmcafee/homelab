@@ -1,0 +1,60 @@
+# codesearch-dependencies values (docs/apps/codesearch.md, docs/runbooks/codesearch.md)
+#
+# The parent addons Application (charts/addons/templates/codesearch.yaml)
+# passes namespace, image, the 1Password item paths and the log store through
+# helm.valuesObject, all derived from configuration/ (ADR-010).
+
+namespace: codesearch
+
+# The upstream codesearch image (it carries mdb_copy and tar).
+image: ""
+
+# Optional 1Password item (CODESEARCH_GIT_1P_PATH) with field GIT_TOKEN; the
+# upstream chart reads it as repositories.tokenSecret.
+git:
+  secretName: codesearch-git
+  itemPath: ""
+
+# Objects of the upstream release `codesearch` the workflows use.
+server:
+  deploymentName: codesearch
+  pvcName: codesearch-data
+  podLabels:
+    app.kubernetes.io/name: codesearch
+    app.kubernetes.io/instance: codesearch
+  # HOME of serve on the volume: <home>/.codesearch holds repos.json and embedding_cache/.
+  home: /data/home
+
+# Backup CronWorkflow and restore WorkflowTemplate; the parent enables them
+# when Argo Workflows and its S3 log store run.
+workflows:
+  enabled: false
+  # The Argo Workflows log store credentials (ARGO_WORKFLOWS_ARTIFACTS_1P_PATH),
+  # read into this namespace: fields accessKey and secretKey.
+  artifacts:
+    secretName: argo-workflows-artifacts
+    itemPath: ""
+  store:
+    endpoint: ""
+    bucket: codesearch-backups
+    # <prefix>/<UTC timestamp>.tar.gz per run, and <prefix>/latest.tar.gz
+    # overwritten by each; the log store keeps the newest 14 objects
+    # (charts/argo-workflows-dependencies logStore.backupBuckets).
+    prefix: codesearch
+  backup:
+    schedules:
+      - "30 3 * * *"
+    timezone: UTC
+    activeDeadlineSeconds: 3600
+  restore:
+    activeDeadlineSeconds: 1800
+  ttl:
+    secondsAfterSuccess: 86400
+    secondsAfterFailure: 604800
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: "1"
+      memory: 512Mi
