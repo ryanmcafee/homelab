@@ -1020,3 +1020,69 @@ paperclip:
     enabled: true
     url: http://paperclip.paperclip.svc.cluster.local:3100/api/health
     expect: ["200"]
+
+openclaw:
+  enabled: true
+  namespace: openclaw
+  hostname: openclaw.homelab.local
+
+  # openclaw-operator: OCI chart (repoURL without oci://), CRDs + controller.
+  operator:
+    namespace: openclaw-system
+    chart:
+      name: openclaw-operator
+      repo: ghcr.io/paperclipinc/charts
+      version: "0.40.0"
+    serviceMonitor:
+      enabled: true
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: 500m
+        memory: 256Mi
+
+  # charts/openclaw-dependencies: 1Password items -> Secrets openclaw-api-keys
+  # (ANTHROPIC_OAUTH_TOKEN, plus ANTHROPIC_API_KEY / OPENAI_API_KEY only where a
+  # toggle asks) and openclaw-gateway (token). Field names in 1Password must equal
+  # these keys. A separate item from PAPERCLIP_API_KEYS_1P_PATH: same field names,
+  # independent rotation and blast radius (docs/apps/openclaw.md).
+  dependencies:
+    onePassword:
+      enabled: false
+      apiKeysItemPath: vaults/homelab/items/openclaw-api-keys
+      gatewayItemPath: vaults/homelab/items/openclaw-gateway
+
+  # charts/openclaw: the openclaw.rocks OpenClawInstance behind the internal
+  # Gateway (LAN/tailnet only; no route on the external Gateway).
+  instance:
+    image:
+      repository: ghcr.io/openclaw/openclaw
+      tag: "2026.9.6"
+    route:
+      gateway:
+        name: envoy-internal
+        namespace: envoy-gateway-system
+    persistence:
+      size: 1Gi
+      storageClass: local-path
+    observability:
+      metrics:
+        enabled: true
+        serviceMonitor:
+          enabled: true
+    resources:
+      requests:
+        cpu: 250m
+        memory: 512Mi
+      limits:
+        cpu: "1"
+        memory: 1Gi
+
+  # PostSync smoke hook: the gateway's unauthenticated liveness path on the
+  # Instance Service (gateway port 18789); the Control UI itself needs the token.
+  smoke:
+    enabled: true
+    url: http://openclaw.openclaw.svc.cluster.local:18789/healthz
+    expect: ["200"]
