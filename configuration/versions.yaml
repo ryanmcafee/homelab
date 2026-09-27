@@ -99,6 +99,9 @@ charts:
   opentelemetry-collector: "0.173.1"
   # renovate: datasource=helm depName=altinity-clickhouse-operator registryUrl=https://helm.altinity.com
   altinity-clickhouse-operator: "0.27.3"
+  # Componentized LiteLLM chart (gateway, backend, ui, migrations Job), OCI-only (issue #424).
+  # renovate: datasource=docker depName=ghcr.io/berriai/litellm/chart/litellm
+  litellm: "1.102.1"
 images:
   homelab-cmp: "0.1.53"
   # Alert triage agent image (Dockerfile.triage-agent, .github/workflows/triage-agent-image.yml);
