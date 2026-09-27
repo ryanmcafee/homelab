@@ -12,6 +12,7 @@ implementation for the same concern, the architecture has failed.
 | [byo-extension-points.md](byo-extension-points.md) — bring-your-own cloud, key, identity centre, agent identity | ADR-028 |
 | [fork-ability.md](fork-ability.md) — the fork-ability contract as a checkable rule | ADR-029 |
 | [quality-gates.md](quality-gates.md) — contract tests, schema compatibility, upgrade and rollback | ADR-030 |
+| [metric-contract.md](metric-contract.md) — the RED metric shape, required labels, cardinality rules, worked SLO and canary template | ADR-041 |
 
 Below the architecture baseline sit per-surface contracts, which apply the rules above to one
 boundary:
