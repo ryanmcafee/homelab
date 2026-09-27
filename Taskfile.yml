@@ -913,6 +913,19 @@ tasks:
           fi
           echo "== $env: $count alerting rules"
           "$promtool" check rules "$out/$env-rules.yaml"
+          # An `exp_alerts: []` assertion passes whether the alert exists or not,
+          # so a rename would silence the rule and leave the suite green. Every
+          # alertname a test names has to still be rendered.
+          yq -r '.groups[].rules[] | select(has("alert")) | .alert' "$out/$env-rules.yaml" | sort -u > "$out/$env-rendered.txt"
+          for suite in "$root"/tests/alerts/*.test.yaml "$root/tests/alerts/$env"/*.test.yaml; do
+            [ -f "$suite" ] || continue
+            yq -r '.tests[].alert_rule_test[].alertname' "$suite"
+          done | sort -u > "$out/$env-asserted.txt"
+          missing="$(comm -23 "$out/$env-asserted.txt" "$out/$env-rendered.txt")"
+          if [ -n "$missing" ]; then
+            echo "::error::tests/alerts names alerts the $env addons render no longer has: $(echo "$missing" | tr '\n' ' ')" >&2
+            exit 1
+          fi
           # tests/alerts/ holds fixtures for rules both environments render;
           # tests/alerts/<env>/ holds the ones only that environment ships.
           ( cd "$out" && rm -f ./*.test.yaml && cp "$env-rules.yaml" rules.yaml \

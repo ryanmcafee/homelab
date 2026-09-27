@@ -1,0 +1,194 @@
+# promtool unit tests for the homelab-paperclip rules in
+# charts/addons/templates/kube-prometheus-stack.yaml (docs/runbooks/paperclip-agents.md).
+#
+# `task test:alerts` renders the addons chart and extracts every group of
+# additionalPrometheusRulesMap into rules.yaml, so the expressions under test are
+# the ones that deploy.
+#
+# Inputs are the values the Paperclip API reported during the 2026-09-24 batch
+# sandbox drop and the week that followed, so a passing run means these rules
+# would have paged then. They did not: until #343 the 2 % recovery threshold
+# existed only as a field in the API response, with no Prometheus rule at all.
+rule_files:
+  - rules.yaml
+
+evaluation_interval: 1m
+
+tests:
+  # Week 2026-09-21 as the API reported it: 74 recovery actions over 596 runs
+  # against a 2 % threshold. The rule had no Prometheus expression at all until
+  # #343, which is why three consecutive breached observations never paged.
+  - interval: 1m
+    input_series:
+      - series: 'paperclip_recovery_rate_percent{company_id="mcaa",company="McAfee Consulting"}'
+        values: "12.42+0x60"
+      - series: 'paperclip_recovery_breached{company_id="mcaa",company="McAfee Consulting"}'
+        values: "1+0x60"
+      - series: 'paperclip_recovery_threshold_percent{company_id="mcaa",company="McAfee Consulting"}'
+        values: "2+0x60"
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: PaperclipRecoveryRateBreached
+        exp_alerts: []
+      - eval_time: 31m
+        alertname: PaperclipRecoveryRateBreached
+        exp_alerts:
+          - exp_labels:
+              alertname: PaperclipRecoveryRateBreached
+              severity: warning
+              company_id: mcaa
+              company: McAfee Consulting
+            exp_annotations:
+              summary: "Paperclip recovery rate in McAfee Consulting is 12.42 % this week"
+              description: "Paperclip reports its recovery-observability threshold (paperclip_recovery_threshold_percent) breached for the current week. docs/runbooks/paperclip-agents.md."
+
+  # A high rate with the threshold not breached must stay silent: the alert
+  # follows Paperclip's own verdict, not a threshold duplicated in PromQL.
+  - interval: 1m
+    input_series:
+      - series: 'paperclip_recovery_rate_percent{company_id="mcaa",company="McAfee Consulting"}'
+        values: "50+0x60"
+      - series: 'paperclip_recovery_breached{company_id="mcaa",company="McAfee Consulting"}'
+        values: "0+0x60"
+    alert_rule_test:
+      - eval_time: 31m
+        alertname: PaperclipRecoveryRateBreached
+        exp_alerts: []
+
+  # Five agents left at status running with zero live runs company-wide: the
+  # 2026-09-24 signature. Warning covers one stuck agent, critical covers the
+  # stalled board, and both must fire on this input.
+  - interval: 1m
+    input_series:
+      - series: 'paperclip_agents_phantom_running{company_id="mcaa",company="McAfee Consulting"}'
+        values: "5+0x60"
+      - series: 'paperclip_agent_runs_live{company_id="mcaa",company="McAfee Consulting"}'
+        values: "0+0x60"
+    alert_rule_test:
+      - eval_time: 16m
+        alertname: PaperclipPhantomAgentStuck
+        exp_alerts:
+          - exp_labels:
+              alertname: PaperclipPhantomAgentStuck
+              severity: warning
+              company_id: mcaa
+              company: McAfee Consulting
+            exp_annotations:
+              summary: "5 agents in McAfee Consulting report running without a live run"
+              description: "Agents stuck in status running with no queued or running heartbeat run for 15m. docs/runbooks/paperclip-agents.md."
+      - eval_time: 31m
+        alertname: PaperclipPhantomAgentStuck
+        exp_alerts:
+          - exp_labels:
+              alertname: PaperclipPhantomAgentStuck
+              severity: warning
+              company_id: mcaa
+              company: McAfee Consulting
+            exp_annotations:
+              summary: "5 agents in McAfee Consulting report running without a live run"
+              description: "Agents stuck in status running with no queued or running heartbeat run for 15m. docs/runbooks/paperclip-agents.md."
+          - exp_labels:
+              alertname: PaperclipPhantomAgentStuck
+              severity: critical
+              company_id: mcaa
+              company: McAfee Consulting
+            exp_annotations:
+              summary: "McAfee Consulting has 5 phantom agents and no live run: the board is stalled"
+              description: "No agent has a queued or running run while at least three report running, so no queued wake can dispatch and nothing self-heals. Clear the agent status from the board; docs/runbooks/paperclip-agents.md."
+
+  # Three phantom agents while other runs are live is a stuck agent, not a
+  # stalled board: critical must stay silent so it keeps meaning "nobody can
+  # dispatch". This is the arm that separates the two severities.
+  - interval: 1m
+    input_series:
+      - series: 'paperclip_agents_phantom_running{company_id="mcaa",company="McAfee Consulting"}'
+        values: "3+0x60"
+      - series: 'paperclip_agent_runs_live{company_id="mcaa",company="McAfee Consulting"}'
+        values: "2+0x60"
+    alert_rule_test:
+      - eval_time: 31m
+        alertname: PaperclipPhantomAgentStuck
+        exp_alerts:
+          - exp_labels:
+              alertname: PaperclipPhantomAgentStuck
+              severity: warning
+              company_id: mcaa
+              company: McAfee Consulting
+            exp_annotations:
+              summary: "3 agents in McAfee Consulting report running without a live run"
+              description: "Agents stuck in status running with no queued or running heartbeat run for 15m. docs/runbooks/paperclip-agents.md."
+
+  # Two phantom agents and no live run is below the three-agent floor, so only
+  # the warning fires. This is the arm that keeps critical meaning "batch drop"
+  # rather than "one agent died on an idle board".
+  - interval: 1m
+    input_series:
+      - series: 'paperclip_agents_phantom_running{company_id="mcaa",company="McAfee Consulting"}'
+        values: "2+0x60"
+      - series: 'paperclip_agent_runs_live{company_id="mcaa",company="McAfee Consulting"}'
+        values: "0+0x60"
+    alert_rule_test:
+      - eval_time: 31m
+        alertname: PaperclipPhantomAgentStuck
+        exp_alerts:
+          - exp_labels:
+              alertname: PaperclipPhantomAgentStuck
+              severity: warning
+              company_id: mcaa
+              company: McAfee Consulting
+            exp_annotations:
+              summary: "2 agents in McAfee Consulting report running without a live run"
+              description: "Agents stuck in status running with no queued or running heartbeat run for 15m. docs/runbooks/paperclip-agents.md."
+
+  # Two failures out of three runs is 67 % but below the five-run floor, so the
+  # ratio must not page on a nearly idle board.
+  - interval: 1m
+    input_series:
+      - series: 'paperclip_agent_runs_finished{company_id="mcaa",company="McAfee Consulting",status="interrupted"}'
+        values: "2+0x60"
+      - series: 'paperclip_agent_runs_finished{company_id="mcaa",company="McAfee Consulting",status="succeeded"}'
+        values: "1+0x60"
+    alert_rule_test:
+      - eval_time: 16m
+        alertname: PaperclipAgentFailureRateHigh
+        exp_alerts: []
+
+  # Six interrupted of ten crosses both the ratio and the floor.
+  - interval: 1m
+    input_series:
+      - series: 'paperclip_agent_runs_finished{company_id="mcaa",company="McAfee Consulting",status="interrupted"}'
+        values: "6+0x60"
+      - series: 'paperclip_agent_runs_finished{company_id="mcaa",company="McAfee Consulting",status="succeeded"}'
+        values: "4+0x60"
+    alert_rule_test:
+      - eval_time: 16m
+        alertname: PaperclipAgentFailureRateHigh
+        exp_alerts:
+          - exp_labels:
+              alertname: PaperclipAgentFailureRateHigh
+              severity: warning
+              company_id: mcaa
+              company: McAfee Consulting
+            exp_annotations:
+              summary: "60% of agent runs in McAfee Consulting failed in the last hour"
+              description: "More than 20 % of at least 5 runs finished in the last hour failed, were interrupted or timed out. paperclip_agent_runs_errors names the error codes; docs/runbooks/paperclip-agents.md."
+
+  # An exporter that cannot read the API makes every alert above blind, so the
+  # blind spot pages on its own.
+  - interval: 1m
+    input_series:
+      - series: 'paperclip_up{namespace="paperclip"}'
+        values: "0+0x60"
+      - series: 'up{job="paperclip-exporter",namespace="paperclip"}'
+        values: "1+0x60"
+    alert_rule_test:
+      - eval_time: 16m
+        alertname: PaperclipMetricsUnavailable
+        exp_alerts:
+          - exp_labels:
+              alertname: PaperclipMetricsUnavailable
+              severity: warning
+              namespace: paperclip
+            exp_annotations:
+              summary: "The Paperclip exporter cannot read the Paperclip API"
+              description: "The agent alerts of this group are blind. The exporter log names the endpoint and HTTP status; 401/403 means the paperclip-exporter 1Password item is missing or its key was revoked."
