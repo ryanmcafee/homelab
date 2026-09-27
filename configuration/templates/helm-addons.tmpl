@@ -1555,6 +1555,82 @@ argo-rollouts:
   # status are the supported read paths.
   dashboard:
     enabled: false
+# NATS + JetStream — the platform event bus (docs/event-backbone.md)
+# Sync Waves: 10 nats, 11 nack (the jetstream.nats.io CRDs), 12 nats-config
+# (the stream set). Subjects, retention and delivery guarantees are normative in
+# contracts/events/subjects.v1.yaml and are not re-decided here.
+# ============================================================================
+
+nats:
+  # Runs in Kind too: the event-backbone e2e test publishes and consumes against
+  # it, which is the only way the dead-letter path is shown firing rather than
+  # merely configured.
+  enabled: true
+  namespace: nats
+  url: nats://nats.nats.svc.cluster.local:4222
+
+  chart:
+    name: nats
+    repo: https://nats-io.github.io/k8s/helm/charts/
+    version: "{{ index .Versions.Charts "nats" }}"
+
+  monitoring:
+    # Must stay at or below 60s. The PF_WORK aging rules carry a coverage guard
+    # that a longer interval can never satisfy, so those alerts would silently
+    # never fire (MCAA-134).
+    scrapeInterval: 30s
+
+  # Stream sizing is operator-supplied, not contract: a hard-coded 3 means a
+  # single-node fork cannot create any stream (10074).
+  replicas: {{ .Values.NATS_SERVER_REPLICAS.Value }}
+
+  jetstream:
+    streamReplicas: {{ .Values.NATS_STREAM_REPLICAS.Value }}
+    storage:
+{{- if $localdev }}
+      size: 2Gi
+{{- else }}
+      size: 20Gi
+{{- end }}
+      # Block storage: JetStream's file store is a write-ahead log and needs real
+      # fsync semantics, so it takes the iSCSI SSD class and never an NFS one.
+      className: {{ .Values.STORAGE_CLASS_ISCSI_SSD.Value }}
+{{- if $localdev }}
+
+  # Kind sizing
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 250m
+      memory: 256Mi
+{{- else }}
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 1Gi
+{{- end }}
+
+nack:
+  natsUrl: nats://nats.nats.svc.cluster.local:4222
+
+  chart:
+    name: nack
+    repo: https://nats-io.github.io/k8s/helm/charts/
+    version: "{{ index .Versions.Charts "nack" }}"
+
+  resources:
+    requests:
+      cpu: 25m
+      memory: 64Mi
+    limits:
+      cpu: {{ if $localdev }}100m{{ else }}200m{{ end }}
+      memory: 128Mi
 
 # ============================================================================
 # Istio ambient mesh + Kiali (docs/service-mesh.md)

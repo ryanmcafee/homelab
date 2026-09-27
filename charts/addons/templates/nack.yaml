@@ -1,0 +1,49 @@
+{{- if .Values.nats.enabled }}
+# NACK - the JetStream controller. Reconciles the jetstream.nats.io Stream and
+# Consumer resources that charts/nats-config declares, so the stream set is
+# GitOps state rather than an imperative `nats stream add`.
+# Sync Wave: 11 (after nats at 10; its CRDs gate nats-config at 12)
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: nack
+  namespace: argocd
+  labels:
+    {{- include "addons.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "11"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+
+  source:
+    repoURL: {{ .Values.nack.chart.repo }}
+    chart: {{ .Values.nack.chart.name }}
+    targetRevision: {{ .Values.nack.chart.version }}
+    helm:
+      releaseName: nack
+      values: |
+        jetstream:
+          enabled: true
+          nats:
+            url: {{ .Values.nack.natsUrl }}
+        resources:
+          {{- toYaml .Values.nack.resources | nindent 10 }}
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: {{ .Values.nats.namespace }}
+
+  syncPolicy:
+    {{- if .Values.global.automatedSync }}
+    automated:
+      prune: true
+      selfHeal: true
+    {{- end }}
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+{{- end }}

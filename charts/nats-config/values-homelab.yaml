@@ -1,0 +1,9 @@
+# nats-config — homelab overrides
+#
+# No overrides are needed here: values.yaml already carries the contract's own
+# numbers, and the parent Application supplies natsUrl and replicas through
+# helm.valuesObject so a fork does not edit a committed file.
+#
+# The file still has to exist. The parent Application always appends
+# values-homelab.yaml to spec.source.helm.valueFiles, and ArgoCD fails the sync
+# when a declared value file is missing.

@@ -1060,6 +1060,54 @@ argo-rollouts:
 
   dashboard:
     enabled: false
+# NATS + JetStream event bus, the NACK controller, and the stream set
+# (templates/nats.yaml, nack.yaml, nats-config.yaml; docs/event-backbone.md)
+# Placeholder: configuration/templates/helm-addons.tmpl renders the real block.
+# ============================================================================
+
+nats:
+  enabled: false
+  namespace: nats
+  url: nats://nats.nats.svc.cluster.local:4222
+  replicas: 3
+
+  chart:
+    name: nats
+    repo: https://nats-io.github.io/k8s/helm/charts/
+    version: "2.15.0"
+
+  jetstream:
+    streamReplicas: 1
+    storage:
+      size: 10Gi
+      className: ""
+
+  monitoring:
+    scrapeInterval: 30s
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+nack:
+  natsUrl: nats://nats.nats.svc.cluster.local:4222
+
+  chart:
+    name: nack
+    repo: https://nats-io.github.io/k8s/helm/charts/
+    version: "0.35.0"
+
+  resources:
+    requests:
+      cpu: 25m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
 
 # ============================================================================
 # Istio ambient mesh + Kiali (templates/istio.yaml, docs/service-mesh.md)

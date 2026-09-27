@@ -1,0 +1,89 @@
+# The platform stream set. Every field here restates a normative value from
+# contracts/events/subjects.v1.yaml (ADR-026, revised by ADR-038);
+# scripts/nats-streams-contract_test.ts fails when the two drift.
+#
+# The parent Application (charts/addons/templates/nats-config.yaml) supplies
+# `natsUrl` and `replicas`, so stream sizing stays operator-supplied and no fork
+# edits this file to run on one node.
+
+natsUrl: nats://nats.nats.svc.cluster.local:4222
+
+# Replicas per stream. The contract keeps this a placeholder on purpose: a
+# hard-coded 3 means a single-node fork cannot create any stream at all
+# ("replicas > 1 not supported in non-clustered mode (10074)").
+replicas: 1
+
+streams:
+  - name: PF_EVENTS
+    description: The only ingestion point for .ev; general fan-out of every v1 platform event
+    subjects:
+      - pf.*.*.*.*.*.ev
+    retention: limits
+    maxAge: 168h
+    maxMsgSize: 1048576
+    discard: old
+    duplicateWindow: 2m
+
+  - name: PF_AUDIT
+    description: A retention policy over the identity and control subset of PF_EVENTS
+    # Deliberately no subjects. Two streams in one account may not have
+    # overlapping filters — a real server refuses the second with "subjects
+    # overlap with an existing stream (10065)" — so PF_AUDIT sources from
+    # PF_EVENTS instead of ingesting directly. One publish, one PubAck, one
+    # unambiguous envelope sequence.
+    sources:
+      - name: PF_EVENTS
+        filterSubject: pf.*.identity.*.*.*.ev
+      - name: PF_EVENTS
+        filterSubject: pf.*.control.*.*.*.ev
+    retention: limits
+    maxAge: 8760h
+    discard: new
+    duplicateWindow: 2m
+
+  - name: PF_WORK
+    description: Durable deferred work; exactly one consumer group takes each message
+    subjects:
+      - pf.*.*.*.*.*.wq
+    retention: workqueue
+    # 24h, chosen to exceed the worst consumer outage the platform intends to
+    # survive. Age expiry here is a silent-loss path with no per-message signal,
+    # which is why it is covered by the PF_WORK stream alerts and not by an
+    # advisory.
+    maxAge: 24h
+    discard: new
+    duplicateWindow: 2m
+
+  - name: PF_DLQ
+    description: Full original envelopes of wq work a consumer gave up on
+    subjects:
+      - pf.*.*.*.*.*.dl
+    retention: limits
+    maxAge: 720h
+    discard: old
+    duplicateWindow: 2m
+
+consumers:
+  # The dead-letter reader. The republishing consumer is what puts an envelope on
+  # a .dl subject; this is the durable subscriber that makes a failed delivery
+  # visible instead of leaving PF_DLQ unread.
+  - name: dlq-reporter-observability-v1
+    streamName: PF_DLQ
+    filterSubject: pf.*.*.*.*.*.dl
+    description: Durable reader of the dead-letter record
+
+  # The consumer the end-to-end verification publishes through, named by the
+  # same <component>-<domain>-v<major> rule as any other .ev consumer.
+  - name: verify-workload-v1
+    streamName: PF_EVENTS
+    filterSubject: pf.*.workload.*.*.v1.ev
+    description: Durable consumer the event-backbone e2e test publishes through
+
+# Consumer defaults from the contract. A per-consumer value overrides them.
+consumerDefaults:
+  ackPolicy: explicit
+  maxDeliver: 5
+  ackWait: 30s
+  maxAckPending: 256
+  deliverPolicy: all
+  replayPolicy: instant

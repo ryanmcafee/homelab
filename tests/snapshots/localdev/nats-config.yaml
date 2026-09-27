@@ -1,0 +1,153 @@
+---
+# Source: nats-config/templates/consumers.yaml
+apiVersion: jetstream.nats.io/v1beta2
+kind: Consumer
+metadata:
+  name: dlq-reporter-observability-v1
+  labels:
+    app.kubernetes.io/part-of: nats
+    app.kubernetes.io/component: jetstream-consumer
+spec:
+  durableName: dlq-reporter-observability-v1
+  streamName: PF_DLQ
+  description: "Durable reader of the dead-letter record"
+  servers:
+    - nats://nats.nats.svc.cluster.local:4222
+  # Consumers filter by subject, never by decoding the body and discarding.
+  filterSubject: pf.*.*.*.*.*.dl
+  deliverPolicy: all
+  replayPolicy: instant
+  ackPolicy: explicit
+  ackWait: 30s
+  maxDeliver: 5
+  maxAckPending: 256
+  preventDelete: true
+
+---
+# Source: nats-config/templates/consumers.yaml
+apiVersion: jetstream.nats.io/v1beta2
+kind: Consumer
+metadata:
+  name: verify-workload-v1
+  labels:
+    app.kubernetes.io/part-of: nats
+    app.kubernetes.io/component: jetstream-consumer
+spec:
+  durableName: verify-workload-v1
+  streamName: PF_EVENTS
+  description: "Durable consumer the event-backbone e2e test publishes through"
+  servers:
+    - nats://nats.nats.svc.cluster.local:4222
+  # Consumers filter by subject, never by decoding the body and discarding.
+  filterSubject: pf.*.workload.*.*.v1.ev
+  deliverPolicy: all
+  replayPolicy: instant
+  ackPolicy: explicit
+  ackWait: 30s
+  maxDeliver: 5
+  maxAckPending: 256
+  preventDelete: true
+
+---
+# Source: nats-config/templates/streams.yaml
+apiVersion: jetstream.nats.io/v1beta2
+kind: Stream
+metadata:
+  name: pf-events
+  labels:
+    app.kubernetes.io/part-of: nats
+    app.kubernetes.io/component: jetstream-stream
+spec:
+  name: PF_EVENTS
+  description: "The only ingestion point for .ev; general fan-out of every v1 platform event"
+  servers:
+    - nats://nats.nats.svc.cluster.local:4222
+  subjects:
+    - pf.*.*.*.*.*.ev
+  storage: file
+  replicas: 1
+  retention: limits
+  maxAge: 168h
+  maxMsgSize: 1.048576e+06
+  discard: old
+  duplicateWindow: 2m
+  # Without this, deleting the resource deletes the stream and its replay history.
+  preventDelete: true
+
+---
+# Source: nats-config/templates/streams.yaml
+apiVersion: jetstream.nats.io/v1beta2
+kind: Stream
+metadata:
+  name: pf-audit
+  labels:
+    app.kubernetes.io/part-of: nats
+    app.kubernetes.io/component: jetstream-stream
+spec:
+  name: PF_AUDIT
+  description: "A retention policy over the identity and control subset of PF_EVENTS"
+  servers:
+    - nats://nats.nats.svc.cluster.local:4222
+  sources:
+    - filterSubject: pf.*.identity.*.*.*.ev
+      name: PF_EVENTS
+    - filterSubject: pf.*.control.*.*.*.ev
+      name: PF_EVENTS
+  storage: file
+  replicas: 1
+  retention: limits
+  maxAge: 8760h
+  discard: new
+  duplicateWindow: 2m
+  # Without this, deleting the resource deletes the stream and its replay history.
+  preventDelete: true
+
+---
+# Source: nats-config/templates/streams.yaml
+apiVersion: jetstream.nats.io/v1beta2
+kind: Stream
+metadata:
+  name: pf-work
+  labels:
+    app.kubernetes.io/part-of: nats
+    app.kubernetes.io/component: jetstream-stream
+spec:
+  name: PF_WORK
+  description: "Durable deferred work; exactly one consumer group takes each message"
+  servers:
+    - nats://nats.nats.svc.cluster.local:4222
+  subjects:
+    - pf.*.*.*.*.*.wq
+  storage: file
+  replicas: 1
+  retention: workqueue
+  maxAge: 24h
+  discard: new
+  duplicateWindow: 2m
+  # Without this, deleting the resource deletes the stream and its replay history.
+  preventDelete: true
+
+---
+# Source: nats-config/templates/streams.yaml
+apiVersion: jetstream.nats.io/v1beta2
+kind: Stream
+metadata:
+  name: pf-dlq
+  labels:
+    app.kubernetes.io/part-of: nats
+    app.kubernetes.io/component: jetstream-stream
+spec:
+  name: PF_DLQ
+  description: "Full original envelopes of wq work a consumer gave up on"
+  servers:
+    - nats://nats.nats.svc.cluster.local:4222
+  subjects:
+    - pf.*.*.*.*.*.dl
+  storage: file
+  replicas: 1
+  retention: limits
+  maxAge: 720h
+  discard: old
+  duplicateWindow: 2m
+  # Without this, deleting the resource deletes the stream and its replay history.
+  preventDelete: true

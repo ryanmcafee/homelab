@@ -62,3 +62,7 @@ GRAFANA_CONFIG_PVC: grafana-config
 
 # GPU
 GPU_VENDOR: "none"
+
+# NATS / JetStream sizing (docs/event-backbone.md)
+NATS_SERVER_REPLICAS: "3"
+NATS_STREAM_REPLICAS: "1"

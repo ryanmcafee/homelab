@@ -61,3 +61,7 @@ STORAGE_CLASS_NFS: local-path
 STORAGE_CLASS_ISCSI: local-path
 STORAGE_CLASS_SSD: local-path
 STORAGE_CLASS_ISCSI_SSD: local-path
+# Kind is one node, and JetStream refuses a stream asking for more replicas than
+# there are servers.
+NATS_SERVER_REPLICAS: "1"
+NATS_STREAM_REPLICAS: "1"

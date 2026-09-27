@@ -1,0 +1,81 @@
+{{- if .Values.nats.enabled }}
+# NATS with JetStream file persistence - the platform event bus
+# Sync Wave: 10 (after kube-prometheus-stack at 9, whose PodMonitor the exporter needs)
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Values.nats.namespace }}
+  labels:
+    {{- include "addons.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: nats
+  namespace: argocd
+  labels:
+    {{- include "addons.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+
+  source:
+    repoURL: {{ .Values.nats.chart.repo }}
+    chart: {{ .Values.nats.chart.name }}
+    targetRevision: {{ .Values.nats.chart.version }}
+    helm:
+      releaseName: nats
+      values: |
+        config:
+          cluster:
+            enabled: {{ gt (int .Values.nats.replicas) 1 }}
+            replicas: {{ .Values.nats.replicas }}
+          jetstream:
+            enabled: true
+            fileStore:
+              enabled: true
+              pvc:
+                enabled: true
+                size: {{ .Values.nats.jetstream.storage.size }}
+                storageClassName: {{ .Values.nats.jetstream.storage.className }}
+        # promExporter and its podMonitor both default to false upstream, and
+        # config.jetstream.enabled above is what renders the exporter's -jsz=all
+        # flag. Without all three there is no nats_stream_* series and the
+        # PF_WORK silent-loss alerts (MCAA-134) run blind.
+        promExporter:
+          enabled: true
+          podMonitor:
+            enabled: true
+            # The chart's PodMonitor sets no interval, so it would inherit
+            # whatever global scrape interval a fork configured. The aging rules'
+            # coverage guard can never be satisfied above 60s, so pin it here.
+            merge:
+              spec:
+                podMetricsEndpoints:
+                  - port: prom-metrics
+                    interval: {{ .Values.nats.monitoring.scrapeInterval }}
+        container:
+          resources:
+            {{- toYaml .Values.nats.resources | nindent 12 }}
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: {{ .Values.nats.namespace }}
+
+  syncPolicy:
+    {{- if .Values.global.automatedSync }}
+    automated:
+      prune: true
+      selfHeal: true
+    {{- end }}
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+{{- end }}

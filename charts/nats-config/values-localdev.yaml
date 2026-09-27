@@ -1,0 +1,6 @@
+# nats-config — local development overrides
+#
+# Kind is a single node, so every stream asks for one replica. A stream that
+# requests more replicas than there are servers never reports healthy, which is
+# why this is not left to the chart default.
+replicas: 1
