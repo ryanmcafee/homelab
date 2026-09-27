@@ -1,0 +1,511 @@
+# The RED metric contract for first-party control-plane services, v1.
+#
+# Normative. Reasoning and decision: ADR-041 in docs/project_notes/decisions.md.
+# Worked queries, SLO and canary template: docs/contracts/metric-contract.md.
+#
+# This file exists because the producers and the consumer of these metrics sit on
+# opposite sides of a boundary. Every control-plane service produces them; the SRE
+# writes one alert rule, one SLO and one canary AnalysisTemplate against all of them.
+# Without a fixed shape the consumer cannot write anything that survives the next
+# service, and each service that ships instrumented "however was convenient" turns
+# day-31 error-budget gating into a migration.
+#
+# What is deliberately NOT here: the instrumentation of any service, the recording
+# rules, the alert thresholds and the error budget policy. Those are the consumer's,
+# and they are written against this file rather than negotiated per service.
+
+version: 1
+
+# ---------------------------------------------------------------------------
+# Scope. A contract that silently makes everything already shipped non-conformant
+# is a contract nobody adopts, so the boundary is stated before the rules.
+# ---------------------------------------------------------------------------
+scope:
+  # A process we build, that serves requests or handles bus messages, and that is
+  # deployed as part of the platform on either surface (homelab or commercial).
+  appliesTo: first-party-control-plane-services
+  # Third-party exporters keep their upstream metric names. Renaming them would mean
+  # forking an upstream chart to satisfy a naming rule, which is a cost with no
+  # consumer benefit: the SRE can bridge any of them with a recording rule that
+  # projects into this shape. Named here because "does B1 have to change?" must have
+  # a written answer, and the answer is no.
+  outOfScope:
+    - id: third-party-exporters
+      examples: [prometheus-nats-exporter (nats_*), kube-state-metrics, node-exporter, envoy]
+      rule: out of scope permanently; bridge with a recording rule if an SLO needs them
+    - id: paperclip-agent-health-exporter
+      path: charts/paperclip/files/paperclip-exporter.ts
+      rule: >-
+        Out of scope by category, not by grandfathering. It exports agent-fleet health
+        gauges, not a request path; it has no requests to count. paperclip_* stays.
+    - id: instrumentation-and-slos
+      rule: >-
+        Implementing this in any service, and the error-budget release gate, are not
+        governed here. This is the contract the gate later rests on.
+
+# ---------------------------------------------------------------------------
+# The metric shape. ONE histogram carries all three RED signals: request rate is its
+# _count, duration is its _bucket, and the error rate is a ratio over the same
+# _count selected by the `outcome` label.
+#
+# Deliberately not two instruments. A separate requests_total counter and a separate
+# errors_total counter can disagree -- a handler that increments one and returns early
+# before the other produces an error ratio above 1 or below 0, and the failure is
+# invisible until someone reads a dashboard during an incident. One instrument, one
+# denominator, and the arithmetic cannot come apart.
+# ---------------------------------------------------------------------------
+metrics:
+  - name: platform_request_duration_seconds
+    type: histogram
+    unit: seconds
+    required: true
+    help: >-
+      Duration of one served request or one handled bus message, in seconds.
+    # The derived series a consumer may select. A consumer that reads anything else
+    # from this family is reading something the contract does not promise.
+    series: [_bucket, _count, _sum]
+    red:
+      rate: rate(platform_request_duration_seconds_count[window])
+      errorRatio: >-
+        rate(platform_request_duration_seconds_count{outcome="error"}[window])
+        / rate(platform_request_duration_seconds_count[window])
+      duration: histogram_quantile(q, rate(platform_request_duration_seconds_bucket[window]))
+    observation:
+      # When the clock starts and stops. Left to each service, this is where two
+      # services' p99s stop being comparable.
+      http: >-
+        From the moment the server has the request line and headers, to the moment the
+        last byte of the response body is written or the connection fails. Middleware
+        the service owns is inside the measurement; time the request spent queued in
+        the kernel or the gateway is not.
+      pubsub: >-
+        From the moment the message is delivered to the handler, to the moment the
+        handler acks, naks or terminates it. Time spent waiting for a redelivery is
+        NOT included -- a redelivery is a separate delivery and a separate observation.
+      request_reply: >-
+        From delivery of the request message to the publish of the reply, or to the
+        moment the service abandons the request.
+      # Exactly once per attempt, from a path that runs whether the handler returned,
+      # threw or timed out. A service that observes only on the success path reports a
+      # p99 that improves as it gets worse, which is worse than no metric at all.
+      cardinalRule: exactly-one-observation-per-attempt-from-a-finally-path
+
+  - name: platform_build_info
+    type: gauge
+    unit: none
+    required: true
+    help: Always 1. Carries the build identity that must never be a label on the RED family.
+    constantValue: 1
+    # One series per replica, forever. This exists so that `version`, `revision` and
+    # any other per-build string have a home that costs 1 series instead of
+    # multiplying every bucket of every route on every deploy.
+    labels: [service, environment, version, revision]
+    seriesPerReplica: 1
+
+# ---------------------------------------------------------------------------
+# Histogram buckets. Pinned, not per service.
+#
+# Cross-service aggregation is the whole point: histogram_quantile over the SUM of
+# two services' buckets is only meaningful if both services used identical
+# boundaries. A service that picks its own makes every fleet-wide latency panel and
+# every multi-service SLO silently wrong rather than obviously broken.
+#
+# The `le` label is a STRING. A selector like le="0.25" matches by string equality,
+# so the exposition form is pinned here too and a client library that renders 1 as
+# "1.0" is not conformant. This is the single most common way a correct-looking
+# latency query returns no data.
+# ---------------------------------------------------------------------------
+buckets:
+  boundariesSeconds: [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30]
+  leLabelValues: ["0.005", "0.01", "0.025", "0.05", "0.1", "0.25", "0.5", "1", "2.5", "5", "10", "30", "+Inf"]
+  seriesPerLabelSet: 15  # 12 boundaries + +Inf + _count + _sum
+  rationale: >-
+    Prometheus client defaults (5ms..10s) extended by one decade to 30s, because a
+    control-plane request that takes 12s is a distinct failure mode from one that
+    takes 40s and both are inside a 30s client timeout budget.
+  # An SLO latency threshold MUST be one of these boundaries. histogram_quantile
+  # interpolates linearly inside a bucket, so "p99 < 300ms" measured on a histogram
+  # whose nearest edges are 0.25 and 0.5 is an estimate with a 250ms error bar being
+  # reported to three significant figures.
+  slothresholdRule: choose-an-slo-threshold-from-boundariesSeconds
+  nativeHistograms: >-
+    Out of scope for v1. Argo Rollouts analysis and the deployed Prometheus must both
+    work today, and classic buckets are the dull mechanism that does. A native
+    histogram path is additive later: a new metric name, not a change to this one.
+
+# ---------------------------------------------------------------------------
+# Labels. Reserved names, fixed meanings.
+#
+# A required label cannot be added later. Adding one changes the identity of every
+# series in the family, which silently breaks every recording rule, every multi-window
+# burn rate and every dashboard that already selected on the old identity -- with no
+# error anywhere. That is why `tenant` is required NOW on a surface that has exactly
+# one tenant today, and it is the whole reason this item could not wait.
+# ---------------------------------------------------------------------------
+labels:
+  required:
+    - name: service
+      pattern: "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$"
+      cardinality: constant-per-process
+      source: PLATFORM_SERVICE
+      rule: >-
+        The component's stable identifier -- the same token that forms the final
+        segment of the component path in the CloudEvents `source` attribute
+        (contracts/events/envelope.v1.schema.json). One name for a service on the bus
+        and in the metrics, or correlating an event storm with a latency spike becomes
+        a lookup table somebody maintains by hand.
+
+    - name: environment
+      pattern: "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$"
+      cardinality: constant-per-deployment
+      source: PLATFORM_ENVIRONMENT
+      rule: >-
+        Operator-supplied from the ConfigSet. No repository default and no enumerated
+        value list: a fork names its own environments (ADR-029). It is set on the
+        series by the service, NOT by Prometheus `externalLabels` -- external labels are
+        applied on remote-write, federation and alert delivery, not on local queries,
+        so a canary AnalysisTemplate querying the in-cluster Prometheus would never see
+        them. Attaching it by ServiceMonitor relabeling was the other option and puts
+        contract conformance into per-service GitOps YAML, which is the file most
+        likely to differ in a fork.
+
+    - name: tenant
+      pattern: "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$"
+      cardinality: bounded-by-maxTenantsPerReplica
+      source: PLATFORM_TENANT, or the per-request tenancy of the authenticated principal
+      singleTenantValue: local
+      rule: >-
+        The tenancy boundary the request belongs to. Identical vocabulary to the
+        `tenant` extension attribute on the event envelope, including the reserved
+        single-tenant value `local` -- one tenancy token across the bus and the metrics,
+        not two.
+      forkAnswer: >-
+        A homelab fork emits tenant="local" on every series and never changes it. This
+        is a defensible value rather than a placeholder: it is already what the event
+        envelope requires of the same fork, and when a second tenant appears it appears
+        as new series alongside, not as a relabelling of the old ones. Queries written
+        `sum by (service)` are unaffected; queries written `sum by (service, tenant)`
+        return one row on a fork and N later without being rewritten.
+      trustBoundary: >-
+        This label crosses a trust boundary. In a multi-tenant deployment the value
+        comes from the authenticated principal, never from a request header or a
+        caller-supplied field, and a service configured multi-tenant with no tenancy
+        resolver MUST fail to start rather than emit `local` over everybody's traffic.
+
+    - name: kind
+      enum: [http, pubsub, request_reply]
+      closed: true
+      cardinality: determined-by-route
+      rule: >-
+        Which surface served the request. The two bus values are the same vocabulary as
+        `pattern` in contracts/events/registry.v1.yaml. It adds no cardinality -- a
+        route belongs to exactly one kind -- and it is what lets an SLO separate an API
+        latency objective from an event-handler one without a regex over route names.
+
+    - name: route
+      maxDistinctValuesPerService: 30
+      unmatchedValue: __other__
+      cardinality: bounded-by-maxDistinctValuesPerService
+      rule: >-
+        The TEMPLATED identifier of what was served, never the instantiated one.
+        For kind=http: "<METHOD> <template>", e.g. "GET /api/issues/:id".
+        For kind=pubsub and kind=request_reply: the subject PATTERN from
+        contracts/events/subjects.v1.yaml with its tokens intact, never the subject the
+        message actually arrived on.
+        A request that matches no declared route is recorded as __other__. Falling back
+        to the raw path instead is how an unrouted scanner hitting /a, /b, /c ... turns
+        into unbounded series, and it is the single most common cause of a Prometheus
+        that falls over in month three.
+
+    - name: outcome
+      enum: [success, error]
+      closed: true
+      rule: >-
+        Two values, closed, because every error-rate query in the platform is written
+        as a ratio selected on this label. A third value added later would silently
+        change the meaning of every one of them rather than break them.
+
+  optional:
+    - name: code
+      enum: [internal, unavailable, timeout, throttled]
+      closed: false
+      maxDistinctValuesPerService: 6
+      appliesTo: outcome="error"
+      rule: >-
+        A bounded failure taxonomy, not an HTTP status code. It is deliberately
+        transport-independent so that one alert reads the same on an HTTP handler and
+        on an event consumer. Open for extension within the ceiling: adding a value
+        does not change any `outcome` ratio, so it is additive.
+        Absent on success series. Never present on kind=http as a raw status code.
+
+  # Attached by the Prometheus Operator at scrape time, outside the service's control.
+  # Named here because every consumer query has to decide what to do with them.
+  scrapeAttached:
+    names: [job, instance, namespace, pod, container, endpoint]
+    aggregationRule: >-
+      An SLO, alert or canary query MUST aggregate away `pod` and `instance`
+      (`sum without (pod, instance, container, endpoint) (...)`). A query that does not
+      produces a fresh set of series on every rollout, and a burn rate computed over
+      them resets to no-data exactly when a deploy is the thing under suspicion.
+    canarySelection: >-
+      Canary versus stable is selected on the scrape-attached `job` label, via the
+      Rollout's canary Service and its own ServiceMonitor. The SERVICE MUST NOT emit a
+      version, image tag, commit or pod-template-hash label of its own: those values
+      change on every deploy, so they are unbounded over time in exactly the way the
+      cardinality rules forbid. Build identity lives on platform_build_info.
+
+# ---------------------------------------------------------------------------
+# Cardinality. A metric contract with no cardinality rule is a Prometheus outage with
+# a delivery date.
+# ---------------------------------------------------------------------------
+cardinality:
+  # The rule, stated once. The forbidden list below is an illustration of it, not a
+  # definition -- a label not on the list is still forbidden if it fails this.
+  rule: >-
+    Every label value MUST come from a set that is either fixed at build time (a closed
+    or ceilinged enum) or bounded by operator topology (service, environment, tenant).
+    A value derived from request content, from an identity, from a generated id, or
+    from anything that changes on every deploy is forbidden, whatever it is called.
+  forbiddenLabels:
+    - request_id
+    - trace_id
+    - span_id
+    - correlation_id
+    - event_id
+    - message_id
+    - subject            # the instantiated NATS subject; the route pattern is the allowed form
+    - path               # the raw request path; the route template is the allowed form
+    - url
+    - uri
+    - query
+    - user
+    - user_id
+    - principal
+    - email
+    - client_ip
+    - ip
+    - agent_run_id
+    - run_id
+    - issue_id
+    - workflow_id
+    - version            # on the RED family; it belongs on platform_build_info
+    - revision
+    - image_tag
+    - commit
+    - pod_template_hash
+    - rollouts_pod_template_hash
+    - error_message
+    - timestamp
+  ceilings:
+    # Per replica, per tenant. The arithmetic is shown so that a service author can
+    # check their own design before shipping rather than discover it in a TSDB alert.
+    redFamilySeriesPerReplicaPerTenant: 3000
+    workedExample: >-
+      30 routes x (1 success + 4 error codes) x 15 series = 2250, inside the 3000
+      ceiling with headroom for the __other__ route and a sixth code value.
+    maxTenantsPerReplica: 20
+    maxTenantsRationale: >-
+      Beyond this a deployment shards by process rather than by label. That is the
+      answer the blast radius asks for before it is the answer cardinality asks for: a
+      single process serving hundreds of tenants is one crash away from being
+      everybody's outage, and per-tenant series are the cheaper half of that problem.
+  breach: >-
+    A service over its ceiling is non-conformant and the fix is fewer label values, not
+    a higher ceiling. Raising a ceiling is a change to this file with an ADR
+    consequence stated, not a values.yaml override.
+
+# ---------------------------------------------------------------------------
+# Exposition and scrape.
+# ---------------------------------------------------------------------------
+exposition:
+  path: /metrics
+  # The NAME is pinned, not the number: a ServiceMonitor selects the port by name, and
+  # pinning a number would collide with services that already have one.
+  portName: metrics
+  format: prometheus-text-exposition (OpenMetrics accepted)
+  workloadMarkerLabel:
+    key: platform.mcafeeconsulting.com/metrics
+    value: red-v1
+    rule: >-
+      A workload carrying this label claims conformance with this file. It is what the
+      scrape-path presence check keys off: the check is "every workload with the marker
+      has a ServiceMonitor that selects it", which is decidable from rendered manifests
+      at level 0.
+  scrapeIntervalSecondsMax: 30
+  scrapeIntervalRationale: >-
+    A canary analysis over a 5m window needs enough samples for rate() to mean
+    something; 30s gives ten. A slower scrape does not fail the contract loudly, it
+    just makes every short-window query noisier than the consumer expects, which is
+    why the ceiling is stated rather than left to each ServiceMonitor.
+
+# ---------------------------------------------------------------------------
+# Delivery and ordering guarantees. Stated because a contract that leaves them to the
+# reader's assumption is not finished, and because the honest answer here is weaker
+# than people expect from something they page on.
+# ---------------------------------------------------------------------------
+guarantees:
+  transport: pull-scrape
+  delivery: best-effort-at-most-once
+  lossIsPermanent: >-
+    A scrape that does not happen is a sample that never existed. There is no backfill,
+    no replay and no advisory. A service restarting between scrapes loses whatever it
+    counted in between.
+  counterResets: >-
+    _count and _sum reset to zero on restart. Every consumer expression MUST be built
+    from rate() or increase(), which handle resets. A raw difference of two samples is
+    wrong across any deploy.
+  ordering: none
+  timestamps: >-
+    Samples carry scrape time, not event time. Two services' samples for the same
+    second are not simultaneous and must not be compared at sub-scrape resolution.
+  notAnAuditRecord: >-
+    Never derive billing, audit or compliance evidence from this family. Those are
+    events on PF_AUDIT (ADR-038), which has retention and a delivery guarantee. A
+    metric is a sample.
+  absence: >-
+    A service that stops exposing produces NO error rate, not a 0% error rate. Every
+    SLO and every canary built on this family must handle absence explicitly --
+    `absent()` on the SLI, or a canary failure condition on no-data. A canary that
+    passes because the new version crashed before it served a request is the specific
+    failure this clause exists to prevent.
+
+# ---------------------------------------------------------------------------
+# Compatibility. The rule set is metrics-specific: the JSON-schema intuition that
+# "adding a field is additive" is exactly backwards here.
+# ---------------------------------------------------------------------------
+compatibility:
+  breaking:
+    - renaming or removing a metric family
+    - renaming or removing a label
+    - adding a required label to an existing family (it changes series identity and
+      silently breaks every rule and dashboard already selecting on the old identity)
+    - changing any bucket boundary, including adding one (cross-service
+      histogram_quantile requires identical boundaries, and existing history becomes
+      uncomparable)
+    - adding or removing a value of a closed enum (outcome, kind)
+    - changing the unit
+    - changing the error classification rule below without changing the metric name --
+      the quality-gates.md section 3 entry that passes every mechanical check
+  additive:
+    - a new metric family under a new name
+    - a new route value within the ceiling
+    - a new `code` value within the ceiling (code is open by design)
+    - a new tenant or environment value (operator data, not contract)
+  breakingProcedure: >-
+    A breaking change takes a NEW metric name published alongside the old for at least
+    one minor release, and a metrics.v2.yaml alongside this file. There is no third
+    option; a consumer you cannot see and cannot redeploy is assumed to exist.
+
+# ---------------------------------------------------------------------------
+# What counts as an error. Left to each service, this is the decision that makes two
+# services' error rates incomparable while both look instrumented.
+# ---------------------------------------------------------------------------
+errorClassification:
+  principle: >-
+    outcome="error" iff the service failed to produce the result it promised for a
+    reason inside its own responsibility boundary. A bad request answered correctly is
+    the service working.
+  http:
+    - { match: "5xx", outcome: error, code: internal-or-unavailable-or-timeout }
+    - { match: "429", outcome: error, code: throttled, why: "shedding load is a failure to serve, and it is the signal an overload SLO must catch" }
+    - { match: "4xx other than 429", outcome: success, why: "a validation rejection is correct behaviour; paging on it makes a misbehaving client an outage" }
+    - { match: "client disconnected before the response", outcome: success, why: "not the service's failure; its truncated duration is still recorded, and this is stated rather than silently assumed" }
+  bus:
+    - { match: "handler acked", outcome: success }
+    - { match: "handler naked or terminated", outcome: error }
+    - { match: "handler exceeded the ack deadline", outcome: error, code: timeout }
+  redeliveries: >-
+    Every path on the bus is at-least-once (ADR-026). A message delivered three times
+    and acked on the third is THREE observations: two errors and one success. The
+    denominator counts delivery attempts, not unique messages, and an error ratio on a
+    retrying consumer is therefore a measure of work done, not of messages lost.
+
+# ---------------------------------------------------------------------------
+# Enforcement. Named concretely, including the parts that do not exist yet.
+# ---------------------------------------------------------------------------
+enforcement:
+  # The honest headline. Item 4 of the brief asked for either a mechanism that makes
+  # "a service ships uninstrumented" structurally impossible, or an explicit statement
+  # that the contract is advisory for this window. It is the second one, with the
+  # first specified and owned rather than aspirational.
+  statusThisWindow: >-
+    Binding by review for new first-party control-plane services; advisory for existing
+    ones. The only mechanism running in CI today is the contract's own self-test. Two
+    of the three mechanisms below are specified and not implemented, and this line
+    changes in the same pull request that lands the first of them.
+  mechanisms:
+    - id: contract-self-test
+      level: 0
+      status: shipped
+      mechanism: scripts/metrics-contract_test.ts, run by `task test:scripts` in PR CI
+      makesImpossible: >-
+        An internally inconsistent contract: unsorted or duplicated buckets, le strings
+        that do not match the boundaries, a ceiling whose own worked arithmetic does not
+        fit, a forbidden label that is also required, or a query in the companion
+        document naming a metric or label this file does not declare.
+    - id: scrape-path-presence
+      level: 0
+      status: specified-not-implemented
+      mechanism: >-
+        A rendered-manifest check over tests/snapshots/: every workload carrying the
+        exposition.workloadMarkerLabel has a ServiceMonitor that selects it, and every
+        first-party control-plane Deployment carries the marker.
+      makesImpossible: a service that ships with no scrape path at all
+    - id: exposition-conformance
+      level: 1
+      status: specified-not-implemented
+      mechanism: >-
+        In Kind, scrape the deployed service's /metrics, parse the exposition, and
+        assert the family exists, the bucket boundaries are exactly the pinned ones, the
+        required labels are present, no forbidden label appears, and the series count is
+        under the ceiling.
+      makesImpossible: a service that ships instrumented to a different shape
+    - id: sdk-helper
+      level: build
+      status: specified-not-implemented
+      mechanism: >-
+        One helper in the shared SDK (ADR-027) that takes the outcome and the route and
+        does the rest, so the conformant shape is the path of least resistance and the
+        non-conformant one has to be written on purpose.
+      makesImpossible: nothing by itself; it removes the reason to get it wrong
+
+# ---------------------------------------------------------------------------
+# Adoption. Who must do what, and by when.
+# ---------------------------------------------------------------------------
+adoption:
+  new:
+    definition: a first-party control-plane service whose first deployment merges after 2026-09-27
+    obligation: conformant in its first pull request
+  existing:
+    obligation: >-
+      No retrofit is required in this window and none is scheduled before day 31. An
+      existing service becomes binding the next time it adds or changes request-path
+      instrumentation; until then it is measured against nothing and that is stated
+      rather than pretended otherwise.
+  firstConsumer:
+    id: B4-canary
+    ref: homelab#51c
+    due: 2026-10-13
+    rule: >-
+      The canary AnalysisTemplate is written against this file. It is the first
+      consumer, so it is also the first conformance evidence: a template that needs a
+      metric this file does not define means the file is wrong, not the template.
+  unaffected:
+    - id: B1-jetstream-metrics
+      ref: MCAA-7, homelab#50
+      due: 2026-10-02
+      why: >-
+        Its metric names come from prometheus-nats-exporter, which is out of scope
+        above. B1 ships the names it already planned to hand over and does not wait for
+        this file.
+
+consumers:
+  - id: sre-alerting-and-slos
+    role: writes the recording rules, the burn-rate SLOs and the alert rules against this file
+    path: charts/addons/templates/kube-prometheus-stack.yaml, tests/alerts/
+  - id: argo-rollouts-canary
+    role: AnalysisTemplate for progressive delivery
+    path: docs/contracts/metric-contract.md
+  - id: platform-services
+    role: producers
+    path: docs/contracts/metric-contract.md
