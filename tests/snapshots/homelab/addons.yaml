@@ -3476,12 +3476,13 @@ spec:
                   matchers:
                     - alertname !~ "TriageAgent.+"
                   continue: true
-                # One notification per pull request, repeated while it still
-                # needs review; merging or closing it sends nothing.
+                # One digest of every pull request that needs review, repeated
+                # while any still does; a single Pushover call per interval
+                # instead of one per PR (Pushover rejects bursts).
                 - receiver: pushover-github-pr
                   matchers:
                     - alertname = "GitHubPullRequestNeedsReview"
-                  group_by: [alertname, repo, number]
+                  group_by: [alertname]
                   repeat_interval: 24h
                 - receiver: pushover-critical
                   matchers:
@@ -3538,10 +3539,12 @@ spec:
                     user_key_file: /etc/alertmanager/secrets/alertmanager-notifications/pushover_user_key
                     send_resolved: false
                     priority: "0"
-                    title: 'PR needs review: {{ .CommonLabels.repo }}#{{ .CommonLabels.number }}'
-                    message: '{{ .CommonAnnotations.title }} (by {{ .CommonAnnotations.author }})'
-                    url: '{{ .CommonAnnotations.url }}'
-                    url_title: 'Open pull request'
+                    title: 'PRs need review: {{ .Alerts.Firing | len }}'
+                    message: |-
+                      {{ range .Alerts.Firing }}{{ .Labels.repo }}#{{ .Labels.number }} {{ .Annotations.title }}
+                      {{ end }}
+                    url: '{{ template "homelab.alertmanagerURL" . }}'
+                    url_title: View in Alertmanager
 
         nodeExporter:
           enabled: true

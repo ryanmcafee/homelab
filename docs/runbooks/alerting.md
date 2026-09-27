@@ -7,7 +7,7 @@ The Pushover credentials live in one 1Password item; nothing secret is committed
 | Severity | Receiver | Pushover priority | Why |
 |---|---|---|---|
 | every alert but `Watchdog`, `InfoInhibitor` | `triage-agent` (webhook, `continue: true`) | — | a triage workflow that opens a fix PR ([triage-agent.md](triage-agent.md)) |
-| `GitHubPullRequestNeedsReview` | `pushover-github-pr` | 0 (normal), never resolved | a pull request waits for you ([below](#github-pull-requests-that-need-review)) |
+| `GitHubPullRequestNeedsReview` | `pushover-github-pr` | one digest, 0 (normal), never resolved | a pull request waits for you ([below](#github-pull-requests-that-need-review)) |
 | `critical` | `pushover-critical` | 1 (high) while firing, 0 when resolved | wakes you up |
 | `warning` | `pushover-warning` | -1 (low, no sound) | look during the day |
 | `info`, `Watchdog`, `InfoInhibitor` | `null` | — | the chart's heartbeat and inhibitor plumbing; never a page |
@@ -257,9 +257,15 @@ The `github-pr-exporter` Application (prometheus-json-exporter, `monitoring`) ru
 search queries (`GET /search/issues`) every 2 m and exports one
 `github_search_pull_request{query, number, title, url, author}` series per matching pull
 request. `GitHubPullRequestNeedsReview` fires per pull request after 5 m and goes to Pushover
-through its own route (`pushover-github-pr`): title `PR needs review: <owner>/<repo>#<n>`,
-the PR title and author as the message, and a tap-through link to the PR. It repeats every
-24 h while the PR still matches and sends nothing when it is merged, closed or reviewed.
+through its own route (`pushover-github-pr`) as one digest for all of them: title
+`PRs need review: <count>`, one `<owner>/<repo>#<n> <PR title>` line per pull request, and a
+tap-through link to those alerts in Alertmanager (each carries its PR `url`). The digest repeats
+every 24 h while any pull request still matches, goes out again within about 5 m when a new one
+starts matching, and sends nothing when the last one is merged, closed or reviewed. Alertmanager
+truncates a list longer than Pushover's 1024 characters; the count in the title stays exact. A notification
+per pull request sent dozens of Pushover calls at once on every repeat, and Pushover rejected
+part of each burst with a 4xx that Alertmanager does not retry
+(`AlertmanagerClusterFailedToSendAlerts`).
 `<owner>` is the GitHub account of `global.repoUrl` (`$githubOwner` in
 `configuration/templates/helm-addons.tmpl`): its repositories are searched and it is the reviewer.
 
