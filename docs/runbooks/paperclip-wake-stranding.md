@@ -11,9 +11,16 @@ When an agent run dies in a sandbox drop, the run row is terminalized but the
 **wake request it had claimed is never finished**. The record keeps
 `status: "claimed"` with `finishedAt: null` forever.
 
-The dispatcher will not issue a new wake for an issue that still has an
-outstanding claim, so every later wake lands `deferred_issue_execution`. The
-issue is permanently undispatchable.
+While the drop's execution hold is in force, every later wake for that issue
+lands `deferred_issue_execution` and the issue takes no new work.
+
+**The dirty record marks the drop; it is not itself the hold.** Measured on the
+MCAA board on 2026-09-27: five issues dispatched and ran normally with a
+71-hour-old `claimed` / `finishedAt: null` record untouched, and one reached
+`done` still carrying one. Nothing readable — not the ledger row, not
+`execution.phase`, not `permittedActions` — tells you whether an issue will
+dispatch. Only minting a wake does. So treat this alert as "a drop hit these
+issues, check them", never as "these issues are dead".
 
 **There is no symptom on the issue row.** A stranded issue reports
 `checkoutRunId: null`, `executionRunId: null`, no execution blocker, no active
@@ -53,8 +60,30 @@ If the claimant is still live, it is a slow run, not a leak. Leave it alone.
 
 ## Fix it
 
-**Nothing on the agent side clears this.** Both levers have been tested against
-a genuinely stranded issue and both failed:
+**Probe first: post an ordinary comment on the issue from any account that is
+not its assignee.** That mints an `issue_commented` wake, and it is both the
+test and, usually, the whole repair. Then re-read the ledger:
+
+| Newest wake after the comment | Meaning |
+|---|---|
+| `queued` or `claimed`, **with a run id** | Dispatch works. Nothing else to do. |
+| `deferred_issue_execution`, **no run id** | Genuinely held. Escalate (below). |
+
+On 2026-09-27 this restored four of four issues that three separate sweeps had
+written off as permanently undispatchable. A fresh wake also **drains** that
+issue's parked `deferred_issue_execution` rows — they flip to `coalesced` and
+are absorbed into the new run — so the backlog of swallowed wakes is delivered
+too.
+
+Two things to get right:
+
+- **The comment must not come from the assignee.** An assignee commenting on
+  their own issue mints no wake at all, so the probe silently proves nothing.
+- **Do not stop at `queued`.** Per-agent serialization means a queued wake can
+  wait minutes while its owner finishes a run on another issue. Wait for a run
+  id and then for the run to start.
+
+Two levers that do **not** work, both tested against a genuinely stranded issue:
 
 | Attempt | Result |
 |---|---|
@@ -69,16 +98,21 @@ Retiring the `active_run_watchdog` does not help either — that clears
 `activeRecoveryAction` and `executionBlocker` on the *issue row*, while the wake
 record is a separate object that survives the transition.
 
-The fix is board-side: finish the orphaned wake records, i.e. set `finishedAt`
-on every `claimed` wake request whose run is terminal. Escalate to the board
-operator with the issue list from the sweep.
+If a probe still defers, escalate to the board operator with the issue list and
+the probe result. Note that resolving the issue's recovery actions does not
+clear the hold on its own, because the blocker predicate reads the action's
+evidence and ignores its status (upstream `paperclipai/paperclip#14082`);
+cancellation is what released it on 2026-09-27.
 
 ## Stop it recurring
 
 The durable fix belongs in Paperclip's recovery backstop: when it terminalizes
 an orphaned run it must also finish every wake request that run had claimed, the
-same way it should reset `agents.status`. Until that ships, this alert is the
-detection and the board is the repair.
+same way it should reset `agents.status`. Run finalization writes the terminal
+run and the wake receipt separately, so an interruption between the two leaks
+the record (upstream `paperclipai/paperclip#13607`). Until that ships, the
+records accumulate; they are inert once the hold lifts, but they are the only
+signal this alert has, so a leak left unrepaired degrades the detector over time.
 
 ## If `PaperclipWakeSweepStale` fires
 
