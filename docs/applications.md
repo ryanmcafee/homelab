@@ -115,6 +115,8 @@ from the same chart (`namespaces.yaml`, `oci-repositories.yaml`).
 | `flaresolverr-config` | `charts/flaresolverr-config` | git | — | — | — |
 | `lazylibrarian` | `lazylibrarian` | 21.18.2 | envoy-internal: lazylibrarian | lazylibrarian | smoke-lazylibrarian |
 | `lazylibrarian-config` | `charts/lazylibrarian-config` | git | — | — | — |
+| `litellm-database` | `charts/litellm-database` | git | — | — | — |
+| `litellm-dependencies` | `charts/litellm-dependencies` | git | — | — | — |
 | `mosquitto` | `mosquitto` | 17.17.2 | — | mosquitto | — |
 | `mosquitto-config` | `charts/mosquitto-config` | git | — | — | — |
 | `nzbget` | `nzbget` | 29.4.2 | envoy-internal: nzbget | nzbget | smoke-nzbget |
