@@ -289,9 +289,11 @@ test("expectedLiterals: the localdev:up line carries the Kind count, not product
   const readme = expectedLiterals(facts())
     .filter((l) => l.file === "readme.md")
     .map((l) => l.expect);
-  assert(readme.includes("57 Applications"));
+  assert(readme.includes("57 Applications synced from your working tree"));
   assert(readme.includes("68 ArgoCD Applications"));
-  assert(!readme.includes("68 Applications"));
+  assert(!readme.includes("68 Applications synced from your working tree"));
+  // Anchored, so a bare "57 Applications" elsewhere on the page cannot satisfy it.
+  assert(!readme.includes("57 Applications"));
 });
 
 test("expectedLiterals: envoy-internal hosts except the echo comparison route", () => {
@@ -328,7 +330,11 @@ test("check: reports stale regions and literals, --fix rewrites what it can", ()
   assert(whats.includes("readme.md: region badges is stale"));
   assert(whats.includes("docs/networking.md: region route-table missing"));
   assert(whats.includes('readme.md: expected "29 addons"'));
-  assert(whats.includes('readme.md: expected "57 Applications"'));
+  assert(
+    whats.includes(
+      'readme.md: expected "57 Applications synced from your working tree"',
+    ),
+  );
   assert(whats.includes('readme.md: expected "68 ArgoCD Applications"'));
   assert(whats.includes('.github/homelab.svg: expected "addons · 29"'));
   assertEquals(

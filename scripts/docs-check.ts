@@ -365,10 +365,10 @@ export function expectedLiterals(f: Facts): Literal[] {
       fix: [/\b\d+ applications\b/g, `${f.applications} applications`],
     },
     {
-      // The `task localdev:up` line. Kind syncs the localdev overlay, which is
-      // smaller than production: the fakes do not stand in for every addon.
+      // The `task localdev:up` line: Kind syncs the smaller localdev overlay,
+      // and both halves anchor to the sentence so no other count satisfies it.
       file: "readme.md",
-      expect: `${f.localdevApplications} Applications`,
+      expect: `${f.localdevApplications} Applications synced from your working tree`,
       fix: [
         /\b\d+ Applications synced from your working tree\b/g,
         `${f.localdevApplications} Applications synced from your working tree`,
