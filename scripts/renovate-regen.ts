@@ -688,9 +688,17 @@ async function main(): Promise<void> {
       [authored, committed] = (
         await capture(["git", "log", "-1", "--format=%ae%n%ce"])
       ).split("\n");
-      console.log(
-        `${green("[OK]")} re-committed through ${cyan(direct)} to move the committer off the ${cyan("PATH")} git`,
-      );
+      if (committed === identity.email) {
+        console.log(
+          `${green("[OK]")} re-committed through ${cyan(direct)} to move the committer off the ${cyan("PATH")} git`,
+        );
+      } else {
+        console.warn(
+          yellow(
+            `renovate-regen/commit-identity: amended through ${direct}, but the committer is still ${committed}. The commit was rewritten; the identity did not move.`,
+          ),
+        );
+      }
     }
   }
   const { error: identityError, warning: identityWarning } =
