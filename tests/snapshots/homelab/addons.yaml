@@ -4330,10 +4330,10 @@ spec:
                     annotations:
                       summary: '{{ $value }} issues in {{ $labels.company }} carry a wake record claimed by a dead run'
                       description: 'A sandbox drop left the ledger dirty and the issue row shows nothing. Name them with GET /api/issues/{id}/diagnostics/wakes, then probe each one; docs/runbooks/paperclip-wake-stranding.md.'
-                  # Five at once is a batch drop, and each issue stops taking
-                  # new work until someone mints a wake for it, so delivery
-                  # halts silently until this fires. Probing is agent-side and
-                  # takes one comment per issue.
+                  # Five at once is a batch drop. The record still does not lock
+                  # the issue, but the wakes that deferred during the drop are
+                  # spent and never retried, so an issue whose newest wake
+                  # deferred needs a fresh one before it runs again.
                   - alert: PaperclipIssueWakeStranded
                     expr: 'max by (company_id, company) (paperclip_issues_wake_stranded) >= 5'
                     for: 30m
@@ -4341,7 +4341,7 @@ spec:
                       severity: critical
                     annotations:
                       summary: '{{ $labels.company }} has {{ $value }} issues behind a dead run''s wake claim: a batch drop'
-                      description: 'At least five open issues were hit by one drop and none will run again until a wake is minted for it. Probe each with a comment from any non-assignee before escalating; docs/runbooks/paperclip-wake-stranding.md.'
+                      description: 'At least five open issues were hit by one drop. The record does not hold dispatch, but their deferred wakes are spent and never retried, so each needs a fresh one. Probe with a comment from any non-assignee before escalating; docs/runbooks/paperclip-wake-stranding.md.'
                   # Without this the stranded gauge just freezes at its last
                   # value, which reads like a healthy board rather than a blind one.
                   - alert: PaperclipWakeSweepStale

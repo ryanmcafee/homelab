@@ -22,6 +22,14 @@ MCAA board on 2026-09-27: five issues dispatched and ran normally with a
 dispatch. Only minting a wake does. So treat this alert as "a drop hit these
 issues, check them", never as "these issues are dead".
 
+**Why they still need a nudge, then.** A wake that lands
+`deferred_issue_execution` is **spent** — it is not queued behind anything and
+is never retried. So an issue whose newest wake deferred during the drop stays
+idle even after the hold lifts, not because anything is blocking it but because
+nothing has asked for it since. That is the whole reason the probe below works,
+and it is why an issue still receiving comments or events recovers on its own
+while a quiet one does not.
+
 **There is no symptom on the issue row.** A stranded issue reports
 `checkoutRunId: null`, `executionRunId: null`, no execution blocker, no active
 recovery action, and `status: in_progress`. It looks completely healthy. The
