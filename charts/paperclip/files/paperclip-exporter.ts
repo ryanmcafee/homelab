@@ -393,7 +393,7 @@ export function renderMetrics(result: ScrapeResult): string {
   );
   const stranded = family(
     "paperclip_issues_wake_stranded",
-    "Open issues undispatchable behind a claimed wake record that never finished.",
+    "Open issues carrying a claimed wake record whose run is terminal: the mark a sandbox drop leaves.",
   );
   const sweepAge = family(
     "paperclip_wake_sweep_age_seconds",
