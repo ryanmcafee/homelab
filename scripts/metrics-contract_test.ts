@@ -56,37 +56,65 @@ interface LabelSpec {
   closed?: boolean;
   maxDistinctValuesPerService?: number;
   singleTenantValue?: string;
+  sliExclusionRule?: string;
 }
 
 interface MetricsContract {
   version: number;
   scope: { appliesTo: string; outOfScope: { id: string; path?: string }[] };
-  metrics: { name: string; type: string; unit: string; required: boolean }[];
+  metrics: {
+    name: string;
+    type: string;
+    unit: string;
+    required: boolean;
+    observation?: Record<string, string>;
+  }[];
+  metricsObservation?: unknown;
   buckets: {
     boundariesSeconds: number[];
     leLabelValues: string[];
     seriesPerLabelSet: number;
+    maxAdjacentRatioAboveOneSecond: number;
   };
   labels: {
     required: LabelSpec[];
     optional: LabelSpec[];
-    scrapeAttached: { names: string[] };
+    scrapeAttached: {
+      names: string[];
+      aggregationRule: string;
+      jobIsNotAnException: string;
+      canarySelectionCaveats: { id: string; rule: string }[];
+    };
   };
   cardinality: {
     forbiddenLabels: string[];
     ceilings: {
       redFamilySeriesPerReplicaPerTenant: number;
       workedExample: string;
+      workedExampleBasis: string;
       maxTenantsPerReplica: number;
     };
+  };
+  errorClassification: {
+    http: { match: string; outcome: string; code?: string }[];
   };
   exposition: {
     path: string;
     portName: string;
     scrapeIntervalSecondsMax: number;
   };
-  guarantees: { delivery: string; ordering: string };
-  compatibility: { breaking: string[]; additive: string[] };
+  guarantees: {
+    delivery: string;
+    ordering: string;
+    absence: string;
+    absenceIsNotFailure: string;
+    emptyIsNotNaN: string;
+  };
+  compatibility: {
+    v1FreezePoint: string;
+    breaking: string[];
+    additive: string[];
+  };
   enforcement: {
     statusThisWindow: string;
     mechanisms: { id: string; status: string; mechanism: string }[];
@@ -211,10 +239,19 @@ test("no label is both declared and forbidden", () => {
 
 test("the worked cardinality example fits inside the ceiling it is quoted against", () => {
   const routes = labelByName.get("route")?.maxDistinctValuesPerService;
-  const codes = labelByName.get("code")?.enum?.length;
+  // The CEILING, not the current enum size. `code` is open by design, so a conformant
+  // service may emit every value the ceiling allows; computing this from the four
+  // values that happened to exist is how the arithmetic flatters itself and the file
+  // teaches a number a conformant service can exceed.
+  const codes = labelByName.get("code")?.maxDistinctValuesPerService;
   assert(
     routes !== undefined && codes !== undefined,
     "route and code need ceilings",
+  );
+  const declared = labelByName.get("code")?.enum?.length ?? 0;
+  assert(
+    declared <= codes,
+    `code declares ${declared} values, over its own ceiling of ${codes}`,
   );
   // One success series set plus one per error code, times the series per label set.
   const worst = routes * (1 + codes) * contract.buckets.seriesPerLabelSet;
@@ -391,6 +428,220 @@ test("the exposition surface is pinned by name, not by port number", () => {
     contract.exposition.scrapeIntervalSecondsMax <= 30,
     "a scrape slower than 30s leaves a 5m canary window with too few samples",
   );
+});
+
+// ---------------------------------------------------------------------------
+// The eight conditions from the SRE's acceptance review (MCAA-273). Each one is
+// pinned here rather than only fixed, because a condition that is merely applied is
+// one refactor away from being un-applied, and four of these are in the closed-enum
+// and bucket territory that compatibility.breaking forbids revisiting after v1.
+// ---------------------------------------------------------------------------
+
+test("C1: probe and scrape traffic is excluded from the population at the source", () => {
+  const red = contract.metrics[0];
+  const excluded = red.observation?.excluded ?? "";
+  for (const word of ["probe", "readiness", "liveness"]) {
+    assert(
+      excluded.toLowerCase().includes(word),
+      `the excluded population must name ${word}; probe traffic outnumbers user traffic ~10:1 and divides the error ratio by eleven`,
+    );
+  }
+  // Exclusion at the source, not a reserved route the consumer has to filter. A route
+  // value every expression must exclude is the `pod` mistake again.
+  assert(
+    (red.observation?.excludedRule ?? "")
+      .toLowerCase()
+      .includes("not a reserved route"),
+    "the contract must say exclusion happens at the source rather than via a route value",
+  );
+});
+
+test("C2: kind carries a stream value and bounds what it observes", () => {
+  const kinds = labelByName.get("kind")?.enum ?? [];
+  assert(
+    kinds.includes("stream"),
+    "kind must include `stream` in v1: it is a closed enum, so adding it later is breaking",
+  );
+  const red = contract.metrics[0];
+  const stream = red.observation?.stream ?? "";
+  assert(
+    stream.includes("headers"),
+    "observation.stream must stop the clock at response headers, not at connection close",
+  );
+  assert(
+    /not when the connection closes/i.test(stream),
+    "observation.stream must say plainly that lifetime is not what is measured",
+  );
+  // The hole is stated rather than hidden, and its escape hatch is additive.
+  assert(
+    (red.observation?.streamLimitation ?? "").includes(
+      "platform_stream_duration_seconds",
+    ),
+    "the mid-flight-failure hole must name the additive family that closes it",
+  );
+});
+
+test("C3: no bucket above one second is wider than the declared ratio", () => {
+  const b = contract.buckets.boundariesSeconds;
+  const maxRatio = contract.buckets.maxAdjacentRatioAboveOneSecond;
+  assert(maxRatio > 1, "a max adjacent ratio of 1 or less is unsatisfiable");
+  for (let i = 1; i < b.length; i++) {
+    if (b[i - 1] < 1) continue;
+    const ratio = b[i] / b[i - 1];
+    assert(
+      ratio <= maxRatio,
+      `the ${b[i - 1]}-to-${b[i]} gap is ${ratio.toFixed(1)}x, over the ${maxRatio}x limit: ` +
+        "histogram_quantile interpolates linearly, so the reported quantile's error bar is the bucket width",
+    );
+  }
+  // The specific gap the NATS ack deadline puts every struggling pubsub handler into.
+  assert(
+    b.includes(15),
+    "the 15s boundary is what makes the 10-to-30 band expressible; without it a true p99 of 11s reports as 20s",
+  );
+});
+
+test("C4: the error taxonomy separates overload shedding from quota denial", () => {
+  const codes = labelByName.get("code")?.enum ?? [];
+  for (const value of ["throttled", "quota"]) {
+    assert(codes.includes(value), `code must carry ${value}`);
+  }
+  // Both are errors -- neither is invisible -- but only one burns the budget.
+  const rule = labelByName.get("code")?.sliExclusionRule ?? "";
+  assert(
+    rule.includes('code!="quota"'),
+    "the contract must give the availability SLI its exact quota exclusion selector",
+  );
+  const http = contract.errorClassification.http;
+  // Rows ABOUT 429, not rows that merely mention it -- "4xx other than 429" is a row
+  // about the other 4xx and must not be counted here.
+  const from429 = http.filter((row) => row.match.startsWith("429"));
+  assertEquals(
+    from429.length,
+    2,
+    "429 must classify into two codes; conflated, one noisy tenant burns the service's budget and blocks everybody's releases at day 31",
+  );
+  assertEquals(
+    new Set(from429.map((r) => r.code)),
+    new Set(["throttled", "quota"]),
+  );
+  for (const row of from429) {
+    assertEquals(row.outcome, "error", "both flavours of 429 are still errors");
+  }
+});
+
+test("C5: job is never retained by an aggregation in the companion document", () => {
+  // `job` belongs in a selector (canary analysis) and nowhere else. Retained by an SLO
+  // aggregation it is the `pod` failure with a longer fuse: during a rollout the canary
+  // pods are scraped under two job values, so one service becomes two rows and the
+  // burn rate resets at exactly the moment a deploy is the suspect.
+  for (const m of doc.matchAll(/\bby\s*\(([^)]*)\)/g)) {
+    const names = m[1].split(",").map((n) => n.trim());
+    assert(
+      !names.includes("job"),
+      `a "by (${m[1].trim()})" grouping retains job; drop it or the SLO splits on every rollout`,
+    );
+  }
+  for (const m of doc.matchAll(/\bwithout\s*\(([^)]*)\)/g)) {
+    const names = m[1].split(",").map((n) => n.trim());
+    assert(
+      names.includes("job"),
+      `a "without (${m[1].trim()})" grouping keeps job; every scrape label must go, job included`,
+    );
+  }
+  assert(
+    contract.labels.scrapeAttached.jobIsNotAnException.includes("CANARY"),
+    "the contract must confine job to canary analysis queries",
+  );
+});
+
+const canaryTemplate =
+  doc.match(/```yaml\n(apiVersion: argoproj\.io[\s\S]*?)```/)?.[1] ?? "";
+
+test("C6: every canary aggregate is wrapped in scalar(), so the absence guard fires", () => {
+  assert(
+    canaryTemplate.length > 0,
+    "the canary AnalysisTemplate block was not found",
+  );
+  // An empty vector is NOT NaN. rate() over absent series returns nothing, the division
+  // never happens, and isNaN(result) never fires -- so an unwrapped guard against "the
+  // canary crashed before serving anything" looks correct and does nothing. scalar() of
+  // an empty vector IS NaN.
+  for (const m of canaryTemplate.matchAll(
+    /(.{0,8})sum\((?:rate|increase)\(/g,
+  )) {
+    assert(
+      m[1].endsWith("scalar("),
+      `an aggregate in the canary template is not wrapped in scalar(): ...${m[0]}`,
+    );
+  }
+  assert(
+    contract.guarantees.emptyIsNotNaN.includes("scalar()"),
+    "the contract must name scalar() as the fix, not just describe the trap",
+  );
+});
+
+test("C7: the canary template cannot pass on no-data and cannot abort before serving", () => {
+  const conditions = [
+    ...canaryTemplate.matchAll(/(?:success|failure)Condition:\s*"([^"]*)"/g),
+  ].map((m) => m[1]);
+  assert(
+    conditions.length >= 2,
+    "no analysis conditions found in the template",
+  );
+  for (const condition of conditions) {
+    // Both conditions guarded means NaN satisfies neither, which is how Argo produces
+    // Inconclusive. Must-not-PASS is the requirement; must-fail would roll back every
+    // release on a fork with no traffic.
+    assert(
+      condition.startsWith("!isNaN(result) &&"),
+      `"${condition}" does not guard NaN, so no-data resolves to a verdict instead of Inconclusive`,
+    );
+  }
+  for (const field of ["initialDelay:", "inconclusiveLimit:"]) {
+    assert(
+      canaryTemplate.includes(field),
+      `the template needs ${field}; without it the first measurement runs against an empty [5m] window and two of those exhaust failureLimit`,
+    );
+  }
+  assert(
+    /\+ 0 \* scalar\(/.test(canaryTemplate),
+    "the minimum-sample guard is missing: 0 * NaN is NaN, which is what makes a low-traffic window Inconclusive",
+  );
+  // The wording that pushed the worked example into failing closed.
+  assert(
+    /must NOT PASS/.test(contract.guarantees.absence),
+    "guarantees.absence must require must-not-pass, not a failure condition",
+  );
+  assert(
+    contract.guarantees.absenceIsNotFailure
+      .toLowerCase()
+      .includes("inconclusive"),
+    "the contract must name Inconclusive as the satisfying verdict for no-data",
+  );
+});
+
+test("C8: the burn-rate tiers do not include one that fires inside the budget", () => {
+  // At a 99.5% objective a 0.5x burn rate is a 0.25% error ratio, and a service at
+  // 0.25% errors is INSIDE its budget -- it would last 60 days against a 30d window.
+  // The defect was the factor LIST, not any mention of 0.5x -- the document explains at
+  // length why that tier is wrong, so a blanket substring ban would forbid the fix.
+  assert(
+    !/14\.4x\s*\/\s*6x\s*\/\s*1x\s*\/\s*0\.5x/.test(doc),
+    "the 14.4x/6x/1x/0.5x shape is back; its 0.5x tier fires on a service meeting its objective",
+  );
+  assert(
+    /\*\*14\.4 \/ 6 \/ 3 \/ 1\*\*/.test(doc),
+    "the document must state the burn factors as 14.4 / 6 / 3 / 1",
+  );
+  assert(
+    /There is no `0\.5x` tier/.test(doc),
+    "the document must say why the tier is absent, or someone re-derives it from the standard writeup",
+  );
+});
+
+test("the v1 freeze point is stated, since four conditions were only free before it", () => {
+  assertEquals(contract.compatibility.v1FreezePoint, "merge-to-main");
 });
 
 test("adoption distinguishes new services from existing ones", () => {

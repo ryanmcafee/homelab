@@ -78,6 +78,23 @@ metrics:
         last byte of the response body is written or the connection fails. Middleware
         the service owns is inside the measurement; time the request spent queued in
         the kernel or the gateway is not.
+      stream: >-
+        An SSE, websocket, long-poll or watch response. The clock stops when the
+        response headers are written -- when the stream is established or the
+        establishment fails -- NOT when the connection closes. `outcome` reports whether
+        establishment succeeded. A service MUST NOT record a long-lived response's open
+        lifetime into this family: one such observation lands in +Inf and permanently
+        breaches any latency objective for the service, and it drags the p99 of every
+        `sum by (service)` panel with it.
+      streamLimitation: >-
+        A stream that establishes cleanly and then fails mid-flight is NOT captured here.
+        That is a stated hole in v1, not an oversight: a terminal outcome recorded at
+        close would be a second observation per attempt, which breaks cardinalRule and
+        the one-denominator property the single instrument exists for. Stream lifetime
+        and mid-flight failure get their own family under their own name
+        (platform_stream_duration_seconds), which is additive and needs no v2 of this
+        file. Until that lands, an SLO over kind=stream measures establishment only and
+        must say so.
       pubsub: >-
         From the moment the message is delivered to the handler, to the moment the
         handler acks, naks or terminates it. Time spent waiting for a redelivery is
@@ -89,6 +106,25 @@ metrics:
       # threw or timed out. A service that observes only on the success path reports a
       # p99 that improves as it gets worse, which is worse than no metric at all.
       cardinalRule: exactly-one-observation-per-attempt-from-a-finally-path
+      # The population. Stated because "every served request" silently includes traffic
+      # the SLO is not about, and the dilution is invisible in the numbers.
+      excluded: >-
+        Kubelet liveness, readiness and startup probes, and scrapes of the exposition
+        path itself, are NOT observed into this family. They are not user traffic and
+        they are not the service's promise to anybody. At an ordinary 10s probe period a
+        homelab service runs roughly ten probes per user request, which divides the
+        measured error ratio by about eleven: a user path failing 10% of the time reads
+        0.91% and pages nobody. It also puts a floor under the objective -- at that ratio
+        a service cannot measure below about 92% availability however completely the user
+        path fails, so "99.5%" stops being a statement about the user.
+      excludedRule: >-
+        Exclusion at the source, not a reserved route value the consumer must remember to
+        filter out. A route value that every expression has to exclude is the `pod` and
+        `instance` mistake again: correct in the example, dropped in the copy.
+      excludedPaths: >-
+        The service's own health, readiness and liveness endpoints and exposition.path.
+        A health endpoint that is also a real API surface for callers is a different
+        endpoint and is observed; the test is who calls it, not what it is named.
 
   - name: platform_build_info
     type: gauge
@@ -116,13 +152,25 @@ metrics:
 # latency query returns no data.
 # ---------------------------------------------------------------------------
 buckets:
-  boundariesSeconds: [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30]
-  leLabelValues: ["0.005", "0.01", "0.025", "0.05", "0.1", "0.25", "0.5", "1", "2.5", "5", "10", "30", "+Inf"]
-  seriesPerLabelSet: 15  # 12 boundaries + +Inf + _count + _sum
+  boundariesSeconds: [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 15, 30]
+  leLabelValues: ["0.005", "0.01", "0.025", "0.05", "0.1", "0.25", "0.5", "1", "2.5", "5", "10", "15", "30", "+Inf"]
+  seriesPerLabelSet: 16  # 13 boundaries + +Inf + _count + _sum
   rationale: >-
     Prometheus client defaults (5ms..10s) extended by one decade to 30s, because a
     control-plane request that takes 12s is a distinct failure mode from one that
     takes 40s and both are inside a 30s client timeout budget.
+  # No adjacent pair above 1s may be wider than 2.5x. histogram_quantile interpolates
+  # linearly inside a bucket, so the reported quantile's error bar is the bucket width,
+  # and a wide bucket at the top of the range is where the interesting failures live.
+  # 2.5 is the widest gap this list actually has (1 to 2.5); the 10-to-30 gap was 3x,
+  # which is what the 15s boundary removes.
+  maxAdjacentRatioAboveOneSecond: 2.5
+  fifteenSecondBoundary: >-
+    Added because the NATS ack deadline sits at 30s, so every kind=pubsub handler in
+    trouble lands in the 10-to-30 bucket and nowhere else. Across that gap a handler
+    whose true p99 is 11s reports 20s; with this boundary it reports 12.5s. A 9-second
+    error bar is not something to put in a page annotation, and without the boundary no
+    latency threshold anywhere in the 10-30s band is expressible.
   # An SLO latency threshold MUST be one of these boundaries. histogram_quantile
   # interpolates linearly inside a bucket, so "p99 < 300ms" measured on a histogram
   # whose nearest edges are 0.25 and 0.5 is an estimate with a 250ms error bar being
@@ -193,7 +241,7 @@ labels:
         resolver MUST fail to start rather than emit `local` over everybody's traffic.
 
     - name: kind
-      enum: [http, pubsub, request_reply]
+      enum: [http, pubsub, request_reply, stream]
       closed: true
       cardinality: determined-by-route
       rule: >-
@@ -201,9 +249,18 @@ labels:
         `pattern` in contracts/events/registry.v1.yaml. It adds no cardinality -- a
         route belongs to exactly one kind -- and it is what lets an SLO separate an API
         latency objective from an event-handler one without a regex over route names.
+      streamValue: >-
+        `stream` is a fourth value and not a flavour of `http` because its duration
+        measures a different quantity: establishment, not completion (see
+        observation.stream). Folding it into `http` would mean one SSE route
+        permanently breaching the service's latency objective, and an SLO cannot
+        separate the two without a regex over route names -- the thing this label
+        exists to avoid. It is present in v1 with no producer because `kind` is closed
+        and compatibility.breaking forbids adding an enum value later; a value that
+        costs nothing unused is cheaper than a metrics.v2.yaml.
 
     - name: route
-      maxDistinctValuesPerService: 30
+      maxDistinctValuesPerService: 25
       unmatchedValue: __other__
       cardinality: bounded-by-maxDistinctValuesPerService
       rule: >-
@@ -227,7 +284,7 @@ labels:
 
   optional:
     - name: code
-      enum: [internal, unavailable, timeout, throttled]
+      enum: [internal, unavailable, timeout, throttled, quota]
       closed: false
       maxDistinctValuesPerService: 6
       appliesTo: outcome="error"
@@ -237,22 +294,61 @@ labels:
         on an event consumer. Open for extension within the ceiling: adding a value
         does not change any `outcome` ratio, so it is additive.
         Absent on success series. Never present on kind=http as a raw status code.
+      throttledVersusQuota: >-
+        `throttled` is the service shedding load because it was overloaded -- the
+        service's own failure, and the signal an overload SLO exists to catch. `quota`
+        is the service correctly denying a principal that exceeded a configured limit --
+        the policy working as designed. Both are outcome="error" so neither is invisible,
+        and both surface as 429.
+      sliExclusionRule: >-
+        The availability SLI MUST exclude code="quota" from its numerator
+        (`{outcome="error",code!="quota"}`). Without the split one noisy tenant burns the
+        service's error budget and, at day 31, blocks every other tenant's releases --
+        the error budget becomes a denial-of-service vector against the release gate.
+        Written now rather than at day 31 so the gating SLI is written once.
 
   # Attached by the Prometheus Operator at scrape time, outside the service's control.
   # Named here because every consumer query has to decide what to do with them.
   scrapeAttached:
     names: [job, instance, namespace, pod, container, endpoint]
     aggregationRule: >-
-      An SLO, alert or canary query MUST aggregate away `pod` and `instance`
-      (`sum without (pod, instance, container, endpoint) (...)`). A query that does not
+      An SLO, alert or recording rule MUST aggregate away every scrape-attached label,
+      `job` INCLUDED. Prefer the explicit positive form
+      `sum by (service, environment, tenant, kind) (...)`, which cannot silently retain
+      a label a future Prometheus release starts attaching. A query that does not
       produces a fresh set of series on every rollout, and a burn rate computed over
       them resets to no-data exactly when a deploy is the thing under suspicion.
+    jobIsNotAnException: >-
+      `job` is kept in CANARY ANALYSIS QUERIES ONLY, where telling canary from stable is
+      the entire point. In an SLO it is the `pod` failure with a longer fuse: during a
+      rollout the canary pods are scraped under two job values, so one service becomes
+      two SLO rows and the multi-window burn rate over them resets mid-deploy.
     canarySelection: >-
       Canary versus stable is selected on the scrape-attached `job` label, via the
       Rollout's canary Service and its own ServiceMonitor. The SERVICE MUST NOT emit a
       version, image tag, commit or pod-template-hash label of its own: those values
       change on every deploy, so they are unbounded over time in exactly the way the
       cardinality rules forbid. Build identity lives on platform_build_info.
+    canarySelectionCaveats:
+      - id: job-is-the-service-name
+        rule: >-
+          prometheus-operator relabels __meta_kubernetes_service_name to `job`, so `job`
+          is the SERVICE name unless ServiceMonitor.spec.jobLabel names a label on the
+          Service. A canary AnalysisTemplate is therefore given the canary Service name,
+          not the Rollout name, and the two are not the same string.
+      - id: canary-pods-are-scraped-twice
+        rule: >-
+          The root Service selects canary pods too during a rollout, so with a
+          ServiceMonitor on each the same pod's series exist under two `job` values. It
+          does not breach redFamilySeriesPerReplicaPerTenant -- that ceiling is on
+          EMITTED series -- but it doubles stored series for the rollout's duration, and
+          it is what makes a retained `job` in an SLO a defect rather than a style note.
+      - id: canary-job-is-stale-after-promotion
+        rule: >-
+          After promotion the controller re-points the canary Service selector at the new
+          stable hash, so the same query returns stable traffic. Harmless inside an
+          AnalysisRun, which is scoped to the rollout; a trap for a dashboard or any
+          long-lived rule.
 
 # ---------------------------------------------------------------------------
 # Cardinality. A metric contract with no cardinality rule is a Prometheus outage with
@@ -301,8 +397,16 @@ cardinality:
     # check their own design before shipping rather than discover it in a TSDB alert.
     redFamilySeriesPerReplicaPerTenant: 3000
     workedExample: >-
-      30 routes x (1 success + 4 error codes) x 15 series = 2250, inside the 3000
-      ceiling with headroom for the __other__ route and a sixth code value.
+      25 routes x (1 success + 6 error codes) x 16 series = 2800, inside the 3000
+      ceiling.
+    workedExampleBasis: >-
+      The arithmetic is worst case at the DECLARED ceilings, not at the current enum
+      size, because the ceiling is what a conformant service may actually emit. Computed
+      the other way it flattered itself: at 30 routes and the declared code ceiling of 6
+      the real figure is 3360, over the ceiling, while the file quoted 2250 by
+      multiplying by the four code values that happened to exist. The route ceiling is 25
+      rather than 30 because the 15s boundary and the `quota` code value together consume
+      the headroom the old figure had, and the fix for a breach is fewer label values.
     maxTenantsPerReplica: 20
     maxTenantsRationale: >-
       Beyond this a deployment shards by process rather than by label. That is the
@@ -365,15 +469,36 @@ guarantees:
   absence: >-
     A service that stops exposing produces NO error rate, not a 0% error rate. Every
     SLO and every canary built on this family must handle absence explicitly --
-    `absent()` on the SLI, or a canary failure condition on no-data. A canary that
+    `absent()` on the SLI, and a canary that must NOT PASS on no-data. A canary that
     passes because the new version crashed before it served a request is the specific
     failure this clause exists to prevent.
+  absenceIsNotFailure: >-
+    Must-not-pass is the requirement; must-fail is not. A homelab fork with no traffic
+    has no data through no fault of the deploy, and a canary that fails closed on it
+    rolls back every release -- the fork-ability contract breaking in the first place a
+    new user meets it. Inconclusive satisfies must-not-pass and pauses for a human.
+    The earlier wording here said "failure condition on no-data" and that phrasing is
+    what pushed the worked example into failing closed.
+  emptyIsNotNaN: >-
+    An empty vector is not NaN. `rate()` over absent series returns nothing, the
+    division never happens, and an `isNaN(result)` guard never fires -- the Argo
+    Rollouts Prometheus provider scores that as an Error against consecutiveErrorLimit,
+    not the Failed the guard intended. Wrap each aggregate in `scalar()`: `scalar()` of
+    an empty vector IS NaN. This is the specific way an absence guard looks correct and
+    does nothing.
 
 # ---------------------------------------------------------------------------
 # Compatibility. The rule set is metrics-specific: the JSON-schema intuition that
 # "adding a field is additive" is exactly backwards here.
 # ---------------------------------------------------------------------------
 compatibility:
+  # v1 freezes when this file merges to main. Every rule below applies from that commit,
+  # not from the moment the file was first written. The bucket list, the `kind` enum and
+  # the `code` enum were all changed after the SRE's acceptance review (MCAA-273) and
+  # before that merge, which is the only window in which changing them is free. That
+  # review is why the window exists: a contract reviewed only by its author freezes its
+  # own blind spots.
+  v1FreezePoint: merge-to-main
   breaking:
     - renaming or removing a metric family
     - renaming or removing a label
@@ -407,7 +532,8 @@ errorClassification:
     the service working.
   http:
     - { match: "5xx", outcome: error, code: internal-or-unavailable-or-timeout }
-    - { match: "429", outcome: error, code: throttled, why: "shedding load is a failure to serve, and it is the signal an overload SLO must catch" }
+    - { match: "429 from overload shedding", outcome: error, code: throttled, why: "shedding load is a failure to serve, and it is the signal an overload SLO must catch" }
+    - { match: "429 from a configured per-principal quota", outcome: error, code: quota, why: "the policy working as designed; visible as an error, excluded from the availability SLI so one noisy tenant cannot burn everybody's budget" }
     - { match: "4xx other than 429", outcome: success, why: "a validation rejection is correct behaviour; paging on it makes a misbehaving client an outage" }
     - { match: "client disconnected before the response", outcome: success, why: "not the service's failure; its truncated duration is still recorded, and this is stated rather than silently assumed" }
   bus:
