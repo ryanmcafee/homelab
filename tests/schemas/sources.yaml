@@ -162,3 +162,17 @@ sources:
       repo: oci://ghcr.io/paperclipinc/charts
       name: paperclip-operator
     kinds: [Instance]
+
+  - name: openclaw-operator
+    versionKey: openclaw-operator
+    # Same publisher and packaging as paperclip-operator: OCI-only, CRDs as templates
+    # under templates/crds/ gated by .Values.crds.install, so the
+    # `helm template --include-crds` fallback applies here too.
+    # All three kinds are vendored although only OpenClawInstance is rendered today:
+    # OpenClawSelfConfig (5.6 KiB) and OpenClawClusterDefaults (19 KiB) are small enough
+    # that the usual "rendered kinds only" rule saves nothing measurable, and having them
+    # here makes enabling self-config a chart change rather than a re-vendoring change.
+    chart:
+      repo: oci://ghcr.io/paperclipinc/charts
+      name: openclaw-operator
+    kinds: [OpenClawInstance, OpenClawSelfConfig, OpenClawClusterDefaults]

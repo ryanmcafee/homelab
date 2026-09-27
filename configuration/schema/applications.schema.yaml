@@ -87,6 +87,15 @@ keys:
     description: Paperclip hostname
     const: "paperclip.{{.DOMAIN}}"
 
+  OPENCLAW_HOSTNAME:
+    description: OpenClaw hostname; reachable on the internal Gateway only (LAN/tailnet)
+    const: "openclaw.{{.DOMAIN}}"
+
+  OPENCLAW_STORAGE_SIZE:
+    description: Size of the OpenClawInstance data volume (agent workspace, openclaw.json, browser profiles); Kind always uses 1Gi
+    required: true
+    default: 20Gi
+
   PAPERCLIP_ADMIN_EMAIL:
     description: Login e-mail of the Paperclip admin the operator bootstraps once (spec.auth.adminUser); PII, set per environment
     required: true

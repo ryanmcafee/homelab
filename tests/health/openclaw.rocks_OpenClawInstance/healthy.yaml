@@ -1,0 +1,17 @@
+# expect: Healthy
+# message: running
+apiVersion: openclaw.rocks/v1alpha1
+kind: OpenClawInstance
+metadata:
+  name: openclaw
+  namespace: openclaw
+spec:
+  image:
+    repository: ghcr.io/openclaw/openclaw
+    tag: "2026.9.6"
+status:
+  phase: Running
+  gatewayEndpoint: http://openclaw.openclaw.svc.cluster.local:18789
+  conditions:
+    - type: Ready
+      status: "True"

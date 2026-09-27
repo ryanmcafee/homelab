@@ -1,0 +1,36 @@
+# What charts/openclaw renders with its committed values, plus the anthropic
+# API-key toggle on: exactly one extra variable, wired the same way, and a
+# provider allowlist that only names variables the Instance declares.
+apiVersion: openclaw.rocks/v1alpha1
+kind: OpenClawInstance
+metadata:
+  name: openclaw
+  namespace: openclaw
+spec:
+  env:
+    - name: ANTHROPIC_API_KEY
+      valueFrom:
+        secretKeyRef:
+          name: openclaw-api-keys
+          key: ANTHROPIC_API_KEY
+          optional: true
+    - name: ANTHROPIC_OAUTH_TOKEN
+      valueFrom:
+        secretKeyRef:
+          name: openclaw-api-keys
+          key: ANTHROPIC_OAUTH_TOKEN
+          optional: true
+  config:
+    mergeMode: merge
+    forcePaths:
+      - gateway
+      - models.providers
+    raw:
+      models:
+        providers:
+          anthropic:
+            apiKey: ${ANTHROPIC_OAUTH_TOKEN}
+      agents:
+        defaults:
+          model:
+            primary: anthropic/claude-opus-5-5
