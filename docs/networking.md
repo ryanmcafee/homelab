@@ -238,6 +238,7 @@ Generated from `tests/snapshots/homelab/*.yaml` by `task docs:check -- --fix`
 | `hubble.<DOMAIN>` | envoy-internal | Chart | `cilium-config` |
 | `lazylibrarian.<DOMAIN>` | envoy-internal | Chart | `lazylibrarian` |
 | `nzbget.<DOMAIN>` | envoy-internal | Chart | `nzbget` |
+| `openclaw.<DOMAIN>` | envoy-internal | Chart | `openclaw` |
 | `otel.<DOMAIN>` | envoy-internal | Chart | `otel-collector-gateway` |
 | `otlp.<DOMAIN>` | envoy-internal | Chart | `otel-collector-gateway` |
 | `paperclip.<DOMAIN>` | envoy-internal | Chart | `paperclip` |
