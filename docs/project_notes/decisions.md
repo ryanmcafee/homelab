@@ -1123,6 +1123,41 @@ Each decision should include:
 - The cutover needs the renamed keys in `homelab.yaml` and the 1Password `homelab-environment-config` document before merge; there is a short gap between Traefik's Services being pruned and Envoy's receiving the freed addresses (`docs/runbooks/envoy-gateway.md`)
 - The Istio gateways cost two small Deployments and two pool addresses; remove `charts/istio-gateways` once the comparison is done
 
+### ADR-041: One RED histogram with a required tenant label is the metric contract for control-plane services (2026-09-27)
+
+**Context:**
+- Every control-plane service is instrumented differently or not at all, so the SRE cannot write one alert rule, one SLO or one canary analysis that works across services. There is no shape to write against
+- Two committed lines consume that shape inside this window: B1 (MCAA-7, #50) ships a metrics surface on 2026-10-02, and B4 (#51c) needs a canary-suitable request-rate and error-rate metric for an `AnalysisTemplate` by 2026-10-13. A contract that lands after them is a migration, not a contract
+- The commercial surface needs per-tenant SLOs. A homelab fork has exactly one tenant, and the event envelope already made it emit `tenant: local` for the same reason
+- This is the metrics half of the surface ADR-026 and ADR-027 already govern, so it belongs with them rather than with any one service
+
+**Decision:**
+- `contracts/observability/metrics.v1.yaml` is the normative file; `docs/contracts/metric-contract.md` carries the worked queries, the SLO and the canary `AnalysisTemplate`; `scripts/metrics-contract_test.ts` gates both at level 0
+- **One instrument, not three.** `platform_request_duration_seconds` (histogram, seconds) carries all of RED: `_count` is the rate, `_bucket` is the duration, and the error rate is a ratio over the same `_count` selected on `outcome="error"`
+- **Buckets are pinned** at `0.005 .. 30` seconds with the exposition string of each `le` fixed, because `histogram_quantile` over the sum of two services' buckets is only meaningful if the boundaries are identical, and `le` selectors match by string
+- **Required labels:** `service`, `environment`, `tenant`, `kind`, `route`, `outcome`; `code` optional on error series. `environment` is set by the service from the ConfigSet, not by Prometheus `externalLabels`, which local queries never see
+- **`tenant` is required from day one** and a fork emits the envelope's reserved `local`. It is required now precisely because it cannot be added later: adding a label changes the identity of every series in the family and breaks recording rules and burn-rate windows silently
+- **Cardinality:** a stated rule (every value comes from a build-time enum or operator topology), a named forbidden list, 30 routes per service with an `__other__` fallback, 3000 series per replica per tenant, 20 tenants per replica. Canary is selected on the scrape-attached `job` label, never on a version or pod-template-hash label the service emits
+- **Error classification is pinned:** 5xx and 429 are errors, other 4xx are not, and one bus delivery is one observation
+- **Enforcement is advisory this window and says so.** Only the contract self-test runs in CI. The scrape-path presence check (level 0), the exposition conformance scrape (level 1) and the SDK helper are specified with their status written in the file
+- **Adoption:** binding for first-party services merging after 2026-09-27; existing ones are advisory until they next change request-path instrumentation; third-party exporters and the `paperclip_*` agent-health exporter are out of scope permanently
+
+**Alternatives Considered:**
+- **A counter for rate, a counter for errors, a histogram for duration** (the literal RED writeups) -> two counters can disagree, and a handler that increments one and returns early yields an error ratio above 1 that nobody notices until an incident. One denominator cannot come apart
+- **Per-service bucket choice, or native histograms** -> per-service boundaries make every fleet-wide panel quietly wrong; native histograms are the better long-term answer and are additive later under a new name, but Argo Rollouts analysis has to work in October
+- **`tenant` added later, when the second tenant appears** -> the cheap-sounding option and the expensive one. It is a breaking change disguised as an additive one, and it lands on the SRE's rules rather than on whoever deferred it
+- **HTTP status code as the error label** -> bounded, but it gives event handlers nothing and forces two versions of every alert. A transport-independent taxonomy makes one alert read the same on both
+- **Attach `environment` by ServiceMonitor relabeling** -> moves contract conformance into the per-service GitOps YAML, which is the file most likely to differ in a fork
+
+**Consequences:**
+- The SRE can write one alert rule, one SLO and one `AnalysisTemplate` against a fixed shape, and B4 is the first consumer rather than the first improvisation
+- B1 does not change. Its names come from `prometheus-nats-exporter`, which this contract puts out of scope; that was the timing risk and it is now written down rather than assumed
+- **A service can still ship uninstrumented.** Nothing in CI catches it this window. That is the honest state, and the three mechanisms that would change it are named rather than implied
+- A fork carries one constant label (`tenant="local"`) it gets no value from until it becomes a tenant of something. That is the price of not breaking the consumer later, and it is the same price the event envelope already charges
+- Pinning buckets means a service with a genuinely different latency profile (a minutes-long reconcile) does not fit this family and needs its own metric under its own name, not a wider bucket list here
+- The cardinality ceilings are per replica per tenant, so the multiplication a multi-tenant deployment does is visible in the contract rather than discovered in a TSDB alert. Above 20 tenants a process shards, which is a blast-radius answer before it is a cardinality one
+- These metrics are samples, not records: best-effort, at-most-once, no ordering, and a missed scrape is gone. The contract says so, so that nobody builds billing or audit on them - that is what `PF_AUDIT` is for (ADR-038)
+
 ### ADR-042: Every platform stream carries an operator-supplied `max_bytes`, because an unlimited stream makes its `discard` policy decorative and its failure shared (2026-09-28); refines ADR-026 and ADR-038
 
 *Numbering note: `main` carried ADR-040 when this was written. ADR-041 is claimed by the open RED-metric-contract branch (MCAA-267), which was checked before writing rather than after merging, so this takes 042 per ADR-039. No number is reserved here for anything.*
