@@ -46,6 +46,37 @@ metadata:
     argocd.argoproj.io/sync-wave: "10"
 
 ---
+# Source: applications/templates/openclaw.yaml
+# Namespace for the openclaw-operator controller. The chart runs it non-root
+# (uid 65532) with every capability dropped, so baseline is enough.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: openclaw-system
+  labels:
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/audit: baseline
+    pod-security.kubernetes.io/warn: baseline
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
+
+---
+# Source: applications/templates/openclaw.yaml
+# Namespace for the OpenClawInstance. The operator's pod template is non-root
+# with a read-only root filesystem; created here so the wave-13 smoke Job has a
+# target before CreateNamespace=true would create it.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: openclaw
+  labels:
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/audit: baseline
+    pod-security.kubernetes.io/warn: baseline
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
+
+---
 # Source: applications/templates/paperclip.yaml
 # Namespace for the paperclip-operator controller. The chart runs it non-root
 # (uid 65532) with every capability dropped, so baseline is enough.
@@ -279,6 +310,57 @@ spec:
               code=$(curl -sL --max-redirs 5 -o /dev/null -w '%{http_code}' --retry 30 --retry-delay 10 --retry-all-errors --max-time 20 "$URL")
               echo "smoke nzbget: $URL -> HTTP $code"
               case "$code" in 200|401) exit 0;; *) exit 1;; esac
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 100
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            seccompProfile:
+              type: RuntimeDefault
+
+---
+# Source: applications/templates/openclaw.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: smoke-openclaw
+  namespace: openclaw
+  labels:
+    app.kubernetes.io/name: smoke-openclaw
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation,HookSucceeded
+    argocd.argoproj.io/sync-wave: "13"
+spec:
+  backoffLimit: 2
+  activeDeadlineSeconds: 600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: smoke-openclaw
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: curl
+          image: curlimages/curl:8.22.0
+          env:
+            - name: URL
+              value: "http://openclaw.openclaw.svc.cluster.local:18789/healthz"
+          command: ["sh", "-c"]
+          args:
+            - |
+              code=$(curl -sL --max-redirs 5 -o /dev/null -w '%{http_code}' --retry 30 --retry-delay 10 --retry-all-errors --max-time 20 "$URL")
+              echo "smoke openclaw: $URL -> HTTP $code"
+              case "$code" in 200) exit 0;; *) exit 1;; esac
           resources:
             requests:
               cpu: 10m
@@ -1205,6 +1287,184 @@ spec:
       - ServerSideApply=true
       - ApplyOutOfSyncOnly=true
       - RespectIgnoreDifferences=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+
+---
+# Source: applications/templates/openclaw.yaml
+# Operator Application: CRDs (openclawinstances, openclawselfconfigs,
+# openclawclusterdefaults in openclaw.rocks) and the controller. The CRDs are
+# chart templates gated by crds.install and kept on uninstall (crds.keep). The
+# OpenClawInstance CRD renders to ~625 KiB, far past the 256 KiB
+# client-side-apply limit, so ServerSideApply=true is mandatory
+# (tests/gitops/huge-crd-charts.yaml).
+# The repository Secret paperclipinc-oci is rendered by templates/paperclip.yaml:
+# both operators come from ghcr.io/paperclipinc/charts and ArgoCD keys repository
+# Secrets by URL, so a second copy would be a duplicate name for one credential.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: openclaw-operator
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "11"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: ghcr.io/paperclipinc/charts
+    chart: openclaw-operator
+    targetRevision: "0.40.0"
+    helm:
+      releaseName: openclaw-operator
+      values: |
+        crds:
+          install: true
+          keep: true
+        metrics:
+          enabled: true
+          serviceMonitor:
+            enabled: true
+        resources:
+          limits:
+            cpu: 500m
+            memory: 256Mi
+          requests:
+            cpu: 100m
+            memory: 128Mi
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: openclaw-system
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+
+---
+# Source: applications/templates/openclaw.yaml
+# Dependencies Application: the 1Password items the Instance reads
+# (openclaw-api-keys: ANTHROPIC_OAUTH_TOKEN, and ANTHROPIC_API_KEY / OPENAI_API_KEY
+# only where a toggle asks for them; openclaw-gateway: token). Only where a secret
+# store exists (SECRETS_PROVIDER): without one the chart would render nothing, and
+# localdev seeds both Secrets in localdev/fakes/secrets.yaml instead.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: openclaw-dependencies
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "12"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/ryanmcafee/homelab.git
+    targetRevision: main
+    path: charts/openclaw-dependencies
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-homelab.yaml
+      # 1Password paths come from configuration/ (secrets.schema.yaml) through
+      # this parent, so the child's committed values stay environment-free.
+      valuesObject:
+        namespace: openclaw
+        onePassword:
+          apiKeysItemPath: vaults/homelab/items/openclaw-api-keys
+          enabled: true
+          gatewayItemPath: vaults/homelab/items/openclaw-gateway
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: openclaw
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - SkipDryRunOnMissingResource=true
+
+---
+# Source: applications/templates/openclaw.yaml
+# Instance Application: the openclaw.rocks/v1alpha1 OpenClawInstance. Health comes
+# from charts/bootstrap/files/health/openclaw.rocks_OpenClawInstance.lua
+# (status.phase Running with Ready not False = Healthy).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: openclaw
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "13"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/ryanmcafee/homelab.git
+    targetRevision: main
+    path: charts/openclaw
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-homelab.yaml
+      # Hostname, image tag, Gateway and storage class come from configuration/
+      # through this parent (ADR-010); never put them in charts/openclaw/values-homelab.yaml.
+      valuesObject:
+        namespace: openclaw
+        hostname: openclaw.replaceme-domain.com
+        image:
+          repository: ghcr.io/openclaw/openclaw
+          tag: 2026.9.6
+        observability:
+          metrics:
+            enabled: true
+            serviceMonitor:
+              enabled: true
+        persistence:
+          size: 20Gi
+          storageClass: democratic-csi-iscsi
+        resources:
+          limits:
+            cpu: "2"
+            memory: 4Gi
+          requests:
+            cpu: 500m
+            memory: 1Gi
+        route:
+          gateway:
+            name: envoy-internal
+            namespace: envoy-gateway-system
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: openclaw
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - SkipDryRunOnMissingResource=true
+    # The OpenClawInstance CRD comes from openclaw-operator (wave 11); retry covers
+    # a sync that lands before the CRD is served or the gateway Secret exists.
     retry:
       limit: 5
       backoff:
