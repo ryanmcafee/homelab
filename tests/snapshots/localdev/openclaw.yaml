@@ -1,0 +1,89 @@
+---
+# Source: openclaw/templates/instance.yaml
+# OpenClawInstance. openclaw-operator turns it into a StatefulSet, Service
+# (gateway 18789, canvas 18793), ConfigMap, Secret, PVC, ServiceAccount,
+# Role/RoleBinding, NetworkPolicy and the HTTPRoute. Health for ArgoCD comes from
+# charts/bootstrap/files/health/openclaw.rocks_OpenClawInstance.lua.
+apiVersion: openclaw.rocks/v1alpha1
+kind: OpenClawInstance
+metadata:
+  name: openclaw
+  namespace: openclaw
+spec:
+  image:
+    repository: ghcr.io/openclaw/openclaw
+    tag: "2026.9.6"
+  # Optional keys of the credentials Secret (the enabled per-provider API keys,
+  # then extraSecretEnv) followed by extraEnv. Named one by one on purpose: a
+  # whole-Secret reference would inject every key, including the ones no toggle
+  # asked for (tests/policy/openclaw.rego enforces this).
+  env:
+    - name: ANTHROPIC_OAUTH_TOKEN
+      valueFrom:
+        secretKeyRef:
+          key: ANTHROPIC_OAUTH_TOKEN
+          name: openclaw-api-keys
+          optional: true
+  config:
+    mergeMode: merge
+    # Subtrees rebuilt from this CR on every restart, so nothing an agent
+    # persists at runtime can replace them.
+    forcePaths:
+      - gateway
+      - models.providers
+    raw:
+      models:
+        # One entry per provider this chart actually wires a credential for, each
+        # pointing at that provider's highest-precedence wired variable. Under
+        # config.forcePaths this is the complete allowlist.
+        providers:
+          anthropic:
+            apiKey: ${ANTHROPIC_OAUTH_TOKEN}
+      agents:
+        defaults:
+          model:
+            primary: "anthropic/claude-opus-5-5"
+  gateway:
+    # Key `token`; the operator skips generating its own token when this is set.
+    existingSecret: openclaw-gateway
+  selfConfigure:
+    enabled: false
+  storage:
+    persistence:
+      enabled: true
+      size: 1Gi
+      storageClass: local-path
+  networking:
+    service:
+      type: ClusterIP
+    httpRoute:
+      enabled: true
+      annotations:
+        external-dns.alpha.kubernetes.io/hostname: openclaw.homelab.local
+      parentRefs:
+        - name: envoy-internal
+          namespace: envoy-gateway-system
+          sectionName: https
+      hostnames:
+        - openclaw.homelab.local
+  security:
+    networkPolicy:
+      enabled: true
+      # The default policy allows same-namespace ingress only, so the Gateway's
+      # namespace has to be named or the HTTPRoute backend is unreachable.
+      allowedIngressNamespaces:
+        - envoy-gateway-system
+  observability:
+    metrics:
+      enabled: true
+      serviceMonitor:
+        enabled: true
+    logging:
+      level: info
+  resources:
+    limits:
+      cpu: "1"
+      memory: 1Gi
+    requests:
+      cpu: 250m
+      memory: 512Mi
