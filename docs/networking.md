@@ -239,6 +239,7 @@ Generated from `tests/snapshots/homelab/*.yaml` by `task docs:check -- --fix`
 | `lazylibrarian.<DOMAIN>` | envoy-internal | Chart | `lazylibrarian` |
 | `litellm.<DOMAIN>` | envoy-internal | Chart | `litellm-config` |
 | `nzbget.<DOMAIN>` | envoy-internal | Chart | `nzbget` |
+| `openclaw.<DOMAIN>` | envoy-internal | Chart | `openclaw` |
 | `otel.<DOMAIN>` | envoy-internal | Chart | `otel-collector-gateway` |
 | `otlp.<DOMAIN>` | envoy-internal | Chart | `otel-collector-gateway` |
 | `paperclip.<DOMAIN>` | envoy-internal | Chart | `paperclip` |
