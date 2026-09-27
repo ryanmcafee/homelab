@@ -201,6 +201,10 @@ const ALL_RULE_IDS = [
   "appset-ssa",
   "appset-project",
   "appset-automated",
+  "openclaw-envfrom",
+  "openclaw-dead-credential",
+  "openclaw-credential-ref",
+  "openclaw-provider-unwired",
 ];
 
 // ============================================================================
