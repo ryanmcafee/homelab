@@ -1,11 +1,10 @@
 {{- /* Operator's Claude Code setup for the agents; see files/paperclip-dotfiles.ts. */}}
 {{- define "paperclip.dotfiles.script" }}{{ .Files.Get "files/paperclip-dotfiles.ts" }}{{ end }}
-{{- define "paperclip.dotfiles.codesearchMcp" }}{{ .Files.Get "files/codesearch-mcp.ts" }}{{ end }}
 {{- define "paperclip.dotfiles" }}
 {{- $d := .Values.dotfiles }}
 {{- $name := printf "%s-dotfiles" .Values.name }}
 podAnnotations:
-  checksum/dotfiles: {{ printf "%s%s" (include "paperclip.dotfiles.script" .) (include "paperclip.dotfiles.codesearchMcp" .) | sha256sum }}
+  checksum/dotfiles: {{ include "paperclip.dotfiles.script" . | sha256sum }}
 initContainers:
   - name: dotfiles
     image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
@@ -32,10 +31,6 @@ initContainers:
       {{- end }}
       - name: BUN_VERSION
         value: {{ regexReplaceAll "-.*$" $d.bunVersion "" | quote }}
-      - name: CODESEARCH_REPO
-        value: {{ $d.codesearch.repo | quote }}
-      - name: CODESEARCH_VERSION
-        value: {{ $d.codesearch.version | quote }}
       - name: MCP_SERVERS
         value: {{ $d.mcpServers | toJson | quote }}
     resources:
@@ -69,6 +64,4 @@ metadata:
 data:
   paperclip-dotfiles.ts: |-
     {{- include "paperclip.dotfiles.script" . | nindent 4 }}
-  codesearch-mcp.ts: |-
-    {{- include "paperclip.dotfiles.codesearchMcp" . | nindent 4 }}
 {{- end }}

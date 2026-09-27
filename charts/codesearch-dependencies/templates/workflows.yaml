@@ -1,0 +1,203 @@
+{{- /*
+Backup and restore of the codesearch embedding cache (docs/runbooks/codesearch.md).
+Both mount the upstream release's RWO volume, so their pods run beside the
+codesearch pod. The backup copies the cache with mdb_copy while serve runs and
+uploads it twice (dated and latest); on success Argo emits the gauge the
+CodesearchBackupMissing alert reads. The restore stages a backup on the volume
+and replaces the pod, whose restore-apply init container swaps it in.
+*/}}
+{{- if .Values.workflows.enabled }}
+{{- $wf := .Values.workflows }}
+{{- $prefix := $wf.store.prefix }}
+{{- $config := printf "%s/.codesearch" .Values.server.home }}
+---
+apiVersion: argoproj.io/v1alpha1
+kind: CronWorkflow
+metadata:
+  name: codesearch-backup
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "codesearch-dependencies.labels" . | nindent 4 }}
+spec:
+  schedules:
+    {{- toYaml $wf.backup.schedules | nindent 4 }}
+  timezone: {{ $wf.backup.timezone }}
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 3600
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  workflowSpec:
+    entrypoint: backup
+    serviceAccountName: codesearch-backup
+    activeDeadlineSeconds: {{ $wf.backup.activeDeadlineSeconds }}
+    podGC:
+      strategy: OnPodSuccess
+    ttlStrategy:
+      {{- toYaml $wf.ttl | nindent 6 }}
+    securityContext:
+      {{- include "codesearch-dependencies.podSecurityContext" . | nindent 6 }}
+    affinity:
+      {{- include "codesearch-dependencies.besideServer" . | nindent 6 }}
+    volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: {{ .Values.server.pvcName }}
+      - name: work
+        emptyDir: {}
+    templates:
+      - name: backup
+        metrics:
+          prometheus:
+            # Exposed by the workflow controller as argo_workflows_<name>.
+            - name: codesearch_backup_last_success_timestamp_seconds
+              help: Unix time of the last successful codesearch backup
+              when: {{ `"{{status}} == Succeeded"` }}
+              gauge:
+                realtime: false
+                value: {{ `"{{outputs.parameters.timestamp}}"` }}
+        outputs:
+          parameters:
+            - name: timestamp
+              valueFrom:
+                path: /work/timestamp
+          artifacts:
+            - name: backup
+              path: /work/codesearch.tar.gz
+              archive:
+                none: {}
+              s3:
+                {{- include "codesearch-dependencies.s3" . | nindent 16 }}
+                key: {{ printf "%s/{{workflow.creationTimestamp.Y}}{{workflow.creationTimestamp.m}}{{workflow.creationTimestamp.d}}T{{workflow.creationTimestamp.H}}{{workflow.creationTimestamp.M}}{{workflow.creationTimestamp.S}}Z.tar.gz" $prefix | quote }}
+            - name: latest
+              path: /work/codesearch.tar.gz
+              archive:
+                none: {}
+              s3:
+                {{- include "codesearch-dependencies.s3" . | nindent 16 }}
+                key: {{ printf "%s/latest.tar.gz" $prefix | quote }}
+        container:
+          image: {{ required "image is required" .Values.image }}
+          command: ["/bin/sh", "-c"]
+          # mdb_copy -c is a consistent, compacted copy under a live writer.
+          args:
+            - |
+              set -eu
+              config={{ $config }}
+              out=/work/backup
+              mkdir -p "$out/embedding_cache"
+              for env in "$config"/embedding_cache/*/; do
+                [ -f "$env/data.mdb" ] || continue
+                name=$(basename "$env")
+                mkdir -p "$out/embedding_cache/$name"
+                mdb_copy -c "$env" "$out/embedding_cache/$name"
+                echo "copied embedding cache $name"
+              done
+              if [ -f "$config/repos.json" ]; then cp "$config/repos.json" "$out/repos.json"; fi
+              if [ ! -f "$out/repos.json" ] && [ -z "$(ls -A "$out/embedding_cache")" ]; then
+                echo "nothing to back up: no repos.json and no embedding cache in $config" >&2
+                exit 1
+              fi
+              tar -czf /work/codesearch.tar.gz -C "$out" .
+              date +%s > /work/timestamp
+          resources:
+            {{- toYaml $wf.resources | nindent 12 }}
+          securityContext:
+            {{- include "codesearch-dependencies.restricted" . | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: work
+              mountPath: /work
+---
+apiVersion: argoproj.io/v1alpha1
+kind: WorkflowTemplate
+metadata:
+  name: codesearch-restore
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "codesearch-dependencies.labels" . | nindent 4 }}
+spec:
+  entrypoint: restore
+  serviceAccountName: codesearch-restore
+  activeDeadlineSeconds: {{ $wf.restore.activeDeadlineSeconds }}
+  arguments:
+    parameters:
+      # A key in s3://{{ $wf.store.bucket }}; latest.tar.gz is the newest backup.
+      - name: key
+        value: {{ printf "%s/latest.tar.gz" $prefix | quote }}
+  podGC:
+    strategy: OnPodSuccess
+  ttlStrategy:
+    {{- toYaml $wf.ttl | nindent 4 }}
+  securityContext:
+    {{- include "codesearch-dependencies.podSecurityContext" . | nindent 4 }}
+  volumes:
+    - name: data
+      persistentVolumeClaim:
+        claimName: {{ .Values.server.pvcName }}
+  templates:
+    - name: restore
+      steps:
+        - - name: stage
+            template: stage
+        - - name: restart
+            template: restart
+
+    - name: stage
+      affinity:
+        {{- include "codesearch-dependencies.besideServer" . | nindent 8 }}
+      inputs:
+        artifacts:
+          - name: backup
+            path: /input/codesearch.tar.gz
+            s3:
+              {{- include "codesearch-dependencies.s3" . | nindent 14 }}
+              key: {{ `"{{workflow.parameters.key}}"` }}
+      container:
+        image: {{ .Values.image }}
+        command: ["/bin/sh", "-c"]
+        # Only what the backup writes: repos.json and embedding_cache/<model>/data.mdb.
+        args:
+          - |
+            set -eu
+            tarball=/input/codesearch.tar.gz
+            staging=/data/restore-staging
+            unexpected=$(tar -tzf "$tarball" | sed 's#^\./##; s#/$##' \
+              | grep -vE '^(|repos\.json|embedding_cache|embedding_cache/[A-Za-z0-9_-][A-Za-z0-9._-]*(/data\.mdb)?)$' || true)
+            links=$(tar -tzvf "$tarball" | grep -vE '^[-d]' || true)
+            if [ -n "$unexpected$links" ]; then
+              echo "refusing $tarball, unexpected entries: $unexpected $links" >&2
+              exit 1
+            fi
+            rm -rf "$staging/incoming"
+            mkdir -p "$staging/incoming"
+            tar -xzf "$tarball" --no-same-owner --no-same-permissions -C "$staging/incoming"
+            rm -rf "$staging/ready"
+            mv "$staging/incoming" "$staging/ready"
+            echo "staged the backup in $staging/ready"
+        resources:
+          {{- toYaml $wf.resources | nindent 10 }}
+        securityContext:
+          {{- include "codesearch-dependencies.restricted" . | nindent 10 }}
+        volumeMounts:
+          - name: data
+            mountPath: /data
+
+    # A new pod-template annotation replaces the pod (Recreate); its init
+    # container applies the staged backup before serve starts.
+    - name: restart
+      resource:
+        action: patch
+        mergeStrategy: merge
+        manifest: |
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: {{ .Values.server.deploymentName }}
+            namespace: {{ .Values.namespace }}
+          spec:
+            template:
+              metadata:
+                annotations:
+                  homelab.codesearch/restored-at: {{ `"{{workflow.creationTimestamp}}"` }}
+{{- end }}

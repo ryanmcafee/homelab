@@ -58,3 +58,8 @@ STORAGE_CLASS_NFS: local-path
 STORAGE_CLASS_ISCSI: local-path
 STORAGE_CLASS_SSD: local-path
 STORAGE_CLASS_ISCSI_SSD: local-path
+
+# codesearch stays off in Kind until the upstream chart is published (bd
+# homelab-3m8.5 adds the e2e test and restore drill); then it indexes this repo.
+CODESEARCH_ENABLED: "false"
+CODESEARCH_REPOS: https://github.com/ryanmcafee/codesearch

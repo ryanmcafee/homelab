@@ -1138,6 +1138,35 @@ spec:
                       summary: 'The triage agent intake is not scraped'
                       description: 'No alert reaches the triage agent and the workspace alerts above are blind. `kubectl -n {{ $triageAgent.namespace }} get deploy triage-agent`; docs/runbooks/triage-agent.md.'
           {{- end }}
+          {{- $codesearch := .Values.codesearch }}
+          {{- $awf := index .Values "argo-workflows" }}
+          {{- if and $codesearch.enabled $awf.enabled $awf.logArchive.enabled }}
+          # codesearch backups (docs/runbooks/codesearch.md). The upstream chart
+          # ships the service alerts; this is the charts/codesearch-dependencies
+          # CronWorkflow's gauge, an Argo custom metric on the workflow controller.
+          homelab-codesearch:
+            groups:
+              - name: homelab-codesearch
+                rules:
+                  - alert: CodesearchBackupMissing
+                    expr: 'time() - max(argo_workflows_codesearch_backup_last_success_timestamp_seconds) > 36 * 3600'
+                    for: 15m
+                    labels:
+                      severity: warning
+                      reason: stale
+                    annotations:
+                      summary: 'No codesearch backup for {{`{{ $value | humanizeDuration }}`}}'
+                      description: 'The daily codesearch-backup CronWorkflow has not succeeded for over 36h. `argo -n {{ $codesearch.namespace }} list`; docs/runbooks/codesearch.md.'
+                  - alert: CodesearchBackupMissing
+                    expr: 'absent(argo_workflows_codesearch_backup_last_success_timestamp_seconds)'
+                    for: 36h
+                    labels:
+                      severity: warning
+                      reason: absent
+                    annotations:
+                      summary: 'No codesearch backup recorded for 36h'
+                      description: 'The workflow controller has exported no successful codesearch backup for 36h (none ran since it started, or its metrics are not scraped). `argo -n {{ $codesearch.namespace }} cron get codesearch-backup`; docs/runbooks/codesearch.md.'
+          {{- end }}
 
   destination:
     server: https://kubernetes.default.svc

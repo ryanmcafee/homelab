@@ -61,8 +61,7 @@ The pin goes away once upstream drops the volume from the Job or gives it pod af
 | `PAPERCLIP_EXPORTER_1P_PATH` | `secrets.schema.yaml` + `defaults.yaml` | `vaults/homelab/items/paperclip-exporter` |
 | `PAPERCLIP_DOTFILES_REPO_URL`, `_REF`, `_CLAUDE_DIR`, `_PROFILE`, `_SETUP_COMMAND` | `applications.schema.yaml` | optional; see [Agent Claude Code setup from dotfiles](#agent-claude-code-setup-from-dotfiles) |
 | `PAPERCLIP_DOTFILES_1P_PATH` | `secrets.schema.yaml` | optional; only for a private dotfiles repository |
-| `PAPERCLIP_MCP_CODESEARCH` | `applications.schema.yaml` | `false`; `true` installs codesearch and registers it as an MCP server |
-| `PAPERCLIP_CODESEARCH_REPO`, `PAPERCLIP_CODESEARCH_VERSION` | `applications.schema.yaml` | `https://github.com/ryanmcafee/codesearch` (a public fork of flupkede/codesearch with extra features, Linux builds) at `tools.codesearch`; set both to use another repository |
+| `PAPERCLIP_MCP_CODESEARCH` | `applications.schema.yaml` | `false`; `true` (with `PAPERCLIP_DOTFILES_REPO_URL`) registers the shared [codesearch](codesearch.md) service as an HTTP MCP server, labels the namespace `codesearch-client: "true"` and adds an egress NetworkPolicy to it |
 | `STORAGE_CLASS_ISCSI_SSD` | `kubernetes.schema.yaml` + `defaults.yaml` | `democratic-csi-iscsi` (block storage for the database; `local-path` in Kind) |
 | `charts.paperclip-operator`, `images.paperclip`, `images.cloudnative-pg-postgresql`, `images.bun` | `configuration/versions.yaml` | Renovate-managed pins |
 
@@ -191,9 +190,7 @@ init container (`charts/paperclip/templates/dotfiles.yaml`, `files/paperclip-dot
 run by the image's Node.js) that, on every pod start:
 
 1. clones or updates the repository at `PAPERCLIP_DOTFILES_REF` into `~/.dotfiles`;
-2. installs bun (`images.bun`) and, with `PAPERCLIP_MCP_CODESEARCH=true`, codesearch
-   (`PAPERCLIP_CODESEARCH_REPO` at `PAPERCLIP_CODESEARCH_VERSION`, by default
-   `tools.codesearch`) into `~/.local/bin`, which is prepended to the server's `PATH`;
+2. installs bun (`images.bun`) into `~/.local/bin`, which is prepended to the server's `PATH`;
 3. runs `PAPERCLIP_DOTFILES_SETUP_COMMAND` in the checkout (with `DOTFILES_DIR`,
    `DOTFILES_PROFILE` = `PAPERCLIP_DOTFILES_PROFILE`);
 4. symlinks every entry of `PAPERCLIP_DOTFILES_CLAUDE_DIR` into `~/.claude` (runtime state
@@ -201,13 +198,12 @@ run by the image's Node.js) that, on every pod start:
    `<name>.pre-dotfiles-<timestamp>`);
 5. adds the marketplaces and installs the plugins `~/.claude/settings.json` enables
    (claude-mem, for example, arrives this way);
-6. registers `dotfiles.mcpServers` at user scope. codesearch runs through
-   `~/.local/bin/codesearch-mcp.ts` (`files/codesearch-mcp.ts`): agents start in a project
-   directory holding several clones and worktrees, which a bare `codesearch mcp` refuses
-   (`Cannot create a single index spanning multiple repos`). The wrapper starts one
-   `codesearch serve` hub per pod on `127.0.0.1:39725`, registers the repository around the
-   working directory or every git repository directly below it (indexed in the background,
-   on the pod's CPU), then runs `codesearch mcp --mode client` against the hub.
+6. registers `dotfiles.mcpServers` at user scope. With `PAPERCLIP_MCP_CODESEARCH=true` that is
+   `codesearch` over HTTP (`http://codesearch.codesearch.svc.cluster.local:39725/mcp`), the
+   shared [codesearch](codesearch.md) service; no codesearch process runs in the pod. Its
+   NetworkPolicy admits namespaces labelled `codesearch-client: "true"`, and
+   `templates/networkpolicy-codesearch.yaml` opens the paperclip pod's egress to it (the
+   codesearch namespace is outside the mesh, so ztunnel sends plain TCP 39725).
 
 A failing step fails the init container, so a broken repository shows up as
 `Init:CrashLoopBackOff` rather than as agents silently running without the setup. Hooks in

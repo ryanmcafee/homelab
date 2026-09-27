@@ -196,11 +196,6 @@ dotfiles:
   # hooks that need it; an oven/bun image tag works too (the variant suffix is
   # dropped). Empty skips it.
   bunVersion: ""
-  # codesearch release (GitHub repository URL + tag publishing
-  # codesearch-linux-x86_64.tar.gz) installed into ~/.local/bin; empty version skips it.
-  codesearch:
-    repo: ""
-    version: ""
   # Claude Code MCP servers registered at user scope, name -> server config.
   mcpServers: {}
   # The operator's data volume and its mount path, which is also HOME.
@@ -215,6 +210,13 @@ dotfiles:
     limits:
       cpu: "1"
       memory: 1Gi
+
+# Client of the cluster codesearch service (docs/apps/codesearch.md), registered in
+# dotfiles.mcpServers: templates/networkpolicy-codesearch.yaml opens egress to it.
+codesearch:
+  enabled: false
+  namespace: codesearch
+  port: 39725
 
 # Agent health exporter (templates/exporter.yaml, docs/runbooks/paperclip-agents.md):
 # files/paperclip-exporter.ts run by the stock Bun image reads the REST API with

@@ -313,6 +313,9 @@ charts:
   opentelemetry-collector: "0.173.1"
   # renovate: datasource=helm depName=altinity-clickhouse-operator registryUrl=https://helm.altinity.com
   altinity-clickhouse-operator: "0.27.3"
+  # Cluster-wide codesearch (docs/apps/codesearch.md); the chart's image tag is the same version.
+  # renovate: datasource=helm depName=codesearch registryUrl=https://ryanmcafee.github.io/codesearch
+  codesearch: "1.7.0"
 images:
   homelab-cmp: "0.1.52"
   # Alert triage agent image (Dockerfile.triage-agent, .github/workflows/triage-agent-image.yml);

@@ -172,6 +172,7 @@ of samples; that is how 16 alerts stood on democratic-csi for three months while
 | homelab-paperclip | `PaperclipAgentFailureRateHigh` | warning | more than 20 % of the agent runs finished in the last hour failed, were interrupted or timed out (at least 5 runs) for 15 m |
 | homelab-paperclip | `PaperclipRecoveryRateBreached` | warning | Paperclip's recovery-observability reports this week above its threshold for 30 m |
 | homelab-paperclip | `PaperclipPhantomAgentStuck` | warning | an agent reports `running` without a live run for 15 m |
+| homelab-codesearch | `CodesearchBackupMissing` | warning | no successful `codesearch-backup` for 36 h (Argo custom metric on the workflow controller); the service alerts ship with the upstream chart ([codesearch.md](./codesearch.md)) |
 | homelab-nats-jetstream | `PFWorkOldestUnackedAging` | warning / critical | the head of the `PF_WORK` work queue has been unacked for 12 h / 18 h of its 24 h `max_age`, which deletes it silently ([pf-work-age-expiry.md](./pf-work-age-expiry.md)) |
 | homelab-nats-jetstream | `PFWorkMessagesExpiredUnacked` | critical | `PF_WORK` messages left the stream without being acked: age expiry, a purge or a delete |
 | homelab-nats-jetstream | `PFWorkStreamMetricsAbsent` | warning | the exporter reported `PF_WORK` in the last 6 h and no longer does, so the age budget is unwatched, for 30 m |

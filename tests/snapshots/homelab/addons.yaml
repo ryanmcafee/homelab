@@ -30,6 +30,22 @@ metadata:
     argocd.argoproj.io/sync-wave: "-1"
 
 ---
+# Source: addons/templates/codesearch.yaml
+# Baseline, not restricted: the Argo Workflows executor containers the
+# controller injects into the backup and restore pods carry no container
+# securityContext.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: codesearch
+  labels:
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/audit: baseline
+    pod-security.kubernetes.io/warn: baseline
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+
+---
 # Source: addons/templates/democratic-csi.yaml
 # Namespace with privileged PodSecurity for CSI driver requirements
 # (hostNetwork, hostIPC, SYS_ADMIN capabilities, privileged containers)
@@ -314,6 +330,57 @@ subjects:
   - kind: ServiceAccount
     name: external-dns-unifi-crd
     namespace: external-dns-unifi
+
+---
+# Source: addons/templates/codesearch.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: smoke-codesearch
+  namespace: codesearch
+  labels:
+    app.kubernetes.io/name: smoke-codesearch
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation,HookSucceeded
+    argocd.argoproj.io/sync-wave: "14"
+spec:
+  backoffLimit: 2
+  activeDeadlineSeconds: 600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: smoke-codesearch
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: curl
+          image: curlimages/curl:8.22.0
+          env:
+            - name: URL
+              value: "http://codesearch.codesearch.svc.cluster.local:39725/healthz"
+          command: ["sh", "-c"]
+          args:
+            - |
+              code=$(curl -sL --max-redirs 5 -o /dev/null -w '%{http_code}' --retry 30 --retry-delay 10 --retry-all-errors --max-time 20 "$URL")
+              echo "smoke codesearch: $URL -> HTTP $code"
+              case "$code" in 200) exit 0;; *) exit 1;; esac
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 100
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            seccompProfile:
+              type: RuntimeDefault
 
 ---
 # Source: addons/templates/istio.yaml
@@ -617,6 +684,9 @@ spec:
         logStore:
           enabled: true
           retentionDays: 30
+          backupBuckets:
+          - keep: 14
+            name: codesearch-backups
           bucket: argo-workflows-logs
           image: versity/versitygw:v1.8.0
           name: argo-workflows-logs
@@ -693,13 +763,18 @@ spec:
               cpu: 50m
               memory: 32Mi
         controller:
+          # Workflow custom metrics appear here as argo_workflows_<name>.
+          metricsConfig:
+            enabled: true
+          serviceMonitor:
+            enabled: true
           resources:
             limits:
               cpu: 500m
-              memory: 48Mi
+              memory: 128Mi
             requests:
               cpu: 100m
-              memory: 32Mi
+              memory: 48Mi
           workflowDefaults:
             spec:
               podGC:
@@ -1292,6 +1367,173 @@ spec:
       - CreateNamespace=true
       - ServerSideApply=true
       - ApplyOutOfSyncOnly=true
+
+---
+# Source: addons/templates/codesearch.yaml
+# Dependencies Application: the git token and log store credentials, and the
+# backup CronWorkflow and restore WorkflowTemplate.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: codesearch-dependencies
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "13"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/ryanmcafee/homelab.git
+    targetRevision: main
+    path: charts/codesearch-dependencies
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-homelab.yaml
+      # Derived from configuration/ (ADR-010); the child's values stay environment-free.
+      valuesObject:
+        namespace: "codesearch"
+        image: "ghcr.io/ryanmcafee/codesearch:1.7.0"
+        git:
+          itemPath: ""
+        workflows:
+          enabled: true
+          artifacts:
+            secretName: "argo-workflows-artifacts"
+            itemPath: "vaults/homelab/items/argo-workflows-artifacts"
+          store:
+            endpoint: "argo-workflows-logs.argo-workflows.svc:7070"
+            bucket: "codesearch-backups"
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: codesearch
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - SkipDryRunOnMissingResource=true
+
+---
+# Source: addons/templates/codesearch.yaml
+# The service: clones the repositories, keeps them indexed and serves MCP at
+# http://codesearch.<namespace>.svc.cluster.local:39725/mcp to namespaces
+# labelled codesearch-client.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: codesearch
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "14"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://ryanmcafee.github.io/codesearch
+    chart: codesearch
+    targetRevision: "1.7.0"
+    helm:
+      releaseName: codesearch
+      values: |
+        auth:
+          mode: networkPolicy
+        dashboard:
+          annotations: {}
+          enabled: true
+          labels:
+            grafana_dashboard: "1"
+        extraInitContainers:
+        - command:
+          - /bin/sh
+          - -c
+          - |
+            set -eu
+            staged=/data/restore-staging/ready
+            config=/data/home/.codesearch
+            [ -d "$staged" ] || exit 0
+            mkdir -p "$config/embedding_cache"
+            for model in "$staged"/embedding_cache/*/; do
+              [ -d "$model" ] || continue
+              name=$(basename "$model")
+              rm -rf "$config/embedding_cache/$name"
+              mv "$model" "$config/embedding_cache/$name"
+            done
+            if [ -f "$staged/repos.json" ]; then mv "$staged/repos.json" "$config/repos.json"; fi
+            touch "$config/force-reindex"
+            rm -rf /data/restore-staging
+            echo "applied the staged codesearch backup"
+          image: '{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion
+            }}'
+          name: restore-apply
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+              - ALL
+            readOnlyRootFilesystem: true
+          volumeMounts:
+          - mountPath: /data
+            name: data
+        networkPolicy:
+          enabled: true
+          ingress:
+            extraPeers:
+            - podSelector: {}
+            namespaceSelectors:
+            - codesearch-client: "true"
+            - kubernetes.io/metadata.name: monitoring
+        persistence:
+          annotations:
+            argocd.argoproj.io/sync-options: Prune=false,Delete=false
+          size: 20Gi
+          storageClassName: democratic-csi-iscsi
+        prometheusRule:
+          additionalLabels: {}
+          enabled: true
+        repositories:
+          intervalSeconds: 300
+          urls:
+          - https://github.com/REPLACEME-user/homelab
+        resources:
+          limits:
+            cpu: "2"
+            memory: 3Gi
+          requests:
+            cpu: 100m
+            memory: 512Mi
+        serviceMonitor:
+          enabled: true
+        strategy:
+          type: Recreate
+  # The restore workflow's restart annotation must survive selfHeal.
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      name: codesearch
+      jsonPointers:
+        - /spec/template/metadata/annotations/homelab.codesearch~1restored-at
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: codesearch
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - RespectIgnoreDifferences=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
 
 ---
 # Source: addons/templates/democratic-csi-iscsi-hdd.yaml
@@ -4293,6 +4535,31 @@ spec:
                     annotations:
                       summary: 'The triage agent intake is not scraped'
                       description: 'No alert reaches the triage agent and the workspace alerts above are blind. `kubectl -n triage-agent get deploy triage-agent`; docs/runbooks/triage-agent.md.'
+          # codesearch backups (docs/runbooks/codesearch.md). The upstream chart
+          # ships the service alerts; this is the charts/codesearch-dependencies
+          # CronWorkflow's gauge, an Argo custom metric on the workflow controller.
+          homelab-codesearch:
+            groups:
+              - name: homelab-codesearch
+                rules:
+                  - alert: CodesearchBackupMissing
+                    expr: 'time() - max(argo_workflows_codesearch_backup_last_success_timestamp_seconds) > 36 * 3600'
+                    for: 15m
+                    labels:
+                      severity: warning
+                      reason: stale
+                    annotations:
+                      summary: 'No codesearch backup for {{ $value | humanizeDuration }}'
+                      description: 'The daily codesearch-backup CronWorkflow has not succeeded for over 36h. `argo -n codesearch list`; docs/runbooks/codesearch.md.'
+                  - alert: CodesearchBackupMissing
+                    expr: 'absent(argo_workflows_codesearch_backup_last_success_timestamp_seconds)'
+                    for: 36h
+                    labels:
+                      severity: warning
+                      reason: absent
+                    annotations:
+                      summary: 'No codesearch backup recorded for 36h'
+                      description: 'The workflow controller has exported no successful codesearch backup for 36h (none ran since it started, or its metrics are not scraped). `argo -n codesearch cron get codesearch-backup`; docs/runbooks/codesearch.md.'
 
   destination:
     server: https://kubernetes.default.svc

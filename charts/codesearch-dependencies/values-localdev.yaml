@@ -1,0 +1,6 @@
+# codesearch-dependencies localdev values
+#
+# Kind has no secret store and no Argo Workflows, so nothing but the parent's
+# valuesObject applies. The file exists because the parent Application always
+# appends values-<environment>.yaml.
+namespace: codesearch

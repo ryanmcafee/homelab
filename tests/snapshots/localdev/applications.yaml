@@ -1250,6 +1250,8 @@ spec:
         agentPolicy:
           enabled: false
           image: ""
+        codesearch:
+          enabled: false
         exporter:
           enabled: true
           image: oven/bun:1.4.2-alpine

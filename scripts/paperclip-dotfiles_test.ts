@@ -37,7 +37,6 @@ describe("parseConfig", () => {
       setupCommand: "",
       gitToken: "",
       bunVersion: "",
-      codesearch: { repo: "", version: "" },
       mcpServers: {},
     });
   });
@@ -52,9 +51,8 @@ describe("parseConfig", () => {
       DOTFILES_SETUP_COMMAND: "bun setup.ts",
       DOTFILES_GIT_TOKEN: "t0k",
       BUN_VERSION: "1.4.2",
-      CODESEARCH_REPO: "https://github.com/someone/codesearch",
-      CODESEARCH_VERSION: "v1.6.1",
-      MCP_SERVERS: '{"codesearch":{"command":"codesearch","args":["mcp"]}}',
+      MCP_SERVERS:
+        '{"codesearch":{"type":"http","url":"http://codesearch.codesearch.svc.cluster.local:39725/mcp"}}',
     });
     expect(config.ref).toBe("v2");
     expect(config.dir).toBe("/data/dots");
@@ -63,12 +61,11 @@ describe("parseConfig", () => {
     expect(config.setupCommand).toBe("bun setup.ts");
     expect(config.gitToken).toBe("t0k");
     expect(config.bunVersion).toBe("1.4.2");
-    expect(config.codesearch).toEqual({
-      repo: "https://github.com/someone/codesearch",
-      version: "v1.6.1",
-    });
     expect(config.mcpServers).toEqual({
-      codesearch: { command: "codesearch", args: ["mcp"] },
+      codesearch: {
+        type: "http",
+        url: "http://codesearch.codesearch.svc.cluster.local:39725/mcp",
+      },
     });
   });
 
@@ -88,19 +85,6 @@ describe("parseConfig", () => {
     expect(() =>
       parseConfig({ ...baseEnv, DOTFILES_CLAUDE_DIR: "../etc" }),
     ).toThrow("DOTFILES_CLAUDE_DIR");
-  });
-
-  test("rejects a codesearch version without a repository URL", () => {
-    expect(() => parseConfig({ ...baseEnv, CODESEARCH_VERSION: "v1" })).toThrow(
-      "CODESEARCH_REPO",
-    );
-    expect(() =>
-      parseConfig({
-        ...baseEnv,
-        CODESEARCH_REPO: "someone/codesearch",
-        CODESEARCH_VERSION: "v1",
-      }),
-    ).toThrow("CODESEARCH_REPO");
   });
 
   test("rejects MCP_SERVERS that is not a JSON object", () => {
@@ -210,8 +194,8 @@ describe("pluginCommands", () => {
 describe("mcpCommands", () => {
   test("replaces each server at user scope", () => {
     const server = {
-      command: "/paperclip/.local/bin/codesearch",
-      args: ["mcp"],
+      type: "http",
+      url: "http://codesearch.codesearch.svc.cluster.local:39725/mcp",
     };
     const commands: Command[] = mcpCommands({ codesearch: server });
     expect(commands).toEqual([
