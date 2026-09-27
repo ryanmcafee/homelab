@@ -1626,7 +1626,7 @@ codesearch:
     # before serve starts (charts/codesearch-dependencies, docs/runbooks/codesearch.md).
     extraInitContainers:
       - name: restore-apply
-        image: '{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}'
+        image: "ghcr.io/ryanmcafee/codesearch:1.7.0"
         command:
           - /bin/sh
           - -c

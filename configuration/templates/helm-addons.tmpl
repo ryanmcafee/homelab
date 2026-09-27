@@ -1860,7 +1860,7 @@ codesearch:
 
   # Comma-separated https URLs (CODESEARCH_REPOS); templates/codesearch.yaml
   # splits them into values.repositories.urls.
-  repos: "{{ .Values.CODESEARCH_REPOS.Value }}"
+  repos: "{{ if .Values.CODESEARCH_REPOS }}{{ .Values.CODESEARCH_REPOS.Value }}{{ end }}"
 
   # Handed verbatim to the upstream chart (spec.source.helm.values).
   values:
@@ -1879,7 +1879,7 @@ codesearch:
         argocd.argoproj.io/sync-options: Prune=false,Delete=false
     repositories:
       intervalSeconds: 300
-{{- if and $onepassword .Values.CODESEARCH_GIT_1P_PATH.Value }}
+{{- if and $onepassword .Values.CODESEARCH_GIT_1P_PATH }}
       # Secret from charts/codesearch-dependencies (CODESEARCH_GIT_1P_PATH).
       tokenSecret:
         name: codesearch-git
@@ -1909,7 +1909,7 @@ codesearch:
     # before serve starts (charts/codesearch-dependencies, docs/runbooks/codesearch.md).
     extraInitContainers:
       - name: restore-apply
-        image: {{ "'{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}'" }}
+        image: "ghcr.io/ryanmcafee/codesearch:{{ index .Versions.Charts "codesearch" }}"
         command:
           - /bin/sh
           - -c
@@ -1961,7 +1961,7 @@ codesearch:
   dependencies:
     # The upstream image, which carries mdb_copy and tar for the backup steps.
     image: "ghcr.io/ryanmcafee/codesearch:{{ index .Versions.Charts "codesearch" }}"
-    gitItemPath: "{{ if $onepassword }}{{ .Values.CODESEARCH_GIT_1P_PATH.Value }}{{ end }}"
+    gitItemPath: "{{ if and $onepassword .Values.CODESEARCH_GIT_1P_PATH }}{{ .Values.CODESEARCH_GIT_1P_PATH.Value }}{{ end }}"
     artifactsItemPath: "{{ if $onepassword }}{{ .Values.ARGO_WORKFLOWS_ARTIFACTS_1P_PATH.Value }}{{ end }}"
     backupBucket: codesearch-backups
 
