@@ -7,7 +7,7 @@ The Pushover credentials live in one 1Password item; nothing secret is committed
 | Severity | Receiver | Pushover priority | Why |
 |---|---|---|---|
 | every alert but `Watchdog`, `InfoInhibitor` | `triage-agent` (webhook, `continue: true`) | — | a triage workflow that opens a fix PR ([triage-agent.md](triage-agent.md)) |
-| `GitHubPullRequestNeedsReview` | `pushover-github-pr` | 0 (normal), never resolved | a pull request waits for you ([below](#github-pull-requests-that-need-review)) |
+| `GitHubPullRequestNeedsReview` | `pushover-github-pr` | 0 (normal), one digest, never resolved | pull requests wait for you ([below](#github-pull-requests-that-need-review)) |
 | `critical` | `pushover-critical` | 1 (high) while firing, 0 when resolved | wakes you up |
 | `warning` | `pushover-warning` | -1 (low, no sound) | look during the day |
 | `info`, `Watchdog`, `InfoInhibitor` | `null` | — | the chart's heartbeat and inhibitor plumbing; never a page |
@@ -257,9 +257,15 @@ The `github-pr-exporter` Application (prometheus-json-exporter, `monitoring`) ru
 search queries (`GET /search/issues`) every 2 m and exports one
 `github_search_pull_request{query, number, title, url, author}` series per matching pull
 request. `GitHubPullRequestNeedsReview` fires per pull request after 5 m and goes to Pushover
-through its own route (`pushover-github-pr`): title `PR needs review: <owner>/<repo>#<n>`,
-the PR title and author as the message, and a tap-through link to the PR. It repeats every
-24 h while the PR still matches and sends nothing when it is merged, closed or reviewed.
+through its own route (`pushover-github-pr`), which groups every such alert into one digest:
+title `PR needs review: <count>`, one line per pull request (`<owner>/<repo>#<n>` linked to
+the PR, then its title) and a tap-through link to `https://github.com/pulls`. The digest
+repeats every 24 h while any PR still matches; a PR that is merged, closed or reviewed drops
+out of the next one, and a newly found PR joins it at the next group update (≤ 5 m).
+Alertmanager cuts the message at 1024 characters, so a long list loses its tail but the count
+stays right. One group rather than one per PR, because PRs found in the same scrape started
+their groups together, repeated together and sent a burst of parallel Pushover requests that
+Pushover rejected with 4xx replies (`AlertmanagerFailedToSendAlerts`, `reason="clientError"`).
 `<owner>` is the GitHub account of `global.repoUrl` (`$githubOwner` in
 `configuration/templates/helm-addons.tmpl`): its repositories are searched and it is the reviewer.
 
