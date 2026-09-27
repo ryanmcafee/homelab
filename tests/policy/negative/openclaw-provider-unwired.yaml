@@ -1,0 +1,22 @@
+# expect: openclaw-provider-unwired
+# A provider allowlist entry reading a variable the Instance never declares:
+# the provider is offered to the agents and cannot authenticate.
+apiVersion: openclaw.rocks/v1alpha1
+kind: OpenClawInstance
+metadata:
+  name: openclaw
+  namespace: openclaw
+spec:
+  env:
+    - name: ANTHROPIC_OAUTH_TOKEN
+      valueFrom:
+        secretKeyRef:
+          name: openclaw-api-keys
+          key: ANTHROPIC_OAUTH_TOKEN
+          optional: true
+  config:
+    raw:
+      models:
+        providers:
+          openai:
+            apiKey: ${OPENAI_API_KEY}

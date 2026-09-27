@@ -1,0 +1,17 @@
+# expect: Degraded
+# message: Instance is in phase Failed
+apiVersion: openclaw.rocks/v1alpha1
+kind: OpenClawInstance
+metadata:
+  name: openclaw
+  namespace: openclaw
+spec:
+  image:
+    repository: ghcr.io/openclaw/openclaw
+    tag: "2026.9.6"
+status:
+  phase: Failed
+  conditions:
+    - type: Ready
+      status: "False"
+      message: gateway token Secret openclaw-gateway not found
