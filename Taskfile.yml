@@ -872,6 +872,18 @@ tasks:
           | yq -r 'select(.kind=="Application" and .metadata.name=="kube-prometheus-stack") | .spec.source.helm.values' \
           | yq -r '{"groups": [.additionalPrometheusRulesMap[].groups[]]}' > "$out/rules.yaml"
         promtool check rules "$out/rules.yaml"
+        # An `exp_alerts: []` assertion passes whether the alert exists or not,
+        # so a rename would silence the rule and leave the suite green. Every
+        # alertname a test names has to still be rendered.
+        yq -r '.groups[].rules[] | select(has("alert")) | .alert' "$out/rules.yaml" | sort -u > "$out/rendered.txt"
+        for suite in tests/alerts/*.test.yaml; do
+          yq -r '.tests[].alert_rule_test[].alertname' "$suite"
+        done | sort -u > "$out/asserted.txt"
+        missing="$(comm -23 "$out/asserted.txt" "$out/rendered.txt")"
+        if [ -n "$missing" ]; then
+          echo "::error::tests/alerts names alerts the addons chart no longer renders: $(echo "$missing" | tr '\n' ' ')" >&2
+          exit 1
+        fi
         cp tests/alerts/*.test.yaml "$out/"
         cd "$out" && promtool test rules ./*.test.yaml
 
