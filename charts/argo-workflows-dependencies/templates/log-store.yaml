@@ -59,7 +59,7 @@ spec:
         # POSIX backend: every top-level directory is a bucket.
         - name: bucket
           image: {{ .image }}
-          command: ["/bin/sh", "-c", "mkdir -p /data/{{ .bucket }}"]
+          command: ["/bin/sh", "-c", "mkdir -p /data/{{ .bucket }}{{ range .backupBuckets }} /data/{{ .name }}{{ end }}"]
           resources:
             {{- toYaml .resources | nindent 12 }}
           securityContext:
@@ -104,7 +104,8 @@ spec:
               mountPath: /data
             - name: tmp
               mountPath: /tmp
-        # Hourly: delete log objects older than retentionDays, then empty directories.
+        # Hourly: delete log objects older than retentionDays, then empty
+        # directories; of each backup bucket keep only the newest `keep` tarballs.
         - name: retention
           image: {{ .image }}
           command:
@@ -114,6 +115,9 @@ spec:
               while true; do
                 find /data/{{ .bucket }} -mindepth 1 -type f -mmin +{{ mul .retentionDays 1440 }} -delete
                 find /data/{{ .bucket }} -mindepth 1 -type d -empty -delete
+                {{- range .backupBuckets }}
+                find /data/{{ .name }} -mindepth 1 -type f -name '*.tar.gz' ! -path '*/.*' | sort -r | tail -n +{{ add .keep 1 }} | xargs -r rm -f
+                {{- end }}
                 sleep 3600
               done
           resources:

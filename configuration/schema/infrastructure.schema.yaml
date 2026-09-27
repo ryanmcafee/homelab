@@ -60,3 +60,17 @@ keys:
   DUCKDNS_SUBDOMAIN:
     description: DuckDNS subdomain for dynamic DNS
     required: true
+
+  CODESEARCH_ENABLED:
+    description: Whether the cluster-wide codesearch service runs (upstream chart plus charts/codesearch-dependencies, docs/apps/codesearch.md); daily backups also need Argo Workflows and its S3 log store
+    required: true
+    default: "false"
+    enum:
+      - "true"
+      - "false"
+
+  CODESEARCH_REPOS:
+    description: Comma-separated https URLs of the git repositories codesearch clones and indexes (default branch only); a private one needs CODESEARCH_GIT_1P_PATH
+    required: false
+    default: ""
+    pattern: "^$|^https://[^\\s,@]+(,https://[^\\s,@]+)*$"
