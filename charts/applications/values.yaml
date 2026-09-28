@@ -1173,10 +1173,11 @@ openclaw:
     image:
       repository: ghcr.io/openclaw/openclaw
       tag: ""
+    # No Gateway is named: the internal one serves the whole LAN, not only the
+    # tailnet, and a name here would survive the merge and keep openclaw in the
+    # docs/networking.md route inventory with nothing rendered behind it.
     route:
-      gateway:
-        name: envoy-internal
-        namespace: envoy-gateway-system
+      enabled: false
     persistence:
       size: 10Gi
       storageClass: ""
