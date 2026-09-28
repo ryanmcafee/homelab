@@ -56,7 +56,12 @@ const RUNS = [
   run("failed", "2026-09-25T02:30:00Z", "acpx_turn_failed"),
   // Live, and deliberately absent from LIVE_RUNS: /live-runs is capped at 50
   // server-side, so on a busy company a real run is missing from it.
-  { id: "run-past-the-cap", agentId: "a9", status: "running", finishedAt: null },
+  {
+    id: "run-past-the-cap",
+    agentId: "a9",
+    status: "running",
+    finishedAt: null,
+  },
 ];
 
 const AGENTS = [
@@ -332,7 +337,12 @@ test("summarize counts a run present in both sources once", () => {
   const summary = summarize(
     {
       runs: parseRuns([
-        { id: "live-run-1", agentId: "a1", status: "running", finishedAt: null },
+        {
+          id: "live-run-1",
+          agentId: "a1",
+          status: "running",
+          finishedAt: null,
+        },
       ]),
       agents: parseAgents(AGENTS),
       liveRuns: parseLiveRuns(TRUNCATED_LIVE_RUNS),
