@@ -38,7 +38,7 @@ route and hostname object in the GitOps repo. Evaluated by `internal/verify.Poli
 | `httproute-parent` | `HTTPRoute` `parentRefs`, and any `parentRefs` list in an `Application`'s inline helm values | Every parent is the `https` listener (`sectionName: https`) of `data.gateway_internal` or `data.gateway_external` in `data.gateway_namespace` (written into `_data.yaml` from `GATEWAY_*`). The `http` listener only redirects, so it accepts only redirect routes (no `backendRefs`). The Istio comparison gateways (`istio-internal`/`istio-external` in `istio-ingress`) accept only the route `echo`. Inline `parentRefs` must name their namespace. |
 | `httproute-target` | `HTTPRoute` annotations, and `annotations` under an `httpRoute`/`gatewayApi` key in an `Application`'s inline helm values | No `external-dns.alpha.kubernetes.io/target`. The `gateway-httproute` source ignores it on a route and takes targets from the Gateway (`dnsTarget` in `charts/envoy-gateway-config`). |
 | `no-ingress` | `networking.k8s.io` `Ingress`, and any `ingress...enabled: true` in an `Application`'s inline helm values (outside a `networkPolicy` key) | Absent. Envoy Gateway does not implement Ingress, so an Ingress applies cleanly and is never served; use an HTTPRoute (the chart's native route support). |
-| `workflows-auth` | `Application` sources with chart `argo-workflows` | Enabled `server.httproute` requires explicit `server.authMode: sso` or `client`. Missing/empty/unknown auth and `server` are denied. |
+| `workflows-auth` | `Application` sources with chart `argo-workflows` | Enabled `server.httproute` requires a non-empty effective mode set contained in `{sso, client}` across `authMode`, `authModes`, and `extraArgs`. Unsafe or ambiguous inputs are denied. |
 | `inline-secret` | `Secret` | `data`/`stringData` keys are a subset of `name, url, type, enableOCI, project, insecure` (the ArgoCD repository-secret shape). Anything else is treated as inline secret material that should live in 1Password/SOPS instead. |
 | `hostname-domain` | `HTTPRoute` `hostnames`, `Gateway` listener `hostname`, cert-manager `Certificate` `dnsNames`, external-dns `DNSEndpoint` `dnsName`, **and** any hostname embedded in an `Application`'s inline `spec.source.helm.values`/`valuesObject` (a value under a `host`/`hostname`/`hosts[]`/`hostnames[]`/`dnsNames[]`/`commonName`/`externalHostname` key, or the host of an http(s) `url`, anywhere in the parsed tree) | Is `data.domain` itself or ends with `.` + `data.domain` (the environment's base domain). |
 
@@ -74,7 +74,23 @@ Applications are matched by chart, including renamed Applications.
 Either inline YAML `values` or `valuesObject` is accepted. Supplying both is
 rejected, so the gate cannot assume the wrong effective-value precedence. Unparseable/non-object values and non-boolean route flags fail.
 An omitted route flag is treated as disabled; an enabled route requires an
-explicit authenticated mode. `client` authenticates requests but does **not**
+explicit authenticated mode. The chart appends all three auth inputs; they do
+not override each other. The gate checks `server.authMode`, every entry of
+`server.authModes`, and auth flags in `server.extraArgs` together. Any
+`server`, `hybrid`, unknown mode, malformed list, or ambiguous argument is
+rejected, even alongside `client` or `sso`.
+
+`authModes` must be a list of exact `client`/`sso` strings. `extraArgs`
+must be a string list: auth flags support `--auth-mode=client`,
+`--auth-mode=sso`, or two tokens such as `["--auth-mode", "client"]`.
+Unrelated flags support only `--flag=value`. Positional arguments, `--`,
+unknown split forms, comma-separated modes, and missing flag values fail
+closed. Convert unrelated split flags to equals syntax before enabling the
+route. Empty lists and an absent/empty singular key add no modes; at least
+one explicit safe mode must remain. This is **Fail fast, fail loud**: an
+uninspectable argument cannot silently pass an authentication gate.
+
+`client` authenticates requests but does **not**
 satisfy the platform OIDC acceptance criterion; that still requires SSO wiring
 and authorization verification. This static gate does not validate an IdP,
 credentials, RBAC, or the runtime login flow.
@@ -183,3 +199,17 @@ and `internal/verify.Policy` always pass it.
 `conftest test -o json` can also report Rego `warn` rules (distinct from
 `deny`/failures) under a `warnings` key; `internal/verify.Policy` surfaces
 these as findings prefixed `warn:` without failing the check.
+
+The three additive-input regression fixtures are
+`negative/workflows-auth-plural-server.yaml`,
+`negative/workflows-auth-plural-hybrid.yaml`, and
+`negative/workflows-auth-extra-args-server.yaml`. Each derives from the
+captured client control with only an additional auth input. Before hardening,
+all three produced no policy failure and therefore failed the negative-fixture
+harness; afterwards all three produce a `[workflows-auth]` denial. Rego tests
+also exercise mixed safe inputs, split auth flags, malformed types, repeated
+flags, and empty effective sets through both inline value representations.
+
+The exposure check remains limited to the chart's `server.httproute.enabled`;
+it cannot discover a separately declared HTTPRoute targeting the Service
+(ADR-050 D10). This gate change implements D11a without changing rendered values.

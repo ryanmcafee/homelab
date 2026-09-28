@@ -38,6 +38,7 @@ mixed_values(helm) if {
 inspectable(helm) if {
 	not mixed_values(helm)
 	is_object(values(helm))
+
 	# External files and --set overrides cannot be verified from inline values.
 	count(object.get(helm, "valueFiles", [])) == 0
 	count(object.get(helm, "fileParameters", [])) == 0
@@ -48,9 +49,52 @@ safe(values) if {
 	object.get(values, ["server", "httproute", "enabled"], false) == false
 }
 
+# All three chart inputs append flags; none overrides an earlier mode.
+# Keep extraArgs deliberately narrow: auth flags and unrelated --flag=value
+# tokens only. Positional arguments, terminators and unknown split forms could
+# change how later flags are parsed, so they must fail closed.
+allowed_modes := {"sso", "client"}
+
+safe_arg(args, i) if {
+	args[i] in {"--auth-mode=sso", "--auth-mode=client"}
+}
+
+safe_arg(args, i) if {
+	args[i] == "--auth-mode"
+	args[i + 1] in allowed_modes
+}
+
+safe_arg(args, i) if {
+	i > 0
+	args[i - 1] == "--auth-mode"
+	args[i] in allowed_modes
+}
+
+safe_arg(args, i) if {
+	regex.match("^--[a-zA-Z0-9][a-zA-Z0-9-]*=.+$", args[i])
+	not startswith(args[i], "--auth-mode=")
+}
+
 safe(values) if {
 	object.get(values, ["server", "httproute", "enabled"], false) == true
-	object.get(values, ["server", "authMode"], "") in {"sso", "client"}
+	server := object.get(values, "server", {})
+	singular := object.get(server, "authMode", "")
+	singular in {"", "sso", "client"}
+	plural := object.get(server, "authModes", [])
+	is_array(plural)
+	every mode in plural {
+		mode in allowed_modes
+	}
+	args := object.get(server, "extraArgs", [])
+	is_array(args)
+	every i, arg in args {
+		is_string(arg)
+		safe_arg(args, i)
+	}
+
+	# At least one explicit mode is required; never trust chart/server defaults.
+	modes := ({mode | mode := plural[_]} | {singular | singular in allowed_modes}) | {mode | some arg in args; mode := trim_prefix(arg, "--auth-mode="); mode in allowed_modes}
+	count(modes) > 0
 }
 
 # Deliberately does NOT call lib.is_exempt: a boolean or arbitrary reason is
@@ -67,5 +111,5 @@ deny contains msg if {
 	helm := object.get(source, "helm", {})
 	inspectable(helm)
 	not safe(values(helm))
-	msg := sprintf("[workflows-auth] %s: routed Workflows requires explicit server.authMode sso or client; server/no-auth, missing or empty auth is forbidden. Set server.httproute.enabled=false to disable exposure (source: server.route.enabled). Any deferral requires a separately recorded Architect review and policy change", [lib.id(input)])
+	msg := sprintf("[workflows-auth] %s: routed Workflows requires a non-empty effective auth mode set containing only sso/client across server.authMode, server.authModes and server.extraArgs; server/hybrid, malformed lists and ambiguous arguments are forbidden. Use authModes: [client] and canonical --auth-mode=client/--auth-mode=sso (split --auth-mode, client is also supported); unrelated extraArgs must use --flag=value. Set server.httproute.enabled=false to disable exposure (source: server.route.enabled). Any deferral requires a separately recorded Architect review and policy change", [lib.id(input)])
 }
