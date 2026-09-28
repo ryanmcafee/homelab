@@ -158,6 +158,22 @@ spec and the vendored kubeconform schemas can only confirm the kind is known. Th
 admission webhook is the only thing that rejects a malformed Sensor before it fails at
 runtime, and the chart ships it **disabled**; this repo enables it.
 
+What that webhook actually registers, measured on Kind rather than read off the chart: one
+webhook, `failurePolicy: Ignore`, `timeoutSeconds: 10`, and three rules each naming a single
+resource — `eventbus`, `eventsources`, `sensors` — under `argoproj.io/v1alpha1`. Two
+consequences worth stating rather than leaving to be discovered:
+
+- **It is scoped, not wildcard.** ArgoCD's own `Application` and `AppProject` are
+  `argoproj.io` too, and they are *not* intercepted, so a webhook outage cannot become a
+  GitOps outage.
+- **It fails open, but only when it is down.** `Ignore` means the API server admits the object
+  when the webhook pod is *unavailable*. While it is up it validates and rejects like any
+  other admission plugin. What `Ignore` removes is the guarantee, not the checking: a
+  malformed spec applied inside `timeoutSeconds` or during a webhook restart is admitted, and
+  nothing records that it skipped validation. So this is real validation with an unobservable
+  hole, not advice — which is the argument for gating the same rules at level 0 as well, not
+  for treating admission as decorative.
+
 ## Delivery and ordering guarantees
 
 Stated every time, because the alternative is each reader assuming whichever guarantee
