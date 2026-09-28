@@ -71,8 +71,7 @@
         },
         "quorum.table.#0.maxUnavailable": {
           "kind": "number",
-          "value": "0",
-          "bound": "max"
+          "value": "0"
         },
         "quorum.table.#1": {
           "kind": "object"
@@ -87,8 +86,7 @@
         },
         "quorum.table.#1.maxUnavailable": {
           "kind": "number",
-          "value": "1",
-          "bound": "max"
+          "value": "1"
         },
         "quorum.table.#2": {
           "kind": "object"
@@ -103,8 +101,7 @@
         },
         "quorum.table.#2.maxUnavailable": {
           "kind": "number",
-          "value": "2",
-          "bound": "max"
+          "value": "2"
         },
         "quorum.table.#3": {
           "kind": "object"
@@ -119,8 +116,7 @@
         },
         "quorum.table.#3.maxUnavailable": {
           "kind": "number",
-          "value": "3",
-          "bound": "max"
+          "value": "3"
         },
         "quorum.removalOfLastMember": {
           "kind": "string",

@@ -1682,12 +1682,29 @@ export interface ShapeBaseline {
   documents: Record<string, DocumentShape>;
 }
 
-/** Every directory under `contracts/`, sorted. */
+/**
+ * Every directory under `contracts/` at any depth, sorted.
+ *
+ * Recursive rather than one level deep, because a constant naming a depth is
+ * the same defect as the constant naming a directory that this change removes:
+ * `contracts/events/data/` already holds 12 payload schemas one level below
+ * where a depth-1 walk stops, so nesting is the repository's own convention
+ * rather than a hypothetical. An undiscovered directory cannot be reported by
+ * `contract-baseline-missing` — the loop never visits it — so the only fix is
+ * for the walk to reach it.
+ */
 export function discoverContractDirs(root = CONTRACTS_ROOT): string[] {
-  return readdirSync(root, { withFileTypes: true })
-    .filter((e) => e.isDirectory())
-    .map((e) => join(root, e.name))
-    .sort();
+  const found: string[] = [];
+  const walk = (dir: string): void => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      const child = join(dir, entry.name);
+      found.push(child);
+      walk(child);
+    }
+  };
+  walk(root);
+  return found.sort();
 }
 
 /**
@@ -1744,6 +1761,11 @@ export function checkShapes(dir: string): Violation[] {
   const documents = contractDocuments(dir);
   const baseline = loadShapeBaseline(dir);
 
+  // A directory that only holds other directories pins nothing and has nothing
+  // to lose, so it needs no baseline. One that had documents and a baseline is
+  // still answerable below for having dropped them.
+  if (documents.length === 0 && baseline === null) return [];
+
   if (baseline === null) {
     return [
       {
@@ -1799,6 +1821,20 @@ export function checkShapes(dir: string): Violation[] {
  */
 export function collectViolations(root = CONTRACTS_ROOT): Violation[] {
   const out: Violation[] = [];
+
+  // A baseline belongs to a directory, so a document sitting at the root of
+  // `contracts/` belongs to no baseline and no rule can run against it. Naming
+  // that a violation is what keeps "gated by default" true for a file added
+  // where nobody thought to look, rather than only for one added in a
+  // directory the walk already visits.
+  for (const file of contractDocuments(root)) {
+    out.push({
+      rule: "contract-document-at-root",
+      subject: join(root, file),
+      message: `a contract document directly under \`${root}/\` sits in no contract directory, so no ${SHAPE_BASELINE_FILE} pins it and no compatibility rule ran against it. Move it into a subdirectory beside the contracts it belongs with, then run \`bun scripts/contract-check.ts baseline --write\` and commit the baseline.`,
+    });
+  }
+
   for (const dir of discoverContractDirs(root)) {
     if (dir === CONTRACTS_DIR) {
       const registry = loadRegistry(dir);
@@ -1861,6 +1897,7 @@ async function main(argv: string[]): Promise<number> {
         `wrote ${join(dir, BASELINE_FILE)} (${baseline.types.length} stable types, ${baseline.streams.length} streams, ${Object.keys(baseline.envelope.properties).length} envelope attributes of which ${baseline.envelope.required.length} required, ${pinnedProps} payload properties, ${pinnedLengthCount(baseline)} length bounds)`,
       );
       for (const contractDir of discoverContractDirs()) {
+        if (contractDocuments(contractDir).length === 0) continue;
         const shape = toShapeBaseline(contractDir);
         writeFileSync(
           join(contractDir, SHAPE_BASELINE_FILE),
@@ -1901,6 +1938,7 @@ async function main(argv: string[]): Promise<number> {
     `${registry.types.length} registered types across ${taxonomy.streams.length} streams; ${baseline.types.length} stable types, ${baseline.streams.length} streams, the envelope's ${Object.keys(baseline.envelope.properties ?? {}).length} attributes (${baseline.envelope.required.length} required), ${pinnedProps} payload properties, ${pinnedLengthCount(baseline)} length bounds and the subject grammar all compatible with the baseline`,
   );
   for (const contractDir of discoverContractDirs()) {
+    if (contractDocuments(contractDir).length === 0) continue;
     const counts = dirCounts(contractDir);
     log.ok(
       `${contractDir}: ${contractDocuments(contractDir).length} document(s), ${counts.fields} fields, ${counts.entries} list entries, ${counts.scalarLists} declared sets and ${counts.bounds} bounds structurally compatible with ${SHAPE_BASELINE_FILE}`,

@@ -43,14 +43,38 @@ extends by failing rather than by someone remembering to widen a constant.
 | `contract-baseline-missing` | a contract directory has no `shape.baseline.json`, so no rule ran against it |
 | `contract-document-unpinned` | a document is not in its directory's baseline, so no rule ran against it |
 | `contract-document-removed` | a published contract document was withdrawn rather than superseded |
+| `contract-document-at-root` | a document sits directly under `contracts/`, so it belongs to no directory's baseline |
 
-Two things the structural leg does **not** decide, stated here rather than left to be discovered.
-A scalar value that is not a direction-classified numeric bound — `quorum.formula` becoming a
-different expression, `evaluation.onIndeterminate` flipping from `unsafe` to `safe` — is breaking
-and no rule above rejects it; what happens instead is that the value is pinned, the baseline stops
-matching, the in-sync test in `scripts/contract-check_test.ts` fails, and the change is unmissable
-in review rather than silently green. A duration written as a string (`max_age: 168h`) is not
-direction-classified at all. Both are the named residual of MCAA-431.
+Directories are discovered recursively, so `events/data/` and anything nested later is gated like
+any other. A numeric leaf below a list entry that has no `id`/`name`/`key`/`type` is addressed by
+index, and an index is not a stable address for a bound, so those are pinned by value and left
+unclassified — otherwise reordering `quorum.table` reads as a tightened bound and the gate rejects
+correct work.
+
+### What the structural leg does not decide
+
+The rules assume a contract constrains what a producer may send, so **wider is safer**: a set that
+gains a member permits more, a `max` that rises rejects less. Two shapes in `cluster/topology.v1.yaml`
+invert that, and for both of them the widening is the breaking direction.
+
+- An **obligation set**. `health.predicates[].conditions` lists what a consumer must evaluate, so
+  adding one makes every conformant consumer non-conformant. `contract-required-added` is the rule
+  for this and it is bound to the literal key `required`, so an obligation set under any other name
+  is checked in the removal direction only.
+- A **derived worked value**. `quorum.table[].maxUnavailable` is an output of `count - quorum`, not
+  a ceiling on an input, so raising it from 1 to 2 asserts that a 3-member control plane survives
+  losing 2.
+
+Also undecided: a changed scalar value (`quorum.formula` rewritten,
+`evaluation.onIndeterminate` flipping from `unsafe` to `safe`), and a duration written as a string
+(`max_age: 168h`), which is not direction-classified at all.
+
+Every one of those **is pinned**, so the baseline stops matching, the in-sync test in
+`scripts/contract-check_test.ts` fails, and the change cannot land without someone regenerating the
+baseline and a reviewer reading the diff. Unmissable is weaker than decided, and the difference is
+deliberate. These are the named residual of MCAA-431; ADR-048 names the follow-up, a per-contract
+`compatibility:` block layered over the structural default. `scripts/topology-contract_test.ts`
+holds both inverted shapes for `cluster/` in the meantime.
 
 An internal-consistency test and the compatibility gate check different properties, and every
 contract here needs both. `cluster/topology.v1.yaml` is additionally checked by
