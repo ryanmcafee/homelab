@@ -98,7 +98,7 @@ suits them. **No path here is exactly-once end to end.**
 | `.dl` via `PF_DLQ` | **at-least-once** | per subject | consumer-side on the **original** `(source, id)` |
 | `.rq` on core NATS | **at-most-once** | none | none at the transport; the responder must be idempotent |
 
-Two consequences that bite in practice:
+Three consequences that bite in practice:
 
 - **`duplicate_window` (2m) de-duplicates publishes, not deliveries.** It makes a retry
   burst *shorter than the window* effectively-once and nothing more. A consumer can still
@@ -108,6 +108,13 @@ Two consequences that bite in practice:
   `max_deliver > 1` observes reordering after any failure, and `max_ack_pending: 256`
   removes delivery order entirely. Use the envelope `sequence` to *detect* reordering
   rather than assuming its absence.
+- **`discard` is a property of a bounded stream only.** JetStream applies it when a stream
+  reaches `max_bytes`, `max_msgs` or `max_msgs_per_subject`; age expiry is a separate path
+  that ignores it. `PF_WORK`'s `discard: new` is what turns a full queue into publisher
+  backpressure rather than silent loss, and it can only do that because every stream here
+  carries a `maxBytes` ceiling (see [sizing](#sizing-and-why-replicas-are-not-in-the-contract)).
+  Remove that ceiling and every `discard` policy on the bus becomes decorative, with no
+  error at create time and no alert afterwards.
 
 ## The dead-letter path
 
@@ -184,13 +191,15 @@ the shared file store — which refuses writes for **every** stream on the peer 
 `insufficient resources (10047)`. One stream's retention budget becomes a bus-wide outage.
 The per-surface numbers live in `charts/nats-config/values-<surface>.yaml`:
 
-| Stream | homelab | localdev |
-|---|---|---|
-| `PF_EVENTS` | 2 GiB | 512 MiB |
-| `PF_AUDIT` | 3 GiB | 768 MiB |
-| `PF_WORK` | 256 MiB | 64 MiB |
-| `PF_DLQ` | 512 MiB | 128 MiB |
-| file store | 20 GiB | 2 GiB |
+| Stream | Share | homelab | localdev |
+|---|---|---|---|
+| `PF_EVENTS` | 33.3% | 2 GiB | 384 MiB |
+| `PF_AUDIT` | 50% | 3 GiB | 576 MiB |
+| `PF_WORK` | 4.2% | 256 MiB | 48 MiB |
+| `PF_DLQ` | 12.5% | 768 MiB | 144 MiB |
+| total | | 6 GiB of a 20 GiB store | 1.125 GiB of a 2 GiB store |
+
+Both surfaces hold the same split; only the store differs.
 
 The four limits must **sum strictly below the file store**, with headroom. `maxBytes` bounds
 a stream against itself; it does not reserve or partition the store, so four limits summing
