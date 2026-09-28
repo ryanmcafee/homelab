@@ -1,3 +1,4 @@
+{{- include "nats-config.assertMaxBytesBudget" . }}
 {{- range $stream := .Values.streams }}
 ---
 apiVersion: jetstream.nats.io/v1beta2
@@ -24,8 +25,10 @@ spec:
   replicas: {{ $.Values.replicas }}
   retention: {{ $stream.retention }}
   maxAge: {{ $stream.maxAge }}
+  {{- /* int64: Helm loads values numbers as floats and these CRD fields are integers. */}}
+  maxBytes: {{ get $.Values.maxBytes $stream.name | int64 }}
   {{- with $stream.maxMsgSize }}
-  maxMsgSize: {{ . }}
+  maxMsgSize: {{ . | int64 }}
   {{- end }}
   discard: {{ $stream.discard }}
   duplicateWindow: {{ $stream.duplicateWindow }}

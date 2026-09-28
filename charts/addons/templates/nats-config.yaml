@@ -24,11 +24,13 @@ spec:
       valueFiles:
         - values.yaml
         - values-{{ .Values.global.environment }}.yaml
-      # Stream replica count and the bus URL come from this parent so a
-      # single-node fork changes one configuration value, not a committed chart.
+      # Stream replica count, the bus URL and the file store the stream budget is
+      # checked against come from this parent so a single-node fork changes one
+      # configuration value, not a committed chart.
       valuesObject:
         natsUrl: {{ .Values.nats.url | quote }}
         replicas: {{ .Values.nats.jetstream.streamReplicas }}
+        fileStoreSize: {{ .Values.nats.jetstream.storage.size | quote }}
   destination:
     server: https://kubernetes.default.svc
     namespace: {{ .Values.nats.namespace }}

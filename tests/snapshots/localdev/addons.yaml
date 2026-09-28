@@ -3344,11 +3344,13 @@ spec:
       valueFiles:
         - values.yaml
         - values-localdev.yaml
-      # Stream replica count and the bus URL come from this parent so a
-      # single-node fork changes one configuration value, not a committed chart.
+      # Stream replica count, the bus URL and the file store the stream budget is
+      # checked against come from this parent so a single-node fork changes one
+      # configuration value, not a committed chart.
       valuesObject:
         natsUrl: "nats://nats.nats.svc.cluster.local:4222"
         replicas: 1
+        fileStoreSize: "2Gi"
   destination:
     server: https://kubernetes.default.svc
     namespace: nats

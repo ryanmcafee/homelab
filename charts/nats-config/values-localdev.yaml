@@ -4,3 +4,20 @@
 # requests more replicas than there are servers never reports healthy, which is
 # why this is not left to the chart default.
 replicas: 1
+
+# Kind provisions a 2 GiB JetStream file store (nats.jetstream.storage.size in
+# charts/addons/values-localdev.yaml), so the homelab budget cannot apply here:
+# four limits summing above the store are collectively unbounded and the peer
+# reaches `insufficient resources (10047)` before any stream reaches its own
+# ceiling. These keep the homelab proportions at a quarter of the size and total
+# 1.4375 GiB, 72% of the store (ADR-042 `max_bytes_sum_rule`).
+maxBytes:
+  PF_EVENTS: 536870912 # 512 MiB
+  PF_AUDIT: 805306368 # 768 MiB
+  PF_WORK: 67108864 # 64 MiB
+  PF_DLQ: 134217728 # 128 MiB
+
+# Restates the file store this surface provisions. The parent Application injects
+# the real value at sync time; this is what makes the sum rule checkable when the
+# chart renders on its own, and the drift gate pins the two equal.
+fileStoreSize: 2Gi

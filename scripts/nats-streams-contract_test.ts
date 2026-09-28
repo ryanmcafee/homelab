@@ -8,8 +8,14 @@
  * the two from separating, and a stream whose retention silently stopped matching
  * the documented guarantee is the failure this file exists to catch.
  *
+ * Every assertion reads both sides. A gate that reads one side's optional fields
+ * only is a gate against one direction of drift: a chart that caps a stream the
+ * contract leaves uncapped passes, and so does a stream sourcing from the wrong
+ * origin (ADR-042).
+ *
  * It does not check that the streams exist in a cluster — that is level 2 on Kind
- * (tests/e2e/event-backbone).
+ * (tests/e2e/event-backbone), and it does not add up the maxBytes budget — the
+ * chart's own `nats-config.assertMaxBytesBudget` fails the render for that.
  *
  *   bun test scripts/nats-streams-contract_test.ts
  */
@@ -18,11 +24,17 @@ import { test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { assert, assertEquals } from "./lib/assert.ts";
-import { parse as parseYaml } from "./lib/yaml.ts";
+import { parseAll as parseAllYaml, parse as parseYaml } from "./lib/yaml.ts";
 
 const ROOT = join(import.meta.dir, "..");
 const CONTRACT_PATH = join(ROOT, "contracts", "events", "subjects.v1.yaml");
-const CHART_VALUES_PATH = join(ROOT, "charts", "nats-config", "values.yaml");
+const CHART_DIR = join(ROOT, "charts", "nats-config");
+const CHART_VALUES_PATH = join(CHART_DIR, "values.yaml");
+const SNAPSHOT_DIR = join(ROOT, "tests", "snapshots");
+
+/** The surfaces the parent Application appends a value file for. */
+const SURFACES = ["homelab", "localdev"] as const;
+type Surface = (typeof SURFACES)[number];
 
 interface ContractStream {
   name: string;
@@ -30,6 +42,7 @@ interface ContractStream {
   sources?: { name: string; filters: string[] }[];
   retention: string;
   max_age: string;
+  max_bytes?: string;
   max_msg_size?: number;
   discard: string;
   duplicate_window: string;
@@ -48,6 +61,7 @@ interface Contract {
   streams: ContractStream[];
   consumers: ContractConsumers;
   replicas_defaults: { homelab: number };
+  max_bytes_defaults: { homelab: Record<string, number> };
 }
 
 interface ChartStream {
@@ -64,6 +78,9 @@ interface ChartStream {
 interface ChartValues {
   replicas: number;
   streams: ChartStream[];
+  maxBytes?: Record<string, number>;
+  fileStoreSize?: string;
+  maxBytesBudgetFraction?: number;
   consumerDefaults: {
     ackPolicy: string;
     maxDeliver: number;
@@ -72,8 +89,43 @@ interface ChartValues {
   };
 }
 
-const contract = parseYaml(readFileSync(CONTRACT_PATH, "utf8")) as Contract;
-const chart = parseYaml(readFileSync(CHART_VALUES_PATH, "utf8")) as ChartValues;
+/** The parent Application as rendered into tests/snapshots/<surface>/addons.yaml. */
+interface ParentApplication {
+  metadata?: { name?: string };
+  spec?: { source?: { helm?: { valuesObject?: { fileStoreSize?: string } } } };
+}
+
+function readYaml<T>(path: string): T {
+  return parseYaml(readFileSync(path, "utf8")) as T;
+}
+
+const contract = readYaml<Contract>(CONTRACT_PATH);
+const chart = readYaml<ChartValues>(CHART_VALUES_PATH);
+
+/** Each surface's own value file, unmerged: the file a fork edits to resize. */
+const surfaceOverrides = new Map<Surface, ChartValues>(
+  SURFACES.map((surface) => [
+    surface,
+    readYaml<ChartValues>(join(CHART_DIR, `values-${surface}.yaml`)) ??
+      ({} as ChartValues),
+  ]),
+);
+
+/**
+ * The file store the parent Application injects per surface. Read from the addons
+ * snapshot rather than charts/addons/values.yaml: that file is a placeholder, and
+ * the real homelab numbers come from configuration/templates/helm-addons.tmpl via
+ * `homelab config export`, which the snapshot is rendered from.
+ */
+const surfaceFileStore = new Map<Surface, string | undefined>(
+  SURFACES.map((surface) => {
+    const docs = parseAllYaml(
+      readFileSync(join(SNAPSHOT_DIR, surface, "addons.yaml"), "utf8"),
+    ) as ParentApplication[];
+    const app = docs.find((doc) => doc?.metadata?.name === "nats-config");
+    return [surface, app?.spec?.source?.helm?.valuesObject?.fileStoreSize];
+  }),
+);
 
 const chartStreamsByName = new Map(chart.streams.map((s) => [s.name, s]));
 
@@ -101,13 +153,22 @@ test("every stream's retention, age, discard and dedup window match the contract
       expected.duplicate_window,
       `${expected.name}.duplicateWindow`,
     );
-    if (expected.max_msg_size !== undefined) {
-      assertEquals(
-        actual.maxMsgSize,
-        expected.max_msg_size,
-        `${expected.name}.maxMsgSize`,
-      );
-    }
+  }
+});
+
+test("maxMsgSize matches the contract in both directions", () => {
+  // Asserted symmetrically on purpose. Reading the chart only where the contract
+  // declares a cap lets the chart cap a stream the contract leaves uncapped, and
+  // a publisher then gets `message size exceeds maximum allowed (10054)` for a
+  // message the contract says is legal.
+  for (const expected of contract.streams) {
+    const actual = chartStreamsByName.get(expected.name);
+    assert(actual !== undefined, `chart is missing stream ${expected.name}`);
+    assertEquals(
+      actual.maxMsgSize,
+      expected.max_msg_size,
+      `${expected.name}.maxMsgSize`,
+    );
   }
 });
 
@@ -124,14 +185,19 @@ test("a stream ingests directly or by sourcing, never both", () => {
         [],
         `${expected.name} sources from another stream and must declare no subjects`,
       );
-      const contractFilters = contractSources.flatMap((s) => s.filters).sort();
-      const chartFilters = (actual.sources ?? [])
-        .map((s) => s.filterSubject)
+      // Origin and filter are compared together. A filter checked alone lets a
+      // stream source the right subjects from the wrong stream, and a sourced
+      // stream whose origin is wrong is silently empty rather than broken.
+      const contractPairs = contractSources
+        .flatMap((s) => s.filters.map((filter) => `${s.name} ${filter}`))
+        .sort();
+      const chartPairs = (actual.sources ?? [])
+        .map((s) => `${s.name} ${s.filterSubject}`)
         .sort();
       assertEquals(
-        chartFilters,
-        contractFilters,
-        `${expected.name} source filters differ from the contract`,
+        chartPairs,
+        contractPairs,
+        `${expected.name} sources differ from the contract (origin stream and filter)`,
       );
     } else {
       assertEquals(
@@ -161,6 +227,64 @@ test("stream replicas stay a placeholder in the contract and default to the home
     contract.replicas_defaults.homelab,
     "chart default replicas must match replicas_defaults.homelab",
   );
+});
+
+test("stream maxBytes stays a placeholder in the contract and defaults to the homelab values", () => {
+  for (const expected of contract.streams) {
+    assertEquals(
+      expected.max_bytes,
+      "<max_bytes>",
+      `${expected.name}.max_bytes must stay the placeholder: a committed byte count is one operator's disk, and deleting the field makes the stream's discard policy inert (ADR-042)`,
+    );
+  }
+  assertEquals(
+    chart.maxBytes,
+    contract.max_bytes_defaults.homelab,
+    "chart default maxBytes must match max_bytes_defaults.homelab",
+  );
+  assertEquals(
+    surfaceOverrides.get("homelab")?.maxBytes,
+    contract.max_bytes_defaults.homelab,
+    "values-homelab.yaml maxBytes must match max_bytes_defaults.homelab",
+  );
+});
+
+test("every surface sets a positive maxBytes for every stream", () => {
+  // JetStream applies `discard` only at `max_bytes`, `max_msgs` or
+  // `max_msgs_per_subject`; age expiry ignores it. A stream with no limit never
+  // fills, so its discard policy never runs and the only thing it can exhaust is
+  // the shared file store — which refuses writes for every stream on the peer
+  // with `insufficient resources (10047)` (ADR-042).
+  for (const surface of SURFACES) {
+    const limits = surfaceOverrides.get(surface)?.maxBytes;
+    assert(
+      limits !== undefined,
+      `charts/nats-config/values-${surface}.yaml sets no maxBytes; the surface a fork renders must name its own budget`,
+    );
+    for (const stream of contract.streams) {
+      const limit = limits[stream.name];
+      assert(
+        typeof limit === "number" && Number.isInteger(limit) && limit > 0,
+        `values-${surface}.yaml maxBytes.${stream.name} must be a positive integer byte count, got ${JSON.stringify(limit)}`,
+      );
+    }
+  }
+});
+
+test("each surface budgets against the file store its parent Application injects", () => {
+  // The sum rule is checked at render time against this value, so a stale copy
+  // leaves the chart budgeting against a store the cluster does not have — and
+  // budgeting against a larger one is how the four limits pass the static check
+  // and still sum above the real store.
+  for (const surface of SURFACES) {
+    const declared =
+      surfaceOverrides.get(surface)?.fileStoreSize ?? chart.fileStoreSize;
+    assertEquals(
+      declared,
+      surfaceFileStore.get(surface),
+      `nats-config fileStoreSize for ${surface} must equal the fileStoreSize the parent Application injects`,
+    );
+  }
 });
 
 test("consumer defaults match the contract", () => {

@@ -68,7 +68,8 @@ spec:
   replicas: 1
   retention: limits
   maxAge: 168h
-  maxMsgSize: 1.048576e+06
+  maxBytes: 2147483648
+  maxMsgSize: 1048576
   discard: old
   duplicateWindow: 2m
   # Without this, deleting the resource deletes the stream and its replay history.
@@ -97,6 +98,7 @@ spec:
   replicas: 1
   retention: limits
   maxAge: 8760h
+  maxBytes: 3221225472
   discard: new
   duplicateWindow: 2m
   # Without this, deleting the resource deletes the stream and its replay history.
@@ -122,6 +124,7 @@ spec:
   replicas: 1
   retention: workqueue
   maxAge: 24h
+  maxBytes: 268435456
   discard: new
   duplicateWindow: 2m
   # Without this, deleting the resource deletes the stream and its replay history.
@@ -147,6 +150,7 @@ spec:
   replicas: 1
   retention: limits
   maxAge: 720h
+  maxBytes: 536870912
   discard: old
   duplicateWindow: 2m
   # Without this, deleting the resource deletes the stream and its replay history.

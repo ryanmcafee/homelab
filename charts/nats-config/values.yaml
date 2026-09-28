@@ -3,8 +3,8 @@
 # scripts/nats-streams-contract_test.ts fails when the two drift.
 #
 # The parent Application (charts/addons/templates/nats-config.yaml) supplies
-# `natsUrl` and `replicas`, so stream sizing stays operator-supplied and no fork
-# edits this file to run on one node.
+# `natsUrl`, `replicas` and `fileStoreSize`, so stream sizing stays
+# operator-supplied and no fork edits this file to run on one node.
 
 natsUrl: nats://nats.nats.svc.cluster.local:4222
 
@@ -12,6 +12,37 @@ natsUrl: nats://nats.nats.svc.cluster.local:4222
 # hard-coded 3 means a single-node fork cannot create any stream at all
 # ("replicas > 1 not supported in non-clustered mode (10074)").
 replicas: 1
+
+# Byte ceiling per stream, from the contract's `max_bytes_defaults.homelab`. The
+# contract keeps `max_bytes` a placeholder for the same reason as `replicas`: a
+# committed byte count is one operator's disk.
+#
+# Required on every stream. JetStream applies `discard` only at `max_bytes`,
+# `max_msgs` or `max_msgs_per_subject` — age expiry ignores it — so an unlimited
+# stream has a decorative discard policy and the only thing it can exhaust is the
+# shared file store, which then refuses writes for every stream on the peer with
+# `insufficient resources (10047)`. PF_AUDIT is the largest because 365d of
+# identity and control history is what it exists to hold; PF_WORK is the smallest
+# because a drained work queue is nearly empty and a deep one is already an alert.
+maxBytes:
+  PF_EVENTS: 2147483648 # 2 GiB
+  PF_AUDIT: 3221225472 # 3 GiB
+  PF_WORK: 268435456 # 256 MiB
+  PF_DLQ: 536870912 # 512 MiB
+
+# The JetStream file store the ceilings above are budgeted against, restating the
+# homelab `nats.jetstream.storage.size` from configuration/templates/helm-addons.tmpl.
+# The parent Application injects each environment's real value, so this default is
+# what makes the sum rule checkable when the chart renders on its own; the drift
+# gate pins it to what the parent injects per surface.
+fileStoreSize: 20Gi
+
+# The four ceilings must sum at or below this fraction of the file store.
+# `maxBytes` bounds a stream against itself and reserves nothing, so limits
+# summing above the store are individually bounded and collectively unbounded,
+# and the headroom covers the index and metadata JetStream accounts for alongside
+# message bytes (ADR-042 `max_bytes_sum_rule`).
+maxBytesBudgetFraction: 0.75
 
 streams:
   - name: PF_EVENTS

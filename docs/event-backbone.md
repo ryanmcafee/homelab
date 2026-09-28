@@ -151,6 +151,32 @@ box cannot create **any** stream — the server refuses with `replicas > 1 not s
 non-clustered mode (10074)`. That is the fork-ability contract failing at stream one.
 `NATS_SERVER_REPLICAS` must be at least `NATS_STREAM_REPLICAS`.
 
+`maxBytes` is the second operator-supplied number and is **required on every stream**.
+JetStream applies `discard` only when a stream reaches `max_bytes`, `max_msgs` or
+`max_msgs_per_subject`; age expiry is a separate path that ignores it. An unlimited stream
+therefore never fills, its `discard` policy never runs, and the only thing it can exhaust is
+the shared file store — which refuses writes for **every** stream on the peer with
+`insufficient resources (10047)`. One stream's retention budget becomes a bus-wide outage.
+The per-surface numbers live in `charts/nats-config/values-<surface>.yaml`:
+
+| Stream | homelab | localdev |
+|---|---|---|
+| `PF_EVENTS` | 2 GiB | 512 MiB |
+| `PF_AUDIT` | 3 GiB | 768 MiB |
+| `PF_WORK` | 256 MiB | 64 MiB |
+| `PF_DLQ` | 512 MiB | 128 MiB |
+| file store | 20 GiB | 2 GiB |
+
+The four limits must **sum strictly below the file store**, with headroom. `maxBytes` bounds
+a stream against itself; it does not reserve or partition the store, so four limits summing
+above it are individually bounded and collectively unbounded and the peer hits 10047 before
+any stream hits its own ceiling. Headroom is required because JetStream accounts for index
+and metadata alongside message bytes. `charts/nats-config` refuses to render a values file
+that breaks the rule — `maxBytesBudgetFraction` (0.75) is the ceiling — and the parent
+Application injects the environment's real `fileStoreSize`, so the same assertion runs
+against the actual store at sync time rather than against a committed guess. Raising one
+stream means lowering another or growing the store (ADR-042).
+
 JetStream's file store takes the **iSCSI SSD** class, never an NFS one: it is a write-ahead
 log and needs real fsync semantics.
 
@@ -183,8 +209,11 @@ bun test scripts/nats-streams-contract_test.ts  # chart <-> contract drift gate
 ```
 
 The drift gate is the one that matters for this page: it fails when a stream's retention,
-age, discard policy, dedup window or source filters stop matching
-`contracts/events/subjects.v1.yaml`, and when any stream claims exactly-once delivery.
+age, discard policy, dedup window, message-size cap, source origin or source filters stop
+matching `contracts/events/subjects.v1.yaml`, when a surface leaves a stream without a
+`maxBytes`, and when any stream claims exactly-once delivery. Every comparison reads both
+sides — a gate that reads one side's optional fields only is a gate against one direction of
+drift, which is how a chart capping a stream the contract leaves uncapped used to pass.
 
 Levels 1 and 2 run on Kind and are what prove the streams are actually creatable, that the
 sourced `PF_AUDIT` is accepted by a real server, and that the dead-letter path fires:
