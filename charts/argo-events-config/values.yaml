@@ -17,6 +17,19 @@ version: "2.10.29"
 # Trigger history only. The platform bus holds the durable record.
 maxAge: 72h
 
+# Message bytes the single `default` stream may hold. The chart's own default is
+# `1GB`, which viper's GetInt64 reads as 0 -- unlimited -- so the bus would be
+# bounded only by maxMsgs and maxAge and could fill its PVC first.
+maxBytes: 512Mi
+
+# Messages before the oldest is discarded. Declared rather than inherited so
+# both size bounds on this bus are operator-supplied.
+maxMsgs: 1000000
+
+# maxBytes ceiling as a fraction of the PVC, the rule ADR-042 applies to the
+# platform bus. Enforced at render by templates/_helpers.tpl.
+maxBytesBudgetFraction: 0.75
+
 storage:
   size: 10Gi
   className: ""
