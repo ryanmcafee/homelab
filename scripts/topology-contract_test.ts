@@ -198,6 +198,30 @@ test("the health conditions keep everything the TypeScript gate enforced", () =>
     "raft-index-converged",
     "single-leader",
   ]);
+
+  // Defining an atom is not enforcing it: a condition dropped from `whole` is
+  // still defined, and still referenced by `survivable`, so every other test in
+  // this file stayed green while the gate at the door stopped checking it.
+  // Found by mutating this file and watching nothing fail (MCAA-482). Both
+  // consumers read the composition, so this is where it is pinned; changing it
+  // is a contract decision (ADR-035), made here deliberately and in one commit.
+  const byId = new Map(contract.health.predicates.map((p) => [p.id, p]));
+  assertEquals([...byId.get("whole")!.conditions].sort(), [
+    "member-count",
+    "no-errors",
+    "no-learners",
+    "raft-index-converged",
+    "single-leader",
+  ]);
+  assertEquals([...byId.get("survivable")!.conditions].sort(), [
+    "absences-are-declared",
+    "membership-accounts-for-expected",
+    "no-errors",
+    "no-learners",
+    "quorum-present",
+    "raft-index-converged",
+    "single-leader",
+  ]);
 });
 
 test("a missing member's two senses are defined once, and each has a condition that sees it", () => {
