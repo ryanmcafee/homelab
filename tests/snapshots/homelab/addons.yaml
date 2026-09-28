@@ -15,6 +15,21 @@ metadata:
     argocd.argoproj.io/sync-wave: "1"
 
 ---
+# Source: addons/templates/argo-rollouts.yaml
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: argo-rollouts
+  labels:
+    helm.sh/chart: addons-1.0.0
+    app.kubernetes.io/name: addons
+    app.kubernetes.io/instance: addons
+    app.kubernetes.io/version: "1.0"
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+
+---
 # Source: addons/templates/argo-workflows.yaml
 apiVersion: v1
 kind: Namespace
@@ -520,6 +535,11 @@ spec:
               type: RuntimeDefault
 
 ---
+# Source: addons/templates/argo-rollouts.yaml
+# Argo Rollouts - Progressive Delivery (canary + automated rollback)
+# Sync Wave: 2 (Rollout/AnalysisTemplate CRDs before any workload that uses them)
+
+---
 # Source: addons/templates/argo-workflows.yaml
 # Argo Workflows - Workflow Orchestration Engine
 # Sync Wave: 11 dependencies (archive database, log store), 12 controller + server
@@ -571,6 +591,62 @@ spec:
       namespace: agent-access
       jsonPointers:
         - /data
+
+---
+# Source: addons/templates/argo-rollouts.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: argo-rollouts
+  namespace: argocd
+  labels:
+    helm.sh/chart: addons-1.0.0
+    app.kubernetes.io/name: addons
+    app.kubernetes.io/instance: addons
+    app.kubernetes.io/version: "1.0"
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+
+  source:
+    repoURL: https://argoproj.github.io/argo-helm
+    chart: argo-rollouts
+    targetRevision: 2.43.2
+    helm:
+      releaseName: argo-rollouts
+      values: |
+        installCRDs: true
+        controller:
+          resources:
+            limits:
+              cpu: 500m
+              memory: 256Mi
+            requests:
+              cpu: 50m
+              memory: 64Mi
+          metrics:
+            enabled: true
+            service:
+              port: 8090
+        dashboard:
+          enabled: false
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argo-rollouts
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
 
 ---
 # Source: addons/templates/argo-workflows.yaml

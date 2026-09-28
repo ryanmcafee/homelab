@@ -1,0 +1,61 @@
+{{- $ar := index .Values "argo-rollouts" }}
+{{- if $ar.enabled }}
+# Argo Rollouts - Progressive Delivery (canary + automated rollback)
+# Sync Wave: 2 (Rollout/AnalysisTemplate CRDs before any workload that uses them)
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ $ar.namespace }}
+  labels:
+    {{- include "addons.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: argo-rollouts
+  namespace: argocd
+  labels:
+    {{- include "addons.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+
+  source:
+    repoURL: {{ $ar.chart.repo }}
+    chart: {{ $ar.chart.name }}
+    targetRevision: {{ $ar.chart.version }}
+    helm:
+      releaseName: argo-rollouts
+      values: |
+        installCRDs: true
+        controller:
+          resources:
+            {{- toYaml $ar.controller.resources | nindent 12 }}
+          metrics:
+            enabled: {{ $ar.metrics.enabled }}
+            service:
+              port: {{ $ar.metrics.port }}
+        dashboard:
+          enabled: {{ $ar.dashboard.enabled }}
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: {{ $ar.namespace }}
+
+  syncPolicy:
+    {{- if .Values.global.automatedSync }}
+    automated:
+      prune: true
+      selfHeal: true
+    {{- end }}
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+{{- end }}
