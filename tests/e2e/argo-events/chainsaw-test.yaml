@@ -118,14 +118,28 @@ spec:
 
               policies=$(kubectl get validatingwebhookconfiguration "$name" \
                 -o jsonpath='{range .webhooks[*]}{.failurePolicy}{"\n"}{end}')
+              # Flattened rather than three nested ranges: kubectl's jsonpath yields nothing
+              # for `{range .resources[*]}{.}{end}` over an array of plain strings, which
+              # emptied this list and left the wildcard test below unable to fire.
               resources=$(kubectl get validatingwebhookconfiguration "$name" \
-                -o jsonpath='{range .webhooks[*]}{range .rules[*]}{range .resources[*]}{.}{"\n"}{end}{end}{end}')
+                -o jsonpath='{.webhooks[*].rules[*].resources[*]}' | tr ' ' '\n')
 
               echo "failurePolicy per webhook:"; echo "$policies"
               echo "intercepted resources:"; echo "$resources"
 
+              # Anti-vacuity: an empty list would make the wildcard test below pass on any
+              # registration at all, which is how the first version of this step reported a
+              # bounded blast radius without having read a single resource name.
+              if [ -z "$(echo "$resources" | tr -d '[:space:]')" ]; then
+                echo "FAIL: read no intercepted resources from $name, so the blast-radius"
+                echo "      check below would pass without asserting anything"
+                kubectl get validatingwebhookconfiguration "$name" -o yaml || true
+                exit 1
+              fi
+
               # A wildcard resource rule under Fail puts ArgoCD's Application and AppProject
-              # behind this webhook's availability. Either property alone is containable.
+              # behind this webhook's availability -- they are argoproj.io too. Either
+              # property alone is containable.
               if echo "$resources" | grep -qx '\*' && echo "$policies" | grep -qx 'Fail'; then
                 echo "FAIL: the webhook intercepts '*' with failurePolicy: Fail, so a webhook"
                 echo "      outage would also block ArgoCD's own Application and AppProject"
