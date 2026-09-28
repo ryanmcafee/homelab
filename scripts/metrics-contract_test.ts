@@ -697,9 +697,52 @@ function unscalaredAggregates(query: string): string[] {
   return found;
 }
 
-/** Replaces every PromQL string literal with `""`, preserving length-independent structure. */
+/**
+ * Marks every index of `query` that lies inside a PromQL string literal, quotes included.
+ *
+ * Three walks below need this, and a hand-rolled `"` toggle in each is how the same
+ * blindness keeps reappearing one layer in: a backslash-escaped quote ended the literal
+ * early, which put a `(` back into the C6 walk and swallowed `[5m]))>50)` into a C9
+ * selector. Backticks are raw -- PromQL reads no escapes inside them.
+ */
+function stringMask(query: string): boolean[] {
+  const mask = new Array<boolean>(query.length).fill(false);
+  let quote: string | undefined;
+  for (let i = 0; i < query.length; i++) {
+    const c = query[i];
+    if (quote === undefined) {
+      if (c === '"' || c === "'" || c === "`") {
+        quote = c;
+        mask[i] = true;
+      }
+      continue;
+    }
+    // A quoted literal cannot span a line. Treating one that does as unterminated keeps a
+    // malformed query from masking the rest of the document, which would be a silent miss.
+    if (c === "\n" && quote !== "`") {
+      quote = undefined;
+      continue;
+    }
+    mask[i] = true;
+    if (
+      c === "\\" &&
+      quote !== "`" &&
+      query[i + 1] !== undefined &&
+      query[i + 1] !== "\n"
+    ) {
+      mask[i + 1] = true;
+      i++;
+      continue;
+    }
+    if (c === quote) quote = undefined;
+  }
+  return mask;
+}
+
+/** Blanks every PromQL string literal, so a structural character in a value is not read as syntax. */
 function blankStringValues(query: string): string {
-  return query.replace(/"[^"\n]*"|'[^'\n]*'|`[^`]*`/g, '""');
+  const mask = stringMask(query);
+  return Array.from(query, (c, i) => (mask[i] ? " " : c)).join("");
 }
 
 test("C6: every canary aggregate is wrapped in scalar(), so the absence guard fires", () => {
@@ -760,11 +803,46 @@ test("the C6 walk is not defeated by a parenthesis inside a label value", () => 
     "rate",
   ]);
 
+  // A backslash-escaped quote does not end the value. Ending it there put the `(` back into
+  // the walk, and the unwrapped denominator downstream read as wrapped again.
+  assertEquals(unscalaredAggregates(ratio('a\\"b(')), ["rate"]);
+
   // And the fix must not over-correct into a false positive: same values, nothing unwrapped.
   const sound = (route: string) =>
     `scalar(sum(rate(a{route="${route}"}[5m]))) / scalar(sum(rate(b{}[5m])))`;
   assertEquals(unscalaredAggregates(sound("f(oo")), []);
   assertEquals(unscalaredAggregates(sound("f)oo")), []);
+  assertEquals(unscalaredAggregates(sound('a\\"b(')), []);
+
+  // An unterminated quote must not mask the rest of the query -- that is the same silent
+  // miss in a new costume. A quoted literal cannot span a line, so it ends at the newline.
+  assertEquals(
+    unscalaredAggregates(
+      'scalar(sum(rate(a{}[5m])))\nroute="oops\nsum(rate(b{}[5m]))',
+    ),
+    ["rate"],
+  );
+});
+
+test("the C9 selector split is not defeated by an escaped quote in a value", () => {
+  // Same root cause as the C6 walk, different symptom: ending the literal at the escaped
+  // quote made the following `}` read as the end of the selector. On a correct document
+  // that is a false positive naming a population mismatch that does not exist -- C9
+  // extracted `route="a\"}"` as the selector end and swallowed `[5m]))>50)` into a label.
+  assertEquals(
+    selectorMatchers('rate(a{job="x",route="a\\"}",code!="q"}[5m])'),
+    [['job="x"', 'route="a\\"}"', 'code!="q"']],
+  );
+
+  // An escaped quote before a comma must not split a value into two matchers either.
+  assertEquals(selectorMatchers('rate(a{route="a\\",b",job="x"}[5m])'), [
+    ['route="a\\",b"', 'job="x"'],
+  ]);
+
+  // Unescaped values still parse exactly as before -- the fix adds no false positive.
+  assertEquals(selectorMatchers('rate(a{job="x",code!="q"}[5m])'), [
+    ['job="x"', 'code!="q"'],
+  ]);
 });
 
 test("C7: the canary template cannot pass on no-data and cannot abort before serving", () => {
@@ -819,18 +897,17 @@ test("C7: the canary template cannot pass on no-data and cannot abort before ser
  * value, so brace counting that cannot see quotes closes the selector at the wrong place.
  */
 function selectorMatchers(query: string): string[][] {
+  const mask = stringMask(query);
   const out: string[][] = [];
   for (let i = 0; i < query.length; i++) {
-    if (query[i] !== "{" || !/[A-Za-z0-9_]$/.test(query.slice(0, i))) continue;
+    if (mask[i] || query[i] !== "{") continue;
+    if (!/[A-Za-z0-9_]$/.test(query.slice(0, i))) continue;
     let depth = 0;
-    let quoted = false;
     let j = i;
     for (; j < query.length; j++) {
-      const c = query[j];
-      if (c === '"') quoted = !quoted;
-      else if (quoted) continue;
-      else if (c === "{") depth++;
-      else if (c === "}" && --depth === 0) break;
+      if (mask[j]) continue;
+      if (query[j] === "{") depth++;
+      else if (query[j] === "}" && --depth === 0) break;
     }
     out.push(splitMatchers(query.slice(i + 1, j)));
     i = j;
@@ -840,17 +917,16 @@ function selectorMatchers(query: string): string[][] {
 
 /** Splits a selector body on its top-level commas; a comma inside a value is not one. */
 function splitMatchers(body: string): string[] {
+  const mask = stringMask(body);
   const parts: string[] = [];
   let current = "";
-  let quoted = false;
-  for (const c of body) {
-    if (c === '"') quoted = !quoted;
-    if (c === "," && !quoted) {
+  for (let i = 0; i < body.length; i++) {
+    if (body[i] === "," && !mask[i]) {
       parts.push(current);
       current = "";
       continue;
     }
-    current += c;
+    current += body[i];
   }
   parts.push(current);
   return parts.map((p) => p.replace(/\s+/g, "")).filter((p) => p.length > 0);
