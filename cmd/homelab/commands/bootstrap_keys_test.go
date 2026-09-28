@@ -18,7 +18,7 @@ import (
 // replaced by a pipe, and points cobra's writer at the same stream.
 //
 // internal/logger writes to os.Stdout with fmt.Printf, not to cobra's writer, so
-// a test that only captured cmd.OutOrStdout() would not see a log line at all —
+// a test that only captured cmd.OutOrStdout() would not see a log line at all --
 // and a log line on stdout is exactly what breaks the JSON consumer.
 func runBootstrapCapturingStdout(t *testing.T, args ...string) (error, string) {
 	t.Helper()
@@ -123,7 +123,7 @@ func TestPrintRequiredKeysIsSortedAndClassified(t *testing.T) {
 }
 
 // Running it must be safe on a machine with no ConfigSet, no Proxmox and no
-// 1Password — that is the whole point of the flag. The tier is never resolved,
+// 1Password -- that is the whole point of the flag. The tier is never resolved,
 // so the prompt is never reached either.
 func TestPrintRequiredKeysRunsWithoutPrerequisites(t *testing.T) {
 	swapPrereqEnv(t, stubEnv{missing: map[string]bool{

@@ -13,7 +13,7 @@ import (
 // Fork-ability check 2 (docs/contracts/fork-ability.md) holds every tier's
 // example ConfigSet against the keys "the render OR the bootstrap requires".
 // The gate cannot see the bootstrap half by rendering charts, and copying this
-// key list into the gate would fork the key list — the exact defect check 2
+// key list into the gate would fork the key list -- the exact defect check 2
 // exists to catch. So the list is published here and consumed as data. The
 // shape is the contract agreed on MCAA-65; internal/verify parses it and
 // enumerates no key names of its own.
@@ -42,7 +42,7 @@ const (
 	// reasonably override it. Present or absent both pass.
 	ExampleOptional = "optional"
 	// ExampleForbidden: the value is computed or not operator-facing, so a
-	// value in the example is ignored at render — a lie in the file a fork
+	// value in the example is ignored at render -- a lie in the file a fork
 	// starts from.
 	ExampleForbidden = "forbidden"
 )
@@ -92,8 +92,8 @@ var bootstrapRequiredKeys = map[Tier][]RequiredKey{}
 // BuildRequiredKeys builds the document for every tier from the schema under
 // o.ConfigRoot.
 //
-// It reads configuration/schema only — no ConfigSet, no cluster, no network, no
-// 1Password — so it answers on a machine that has none of the prerequisites.
+// It reads configuration/schema only -- no ConfigSet, no cluster, no network, no
+// 1Password -- so it answers on a machine that has none of the prerequisites.
 // That is the point: a fork needs to know which values to gather before owning
 // the hardware that would let the prerequisite table pass.
 func BuildRequiredKeys(o Options) (*RequiredKeysDoc, error) {

@@ -76,7 +76,7 @@ func TestRequiredKeysForTierEmitsOnlyRequiredKeysSorted(t *testing.T) {
 	}
 }
 
-// A key pattern cannot carry a requirement — validateKeyPattern refuses
+// A key pattern cannot carry a requirement -- validateKeyPattern refuses
 // required: true on a family, because a regex has no name to demand. So CP2_IP
 // upward never reach the document and a fork's cluster size is its own business.
 func TestRequiredKeysForTierIgnoresKeyFamilies(t *testing.T) {
