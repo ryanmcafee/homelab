@@ -66,7 +66,7 @@ specified-and-not-implemented; it may **not** be listed with no status (ADR-033)
 | 2 | **`homelab.yaml.example` completeness.** Every key the render **or the bootstrap** requires appears in the example file with a `REPLACEME-` or clearly synthetic value. | Level-0, every PR | A new required key that a fork cannot discover | **Specified, not implemented — and fails on `main` today** |
 | 3a | **The cold documented Kind path.** A clean clone with no cache and no local state: `task localdev:up` → `localdev:wait` → `localdev:report` → `localdev:down`, each timed, followed by an assertion that the cluster is actually gone. | Weekly cron and on demand | Documentation drift, "works because it was already installed", a teardown that only works after a clean run | **Automated and passing** in [`.github/workflows/fork-path-cold.yml`](../../.github/workflows/fork-path-cold.yml) — `18m 55s` cold, 2026-09-25 |
 | 3b | **The production bootstrap on foreign hardware.** A filled-in ConfigSet and `task setup -- --environment homelab`, on a machine holding none of the maintainer's credentials **and not in this cluster's topology**. | Before a declared platform milestone | Undeclared physical prerequisites, secret-store and identity assumptions, anything the Kind path cannot reach, a shape that only this cluster has | **Never executed** |
-| 4 | **Bootstrap key resolution.** The bootstrap resolves every operator-specific value from the ConfigSet and exits non-zero naming the missing key — every missing key, not the first one. | Runtime, in the Go CLI; exercised by 3b | A value the bootstrap needs that no render requires, so checks 1–2 never see it | **Specified, not implemented** |
+| 4 | **Bootstrap key resolution.** The bootstrap resolves every operator-specific value from the ConfigSet and exits non-zero naming the missing key — every missing key, not the first one. | Runtime, in the Go CLI; exercised by 3b | A value the bootstrap needs that no render requires, so checks 1–2 never see it | **Implemented and unit-tested; never exercised on foreign hardware** (that is 3b) |
 
 Checks 1 and 2 are static and belong in the existing level-0 gate, so a violation fails a pull
 request rather than being found by a stranger months later. Neither is built yet:
@@ -78,10 +78,38 @@ synthetic environment, but it uses `homelab.local` and `127.0.0.x` rather than t
 [homelab#360](https://github.com/ryanmcafee/homelab/issues/360).
 
 Check 4 is mechanical too, but it runs inside the Go CLI rather than in level 0, and 3b is what
-exercises it. It is not built either: ADR-037 records that the resolver it needs already exists —
-`internal/config/eval.go` collects `required key %q is missing or empty` for every missing key —
-so what is missing is the wiring from the bootstrap to that resolver, and the exposure of the
-bootstrap's required-key set as data so check 2 can consume it rather than fork the list.
+exercises it on real hardware. Both halves ADR-037 asked for now exist:
+
+- **The resolver was already wired, which was the surprise.** ADR-037 recorded that
+  `internal/config/eval.go` collects `required key %q is missing or empty` for every missing key and
+  that the wiring from the bootstrap to it was missing. The wiring was in fact already there:
+  `homelab bootstrap` runs the prerequisite table, whose `homelab.yaml` row calls
+  `prereq.LoadHomelabConfig` → `config.Eval` → `ValidateValues`, and a ConfigSet missing three keys
+  names all three on one run. What was actually wrong was the *message*: the accumulated error is
+  multi-line and the table printed its continuation lines unindented and then a second time under
+  the `proxmox` row, so three missing keys read as six findings. Held by
+  `TestHomelabConfigRowNamesEveryMissingKey` and
+  `TestProxmoxRowDoesNotRepeatTheValidationError`.
+- **The required-key set is exposed as data.** `homelab bootstrap --print-required-keys
+  --format json` emits the versioned document `internal/prereq/requiredkeys.go` builds, for every
+  tier, so check 2 consumes the list instead of forking it. It reads `configuration/schema` only —
+  no ConfigSet, no cluster, no 1Password — so a fork can ask what to gather **before** it owns the
+  hardware the prerequisite table demands. `--format text` is the operator-facing form and answers
+  the review condition below about telling a forker what they must supply before they hit the error.
+
+Two facts about that document worth stating, because both contradict what was assumed when its
+shape was agreed:
+
+- **No tier assumption is recorded, because there is no longer one to record.** The shape carries an
+  `assumptions` field for inputs that decide the key set, on the understanding that
+  `CONTROL_PLANE_COUNT` was such an input. ADR-035 removed that key: control-plane members are
+  admitted by the `^CP([0-9]+)_IP$` family, and a family cannot be required, so only the literal
+  `CP1_IP` reaches the document and a fork's cluster size changes nothing. The field stays for a
+  future computed input; it is emitted empty today.
+- **The per-tier key sets are identical, and that is the schema's doing.** `configuration/schema` is
+  not tier-scoped, so `localdev` requires `PROXMOX_IP` too and its committed ConfigSet supplies one.
+  The document still lists every tier separately, because a tier absent from it is a tier check 2
+  never examines.
 
 Check 3 was one check until ADR-033. It read "the documented bootstrap", which in this repository
 means either `task localdev:up` (Kind, Docker only) or `task setup -- --environment homelab`

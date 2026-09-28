@@ -297,7 +297,11 @@ func ChecksWith(opts Options) []Check {
 			Run: func(env Env) error {
 				rc, err := loadCfg()
 				if err != nil {
-					return fmt.Errorf("cannot resolve PROXMOX_IP: %w", err)
+					// The homelab.yaml row above reports this same error in
+					// full. Repeating it here printed every missing key twice,
+					// so a fork missing three keys read six findings.
+					return fmt.Errorf("PROXMOX_IP is unresolved because %s did not validate; see the homelab.yaml row",
+						filepath.Base(opts.HomelabConfigPath()))
 				}
 				ip := strings.TrimSpace(rc.Values["PROXMOX_IP"].Value)
 				if ip == "" {

@@ -33,6 +33,7 @@ The `homelab` CLI (`cmd/homelab`) groups the commands the Taskfile wraps:
 
 ```text
 homelab bootstrap        tier-aware setup: Kind loop by default, production with --environment homelab
+  --print-required-keys  the configuration keys every tier requires; exits without changing anything
 homelab validate         prerequisite table for the chosen tier
 homelab verify all       level 0 (static), 1 (+ Kind dry run), 2 (+ ArgoCD health and chainsaw e2e)
 homelab config ...       validate | eval | export | guard   (configuration/ pipeline and PII guard)
