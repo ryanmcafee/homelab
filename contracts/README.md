@@ -10,7 +10,7 @@ both build against, and it is checked in CI rather than agreed in prose.
 | `events/subjects.v1.yaml` | The NATS subject grammar, the stream set, and the delivery guarantee of each path |
 | `events/registry.v1.yaml` | Every registered event type: version, direction, subject, schema, ordering and delivery guarantee |
 | `events/registry.v1.baseline.json` | The frozen compatibility baseline the checker diffs against |
-| `cluster/topology.v1.yaml` | The control-plane member count, the etcd quorum formula, the `whole` and `survivable` health predicates and the gate each one belongs at — shared by the Go CLI and `scripts/cp-storage-migrate.ts` so the rule exists once (ADR-035) |
+| `cluster/topology.v1.yaml` | The control-plane member count, the etcd quorum formula, the `whole` and `survivable` health predicates, the gate each one belongs at and which gate a run enters at — shared by the Go CLI and `scripts/cp-storage-migrate.ts` so the rule exists once (ADR-035) |
 | `status/status-page.v1.yaml` | The status page's back end -> UI HTTP surface: the polled document, the component taxonomy, how state and uptime are derived, and which upstream each derived field depends on — checked by `scripts/status-contract_test.ts` (ADR-051) |
 
 Checked by `bun scripts/contract-check.ts` (`task contracts:check`), which fails on an invalid
@@ -21,10 +21,13 @@ take a new major version. See `docs/contracts/event-contract.md` for the reasoni
 `cluster/topology.v1.yaml` is checked by `scripts/topology-contract_test.ts` (runs in
 `task test:scripts`), which asserts the contract is internally consistent — the worked quorum
 table matches the stated formula, every permitted topology has a row, every condition is reached
-by a predicate, `survivable` relaxes `whole` in exactly one way, and both declared consumers
-exist. Each consumer additionally carries its own conformance test asserting that its
-implementation computes the numbers this file pins; that is what keeps a Go implementation and a
-TypeScript one from drifting into two different safety rules.
+by a predicate, `survivable` relaxes `whole` in exactly one way, every run shape enters at exactly
+one entry point and ends whole, and both declared consumers exist. Each consumer additionally
+carries its own conformance test asserting that its implementation computes the numbers this file
+pins **and enters at the point the observed membership selects**; that is what keeps a Go
+implementation and a TypeScript one from drifting into two different safety rules. `evaluation.points`
+is a set of gates with exclusive entry, not a pipeline — a consumer that runs all four in order
+refuses every legitimate resume (ADR-035, MCAA-404 ruling).
 
 **`cluster/` and `status/` have no compatibility gate, and the section below does not apply to
 them yet.** `scripts/contract-check.ts` hard-codes `CONTRACTS_DIR = "contracts/events"` (L485), so
