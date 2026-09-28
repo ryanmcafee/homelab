@@ -26,6 +26,7 @@ import {
   filterCovers,
   filtersOverlap,
   loadBaseline,
+  loadContract,
   loadEnvelope,
   loadPayloads,
   loadRegistry,
@@ -1552,7 +1553,10 @@ test("the checked-in payload schemas are compatible with the baseline", () => {
 test("`contracts:check` passes against the committed contracts/events/", () => {
   // The same list `task contracts:check` runs, so a rule added to the CLI is
   // run here too instead of silently covering nothing (ADR-038, MCAA-385).
-  assertEquals(renderViolations(collectViolations()), "contract ok");
+  assertEquals(
+    renderViolations(collectViolations(loadContract())),
+    "contract ok",
+  );
 });
 
 test("every registered dataschema resolves to a file that exists", () => {

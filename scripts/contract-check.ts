@@ -1640,17 +1640,37 @@ export function pinnedLengthCount(baseline: Baseline): number {
   );
 }
 
-/**
- * Every rule the `check` command applies, against the contract in `dir`. The
- * composition lives here rather than inline in `main` so the test that runs it
- * against the committed contracts/events/ cannot fall behind a rule added
- * later: both callers read this one list.
- */
-export function collectViolations(dir = CONTRACTS_DIR): Violation[] {
+/** Every document the rules read, parsed once. `dir` travels with them because
+ * validateRegistry resolves each `dataschema` relative to it. */
+export interface Contract {
+  dir: string;
+  registry: Registry;
+  taxonomy: Taxonomy;
+  envelope: Envelope;
+  baseline: Baseline;
+  payloads: Map<string, PayloadSchema>;
+}
+
+export function loadContract(dir = CONTRACTS_DIR): Contract {
   const registry = loadRegistry(dir);
-  const taxonomy = loadTaxonomy(dir);
-  const envelope = loadEnvelope(dir);
-  const baseline = loadBaseline(dir);
+  return {
+    dir,
+    registry,
+    taxonomy: loadTaxonomy(dir),
+    envelope: loadEnvelope(dir),
+    baseline: loadBaseline(dir),
+    payloads: loadPayloads(registry, dir),
+  };
+}
+
+/**
+ * Every rule the `check` command applies. The composition lives here rather
+ * than inline in `main` so the test that runs it against the committed
+ * contracts/events/ cannot fall behind a rule added later: both callers read
+ * this one list.
+ */
+export function collectViolations(contract: Contract): Violation[] {
+  const { dir, registry, taxonomy, envelope, baseline, payloads } = contract;
 
   return [
     ...validateTaxonomy(taxonomy),
@@ -1658,7 +1678,7 @@ export function collectViolations(dir = CONTRACTS_DIR): Violation[] {
     ...checkCompatibility(baseline, registry),
     ...checkEnvelopeCompatibility(baseline, envelope),
     ...checkTaxonomyCompatibility(baseline, taxonomy),
-    ...checkPayloadCompatibility(baseline, loadPayloads(registry, dir)),
+    ...checkPayloadCompatibility(baseline, payloads),
   ];
 }
 
@@ -1706,17 +1726,15 @@ async function main(argv: string[]): Promise<number> {
     return 2;
   }
 
-  const violations = collectViolations(dir);
+  const contract = loadContract(dir);
+  const { registry, taxonomy, baseline } = contract;
+  const violations = collectViolations(contract);
 
   if (violations.length > 0) {
     log.fail(`${violations.length} contract violation(s)`);
     console.error(renderViolations(violations));
     return 1;
   }
-
-  const registry = loadRegistry(dir);
-  const taxonomy = loadTaxonomy(dir);
-  const baseline = loadBaseline(dir);
 
   const pinnedProps = baseline.types.reduce(
     (n, t) => n + Object.keys(t.payload?.properties ?? {}).length,
