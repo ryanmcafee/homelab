@@ -1030,6 +1030,86 @@ spec:
                     annotations:
                       summary: 'PF_WORK stream metrics stopped arriving, so the silent-loss monitor is blind'
                       description: 'prometheus-nats-exporter reported PF_WORK within the last 6h and no longer does. While this is firing nothing watches the 24h age budget. Check the exporter sidecar and its -jsz=all argument. docs/runbooks/pf-work-age-expiry.md.'
+                  # Storage budget (docs/runbooks/jetstream-storage-budget.md).
+                  # ADR-042 bounds every stream with max_bytes and states the sum
+                  # rule: the four limits must total below the file store. That
+                  # sum is arithmetic an operator does at sizing time - the store
+                  # size is a cluster fact, not a contract value - so the runtime
+                  # half of the rule is these alerts. max_bytes bounds a stream
+                  # against itself and reserves nothing, so four correctly
+                  # bounded streams can still exhaust the shared store and the
+                  # peer then refuses writes for all of them (10047).
+                  # Denominator: the nats chart writes max_file_store from
+                  # jetstream.fileStore.pvc.size, so nats_server_max_storage is
+                  # the PVC capacity and is the same number nats-server compares
+                  # against before refusing. Numerator: the sum of
+                  # nats_account_storage_used is what that comparison reads,
+                  # including the index and metadata bytes the stream totals omit.
+                  # ADR-042 named nats_server_jetstream_storage_used_bytes, which
+                  # the exporter does not export; these names are pinned against
+                  # 0.18.0 and the deployed 0.20.1 (collector/jsz.go).
+                  - alert: JetStreamFileStoreFillingUp
+                    expr: 'sum by (namespace, server_name) (nats_account_storage_used) / on (namespace, server_name) max by (namespace, server_name) (nats_server_max_storage > 0) > 0.75'
+                    for: 15m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: 'The JetStream file store on {{`{{ $labels.server_name }}`}} is {{`{{ $value | humanizePercentage }}`}} full'
+                      description: 'Above 75 % of max_file_store, which ADR-042 budgets as the sum of the streams max_bytes. Either one stream is overrunning its share or the four limits sum too high for this PVC. The per-stream alert says which; raising one max_bytes alone breaks the sum rule. docs/runbooks/jetstream-storage-budget.md.'
+                  - alert: JetStreamFileStoreFillingUp
+                    expr: 'sum by (namespace, server_name) (nats_account_storage_used) / on (namespace, server_name) max by (namespace, server_name) (nats_server_max_storage > 0) > 0.90'
+                    for: 5m
+                    labels:
+                      severity: critical
+                    annotations:
+                      summary: 'The JetStream file store on {{`{{ $labels.server_name }}`}} is {{`{{ $value | humanizePercentage }}`}} full'
+                      description: 'At the store limit nats-server refuses writes for every stream on this peer with insufficient resources (10047), not just the stream that grew - one retention budget becomes a bus-wide outage. Act before 100 %. docs/runbooks/jetstream-storage-budget.md.'
+                  # Without -jsz=all the exporter serves /jsz with no accounts, so
+                  # nats_account_storage_used disappears while nats_server_max_storage
+                  # keeps arriving: watch the numerator, which also goes with the
+                  # whole exporter. Per-target failure is TargetDown's job.
+                  - alert: JetStreamFileStoreMetricsAbsent
+                    expr: 'absent(nats_account_storage_used) and max (count_over_time(nats_account_storage_used[6h])) > 0'
+                    for: 30m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: 'JetStream storage metrics stopped arriving, so the file-store budget is unwatched'
+                      description: 'prometheus-nats-exporter reported account storage within the last 6h and no longer does. While this is firing nothing sees the store approach its limit, and the first symptom is 10047 on every publish. Check the exporter sidecar and its -jsz=all argument. docs/runbooks/jetstream-storage-budget.md.'
+                  # A stream can hit its own ceiling while the store is half
+                  # empty, so this is a separate boundary from the two above. The
+                  # limit comes from nats_stream_limit_bytes - what the server
+                  # actually enforces - rather than from a copy of the chart
+                  # value, and -1 there means unbounded, which the > 0 drops.
+                  - alert: JetStreamStreamApproachingMaxBytes
+                    expr: 'nats_stream_total_bytes{is_stream_leader="true"} / (nats_stream_limit_bytes{is_stream_leader="true"} > 0) > 0.75'
+                    for: 15m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: '{{`{{ $labels.stream_name }}`}} is {{`{{ $value | humanizePercentage }}`}} of its max_bytes'
+                      description: 'The stream is approaching its own limit, which the file-store alert cannot see. At the ceiling its discard policy takes effect: discard new refuses publishes, discard old deletes the oldest messages. docs/runbooks/jetstream-storage-budget.md.'
+                  - alert: JetStreamStreamApproachingMaxBytes
+                    expr: 'nats_stream_total_bytes{is_stream_leader="true"} / (nats_stream_limit_bytes{is_stream_leader="true"} > 0) > 0.90'
+                    for: 5m
+                    labels:
+                      severity: critical
+                    annotations:
+                      summary: '{{`{{ $labels.stream_name }}`}} is {{`{{ $value | humanizePercentage }}`}} of its max_bytes'
+                      description: 'The discard policy is about to act on this stream. Check the retention the contract declares for it before changing anything; the sum rule means a bigger max_bytes here needs a smaller one elsewhere or a bigger store. docs/runbooks/jetstream-storage-budget.md.'
+                  # PF_AUDIT is discard: new, so at its ceiling it refuses its own
+                  # writes and the rest of the bus keeps running (ADR-042). No
+                  # metric counts a refused publish, so the signal is derived:
+                  # bytes pinned at the limit while last_seq stops advancing means
+                  # nothing is being accepted.
+                  - alert: PFAuditRefusingWrites
+                    expr: 'nats_stream_total_bytes{stream_name="PF_AUDIT",is_stream_leader="true"} / (nats_stream_limit_bytes{stream_name="PF_AUDIT",is_stream_leader="true"} > 0) >= 0.99 and changes(nats_stream_last_seq{stream_name="PF_AUDIT",is_stream_leader="true"}[15m]) == 0'
+                    for: 10m
+                    labels:
+                      severity: critical
+                    annotations:
+                      summary: 'PF_AUDIT is at its max_bytes ceiling and is accepting no new audit history'
+                      description: 'PF_AUDIT is discard: new, so at the ceiling publishes are refused rather than history dropped - the isolation ADR-042 chose over a bus-wide outage. Audit and control-plane history is being lost at the producer for as long as this fires. docs/runbooks/jetstream-storage-budget.md.'
           {{- if (index .Values "github-pr-exporter" "enabled") }}
           # Pull requests that need review (docs/runbooks/alerting.md). Metrics:
           # the github-pr-exporter Application, one series per PR and query.
