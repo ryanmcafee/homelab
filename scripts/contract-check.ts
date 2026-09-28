@@ -1640,6 +1640,28 @@ export function pinnedLengthCount(baseline: Baseline): number {
   );
 }
 
+/**
+ * Every rule the `check` command applies, against the contract in `dir`. The
+ * composition lives here rather than inline in `main` so the test that runs it
+ * against the committed contracts/events/ cannot fall behind a rule added
+ * later: both callers read this one list.
+ */
+export function collectViolations(dir = CONTRACTS_DIR): Violation[] {
+  const registry = loadRegistry(dir);
+  const taxonomy = loadTaxonomy(dir);
+  const envelope = loadEnvelope(dir);
+  const baseline = loadBaseline(dir);
+
+  return [
+    ...validateTaxonomy(taxonomy),
+    ...validateRegistry(registry, taxonomy, envelope, dir),
+    ...checkCompatibility(baseline, registry),
+    ...checkEnvelopeCompatibility(baseline, envelope),
+    ...checkTaxonomyCompatibility(baseline, taxonomy),
+    ...checkPayloadCompatibility(baseline, loadPayloads(registry, dir)),
+  ];
+}
+
 export function renderViolations(violations: Violation[]): string {
   if (violations.length === 0) return "contract ok";
   return violations
@@ -1684,27 +1706,17 @@ async function main(argv: string[]): Promise<number> {
     return 2;
   }
 
-  const registry = loadRegistry(dir);
-  const taxonomy = loadTaxonomy(dir);
-  const envelope = loadEnvelope(dir);
-  const baseline = loadBaseline(dir);
-
-  const payloads = loadPayloads(registry, dir);
-
-  const violations = [
-    ...validateTaxonomy(taxonomy),
-    ...validateRegistry(registry, taxonomy, envelope, dir),
-    ...checkCompatibility(baseline, registry),
-    ...checkEnvelopeCompatibility(baseline, envelope),
-    ...checkTaxonomyCompatibility(baseline, taxonomy),
-    ...checkPayloadCompatibility(baseline, payloads),
-  ];
+  const violations = collectViolations(dir);
 
   if (violations.length > 0) {
     log.fail(`${violations.length} contract violation(s)`);
     console.error(renderViolations(violations));
     return 1;
   }
+
+  const registry = loadRegistry(dir);
+  const taxonomy = loadTaxonomy(dir);
+  const baseline = loadBaseline(dir);
 
   const pinnedProps = baseline.types.reduce(
     (n, t) => n + Object.keys(t.payload?.properties ?? {}).length,
