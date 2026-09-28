@@ -4,6 +4,7 @@
 # digest sha256:346fe9413282e4ec5c376592ae0b6cae95543458a9e2b5a002725c4543367e08
 
 # Source: openclaw-operator/templates/serviceaccount.yaml
+---
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -261,7 +262,7 @@ spec:
             allowPrivilegeEscalation: false
             capabilities:
               drop:
-              - ALL
+                - ALL
             readOnlyRootFilesystem: true
             runAsNonRoot: true
             runAsUser: 65532
