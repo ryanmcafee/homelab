@@ -73,3 +73,7 @@ NATS_TENANT: "local"
 NATS_PRINCIPAL_NKEYS: ""
 NATS_SYSTEM_ACCOUNT_NKEY: ""
 NATS_BOX_PRINCIPALS: ""
+
+# Argo Events EventBus sizing. Separate from the platform bus above; only 1, 3
+# or 5 are accepted.
+ARGO_EVENTS_BUS_REPLICAS: "1"

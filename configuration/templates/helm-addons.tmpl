@@ -1552,6 +1552,70 @@ argo-rollouts:
   # status are the supported read paths.
   dashboard:
     enabled: false
+
+# ============================================================================
+# Argo Events — the trigger bus (docs/event-backbone.md §Two buses)
+# Sync Waves: 12 argo-events (controller, webhook, the argoproj.io CRDs),
+# 13 argo-events-config (the EventBus instance the CRDs describe).
+#
+# This is a SECOND bus, not a view onto the platform NATS. Argo Events runs its
+# own JetStream so a Sensor restart cannot rewind platform stream state, and the
+# contract forbids bridging the two with an EventSource: `no_core_nats_bridge`
+# in contracts/events/subjects.v1.yaml requires a named durable pull consumer.
+# ============================================================================
+
+argo-events:
+  # Runs in Kind: an installed controller with no EventBus proves nothing, and
+  # Kind is the only place a trigger can be shown firing rather than configured.
+  enabled: true
+  namespace: argo-events
+
+  chart:
+    name: argo-events
+    repo: https://argoproj.github.io/argo-helm
+    version: "{{ index .Versions.Charts "argo-events" }}"
+
+  # The EventBus, EventSource and Sensor CRDs are schemaless
+  # (x-kubernetes-preserve-unknown-fields), so the API server accepts any spec
+  # and level 0's CRD schema gate has nothing to check. The admission webhook is
+  # the only thing that rejects a malformed Sensor before runtime, and the chart
+  # ships it disabled.
+  webhook:
+    enabled: true
+
+  bus:
+    # StatefulSet pods and, because Argo Events reuses the number, replicas per
+    # internal stream. Only 1, 3 and 5 are accepted.
+    replicas: {{ .Values.ARGO_EVENTS_BUS_REPLICAS.Value }}
+
+    # Pinned, not "latest": the chart's controller-config maps the version string
+    # to a concrete image, and its `latest` entry is a floating tag.
+    version: "2.10.29"
+
+    storage:
+{{- if $localdev }}
+      size: 1Gi
+{{- else }}
+      size: 10Gi
+{{- end }}
+      # Same reason as the platform bus: JetStream's file store is a write-ahead
+      # log and needs real fsync semantics.
+      className: {{ .Values.STORAGE_CLASS_ISCSI_SSD.Value }}
+
+    # Trigger history, not an audit log — the platform bus holds that. A short
+    # age keeps a Sensor outage from replaying a week of stale triggers.
+    maxAge: 72h
+
+  controller:
+    resources:
+      requests:
+        cpu: 25m
+        memory: 64Mi
+      limits:
+        cpu: {{ if $localdev }}100m{{ else }}250m{{ end }}
+        memory: 128Mi
+
+# ============================================================================
 # NATS + JetStream — the platform event bus (docs/event-backbone.md)
 # Sync Waves: 10 nats, 11 nack (the jetstream.nats.io CRDs), 12 nats-config
 # (the stream set). Subjects, retention and delivery guarantees are normative in

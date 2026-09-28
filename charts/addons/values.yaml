@@ -1059,6 +1059,43 @@ argo-rollouts:
 
   dashboard:
     enabled: false
+
+# ============================================================================
+# Argo Events - the trigger bus and its EventBus instance
+# (templates/argo-events.yaml; docs/event-backbone.md)
+# Placeholder: configuration/templates/helm-addons.tmpl renders the real block.
+# ============================================================================
+
+argo-events:
+  enabled: false
+  namespace: argo-events
+
+  chart:
+    name: argo-events
+    repo: https://argoproj.github.io/argo-helm
+    version: "2.4.27"
+
+  webhook:
+    enabled: true
+
+  bus:
+    replicas: 1
+    version: "2.10.29"
+    maxAge: 72h
+    storage:
+      size: 10Gi
+      className: ""
+
+  controller:
+    resources:
+      requests:
+        cpu: 25m
+        memory: 64Mi
+      limits:
+        cpu: 250m
+        memory: 128Mi
+
+# ============================================================================
 # NATS + JetStream event bus, the NACK controller, and the stream set
 # (templates/nats.yaml, nack.yaml, nats-config.yaml; docs/event-backbone.md)
 # Placeholder: configuration/templates/helm-addons.tmpl renders the real block.

@@ -1,0 +1,110 @@
+{{- $ae := index .Values "argo-events" }}
+{{- if $ae.enabled }}
+# Argo Events - the trigger bus (docs/event-backbone.md)
+# Sync Waves: 12 controller + webhook + CRDs, 13 the EventBus instance
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ $ae.namespace }}
+  labels:
+    {{- include "addons.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: argo-events
+  namespace: argocd
+  labels:
+    {{- include "addons.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "12"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: {{ $ae.chart.repo }}
+    chart: {{ $ae.chart.name }}
+    targetRevision: {{ $ae.chart.version }}
+    helm:
+      releaseName: argo-events
+      values: |
+        crds:
+          install: true
+          keep: true
+        webhook:
+          enabled: {{ $ae.webhook.enabled }}
+        controller:
+          resources:
+            {{- toYaml $ae.controller.resources | nindent 12 }}
+        configs:
+          jetstream:
+            streamConfig:
+              # Argo Events reuses the bus pod count as its stream replica
+              # count, and a stream asking for more replicas than there are
+              # servers never becomes ready. The chart default is 3.
+              replicas: {{ $ae.bus.replicas }}
+              maxAge: {{ $ae.bus.maxAge }}
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: {{ $ae.namespace }}
+  syncPolicy:
+    {{- if .Values.global.automatedSync }}
+    automated:
+      prune: true
+      selfHeal: true
+    {{- end }}
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - PruneLast=true
+      - ApplyOutOfSyncOnly=true
+---
+# The EventBus instance. Separate Application because the argoproj.io CRDs it
+# uses are installed by the Application above.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: argo-events-config
+  namespace: argocd
+  labels:
+    {{- include "addons.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "13"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: {{ .Values.global.repoUrl }}
+    targetRevision: {{ .Values.global.targetRevision }}
+    path: charts/argo-events-config
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-{{ .Values.global.environment }}.yaml
+      # Bus sizing comes from this parent so a single-node fork changes one
+      # configuration value, not a committed chart.
+      valuesObject:
+        replicas: {{ $ae.bus.replicas }}
+        version: {{ $ae.bus.version | quote }}
+        maxAge: {{ $ae.bus.maxAge }}
+        storage:
+          {{- toYaml $ae.bus.storage | nindent 10 }}
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: {{ $ae.namespace }}
+  syncPolicy:
+    {{- if .Values.global.automatedSync }}
+    automated:
+      prune: true
+      selfHeal: true
+    {{- end }}
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - SkipDryRunOnMissingResource=true
+{{- end }}
