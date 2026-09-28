@@ -718,13 +718,15 @@ export function parseArgs(argv: string[]): Args {
   return a;
 }
 
-const FILES = [
+/** Every file `--fix` may rewrite. */
+export const FIXABLE_FILES = [
   "readme.md",
   "docs/networking.md",
   "docs/applications.md",
   ".github/homelab.svg",
-  E2E_README,
 ];
+
+const FILES = [...FIXABLE_FILES, E2E_README];
 
 async function main(): Promise<number> {
   let args: Args;
