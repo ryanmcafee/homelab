@@ -12,6 +12,11 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// Restrict Helm's path language to a canonical subset. Escaped key characters
+// and signed/zero-padded array indexes can alias otherwise distinct names.
+// Dotted identifier keys and canonical nonnegative indexes need no unescaping.
+var openClawParameterPath = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_-]*(\[(0|[1-9][0-9]*)\])*(\.[A-Za-z_][A-Za-z0-9_-]*(\[(0|[1-9][0-9]*)\])*)*$`)
+
 // OpenClawCheck checks the rendered Application, not a second set of test values.
 // The local probe uses Helm's own parameter parser without fetching any chart.
 // Upstream adds a full pinned-chart render and effective RBAC validation.
@@ -151,10 +156,13 @@ func openClawSource(rendered map[string][]Doc) (ChartSource, string, bool, error
 				if !nok || n == "" || !vok {
 					return bad("parameter name/value must be strings")
 				}
+				if !openClawParameterPath.MatchString(n) {
+					return bad("noncanonical Helm parameter path " + n + "; use dotted identifier keys and unsigned indexes without leading zeros, or move this value to valuesObject")
+				}
 				// Argo CD stores parameters in maps; overlapping assignments have
 				// no stable order. Never prove one ordering and deploy another.
 				for _, previous := range parameterNames {
-					if previous != n && (strings.HasPrefix(previous, n+".") || strings.HasPrefix(previous, n+"[") || strings.HasPrefix(n, previous+".") || strings.HasPrefix(n, previous+"[")) {
+					if previous == n || strings.HasPrefix(previous, n+".") || strings.HasPrefix(previous, n+"[") || strings.HasPrefix(n, previous+".") || strings.HasPrefix(n, previous+"[") {
 						return bad("overlapping Helm parameters have undefined Argo CD ordering: " + previous + " and " + n)
 					}
 				}
