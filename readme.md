@@ -28,7 +28,7 @@ Docker is the only requirement. The Kind loop runs the same charts production do
 standing in for 1Password, TrueNAS and the UniFi gateway.
 
 ```bash
-task localdev:up        # Kind (Cilium, registry caches, fakes) → ArgoCD → all 87 Applications synced from your working tree
+task localdev:up        # Kind (Cilium, registry caches, fakes) → ArgoCD → all 88 Applications synced from your working tree
 task localdev:report    # what is Healthy, and what differs from main
 task localdev:down      # delete the cluster; the registry caches stay
 ```
@@ -67,7 +67,7 @@ with a confirmation at each phase. Nothing reaches `terragrunt apply` without th
 **Media** · plex · sonarr · radarr · prowlarr · nzbget · tautulli · lazylibrarian · flaresolverr
 **Platform** · argocd · grafana · argo-workflows · paperclip · cloudnative-pg · mosquitto · renovate
 
-36 addons and 16 applications, 87 ArgoCD Applications in all. The full table with chart versions,
+36 addons and 16 applications, 88 ArgoCD Applications in all. The full table with chart versions,
 Gateway and test coverage per app is generated in [`docs/applications.md`](docs/applications.md).
 
 ## Guardrails

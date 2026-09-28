@@ -38,6 +38,13 @@ sources:
         - charts/argo-workflows/files/crds/full
     kinds: [CronWorkflow, WorkflowTemplate]
 
+  - name: argo-rollouts
+    versionKey: argo-rollouts
+    chart:
+      repo: https://argoproj.github.io/argo-helm
+      name: argo-rollouts
+    kinds: [Rollout, AnalysisTemplate, ClusterAnalysisTemplate]
+
   - name: cert-manager
     versionKey: cert-manager
     chart:

@@ -30,6 +30,7 @@ sync wave 1 in homelab). Waves inside the chart run from -1 (namespaces, reposit
 | --- | --- | --- | --- | --- | --- |
 | `agent-readonly` | `charts/agent-readonly` | git | — | agent-readonly | — |
 | `argo-rollouts` | `argo-rollouts` | 2.43.2 | — | — | — |
+| `argo-rollouts-config` | `charts/argo-rollouts-config` | git | — | — | — |
 | `argo-workflows` | `argo-workflows` | 1.0.18 | envoy-internal: workflows | — | — |
 | `argo-workflows-dependencies` | `charts/argo-workflows-dependencies` | git | — | — | — |
 | `blackbox-exporter` | `prometheus-blackbox-exporter` | 11.18.0 | — | — | — |

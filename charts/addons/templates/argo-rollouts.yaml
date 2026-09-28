@@ -58,4 +58,52 @@ spec:
       - CreateNamespace=true
       - ServerSideApply=true
       - ApplyOutOfSyncOnly=true
+---
+# The ClusterAnalysisTemplate every canary Rollout references. Wave 3 so the
+# controller above has served the CRD; SkipDryRunOnMissingResource covers the
+# first sync of a fresh cluster, where the CRD does not exist at dry-run time.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: argo-rollouts-config
+  namespace: argocd
+  labels:
+    {{- include "addons.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: {{ .Values.global.repoUrl }}
+    targetRevision: {{ .Values.global.targetRevision }}
+    path: charts/argo-rollouts-config
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-{{ .Values.global.environment }}.yaml
+      # Derived from configuration/ (ADR-010); the child values stay environment-free.
+      valuesObject:
+        images:
+          curl: {{ .Values.global.images.curl | quote }}
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: {{ $ar.namespace }}
+  syncPolicy:
+    {{- if .Values.global.automatedSync }}
+    automated:
+      prune: true
+      selfHeal: true
+    {{- end }}
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - SkipDryRunOnMissingResource=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 15s
+        factor: 2
+        maxDuration: 3m
 {{- end }}

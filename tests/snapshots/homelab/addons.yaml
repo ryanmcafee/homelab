@@ -649,6 +649,58 @@ spec:
       - ApplyOutOfSyncOnly=true
 
 ---
+# Source: addons/templates/argo-rollouts.yaml
+# The ClusterAnalysisTemplate every canary Rollout references. Wave 3 so the
+# controller above has served the CRD; SkipDryRunOnMissingResource covers the
+# first sync of a fresh cluster, where the CRD does not exist at dry-run time.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: argo-rollouts-config
+  namespace: argocd
+  labels:
+    helm.sh/chart: addons-1.0.0
+    app.kubernetes.io/name: addons
+    app.kubernetes.io/instance: addons
+    app.kubernetes.io/version: "1.0"
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/ryanmcafee/homelab.git
+    targetRevision: main
+    path: charts/argo-rollouts-config
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-homelab.yaml
+      # Derived from configuration/ (ADR-010); the child values stay environment-free.
+      valuesObject:
+        images:
+          curl: "8.22.0"
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argo-rollouts
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - SkipDryRunOnMissingResource=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 15s
+        factor: 2
+        maxDuration: 3m
+
+---
 # Source: addons/templates/argo-workflows.yaml
 # Workflow archive database and S3 log store; after the cloudnative-pg addon
 # (wave 10) because the database is a CNPG Cluster. ArgoCD waits for a ready

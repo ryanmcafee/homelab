@@ -1529,89 +1529,24 @@ spec:
 
 ---
 # Source: paperclip/templates/exporter.yaml
-apiVersion: apps/v1
-kind: Deployment
+# Canary Service: the Rollout controller pins its selector to the canary
+# pod-template-hash. Deliberately not labelled app.kubernetes.io/name — the
+# ServiceMonitor below selects Services by that label and would otherwise scrape
+# the canary pods as a second source of the same series.
+apiVersion: v1
+kind: Service
 metadata:
-  name: paperclip-exporter
+  name: paperclip-exporter-canary
   namespace: paperclip
   labels:
-    app.kubernetes.io/name: paperclip-exporter
+    app.kubernetes.io/name: paperclip-exporter-canary
 spec:
-  replicas: 1
   selector:
-    matchLabels:
-      app.kubernetes.io/name: paperclip-exporter
-  template:
-    metadata:
-      labels:
-        app.kubernetes.io/name: paperclip-exporter
-      annotations:
-        checksum/script: 4d7f6809fd40324135eb36b31b6e0902a2e29f734c03a51558e4f84759de2e32
-    spec:
-      automountServiceAccountToken: false
-      securityContext:
-        runAsNonRoot: true
-        runAsUser: 1000
-        runAsGroup: 1000
-        seccompProfile:
-          type: RuntimeDefault
-      containers:
-        - name: exporter
-          image: oven/bun:1.4.2-alpine
-          command: ["bun", "/app/paperclip-exporter.ts"]
-          env:
-            - name: PAPERCLIP_API_URL
-              value: "http://paperclip.paperclip.svc.cluster.local:3100/api"
-            - name: PAPERCLIP_API_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: paperclip-exporter
-                  key: PAPERCLIP_API_KEY
-                  optional: true
-            - name: RUN_WINDOW_SECONDS
-              value: "3600"
-            - name: PORT
-              value: "9464"
-            - name: BUN_RUNTIME_TRANSPILER_CACHE_PATH
-              value: "0"
-          ports:
-            - name: metrics
-              containerPort: 9464
-          readinessProbe:
-            httpGet:
-              path: /healthz
-              port: metrics
-            periodSeconds: 10
-          livenessProbe:
-            httpGet:
-              path: /healthz
-              port: metrics
-            periodSeconds: 30
-          resources:
-            limits:
-              cpu: 200m
-              memory: 192Mi
-            requests:
-              cpu: 10m
-              memory: 64Mi
-          securityContext:
-            allowPrivilegeEscalation: false
-            readOnlyRootFilesystem: true
-            capabilities:
-              drop: ["ALL"]
-          volumeMounts:
-            - name: script
-              mountPath: /app
-              readOnly: true
-            - name: tmp
-              mountPath: /tmp
-      volumes:
-        - name: script
-          configMap:
-            name: paperclip-exporter
-        - name: tmp
-          emptyDir:
-            sizeLimit: 16Mi
+    app.kubernetes.io/name: paperclip-exporter
+  ports:
+    - name: metrics
+      port: 9464
+      targetPort: metrics
 
 ---
 # Source: paperclip/templates/agent-policy.yaml
@@ -1778,6 +1713,115 @@ spec:
     startup:
       failureThreshold: 120
       periodSeconds: 5
+
+---
+# Source: paperclip/templates/exporter.yaml
+# Progressive delivery: a new exporter image reaches half the traffic, the
+# canary-http-health ClusterAnalysisTemplate probes paperclip-exporter-canary, and a
+# failed probe aborts back to the stable ReplicaSet without an operator.
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata:
+  name: paperclip-exporter
+  namespace: paperclip
+  labels:
+    app.kubernetes.io/name: paperclip-exporter
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: paperclip-exporter
+  strategy:
+    canary:
+      canaryService: paperclip-exporter-canary
+      stableService: paperclip-exporter
+      steps:
+        - setWeight: 50
+        - analysis:
+            templates:
+              - templateName: canary-http-health
+                clusterScope: true
+            args:
+              - name: service
+                value: paperclip-exporter-canary
+              - name: namespace
+                valueFrom:
+                  fieldRef:
+                    fieldPath: metadata.namespace
+              - name: port
+                value: "9464"
+        - setWeight: 100
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: paperclip-exporter
+      annotations:
+        checksum/script: 4d7f6809fd40324135eb36b31b6e0902a2e29f734c03a51558e4f84759de2e32
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: exporter
+          image: oven/bun:1.4.2-alpine
+          command: ["bun", "/app/paperclip-exporter.ts"]
+          env:
+            - name: PAPERCLIP_API_URL
+              value: "http://paperclip.paperclip.svc.cluster.local:3100/api"
+            - name: PAPERCLIP_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: paperclip-exporter
+                  key: PAPERCLIP_API_KEY
+                  optional: true
+            - name: RUN_WINDOW_SECONDS
+              value: "3600"
+            - name: PORT
+              value: "9464"
+            - name: BUN_RUNTIME_TRANSPILER_CACHE_PATH
+              value: "0"
+          ports:
+            - name: metrics
+              containerPort: 9464
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: metrics
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: metrics
+            periodSeconds: 30
+          resources:
+            limits:
+              cpu: 200m
+              memory: 192Mi
+            requests:
+              cpu: 10m
+              memory: 64Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: script
+              mountPath: /app
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: script
+          configMap:
+            name: paperclip-exporter
+        - name: tmp
+          emptyDir:
+            sizeLimit: 16Mi
 
 ---
 # Source: paperclip/templates/exporter.yaml
