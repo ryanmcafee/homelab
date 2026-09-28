@@ -69,7 +69,12 @@ interface TopologyContract {
     onIndeterminate: string;
     guarantee: string;
     revalidateBeforeDestructiveStep: boolean;
-    points: { id: string; predicate: string; rule: string }[];
+    points: { id: string; predicate: string; kind: string; rule: string }[];
+    entry: string;
+    entryPoints: string[];
+    entrySelector: string;
+    entrySelectorIsObserved: boolean;
+    runShapes: { id: string; when: string; sequence: string[] }[];
   };
   consumers: { id: string; language: string; path: string; role: string }[];
 }
@@ -280,6 +285,110 @@ test("the destructive and resume gates use survivable, the entry and exit gates 
   assert(
     contract.evaluation.revalidateBeforeDestructiveStep,
     "the before-destructive-step point only means something if revalidation is required",
+  );
+});
+
+test("entry is exclusive, and the entry points are the ones marked as such", () => {
+  // `points` is a map from point to predicate, not a pipeline. Read as a sequence it
+  // refuses its own resume path: a crashed recreate is short a member by construction,
+  // so `whole` at preflight fires before `resume` is ever consulted.
+  assertEquals(contract.evaluation.entry, "exclusive");
+  const declared = contract.evaluation.points
+    .filter((p) => p.kind === "entry")
+    .map((p) => p.id);
+  assertEquals([...contract.evaluation.entryPoints].sort(), declared.sort());
+  assertEquals([...contract.evaluation.entryPoints].sort(), [
+    "preflight",
+    "resume",
+  ]);
+  for (const pt of contract.evaluation.points) {
+    assert(
+      pt.kind === "entry" || pt.kind === "in-run",
+      `evaluation point ${pt.id} has kind ${pt.kind}, which is neither entry nor in-run`,
+    );
+  }
+});
+
+test("the entry point is chosen from the observed membership, never asserted by the caller", () => {
+  // ADR-035 rejected a `--resume` flag: it moves "is this absence the one I asked
+  // for" out of a tested predicate and into an operator typing a flag on a degraded
+  // control plane. An asserted entry point is that same flag — asserting `resume` is
+  // how a caller gets `survivable` at the door.
+  assert(
+    contract.evaluation.entrySelectorIsObserved,
+    "an entry point the caller may assert reintroduces the --resume flag ADR-035 rejected",
+  );
+  assert(
+    /observed|membership/i.test(contract.evaluation.entrySelector),
+    `entrySelector ${contract.evaluation.entrySelector} does not name an observation`,
+  );
+});
+
+test("every run shape enters at exactly one entry point and ends whole", () => {
+  const entryPoints = new Set(contract.evaluation.entryPoints);
+  const pointIds = new Set(contract.evaluation.points.map((p) => p.id));
+  const at = (id: string) =>
+    contract.evaluation.points.find((p) => p.id === id);
+  assert(
+    contract.evaluation.runShapes.length >= 2,
+    "a resume path is a run shape",
+  );
+  for (const shape of contract.evaluation.runShapes) {
+    assert(shape.sequence.length > 0, `run shape ${shape.id} is empty`);
+    for (const id of shape.sequence) {
+      assert(
+        pointIds.has(id),
+        `run shape ${shape.id} names point ${id}, which does not exist`,
+      );
+    }
+    const entries = shape.sequence.filter((id) => entryPoints.has(id));
+    assertEquals(
+      entries.length,
+      1,
+      `run shape ${shape.id} passes through ${entries.length} entry points; entry is exclusive`,
+    );
+    assertEquals(
+      shape.sequence[0],
+      entries[0],
+      `run shape ${shape.id} does not start at its entry point`,
+    );
+    assertEquals(
+      shape.sequence[shape.sequence.length - 1],
+      "completion",
+      `run shape ${shape.id} does not end at completion`,
+    );
+    assertEquals(at("completion")!.predicate, "whole");
+  }
+  for (const id of pointIds) {
+    assert(
+      contract.evaluation.runShapes.some((s) => s.sequence.includes(id)),
+      `evaluation point ${id} belongs to no run shape, so no consumer can know when to evaluate it`,
+    );
+  }
+});
+
+test("the resumed shape never evaluates whole before the replacement rejoins", () => {
+  // This is the defect MCAA-404 exists to pin. A resumed run is short a member from
+  // its first observation to its last-but-one, so any `whole` gate other than
+  // `completion` is unsatisfiable and aborts the recovery it was meant to finish.
+  const resumed = contract.evaluation.runShapes.find((s) => s.id === "resumed");
+  assert(resumed !== undefined, "the resumed run shape is missing");
+  const predicateAt = (id: string) =>
+    contract.evaluation.points.find((p) => p.id === id)!.predicate;
+  for (const id of resumed!.sequence.slice(0, -1)) {
+    assertEquals(
+      predicateAt(id),
+      "survivable",
+      `the resumed shape evaluates ${predicateAt(id)} at ${id}, which a cluster short its target cannot satisfy`,
+    );
+  }
+  assert(
+    !resumed!.sequence.includes("preflight"),
+    "resume is entered instead of preflight, not after it",
+  );
+  assert(
+    !resumed!.sequence.includes("before-destructive-step"),
+    "a resumed run skips the removal; it never removes a second member",
   );
 });
 
