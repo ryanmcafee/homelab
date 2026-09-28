@@ -38,6 +38,38 @@ spec:
                   status: Healthy
                 sync:
                   status: Synced
+      # Without this, an Application stuck OutOfSync retries to the step timeout and the run
+      # reports only `Invalid value: "OutOfSync"` -- naming neither the resource that drifted
+      # nor its field. `task localdev:diagnose` cannot supply it either: it early-returns on
+      # health alone, so it collects nothing while every Application is Healthy.
+      catch:
+        - script:
+            content: |
+              set -eu
+
+              for app in argo-events argo-events-config; do
+                echo "--- $app ---"
+                kubectl -n argocd get application "$app" \
+                  -o jsonpath='{.status.sync.status}{" / "}{.status.health.status}{"\n"}'
+                # Named fields, so this is not the `{.}`-over-scalars range that yields
+                # nothing. Every resource is printed so the drifted one is visible in context.
+                kubectl -n argocd get application "$app" \
+                  -o jsonpath='{range .status.resources[*]}{.kind}{"/"}{.name}{" sync="}{.status}{" health="}{.health.status}{"\n"}{end}'
+              done
+
+              # spec on all three argoproj.io kinds is x-kubernetes-preserve-unknown-fields, so
+              # the API server neither defaults nor prunes it. A live spec differing from the
+              # rendered snapshot therefore means something wrote it back, and this is the only
+              # place that difference is recoverable once the run is over.
+              for kind in eventbus eventsource sensor; do
+                echo "--- live $kind ---"
+                kubectl -n argo-events get "$kind" -o yaml 2>&1 || true
+              done
+        - describe:
+            apiVersion: argoproj.io/v1alpha1
+            kind: Application
+            namespace: argocd
+            name: argo-events-config
 
     # The admission webhook is the only validation these CRDs have: spec and status are both
     # x-kubernetes-preserve-unknown-fields, so the API server accepts any spec and the
