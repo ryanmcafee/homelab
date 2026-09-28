@@ -71,8 +71,8 @@ configuration uses `server.route.enabled`; checking that source key on a
 rendered Application would miss the exposure. Singular and multi-source
 Applications are matched by chart, including renamed Applications.
 
-Inline YAML and `valuesObject` are merged recursively with the object taking
-precedence. Unparseable/non-object values and non-boolean route flags fail.
+Either inline YAML `values` or `valuesObject` is accepted. Supplying both is
+rejected, so the gate cannot assume the wrong effective-value precedence. Unparseable/non-object values and non-boolean route flags fail.
 An omitted route flag is treated as disabled; an enabled route requires an
 explicit authenticated mode. `client` authenticates requests but does **not**
 satisfy the platform OIDC acceptance criterion; that still requires SSO wiring

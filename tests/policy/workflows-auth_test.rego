@@ -34,10 +34,11 @@ test_wrong_source_key_does_not_disable_rendered_route if {
 	count(deny) == 1 with input as app({"valuesObject": {"server": {"authMode": "server", "route": {"enabled": false}, "httproute": {"enabled": true}}}})
 }
 
-test_values_object_merges_and_overrides if {
+test_mixed_values_rejected_without_precedence_assumptions if {
 	base := {"values": yaml.marshal(routed("sso")), "valuesObject": {"server": {"authMode": "server"}}}
 	count(deny) == 1 with input as app(base)
-	count(deny) == 0 with input as app({"values": yaml.marshal(routed("server")), "valuesObject": {"server": {"authMode": "sso"}}})
+	count(deny) == 1 with input as app({"values": yaml.marshal(routed("server")), "valuesObject": {"server": {"authMode": "sso"}}})
+	count(deny) == 1 with input as app({"values": yaml.marshal(routed("sso")), "valuesObject": {"server": {"httproute": {"enabled": true}}}})
 }
 
 test_invalid_values_fail_closed if {

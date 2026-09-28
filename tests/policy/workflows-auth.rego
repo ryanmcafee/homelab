@@ -19,7 +19,7 @@ sources contains source if {
 }
 
 # Invalid YAML / unexpected types must not make the deny rule undefined.
-# valuesObject takes precedence, with nested maps merged as Helm does.
+# Mixed representations are rejected below rather than assuming precedence.
 values(helm) := merged if {
 	raw := object.get(helm, "values", "{}")
 	is_string(raw)
@@ -30,7 +30,13 @@ values(helm) := merged if {
 	merged := object.union(parsed, obj)
 }
 
+mixed_values(helm) if {
+	"values" in object.keys(helm)
+	"valuesObject" in object.keys(helm)
+}
+
 inspectable(helm) if {
+	not mixed_values(helm)
 	is_object(values(helm))
 	# External files and --set overrides cannot be verified from inline values.
 	count(object.get(helm, "valueFiles", [])) == 0
@@ -53,7 +59,7 @@ deny contains msg if {
 	some source in sources
 	helm := object.get(source, "helm", {})
 	not inspectable(helm)
-	msg := sprintf("[workflows-auth] %s: cannot verify Workflows authentication; use valid inline Helm values/valuesObject without valueFiles, parameters or fileParameters", [lib.id(input)])
+	msg := sprintf("[workflows-auth] %s: cannot verify Workflows authentication; use exactly one valid inline Helm values or valuesObject representation without valueFiles, parameters or fileParameters", [lib.id(input)])
 }
 
 deny contains msg if {
