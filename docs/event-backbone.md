@@ -96,6 +96,47 @@ shape, so nothing but the scrape tells you. `a stream sources each origin stream
 once` in `scripts/nats-streams-contract_test.ts` is the level 0 guard; the
 `exporter-label-set` step in `tests/e2e/nats/chainsaw-test.yaml` is the level 2 one.
 
+## Two buses, and the boundary between them
+
+Argo Events runs its **own** JetStream, in its own namespace, on its own storage:
+
+| Wave | Application | Chart | What it is |
+|---|---|---|---|
+| 12 | `argo-events` | `argo-events` | The controller, the admission webhook, and the `argoproj.io` EventBus/EventSource/Sensor CRDs |
+| 13 | `argo-events-config` | `charts/argo-events-config` | The `EventBus` named `default`, which is the bus those CRDs describe |
+
+That is a deliberate separation, not duplicated infrastructure. The platform bus is the
+durable record: 168h of `.ev`, a year of `PF_AUDIT`, replayable from sequence one. The
+Argo Events bus is trigger plumbing with 72h of history, and a Sensor that falls behind
+and catches up is doing its job. Putting triggers on the platform bus would let a Sensor's
+consumer state and a workflow's retries move stream state that an audit reader depends on.
+
+**Nothing bridges the two implicitly.** `no_core_nats_bridge` in
+`contracts/events/subjects.v1.yaml` is specific about the trap: an Argo Events `nats`
+EventSource is a **core-NATS subscribe** — at-most-once, no durability, no replay — so
+pointing one at a `.ev` subject silently converts an at-least-once path into an
+at-most-once one, and neither Argo Events' own documentation nor its status conditions
+say so. A component that needs platform events to reach a Sensor binds a **named durable
+pull consumer** on the platform bus and publishes onward; that consumer appears in
+`charts/nats-config` like every other one.
+
+Two chart defaults are wrong for a single node and are overridden in
+`configuration/templates/helm-addons.tmpl` rather than left to the operator:
+
+- `configs.jetstream.streamConfig.replicas` defaults to **3**. Argo Events reuses the bus
+  pod count as its stream replica count, so on a one-pod bus the streams it creates never
+  become ready. `ARGO_EVENTS_BUS_REPLICAS` sets both, and Argo Events accepts only 1, 3
+  or 5 — `charts/argo-events-config/templates/eventbus.yaml` fails the render on anything
+  else rather than deploying a bus that cannot form.
+- The bus `version` is pinned to a concrete NATS version. The controller-config maps a
+  version string to an image and also accepts `latest`, which is a floating tag.
+
+One thing the level 0 gates cannot do here: all three `argoproj.io` CRDs declare `spec`
+and `status` as `x-kubernetes-preserve-unknown-fields`, so the API server accepts any
+spec and the vendored kubeconform schemas can only confirm the kind is known. The
+admission webhook is the only thing that rejects a malformed Sensor before it fails at
+runtime, and the chart ships it **disabled**; this repo enables it.
+
 ## Delivery and ordering guarantees
 
 Stated every time, because the alternative is each reader assuming whichever guarantee

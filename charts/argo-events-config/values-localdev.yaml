@@ -1,0 +1,7 @@
+# argo-events-config - local development overrides
+#
+# Kind is a single node. Argo Events honours replicas: 1 without clamping and
+# runs the bus standalone, so nothing here is a workaround for Kind.
+replicas: 1
+storage:
+  size: 1Gi
