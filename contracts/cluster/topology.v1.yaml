@@ -264,31 +264,93 @@ evaluation:
   # consumer that evaluates `whole` at `before-destructive-step` aborts every
   # procedure, and one that evaluates `survivable` at `preflight` consents to starting
   # on a cluster that was already one member short before anybody touched it.
+  #
+  # `points` IS NOT A PIPELINE. A run does not pass through all four in order. It
+  # enters at exactly one of `preflight` / `resume` and proceeds from there; the shapes
+  # are enumerated in `runShapes` below. Read as a sequence, this contract refuses its
+  # own resume path — a crashed recreate leaves the cluster one member short by
+  # construction, so `whole` at `preflight` refuses before `resume` is ever reached and
+  # `health.predicates[survivable].resumeSemantics` describes a state no run can be in.
+  # That was found by implementing it sequentially first (#364, MCAA-404), not argued.
   points:
     - id: preflight
       predicate: whole
-      rule: Before anything is drained, tainted, removed or destroyed.
+      kind: entry
+      rule: >-
+        Before anything is drained, tainted, removed or destroyed, on a run whose
+        declared target is still a member. Entered INSTEAD OF `resume`, never before it.
     - id: before-destructive-step
       predicate: survivable
+      kind: in-run
       rule: >-
         Immediately before the member removal, with the outgoing member declared as the
         target. Re-evaluated here even if preflight passed seconds ago.
     - id: resume
       predicate: survivable
+      kind: entry
       rule: >-
         On a re-run that finds the declared target already absent from the member list.
-        The run skips the removal and continues; it never removes a second member.
+        Entered INSTEAD OF `preflight`: the cluster is short a member at this point by
+        construction, so `whole` is unsatisfiable and evaluating it here would refuse
+        every legitimate recovery. The run skips the removal and continues; it never
+        removes a second member.
     - id: completion
       predicate: whole
+      kind: in-run
       rule: >-
         After the replacement rejoins. Success means the cluster is whole again, not
-        that a kubelet reported Ready.
+        that a kubelet reported Ready. Reached by both run shapes.
+
+  # ENTRY IS EXCLUSIVE, AND THE OBSERVATION PICKS IT.
+  #
+  # `entrySelector` is the part that carries the safety. The entry point is decided by
+  # whether the declared target is present in etcd's own membership
+  # (health.memberSetSource) — never by a flag, an argument or a state file. ADR-035
+  # rejected a `--resume` flag for the reason that applies here unchanged: it moves
+  # "is this absence the one I asked for" out of a tested predicate and into an
+  # operator typing a flag at 3am on a degraded control plane. A consumer that lets
+  # the caller assert the entry point has reintroduced that rejected design, because
+  # asserting `resume` is exactly how you get `survivable` at the door.
+  #
+  # The selection is total, and refusing is a normal outcome of it. Worked:
+  #
+  #   observed                                   | entry     | predicate  | outcome
+  #   -------------------------------------------|-----------|------------|---------
+  #   target present, nothing else absent        | preflight | whole      | proceeds
+  #   target present, some OTHER member absent   | preflight | whole      | refuses (member-count)
+  #   target absent, nothing else absent         | resume    | survivable | resumes
+  #   target absent, some OTHER member absent    | resume    | survivable | refuses (absences-are-declared)
+  #   membership unknown (no endpoint answered)  | n/a       | n/a        | refuses (onIndeterminate)
+  #
+  # Rows 2 and 4 are why exclusive entry weakens nothing. The objection to `survivable`
+  # at the door — that it consents to starting on an already-degraded cluster — is
+  # answered by row 4, not waived: a stranger's absence fails `absences-are-declared`
+  # whichever point you entered at.
+  #
+  # `resume` is defined by the OBSERVED state, not by history. A target that died on
+  # its own and was never removed by an earlier run presents identically and is
+  # treated identically, which is correct — the cluster is in the same state and the
+  # same procedure finishes it. A consumer must not try to distinguish the two.
+  entry: exclusive
+  entryPoints: [preflight, resume]
+  entrySelector: declared-target-present-in-observed-membership
+  entrySelectorIsObserved: true
+  runShapes:
+    - id: fresh
+      when: The declared target is still a member of etcd's own membership.
+      sequence: [preflight, before-destructive-step, completion]
+    - id: resumed
+      when: The declared target is already absent from etcd's own membership.
+      sequence: [resume, completion]
 
 # ---------------------------------------------------------------------------
 # Consumers. Each carries a conformance test asserting its behaviour against the
 # `quorum.table` rows, the `health.predicates` and the `evaluation.points` mapping
 # above (ADR-030's shape: the checker is tested, not trusted). A consumer that
 # implements only one predicate is not conformant, however careful that predicate is.
+# Neither is one that implements all four points as a pipeline: conformance includes
+# entering at `preflight` or `resume` exclusively, chosen from the observed membership,
+# and a test that a target already absent does not refuse.
 # ---------------------------------------------------------------------------
 consumers:
   - id: homelab-cli
