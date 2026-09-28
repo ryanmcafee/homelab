@@ -17,11 +17,11 @@ metered_env := {"ANTHROPIC_API_KEY", "OPENAI_API_KEY", "CODEX_API_KEY"}
 # ANTHROPIC_API_KEY in OpenClaw, the opposite of Claude Code's own order.
 subscription_env := "ANTHROPIC_OAUTH_TOKEN"
 
-# dead_env are variables that look like working auth and are not. OpenClaw lists
-# CLAUDE_CODE_OAUTH_TOKEN in CLAUDE_CLI_CLEAR_ENV and strips it before every
-# managed Claude CLI run, so an Instance carrying it has no subscription auth at
-# all while reading as though it does. charts/paperclip legitimately uses that
-# name; an OpenClawInstance must not.
+# dead_env are variables that look like working auth and are not. OpenClaw's
+# native Anthropic provider does not list CLAUDE_CODE_OAUTH_TOKEN in its envVars
+# (extensions/anthropic/provider-contract-api.ts), so an Instance carrying it has
+# no subscription auth at all while reading as though it does. charts/paperclip
+# legitimately uses that name; an OpenClawInstance must not.
 dead_env := {"CLAUDE_CODE_OAUTH_TOKEN"}
 
 is_instance if {
@@ -91,7 +91,7 @@ deny contains msg if {
 	not lib.is_exempt(input, "openclaw-dead-credential")
 	some name in env_names
 	name in dead_env
-	msg := sprintf("[openclaw-dead-credential] %s: %s is stripped by OpenClaw before every managed Claude CLI run; the subscription token belongs in %s", [lib.id(input), name, subscription_env])
+	msg := sprintf("[openclaw-dead-credential] %s: OpenClaw's native Anthropic provider never reads %s; the subscription token belongs in %s", [lib.id(input), name, subscription_env])
 }
 
 # openclaw-credential-ref: a credential must come from the credentials Secret by
