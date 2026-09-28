@@ -1,8 +1,9 @@
 {{- /*
 OpenClaw (issue #425, docs/apps/openclaw.md): AI agent instances run by
 openclaw-operator, wired to the same credential pattern as charts/paperclip.
-Four Applications in one sync order (rule gitops/<env>/waves: -dependencies < main):
-  wave 10  Namespaces openclaw-system, openclaw
+Three Applications in one sync order -- two in Kind, which has no secret store --
+behind two raw Namespaces (rule gitops/<env>/waves: -dependencies < main):
+  wave 10  openclaw-system, openclaw  raw kind: Namespace, not Applications
   wave 11  openclaw-operator      OCI chart ghcr.io/paperclipinc/charts/openclaw-operator (CRDs + controller)
   wave 12  openclaw-dependencies  charts/openclaw-dependencies (OnePasswordItems -> Secrets openclaw-api-keys, openclaw-gateway; secret store only)
   wave 13  openclaw               charts/openclaw (openclaw.rocks OpenClawInstance) + PostSync smoke Job
