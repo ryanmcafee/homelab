@@ -17,7 +17,7 @@ const (
 
 // printRequiredKeys writes the required-key document for every tier and
 // returns. It reads configuration/schema and nothing else, so it answers with
-// no ConfigSet, no Proxmox, no 1Password and no cluster — a fork needs the list
+// no ConfigSet, no Proxmox, no 1Password and no cluster -- a fork needs the list
 // of values to gather BEFORE it owns the hardware the prerequisite table
 // demands.
 //
@@ -53,7 +53,7 @@ func printRequiredKeys(cmd *cobra.Command, environment, format string) error {
 // the 26 that answer it.
 //
 // Tiers sharing a key set are printed once under both names. Today that is
-// every tier — configuration/schema is not tier-scoped, so localdev requires
+// every tier -- configuration/schema is not tier-scoped, so localdev requires
 // PROXMOX_IP too and its committed ConfigSet supplies one. Printing the same 26
 // keys per tier would read as two independent answers that happen to agree.
 func writeRequiredKeysText(w io.Writer, doc *prereq.RequiredKeysDoc) {
