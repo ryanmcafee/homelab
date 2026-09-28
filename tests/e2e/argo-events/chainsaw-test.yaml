@@ -263,22 +263,55 @@ spec:
                 echo "$pod"
               }
 
-              es_pod=$(find_pod eventsource-name trigger-selftest)
-              sensor_pod=$(find_pod sensor-name trigger-selftest)
+              find_deploy() {
+                key=$1
+                value=$2
+                d=$(kubectl get deploy -n argo-events -l "$key=$value" \
+                  -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
+                if [ -z "$d" ]; then
+                  d=$(kubectl get deploy -n argo-events \
+                    -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null \
+                    | grep "^${value}-" | head -1 || true)
+                fi
+                echo "$d"
+              }
 
-              if [ -z "$es_pod" ] || [ -z "$sensor_pod" ]; then
+              # Wait on the Deployments, not on a pod name resolved beforehand. The
+              # EventSource pod crash-loops until eventbus-default-js-svc resolves, and if
+              # the controller rolled it rather than restarting it, a wait on the old name
+              # would fail while the path was in fact coming up healthy.
+              es_deploy=$(find_deploy eventsource-name trigger-selftest)
+              sensor_deploy=$(find_deploy sensor-name trigger-selftest)
+
+              if [ -z "$es_deploy" ] || [ -z "$sensor_deploy" ]; then
                 echo "FAIL: the controller did not produce both workloads"
-                echo "      eventsource pod='${es_pod:-<none>}' sensor pod='${sensor_pod:-<none>}'"
-                kubectl get pods -n argo-events --show-labels || true
+                echo "      eventsource deploy='${es_deploy:-<none>}'" \
+                     "sensor deploy='${sensor_deploy:-<none>}'"
+                kubectl get deploy,pods -n argo-events --show-labels || true
                 kubectl logs -n argo-events deployment/argo-events-controller-manager \
                   --tail=120 || true
                 exit 1
               fi
+              echo "eventsource deployment: $es_deploy"
+              echo "sensor deployment:      $sensor_deploy"
+
+              kubectl wait --for=condition=Available "deploy/$es_deploy" \
+                -n argo-events --timeout=300s
+              kubectl wait --for=condition=Available "deploy/$sensor_deploy" \
+                -n argo-events --timeout=300s
+
+              # Resolved only now, so the name belongs to the pod that actually came up.
+              es_pod=$(find_pod eventsource-name trigger-selftest)
+              sensor_pod=$(find_pod sensor-name trigger-selftest)
+
+              if [ -z "$es_pod" ] || [ -z "$sensor_pod" ]; then
+                echo "FAIL: both Deployments are Available but their pods did not resolve"
+                echo "      eventsource pod='${es_pod:-<none>}' sensor pod='${sensor_pod:-<none>}'"
+                kubectl get pods -n argo-events --show-labels || true
+                exit 1
+              fi
               echo "eventsource pod: $es_pod"
               echo "sensor pod:      $sensor_pod"
-
-              kubectl wait --for=condition=Ready "pod/$es_pod" -n argo-events --timeout=180s
-              kubectl wait --for=condition=Ready "pod/$sensor_pod" -n argo-events --timeout=180s
 
               # Emitted once per trigger the Sensor actually ran, at Info level, by
               # pkg/sensors/listener.go: Infow("Successfully processed trigger '%s'"). Matched
