@@ -154,9 +154,12 @@ Application sets all three of these and none of them are chart defaults:
 | `config.jetstream.enabled` | `false` | Gates the exporter's `-jsz=all` argument, which is what produces stream and consumer metrics |
 | `promExporter.podMonitor.enabled` | `false` | Without it nothing scrapes the exporter |
 
-The PodMonitor's scrape interval is pinned to **30s** rather than inherited. The aging rules
-carry a coverage guard that an interval above 60s can never satisfy, so a fork with a longer
-global interval would get alerts that silently never fire.
+The PodMonitor's scrape interval is pinned to **30s** rather than inherited, because the
+`PF_WORK` aging rules gate on `min_over_time(nats_stream_total_messages{...}[5m])`. A window with
+no sample in it yields nothing, the surrounding `and` chain drops, and the alert silently never
+fires — so a fork whose global interval approaches 5m loses the alert without any signal that it
+has. The rules' `count_over_time(...[12h]) >= 11 * count_over_time(...[1h])` guard is a ratio and
+is invariant in the scrape rate; it is not what the pin protects.
 
 ## Sizing, and why replicas are not in the contract
 

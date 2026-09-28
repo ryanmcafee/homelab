@@ -53,8 +53,8 @@ spec:
           podMonitor:
             enabled: true
             # The chart's PodMonitor sets no interval, so it would inherit
-            # whatever global scrape interval a fork configured. The aging rules'
-            # coverage guard can never be satisfied above 60s, so pin it here.
+            # whatever global scrape interval a fork configured. Pin it under the
+            # 5m min_over_time window the aging rules read.
             merge:
               spec:
                 podMetricsEndpoints:

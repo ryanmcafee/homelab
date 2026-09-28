@@ -1325,9 +1325,9 @@ nats:
     version: "2.15.0"
 
   monitoring:
-    # Must stay at or below 60s. The PF_WORK aging rules carry a coverage guard
-    # that a longer interval can never satisfy, so those alerts would silently
-    # never fire (MCAA-134).
+    # Must stay well under 5m: the PF_WORK aging rules gate on
+    # min_over_time(nats_stream_total_messages[5m]), and an empty window drops the
+    # whole expression, so those alerts would silently never fire (MCAA-134).
     scrapeInterval: 30s
 
   # Stream sizing is operator-supplied, not contract: a hard-coded 3 means a
