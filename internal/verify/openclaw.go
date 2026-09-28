@@ -140,6 +140,7 @@ func openClawSource(rendered map[string][]Doc) (ChartSource, string, bool, error
 			if !ok {
 				return bad("parameters must be an array")
 			}
+			var parameterNames []string
 			for _, p := range ps {
 				m, ok := p.(map[string]any)
 				if !ok {
@@ -150,6 +151,14 @@ func openClawSource(rendered map[string][]Doc) (ChartSource, string, bool, error
 				if !nok || n == "" || !vok {
 					return bad("parameter name/value must be strings")
 				}
+				// Argo CD stores parameters in maps; overlapping assignments have
+				// no stable order. Never prove one ordering and deploy another.
+				for _, previous := range parameterNames {
+					if previous != n && (strings.HasPrefix(previous, n+".") || strings.HasPrefix(previous, n+"[") || strings.HasPrefix(n, previous+".") || strings.HasPrefix(n, previous+"[")) {
+						return bad("overlapping Helm parameters have undefined Argo CD ordering: " + previous + " and " + n)
+					}
+				}
+				parameterNames = append(parameterNames, n)
 				if b, exists := m["forceString"]; exists {
 					if _, ok := b.(bool); !ok {
 						return bad("forceString must be boolean")
