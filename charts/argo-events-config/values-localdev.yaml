@@ -3,5 +3,8 @@
 # Kind is a single node. Argo Events honours replicas: 1 without clamping and
 # runs the bus standalone, so nothing here is a workaround for Kind.
 replicas: 1
+# A quarter of the 1Gi PVC, well under maxBytesBudgetFraction: Kind's single
+# node shares one disk across every stateful addon.
+maxBytes: 256Mi
 storage:
   size: 1Gi

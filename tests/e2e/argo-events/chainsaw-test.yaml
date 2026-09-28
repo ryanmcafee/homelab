@@ -46,6 +46,9 @@ spec:
     - name: controller-and-webhook-available
       description: The events controller and the admission webhook are both Available.
       try:
+        # The JMESPath filter selects the one condition; a bare `conditions:` list is
+        # compared whole and fails with "lengths of slices don't match" against a
+        # Deployment that also reports Progressing.
         - assert:
             resource:
               apiVersion: apps/v1
@@ -54,9 +57,8 @@ spec:
                 name: argo-events-controller-manager
                 namespace: argo-events
               status:
-                conditions:
-                  - type: Available
-                    status: "True"
+                (conditions[?type == 'Available']):
+                  - status: "True"
         - assert:
             resource:
               apiVersion: apps/v1
@@ -65,9 +67,77 @@ spec:
                 name: events-webhook
                 namespace: argo-events
               status:
-                conditions:
-                  - type: Available
-                    status: "True"
+                (conditions[?type == 'Available']):
+                  - status: "True"
+      catch:
+        - describe:
+            apiVersion: apps/v1
+            kind: Deployment
+            namespace: argo-events
+        - podLogs:
+            namespace: argo-events
+            tail: 100
+
+    # Rendering with webhook.enabled=true produces no ValidatingWebhookConfiguration: the
+    # webhook process registers itself at runtime. Its rules and failurePolicy are therefore
+    # cluster state ArgoCD cannot diff or prune and no level 0 gate can read -- and argoproj.io
+    # is the group ArgoCD's own Application and AppProject live in, so a Fail policy across the
+    # whole group would turn a webhook outage into a GitOps outage.
+    - name: webhook-scope-and-failure-policy
+      description: >-
+        Record the admission webhook's registered rules and failurePolicy, and refuse a
+        registration that can take ArgoCD's own resources down with the webhook.
+      try:
+        - script:
+            timeout: 3m
+            content: |
+              set -eu
+
+              i=0
+              name=""
+              while [ "$i" -lt 36 ]; do
+                name=$(kubectl get validatingwebhookconfiguration \
+                  -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null \
+                  | grep -i 'events' | head -1 || true)
+                [ -n "$name" ] && break
+                i=$((i + 1))
+                sleep 5
+              done
+
+              if [ -z "$name" ]; then
+                echo "FAIL: webhook.enabled is true but no ValidatingWebhookConfiguration was registered"
+                kubectl get validatingwebhookconfiguration || true
+                kubectl logs -n argo-events deployment/events-webhook --tail=80 || true
+                exit 1
+              fi
+              echo "OK: argo-events registered ValidatingWebhookConfiguration/$name"
+
+              echo "--- $name, verbatim ---"
+              kubectl get validatingwebhookconfiguration "$name" -o yaml
+              echo "-----------------------"
+
+              policies=$(kubectl get validatingwebhookconfiguration "$name" \
+                -o jsonpath='{range .webhooks[*]}{.failurePolicy}{"\n"}{end}')
+              resources=$(kubectl get validatingwebhookconfiguration "$name" \
+                -o jsonpath='{range .webhooks[*]}{range .rules[*]}{range .resources[*]}{.}{"\n"}{end}{end}{end}')
+
+              echo "failurePolicy per webhook:"; echo "$policies"
+              echo "intercepted resources:"; echo "$resources"
+
+              # A wildcard resource rule under Fail puts ArgoCD's Application and AppProject
+              # behind this webhook's availability. Either property alone is containable.
+              if echo "$resources" | grep -qx '\*' && echo "$policies" | grep -qx 'Fail'; then
+                echo "FAIL: the webhook intercepts '*' with failurePolicy: Fail, so a webhook"
+                echo "      outage would also block ArgoCD's own Application and AppProject"
+                exit 1
+              fi
+              echo "OK: blast radius bounded -- no wildcard rule under failurePolicy Fail"
+      catch:
+        - script:
+            timeout: 1m
+            content: |
+              kubectl get validatingwebhookconfiguration -o yaml || true
+              kubectl logs -n argo-events deployment/events-webhook --tail=80 || true
 
     # ArgoCD has no built-in health for argoproj.io/EventBus, so argo-events-config reports
     # Healthy the instant its one manifest applies. The StatefulSet the controller derives
