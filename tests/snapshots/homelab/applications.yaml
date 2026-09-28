@@ -1437,7 +1437,7 @@ spec:
           storageClass: democratic-csi-iscsi
         resources:
           limits:
-            cpu: "2"
+            cpu: "4"
             memory: 16Gi
           requests:
             cpu: 500m

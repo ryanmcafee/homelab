@@ -13,6 +13,10 @@ Each entry should include:
 
 ## Recent Work
 
+### 2026-09-28 - Paperclip CPU limit 2 -> 4 cores for concurrent agent runs
+- **Status**: PR open from branch `triage/cputhrottlinghigh-dd84a884` (alert triage); paperclip-0 restarts once on sync, so merge when no agent runs are active
+- **Description**: `CPUThrottlingHigh` on paperclip-0 (74.55% throttled at ~1.94/2 cores) because agent CLIs run as child processes and CPU tracks runs in flight; homelab limit raised to 4, request stays 500m. Details in `bugs.md` (2026-09-28)
+
 ### 2026-09-25 - Alert triage agent: alert -> fix PR -> Pushover (Argo Workflows DAG)
 - **Status**: PR #372 open; before it runs create 1Password item `triage-agent` (`CLAUDE_CODE_OAUTH_TOKEN`, `GITHUB_TOKEN` fine-grained PAT with contents + pull requests read/write; optional `DOTFILES_REPO`, `ARGOCD_AUTH_TOKEN`, `PAPERCLIP_API_KEY`, `PAPERCLIP_COMPANY_ID`), make the `homelab-triage-agent` package public after the first publish, and generate the `triage-agent` ArgoCD token
 - **Description**: intake Deployment + `triage-fix` WorkflowTemplate: triage, plan, implement, deterministic verify loop, commit, PR, CI loop, needs-human, Pushover onExit; deny hook in `triage-agent/src/policy.ts`; ArgoCD account `triage-agent` (get + sync). ADR-036, docs/runbooks/triage-agent.md

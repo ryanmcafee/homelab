@@ -1220,11 +1220,13 @@ paperclip:
         cpu: "2"
         memory: 2Gi
 {{- else }}
+      # Agents run as child processes of paperclip-0, so CPU tracks runs in
+      # flight; only the limit is 4 cores (the pinned node has little unrequested CPU).
       requests:
         cpu: 500m
         memory: 16Gi
       limits:
-        cpu: "2"
+        cpu: "4"
         memory: 16Gi
 {{- end }}
 {{- if not $localdev }}
