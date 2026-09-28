@@ -47,6 +47,21 @@ tasks:
     cmds:
       - bun install --frozen-lockfile --silent
 
+  cli:build:
+    desc: Build bin/homelab from source (a no-op when the binary is newer than the sources)
+    run: once
+    sources:
+      - cmd/homelab/**/*.go
+      - internal/**/*.go
+      - internal/scaffold/templates/**
+      - contracts/**
+      - go.mod
+      - go.sum
+    generates:
+      - bin/homelab
+    cmds:
+      - go build -o bin/homelab ./cmd/homelab
+
   # ==========================================================================
   # TypeScript scripts (scripts/*.ts, run with Bun)
   # ==========================================================================
@@ -707,26 +722,31 @@ tasks:
 
   render:push:
     desc: Push rendered YAML files to 1Password (for sharing across machines)
+    deps: [cli:build]
     cmds:
       - ./bin/homelab render push --force
 
   render:pull:
     desc: Pull rendered YAML files from 1Password
+    deps: [cli:build]
     cmds:
       - ./bin/homelab render pull --force
 
   render:status:
     desc: Check status of rendered files (local vs 1Password)
+    deps: [cli:build]
     cmds:
       - ./bin/homelab render status
 
   render:sync:
     desc: Sync rendered files (pull from 1Password if missing, push if local-only)
+    deps: [cli:build]
     cmds:
       - ./bin/homelab render sync
 
   render:sync:silent:
     internal: true
+    deps: [cli:build]
     cmds:
       - ./bin/homelab render sync --quiet
     status:
@@ -768,6 +788,7 @@ tasks:
   talos:recreate:node:
     desc: Recreate a Talos node via terragrunt taint + apply
     prompt: This will destroy and recreate the Talos VM for node {{.NODE}}. Continue?
+    deps: [cli:build]
     vars:
       NODE: '{{.NODE | default "worker-1"}}'
     cmds:
@@ -776,17 +797,20 @@ tasks:
   talos:recreate:gpu-node:
     desc: Recreate GPU node (worker-1) with new image and verify GPU support
     prompt: This will destroy and recreate worker-1 and then verify GPU support. Continue?
+    deps: [cli:build]
     cmds:
       - ./bin/homelab -y talos recreate --node=worker-1 --skip-drain
       - ./bin/homelab verify gpu
 
   gpu:verify:
     desc: Verify GPU support is working (vendor resolved from GPU_VENDOR config)
+    deps: [cli:build]
     cmds:
       - ./bin/homelab verify gpu
 
   gpu:status:
     desc: Show GPU node status and resources (vendor resolved from GPU_VENDOR config)
+    deps: [cli:build]
     cmds:
       - ./bin/homelab verify gpu --status-only
 
