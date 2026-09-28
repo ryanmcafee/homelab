@@ -12,9 +12,12 @@ name: Verify (Kind, levels 1-2)
 #                                        into Kind, no ArgoCD); asserts Envoy Gateway + cert-manager
 #   yaml-lint    yamllint                charts/, localdev/, tests/e2e, tests/health
 #
-# kind-argocd is the required check: it has no continue-on-error, and a failing
-# Application, e2e test or dry run fails the pull request. Its Job Summary lists
-# every non-passing check and the verify-level2 artifact carries the full JSON.
+# kind-argocd is the blocking job of this workflow, but it is not a required status
+# check on main: it has no continue-on-error, so a failing Application, e2e test or
+# dry run fails the job and the pull request's checks go red -- yet main's required
+# contexts are exactly ["Verification claim matches level 0"] (pr-contract.yml), so
+# that red does not hold the merge button. Its Job Summary lists every non-passing
+# check and the verify-level2 artifact carries the full JSON. MCAA-477.
 #
 # kind-argocd checks out the PR head commit (not the merge ref, which ArgoCD
 # cannot fetch) and installs the root Application at that SHA
@@ -96,7 +99,7 @@ env:
 
 jobs:
   # ============================================================================
-  # Kind + ArgoCD loop: the required check
+  # Kind + ArgoCD loop: level 2's blocking job (not a required context, see above)
   # ============================================================================
   kind-argocd:
     name: Kind + ArgoCD loop (level 2)
