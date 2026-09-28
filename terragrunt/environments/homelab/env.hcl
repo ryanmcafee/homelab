@@ -242,4 +242,19 @@ locals {
       gpu = ordinal == "1"
     }
   }
+
+  # A cluster with no workers has nowhere to run a pod unless the control plane
+  # accepts them, so the two facts are one fact and come from one place — the
+  # same worker address keys the node map is built from (ADR-035, MCAA-423).
+  #
+  # Deliberately not a ConfigSet key. A key would be a second statement of "does
+  # this fork have workers", free to disagree with the address list, and the
+  # disagreement is silent in the worst direction: a workerless ConfigSet that
+  # left it false provisions a healthy cluster that schedules nothing. Wanting a
+  # schedulable control plane ALONGSIDE workers is a real preference this does
+  # not serve; that is a separate key on top of this floor, not a reason to
+  # leave the floor unstated.
+  #
+  # TestTerragruntSchedulesOnControlPlanesWhenWorkerless pins this expression.
+  allow_scheduling_on_control_planes = length(local.worker_ips) == 0
 }

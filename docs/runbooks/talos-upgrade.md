@@ -3,16 +3,35 @@
 Upgrading the Talos OS and Kubernetes on the homelab cluster, recovering from a failed
 upgrade, and validating the result.
 
-Every address is a `<KEY>` placeholder resolved from the gitignored
-`configuration/environments/homelab.yaml` (`task config:eval` prints them): `<CP_VIP>`,
-`<CP1_IP>`, `<CP2_IP>`, `<CP3_IP>`, `<WORKER1_IP>`, `<WORKER2_IP>`, `<WORKER3_IP>`. The
-cluster is **three control planes and three workers**; `worker-1` carries the Intel GPU.
-
 Agents never run any of this: every step mutates production (ADR-009). An agent may run
 the read-only checks in [Validation](#validation) and `task apiserver:probe`.
 
+## Your node addresses
+
+Export these once per shell; every command below uses them. They are derived from your
+own ConfigSet (the gitignored `configuration/environments/homelab.yaml`), so this runbook
+is correct on a one-node fork and on a nine-node one without being edited.
+
+```bash
+export CPS=$(task -s config:nodes ROLE=control-plane ADDRESSES=true)
+export WORKERS=$(task -s config:nodes ROLE=worker ADDRESSES=true)
+export NODES=$(task -s config:nodes ADDRESSES=true)
+export CP1=${CPS%%,*}        # the first control plane; etcd commands run against one member
+
+task config:nodes            # what you just exported, with the node names
+```
+
+`$WORKERS` is **empty on a workerless cluster**, which is a shape this repository supports
+(the control plane is schedulable there; see `allow_scheduling_on_control_planes` in
+`terragrunt/environments/homelab/env.hcl`). Every worker step below is written to be a
+no-op when it is empty — do not substitute a control plane for a missing worker.
+
+This cluster, at the time of writing, is three control planes and three workers, and
+`worker-1` carries the Intel GPU. Those are facts about one fork, not about the procedure.
+
 ## Table of Contents
 
+- [Your node addresses](#your-node-addresses)
 - [Overview](#overview)
 - [Where the versions live](#where-the-versions-live)
 - [Pre-Upgrade Preparation](#pre-upgrade-preparation)
@@ -66,15 +85,15 @@ task verify:text | rg versions/pins
 
 ```bash
 # Talos version on every node
-talosctl -n <CP1_IP>,<CP2_IP>,<CP3_IP>,<WORKER1_IP>,<WORKER2_IP>,<WORKER3_IP> version
+talosctl -n "$NODES" version
 
 # Kubernetes version and node status
 kubectl version
 kubectl get nodes -o wide
 
-# etcd quorum (three members expected)
-talosctl -n <CP1_IP> etcd members
-talosctl -n <CP1_IP> etcd status
+# etcd quorum (one member per control-plane address in your ConfigSet)
+talosctl -n "$CP1" etcd members
+talosctl -n "$CP1" etcd status
 
 # API reachability through the VIP and each control plane side by side (read-only)
 task apiserver:probe
@@ -85,7 +104,7 @@ task apiserver:probe
 **Critical**: always snapshot etcd before an upgrade.
 
 ```bash
-talosctl -n <CP1_IP> etcd snapshot ./etcd-backup-$(date +%Y%m%d-%H%M%S).db
+talosctl -n "$CP1" etcd snapshot ./etcd-backup-$(date +%Y%m%d-%H%M%S).db
 ls -lh etcd-backup-*.db
 ```
 
@@ -102,7 +121,7 @@ kubectl get events -A --sort-by='.lastTimestamp' | tail -20
 kubectl -n argocd get applications | rg -v 'Synced.*Healthy'
 ```
 
-The control planes keep etcd on the dedicated `cp-storage` NVMe pool; if `talosctl -n <CP1_IP>
+The control planes keep etcd on the dedicated `cp-storage` NVMe pool; if `talosctl -n "$CP1"
 logs etcd | rg "slow fdatasync"` shows stalls before you start, read
 [control-plane-storage.md](./control-plane-storage.md) first.
 
@@ -110,7 +129,7 @@ logs etcd | rg "slow fdatasync"` shows stalls before you start, read
 
 - [ ] etcd snapshot taken and copied off the cluster
 - [ ] Current Talos and Kubernetes versions noted (`talosctl version`, `kubectl version`)
-- [ ] Previous installer image tag noted (`talosctl -n <CP1_IP> get machineconfig -o yaml | rg image:`)
+- [ ] Previous installer image tag noted (`talosctl -n "$CP1" get machineconfig -o yaml | rg image:`)
 - [ ] Low-usage window chosen; household informed
 
 ---
@@ -137,7 +156,7 @@ task tf:plan:component COMPONENT=talos-cluster
 task tf:apply:component COMPONENT=talos-cluster
 
 # 4. Verify
-talosctl -n <CP1_IP>,<CP2_IP>,<CP3_IP>,<WORKER1_IP>,<WORKER2_IP>,<WORKER3_IP> version
+talosctl -n "$NODES" version
 kubectl get nodes
 ```
 
@@ -154,35 +173,40 @@ tag: the homelab images carry the QEMU guest agent, iSCSI/NFS tools and the GPU 
 IMG=factory.talos.dev/installer/<schematic_id>:<talos_version>
 
 # 1. Control planes, one at a time; wait for health between nodes
-for n in <CP1_IP> <CP2_IP> <CP3_IP>; do
+for n in ${CPS//,/ }; do
   talosctl -n "$n" upgrade --image "$IMG" --preserve
   talosctl -n "$n" health --wait-timeout 15m
   kubectl get nodes
 done
 
-# 2. Workers, one at a time (worker-1 uses the Intel schematic image)
-talosctl -n <WORKER1_IP> upgrade --image "$IMG_INTEL" --preserve
-talosctl -n <WORKER1_IP> health --wait-timeout 15m
-talosctl -n <WORKER2_IP> upgrade --image "$IMG" --preserve
-talosctl -n <WORKER2_IP> health --wait-timeout 15m
-talosctl -n <WORKER3_IP> upgrade --image "$IMG" --preserve
-talosctl -n <WORKER3_IP> health --wait-timeout 15m
+# 2. Workers, one at a time. Worker 1 carries the GPU on this fork and takes the
+#    Intel schematic image; the rest take the base one. The loop does nothing on
+#    a workerless cluster, which is correct — there is nothing left to upgrade.
+i=1
+for n in ${WORKERS//,/ }; do
+  [ "$i" -eq 1 ] && img="$IMG_INTEL" || img="$IMG"
+  talosctl -n "$n" upgrade --image "$img" --preserve
+  talosctl -n "$n" health --wait-timeout 15m
+  i=$((i + 1))
+done
 
 # 3. Verify
-talosctl -n <CP1_IP>,<CP2_IP>,<CP3_IP>,<WORKER1_IP>,<WORKER2_IP>,<WORKER3_IP> version
+talosctl -n "$NODES" version
 kubectl get nodes
 kubectl get pods -A | rg -v 'Running|Completed'
 ```
 
-Each node reboots once; pods reschedule onto the remaining nodes. With three control
-planes etcd keeps quorum while one member is down, and the layer-2 VIP moves to a healthy
-control plane.
+Each node reboots once; pods reschedule onto the remaining nodes. With three or more
+control planes etcd keeps quorum while one member is down, and the layer-2 VIP moves to a
+healthy control plane. **A one-member control plane has neither property**: the API and
+every workload are down for that reboot, so take the snapshot first and treat the upgrade
+as an outage window rather than a rolling one.
 
 ### Procedure 3: Upgrade Kubernetes
 
 ```bash
 # Bump configuration/versions.yaml tools.kubernetes and env.hcl kubernetes_version first
-talosctl -n <CP1_IP> upgrade-k8s --to <kubernetes_version>
+talosctl -n "$CP1" upgrade-k8s --to <kubernetes_version>
 
 # Watch it roll the control plane components, then the kubelets
 kubectl get nodes -w
@@ -328,34 +352,36 @@ task test:talos-recreate
 
 ### Scenario 1: etcd Quorum Lost
 
-Three members; quorum survives one failure. With two members down the API is gone.
+Quorum is `floor(n/2) + 1` over your control-plane members, so three survive one failure
+and five survive two. A **one-member** control plane (`degradedCounts: [1]` in
+`contracts/cluster/topology.v1.yaml`) survives none: there is no "bring the others back"
+step below, and step 3 — restore the snapshot — is the whole procedure.
 
 ```bash
-# 1. Which members are up?
-talosctl -n <CP1_IP> etcd members
-talosctl -n <CP2_IP> etcd members
-talosctl -n <CP3_IP> etcd members
+# 1. Which members are up? Ask every control plane, not just one.
+for n in ${CPS//,/ }; do echo "== $n"; talosctl -n "$n" etcd members; done
 
-# 2. If a single healthy member remains, bring the others back before anything else:
+# 2. If a healthy member remains, bring the others back before anything else:
 #    reboot them (Proxmox console or `talosctl -n <ip> reboot`) and wait for them to rejoin.
+#    Skip to step 3 on a one-member control plane: there is no survivor to rejoin.
 
 # 3. Only if every member is lost: restore the snapshot on one control plane
-talosctl -n <CP1_IP> bootstrap --recover-from ./etcd-backup-<stamp>.db
-talosctl -n <CP1_IP> health --wait-timeout 15m
+talosctl -n "$CP1" bootstrap --recover-from ./etcd-backup-<stamp>.db
+talosctl -n "$CP1" health --wait-timeout 15m
 
-# 4. Let the other two rejoin, then verify
-talosctl -n <CP1_IP> etcd members
+# 4. Let any remaining members rejoin, then verify
+talosctl -n "$CP1" etcd members
 ```
 
 ### Scenario 2: Control Plane Node Won't Start After Upgrade
 
 ```bash
-talosctl -n <CP1_IP> dmesg | tail -50
-talosctl -n <CP1_IP> services
-talosctl -n <CP1_IP> logs etcd
+talosctl -n "$CP1" dmesg | tail -50
+talosctl -n "$CP1" services
+talosctl -n "$CP1" logs etcd
 
 # Roll that node back to the previous installer image
-talosctl -n <CP1_IP> upgrade --image factory.talos.dev/installer/<schematic_id>:<previous_talos_version> --preserve
+talosctl -n "$CP1" upgrade --image factory.talos.dev/installer/<schematic_id>:<previous_talos_version> --preserve
 
 # If it will not come back, recreate the VM from Terragrunt
 task talos:recreate:node NODE=cp-1
@@ -377,8 +403,8 @@ anything else.
 First, find out where it stopped. The member list is the source of truth, not the log:
 
 ```bash
-talosctl -n <CP1_IP> etcd members     # is the outgoing member still listed?
-talosctl -n <CP1_IP> etcd status
+talosctl -n "$CP1" etcd members     # is the outgoing member still listed?
+talosctl -n "$CP1" etcd status
 kubectl get nodes -o wide
 ls -lh ./etcd-snapshots               # the snapshot the run took before removing
 ```
@@ -407,7 +433,7 @@ Only if you have to finish by hand:
 | Before the removal | Member still listed, VM still running | Nothing to undo. Re-run, or `kubectl uncordon <node>` and walk away. |
 | After the removal, before the apply | Member gone, VM still running | Re-run. Or, to keep the existing VM: `talosctl -n <ip> reset --graceful=false --reboot` and let it rejoin as a fresh member. A node whose member was removed will not rejoin on its own. |
 | After the apply, node not coming back | Member gone, VM rebuilt, node never Ready | `talosctl -n <ip> dmesg`, `talosctl -n <ip> services`. The cluster is fine on two members; fix the node, do not remove a second. |
-| Node Ready, etcd still short | Node Ready, fewer members than expected | `talosctl -n <ip> service etcd restart`, then `talosctl -n <CP1_IP> etcd members`. Check for a stale member at the same peer URL and remove it: `talosctl -n <CP1_IP> etcd remove-member <member id>`. |
+| Node Ready, etcd still short | Node Ready, fewer members than expected | `talosctl -n <ip> service etcd restart`, then `talosctl -n "$CP1" etcd members`. Check for a stale member at the same peer URL and remove it: `talosctl -n "$CP1" etcd remove-member <member id>`. |
 
 **Never remove a second member to "clean up".** Two removals from a three-member cluster
 leave one member and no quorum, which turns a degraded control plane into a dead one. If you
@@ -447,7 +473,7 @@ removing anything.
 
 - [ ] Every node Ready: `kubectl get nodes`
 - [ ] No pod outside Running/Completed: `kubectl get pods -A | rg -v 'Running|Completed'`
-- [ ] Three etcd members, no `slow fdatasync`: `talosctl -n <CP1_IP> etcd members`, `talosctl -n <CP1_IP> logs etcd | rg "slow fdatasync"`
+- [ ] One etcd member per control-plane address, no `slow fdatasync`: `talosctl -n "$CP1" etcd members`, `talosctl -n "$CP1" logs etcd | rg "slow fdatasync"`
 - [ ] VIP and every control plane answer: `task apiserver:probe`
 
 **GitOps**
@@ -469,9 +495,9 @@ removing anything.
 ### Validation Commands
 
 ```bash
-talosctl -n <CP1_IP> health --server=false
-talosctl -n <CP1_IP>,<CP2_IP>,<CP3_IP>,<WORKER1_IP>,<WORKER2_IP>,<WORKER3_IP> services
-talosctl -n <CP1_IP> etcd status
+talosctl -n "$CP1" health --server=false
+talosctl -n "$NODES" services
+talosctl -n "$CP1" etcd status
 kubectl -n kube-system get pods -l k8s-app=cilium
 kubectl -n kube-system exec ds/cilium -- cilium status
 ```
@@ -484,8 +510,8 @@ kubectl -n kube-system exec ds/cilium -- cilium status
 
 ```bash
 # Previous installer image from Step 4 of the preparation
-talosctl -n <CP1_IP> upgrade --image factory.talos.dev/installer/<schematic_id>:<previous_talos_version> --preserve
-talosctl -n <CP1_IP> health --wait-timeout 15m
+talosctl -n "$CP1" upgrade --image factory.talos.dev/installer/<schematic_id>:<previous_talos_version> --preserve
+talosctl -n "$CP1" health --wait-timeout 15m
 # repeat per node: control planes first, then workers
 ```
 
@@ -504,11 +530,12 @@ Kubernetes downgrades are not supported. Restore the pre-upgrade etcd snapshot
 ### Node Stuck "Upgrading"
 
 ```bash
-talosctl -n <WORKER2_IP> dmesg | tail -50
-talosctl -n <WORKER2_IP> services
-talosctl -n <WORKER2_IP> reboot
+N=<the stuck node's IP>   # `task config:nodes` maps node names to addresses
+talosctl -n "$N" dmesg | tail -50
+talosctl -n "$N" services
+talosctl -n "$N" reboot
 # last resort: wipe and re-provision from Terragrunt
-task talos:recreate:node NODE=worker-2
+task talos:recreate:node NODE=<its node name, e.g. worker-2>
 ```
 
 ### Pods Not Scheduling After Upgrade
@@ -525,10 +552,10 @@ kubectl describe pod <pod> -n <namespace>
 ### etcd Unhealthy After Upgrade
 
 ```bash
-talosctl -n <CP1_IP> etcd members
-talosctl -n <CP1_IP> etcd status
-talosctl -n <CP1_IP> logs etcd | rg -i 'slow fdatasync|leader|error'
-talosctl -n <CP1_IP> service etcd restart
+talosctl -n "$CP1" etcd members
+talosctl -n "$CP1" etcd status
+talosctl -n "$CP1" logs etcd | rg -i 'slow fdatasync|leader|error'
+talosctl -n "$CP1" service etcd restart
 ```
 
 Persistent `slow fdatasync` means the control-plane disk is contended again; see

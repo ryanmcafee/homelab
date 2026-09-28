@@ -475,13 +475,28 @@ func TestSyntheticTopologiesRenderEveryTemplate(t *testing.T) {
 
 	templates := listTemplateFiles(t, configRoot)
 
+	// Read from the schema rather than restated here: a second copy of the
+	// worker key rule is the duplication ADR-035 removed.
+	workerFam, ok := schema.patternForRole(RoleWorkerAddress)
+	if !ok {
+		t.Fatalf("schema declares no key pattern with role %q", RoleWorkerAddress)
+	}
+
 	// The control-plane counts are the contract's permittedCounts. The worker
 	// counts are free — nothing constrains them to be odd, because a worker
 	// holds no etcd member — so they are varied independently of the control
 	// plane. A matrix that moved both together would pass just as happily on a
 	// renderer that had hard-coded "workers = control planes".
+	//
+	// Zero workers is first because it is the shape the matrix used to start one
+	// past: every count from 1 up renders through the same worker range, so a
+	// template or a resolver that assumed at least one node would have passed
+	// all of them. The control plane runs the workload there, which is a
+	// terragrunt coupling (TestTerragruntSchedulesOnControlPlanesWhenWorkerless)
+	// rather than anything this render can see — what this proves is the narrower
+	// half: the ConfigSet resolves and every template renders (MCAA-423).
 	cases := []struct{ cps, workers int }{
-		{1, 1}, {1, 2}, {3, 3}, {3, 6}, {5, 1}, {7, 4},
+		{1, 0}, {1, 1}, {1, 2}, {3, 3}, {3, 6}, {5, 1}, {7, 4},
 	}
 
 	for _, tc := range cases {
@@ -489,6 +504,14 @@ func TestSyntheticTopologiesRenderEveryTemplate(t *testing.T) {
 			env := make(map[string]string, len(base)+tc.cps+tc.workers)
 			for k, v := range base {
 				env[k] = v
+			}
+			// The base fixture declares a worker, so a case must be able to take
+			// keys away as well as add them. Clearing the family and rebuilding
+			// it stays correct if the fixture ever declares a second.
+			for key := range env {
+				if workerFam.re.MatchString(key) {
+					delete(env, key)
+				}
 			}
 			// RFC 5737 TEST-NET-1, matching the base fixture. The two families
 			// sit in disjoint host ranges so a renderer that crossed them shows
@@ -498,6 +521,11 @@ func TestSyntheticTopologiesRenderEveryTemplate(t *testing.T) {
 			}
 			for i := 1; i <= tc.workers; i++ {
 				env[fmt.Sprintf("WORKER%d_IP", i)] = fmt.Sprintf("192.0.2.%d", 30+i)
+			}
+			// The GPU hangs off worker 1, so a workerless fork has no GPU node;
+			// `homelab verify gpu` refuses this combination rather than render it.
+			if tc.workers == 0 {
+				env["GPU_VENDOR"] = "none"
 			}
 
 			rc, err := Eval(schema, versions, "synthetic", defaults, env)
@@ -613,6 +641,50 @@ func TestTerragruntNodeMapsDeriveFromKeyPatterns(t *testing.T) {
 			t.Errorf("env.hcl local %s is %q but the schema's %q pattern is %q — "+
 				"terragrunt would derive a different node set than the resolver",
 				fam.local, got, fam.role, pattern.pattern)
+		}
+	}
+}
+
+// TestTerragruntSchedulesOnControlPlanesWhenWorkerless pins the one coupling
+// that makes a workerless ConfigSet a cluster rather than an idle one: Talos
+// taints control planes NoSchedule unless allowSchedulingOnControlPlanes is set,
+// so a fork that lists no WORKERn_IP key provisions cleanly and runs no pod
+// (MCAA-423).
+//
+// The schema stopped requiring WORKER1_IP in the same change, so this guard is
+// what stands between that permission and the silent-wrong-render class. It is
+// a source read for the same reason TestTerragruntNodeMapsDeriveFromKeyPatterns
+// is: evaluating terragrunt needs a Proxmox provider and applied dependency
+// state, so nothing in CI evaluates this expression.
+func TestTerragruntSchedulesOnControlPlanesWhenWorkerless(t *testing.T) {
+	projectRoot := findProjectRootForTest(t)
+
+	const input = "allow_scheduling_on_control_planes"
+	assign := regexp.MustCompile(`(?m)^\s*` + input + `\s*=\s*(.+?)\s*$`)
+
+	for _, want := range []struct{ path, expr, why string }{
+		{
+			filepath.Join(projectRoot, "terragrunt", "environments", "homelab", "env.hcl"),
+			"length(local.worker_ips) == 0",
+			"the derivation must read the worker address keys; a literal is a second statement of the node count, free to disagree with the first",
+		},
+		{
+			filepath.Join(projectRoot, "terragrunt", "environments", "homelab", "talos-cluster", "terragrunt.hcl"),
+			"include.env.locals." + input,
+			"the module default is false, so a unit that does not pass the derived value discards it silently",
+		},
+	} {
+		src, err := os.ReadFile(want.path)
+		if err != nil {
+			t.Fatalf("reading %s: %v", want.path, err)
+		}
+		m := assign.FindSubmatch(src)
+		if m == nil {
+			t.Errorf("%s assigns no %s — %s", filepath.Base(want.path), input, want.why)
+			continue
+		}
+		if got := string(m[1]); got != want.expr {
+			t.Errorf("%s sets %s = %q, want %q — %s", filepath.Base(want.path), input, got, want.expr, want.why)
 		}
 	}
 }

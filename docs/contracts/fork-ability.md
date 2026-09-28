@@ -234,9 +234,10 @@ different shape in its ConfigSet still had to edit terragrunt to provision it.
 ADR-035's rule now holds for both families: the count derives from the `^CP([0-9]+)_IP$` and
 `^WORKER([0-9]+)_IP$` key sets, so listing your nodes *is* the act that states your topology. In the
 schema each set is a `keyPatterns` entry carrying `role: control-plane-address` or
-`role: worker-address`; `CP1_IP` and `WORKER1_IP` stay required on their own and higher ordinals are
-optional. The resolver derives each list once into `ResolvedConfig.ControlPlane` and
-`ResolvedConfig.Workers`, and templates range over those fields instead of naming ordinals.
+`role: worker-address`; `CP1_IP` stays individually required and every other address key, worker
+ordinals included, is optional. The resolver derives each list once into
+`ResolvedConfig.ControlPlane` and `ResolvedConfig.Workers`, and templates range over those fields
+instead of naming ordinals.
 
 The asymmetry between the two is deliberate and is not an oversight:
 
@@ -244,18 +245,22 @@ The asymmetry between the two is deliberate and is not an oversight:
   worker holds no etcd member and gates no destructive operation, so there is nothing for the
   quorum rule to say about it.
 - An empty worker list is not a resolver error, where an empty control plane is. A cluster must
-  have an etcd member; it need not have a worker. How few workers *this* repository tolerates is
-  stated by `WORKER1_IP`'s own `required: true` — a fact an operator can read in the schema —
-  rather than by a minimum hidden in Go. A genuinely workerless fork additionally needs a
-  schedulable control plane (`allow_scheduling_on_control_planes`), which is not wired to the
-  node count and is why `WORKER1_IP` is still required today.
+  have an etcd member; it need not have a worker. `CP1_IP` is therefore required and no worker key
+  is, so the smallest ConfigSet this repository can express is **one node**.
+- A workerless cluster schedules nothing unless its control plane accepts pods, so permitting zero
+  workers is only half the shape. `env.hcl` derives `allow_scheduling_on_control_planes` from the
+  same worker address keys (MCAA-423) rather than taking it as a ConfigSet key: a key would be a
+  second statement of "does this fork have workers", free to disagree with the address list, and
+  the disagreement is silent in the worst direction — a healthy cluster running nothing. A
+  schedulable control plane *alongside* workers is a preference this does not serve, and would be
+  a separate key on top of this floor.
 
 `terragrunt/environments/homelab/env.hcl` is the one consumer that cannot read the derived lists:
 it `jsondecode()`s the flat `values` map out of `configuration/resolved.json`, so it re-applies the
 key-name patterns itself. That makes it the one place the rule can drift silently, and
 `TestTerragruntNodeMapsDeriveFromKeyPatterns` compares its two pattern strings against the schema's.
 
-Three things keep this from sliding back into a shape nothing can see:
+Four things keep this from sliding back into a shape nothing can see:
 
 - `configuration/environments/single-node.yaml.example` is a committed one-control-plane,
   one-worker ConfigSet, rendered through every template by `TestExampleRendersEveryTemplate`.
@@ -264,12 +269,17 @@ Three things keep this from sliding back into a shape nothing can see:
   RFC 5737 TEST-NET-1 (`192.0.2.0/24`), distinct from the RFC 1918 range above, per the standing
   condition stated earlier in this document.
 - `TestSyntheticTopologiesRenderEveryTemplate` renders the permitted control-plane counts (1, 3, 5,
-  7) against **independently varied** worker counts (1, 2, 3, 4, 6), so the contract's
+  7) against **independently varied** worker counts (0, 1, 2, 3, 4, 6), so the contract's
   `permittedCounts` ceiling is not a set of topologies nothing has ever rendered — and a renderer
-  that had quietly tied workers to control planes fails rather than passes.
+  that had quietly tied workers to control planes fails rather than passes. The matrix used to
+  start at one worker, which left the workerless shape rendered by nothing.
 - `TestTerragruntNodeMapsDeriveFromKeyPatterns` fails if `env.hcl`'s patterns stop matching the
   schema's. Without it the two could disagree and terraform would report success on a cluster
   missing a node.
+- `TestTerragruntSchedulesOnControlPlanesWhenWorkerless` fails if `env.hcl` stops deriving
+  `allow_scheduling_on_control_planes` from the worker keys, or if the `talos-cluster` unit stops
+  passing it. Nothing in CI evaluates terragrunt, so this is a source read; without it the
+  workerless permission above renders a cluster that comes up clean and runs no pod.
 
 Check 3b's non-matching topology remains the end-to-end proof; the three above are what make a
 regression fail in CI rather than in a stranger's fork.
