@@ -108,3 +108,10 @@ Each entry should include:
 - Update status if work gets blocked or resumed
 - Don't duplicate issue details - link to source of truth
 - Clean out very old entries periodically (3+ months)
+
+### 2026-09-28: Workflows additive-auth gate — MCAA-543
+
+- [PR #499](https://github.com/ryanmcafee/homelab/pull/499), implementation `1033de8`: check `authMode`, `authModes` and `extraArgs` together; reject unsafe/ambiguous forms. Gate-only follow-up stacked on #459; does not block that posture PR.
+- Three new negative fixtures failed against the original rule and pass after hardening. Local policy: 124 Rego tests, 47 fixture/coverage checks; level 0: 270 pass, 0 fail, 1 skip. Policy runtime 7.049s before / 5.572s after (single samples); final level 0 11.072s wall.
+- Remote CI at `1033de8`: policy job passed (44s), level 0 passed (37s), PR-head contract passed (32s). Remaining CI and required Security/Architect review must be checked before merge.
+- Exact parsing contract and evidence: `tests/policy/README.md`, `docs/project_notes/workflows-auth-gate.md`. Principal Platform Architect owns review; no merge performed.
