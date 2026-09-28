@@ -11,7 +11,7 @@ both build against, and it is checked in CI rather than agreed in prose.
 | `events/registry.v1.yaml` | Every registered event type: version, direction, subject, schema, ordering and delivery guarantee |
 | `events/registry.v1.baseline.json` | The frozen compatibility baseline the checker diffs against |
 | `cluster/topology.v1.yaml` | The control-plane member count, the etcd quorum formula, the `whole` and `survivable` health predicates and the gate each one belongs at — shared by the Go CLI and `scripts/cp-storage-migrate.ts` so the rule exists once (ADR-035) |
-| `status/status-page.v1.yaml` | The status page's back end -> UI HTTP surface: the polled document, the component taxonomy, how state and uptime are derived, and which upstream each derived field depends on — checked by `scripts/status-contract_test.ts` (ADR-046) |
+| `status/status-page.v1.yaml` | The status page's back end -> UI HTTP surface: the polled document, the component taxonomy, how state and uptime are derived, and which upstream each derived field depends on — checked by `scripts/status-contract_test.ts` (ADR-050) |
 
 Checked by `bun scripts/contract-check.ts` (`task contracts:check`), which fails on an invalid
 subject, an unregistered guarantee, or a **breaking** change to a registered type that did not
