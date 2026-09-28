@@ -123,6 +123,11 @@ images:
   cloudnative-pg-postgresql: "17.11"
   # renovate: datasource=docker depName=clickhouse/clickhouse-server
   clickhouse-server: "26.8.10.6"
+  # One tag for all four LiteLLM images (litellm-gateway, litellm-backend, litellm-ui,
+  # litellm-migrations): BerriAI publishes them alongside the chart, so this has to move
+  # with charts.litellm above, whose appVersion is exactly this value.
+  # renovate: datasource=docker depName=ghcr.io/berriai/litellm-gateway
+  litellm: "v1.102.1"
   # Grafana plugin, installed by the kube-prometheus-stack Grafana at startup.
   # renovate: datasource=github-releases depName=grafana/clickhouse-datasource
   grafana-clickhouse-datasource: "v4.21.3"

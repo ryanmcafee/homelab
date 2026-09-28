@@ -1285,8 +1285,8 @@ paperclip:
 
 # ============================================================================
 # LiteLLM - OpenAI-compatible LLM gateway (componentized chart + CloudNativePG)
-# Sync Waves: 10 namespace, 11 litellm-dependencies, 12 litellm-database
-# (issue #424); the proxy itself follows in a later wave.
+# Sync Waves: 10 namespace, 11 litellm-dependencies, 12 litellm-database,
+# 13 litellm (issue #424); the HTTPRoutes follow in wave 14.
 # ============================================================================
 # Runs wherever CloudNativePG runs (both environments). The three 1Password
 # items only render with a secret store; Kind seeds the same Secrets from
@@ -1300,8 +1300,10 @@ litellm:
 
   # charts/litellm-dependencies: 1Password items -> Secrets
   # litellm-master-key-secret (field master-key), litellm-salt-key (field
-  # salt-key) and litellm-api-keys (one field per provider credential). Field
-  # names in 1Password must equal these keys. The salt key is a separate item
+  # LITELLM_SALT_KEY) and litellm-api-keys (one field per provider credential).
+  # Field names in 1Password must equal these keys: the salt key and the
+  # provider keys reach the proxy through envFrom, which drops any key that is
+  # not a valid environment-variable name. The salt key is a separate item
   # because rotating it makes every credential already stored in the database
   # undecryptable, while the master key is safe to rotate.
   dependencies:
@@ -1339,4 +1341,109 @@ litellm:
       limits:
         cpu: "1"
         memory: 1Gi
+{{- end }}
+
+  # The componentized chart itself (wave 13): gateway 4000 serves the /v1/*
+  # data plane, backend 4001 the management and UI API, ui 3000 the dashboard,
+  # and a migrations Job runs `prisma migrate deploy` as an ArgoCD PreSync
+  # hook. Chart-invariant wiring (hook toggles, probes, Secret names) lives in
+  # charts/applications/templates/litellm.yaml; only the pins, the sizing and
+  # the model list are environment facts and belong here.
+  proxy:
+    chart:
+      name: litellm
+      repo: ghcr.io/berriai/litellm/chart
+      version: "{{ .Versions.Charts.litellm }}"
+    # All four component images ship on one tag (versions.yaml images.litellm).
+    imageTag: "{{ index .Versions.Images "litellm" }}"
+    serviceMonitor:
+      enabled: true
+
+    # The gateway's starting model list. Every credential resolves as
+    # os.environ/<field of the litellm-api-keys item>, so adding a provider
+    # means adding that field plus an entry here and no key ever reaches git.
+    # Models added later from the Admin UI live in the database instead
+    # (STORE_MODEL_IN_DB), so this list is a floor, not the whole catalogue.
+    models:
+      - model_name: claude-opus-5-5
+        litellm_params:
+          model: anthropic/claude-opus-5-5
+          api_key: os.environ/ANTHROPIC_API_KEY
+      - model_name: claude-sonnet-5
+        litellm_params:
+          model: anthropic/claude-sonnet-5
+          api_key: os.environ/ANTHROPIC_API_KEY
+      - model_name: claude-haiku-4-5
+        litellm_params:
+          model: anthropic/claude-haiku-4-5-20251001
+          api_key: os.environ/ANTHROPIC_API_KEY
+
+    # The chart's own defaults ask for 1 CPU / 4Gi per proxy replica, sized for
+    # a cloud node pool rather than a homelab node.
+{{- if $localdev }}
+    gateway:
+      resources:
+        requests:
+          cpu: 100m
+          memory: 256Mi
+        limits:
+          cpu: "1"
+          memory: 1536Mi
+    backend:
+      resources:
+        requests:
+          cpu: 100m
+          memory: 256Mi
+        limits:
+          cpu: "1"
+          memory: 1Gi
+    ui:
+      resources:
+        requests:
+          cpu: 25m
+          memory: 32Mi
+        limits:
+          cpu: 250m
+          memory: 128Mi
+    migrations:
+      resources:
+        requests:
+          cpu: 50m
+          memory: 128Mi
+        limits:
+          cpu: 500m
+          memory: 512Mi
+{{- else }}
+    gateway:
+      resources:
+        requests:
+          cpu: 250m
+          memory: 1Gi
+        limits:
+          cpu: "2"
+          memory: 4Gi
+    backend:
+      resources:
+        requests:
+          cpu: 100m
+          memory: 512Mi
+        limits:
+          cpu: "1"
+          memory: 2Gi
+    ui:
+      resources:
+        requests:
+          cpu: 50m
+          memory: 64Mi
+        limits:
+          cpu: 500m
+          memory: 256Mi
+    migrations:
+      resources:
+        requests:
+          cpu: 100m
+          memory: 256Mi
+        limits:
+          cpu: "1"
+          memory: 512Mi
 {{- end }}
