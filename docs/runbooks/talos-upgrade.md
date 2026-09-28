@@ -208,6 +208,17 @@ task talos:recreate:gpu-node                     # worker-1, then `homelab verif
 task talos:recreate:node NODE=cp-2               # a control plane: etcd is handled for you
 ```
 
+These tasks run `./bin/homelab`, which is gitignored, and they build it from source first
+(`task cli:build`) so the binary can never be older than the checkout. If you invoke the
+binary directly instead of through `task`, build it yourself and confirm you have the guarded
+version before you point it at a control plane — a binary predating `ryanmcafee/homelab#39`
+runs the old path with no member removal, no quorum gate and no snapshot:
+
+```bash
+task cli:build
+./bin/homelab talos recreate --help | grep -- --etcd-snapshot-dir   # absent = too old, stop
+```
+
 **Recreating a control plane is not the same operation as recreating a worker.** A control
 plane is an etcd member, and etcd identifies a member by its peer URL. A rebuilt node comes
 back at the same static IP under a new Talos hostname and a new member id, so unless the old
@@ -382,6 +393,12 @@ the node came back Ready.
 ```bash
 task talos:recreate:node NODE=cp-2
 ```
+
+Re-run it through `task`, not through `./bin/homelab` directly. The task rebuilds the binary
+from the checkout first; a hand-built one left over from before `ryanmcafee/homelab#39` has no
+resume gate and would destroy the VM on a cluster that is already short a member. If the
+binary you have does not list `--etcd-snapshot-dir` under `talos recreate --help`, it is too
+old to use here.
 
 Only if you have to finish by hand:
 
