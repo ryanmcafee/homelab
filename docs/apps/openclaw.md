@@ -7,16 +7,17 @@ reuses its credential pattern. Issue #425.
 
 ## Applications
 
-All four are rendered by `charts/applications/templates/openclaw.yaml`, gated on
-`openclaw.enabled`, and never part of a PR preview (an operator, CRDs and 1Password items are
-cluster-level concerns). They run in both environments (Kind included), except
-`openclaw-dependencies`, which only exists where a secret store does
-(`SECRETS_PROVIDER=onepassword`): Kind seeds its two Secrets from `localdev/fakes/secrets.yaml`
-instead.
+Three `Application`s, plus the two namespaces as raw `Namespace` resources rather than Applications,
+are rendered by `charts/applications/templates/openclaw.yaml`, gated on `openclaw.enabled`, and never
+part of a PR preview (an operator, CRDs and 1Password items are cluster-level concerns). They run in
+both environments (Kind included), except `openclaw-dependencies`, which only exists where a secret
+store does (`SECRETS_PROVIDER=onepassword`): Kind seeds its two Secrets from
+`localdev/fakes/secrets.yaml` instead. A Kind cluster therefore shows **two** OpenClaw Applications,
+a `SECRETS_PROVIDER=onepassword` cluster **three**.
 
-| Wave | Application | Source | What it deploys |
+| Wave | Resource | Source | What it deploys |
 |---|---|---|---|
-| 10 | Namespaces `openclaw-system`, `openclaw` | inline (PodSecurity `baseline`) | targets for the other Applications |
+| 10 | Namespaces `openclaw-system`, `openclaw` (raw resources, not Applications) | inline (PodSecurity `baseline`) | targets for the Applications below |
 | 11 | `openclaw-operator` | OCI chart `ghcr.io/paperclipinc/charts/openclaw-operator` 0.40.0 (repository Secret `paperclipinc-oci`), `ServerSideApply=true`, CRDs kept | `openclaw.rocks` CRDs + controller, ServiceMonitor on |
 | 12 | `openclaw-dependencies` (secret store only) | `charts/openclaw-dependencies` | `OnePasswordItem`s `openclaw-api-keys`, `openclaw-gateway` |
 | 13 | `openclaw` | `charts/openclaw` | `openclaw.rocks/v1alpha1` `OpenClawInstance` `openclaw` + PostSync smoke Job `smoke-openclaw` |
