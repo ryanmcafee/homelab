@@ -71,6 +71,53 @@ func TestOpenClawSource(t *testing.T) {
 	}
 }
 
+// Reject ambiguous paths before either Helm render, regardless of input order.
+func TestOpenClawParameterPaths(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		names []string
+		bad   bool
+	}{
+		{"namespace leading zero", []string{"watchNamespaces[0]", "watchNamespaces[00]"}, true},
+		{"namespace plus sign", []string{"watchNamespaces[0]", "watchNamespaces[+0]"}, true},
+		{"namespace negative zero", []string{"watchNamespaces[0]", "watchNamespaces[-0]"}, true},
+		{"namespace escape", []string{"watchNamespaces[0]", `watch\Namespaces[0]`}, true},
+		{"aggregation escape", []string{"rbac.aggregateToDefaultRoles", `rbac.aggregateToDefault\Roles`}, true},
+		{"namespace ancestor", []string{"watchNamespaces", "watchNamespaces[0]"}, true},
+		{"aggregation ancestor", []string{"rbac", "rbac.aggregateToDefaultRoles"}, true},
+		{"duplicate", []string{"watchNamespaces[0]", "watchNamespaces[0]"}, true},
+		{"empty segment", []string{"rbac..aggregateToDefaultRoles"}, true},
+		{"assignment", []string{"watchNamespaces[0]=elsewhere"}, true},
+		{"separator", []string{"other,rbac.aggregateToDefaultRoles"}, true},
+		{"trailing dot", []string{"rbac.aggregateToDefaultRoles."}, true},
+		{"canonical siblings", []string{"watchNamespaces[0]", "rbac.aggregateToDefaultRoles"}, false},
+		{"canonical structure", []string{"items[10].child_name-key[0][1]", "items[1].child"}, false},
+	} {
+		for _, reverse := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/reverse=%v", tc.name, reverse), func(t *testing.T) {
+				docs, err := ParseMultiDoc("applications", "homelab", []byte(openClawApps))
+				if err != nil {
+					t.Fatal(err)
+				}
+				params := make([]any, len(tc.names))
+				for i, name := range tc.names {
+					j := i
+					if reverse {
+						j = len(params) - 1 - i
+					}
+					params[j] = map[string]any{"name": name, "value": "false", "forceString": i%2 == 1}
+				}
+				raw, _ := docs[0].Get("spec", "source", "helm")
+				raw.(map[string]any)["parameters"] = params
+				_, _, _, err = openClawSource(map[string][]Doc{"applications": docs})
+				if (err != nil) != tc.bad {
+					t.Fatalf("err=%v want bad=%v", err, tc.bad)
+				}
+			})
+		}
+	}
+}
+
 func TestOpenClawIntent(t *testing.T) {
 	for _, tc := range []struct {
 		name             string
@@ -138,6 +185,7 @@ func TestOpenClawEffectiveValuesHelm(t *testing.T) {
 		bad    bool
 	}{
 		{name: "inline"},
+		{name: "valid unambiguous overrides", params: []HelmParameter{{Name: "watchNamespaces[0]", Value: "agents", ForceString: true}, {Name: "rbac.aggregateToDefaultRoles", Value: "false"}}},
 		{name: "object replaces inline", object: map[string]any{"rbac": map[string]any{"aggregateToDefaultRoles": false}}, bad: true},
 		{name: "parameter overrides namespace", params: []HelmParameter{{Name: "watchNamespaces[0]", Value: "elsewhere"}}, bad: true},
 		{name: "parameter adds namespace", params: []HelmParameter{{Name: "watchNamespaces[1]", Value: "elsewhere"}}, bad: true},
