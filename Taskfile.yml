@@ -1237,15 +1237,17 @@ tasks:
     cmds:
       - task: docs:embedme
 
+  # Claude.md carries the only embedme directive today (configuration/versions.yaml).
+  # AGENTS.md has none and is listed so one added there is covered from day one.
   docs:embedme:
     desc: Update embedded code snippets in markdown files
     cmds:
-      - embedme CLAUDE.md AGENTS.md
+      - embedme Claude.md AGENTS.md
 
   docs:embedme:verify:
     desc: Verify embedded snippets are up-to-date (CI)
     cmds:
-      - embedme --verify CLAUDE.md AGENTS.md
+      - embedme --verify Claude.md AGENTS.md
 
   docs:check:
     desc: "Numbers in readme.md, docs/ and .github/homelab.svg match the repo (versions, counts, ingress inventory); -- --fix rewrites the generated regions"
