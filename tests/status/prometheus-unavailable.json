@@ -1,0 +1,62 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-09-28T09:00:00Z",
+  "pollAfterSeconds": 30,
+  "page": {
+    "title": "Example Homelab Status",
+    "timeZone": "Etc/UTC",
+    "incidentWindowDays": 7
+  },
+  "features": {
+    "subscriptions": false
+  },
+  "overall": {
+    "state": "unknown",
+    "summary": "Current state is unavailable: the monitoring stack could not be read."
+  },
+  "components": [
+    {
+      "id": "ingress",
+      "name": "Ingress & DNS",
+      "description": "Whether anything on this cluster can be reached from outside it.",
+      "group": "platform",
+      "order": 1,
+      "state": "unknown",
+      "stateReason": "signal_unavailable",
+      "coverage": { "mappedAlertCount": 4, "hasSli": true },
+      "uptime": {
+        "windowDays": 7,
+        "ratio": null,
+        "unavailableReason": "signal_unavailable",
+        "buckets": []
+      },
+      "maintenance": null
+    },
+    {
+      "id": "media",
+      "name": "Media",
+      "description": "Streaming, the library and everything that fills it.",
+      "group": "applications",
+      "order": 6,
+      "state": "unknown",
+      "stateReason": "signal_unavailable",
+      "coverage": { "mappedAlertCount": 3, "hasSli": true },
+      "uptime": {
+        "windowDays": 7,
+        "ratio": null,
+        "unavailableReason": "signal_unavailable",
+        "buckets": []
+      },
+      "maintenance": {
+        "summary": "Library re-scan, streaming stays up.",
+        "startsAt": "2026-09-28T02:00:00Z",
+        "endsAt": "2026-09-28T04:00:00Z"
+      }
+    }
+  ],
+  "incidents": [],
+  "signals": [
+    { "id": "prometheus", "state": "unavailable", "observedAt": null },
+    { "id": "alertmanager", "state": "available", "observedAt": "2026-09-28T09:00:00Z" }
+  ]
+}

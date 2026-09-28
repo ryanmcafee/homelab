@@ -1,0 +1,715 @@
+# The status page HTTP contract, v1 — the boundary between the status page back end
+# (Prometheus/Alertmanager reader) and the React UI a visitor loads.
+#
+# Normative. Reasoning, the four agreed answers and what the UI renders for each
+# field: docs/contracts/status-page-contract.md. Upstream issue: ryanmcafee/homelab#41.
+#
+# This file exists because the producer and the consumer of this document are two
+# people who would otherwise each guess. `docs/contracts/sdk-boundary.md` Sec. 2
+# requires the OpenAPI document and its contract tests to land before either half,
+# and a status page is the worst possible place to discover a shape mismatch: the
+# page is the thing a visitor loads *during* an incident.
+#
+# The single rule the rest of this file exists to enforce: **the page never claims
+# more coverage than exists.** A component nothing measures reads `unknown`, not
+# `operational`. An uptime figure with no SLI behind it is absent, not synthesized.
+# Every state carries the reason it was reached, so "green" is always falsifiable.
+#
+# What is deliberately NOT here: the PromQL, the alert thresholds, the recording
+# rules and the Alertmanager routing. Those are the back end's, written against this
+# file. Nor the React component tree — that is the UI's, written against this file.
+
+openapi: 3.1.0
+
+info:
+  title: Status page API
+  version: 1.0.0
+  summary: One polled document describing every user-visible component of a homelab.
+  description: |
+    Read-only. Serves one JSON document per request: component states derived from
+    firing alerts, uptime derived from instrumented SLIs, and the incident feed.
+
+    Unauthenticated and LAN-scoped for v1 (ryanmcafee/homelab#41). Because it is
+    unauthenticated, the response carries no internal identifiers: see
+    `x-status-page.redaction`. Nothing in this document is operator-specific — the
+    hostname and the page title come from the ConfigSet, and the component taxonomy
+    in `x-status-page.taxonomy` is the same for every fork.
+  license:
+    name: MIT
+    identifier: MIT
+
+servers:
+  - url: https://{statusHostname}/api/v1
+    description: The status page's own ingress. Synthetic host per docs/contracts/fork-ability.md.
+    variables:
+      statusHostname:
+        default: status.example.invalid
+        description: STATUS_HOSTNAME from the ConfigSet; never a literal in this repository.
+
+paths:
+  /status:
+    get:
+      operationId: getStatus
+      summary: The whole status document.
+      description: |
+        One request returns everything the page renders, so the UI has one loading
+        state, one error state and one empty state rather than three of each.
+
+        Polled, not streamed. The upstream signals move on Prometheus' evaluation
+        interval, so a stream would deliver the same data no sooner while costing a
+        long-lived connection per visitor and a reconnect state machine in the UI.
+        The server advertises the cadence in `pollAfterSeconds`; the UI honours that
+        value rather than hard-coding one, so load stays the back end's to control.
+      parameters:
+        - name: If-None-Match
+          in: header
+          required: false
+          description: The `ETag` of the last document the client rendered.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The current status document.
+          headers:
+            Cache-Control:
+              description: >-
+                `public, max-age=<pollAfterSeconds>`. An incident is exactly when a
+                refresh storm arrives, so the document must be cacheable at the edge.
+              schema:
+                type: string
+            ETag:
+              description: Strong validator over the response body.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatusDocument"
+        "304":
+          description: The document has not changed since the supplied `ETag`.
+        "500":
+          description: >-
+            The back end failed in a way it cannot describe as a degraded document.
+            A reachability failure of Prometheus or Alertmanager is NOT this: that is
+            a 200 whose `signals` say so, because a visitor still needs the page.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "503":
+          description: The back end is starting up and has never built a document.
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+
+components:
+  schemas:
+    StatusDocument:
+      type: object
+      additionalProperties: false
+      required:
+        - schemaVersion
+        - generatedAt
+        - pollAfterSeconds
+        - page
+        - features
+        - overall
+        - components
+        - incidents
+        - signals
+      properties:
+        schemaVersion:
+          description: >-
+            The contract major. A UI that reads a value it does not know renders the
+            "this page is out of date" state instead of guessing at the fields.
+          type: integer
+          const: 1
+        generatedAt:
+          description: >-
+            When the back end built this document — NOT when it was served. A cached
+            response must keep the original value so the UI can show real staleness.
+          type: string
+          format: date-time
+        pollAfterSeconds:
+          description: How long the UI waits before requesting again.
+          type: integer
+          minimum: 5
+          maximum: 600
+        page:
+          $ref: "#/components/schemas/Page"
+        features:
+          $ref: "#/components/schemas/Features"
+        overall:
+          $ref: "#/components/schemas/Overall"
+        components:
+          description: >-
+            Every component the operator has enabled, in `order`. MAY be empty — a
+            fork that has mapped nothing yet is a real state, and the UI renders an
+            explicit empty state for it rather than an all-green page.
+          type: array
+          items:
+            $ref: "#/components/schemas/Component"
+        incidents:
+          description: >-
+            Firing and recently-resolved alerts, newest `startedAt` first. Empty is
+            the good case and the UI says so ("no incidents in the last N days")
+            rather than rendering an empty list.
+          type: array
+          items:
+            $ref: "#/components/schemas/Incident"
+        signals:
+          description: >-
+            The provenance of everything above. This is what stops the classic status
+            page lie: when the monitoring stack is the thing that is down, a page
+            that derives state from it must say "unknown", not "operational".
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/Signal"
+
+    Page:
+      type: object
+      additionalProperties: false
+      required: [title, timeZone, incidentWindowDays]
+      properties:
+        title:
+          description: STATUS_PAGE_TITLE from the ConfigSet. Never a literal in this repository.
+          type: string
+          minLength: 1
+          maxLength: 80
+        timeZone:
+          description: >-
+            IANA zone the `date` of every uptime bucket is expressed in. Sent because
+            a visitor's browser zone would silently shift the day boundaries of a
+            history the back end already bucketed.
+          type: string
+          minLength: 1
+        incidentWindowDays:
+          description: How far back `incidents` reaches, so the UI can label its own empty state.
+          type: integer
+          minimum: 1
+
+    Features:
+      description: >-
+        What this deployment actually serves. The UI renders an affordance only when
+        its flag is true, so a fork never shows a form that posts into nothing.
+      type: object
+      additionalProperties: false
+      required: [subscriptions]
+      properties:
+        subscriptions:
+          description: >-
+            Whether a subscribe/unsubscribe surface exists. `false` for the whole of
+            v1: there is no endpoint behind it yet (see `x-status-page.deferred`).
+          type: boolean
+
+    Overall:
+      description: >-
+        The one-line verdict at the top of the page, derived from the components
+        below by `x-status-page.stateDerivation.overall`. Derived rather than
+        independently computed so the headline can never disagree with the tiles.
+      type: object
+      additionalProperties: false
+      required: [state, summary]
+      properties:
+        state:
+          $ref: "#/components/schemas/ComponentState"
+        summary:
+          description: One sentence for a visitor who reads nothing else.
+          type: string
+          minLength: 1
+          maxLength: 160
+
+    ComponentState:
+      description: |
+        Four states, all derived. `maintenance` is deliberately absent — see
+        `Component.maintenance`; an overlay cannot replace the truth underneath it.
+      type: string
+      enum: [operational, degraded, down, unknown]
+
+    StateReason:
+      description: Why the state above was reached. Required, so no state is unfalsifiable.
+      type: string
+      enum:
+        # Alerts are mapped to this component and none of them are firing.
+        - no_firing_alerts
+        # At least one mapped alert is firing; severity decides degraded vs down.
+        - alert_firing
+        # Nothing is mapped to this component, so nothing could have fired.
+        - no_signal
+        # A signal this component depends on was unreachable when the document was built.
+        - signal_unavailable
+
+    Coverage:
+      description: >-
+        How much is actually measured. The UI reads this, not the state, to decide
+        whether to draw a "not measured" badge — which is why `operational` with
+        `mappedAlertCount: 0` is a contract violation rather than a rendering choice.
+      type: object
+      additionalProperties: false
+      required: [mappedAlertCount, hasSli]
+      properties:
+        mappedAlertCount:
+          type: integer
+          minimum: 0
+        hasSli:
+          type: boolean
+
+    UptimeBucket:
+      type: object
+      additionalProperties: false
+      required: [date, ratio]
+      properties:
+        date:
+          description: Calendar day in `page.timeZone`.
+          type: string
+          format: date
+        ratio:
+          description: >-
+            Fraction of the day the SLI reported healthy, or null for a day with no
+            data. Null is not zero and not green: a fork that stood the SLI up three
+            days ago has 27 empty buckets, and the UI draws them empty.
+          type: [number, "null"]
+          minimum: 0
+          maximum: 1
+
+    Uptime:
+      description: >-
+        Absent numbers over invented ones. `ratio` and every bucket are nullable
+        because an SLI that does not exist has no history, and the honest rendering
+        of that is a gap in the bar.
+      type: object
+      additionalProperties: false
+      required: [windowDays, ratio, unavailableReason, buckets]
+      properties:
+        windowDays:
+          type: integer
+          minimum: 1
+        ratio:
+          description: Mean healthy fraction over the window, or null when unavailable.
+          type: [number, "null"]
+          minimum: 0
+          maximum: 1
+        unavailableReason:
+          description: Required whenever `ratio` is null, and null whenever it is not.
+          type: [string, "null"]
+          enum:
+            # The component has no instrumented SLI. The back end will not synthesize one.
+            - no_sli
+            # An SLI exists but has been recording for less than the window.
+            - insufficient_history
+            # Prometheus was unreachable when the document was built.
+            - signal_unavailable
+            - null
+        buckets:
+          description: >-
+            One entry per day, oldest first, `windowDays` long — or empty when there
+            is no SLI at all. A short array is a contract violation: a missing day is
+            a null bucket, not an absent one.
+          type: array
+          items:
+            $ref: "#/components/schemas/UptimeBucket"
+
+    Maintenance:
+      description: >-
+        A declared window, not a derived state. Maintenance is an overlay so that a
+        component which is genuinely broken during a window still reads `degraded` or
+        `down`; replacing the state would hide the outage behind the calendar.
+      type: object
+      additionalProperties: false
+      required: [summary, startsAt, endsAt]
+      properties:
+        summary:
+          type: string
+          minLength: 1
+          maxLength: 200
+        startsAt:
+          type: string
+          format: date-time
+        endsAt:
+          type: string
+          format: date-time
+
+    Component:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - name
+        - description
+        - group
+        - order
+        - state
+        - stateReason
+        - coverage
+        - uptime
+        - maintenance
+      properties:
+        id:
+          description: >-
+            A taxonomy id from `x-status-page.taxonomy`. Stable across forks, so the
+            UI may key an icon or a layout decision off it.
+          type: string
+          pattern: "^[a-z][a-z0-9-]{1,30}$"
+        name:
+          description: What a visitor reads. Never a namespace, a chart or a release name.
+          type: string
+          minLength: 1
+          maxLength: 40
+        description:
+          description: One sentence a non-operator understands.
+          type: string
+          minLength: 1
+          maxLength: 160
+        group:
+          type: string
+          enum: [platform, applications]
+        order:
+          description: Render order within `group`; unique across the taxonomy.
+          type: integer
+          minimum: 1
+        state:
+          $ref: "#/components/schemas/ComponentState"
+        stateReason:
+          $ref: "#/components/schemas/StateReason"
+        coverage:
+          $ref: "#/components/schemas/Coverage"
+        uptime:
+          $ref: "#/components/schemas/Uptime"
+        maintenance:
+          description: The active or next window, or null.
+          oneOf:
+            - $ref: "#/components/schemas/Maintenance"
+            - type: "null"
+
+    Incident:
+      type: object
+      additionalProperties: false
+      required: [id, state, severity, title, componentIds, startedAt, endedAt, runbookUrl]
+      properties:
+        id:
+          description: >-
+            Stable for the life of one incident so the UI can key a list and the
+            visitor can link to it. Opaque: not the Alertmanager fingerprint.
+            Alertmanager fingerprints are a hash of the label set, which would let a
+            reader confirm guesses about internal labels.
+          type: string
+          minLength: 1
+          maxLength: 64
+        state:
+          type: string
+          enum: [firing, resolved]
+        severity:
+          description: >-
+            The alert's own severity. `info` alerts appear in the feed but never move
+            a component's state — see `x-status-page.stateDerivation`.
+          type: string
+          enum: [critical, warning, info]
+        title:
+          description: >-
+            The alert's `summary` annotation, curated for a public reader. MUST NOT be
+            assembled from labels: see `x-status-page.redaction`.
+          type: string
+          minLength: 1
+          maxLength: 200
+        componentIds:
+          description: >-
+            Which components this incident affected. MAY be empty — an alert nobody
+            has mapped yet still belongs in the feed, and its absence from any
+            component is exactly what `no_signal` reports.
+          type: array
+          items:
+            type: string
+            pattern: "^[a-z][a-z0-9-]{1,30}$"
+        startedAt:
+          type: string
+          format: date-time
+        endedAt:
+          description: Null while `state` is `firing`.
+          type: [string, "null"]
+          format: date-time
+        runbookUrl:
+          description: >-
+            Public link to the runbook section for this alert, or null. Nullable
+            because runbook coverage is only now becoming mandatory
+            (ryanmcafee/homelab#462); a contract that required it would be a contract
+            the back end has to lie to.
+          type: [string, "null"]
+          format: uri
+
+    Signal:
+      description: >-
+        One upstream the document was built from, and whether it answered. The UI
+        renders a banner when any signal is `unavailable`, because every green tile
+        below it is then unproven.
+      type: object
+      additionalProperties: false
+      required: [id, state, observedAt]
+      properties:
+        id:
+          type: string
+          enum: [prometheus, alertmanager]
+        state:
+          type: string
+          enum: [available, unavailable]
+        observedAt:
+          description: When this signal was last successfully read; null if never.
+          type: [string, "null"]
+          format: date-time
+
+    Problem:
+      description: RFC 9457 problem details. The UI renders `title` and never `detail`.
+      type: object
+      required: [type, title, status]
+      properties:
+        type:
+          type: string
+          format: uri
+        title:
+          type: string
+        status:
+          type: integer
+        detail:
+          description: >-
+            Operator-facing. MUST NOT be rendered by the UI and MUST NOT contain an
+            internal identifier, because this endpoint is unauthenticated.
+          type: string
+
+# ---------------------------------------------------------------------------
+# Normative rules the OpenAPI schema above cannot express. Checked by
+# scripts/status-contract_test.ts.
+# ---------------------------------------------------------------------------
+x-status-page:
+  # -------------------------------------------------------------------------
+  # The component taxonomy. Seven names a visitor understands.
+  #
+  # Fixed here rather than in the ConfigSet, deliberately, and this corrects the
+  # assumption the work started from. The ConfigSet is a flat map of scalar keys
+  # with a description, a default and an optional enum (configuration/schema/*.yaml);
+  # it has no array or object type, so a list of components with ids, display names,
+  # groups and app mappings cannot live there without inventing a delimited-string
+  # encoding. It also should not: "Media" is not personal to one operator, so
+  # fork-ability does not ask for it to be configurable. What IS operator-specific —
+  # the hostname and the page title — stays in the ConfigSet where it already
+  # belongs. A fork that adds an application adds a row to `applications` below, in
+  # the same pull request, and the test here fails if it names a chart that is absent.
+  # -------------------------------------------------------------------------
+  taxonomy:
+    - id: ingress
+      name: Ingress & DNS
+      description: Whether anything on this cluster can be reached from outside it.
+      group: platform
+      order: 1
+      applications:
+        - addons/envoy-gateway
+        - addons/gateway-api-crds
+        - addons/cert-manager
+        - addons/external-dns-cloudflare
+        - addons/external-dns-unifi
+        - addons/oauth2-proxy
+        - addons/tailscale-operator
+        - addons/unifi-port-forward
+        - applications/duckdns
+
+    - id: cluster
+      name: Cluster Platform
+      description: The networking, image and node-level services every workload sits on.
+      group: platform
+      order: 2
+      applications:
+        - addons/cilium
+        - addons/cilium-lb-ipam
+        - addons/metrics-server
+        - addons/spegel
+        - addons/node-feature-discovery
+        - addons/kubelet-csr-approver
+        - addons/istio
+
+    - id: data
+      name: Databases & Storage
+      description: Persistent volumes, the Postgres clusters and their backups.
+      group: platform
+      order: 3
+      applications:
+        - addons/cloudnative-pg
+        - addons/cnpg-barman-cloud
+        - addons/democratic-csi
+        - addons/democratic-csi-ssd
+        - addons/democratic-csi-iscsi
+        - addons/democratic-csi-iscsi-hdd
+        - addons/local-path-provisioner
+
+    - id: observability
+      name: Observability
+      description: Metrics, logs and the alerting that produces this page.
+      group: platform
+      order: 4
+      applications:
+        - addons/kube-prometheus-stack
+        - addons/prometheus-config
+        - addons/grafana-config
+        - addons/logging
+        - addons/blackbox-exporter
+        - addons/github-pr-exporter
+
+    - id: automation
+      name: Automation & Agents
+      description: The agent fleet, dependency updates and workflow execution.
+      group: platform
+      order: 5
+      applications:
+        - applications/paperclip
+        - applications/renovate
+        - applications/waypoints
+        - addons/argo-workflows
+        - addons/triage-agent
+
+    - id: media
+      name: Media
+      description: Streaming, the library and everything that fills it.
+      group: applications
+      order: 6
+      applications:
+        - applications/plex
+        - applications/sonarr
+        - applications/radarr
+        - applications/prowlarr
+        - applications/nzbget
+        - applications/lazylibrarian
+        - applications/tautulli
+        - applications/flaresolverr
+
+    - id: home-automation
+      name: Home Automation
+      description: Home Assistant and the MQTT bus its devices speak over.
+      group: applications
+      order: 7
+      applications:
+        - applications/homeassistant
+        - applications/mosquitto
+
+  # -------------------------------------------------------------------------
+  # How `state` is reached. Total over the severities this repository's alerts
+  # actually use, and evaluated in this order — the first match wins, so the rule
+  # cannot produce two answers for one component.
+  # -------------------------------------------------------------------------
+  stateDerivation:
+    # Which upstream backs which field, so a partial outage of the monitoring stack
+    # has one defined answer rather than a judgement call at request time.
+    #
+    # `state` depends on Prometheus as well as Alertmanager: Prometheus is what
+    # evaluates the rules, so with Prometheus unreachable an Alertmanager that still
+    # answers is serving a frozen view. A frozen "nothing is firing" is not evidence
+    # of health, and reporting it as `operational` is the exact lie this file forbids.
+    signalDependencies:
+      state: [alertmanager, prometheus]
+      uptime: [prometheus]
+    order: [signal_unavailable, no_signal, alert_firing, no_firing_alerts]
+    rules:
+      - reason: signal_unavailable
+        when: any signal in signalDependencies.state reported state=unavailable
+        state: unknown
+      - reason: no_signal
+        when: coverage.mappedAlertCount == 0
+        state: unknown
+      - reason: alert_firing
+        when: at least one mapped alert is firing
+        state: worst firing severity via severityToState; info alone does not qualify
+      - reason: no_firing_alerts
+        when: coverage.mappedAlertCount > 0 and nothing is firing
+        state: operational
+    severityToState:
+      critical: down
+      warning: degraded
+      # Feed-only. An info alert that could turn a component yellow would make the
+      # page cry wolf, and the visitor's trust is the only thing it has.
+      info: null
+    # The headline. `unknown` ranks below a real fault, so a coverage gap never hides
+    # an outage, and an all-unknown page never reads green.
+    overall:
+      worstFirst: [down, degraded, unknown, operational]
+      emptyComponents: unknown
+    # The invariant the whole contract exists for, restated so it is checkable.
+    invariants:
+      - operational requires coverage.mappedAlertCount > 0
+      - overall.state is the first of overall.worstFirst held by any component
+      - overall.state is unknown when components is empty
+      - uptime.ratio == null requires a non-null uptime.unavailableReason
+      - uptime.ratio != null requires uptime.unavailableReason == null
+      - uptime.unavailableReason == no_sli requires coverage.hasSli == false
+      - stateReason == signal_unavailable requires a signalDependencies.state signal to be unavailable
+      - uptime.unavailableReason == signal_unavailable requires a signalDependencies.uptime signal to be unavailable
+      # The converse, so a document cannot report a dead upstream and green tiles.
+      - a signalDependencies.state signal being unavailable requires every component to read unknown
+      - uptime.buckets is empty or exactly uptime.windowDays long
+      # No headline number over a partial window. A fork whose SLI is three days old
+      # shows the bar it has and no percentage, rather than "99.9% (of three days)".
+      - uptime.ratio != null requires every bucket present and non-null
+      - endedAt == null if and only if state == firing
+
+  # -------------------------------------------------------------------------
+  # This endpoint is unauthenticated. Anything it echoes is public.
+  # -------------------------------------------------------------------------
+  redaction:
+    rule: >-
+      The back end projects alerts onto this document. It never passes an alert
+      through. `title` is the `summary` annotation and nothing else; no field is
+      assembled from labels.
+    forbiddenInResponse:
+      - Alertmanager label values, in particular instance, pod, node, namespace and job
+      - Alertmanager fingerprints, which are a hash of the label set
+      - PromQL, metric names and label names, including the SLI query behind uptime
+      - Internal hostnames, cluster-internal DNS names and IP addresses
+    why: >-
+      A public reader who can see the metric name and the instance label of a firing
+      alert has an inventory of the cluster. The uptime number is the product; the
+      query that produced it is not.
+
+  # -------------------------------------------------------------------------
+  # Out of v1, with the reason. Named here rather than left as an assumption
+  # because a consumer's "surely it also does X" is how contracts get re-litigated.
+  # -------------------------------------------------------------------------
+  deferred:
+    - id: subscriptions
+      what: subscribe/unsubscribe to status changes, and the delivery of them
+      why: >-
+        It is a PII store and an abuse surface behind an unauthenticated endpoint —
+        double opt-in, an unsubscribe token, rate limiting and a mail or push
+        provider as a BYO seam. None of that is a rendering decision, and shipping
+        the form before the endpoint is how a status page loses trust. `features.
+        subscriptions` is false for all of v1 so the UI ships no dead control.
+    - id: per-incident-detail
+      what: a permalink page per incident with a timeline of updates
+      why: >-
+        Needs written incident updates, which needs somewhere to write them. Additive
+        when it lands: a new endpoint, not a change to this document.
+    - id: sse
+      what: push instead of poll
+      why: >-
+        Additive if the poll cadence ever proves too slow. It is not today: the data
+        moves on Prometheus' evaluation interval.
+
+  # -------------------------------------------------------------------------
+  # Where each rule above is actually enforced. Per ADR-033 a check is listed with
+  # its status or not listed at all; "specified, not implemented" is a valid status
+  # and an unlabelled claim is not.
+  # -------------------------------------------------------------------------
+  enforcement:
+    - check: This document is internally consistent, and every fixture satisfies both the schema and the invariants above.
+      where: scripts/status-contract_test.ts, in task test:scripts
+      status: implemented by this change
+    - check: Every application named in the taxonomy exists as a chart template.
+      where: scripts/status-contract_test.ts
+      status: implemented by this change
+    - check: Every user-facing application shipped by this repository is mapped to some component.
+      where: not implemented
+      status: >-
+        Specified, not implemented. It would put this contract in the path of every
+        application pull request, which is a cost to take deliberately and with the
+        status page actually shipping. It belongs with the back end implementation.
+    - check: The served response satisfies this schema, and the redaction rules hold on real alert data.
+      where: not implemented
+      status: >-
+        Specified, not implemented — there is no implementation to test yet. This is
+        the back end's own contract test, and it is the acceptance criterion for it.
