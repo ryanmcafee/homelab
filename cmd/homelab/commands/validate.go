@@ -3,6 +3,7 @@ package commands
 import (
 	"fmt"
 	"io"
+	"strings"
 
 	"github.com/ryanmcafee/homelab/internal/logger"
 	"github.com/ryanmcafee/homelab/internal/prereq"
@@ -85,7 +86,14 @@ func printPrereqTable(w io.Writer, results []prereq.Result) {
 			fmt.Fprintf(w, "  %s  %s\n", markPass, r.Name)
 			continue
 		}
-		fmt.Fprintf(w, "  %s  %-*s  %v\n", markFail, width, r.Name, r.Err)
+		lines := strings.Split(r.Err.Error(), "\n")
+		fmt.Fprintf(w, "  %s  %-*s  %v\n", markFail, width, r.Name, lines[0])
+		// The homelab.yaml row's error is every missing required key at once, so
+		// it arrives multi-line. Unindented, those keys read as findings of their
+		// own and a fork counts three missing keys as six problems.
+		for _, line := range lines[1:] {
+			fmt.Fprintf(w, "     %-*s  %s\n", width, "", strings.TrimSpace(line))
+		}
 		fmt.Fprintf(w, "     %-*s  fix: %s\n", width, "", r.Hint)
 	}
 	fmt.Fprintln(w)
