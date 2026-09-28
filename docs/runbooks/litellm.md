@@ -17,7 +17,7 @@ inference request goes through; the gateway is the user-visible path, so that is
 | kube-state-metrics | `kube_deployment_status_replicas_available`, `kube_job_failed` | the monitoring stack's default collectors |
 | CloudNativePG | `cnpg_collector_up` | `monitoring.enablePodMonitor` on the `litellm-db` Cluster |
 
-Two details decide whether any of this works:
+Three details decide what these numbers do and do not cover:
 
 - **The prometheus callback has to be on.** The sidecar only aggregates what the workers write,
   and the workers write nothing until `litellm_settings.callbacks` contains `prometheus`. That is
@@ -30,6 +30,9 @@ Two details decide whether any of this works:
   `litellm_settings.prometheus_exclude_labels` drops them. `requested_model`, `model`, `team`,
   `api_key_alias`, `status_code` and `api_provider` stay, and those are what the dashboard and the
   alerts group by. Adding a label back is a deliberate cardinality decision.
+- **Authentication failures are not counted.** LiteLLM drops every Prometheus metric for a request
+  that fails with a 401, so no `litellm_*` series will ever show one. Nothing here measures auth,
+  and the error rate cannot see it. See `LiteLLMGatewayErrorRateHigh` below.
 
 **The metrics port has no authentication.** That is why it is a separate Service: the gateway's
 own `:4000` serves `/metrics/` behind virtual-key auth, while the sidecar's port serves it to
@@ -93,10 +96,18 @@ homelab gateway is idle most of the day and one failed request out of one is not
 Split by model on the dashboard first. One model failing while the others are fine is a provider
 outage or a revoked key for that provider; all models failing together is the proxy, usually the
 database or an expired master key. `status_code` on
-`litellm_proxy_total_requests_metric_total` separates a 401 (key) from a 429 (rate limit) from a
-5xx (provider).
+`litellm_proxy_total_requests_metric_total` separates a 429 (rate limit) from a 5xx (provider).
 
-This alert is blind whenever `LiteLLMGatewayMetricsUnavailable` fires. Treat the pair together.
+This alert is blind in two ways, both of which look identical to "no problem":
+
+- Whenever `LiteLLMGatewayMetricsUnavailable` fires. Treat the pair together.
+- For **any request that fails with a 401**, at either hop. LiteLLM excludes authentication
+  failures from every Prometheus metric on purpose, so a caller with a bad virtual key and a
+  provider rejecting our credentials both leave the failed *and* total counters untouched -- the
+  ratio stays flat and healthy while no request succeeds. If callers report 401s and this graph is
+  quiet, that is consistent, not contradictory: read the gateway pod logs, and check
+  `LiteLLMGatewayDown` and the provider key in `litellm-api-keys` rather than the error rate.
+  Source: `PrometheusLogger._is_invalid_api_key_request` returns early for `status_code == 401`.
 
 ### LiteLLMGatewayMetricsUnavailable
 
