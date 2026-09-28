@@ -591,3 +591,38 @@ The allowlist is deliberately all documentation-reserved space. The `192.168.1.x
 MCAA-79 and is now excluded on purpose: it is the most common home LAN subnet, so for a forker
 running on it the guard could not tell their real `GATEWAY_IP` from the template's placeholder.
 Re-adding it would restore that collision for exactly the users the check protects.
+
+### OpenClaw operator checks
+
+`task verify:text` includes the offline `gitops/<env>/openclaw-intent` check.
+It reads the operator and instance Applications from the repository render and
+requires exactly the instance destination namespace in `watchNamespaces`, plus
+`rbac.aggregateToDefaultRoles: false`. A tiny local chart resolves the supplied
+values with the pinned Helm binary: Argo CD selects `valuesObject` instead of
+`values` when present, then applies parameters (including `forceString`), matching
+[Argo CD Helm precedence](https://argo-cd.readthedocs.io/en/latest/user-guide/helm/#helm-value-precedence).
+Malformed inputs and unsupported Helm options fail with a corrective message.
+External `valueFiles` and `fileParameters` are deliberately rejected: this gate
+cannot prove their contents offline. Extend the verifier before adopting them.
+
+`task verify:upgrade -- --base origin/main` also runs
+`upgrade/<env>/openclaw-rbac`, even for an unchanged source or an unavailable
+base render. It fetches and renders the **entire pinned upstream chart**, resolves
+the controller ServiceAccount's bindings, and checks effective RBAC. It rejects
+cluster Secret access and wildcard grants, unexpected bindings and aggregation.
+The chart’s unbound metrics-reader role is allowed only with its exact
+non-resource `GET /metrics` rule; binding it to the operator is rejected.
+Secret mutation is confined to the instance namespace; controller-namespace
+Secret access is read-only. The cluster grant allowlist is read-only access to
+`openclaw.rocks/openclawclusterdefaults`. Missing manifests, parsing failures and
+fetch/render errors fail the check. The upgrade PR workflow runs for every PR and
+its final job verdict requires this assertion to pass; a manifest diff cannot
+substitute for it. No additional credentials are needed in a fork to fetch the
+public chart. Registry unavailability fails explicitly, never as a policy pass.
+
+Offline regressions run with the Go unit suite. To include the local Helm
+precedence cases, run `HOMELAB_TEST_HELM=1 go test ./internal/verify -run 'Test(OpenClaw|UpstreamValuesObject|ArgoHelmParameter)' -count=1`;
+the upgrade workflow runs the same cases before fetching charts.
+These checks implement **Shift left**, **Reproducibility** and **Fail fast, fail loud**.
+They verify rendered intent, not live-cluster authorization. Legitimate credentials
+and workload control in the two permitted namespaces remain a residual risk.
