@@ -205,6 +205,110 @@ recreate the VM from Terragrunt:
 ```bash
 task talos:recreate:node NODE=worker-2          # taint + apply for one VM
 task talos:recreate:gpu-node                     # worker-1, then `homelab verify gpu`
+task talos:recreate:node NODE=cp-2               # a control plane: etcd is handled for you
+```
+
+**Recreating a control plane is not the same operation as recreating a worker.** A control
+plane is an etcd member, and etcd identifies a member by its peer URL. A rebuilt node comes
+back at the same static IP under a new Talos hostname and a new member id, so unless the old
+member is removed first, etcd still holds a member at that address and the replacement cannot
+join (`ryanmcafee/homelab#39`).
+
+`homelab talos recreate` does that for you. Its ten steps are, in order:
+
+| Step | What it does |
+| --- | --- |
+| 1 | **etcd preflight**: refuse before anything is touched if the cluster is not safe to start from |
+| 2–4 | Resolve the K8s node by InternalIP, cordon, drain |
+| 5 | **etcd**: member lookup, quorum gate, snapshot, removal, removal verified |
+| 6–7 | Resolve the VM resource address, `terragrunt apply -replace=` |
+| 8–9 | Wait for a new Ready node at the same IP, uncordon, delete the stale node entry |
+| 10 | Wait for etcd to be whole again |
+
+Steps 1 and 5 are the ones to understand before you run it:
+
+- If the node is **not** an etcd member the step removes nothing and says so, so re-running
+  the command is always safe: it will never remove a second member. The two reasons a node
+  is not a member get different endings, and the log tells you which one you are in:
+  - **A worker** (its address is not one of the `CP<n>_IP` keys) never had a member. The preflight
+    does not apply to it either, and step 10 is skipped — there is nothing to rejoin.
+  - **A control plane that is missing from the member list** means an earlier run removed it
+    and died before the node rejoined. The command announces that it is resuming and still
+    waits in step 10 for the member count to come back, because the cluster is sitting at
+    N-1 until it does. A resumed run has no snapshot of its own; the one to keep is from the
+    run that did the removal. A resume is **still gated** — see below.
+- It **refuses**, non-zero, if removing the member would leave etcd without a quorum, or if
+  the surviving members are unhealthy, learners, or more than `--raft-tolerance` raft indices
+  behind the leader. The message names the member and the arithmetic. Nothing is destroyed on
+  a refusal.
+- Every number and condition behind those refusals comes from
+  `contracts/cluster/topology.v1.yaml`, not from a constant in the CLI: the quorum formula,
+  the permitted control-plane counts, the raft tolerance, the health conditions, and which
+  gate applies at which point. The same file is read by `scripts/cp-storage-migrate.ts`, so
+  the two tools cannot drift into two definitions of "safe" (ADR-035). A control-plane count
+  the contract does not permit — an even one, say — is refused before the cluster is read at
+  all.
+- The quorum arithmetic is measured against the **configured** control-plane count — the
+  number of `CP<n>_IP` keys that have a value — never against however many members happen to
+  be alive. This matters in one specific case, and that case is the aftermath of this very
+  command: if an earlier run left the cluster at 2 of 3 and you now recreate a *different*
+  node, sizing the check off the live list would consent (two live members are a quorum of
+  two, and afterwards one survivor is a quorum of one) and take the control plane down to a
+  single etcd member. Measured against the configured three it refuses. So a cluster that is
+  already short a member has to be made whole before another node is replaced: bring the
+  missing one back, or finish the interrupted run for the node it belongs to.
+- A member absent because **you** declared it — the node named by `--node` — is expected. Any
+  *other* absence means the cluster is degraded rather than mid-procedure, and the command
+  says so in those words and stops.
+- The contract defines **four** gates and says which predicate applies at each. A run does not
+  pass through all four: it **enters at exactly one** of `preflight` or `resume`, and which one
+  is decided by whether the node you named is still in etcd's own membership — never by a flag
+  you pass. A fresh run is `preflight -> before the removal -> the taint -> completion`; a
+  resumed run is `resume -> completion`.
+  - **Step 1, preflight** — before anything is cordoned, drained, removed or destroyed. A
+    fresh run requires the cluster to be `whole`: every configured control plane present,
+    answering and converged. A cluster that is already short a member is sent here, to this
+    runbook, rather than into an automated replacement.
+  - **Before the removal** and again **immediately before the terragrunt taint** —
+    `survivable`: quorum holds, every member that answered is converged, and the only member
+    absent is the one you named with `--node`. A leader election can follow the removal, so
+    the cluster the taint acts on is not the one measured a minute earlier. A refusal at the
+    second point leaves the member removed and the VM intact — fix the cluster and re-run.
+  - **Resume** — a re-run that finds the declared target already gone from the member list
+    enters here instead of at preflight, on `survivable`. That is the whole point: at that
+    moment the cluster *is* one member short, so demanding `whole` would refuse the recovery
+    and leave bypassing the guard as the only way to finish.
+- Each reading is bounded. The whole member-set read runs under the contract's
+  `observationDeadlineSeconds`, and a reading older than `maxObservationAgeSeconds` is
+  discarded and taken again rather than acted on. A dial or deadline failure is reported as
+  the transport fault it is — etcd healthy behind a wedged `apid` is not a degraded control
+  plane, and the message says which one you have.
+- It takes a **verified etcd snapshot** into `--etcd-snapshot-dir` (default
+  `./etcd-snapshots`) before the removal and refuses if the file is missing or empty. That
+  snapshot is the rollback path; keep it until step 10 is green. There is deliberately **no
+  flag to skip it**: the run most likely to want to skip the snapshot is the run on a cluster
+  that is already unhappy, which is the run that will need it.
+- Step 10 requires the cluster to be **whole**: every configured `CP<n>_IP` present as a
+  member, answering, and converged. A member count alone is not enough — a cluster carrying
+  both a stale member and the rebuilt one at the same address has the right number of members
+  and is broken, which is #39's own failure shape.
+
+```bash
+# Useful flags
+--node=cp-2                       # terragrunt node key, not the Talos hostname
+--etcd-snapshot-dir=/mnt/backups  # where the pre-removal snapshot lands
+--raft-tolerance=10               # how far behind a survivor may be and still count.
+                                  # Defaults to the contract's raftIndexTolerance.
+                                  # May only be tightened; a larger value is rejected,
+                                  # because loosening a gate on a destructive path is a
+                                  # bypass with a nicer name.
+--dry-run                         # prints the plan; stops short of every mutation
+```
+
+To rehearse the behaviour without a cluster (no talosctl, no Proxmox, no hardware):
+
+```bash
+task test:talos-recreate
 ```
 
 ---
@@ -250,6 +354,71 @@ task talos:recreate:node NODE=cp-1
 
 Rebuild from Terragrunt and let ArgoCD restore every workload from Git; see
 [disaster-recovery.md](../disaster-recovery.md).
+
+### Scenario 4: Node Replacement Failed Mid-Flight
+
+`homelab talos recreate` on a control plane removes an etcd member and then destroys a VM.
+If it dies between those two points — you interrupted it, the Proxmox API timed out, the
+apply failed — the cluster is left with one member fewer than it should have. It is
+**degraded but healthy**: three-member etcd tolerates one absent member. Do not panic-remove
+anything else.
+
+First, find out where it stopped. The member list is the source of truth, not the log:
+
+```bash
+talosctl -n <CP1_IP> etcd members     # is the outgoing member still listed?
+talosctl -n <CP1_IP> etcd status
+kubectl get nodes -o wide
+ls -lh ./etcd-snapshots               # the snapshot the run took before removing
+```
+
+**The safe move in every case is to re-run the same command.** It is idempotent by
+construction: it looks the member up by IP and skips the removal when it is already gone, so
+a second run finishes the replacement rather than compounding the damage. The re-run still
+holds the full bar — it exits non-zero unless etcd is back to its expected member count and
+passing the health gate, so a green resume means the control plane is whole, not just that
+the node came back Ready.
+
+```bash
+task talos:recreate:node NODE=cp-2
+```
+
+Only if you have to finish by hand:
+
+| Where it stopped | What you see | Manual recovery |
+| --- | --- | --- |
+| Before the removal | Member still listed, VM still running | Nothing to undo. Re-run, or `kubectl uncordon <node>` and walk away. |
+| After the removal, before the apply | Member gone, VM still running | Re-run. Or, to keep the existing VM: `talosctl -n <ip> reset --graceful=false --reboot` and let it rejoin as a fresh member. A node whose member was removed will not rejoin on its own. |
+| After the apply, node not coming back | Member gone, VM rebuilt, node never Ready | `talosctl -n <ip> dmesg`, `talosctl -n <ip> services`. The cluster is fine on two members; fix the node, do not remove a second. |
+| Node Ready, etcd still short | Node Ready, fewer members than expected | `talosctl -n <ip> service etcd restart`, then `talosctl -n <CP1_IP> etcd members`. Check for a stale member at the same peer URL and remove it: `talosctl -n <CP1_IP> etcd remove-member <member id>`. |
+
+**Never remove a second member to "clean up".** Two removals from a three-member cluster
+leave one member and no quorum, which turns a degraded control plane into a dead one. If you
+believe a second member must go, restore to three first.
+
+The command now enforces that rather than trusting you to remember it, and there are two
+refusals you will meet here:
+
+- **Recreating a *different* node while the cluster is short.** Say a run for `cp-2` died and
+  left `{cp-1, cp-3}`, and you now run it for `cp-3`. It exits non-zero with
+  `192.168.x.12 are absent and are not a declared target of this operation … this cluster is
+  degraded, not mid-procedure`. That is correct: finish or undo the `cp-2` replacement first,
+  then come back. The fix is to re-run for `cp-2`, not to add a flag.
+- **Resuming when a survivor has died since the crash.** Re-running for `cp-2` while `cp-3`
+  is also down exits non-zero at the `resume` gate instead of destroying the VM and spending
+  the 15-minute rejoin timeout failing — with no quorum the replacement's member add cannot
+  commit, so the run could not have succeeded. Bring `cp-3` back first; if it is
+  unrecoverable and etcd is below quorum, you are in
+  [Scenario 1](#scenario-1-etcd-quorum-lost).
+
+Neither refusal touches the cluster, and neither has an override. If you are convinced one is
+wrong, the member list in the message is the thing to check first — the gate is reading the
+`CP<n>_IP` keys in `configuration/environments/<env>.yaml`, so a control plane you have
+retired but not removed from the config will look absent forever.
+
+If etcd is already below quorum when you start, you are in
+[Scenario 1](#scenario-1-etcd-quorum-lost), not here — restore the snapshot rather than
+removing anything.
 
 ---
 
@@ -379,7 +548,10 @@ kubectl -n argocd get application cilium
 talosctl -n <node> version | health | services | dmesg | reboot | shutdown
 talosctl -n <node> upgrade --image <installer image> --preserve
 talosctl -n <cp> etcd members | status | snapshot <file> | forfeit-leadership
+talosctl -n <cp> etcd leave                   # graceful: tell this node to leave etcd
+talosctl -n <cp> etcd remove-member <id>      # last resort, for a member that cannot leave
 talosctl -n <cp> upgrade-k8s --to <version>
 task apiserver:probe                          # read-only VIP + per-control-plane probe
-task talos:recreate:node NODE=<name>          # destroy and recreate one VM
+task talos:recreate:node NODE=<name>          # destroy and recreate one VM (etcd handled)
+task test:talos-recreate                      # rehearse the recreate logic, no cluster needed
 ```
