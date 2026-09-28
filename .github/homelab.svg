@@ -125,7 +125,7 @@
   .v3{animation:v3 27s infinite}.v4{animation:v4 27s infinite}.v5{animation:v5 27s infinite}
   .v6{animation:v6 27s infinite}.v7{animation:v7 27s infinite}.v8{animation:v8 27s infinite}
   .v9{animation:v9 27s infinite}
-  /* e2e suite counter: 23 steps of 1.957% from 45% to 90%, then 23/23 holds */
+  /* e2e suite counter: 22 steps of 2.045% from 45% to 90%, then 22/22 holds */
   @keyframes c0{0%,45%{opacity:0}45.1%,46.857%{opacity:1}46.957%,100%{opacity:0}}
   @keyframes c1{0%,46.957%{opacity:0}47.057%,48.813%{opacity:1}48.913%,100%{opacity:0}}
   @keyframes c2{0%,48.913%{opacity:0}49.013%,50.77%{opacity:1}50.87%,100%{opacity:0}}

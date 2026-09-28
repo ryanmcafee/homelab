@@ -1,0 +1,136 @@
+---
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: argo-events
+spec:
+  description: >-
+    The Argo Events bus is reconciled rather than merely applied: the controller and the
+    admission webhook are available, and the EventBus named `default` has been turned into a
+    running JetStream StatefulSet whose ready replicas match the configured count. All three
+    argoproj.io kinds here preserve unknown fields, so a spec the controller silently ignores
+    is indistinguishable from one it honoured until something asserts the workload it produced.
+  steps:
+    - name: applications-healthy
+      description: argo-events and argo-events-config are Synced and Healthy.
+      try:
+        - assert:
+            resource:
+              apiVersion: argoproj.io/v1alpha1
+              kind: Application
+              metadata:
+                name: argo-events
+                namespace: argocd
+              status:
+                health:
+                  status: Healthy
+                sync:
+                  status: Synced
+        - assert:
+            resource:
+              apiVersion: argoproj.io/v1alpha1
+              kind: Application
+              metadata:
+                name: argo-events-config
+                namespace: argocd
+              status:
+                health:
+                  status: Healthy
+                sync:
+                  status: Synced
+
+    # The admission webhook is the only validation these CRDs have: spec and status are both
+    # x-kubernetes-preserve-unknown-fields, so the API server accepts any spec and the
+    # vendored kubeconform schemas can confirm the kind and nothing else. It ships disabled
+    # upstream and is enabled here, so its availability is part of the contract.
+    - name: controller-and-webhook-available
+      description: The events controller and the admission webhook are both Available.
+      try:
+        - assert:
+            resource:
+              apiVersion: apps/v1
+              kind: Deployment
+              metadata:
+                name: argo-events-controller-manager
+                namespace: argo-events
+              status:
+                conditions:
+                  - type: Available
+                    status: "True"
+        - assert:
+            resource:
+              apiVersion: apps/v1
+              kind: Deployment
+              metadata:
+                name: events-webhook
+                namespace: argo-events
+              status:
+                conditions:
+                  - type: Available
+                    status: "True"
+
+    # ArgoCD has no built-in health for argoproj.io/EventBus, so argo-events-config reports
+    # Healthy the instant its one manifest applies. The StatefulSet the controller derives
+    # from that EventBus is the first thing that can actually fail, which is why readiness is
+    # asserted on the workload rather than on the custom resource's own conditions.
+    - name: eventbus-reconciled
+      description: >-
+        The EventBus named default exists and the controller has produced a JetStream
+        StatefulSet whose ready replicas match the configured replica count.
+      try:
+        - assert:
+            resource:
+              apiVersion: argoproj.io/v1alpha1
+              kind: EventBus
+              metadata:
+                name: default
+                namespace: argo-events
+        - script:
+            timeout: 5m
+            content: |
+              set -eu
+
+              want=$(kubectl get eventbus.argoproj.io -n argo-events default \
+                -o jsonpath='{.spec.jetstream.replicas}')
+              case "$want" in
+                1|3|5) : ;;
+                *) echo "FAIL: EventBus replicas is '$want'; Argo Events accepts only 1, 3 or 5"
+                   exit 1 ;;
+              esac
+
+              # Argo Events derives the name from the bus: eventbus-<name>-js.
+              sts=eventbus-default-js
+              i=0
+              ready=""
+              while [ "$i" -lt 60 ]; do
+                ready=$(kubectl get statefulset -n argo-events "$sts" \
+                  -o jsonpath='{.status.readyReplicas}' 2>/dev/null || true)
+                [ "${ready:-0}" = "$want" ] && break
+                i=$((i + 1))
+                sleep 5
+              done
+
+              if [ "${ready:-0}" != "$want" ]; then
+                kubectl get statefulset -n argo-events "$sts" -o wide || true
+                kubectl get pods -n argo-events -o wide || true
+                echo "FAIL: $sts has ${ready:-0} ready replicas, want $want"
+                echo "      the EventBus was applied but the controller did not bring it up"
+                exit 1
+              fi
+              echo "OK: $sts has $ready/$want ready replicas -- the bus is reconciled, not just applied"
+
+              # Recorded rather than asserted: EventBus status preserves unknown fields, so the
+              # condition types are a property of the deployed controller and not of any schema
+              # in this repo. Printing them is what lets a later ArgoCD health script key off
+              # the real ones instead of guessed ones.
+              echo "--- EventBus default status, verbatim ---"
+              kubectl get eventbus.argoproj.io -n argo-events default -o yaml | sed -n '/^status:/,$p'
+              echo "-----------------------------------------"
+      catch:
+        - script:
+            timeout: 1m
+            content: |
+              kubectl get eventbus.argoproj.io -n argo-events -o yaml || true
+              kubectl get statefulset,pods -n argo-events -o wide || true
+              kubectl logs -n argo-events deployment/argo-events-controller-manager \
+                --tail=80 || true
