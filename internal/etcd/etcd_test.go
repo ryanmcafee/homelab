@@ -972,8 +972,12 @@ func TestConformsToExclusiveEntry(t *testing.T) {
 	// contract lists as an entry.
 	t.Run("the selected point is one the contract permits entering at", func(t *testing.T) {
 		c := contractForTest(t)
+		// This was a t.Skip while evaluation.entryPoints was unmerged, which
+		// meant every assertion below reported PASS without running. The keys
+		// ship in this same tree now, so an absent key is a contract defect
+		// rather than a revision to tolerate.
 		if !c.EntryPointsAreDeclared() {
-			t.Skip("this contract revision does not state evaluation.entryPoints yet (ryanmcafee/homelab#463)")
+			t.Fatal("the contract states no evaluation.entryPoints, so nothing constrains the entry point: `onIndeterminate: unsafe` does not tolerate a gate that disables itself when a key goes missing")
 		}
 		for _, members := range [][]Member{membersAt(cp3...), membersAt(cp3[0], cp3[2])} {
 			entry, err := SelectEntry(c, members, target)
@@ -985,4 +989,74 @@ func TestConformsToExclusiveEntry(t *testing.T) {
 			}
 		}
 	})
+}
+
+var cp5 = []string{"10.10.0.11", "10.10.0.12", "10.10.0.13", "10.10.0.14", "10.10.0.15"}
+
+// TestResumeRefusesASecondUnrepresentedAddress is the conformance test for the
+// condition the second-reviewer pass on MCAA-407 added to the contract:
+// `membership-accounts-for-expected`.
+//
+// It covers the one case exclusive entry cost. "Expected member" means a member
+// of etcd's own membership, so a configured address already removed from that
+// membership is not an absence — `absences-are-declared` is blind to it, and
+// `member-count` is the only condition that compares membership size against the
+// derived count. Under the sequential reading `whole` ran first and caught it by
+// accident on every run; the resumed shape never reaches `whole` before the
+// destructive work. So on 5 and 7 members the quorum arithmetic has room for one
+// undiagnosed removal and the guard consented to wiping a node on a control plane
+// that was never whole, reporting it only at `completion` — after the node was
+// destroyed.
+func TestResumeRefusesASecondUnrepresentedAddress(t *testing.T) {
+	c := contractForTest(t)
+	target := cp5[4]
+	// cp5[4] removed by a crashed run and declared; cp5[3] removed by an earlier
+	// abandoned run and declared by nobody. Every surviving member answers.
+	surviving := cp5[:3]
+
+	entry, err := SelectEntry(c, membersAt(surviving...), target)
+	if err != nil {
+		t.Fatalf("selecting the entry point: %v", err)
+	}
+	if entry.Point != topology.Resume {
+		t.Fatalf("entered at %q, want %q", entry.Point, topology.Resume)
+	}
+	p, err := c.PredicateAt(entry.Point)
+	if err != nil {
+		t.Fatalf("predicate at %s: %v", entry.Point, err)
+	}
+	v := Evaluate(c, p, Observation{
+		Expected: cp5, Members: membersAt(surviving...), Statuses: statusAt(surviving...),
+		Declared: []string{target}, ObservedAt: time.Now(),
+	})
+
+	// The conditions that let this through, asserted so the test fails loudly if
+	// a future change closes the hole by accident somewhere else and leaves this
+	// case proving nothing.
+	if q := c.Quorum(len(cp5)); v.Answered < q {
+		t.Fatalf("%d answered against quorum %d: quorum arithmetic already refuses, so this case no longer isolates the condition", v.Answered, q)
+	}
+	if len(v.Undeclared) != 0 {
+		t.Fatalf("Undeclared = %v, want empty: `absences-are-declared` must be blind here for this to be the condition under test", v.Undeclared)
+	}
+
+	if v.OK {
+		t.Fatal("the resume path consented to destroying a node on a control plane already short an undeclared member")
+	}
+	if !containsString(v.UnrepresentedUndeclared, cp5[3]) {
+		t.Errorf("UnrepresentedUndeclared = %v, want it to name %s", v.UnrepresentedUndeclared, cp5[3])
+	}
+	if !strings.Contains(v.Reason(), cp5[3]) {
+		t.Errorf("reason does not name the address that has no member at all: %q", v.Reason())
+	}
+
+	// And the other direction: the legitimate resume on the same topology must
+	// still proceed, or the condition has just reinstated `whole` at `resume`
+	// under a different name.
+	if ok := Evaluate(c, p, Observation{
+		Expected: cp5, Members: membersAt(cp5[:4]...), Statuses: statusAt(cp5[:4]...),
+		Declared: []string{target}, ObservedAt: time.Now(),
+	}); !ok.OK {
+		t.Fatalf("a legitimate resume was refused, so the new condition is `member-count` in disguise: %v", ok.Problems)
+	}
 }
