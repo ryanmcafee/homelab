@@ -568,6 +568,10 @@ values with the pinned Helm binary: Argo CD selects `valuesObject` instead of
 `values` when present, then applies parameters (including `forceString`), matching
 [Argo CD Helm precedence](https://argo-cd.readthedocs.io/en/latest/user-guide/helm/#helm-value-precedence).
 Malformed inputs and unsupported Helm options fail with a corrective message.
+Parameter paths support dotted identifier keys (`[A-Za-z_][A-Za-z0-9_-]*`)
+and unsigned array indexes without leading zeros (for example, `items[0].name`).
+Duplicate and ancestor/descendant assignments are rejected, including across
+`forceString` modes. Use `valuesObject` for keys requiring other syntax.
 External `valueFiles` and `fileParameters` are deliberately rejected: this gate
 cannot prove their contents offline. Extend the verifier before adopting them.
 
