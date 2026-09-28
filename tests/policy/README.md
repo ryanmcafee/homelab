@@ -102,6 +102,14 @@ controls derive from that capture; missing/empty auth variants preserve the
 route. Rego tests cover additional modes, malformed values, overrides,
 multi-source inputs, and attempted annotation exemptions.
 
+The client/routed control in `positive/workflows-auth-client.yaml` is captured
+from PR #459 at `620940d59fce248a9078a13593e82b477334f841`, using the same
+render command (with schema validation and lint enabled). Only the example
+domain is normalized; authentication and route values are unchanged.
+To verify that captured candidate passes (exit 0):
+
+`conftest test -p tests/policy --all-namespaces --data tests/policy/negative/_data.yaml tests/policy/positive/workflows-auth-client.yaml`
+
 To see the preserved unsafe state fail (exit 1):
 
 `conftest test -p tests/policy --all-namespaces --data tests/policy/negative/_data.yaml tests/policy/negative/workflows-auth.yaml`
