@@ -125,3 +125,9 @@ Each entry should include:
 - Added the missing end-to-end regression check to `Dockerfile.toolchain`, before any valid tool installation. It strips runtime declarations only from a temporary copy and uses an isolated HOME.
 - The real pipx backend must fail and name the missing dependency; unexpected success and unrelated failures fail the gate with a diagnostic. The original config then exercises the successful cold install.
 - Run both with `task toolchain:check` (committed HEAD, Docker required). No credentials or new infrastructure are needed. Hosted CI supplies container verification because this agent has no Docker runtime.
+
+### 2026-09-28 - MCAA-606: rebase PR #353 to restore bootstrap CI
+
+- Rebased the six toolchain commits onto freshly fetched `origin/main`; no open PRs targeted the branch. Preserved both sides of the additive `bugs.md` conflict and upstream runtime pins.
+- Focused validation: 24 toolchain policy cases pass (including known-bad fixtures; 49 ms), installer regression tests pass (0.014 s package / 4.7 s wall). No workflow behavior or check changed; runtime delta from this rebase is zero by design.
+- New head and bootstrap CI evidence are recorded in [MCAA-606](/MCAA/issues/MCAA-606). PR remains draft: https://github.com/ryanmcafee/homelab/pull/353.

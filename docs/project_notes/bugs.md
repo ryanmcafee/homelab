@@ -539,6 +539,7 @@ These are documented errors with known solutions:
 - **Root Cause**: `unifi_setting.syslog` set `this_controller = true` and `this_controller_encrypted_only = true`; `this_controller` makes the controller itself the syslog destination and excludes the remote SIEM server
 - **Solution**: Both flags are `false` in `terragrunt/modules/unifi-gateway/main.tf`; apply with `task tf:apply:component COMPONENT=unifi-gateway`
 - **Prevention**: Test an export end to end with one synthetic message before trusting the controller's setting page
+
 ### 2026-09-25 - Fresh clones cannot bootstrap pipx/npm tools (issue #331)
 
 - **Cause**: `mise.toml` declared pipx/npm packages without their Python, pipx and Node runtimes. `installTools` discarded the stderr that identified the missing backend.
