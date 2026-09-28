@@ -9,11 +9,6 @@
  * recovery-observability, and open issues stranded behind an unfinished wake
  * record. paperclip_up is 0 when any request fails.
  *
- * Live runs come from /live-runs together with the queued, running and
- * scheduled_retry runs among the newest RUN_LIMIT heartbeat runs: /live-runs
- * returns at most 50 entries, so on its own it would undercount live runs and
- * report agents whose run is past the cap as phantom.
- *
  * Runs from a ConfigMap in the stock oven/bun image (charts/paperclip
  * templates/exporter.yaml), so it has no dependencies beyond Bun itself.
  *
@@ -56,6 +51,7 @@ export interface Company {
   status: string;
 }
 export interface Run {
+  id: string | null;
   agentId: string | null;
   status: string;
   finishedAt: string | null;
@@ -172,6 +168,7 @@ export function parseCompanies(json: unknown): Company[] {
 
 export function parseRuns(json: unknown): Run[] {
   return records(json, "heartbeat-runs").map((r) => ({
+    id: str(r["id"]),
     agentId: str(r["agentId"]),
     status: requireString(r, "status", "heartbeat-runs"),
     finishedAt: str(r["finishedAt"]),
@@ -289,19 +286,26 @@ export function summarize(
       finishedByStatus[run.status] = (finishedByStatus[run.status] ?? 0) + 1;
     }
   }
-  // /live-runs caps its response (flat at 50), so a running agent whose run
-  // is past the cap would look phantom. The newest heartbeat runs fill the gap.
+  // /live-runs is capped server-side and takes no limit, so it alone would
+  // misreport a busy company's live set and invent phantom agents.
   const live = data.liveRuns.filter((r) => LIVE_STATUSES.has(r.status));
-  const liveHeartbeat = data.runs.filter((r) => LIVE_STATUSES.has(r.status));
-  const agentsWithLiveRun = new Set(live.map((r) => r.agentId));
-  for (const run of liveHeartbeat) {
-    if (run.agentId !== null) agentsWithLiveRun.add(run.agentId);
+  const liveFromRuns = data.runs.filter((r) => LIVE_STATUSES.has(r.status));
+  const agentsWithLiveRun = new Set<string>();
+  for (const run of live) agentsWithLiveRun.add(run.agentId);
+  for (const run of liveFromRuns) {
+    if (run.agentId) agentsWithLiveRun.add(run.agentId);
+  }
+  const liveRunIds = new Set<string>();
+  let liveWithoutId = 0;
+  for (const run of [...live, ...liveFromRuns]) {
+    if (run.id) liveRunIds.add(run.id);
+    else liveWithoutId += 1;
   }
   return {
     finishedByStatus,
     errorsByCode: countBy(finished, (r) => r.errorCode),
     agentsByStatus: countBy(data.agents, (a) => a.status),
-    liveRuns: Math.max(live.length, liveHeartbeat.length),
+    liveRuns: liveRunIds.size + liveWithoutId,
     phantomRunning: data.agents.filter(
       (a) => a.status === "running" && !agentsWithLiveRun.has(a.id),
     ).length,
@@ -546,11 +550,12 @@ async function collectCompany(
     getJson(cfg, `${base}/recovery-observability`),
   ]);
   const parsedLiveRuns = parseLiveRuns(liveRuns);
+  const parsedRuns = parseRuns(runs);
   return {
     company,
     summary: summarize(
       {
-        runs: parseRuns(runs),
+        runs: parsedRuns,
         agents: parseAgents(agents),
         liveRuns: parsedLiveRuns,
       },
@@ -562,6 +567,7 @@ async function collectCompany(
       cfg,
       company,
       parsedLiveRuns,
+      parsedRuns,
       now,
       cache,
       logError,
@@ -580,6 +586,7 @@ async function cachedSweep(
   cfg: ExporterConfig,
   company: Company,
   liveRuns: LiveRun[],
+  runs: Run[],
   now: number,
   cache: WakeSweepCache,
   logError: Logger,
@@ -589,8 +596,10 @@ async function cachedSweep(
     previous !== null &&
     now - previous.sweptAtMs < cfg.staleWakeIntervalSeconds * 1000;
   if (fresh) return previous;
+  // Missing a live run id here would report its healthy wake as stranded, so
+  // widen past the capped /live-runs with the live rows heartbeat-runs returns.
   const liveRunIds = new Set(
-    liveRuns
+    [...liveRuns, ...runs]
       .filter((r) => LIVE_STATUSES.has(r.status))
       .map((r) => r.id)
       .filter((id): id is string => id !== null),
