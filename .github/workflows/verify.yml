@@ -156,10 +156,12 @@ jobs:
       # argocd is the mise.toml pin (= configuration/versions.yaml tools.argocd):
       # the health fixtures are evaluated with `argocd admin settings
       # resource-overrides health`, the same code path the controller runs.
-      - name: Install go, bun, conftest, argocd, helm, yq, promtool, embedme, task from mise.toml
+      # kubectl is here for the same reason: the argo-events webhook guard's jsonpath is
+      # evaluated by `kubectl --local` against fixtures, not reimplemented in TypeScript.
+      - name: Install go, bun, conftest, argocd, helm, kubectl, yq, promtool, embedme, task from mise.toml
         uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
         with:
-          install_args: go bun conftest argocd helm yq aqua:prometheus/prometheus npm:embedme task
+          install_args: go bun conftest argocd helm kubectl yq aqua:prometheus/prometheus npm:embedme task
 
       - name: Install script dependencies from bun.lock
         run: bun install --frozen-lockfile
