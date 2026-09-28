@@ -1319,13 +1319,19 @@ Each decision should include:
   controller process**, which holds every tenant's credential Secret at once even though each
   credential is per-tenant (D4). Short-lived JWTs and per-tenant Secrets bound what a *stolen user
   credential* reaches; neither bounds a compromised signer or a compromised controller
-- **D8. Per-account JetStream limits are mandatory.** v2.10.22 accepts `jetstream { max_memory,
-  max_store, max_streams, max_consumers }` inside a config-file account, and without it one tenant's
-  four streams exhaust the shared file store and every account on that peer is refused with
-  `insufficient resources (10047)`. That is the bus-wide outage ADR-042 bounded per stream,
-  reappearing one level up: `maxBytesBudgetFraction` sums a surface's streams against the store, and
-  with N accounts the sum is over N x 4 streams. The budget rule moves to the account, and the
-  account's `max_store` is what the per-stream `maxBytes` must sum below
+- **D8. Per-account JetStream limits are mandatory, and this is where ADR-042 and this ADR have to
+  agree.** v2.15.0 accepts `jetstream { max_memory, max_store, max_streams, max_consumers }` inside
+  a config-file account (`opts.go`), and without it one tenant's streams exhaust the shared file
+  store and every account on that peer is refused with `insufficient resources (10047)`. That is the
+  bus-wide outage ADR-042 bounds per stream, reappearing one level up. ADR-042's
+  `maxBytesBudgetFraction` sums a surface's streams against the whole store; with N accounts the sum
+  is over N tenants' stream sets, so the budget rule moves to the account: per-stream `maxBytes`
+  sums below its **account's** `max_store`, and the accounts sum below the store with headroom.
+  ADR-042 is not yet merged (open on #451/#399, with `maxBytesBudgetFraction` landing via
+  [MCAA-362](/MCAA/issues/MCAA-362)), so this is a forward constraint on it rather than a
+  description of `main`: whichever of the two merges second reconciles the arithmetic, and the
+  second tenant cannot be onboarded until it does. Note also that storage limits bound storage
+  only — CPU, connection count and shared-node contention stay shared-server residual risk
 - **D9. The monitoring port is outside the account boundary, and the contract says so rather than
   letting a reader assume otherwise.** `config.monitor` defaults to enabled on port 8222 in chart
   2.15.0, TLS is off, and the v2.15.0 handlers apply no tenant authorization: `/jsz` reports across
