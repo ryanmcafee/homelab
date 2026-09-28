@@ -260,8 +260,11 @@ Steps 1 and 5 are the ones to understand before you run it:
 - A member absent because **you** declared it — the node named by `--node` — is expected. Any
   *other* absence means the cluster is degraded rather than mid-procedure, and the command
   says so in those words and stops.
-- The gate is evaluated at **four** points, and the contract says which predicate applies at
-  each:
+- The contract defines **four** gates and says which predicate applies at each. A run does not
+  pass through all four: it **enters at exactly one** of `preflight` or `resume`, and which one
+  is decided by whether the node you named is still in etcd's own membership — never by a flag
+  you pass. A fresh run is `preflight -> before the removal -> the taint -> completion`; a
+  resumed run is `resume -> completion`.
   - **Step 1, preflight** — before anything is cordoned, drained, removed or destroyed. A
     fresh run requires the cluster to be `whole`: every configured control plane present,
     answering and converged. A cluster that is already short a member is sent here, to this

@@ -332,8 +332,12 @@ func prepareEtcdForRecreate(ctx context.Context, opts etcdPhaseOptions) (*etcdRe
 	members := obs.Members
 	logger.Info(fmt.Sprintf("etcd as observed via %s:\n%s", via, raw))
 
-	target, isMember := etcd.FindMemberByIP(members, opts.nodeIP)
-	if !isMember {
+	entry, err := etcd.SelectEntry(opts.contract, members, opts.nodeIP)
+	if err != nil {
+		return nil, dryRunTolerable(err)
+	}
+	target := entry.Target
+	if !entry.TargetIsMember {
 		// Nothing to remove either way — that is the idempotency guarantee.
 		// But the two reasons a node is not a member need different
 		// endings, so they are told apart here rather than conflated.
@@ -354,7 +358,7 @@ func prepareEtcdForRecreate(ctx context.Context, opts etcdPhaseOptions) (*etcdRe
 		// member add cannot commit, and going ahead destroys a VM to spend
 		// the rejoin timeout failing.
 		out.ExpectWhole = len(opts.cpIPs)
-		if verr := evaluateAt(topology.Resume, opts, obs); verr != nil {
+		if verr := evaluateAt(entry.Point, opts, obs); verr != nil {
 			return nil, dryRunTolerable(verr)
 		}
 		logger.Warn(fmt.Sprintf(
@@ -512,16 +516,18 @@ func preflightEtcd(ctx context.Context, opts etcdPhaseOptions) error {
 	}
 	logger.Info(fmt.Sprintf("etcd as observed via %s:\n%s", via, raw))
 
-	point := topology.Preflight
-	if _, stillAMember := etcd.FindMemberByIP(obs.Members, opts.nodeIP); !stillAMember {
-		point = topology.Resume
+	entry, err := etcd.SelectEntry(opts.contract, obs.Members, opts.nodeIP)
+	if err != nil {
+		return dryRunTolerable(err)
+	}
+	if !entry.TargetIsMember {
 		obs.Declared = []string{opts.nodeIP}
 		logger.Warn(fmt.Sprintf(
 			"%s is a configured control plane with no etcd member: an earlier run removed it and did not finish. "+
 				"Entering at `%s` rather than `%s`.", opts.nodeIP, topology.Resume, topology.Preflight))
 	}
 
-	return dryRunTolerable(evaluateAt(point, opts, obs))
+	return dryRunTolerable(evaluateAt(entry.Point, opts, obs))
 }
 
 // declaredAbsenceSuffix names the absence the predicate accepted, so a passing

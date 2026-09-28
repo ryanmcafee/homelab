@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"gopkg.in/yaml.v3"
+
 	"github.com/ryanmcafee/homelab/contracts"
 )
 
@@ -326,4 +328,161 @@ func TestObservationBoundsArePresent(t *testing.T) {
 	if !c.TransportFailureIsNotMemberFailure {
 		t.Error("transportFailureIsNotMemberFailure is false; a dial failure would be reportable as a degraded cluster")
 	}
+}
+
+// TestEntryRuleIsReadFromTheContract covers the loader half of the
+// exclusive-entry clause (`evaluation.entry`). The clause is additive to v1, so a
+// revision that omits it still loads and the consumer keeps the entry set it
+// implements; what must never load is a revision stating an entry rule this
+// consumer does not implement. Reading `sequential` as `exclusive` would put
+// `whole` at the door of a resumable cluster, which is the defect the clause
+// exists to record.
+func TestEntryRuleIsReadFromTheContract(t *testing.T) {
+	c, err := Load()
+	if err != nil {
+		t.Fatalf("loading the contract: %v", err)
+	}
+
+	if c.EntryPointsAreDeclared() {
+		if c.Entry != EntryExclusive {
+			t.Errorf("evaluation.entry = %q, want %q", c.Entry, EntryExclusive)
+		}
+		if c.EntrySelector != SelectorObservedMembership {
+			t.Errorf("evaluation.entrySelector = %q, want %q", c.EntrySelector, SelectorObservedMembership)
+		}
+		if !c.EntrySelectorIsObserved {
+			t.Error("entrySelectorIsObserved is false, which would permit a caller-asserted entry point")
+		}
+		for _, point := range c.EntryPoints() {
+			if point != Preflight && point != Resume {
+				t.Errorf("evaluation.entryPoints names %q, which this consumer cannot enter at", point)
+			}
+		}
+		// Every enumerated shape must start where a run can start, and must end
+		// at completion: a shape that stops earlier would report success without
+		// the cluster being whole again.
+		for _, s := range c.RunShapes() {
+			if !c.IsEntryPoint(s.Sequence[0]) {
+				t.Errorf("run shape %q starts at %q, which is not an entry point", s.ID, s.Sequence[0])
+			}
+			if last := s.Sequence[len(s.Sequence)-1]; last != Completion {
+				t.Errorf("run shape %q ends at %q rather than %q", s.ID, last, Completion)
+			}
+		}
+	} else {
+		// Pre-#463 revision. The behavioural half of conformance is asserted in
+		// internal/etcd regardless; this branch disappears when the clause lands.
+		t.Logf("this contract revision does not state evaluation.entry yet (ryanmcafee/homelab#463)")
+	}
+}
+
+// TestEntryRuleFailsClosed is the unconditional half: whatever the current
+// revision says, a contract stating an entry semantics, selector or point set
+// this consumer does not implement must refuse to load rather than be read as
+// the rule we do implement.
+func TestEntryRuleFailsClosed(t *testing.T) {
+	tests := []struct {
+		name      string
+		overrides map[string]any
+		want      string
+	}{
+		{
+			name:      "an entry semantics this consumer does not implement",
+			overrides: map[string]any{"entry": "sequential", "entryPoints": []string{"preflight", "resume"}},
+			want:      `implements only "exclusive" entry`,
+		},
+		{
+			name: "a selector that is not the observed membership",
+			overrides: map[string]any{
+				"entry": "exclusive", "entryPoints": []string{"preflight"}, "entrySelector": "caller-asserted",
+			},
+			want: "selects the entry point only by",
+		},
+		{
+			name: "a selector the caller is allowed to assert",
+			overrides: map[string]any{
+				"entry":         "exclusive",
+				"entryPoints":   []string{"preflight", "resume"},
+				"entrySelector": SelectorObservedMembership,
+				// The key that turns the observed selector back into a flag.
+				"entrySelectorIsObserved": false,
+			},
+			want: "`--resume` flag ADR-035 rejected",
+		},
+		{
+			name:      "an entry point evaluation.points does not declare",
+			overrides: map[string]any{"entry": "exclusive", "entryPoints": []string{"preflight", "rollback"}},
+			want:      "evaluation.points does not declare",
+		},
+		{
+			name:      "exclusive entry with nowhere to enter",
+			overrides: map[string]any{"entry": "exclusive", "entryPoints": []string{}},
+			want:      "no run could start anywhere",
+		},
+		{
+			name: "a run shape starting at a point no run may enter at",
+			overrides: map[string]any{
+				"entry":       "exclusive",
+				"entryPoints": []string{"preflight", "resume"},
+				"runShapes": []map[string]any{
+					{"id": "midway", "sequence": []string{"before-destructive-step", "completion"}},
+				},
+			},
+			want: "is not an entry point",
+		},
+		{
+			name: "an entry point the contract marks as reachable only mid-run",
+			overrides: map[string]any{
+				"entry":       "exclusive",
+				"entryPoints": []string{"preflight", "resume"},
+				"points": []map[string]any{
+					{"id": "preflight", "predicate": "whole", "kind": "in-run"},
+					{"id": "resume", "predicate": "survivable", "kind": "entry"},
+					{"id": "completion", "predicate": "whole", "kind": "in-run"},
+				},
+			},
+			want: `declares kind "in-run"`,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := Parse(contractWithEvaluation(t, tc.overrides))
+			if err == nil {
+				t.Fatal("the loader accepted an entry rule it does not implement")
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("error %q does not mention %q", err, tc.want)
+			}
+		})
+	}
+}
+
+// contractWithEvaluation re-emits the real contract with the given keys set
+// under `evaluation`. Going through YAML rather than string replacement keeps
+// these cases working whether or not the current revision already states the
+// entry rule — a textual insert would produce a duplicate key and fail for a
+// reason that has nothing to do with the rule under test.
+func contractWithEvaluation(t *testing.T, overrides map[string]any) []byte {
+	t.Helper()
+	data, err := os.ReadFile(contractPath(t))
+	if err != nil {
+		t.Fatalf("reading the contract: %v", err)
+	}
+	var doc map[string]any
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		t.Fatalf("unmarshalling the contract: %v", err)
+	}
+	evaluation, ok := doc["evaluation"].(map[string]any)
+	if !ok {
+		t.Fatal("the contract has no evaluation block")
+	}
+	for k, v := range overrides {
+		evaluation[k] = v
+	}
+	out, err := yaml.Marshal(doc)
+	if err != nil {
+		t.Fatalf("marshalling the mutated contract: %v", err)
+	}
+	return out
 }

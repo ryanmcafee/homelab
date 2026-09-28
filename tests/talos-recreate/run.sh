@@ -161,7 +161,7 @@ assert_eq   "cp-1 and cp-3 survived" \
 # A resume is not a worker. Finding the member already gone must not switch the
 # recovery wait off: reporting success over a cluster still at 2 of 3 is how a
 # degraded control plane gets signed off as healthy.
-assert_contains "resumes instead of treating the node as a non-member" "$SANDBOX/b.log" \
+assert_contains "enters at resume per evaluation.entry: exclusive, rather than refusing at the door" "$SANDBOX/b.log" \
   "an earlier run removed it and did not finish"
 assert_contains "still waits for etcd to be whole again" "$SANDBOX/b.log" "etcd is whole again"
 assert_eq   "resume ends at three members" "$(members_count)" "3"
@@ -257,6 +257,8 @@ rc=$(recreate "$SANDBOX/i.log" --node=cp-2)
 assert_eq   "exits non-zero" "$rc" "1"
 assert_contains "evaluates the predicate at the resume point" "$SANDBOX/i.log" \
   'does not satisfy `survivable` at resume'
+assert_contains "refuses on absences-are-declared, so exclusive entry relaxes nothing" "$SANDBOX/i.log" \
+  "not a declared target of this operation"
 assert_contains "names the dead survivor" "$SANDBOX/i.log" "192.168.1.13"
 assert_absent "does not destroy the VM first" "$SANDBOX/i.log" "Apply complete"
 assert_eq   "membership untouched" "$(members_count)" "2"

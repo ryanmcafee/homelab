@@ -854,3 +854,135 @@ func TestMemberSetComesFromEtcdNotFromTheConfigSet(t *testing.T) {
 		t.Errorf("reason does not name a member the ConfigSet omitted: %q", v.Reason())
 	}
 }
+
+// enterAndEvaluate runs the whole chain the contract's conformance clause is
+// about: select the entry point from the observed membership, look up the
+// predicate that point maps to, evaluate it. Nothing here chooses a predicate
+// by name, so a consumer that entered at the wrong point fails on the verdict.
+func enterAndEvaluate(t *testing.T, members []Member, statuses []Status, targetIP string) (topology.PointID, Verdict) {
+	t.Helper()
+	c := contractForTest(t)
+	entry, err := SelectEntry(c, members, targetIP)
+	if err != nil {
+		t.Fatalf("selecting the entry point: %v", err)
+	}
+	p, err := c.PredicateAt(entry.Point)
+	if err != nil {
+		t.Fatalf("predicate at %s: %v", entry.Point, err)
+	}
+	return entry.Point, Evaluate(c, p, Observation{
+		Expected:   cp3,
+		Members:    members,
+		Statuses:   statuses,
+		Declared:   []string{targetIP},
+		ObservedAt: time.Now(),
+	})
+}
+
+// TestConformsToExclusiveEntry is the conformance test for the clause
+// contracts/cluster/topology.v1.yaml states as `evaluation.entry: exclusive`:
+// evaluation.points is a set of gates entered at exactly one of preflight or
+// resume, chosen by `entrySelector:
+// declared-target-present-in-observed-membership` — not four gates a run passes
+// through in order. A consumer that implements the points as a pipeline is
+// non-conformant however careful each gate is, because `whole` at the door
+// refuses every resumable cluster before `resume` is ever consulted.
+//
+// The cases are the contract's own worked selection table. Rows 1 and 3 are the
+// two shapes a run can start in; rows 2 and 4 are why exclusive entry relaxes
+// nothing — a stranger's absence is refused whichever point you entered at.
+func TestConformsToExclusiveEntry(t *testing.T) {
+	target := cp3[1]
+
+	t.Run("target present enters at preflight and proceeds", func(t *testing.T) {
+		point, v := enterAndEvaluate(t, membersAt(cp3...), statusAt(cp3...), target)
+		if point != topology.Preflight {
+			t.Fatalf("entered at %q, want %q: the target is still a member, so this is a fresh run", point, topology.Preflight)
+		}
+		if !v.OK {
+			t.Fatalf("a whole cluster was refused at the door: %v", v.Problems)
+		}
+	})
+
+	t.Run("target present alongside another absence refuses", func(t *testing.T) {
+		// cp-3 has died. Nothing about entering at preflight excuses it.
+		point, v := enterAndEvaluate(t, membersAt(cp3...), statusAt(cp3[0], cp3[1]), target)
+		if point != topology.Preflight {
+			t.Fatalf("entered at %q, want %q", point, topology.Preflight)
+		}
+		if v.OK {
+			t.Fatal("a run was allowed to start on a cluster that was already a member short")
+		}
+		if !strings.Contains(v.Reason(), cp3[2]) {
+			t.Errorf("reason does not name the member that did not answer: %q", v.Reason())
+		}
+	})
+
+	// The case whose absence was the original defect. A crashed recreate leaves
+	// the target already removed, so the cluster is one member short by
+	// construction. Under a sequential reading `whole` refuses here and the
+	// operator's only way forward is to bypass the guard.
+	t.Run("target already absent resumes rather than refuses", func(t *testing.T) {
+		surviving := []string{cp3[0], cp3[2]}
+		point, v := enterAndEvaluate(t, membersAt(surviving...), statusAt(surviving...), target)
+		if point != topology.Resume {
+			t.Fatalf("entered at %q, want %q: the declared target is absent from etcd's membership", point, topology.Resume)
+		}
+		if !v.OK {
+			t.Fatalf("the resume path was refused, so a legitimate recovery cannot finish: %v", v.Problems)
+		}
+
+		// The pipeline reading, shown failing on the same observation. This is
+		// what makes the assertion above conformance rather than a tautology:
+		// the entry selection is the only thing standing between a resumable
+		// cluster and a refusal.
+		c := contractForTest(t)
+		atDoor, err := c.PredicateAt(topology.Preflight)
+		if err != nil {
+			t.Fatalf("predicate at preflight: %v", err)
+		}
+		if seq := Evaluate(c, atDoor, Observation{
+			Expected: cp3, Members: membersAt(surviving...), Statuses: statusAt(surviving...),
+			Declared: []string{target}, ObservedAt: time.Now(),
+		}); seq.OK {
+			t.Fatal("`whole` accepted a cluster one member short, so this case no longer proves entry is exclusive")
+		}
+	})
+
+	t.Run("target absent alongside an undeclared absence refuses", func(t *testing.T) {
+		// cp-2's member is gone and declared; cp-3 has died since the crash.
+		point, v := enterAndEvaluate(t, membersAt(cp3[0], cp3[2]), statusAt(cp3[0]), target)
+		if point != topology.Resume {
+			t.Fatalf("entered at %q, want %q", point, topology.Resume)
+		}
+		if v.OK {
+			t.Fatal("the resume path consented to a cluster with a failure the operator has not seen yet")
+		}
+		if !containsString(v.Undeclared, cp3[2]) {
+			t.Errorf("Undeclared = %v, want it to name %s: `absences-are-declared` is what bounds the relaxation",
+				v.Undeclared, cp3[2])
+		}
+		if !strings.Contains(v.Reason(), "degraded, not mid-procedure") {
+			t.Errorf("reason does not distinguish a degraded cluster from a procedure in flight: %q", v.Reason())
+		}
+	})
+
+	// A run that entered nowhere, or at an `in-run` point, would skip the gate
+	// at the door entirely, so the selector must only ever return a point the
+	// contract lists as an entry.
+	t.Run("the selected point is one the contract permits entering at", func(t *testing.T) {
+		c := contractForTest(t)
+		if !c.EntryPointsAreDeclared() {
+			t.Skip("this contract revision does not state evaluation.entryPoints yet (ryanmcafee/homelab#463)")
+		}
+		for _, members := range [][]Member{membersAt(cp3...), membersAt(cp3[0], cp3[2])} {
+			entry, err := SelectEntry(c, members, target)
+			if err != nil {
+				t.Fatalf("selecting the entry point: %v", err)
+			}
+			if !c.IsEntryPoint(entry.Point) {
+				t.Errorf("selected %q, which evaluation.entryPoints does not list (%v)", entry.Point, c.EntryPoints())
+			}
+		}
+	})
+}

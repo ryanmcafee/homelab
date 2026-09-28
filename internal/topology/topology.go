@@ -73,6 +73,24 @@ const (
 	Completion            PointID = "completion"
 )
 
+// Entry semantics and selector values this consumer implements. A contract
+// declaring anything else refuses to load: reading a different entry rule as
+// this one is how a guard ends up evaluating the door's predicate mid-procedure.
+const (
+	EntryExclusive = "exclusive"
+	// SelectorObservedMembership is the only selector this consumer implements —
+	// the entry point comes from whether the declared target is in etcd's own
+	// membership, never from a flag or a state file (ADR-035 rejected `--resume`).
+	SelectorObservedMembership = "declared-target-present-in-observed-membership"
+)
+
+// Point kinds. An `entry` point is where a run may start; an `in-run` point is
+// reached only from one.
+const (
+	KindEntry = "entry"
+	KindInRun = "in-run"
+)
+
 // Predicate is one named predicate and the conditions it composes.
 type Predicate struct {
 	ID            PredicateID
@@ -122,9 +140,31 @@ type Contract struct {
 	// member(s) answered".
 	TransportFailureIsNotMemberFailure bool
 
+	// Entry, EntrySelector and EntrySelectorIsObserved carry the rule that
+	// evaluation.points is a set of gates with exclusive entry rather than a
+	// pipeline: a run enters at exactly one point, chosen from the observed
+	// membership. Empty on a contract revision that predates the clause; a
+	// declared value this consumer does not implement refuses to load.
+	Entry                   string
+	EntrySelector           string
+	EntrySelectorIsObserved bool
+
 	quorumTable []quorumRow
 	predicates  map[PredicateID]Predicate
 	points      map[PointID]PredicateID
+	pointKinds  map[PointID]string
+	entryPoints []PointID
+	runShapes   []RunShape
+}
+
+// RunShape is one whole path through the evaluation points: where a run of that
+// shape enters and which points it reaches. The conformance test holds the
+// implementation's entry selection against `sequence[0]`, which is what a
+// pipeline implementation fails.
+type RunShape struct {
+	ID       string
+	When     string
+	Sequence []PointID
 }
 
 type quorumRow struct {
@@ -186,6 +226,40 @@ func (c *Contract) Points() []PointID {
 		out = append(out, p)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
+	return out
+}
+
+// EntryPoints returns the points a run may enter at, in contract order. Empty
+// means the contract revision does not state the rule; callers hold the
+// implemented entry set instead, and Parse has already refused any revision
+// that states a rule this consumer does not implement.
+func (c *Contract) EntryPoints() []PointID {
+	return append([]PointID(nil), c.entryPoints...)
+}
+
+// EntryPointsAreDeclared reports whether the contract states the entry rule.
+func (c *Contract) EntryPointsAreDeclared() bool {
+	return len(c.entryPoints) > 0
+}
+
+// IsEntryPoint reports whether a run may enter at this point. An `in-run` point
+// is reachable only from an entry point; entering there would skip the gate at
+// the door.
+func (c *Contract) IsEntryPoint(point PointID) bool {
+	for _, p := range c.entryPoints {
+		if p == point {
+			return true
+		}
+	}
+	return false
+}
+
+// RunShapes returns the contract's enumerated whole paths.
+func (c *Contract) RunShapes() []RunShape {
+	out := make([]RunShape, 0, len(c.runShapes))
+	for _, s := range c.runShapes {
+		out = append(out, RunShape{ID: s.ID, When: s.When, Sequence: append([]PointID(nil), s.Sequence...)})
+	}
 	return out
 }
 
@@ -270,7 +344,17 @@ type raw struct {
 		Points                             []struct {
 			ID        PointID     `yaml:"id"`
 			Predicate PredicateID `yaml:"predicate"`
+			Kind      string      `yaml:"kind"`
 		} `yaml:"points"`
+		Entry                   string    `yaml:"entry"`
+		EntryPoints             []PointID `yaml:"entryPoints"`
+		EntrySelector           string    `yaml:"entrySelector"`
+		EntrySelectorIsObserved bool      `yaml:"entrySelectorIsObserved"`
+		RunShapes               []struct {
+			ID       string    `yaml:"id"`
+			When     string    `yaml:"when"`
+			Sequence []PointID `yaml:"sequence"`
+		} `yaml:"runShapes"`
 	} `yaml:"evaluation"`
 }
 
@@ -295,9 +379,13 @@ func Parse(data []byte) (*Contract, error) {
 		MaxObservationAge:                  time.Duration(r.Evaluation.MaxObservationAgeSeconds) * time.Second,
 		ObservationDeadline:                time.Duration(r.Evaluation.ObservationDeadlineSeconds) * time.Second,
 		TransportFailureIsNotMemberFailure: r.Evaluation.TransportFailureIsNotMemberFailure,
+		Entry:                              r.Evaluation.Entry,
+		EntrySelector:                      r.Evaluation.EntrySelector,
+		EntrySelectorIsObserved:            r.Evaluation.EntrySelectorIsObserved,
 		quorumTable:                        r.Quorum.Table,
 		predicates:                         map[PredicateID]Predicate{},
 		points:                             map[PointID]PredicateID{},
+		pointKinds:                         map[PointID]string{},
 	}
 
 	if err := requirePositive("health.raftIndexTolerance", c.RaftIndexTolerance >= 0); err != nil {
@@ -365,12 +453,91 @@ func Parse(data []byte) (*Contract, error) {
 			return nil, fmt.Errorf("evaluation point %q names undefined predicate %q", pt.ID, pt.Predicate)
 		}
 		c.points[pt.ID] = pt.Predicate
+		if pt.Kind != "" {
+			if pt.Kind != KindEntry && pt.Kind != KindInRun {
+				return nil, fmt.Errorf(
+					"evaluation point %q declares kind %q, which is neither %q nor %q", pt.ID, pt.Kind, KindEntry, KindInRun)
+			}
+			c.pointKinds[pt.ID] = pt.Kind
+		}
 	}
 	if len(c.points) == 0 {
 		return nil, fmt.Errorf("evaluation.points is empty: no gate would be placed anywhere")
 	}
 
+	if err := c.parseEntryRule(r); err != nil {
+		return nil, err
+	}
+
 	return c, nil
+}
+
+// parseEntryRule validates the exclusive-entry clause. The clause is additive to
+// v1, so a revision that omits it loads; a revision that states an entry
+// semantics or selector this consumer does not implement does not. Reading an
+// unknown rule as the one we implement is how a consumer ends up evaluating the
+// door's predicate mid-procedure, which is the defect the clause records.
+func (c *Contract) parseEntryRule(r raw) error {
+	if c.Entry != "" && c.Entry != EntryExclusive {
+		return fmt.Errorf(
+			"evaluation.entry is %q; this consumer implements only %q entry and will not read a different rule as that one",
+			c.Entry, EntryExclusive)
+	}
+	if c.EntrySelector != "" && c.EntrySelector != SelectorObservedMembership {
+		return fmt.Errorf(
+			"evaluation.entrySelector is %q; this consumer selects the entry point only by %q",
+			c.EntrySelector, SelectorObservedMembership)
+	}
+	if c.EntrySelector != "" && !c.EntrySelectorIsObserved {
+		return fmt.Errorf(
+			"evaluation.entrySelectorIsObserved is false: a caller-asserted entry point is the `--resume` flag ADR-035 " +
+				"rejected, because asserting `resume` is how `survivable` ends up at the door")
+	}
+
+	kindEntry := map[PointID]bool{}
+	for point, kind := range c.pointKinds {
+		if kind == KindEntry {
+			kindEntry[point] = true
+		}
+	}
+
+	for _, point := range r.Evaluation.EntryPoints {
+		if _, ok := c.points[point]; !ok {
+			return fmt.Errorf("evaluation.entryPoints names %q, which evaluation.points does not declare", point)
+		}
+		if len(kindEntry) > 0 && !kindEntry[point] {
+			return fmt.Errorf("evaluation.entryPoints names %q but that point declares kind %q",
+				point, c.pointKinds[point])
+		}
+		c.entryPoints = append(c.entryPoints, point)
+	}
+	for point := range kindEntry {
+		if len(c.entryPoints) > 0 && !c.IsEntryPoint(point) {
+			return fmt.Errorf("evaluation point %q declares kind %q but evaluation.entryPoints omits it",
+				point, KindEntry)
+		}
+	}
+	if c.Entry != "" && len(c.entryPoints) == 0 {
+		return fmt.Errorf("evaluation.entry is %q but evaluation.entryPoints is empty: no run could start anywhere",
+			c.Entry)
+	}
+
+	for _, s := range r.Evaluation.RunShapes {
+		if len(s.Sequence) == 0 {
+			return fmt.Errorf("run shape %q has an empty sequence", s.ID)
+		}
+		for _, point := range s.Sequence {
+			if _, ok := c.points[point]; !ok {
+				return fmt.Errorf("run shape %q names point %q, which evaluation.points does not declare", s.ID, point)
+			}
+		}
+		if len(c.entryPoints) > 0 && !c.IsEntryPoint(s.Sequence[0]) {
+			return fmt.Errorf("run shape %q starts at %q, which is not an entry point", s.ID, s.Sequence[0])
+		}
+		c.runShapes = append(c.runShapes, RunShape{ID: s.ID, When: strings.TrimSpace(s.When), Sequence: s.Sequence})
+	}
+
+	return nil
 }
 
 func requirePositive(field string, ok bool) error {

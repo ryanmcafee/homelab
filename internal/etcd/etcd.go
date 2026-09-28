@@ -633,6 +633,44 @@ func FindMemberByIP(members []Member, ip string) (Member, bool) {
 	return Member{}, false
 }
 
+// Entry is where one destructive operation starts: the evaluation point, and
+// the etcd member backing the declared target when there still is one.
+type Entry struct {
+	Point  topology.PointID
+	Target Member
+	// TargetIsMember is what the selector actually looked at. It is also the
+	// idempotency answer: a target that is not a member has nothing to remove.
+	TargetIsMember bool
+}
+
+// SelectEntry applies the contract's entry rule: a run enters at exactly one
+// point, and which one is decided by whether the declared target is present in
+// etcd's own membership. Nothing else may decide it — a caller-asserted entry
+// point is the `--resume` flag ADR-035 rejected, because asserting `resume` is
+// how `survivable` ends up being the gate at the door.
+//
+// Exclusive entry is not a relaxation. A target still present enters at
+// preflight and `whole` refuses if any other member is absent; a target already
+// absent enters at resume and `survivable` refuses if any other member is absent
+// too. The absence of a stranger is refused either way; what changes is only
+// whether the target's own absence is allowed to explain itself.
+func SelectEntry(c *topology.Contract, members []Member, targetIP string) (Entry, error) {
+	target, isMember := FindMemberByIP(members, targetIP)
+	e := Entry{Point: topology.Preflight, Target: target, TargetIsMember: isMember}
+	if !isMember {
+		e.Point = topology.Resume
+	}
+	if c.EntryPointsAreDeclared() && !c.IsEntryPoint(e.Point) {
+		return Entry{}, fmt.Errorf(
+			"this consumer would enter at %q, which contracts/cluster/topology.v1.yaml does not list in "+
+				"evaluation.entryPoints (%v)", e.Point, c.EntryPoints())
+	}
+	if _, err := c.PredicateAt(e.Point); err != nil {
+		return Entry{}, err
+	}
+	return e, nil
+}
+
 // urlHost returns the host of a peer/client URL, tolerating a bare host:port.
 func urlHost(raw string) string {
 	if u, err := url.Parse(raw); err == nil && u.Host != "" {
