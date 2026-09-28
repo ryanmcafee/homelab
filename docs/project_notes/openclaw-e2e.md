@@ -12,3 +12,8 @@ assertion to separately authorized post-merge verification.
 
 Source branch: test/mcaa-291-openclaw-e2e, based on PR #434 head cd6df36.
 No local Kind run is attempted on the agent runner without a container runtime.
+
+Adding a discovered suite also requires `bun scripts/docs-check.ts --fix` to refresh the
+application inventory and README counts, plus updating `.github/homelab.svg` suite count by hand.
+PR #504 CI run 36487720200 caught these stale entries at `task docs:check`; level-0 verification
+alone does not include that documentation check. This is a documentation failure, not live evidence.
