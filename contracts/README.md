@@ -22,12 +22,24 @@ take a new major version. See `docs/contracts/event-contract.md` for the reasoni
 `task test:scripts`), which asserts the contract is internally consistent — the worked quorum
 table matches the stated formula, every permitted topology has a row, every condition is reached
 by a predicate, `survivable` relaxes `whole` in exactly one way, every run shape enters at exactly
-one entry point and ends whole, and both declared consumers exist. Each consumer additionally
-carries its own conformance test asserting that its implementation computes the numbers this file
-pins **and enters at the point the observed membership selects**; that is what keeps a Go
-implementation and a TypeScript one from drifting into two different safety rules. `evaluation.points`
-is a set of gates with exclusive entry, not a pipeline — a consumer that runs all four in order
-refuses every legitimate resume (ADR-035, MCAA-404 ruling).
+one entry point and ends whole, that the two senses of a missing member are defined once and each
+has a condition that sees it, and that both declared consumers exist. `evaluation.points` is a set
+of gates with exclusive entry, not a pipeline — a consumer that runs all four in order refuses
+every legitimate resume (ADR-035, MCAA-404 ruling).
+
+Conformance beyond that is per consumer, and the two are not at the same level today:
+
+- **`homelab-cli` (Go) is conformant.** `internal/etcd` and `internal/topology` compute the quorum
+  numbers from this file, select the entry point from the observed membership, and carry
+  `TestConformsToExclusiveEntry`, `TestEntryRuleIsReadFromTheContract`, `TestEntryRuleFailsClosed`
+  and `TestResumeRefusesASecondUnrepresentedAddress`. Its loader also refuses any contract naming a
+  `health.conditions` entry it does not implement, so adding a condition here is a coordinated
+  change across both, not an additive edit to this file.
+- **`cp-storage-migrate` (TypeScript) is not.** Its only assertion against this file is that
+  `CP_KEY_PATTERN` is `controlPlane.countKeyPattern`; `etcdHealth` predates the contract and reads
+  neither `health.predicates` nor `evaluation.points`. The entry clause binds consumers that run the
+  destructive removal procedure, which this one does not, but the quorum and predicate clauses bind
+  it and are unenforced. Tracked as a gap, not claimed as coverage.
 
 **`cluster/` and `status/` have no compatibility gate, and the section below does not apply to
 them yet.** `scripts/contract-check.ts` hard-codes `CONTRACTS_DIR = "contracts/events"` (L485), so

@@ -55,6 +55,7 @@ interface TopologyContract {
   };
   health: {
     conditions: { id: string; rule: string }[];
+    vocabulary: { absent: string; unrepresented: string; whyItMatters: string };
     raftIndexTolerance: number;
     predicates: {
       id: string;
@@ -76,7 +77,13 @@ interface TopologyContract {
     entrySelectorIsObserved: boolean;
     runShapes: { id: string; when: string; sequence: string[] }[];
   };
-  consumers: { id: string; language: string; path: string; role: string }[];
+  consumers: {
+    id: string;
+    language: string;
+    path: string;
+    role: string;
+    conformant: string;
+  }[];
 }
 
 const contract = parseYaml(
@@ -163,12 +170,87 @@ test("the health conditions keep everything the TypeScript gate enforced", () =>
   assertEquals(ids, [
     "absences-are-declared",
     "member-count",
+    "membership-accounts-for-expected",
     "no-errors",
     "no-learners",
     "quorum-present",
     "raft-index-converged",
     "single-leader",
   ]);
+});
+
+test("a missing member's two senses are defined once, and each has a condition that sees it", () => {
+  // MCAA-407: the contract used "absent" for two different observations — a member in
+  // the member list that did not answer, and a configured address with no member at
+  // all. Only the first is an "expected member", so only the first is visible to
+  // absences-are-declared. A reader who collapsed them would believe one condition
+  // covered both, which is exactly how the resumed shape came to have no backstop.
+  const vocab = contract.health.vocabulary;
+  assert(vocab !== undefined, "health.vocabulary must define the two senses");
+  assert(
+    /did not answer/i.test(vocab.absent),
+    "vocabulary.absent must mean a member of the membership that did not answer",
+  );
+  assert(
+    /member in etcd's membership at all/i.test(vocab.unrepresented),
+    "vocabulary.unrepresented must mean no member in the membership at all",
+  );
+  const byId = new Map(contract.health.predicates.map((p) => [p.id, p]));
+  const survivable = new Set(byId.get("survivable")!.conditions);
+  assert(
+    survivable.has("absences-are-declared"),
+    "survivable must enforce absences-are-declared to see the in-membership sense",
+  );
+  assert(
+    survivable.has("membership-accounts-for-expected"),
+    "survivable must enforce membership-accounts-for-expected to see the unrepresented sense",
+  );
+});
+
+test("the resumed shape can see a second unrepresented address without member-count", () => {
+  // The hole exclusive entry opened, closed. The resumed shape never evaluates `whole`
+  // before the destructive work, so `member-count` — the only condition comparing
+  // membership size against the derived count — is out of reach. On 5 or 7 members the
+  // quorum arithmetic does not close the gap: with one undeclared address already out
+  // of the membership, 3 answered >= quorum 3 and 0 non-answering members <=
+  // maxUnavailable 2, so `survivable` consented to wiping a node on a control plane
+  // that was never whole.
+  const resumed = contract.evaluation.runShapes.find((s) => s.id === "resumed")!;
+  const predicateAt = (id: string) =>
+    contract.evaluation.points.find((p) => p.id === id)!.predicate;
+  const byId = new Map(contract.health.predicates.map((p) => [p.id, p]));
+
+  const beforeCompletion = resumed.sequence.slice(
+    0,
+    resumed.sequence.indexOf("completion"),
+  );
+  assert(
+    beforeCompletion.length > 0,
+    "the resumed shape must gate on something before completion",
+  );
+  for (const point of beforeCompletion) {
+    const conditions = new Set(byId.get(predicateAt(point))!.conditions);
+    assert(
+      conditions.has("membership-accounts-for-expected") ||
+        conditions.has("member-count"),
+      `the resumed shape gates at ${point} with ${predicateAt(point)}, which compares nothing against the derived count: an undeclared unrepresented address is invisible there`,
+    );
+  }
+
+  // Scoped to the NORMATIVE SENTENCE, not to the rule text as a whole. A token search
+  // over the whole rule is satisfied by the explanatory prose that follows it, so the
+  // sentence stating the arithmetic could drop the defined vocabulary word and still
+  // pass — the same substring weakness this suite had at `entrySelector`.
+  const rule = contract.health.conditions.find(
+    (c) => c.id === "membership-accounts-for-expected",
+  )!.rule;
+  const normative = rule.split(/(?<=\.)\s/)[0];
+  for (const token of ["derived", "unrepresented", "declared"]) {
+    assert(
+      normative.includes(token),
+      `membership-accounts-for-expected states its arithmetic as "${normative}", which never says "${token}": it must compare the membership plus DECLARED UNREPRESENTED targets against the DERIVED count, in the vocabulary the contract defines`,
+    );
+  }
 });
 
 test("every condition is reachable from a predicate, and every predicate names defined conditions", () => {
@@ -318,9 +400,12 @@ test("the entry point is chosen from the observed membership, never asserted by 
     contract.evaluation.entrySelectorIsObserved,
     "an entry point the caller may assert reintroduces the --resume flag ADR-035 rejected",
   );
-  assert(
-    /observed|membership/i.test(contract.evaluation.entrySelector),
-    `entrySelector ${contract.evaluation.entrySelector} does not name an observation`,
+  // Asserted as a value, not matched as a substring. A /observed|membership/i test is
+  // satisfied by `caller-asserted-membership-mode`, which announces the rejected design
+  // in its own name and still passed (MCAA-407). The selector is a closed set of one.
+  assertEquals(
+    contract.evaluation.entrySelector,
+    "declared-target-present-in-observed-membership",
   );
 });
 
@@ -439,6 +524,25 @@ test("both declared consumers still exist at the paths the contract names", () =
       `consumer ${consumer.id} names ${consumer.path}, which does not exist`,
     );
   }
+});
+
+test("every consumer states how far its conformance actually goes", () => {
+  // A contract that lists a consumer reads as a contract that binds one. It binds
+  // homelab-cli, whose loader refuses a condition it does not implement; it does not
+  // bind cp-storage-migrate, whose only assertion against this file is the key pattern.
+  // Naming the level as data means the gap is reportable instead of being carried in
+  // prose that drifts, and a new consumer cannot be added without declaring one.
+  const levels = ["full", "count-key-pattern-only"];
+  for (const consumer of contract.consumers) {
+    assert(
+      levels.includes(consumer.conformant),
+      `consumer ${consumer.id} declares conformant: ${consumer.conformant ?? "(nothing)"}, which is not one of ${levels.join(", ")}`,
+    );
+  }
+  assert(
+    contract.consumers.some((c) => c.conformant === "full"),
+    "no consumer is fully conformant, so nothing holds this contract to its own clauses",
+  );
 });
 
 test("no consumer restates a contract value as a literal constant", () => {
