@@ -1,0 +1,21 @@
+# Test-only overlay for `task test:alerts`, layered over values-localdev.yaml.
+#
+# Some alert groups render only where the operator owns the hardware they watch,
+# so in an ordinary localdev render they do not exist and promtool cannot see
+# them. Turning the rule groups on here - and only the rule groups, never the
+# Applications - puts those expressions in front of `promtool check rules` and
+# the unit tests without changing what any environment deploys.
+#
+# Nothing in this file reaches a cluster. It is passed with -f only by the
+# test:alerts task.
+
+ecowitt-exporter:
+  # The exporter Application stays off: Kind has no weather gateway to push to
+  # it, and syncing it would make the level 2 loop depend on reaching
+  # djjudas21.github.io for a pod that would then report no data.
+  enabled: false
+  rules:
+    enabled: true
+  # Exercises the EcowittSensorMissing branch, which only renders for a declared
+  # sensor. tests/alerts/ecowitt-iot.test.yaml asserts on this name.
+  expectedSensors: "soilmoisture1"

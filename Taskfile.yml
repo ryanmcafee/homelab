@@ -864,11 +864,17 @@ tasks:
       # copied into tests/, so a test can never assert about an expression that
       # is not deployed. promtool check rules covers every group; the unit tests
       # in tests/alerts cover the ones whose thresholds carry a decision.
+      #
+      # values-rules-on.yaml turns on the rule groups that render only where the
+      # operator owns the matching hardware, so they are covered here without
+      # any environment deploying them.
       - |
         set -euo pipefail
         out="$(mktemp -d)"
         trap 'rm -rf "$out"' EXIT
-        helm template addons charts/addons -f charts/addons/values-localdev.yaml \
+        helm template addons charts/addons \
+          -f charts/addons/values-localdev.yaml \
+          -f tests/alerts/values-rules-on.yaml \
           | yq -r 'select(.kind=="Application" and .metadata.name=="kube-prometheus-stack") | .spec.source.helm.values' \
           | yq -r '{"groups": [.additionalPrometheusRulesMap[].groups[]]}' > "$out/rules.yaml"
         promtool check rules "$out/rules.yaml"

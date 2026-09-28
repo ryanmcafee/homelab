@@ -1959,6 +1959,50 @@ github-pr-exporter:
       url: "https://api.github.com/search/issues?q={{ urlquery (printf "%s user:%s review-requested:%s %s" .Values.GITHUB_PR_ALERTS_QUERY_REQUESTED.Value .GitOps.Owner .GitOps.Owner $prExclude) }}&per_page=100"
 
 # ============================================================================
+# Ecowitt weather and soil sensors (templates/ecowitt-exporter.yaml)
+# Sync Wave: 10 (docs/runbooks/iot-sensors.md)
+# ============================================================================
+
+{{- $ecowitt := eq .Values.ECOWITT_ENABLED.Value "true" }}
+
+ecowitt-exporter:
+  enabled: {{ $ecowitt }}
+  namespace: monitoring
+  chart:
+    name: ecowitt-exporter
+    repo: https://djjudas21.github.io/charts
+    version: "{{ index .Versions.Charts "ecowitt-exporter" }}"
+  scrapeInterval: {{ .Values.ECOWITT_SCRAPE_INTERVAL.Value }}
+  # Sensors that must always be reporting, comma-separated. Only these get
+  # EcowittSensorMissing, the one rule that covers a probe already offline when
+  # the exporter started. Split in the chart: this template is plain
+  # text/template with no splitList.
+  expectedSensors: "{{ with .Values.ECOWITT_EXPECTED_SENSORS }}{{ .Value }}{{ end }}"
+  rules:
+    enabled: {{ $ecowitt }}
+  # Ingest endpoint on the internal Gateway: the weather gateway POSTs here.
+  route:
+    enabled: {{ $ecowitt }}
+    host: "{{ .Values.ECOWITT_HOSTNAME.Value }}"
+    gateway:
+      name: envoy-internal
+      namespace: envoy-gateway-system
+      sectionName: https
+  units:
+    temperature: c
+    pressure: hpa
+    wind: kmh
+    rain: mm
+    irradiance: wm2
+    distance: km
+    aqiStandard: uk
+  thresholds:
+    gatewayStaleSeconds: {{ .Values.ECOWITT_GATEWAY_STALE_SECONDS.Value }}
+    sensorStaleSeconds: {{ .Values.ECOWITT_SENSOR_STALE_SECONDS.Value }}
+    batteryVoltageMin: {{ .Values.ECOWITT_BATTERY_VOLTAGE_MIN.Value }}
+    soilMoistureMinPercent: {{ .Values.ECOWITT_SOIL_MOISTURE_MIN_PERCENT.Value }}
+
+# ============================================================================
 # Alert triage agent (templates/triage-agent.yaml, charts/triage-agent)
 # Sync Wave: 13 (docs/runbooks/triage-agent.md)
 # ============================================================================
