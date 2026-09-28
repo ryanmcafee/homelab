@@ -60,3 +60,25 @@ A release report must link the PR head SHA, `kind-argocd` run and job, state eve
 PASS/FAIL/unobserved outcome, and retain the authentication and SSA gaps above. A schema/lint pass
 is not a live verdict. If bootstrap fails before Chainsaw, report that named job/step failure and
 mark these assertions unobserved; never infer their results from chart rendering.
+
+## Subprocess kubeconfig
+
+Chainsaw 0.2.15 supplies scripts with a temporary kubeconfig whose only context is
+`chainsaw`, even when the outer command selects `kind-homelab-localdev`. Passing the
+original context to that file fails before any API request. The script therefore
+runs `kind get kubeconfig --name homelab-localdev` once per invocation, stores its
+output in a private temporary directory (file mode 0600), and pins both that file
+and `--context kind-homelab-localdev` on every kubectl call, including impersonation.
+The file is removed on normal success/failure; an abrupt process kill may leave it
+until the CI runner's temporary storage is discarded. The `chainsaw` alias and the
+host's current context are never accepted as substitutes. Docker-backed Kind is
+required, as for the enclosing e2e suite; missing Kind fails the test.
+
+Failures report fixed error classes and operation/resource labels. Raw command
+arguments, stdout and stderr remain suppressed because they can contain credentials.
+`bun test scripts/openclaw-e2e-command_test.ts` reproduces the original error with
+real kubectl and a credential-free fixture, then proves context selection, alias
+rejection, restricted file permissions, cleanup and suppressed diagnostics. It uses
+no cluster, container runtime, or real credential. Added runtime is one local Kind
+kubeconfig lookup and one config-only kubectl check per script invocation; actual
+full-suite runtime must be measured in CI.

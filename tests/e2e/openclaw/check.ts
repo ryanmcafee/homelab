@@ -2,9 +2,16 @@
 import { loadAll } from "js-yaml";
 import { existsSync, unlinkSync } from "node:fs";
 
+import {
+  kindKubeconfig,
+  openclawContext,
+  safeCommand,
+} from "../../../scripts/lib/openclaw-e2e-command.ts";
+
 // Kubernetes objects have different shapes; keep untrusted output inside this test runner.
 type Obj = Record<string, any>;
-const context = "kind-homelab-localdev";
+const context = openclawContext;
+let kube: ReturnType<typeof kindKubeconfig>;
 const ns = "openclaw";
 const resource = "openclawinstances.openclaw.rocks";
 const stateFile = new URL(".restore.json", import.meta.url).pathname;
@@ -16,22 +23,21 @@ function check(ok: unknown, label: string): asserts ok {
   console.log(`PASS ${label}`);
 }
 function command(args: string[], input?: string): string {
-  const result = Bun.spawnSync(args, {
-    cwd: root,
-    stdin: input === undefined ? undefined : Buffer.from(input),
-  });
-  // stderr can include a rejected resource with credential data; never echo it.
-  if (result.exitCode !== 0)
-    throw new Error(
-      `command ${args[0]} ${args[1]} failed (exit ${result.exitCode}; output suppressed)`,
-    );
-  return result.stdout.toString();
+  return safeCommand(args, root, input);
 }
 function k(args: string[], input?: string): string {
-  return command(
-    ["kubectl", "--context", context, "--request-timeout=30s", ...args],
-    input,
-  );
+  try {
+    return command([...kube.args, ...args], input);
+  } catch (error) {
+    // Operation/resource only; never include names, patch bodies or exec arguments.
+    const operation = args[0];
+    const resource = operation === "get" || operation === "patch" ? args[1] : "";
+    if (error instanceof Error && error.message.startsWith("command "))
+      throw new Error(
+        error.message + `; operation=${operation} resource=${resource}`,
+      );
+    throw error;
+  }
 }
 function get(kind: string, name?: string, namespace = ns): Obj {
   return JSON.parse(
@@ -264,10 +270,7 @@ async function security(): Promise<void> {
     ["default", "no", 1],
   ] as const) {
     const args = [
-      "kubectl",
-      "--context",
-      context,
-      "--request-timeout=30s",
+      ...kube.args,
       "auth",
       "can-i",
       "get",
@@ -576,6 +579,7 @@ async function mutations(): Promise<void> {
   );
 }
 try {
+  kube = kindKubeconfig(root);
   const mode = process.argv[2];
   if (mode === "baseline") await baseline();
   else if (mode === "security") await security();
@@ -591,4 +595,6 @@ try {
       : "FAIL unexpected error (details suppressed)",
   );
   process.exitCode = 1;
+} finally {
+  kube?.cleanup();
 }
