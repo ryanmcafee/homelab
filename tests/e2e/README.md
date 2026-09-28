@@ -35,6 +35,7 @@ task verify LEVEL=2                      # runs the same suite, reports e2e/<nam
 | `service-mesh/` | Applications `istio-base`, `istiod`, `istio-cni`, `ztunnel`, `istio-config`, `kiali` Healthy/Succeeded; `ztunnel` and `istio-cni-node` ready on every node; namespace `paperclip` enrolled with a Programmed `waypoint` Gateway; the Kiali HTTPRoute is Accepted and `curl-kiali` gets 200 from `servicemesh.homelab.local/healthz` |
 | `cilium-netpol/` | default-deny NetworkPolicy blocks a curl Job, an allow policy lets one through |
 | `agent-readonly/` | Application Healthy, token Secret populated; `kubectl auth can-i` as ServiceAccount `agent-access/agent-readonly` and as Group `homelab:agent-readonly`: reads yes, Secrets and every write no |
+| `argo-rollouts/` | Applications `argo-rollouts`, `argo-rollouts-config` Healthy/Succeeded and the shipped `Rollout/paperclip-exporter` wired to the `canary-http-health` ClusterAnalysisTemplate; a fixture Rollout in the test namespace is promoted after a `Successful` AnalysisRun, then a revision whose pods are Ready but silent on the Service port is aborted by a `Failed` AnalysisRun and the stable Service still answers 200 |
 
 ## How the HTTP tests reach an app
 

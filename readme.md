@@ -34,7 +34,7 @@ task localdev:down      # delete the cluster; the registry caches stay
 ```
 
 ArgoCD is on http://localhost:8080 (`admin`, password in `argocd-initial-admin-secret`; on macOS run
-`task localdev:ui` first). `task verify LEVEL=2` runs the 20 chainsaw suites against it.
+`task localdev:ui` first). `task verify LEVEL=2` runs the 21 chainsaw suites against it.
 
 ## Boot it on real hardware
 
@@ -72,7 +72,7 @@ Gateway and test coverage per app is generated in [`docs/applications.md`](docs/
 
 ## Guardrails
 
-- Every PR: level 0 (render, schema, policy, golden snapshots) in seconds, then the Kind loop with 20 chainsaw suites; label `preview` and the PR gets its own namespace in production.
+- Every PR: level 0 (render, schema, policy, golden snapshots) in seconds, then the Kind loop with 21 chainsaw suites; label `preview` and the PR gets its own namespace in production.
 - Renovate automerges non-major bumps only when the upstream chart diff passes the same gates (ADR-014).
 - `task config:guard` blocks real IPs, hostnames and e-mail addresses from ever being committed.
 - `task docs:check` recomputes every version and count on this page from the repo and fails CI when they drift.
