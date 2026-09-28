@@ -118,11 +118,14 @@ spec:
             namespace: litellm
     - name: gateway-emits-litellm-series
       description: >-
-        One /v1/chat/completions call with the master key raises
-        litellm_proxy_total_requests_metric_total on the metrics sidecar. The seeded provider key is
-        a placeholder, so the call always fails upstream and never spends; the counter is raised by
-        the failure path, which is the SLI LiteLLMGatewayErrorRateHigh reads. Without
-        litellm_settings.callbacks: [prometheus] the sidecar answers 200 with no litellm_ series.
+        One /v1/chat/completions call for a model outside model_list raises both
+        litellm_proxy_failed_requests_metric_total and litellm_proxy_total_requests_metric_total on
+        the sidecar -- the numerator and denominator LiteLLMGatewayErrorRateHigh divides. The proxy
+        rejects it with HTTP 400, so nothing leaves the cluster and nothing spends. A real model
+        would not do: the seeded provider key is a placeholder, the provider answers 401, and
+        LiteLLM drops every Prometheus metric on a 401 (_is_invalid_api_key_request), so no series
+        would ever appear. Without litellm_settings.callbacks: [prometheus] the sidecar answers 200
+        with no litellm_ series at all.
       timeouts:
         assert: 5m
       try:
@@ -164,8 +167,9 @@ spec:
                             value: "litellm-gateway.litellm.svc.cluster.local:4000"
                           - name: METRICS
                             value: "litellm-gateway-metrics.litellm.svc.cluster.local:4001"
+                          # Not in model_list, so the proxy rejects it with 400 before any egress.
                           - name: MODEL
-                            value: "claude-haiku-4-5"
+                            value: "e2e-model-not-in-model-list"
                           - name: MASTER_KEY
                             valueFrom:
                               secretKeyRef:
@@ -184,15 +188,22 @@ spec:
                                 -H 'Content-Type: application/json' \
                                 -d "{\"model\":\"$MODEL\",\"messages\":[{\"role\":\"user\",\"content\":\"e2e\"}]}" \
                                 "http://$GATEWAY/v1/chat/completions")
-                              series=$(curl -s --max-time 10 "http://$METRICS/metrics/" \
-                                | grep '^litellm_proxy_total_requests_metric_total{')
-                              echo "attempt $i/$ATTEMPTS: gateway HTTP $code; series: $series"
-                              [ -n "$series" ] && exit 0
+                              scrape=$(curl -s --max-time 10 "http://$METRICS/metrics/")
+                              total=$(echo "$scrape" | grep '^litellm_proxy_total_requests_metric_total{')
+                              failed=$(echo "$scrape" | grep '^litellm_proxy_failed_requests_metric_total{')
+                              echo "attempt $i/$ATTEMPTS: gateway HTTP $code (400 expected)"
+                              echo "  total:  $total"
+                              echo "  failed: $failed"
+                              if [ -n "$total" ] && [ -n "$failed" ]; then
+                                exit 0
+                              fi
                               i=$((i + 1))
                               sleep 10
                             done
-                            echo "giving up: no litellm_proxy_total_requests_metric_total on $METRICS"
-                            echo "the registry is empty unless litellm_settings.callbacks contains prometheus"
+                            echo "giving up: the sidecar never exported both error-rate SLI series"
+                            echo "empty registry -> litellm_settings.callbacks must contain prometheus"
+                            echo "gateway HTTP 401 -> LiteLLM drops metrics for an invalid key;"
+                            echo "  MODEL must fail with 400, not authentication"
                             exit 1
         - assert:
             resource:
