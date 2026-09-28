@@ -85,6 +85,11 @@ spec:
         duration: 5s
         factor: 2
       dlqTrigger:
+        # The dead-letter trigger carries its own atLeastOnce, also defaulting
+        # false. Without it the message is acked while the dead-letter write is
+        # still in flight and may yet fail (ADR-049). The admission webhook
+        # rejects the Sensor outright when it is missing.
+        atLeastOnce: true
         template:
           name: log-tick-dlq
           log:
