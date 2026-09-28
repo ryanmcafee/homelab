@@ -10,7 +10,7 @@
  *   bun test scripts/localdev-argocd_test.ts
  */
 
-import { test } from "bun:test";
+import { spyOn, test } from "bun:test";
 import {
   assert,
   assertEquals,
@@ -31,6 +31,7 @@ import {
   chartVersionFromVersions,
   chooseRevision,
   classifyDiffResult,
+  cmdDiagnose,
   compareTierKey,
   countManifests,
   crdsInstallArgs,
@@ -2784,3 +2785,48 @@ test("localdev ArgoCD persists per-resource health, so diagnose can print it", a
       : undefined;
   assertEquals(String(persist), "true");
 });
+
+// Exercise the command, including selection, output, and namespace collection.
+for (const sync of ["OutOfSync", "Synced"]) {
+  test(`cmdDiagnose: Healthy/Succeeded + ${sync}`, async () => {
+    const drifted = app({
+      name: "argo-events-config",
+      health: "Healthy",
+      phase: "Succeeded",
+      sync,
+    });
+    drifted.spec!.destination!.namespace = "argo-events";
+    const collected: string[] = [];
+    const output: string[] = [];
+    const logger = spyOn(console, "log").mockImplementation((...args) => {
+      output.push(args.join(" "));
+    });
+    try {
+      assertEquals(
+        await cmdDiagnose({
+          listApplications: async () => [drifted],
+          diagnoseNamespace: async (ns) => {
+            collected.push(ns);
+          },
+        }),
+        0,
+      );
+    } finally {
+      logger.mockRestore();
+    }
+    const text = output.join("\n");
+    if (sync === "OutOfSync") {
+      assertStringIncludes(text, "=== argo-events-config ===");
+      assertStringIncludes(
+        text,
+        "status.sync.status: OutOfSync (expected Synced)",
+      );
+      assertEquals(collected, ["argo-events"]);
+      assert(!text.includes("every Application"));
+    } else {
+      assertEquals(collected, []);
+      assert(!text.includes("=== argo-events-config ==="));
+      assertStringIncludes(text, "0/1 Application(s)");
+    }
+  });
+}

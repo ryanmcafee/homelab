@@ -449,7 +449,7 @@ helm lint charts/addons
 ### Start with diagnose
 
 ```bash
-task localdev:diagnose          # conditions, unhealthy resources, events, failing pod logs
+task localdev:diagnose          # sync drift, conditions, resources, events, failing pod logs
 task localdev:ui                # keep running: port-forward to argocd-server on localhost:8080
 argocd login localhost:8080 --plaintext --insecure --grpc-web --username admin \
   --password "$(kubectl --context kind-homelab-localdev -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d)"
@@ -503,6 +503,14 @@ helm get values cilium -n kube-system --kube-context kind-homelab-localdev
 ```
 
 ### Common Issues
+
+`task localdev:diagnose` always checks Healthy, Succeeded, and Synced, matching the
+level-2 sync expectation without requiring `--require-synced`. A healthy but
+OutOfSync Application prints `status.sync.status` (expected Synced), its complete
+`status.sync` detail, and collects its destination namespace events, workloads,
+and failing pod logs. New empty charts retain the existing readiness exception.
+Diagnosis is best-effort evidence collection; reported drift does not change its
+exit code into a readiness gate.
 
 **Application stuck `Progressing`**: `task localdev:diagnose`. Usually a pod that cannot pull
 (check `task localdev:registry -- status` and the events) or a PVC waiting for a consumer

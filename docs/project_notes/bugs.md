@@ -539,3 +539,9 @@ These are documented errors with known solutions:
 - **Root Cause**: `unifi_setting.syslog` set `this_controller = true` and `this_controller_encrypted_only = true`; `this_controller` makes the controller itself the syslog destination and excludes the remote SIEM server
 - **Solution**: Both flags are `false` in `terragrunt/modules/unifi-gateway/main.tf`; apply with `task tf:apply:component COMPONENT=unifi-gateway`
 - **Prevention**: Test an export end to end with one synthetic message before trusting the controller's setting page
+
+### 2026-09-28 - Diagnose omitted healthy Applications with sync drift
+- **Issue**: `localdev:diagnose` printed all-clear after level 2 rejected Healthy/Succeeded/OutOfSync.
+- **Cause**: `cmdDiagnose` called `isReady(app, false)` and returned before namespace collection.
+- **Fix**: Require sync readiness in diagnosis; print `status.sync.status` and full sync detail, then collect destination namespace evidence. Preserve the existing new-empty-chart exception.
+- **Verification**: Command regression fails for OutOfSync before the fix and passes after; Synced control stays quiet. Real Kind failure-path verification is tracked separately under MCAA-468.
