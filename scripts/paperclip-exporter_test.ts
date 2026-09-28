@@ -54,6 +54,9 @@ const RUNS = [
   run("cancelled", "2026-09-25T03:05:00Z", "cancelled"),
   run("running", null, null, "a1"),
   run("failed", "2026-09-25T02:30:00Z", "acpx_turn_failed"),
+  // Live, and deliberately absent from LIVE_RUNS: /live-runs is capped at 50
+  // server-side, so on a busy company a real run is missing from it.
+  { id: "run-past-the-cap", agentId: "a9", status: "running", finishedAt: null },
 ];
 
 const AGENTS = [
@@ -87,7 +90,8 @@ function wake(
 }
 
 // i-clean: every claim finished. i-stranded: claimed 20h ago by a run that is
-// gone. i-live: claimed 2min ago by a run that is still in LIVE_RUNS.
+// gone. i-live: claimed 20h ago by a run that is still live but only visible in
+// heartbeat-runs, so reading the capped /live-runs alone would call it stranded.
 const WAKES: Record<string, { events: unknown[] }> = {
   "i-clean": {
     events: [
@@ -103,7 +107,7 @@ const WAKES: Record<string, { events: unknown[] }> = {
     events: [wake("claimed", "dead-run", "2026-09-24T08:00:00Z", null)],
   },
   "i-live": {
-    events: [wake("claimed", "live-run-1", "2026-09-25T03:58:00Z", null)],
+    events: [wake("claimed", "run-past-the-cap", "2026-09-24T08:00:00Z", null)],
   },
 };
 
@@ -275,25 +279,7 @@ test("summarize does not count a running agent as phantom when its live run is o
     HOUR,
   );
   assertEquals(summary.phantomRunning, 0);
-  assertEquals(summary.liveRuns, 50);
-});
-
-test("summarize reports the larger live count of live-runs and heartbeat-runs", () => {
-  const summary = summarize(
-    {
-      runs: parseRuns([
-        run("running", null, null, "a1"),
-        run("queued", null, null, "a2"),
-        run("scheduled_retry", null, null, "a2"),
-      ]),
-      agents: parseAgents(AGENTS),
-      liveRuns: parseLiveRuns(LIVE_RUNS),
-    },
-    NOW,
-    HOUR,
-  );
-  assertEquals(summary.liveRuns, 3);
-  assertEquals(summary.phantomRunning, 0);
+  assertEquals(summary.liveRuns, 52);
 });
 
 test("summarize ignores heartbeat-runs without an agentId when looking for live runs", () => {
@@ -305,6 +291,56 @@ test("summarize ignores heartbeat-runs without an agentId when looking for live 
     HOUR,
   );
   assertEquals(summary.phantomRunning, 1);
+});
+
+// /live-runs is capped at 50 by the server and takes no limit parameter, so on
+// a busy company an agent's real run falls outside it. Reading that endpoint
+// alone invents a phantom agent and undercounts the live set.
+const TRUNCATED_LIVE_RUNS = [
+  { id: "live-run-1", agentId: "a1", status: "running" },
+];
+const RUNS_WITH_A2 = [
+  { id: "run-a2", agentId: "a2", status: "running", finishedAt: null },
+];
+
+test("summarize does not call an agent phantom when only heartbeat-runs shows its live run", () => {
+  const truncated = summarize(
+    {
+      runs: [],
+      agents: parseAgents(AGENTS),
+      liveRuns: parseLiveRuns(TRUNCATED_LIVE_RUNS),
+    },
+    NOW,
+    HOUR,
+  );
+  assertEquals(truncated.phantomRunning, 1);
+
+  const widened = summarize(
+    {
+      runs: parseRuns(RUNS_WITH_A2),
+      agents: parseAgents(AGENTS),
+      liveRuns: parseLiveRuns(TRUNCATED_LIVE_RUNS),
+    },
+    NOW,
+    HOUR,
+  );
+  assertEquals(widened.phantomRunning, 0);
+  assertEquals(widened.liveRuns, 2);
+});
+
+test("summarize counts a run present in both sources once", () => {
+  const summary = summarize(
+    {
+      runs: parseRuns([
+        { id: "live-run-1", agentId: "a1", status: "running", finishedAt: null },
+      ]),
+      agents: parseAgents(AGENTS),
+      liveRuns: parseLiveRuns(TRUNCATED_LIVE_RUNS),
+    },
+    NOW,
+    HOUR,
+  );
+  assertEquals(summary.liveRuns, 1);
 });
 
 test("renderMetrics escapes label values and emits a zero for every terminal status", () => {
@@ -545,7 +581,8 @@ test("collect counts stranded issues and exposes them as metrics", async () => {
   const sweep = result.companies[0]?.wakeSweep;
   assertEquals(sweep?.openIssues, 3);
   assertEquals(sweep?.sweptIssues, 3);
-  // Only i-stranded: i-clean finished, i-live is held by a live run.
+  // Only i-stranded: i-clean finished, and i-live is held by a run that is
+  // live in heartbeat-runs even though the capped /live-runs omits it.
   assertEquals(sweep?.stranded, 1);
   assertEquals(sweep?.truncated, false);
   const text = renderMetrics(result);

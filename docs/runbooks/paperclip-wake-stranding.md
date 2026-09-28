@@ -62,9 +62,25 @@ heartbeat_run 81e77c8a  status: "interrupted"  finishedAt: 2026-09-25T04:14:33.6
 Two things separate a real stranding from a long-running job:
 
 - the claim is older than `STALE_WAKE_MINUTES` (default 30), and
-- the claiming `runId` is **not** in `GET /api/companies/{id}/live-runs`.
+- the claiming `runId` is **not** live.
 
 If the claimant is still live, it is a slow run, not a leak. Leave it alone.
+
+**Do not settle that second point with `/live-runs` alone.** That endpoint returns
+a bare array capped at 50 newest runs, accepts no `limit`, and reports no `total`
+or `hasMore` — so on a busy company it omits live runs and looks complete while
+doing it. Confirm a claimant is dead against the run itself, or against the
+`heartbeat-runs` list, which does take a `limit`:
+
+```bash
+curl -s -H "Authorization: Bearer $PAPERCLIP_API_KEY" \
+  "$PAPERCLIP_API_URL/heartbeat-runs/$RUN_ID" | jq '{status, finishedAt}'
+```
+
+A `queued`, `running`, or `scheduled_retry` status means live — including
+`queued`, which can sit for hours behind a provider-quota backlog without being
+stranded at all. The exporter reads both sources for this reason; a check built
+on `/live-runs` alone reports healthy work as stranded.
 
 ## Fix it
 
