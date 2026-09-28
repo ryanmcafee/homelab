@@ -15,7 +15,8 @@ onePassword:
   # Secret litellm-master-key-secret: field master-key, the sk-... proxy master
   # key the chart reads through masterKey.secretName/secretKey.
   masterKeyItemPath: ""
-  # Secret litellm-salt-key: field salt-key, injected as LITELLM_SALT_KEY.
+  # Secret litellm-salt-key: field LITELLM_SALT_KEY, which the gateway and
+  # backend read through envFrom, so the field label has to be the env var name.
   # Generated once and never rotated; a new value makes every provider
   # credential already stored in the database undecryptable.
   saltKeyItemPath: ""
