@@ -47,6 +47,7 @@ func NewConfigCmd() *cobra.Command {
 
 	cmd.AddCommand(newConfigValidateCmd())
 	cmd.AddCommand(newConfigEvalCmd())
+	cmd.AddCommand(newConfigNodesCmd())
 	cmd.AddCommand(newConfigExportCmd())
 	cmd.AddCommand(newConfigGuardCmd())
 
@@ -133,6 +134,87 @@ func newConfigEvalCmd() *cobra.Command {
 			return nil
 		},
 	}
+}
+
+// nodeRoles maps a --role value to the ResolvedConfig lists it selects. It is
+// the single list of valid values, so the flag help and the usage error cannot
+// drift from what the command accepts.
+var nodeRoles = map[string][]string{
+	"all":           {"cp", "worker"},
+	"control-plane": {"cp"},
+	"worker":        {"worker"},
+}
+
+// clusterNodes returns the requested role's nodes as (host, address) pairs,
+// control plane first, each family ascending by ordinal.
+//
+// The host names are the ones the ansible inventory and terragrunt already use
+// (cp-N, worker-N), so an operator reading a runbook, a terragrunt node key and
+// a kubectl node label sees one naming scheme.
+func clusterNodes(rc *config.ResolvedConfig, role string) ([][2]string, error) {
+	families, ok := nodeRoles[role]
+	if !ok {
+		names := make([]string, 0, len(nodeRoles))
+		for name := range nodeRoles {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		return nil, fmt.Errorf("unknown --role %q (valid: %s)", role, strings.Join(names, ", "))
+	}
+
+	members := map[string][]config.NodeMember{"cp": rc.ControlPlane, "worker": rc.Workers}
+	var out [][2]string
+	for _, fam := range families {
+		for _, m := range members[fam] {
+			out = append(out, [2]string{fmt.Sprintf("%s-%d", fam, m.Ordinal), m.Address})
+		}
+	}
+	return out, nil
+}
+
+// newConfigNodesCmd prints the cluster's nodes as the ConfigSet declares them.
+//
+// It exists so operator documentation stops enumerating this cluster's six
+// addresses. A runbook that writes `<CP1_IP>,<CP2_IP>,<CP3_IP>` tells a
+// one-node fork to address two control planes it does not have, and a jq recipe
+// over `config eval` would only move the key-name rule into prose (MCAA-423).
+func newConfigNodesCmd() *cobra.Command {
+	var role string
+	var addresses bool
+
+	cmd := &cobra.Command{
+		Use:   "nodes",
+		Short: "Print the cluster's nodes as the ConfigSet declares them",
+		Long:  "Print the cluster's node names and addresses, derived from the ConfigSet's CPn_IP / WORKERn_IP keys. --addresses emits the comma-separated list talosctl -n takes.",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			rc, err := loadResolvedConfig()
+			if err != nil {
+				return err
+			}
+			nodes, err := clusterNodes(rc, role)
+			if err != nil {
+				return err
+			}
+
+			if addresses {
+				addrs := make([]string, 0, len(nodes))
+				for _, n := range nodes {
+					addrs = append(addrs, n[1])
+				}
+				fmt.Println(strings.Join(addrs, ","))
+				return nil
+			}
+			for _, n := range nodes {
+				fmt.Printf("%s\t%s\n", n[0], n[1])
+			}
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVar(&role, "role", "all", "Which nodes to print (all, control-plane, worker)")
+	cmd.Flags().BoolVar(&addresses, "addresses", false, "Print only the addresses, comma-separated")
+
+	return cmd
 }
 
 // exportTemplates maps an export format to its template file. It is the single
