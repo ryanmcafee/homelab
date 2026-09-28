@@ -57,6 +57,7 @@ interface LabelSpec {
   maxDistinctValuesPerService?: number;
   singleTenantValue?: string;
   sliExclusionRule?: string;
+  tailRule?: string;
 }
 
 interface MetricsContract {
@@ -94,6 +95,7 @@ interface MetricsContract {
       workedExampleBasis: string;
       maxTenantsPerReplica: number;
     };
+    breachLegalMoves?: string;
   };
   errorClassification: {
     http: { match: string; outcome: string; code?: string }[];
@@ -530,6 +532,89 @@ test("C4: the error taxonomy separates overload shedding from quota denial", () 
   }
 });
 
+test("the quota exclusion is on BOTH sides of every error ratio, not the numerator alone", () => {
+  // Numerator-only exclusion is worse than none: the denials leave the error count and
+  // STAY in the population, where they are counted as good events. A tenant retrying
+  // into its quota at 900 req/s turns a service failing 10 of 100 user requests (10%,
+  // 20x burn, pages) into 10/1010 = 0.99% and a burn rate of 1.98x, which clears no
+  // paging tier -- so a noisy tenant can no longer burn the budget but can now HIDE an
+  // outage, the worse of the two directions.
+  const rule = labelByName.get("code")?.sliExclusionRule ?? "";
+  assert(
+    /both sides/i.test(rule),
+    "sliExclusionRule must require the quota selector on both sides of the ratio",
+  );
+  // Every ratio in the document that filters quota out of its numerator must filter it
+  // out of its denominator too.
+  //
+  // Checked per EXPRESSION, not per code block: section 4's `platform:request:rate5m` is
+  // a deliberate unselected total (a traffic metric, not an SLI) and shares its block
+  // with the ratio rule. And a denominator is matched WITH ITS BRACES OPTIONAL -- the
+  // defect form is `_count[5m]` with no selector at all, which a regex requiring `{...}`
+  // cannot see. That blindness is what let this gate pass a mutation that had genuinely
+  // reintroduced the dilution.
+  const expressions = [
+    ...[...doc.matchAll(/```promql\n([\s\S]*?)```/g)].map((m) => m[1]),
+    ...[...doc.matchAll(/```yaml\n([\s\S]*?)```/g)].flatMap((m) =>
+      m[1].split(/^ {6}- record: /m).slice(1),
+    ),
+    ...canaryMetrics.map((m) => m.body),
+  ];
+  let ratiosChecked = 0;
+  for (const raw of expressions) {
+    // Argo's `{{args.service}}` closes a `[^}]*` selector scan two braces early, which
+    // truncated every canary selector mid-label and reported a false violation.
+    const expr = raw.replace(/\{\{[^{}]*\}\}/g, "ARG");
+    if (!expr.includes('outcome="error"')) continue;
+    ratiosChecked++;
+    for (const ref of expr.matchAll(
+      /platform_request_duration_seconds_count(\{[^}]*\})?/g,
+    )) {
+      const selector = ref[1] ?? "";
+      assert(
+        selector.includes('code!="quota"') ||
+          selector.includes('outcome="success"'),
+        `an error-ratio expression selects quota out of one side but reads "${ref[0]}" on another; the denials stay in the population and are counted as GOOD events, so a noisy tenant hides a real outage`,
+      );
+    }
+  }
+  assert(
+    ratiosChecked >= 4,
+    `only ${ratiosChecked} error-ratio expressions were reached; section 2, section 4's ratio rule and the two canary error metrics must all be inspected`,
+  );
+});
+
+test("call 2: route declares the over-budget tail rule, or no real API can adopt this", () => {
+  // The series ceiling, not the route ceiling, is the binding constraint: our own
+  // control-plane API exposes ~127 "<METHOD> <template>" values, and 127 x 7 x 16 =
+  // 14224 against a 3000 ceiling. Even at ONE code value it is 4064. No value of
+  // maxDistinctValuesPerService makes that service conformant, so without a tail rule
+  // cardinality.breach ("the fix is fewer label values") leaves the contract's own first
+  // consumer with no legal move.
+  const route = labelByName.get("route");
+  const tail = route?.tailRule ?? "";
+  assert(
+    tail.includes("__other__"),
+    "route.tailRule must say the over-budget tail collapses into __other__",
+  );
+  assert(
+    /over-budget/i.test(tail),
+    "route.tailRule must cover the OVER-BUDGET case, not only the unmatched one -- they are different failures and only one of them is a scanner",
+  );
+  assert(
+    (contract.cardinality.breachLegalMoves ?? "").includes("tailRule"),
+    "cardinality.breach reads as 'your service is too big to be conformant' unless breachLegalMoves points at the tail rule",
+  );
+  // The ceiling arithmetic must still hold for the routes that DO stay named.
+  const routes = route?.maxDistinctValuesPerService ?? 0;
+  const codes =
+    contract.cardinality.ceilings.redFamilySeriesPerReplicaPerTenant;
+  assert(
+    routes * 7 * 16 <= codes,
+    `${routes} named routes x 7 code values x 16 series exceeds the ${codes} ceiling`,
+  );
+});
+
 test("C5: job is never retained by an aggregation in the companion document", () => {
   // `job` belongs in a selector (canary analysis) and nowhere else. Retained by an SLO
   // aggregation it is the `pod` failure with a longer fuse: during a rollout the canary
@@ -558,23 +643,88 @@ test("C5: job is never retained by an aggregation in the companion document", ()
 const canaryTemplate =
   doc.match(/```yaml\n(apiVersion: argoproj\.io[\s\S]*?)```/)?.[1] ?? "";
 
+/**
+ * Each `- name: <metric>` block of the canary template, with its query.
+ *
+ * The C6/C7 gates were originally written against the template as ONE string, which is
+ * how they passed while two of three metrics were wrong: a regex `.test()` returns true
+ * on the first occurrence, so a guard present on `error-ratio` alone satisfied a check
+ * that was meant to hold per metric.
+ */
+// Sliced from `metrics:` because `spec.args` uses the same `- name:` shape at the same
+// indent, and folding the three arg names in made every per-metric assertion fail.
+const canaryMetricsBlock = canaryTemplate.slice(
+  canaryTemplate.indexOf("\n  metrics:\n") + 1,
+);
+// Split rather than a lazy match with a `$` lookahead: under /m, `$` matches the end of
+// EVERY line, so each captured body stopped at its first newline and the per-metric
+// assertions silently inspected one line apiece.
+const canaryMetrics = canaryMetricsBlock
+  .split(/^ {4}- name: /m)
+  .slice(1)
+  .map((chunk) => ({
+    name: chunk.slice(0, chunk.indexOf("\n")).trim(),
+    body: chunk,
+  }));
+
+/**
+ * Vector-valued subexpressions of `query` that do NOT have a `scalar(` ancestor.
+ *
+ * Walks the parenthesis nesting rather than matching adjacent text. A regex anchored on
+ * `sum(rate(` cannot see `sum by (le) (rate(` -- the grouped form -- and that is exactly
+ * where the unwrapped aggregate hid: seven aggregates matched, eight were present.
+ */
+function unscalaredAggregates(query: string): string[] {
+  const VECTOR_FNS = new Set(["rate", "increase", "histogram_quantile"]);
+  const found: string[] = [];
+  const stack: string[] = [];
+  for (let i = 0; i < query.length; i++) {
+    if (query[i] === "(") {
+      const name =
+        query.slice(0, i).match(/([A-Za-z_][A-Za-z0-9_]*)\s*$/)?.[1] ?? "";
+      if (VECTOR_FNS.has(name) && !stack.includes("scalar")) found.push(name);
+      stack.push(name);
+    } else if (query[i] === ")") {
+      stack.pop();
+    }
+  }
+  return found;
+}
+
 test("C6: every canary aggregate is wrapped in scalar(), so the absence guard fires", () => {
   assert(
     canaryTemplate.length > 0,
     "the canary AnalysisTemplate block was not found",
   );
+  assertEquals(canaryMetrics.length, 3);
   // An empty vector is NOT NaN. rate() over absent series returns nothing, the division
   // never happens, and isNaN(result) never fires -- so an unwrapped guard against "the
   // canary crashed before serving anything" looks correct and does nothing. scalar() of
   // an empty vector IS NaN.
-  for (const m of canaryTemplate.matchAll(
-    /(.{0,8})sum\((?:rate|increase)\(/g,
-  )) {
-    assert(
-      m[1].endsWith("scalar("),
-      `an aggregate in the canary template is not wrapped in scalar(): ...${m[0]}`,
+  for (const metric of canaryMetrics) {
+    const unscalared = unscalaredAggregates(metric.body);
+    assertEquals(
+      unscalared.join(","),
+      "",
+      `canary metric "${metric.name}" has ${unscalared.length} aggregate(s) with no scalar() ancestor (${unscalared.join(", ")}); on no-data it yields an empty vector, which is not NaN, so the !isNaN guard never fires`,
     );
   }
+  // Every aggregate is INSPECTED, not merely unrefuted. The previous matcher silently
+  // skipped the one that was wrong; this asserts the walker reached all of them.
+  const totalAggregates = [
+    ...canaryTemplate.matchAll(/\b(?:rate|increase|histogram_quantile)\(/g),
+  ].length;
+  assertEquals(
+    canaryMetrics.reduce(
+      (n, m) =>
+        n +
+        [...m.body.matchAll(/\b(?:rate|increase|histogram_quantile)\(/g)]
+          .length,
+      0,
+    ),
+    totalAggregates,
+    "some aggregates in the template are outside the per-metric blocks, so the C6 walk did not inspect them",
+  );
   assert(
     contract.guarantees.emptyIsNotNaN.includes("scalar()"),
     "the contract must name scalar() as the fix, not just describe the trap",
@@ -598,16 +748,21 @@ test("C7: the canary template cannot pass on no-data and cannot abort before ser
       `"${condition}" does not guard NaN, so no-data resolves to a verdict instead of Inconclusive`,
     );
   }
-  for (const field of ["initialDelay:", "inconclusiveLimit:"]) {
+  // Per metric, not per template. `.test()` on the whole template returns true on the
+  // first occurrence, so these passed while two of the three metrics carried neither the
+  // sample guard nor its own initialDelay.
+  for (const metric of canaryMetrics) {
+    for (const field of ["initialDelay:", "inconclusiveLimit:"]) {
+      assert(
+        metric.body.includes(field),
+        `canary metric "${metric.name}" needs ${field}; without it the first measurement runs against an empty [5m] window and two of those exhaust failureLimit`,
+      );
+    }
     assert(
-      canaryTemplate.includes(field),
-      `the template needs ${field}; without it the first measurement runs against an empty [5m] window and two of those exhaust failureLimit`,
+      /\+ 0 \* scalar\(/.test(metric.body),
+      `canary metric "${metric.name}" has no minimum-sample guard: 3 requests with 1 error scores 0.33, clears the 0.01 threshold and aborts a rollout that never served real traffic. 0 * NaN is NaN, which is what makes a low-traffic window Inconclusive`,
     );
   }
-  assert(
-    /\+ 0 \* scalar\(/.test(canaryTemplate),
-    "the minimum-sample guard is missing: 0 * NaN is NaN, which is what makes a low-traffic window Inconclusive",
-  );
   // The wording that pushed the worked example into failing closed.
   assert(
     /must NOT PASS/.test(contract.guarantees.absence),
