@@ -172,6 +172,7 @@ same report (`--no-diff`, `--max-diff-bytes 0` for full diffs); it only reads.
 | `task test:config` | Template ↔ schema ↔ `versions.yaml` contract tests (`internal/config/contract_test.go`). |
 | `task test:cmp-parity` | Runs the pinned `ghcr.io/ryanmcafee/homelab-cmp:<tag>` image with Docker and diffs its `config export` against source. Fails when the image tag lags the Go source. A tag bumped in the change under test is not a failure: `cmp-image.yml` pushes the image only on a merge to `main`, so when the pull reports the tag is unknown the script compares it with `--base-ref` (default `origin/main`) and passes if this change bumped it, failing if the tag is unchanged and the image is genuinely absent. The image is published for `linux/amd64` and `linux/arm64`, so it runs natively on an Apple Silicon workstation; `--platform` stays available for testing a tag published before multi-arch (anything at or below `0.1.12`), which is amd64 only. |
 | `task schemas:vendor` / `task schemas:check` | Regenerate or verify `tests/schemas/` from the chart versions in `configuration/versions.yaml`. |
+| `task docs:embedme` / `task docs:embedme:verify` | Regenerate or verify the snippets embedded in `Claude.md` (today only the `configuration/versions.yaml` block). Verify runs in the `policy` CI job, so a bump that moves `versions.yaml` without regenerating turns it red. |
 | `task gpu:toggle-test` | GPU vendor toggle harness (`scripts/toggle-test.ts`); uses the same Kubernetes version and vendored schemas. |
 | `task ci:test` | Everything above that needs no cluster: the local equivalent of the `verify.yml` jobs. |
 
@@ -288,10 +289,12 @@ a bump whose upstream render changes anything (an image tag, a CRD) waits for a 
 reads the `upgrade-diff` comment.
 
 **Regeneration bot (optional).** A chart bump also needs the committed localdev values,
-`tests/schemas` and `tests/snapshots` regenerated; until then the `level-0`, `schemas` and
-`snapshot` jobs in `verify.yml` stay red. The `regenerate` job in `upgrade.yml` does that
+`tests/schemas`, `tests/snapshots` and the `configuration/versions.yaml` block embedded in
+`Claude.md` regenerated; until then the `level-0`, `schemas`, `snapshot` and `policy` jobs
+in `verify.yml` stay red. `task docs:embedme` is the fix for the `policy` one, which fails
+as `docs:embedme:verify`. The `regenerate` job in `upgrade.yml` does all of it
 on `renovate/*` branches and pushes one commit, `chore(deps): regenerate snapshots,
-schemas and localdev values`, authored by `homelab-regen-bot
+schemas, localdev values and embedded snippets`, authored by `homelab-regen-bot
 <homelab-regen-bot@users.noreply.github.com>`, with a GitHub App token. This supersedes
 the "no auto-commit" stance of the `snapshot` job for this bot only, and it answers that
 stance's three reasons: an App-token push triggers the other workflows (a `GITHUB_TOKEN`
@@ -315,8 +318,9 @@ three carrying a regeneration commit pushed under a personal address had been st
 to two days, 19, 19 and 10 commits behind.
 
 `task renovate:regen` runs `config:export:localdev`, `schemas:vendor`, `test:snapshot --
---update` and `docs:check -- --fix` (a chart bump also moves the readme version badges and
-the addons table), then commits the result with both the author and the committer set to
+--update`, `docs:check -- --fix` (a chart bump also moves the readme version badges and
+the addons table) and `docs:embedme` (it moves the `versions.yaml` block embedded in
+`Claude.md`), then commits the result with both the author and the committer set to
 `REGEN_BOT_NAME <REGEN_BOT_EMAIL>` from `upgrade.yml` — the same identity CI would have used —
 and verifies both on the commit it just made. It refuses to run when:
 
@@ -394,7 +398,7 @@ On an ordinary machine, then, set both and read them back — never one without 
 git -c user.name=homelab-regen-bot \
     -c user.email=homelab-regen-bot@users.noreply.github.com \
     commit --author "homelab-regen-bot <homelab-regen-bot@users.noreply.github.com>" \
-    -m 'chore(deps): regenerate snapshots, schemas and localdev values'
+    -m 'chore(deps): regenerate snapshots, schemas, localdev values and embedded snippets'
 git log -1 --format='%ae %ce'   # both must be homelab-regen-bot@users.noreply.github.com
 ```
 
@@ -417,7 +421,7 @@ only path that takes both as explicit fields:
 
 ```sh
 gh api -X PUT "repos/$OWNER/$REPO/contents/$PATH" -f branch="$BRANCH" \
-  -f message='chore(deps): regenerate snapshots, schemas and localdev values' \
+  -f message='chore(deps): regenerate snapshots, schemas, localdev values and embedded snippets' \
   -f content="$(base64 -w0 "$PATH")" -f sha="$BLOB_SHA" \
   -f 'author[name]=homelab-regen-bot' \
   -f 'author[email]=homelab-regen-bot@users.noreply.github.com' \
