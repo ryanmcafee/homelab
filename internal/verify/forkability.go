@@ -61,10 +61,11 @@ type RequiredKey struct {
 	Example     string `json:"example"`
 }
 
-// RequiredKeysTier is the key set for one deployment tier, plus the inputs the
-// producer assumed while computing it. The key set is computed (it is a
-// function of CONTROL_PLANE_COUNT), so Assumptions is how the consumer tells a
-// genuine drift from a different assumed input.
+// RequiredKeysTier is the key set for one deployment tier, plus any inputs the
+// producer assumed while computing it. Assumptions is how the consumer tells a
+// genuine drift from a different assumed input. It is empty against today's
+// producer: ADR-035 replaced CONTROL_PLANE_COUNT with the ^CP([0-9]+)_IP$
+// family, and a family cannot be required, so no value decides the key set.
 type RequiredKeysTier struct {
 	Tier        string            `json:"tier"`
 	Assumptions map[string]string `json:"assumptions,omitempty"`
@@ -256,9 +257,9 @@ func checkTierExample(repoRoot string, tier RequiredKeysTier) Check {
 }
 
 // checkAssumptions holds the example ConfigSet to the inputs the producer
-// assumed. The key set is computed from values like CONTROL_PLANE_COUNT; if the
-// example disagrees with the assumption, the key list the example implies is
-// not the key list that was checked.
+// assumed. If the example disagrees with an assumption, the key list the
+// example implies is not the key list that was checked. No input qualifies
+// today, so this is a no-op until a computed key set reappears.
 func checkAssumptions(rel string, tier RequiredKeysTier, present map[string]string) []string {
 	var findings []string
 	for key, assumed := range tier.Assumptions {

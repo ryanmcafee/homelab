@@ -57,12 +57,12 @@ func statusOf(t *testing.T, checks []Check, name string) Check {
 }
 
 func TestCheck2PassesWhenExampleCoversEveryRequiredKey(t *testing.T) {
-	root := repoWithExample(t, homelabExampleRel, "CONTROL_PLANE_COUNT: \"3\"\nCP_VIP: \"192.168.1.10\"\nDOMAIN: REPLACEME-domain.com\n")
+	root := repoWithExample(t, homelabExampleRel, "BOOTSTRAP_ONLY_KEY: \"3\"\nCP_VIP: \"192.168.1.10\"\nDOMAIN: REPLACEME-domain.com\n")
 	doc := docJSON(
-		key("CONTROL_PLANE_COUNT", KeySourceBootstrap, ExampleRequired)+","+
+		key("BOOTSTRAP_ONLY_KEY", KeySourceBootstrap, ExampleRequired)+","+
 			key("CP_VIP", KeySourceSchema, ExampleRequired)+","+
 			key("DOMAIN", KeySourceSchema, ExampleRequired),
-		`{"CONTROL_PLANE_COUNT":"3"}`)
+		`{"BOOTSTRAP_ONLY_KEY":"3"}`)
 
 	checks := ForkAbilityCheck2(context.Background(), root, fakeProducer(doc))
 
@@ -79,7 +79,7 @@ func TestCheck2PassesWhenExampleCoversEveryRequiredKey(t *testing.T) {
 func TestCheck2FailsOnBootstrapOnlyKeyMissingFromExample(t *testing.T) {
 	root := repoWithExample(t, homelabExampleRel, "DOMAIN: REPLACEME-domain.com\n")
 	doc := docJSON(
-		key("CONTROL_PLANE_COUNT", KeySourceBootstrap, ExampleRequired)+","+
+		key("BOOTSTRAP_ONLY_KEY", KeySourceBootstrap, ExampleRequired)+","+
 			key("DOMAIN", KeySourceSchema, ExampleRequired), "")
 
 	c := statusOf(t, ForkAbilityCheck2(context.Background(), root, fakeProducer(doc)),
@@ -88,7 +88,7 @@ func TestCheck2FailsOnBootstrapOnlyKeyMissingFromExample(t *testing.T) {
 	if c.Status != StatusFail {
 		t.Fatalf("expected fail, got %s", c.Status)
 	}
-	if !strings.Contains(strings.Join(c.Findings, "\n"), "CONTROL_PLANE_COUNT") {
+	if !strings.Contains(strings.Join(c.Findings, "\n"), "BOOTSTRAP_ONLY_KEY") {
 		t.Fatalf("findings do not name the missing key: %v", c.Findings)
 	}
 }
@@ -169,15 +169,15 @@ func TestCheck2FailsOnUnmappedTier(t *testing.T) {
 	}
 }
 
-// The key set is computed from CONTROL_PLANE_COUNT. If the example disagrees
-// with the value the producer assumed, the checked key list is not the list the
-// example implies.
+// If the example disagrees with an input the producer assumed, the checked key
+// list is not the list the example implies. No such input exists today (ADR-035
+// removed the only candidate), so the producer's key here is a stand-in.
 func TestCheck2FailsWhenExampleContradictsTheProducerAssumption(t *testing.T) {
-	root := repoWithExample(t, homelabExampleRel, "CONTROL_PLANE_COUNT: \"1\"\nDOMAIN: REPLACEME-domain.com\n")
+	root := repoWithExample(t, homelabExampleRel, "BOOTSTRAP_ONLY_KEY: \"1\"\nDOMAIN: REPLACEME-domain.com\n")
 	doc := docJSON(
-		key("CONTROL_PLANE_COUNT", KeySourceBootstrap, ExampleRequired)+","+
+		key("BOOTSTRAP_ONLY_KEY", KeySourceBootstrap, ExampleRequired)+","+
 			key("DOMAIN", KeySourceSchema, ExampleRequired),
-		`{"CONTROL_PLANE_COUNT":"3"}`)
+		`{"BOOTSTRAP_ONLY_KEY":"3"}`)
 
 	c := statusOf(t, ForkAbilityCheck2(context.Background(), root, fakeProducer(doc)),
 		"forkability/example-completeness/homelab")
