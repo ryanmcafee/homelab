@@ -287,6 +287,24 @@ func Upgrade(ctx context.Context, opts UpgradeOptions) (*UpgradeOutput, *Result)
 		res.Add(repoCheck)
 		out.Items = append(out.Items, repoItem)
 
+		// This assertion is independent of base availability and source fingerprints.
+		// An unchanged source must not bypass effective RBAC verification.
+		headDocs := map[string][]Doc{}
+		for chart, path := range headFiles {
+			data, err := os.ReadFile(path)
+			if err != nil {
+				res.Add(FailCheck("upgrade/"+env.Name+"/openclaw-rbac", start, err.Error()))
+				continue
+			}
+			docs, err := ParseMultiDoc(chart, env.Name, data)
+			if err != nil {
+				res.Add(FailCheck("upgrade/"+env.Name+"/openclaw-rbac", start, err.Error()))
+				continue
+			}
+			headDocs[chart] = docs
+		}
+		res.Add(OpenClawCheck(ctx, opts.Runner, env.Name, headDocs, true, headKube))
+
 		baseSrc, baseErr := sourcesFromFiles(baseFiles)
 		headSrc, headErr := sourcesFromFiles(headFiles)
 		if headErr != nil {
@@ -425,24 +443,9 @@ func renderUpstream(ctx context.Context, r Runner, workDir string, src ChartSour
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, &upstreamError{detail: err.Error()}
 	}
-	var files []string
-	if strings.TrimSpace(src.Values) != "" {
-		p := filepath.Join(dir, "values.yaml")
-		if err := os.WriteFile(p, []byte(src.Values), 0o644); err != nil {
-			return nil, &upstreamError{detail: err.Error()}
-		}
-		files = append(files, p)
-	}
-	if src.ValuesObject != nil {
-		data, err := yaml.Marshal(src.ValuesObject)
-		if err != nil {
-			return nil, &upstreamError{detail: "marshalling helm.valuesObject: " + err.Error()}
-		}
-		p := filepath.Join(dir, "values-object.yaml")
-		if err := os.WriteFile(p, data, 0o644); err != nil {
-			return nil, &upstreamError{detail: err.Error()}
-		}
-		files = append(files, p)
+	files, err := upstreamValueFiles(src, dir)
+	if err != nil {
+		return nil, &upstreamError{detail: err.Error()}
 	}
 
 	args := upstreamArgs(src, kubeVersion, files)
@@ -460,7 +463,7 @@ func renderUpstream(ctx context.Context, r Runner, workDir string, src ChartSour
 // upstreamArgs builds `helm template` arguments mirroring what the ArgoCD repo
 // server runs for a Helm source: release name, chart at the pinned version,
 // destination namespace, CRDs unless skipCrds, the target Kubernetes version,
-// inline values (values then valuesObject) and parameters last.
+// inline values (valuesObject replaces values) and parameters last.
 func upstreamArgs(src ChartSource, kubeVersion string, valuesFiles []string) []string {
 	ref, repo := chartRef(src.RepoURL, src.Chart)
 	args := []string{"template", src.release(), ref}
@@ -487,7 +490,7 @@ func upstreamArgs(src ChartSource, kubeVersion string, valuesFiles []string) []s
 		if p.ForceString {
 			flag = "--set-string"
 		}
-		args = append(args, flag, p.Name+"="+p.Value)
+		args = append(args, flag, p.Name+"="+argoHelmParameter(p.Value))
 	}
 	return args
 }
@@ -1309,7 +1312,7 @@ func renderUpgradeReport(out *UpgradeOutput, res *Result, diffLimit int) string 
 		if c.Status == StatusPass {
 			continue
 		}
-		if c.Name == "upgrade/base" || strings.HasSuffix(c.Name, "/_render") || strings.HasSuffix(c.Name, "/_base-render") {
+		if c.Name == "upgrade/base" || strings.HasSuffix(c.Name, "/_render") || strings.HasSuffix(c.Name, "/_base-render") || strings.HasSuffix(c.Name, "/openclaw-rbac") {
 			problems = append(problems, c)
 		}
 	}
@@ -1411,4 +1414,50 @@ func mdInline(s string) string {
 func htmlEscape(s string) string {
 	r := strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;")
 	return r.Replace(s)
+}
+
+// upstreamValueFiles follows Argo CD: valuesObject replaces values, then parameters win.
+func upstreamValueFiles(src ChartSource, dir string) ([]string, error) {
+	if len(src.ValueFiles) > 0 {
+		return nil, fmt.Errorf("external Helm valueFiles are unsupported by upgrade verification; resolve them before rendering %s", src.App)
+	}
+	var files []string
+	if src.ValuesObject == nil && strings.TrimSpace(src.Values) != "" {
+		p := filepath.Join(dir, "values.yaml")
+		if err := os.WriteFile(p, []byte(src.Values), 0o644); err != nil {
+			return nil, err
+		}
+		files = append(files, p)
+	}
+	if src.ValuesObject != nil {
+		data, err := yaml.Marshal(src.ValuesObject)
+		if err != nil {
+			return nil, fmt.Errorf("marshalling helm.valuesObject: %w", err)
+		}
+		p := filepath.Join(dir, "values-object.yaml")
+		if err := os.WriteFile(p, data, 0o644); err != nil {
+			return nil, err
+		}
+		files = append(files, p)
+	}
+
+	return files, nil
+}
+
+// argoHelmParameter mirrors Argo CD cleanSetParameters: commas outside list
+// syntax are literal values, never extra assignments.
+func argoHelmParameter(value string) string {
+	if strings.HasPrefix(value, "{") && strings.HasSuffix(value, "}") {
+		return value
+	}
+	var out strings.Builder
+	var prev rune
+	for _, r := range value {
+		if r == ',' && prev != '\\' {
+			out.WriteRune('\\')
+		}
+		out.WriteRune(r)
+		prev = r
+	}
+	return out.String()
 }

@@ -38,10 +38,7 @@ name: Upgrade verification
 
 on:
   pull_request:
-    paths:
-      - 'configuration/versions.yaml'
-      - 'charts/**'
-      - '.github/workflows/upgrade.yml'
+    # Run on every PR: value, renderer, and policy changes must not bypass RBAC.
 
 concurrency:
   group: upgrade-${{ github.ref }}
@@ -83,6 +80,9 @@ jobs:
 
       - name: Install script dependencies from bun.lock
         run: bun install --frozen-lockfile
+
+      - name: Verify effective-value precedence and RBAC policy fixtures (offline)
+        run: HOMELAB_TEST_HELM=1 go test ./internal/verify -run 'Test(OpenClaw|UpstreamValuesObject|ArgoHelmParameter)' -count=1
 
       - name: Cache kubeconform core schemas
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
@@ -225,7 +225,7 @@ jobs:
           retention-days: 14
 
       # A manifest diff is information, not a failure; a render that fails at
-      # head or a custom resource that no longer validates is.
+      # head, an RBAC assertion failure, or an invalid custom resource is.
       - name: Fail on a failed upgrade check or revalidation
         if: always()
         env:
@@ -235,7 +235,7 @@ jobs:
           ok=true
           if [ "$UPGRADE_PASS" != "true" ]; then
             jq -r '.checks[]? | select(.status == "fail") | "\(.name): \(.detail // "")"' upgrade.json
-            echo "::error::verify upgrade failed: an upstream chart or this repository does not render at the PR head."
+            echo "::error::verify upgrade failed: a render or required policy assertion failed at the PR head; fix the named check above."
             ok=false
           fi
           if [ "$REVALIDATED" != "true" ]; then
