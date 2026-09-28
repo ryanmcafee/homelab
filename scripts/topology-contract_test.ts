@@ -215,7 +215,9 @@ test("the resumed shape can see a second unrepresented address without member-co
   // of the membership, 3 answered >= quorum 3 and 0 non-answering members <=
   // maxUnavailable 2, so `survivable` consented to wiping a node on a control plane
   // that was never whole.
-  const resumed = contract.evaluation.runShapes.find((s) => s.id === "resumed")!;
+  const resumed = contract.evaluation.runShapes.find(
+    (s) => s.id === "resumed",
+  )!;
   const predicateAt = (id: string) =>
     contract.evaluation.points.find((p) => p.id === id)!.predicate;
   const byId = new Map(contract.health.predicates.map((p) => [p.id, p]));
