@@ -79,6 +79,8 @@ spec:
         # cluster-wide; naming the instance namespace makes that a namespaced Role.
         watchNamespaces:
           - {{ $oc.namespace }}
+        rbac:
+          aggregateToDefaultRoles: false
         metrics:
           enabled: true
           serviceMonitor:

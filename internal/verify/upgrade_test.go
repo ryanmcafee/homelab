@@ -237,6 +237,7 @@ func TestUpgradeFlow(t *testing.T) {
 		{"upgrade/homelab/lazylibrarian", "pass", "manifest diff: +0 -"},
 		{"upgrade/homelab/cert-manager", "pass", "manifest diff: "},
 		{"upgrade/homelab/_repo", "pass", "manifest diff: +"},
+		{"upgrade/homelab/openclaw-rbac", "pass", "unchanged:"},
 	}
 	for _, w := range want {
 		c, ok := got[w.name]

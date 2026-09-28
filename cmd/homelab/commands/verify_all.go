@@ -125,6 +125,7 @@ Exit code 0 when every check passes, 1 when any check fails, 2 on usage error.`,
 			} else {
 				for _, env := range envs {
 					result.Add(verify.LintGitOps(env.Name, rendered[env.Name], reg, repoRoot)...)
+					result.Add(verify.OpenClawCheck(ctx, runner, env.Name, rendered[env.Name], false))
 				}
 				// Chart versions against configuration/versions.yaml
 				// (versions/<env>, exceptions in tests/gitops/version-drift.yaml).

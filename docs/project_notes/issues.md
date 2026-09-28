@@ -107,3 +107,14 @@ Each entry should include:
 - Update status if work gets blocked or resumed
 - Don't duplicate issue details - link to source of truth
 - Clean out very old entries periodically (3+ months)
+
+### 2026-09-28: OpenClaw verification gate (MCAA-496)
+
+- Added exact namespace/aggregation intent validation from rendered Applications,
+  resolving inline values and Helm parameters offline with the pinned Helm binary.
+- Added an independent full-chart RBAC assertion to upgrade verification; unchanged
+  sources and unavailable base comparisons cannot bypass it. Upgrade runs on every PR.
+- Corrected upstream inline-value precedence and literal-comma parameter handling
+  to match Argo CD; unresolved external values now fail rather than disappear.
+- Validation and revision evidence are recorded privately on the task. Existing
+  platform/security/QA merge holds remain; no production changes were made.
