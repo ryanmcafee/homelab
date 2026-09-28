@@ -55,20 +55,7 @@ name: Upgrade verification
 
 on:
   pull_request:
-    paths:
-      - 'configuration/versions.yaml'
-      - 'charts/**'
-      - 'mise.toml'
-      - '.github/workflows/upgrade.yml'
-      # The undeclared-values gate and its allowlist: a PR that changes either
-      # has to run it, and tests/snapshots is where it reads the values from.
-      - 'scripts/upstream-values-check.ts'
-      - 'tests/gitops/upstream-values-allowlist.yaml'
-      - 'tests/snapshots/**'
-      - 'Taskfile.yml'
-      - 'scripts/renovate-regen.ts'
-      - 'scripts/renovate-pr-list_test.ts'
-      - 'scripts/litellm-route-drift.ts'
+    # Run on every PR: value, renderer, and policy changes must not bypass RBAC.
 
 concurrency:
   group: upgrade-${{ github.ref }}
@@ -112,6 +99,9 @@ jobs:
 
       - name: Install script dependencies from bun.lock
         run: bun install --frozen-lockfile
+
+      - name: Verify effective-value precedence and RBAC policy fixtures (offline)
+        run: HOMELAB_TEST_HELM=1 go test ./internal/verify -run 'Test(OpenClaw|UpstreamValuesObject|ArgoHelmParameter)' -count=1
 
       - name: Cache kubeconform core schemas
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
@@ -360,9 +350,10 @@ jobs:
           retention-days: 14
 
       # A manifest diff is information, not a failure; a render that fails at
-      # head, a custom resource that no longer validates, an undeclared helm
-      # value or an HTTPRoute that no longer matches the paths upstream serves is.
-      - name: Fail on a failed upgrade check, revalidation, undeclared value or route drift
+      # head, an RBAC assertion failure, a custom resource that no longer
+      # validates, an undeclared helm value or an HTTPRoute that no longer
+      # matches the paths upstream serves is.
+      - name: Fail on a failed upgrade check, RBAC assertion, revalidation, undeclared value or route drift
         if: always()
         env:
           UPGRADE_PASS: ${{ steps.upgrade.outputs.pass }}
@@ -373,7 +364,7 @@ jobs:
           ok=true
           if [ "$UPGRADE_PASS" != "true" ]; then
             jq -r '.checks[]? | select(.status == "fail") | "\(.name): \(.detail // "")"' upgrade.json
-            echo "::error::verify upgrade failed: an upstream chart or this repository does not render at the PR head."
+            echo "::error::verify upgrade failed: a render or required policy assertion failed at the PR head; fix the named check above."
             ok=false
           fi
           if [ "$REVALIDATED" != "true" ]; then
