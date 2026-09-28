@@ -79,13 +79,27 @@ label, and `nats_stream_first_seq{stream_name="PF_WORK"}` shows it. In order:
    ```bash
    kubectl -n nats exec -it deploy/nats-box -- nats stream info PF_WORK
    # or, without nats-box:
-   kubectl -n nats port-forward svc/nats 8222 &
-   curl -s 'localhost:8222/jsz?streams=1&consumers=1&accounts=1' \
-     | jq '.account_details[].stream_detail[] | select(.name=="PF_WORK") | .state'
+   for pod in $(kubectl -n nats get pod -l app.kubernetes.io/name=nats -o name); do
+     kubectl -n nats port-forward "$pod" 8222 >/dev/null & pf=$!
+     sleep 1
+     curl -s 'localhost:8222/jsz?streams=1&consumers=1&accounts=1&config=1' \
+       | jq --arg pod "$pod" '.account_details[]?.stream_detail[]?
+           | select(.name=="PF_WORK") | {pod: $pod, state: .state, max_age: .config.max_age}'
+     kill "$pf"
+   done
    ```
 
-   `state.first_ts` is the age of the oldest message; `now - first_ts` against `config.max_age`
-   (24h) is exactly how long you have.
+   Three things about that command are easy to get wrong under pressure. The monitoring port is
+   on the pods and on `nats-headless`, never on `svc/nats` — the chart leaves
+   `service.ports.monitor` disabled, so `port-forward svc/nats 8222` fails to resolve rather than
+   degrading. Do not enable it to shorten the command: 8222 is unauthenticated, and
+   `/jsz?accounts=1` and `/connz` would expose every stream and connection cluster-wide. `/jsz`
+   answers only for the server you reached, and `PF_WORK` is single-replica, so on a 3-server
+   cluster exactly one pod returns it — the loop is why you do not have to guess which. And
+   `config=1` is what makes the server return `max_age` at all; without it `.config` is absent.
+
+   `state.first_ts` is the age of the oldest message; `now - first_ts` against `max_age`
+   (`86400000000000`, i.e. 24h in nanoseconds) is exactly how long you have.
 
 2. **Find out why nothing is consuming.** `nats_consumer_num_pending` high with
    `nats_consumer_num_waiting` at 0 means no worker is fetching at all (pod down, crash-looping,
