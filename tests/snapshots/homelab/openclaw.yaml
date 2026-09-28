@@ -56,23 +56,9 @@ spec:
   networking:
     service:
       type: ClusterIP
-    httpRoute:
-      enabled: true
-      annotations:
-        external-dns.alpha.kubernetes.io/hostname: openclaw.replaceme-domain.com
-      parentRefs:
-        - name: envoy-internal
-          namespace: envoy-gateway-system
-          sectionName: https
-      hostnames:
-        - openclaw.replaceme-domain.com
   security:
     networkPolicy:
       enabled: true
-      # The default policy allows same-namespace ingress only, so the Gateway's
-      # namespace has to be named or the HTTPRoute backend is unreachable.
-      allowedIngressNamespaces:
-        - envoy-gateway-system
   observability:
     metrics:
       enabled: true

@@ -28,8 +28,8 @@ two names for one credential.
 
 The `OpenClawInstance`: image `ghcr.io/openclaw/openclaw` at `images.openclaw` (the CRD rejects an
 Instance whose tag and digest are both empty, and the registry publishes release tags without the
-leading `v`); `spec.networking.httpRoute` on the `https` listener of `envoy-internal` with
-external-dns (TLS is the Gateway's wildcard certificate, no per-app Secret); Service `openclaw` with
+leading `v`); no `spec.networking.httpRoute` (see [Exposure](#exposure) -- the Control UI is
+reachable in-cluster only); Service `openclaw` with
 the operator's default gateway port 18789 and canvas port 18793; persistence on
 `STORAGE_CLASS_ISCSI_SSD` at `OPENCLAW_STORAGE_SIZE` (1Gi in Kind); `spec.gateway.existingSecret`
 pointing at `openclaw-gateway`; metrics and a ServiceMonitor on. The smoke Job curls
@@ -71,7 +71,7 @@ cosign verify \
 
 | Key | Meaning |
 |---|---|
-| `OPENCLAW_HOSTNAME` | `openclaw.<domain>`; reachable on the internal Gateway only (LAN/tailnet) |
+| `OPENCLAW_HOSTNAME` | `openclaw.<domain>`; recorded for the future tailnet endpoint, no route is rendered today (see [Exposure](#exposure)) |
 | `OPENCLAW_STORAGE_SIZE` | data volume size (agent workspace, `openclaw.json`, browser profiles); Kind always uses 1Gi |
 | `OPENCLAW_API_KEYS_1P_PATH` | 1Password item for the provider credentials |
 | `OPENCLAW_GATEWAY_1P_PATH` | 1Password item for the Control UI bearer token |
@@ -198,13 +198,51 @@ paths that matter most (`models.providers`, `gateway`) are exactly the ones `con
 protects. If it is ever enabled, `allowedActions` must be set too: the CRD treats an empty list as
 "nothing allowed" (fail-safe), so `enabled: true` alone grants nothing and only looks like it does.
 
-Two further defaults recorded here rather than decided:
+One further default recorded here rather than decided:
 
-- **Exposure is Tailscale-only.** The `HTTPRoute` attaches to the `envoy-internal` Gateway, which is
-  LAN/tailnet only. There is deliberately no route on the external Gateway: an OpenClaw gateway
-  holding a Claude subscription token should not be public without oauth2-proxy in front.
 - **No messaging channels** (Slack/Discord/Telegram) in v1. They would add a second credential store
   with no stated requirement.
+
+## Exposure
+
+**No route is rendered.** The Control UI is reachable only from inside the cluster, via Service
+`openclaw.openclaw.svc.cluster.local:18789`; use `kubectl port-forward` to reach it.
+
+An earlier revision of this document called `envoy-internal` "Tailscale-only". It is not.
+`configuration/templates/helm-addons.tmpl` provisions that Gateway for the LAN *and* the tailnet, so
+a route on it answers every client on the home network. The requirement for OpenClaw is
+tailnet-only, and the gateway bearer token alone is not that boundary: it is one shared secret in
+front of an agent holding a Claude subscription token and provider API keys.
+
+There is also deliberately no route on the external Gateway, which would need oauth2-proxy in front.
+
+Two rules hold this shut, both at level 0 (`task test:policy`):
+
+| Rule | Forbids |
+|---|---|
+| `openclaw-shared-route` | an `OpenClawInstance` httpRoute, or the instance Application's inline values, naming `envoy-internal` |
+| `openclaw-operator-scope` | the operator Application rendering without `watchNamespaces` |
+
+Remote access needs a dedicated tailnet endpoint with tag-scoped authorization, which is tracked
+separately; re-enabling the shared internal route instead is a board decision, not a default, and
+would need this section and both rules changed with it.
+
+## Controller RBAC scope
+
+The operator Application sets `watchNamespaces: [openclaw]`. This is not cosmetic: with the list
+empty -- the signed chart's default -- `templates/rbac.yaml` binds the controller a **ClusterRole**
+granting Secrets `get, list, watch, create, update, patch` in *every* namespace. Naming the instance
+namespace renders instead:
+
+| Object | Namespace | Secret verbs |
+|---|---|---|
+| `Role/openclaw-operator-manager-role` | `openclaw` | get, list, watch, create, update, patch |
+| `Role/openclaw-operator-manager-role-operator-ns` | `openclaw-system` | get, list, watch |
+| `ClusterRole/openclaw-operator-manager-role-cluster` | cluster-scoped | none |
+
+The remaining ClusterRole exists because `OpenClawClusterDefaults` is cluster-scoped; it grants no
+Secret access. Residual risk: a compromised controller still reaches credentials in `openclaw` and
+`openclaw-system`.
 
 ## Backups: not implemented, and why
 
@@ -257,6 +295,8 @@ task verify:prod
 
 ## Follow-ups
 
+- A tailnet-only endpoint with tag-scoped authorization, which is what "remote access" needs now
+  that no route is rendered. Requires a Tailscale ACL change, so it is tracked on its own issue.
 - Backups via the operator's CronJob, with an object-store target and a restore drill (decision
   above).
 - LiteLLM as an OpenAI-compatible `models.providers` entry once #424 is deployed.
