@@ -114,9 +114,11 @@ metrics:
         they are not the service's promise to anybody. At an ordinary 10s probe period a
         homelab service runs roughly ten probes per user request, which divides the
         measured error ratio by about eleven: a user path failing 10% of the time reads
-        0.91% and pages nobody. It also puts a floor under the objective -- at that ratio
-        a service cannot measure below about 92% availability however completely the user
-        path fails, so "99.5%" stops being a statement about the user.
+        0.91% and pages nobody. It also puts a floor under the objective -- the probes are
+        ten of every eleven observations and never fail, so the highest error ratio the
+        family can express is 1/11 = 9.09% and a service cannot measure below about 90.9%
+        availability however completely the user path fails, so "99.5%" stops being a
+        statement about the user.
       excludedRule: >-
         Exclusion at the source, not a reserved route value the consumer must remember to
         filter out. A route value that every expression has to exclude is the `pod` and
@@ -273,6 +275,27 @@ labels:
         to the raw path instead is how an unrouted scanner hitting /a, /b, /c ... turns
         into unbounded series, and it is the single most common cause of a Prometheus
         that falls over in month three.
+      tailRule: >-
+        __other__ absorbs the OVER-BUDGET tail as well as the unmatched request. A
+        service with more real routes than maxDistinctValuesPerService allows declares
+        the routes its SLOs and canaries are written against and records every remaining
+        route as __other__. The tail stays measurable in aggregate -- its requests are
+        still in the rate, the error ratio and the histogram -- it just stops being
+        separable by route.
+      tailRuleRationale: >-
+        Without this clause a large API has no conformant move at all. Our own
+        control-plane API exposes on the order of 127 "<METHOD> <template>" values; at
+        the declared code ceiling that is 127 x 7 x 16 = 14224 series against a 3000
+        ceiling, and even at a single code value it is 4064. No value of
+        maxDistinctValuesPerService fixes that, so cardinality.breach ("the fix is fewer
+        label values") would have left the contract's own first consumer permanently
+        non-conformant. Collapsing the tail IS fewer label values; this clause says so
+        explicitly rather than leaving each service to infer it.
+      tailRuleSelectionIsNotArbitrary: >-
+        Which routes stay named is a service-owner decision recorded with the service,
+        not a per-deploy accident: a route that silently moves into the tail takes its
+        SLO history with it and the burn rate resets to no-data. Treat renaming or
+        demoting a declared route as the same class of change as dropping a label value.
 
     - name: outcome
       enum: [success, error]
@@ -301,11 +324,25 @@ labels:
         the policy working as designed. Both are outcome="error" so neither is invisible,
         and both surface as 429.
       sliExclusionRule: >-
-        The availability SLI MUST exclude code="quota" from its numerator
-        (`{outcome="error",code!="quota"}`). Without the split one noisy tenant burns the
-        service's error budget and, at day 31, blocks every other tenant's releases --
-        the error budget becomes a denial-of-service vector against the release gate.
-        Written now rather than at day 31 so the gating SLI is written once.
+        The availability SLI MUST exclude code="quota" from BOTH SIDES of the ratio --
+        `{outcome="error",code!="quota"}` over `{code!="quota"}`, never over an
+        unselected total. Excluding it from the numerator alone is worse than not
+        excluding it, because the denials stay in the population and are counted as GOOD
+        events. Without the split one noisy tenant burns the service's error budget and,
+        at day 31, blocks every other tenant's releases -- the error budget becomes a
+        denial-of-service vector against the release gate. Written now rather than at day
+        31 so the gating SLI is written once.
+      sliExclusionBothSidesRationale: >-
+        Quota denials are unbounded in volume, produced by the limit itself, and cheapest
+        to serve exactly when the service is unhealthy -- so they dilute harder than
+        probes do, and probes already needed observation.excluded for the same reason. A
+        service serving 100 req/s with 10 req/s genuinely failing is at 90% availability
+        and must page on the 14.4x tier; one tenant retrying into its quota at 900 req/s
+        moves the measured ratio to 10/1010 = 0.99%, a burn rate of 1.98x, which clears
+        neither paging tier. Numerator-only exclusion stops a noisy tenant from BURNING
+        the budget but lets it HIDE a real outage, which is the worse direction. The
+        latency SLI needs no edit: it selects outcome="success" on both sides, so quota
+        is already out of both.
 
   # Attached by the Prometheus Operator at scrape time, outside the service's control.
   # Named here because every consumer query has to decide what to do with them.
@@ -417,6 +454,13 @@ cardinality:
     A service over its ceiling is non-conformant and the fix is fewer label values, not
     a higher ceiling. Raising a ceiling is a change to this file with an ADR
     consequence stated, not a values.yaml override.
+  breachLegalMoves: >-
+    "Fewer label values" is not a demand to delete routes. For the route label the
+    move is labels.required[route].tailRule: declare the routes the SLOs and canaries
+    name and collapse the rest into __other__. A large API reaches conformance by
+    choosing what it measures separately, not by shrinking. Stated because the bare
+    breach rule reads as "your service is too big to be conformant", which is not the
+    intent and is not achievable for any real API surface.
 
 # ---------------------------------------------------------------------------
 # Exposition and scrape.
