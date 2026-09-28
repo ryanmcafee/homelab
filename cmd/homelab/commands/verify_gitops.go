@@ -34,9 +34,11 @@ Rules, one check each, named gitops/<env>/<rule>:
                 its CRDs, comparing (parent wave, wave)
   repo-secrets  every OCI chart repository has an ArgoCD repository Secret
                 with enableOCI: "true"
-  secret-refs   every consumed Secret is produced in the same namespace by a
-                rendered Secret, OnePasswordItem or Certificate, or is
-                registered in tests/gitops/known-secrets.yaml
+  secret-refs   every consumed Secret (secretRef, *SecretRef, existingSecret,
+                a bare secretName, a *Secret name map, a *Secrets list) is
+                produced in the same namespace by a rendered Secret,
+                OnePasswordItem or Certificate, or is registered in
+                tests/gitops/known-secrets.yaml
   namespaces    every destination namespace is rendered, created via
                 CreateNamespace=true, or a system namespace
   ssa           charts with oversized CRDs set ServerSideApply=true
