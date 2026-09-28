@@ -125,6 +125,55 @@ one with the least industry convention:**
 credentials keep working until they expire, which is what bounds the damage and why the
 maximum lifetime is mandatory rather than advisory.
 
+## Where two of these seams meet the event bus
+
+There are still four seams. This section names the one place seams 3 and 4 bind to a concrete
+mechanism, because that binding is where a customer-specific fork would otherwise appear.
+Decision record: ADR-043.
+
+**The seam:** `BusPrincipal -> NATS user`. A platform principal — a human via OIDC, an
+`AgentIdentity`, or a platform component — has to become something the NATS server will accept on
+a connection, with permissions narrow enough to hold the tenant boundary in
+[`event-contract.md`](event-contract.md) §5.
+
+**The interface is a declaration, not a credential format.** Per principal: the subjects it may
+publish, the subjects it may subscribe to, and its `$JS.API` allow-list. Nothing in it names a
+credential mechanism, an issuer or a provider. That declaration is the artifact both
+implementations consume, and it is what makes this one seam rather than two permission models that
+drift.
+
+**Implementations:**
+
+- **Static.** The declaration renders into the server's account configuration; the credential is a
+  Secret, provisioned the way every other secret here is. Homelab's default, and the bootstrap
+  path — a bus that needs a service of ours running before it will accept a connection cannot come
+  up from cold.
+- **Auth callout.** The declaration renders into a short-lived user JWT, minted by a callout
+  service after it authenticates the principal against the BYO identity centre (seam 3) or the
+  `AgentIdentity` broker (seam 4). This is the path that satisfies seam 4's short-lived-only rule
+  on the bus, because a static NATS credential for an agent is exactly the long-lived token that
+  interface refuses to return.
+
+**Rules:**
+
+- **A tenant's permission set is generated from the declaration, never hand-written per customer.**
+  A hand-maintained account block is the fork this document exists to prevent, in the one file
+  where it would be least visible.
+- **No principal is granted a wildcard tenant.** `pf.*.>` and `pf.>` are not available to any
+  implementation of this seam, platform components included.
+- **The conformance suite belongs to the seam** and asserts the same declaration produces the same
+  accepted *and refused* operations under both backends — the refusals being the half a permission
+  test usually omits.
+
+**Blast radius:** the callout service being down blocks *new* connections and leaves established
+ones running to their credential expiry — the same bound seam 4 puts on the identity broker, and
+the reason the static backend remains the bootstrap path rather than a legacy option.
+
+**Deliberately not adopted:** the NATS operator/nsc JWT hierarchy. It is a server-wide mode switch
+that forecloses the static backend and makes an operator seed a permanent custody obligation, and
+auth callout provides dynamic issuance without it. The declaration above is what keeps nsc a third
+backend for a customer who already runs it, rather than a migration.
+
 ## What "designed as a seam" means for review
 
 A design that crosses one of these four is reviewed against this list, and the review states

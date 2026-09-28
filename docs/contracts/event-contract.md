@@ -249,6 +249,84 @@ so the multi-tenant path is exercised by the homelab install rather than existin
 enterprise. That is the point of a shared contract: the seam is used on both surfaces, not
 just declared for one.
 
+### 5.1 What actually enforces the tenant boundary
+
+Decision record: ADR-043. Stated mechanically, because "enforced at the account level" is the
+kind of phrase a reader can agree with while deploying an open bus.
+
+**One NATS account per tenant, and the account is the enforcement.** Subject namespaces do not
+cross accounts, so a client in one tenant's account cannot name another tenant's subject
+however wide its permissions are. The `<tenant>` token is not the boundary; it is the record of
+which side of the boundary a message came from, which is what makes it meaningful in a
+`PF_AUDIT` entry, a `PF_DLQ` envelope or a Postgres row that outlives the connection.
+
+**Both halves are required.** The account stops cross-tenant reach. A per-user subject
+permission of `pf.<that user's own tenant>.>` — never `pf.*.>`, never `pf.>` — stops a workload
+forging a foreign `tenant` token *inside* its own account. Drop the second and every consumer
+obeying the rule above, that `tenant` may never be inferred and must be trusted, is trusting a
+value its neighbours can write.
+
+**No export or import between tenant accounts.** Cross-tenant aggregation is a per-tenant
+consumer publishing outward under its own identity. An export is the one construct that reopens
+the boundary invisibly to every subject permission, so it is refused here rather than reviewed
+case by case.
+
+### 5.2 `$JS.API` is closed to workloads
+
+The stream set is GitOps state reconciled by NACK, so no other component needs stream lifecycle
+rights, and any component holding them can delete a tenant's durable work in one request.
+
+A component's `$JS.API` allow-list is exactly:
+
+| Allowed | Why |
+|---|---|
+| `$JS.API.INFO` | Client bootstrap |
+| `$JS.API.STREAM.INFO.<stream>` | Read its own stream's state |
+| `$JS.API.CONSUMER.INFO.<stream>.<consumer>` | Read its own consumer |
+| `$JS.API.CONSUMER.CREATE.<stream>.<consumer>.<filter>` | Bind its own consumer — see below |
+| `$JS.API.CONSUMER.MSG.NEXT.<stream>.<consumer>` | Pull |
+| `$JS.ACK.>` | Ack, nak, term |
+
+`STREAM.CREATE`, `STREAM.UPDATE`, `STREAM.DELETE`, `STREAM.PURGE`, `STREAM.MSG.DELETE` and
+`CONSUMER.DELETE` are **denied**. All six carry the stream name in the subject, so the deny is
+expressible without a wildcard that would also swallow the reads above.
+
+**The consumer-create permission is what closes the silent-repoint hole in §6.** A `PF_WORK`
+consumer binds exactly one fully-specified subject, so the client's create subject carries the
+consumer name *and* its filter. A permission scoped to that one subject makes repointing another
+component's filter a denial rather than a silent update, which is the failure `10100` cannot
+catch. **It has three entrances, and scoping only the obvious one leaves it open:** the server
+routes `$JS.API.CONSUMER.CREATE.*`, `$JS.API.CONSUMER.CREATE.*.>` and
+`$JS.API.CONSUMER.DURABLE.CREATE.*.*` to the same handler, and the first carries no consumer
+name in the subject at all. An allow on the filtered form is accompanied by explicit denies on
+the other two, and what the nameless form can reach is a conformance test against a running
+server, not an assumption.
+
+### 5.3 What the account boundary does not cover
+
+- **The monitoring port.** It is enabled by default on 8222, exposed on the Service, plain HTTP
+  with no authorization, and `/jsz?accounts=true` reports stream names and message counts for
+  *every* account while `/connz` reports connection detail. Accounts partition the client port
+  only. Scope 8222 with a NetworkPolicy and consider TLS on it; do not assume the account model
+  reaches it.
+- **The shared file store.** Per-account JetStream limits (`max_memory`, `max_store`,
+  `max_streams`, `max_consumers`) are mandatory, because one tenant filling the store refuses
+  writes for every account on that peer with `insufficient resources (10047)`. The per-stream
+  `maxBytes` budget sums below the *account's* `max_store`, and the accounts sum below the store.
+- **`$SYS`.** It is for operating the server and for break-glass. No platform component holds
+  it, NACK included: NACK takes one narrowly-permissioned user per tenant account through its
+  `Account` resource, so a single controller credential never gains cross-tenant reach.
+
+### 5.4 The bus credential is a seam
+
+A platform principal becomes a NATS user through one declaration — the subjects it may publish,
+the subjects it may subscribe to, its `$JS.API` allow-list — with two backends behind it:
+static, rendering the declaration into the server's account configuration with the credential
+delivered as a Secret (the homelab default and the bootstrap path); and auth callout, rendering
+the same declaration into a short-lived user JWT minted after authenticating a platform
+principal. The declaration and its conformance suite are the seam; the backends are
+interchangeable. See `byo-extension-points.md`.
+
 ## 6. Consumer obligations
 
 - Durable pull consumer. Ephemeral consumers are for human debugging only — a service using
