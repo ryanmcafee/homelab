@@ -333,10 +333,10 @@ test("both declared consumers still exist at the paths the contract names", () =
 });
 
 test("no consumer restates a contract value as a literal constant", () => {
-  // ADR-031: "a second implementation of the same logic is a review failure". The
-  // TypeScript consumer still carries EXPECTED_MEMBERS while #39 is in flight; this
-  // test names that debt rather than pretending it is gone, and flips to an assertion
-  // the moment both consumers read the contract.
+  // ADR-031: "a second implementation of the same logic is a review failure". #39 has
+  // merged and the TypeScript consumer still carries EXPECTED_MEMBERS; this test names
+  // that debt rather than pretending it is gone. MCAA-453 owns retiring it, and the
+  // scan covers this one value name only -- a restated raftIndexTolerance is outside it.
   const repoRoot = join(import.meta.dir, "..");
   const offenders: string[] = [];
   for (const consumer of contract.consumers) {
