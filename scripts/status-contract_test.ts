@@ -123,8 +123,10 @@ const signalDependencies = obj(
   "stateDerivation.signalDependencies",
 );
 
+type DerivedField = "state" | "uptime" | "incidents";
+
 /** The signal ids the named field is derived from. */
-function dependenciesOf(field: "state" | "uptime"): string[] {
+function dependenciesOf(field: DerivedField): string[] {
   return strList(
     signalDependencies[field],
     `stateDerivation.signalDependencies.${field}`,
@@ -474,10 +476,14 @@ test("every state and every reason has exactly one derivation rule", () => {
 test("every derived field names the signals it depends on", () => {
   assertEquals(
     Object.keys(signalDependencies).sort(),
-    ["state", "uptime"],
+    ["incidents", "state", "uptime"],
     "a derived field with no declared dependency is a field with no defined value when an upstream is down",
   );
-  const undeclared = [...dependenciesOf("state"), ...dependenciesOf("uptime")]
+  const undeclared = [
+    ...dependenciesOf("state"),
+    ...dependenciesOf("uptime"),
+    ...dependenciesOf("incidents"),
+  ]
     .filter((id) => !SIGNAL_IDS.includes(id))
     .sort();
   assertEquals(
@@ -486,12 +492,45 @@ test("every derived field names the signals it depends on", () => {
     "a dependency on a signal the response never reports is a dependency the UI cannot explain",
   );
   assert(
-    SIGNAL_IDS.every(
-      (id) =>
-        dependenciesOf("state").includes(id) ||
-        dependenciesOf("uptime").includes(id),
+    SIGNAL_IDS.every((id) =>
+      (["state", "uptime", "incidents"] as const).some((field) =>
+        dependenciesOf(field).includes(id),
+      ),
     ),
     "a reported signal that backs no field should not be in the response at all",
+  );
+});
+
+test("a proven fault outranks a lost signal in the evaluation order", () => {
+  const order = strList(derivation.order, "stateDerivation.order");
+  assert(
+    order.indexOf("alert_firing") < order.indexOf("signal_unavailable"),
+    "a firing alert must be evaluated before a lost signal, or the contract forbids reporting an outage it can prove",
+  );
+});
+
+test("schemaVersion echoes the major in the path and the filename", () => {
+  const major = int(
+    obj(
+      obj(
+        obj(schemas.StatusDocument, "StatusDocument").properties,
+        "properties",
+      ).schemaVersion,
+      "StatusDocument.properties.schemaVersion",
+    ).const,
+    "schemaVersion.const",
+  );
+  const url = str(
+    obj(arr(contract.servers, "servers")[0], "servers[0]").url,
+    "servers[0].url",
+  );
+  assert(
+    url.endsWith(`/api/v${major}`),
+    `schemaVersion ${major} disagrees with the path major in ${url}`,
+  );
+  assert(
+    CONTRACT_PATH.endsWith(`.v${major}.yaml`),
+    `schemaVersion ${major} disagrees with the major in the contract's filename`,
   );
 });
 
@@ -540,8 +579,16 @@ for (const { name, body } of fixtures) {
         .filter((signal) => signal.state === "unavailable")
         .map((signal) => str(signal.id, "signal id")),
     );
-    const lost = (field: "state" | "uptime"): boolean =>
+    const lost = (field: DerivedField): boolean =>
       dependenciesOf(field).some((id) => unavailable.has(id));
+
+    const firingIncidents = arr(body.incidents, `${name}.incidents`)
+      .map((raw, i) => obj(raw, `${name}.incidents[${i}]`))
+      .filter((incident) => incident.state === "firing");
+    const isFiringFor = (componentId: string): boolean =>
+      firingIncidents.some((incident) =>
+        strList(incident.componentIds, "componentIds").includes(componentId),
+      );
 
     for (const component of components) {
       const id = str(component.id, "id");
@@ -555,12 +602,22 @@ for (const { name, body } of fixtures) {
         );
       }
 
-      assertEquals(
-        component.stateReason === "signal_unavailable",
-        lost("state"),
-        `${name}: ${id} reports signal_unavailable only when a signal its state depends on is down, and must report it when one is`,
-      );
-      if (lost("state")) {
+      // Asymmetric, per stateDerivation.order: a lost signal invalidates a claim of
+      // health but does not retract a fault the document can still prove. So blaming a
+      // lost signal requires one to be lost, but a lost signal only forces `unknown`
+      // where nothing is firing for this component.
+      if (component.stateReason === "signal_unavailable") {
+        assert(
+          lost("state"),
+          `${name}: ${id} blames a lost signal for its state while every signal behind it answered`,
+        );
+      }
+      if (lost("state") && !isFiringFor(id)) {
+        assertEquals(
+          component.stateReason,
+          "signal_unavailable",
+          `${name}: ${id} has nothing firing and an unreadable signal, so that is the reason it must give`,
+        );
         assertEquals(
           component.state,
           "unknown",
@@ -660,6 +717,32 @@ for (const { name, body } of fixtures) {
         assert(
           taxonomyById.has(componentId),
           `${name}: incident ${String(incident.id)} names ${componentId}, which is not in the taxonomy`,
+        );
+      }
+    }
+
+    // The tile agrees with the feed. A red banner over a green tile for the same
+    // component is the error a visitor spots first and forgives last.
+    const worstFirst = strList(overallRule.worstFirst, "overall.worstFirst");
+    const severityToState = obj(
+      derivation.severityToState,
+      "stateDerivation.severityToState",
+    );
+    const stateById = new Map(
+      components.map((component) => [str(component.id, "id"), component.state]),
+    );
+    for (const incident of firingIncidents) {
+      const floor = severityToState[str(incident.severity, "severity")];
+      if (typeof floor !== "string") continue;
+      for (const componentId of strList(
+        incident.componentIds,
+        "componentIds",
+      )) {
+        const state = stateById.get(componentId);
+        if (state === undefined) continue;
+        assert(
+          worstFirst.indexOf(String(state)) <= worstFirst.indexOf(floor),
+          `${name}: ${componentId} reads ${String(state)} while incident ${String(incident.id)} is firing against it at ${String(incident.severity)}, which is at least ${floor}`,
         );
       }
     }

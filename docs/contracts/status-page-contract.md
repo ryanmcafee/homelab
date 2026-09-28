@@ -1,6 +1,7 @@
 # The status page back end -> UI contract
 
-Normative for the status page (`ryanmcafee/homelab#41`). The machine-checkable artifact is
+Normative for the status page (`ryanmcafee/homelab#41`). Decision record: ADR-034 in
+[`docs/project_notes/decisions.md`](../project_notes/decisions.md). The machine-checkable artifact is
 [`contracts/status/status-page.v1.yaml`](../../contracts/status/status-page.v1.yaml), checked by
 `scripts/status-contract_test.ts` in `task test:scripts`.
 
@@ -35,6 +36,14 @@ No metric name, label name, label value, fingerprint or internal hostname appear
 One request rather than three also means the UI has **one** loading state, one error state and one
 empty state instead of three of each.
 
+**Its own host and its own process, not the platform API.** That surface is authenticated and shaped
+for many tenants; this page is deliberately unauthenticated and LAN-scoped. Serving an
+unauthenticated route from the authenticated service makes one authorization mistake an API exposure
+rather than a status page, and makes `Cache-Control: public` a property of the API host. A separate
+process is a separate blast radius, and the redaction rules are far easier to hold when the process
+has nothing else to leak. `/api/v1/status` is reserved on the status host: the platform API must not
+serve a route at that path, which it will otherwise eventually want for its own health.
+
 ## 2. Component granularity: seven names, fixed in the contract
 
 | id | Name | Group |
@@ -67,12 +76,23 @@ application adds a row to the taxonomy in the same pull request.
 
 | stateReason | Meaning | State |
 |---|---|---|
-| `signal_unavailable` | an upstream this component's state depends on did not answer | `unknown` |
-| `no_signal` | nothing is mapped to this component, so nothing could have fired | `unknown` |
 | `alert_firing` | a mapped alert is firing; `critical` -> `down`, `warning` -> `degraded` | `down` / `degraded` |
+| `signal_unavailable` | nothing is firing and an upstream this component's state depends on did not answer | `unknown` |
+| `no_signal` | nothing is mapped to this component, so nothing could have fired | `unknown` |
 | `no_firing_alerts` | alerts are mapped and none are firing | `operational` |
 
 First match wins, in that order, so a component never has two answers.
+
+**`alert_firing` is deliberately first, and the asymmetry is the rule.** A lost signal invalidates a
+claim of health; it does not retract a fault the page can still prove. A frozen Alertmanager saying
+"nothing is firing" proves nothing, but one saying "something *is* firing" is still evidence of a
+fault, and burying it under `unknown` is the same lie pointed the other way — told in the hour it
+costs most. `unknown` is the floor for unproven health, never a ceiling on proven fault.
+
+**A tile may never read better than the feed beneath it.** A component named by a firing incident
+reads at least that incident's `severityToState`. A red banner over a green tile for the same
+service is the error a visitor spots first and forgives last, and it is `operational` requiring a
+mapped alert, one level up.
 
 **A component with no SLI reads `unknown` with `no_signal`, not `operational`** — the explicit
 second option the issue asked for, and it is enforced, not documented: `operational` with
@@ -103,11 +123,20 @@ absent one that silently shortens the bar.
 
 `signals` reports Prometheus and Alertmanager per response, and
 `stateDerivation.signalDependencies` says which field each one backs: `state` depends on both,
-`uptime` on Prometheus. `state` depends on Prometheus because Prometheus evaluates the rules — with
-it unreachable, an Alertmanager that still answers is serving a frozen view, and a frozen "nothing
-is firing" is not evidence of health. Whenever a dependency is unavailable the affected field says
-so, the UI raises a banner, and every tile below it reads `unknown`; the alternative is the classic
-status page lie where the page is green because the thing watching it died.
+`uptime` on Prometheus, `incidents` on Alertmanager. `state` depends on Prometheus because
+Prometheus evaluates the rules — with it unreachable, an Alertmanager that still answers is serving
+a frozen view, and a frozen "nothing is firing" is not evidence of health.
+
+When a dependency is unavailable the affected field says so and the UI raises a banner. Every tile
+**with nothing firing against it** reads `unknown`; a tile with a firing alert keeps its real state,
+per the asymmetry above. The alternative is the classic status page lie where the page is green
+because the thing watching it died.
+
+**An empty `incidents` is only an empty feed while Alertmanager is available.** With that signal
+unavailable, `incidents: []` means *not known*, and the UI renders the feed as unavailable rather
+than as its empty state — never as "no incidents in the last N days". An empty list is otherwise an
+affirmative claim of calm, and this is the one document that must not make that claim on the
+strength of an upstream that did not answer.
 
 ## 4. Subscriptions: deferred, and not the UI's to invent
 
@@ -128,12 +157,32 @@ the poll cadence ever proves too slow.
   and its own conformance test proving a served response satisfies this schema and the redaction
   rules. None of that appears in this contract.
 - **UI** — the component tree, and a designed rendering for all four states, all four state
-  reasons, all three uptime-unavailable reasons, the signal-lost banner, the maintenance overlay and
-  the empty-components page. `tests/status/*.json` are the documents it renders against; the test
-  fails if a value the UI has to render has no fixture.
+  reasons, all three uptime-unavailable reasons, the signal-lost banner, the unreadable-feed state,
+  the maintenance overlay and the empty-components page. `tests/status/*.json` are the documents it
+  renders against; the test fails if a value the UI has to render has no fixture. The hardest of
+  them is `prometheus-unavailable-with-firing.json`: a proven outage on one tile, `unknown` on
+  another, and no uptime history for either. That is the worst hour the page will ever have, and it
+  is the one the design has to survive.
 
 ## 6. Versioning
 
-`schemaVersion` is `1`. Additive fields do not change it; a UI that reads a version it does not
-know renders an out-of-date state rather than guessing. Anything non-additive is a new major and an
-escalation to the Architect before it merges.
+**The path is the major**, per [`sdk-boundary.md`](sdk-boundary.md) Sec. 5: `/api/v1/status`, and a
+breaking change is `/api/v2/status` served alongside v1, with `status-page.v2.yaml` alongside v1 as
+[`contracts/README.md`](../../contracts/README.md) requires.
+
+`schemaVersion` is an **echo** of that major, not a second axis. It is worth one integer because a
+cached or proxied body that self-identifies is useful, but an invariant pins it to the path and the
+filename — a `/api/v2/status` whose body still said `1` is a disagreement nothing would otherwise
+catch. Additive fields do not change it. A UI reading a version it does not know renders an
+out-of-date state rather than guessing.
+
+**A consumer MUST ignore properties it does not recognise.** `additionalProperties: false` in the
+contract binds the *producer* and this repository's fixtures — it is what catches a typo'd field
+before it ships. A consumer that validates a live response strictly against a bundled copy of the
+schema breaks on the first additive field, which would make the additive promise above false against
+the very UI this contract was written for. Assume a consumer you cannot see and cannot redeploy: on
+this surface that is a stranger's fork running a UI build from six months ago.
+
+That rule is also what keeps a future enterprise `tenant` field a cheap additive change rather than
+a breaking one, which is why v1 does not pre-place it. Anything genuinely non-additive is a new
+major and an escalation to the Architect before it merges.

@@ -14,11 +14,11 @@ implementation for the same concern, the architecture has failed.
 | [quality-gates.md](quality-gates.md) — contract tests, schema compatibility, upgrade and rollback | ADR-030 |
 
 Below the architecture baseline sit per-surface contracts, which apply the rules above to one
-boundary rather than setting new ones, and so carry no ADR of their own:
+boundary:
 
-| Document | Surface |
-|---|---|
-| [status-page-contract.md](status-page-contract.md) — transport, component taxonomy, state vocabulary, what the UI renders when nothing measured it | The status page back end -> React UI ([`contracts/status/`](../../contracts/status)) |
+| Document | Surface | Decision record |
+|---|---|---|
+| [status-page-contract.md](status-page-contract.md) — transport, component taxonomy, state vocabulary, what the UI renders when nothing measured it | The status page back end -> React UI ([`contracts/status/`](../../contracts/status)) | ADR-034 |
 
 The ADRs live in [`docs/project_notes/decisions.md`](../project_notes/decisions.md), the
 repository's existing decision record. These documents carry the normative detail an ADR

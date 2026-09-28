@@ -40,7 +40,14 @@ info:
 
 servers:
   - url: https://{statusHostname}/api/v1
-    description: The status page's own ingress. Synthetic host per docs/contracts/fork-ability.md.
+    description: >-
+      The status page's own ingress and its own process, deliberately not the platform
+      API: that surface is authenticated, and serving an unauthenticated route from it
+      makes one authorization mistake an API exposure rather than a status page, and
+      `Cache-Control: public` a property of the API host. `/api/v1/status` is reserved on
+      the status host only — the platform API MUST NOT serve a route at that path, which
+      it will otherwise eventually want for its own health. Synthetic host per
+      docs/contracts/fork-ability.md.
     variables:
       statusHostname:
         default: status.example.invalid
@@ -105,6 +112,12 @@ paths:
 
 components:
   schemas:
+    # `additionalProperties: false` here binds the PRODUCER and this repository's
+    # fixtures. A consumer MUST ignore properties it does not recognise and MUST NOT
+    # validate a response strictly against a bundled copy of this schema — otherwise
+    # the first additive field breaks every UI build in the field, and the additive
+    # compatibility promise below is false against the consumer it was written for.
+    # Assume a stranger's fork running a UI from six months ago.
     StatusDocument:
       type: object
       additionalProperties: false
@@ -121,7 +134,11 @@ components:
       properties:
         schemaVersion:
           description: >-
-            The contract major. A UI that reads a value it does not know renders the
+            An echo of the major already in the path (`/api/v1/status`) and in this
+            file's name — NOT a second version axis. Present because a cached or proxied
+            body that self-identifies is worth one integer; pinned by an invariant
+            because a `/api/v2/status` whose body still said `1` is a disagreement
+            nothing would catch. A UI reading a value it does not know renders the
             "this page is out of date" state instead of guessing at the fields.
           type: integer
           const: 1
@@ -152,9 +169,13 @@ components:
             $ref: "#/components/schemas/Component"
         incidents:
           description: >-
-            Firing and recently-resolved alerts, newest `startedAt` first. Empty is
-            the good case and the UI says so ("no incidents in the last N days")
-            rather than rendering an empty list.
+            Firing and recently-resolved alerts, newest `startedAt` first. Empty means
+            "no incidents in the last N days" and the UI says so — but ONLY while every
+            `stateDerivation.signalDependencies.incidents` signal is available. With that
+            signal unavailable, empty means *not known*, and the UI renders the feed as
+            unavailable rather than as its empty state. An empty list is otherwise an
+            affirmative claim of calm, and this is the one document that must not make it
+            on the strength of an upstream that did not answer.
           type: array
           items:
             $ref: "#/components/schemas/Incident"
@@ -472,8 +493,9 @@ components:
           type: integer
         detail:
           description: >-
-            Operator-facing. MUST NOT be rendered by the UI and MUST NOT contain an
-            internal identifier, because this endpoint is unauthenticated.
+            The producer MUST NOT put an internal identifier here; this endpoint is
+            unauthenticated, so anything in this field is public whatever the UI does
+            with it. Operator-facing, and the UI does not render it.
           type: string
 
 # ---------------------------------------------------------------------------
@@ -602,20 +624,34 @@ x-status-page:
     # evaluates the rules, so with Prometheus unreachable an Alertmanager that still
     # answers is serving a frozen view. A frozen "nothing is firing" is not evidence
     # of health, and reporting it as `operational` is the exact lie this file forbids.
+    #
+    # `incidents` is derived too, and from Alertmanager alone. Without that declared,
+    # an unreadable feed serves `incidents: []`, which this document tells the UI to
+    # render as "no incidents in the last N days" — an affirmative claim of calm built
+    # from a dead upstream.
     signalDependencies:
       state: [alertmanager, prometheus]
       uptime: [prometheus]
-    order: [signal_unavailable, no_signal, alert_firing, no_firing_alerts]
+      incidents: [alertmanager]
+    # `alert_firing` is evaluated FIRST, and the asymmetry is the point. A lost signal
+    # invalidates a claim of health; it does not retract a report of a fault. A frozen
+    # Alertmanager saying "nothing is firing" proves nothing, but a frozen Alertmanager
+    # saying "something IS firing" is still evidence of a fault, and burying it under
+    # `unknown` is the same lie pointed the other way — told in the hour it costs most.
+    # `unknown` is the floor for unproven health, never a ceiling on proven fault.
+    order: [alert_firing, signal_unavailable, no_signal, no_firing_alerts]
     rules:
+      - reason: alert_firing
+        when: at least one mapped alert is firing
+        state: worst firing severity via severityToState; info alone does not qualify
       - reason: signal_unavailable
-        when: any signal in signalDependencies.state reported state=unavailable
+        when: >-
+          any signal in signalDependencies.state reported state=unavailable
+          and no mapped alert is firing
         state: unknown
       - reason: no_signal
         when: coverage.mappedAlertCount == 0
         state: unknown
-      - reason: alert_firing
-        when: at least one mapped alert is firing
-        state: worst firing severity via severityToState; info alone does not qualify
       - reason: no_firing_alerts
         when: coverage.mappedAlertCount > 0 and nothing is firing
         state: operational
@@ -641,7 +677,16 @@ x-status-page:
       - stateReason == signal_unavailable requires a signalDependencies.state signal to be unavailable
       - uptime.unavailableReason == signal_unavailable requires a signalDependencies.uptime signal to be unavailable
       # The converse, so a document cannot report a dead upstream and green tiles.
-      - a signalDependencies.state signal being unavailable requires every component to read unknown
+      # Scoped to components with nothing firing: see the asymmetry note on `order`.
+      - a signalDependencies.state signal being unavailable requires every component with no firing mapped alert to read unknown
+      # The tile must agree with the feed beneath it. A red incident banner over a green
+      # tile for the same component is the error a visitor spots first and forgives last,
+      # and it is `operational requires a mapped alert` one level up. `info` maps to null
+      # in severityToState and so constrains nothing, keeping the feed-only rule intact.
+      - a component named in the componentIds of a firing incident reads no better than that incident's severityToState, ranked by overall.worstFirst
+      # schemaVersion echoes the path major; it is not a second, disagreeable axis. See
+      # docs/contracts/status-page-contract.md Sec. 6 and sdk-boundary.md Sec. 5.
+      - schemaVersion equals the major in servers[].url and in this file's name
       - uptime.buckets is empty or exactly uptime.windowDays long
       # No headline number over a partial window. A fork whose SLI is three days old
       # shows the bar it has and no percentage, rather than "99.9% (of three days)".
