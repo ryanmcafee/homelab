@@ -174,6 +174,7 @@ same report (`--no-diff`, `--max-diff-bytes 0` for full diffs); it only reads.
 | `task test:cmp-parity` | Runs the pinned `ghcr.io/ryanmcafee/homelab-cmp:<tag>` image with Docker and diffs its `config export` against source. Fails when the image tag lags the Go source. A tag bumped in the change under test is not a failure: `cmp-image.yml` pushes the image only on a merge to `main`, so when the pull reports the tag is unknown the script compares it with `--base-ref` (default `origin/main`) and passes if this change bumped it, failing if the tag is unchanged and the image is genuinely absent. The image is published for `linux/amd64` and `linux/arm64`, so it runs natively on an Apple Silicon workstation; `--platform` stays available for testing a tag published before multi-arch (anything at or below `0.1.12`), which is amd64 only. |
 | `task schemas:vendor` / `task schemas:check` | Regenerate or verify `tests/schemas/` from the chart versions in `configuration/versions.yaml`. |
 | `task docs:embedme` / `task docs:embedme:verify` | Regenerate or verify the snippets embedded in `Claude.md` (today only the `configuration/versions.yaml` block). Verify runs in the `policy` CI job, so a bump that moves `versions.yaml` without regenerating turns it red. |
+| `task verify:litellm-routes` | Renders the pinned upstream LiteLLM chart with `ingress.enabled=true` and fails when `route.*` in `charts/litellm-config/values.yaml` no longer matches the paths it serves. Needs network access, so it runs in `upgrade.yml` rather than level 0. See **Renovate bumps** below. |
 | `task gpu:toggle-test` | GPU vendor toggle harness (`scripts/toggle-test.ts`); uses the same Kubernetes version and vendored schemas. |
 | `task ci:test` | Everything above that needs no cluster: the local equivalent of the `verify.yml` jobs. |
 
@@ -299,10 +300,28 @@ reason — and an entry that stops matching anything fails the gate, so a key up
 since declared cannot sit there forever. An allowlist entry is never the place for a key
 the chart does not read: that is the defect the gate exists to find.
 
+**LiteLLM route allowlist.** `charts/litellm-config` publishes the proxy as HTTPRoutes, and
+its `route.*` path lists are a hand-copied mirror of the upstream chart's
+`templates/ingress.yaml` (`$uiPaths`, `$gatewayPrefixes`), which mirrors the proxy's own
+`gateway/routes/allowlist.py`. The manifest diff above cannot see that list: this repository
+sets `ingress.enabled: false`, so the template never renders and the diff is empty either
+way. A path that moves between the gateway and the backend upstream would silently 404.
+So the job also runs `task verify:litellm-routes`
+(`scripts/litellm-route-drift.ts`), which renders the pinned chart with
+`ingress.enabled=true`, groups the rendered Ingress paths by the Service each one targets,
+and fails naming the added and removed paths when they differ from `route.*`. Two upstream
+gateway paths are exempt because this repository drops them on purpose — `/metrics` (scraped
+in-cluster through the ServiceMonitor) and `/debug/memory/summary` (an upstream e2e memory
+gate) — and re-adding either to `values.yaml` is reported rather than absorbed. The gate also
+catches an upstream Service rename or port move, and checks `/*.txt` against
+`route.ui.rscPayloads`. Run it locally with `task verify:litellm-routes`; it needs network
+access for `helm pull`, which is why it lives here and not in level 0.
+
 **Automerge gate.** On `renovate/*` branches the job sets the commit status
 `upgrade/automerge-gate` on the head SHA: `success` ("no rendered manifest changes")
-only when every `upgrade/*` check is `unchanged`, revalidation passed and no Application
-sets a helm value its chart does not declare, otherwise
+only when every `upgrade/*` check is `unchanged`, revalidation passed, no Application
+sets a helm value its chart does not declare and the LiteLLM route allowlist still
+matches, otherwise
 `failure` ("rendered manifests changed — human review required, automerge blocked").
 `renovate.json5` automerges non-major, non-0.x chart and image bumps in `versions.yaml`
 (`kindest/node`, majors, infrastructure tools and ksops stay manual) and patch bumps
