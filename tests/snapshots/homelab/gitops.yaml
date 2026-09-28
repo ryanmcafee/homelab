@@ -20,7 +20,7 @@ metadata:
 spec:
   description: Per-PR preview environments (docs/runbooks/previews.md)
   sourceRepos:
-    - https://github.com/ryanmcafee/homelab.git
+    - https://github.com/REPLACEME-user/homelab.git
     - oci.trueforge.org/truecharts
   sourceNamespaces:
     - preview-*
@@ -75,7 +75,7 @@ spec:
   project: default
 
   source:
-    repoURL: https://github.com/ryanmcafee/homelab.git
+    repoURL: https://github.com/REPLACEME-user/homelab.git
     targetRevision: main
     path: charts/addons
     plugin:
@@ -126,7 +126,7 @@ spec:
   project: default
 
   source:
-    repoURL: https://github.com/ryanmcafee/homelab.git
+    repoURL: https://github.com/REPLACEME-user/homelab.git
     targetRevision: main
     path: charts/applications
     plugin:
@@ -176,7 +176,7 @@ spec:
   project: default
 
   source:
-    repoURL: https://github.com/ryanmcafee/homelab.git
+    repoURL: https://github.com/REPLACEME-user/homelab.git
     targetRevision: main
     path: charts/bootstrap
     helm:
@@ -188,6 +188,10 @@ spec:
       # (gitops) Application via helm.parameters; level 0 mirrors it with --set.
       # The ArgoCD route hostname is derived here and handed to the child.
       valuesObject:
+        global:
+          # The child chart points its own Application at the repository, and
+          # the injected root value reaches it only through here.
+          repoUrl: https://github.com/REPLACEME-user/homelab.git
         argocd:
           values:
             server:
@@ -256,7 +260,7 @@ spec:
   generators:
     - pullRequest:
         github:
-          owner: ryanmcafee
+          owner: REPLACEME-user
           repo: homelab
           labels:
             - preview
@@ -274,7 +278,7 @@ spec:
     spec:
       project: previews
       source:
-        repoURL: https://github.com/ryanmcafee/homelab.git
+        repoURL: https://github.com/REPLACEME-user/homelab.git
         targetRevision: '{{.head_sha}}'
         path: charts/applications
         plugin:

@@ -18,7 +18,7 @@ spec:
   project: {{ .Values.global.project }}
 
   source:
-    repoURL: {{ .Values.global.repoUrl }}
+    repoURL: {{ include "homelab.repo.cloneUrl" . }}
     targetRevision: {{ .Values.global.targetRevision }}
     path: {{ .Values.bootstrap.source.path }}
     helm:
@@ -34,6 +34,10 @@ spec:
       # (gitops) Application via helm.parameters; level 0 mirrors it with --set.
       # The ArgoCD route hostname is derived here and handed to the child.
       valuesObject:
+        global:
+          # The child chart points its own Application at the repository, and
+          # the injected root value reaches it only through here.
+          repoUrl: {{ include "homelab.repo.cloneUrl" . }}
         argocd:
           values:
             server:
