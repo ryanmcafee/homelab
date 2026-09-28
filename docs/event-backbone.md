@@ -149,6 +149,15 @@ So the dead-letter path is the consumer's job, not the server's:
 quality gate (ADR-030). The advisory remains useful as a counter and an alert source; it is
 not the dead-letter record.
 
+**What is proven, and what step 1 still owes.** `max-deliveries-exhaustion` in
+`tests/e2e/nats/chainsaw-test.yaml` drives one envelope through every delivery of
+`verify-workload-v1`, shows the next delivery never comes, captures the advisory, and shows a
+later envelope still arriving — so exhaustion terminates and one poison payload does not stall
+the consumer. The republish in step 1 is **not** proven by a running consumer: `PF_WORK` has no
+declared consumer yet, so `dead-letter-record` publishes the `.dl` envelope itself and proves
+the subject, the retention and the durable reader. The first `.wq` consumer to ship owns
+closing that gap.
+
 ### The silent-loss path that has no advisory
 
 `PF_WORK` age expiry deletes unacked messages with **no per-message signal**. A message in

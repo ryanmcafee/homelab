@@ -8,9 +8,10 @@ spec:
     The event backbone works end to end: NACK reconciles the four platform streams and their
     durable consumers onto the NATS server, a CloudEvent published to a .ev subject comes back
     out of PF_EVENTS through verify-workload-v1 with its correlationid intact, an unacked
-    message is redelivered, and a dead letter carrying the full original envelope is read back
-    from PF_DLQ. Every nats command runs in the nats-box pod the chart already ships and uses
-    only the consumers the contract declares, so the test adds neither an image nor a consumer.
+    message is redelivered until maxDeliver and then abandoned without stalling the consumer,
+    and a dead letter carrying the full original envelope is read back from PF_DLQ. Every nats
+    command runs in the nats-box pod the chart already ships and uses only the consumers the
+    contract declares, so the test adds neither an image nor a consumer.
   steps:
     - name: applications-healthy
       description: nats, nack and nats-config are Healthy and Succeeded.
@@ -294,6 +295,155 @@ spec:
                 -o jsonpath='{.items[0].metadata.name}' 2>/dev/null) || exit 0
               kubectl exec -n nats "$box" -- nats consumer info PF_EVENTS verify-workload-v1 || true
 
+    # Redelivery that never terminates is its own silent loss: the message is neither
+    # processed nor abandoned visibly. This drives one envelope through all five deliveries
+    # of verify-workload-v1, proves the sixth never comes, and proves a LATER message still
+    # flows -- one poison payload must not stall the consumer. It also captures the
+    # MAX_DELIVERIES advisory, which is the only signal an operator gets at exhaustion and
+    # the reason PF_DLQ carries the whole envelope rather than the advisory.
+    - name: max-deliveries-exhaustion
+      description: >-
+        An unacked envelope is delivered exactly maxDeliver times and then abandoned, the
+        exhaustion advisory fires, and the next envelope is still delivered.
+      timeouts:
+        exec: 8m
+      try:
+        - script:
+            timeout: 8m
+            content: |
+              set -eu
+              box=$(kubectl get pod -n nats -l app.kubernetes.io/component=nats-box \
+                -o jsonpath='{.items[0].metadata.name}')
+
+              subject=pf.local.workload.deployment.deployed.v1.ev
+              now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+              schema=https://github.com/ryanmcafee/homelab/contracts/events/data/workload.deployed.v1.schema.json
+
+              # Single-quoted so the shell does not expand $JS before nats sees it.
+              adv='$JS.EVENT.ADVISORY.CONSUMER.MAX_DELIVERIES.PF_EVENTS.verify-workload-v1'
+
+              # Read off the deployed Consumer rather than restated, so raising maxDeliver in
+              # charts/nats-config cannot leave this step asserting a stale delivery count.
+              max_deliver=$(kubectl get consumer.jetstream.nats.io -n nats verify-workload-v1 \
+                -o jsonpath='{.spec.maxDeliver}')
+              ack_wait=$(kubectl get consumer.jetstream.nats.io -n nats verify-workload-v1 \
+                -o jsonpath='{.spec.ackWait}')
+              ack_wait=${ack_wait%s}
+
+              case "$max_deliver$ack_wait" in
+                ''|*[!0-9]*)
+                  echo "FAIL: could not read maxDeliver/ackWait off verify-workload-v1"
+                  echo "      maxDeliver='$max_deliver' ackWait='$ack_wait'"
+                  exit 1 ;;
+              esac
+              echo "verify-workload-v1: maxDeliver=$max_deliver ackWait=${ack_wait}s"
+
+              envelope_for() {
+                printf '%s' '{"specversion":"1.0","id":"'"$1"'","source":"//workload/e2e-nats"'
+                printf '%s' ',"type":"com.mcafeeconsulting.platform.workload.deployment.deployed.v1"'
+                printf '%s' ',"time":"'"$now"'","datacontenttype":"application/json"'
+                printf '%s' ',"dataschema":"'"$schema"'","subject":"Deployment/nats/e2e"'
+                printf '%s' ',"tenant":"local","correlationid":"'"$1"'"'
+                printf '%s' ',"data":{"namespace":"nats","name":"e2e","revision":"e2e","observedGeneration":1}}'
+              }
+
+              poison="e2e-poison-$(date +%s)"
+              followup="e2e-after-poison-$(date +%s)"
+
+              # Advisories are core NATS and are never stored, so the subscriber has to be
+              # listening before the message is abandoned. Backgrounded on the runner, which
+              # keeps the exec open, rather than inside the pod where it would die with it.
+              adv_out=$(mktemp)
+              kubectl exec -n nats "$box" -- \
+                nats sub "$adv" --count 1 --timeout 4m >"$adv_out" 2>&1 &
+              adv_pid=$!
+              sleep 5
+
+              kubectl exec -n nats "$box" -- nats pub --jetstream "$subject" "$(envelope_for "$poison")"
+              echo "published poison envelope $poison"
+
+              # Every delivery is taken and deliberately not acked. ackWait has to lapse
+              # between them, which is what makes the server hand the same message back.
+              d=1
+              while [ "$d" -le "$max_deliver" ]; do
+                out=$(kubectl exec -n nats "$box" -- \
+                  nats consumer next PF_EVENTS verify-workload-v1 \
+                    --count 1 --timeout 60s --no-ack --raw 2>&1) || true
+                case "$out" in
+                  *"\"correlationid\":\"$poison\""*)
+                    echo "delivery $d of $max_deliver: $poison, left unacked" ;;
+                  *)
+                    echo "--- unexpected delivery $d ---"
+                    echo "$out"
+                    echo "------------------------------"
+                    kill "$adv_pid" 2>/dev/null || true
+                    echo "FAIL: delivery $d was not $poison; verify-workload-v1 had other pending work"
+                    exit 1 ;;
+                esac
+                d=$((d + 1))
+                [ "$d" -le "$max_deliver" ] && sleep $((ack_wait + 5))
+              done
+
+              # Past the final ackWait the server gives up on the message and emits the
+              # advisory. Nothing may be delivered after that.
+              sleep $((ack_wait + 10))
+
+              exhausted=$(kubectl exec -n nats "$box" -- \
+                nats consumer next PF_EVENTS verify-workload-v1 \
+                  --count 1 --timeout 30s --no-ack --raw 2>&1) || true
+
+              case "$exhausted" in
+                *"\"correlationid\":\"$poison\""*)
+                  kill "$adv_pid" 2>/dev/null || true
+                  echo "FAIL: $poison was delivered a ${max_deliver}+1 th time; maxDeliver is not enforced"
+                  exit 1 ;;
+              esac
+              echo "OK: $poison stopped after exactly $max_deliver deliveries"
+
+              # The advisory. Absence is reported rather than asserted away, because the
+              # capture depends on the subscription winning a race; a captured advisory that
+              # DOES name the work would contradict the contract and fails hard.
+              wait "$adv_pid" 2>/dev/null || true
+              echo "--- MAX_DELIVERIES advisory ---"
+              cat "$adv_out"
+              echo "-------------------------------"
+              # Matched on the advisory's own fields, not on its schema type string, so the
+              # assertion does not turn on how a server version spells the type.
+              if grep -q '"deliveries"' "$adv_out" && grep -q 'verify-workload-v1' "$adv_out"; then
+                if grep -q "$poison" "$adv_out"; then
+                  echo "FAIL: the advisory names $poison, so PF_DLQ need not carry the envelope"
+                  exit 1
+                fi
+                echo "OK: advisory fired and does NOT identify the work -- PF_DLQ must hold the envelope"
+              else
+                echo "NOTE: no advisory captured; this step does not prove the advisory shape"
+              fi
+
+              # Poison-message containment: the abandoned envelope must not have stalled the
+              # consumer. This one is acked, leaving verify-workload-v1 clean for later steps.
+              kubectl exec -n nats "$box" -- nats pub --jetstream "$subject" "$(envelope_for "$followup")"
+              after=$(kubectl exec -n nats "$box" -- \
+                nats consumer next PF_EVENTS verify-workload-v1 --count 1 --timeout 60s --raw 2>&1) || true
+
+              case "$after" in
+                *"\"correlationid\":\"$followup\""*)
+                  echo "OK: $followup was delivered after the poison exhausted -- consumer not stalled" ;;
+                *)
+                  echo "--- delivery after exhaustion ---"
+                  echo "$after"
+                  echo "---------------------------------"
+                  echo "FAIL: $followup was not delivered; one poison payload stalled the consumer"
+                  exit 1 ;;
+              esac
+      catch:
+        - script:
+            timeout: 1m
+            content: |
+              box=$(kubectl get pod -n nats -l app.kubernetes.io/component=nats-box \
+                -o jsonpath='{.items[0].metadata.name}' 2>/dev/null) || exit 0
+              kubectl exec -n nats "$box" -- nats consumer info PF_EVENTS verify-workload-v1 || true
+              kubectl exec -n nats "$box" -- nats stream info PF_EVENTS || true
+
     # The dead-letter record. The advisory a consumer gets on exhaustion carries no body, no
     # subject and no correlationid, so PF_DLQ holds the FULL original envelope instead. The
     # republish is done here because no platform consumer ships yet; the DLQ subject, its
@@ -443,12 +593,19 @@ spec:
               echo "$excluded"
               echo "-----------------------------------"
 
+              # Absence has to be SIGNALLED, not inferred. Any other error is also a body
+              # with no correlationid in it, so only 10037 no-message-found counts as empty.
               case "$excluded" in
                 *'"correlationid"'*)
                   echo "FAIL: $workload is in PF_AUDIT; the source filters are wider than the contract"
                   exit 1 ;;
+                *"no message found"*|*"10037"*)
+                  echo "OK: $workload is absent from PF_AUDIT -- filters match the contract" ;;
+                *)
+                  echo "FAIL: PF_AUDIT read for $workload neither returned a message nor reported"
+                  echo "      10037 no-message-found, so the exclusion proves nothing"
+                  exit 1 ;;
               esac
-              echo "OK: $workload is absent from PF_AUDIT -- filters match the contract"
       catch:
         - script:
             timeout: 1m
