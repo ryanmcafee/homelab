@@ -277,7 +277,7 @@ test("every surface sets a positive maxBytes for every stream", () => {
   // `max_msgs_per_subject`; age expiry ignores it. A stream with no limit never
   // fills, so its discard policy never runs and the only thing it can exhaust is
   // the shared file store — which refuses writes for every stream on the peer
-  // with `insufficient resources (10047)` (ADR-042).
+  // with `insufficient resources (10023)` (ADR-042).
   for (const surface of SURFACES) {
     const limits = surfaceOverrides.get(surface)?.maxBytes;
     assert(

@@ -26,7 +26,7 @@ Refuse to render a stream set that is unbounded, individually or collectively.
 `max_bytes`, `max_msgs` or `max_msgs_per_subject`, so an unlimited stream has a
 decorative discard policy and the only thing it can exhaust is the shared file
 store — which refuses writes for every stream on the peer with `insufficient
-resources (10047)`.
+resources (10023)`.
 
 The four limits must also sum at or below `maxBytesBudgetFraction` of the file
 store. `maxBytes` bounds a stream against itself and reserves nothing, so limits

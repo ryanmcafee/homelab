@@ -21,7 +21,7 @@ replicas: 1
 # `max_msgs` or `max_msgs_per_subject` — age expiry ignores it — so an unlimited
 # stream has a decorative discard policy and the only thing it can exhaust is the
 # shared file store, which then refuses writes for every stream on the peer with
-# `insufficient resources (10047)`. PF_AUDIT is the largest because 365d of
+# `insufficient resources (10023)`. PF_AUDIT is the largest because 365d of
 # identity and control history is what it exists to hold; PF_WORK is the smallest
 # because a drained work queue is nearly empty and a deep one is already an alert.
 maxBytes:

@@ -207,7 +207,7 @@ JetStream applies `discard` only when a stream reaches `max_bytes`, `max_msgs` o
 `max_msgs_per_subject`; age expiry is a separate path that ignores it. An unlimited stream
 therefore never fills, its `discard` policy never runs, and the only thing it can exhaust is
 the shared file store — which refuses writes for **every** stream on the peer with
-`insufficient resources (10047)`. One stream's retention budget becomes a bus-wide outage.
+`insufficient resources (10023)`. One stream's retention budget becomes a bus-wide outage.
 The per-surface numbers live in `charts/nats-config/values-<surface>.yaml`:
 
 | Stream | Share | homelab | localdev |
@@ -222,7 +222,7 @@ Both surfaces hold the same split; only the store differs.
 
 The four limits must **sum strictly below the file store**, with headroom. `maxBytes` bounds
 a stream against itself; it does not reserve or partition the store, so four limits summing
-above it are individually bounded and collectively unbounded and the peer hits 10047 before
+above it are individually bounded and collectively unbounded and the peer hits 10023 before
 any stream hits its own ceiling. Headroom is required because JetStream accounts for index
 and metadata alongside message bytes. `charts/nats-config` refuses to render a values file
 that breaks the rule — `maxBytesBudgetFraction` (0.75) is the ceiling — and the parent
