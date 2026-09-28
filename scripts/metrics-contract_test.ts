@@ -673,22 +673,33 @@ const canaryMetrics = canaryMetricsBlock
  * Walks the parenthesis nesting rather than matching adjacent text. A regex anchored on
  * `sum(rate(` cannot see `sum by (le) (rate(` -- the grouped form -- and that is exactly
  * where the unwrapped aggregate hid: seven aggregates matched, eight were present.
+ *
+ * String values are blanked before the walk. `route=~"GET /api/(issues|users)"` is an
+ * ordinary canary selector, and its `(` pushed a frame that kept a real `scalar(` on the
+ * stack, so a genuinely unwrapped aggregate downstream read as wrapped. The direction was
+ * the dangerous one: a `)` in a value was a loud false positive, a `(` a silent miss.
  */
 function unscalaredAggregates(query: string): string[] {
   const VECTOR_FNS = new Set(["rate", "increase", "histogram_quantile"]);
   const found: string[] = [];
   const stack: string[] = [];
-  for (let i = 0; i < query.length; i++) {
-    if (query[i] === "(") {
+  const masked = blankStringValues(query);
+  for (let i = 0; i < masked.length; i++) {
+    if (masked[i] === "(") {
       const name =
-        query.slice(0, i).match(/([A-Za-z_][A-Za-z0-9_]*)\s*$/)?.[1] ?? "";
+        masked.slice(0, i).match(/([A-Za-z_][A-Za-z0-9_]*)\s*$/)?.[1] ?? "";
       if (VECTOR_FNS.has(name) && !stack.includes("scalar")) found.push(name);
       stack.push(name);
-    } else if (query[i] === ")") {
+    } else if (masked[i] === ")") {
       stack.pop();
     }
   }
   return found;
+}
+
+/** Replaces every PromQL string literal with `""`, preserving length-independent structure. */
+function blankStringValues(query: string): string {
+  return query.replace(/"[^"\n]*"|'[^'\n]*'|`[^`]*`/g, '""');
 }
 
 test("C6: every canary aggregate is wrapped in scalar(), so the absence guard fires", () => {
@@ -729,6 +740,31 @@ test("C6: every canary aggregate is wrapped in scalar(), so the absence guard fi
     contract.guarantees.emptyIsNotNaN.includes("scalar()"),
     "the contract must name scalar() as the fix, not just describe the trap",
   );
+});
+
+test("the C6 walk is not defeated by a parenthesis inside a label value", () => {
+  // Pinned directly on the walker because the checked-in document happens to carry no
+  // parenthesised label value: the C6 mutation that proves this only fails while someone
+  // remembers to write one into the fixture, and this does not depend on that.
+  //
+  // The paren must sit in a WRAPPED term that precedes an unwrapped one -- that ordering
+  // is the whole defect. A stray frame cannot hide an aggregate the walk already passed,
+  // so a one-term case stays green either way and proves nothing.
+  const ratio = (numeratorRoute: string) =>
+    `scalar(sum(rate(a{route="${numeratorRoute}"}[5m]))) / sum(rate(b{}[5m]))`;
+
+  // The denominator is unwrapped in both. Only the numerator's label value differs.
+  assertEquals(unscalaredAggregates(ratio("plain")), ["rate"]);
+  assertEquals(unscalaredAggregates(ratio("f(oo")), ["rate"]);
+  assertEquals(unscalaredAggregates(ratio("GET /api/(issues|users)")), [
+    "rate",
+  ]);
+
+  // And the fix must not over-correct into a false positive: same values, nothing unwrapped.
+  const sound = (route: string) =>
+    `scalar(sum(rate(a{route="${route}"}[5m]))) / scalar(sum(rate(b{}[5m])))`;
+  assertEquals(unscalaredAggregates(sound("f(oo")), []);
+  assertEquals(unscalaredAggregates(sound("f)oo")), []);
 });
 
 test("C7: the canary template cannot pass on no-data and cannot abort before serving", () => {
@@ -773,6 +809,106 @@ test("C7: the canary template cannot pass on no-data and cannot abort before ser
       .toLowerCase()
       .includes("inconclusive"),
     "the contract must name Inconclusive as the satisfying verdict for no-data",
+  );
+});
+
+/**
+ * Label matcher sets of every `<metric>{...}` selector in `query`, in source order.
+ *
+ * Quote-aware rather than a regex: `job="{{args.canary-job}}"` puts braces inside a label
+ * value, so brace counting that cannot see quotes closes the selector at the wrong place.
+ */
+function selectorMatchers(query: string): string[][] {
+  const out: string[][] = [];
+  for (let i = 0; i < query.length; i++) {
+    if (query[i] !== "{" || !/[A-Za-z0-9_]$/.test(query.slice(0, i))) continue;
+    let depth = 0;
+    let quoted = false;
+    let j = i;
+    for (; j < query.length; j++) {
+      const c = query[j];
+      if (c === '"') quoted = !quoted;
+      else if (quoted) continue;
+      else if (c === "{") depth++;
+      else if (c === "}" && --depth === 0) break;
+    }
+    out.push(splitMatchers(query.slice(i + 1, j)));
+    i = j;
+  }
+  return out;
+}
+
+/** Splits a selector body on its top-level commas; a comma inside a value is not one. */
+function splitMatchers(body: string): string[] {
+  const parts: string[] = [];
+  let current = "";
+  let quoted = false;
+  for (const c of body) {
+    if (c === '"') quoted = !quoted;
+    if (c === "," && !quoted) {
+      parts.push(current);
+      current = "";
+      continue;
+    }
+    current += c;
+  }
+  parts.push(current);
+  return parts.map((p) => p.replace(/\s+/g, "")).filter((p) => p.length > 0);
+}
+
+/** A canary metric's minimum-sample guard selector, split from the expressions it protects. */
+function guardSplit(metricBody: string): {
+  measured: string[][];
+  guard: string[] | undefined;
+} {
+  const query = metricBody.slice(metricBody.indexOf("query:"));
+  const at = query.search(/\+\s*0\s*\*\s*scalar\(/);
+  if (at < 0) return { measured: selectorMatchers(query), guard: undefined };
+  return {
+    measured: selectorMatchers(query.slice(0, at)),
+    guard: selectorMatchers(query.slice(at))[0],
+  };
+}
+
+test("C9: every canary minimum-sample guard counts the population its metric measures", () => {
+  // The document states this normatively -- each guard "counts the same population as the
+  // ratio it protects" -- and nothing enforced it. The quota gate keys on expressions
+  // containing outcome="error", so p99-latency carries none and was skipped entirely: its
+  // guard could be satisfied by 900 quota denials and three real requests and still ship.
+  //
+  // Label SETS are compared, not whole selectors: the guard legitimately counts
+  // _count while p99-latency measures _bucket, so the metric name must not participate.
+  const key = (m: string[]) => [...m].sort().join(",");
+  for (const metric of canaryMetrics) {
+    const { measured, guard } = guardSplit(metric.body);
+    assert(
+      guard !== undefined,
+      `canary metric "${metric.name}" has no "+ 0 * scalar(" minimum-sample guard to check`,
+    );
+    assert(
+      measured.length > 0,
+      `canary metric "${metric.name}": no selector was found before its guard, so this assertion would compare the guard against nothing and pass vacuously`,
+    );
+    assert(
+      measured.some((m) => key(m) === key(guard)),
+      `canary metric "${metric.name}" guards on {${guard.join(",")}}, which matches none of the expressions it protects (${measured
+        .map((m) => `{${m.join(",")}}`)
+        .join(
+          " ",
+        )}); a guard over a different population is satisfied by traffic the metric never measures`,
+    );
+    const narrowest = Math.min(...measured.map((m) => m.length));
+    assert(
+      guard.length <= narrowest,
+      `canary metric "${metric.name}" guards on ${guard.length} matchers while an expression it protects has ${narrowest}; the guard is narrower than the population, so it withholds the verdict until more samples arrive than the metric itself counts`,
+    );
+  }
+  // Every guard is INSPECTED, not merely unrefuted -- the failure mode this whole file
+  // keeps rediscovering is a matcher that silently reaches fewer things than it claims.
+  assertEquals(
+    canaryMetrics.filter((m) => guardSplit(m.body).guard !== undefined).length,
+    [...canaryTemplate.matchAll(/\+\s*0\s*\*\s*scalar\(/g)].length,
+    "some minimum-sample guards in the template are outside the per-metric blocks, so C9 did not inspect them",
   );
 });
 
