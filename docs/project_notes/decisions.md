@@ -1174,6 +1174,352 @@ Each decision should include:
 - **The refusal a producer meets at a stream's own ceiling is `maximum bytes exceeded`, err_code 10077, HTTP 503** — identical on `workqueue` and `limits` retention, so `PF_WORK` needs no special case. 10077 is a wrapper whose description carries the real reason, so an alert or a client MUST match the description and not the number: `maximum bytes exceeded` is backpressure working as designed on one stream, `insufficient resources` (10023) is the peer out of store and a bus-wide outage, and both arrive as 503
 - **The four defaults were self-inconsistent when first written and no check caught it.** Homelab's `PF_DLQ` was 512 MiB, making the four sum to 5.75 GiB against a stated 6 GiB budget, with an inaccurate comment as the only signal; it is corrected to 768 MiB and both surfaces now use one split. This is the ADR's own subject one level out — a number documentation asserts and nothing verifies — and it is left ungated deliberately for the reason stated above: the store size is a cluster fact. Gating the *internal* arithmetic (each surface's four shares summing to a declared budget) needs the budget and the split declared as contract data, which is a contract-shape change this ADR does not take. It is the open question on MCAA-362, not an oversight
 
+### ADR-043: Tenancy on the bus is a NATS account, a per-user subject permission and a closed `$JS.API`; the bus credential is a seam with one declaration and two backends (2026-09-28); makes ADR-026 D5 real
+
+> `main` carries ADR-042 (merged by #451) and ADR-045 when this merges. ADR-041 is still claimed by
+> two open pull requests (#433 and #362), and 044 and 049 by open branches, so this decision takes
+> 043. Per ADR-039 the number is allocated by the level-0 uniqueness gate at merge, not reserved
+> here.
+
+**Context:**
+- ADR-026 D5 says `tenant` "is a trust boundary enforced by NATS account and subject permissions, not
+  by consumer-side filtering; homelab runs the same enforcement with the single reserved tenant
+  `local`". `envelope.v1.schema.json` requires the attribute, `subjects.v1.yaml` reserves `pf.>` and
+  speaks of publish permissions, and ADR-038's `consumers.workqueue_tenancy` is normative *on the
+  assumption of* one NATS account per tenant
+- As deployed in #438 none of that mechanism exists. There is no account, no user, no credential and
+  no subject permission: `config.authorization` is unset, NACK connects anonymously to
+  `nats://nats.nats.svc.cluster.local:4222`, `nats-box` connects anonymously, and anything with pod
+  network reach can publish any `tenant` token, bind any consumer, or create and delete streams over
+  `$JS.API`. The reserved tenant `local` is a naming convention and the enforcement point the
+  contract names is absent
+- That is defensible for a single-tenant homelab on a ClusterIP-only bus — the blast radius is
+  in-cluster — and it is not defensible as the thing the commercial surface inherits, because every
+  multi-tenant claim in the contract rests on the account seam being real. ADR-028 is explicit that
+  homelab is a peer implementation and not a toy: "homelab exercises the multi-tenant wiring with a
+  single tenant". One tenant is the cheap part. Zero enforcement is a different decision, and it was
+  never written down
+- ADR-038's own lesson governs how this one is argued: a gate green on a configuration the broker
+  refuses is worse than no gate. Every mechanism claimed below is read out of **the versions this
+  repository actually deploys**, established by rendering `nats` chart 2.15.0 with #438's values:
+  server `nats:2.15.0-alpine` and `natsio/prometheus-nats-exporter:0.20.1`, neither of which #438
+  overrides, alongside `nack` chart 0.35.0 (controller 0.24.0) and `nats.go` v1.37.0. The first draft
+  of this ADR reasoned from `nats-server` v2.10.22 and exporter v0.18.0 — the tags ADR-038's second
+  reviewer used — and that was the wrong basis. It was not a harmless citation error: v2.15.0 serves
+  a materially larger account-scoped `$JS.API` surface, which is what forced D5 to change shape
+  rather than merely be restated. Where a claim is *not* verified against a running server it is
+  named as such
+
+**Decision:**
+- **D1. One NATS account per tenant, and the account is the enforcement. The `<tenant>` token is
+  not.** Subject namespaces do not cross accounts at all. Stated precisely, because the first draft
+  overstated it: a client in `TENANT_A` *can* spell `pf.b.…` — nothing reserves the string — but it
+  publishes into its own account and no subscriber in `TENANT_B` receives it. The account stops the
+  reach, not the spelling; stopping the spelling is D2's job. The token stays in the subject because
+  it outlives the connection that carried it — in a `PF_AUDIT` record, in a `PF_DLQ` envelope, in a
+  Postgres row — and because a message that crosses an account boundary deliberately must still say
+  where it came from
+- **D2. Both halves are required and neither substitutes for the other.** The account stops
+  cross-tenant reach. A per-user subject permission stops a workload forging a foreign `tenant`
+  token *inside* its own account, which is precisely where the account offers nothing. Without the
+  second half every consumer that trusts `tenant`, which §5 of the event contract says it must, is
+  trusting a value its own tenant's workloads can write freely. **`pf.<tenant>.>` is the ceiling, not
+  the grant:** no principal is issued the whole tenant prefix. Each component gets the
+  producer-owned prefixes the registry assigns it, narrowed within its tenant — preserving the
+  producer boundary the event contract §5 already had — and `pf.*.>` and `pf.>` are issued to
+  nothing
+- **D2a. Envelope attribution is validated, because subject permissions do not read message
+  bodies.** A publisher authorized for a subject can put any `tenant`, `source` or `type` in the
+  CloudEvents JSON. Before an event is authorized against, aggregated across tenants, or persisted,
+  the consumer requires the envelope `tenant` to equal both the subject's `<tenant>` token and the
+  tenant its connection's account maps to, and `source`/`type` to match a producer allowed to own
+  that type; a mismatch goes to `PF_DLQ` and is never stored. This is validation of an
+  already-authenticated context, not a retreat to consumer-side filtering — the broker still decides
+  who may publish. It closes the one thing D1 and D2 together do not: an authorized tenant publisher
+  contaminating shared audit and database attribution without ever crossing an account
+- **D3. No export or import between tenant accounts, ever.** Cross-tenant aggregation is a
+  per-tenant consumer publishing outward under its own identity, never a cross-account subscription.
+  An export is the one construct that can reopen D1, and it does so invisibly to every subject
+  permission, so it is refused at the contract rather than reviewed case by case
+- **D4. `$SYS` is for operating the server, and no platform component holds it.** Its use is server
+  events, `$SYS.ACCOUNT.*.>` advisories and break-glass administration. The `nack` 0.35.0 chart
+  invites the opposite — its `values.yaml` names the controller's credential `nats-sys-creds` with
+  key `sys.creds` — and a system-account NACK has cross-account reach over every tenant's streams,
+  which is exactly the boundary D1 buys. NACK instead holds one narrowly-permissioned user per
+  tenant account, supplied through the `Account` CRD (`accounts.jetstream.nats.io` v1beta2, shipped
+  in the same chart's `crds/crds.yml`, controller 0.24.0). The static backend uses **`spec.nkey`**,
+  with the matching public user key assigned to the tenant account; `spec.creds` is an nsc
+  credentials file and the two are not interchangeable. Both are Secret references, so the delivery
+  path is the one this repository already has (External Secrets + 1Password). **What this does not
+  buy, correcting the first draft:** per-tenant `Account` objects bound a *leaked credential* to one
+  tenant, but the single NACK process still holds all of them, so controller compromise retains
+  combined authority over every tenant's streams. That is accepted residual risk (D7), bounded by
+  Kubernetes RBAC on Secret/`Account`/`Stream`/`Consumer` and by admission rules stopping a tenant
+  selecting another tenant's account or Secret; real isolation would need separately scoped
+  controllers
+- **D5. `$JS.API` authorization is default-deny, and the exact allow-list is the contract — not an
+  enumeration of dangerous verbs.** The stream set is GitOps state (ADR-038, #438), so nothing but
+  NACK needs stream lifecycle rights. The first draft named six denied operations as though that
+  were the boundary. Re-read against the deployed v2.15.0 that is plainly insufficient: the
+  account-scoped surface also includes `STREAM.RESTORE`, `STREAM.SNAPSHOT`, `STREAM.MSG.GET`,
+  `ACCOUNT.PURGE`, `CONSUMER.PAUSE`, `CONSUMER.UNPIN`, `CONSUMER.RESET` and the
+  peer-remove/evacuate/leader-step-down endpoints (`jetstream_api.go` v2.15.0, lines 1122-1143) —
+  `STREAM.MSG.GET` reads any message body in the account and `ACCOUNT.PURGE` destroys all of it.
+  A deny list I have to keep complete is a deny list that goes stale at the next chart bump. So the
+  rule is inverted: a NATS user's explicit `allow` set is exhaustive and everything unlisted is
+  already refused. A component's allow-list is exactly `$JS.API.INFO`,
+  `$JS.API.STREAM.INFO.<stream>`, `$JS.API.CONSUMER.INFO.<stream>.<consumer>`,
+  `$JS.API.CONSUMER.MSG.NEXT.<stream>.<consumer>` and its own consumer-create subject (D6). The
+  named denies that remain (D6) are defence in depth against a future broader grant, not the thing
+  doing the work
+- **D5a. Two grants a publish-only list omits, and the client fails without them.** Each principal
+  gets subscribe permission on its **own private inbox prefix**, with the client's inbox prefix
+  configured to match — JS API replies and pulled messages arrive there, and a shared `_INBOX.>`
+  grant would let any principal in the account read every other principal's replies. And its **own
+  ACK namespace**, not `$JS.ACK.>`: the broad form admits acknowledging other consumers' messages
+  inside the account, while the server derives ACK subjects from the stream and consumer name
+  (`$JS.ACK.<stream>.<consumer>.…` and the v2 `$JS.ACK.<domain>.<account-hash>.<stream>.<consumer>.…`
+  form, `consumer.go` v2.15.0 lines 1444-1454), so both forms are scopable to this principal. The
+  conformance suite therefore tests cross-*principal* refusal inside one account, not only
+  cross-tenant refusal
+- **D5b. Components bind their stream explicitly.** `nats.go` v1.37.0's subscribe path performs
+  stream discovery over `$JS.API.STREAM.NAMES` unless the stream is named, and that subject is not
+  in the allow-list. Components pass `BindStream` (or equivalent) and pin the client API options
+  they depend on. Granting account-wide discovery to accommodate an implicit SDK choice is the
+  wrong repair
+- **D6. The consumer-create permission is what makes ADR-038 D2 unrepresentable, and it has three
+  entrances.** A `wq` consumer binds exactly one fully-specified subject, so `nats.go` v1.37.0 sends
+  `$JS.API.CONSUMER.CREATE.<stream>.<consumer>.<filter>` — the consumer name **and** its filter are
+  both in the subject. A permission scoped to that one subject means silently repointing another
+  component's filter is denied rather than accepted as an update, which is the failure ADR-038 D2
+  documented and could not close with `10100`. v2.15.0 routes three subjects to the same handler
+  (`jetstream_api.go` lines 1137-1139): `$JS.API.CONSUMER.CREATE.*`,
+  `$JS.API.CONSUMER.CREATE.*.>` and `$JS.API.CONSUMER.DURABLE.CREATE.*.*`; the first carries no
+  consumer name in the subject at all. **Correcting the first draft: those alternates are not a
+  "leak".** Under D5's default-deny they are unlisted and therefore already refused. They are
+  written as explicit denies — for the name-only form and the legacy durable form — purely so a
+  later broader grant cannot silently re-open them. **The broad `CONSUMER.CREATE.*.>` form is
+  deliberately *not* denied:** deny takes precedence over allow, so denying it would also kill the
+  filtered endpoint the component legitimately needs. Two honest limits: the filtered endpoint is
+  not bind-only authority, since a principal reaching it can also change other permitted config
+  fields on its own consumer; and what the name-only entrance can reach with a body-supplied `Name`
+  remains **unmeasured** — v2.15.0 rejects that route when the body sets `Durable` and does not
+  overwrite a body-supplied `Config.Name`, but whether it can thereby reach an *existing* consumer
+  is a conformance test against a running server, covering durable and named-ephemeral consumers
+  with and without `Durable`, not a claim this ADR makes
+- **D6a. Wildcard and multi-filter consumers use a different path.** The audit and DLQ readers do
+  not send the fully-specified create subject, so D6's argument does not cover them. They bind a
+  consumer pre-created by NACK — a separate startup path with its own grant and its own
+  conformance test. The `PF_WORK` exact-filter case does not establish their behaviour
+- **D7. Platform components sit inside the tenant account as ordinary users with narrow
+  permissions.** No platform component gets a wildcard tenant, including the operators and the
+  DLQ reporter. **Correcting the first draft, which said the only cross-account credentials are
+  `$SYS` break-glass and a hypothetical operator signing key — that is false as soon as D10's
+  callout backend is switched on.** There are three standing cross-account authorities, and the ADR
+  names all of them: `$SYS`; the **auth-callout service's signing seed**, because the callout places
+  an authenticated user into whichever account its signed JWT names (D10); and the **NACK
+  controller process**, which holds every tenant's credential Secret at once even though each
+  credential is per-tenant (D4). Short-lived JWTs and per-tenant Secrets bound what a *stolen user
+  credential* reaches; neither bounds a compromised signer or a compromised controller
+- **D7a. The Argo Events bridge is a bus principal like any other, and naming it is what makes
+  ADR-045's containment enforceable.** ADR-045 merged after this ADR was drafted and rules that the
+  only legal path from the platform bus to a Sensor is a named durable pull consumer declared in
+  `charts/nats-config`. It does not say what that bridge is on the bus, and under this ADR it is a
+  `BusPrincipal` (D10) inside the tenant account, taking D6a's bind path to a NACK-pre-created
+  durable with no consumer-create grant, D5b's explicit stream bind, and D5a's ACK grant scoped to
+  its own stream and consumer. **The bridge binds a durable no other consumer shares.** ADR-045
+  claims the trigger bus "cannot move `PF_EVENTS` or `PF_AUDIT` state"; that claim is a property of
+  the bridge's permissions, not of running a second StatefulSet, because an ack on a *shared*
+  durable advances the delivery state every other reader of it depends on. A bridge sharing a
+  durable would leave the Argo Events failure domain reaching into the audit record's consumer
+  state while every subject permission still reads correct. The bridge's credential is a Secret in
+  the Argo Events namespace, which makes it one more `(component, tenant)` pair in D4's count
+- **D8. Per-account JetStream limits are mandatory, and this is where ADR-042 and this ADR have to
+  agree.** v2.15.0 accepts `jetstream { max_memory, max_store, max_streams, max_consumers }` inside
+  a config-file account (`opts.go`), and without it one tenant's streams exhaust the shared file
+  store and every account on that peer is refused with `insufficient resources (10047)`. That is the
+  bus-wide outage ADR-042 bounds per stream, reappearing one level up. **ADR-042 is now merged
+  (#451), so this is a constraint on shipped behaviour rather than a forward note on a draft.** Its
+  `maxBytesBudgetFraction` caps a surface's summed `max_bytes` at 75% of the whole file store and
+  the chart refuses to render above it. That denominator is correct for exactly one account and
+  wrong at the second: applied unchanged, it measures every tenant's streams against the whole
+  store, so it passes a configuration in which one account is overcommitted against its own
+  `max_store` and admits the 10047 refusal the gate exists to prevent. The budget rule therefore
+  moves down a level — per-stream `maxBytes` sums below its **account's** `max_store`, and the
+  account `max_store` values sum below the store ceiling with headroom. Homelab's single account
+  makes the two arithmetics identical today, which is exactly why the discrepancy is invisible
+  until a second account exists; reconciling the gate is owed by this ADR's implementation and
+  gates onboarding the second tenant. Note also that storage limits bound storage only — CPU,
+  connection count and shared-node contention stay shared-server residual risk
+- **D9. The monitoring port is outside the account boundary, and the contract says so rather than
+  letting a reader assume otherwise.** `config.monitor` defaults to enabled on port 8222 in chart
+  2.15.0, TLS is off, and the v2.15.0 handlers apply no tenant authorization: `/jsz` reports across
+  accounts (`accounts=true` for account detail, `streams=true`/`consumers=true` for stream and
+  consumer detail, account enumeration paginated) and `/connz` reports connection detail.
+  **Correcting the first draft's "the Service exposes it":** rendering the chart shows the ordinary
+  `nats` Service publishes only 4222, while `nats-headless` publishes 8222 — and the pod IP is
+  reachable either way, so the exposure is in-cluster, not absent. The exporter is a second copy of
+  the same problem: `natsio/prometheus-nats-exporter:0.20.1` runs on port 7777 with `-jsz=all`
+  (which queries `consumers=true&config=true&raft=true`) and republishes cross-account stream,
+  consumer and config metadata to anything that can scrape it. The controls are a NetworkPolicy
+  scoping **both** 8222 and 7777 at pod ingress, plus `config.monitor.tls`; TLS is transport
+  protection and not authorization, and neither is a substitute for stating the limit. The gate is
+  an untrusted-pod denial test alongside an authorized-scrape test
+- **D10. The bus credential is a seam, `BusPrincipal -> NATS user`, with one declaration and two
+  backends.** The declaration is the seam's artifact: per principal, the subjects it may publish, the
+  subjects it may subscribe to, and its `$JS.API` allow-list. The static backend renders it into the
+  server's `accounts {}` block, diffable in Git, with the credential delivered as a Secret; it is the
+  homelab default. The callout backend renders the same declaration into a short-lived user JWT
+  minted by an auth-callout service that authenticates a platform principal — an OIDC subject for a
+  human (ADR-028 §3), a projected ServiceAccount token or `AgentIdentity` for an agent (ADR-028 §4).
+  One declaration and one conformance suite is what makes this one seam instead of two
+  implementations of the same idea; a provider-shaped permission set written per customer is the fork
+  ADR-028 exists to prevent
+- **D10a. The callout backend's conditions, which are contract and not implementation detail.**
+  `allowed_accounts` is always set explicitly and never lists `$SYS` — v2.15.0 delegates **every**
+  account when it is left empty (`parseAuthCallout`, `opts.go`), so the secure value is not the
+  default. The callout service's signing seed and xkey are custody obligations on the level of
+  `$SYS` (D7), the callout exchange is encrypted via `xkey`, and JWT lifetime is bounded.
+  Service-side placement checks constrain ordinary callers, not a compromised signer. The tests are
+  wrong-issuer, wrong-audience, unauthorized account placement, expiry, callout-service outage and
+  signer rotation. **`auth_users` is the bootstrap exemption:** with callout configured the server
+  calls out for every user not listed there, including valid static ones, so the NACK and bootstrap
+  principals are listed and agent principals never are — and no exempted user holds
+  callout-response or signing authority. A static-only deployment may leave callout disabled
+  entirely. v2.15.0 also refuses `auth_callout` in FIPS-140 mode, so a regulated deployment takes
+  the static backend or operator mode
+- **D10b. Revocation and rotation are named mechanisms with stated bounds, not properties inherited
+  from short tokens or from the Secret store.** ADR-028 requires testable agent revocation, and
+  refusing the next login or waiting for a JWT to expire does not revoke an **established**
+  connection; the mechanism and its time bound are stated and tested per backend, or the conflict
+  with ADR-028 is resolved explicitly before that backend is accepted. Rotation is a drill, not a
+  property of the Secret store: staged new-key publication, Secret delivery, server config reload,
+  client and NACK reconnect, old-key removal, and refusal of both new *and* already-established old
+  sessions within a stated bound, plus rollback and a `$SYS` recovery path that works while the
+  identity service is down. External Secrets and 1Password synchronise material; they do not supply
+  this protocol
+- **D11. The NATS operator/nsc JWT hierarchy is deliberately not adopted, and the reason is
+  reversibility.** Operator mode is all-or-nothing at the server: adopting it forecloses config-file
+  accounts entirely and makes every existing credential a reissue.
+  `authorization { auth_callout { issuer, account, auth_users, xkey, allowed_accounts } }` parses in
+  **config mode** in v2.15.0 (`parseAuthCallout`, `opts.go`), so the dynamic issuance D10 needs is
+  available without that commitment. **The custody half of this argument was overstated and is
+  withdrawn:** an operator seed can be held offline, and the callout design chosen here has its own
+  privileged signing custody (D7, D10a), so this is a choice between two custody obligations rather
+  than avoiding one. What survives is the reversibility argument alone, which is sufficient. Operator
+  mode remains legitimate where stronger delegated-issuer control is wanted; it is a server-mode
+  migration even though the D10 declaration survives it, and the declaration is what makes nsc a
+  third backend rather than a rewrite
+- **D12. Homelab conforms with one account.** `TENANT_LOCAL` plus `$SYS`, real users, real
+  permissions, one credential per component, and `nats-box` holding a named context rather than
+  connecting anonymously. The single tenant is what keeps this cheap; the enforcement is what makes
+  ADR-026 D5 and ADR-028's peer-implementation claim true instead of aspirational
+- **D13. The gate is split honestly between what a static check can see and what only a server can
+  settle.** Level 0 can assert, over rendered manifests: that no account grants publish or subscribe
+  on `pf.>` or any `pf.*.` form, that no grant exceeds its principal's producer-owned prefixes, that
+  every `Stream` and `Consumer` names `spec.account`, that no component credential is the system
+  account, that no principal is granted `$JS.ACK.>` or a shared `_INBOX.>`, that `allowed_accounts`
+  is non-empty and excludes `$SYS`, and that every consumer-create allow carries the name-only and
+  legacy-durable denies from D6 while *not* denying the broad extended form. It cannot assert that
+  the server refuses. That is the level-2 conformance suite, run **against the rendered image
+  digests rather than a version read from a document**, and it covers: start, create/bind, pull,
+  ACK/NAK/TERM and reconnect under the real rendered ACL; refusal of every lifecycle and alternate
+  create entrance; cross-*principal* inbox and ACK refusal inside one account, not only cross-tenant
+  refusal; the D6 name-only endpoint question; the monitoring and exporter NetworkPolicy
+  (untrusted-pod denial plus authorized scrape); the rotation and revocation drill in D10b; and cold
+  start on fresh synthetic credentials with no maintainer account, no identity service and no
+  anonymous fallback. Per ADR-038 the static gate must not be the only thing that is green
+- Normative detail: `docs/contracts/event-contract.md` §5; the seam in
+  `docs/contracts/byo-extension-points.md`
+
+**Alternatives Considered:**
+- **Leave the bus open inside the cluster and rely on Kubernetes NetworkPolicy** -> honest for
+  homelab today and it fails the moment there are two tenants, because a NetworkPolicy cannot express
+  "this pod may publish `pf.a.>` but not `pf.b.>`". It also puts the tenancy boundary in a different
+  system from the one the contract names, so the contract would have to be rewritten rather than
+  implemented
+- **One account for everything, with tenancy carried only by per-user subject permissions on the
+  `<tenant>` token** -> cheaper, one stream set, one NACK credential. It contradicts ADR-038's
+  `workqueue_tenancy` directly: one `PF_WORK` for every tenant plus a consumer-name grammar with no
+  tenant token means two tenants' identically-named consumers silently repoint each other's filters,
+  which is the destructive silent failure that rule was written to make impossible. Per-consumer
+  create permissions (D6) would contain it, and it would still leave a single `max_store` budget and
+  a single stream set where one tenant's retention is every tenant's outage
+- **Adopt the NATS operator/nsc model now** -> the native multi-tenant answer, with JWT-based account
+  and user issuance, revocation lists and per-account limits in the account JWT. Rejected for now on
+  reversibility (D11): it is a server-wide mode switch, it makes an operator seed a permanent custody
+  obligation, and auth callout delivers the dynamic issuance we actually need in either mode. This is
+  the decision most likely to be revisited, which is why D10's declaration is the durable artifact
+  and the backend is not
+- **Auth callout as the only backend, with no static path** -> one code path instead of two, and it
+  puts a service of ours on the critical path of every connection in a single-node homelab, including
+  NACK's connection at bootstrap. A forker would need the callout service running before the bus
+  would accept anything. The static backend is the boring one and it is the default for that reason
+- **A JetStream domain per tenant instead of an account** -> domains separate JetStream namespaces
+  for leaf nodes; they do not authorize anything and do not stop a client naming another tenant's
+  subject. Wrong tool: it is a topology feature, not a trust boundary
+- **Give NACK the system account, as the upstream chart's values suggest** -> one credential instead
+  of one per tenant, and it recreates the cross-tenant reach D1 buys, in the one component that can
+  delete every stream. The `Account` CRD exists precisely so this is not necessary
+
+**Consequences:**
+- **Nothing on the bus is anonymous any more, and that reaches the runbooks.** Every `nats` command
+  in `docs/event-backbone.md` currently runs against an anonymous `nats-box`; each becomes a named
+  context with a credential. A forker's first bus interaction now requires a secret to exist, which
+  is real friction against the fork-ability contract and is why the static backend renders from a
+  declaration in Git rather than from a hand-written conf file
+- **Credential count is one per (component, tenant), and that is the cost of D1.** With one homelab
+  tenant it is a handful of 1Password items; on the commercial surface it is why D10's callout
+  backend exists rather than being deferred
+- **The PF_WORK alerts are wrong the instant there are two accounts, and this is measured, not
+  suspected.** All three rules in the `homelab-nats-jetstream` group select only
+  `stream_name="PF_WORK"`, and `PF_WORK` exists once per account. `PFWorkMessagesExpiredUnacked`
+  aggregates `max by (stream_name)` and `sum by (stream_name)`, so tenant A's head advance is netted
+  against tenant B's consumer acks — it can both mask a real loss and invent one.
+  `PFWorkStreamMetricsAbsent` wraps `absent()` around a selector that will match several series, so
+  it can never fire once any one account reports, which is precisely the tenant-goes-blind case it
+  exists for. `PFWorkOldestUnackedAging` survives, because `changes()` and `min_over_time()` preserve
+  the full label set and `and` matches on it. The exporter carries `account`, `account_name` and
+  `account_id` on every `nats_stream_*` series (0.20.1 `collector/jsz.go` lines 95-98, the deployed
+  exporter), so the fix is available: aggregation moves to `by (account, stream_name)`, preserving
+  tenant labels and per-tenant absence detection. Until it does, the multi-tenant path has no
+  working silent-loss alert
+- **`docs/event-backbone.md` must state today's reality plainly until this lands** — the bus is
+  unauthenticated within the cluster and single-tenant, and the `<tenant>` token is a convention, not
+  a boundary. Without that line a reader of the contract would reasonably attach a second tenant to a
+  bus that cannot separate them. That is a condition on #438's follow-up, not on this ADR
+- **Blast radius, stated per boundary.** A leaked component credential reaches one tenant's bus and,
+  under D5, cannot destroy its streams — and under D5a cannot read its neighbours' replies or
+  acknowledge their messages either. A leaked NACK per-tenant credential can reshape one tenant's
+  stream set. Three authorities are wider than one tenant and each gets its own rotation and
+  recovery drill (D7): `$SYS`; the callout signing seed, which can place a user into any delegated
+  account; and the NACK controller process, which holds every tenant's Secret at once. The
+  auth-callout service being down blocks *new* connections and leaves established ones untouched,
+  which is the same bound ADR-028 puts on the identity broker and is why the static backend exists
+  for the bootstrap path — and is also why revocation needs its own mechanism (D10b), since that
+  same property means an outage does not evict anyone
+- **This ADR does not make the platform multi-tenant.** It makes the mechanism the contract already
+  names exist, at one tenant, so the second tenant is a configuration change rather than a
+  rediscovery. Onboarding a second tenant additionally needs D8's account budget arithmetic, the
+  alert-aggregation fix above, and the D6 conformance test actually run
+- **What is unverified against a running server is named rather than assumed:** what the name-only
+  consumer-create entrance can reach with a body-supplied `Name` (D6); whether NACK 0.35.0's
+  `Account` CRD path behaves as documented when a `Stream` moves between accounts; whether an
+  updated Secret promptly replaces a cached or already-established NACK connection (D10b); and the
+  established-session revocation bound for each backend. All are level-2 tests in the implementing
+  change, run against the rendered image digests. ADR-038 exists because the alternative is a green
+  gate over a broker that disagrees
+- **This ADR was revised after independent review ([MCAA-383](/MCAA/issues/MCAA-383), Security &
+  Secrets Engineer, approve-with-conditions).** The corrections are recorded inline above rather
+  than as a changelog, but three are worth naming because they change what a reader should trust:
+  the first draft reasoned from `nats-server` v2.10.22 rather than the deployed v2.15.0 and
+  consequently enumerated a deny list that misses `STREAM.MSG.GET` and `ACCOUNT.PURGE` (D5); it
+  claimed `$SYS` and a hypothetical operator seed were the only cross-account authorities, which the
+  callout signer and the NACK controller both falsify (D7); and it described the monitoring port as
+  exposed on the ordinary Service when it is the headless one (D9). The review's own conditions on
+  the implementing PR — rotation drill, cold start, client binding, network scoping — are carried in
+  D10b, D13 and §5.2-5.4 of the event contract
+
 ### ADR-045: Argo Events runs its own JetStream; the platform bus is reachable only through a named durable pull consumer, and the trigger bus states its own weaker guarantee (2026-09-28); refines ADR-026 and applies ADR-042
 
 *Numbering note: `main` carried ADR-042 when this was written, with 034 and 041 as open gaps. 034 is claimed by the deployment-DAG branch (#368), 041 by the RED-metric-contract branch (#433, as ADR-042's own note records), 043 by the bus-tenancy branch (#455) and 044 by the audit-source-collision branch (#461); 046 (#362) and 047 (#399) sit above. All were re-checked at this branch's head rather than at writing, so this takes 045 per ADR-039. No number is reserved here.*
