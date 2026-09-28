@@ -24,8 +24,8 @@ const CHART = "charts/openclaw";
 const METERED = ["ANTHROPIC_API_KEY", "OPENAI_API_KEY", "CODEX_API_KEY"];
 
 // The variable charts/paperclip uses for the same subscription credential.
-// OpenClaw lists it in CLAUDE_CLI_CLEAR_ENV and strips it before every managed
-// Claude CLI run, so it must never be wired here.
+// OpenClaw's native Anthropic provider never reads it, so it must never be
+// wired here.
 const DEAD = "CLAUDE_CODE_OAUTH_TOKEN";
 
 const SUBSCRIPTION = "ANTHROPIC_OAUTH_TOKEN";
