@@ -87,11 +87,18 @@ replicas_defaults:
 # limit therefore has a DECORATIVE `discard`: it never fills, so the policy never runs,
 # and the only thing the stream can exhaust is the shared JetStream file store. That
 # failure is not scoped to the stream — the server refuses writes for EVERY stream on the
-# peer with `insufficient resources (10047)`, which turns one stream's retention budget
+# peer with `insufficient resources (10023)`, which turns one stream's retention budget
 # into a whole-bus outage and inverts the isolation PF_AUDIT's `discard: new` claims to
 # buy. So: every stream carries the literal placeholder `<max_bytes>`, the checker
 # enforces that it stays a placeholder, and the checker also rejects any stream that
 # declares a `discard` policy with no limit for it to act on. (ADR-042)
+#
+# CAPACITY IN THIS CONTRACT IS EXPRESSED IN BYTES ONLY. `max_msgs` and
+# `max_msgs_per_subject` are rejected by the checker: a committed message count is one
+# operator's capacity in a different unit, and on a `discard: new` stream it silently
+# replaces the byte-based retention every number here is reasoned about — PF_AUDIT would
+# refuse writes at the count regardless of how much of its budget is used. Size a stream
+# in `max_bytes_defaults`. (ADR-042)
 max_bytes_defaults:
   # Bytes. Per surface, summing BELOW the file store each surface provisions — see
   # `max_bytes_sum_rule`. PF_AUDIT is the largest because 365d of identity and control
@@ -114,7 +121,7 @@ max_bytes_sum_rule: >-
   with headroom. `max_bytes` bounds a stream against ITSELF; it does not reserve or
   partition the store. Four streams whose limits sum above the store are individually
   bounded and collectively unbounded, so the shared-store failure above is back unchanged
-  — the peer just reaches `insufficient resources (10047)` before any stream reaches its
+  — the peer just reaches `insufficient resources (10023)` before any stream reaches its
   own limit, and which stream's publish gets refused is a race rather than a policy. The
   headroom is not decoration either: JetStream accounts for index and metadata alongside
   message bytes, so a budget equal to the store fails before the last stream fills. The
@@ -125,7 +132,10 @@ max_bytes_sum_rule: >-
   What the gate does enforce is that the numbers live in `max_bytes_defaults` where the
   sum is visible at all, rather than being scattered across four chart values. The
   runtime side of the rule is an alert on file-store utilisation, named in ADR-042 and
-  owned by the SRE & Observability Engineer.
+  owned by the SRE & Observability Engineer. The two failures an operator meets here are
+  different errors: a mis-summed budget surfaces at PUBLISH as `insufficient resources`
+  (10023), while a single stream sized above the whole store surfaces at CREATE as
+  `insufficient storage resources available` (10047) and never starts.
 
 # Streams. A subject that matches no stream is a configuration error, not a warning:
 # it means an event is being published into a void with nothing to replay it.
@@ -200,10 +210,16 @@ streams:
       separates them, so a reader of a subject knows the guarantee without opening the
       registry — the registry does not restate durability, it is DERIVED from the suffix.
       `discard: new` is deliberate and stays: when the queue reaches `max_bytes`, the publish
-      is REFUSED with an error instead of the stream silently dropping work.
+      is REFUSED with `maximum bytes exceeded` (err_code 10077, HTTP 503) instead of the
+      stream silently dropping work — verified against nats-server 2.10.29, and identical on
+      `limits` retention, so a work queue needs no special case. Match the DESCRIPTION, not
+      the number: 10077 is a wrapper code whose description carries the real reason, so
+      `maximum bytes exceeded` (this stream is at its own ceiling, backpressure working) and
+      `insufficient resources` (10023, the peer is out of store, a bus-wide outage) both
+      arrive as 503 and mean opposite things.
       Backpressure belongs on the producer, and it only exists because the ceiling exists —
       an unbounded PF_WORK never fills, so it grows until the shared file store is exhausted
-      and the error surfaces as `insufficient resources (10047)` on every stream at once
+      and the error surfaces as `insufficient resources (10023)` on every stream at once
       rather than as backpressure on this one. See `silent_loss` below for what `max_age`
       costs here; `max_bytes` bounds the queue's SIZE and `max_age` bounds its messages'
       LIFETIME, and neither substitutes for the other. (ADR-042)
@@ -265,17 +281,26 @@ limits:
   producer_budget_rule: >-
     `max_event_bytes` IS A PRODUCER BUDGET, NOT THE SERVER LIMIT, and it is deliberately
     BELOW `server_max_payload`. An earlier version set the two equal at 1 MiB, which made
-    the budget unreachable: `max_payload` bounds the whole NATS message, HEADERS PLUS BODY,
-    so an envelope of exactly 1 MiB is refused at publish with `Maximum Payload Violation`
-    whatever any stream says, and the connection is closed. The 64 KiB reserved between the
-    two covers the headers every publish carries — `Nats-Msg-Id` (the CloudEvents `id`,
-    which the SDK always sets) plus whatever a tracing propagator adds — with room to spare,
-    because a budget that a header someone adds later can silently invalidate is the same
-    defect one size down. A producer checks its serialised envelope against
+    the budget unreachable: `max_payload` bounds the whole NATS message, HEADERS PLUS BODY.
+    THE BOUND IS INCLUSIVE — `len(headers) + len(body) <= max_payload` is accepted, verified
+    at the protocol level — so a 1 MiB envelope is refused not because equality fails but
+    because the SDK always adds `Nats-Msg-Id` on top of it. A well-behaved client knows
+    `max_payload` from INFO and refuses locally (`nats: maximum payload exceeded`, nothing
+    sent, connection intact); only a client that sends anyway gets
+    `-ERR 'Maximum Payload Violation'` and the server closing the connection. The 64 KiB
+    reserved between the two covers the headers every publish carries — `Nats-Msg-Id` (the
+    CloudEvents `id`, which the SDK always sets) plus whatever a tracing propagator adds.
+    Measured worst case: `Nats-Msg-Id` with `traceparent`, `tracestate` and `baggage` all at
+    the W3C SHOULD-limits is 8862 wire bytes, so the reserve is 7.4x the worst propagator
+    and costs 6.67% of the producer budget — deliberate, because a budget that a header
+    someone adds later can silently invalidate is the same defect one size down. A producer checks its serialised envelope against
     `max_event_bytes`; it never checks against `server_max_payload`. PF_EVENTS'
     `max_msg_size` equals `max_event_bytes` so the budget is ENFORCED by the stream rather
-    than restated as advice, and the checker pins that equality and the strict inequality
-    above. (ADR-042)
+    than restated as advice. The checker requires at least one stream producers publish
+    into directly to declare `max_msg_size`, checks EVERY such stream against
+    `max_event_bytes`, and pins the strict inequality above — deleting the cap is a
+    violation rather than a skipped rule, because absence is what made this sentence
+    silently false before. (ADR-042)
   body_rule: >-
     The whole structured-JSON event — envelope plus `data` — must fit inside
     `max_event_bytes`. A payload that does not is REFERENCED, never embedded: publish a

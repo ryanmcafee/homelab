@@ -21,9 +21,10 @@
  *      rejects a stream whose `discard` policy has no limit to act on — JetStream
  *      runs `discard` only at `max_msgs`/`max_bytes`/`max_msgs_per_subject`, never
  *      on age expiry, so an unbounded stream's policy is decorative and the stream
- *      exhausts the SHARED file store instead (`10047`, which refuses writes for
- *      every stream on the peer) — and a producer budget set level with the
- *      server's `max_payload`, which counts headers and is therefore unreachable.
+ *      exhausts the SHARED file store instead (`10023`, which refuses writes for
+ *      every stream on the peer) — a count limit in place of a byte limit, and a
+ *      producer budget set level with the server's `max_payload`, which counts
+ *      headers and is therefore unreachable.
  *
  *   2. Backward compatibility — the whole contract is diffed against the frozen
  *      baseline in contracts/events/registry.v1.baseline.json: the registered
@@ -109,6 +110,7 @@ export interface Stream {
   replicas?: string | number;
   retention?: string;
   max_age?: string;
+  duplicate_window?: string;
   max_bytes?: string | number;
   max_msgs?: string | number;
   max_msgs_per_subject?: string | number;
@@ -531,20 +533,43 @@ export function validateTaxonomy(taxonomy: Taxonomy): Violation[] {
         `max_bytes is ${JSON.stringify(st.max_bytes)}; it must be the literal ${MAX_BYTES_PLACEHOLDER} placeholder, because a committed byte count is one operator's disk and defaults belong in max_bytes_defaults`,
       );
 
-    // A `discard` policy only ever runs against max_msgs, max_bytes or
-    // max_msgs_per_subject. Age expiry is a separate path that ignores it, so a
-    // discard with no limit beside it is decorative: the stream never fills, and
-    // the only thing it can exhaust is the SHARED file store — which refuses
-    // writes for every stream on the peer, not just this one.
+    // Capacity is bytes here, never counts. A committed message count is one
+    // operator's capacity in a different unit, and on a `discard: new` stream it
+    // silently replaces the byte-based retention the sizing rules reason about.
+    for (const field of ["max_msgs", "max_msgs_per_subject"] as const)
+      if (st[field] !== undefined)
+        v(
+          "count-limit-unsupported",
+          st.name,
+          `${field} is ${JSON.stringify(st[field])}; capacity in this contract is expressed in max_bytes and sized per surface in max_bytes_defaults. A count cap commits one operator's capacity to a contract every fork inherits, and on a discard: new stream it refuses writes at the count however much of the byte budget is unused`,
+        );
+
+    // A `discard` policy only ever runs against a real limit. Age expiry is a
+    // separate path that ignores it, so a discard with no limit beside it is
+    // decorative: the stream never fills, and the only thing it can exhaust is
+    // the SHARED file store — which refuses writes for every stream on the peer,
+    // not just this one. `-1` and `0` are how JetStream spells unlimited, so
+    // presence is not limit-ness.
     const hasLimit =
-      st.max_bytes !== undefined ||
-      st.max_msgs !== undefined ||
-      st.max_msgs_per_subject !== undefined;
+      st.max_bytes === MAX_BYTES_PLACEHOLDER ||
+      (typeof st.max_bytes === "number" && st.max_bytes > 0);
     if (st.discard !== undefined && !hasLimit)
       v(
         "discard-without-limit",
         st.name,
-        `discard is ${JSON.stringify(st.discard)} but the stream declares no max_bytes, max_msgs or max_msgs_per_subject, so the policy can never run — JetStream applies discard only when one of those is reached, and age expiry ignores it. An unbounded stream exhausts the shared file store instead, which refuses writes for EVERY stream on the peer ("insufficient resources", 10047)`,
+        `discard is ${JSON.stringify(st.discard)} but the stream declares no max_bytes above zero (got ${JSON.stringify(st.max_bytes)}; JetStream reads -1 and 0 as unlimited), so the policy can never run — JetStream applies discard only when a limit is reached, and age expiry ignores it. An unbounded stream exhausts the shared file store instead, which refuses writes for EVERY stream on the peer ("insufficient resources", 10023)`,
+      );
+
+    // nats-server refuses a stream whose dedup window outlives its retention:
+    // "duplicates window can not be larger then max age" (10052). Harmless at the
+    // current values, uncreatable the moment an operator shortens max_age.
+    const dupWindow = durationSeconds(st.duplicate_window);
+    const maxAge = durationSeconds(st.max_age);
+    if (dupWindow !== null && maxAge !== null && dupWindow > maxAge)
+      v(
+        "duplicate-window-over-max-age",
+        st.name,
+        `duplicate_window is ${st.duplicate_window} against a max_age of ${st.max_age}; NATS refuses the stream with "duplicates window can not be larger then max age" (10052), so the stream cannot be created`,
       );
 
     if ((st.subjects ?? []).length === 0 && (st.sources ?? []).length === 0)
@@ -622,6 +647,24 @@ export function validateTaxonomy(taxonomy: Taxonomy): Violation[] {
     }
   }
 
+  // A stream with its own subjects is one producers publish into directly, so it
+  // is where the producer budget can be enforced rather than restated. Absence is
+  // a violation, not a skipped rule: deleting the only max_msg_size is a
+  // compatibility WIDENING and must pass the comparator, so this invariant is the
+  // only thing standing between the contract and a budget nothing enforces.
+  const ingestStreams = taxonomy.streams.filter(
+    (s) => (s.subjects ?? []).length > 0,
+  );
+  if (
+    ingestStreams.length > 0 &&
+    !ingestStreams.some((s) => s.max_msg_size !== undefined)
+  )
+    v(
+      "max-msg-size-missing",
+      ingestStreams.map((s) => s.name).join("/"),
+      `no stream with subjects of its own declares max_msg_size, so limits.max_event_bytes is advice no stream enforces; a producer exceeding the budget is refused only by the server's own max_payload, which is a different and larger number`,
+    );
+
   // The producer budget is a budget only while it is strictly below the server
   // limit. Set equal, an envelope of exactly that size is refused at publish
   // whatever any stream says, because max_payload counts headers plus body.
@@ -643,15 +686,13 @@ export function validateTaxonomy(taxonomy: Taxonomy): Violation[] {
         "limits.max_event_bytes",
         `max_event_bytes is ${eventMax} against a server max_payload of ${serverMax}; it must leave at least ${HEADER_RESERVE_BYTES} bytes for headers, because max_payload bounds the whole message — headers plus body — so a budget at or near the server limit is unreachable at publish`,
       );
-    const ingest = taxonomy.streams.find(
-      (s) => (s.subjects ?? []).length > 0 && s.max_msg_size !== undefined,
-    );
-    if (ingest && ingest.max_msg_size !== eventMax)
-      v(
-        "max-msg-size-mismatch",
-        ingest.name,
-        `max_msg_size is ${ingest.max_msg_size} but limits.max_event_bytes is ${eventMax}; they must be equal so the stream ENFORCES the producer budget instead of the contract merely restating it`,
-      );
+    for (const st of ingestStreams)
+      if (st.max_msg_size !== undefined && st.max_msg_size !== eventMax)
+        v(
+          "max-msg-size-mismatch",
+          st.name,
+          `max_msg_size is ${st.max_msg_size} but limits.max_event_bytes is ${eventMax}; they must be equal so the stream ENFORCES the producer budget instead of the contract merely restating it`,
+        );
   }
 
   return out;

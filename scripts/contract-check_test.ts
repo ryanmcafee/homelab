@@ -691,7 +691,11 @@ test("two streams with overlapping subject filters cannot both be created", () =
 
   // The fix: PF_AUDIT ingests nothing of its own and sources from PF_EVENTS.
   const sourced = taxonomyWith(
-    stream({ name: "PF_EVENTS", subjects: ["pf.*.*.*.*.*.ev"] }),
+    stream({
+      name: "PF_EVENTS",
+      subjects: ["pf.*.*.*.*.*.ev"],
+      max_msg_size: 983040,
+    }),
     stream({
       name: "PF_AUDIT",
       subjects: [],
@@ -765,28 +769,64 @@ test("a hard-coded max_bytes commits one operator's disk to the contract", () =>
 
 test("a discard policy with no limit to act on is inert and is rejected", () => {
   // The shape every stream in the contract had before ADR-042: a discard policy
-  // and nothing for it to trigger on. JetStream runs discard only at max_msgs,
-  // max_bytes or max_msgs_per_subject; age expiry ignores it. So the stream never
-  // fills, the policy never runs, and the only thing it can exhaust is the SHARED
-  // file store — which refuses writes for every stream on the peer (10047). The
-  // gate was green on all four streams in exactly this shape.
+  // and nothing for it to trigger on. JetStream runs discard only at a limit;
+  // age expiry ignores it. So the stream never fills, the policy never runs, and
+  // the only thing it can exhaust is the SHARED file store — which refuses writes
+  // for every stream on the peer (10023). The gate was green on all four streams
+  // in exactly this shape.
   const inert = stream({ name: "PF_WORK", subjects: ["pf.*.*.*.*.*.wq"] });
   delete inert.max_bytes;
   const rules = taxRules(taxonomyWith(inert));
   assert(rules.includes("discard-without-limit"));
 });
 
-test("a count limit satisfies discard just as a byte limit does", () => {
-  // The rule is about having SOMETHING for discard to act on, not about max_bytes
-  // specifically — max_msgs and max_msgs_per_subject are the other two triggers.
-  const counted = stream({
+test("max_bytes present but unlimited does not satisfy discard", () => {
+  // -1 and 0 are how JetStream spells unlimited, so a presence test would pass a
+  // stream exactly as unbounded as one with no field at all.
+  for (const unlimited of [-1, 0]) {
+    const open = stream({
+      name: "PF_WORK",
+      subjects: ["pf.*.*.*.*.*.wq"],
+      max_bytes: unlimited,
+    });
+    assert(taxRules(taxonomyWith(open)).includes("discard-without-limit"));
+  }
+});
+
+test("capacity is bytes: a count limit is rejected outright", () => {
+  // A committed message count is one operator's capacity in another unit, and on
+  // a discard: new stream it refuses writes at the count however much of the byte
+  // budget is unused — silently replacing the retention the contract sizes.
+  for (const field of ["max_msgs", "max_msgs_per_subject"] as const) {
+    const counted = stream({
+      name: "PF_AUDIT",
+      subjects: ["pf.*.*.*.*.*.ev"],
+      [field]: 500000,
+    });
+    const rules = taxRules(taxonomyWith(counted));
+    assert(rules.includes("count-limit-unsupported"));
+    // And it does not stand in for the byte limit discard needs.
+    delete counted.max_bytes;
+    assert(taxRules(taxonomyWith(counted)).includes("discard-without-limit"));
+  }
+});
+
+test("a dedup window longer than max_age makes the stream uncreatable", () => {
+  // "duplicates window can not be larger then max age (10052)" — reachable by an
+  // operator shortening max_age, with nothing else in the contract to notice.
+  const shortened = stream({
     name: "PF_WORK",
     subjects: ["pf.*.*.*.*.*.wq"],
-    max_msgs: 1000,
+    max_age: "60s",
+    duplicate_window: "2m",
   });
-  delete counted.max_bytes;
-  const rules = taxRules(taxonomyWith(counted));
-  assert(!rules.includes("discard-without-limit"));
+  assert(
+    taxRules(taxonomyWith(shortened)).includes("duplicate-window-over-max-age"),
+  );
+  const sized = { ...shortened, max_age: "24h" };
+  assert(
+    !taxRules(taxonomyWith(sized)).includes("duplicate-window-over-max-age"),
+  );
 });
 
 test("a stream with no max_bytes default has a hole in the sum rule", () => {
@@ -842,6 +882,41 @@ test("the ingest stream's max_msg_size must enforce the producer budget", () => 
     limits: { server_max_payload: 1048576, max_event_bytes: 983040 },
   };
   assert(taxRules(drifted).includes("max-msg-size-mismatch"));
+});
+
+test("deleting the only max_msg_size is a violation, not a skipped rule", () => {
+  // The find()-shaped bug ADR-042 was reviewed for: with no stream declaring the
+  // cap the equality check evaluated against nothing and the gate went green,
+  // while the contract still claimed the stream ENFORCED the producer budget.
+  // The comparator cannot catch it either — removing a cap is a widening.
+  const uncapped = taxonomyWith(
+    stream({ name: "PF_EVENTS", subjects: ["pf.*.*.*.*.*.ev"] }),
+  );
+  assert(taxRules(uncapped).includes("max-msg-size-missing"));
+});
+
+test("every stream with its own subjects is checked, not just the first", () => {
+  // A second ingest stream with a smaller cap went unchecked under find().
+  const twoIngests: Taxonomy = {
+    ...taxonomyWith(
+      stream({
+        name: "PF_EVENTS",
+        subjects: ["pf.*.*.*.*.*.ev"],
+        max_msg_size: 983040,
+      }),
+      stream({
+        name: "PF_WORK",
+        subjects: ["pf.*.*.*.*.*.wq"],
+        max_msg_size: 65536,
+      }),
+    ),
+    limits: { server_max_payload: 1048576, max_event_bytes: 983040 },
+  };
+  const violations = validateTaxonomy(twoIngests).filter(
+    (x) => x.rule === "max-msg-size-mismatch",
+  );
+  assert(violations.length === 1);
+  assert(violations[0]?.subject === "PF_WORK");
 });
 
 test("a stream that ingests nothing at all is rejected", () => {
