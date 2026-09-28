@@ -1,0 +1,307 @@
+---
+# LiteLLM observability (issue #424); see tests/e2e/README.md, docs/apps/litellm.md
+# and docs/runbooks/litellm.md. A Healthy Application and an `up` scrape target
+# both stay green when the gateway exports an empty registry, so this test
+# drives one request through the gateway and then requires the resulting
+# litellm_* series on the sidecar and in Prometheus.
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: litellm
+spec:
+  description: >-
+    The LiteLLM Applications are Healthy, the CloudNativePG Cluster litellm-db is healthy, the
+    gateway ServiceMonitor scrapes the unauthenticated metrics Service, and a request through the
+    gateway raises litellm_proxy_total_requests_metric_total on the sidecar and in Prometheus.
+  steps:
+    - name: applications-healthy
+      description: >-
+        litellm-database and litellm are Healthy and their last sync Succeeded
+        (litellm-dependencies only exists where a secret store does; Kind seeds its Secrets).
+      try:
+        - assert:
+            resource:
+              apiVersion: argoproj.io/v1alpha1
+              kind: Application
+              metadata:
+                name: litellm-database
+                namespace: argocd
+              status:
+                health:
+                  status: Healthy
+                operationState:
+                  phase: Succeeded
+        - assert:
+            resource:
+              apiVersion: argoproj.io/v1alpha1
+              kind: Application
+              metadata:
+                name: litellm
+                namespace: argocd
+              status:
+                health:
+                  status: Healthy
+                operationState:
+                  phase: Succeeded
+      catch:
+        - describe:
+            apiVersion: argoproj.io/v1alpha1
+            kind: Application
+            name: litellm-database
+            namespace: argocd
+        - describe:
+            apiVersion: argoproj.io/v1alpha1
+            kind: Application
+            name: litellm
+            namespace: argocd
+    - name: database-ready
+      description: Cluster litellm-db is "Cluster in healthy state", which LiteLLMDatabaseNotReady watches.
+      try:
+        - assert:
+            resource:
+              apiVersion: postgresql.cnpg.io/v1
+              kind: Cluster
+              metadata:
+                name: litellm-db
+                namespace: litellm
+              status:
+                phase: Cluster in healthy state
+                readyInstances: 1
+      catch:
+        - events:
+            namespace: litellm
+        - describe:
+            apiVersion: postgresql.cnpg.io/v1
+            kind: Cluster
+            name: litellm-db
+            namespace: litellm
+    - name: metrics-service-and-servicemonitor
+      description: >-
+        The gateway ServiceMonitor scrapes port metrics at /metrics/ in the litellm namespace, and
+        the metrics Service is ClusterIP with that port. fullnameOverride: litellm is what keeps
+        these names litellm-gateway{,-metrics}, which every alert label and the dashboard assume.
+      try:
+        - assert:
+            resource:
+              apiVersion: monitoring.coreos.com/v1
+              kind: ServiceMonitor
+              metadata:
+                name: litellm-gateway
+                namespace: litellm
+              spec:
+                namespaceSelector:
+                  matchNames:
+                    - litellm
+                (endpoints[?port == 'metrics']):
+                  - path: /metrics/
+                    scheme: http
+        - assert:
+            resource:
+              apiVersion: v1
+              kind: Service
+              metadata:
+                name: litellm-gateway-metrics
+                namespace: litellm
+              spec:
+                type: ClusterIP
+                (ports[?name == 'metrics']):
+                  - port: 4001
+                    protocol: TCP
+      catch:
+        - describe:
+            apiVersion: monitoring.coreos.com/v1
+            kind: ServiceMonitor
+            namespace: litellm
+        - describe:
+            apiVersion: v1
+            kind: Service
+            namespace: litellm
+    - name: gateway-emits-litellm-series
+      description: >-
+        One /v1/chat/completions call with the master key raises
+        litellm_proxy_total_requests_metric_total on the metrics sidecar. The seeded provider key is
+        a placeholder, so the call always fails upstream and never spends; the counter is raised by
+        the failure path, which is the SLI LiteLLMGatewayErrorRateHigh reads. Without
+        litellm_settings.callbacks: [prometheus] the sidecar answers 200 with no litellm_ series.
+      timeouts:
+        assert: 5m
+      try:
+        - apply:
+            resource:
+              apiVersion: batch/v1
+              kind: Job
+              metadata:
+                name: e2e-litellm-metrics
+                namespace: litellm
+              spec:
+                backoffLimit: 0
+                activeDeadlineSeconds: 280
+                template:
+                  spec:
+                    restartPolicy: Never
+                    securityContext:
+                      runAsNonRoot: true
+                      runAsUser: 100
+                      seccompProfile:
+                        type: RuntimeDefault
+                    containers:
+                      - name: curl
+                        # pinned from configuration/versions.yaml images.curl
+                        image: curlimages/curl:8.22.0
+                        securityContext:
+                          allowPrivilegeEscalation: false
+                          capabilities:
+                            drop: ["ALL"]
+                        resources:
+                          requests:
+                            cpu: 10m
+                            memory: 32Mi
+                          limits:
+                            cpu: 100m
+                            memory: 64Mi
+                        env:
+                          - name: GATEWAY
+                            value: "litellm-gateway.litellm.svc.cluster.local:4000"
+                          - name: METRICS
+                            value: "litellm-gateway-metrics.litellm.svc.cluster.local:4001"
+                          - name: MODEL
+                            value: "claude-haiku-4-5"
+                          - name: MASTER_KEY
+                            valueFrom:
+                              secretKeyRef:
+                                name: litellm-master-key-secret
+                                key: master-key
+                          - name: ATTEMPTS
+                            value: "20"
+                        command: ["sh", "-c"]
+                        args:
+                          - |
+                            set -u
+                            i=1
+                            while [ "$i" -le "$ATTEMPTS" ]; do
+                              code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 \
+                                -H "Authorization: Bearer $MASTER_KEY" \
+                                -H 'Content-Type: application/json' \
+                                -d "{\"model\":\"$MODEL\",\"messages\":[{\"role\":\"user\",\"content\":\"e2e\"}]}" \
+                                "http://$GATEWAY/v1/chat/completions")
+                              series=$(curl -s --max-time 10 "http://$METRICS/metrics/" \
+                                | grep '^litellm_proxy_total_requests_metric_total{')
+                              echo "attempt $i/$ATTEMPTS: gateway HTTP $code; series: $series"
+                              [ -n "$series" ] && exit 0
+                              i=$((i + 1))
+                              sleep 10
+                            done
+                            echo "giving up: no litellm_proxy_total_requests_metric_total on $METRICS"
+                            echo "the registry is empty unless litellm_settings.callbacks contains prometheus"
+                            exit 1
+        - assert:
+            resource:
+              apiVersion: batch/v1
+              kind: Job
+              metadata:
+                name: e2e-litellm-metrics
+                namespace: litellm
+              status:
+                succeeded: 1
+      catch:
+        - events:
+            namespace: litellm
+        - podLogs:
+            namespace: litellm
+            selector: job-name=e2e-litellm-metrics
+            tail: 50
+        - podLogs:
+            namespace: litellm
+            selector: app.kubernetes.io/component=gateway
+            tail: 100
+    - name: prometheus-scrapes-gateway
+      description: >-
+        Prometheus picked the ServiceMonitor up: up{job="litellm-gateway-metrics"} is 1 and the
+        litellm_ series reached the TSDB. The job label comes from the Service name because the
+        ServiceMonitor sets no jobLabel, and three alert rules plus the dashboard group by it.
+      timeouts:
+        assert: 5m
+      try:
+        - apply:
+            resource:
+              apiVersion: batch/v1
+              kind: Job
+              metadata:
+                name: e2e-litellm-scrape
+                namespace: monitoring
+              spec:
+                backoffLimit: 0
+                activeDeadlineSeconds: 280
+                template:
+                  spec:
+                    restartPolicy: Never
+                    securityContext:
+                      runAsNonRoot: true
+                      runAsUser: 100
+                      seccompProfile:
+                        type: RuntimeDefault
+                    containers:
+                      - name: curl
+                        # pinned from configuration/versions.yaml images.curl
+                        image: curlimages/curl:8.22.0
+                        securityContext:
+                          allowPrivilegeEscalation: false
+                          capabilities:
+                            drop: ["ALL"]
+                        resources:
+                          requests:
+                            cpu: 10m
+                            memory: 32Mi
+                          limits:
+                            cpu: 100m
+                            memory: 64Mi
+                        env:
+                          - name: PROMETHEUS
+                            value: "kube-prometheus-stack-prometheus.monitoring.svc.cluster.local:9090"
+                          - name: ATTEMPTS
+                            value: "20"
+                        command: ["sh", "-c"]
+                        args:
+                          - |
+                            set -u
+                            i=1
+                            while [ "$i" -le "$ATTEMPTS" ]; do
+                              target=$(curl -s --max-time 10 -G "http://$PROMETHEUS/api/v1/query" \
+                                --data-urlencode 'query=up{job="litellm-gateway-metrics"} == 1')
+                              series=$(curl -s --max-time 10 -G "http://$PROMETHEUS/api/v1/query" \
+                                --data-urlencode 'query=count(litellm_proxy_total_requests_metric_total)')
+                              echo "attempt $i/$ATTEMPTS"
+                              echo "  up: $target"
+                              echo "  series: $series"
+                              case "$target" in
+                                *'"litellm-gateway-metrics"'*)
+                                  case "$series" in
+                                    *'"value"'*) exit 0 ;;
+                                  esac
+                                  ;;
+                              esac
+                              i=$((i + 1))
+                              sleep 10
+                            done
+                            echo "giving up: no up==1 target or no litellm series in Prometheus"
+                            echo "check the ServiceMonitor selector and serviceMonitorSelectorNilUsesHelmValues"
+                            exit 1
+        - assert:
+            resource:
+              apiVersion: batch/v1
+              kind: Job
+              metadata:
+                name: e2e-litellm-scrape
+                namespace: monitoring
+              status:
+                succeeded: 1
+      catch:
+        - podLogs:
+            namespace: monitoring
+            selector: job-name=e2e-litellm-scrape
+            tail: 50
+        - describe:
+            apiVersion: monitoring.coreos.com/v1
+            kind: ServiceMonitor
+            name: litellm-gateway
+            namespace: litellm
