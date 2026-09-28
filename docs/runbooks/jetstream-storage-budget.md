@@ -84,6 +84,13 @@ All five rules are in the `homelab-nats-jetstream` group of
 Both `FillingUp` severities share one `alertname`, as do both `ApproachingMaxBytes` severities, so
 Alertmanager's severity inhibition drops the warning notification once the critical fires.
 
+At the shipped budgets the four platform streams cannot fill the store on their own: their limits
+total 30 % of it on homelab (6 GiB of 20 GiB) and 56 % on localdev (1.125 GiB of 2 GiB). So
+`JetStreamStreamApproachingMaxBytes` is what fires first under ordinary growth, and
+`JetStreamFileStoreFillingUp` is the backstop for bytes no `max_bytes` accounts for — an unbounded
+or non-platform stream, index and metadata overrun, or a `fileStoreSize` that no longer matches the
+PVC. A quiet store alert while a stream alert fires is the expected ordering, not a gap.
+
 The file-store rules aggregate **per server**, because the store and the `10047` refusal are
 per-peer. `JetStreamFileStoreMetricsAbsent` does not: it aggregates the whole vector away and
 answers one question — is anything measuring the store at all. It watches the *numerator*
@@ -113,8 +120,10 @@ alert carries it as the `namespace` label.
    ```
 
    Above `1` the budget is over-committed and `10047` is arithmetically guaranteed before the last
-   stream fills. Above roughly `0.9` the headroom is too thin for index and metadata. The contract's
-   own defaults sit at `0.75`.
+   stream fills. Above roughly `0.9` the headroom is too thin for index and metadata. The chart
+   refuses to render above `maxBytesBudgetFraction` (`0.75`), and the shipped defaults sit well
+   under that ceiling — `0.30` on homelab, `0.5625` on localdev. A ratio far below `0.75` is normal
+   here; it does not mean the query is wrong or the budget is unset.
 
 3. **Look for bytes no `max_bytes` accounts for** — an unbounded stream, or a stream outside the
    four the contract declares:
@@ -146,18 +155,27 @@ alert carries it as the `namespace` label.
    current bytes makes its discard policy act immediately — `discard: old` drops the oldest
    messages, `discard: new` refuses publishes — so take the retention the contract declares for that
    stream into account before you choose which one shrinks.
-2. **Grow the file store**, then raise limits into the new space. Expand
-   `nats.jetstream.storage.size` in `charts/addons`, which grows the PVC and `max_file_store`
-   together. The PVC's StorageClass must allow expansion, and the change is a chart edit through
-   GitOps, not a live `kubectl edit`.
+2. **Grow the file store**, then raise limits into the new space. `nats.jetstream.storage.size` is
+   set per surface in `configuration/templates/helm-addons.tmpl` (homelab `20Gi`, localdev `2Gi`);
+   the `10Gi` in `charts/addons/values.yaml` is the chart's standalone default and editing it does
+   not resize a deployed cluster. Growing it grows the PVC and `max_file_store` together, and the
+   parent Application injects the new size as the chart's `fileStoreSize`, so the render-time sum
+   rule re-checks against the real store. Update the surface's restated `fileStoreSize`
+   (`charts/nats-config/values.yaml` for homelab, `values-localdev.yaml` for localdev) in the same
+   change, or the drift gate — *each surface budgets against the file store its parent Application
+   injects* — fails level 0. The PVC's StorageClass must allow expansion, and this is a chart edit
+   through GitOps, not a live `kubectl edit`.
 3. **Reduce what is stored** — shorten a retention window, or stop publishing something. `max_age`
    is contract and the gate rejects shortening it (`retention-shortened`), so this is an ADR, not an
    incident action.
 
-**Never raise one `max_bytes` alone.** It is the one change that looks like a fix, passes every
-static gate, and re-creates precisely the failure ADR-042 exists to remove: the limits now sum above
-the store, so each stream is bounded, the set is not, and the next refusal is a `10047` on an
-unrelated stream's publish rather than a policy decision on the stream you changed.
+**Never raise one `max_bytes` alone.** It is the one change that looks like a fix and re-creates
+precisely the failure ADR-042 exists to remove: the limits now sum above the store, so each stream
+is bounded, the set is not, and the next refusal is a `10047` on an unrelated stream's publish
+rather than a policy decision on the stream you changed. Through GitOps the chart now stops you —
+`nats-config.assertMaxBytesBudget` fails the render with the offending total. A live `nats stream
+edit` does not render, so no static gate sees it; that path is why these alerts exist, and
+`JetStreamFileStoreFillingUp` is the only thing left watching it.
 
 ## When `JetStreamStreamApproachingMaxBytes` fires
 
