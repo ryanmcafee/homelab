@@ -115,3 +115,11 @@ Each entry should include:
 - Three new negative fixtures failed against the original rule and pass after hardening. Local policy: 124 Rego tests, 47 fixture/coverage checks; level 0: 270 pass, 0 fail, 1 skip. Policy runtime 7.049s before / 5.572s after (single samples); final level 0 11.072s wall.
 - Remote CI at `1033de8`: policy job passed (44s), level 0 passed (37s), PR-head contract passed (32s). Remaining CI and required Security/Architect review must be checked before merge.
 - Exact parsing contract and evidence: `tests/policy/README.md`, `docs/project_notes/workflows-auth-gate.md`. Principal Platform Architect owns review; no merge performed.
+
+### MCAA-543 — Architect lexical follow-up (2026-09-28)
+
+PR #499: failing-fixture commit `66d3c95` demonstrates whitespace and uppercase
+extraArgs ambiguity before the fix. Tightened passthrough parsing; 124 Rego
+tests, 49 fixture/coverage checks, level 0 270/0/1 pass. Details and timing:
+[workflows-auth-gate.md](workflows-auth-gate.md). Architect then Security review
+required; no merge authorized.

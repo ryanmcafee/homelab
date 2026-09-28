@@ -213,3 +213,10 @@ flags, and empty effective sets through both inline value representations.
 The exposure check remains limited to the chart's `server.httproute.enabled`;
 it cannot discover a separately declared HTTPRoute targeting the Service
 (ADR-050 D10). This gate change implements D11a without changing rendered values.
+
+Architect follow-up: unrelated `--flag=value` arguments require a nonempty
+value without whitespace. Case variants of `--auth-mode=` cannot enter this
+passthrough; use the canonical lowercase auth flags. The negative fixtures
+`workflows-auth-extra-args-whitespace.yaml` and
+`workflows-auth-extra-args-uppercase.yaml` each produced no denial at
+`801f521`, then produced a workflows-auth denial after the lexical fix.

@@ -71,8 +71,8 @@ safe_arg(args, i) if {
 }
 
 safe_arg(args, i) if {
-	regex.match("^--[a-zA-Z0-9][a-zA-Z0-9-]*=.+$", args[i])
-	not startswith(args[i], "--auth-mode=")
+	regex.match("^--[a-zA-Z0-9][a-zA-Z0-9-]*=\\S+$", args[i])
+	not startswith(lower(args[i]), "--auth-mode=")
 }
 
 safe(values) if {
@@ -111,5 +111,5 @@ deny contains msg if {
 	helm := object.get(source, "helm", {})
 	inspectable(helm)
 	not safe(values(helm))
-	msg := sprintf("[workflows-auth] %s: routed Workflows requires a non-empty effective auth mode set containing only sso/client across server.authMode, server.authModes and server.extraArgs; server/hybrid, malformed lists and ambiguous arguments are forbidden. Use authModes: [client] and canonical --auth-mode=client/--auth-mode=sso (split --auth-mode, client is also supported); unrelated extraArgs must use --flag=value. Set server.httproute.enabled=false to disable exposure (source: server.route.enabled). Any deferral requires a separately recorded Architect review and policy change", [lib.id(input)])
+	msg := sprintf("[workflows-auth] %s: routed Workflows requires a non-empty effective auth mode set containing only sso/client across server.authMode, server.authModes and server.extraArgs; server/hybrid, malformed lists and ambiguous arguments are forbidden. Use authModes: [client] and canonical --auth-mode=client/--auth-mode=sso (split --auth-mode, client is also supported); unrelated extraArgs must use --flag=value without whitespace; auth-mode spelling must be lowercase. Set server.httproute.enabled=false to disable exposure (source: server.route.enabled). Any deferral requires a separately recorded Architect review and policy change", [lib.id(input)])
 }

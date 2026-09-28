@@ -32,3 +32,10 @@
 - Security and Principal Platform Architect review are required before merge; this work does not authorize merging or changing the authentication posture.
 - Serena and bd are unavailable in this harness; Paperclip carries task tracking and this note preserves the discovery. Shared working-tree edits were untouched.
 - Final review branch is stacked on PR #459's current head `eaa44da` (which already includes the original gate). Only policy, tests and documentation differ. Level 0 on that exact base plus hardening: 270 passed / 0 failed / 1 skipped, 11.072s wall (9.516s verifier time). This keeps the posture PR independently mergeable; retarget the gate PR after #459 merges.
+
+## Architect lexical follow-up (2026-09-28)
+
+- Test-first commit `66d3c95`: two negative fixtures receive no denial at `801f521`; exactly 2/49 mismatches, client/SSO controls pass, 6.663s wall. The earlier three additive-input fixtures and evidence remain intact.
+- Restrict unrelated argument values to nonempty non-whitespace strings; case-fold the auth-mode exclusion so uppercase forms cannot bypass canonical auth parsing. This is conservative fail-closed validation, not a claim these forms authenticate against the deployed server.
+- After fix: 124 Rego tests and 49 fixture/coverage checks pass, 8.802s wall (+2.139s versus the before sample; single samples, not a benchmark). Level 0 passes 270/0/1 in 21.477s wall (17.507s verifier). No rendered values changed, no cluster or secrets required.
+- Architect re-review followed by Security remains mandatory on PR #499. Still stacked on #459; retarget and rerun policy/level 0 after the posture PR merges.
