@@ -531,7 +531,6 @@ external-dns:
 
   # Cloudflare configuration
   cloudflare:
-    proxied: true  # Enable Cloudflare proxy
     # Handed to charts/external-dns-config through the config Application's
     # helm.valuesObject (EXTERNAL_DNS_1P_PATH).
     onePasswordItemPath: ""

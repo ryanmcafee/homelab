@@ -933,9 +933,6 @@ spec:
                 protocol: tcp
                 targetPort: 9001
             type: NodePort
-        mosquitto:
-          auth:
-            enabled: true
         TZ: "America/New_York"
 
   destination:

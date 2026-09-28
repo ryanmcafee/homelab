@@ -1003,11 +1003,6 @@ mosquitto:
 {{- end }}
           protocol: tcp
 
-  # Authentication configuration
-  mosquitto:
-    auth:
-      enabled: true
-
   TZ: {{ .Values.TIMEZONE.Value }}
 
   # PostSync smoke hook (charts/applications/templates/_smoke.tpl): curl the in-cluster
