@@ -376,6 +376,22 @@ test("unusedEntries names an allowlist entry that no longer matches anything", (
   );
 });
 
+test("unusedEntries holds entries for a chart that could not be pulled", () => {
+  const allow: AllowEntry[] = [
+    { chart: "mosquitto", path: "persistence", reason: "still needed" },
+    { chart: "mosquitto", path: "service.main", reason: "still needed" },
+    {
+      chart: "spegel",
+      path: "spegel.registries",
+      reason: "upstream declares it now",
+    },
+  ];
+  assertEquals(
+    unusedEntries([], allow, new Set(["mosquitto"])).map((e) => e.path),
+    ["spegel.registries"],
+  );
+});
+
 test("parseAllowlist rejects an entry with no reason", () => {
   assertThrows(
     () => parseAllowlist("allow:\n  - chart: x\n    path: y\n"),

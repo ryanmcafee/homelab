@@ -257,12 +257,19 @@ export function isAllowed(finding: Finding, allow: AllowEntry[]): boolean {
   );
 }
 
-/** Allowlist entries that matched nothing: upstream declares the key now. */
+/**
+ * Allowlist entries that matched nothing: upstream declares the key now. A
+ * chart in `uninspected` was never compared, so its entries are held back.
+ */
 export function unusedEntries(
   findings: Finding[],
   allow: AllowEntry[],
+  uninspected: ReadonlySet<string> = new Set(),
 ): AllowEntry[] {
-  return allow.filter((e) => !findings.some((f) => isAllowed(f, [e])));
+  return allow.filter(
+    (e) =>
+      !uninspected.has(e.chart) && !findings.some((f) => isAllowed(f, [e])),
+  );
 }
 
 /** Parse the allowlist document. Every field is required. */
@@ -588,7 +595,11 @@ export async function main(argv: string[]): Promise<number> {
 
   const all = findingsFor(sources, declared);
   const reported = all.filter((f) => !isAllowed(f, allow));
-  const unused = unusedEntries(all, allow);
+  const failedKeys = new Set(errors.map((e) => e.key));
+  const uninspected = new Set(
+    sources.filter((s) => failedKeys.has(cacheKey(s))).map((s) => s.chart),
+  );
+  const unused = unusedEntries(all, allow, uninspected);
 
   if (opts.json) {
     console.log(
