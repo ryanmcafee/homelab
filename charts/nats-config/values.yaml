@@ -42,6 +42,11 @@ fileStoreSize: 20Gi
 # summing above the store are individually bounded and collectively unbounded,
 # and the headroom covers the index and metadata JetStream accounts for alongside
 # message bytes (ADR-042 `max_bytes_sum_rule`).
+#
+# 0.75 is also the ceiling on this value itself, not just its default: the
+# contract makes 75% the most of the store the four limits may claim, so a
+# fraction above it would not enlarge the budget, only stop the sum rule from
+# being applied. The chart refuses to render above it.
 maxBytesBudgetFraction: 0.75
 
 streams:

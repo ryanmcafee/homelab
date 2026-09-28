@@ -20,6 +20,15 @@ A fractional quantity is refused rather than truncated.
 {{- end -}}
 
 {{/*
+The ceiling on `maxBytesBudgetFraction`, restating the contract's
+`max_bytes_sum_rule`: 75% of the file store is the ceiling, not the target, and
+the chart is named there as what refuses to render above it. The fraction is
+therefore part of the guard rather than a way out of it: raising it past this
+allocates no store, it only stops the sum rule from being applied. (ADR-042)
+*/}}
+{{- define "nats-config.maxBytesBudgetCeiling" -}}0.75{{- end -}}
+
+{{/*
 Refuse to render a stream set that is unbounded, individually or collectively.
 
 `maxBytes` must be set on every stream: JetStream applies `discard` only at
@@ -39,7 +48,22 @@ message bytes. (ADR-042)
 {{- fail "nats-config: fileStoreSize is unset; the stream budget cannot be checked against a file store of unknown size (ADR-042)" -}}
 {{- end -}}
 {{- $store := include "nats-config.quantityBytes" .Values.fileStoreSize | int64 -}}
-{{- $fraction := .Values.maxBytesBudgetFraction | float64 -}}
+{{- $ceilingText := include "nats-config.maxBytesBudgetCeiling" . -}}
+{{- $ceiling := $ceilingText | float64 -}}
+{{- if kindIs "invalid" .Values.maxBytesBudgetFraction -}}
+{{- fail (printf "nats-config: maxBytesBudgetFraction is unset; the stream budget has no fraction of the file store to check against (expected a positive decimal at or below %s, the ADR-042 ceiling)" $ceilingText) -}}
+{{- end -}}
+{{- $fractionText := printf "%v" .Values.maxBytesBudgetFraction -}}
+{{- if not (regexMatch "^([0-9]+(\\.[0-9]+)?|\\.[0-9]+)$" $fractionText) -}}
+{{- fail (printf "nats-config: maxBytesBudgetFraction %q is not a finite positive decimal (expected e.g. %s, the ADR-042 ceiling); a negative, non-numeric, NaN or Inf fraction makes the budget unmeaningful rather than large" $fractionText $ceilingText) -}}
+{{- end -}}
+{{- $fraction := $fractionText | float64 -}}
+{{- if le $fraction (float64 0) -}}
+{{- fail (printf "nats-config: maxBytesBudgetFraction %s budgets no bytes at all; it must be greater than 0 and at or below %s (ADR-042)" $fractionText $ceilingText) -}}
+{{- end -}}
+{{- if gt $fraction $ceiling -}}
+{{- fail (printf "nats-config: maxBytesBudgetFraction %s exceeds the ADR-042 ceiling of %s; %s of the JetStream file store is the ceiling, not the target, and raising the fraction creates no store; lower a stream's maxBytes or grow nats.jetstream.storage.size (ADR-042 max_bytes_sum_rule)" $fractionText $ceilingText $ceilingText) -}}
+{{- end -}}
 {{- $budget := mulf (float64 $store) $fraction -}}
 {{- $total := int64 0 -}}
 {{- range $stream := .Values.streams -}}
