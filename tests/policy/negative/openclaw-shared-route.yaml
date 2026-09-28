@@ -1,0 +1,59 @@
+# expect: openclaw-shared-route
+# The Instance as PR #434 first rendered it. The route is well-formed and the
+# gateway token is still required, so nothing else flags it; the defect is the
+# parent. envoy-internal answers every LAN client, not only the tailnet.
+apiVersion: openclaw.rocks/v1alpha1
+kind: OpenClawInstance
+metadata:
+  name: openclaw
+  namespace: openclaw
+spec:
+  networking:
+    service:
+      type: ClusterIP
+    httpRoute:
+      enabled: true
+      annotations:
+        external-dns.alpha.kubernetes.io/hostname: openclaw.example.com
+      parentRefs:
+        - name: envoy-internal
+          namespace: envoy-gateway-system
+          sectionName: https
+      hostnames:
+        - openclaw.example.com
+---
+# expect: openclaw-shared-route
+# The same defect one level up: charts/openclaw reached through the instance
+# Application's inline values, which is where re-enabling it would be typed.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: openclaw
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "13"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/ryanmcafee/homelab.git
+    targetRevision: HEAD
+    path: charts/openclaw
+    helm:
+      valuesObject:
+        route:
+          enabled: true
+          gateway:
+            name: envoy-internal
+            namespace: envoy-gateway-system
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: openclaw
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

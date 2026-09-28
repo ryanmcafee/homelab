@@ -1316,16 +1316,22 @@ openclaw:
       apiKeysItemPath: {{ .Values.OPENCLAW_API_KEYS_1P_PATH.Value }}
       gatewayItemPath: {{ .Values.OPENCLAW_GATEWAY_1P_PATH.Value }}
 
-  # charts/openclaw: the openclaw.rocks OpenClawInstance behind the internal
-  # Gateway (LAN/tailnet only; no route on the external Gateway).
+  # charts/openclaw: the openclaw.rocks OpenClawInstance, reachable in-cluster
+  # only. The internal Gateway serves the whole LAN, not just the tailnet, so no
+  # route is attached and no gateway is named -- a named Gateway here would keep
+  # openclaw in the docs/networking.md route inventory it no longer belongs to.
+  # A tailnet-only endpoint is the tracked way back to remote access:
+  #   route:
+  #     enabled: true
+  #     gateway:
+  #       name: {{ .Values.GATEWAY_INTERNAL.Value }}
+  #       namespace: {{ .Values.GATEWAY_NAMESPACE.Value }}
   instance:
+    route:
+      enabled: false
     image:
       repository: ghcr.io/openclaw/openclaw
       tag: "{{ index .Versions.Images "openclaw" }}"
-    route:
-      gateway:
-        name: {{ .Values.GATEWAY_INTERNAL.Value }}
-        namespace: {{ .Values.GATEWAY_NAMESPACE.Value }}
     persistence:
 {{- if $localdev }}
       size: 1Gi
