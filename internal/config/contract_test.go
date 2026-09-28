@@ -59,12 +59,13 @@ type templateRef struct {
 
 var (
 	valuesRefRe = regexp.MustCompile(`\.Values\.([A-Z0-9_]+)\.Value`)
-	// controlPlaneRefRe finds a template's use of the resolver's derived
-	// control-plane list. Unlike `range .Values`, this is a NAMED field whose
-	// membership is defined by the schema's control-plane key pattern, so
-	// counting it as a reference is principled where the generic range is not:
-	// it can only excuse the keys that pattern matches, never an arbitrary one.
+	// controlPlaneRefRe and workersRefRe find a template's use of the resolver's
+	// derived address lists. Unlike `range .Values`, these are NAMED fields
+	// whose membership is defined by a schema key pattern, so counting one as a
+	// reference is principled where the generic range is not: it can only excuse
+	// the keys its own pattern matches, never an arbitrary one.
 	controlPlaneRefRe = regexp.MustCompile(`\.ControlPlane\b`)
+	workersRefRe      = regexp.MustCompile(`\.Workers\b`)
 	// gitOpsRefRe finds a template's use of the resolver's derived GitOps
 	// remote. Same principle as .ControlPlane: a named field with one source
 	// key, so counting it as a reference can only ever excuse GITOPS_REPO_URL.
@@ -185,8 +186,20 @@ func TestDeclaredKeysAreReferenced(t *testing.T) {
 		t.Fatalf("loading schemas: %v", err)
 	}
 
+	// Each derived address list is a named template field, checked by the same
+	// rule: the field's regexp, the schema role whose pattern defines its
+	// membership, and the field name to report.
+	families := []struct {
+		field      string
+		role       string
+		refRe      *regexp.Regexp
+		referenced bool
+	}{
+		{field: ".ControlPlane", role: RoleControlPlaneAddress, refRe: controlPlaneRefRe},
+		{field: ".Workers", role: RoleWorkerAddress, refRe: workersRefRe},
+	}
+
 	referenced := make(map[string]bool)
-	controlPlaneReferenced := false
 	gitOpsReferenced := false
 	for _, path := range listTemplateFiles(t, configRoot) {
 		for _, ref := range extractTemplateRefs(t, path) {
@@ -198,8 +211,10 @@ func TestDeclaredKeysAreReferenced(t *testing.T) {
 		if err != nil {
 			t.Fatalf("reading template %s: %v", path, err)
 		}
-		if controlPlaneRefRe.Match(src) {
-			controlPlaneReferenced = true
+		for i := range families {
+			if families[i].refRe.Match(src) {
+				families[i].referenced = true
+			}
 		}
 		if gitOpsRefRe.Match(src) {
 			gitOpsReferenced = true
@@ -219,25 +234,30 @@ func TestDeclaredKeysAreReferenced(t *testing.T) {
 	}
 
 	// A template that ranges .ControlPlane references every key the
-	// control-plane pattern matches, CP1_IP included. Those keys do NOT go on
-	// the consumedOutsideTemplates allowlist: an allowlist entry is a place a
-	// key can hide, whereas this is a named field whose membership the schema
-	// pattern defines, so it can only ever excuse control-plane addresses.
-	cpPattern, hasCPPattern := schema.controlPlanePattern()
-	if hasCPPattern && controlPlaneReferenced {
-		for key := range schema.Keys {
-			if cpPattern.re.MatchString(key) {
-				referenced[key] = true
-			}
-		}
-	}
-
+	// control-plane pattern matches, CP1_IP included; likewise .Workers and
+	// WORKER1_IP. Those keys do NOT go on the consumedOutsideTemplates
+	// allowlist: an allowlist entry is a place a key can hide, whereas this is a
+	// named field whose membership the schema pattern defines, so it can only
+	// ever excuse addresses of that one role.
+	//
 	// A declared pattern with no consumer is the same dead-declaration problem
 	// this test exists for, one level up: schema.Keys is not where it would
 	// show, so check it explicitly.
-	if hasCPPattern && !controlPlaneReferenced {
-		t.Errorf("schema declares control-plane key pattern %q but no template references .ControlPlane — "+
-			"the derived list has no consumer", cpPattern.pattern)
+	for _, fam := range families {
+		pattern, declared := schema.patternForRole(fam.role)
+		if !declared {
+			continue
+		}
+		if !fam.referenced {
+			t.Errorf("schema declares key pattern %q with role %q but no template references %s — "+
+				"the derived list has no consumer", pattern.pattern, fam.role, fam.field)
+			continue
+		}
+		for key := range schema.Keys {
+			if pattern.re.MatchString(key) {
+				referenced[key] = true
+			}
+		}
 	}
 
 	// Every allowlisted key must actually exist in the schema — otherwise the
@@ -455,28 +475,52 @@ func TestSyntheticTopologiesRenderEveryTemplate(t *testing.T) {
 
 	templates := listTemplateFiles(t, configRoot)
 
-	for _, count := range []int{1, 3, 5, 7} {
-		t.Run(fmt.Sprintf("count-%d", count), func(t *testing.T) {
-			env := make(map[string]string, len(base)+count)
+	// The control-plane counts are the contract's permittedCounts. The worker
+	// counts are free — nothing constrains them to be odd, because a worker
+	// holds no etcd member — so they are varied independently of the control
+	// plane. A matrix that moved both together would pass just as happily on a
+	// renderer that had hard-coded "workers = control planes".
+	cases := []struct{ cps, workers int }{
+		{1, 1}, {1, 2}, {3, 3}, {3, 6}, {5, 1}, {7, 4},
+	}
+
+	for _, tc := range cases {
+		t.Run(fmt.Sprintf("cp-%d-worker-%d", tc.cps, tc.workers), func(t *testing.T) {
+			env := make(map[string]string, len(base)+tc.cps+tc.workers)
 			for k, v := range base {
 				env[k] = v
 			}
-			for i := 1; i <= count; i++ {
-				// RFC 5737 TEST-NET-1, matching the base fixture.
+			// RFC 5737 TEST-NET-1, matching the base fixture. The two families
+			// sit in disjoint host ranges so a renderer that crossed them shows
+			// up as a wrong address rather than a coincidence.
+			for i := 1; i <= tc.cps; i++ {
 				env[fmt.Sprintf("CP%d_IP", i)] = fmt.Sprintf("192.0.2.%d", 10+i)
+			}
+			for i := 1; i <= tc.workers; i++ {
+				env[fmt.Sprintf("WORKER%d_IP", i)] = fmt.Sprintf("192.0.2.%d", 30+i)
 			}
 
 			rc, err := Eval(schema, versions, "synthetic", defaults, env)
 			if err != nil {
-				t.Fatalf("eval for %d control planes: %v", count, err)
+				t.Fatalf("eval for %d control planes and %d workers: %v", tc.cps, tc.workers, err)
 			}
 
-			if got := len(rc.ControlPlane); got != count {
-				t.Fatalf("derived %d control-plane members, want %d", got, count)
-			}
-			for i, m := range rc.ControlPlane {
-				if m.Ordinal != i+1 {
-					t.Errorf("member %d has ordinal %d, want %d — the list must be ascending by ordinal", i, m.Ordinal, i+1)
+			for _, fam := range []struct {
+				label   string
+				members []NodeMember
+				want    int
+			}{
+				{"control-plane", rc.ControlPlane, tc.cps},
+				{"worker", rc.Workers, tc.workers},
+			} {
+				if got := len(fam.members); got != fam.want {
+					t.Fatalf("derived %d %s members, want %d", got, fam.label, fam.want)
+				}
+				for i, m := range fam.members {
+					if m.Ordinal != i+1 {
+						t.Errorf("%s member %d has ordinal %d, want %d — the list must be ascending by ordinal",
+							fam.label, i, m.Ordinal, i+1)
+					}
 				}
 			}
 
@@ -484,29 +528,92 @@ func TestSyntheticTopologiesRenderEveryTemplate(t *testing.T) {
 				tmplName := filepath.Base(tmplPath)
 				output, err := Export(rc, tmplPath)
 				if err != nil {
-					t.Fatalf("export %s at %d control planes: %v", tmplName, count, err)
+					t.Fatalf("export %s at %d/%d: %v", tmplName, tc.cps, tc.workers, err)
 				}
 				if strings.Contains(output, "<no value>") {
-					t.Errorf("export %s at %d control planes left a %q artifact", tmplName, count, "<no value>")
+					t.Errorf("export %s at %d/%d left a %q artifact", tmplName, tc.cps, tc.workers, "<no value>")
 				}
 			}
 
-			// The rendered inventory must name exactly the members the
-			// ConfigSet declared — a topology that renders cleanly but omits a
-			// node is the silent version of this bug.
+			// The rendered inventory must name exactly the nodes the ConfigSet
+			// declared — a topology that renders cleanly but omits a node is the
+			// silent version of this bug, and naming one it never declared is
+			// the loud one.
 			inventory, err := Export(rc, filepath.Join(configRoot, "templates", "ansible-inventory.tmpl"))
 			if err != nil {
 				t.Fatalf("export ansible-inventory.tmpl: %v", err)
 			}
-			for i := 1; i <= count; i++ {
-				if !strings.Contains(inventory, fmt.Sprintf("cp-%d:", i)) {
-					t.Errorf("ansible inventory at %d control planes is missing host cp-%d", count, i)
+			for _, fam := range []struct {
+				host  string
+				count int
+			}{
+				{"cp", tc.cps},
+				{"worker", tc.workers},
+			} {
+				for i := 1; i <= fam.count; i++ {
+					if !strings.Contains(inventory, fmt.Sprintf("%s-%d:", fam.host, i)) {
+						t.Errorf("ansible inventory at %d/%d is missing host %s-%d", tc.cps, tc.workers, fam.host, i)
+					}
+				}
+				if strings.Contains(inventory, fmt.Sprintf("%s-%d:", fam.host, fam.count+1)) {
+					t.Errorf("ansible inventory at %d/%d names %s-%d, which the ConfigSet does not declare",
+						tc.cps, tc.workers, fam.host, fam.count+1)
 				}
 			}
-			if strings.Contains(inventory, fmt.Sprintf("cp-%d:", count+1)) {
-				t.Errorf("ansible inventory at %d control planes names cp-%d, which the ConfigSet does not declare", count, count+1)
-			}
 		})
+	}
+}
+
+// TestTerragruntNodeMapsDeriveFromKeyPatterns pins the key-name patterns
+// terragrunt/environments/homelab/env.hcl uses to build control_plane_nodes and
+// worker_nodes to the schema's own keyPatterns entries.
+//
+// Terragrunt cannot read ResolvedConfig.ControlPlane: env.hcl jsondecode()s the
+// flat `values` map out of configuration/resolved.json, so it is the one
+// consumer that must re-apply the key-name rule rather than read the derived
+// list. That makes it the one place the rule can drift silently — a schema
+// pattern that gained an ordinal form env.hcl does not match would provision a
+// cluster missing a node, and terraform would report success. Nothing else in
+// the repository compares the two strings.
+func TestTerragruntNodeMapsDeriveFromKeyPatterns(t *testing.T) {
+	projectRoot := findProjectRootForTest(t)
+
+	schema, err := LoadSchemaDir(filepath.Join(projectRoot, "configuration", "schema"))
+	if err != nil {
+		t.Fatalf("loading schemas: %v", err)
+	}
+
+	envHCLPath := filepath.Join(projectRoot, "terragrunt", "environments", "homelab", "env.hcl")
+	src, err := os.ReadFile(envHCLPath)
+	if err != nil {
+		t.Fatalf("reading %s: %v", envHCLPath, err)
+	}
+
+	for _, fam := range []struct{ local, role string }{
+		{"cp_key_pattern", RoleControlPlaneAddress},
+		{"worker_key_pattern", RoleWorkerAddress},
+	} {
+		pattern, ok := schema.patternForRole(fam.role)
+		if !ok {
+			t.Errorf("schema declares no key pattern with role %q", fam.role)
+			continue
+		}
+		// Matched by regexp rather than by literal substring so `terraform fmt`
+		// realigning the `=` cannot turn a real drift guard into a passing one.
+		assign := regexp.MustCompile(`(?m)^\s*` + regexp.QuoteMeta(fam.local) + `\s*=\s*"(.*)"\s*$`)
+		m := assign.FindSubmatch(src)
+		if m == nil {
+			t.Errorf("env.hcl declares no local %q; the %q node map must state the key pattern it derives from",
+				fam.local, fam.role)
+			continue
+		}
+		// The HCL literal escapes nothing the schema does not, so a byte
+		// comparison of the quoted string is the whole check.
+		if got := string(m[1]); got != pattern.pattern {
+			t.Errorf("env.hcl local %s is %q but the schema's %q pattern is %q — "+
+				"terragrunt would derive a different node set than the resolver",
+				fam.local, got, fam.role, pattern.pattern)
+		}
 	}
 }
 

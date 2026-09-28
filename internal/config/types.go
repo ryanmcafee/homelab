@@ -22,6 +22,17 @@ type SchemaKey struct {
 // pattern in the merged schema may carry this role.
 const RoleControlPlaneAddress = "control-plane-address"
 
+// RoleWorkerAddress marks the key-name pattern whose matching keys are the
+// cluster's worker addresses. The resolver derives ResolvedConfig.Workers from
+// it, by the same ordinal rule and with the same indeterminate-is-unsafe
+// failure semantics as the control plane.
+//
+// No contract file states this pattern, and that asymmetry is deliberate: a
+// worker holds no etcd member and gates no destructive operation, so
+// contracts/cluster/topology.v1.yaml has nothing to say about it. The minimum
+// member count is stated by the literal WORKER1_IP key, not by this role.
+const RoleWorkerAddress = "worker-address"
+
 // SchemaKeyPattern declares a FAMILY of configuration keys by key-name regex
 // rather than by literal name. The map key is the anchored regex.
 //
@@ -37,8 +48,8 @@ const RoleControlPlaneAddress = "control-plane-address"
 type SchemaKeyPattern struct {
 	SchemaKey `yaml:",inline"`
 
-	// Role, when set, tells the resolver what the matching keys mean. The only
-	// recognized value is RoleControlPlaneAddress.
+	// Role, when set, tells the resolver what the matching keys mean. The
+	// recognized values are RoleControlPlaneAddress and RoleWorkerAddress.
 	Role string `yaml:"role,omitempty"`
 }
 
@@ -71,14 +82,15 @@ type compiledKeyPattern struct {
 	key     SchemaKeyPattern
 }
 
-// ControlPlaneMember is one control-plane address, derived by the resolver from
-// the RoleControlPlaneAddress key pattern.
-type ControlPlaneMember struct {
+// NodeMember is one node address, derived by the resolver from an address key
+// pattern — RoleControlPlaneAddress for ResolvedConfig.ControlPlane,
+// RoleWorkerAddress for ResolvedConfig.Workers.
+type NodeMember struct {
 	// Ordinal is the pattern's first capture group parsed as an integer: the 1
 	// in CP1_IP. Exposed so a template can name cp-N without re-deriving the
 	// key-name rule, which would restate the pattern once per consumer.
 	Ordinal int
-	// Key is the config key this member came from, e.g. "CP1_IP".
+	// Key is the config key this member came from, e.g. "CP1_IP" or "WORKER1_IP".
 	Key string
 	// Address is the resolved value.
 	Address string
@@ -129,7 +141,17 @@ type ResolvedConfig struct {
 	// Nil when the schema declares no control-plane address pattern (small
 	// fixture schemas in tests). len() is the member count ADR-035 derives;
 	// ordinals need not be contiguous, so CP1/CP2/CP5 is three members.
-	ControlPlane []ControlPlaneMember
+	ControlPlane []NodeMember
+
+	// Workers is the derived worker address list, ascending by ordinal, from
+	// the RoleWorkerAddress key pattern. Same derivation, same
+	// indeterminate-is-unsafe semantics, one difference: an empty list is not
+	// an error here. A cluster must have an etcd member; it need not have a
+	// worker, and WORKER1_IP's own `required: true` is what states this
+	// cluster's minimum rather than a rule buried in the resolver.
+	//
+	// Nil when the schema declares no worker address pattern.
+	Workers []NodeMember
 
 	// GitOps is GITOPS_REPO_URL parsed once, here. Templates read this instead
 	// of naming an owner, which is how a fork's ArgoCD reconciles the fork's

@@ -90,10 +90,10 @@ func validateKeyPattern(pattern string, kp SchemaKeyPattern) error {
 
 	switch kp.Role {
 	case "":
-	case RoleControlPlaneAddress:
+	case RoleControlPlaneAddress, RoleWorkerAddress:
 		if re.NumSubexp() != 1 {
 			return fmt.Errorf("%w: %q has role %q and needs exactly one capture group for the member ordinal, found %d",
-				ErrInvalidKeyPattern, pattern, RoleControlPlaneAddress, re.NumSubexp())
+				ErrInvalidKeyPattern, pattern, kp.Role, re.NumSubexp())
 		}
 	default:
 		return fmt.Errorf("%w: %q declares unknown role %q", ErrInvalidKeyPattern, pattern, kp.Role)
@@ -188,7 +188,7 @@ func (s *Schema) compileKeyPatterns() error {
 	sort.Strings(patterns)
 
 	compiled := make([]compiledKeyPattern, 0, len(patterns))
-	controlPlane := ""
+	firstWithRole := make(map[string]string, 2)
 	for _, pattern := range patterns {
 		kp := s.KeyPatterns[pattern]
 		if err := validateKeyPattern(pattern, kp); err != nil {
@@ -198,15 +198,14 @@ func (s *Schema) compileKeyPatterns() error {
 		if err != nil {
 			return fmt.Errorf("%w: %q is not a valid regexp: %v", ErrInvalidKeyPattern, pattern, err)
 		}
-		if kp.Role == RoleControlPlaneAddress {
-			if controlPlane != "" {
-				// Two control-plane families means two answers to "how many
-				// members are there", which is the second source of truth
-				// ADR-035 removed.
-				return fmt.Errorf("%w: %q and %q both declare role %q; there can be only one control-plane address family",
-					ErrInvalidKeyPattern, controlPlane, pattern, RoleControlPlaneAddress)
+		if kp.Role != "" {
+			// Two families for one role means two answers to "how many nodes
+			// are there", which is the second source of truth ADR-035 removed.
+			if first, dup := firstWithRole[kp.Role]; dup {
+				return fmt.Errorf("%w: %q and %q both declare role %q; there can be only one address family per role",
+					ErrInvalidKeyPattern, first, pattern, kp.Role)
 			}
-			controlPlane = pattern
+			firstWithRole[kp.Role] = pattern
 		}
 		compiled = append(compiled, compiledKeyPattern{pattern: pattern, re: re, key: kp})
 	}
@@ -240,12 +239,19 @@ func (s *Schema) matchKeyPattern(name string) (SchemaKeyPattern, bool, error) {
 	return match, matched != "", nil
 }
 
-// controlPlanePattern returns the compiled RoleControlPlaneAddress pattern.
-func (s *Schema) controlPlanePattern() (compiledKeyPattern, bool) {
+// patternForRole returns the compiled pattern carrying the given role.
+// compileKeyPatterns has already rejected a second family for the same role, so
+// the first match is the only match.
+func (s *Schema) patternForRole(role string) (compiledKeyPattern, bool) {
 	for _, cp := range s.compiledKeyPatterns {
-		if cp.key.Role == RoleControlPlaneAddress {
+		if cp.key.Role == role {
 			return cp, true
 		}
 	}
 	return compiledKeyPattern{}, false
+}
+
+// controlPlanePattern returns the compiled RoleControlPlaneAddress pattern.
+func (s *Schema) controlPlanePattern() (compiledKeyPattern, bool) {
+	return s.patternForRole(RoleControlPlaneAddress)
 }

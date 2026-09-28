@@ -224,24 +224,54 @@ stated no count, and all three were individually required — so a fork running 
 control-plane nodes could not express its topology even with every value correctly externalised.
 The shape was fixed at three whatever the values were.
 
-ADR-035's rule now holds: the count derives from the `^CP([0-9]+)_IP$` key set, so listing your
-control plane *is* the act that states your topology. In the schema that set is a `keyPatterns`
-entry carrying `role: control-plane-address`; `CP1_IP` stays required on its own and higher
-ordinals are optional. The resolver derives the list once into `ResolvedConfig.ControlPlane`, and
-templates range over that field instead of naming ordinals.
+MCAA-118 fixed the control-plane half and left the worker half in exactly the same state:
+`WORKER1_IP`, `WORKER2_IP` and `WORKER3_IP` were three individually required scalars, so the
+one-control-plane fork that had just been freed of `CP2_IP` still failed `homelab config validate`
+on `WORKER2_IP`. MCAA-68 closed that, and closed the layer below it — `env.hcl` enumerated `cp-1`,
+`cp-2`, `cp-3`, `worker-1`, `worker-2`, `worker-3` as literal map entries, so a fork that stated a
+different shape in its ConfigSet still had to edit terragrunt to provision it.
 
-Two things keep this from sliding back into a shape nothing can see:
+ADR-035's rule now holds for both families: the count derives from the `^CP([0-9]+)_IP$` and
+`^WORKER([0-9]+)_IP$` key sets, so listing your nodes *is* the act that states your topology. In the
+schema each set is a `keyPatterns` entry carrying `role: control-plane-address` or
+`role: worker-address`; `CP1_IP` and `WORKER1_IP` stay required on their own and higher ordinals are
+optional. The resolver derives each list once into `ResolvedConfig.ControlPlane` and
+`ResolvedConfig.Workers`, and templates range over those fields instead of naming ordinals.
 
-- `configuration/environments/single-node.yaml.example` is a committed one-control-plane ConfigSet,
-  rendered through every template by `TestExampleRendersEveryTemplate`. Before it existed every
-  environment file in the repository declared three control-plane addresses, so nothing in CI had
-  ever rendered a topology that was not this cluster's. It uses RFC 5737 TEST-NET-1
-  (`192.0.2.0/24`), distinct from the RFC 1918 range above, per the standing condition stated
-  earlier in this document.
-- `TestSyntheticTopologiesRenderEveryTemplate` covers the remaining permitted counts (3, 5, 7), so
-  the contract's `permittedCounts` ceiling is not a set of topologies nothing has ever rendered.
+The asymmetry between the two is deliberate and is not an oversight:
 
-Check 3b's non-matching topology remains the end-to-end proof; the two above are what make a
+- Only the control plane is stated in a contract file (`contracts/cluster/topology.v1.yaml`). A
+  worker holds no etcd member and gates no destructive operation, so there is nothing for the
+  quorum rule to say about it.
+- An empty worker list is not a resolver error, where an empty control plane is. A cluster must
+  have an etcd member; it need not have a worker. How few workers *this* repository tolerates is
+  stated by `WORKER1_IP`'s own `required: true` — a fact an operator can read in the schema —
+  rather than by a minimum hidden in Go. A genuinely workerless fork additionally needs a
+  schedulable control plane (`allow_scheduling_on_control_planes`), which is not wired to the
+  node count and is why `WORKER1_IP` is still required today.
+
+`terragrunt/environments/homelab/env.hcl` is the one consumer that cannot read the derived lists:
+it `jsondecode()`s the flat `values` map out of `configuration/resolved.json`, so it re-applies the
+key-name patterns itself. That makes it the one place the rule can drift silently, and
+`TestTerragruntNodeMapsDeriveFromKeyPatterns` compares its two pattern strings against the schema's.
+
+Three things keep this from sliding back into a shape nothing can see:
+
+- `configuration/environments/single-node.yaml.example` is a committed one-control-plane,
+  one-worker ConfigSet, rendered through every template by `TestExampleRendersEveryTemplate`.
+  Before it existed every environment file in the repository declared three control-plane
+  addresses, so nothing in CI had ever rendered a topology that was not this cluster's. It uses
+  RFC 5737 TEST-NET-1 (`192.0.2.0/24`), distinct from the RFC 1918 range above, per the standing
+  condition stated earlier in this document.
+- `TestSyntheticTopologiesRenderEveryTemplate` renders the permitted control-plane counts (1, 3, 5,
+  7) against **independently varied** worker counts (1, 2, 3, 4, 6), so the contract's
+  `permittedCounts` ceiling is not a set of topologies nothing has ever rendered — and a renderer
+  that had quietly tied workers to control planes fails rather than passes.
+- `TestTerragruntNodeMapsDeriveFromKeyPatterns` fails if `env.hcl`'s patterns stop matching the
+  schema's. Without it the two could disagree and terraform would report success on a cluster
+  missing a node.
+
+Check 3b's non-matching topology remains the end-to-end proof; the three above are what make a
 regression fail in CI rather than in a stranger's fork.
 
 ## Who owns the check
