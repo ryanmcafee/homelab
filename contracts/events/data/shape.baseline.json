@@ -1,0 +1,1763 @@
+{
+  "version": 1,
+  "documents": {
+    "gitops.application.drifted.v1.schema.json": {
+      "fields": {
+        "": {
+          "kind": "object"
+        },
+        "$schema": {
+          "kind": "string",
+          "value": "\"https://json-schema.org/draft/2020-12/schema\""
+        },
+        "$id": {
+          "kind": "string",
+          "value": "\"https://github.com/ryanmcafee/homelab/contracts/events/data/gitops.application.drifted.v1.schema.json\""
+        },
+        "title": {
+          "kind": "string",
+          "value": "\"gitops.application.drifted v1 data\""
+        },
+        "description": {
+          "kind": "string",
+          "value": "\"An ArgoCD Application's live state diverged from the desired state in Git. Evolved additively within v1: new OPTIONAL fields only. A new required field, a removed field or a retyped field is a v2.\""
+        },
+        "type": {
+          "kind": "string",
+          "value": "\"object\""
+        },
+        "additionalProperties": {
+          "kind": "boolean",
+          "value": "false"
+        },
+        "required": {
+          "kind": "list",
+          "members": [
+            "\"application\"",
+            "\"driftedResourceCount\"",
+            "\"namespace\"",
+            "\"revision\""
+          ]
+        },
+        "properties": {
+          "kind": "object"
+        },
+        "properties.application": {
+          "kind": "object"
+        },
+        "properties.application.type": {
+          "kind": "string",
+          "value": "\"string\""
+        },
+        "properties.application.description": {
+          "kind": "string",
+          "value": "\"Object name.\""
+        },
+        "properties.application.maxLength": {
+          "kind": "number",
+          "value": "253",
+          "bound": "max"
+        },
+        "properties.namespace": {
+          "kind": "object"
+        },
+        "properties.namespace.type": {
+          "kind": "string",
+          "value": "\"string\""
+        },
+        "properties.namespace.description": {
+          "kind": "string",
+          "value": "\"Kubernetes namespace the object lives in.\""
+        },
+        "properties.namespace.maxLength": {
+          "kind": "number",
+          "value": "253",
+          "bound": "max"
+        },
+        "properties.revision": {
+          "kind": "object"
+        },
+        "properties.revision.type": {
+          "kind": "string",
+          "value": "\"string\""
+        },
+        "properties.revision.description": {
+          "kind": "string",
+          "value": "\"Git revision (full SHA) the desired state came from.\""
+        },
+        "properties.revision.pattern": {
+          "kind": "string",
+          "value": "\"^[0-9a-f]{7,40}$\""
+        },
+        "properties.driftedResources": {
+          "kind": "object"
+        },
+        "properties.driftedResources.type": {
+          "kind": "string",
+          "value": "\"array\""
+        },
+        "properties.driftedResources.maxItems": {
+          "kind": "number",
+          "value": "100",
+          "bound": "max"
+        },
+        "properties.driftedResources.description": {
+          "kind": "string",
+          "value": "\"The diverging resources, truncated at 100. `driftedResourceCount` is the true total: an event is a notification, not a transport (subjects.v1.yaml `limits.body_rule`).\""
+        },
+        "properties.driftedResources.items": {
+          "kind": "object"
+        },
+        "properties.driftedResources.items.type": {
+          "kind": "string",
+          "value": "\"object\""
+        },
+        "properties.driftedResources.items.additionalProperties": {
+          "kind": "boolean",
+          "value": "false"
+        },
+        "properties.driftedResources.items.required": {
+          "kind": "list",
+          "members": [
+            "\"kind\"",
+            "\"name\""
+          ]
+        },
+        "properties.driftedResources.items.properties": {
+          "kind": "object"
+        },
+        "properties.driftedResources.items.properties.group": {
+          "kind": "object"
+        },
+        "properties.driftedResources.items.properties.group.type": {
+          "kind": "string",
+          "value": "\"string\""
+        },
+        "properties.driftedResources.items.properties.group.description": {
+          "kind": "string",
+          "value": "\"API group, empty for core.\""
+        },
+        "properties.driftedResources.items.properties.group.maxLength": {
+          "kind": "number",
+          "value": "253",
+          "bound": "max"
+        },
+        "properties.driftedResources.items.properties.kind": {
+          "kind": "object"
+        },
+        "properties.driftedResources.items.properties.kind.type": {
+          "kind": "string",
+          "value": "\"string\""
+        },
+        "properties.driftedResources.items.properties.kind.description": {
+          "kind": "string",
+          "value": "\"Resource kind.\""
+        },
+        "properties.driftedResources.items.properties.kind.maxLength": {
+          "kind": "number",
+          "value": "253",
+          "bound": "max"
+        },
+        "properties.driftedResources.items.properties.namespace": {
+          "kind": "object"
+        },
+        "properties.driftedResources.items.properties.namespace.type": {
+          "kind": "string",
+          "value": "\"string\""
+        },
+        "properties.driftedResources.items.properties.namespace.description": {
+          "kind": "string",
+          "value": "\"Kubernetes namespace the object lives in.\""
+        },
+        "properties.driftedResources.items.properties.namespace.maxLength": {
+          "kind": "number",
+          "value": "253",
+          "bound": "max"
+        },
+        "properties.driftedResources.items.properties.name": {
+          "kind": "object"
+        },
+        "properties.driftedResources.items.properties.name.type": {
+          "kind": "string",
+          "value": "\"string\""
+        },
+        "properties.driftedResources.items.properties.name.description": {
+          "kind": "string",
+          "value": "\"Object name.\""
+        },
+        "properties.driftedResources.items.properties.name.maxLength": {
+          "kind": "number",
+          "value": "253",
+          "bound": "max"
+        },
+        "properties.driftedResourceCount": {
+          "kind": "object"
+        },
+        "properties.driftedResourceCount.type": {
+          "kind": "string",
+          "value": "\"integer\""
+        },
+        "properties.driftedResourceCount.minimum": {
+          "kind": "number",
+          "value": "1",
+          "bound": "min"
+        },
+        "properties.driftedResourceCount.description": {
+          "kind": "string",
+          "value": "\"Total diverging resources, which may exceed `driftedResources` length.\""
+        }
+      }
+    },
+    "gitops.application.synced.v1.schema.json": {
+      "fields": {
+        "": {
+          "kind": "object"
+        },
+        "$schema": {
+          "kind": "string",
+          "value": "\"https://json-schema.org/draft/2020-12/schema\""
+        },
+        "$id": {
+          "kind": "string",
+          "value": "\"https://github.com/ryanmcafee/homelab/contracts/events/data/gitops.application.synced.v1.schema.json\""
+        },
+        "title": {
+          "kind": "string",
+          "value": "\"gitops.application.synced v1 data\""
+        },
+        "description": {
+          "kind": "string",
+          "value": "\"An ArgoCD Application reached Synced at a revision. Evolved additively within v1: new OPTIONAL fields only. A new required field, a removed field or a retyped field is a v2.\""
+        },
+        "type": {
+          "kind": "string",
+          "value": "\"object\""
+        },
+        "additionalProperties": {
+          "kind": "boolean",
+          "value": "false"
+        },
+        "required": {
+          "kind": "list",
+          "members": [
+            "\"application\"",
+            "\"health\"",
+            "\"namespace\"",
+            "\"revision\""
+          ]
+        },
+        "properties": {
+          "kind": "object"
+        },
+        "properties.application": {
+          "kind": "object"
+        },
+        "properties.application.type": {
+          "kind": "string",
+          "value": "\"string\""
+        },
+        "properties.application.description": {
+          "kind": "string",
+          "value": "\"Object name.\""
+        },
+        "properties.application.maxLength": {
+          "kind": "number",
+          "value": "253",
+          "bound": "max"
+        },
+        "properties.namespace": {
+          "kind": "object"
+        },
+        "properties.namespace.type": {
+          "kind": "string",
+          "value": "\"string\""
+        },
+        "properties.namespace.description": {
+          "kind": "string",
+          "value": "\"Kubernetes namespace the object lives in.\""
+        },
+        "properties.namespace.maxLength": {
+          "kind": "number",
+          "value": "253",
+          "bound": "max"
+        },
+        "properties.revision": {
+          "kind": "object"
+        },
+        "properties.revision.type": {
+          "kind": "string",
+          "value": "\"string\""
+        },
+        "properties.revision.description": {
+          "kind": "string",
+          "value": "\"Git revision (full SHA) the desired state came from.\""
+        },
+        "properties.revision.pattern": {
+          "kind": "string",
+          "value": "\"^[0-9a-f]{7,40}$\""
+        },
+        "properties.destinationNamespace": {
+          "kind": "object"
+        },
+        "properties.destinationNamespace.type": {
+          "kind": "string",
+          "value": "\"string\""
+        },
+        "properties.destinationNamespace.description": {
+          "kind": "string",
+          "value": "\"Namespace the Application deploys into.\""
+        },
+        "properties.destinationNamespace.maxLength": {
+          "kind": "number",
+          "value": "253",
+          "bound": "max"
+        },
+        "properties.health": {
+          "kind": "object"
+        },
+        "properties.health.type": {
+          "kind": "string",
+          "value": "\"string\""
+        },
+        "properties.health.enum": {
+          "kind": "list",
+          "members": [
+            "\"Degraded\"",
+            "\"Healthy\"",
+            "\"Missing\"",
+            "\"Progressing\"",
+            "\"Suspended\"",
+            "\"Unknown\""
+          ]
+        },
+        "properties.health.description": {
+          "kind": "string",
+          "value": "\"ArgoCD health status at the moment of sync. Sync and health are separate facts and a consumer that conflates them will act on a synced-but-degraded app.\""
+        },
+        "properties.syncedAt": {
+          "kind": "object"
+        },
+        "properties.syncedAt.type": {
+          "kind": "string",
+          "value": "\"string\""
+        },
+        "properties.syncedAt.description": {
+          "kind": "string",
+          "value": "\"RFC3339 time ArgoCD recorded the sync. Distinct from the envelope `time`, which is when the bridge published.\""
+        },
+        "properties.syncedAt.format": {
+          "kind": "string",
+          "value": "\"date-time\""
+        }
+      }
+    },
+    "identity.principal.issued.v1.schema.json": {
+      "fields": {
+        "": {
+          "kind": "object"
+        },
+        "$schema": {
+          "kind": "string",
+          "value": "\"https://json-schema.org/draft/2020-12/schema\""
+        },
+        "$id": {
+          "kind": "string",
+          "value": "\"https://github.com/ryanmcafee/homelab/contracts/events/data/identity.principal.issued.v1.schema.json\""
+        },
+        "title": {
+          "kind": "string",
+          "value": "\"identity.principal.issued v1 data\""
+        },
+        "description": {
+          "kind": "string",
+          "value": "\"A principal was issued credentials. AUDIT RECORD: this type is sourced into PF_AUDIT and kept 365 days. It carries the FACT of issuance and never the credential itself. Evolved additively within v1: new OPTIONAL fields only. A new required field, a removed field or a retyped field is a v2.\""
+        },
+        "type": {
+          "kind": "string",
+          "value": "\"object\""
+        },
+        "additionalProperties": {
+          "kind": "boolean",
+          "value": "false"
+        },
+        "required": {
+          "kind": "list",
+          "members": [
+            "\"issuer\"",
+            "\"principalId\"",
+            "\"principalType\""
+          ]
+        },
+        "properties": {
+          "kind": "object"
+        },
+        "properties.principalId": {
+          "kind": "object"
+        },
+        "properties.principalId.type": {
+          "kind": "string",
+          "value": "\"string\""
+        },
+        "properties.principalId.description": {
+          "kind": "string",
+          "value": "\"Stable opaque identifier for the principal. Not an email address and not a name.\""
+        },
+        "properties.principalId.maxLength": {
+          "kind": "number",
+          "value": "128",
+          "bound": "max"
+        },
+        "properties.principalType": {
+          "kind": "object"
+        },
+        "properties.principalType.type": {
+          "kind": "string",
+          "value": "\"string\""
+        },
+        "properties.principalType.enum": {
+          "kind": "list",
+          "members": [
+            "\"ai-agent\"",
+            "\"human\"",
+            "\"service\""
+          ]
+        },
+        "properties.principalType.description": {
+          "kind": "string",
+          "value": "\"Kind of principal. `ai-agent` is a first-class type, not a service account with a convention.\""
+        },
+        "properties.issuer": {
+          "kind": "object"
+        },
+        "properties.issuer.type": {
+          "kind": "string",
+          "value": "\"string\""
+        },
+        "properties.issuer.description": {
+          "kind": "string",
+          "value": "\"Identity center that issued it, as an operator-supplied issuer URI. Never a hard-coded provider.\""
+        },
+        "properties.issuer.maxLength": {
+          "kind": "number",
+          "value": "512",
+          "bound": "max"
+        },
+        "properties.credentialRef": {
+          "kind": "object"
+        },
+        "properties.credentialRef.type": {
+          "kind": "string",
+          "value": "\"string\""
+        },
+        "properties.credentialRef.description": {
+          "kind": "string",
+          "value": "\"Reference to where the credential lives (e.g. a secret store path). NEVER the credential material — an audit stream holding secrets is a 365-day breach.\""
+        },
+        "properties.credentialRef.maxLength": {
+          "kind": "number",
+          "value": "512",
+          "bound": "max"
+        },
+        "properties.scopes": {
+          "kind": "object"
+        },
+        "properties.scopes.type": {
+          "kind": "string",
+          "value": "\"array\""
+        },
+        "properties.scopes.maxItems": {
+          "kind": "number",
+          "value": "256",
+          "bound": "max"
+        },
+        "properties.scopes.items": {
+          "kind": "object"
+        },
+        "properties.scopes.items.type": {
+          "kind": "string",
+          "value": "\"string\""
+        },
+        "properties.scopes.items.description": {
+          "kind": "string",
+          "value": "\"Granted scope.\""
+        },
+        "properties.scopes.items.maxLength": {
+          "kind": "number",
+          "value": "128",
+          "bound": "max"
+        },
+        "properties.scopes.description": {
+          "kind": "string",
+          "value": "\"Scopes granted at issuance.\""
+        },
+        "properties.expiresAt": {
+          "kind": "object"
+        },
+        "properties.expiresAt.type": {
+          "kind": "string",
+          "value": "\"string\""
+        },
+        "properties.expiresAt.description": {
+          "kind": "string",
+          "value": "\"RFC3339 expiry. Absent means non-expiring, which is itself an auditable fact.\""
+        },
+        "properties.expiresAt.format": {
+          "kind": "string",
+          "value": "\"date-time\""
+        }
+      }
+    },
+    "identity.principal.revoked.v1.schema.json": {
+      "fields": {
+        "": {
+          "kind": "object"
+        },
+        "$schema": {
+          "kind": "string",
+          "value": "\"https://json-schema.org/draft/2020-12/schema\""
+        },
+        "$id": {
+          "kind": "string",
+          "value": "\"https://github.com/ryanmcafee/homelab/contracts/events/data/identity.principal.revoked.v1.schema.json\""
+        },
+        "title": {
+          "kind": "string",
+          "value": "\"identity.principal.revoked v1 data\""
+        },
+        "description": {
+          "kind": "string",
+          "value": "\"A principal's credentials were revoked. AUDIT RECORD, 365-day retention, and the counterpart to identity.principal.issued.v1. Evolved additively within v1: new OPTIONAL fields only. A new required field, a removed field or a retyped field is a v2.\""
+        },
+        "type": {
+          "kind": "string",
+          "value": "\"object\""
+        },
+        "additionalProperties": {
+          "kind": "boolean",
+          "value": "false"
+        },
+        "required": {
+          "kind": "list",
+          "members": [
+            "\"principalId\"",
+            "\"principalType\"",
+            "\"reason\""
+          ]
+        },
+        "properties": {
+          "kind": "object"
+        },
+        "properties.principalId": {
+          "kind": "object"
+        },
+        "properties.principalId.type": {
+          "kind": "string",
+          "value": "\"string\""
+        },
+        "properties.principalId.description": {
+          "kind": "string",
+          "value": "\"The principal whose credentials were revoked.\""
+        },
+        "properties.principalId.maxLength": {
+          "kind": "number",
+          "value": "128",
+          "bound": "max"
+        },
+        "properties.principalType": {
+          "kind": "object"
+        },
+        "properties.principalType.type": {
+          "kind": "string",
+          "value": "\"string\""
+        },
+        "properties.principalType.enum": {
+          "kind": "list",
+          "members": [
+            "\"ai-agent\"",
+            "\"human\"",
+            "\"service\""
+          ]
+        },
+        "properties.principalType.description": {
+          "kind": "string",
+          "value": "\"Kind of principal.\""
+        },
+        "properties.reason": {
+          "kind": "object"
+        },
+        "properties.reason.type": {
+          "kind": "string",
+          "value": "\"string\""
+        },
+        "properties.reason.enum": {
+          "kind": "list",
+          "members": [
+            "\"compromised\"",
+            "\"expired\"",
+            "\"manual\"",
+            "\"offboarded\"",
+            "\"policy\"",
+            "\"rotated\""
+          ]
+        },
+        "properties.reason.description": {
+          "kind": "string",
+          "value": "\"Why revocation happened. `compromised` is the one a security consumer must treat as an incident trigger.\""
+        },
+        "properties.revokedBy": {
+          "kind": "object"
+        },
+        "properties.revokedBy.type": {
+          "kind": "string",
+          "value": "\"string\""
+        },
+        "properties.revokedBy.description": {
+          "kind": "string",
+          "value": "\"Principal id of whoever or whatever performed the revocation. An automated rotation names the component.\""
+        },
+        "properties.revokedBy.maxLength": {
+          "kind": "number",
+          "value": "128",
+          "bound": "max"
+        },
+        "properties.effectiveAt": {
+          "kind": "object"
+        },
+        "properties.effectiveAt.type": {
+          "kind": "string",
+          "value": "\"string\""
+        },
+        "properties.effectiveAt.description": {
+          "kind": "string",
+          "value": "\"RFC3339 time the revocation takes effect; may be earlier than the envelope `time` when a revocation is recorded after the fact.\""
+        },
+        "properties.effectiveAt.format": {
+          "kind": "string",
+          "value": "\"date-time\""
+        }
+      }
+    },
+    "infra.node.replaced.v1.schema.json": {
+      "fields": {
+        "": {
+          "kind": "object"
+        },
+        "$schema": {
+          "kind": "string",
+          "value": "\"https://json-schema.org/draft/2020-12/schema\""
+        },
+        "$id": {
+          "kind": "string",
+          "value": "\"https://github.com/ryanmcafee/homelab/contracts/events/data/infra.node.replaced.v1.schema.json\""
+        },
+        "title": {
+          "kind": "string",
+          "value": "\"infra.node.replaced v1 data\""
+        },
+        "description": {
+          "kind": "string",
+          "value": "\"A cluster node was replaced. Reported after the replacement joined and the old member was removed, so a consumer never sees a half-replaced pair. Evolved additively within v1: new OPTIONAL fields only. A new required field, a removed field or a retyped field is a v2.\""
+        },
+        "type": {
+          "kind": "string",
+          "value": "\"object\""
+        },
+        "additionalProperties": {
+          "kind": "boolean",
+          "value": "false"
+        },
+        "required": {
+          "kind": "list",
+          "members": [
+            "\"newNode\"",
+            "\"reason\"",
+            "\"role\""
+          ]
+        },
+        "properties": {
+          "kind": "object"
+        },
+        "properties.oldNode": {
+          "kind": "object"
+        },
+        "properties.oldNode.type": {
+          "kind": "string",
+          "value": "\"string\""
+        },
+        "properties.oldNode.description": {
+          "kind": "string",
+          "value": "\"Object name.\""
+        },
+        "properties.oldNode.maxLength": {
+          "kind": "number",
+          "value": "253",
+          "bound": "max"
+        },
+        "properties.newNode": {
+          "kind": "object"
+        },
+        "properties.newNode.type": {
+          "kind": "string",
+          "value": "\"string\""
+        },
+        "properties.newNode.description": {
+          "kind": "string",
+          "value": "\"Object name.\""
+        },
+        "properties.newNode.maxLength": {
+          "kind": "number",
+          "value": "253",
+          "bound": "max"
+        },
+        "properties.role": {
+          "kind": "object"
+        },
+        "properties.role.type": {
+          "kind": "string",
+          "value": "\"string\""
+        },
+        "properties.role.enum": {
+          "kind": "list",
+          "members": [
+            "\"control-plane\"",
+            "\"worker\""
+          ]
+        },
+        "properties.role.description": {
+          "kind": "string",
+          "value": "\"Role of the replaced node.\""
+        },
+        "properties.reason": {
+          "kind": "object"
+        },
+        "properties.reason.type": {
+          "kind": "string",
+          "value": "\"string\""
+        },
+        "properties.reason.enum": {
+          "kind": "list",
+          "members": [
+            "\"hardware-failure\"",
+            "\"manual\"",
+            "\"scale-in\"",
+            "\"scale-out\"",
+            "\"upgrade\""
+          ]
+        },
+        "properties.reason.description": {
+          "kind": "string",
+          "value": "\"Why the replacement happened.\""
+        },
+        "properties.talosVersion": {
+          "kind": "object"
+        },
+        "properties.talosVersion.type": {
+          "kind": "string",
+          "value": "\"string\""
+        },
+        "properties.talosVersion.description": {
+          "kind": "string",
+          "value": "\"Talos version the new node booted, as reported by the node — not the pinned value from config.\""
+        },
+        "properties.talosVersion.maxLength": {
+          "kind": "number",
+          "value": "64",
+          "bound": "max"
+        },
+        "properties.etcdMemberRemoved": {
+          "kind": "object"
+        },
+        "properties.etcdMemberRemoved.type": {
+          "kind": "string",
+          "value": "\"boolean\""
+        },
+        "properties.etcdMemberRemoved.description": {
+          "kind": "string",
+          "value": "\"Control planes only: whether the old etcd member was removed from the member list. False here means quorum arithmetic still counts the old member.\""
+        }
+      }
+    },
+    "observability.slo.burned.v1.schema.json": {
+      "fields": {
+        "": {
+          "kind": "object"
+        },
+        "$schema": {
+          "kind": "string",
+          "value": "\"https://json-schema.org/draft/2020-12/schema\""
+        },
+        "$id": {
+          "kind": "string",
+          "value": "\"https://github.com/ryanmcafee/homelab/contracts/events/data/observability.slo.burned.v1.schema.json\""
+        },
+        "title": {
+          "kind": "string",
+          "value": "\"observability.slo.burned v1 data\""
+        },
+        "description": {
+          "kind": "string",
+          "value": "\"An SLO error budget is burning fast enough to need attention. Evolved additively within v1: new OPTIONAL fields only. A new required field, a removed field or a retyped field is a v2.\""
+        },
+        "type": {
+          "kind": "string",
+          "value": "\"object\""
+        },
+        "additionalProperties": {
+          "kind": "boolean",
+          "value": "false"
+        },
+        "required": {
+          "kind": "list",
+          "members": [
+            "\"burnRate\"",
+            "\"service\"",
+            "\"slo\"",
+            "\"threshold\"",
+            "\"window\""
+          ]
+        },
+        "properties": {
+          "kind": "object"
+        },
+        "properties.slo": {
+          "kind": "object"
+        },
+        "properties.slo.type": {
+          "kind": "string",
+          "value": "\"string\""
+        },
+        "properties.slo.description": {
+          "kind": "string",
+          "value": "\"SLO identifier, stable across forks.\""
+        },
+        "properties.slo.maxLength": {
+          "kind": "number",
+          "value": "128",
+          "bound": "max"
+        },
+        "properties.service": {
+          "kind": "object"
+        },
+        "properties.service.type": {
+          "kind": "string",
+          "value": "\"string\""
+        },
+        "properties.service.description": {
+          "kind": "string",
+          "value": "\"Service the SLO is about.\""
+        },
+        "properties.service.maxLength": {
+          "kind": "number",
+          "value": "253",
+          "bound": "max"
+        },
+        "properties.namespace": {
+          "kind": "object"
+        },
+        "properties.namespace.type": {
+          "kind": "string",
+          "value": "\"string\""
+        },
+        "properties.namespace.description": {
+          "kind": "string",
+          "value": "\"Kubernetes namespace the object lives in.\""
+        },
+        "properties.namespace.maxLength": {
+          "kind": "number",
+          "value": "253",
+          "bound": "max"
+        },
+        "properties.window": {
+          "kind": "object"
+        },
+        "properties.window.type": {
+          "kind": "string",
+          "value": "\"string\""
+        },
+        "properties.window.description": {
+          "kind": "string",
+          "value": "\"Burn-rate evaluation window (e.g. `1h`, `6h`).\""
+        },
+        "properties.window.pattern": {
+          "kind": "string",
+          "value": "\"^[0-9]+[smhd]$\""
+        },
+        "properties.burnRate": {
+          "kind": "object"
+        },
+        "properties.burnRate.type": {
+          "kind": "string",
+          "value": "\"number\""
+        },
+        "properties.burnRate.minimum": {
+          "kind": "number",
+          "value": "0",
+          "bound": "min"
+        },
+        "properties.burnRate.description": {
+          "kind": "string",
+          "value": "\"Observed burn rate as a multiple of the budget-neutral rate. 1.0 exhausts the budget exactly at the end of the SLO period.\""
+        },
+        "properties.threshold": {
+          "kind": "object"
+        },
+        "properties.threshold.type": {
+          "kind": "string",
+          "value": "\"number\""
+        },
+        "properties.threshold.minimum": {
+          "kind": "number",
+          "value": "0",
+          "bound": "min"
+        },
+        "properties.threshold.description": {
+          "kind": "string",
+          "value": "\"Burn rate that triggered this event, so a consumer need not know the alerting rules to render severity.\""
+        },
+        "properties.budgetRemaining": {
+          "kind": "object"
+        },
+        "properties.budgetRemaining.type": {
+          "kind": "string",
+          "value": "\"number\""
+        },
+        "properties.budgetRemaining.minimum": {
+          "kind": "number",
+          "value": "0",
+          "bound": "min"
+        },
+        "properties.budgetRemaining.maximum": {
+          "kind": "number",
+          "value": "1",
+          "bound": "max"
+        },
+        "properties.budgetRemaining.description": {
+          "kind": "string",
+          "value": "\"Fraction of the error budget left, 0..1.\""
+        }
+      }
+    },
+    "platform.bootstrap.progressed.v1.schema.json": {
+      "fields": {
+        "": {
+          "kind": "object"
+        },
+        "$schema": {
+          "kind": "string",
+          "value": "\"https://json-schema.org/draft/2020-12/schema\""
+        },
+        "$id": {
+          "kind": "string",
+          "value": "\"https://github.com/ryanmcafee/homelab/contracts/events/data/platform.bootstrap.progressed.v1.schema.json\""
+        },
+        "title": {
+          "kind": "string",
+          "value": "\"control.bootstrap.progressed v1 data\""
+        },
+        "description": {
+          "kind": "string",
+          "value": "\"A bootstrap run advanced one stage. Emitted by the CLI so a dashboard can follow a fork operator's first install; every event of one run shares a `correlationid`. Evolved additively within v1: new OPTIONAL fields only. A new required field, a removed field or a retyped field is a v2.\""
+        },
+        "type": {
+          "kind": "string",
+          "value": "\"object\""
+        },
+        "additionalProperties": {
+          "kind": "boolean",
+          "value": "false"
+        },
+        "required": {
+          "kind": "list",
+          "members": [
+            "\"outcome\"",
+            "\"stage\"",
+            "\"stageCount\"",
+            "\"stageIndex\""
+          ]
+        },
+        "properties": {
+          "kind": "object"
+        },
+        "properties.stage": {
+          "kind": "object"
+        },
+        "properties.stage.type": {
+          "kind": "string",
+          "value": "\"string\""
+        },
+        "properties.stage.description": {
+          "kind": "string",
+          "value": "\"Stage identifier, stable across runs and forks (e.g. `talos-config`, `cilium`, `argocd`, `app-of-apps`).\""
+        },
+        "properties.stage.maxLength": {
+          "kind": "number",
+          "value": "64",
+          "bound": "max"
+        },
+        "properties.stageIndex": {
+          "kind": "object"
+        },
+        "properties.stageIndex.type": {
+          "kind": "string",
+          "value": "\"integer\""
+        },
+        "properties.stageIndex.minimum": {
+          "kind": "number",
+          "value": "0",
+          "bound": "min"
+        },
+        "properties.stageIndex.description": {
+          "kind": "string",
+          "value": "\"Zero-based position of this stage in the run.\""
+        },
+        "properties.stageCount": {
+          "kind": "object"
+        },
+        "properties.stageCount.type": {
+          "kind": "string",
+          "value": "\"integer\""
+        },
+        "properties.stageCount.minimum": {
+          "kind": "number",
+          "value": "1",
+          "bound": "min"
+        },
+        "properties.stageCount.description": {
+          "kind": "string",
+          "value": "\"Total stages in the run, so a consumer can render progress without knowing the stage list.\""
+        },
+        "properties.outcome": {
+          "kind": "object"
+        },
+        "properties.outcome.type": {
+          "kind": "string",
+          "value": "\"string\""
+        },
+        "properties.outcome.enum": {
+          "kind": "list",
+          "members": [
+            "\"failed\"",
+            "\"skipped\"",
+            "\"started\"",
+            "\"succeeded\""
+          ]
+        },
+        "properties.outcome.description": {
+          "kind": "string",
+          "value": "\"What happened to this stage.\""
+        },
+        "properties.durationSeconds": {
+          "kind": "object"
+        },
+        "properties.durationSeconds.type": {
+          "kind": "string",
+          "value": "\"number\""
+        },
+        "properties.durationSeconds.minimum": {
+          "kind": "number",
+          "value": "0",
+          "bound": "min"
+        },
+        "properties.durationSeconds.description": {
+          "kind": "string",
+          "value": "\"Wall-clock seconds for the stage; absent on `started`.\""
+        },
+        "properties.message": {
+          "kind": "object"
+        },
+        "properties.message.type": {
+          "kind": "string",
+          "value": "\"string\""
+        },
+        "properties.message.description": {
+          "kind": "string",
+          "value": "\"Human-readable detail. Never parsed, and MUST NOT carry secrets or rendered config.\""
+        },
+        "properties.message.maxLength": {
+          "kind": "number",
+          "value": "2048",
+          "bound": "max"
+        }
+      }
+    },
+    "workload.degraded.v1.schema.json": {
+      "fields": {
+        "": {
+          "kind": "object"
+        },
+        "$schema": {
+          "kind": "string",
+          "value": "\"https://json-schema.org/draft/2020-12/schema\""
+        },
+        "$id": {
+          "kind": "string",
+          "value": "\"https://github.com/ryanmcafee/homelab/contracts/events/data/workload.degraded.v1.schema.json\""
+        },
+        "title": {
+          "kind": "string",
+          "value": "\"workload.deployment.degraded v1 data\""
+        },
+        "description": {
+          "kind": "string",
+          "value": "\"A workload stopped meeting its readiness or availability target. Evolved additively within v1: new OPTIONAL fields only. A new required field, a removed field or a retyped field is a v2.\""
+        },
+        "type": {
+          "kind": "string",
+          "value": "\"object\""
+        },
+        "additionalProperties": {
+          "kind": "boolean",
+          "value": "false"
+        },
+        "required": {
+          "kind": "list",
+          "members": [
+            "\"name\"",
+            "\"namespace\"",
+            "\"observedGeneration\"",
+            "\"reason\""
+          ]
+        },
+        "properties": {
+          "kind": "object"
+        },
+        "properties.namespace": {
+          "kind": "object"
+        },
+        "properties.namespace.type": {
+          "kind": "string",
+          "value": "\"string\""
+        },
+        "properties.namespace.description": {
+          "kind": "string",
+          "value": "\"Kubernetes namespace the object lives in.\""
+        },
+        "properties.namespace.maxLength": {
+          "kind": "number",
+          "value": "253",
+          "bound": "max"
+        },
+        "properties.name": {
+          "kind": "object"
+        },
+        "properties.name.type": {
+          "kind": "string",
+          "value": "\"string\""
+        },
+        "properties.name.description": {
+          "kind": "string",
+          "value": "\"Object name.\""
+        },
+        "properties.name.maxLength": {
+          "kind": "number",
+          "value": "253",
+          "bound": "max"
+        },
+        "properties.reason": {
+          "kind": "object"
+        },
+        "properties.reason.type": {
+          "kind": "string",
+          "value": "\"string\""
+        },
+        "properties.reason.enum": {
+          "kind": "list",
+          "members": [
+            "\"CrashLoopBackOff\"",
+            "\"ImagePullFailure\"",
+            "\"InsufficientCapacity\"",
+            "\"ProgressDeadlineExceeded\"",
+            "\"ReadinessFailing\"",
+            "\"Unknown\""
+          ]
+        },
+        "properties.reason.description": {
+          "kind": "string",
+          "value": "\"Why the workload is degraded. `Unknown` is deliberate: a consumer must handle a reason it does not recognise rather than fail closed on an enum it was compiled against.\""
+        },
+        "properties.message": {
+          "kind": "object"
+        },
+        "properties.message.type": {
+          "kind": "string",
+          "value": "\"string\""
+        },
+        "properties.message.description": {
+          "kind": "string",
+          "value": "\"Human-readable detail. Never parsed by a consumer — the machine-readable fact is `reason`.\""
+        },
+        "properties.message.maxLength": {
+          "kind": "number",
+          "value": "2048",
+          "bound": "max"
+        },
+        "properties.readyReplicas": {
+          "kind": "object"
+        },
+        "properties.readyReplicas.type": {
+          "kind": "string",
+          "value": "\"integer\""
+        },
+        "properties.readyReplicas.minimum": {
+          "kind": "number",
+          "value": "0",
+          "bound": "min"
+        },
+        "properties.readyReplicas.description": {
+          "kind": "string",
+          "value": "\"Ready replicas observed.\""
+        },
+        "properties.desiredReplicas": {
+          "kind": "object"
+        },
+        "properties.desiredReplicas.type": {
+          "kind": "string",
+          "value": "\"integer\""
+        },
+        "properties.desiredReplicas.minimum": {
+          "kind": "number",
+          "value": "0",
+          "bound": "min"
+        },
+        "properties.desiredReplicas.description": {
+          "kind": "string",
+          "value": "\"Replicas the spec asks for.\""
+        },
+        "properties.observedGeneration": {
+          "kind": "object"
+        },
+        "properties.observedGeneration.type": {
+          "kind": "string",
+          "value": "\"integer\""
+        },
+        "properties.observedGeneration.minimum": {
+          "kind": "number",
+          "value": "0",
+          "bound": "min"
+        },
+        "properties.observedGeneration.description": {
+          "kind": "string",
+          "value": "\"metadata.generation the controller had reconciled.\""
+        }
+      }
+    },
+    "workload.deployed.v1.schema.json": {
+      "fields": {
+        "": {
+          "kind": "object"
+        },
+        "$schema": {
+          "kind": "string",
+          "value": "\"https://json-schema.org/draft/2020-12/schema\""
+        },
+        "$id": {
+          "kind": "string",
+          "value": "\"https://github.com/ryanmcafee/homelab/contracts/events/data/workload.deployed.v1.schema.json\""
+        },
+        "title": {
+          "kind": "string",
+          "value": "\"workload.deployment.deployed v1 data\""
+        },
+        "description": {
+          "kind": "string",
+          "value": "\"A workload reached its desired replica count and passed readiness at a known revision. Evolved additively within v1: new OPTIONAL fields only. A new required field, a removed field or a retyped field is a v2.\""
+        },
+        "type": {
+          "kind": "string",
+          "value": "\"object\""
+        },
+        "additionalProperties": {
+          "kind": "boolean",
+          "value": "false"
+        },
+        "required": {
+          "kind": "list",
+          "members": [
+            "\"name\"",
+            "\"namespace\"",
+            "\"observedGeneration\"",
+            "\"revision\""
+          ]
+        },
+        "properties": {
+          "kind": "object"
+        },
+        "properties.namespace": {
+          "kind": "object"
+        },
+        "properties.namespace.type": {
+          "kind": "string",
+          "value": "\"string\""
+        },
+        "properties.namespace.description": {
+          "kind": "string",
+          "value": "\"Kubernetes namespace the object lives in.\""
+        },
+        "properties.namespace.maxLength": {
+          "kind": "number",
+          "value": "253",
+          "bound": "max"
+        },
+        "properties.name": {
+          "kind": "object"
+        },
+        "properties.name.type": {
+          "kind": "string",
+          "value": "\"string\""
+        },
+        "properties.name.description": {
+          "kind": "string",
+          "value": "\"Object name.\""
+        },
+        "properties.name.maxLength": {
+          "kind": "number",
+          "value": "253",
+          "bound": "max"
+        },
+        "properties.revision": {
+          "kind": "object"
+        },
+        "properties.revision.type": {
+          "kind": "string",
+          "value": "\"string\""
+        },
+        "properties.revision.description": {
+          "kind": "string",
+          "value": "\"Git revision (full SHA) the desired state came from.\""
+        },
+        "properties.revision.pattern": {
+          "kind": "string",
+          "value": "\"^[0-9a-f]{7,40}$\""
+        },
+        "properties.image": {
+          "kind": "object"
+        },
+        "properties.image.type": {
+          "kind": "string",
+          "value": "\"string\""
+        },
+        "properties.image.description": {
+          "kind": "string",
+          "value": "\"Fully-qualified image reference, digest-pinned where the workload is.\""
+        },
+        "properties.image.maxLength": {
+          "kind": "number",
+          "value": "512",
+          "bound": "max"
+        },
+        "properties.replicas": {
+          "kind": "object"
+        },
+        "properties.replicas.type": {
+          "kind": "string",
+          "value": "\"integer\""
+        },
+        "properties.replicas.minimum": {
+          "kind": "number",
+          "value": "0",
+          "bound": "min"
+        },
+        "properties.replicas.description": {
+          "kind": "string",
+          "value": "\"Ready replica count observed at the time of the event.\""
+        },
+        "properties.observedGeneration": {
+          "kind": "object"
+        },
+        "properties.observedGeneration.type": {
+          "kind": "string",
+          "value": "\"integer\""
+        },
+        "properties.observedGeneration.minimum": {
+          "kind": "number",
+          "value": "0",
+          "bound": "min"
+        },
+        "properties.observedGeneration.description": {
+          "kind": "string",
+          "value": "\"metadata.generation the controller had reconciled. Lets a consumer discard a stale event without ordering guarantees.\""
+        }
+      }
+    },
+    "workload.describe.v1.schema.json": {
+      "fields": {
+        "": {
+          "kind": "object"
+        },
+        "$schema": {
+          "kind": "string",
+          "value": "\"https://json-schema.org/draft/2020-12/schema\""
+        },
+        "$id": {
+          "kind": "string",
+          "value": "\"https://github.com/ryanmcafee/homelab/contracts/events/data/workload.describe.v1.schema.json\""
+        },
+        "title": {
+          "kind": "string",
+          "value": "\"workload.deployment.describe v1 request data\""
+        },
+        "description": {
+          "kind": "string",
+          "value": "\"Synchronous request for the current observed state of a workload. Core NATS, at-most-once: THE RESPONDER MUST BE IDEMPOTENT because the requester retries on timeout and cannot distinguish a lost request from a lost reply. Evolved additively within v1: new OPTIONAL fields only. A new required field, a removed field or a retyped field is a v2.\""
+        },
+        "type": {
+          "kind": "string",
+          "value": "\"object\""
+        },
+        "additionalProperties": {
+          "kind": "boolean",
+          "value": "false"
+        },
+        "required": {
+          "kind": "list",
+          "members": [
+            "\"name\"",
+            "\"namespace\""
+          ]
+        },
+        "properties": {
+          "kind": "object"
+        },
+        "properties.namespace": {
+          "kind": "object"
+        },
+        "properties.namespace.type": {
+          "kind": "string",
+          "value": "\"string\""
+        },
+        "properties.namespace.description": {
+          "kind": "string",
+          "value": "\"Kubernetes namespace the object lives in.\""
+        },
+        "properties.namespace.maxLength": {
+          "kind": "number",
+          "value": "253",
+          "bound": "max"
+        },
+        "properties.name": {
+          "kind": "object"
+        },
+        "properties.name.type": {
+          "kind": "string",
+          "value": "\"string\""
+        },
+        "properties.name.description": {
+          "kind": "string",
+          "value": "\"Object name.\""
+        },
+        "properties.name.maxLength": {
+          "kind": "number",
+          "value": "253",
+          "bound": "max"
+        },
+        "properties.includeConditions": {
+          "kind": "object"
+        },
+        "properties.includeConditions.type": {
+          "kind": "string",
+          "value": "\"boolean\""
+        },
+        "properties.includeConditions.description": {
+          "kind": "string",
+          "value": "\"Include the workload's status conditions in the reply. Default false; a reply is bounded by `limits.max_event_bytes` like any other message.\""
+        }
+      }
+    },
+    "workload.promote.v1.schema.json": {
+      "fields": {
+        "": {
+          "kind": "object"
+        },
+        "$schema": {
+          "kind": "string",
+          "value": "\"https://json-schema.org/draft/2020-12/schema\""
+        },
+        "$id": {
+          "kind": "string",
+          "value": "\"https://github.com/ryanmcafee/homelab/contracts/events/data/workload.promote.v1.schema.json\""
+        },
+        "title": {
+          "kind": "string",
+          "value": "\"workload.deployment.promote v1 request data\""
+        },
+        "description": {
+          "kind": "string",
+          "value": "\"Durable request to promote a workload to a revision. At-least-once on PF_WORK, so the handler MUST be idempotent on the envelope `(source, id)`. The outcome comes back as workload.deployment.promoted.v1 carrying this request's `correlationid`, never as a reply. Evolved additively within v1: new OPTIONAL fields only. A new required field, a removed field or a retyped field is a v2.\""
+        },
+        "type": {
+          "kind": "string",
+          "value": "\"object\""
+        },
+        "additionalProperties": {
+          "kind": "boolean",
+          "value": "false"
+        },
+        "required": {
+          "kind": "list",
+          "members": [
+            "\"name\"",
+            "\"namespace\"",
+            "\"toRevision\""
+          ]
+        },
+        "properties": {
+          "kind": "object"
+        },
+        "properties.namespace": {
+          "kind": "object"
+        },
+        "properties.namespace.type": {
+          "kind": "string",
+          "value": "\"string\""
+        },
+        "properties.namespace.description": {
+          "kind": "string",
+          "value": "\"Kubernetes namespace the object lives in.\""
+        },
+        "properties.namespace.maxLength": {
+          "kind": "number",
+          "value": "253",
+          "bound": "max"
+        },
+        "properties.name": {
+          "kind": "object"
+        },
+        "properties.name.type": {
+          "kind": "string",
+          "value": "\"string\""
+        },
+        "properties.name.description": {
+          "kind": "string",
+          "value": "\"Object name.\""
+        },
+        "properties.name.maxLength": {
+          "kind": "number",
+          "value": "253",
+          "bound": "max"
+        },
+        "properties.toRevision": {
+          "kind": "object"
+        },
+        "properties.toRevision.type": {
+          "kind": "string",
+          "value": "\"string\""
+        },
+        "properties.toRevision.description": {
+          "kind": "string",
+          "value": "\"Git revision (full SHA) the desired state came from.\""
+        },
+        "properties.toRevision.pattern": {
+          "kind": "string",
+          "value": "\"^[0-9a-f]{7,40}$\""
+        },
+        "properties.fromRevision": {
+          "kind": "object"
+        },
+        "properties.fromRevision.type": {
+          "kind": "string",
+          "value": "\"string\""
+        },
+        "properties.fromRevision.description": {
+          "kind": "string",
+          "value": "\"Revision the requester believes the workload is on. When present the handler MUST refuse the promote if the live revision differs — an optimistic-concurrency guard against two promotes racing.\""
+        },
+        "properties.fromRevision.pattern": {
+          "kind": "string",
+          "value": "\"^[0-9a-f]{7,40}$\""
+        },
+        "properties.strategy": {
+          "kind": "object"
+        },
+        "properties.strategy.type": {
+          "kind": "string",
+          "value": "\"string\""
+        },
+        "properties.strategy.enum": {
+          "kind": "list",
+          "members": [
+            "\"blue-green\"",
+            "\"canary\"",
+            "\"rolling\""
+          ]
+        },
+        "properties.strategy.description": {
+          "kind": "string",
+          "value": "\"Promotion strategy. Absent means the workload's configured default.\""
+        },
+        "properties.requestedBy": {
+          "kind": "object"
+        },
+        "properties.requestedBy.type": {
+          "kind": "string",
+          "value": "\"string\""
+        },
+        "properties.requestedBy.description": {
+          "kind": "string",
+          "value": "\"Principal id that asked for the promote. Audit trail for an action that changes running state.\""
+        },
+        "properties.requestedBy.maxLength": {
+          "kind": "number",
+          "value": "128",
+          "bound": "max"
+        }
+      }
+    },
+    "workload.promoted.v1.schema.json": {
+      "fields": {
+        "": {
+          "kind": "object"
+        },
+        "$schema": {
+          "kind": "string",
+          "value": "\"https://json-schema.org/draft/2020-12/schema\""
+        },
+        "$id": {
+          "kind": "string",
+          "value": "\"https://github.com/ryanmcafee/homelab/contracts/events/data/workload.promoted.v1.schema.json\""
+        },
+        "title": {
+          "kind": "string",
+          "value": "\"workload.deployment.promoted v1 data\""
+        },
+        "description": {
+          "kind": "string",
+          "value": "\"The completion event for a durable promote request. Carries the outcome the requester cannot get from a reply, and is joined to its request by the envelope `correlationid`. Evolved additively within v1: new OPTIONAL fields only. A new required field, a removed field or a retyped field is a v2.\""
+        },
+        "type": {
+          "kind": "string",
+          "value": "\"object\""
+        },
+        "additionalProperties": {
+          "kind": "boolean",
+          "value": "false"
+        },
+        "required": {
+          "kind": "list",
+          "members": [
+            "\"name\"",
+            "\"namespace\"",
+            "\"outcome\"",
+            "\"toRevision\""
+          ]
+        },
+        "properties": {
+          "kind": "object"
+        },
+        "properties.namespace": {
+          "kind": "object"
+        },
+        "properties.namespace.type": {
+          "kind": "string",
+          "value": "\"string\""
+        },
+        "properties.namespace.description": {
+          "kind": "string",
+          "value": "\"Kubernetes namespace the object lives in.\""
+        },
+        "properties.namespace.maxLength": {
+          "kind": "number",
+          "value": "253",
+          "bound": "max"
+        },
+        "properties.name": {
+          "kind": "object"
+        },
+        "properties.name.type": {
+          "kind": "string",
+          "value": "\"string\""
+        },
+        "properties.name.description": {
+          "kind": "string",
+          "value": "\"Object name.\""
+        },
+        "properties.name.maxLength": {
+          "kind": "number",
+          "value": "253",
+          "bound": "max"
+        },
+        "properties.fromRevision": {
+          "kind": "object"
+        },
+        "properties.fromRevision.type": {
+          "kind": "string",
+          "value": "\"string\""
+        },
+        "properties.fromRevision.description": {
+          "kind": "string",
+          "value": "\"Revision the workload was on before the promote.\""
+        },
+        "properties.fromRevision.pattern": {
+          "kind": "string",
+          "value": "\"^[0-9a-f]{7,40}$\""
+        },
+        "properties.toRevision": {
+          "kind": "object"
+        },
+        "properties.toRevision.type": {
+          "kind": "string",
+          "value": "\"string\""
+        },
+        "properties.toRevision.description": {
+          "kind": "string",
+          "value": "\"Git revision (full SHA) the desired state came from.\""
+        },
+        "properties.toRevision.pattern": {
+          "kind": "string",
+          "value": "\"^[0-9a-f]{7,40}$\""
+        },
+        "properties.outcome": {
+          "kind": "object"
+        },
+        "properties.outcome.type": {
+          "kind": "string",
+          "value": "\"string\""
+        },
+        "properties.outcome.enum": {
+          "kind": "list",
+          "members": [
+            "\"failed\"",
+            "\"rolled-back\"",
+            "\"succeeded\"",
+            "\"superseded\""
+          ]
+        },
+        "properties.outcome.description": {
+          "kind": "string",
+          "value": "\"Terminal outcome of the promote. `superseded` means a newer promote for the same target took over; the requester's work is done but not by this request.\""
+        },
+        "properties.reason": {
+          "kind": "object"
+        },
+        "properties.reason.type": {
+          "kind": "string",
+          "value": "\"string\""
+        },
+        "properties.reason.description": {
+          "kind": "string",
+          "value": "\"Machine-readable reason, required when `outcome` is not `succeeded`.\""
+        },
+        "properties.reason.maxLength": {
+          "kind": "number",
+          "value": "128",
+          "bound": "max"
+        },
+        "properties.message": {
+          "kind": "object"
+        },
+        "properties.message.type": {
+          "kind": "string",
+          "value": "\"string\""
+        },
+        "properties.message.description": {
+          "kind": "string",
+          "value": "\"Human-readable detail. Never parsed.\""
+        },
+        "properties.message.maxLength": {
+          "kind": "number",
+          "value": "2048",
+          "bound": "max"
+        }
+      }
+    }
+  }
+}

@@ -30,21 +30,49 @@
  * collide, is addressed positionally (`#0`) instead — stated here because it is
  * the one case where reordering the list reads as a mutation.
  *
- * What this deliberately does NOT decide, and is the named residual (MCAA-431):
+ * Positional entries carry no bound. `#2` is not a stable address, so
+ * `quorum.table.#2.maxUnavailable` moving from 2 to 1 may be a tightened bound
+ * or may be the same row at a new index after a reorder, and the rule set cannot
+ * tell which. Classifying it produced a false `contract-bound-tightened` on a
+ * pure reorder of the committed `topology.v1.yaml`, with remedial advice
+ * ("publish topology.v2.yaml") that was actively wrong. A false rejection that
+ * blocks correct work is worse than a miss, so a numeric leaf below a
+ * positionally-addressed entry is pinned by value and left unclassified.
  *
- *   - A changed scalar value that is not a direction-classified numeric bound.
- *     `quorum.formula` becoming a different expression, `onIndeterminate`
- *     flipping from `unsafe` to `safe`, a boolean requirement flag going false
- *     is breaking, and no rule below rejects it. What *does* happen is that the
- *     value is pinned, so the baseline stops matching the document and the
- *     in-sync test fails until someone regenerates it — the change becomes
- *     unmissable in review rather than silently green. The reviewer decides
- *     whether it needed a new major version.
+ * What this deliberately does NOT decide, and is the named residual (MCAA-431).
+ * The rule set assumes a contract constrains what a producer may send, so wider
+ * is safer: a set that gains a member permits more, a `max` that rises rejects
+ * less. Two shapes in the committed `contracts/cluster/topology.v1.yaml` invert
+ * that assumption, and for both of them the *widening* is the breaking
+ * direction:
+ *
+ *   - An obligation set. `health.predicates[].conditions` lists what a consumer
+ *     must evaluate, so adding `absences-are-declared` makes every conformant
+ *     consumer non-conformant. `contract-required-added` is the rule for this,
+ *     and it is bound to the literal key `required` (see `lastSegment` below),
+ *     so an obligation set under any other name is checked in the removal
+ *     direction only.
+ *   - A derived worked value. `quorum.table[].maxUnavailable` is an output of
+ *     `count - quorum`, not a ceiling on an input, so raising it from 1 to 2
+ *     asserts a 3-member control plane survives losing 2. Nothing here rejects
+ *     that; the paragraph above is why it is no longer *misclassified* as a safe
+ *     loosening, which is a narrower claim than deciding it.
+ *   - A changed scalar value. `quorum.formula` becoming a different expression,
+ *     `onIndeterminate` flipping from `unsafe` to `safe`.
  *   - A duration expressed as a string (`max_age: 168h`). Shortening one is a
  *     tightening the number-only bound rule cannot see. `contract-check.ts` has
  *     `durationSeconds` for the event streams; this side does not.
  *   - Anything inside a referenced file. A `$ref` or a `dataschema` path is a
  *     string leaf here; the event pipeline resolves its own.
+ *
+ * Every one of those is *pinned*, so the document stops matching its baseline
+ * and the in-sync test fails until someone regenerates it and a reviewer reads
+ * the diff. That is unmissable, which is weaker than decided, and the difference
+ * is deliberate rather than overlooked. ADR-048 names the follow-up: a
+ * per-contract `compatibility:` block layered over this structural default,
+ * declaring which sets are obligations and which numbers are derived, never
+ * replacing it. `scripts/topology-contract_test.ts` holds both of these for
+ * `contracts/cluster/` in the meantime.
  */
 
 // ============================================================================
@@ -186,6 +214,7 @@ function walk(
   path: string,
   segment: string,
   out: Record<string, ShapeField>,
+  positional: boolean,
 ): void {
   const kind = kindOf(value);
 
@@ -198,7 +227,7 @@ function walk(
     const ids = listEntryIds(value);
     value.forEach((item, index) => {
       const entry = ids === null ? `#${index}` : (ids[index] ?? `#${index}`);
-      walk(item, joinPath(path, entry), entry, out);
+      walk(item, joinPath(path, entry), entry, out, positional || ids === null);
     });
     return;
   }
@@ -206,20 +235,21 @@ function walk(
   if (kind === "object") {
     out[path] = { kind };
     for (const [key, child] of Object.entries(Object(value))) {
-      walk(child, joinPath(path, key), key, out);
+      walk(child, joinPath(path, key), key, out, positional);
     }
     return;
   }
 
   const field: ShapeField = { kind, value: renderScalar(value) };
-  const bound = kind === "number" ? boundDirection(segment) : null;
+  const bound =
+    kind === "number" && !positional ? boundDirection(segment) : null;
   if (bound !== null) field.bound = bound;
   out[path] = field;
 }
 
 export function projectShape(document: unknown): DocumentShape {
   const fields: Record<string, ShapeField> = {};
-  walk(document, "", "", fields);
+  walk(document, "", "", fields, false);
   return { fields };
 }
 
