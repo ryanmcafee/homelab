@@ -1,0 +1,102 @@
+{{- $eco := index .Values "ecowitt-exporter" }}
+{{- if $eco.enabled }}
+---
+# Ecowitt weather and soil sensors (docs/runbooks/iot-sensors.md). The gateway
+# pushes readings to this exporter over HTTP, so the route below is the ingest
+# endpoint, not a UI. The upstream chart's own prometheusRules stay off: those
+# rules are rendered by ArgoCD from a remote chart, where neither
+# runbooks/coverage nor task test:alerts can see them. The rules this repo ships
+# live in kube-prometheus-stack.yaml instead.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: ecowitt-exporter
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: {{ $eco.chart.repo }}
+    chart: {{ $eco.chart.name }}
+    targetRevision: {{ $eco.chart.version | quote }}
+    helm:
+      releaseName: ecowitt-exporter
+      values: |
+        fullnameOverride: ecowitt-exporter
+        env:
+          temperatureUnit: {{ $eco.units.temperature }}
+          pressureUnit: {{ $eco.units.pressure }}
+          windUnit: {{ $eco.units.wind }}
+          rainUnit: {{ $eco.units.rain }}
+          irradianceUnit: {{ $eco.units.irradiance }}
+          distanceUnit: {{ $eco.units.distance }}
+          aqiStandard: {{ $eco.units.aqiStandard }}
+        podSecurityContext:
+          runAsNonRoot: true
+          runAsUser: 65534
+          runAsGroup: 65534
+          seccompProfile:
+            type: RuntimeDefault
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop: ["ALL"]
+        resources:
+          requests:
+            cpu: 10m
+            memory: 48Mi
+          limits:
+            cpu: 100m
+            memory: 96Mi
+        serviceMonitor:
+          enabled: true
+          interval: {{ $eco.scrapeInterval }}
+        prometheusRules:
+          enabled: false
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: {{ $eco.namespace }}
+  syncPolicy:
+    {{- if .Values.global.automatedSync }}
+    automated:
+      prune: true
+      selfHeal: true
+    {{- end }}
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+{{- if $eco.route.enabled }}
+---
+# Ingest endpoint. The gateway is configured (Custom upload, protocol Ecowitt)
+# to POST to http://{{ $eco.route.host }}/report on the LAN.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: ecowitt-exporter
+  namespace: {{ $eco.namespace }}
+  annotations:
+    external-dns.alpha.kubernetes.io/hostname: {{ $eco.route.host }}
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: {{ $eco.route.gateway.name }}
+      namespace: {{ $eco.route.gateway.namespace }}
+      sectionName: {{ $eco.route.gateway.sectionName }}
+  hostnames:
+    - {{ $eco.route.host }}
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: ecowitt-exporter
+          port: 8088
+{{- end }}
+{{- end }}
