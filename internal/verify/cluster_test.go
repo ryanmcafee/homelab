@@ -371,6 +371,148 @@ func TestDryRunNamespaceIsOmittedWhenTheApplicationDeclaresNone(t *testing.T) {
 	}
 }
 
+// renderedGatewaysMixedNamespaces is the istio-gateways render: the chart the
+// Application sends to istio-ingress also carries an object pinned to
+// envoy-gateway-system, plus a cluster-scoped one with no namespace at all.
+const renderedGatewaysMixedNamespaces = `---
+apiVersion: gateway.networking.k8s.io/v1
+kind: GatewayClass
+metadata:
+  name: istio
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: public
+  namespace: istio-ingress
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: envoy
+  namespace: envoy-gateway-system
+`
+
+// renderedGatewaysOwner is the Application that deploys it, as addons renders
+// it: name matches the chart, destination is only one of the two namespaces.
+const renderedGatewaysOwner = `---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: istio-gateways
+  namespace: argocd
+spec:
+  source:
+    path: charts/istio-gateways
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: istio-ingress
+`
+
+func TestDryRunOmitsNamespaceWhenADocumentContradictsTheDestination(t *testing.T) {
+	// kubectl rejects the whole file when -n disagrees with any document's
+	// metadata.namespace, so a chart that spans namespaces must keep the old
+	// argv. Its namespace-less objects are cluster-scoped, which -n never
+	// affects, so nothing is lost by leaving the flag off.
+	root := writeLocaldevRender(t, t.TempDir(), map[string]string{
+		"addons.yaml":         renderedGatewaysOwner,
+		"istio-gateways.yaml": renderedGatewaysMixedNamespaces,
+	})
+	r := &fakeClusterRunner{}
+
+	DryRun(context.Background(), clusterOpts(r, root))
+
+	var gatewaysCmd string
+	for _, c := range r.invocations("kubectl") {
+		if strings.Contains(c.line(), "istio-gateways.yaml") {
+			gatewaysCmd = c.line()
+		}
+	}
+	if gatewaysCmd == "" {
+		t.Fatal("istio-gateways was never dry-run")
+	}
+	if strings.Contains(gatewaysCmd, " -n ") {
+		t.Errorf("a chart holding a document outside the destination namespace must not be given -n, got %s", gatewaysCmd)
+	}
+}
+
+func TestDryRunKeepsNamespaceWhenEveryDocumentAgreesWithTheDestination(t *testing.T) {
+	// An explicit metadata.namespace that matches is not a contradiction:
+	// kubectl accepts it, so the flag still buys correct admission for the
+	// namespace-less documents alongside it.
+	const agreeing = `---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pinned
+  namespace: argo-events
+---
+apiVersion: argoproj.io/v1alpha1
+kind: EventBus
+metadata:
+  name: default
+`
+	root := writeLocaldevRender(t, t.TempDir(), map[string]string{
+		"addons.yaml":             renderedAddonsApp,
+		"argo-events-config.yaml": agreeing,
+	})
+	r := &fakeClusterRunner{}
+
+	DryRun(context.Background(), clusterOpts(r, root))
+
+	var configCmd string
+	for _, c := range r.invocations("kubectl") {
+		if strings.Contains(c.line(), "argo-events-config.yaml") {
+			configCmd = c.line()
+		}
+	}
+	if !strings.Contains(configCmd, "-n argo-events ") {
+		t.Errorf("a matching metadata.namespace must not suppress -n, got %s", configCmd)
+	}
+}
+
+// TestDryRunNamespacesAgreeWithTheShippedRender runs the resolver over the
+// committed localdev snapshots rather than a fixture, because the argv it
+// builds is only safe against the charts that actually ship: a fixture cannot
+// notice a new chart that spans two namespaces.
+func TestDryRunNamespacesAgreeWithTheShippedRender(t *testing.T) {
+	snapshots := filepath.Join("..", "..", "tests", "snapshots", "localdev")
+	files, err := manifestFiles(snapshots)
+	if err != nil {
+		t.Fatalf("reading %s: %v", snapshots, err)
+	}
+	dests := destinationNamespaces(files)
+	if len(dests) < 20 {
+		t.Fatalf("resolved %d chart namespaces from %d shipped manifests, want at least 20: the resolver read nothing meaningful", len(dests), len(files))
+	}
+
+	inspected := 0
+	for _, file := range files {
+		chart := strings.TrimSuffix(filepath.Base(file), ".yaml")
+		dest, ok := dests[chart]
+		if !ok {
+			continue
+		}
+		raw, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatalf("reading %s: %v", file, err)
+		}
+		docs, err := ParseMultiDoc(chart, "localdev", raw)
+		if err != nil {
+			t.Fatalf("parsing %s: %v", file, err)
+		}
+		inspected++
+		for _, d := range docs {
+			if ns := d.Namespace(); ns != "" && ns != dest {
+				t.Errorf("%s would be dry-run with -n %s but holds %s/%s in %s; kubectl rejects the whole file", chart, dest, d.Kind(), d.Name(), ns)
+			}
+		}
+	}
+	if inspected < 20 {
+		t.Fatalf("inspected %d charts, want at least 20", inspected)
+	}
+}
+
 func TestDryRunFindingsAreStderrLinesCappedAtTwenty(t *testing.T) {
 	var lines []string
 	for i := 0; i < 30; i++ {

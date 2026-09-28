@@ -537,19 +537,27 @@ func clusterUnreachableCheck(name string, start time.Time, kubeContext string, s
 //
 // An Application with no destination namespace is left out, so a chart with no
 // Application keeps the pre-namespace behaviour rather than guessing.
+//
+// A chart whose file holds a document pinned to some other namespace is left
+// out too: kubectl rejects the whole file when -n disagrees with any
+// metadata.namespace in it. Those namespace-less siblings are cluster-scoped,
+// which -n never affects, so omitting the flag costs nothing.
 func destinationNamespaces(files []string) map[string]string {
 	dests := make(map[string]string)
+	pinned := make(map[string]map[string]bool)
 	for _, file := range files {
 		raw, err := os.ReadFile(file)
 		if err != nil {
 			continue
 		}
+		chart := strings.TrimSuffix(filepath.Base(file), ".yaml")
 		dec := yaml.NewDecoder(strings.NewReader(string(raw)))
 		for {
-			var app struct {
+			var doc struct {
 				Kind     string `yaml:"kind"`
 				Metadata struct {
-					Name string `yaml:"name"`
+					Name      string `yaml:"name"`
+					Namespace string `yaml:"namespace"`
 				} `yaml:"metadata"`
 				Spec struct {
 					Destination struct {
@@ -557,14 +565,28 @@ func destinationNamespaces(files []string) map[string]string {
 					} `yaml:"destination"`
 				} `yaml:"spec"`
 			}
-			if err := dec.Decode(&app); err != nil {
+			if err := dec.Decode(&doc); err != nil {
 				break
 			}
-			ns := strings.TrimSpace(app.Spec.Destination.Namespace)
-			if app.Kind != "Application" || app.Metadata.Name == "" || ns == "" {
+			if ns := strings.TrimSpace(doc.Metadata.Namespace); ns != "" {
+				if pinned[chart] == nil {
+					pinned[chart] = make(map[string]bool)
+				}
+				pinned[chart][ns] = true
+			}
+			ns := strings.TrimSpace(doc.Spec.Destination.Namespace)
+			if doc.Kind != "Application" || doc.Metadata.Name == "" || ns == "" {
 				continue
 			}
-			dests[app.Metadata.Name] = ns
+			dests[doc.Metadata.Name] = ns
+		}
+	}
+	for chart, dest := range dests {
+		for ns := range pinned[chart] {
+			if ns != dest {
+				delete(dests, chart)
+				break
+			}
 		}
 	}
 	return dests
