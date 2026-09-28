@@ -259,9 +259,11 @@ Prometheus is the right source for alerting and dashboards; the database is the 
 
 ## Operate
 
-- **First login**: open `https://litellm.<your-domain>` and sign in with the `master-key` field of
-  the `litellm-master-key-secret` item. Only the internal Gateway reaches it, so the dashboard is
-  LAN/tailnet-only until `litellm.route.gateway` says otherwise.
+- **First login**: open `https://litellm.<your-domain>` and sign in as user **`admin`** with the
+  `master-key` field of the `litellm-master-key-secret` item as the password. The username is
+  upstream's default: the release sets neither `UI_USERNAME` nor `UI_PASSWORD`, and with
+  `UI_PASSWORD` unset the proxy accepts the master key as the password. Only the internal Gateway
+  reaches the dashboard, so it is LAN/tailnet-only until `litellm.route.gateway` says otherwise.
 - **Rotate the master key** (safe, unlike the salt key): change the field in 1Password, let the
   `OnePasswordItem` sync, then restart the consumers. Every virtual key minted against the old
   master key keeps working; only admin access changes.
