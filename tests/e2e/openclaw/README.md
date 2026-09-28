@@ -27,6 +27,13 @@ task verify LEVEL=2
 | RBAC | Enumerate every ClusterRoleBinding and referenced effective ClusterRole, including service-account groups and direct User subjects. Reject cluster-wide Secret permissions or wildcard verbs. Impersonate the complete SA identity: Secret get allowed in openclaw, denied in default, with exact yes/no and exit codes. |
 | Routes | Enumerate every HTTPRoute; reject any backend targeting any Service in openclaw, and any route in openclaw parented to the shared internal Gateway. Other applications' internal routes are expected and provide a nonempty control; their mere existence is not an OpenClaw exposure. Operator and OpenClaw Service must already exist. |
 
+With `failFast: true`, failure in `inventory-env-and-provider-proxy` stops the suite
+before `operator-rbac-and-no-openclaw-route`. The RBAC and route assertions are then
+**unexecuted**, and the run provides **no security verdict**. Report their own positive
+controls before claiming PASS: applicable ClusterRoleBindings greater than zero,
+Secret impersonation `openclaw: yes, exit 0` and `default: no, exit 1`, and a nonempty
+HTTPRoute inventory.
+
 ## Deliberate limits and follow-up
 
 - **Real credential acceptance remains unproven.** `localdev/fakes/secrets.yaml` uses placeholders.
