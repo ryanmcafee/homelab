@@ -158,3 +158,9 @@ Each entry should include:
 - Level 0: 277 passed / 0 failed / 1 expected preview repository-secret skip. Full scripts initially: 565 passed / 0 failed. Biome and TypeScript pass via `bun x --no-install`; `task scripts:lint` is affected by the runner's nested-shell PATH reset (`biome: command not found`), even after locked dependency installation.
 - Live acceptance remains unverified: await a naturally occurring level-2 image-pull failure and inspect its kubelet event for registry/HTTP status. Do not rerun CI to manufacture this evidence. A `/v2/` mirror response demonstrates reachability only, not a successful upstream image pull.
 - Tooling limits: Serena MCP and `bd` are unavailable in this runner; the Paperclip issue and this log hold continuity. No production or registry configuration changed.
+### 2026-09-28 - Sync-aware localdev diagnostics (MCAA-468)
+
+- PR: https://github.com/ryanmcafee/homelab/pull/487; implementation commit `bbf81af`.
+- Diagnosis now selects Healthy/Succeeded/OutOfSync Applications, prints the failing `status.sync.status` field and sync detail, and collects their destination namespace diagnostics.
+- Regression demonstrated before the fix: OutOfSync failed and Synced passed. After: both pass; all 139 ArgoCD script tests pass (53 ms); TypeScript and level 0 pass (271 checks, 1 intentional skip, 10.177 s).
+- QA follow-up MCAA-470 owns real Kind level-2 sync-failure evidence and final CI verification. No production mutation. Ready-path API count is unchanged; drift runs the existing namespace collector (live duration pending QA).
