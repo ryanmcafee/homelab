@@ -2431,6 +2431,55 @@ spec:
                     annotations:
                       summary: 'PF_AUDIT is at its max_bytes ceiling and is refusing audit events sourced from PF_EVENTS'
                       description: 'PF_AUDIT is discard: new, so at the ceiling it refuses its own writes rather than stopping the bus (ADR-042). Refused events wait in PF_EVENTS and are lost from the audit trail once PF_EVENTS ages them out. docs/runbooks/jetstream-storage-budget.md.'
+          # LiteLLM gateway (docs/runbooks/litellm.md). The RED series come from
+          # the gateway's metrics sidecar (ServiceMonitor litellm-gateway, so
+          # job litellm-gateway-metrics after the Service name), Deployment and
+          # Job state from kube-state-metrics, the database from the CNPG
+          # PodMonitor. Only the gateway pages: the backend and the UI serve the
+          # admin surface, whose outage no /v1 caller sees.
+          homelab-litellm:
+            groups:
+              - name: homelab-litellm
+                rules:
+                  - alert: LiteLLMGatewayDown
+                    expr: 'max by (namespace, deployment) (kube_deployment_status_replicas_available{namespace="litellm", deployment="litellm-gateway"}) == 0'
+                    for: 5m
+                    labels:
+                      severity: critical
+                    annotations:
+                      summary: 'The LiteLLM gateway has no available replica'
+                      description: 'No litellm-gateway pod has been Ready for 5m, so every /v1 request fails. The pod events name the cause: a missing litellm-master-key-secret or litellm-api-keys keeps it Pending, an unreachable litellm-db-rw crash-loops it. docs/runbooks/litellm.md.'
+                  - alert: LiteLLMGatewayErrorRateHigh
+                    expr: 'sum by (namespace) (rate(litellm_proxy_failed_requests_metric_total{namespace="litellm"}[10m])) / sum by (namespace) (rate(litellm_proxy_total_requests_metric_total{namespace="litellm"}[10m])) > 0.1 and sum by (namespace) (rate(litellm_proxy_total_requests_metric_total{namespace="litellm"}[10m])) > 0.01'
+                    for: 10m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: '{{ $value | humanizePercentage }} of LiteLLM gateway requests are failing'
+                      description: 'More than 10 % of the requests the proxy accepted failed for 10m, over at least 6 requests in the window so a single failure on an idle gateway stays quiet. The "LiteLLM gateway" dashboard splits the rate by model: one provider failing looks different from an expired key. docs/runbooks/litellm.md.'
+                  - alert: LiteLLMGatewayMetricsUnavailable
+                    expr: 'max by (namespace) (up{namespace="litellm", job="litellm-gateway-metrics"}) == 0 or absent(up{namespace="litellm", job="litellm-gateway-metrics"})'
+                    for: 15m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: 'The LiteLLM gateway metrics sidecar is not being scraped'
+                      description: 'While this fires LiteLLMGatewayErrorRateHigh and the "LiteLLM gateway" dashboard are blind; traffic itself may be fine. Either the metrics container is down or the ServiceMonitor no longer selects litellm-gateway-metrics. docs/runbooks/litellm.md.'
+                  - alert: LiteLLMMigrationsJobFailed
+                    expr: 'max by (namespace, job_name) (max_over_time(kube_job_failed{namespace="litellm", job_name="litellm-migrations", condition="true"}[30m])) == 1'
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: 'The LiteLLM migrations Job gave up, so the sync is stuck'
+                      description: 'prisma migrate deploy exhausted its retries or its deadline, which fails the PreSync hook and leaves the Application unsynced on the previous schema. Read over 30m because ttlSecondsAfterFinished deletes the Job two minutes after it fails. docs/runbooks/litellm.md.'
+                  - alert: LiteLLMDatabaseNotReady
+                    expr: 'absent(cnpg_collector_up{namespace="litellm", cluster="litellm-db"})'
+                    for: 15m
+                    labels:
+                      severity: critical
+                    annotations:
+                      summary: 'The LiteLLM database litellm-db has no instance reporting'
+                      description: 'No CloudNativePG instance of litellm-db has been scraped for 15m, so the Cluster never finished bootstrapping or its pods are gone; the migrations Job and the gateway both block on it. HomelabPostgresClusterDown covers the other half, an instance that is scraped and reports PostgreSQL down. docs/runbooks/litellm.md.'
           # Service mesh (docs/service-mesh.md). Metrics: charts/istio-config
           # monitors and kube-state-metrics. ztunnel and istio-cni must run on
           # every node or enrolled pods there lose their traffic.
