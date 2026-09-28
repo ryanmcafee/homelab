@@ -262,6 +262,7 @@ function facts(): Facts {
     addons: 29,
     applications: 15,
     argoApplications: 68,
+    localdevApplications: 57,
     e2eSuites: ["plex", "grafana"],
     smokeJobs: ["smoke-plex"],
     routes: [
@@ -284,6 +285,17 @@ function facts(): Facts {
   };
 }
 
+test("expectedLiterals: the localdev:up line carries the Kind count, not production's", () => {
+  const readme = expectedLiterals(facts())
+    .filter((l) => l.file === "readme.md")
+    .map((l) => l.expect);
+  assert(readme.includes("57 Applications synced from your working tree"));
+  assert(readme.includes("68 ArgoCD Applications"));
+  assert(!readme.includes("68 Applications synced from your working tree"));
+  // Anchored, so a bare "57 Applications" elsewhere on the page cannot satisfy it.
+  assert(!readme.includes("57 Applications"));
+});
+
 test("expectedLiterals: envoy-internal hosts except the echo comparison route", () => {
   const lits = expectedLiterals(facts());
   const svg = lits
@@ -301,7 +313,7 @@ test("check: reports stale regions and literals, --fix rewrites what it can", ()
   const files = new Map<string, string>([
     [
       "readme.md",
-      "<!-- docs-check:begin badges -->\nstale\n<!-- docs-check:end badges -->\n32 addons, 15 applications, 73 Applications, 2 chainsaw suites, 73 ArgoCD Applications in all",
+      "<!-- docs-check:begin badges -->\nstale\n<!-- docs-check:end badges -->\n32 addons, 15 applications, 73 Applications synced from your working tree, 2 chainsaw suites, 73 ArgoCD Applications in all",
     ],
     ["docs/networking.md", "no region here"],
     [
@@ -318,7 +330,11 @@ test("check: reports stale regions and literals, --fix rewrites what it can", ()
   assert(whats.includes("readme.md: region badges is stale"));
   assert(whats.includes("docs/networking.md: region route-table missing"));
   assert(whats.includes('readme.md: expected "29 addons"'));
-  assert(whats.includes('readme.md: expected "68 Applications"'));
+  assert(
+    whats.includes(
+      'readme.md: expected "57 Applications synced from your working tree"',
+    ),
+  );
   assert(whats.includes('readme.md: expected "68 ArgoCD Applications"'));
   assert(whats.includes('.github/homelab.svg: expected "addons · 29"'));
   assertEquals(
@@ -329,7 +345,7 @@ test("check: reports stale regions and literals, --fix rewrites what it can", ()
   assertStringIncludes(readme, "badge/Talos-v1.14.0-");
   assertStringIncludes(
     readme,
-    "29 addons, 15 applications, 68 Applications, 2 chainsaw suites, 68 ArgoCD Applications in all",
+    "29 addons, 15 applications, 57 Applications synced from your working tree, 2 chainsaw suites, 68 ArgoCD Applications in all",
   );
   assertStringIncludes(fixed.get(".github/homelab.svg")!, "addons · 29");
   // the applications.md tables were empty rows -> header only, still rewritten
@@ -345,7 +361,7 @@ test("check: in-sync input yields no drift", () => {
     new Map([
       [
         "readme.md",
-        "<!-- docs-check:begin badges -->\n\n<!-- docs-check:end badges -->\n29 addons 15 applications 68 Applications 2 chainsaw suites 68 ArgoCD Applications in all",
+        "<!-- docs-check:begin badges -->\n\n<!-- docs-check:end badges -->\n29 addons 15 applications 57 Applications synced from your working tree 2 chainsaw suites 68 ArgoCD Applications in all",
       ],
       [
         "docs/networking.md",

@@ -25,10 +25,11 @@ Talos on Proxmox, ArgoCD app-of-apps, Cilium BGP to a UniFi gateway, no PII in g
 ## Boot it on your laptop
 
 Docker is the only requirement. The Kind loop runs the same charts production does, with fakes
-standing in for 1Password, TrueNAS and the UniFi gateway.
+standing in for 1Password, TrueNAS and the UniFi gateway, and syncs the Applications that need no
+real hardware — fewer than the production total further down this page.
 
 ```bash
-task localdev:up        # Kind (Cilium, registry caches, fakes) → ArgoCD → all 88 Applications synced from your working tree
+task localdev:up        # Kind (Cilium, registry caches, fakes) → ArgoCD → 59 Applications synced from your working tree
 task localdev:report    # what is Healthy, and what differs from main
 task localdev:down      # delete the cluster; the registry caches stay
 ```
