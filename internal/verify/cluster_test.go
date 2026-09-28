@@ -272,6 +272,105 @@ func TestDryRunArgv(t *testing.T) {
 	}
 }
 
+// renderedAddonsApp is the addons render as it actually ships: the Application
+// object lives in argocd and points its workload at another namespace.
+const renderedAddonsApp = `---
+# Source: addons/templates/argo-events.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: argo-events-config
+  namespace: argocd
+spec:
+  source:
+    path: charts/argo-events-config
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argo-events
+`
+
+// renderedEventBusAndSensor is the shape that made this fix necessary: two
+// objects with no metadata.namespace, where admitting the second one requires
+// the API server to resolve the first by namespace.
+const renderedEventBusAndSensor = `---
+# Source: argo-events-config/templates/eventbus.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: EventBus
+metadata:
+  name: default
+---
+# Source: argo-events-config/templates/sensor-selftest.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Sensor
+metadata:
+  name: trigger-selftest
+spec:
+  eventBusName: default
+`
+
+func TestDryRunAppliesEachChartInItsApplicationDestinationNamespace(t *testing.T) {
+	root := writeLocaldevRender(t, t.TempDir(), map[string]string{
+		"addons.yaml":             renderedAddonsApp,
+		"argo-events-config.yaml": renderedEventBusAndSensor,
+	})
+	r := &fakeClusterRunner{}
+
+	checks := DryRun(context.Background(), clusterOpts(r, root))
+
+	cmds := r.invocations("kubectl")
+	if len(cmds) != 2 {
+		t.Fatalf("want 2 kubectl invocations, got %d", len(cmds))
+	}
+
+	var configCmd, addonsCmd string
+	for _, c := range cmds {
+		line := c.line()
+		if strings.Contains(line, "argo-events-config.yaml") {
+			configCmd = line
+		}
+		if strings.Contains(line, "addons.yaml") {
+			addonsCmd = line
+		}
+	}
+
+	// The chart the Application deploys is dry-run where it will really sync,
+	// so the admission webhook resolves EventBus/default in argo-events.
+	if !strings.Contains(configCmd, "-n argo-events ") {
+		t.Errorf("argo-events-config must be dry-run in argo-events, got %s", configCmd)
+	}
+	// addons.yaml has no Application named "addons", so it keeps the old argv
+	// rather than borrowing the namespace of an Application it happens to hold.
+	if strings.Contains(addonsCmd, " -n ") {
+		t.Errorf("a chart with no matching Application must not be given a namespace, got %s", addonsCmd)
+	}
+
+	c := clusterCheck(t, checks, "dryrun/localdev/argo-events-config")
+	if !strings.Contains(c.Detail, "namespace argo-events") {
+		t.Errorf("the passing detail must name the namespace it validated, got %q", c.Detail)
+	}
+}
+
+func TestDryRunNamespaceIsOmittedWhenTheApplicationDeclaresNone(t *testing.T) {
+	// An Application with no spec.destination at all: guessing a namespace here
+	// would be worse than the documented default-namespace behaviour.
+	root := writeLocaldevRender(t, t.TempDir(), map[string]string{"cilium.yaml": renderedApp})
+	r := &fakeClusterRunner{}
+
+	checks := DryRun(context.Background(), clusterOpts(r, root))
+
+	cmds := r.invocations("kubectl")
+	if len(cmds) != 1 {
+		t.Fatalf("want 1 kubectl invocation, got %d", len(cmds))
+	}
+	if strings.Contains(cmds[0].line(), " -n ") {
+		t.Errorf("no destination namespace means no -n flag, got %s", cmds[0].line())
+	}
+	c := clusterCheck(t, checks, "dryrun/localdev/cilium")
+	if !strings.Contains(c.Detail, "default namespace") {
+		t.Errorf("detail should say it fell back to the context default, got %q", c.Detail)
+	}
+}
+
 func TestDryRunFindingsAreStderrLinesCappedAtTwenty(t *testing.T) {
 	var lines []string
 	for i := 0; i < 30; i++ {
