@@ -1055,16 +1055,22 @@ openclaw:
       apiKeysItemPath: vaults/homelab/items/openclaw-api-keys
       gatewayItemPath: vaults/homelab/items/openclaw-gateway
 
-  # charts/openclaw: the openclaw.rocks OpenClawInstance behind the internal
-  # Gateway (LAN/tailnet only; no route on the external Gateway).
+  # charts/openclaw: the openclaw.rocks OpenClawInstance, reachable in-cluster
+  # only. The internal Gateway serves the whole LAN, not just the tailnet, so no
+  # route is attached and no gateway is named -- a named Gateway here would keep
+  # openclaw in the docs/networking.md route inventory it no longer belongs to.
+  # A tailnet-only endpoint is the tracked way back to remote access:
+  #   route:
+  #     enabled: true
+  #     gateway:
+  #       name: envoy-internal
+  #       namespace: envoy-gateway-system
   instance:
+    route:
+      enabled: false
     image:
       repository: ghcr.io/openclaw/openclaw
       tag: "2026.9.6"
-    route:
-      gateway:
-        name: envoy-internal
-        namespace: envoy-gateway-system
     persistence:
       size: 1Gi
       storageClass: local-path

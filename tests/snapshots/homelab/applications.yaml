@@ -1324,6 +1324,10 @@ spec:
         crds:
           install: true
           keep: true
+        # Empty (the chart default) binds Secret get/list/watch/create/update/patch
+        # cluster-wide; naming the instance namespace makes that a namespaced Role.
+        watchNamespaces:
+          - openclaw
         metrics:
           enabled: true
           serviceMonitor:
@@ -1447,9 +1451,7 @@ spec:
             cpu: 500m
             memory: 1Gi
         route:
-          gateway:
-            name: envoy-internal
-            namespace: envoy-gateway-system
+          enabled: false
   destination:
     server: https://kubernetes.default.svc
     namespace: openclaw

@@ -117,7 +117,7 @@ from the same chart (`namespaces.yaml`, `oci-repositories.yaml`).
 | `mosquitto-config` | `charts/mosquitto-config` | git | — | — | — |
 | `nzbget` | `nzbget` | 29.4.2 | envoy-internal: nzbget | nzbget | smoke-nzbget |
 | `nzbget-config` | `charts/nzbget-config` | git | — | — | — |
-| `openclaw` | `charts/openclaw` | git | envoy-internal: openclaw | — | smoke-openclaw |
+| `openclaw` | `charts/openclaw` | git | — | — | smoke-openclaw |
 | `openclaw-dependencies` | `charts/openclaw-dependencies` | git | — | — | — |
 | `openclaw-operator` | `openclaw-operator` | 0.40.0 | — | — | — |
 | `paperclip` | `charts/paperclip` | git | envoy-internal: paperclip | paperclip | smoke-paperclip |
