@@ -35,11 +35,11 @@ adapters:
       enabled: false   # OPENAI_API_KEY
   # Further keys of the same Secret exposed the same way.
   #   ANTHROPIC_OAUTH_TOKEN  Claude subscription (`claude setup-token`, sk-ant-oat01-...)
-  # This is NOT CLAUDE_CODE_OAUTH_TOKEN, which charts/paperclip uses: OpenClaw
-  # lists that variable in CLAUDE_CLI_CLEAR_ENV and strips it before every
-  # managed Claude CLI run, so it would be silently discarded. OpenClaw reads the
-  # same `claude setup-token` value from ANTHROPIC_OAUTH_TOKEN instead
-  # (extensions/anthropic/provider-contract-api.ts, docs/providers/anthropic.md).
+  # This is NOT CLAUDE_CODE_OAUTH_TOKEN, which charts/paperclip uses: this chart
+  # wires OpenClaw's native Anthropic provider, whose only OAuth variable is
+  # ANTHROPIC_OAUTH_TOKEN (extensions/anthropic/provider-contract-api.ts envVars,
+  # src/secrets/provider-env-vars.ts). It carries the same `claude setup-token`
+  # value, per that provider's `setup-token` auth method.
   # A key missing from the Secret is simply unset.
   extraSecretEnv:
     - ANTHROPIC_OAUTH_TOKEN
