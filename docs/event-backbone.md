@@ -174,6 +174,44 @@ consequences worth stating rather than leaving to be discovered:
   hole, not advice — which is the argument for gating the same rules at level 0 as well, not
   for treating admission as decorative.
 
+### The trigger path, and two Argo Events defaults that quietly weaken it
+
+`charts/argo-events-config` ships a `calendar` EventSource and a Sensor, both named
+`trigger-selftest`, whose only job is to prove the path is live:
+
+```
+calendar tick --> EventSource --> EventBus `default` (JetStream) --> Sensor --> trigger `log-tick`
+```
+
+A `calendar` source is deliberate. It opens no listener and takes no credential, so the
+probe costs no trust boundary; a `webhook` source would accept unauthenticated triggers and
+needs Architect review first. It publishes only to the Argo Events bus — no `.ev`, `.wq` or
+`.dl` subject is involved, so `no_core_nats_bridge` does not apply to it. It runs hourly on
+homelab and every 20s in localdev, and an operator can turn it off with
+`selfTest.enabled: false`.
+
+`tests/e2e/argo-events/chainsaw-test.yaml` asserts the trace, matching the Sensor's own
+`Successfully processed trigger 'log-tick'` line (`pkg/sensors/listener.go`) in full. Nothing
+a render or a CR condition can check would have caught a Sensor that never fires.
+
+Two upstream defaults matter more than the probe does, both read from
+`pkg/sensors/listener.go` at the deployed version:
+
+- **`atLeastOnce` defaults to `false`, which makes every trigger at-most-once.** With it
+  false, `triggerActions` starts the trigger in a goroutine and returns `nil` immediately, so
+  the message is acked before the trigger has run and a failing trigger is only logged. Set
+  it to `true` and the call blocks, so the ack waits for the trigger.
+- **`dlqTrigger` cannot fire unless `atLeastOnce` is `true`.** The DLQ is invoked from the
+  `DoWithRetry` loop wrapped around `triggerActions`, on that call returning an error. Under
+  the default that call always returns `nil`, so the error branch holding the DLQ is
+  unreachable — a dead-letter path that is configured and can never run. `retryStrategy` is
+  similarly `Backoff{Steps: 1}` — one attempt, no retry — whenever it is left unset.
+
+The shipped Sensor sets `atLeastOnce: true`, a three-step `retryStrategy`, and a
+`dlqTrigger`. **The DLQ path is configured but not yet exercised**: proving it needs a
+trigger that fails, and the `log` trigger used here does not. That is an open gap, stated
+rather than implied by the presence of the field.
+
 ## Delivery and ordering guarantees
 
 Stated every time, because the alternative is each reader assuming whichever guarantee
@@ -186,6 +224,7 @@ suits them. **No path here is exactly-once end to end.**
 | `.dl` via `PF_DLQ` | **at-least-once** | per subject | consumer-side on the **original** `(source, id)` |
 | `.rq` on core NATS | **at-most-once** | none | none at the transport; the responder must be idempotent |
 | Argo Events trigger bus (`default`) | **at-least-once, and lossy under either bound** | per subject on the stream | none; a Sensor must tolerate redelivery |
+| Argo Events Sensor → trigger | **at-least-once only with `atLeastOnce: true`; at-most-once by default** | none | none; the trigger must be idempotent |
 
 That last row is the weakest guarantee on either bus, and it is stated here rather than
 left to Argo Events' documentation because it is the one a reader is most likely to assume
