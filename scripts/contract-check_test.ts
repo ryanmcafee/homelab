@@ -56,6 +56,7 @@ const stream = (p: Partial<Stream> & { name: string }): Stream => ({
   replicas: "<replicas>",
   retention: "limits",
   max_age: "168h",
+  max_bytes: "<max_bytes>",
   discard: "old",
   delivery: "at_least_once",
   ordering: "per_subject",
@@ -83,6 +84,10 @@ const TAXONOMY: Taxonomy = {
     }),
     stream({ name: "PF_DLQ", subjects: ["pf.*.*.*.*.*.dl"], max_age: "720h" }),
   ],
+  max_bytes_defaults: {
+    homelab: { PF_EVENTS: 1024, PF_WORK: 1024, PF_DLQ: 1024 },
+  },
+  limits: { server_max_payload: 1048576, max_event_bytes: 983040 },
 };
 
 const ENVELOPE: Envelope = {
@@ -659,9 +664,14 @@ test("renderViolations prints the rule key so CI output can be grepped", () => {
 // green because of it, and one stream in the set could not be created at all.
 // ============================================================================
 
+// Sizes whatever streams the test declares, so a test about one rule does not
+// also trip max-bytes-default-missing for a stream it invented.
 const taxonomyWith = (...streams: Stream[]): Taxonomy => ({
   ...TAXONOMY,
   streams,
+  max_bytes_defaults: {
+    homelab: Object.fromEntries(streams.map((s) => [s.name, 1024])),
+  },
 });
 const taxRules = (t: Taxonomy) => validateTaxonomy(t).map((v) => v.rule);
 
@@ -740,6 +750,98 @@ test("a hard-coded replicas breaks the fork-ability contract at stream one", () 
     stream({ name: "PF_EVENTS", subjects: ["pf.*.*.*.*.*.ev"], replicas: 3 }),
   );
   assert(taxRules(pinned).includes("replicas-hardcoded"));
+});
+
+test("a hard-coded max_bytes commits one operator's disk to the contract", () => {
+  const pinned = taxonomyWith(
+    stream({
+      name: "PF_EVENTS",
+      subjects: ["pf.*.*.*.*.*.ev"],
+      max_bytes: 2147483648,
+    }),
+  );
+  assert(taxRules(pinned).includes("max-bytes-hardcoded"));
+});
+
+test("a discard policy with no limit to act on is inert and is rejected", () => {
+  // The shape every stream in the contract had before ADR-042: a discard policy
+  // and nothing for it to trigger on. JetStream runs discard only at max_msgs,
+  // max_bytes or max_msgs_per_subject; age expiry ignores it. So the stream never
+  // fills, the policy never runs, and the only thing it can exhaust is the SHARED
+  // file store — which refuses writes for every stream on the peer (10047). The
+  // gate was green on all four streams in exactly this shape.
+  const inert = stream({ name: "PF_WORK", subjects: ["pf.*.*.*.*.*.wq"] });
+  delete inert.max_bytes;
+  const rules = taxRules(taxonomyWith(inert));
+  assert(rules.includes("discard-without-limit"));
+});
+
+test("a count limit satisfies discard just as a byte limit does", () => {
+  // The rule is about having SOMETHING for discard to act on, not about max_bytes
+  // specifically — max_msgs and max_msgs_per_subject are the other two triggers.
+  const counted = stream({
+    name: "PF_WORK",
+    subjects: ["pf.*.*.*.*.*.wq"],
+    max_msgs: 1000,
+  });
+  delete counted.max_bytes;
+  const rules = taxRules(taxonomyWith(counted));
+  assert(!rules.includes("discard-without-limit"));
+});
+
+test("a stream with no max_bytes default has a hole in the sum rule", () => {
+  const holed: Taxonomy = {
+    ...TAXONOMY,
+    streams: [stream({ name: "PF_EVENTS", subjects: ["pf.*.*.*.*.*.ev"] })],
+    max_bytes_defaults: { homelab: {} },
+  };
+  assert(taxRules(holed).includes("max-bytes-default-missing"));
+});
+
+test("a max_bytes default for a stream that does not exist is rejected", () => {
+  const ghost: Taxonomy = {
+    ...TAXONOMY,
+    streams: [stream({ name: "PF_EVENTS", subjects: ["pf.*.*.*.*.*.ev"] })],
+    max_bytes_defaults: { homelab: { PF_EVENTS: 1024, PF_GONE: 1024 } },
+  };
+  assert(taxRules(ghost).includes("max-bytes-default-unknown"));
+});
+
+test("a producer budget level with the server's max_payload is unreachable", () => {
+  // max_payload bounds headers PLUS body, so an envelope of exactly max_payload
+  // is refused at publish whatever any stream says. The contract set the two
+  // equal at 1 MiB and called it the event size limit.
+  const level: Taxonomy = {
+    ...taxonomyWith(
+      stream({ name: "PF_EVENTS", subjects: ["pf.*.*.*.*.*.ev"] }),
+    ),
+    limits: { server_max_payload: 1048576, max_event_bytes: 1048576 },
+  };
+  assert(taxRules(level).includes("max-event-bytes-unreachable"));
+});
+
+test("dropping server_max_payload must not silently disable the budget rule", () => {
+  const halfStated: Taxonomy = {
+    ...taxonomyWith(
+      stream({ name: "PF_EVENTS", subjects: ["pf.*.*.*.*.*.ev"] }),
+    ),
+    limits: { max_event_bytes: 983040 },
+  };
+  assert(taxRules(halfStated).includes("limits-incomplete"));
+});
+
+test("the ingest stream's max_msg_size must enforce the producer budget", () => {
+  const drifted: Taxonomy = {
+    ...taxonomyWith(
+      stream({
+        name: "PF_EVENTS",
+        subjects: ["pf.*.*.*.*.*.ev"],
+        max_msg_size: 1048576,
+      }),
+    ),
+    limits: { server_max_payload: 1048576, max_event_bytes: 983040 },
+  };
+  assert(taxRules(drifted).includes("max-msg-size-mismatch"));
 });
 
 test("a stream that ingests nothing at all is rejected", () => {
@@ -853,6 +955,54 @@ test("changing a stream's retention model or discard policy is breaking", () => 
   const found = checkTaxonomyCompatibility(base, rewritten).map((v) => v.rule);
   assert(found.includes("stream-retention-changed"));
   assert(found.includes("stream-discard-changed"));
+});
+
+test("narrowing a stream's max_msg_size retroactively refuses published events", () => {
+  const base = toBaseline(
+    registry(DEPLOYED),
+    taxonomyWith(
+      stream({
+        name: "PF_EVENTS",
+        subjects: ["pf.*.*.*.*.*.ev"],
+        max_msg_size: 983040,
+      }),
+    ),
+    ENVELOPE,
+  );
+  const narrowed = taxonomyWith(
+    stream({
+      name: "PF_EVENTS",
+      subjects: ["pf.*.*.*.*.*.ev"],
+      max_msg_size: 102400,
+    }),
+  );
+  assert(
+    checkTaxonomyCompatibility(base, narrowed)
+      .map((v) => v.rule)
+      .includes("stream-max-msg-size-narrowed"),
+  );
+  // Raising it accepts everything it used to, so it is additive.
+  const raised = taxonomyWith(
+    stream({
+      name: "PF_EVENTS",
+      subjects: ["pf.*.*.*.*.*.ev"],
+      max_msg_size: 1048576,
+    }),
+  );
+  assertEquals(checkTaxonomyCompatibility(base, raised), []);
+
+  // ABSENT MEANS UNLIMITED, so it is the WIDEST value, not the narrowest.
+  // Removing the cap is additive; adding one where there was none is breaking.
+  const uncapped = taxonomyWith(
+    stream({ name: "PF_EVENTS", subjects: ["pf.*.*.*.*.*.ev"] }),
+  );
+  assertEquals(checkTaxonomyCompatibility(base, uncapped), []);
+  const nowCapped = toBaseline(registry(DEPLOYED), uncapped, ENVELOPE);
+  assert(
+    checkTaxonomyCompatibility(nowCapped, narrowed)
+      .map((v) => v.rule)
+      .includes("stream-max-msg-size-narrowed"),
+  );
 });
 
 test("durationSeconds parses the Go-style durations the stream set uses", () => {

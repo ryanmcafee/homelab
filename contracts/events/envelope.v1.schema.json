@@ -59,7 +59,7 @@
       "description": "Required (CloudEvents makes it optional). The JSON Schema for `data`. RESOLUTION IS DEFINED, not left to each producer: the wire value is `<contracts_base_uri>` + the registry's relative `dataschema` path, where `contracts_base_uri` is a single operator-supplied setting ending in `/` (homelab default: the raw contracts path of the operator's own fork). The registry stores the relative path and the compatibility gate compares relative paths; only the base differs between installs. A payload whose shape is not published is not a contract."
     },
     "data": {
-      "description": "The event body. Shape is governed by `dataschema`, evolved additively within a major version: new optional fields only. Absent only for types declared `dataless: true` in the registry. The whole event \u2014 envelope plus body \u2014 must fit inside the bus message limit (subjects.v1.yaml `limits.max_event_bytes`, 1 MiB); a larger payload is referenced by URI, never embedded."
+      "description": "The event body. Shape is governed by `dataschema`, evolved additively within a major version: new optional fields only. Absent only for types declared `dataless: true` in the registry. The whole event \u2014 envelope plus body \u2014 must fit inside the producer budget (subjects.v1.yaml `limits.max_event_bytes`, 960 KiB, deliberately below the server's 1 MiB `max_payload` because that limit counts headers as well as body); a larger payload is referenced by URI, never embedded."
     },
     "tenant": {
       "type": "string",

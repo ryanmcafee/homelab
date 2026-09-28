@@ -45,6 +45,17 @@ software, which a fork still runs, and only the retrieval URI is the operator's.
 by `$id`; fetch by `dataschema`. Do not key a schema cache on the retrieval URI, or two installs
 of the same contract look like two contracts.
 
+**`contracts_base_uri` is specified but not yet configurable, deliberately.** No configuration key
+exists for it in [`configuration/schema/`](../../configuration/schema), so nothing today can
+actually resolve a `dataschema` on the wire. That is a stated gap, not an oversight to be discovered
+by the first producer: the resolution rule above is the contract, and the key lands **with** the
+first real producer — the SDK slice — rather than now. An operator-facing key that no code reads
+makes every fork answer a question about a URI nothing fetches, and the key's correct default
+depends on how the SDK loads schemas (bundled at build time, fetched at startup, or fetched lazily),
+which is the SDK slice's decision to make. Until then a producer has no resolution path and MUST NOT
+invent one; consumers compare by `$id`, which needs no configuration at all. Recorded as a condition
+on the SDK slice (ADR-042).
+
 ## 2. The subject taxonomy
 
 Seven tokens, always:
