@@ -34,7 +34,8 @@ search over whole rule text is satisfied by the explanatory prose after the stat
 scoped to the statement is satisfied by a cross-reference inside it — a rule can then say the one
 synonym this contract forbids and stay green (MCAA-483).
 
-Conformance beyond that is per consumer, and the two are not at the same level today:
+Conformance beyond that is per consumer, and `conformant` on each `consumers[]` entry states where
+that consumer actually is. `full` means conformant on every clause that binds it:
 
 - **`homelab-cli` (Go) is conformant.** `internal/etcd` and `internal/topology` compute the quorum
   numbers from this file, select the entry point from the observed membership, and carry
@@ -45,11 +46,18 @@ Conformance beyond that is per consumer, and the two are not at the same level t
   proves only whichever branch fires first. Its loader also refuses any contract naming a
   `health.conditions` entry it does not implement, so adding a condition here is a coordinated
   change across both, not an additive edit to this file.
-- **`cp-storage-migrate` (TypeScript) is not.** Its only assertion against this file is that
-  `CP_KEY_PATTERN` is `controlPlane.countKeyPattern`; `etcdHealth` predates the contract and reads
-  neither `health.predicates` nor `evaluation.points`. The entry clause binds consumers that run the
-  destructive removal procedure, which this one does not, but the quorum and predicate clauses bind
-  it and are unenforced. Tracked as a gap, not claimed as coverage.
+- **`cp-storage-migrate` (TypeScript) is conformant.** `scripts/lib/topology-contract.ts` is its
+  loader and predicate evaluator, and refuses an unimplemented condition the same way;
+  `scripts/cp-storage-migrate-conformance_test.ts` walks every `quorum.table` row through the gate
+  that consumes it and asserts each predicate refuses exactly the conditions the file composes into
+  it. Its member set is etcd's own membership (`talosctl etcd members`), not the addresses it
+  dialled. It runs the `fresh` run shape only — it stops a VM and starts it again and never removes
+  a member, so no observation can select `resume` — and the entry clause, which binds a consumer
+  running the destructive removal procedure, does not bind it.
+
+Adding a `health.conditions` entry is therefore a change to **both** consumers: each loader refuses
+to start on a contract naming a condition it cannot evaluate, which is deliberate — a guard that
+skips the condition it did not recognise is worse than one that refuses.
 
 **`cluster/` and `status/` have no compatibility gate, and the section below does not apply to
 them yet.** `scripts/contract-check.ts` hard-codes `CONTRACTS_DIR = "contracts/events"` (L485), so

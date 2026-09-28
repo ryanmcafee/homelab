@@ -655,11 +655,10 @@ test("the ordinary dead-target case refuses and names the procedure that applies
 });
 
 test("every consumer states how far its conformance actually goes", () => {
-  // A contract that lists a consumer reads as a contract that binds one. It binds
-  // homelab-cli, whose loader refuses a condition it does not implement; it does not
-  // bind cp-storage-migrate, whose only assertion against this file is the key pattern.
-  // Naming the level as data means the gap is reportable instead of being carried in
-  // prose that drifts, and a new consumer cannot be added without declaring one.
+  // A contract that lists a consumer reads as a contract that binds one. Both
+  // consumers are `full` today (MCAA-482), each with its own conformance test; the
+  // partial level stays in the vocabulary so a new consumer states where it actually
+  // is instead of being listed here and silently assumed to comply.
   const levels = ["full", "count-key-pattern-only"];
   for (const consumer of contract.consumers) {
     assert(
@@ -674,20 +673,27 @@ test("every consumer states how far its conformance actually goes", () => {
 });
 
 test("no consumer restates a contract value as a literal constant", () => {
-  // ADR-031: "a second implementation of the same logic is a review failure". The
-  // TypeScript consumer still carries EXPECTED_MEMBERS while #39 is in flight; this
-  // test names that debt rather than pretending it is gone, and flips to an assertion
-  // the moment both consumers read the contract.
+  // ADR-031: "a second implementation of the same logic is a review failure". This
+  // named the TypeScript consumer's EXPECTED_MEMBERS as debt while #39 was in flight,
+  // and flipped to an assertion the moment both consumers read the contract
+  // (MCAA-482). The raft tolerance is here for the same reason: a `= 10` in either
+  // language is health.raftIndexTolerance restated, and changing it is a contract
+  // change (ADR-030), not an edit to a constant.
   const repoRoot = join(import.meta.dir, "..");
   const offenders: string[] = [];
   for (const consumer of contract.consumers) {
     const src = readFileSync(join(repoRoot, consumer.path), "utf8");
-    if (/EXPECTED_MEMBERS\s*=\s*\d/.test(src)) offenders.push(consumer.path);
+    if (
+      /EXPECTED_MEMBERS\s*=\s*\d/.test(src) ||
+      /RAFT_TOLERANCE\s*=\s*\d/.test(src)
+    ) {
+      offenders.push(consumer.path);
+    }
   }
   assertEquals(
     offenders,
-    ["scripts/cp-storage-migrate.ts"],
-    "a consumer started or stopped hard-coding the member count; update this expectation deliberately, in the same change that moves it to the contract",
+    [],
+    "a consumer hard-codes a value this contract states; move it to the contract rather than relaxing this expectation",
   );
 
   // The symmetric half: while countSourceSchemaReady is false, the derivation may not
