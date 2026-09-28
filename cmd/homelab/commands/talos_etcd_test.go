@@ -12,9 +12,9 @@ import (
 // resolved builds a ResolvedConfig whose control-plane list is the one the
 // resolver derived, alongside raw values that deliberately disagree with it.
 func resolved(addresses []string, rawValues map[string]string) *config.ResolvedConfig {
-	members := make([]config.ControlPlaneMember, 0, len(addresses))
+	members := make([]config.NodeMember, 0, len(addresses))
 	for i, a := range addresses {
-		members = append(members, config.ControlPlaneMember{
+		members = append(members, config.NodeMember{
 			Ordinal: i + 1,
 			Key:     fmt.Sprintf("CP%d_IP", i+1),
 			Address: a,
