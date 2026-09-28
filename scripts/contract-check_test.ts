@@ -45,7 +45,23 @@ import {
   toBaseline,
   validateRegistry,
   validateTaxonomy,
+  CONTRACTS_ROOT,
+  collectViolations,
+  contractDocuments,
+  dirCounts,
+  discoverContractDirs,
+  loadDocument,
+  loadShapeBaseline,
+  toShapeBaseline,
 } from "./contract-check.ts";
+import {
+  boundDirection,
+  diffShape,
+  type DocumentShape,
+  listEntryIds,
+  nextMajorName,
+  projectShape,
+} from "./lib/contract-shape.ts";
 
 // ============================================================================
 // Fixtures — a minimal but structurally real taxonomy and registry
@@ -1599,5 +1615,334 @@ test("the baseline file is in sync with the registry, streams, envelope and payl
       loadEnvelope(),
       loadPayloads(registry),
     ),
+  );
+});
+
+// ============================================================================
+// The structural rules (ADR-048) — every contract directory, not just events/
+// ============================================================================
+
+type Doc = Record<string, unknown>;
+
+/** Two scalars, a bounded pair, two kinds of list: enough for every rule. */
+const LIMITS: Doc = { maxAgeSeconds: 30, minReplicas: 1 };
+const ENTRIES: Doc[] = [
+  { id: "first", role: "primary" },
+  { id: "second", role: "replica" },
+];
+const SHAPE_DOC: Doc = {
+  version: 1,
+  limits: LIMITS,
+  permitted: [1, 3, 5],
+  required: ["id", "name"],
+  entries: ENTRIES,
+};
+
+const doc = (over: Doc): Doc => ({ ...SHAPE_DOC, ...over });
+const limits = (over: Doc): Doc => doc({ limits: { ...LIMITS, ...over } });
+const withoutLimit = (drop: string): Doc => {
+  const kept = Object.fromEntries(
+    Object.entries(LIMITS).filter(([k]) => k !== drop),
+  );
+  return doc({ limits: kept });
+};
+
+const changed = (after: Doc, name = "thing.v1.yaml") =>
+  diffShape(projectShape(SHAPE_DOC), projectShape(after), name);
+const rulesFor = (after: Doc): string[] => changed(after).map((v) => v.rule);
+
+test("a list of objects is addressed by identity, a list of scalars by membership", () => {
+  const { fields } = projectShape(SHAPE_DOC);
+  // Keyed by `id`, so reordering the list is not a rename.
+  assertEquals(fields["entries.first.role"]?.kind, "string");
+  assertEquals(fields["entries.second.role"]?.kind, "string");
+  // Membership is sorted, so reordering a declared set is not a change either.
+  assertEquals(fields.permitted?.members, ["1", "3", "5"]);
+  assertEquals(fields["permitted.#0"], undefined);
+});
+
+test("reordering either kind of list produces no violation", () => {
+  assertEquals(
+    rulesFor(doc({ permitted: [5, 1, 3], entries: [ENTRIES[1], ENTRIES[0]] })),
+    [],
+  );
+});
+
+test("a list whose entries carry no identity is addressed positionally", () => {
+  assertEquals(listEntryIds([{ id: "a" }, { id: "b" }]), ["a", "b"]);
+  // No identity field at all: the quorum table's shape in contracts/cluster/.
+  assertEquals(listEntryIds([{ count: 1 }, { count: 3 }]), null);
+  // Colliding identities are as unusable as absent ones.
+  assertEquals(listEntryIds([{ id: "a" }, { id: "a" }]), null);
+  // A scalar mixed in means the list cannot be keyed either.
+  assertEquals(listEntryIds([{ id: "a" }, "b"]), null);
+  assertEquals(
+    Object.keys(projectShape({ rows: [{ count: 1 }, { count: 3 }] }).fields),
+    ["", "rows", "rows.#0", "rows.#0.count", "rows.#1", "rows.#1.count"],
+  );
+});
+
+test("min and max bounds are classified by keyword, not by substring", () => {
+  for (const key of [
+    "min",
+    "minimum",
+    "minLength",
+    "minItems",
+    "minimumReachableEndpoints",
+    "min_replicas",
+  ]) {
+    assertEquals(boundDirection(key), "min", key);
+  }
+  for (const key of [
+    "max",
+    "maximum",
+    "maxLength",
+    "maxObservationAgeSeconds",
+    "max_msg_size",
+    "maxUnavailable",
+  ]) {
+    assertEquals(boundDirection(key), "max", key);
+  }
+  // Not a bound: the direction is undecidable, so the gate must not guess one.
+  for (const key of [
+    "raftIndexTolerance",
+    "minimumsomething",
+    "maximal",
+    "formula",
+  ]) {
+    assertEquals(boundDirection(key), null, key);
+  }
+  // Only a number is classified; a duration string is the named residual.
+  assertEquals(
+    projectShape({ maxAge: "168h" }).fields.maxAge?.bound,
+    undefined,
+  );
+});
+
+test("a dot inside a key does not split the path", () => {
+  const { fields } = projectShape({ "application/json": { "x.y": 1 } });
+  assertEquals(fields["application/json.x\\.y"]?.value, "1");
+  // And the escaped segment still resolves to the right parent, so the removal
+  // is reported as a field and not as a list entry.
+  assertEquals(
+    diffShape(
+      projectShape({ "application/json": { "x.y": 1 } }),
+      projectShape({ "application/json": {} }),
+      "openapi.v1.yaml",
+    ).map((v) => v.rule),
+    ["contract-field-removed"],
+  );
+});
+
+test("removing a field is breaking and names the successor version", () => {
+  const violations = changed(withoutLimit("minReplicas"));
+  assertEquals(
+    violations.map((v) => v.rule),
+    ["contract-field-removed"],
+  );
+  assertEquals(violations[0]?.subject, "thing.v1.yaml limits.minReplicas");
+  assertStringIncludes(violations[0]?.message ?? "", "thing.v2.yaml");
+});
+
+test("renaming a field is reported as the removal of the old name", () => {
+  // The addition is additive on its own; only the disappearance is rejected, and
+  // the message has to say so or the author reads it as "the rename is fine".
+  const violations = changed(
+    doc({ limits: { maxAgeSeconds: 30, minInstances: 1 } }),
+  );
+  assertEquals(
+    violations.map((v) => v.rule),
+    ["contract-field-removed"],
+  );
+  assertStringIncludes(violations[0]?.message ?? "", "A rename is the removal");
+});
+
+test("removing a subtree reports once, not once per descendant", () => {
+  // `limits` has two children; an unsuppressed walk reports three violations and
+  // buries the one a reader acts on.
+  const violations = changed(
+    Object.fromEntries(
+      Object.entries(SHAPE_DOC).filter(([k]) => k !== "limits"),
+    ),
+  );
+  assertEquals(
+    violations.map((v) => v.rule),
+    ["contract-field-removed"],
+  );
+  assertEquals(violations[0]?.subject, "thing.v1.yaml limits");
+});
+
+test("removing an entry of a list is reported against the id, not the index", () => {
+  const violations = changed(doc({ entries: [ENTRIES[1]] }));
+  assertEquals(
+    violations.map((v) => v.rule),
+    ["contract-entry-removed"],
+  );
+  assertEquals(violations[0]?.subject, "thing.v1.yaml entries.first");
+  assertStringIncludes(violations[0]?.message ?? "", "`entries`");
+});
+
+test("changing a field's type is breaking in either direction", () => {
+  assertEquals(rulesFor(doc({ version: "1" })), ["contract-field-retyped"]);
+  assertEquals(rulesFor(doc({ limits: [1, 2] })), ["contract-field-retyped"]);
+});
+
+test("a scalar list becoming a list of objects is a retype, not a membership change", () => {
+  // Both keep `kind: "list"`, so the rule reads the presence of `members`; a
+  // comparator that only diffed `kind` would call this compatible.
+  const toObjects = changed(doc({ permitted: [{ id: "1" }] }));
+  assertEquals(
+    toObjects.map((v) => v.rule),
+    ["contract-field-retyped"],
+  );
+  assertStringIncludes(toObjects[0]?.message ?? "", "list of objects");
+
+  const toScalars = changed(doc({ entries: ["first", "second"] }));
+  assertEquals(
+    toScalars.map((v) => v.rule),
+    ["contract-field-retyped"],
+  );
+  assertStringIncludes(toScalars[0]?.message ?? "", "list of scalars");
+});
+
+test("narrowing a declared set is breaking; widening it is additive", () => {
+  const narrowed = changed(doc({ permitted: [3, 5] }));
+  assertEquals(
+    narrowed.map((v) => v.rule),
+    ["contract-list-member-removed"],
+  );
+  assertStringIncludes(narrowed[0]?.message ?? "", "dropped 1");
+  assertEquals(rulesFor(doc({ permitted: [1, 3, 5, 7] })), []);
+});
+
+test("a `required` list is breaking in BOTH directions", () => {
+  // The one rule where growing the set is the break: every producer that
+  // validated against the published contract starts failing.
+  assertEquals(rulesFor(doc({ required: ["id", "name", "tenant"] })), [
+    "contract-required-added",
+  ]);
+  assertEquals(rulesFor(doc({ required: ["name"] })), [
+    "contract-required-removed",
+  ]);
+});
+
+test("tightening a bound is breaking; loosening one is additive", () => {
+  const tightened = changed(limits({ maxAgeSeconds: 10 }));
+  assertEquals(
+    tightened.map((v) => v.rule),
+    ["contract-bound-tightened"],
+  );
+  assertStringIncludes(tightened[0]?.message ?? "", "max bound 30 -> 10");
+  assertEquals(rulesFor(limits({ minReplicas: 3 })), [
+    "contract-bound-tightened",
+  ]);
+
+  assertEquals(rulesFor(limits({ maxAgeSeconds: 60 })), []);
+  assertEquals(rulesFor(limits({ minReplicas: 0 })), []);
+});
+
+test("adding a field is additive, and a changed scalar is the named residual", () => {
+  assertEquals(rulesFor(limits({ timeoutSeconds: 5 })), []);
+  // MCAA-431: `check` does not reject this on its own. The value IS pinned, so
+  // the in-sync test below fails until the baseline is refreshed and the
+  // reviewer sees the change — unmissable rather than decided by the gate.
+  assertEquals(rulesFor(doc({ version: 2 })), []);
+  assertEquals(projectShape(SHAPE_DOC).fields.version?.value, "1");
+  assertEquals(projectShape(doc({ version: 2 })).fields.version?.value, "2");
+});
+
+test("nextMajorName increments the major in the filename", () => {
+  assertEquals(nextMajorName("topology.v1.yaml"), "topology.v2.yaml");
+  assertEquals(
+    nextMajorName("envelope.v9.schema.json"),
+    "envelope.v10.schema.json",
+  );
+  assertStringIncludes(nextMajorName("openapi.yaml"), "a new major version");
+});
+
+// ============================================================================
+// The real contracts in contracts/ — every directory
+// ============================================================================
+
+test("every directory under contracts/ is discovered and carries documents", () => {
+  const dirs = discoverContractDirs();
+  // If this list shrinks to one the gate is back to where MCAA-431 found it.
+  assert(
+    dirs.length >= 2,
+    `expected at least two contract directories, got ${dirs}`,
+  );
+  assertEquals(dirs.includes(`${CONTRACTS_ROOT}/events`), true);
+  for (const dir of dirs) {
+    assert(
+      contractDocuments(dir).length > 0,
+      `${dir} has no contract document`,
+    );
+    // A baseline is never mistaken for a document to pin.
+    assertEquals(
+      contractDocuments(dir).filter((f) => f.endsWith(".baseline.json")),
+      [],
+    );
+  }
+});
+
+test("the checked-in contracts pass every rule, event and structural", () => {
+  // quality-gates.md Sec. 2 point 4: a gate that passes against fixtures while
+  // the repository already carries a regression is not a gate. This is the
+  // assertion that reads the committed tree through CI's own entry point.
+  assertEquals(renderViolations(collectViolations()), "contract ok");
+});
+
+test("every directory's structural baseline is in sync with its documents", () => {
+  // The failure this guards: an additive edit lands, nobody runs
+  // `bun scripts/contract-check.ts baseline --write`, and the next breaking
+  // change is diffed against a stale, permissive baseline. It is also what makes
+  // a changed scalar value unmissable — see the residual test above.
+  for (const dir of discoverContractDirs()) {
+    assertEquals(loadShapeBaseline(dir), toShapeBaseline(dir), dir);
+  }
+});
+
+test("each directory's projection pins a non-trivial number of fields", () => {
+  // A projection that silently stopped walking, or a document that stopped being
+  // parsed, leaves every rule above unable to fire while the gate stays green.
+  // These floors sit well under the current counts: they catch a collapse, they
+  // are not meant to be edited on every contract change.
+  for (const dir of discoverContractDirs()) {
+    const counts = dirCounts(dir);
+    assert(counts.fields >= 50, `${dir} pins only ${counts.fields} fields`);
+    assert(
+      counts.entries >= 4,
+      `${dir} pins only ${counts.entries} list entries`,
+    );
+    assert(
+      counts.scalarLists >= 2,
+      `${dir} pins only ${counts.scalarLists} declared sets`,
+    );
+    assert(counts.bounds >= 1, `${dir} classified no numeric bound`);
+  }
+});
+
+test("a removal from the real cluster contract is caught, not just from a fixture", () => {
+  // Proves the rules reach the committed document rather than only the fixture
+  // above: drop fields from the real projection and the gate must reject it.
+  const dir = `${CONTRACTS_ROOT}/cluster`;
+  const file = "topology.v1.yaml";
+  const current = projectShape(loadDocument(dir, file));
+  const reduced: DocumentShape = {
+    fields: Object.fromEntries(
+      Object.entries(current.fields).filter(
+        ([path]) =>
+          path !== "quorum.formula" && !path.startsWith("health.predicates."),
+      ),
+    ),
+  };
+  const violations = diffShape(current, reduced, `${dir}/${file}`);
+  assertEquals([...new Set(violations.map((v) => v.rule))].sort(), [
+    "contract-entry-removed",
+    "contract-field-removed",
+  ]);
+  assertEquals(
+    violations.some((v) => v.subject === `${dir}/${file} quorum.formula`),
+    true,
   );
 });

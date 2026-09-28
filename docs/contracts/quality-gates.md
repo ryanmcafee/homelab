@@ -17,15 +17,17 @@ introducing a parallel system.
 
 | Level | Cost | Boundary gates it carries |
 |---|---|---|
-| **0 — static** | seconds, every PR | Event contract check, OpenAPI compatibility diff, CRD round-trip, fork-ability checks 1–2, render + schema validation, ADR-record uniqueness |
+| **0 — static** | seconds, every PR | Contract compatibility gate over every directory under `contracts/`, OpenAPI compatibility diff, CRD round-trip, fork-ability checks 1–2, render + schema validation, ADR-record uniqueness |
 | **1 — Kind dry-run** | minutes | Operator idempotency (reconcile twice, assert zero writes), upgrade diff, conversion webhook both directions |
 | **2 — Kind live + e2e** | longer | Consumer contract tests against a live JetStream, rollback drill, restore drill |
 
 ## 2. Contract tests
 
 **Every boundary has a test that fails when the contract changes, and it lives with the
-contract, not with the implementation.** The event gate is the worked example and the pattern
-the others follow:
+contract, not with the implementation.** The event gate is the worked example, and since ADR-048
+the other contracts are not merely expected to follow it — the same four parts are applied to every
+directory under `contracts/` by the same command, and a contract with no frozen baseline fails the
+gate rather than sitting outside it:
 
 1. A **frozen baseline** in the repository (`contracts/events/registry.v1.baseline.json`).
 2. A **diff** against it.
@@ -33,7 +35,9 @@ the others follow:
    you what you broke rather than asking a reviewer to spot it.
 4. A **test for the checker itself** (`scripts/contract-check_test.ts`), including a test that
    the baseline is in sync with the registry — otherwise an additive change silently leaves a
-   stale, permissive baseline and the *next* breaking change passes.
+   stale, permissive baseline and the *next* breaking change passes — and a test that runs the
+   checker against the committed contracts, because a gate that passes against fixtures while the
+   repository already carries a regression is not a gate.
 
 Point 4 is the one that is usually skipped and the one that decides whether the gate is real.
 A compatibility checker with no tests is a compatibility checker that quietly stopped working.
