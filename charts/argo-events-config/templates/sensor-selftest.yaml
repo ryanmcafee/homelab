@@ -16,8 +16,9 @@ spec:
   triggers:
     - template:
         name: log-tick
-        log:
-          intervalSeconds: 0
+        # Left empty: the controller rewrites the spec and drops
+        # intervalSeconds: 0, so setting it keeps the Application OutOfSync.
+        log: {}
       # Argo Events defaults this to false, which acks the message and runs the
       # trigger in a goroutine -- at-most-once, and a failure is only logged
       # (pkg/sensors/listener.go triggerActions). True makes the trigger a
@@ -42,6 +43,5 @@ spec:
         atLeastOnce: true
         template:
           name: log-tick-dlq
-          log:
-            intervalSeconds: 0
+          log: {}
 {{- end }}
