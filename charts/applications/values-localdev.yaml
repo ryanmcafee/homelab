@@ -1107,7 +1107,9 @@ litellm:
           api_key: os.environ/ANTHROPIC_API_KEY
 
     # The chart's own defaults ask for 1 CPU / 4Gi per proxy replica, sized for
-    # a cloud node pool rather than a homelab node.
+    # a cloud node pool rather than a homelab node. The migrations Job is the
+    # exception: preparing the Prisma CLI toolchain is OOMKilled under 1Gi in
+    # either environment, so its limit is a requirement, not headroom.
     gateway:
       resources:
         requests:
@@ -1136,7 +1138,7 @@ litellm:
       resources:
         requests:
           cpu: 50m
-          memory: 128Mi
+          memory: 256Mi
         limits:
-          cpu: 500m
-          memory: 512Mi
+          cpu: "1"
+          memory: 1536Mi
