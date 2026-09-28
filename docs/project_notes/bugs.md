@@ -12,6 +12,12 @@ Each entry should include:
 
 ## Entries
 
+### 2026-09-28 - spegel's ten-registry mirror list never reached the DaemonSet (#469)
+- **Issue**: MCAA-396 asked whether spegel mirrors argo-cd's redis, whose image is `ecr-public.aws.com/docker/library/redis` while `charts/addons/values.yaml` listed `https://public.ecr.aws`
+- **Root Cause**: spegel chart 0.6.0 has no `registries` key at all -- it is `mirroredRegistries`, and its empty default mirrors every registry. `resolveLatestTag` and `appendMirrors` were renamed to `registryFilters` and `prependExisting`. The chart ships no `values.schema.json`, so helm accepted all three unknown keys, ArgoCD reported Synced, and `tests/snapshots/` recorded them as expected output
+- **Solution**: Removed the three dead keys from `charts/addons/values.yaml` and `charts/addons/templates/spegel.yaml`. Rendering the upstream chart with the Application's own `spec.source.helm.values` is byte-identical before and after, which is the proof they were inert. Mirroring was already all-registries, so argo-cd's redis was never missing a cache hit
+- **Prevention**: `helm show values <chart> --version <v>` before trusting a values key; translating a dead allowlist to its real key name would have been a regression here. MCAA-434 tracks a CI gate for this class
+
 ### 2026-09-26 - plex and otel-collector-gateway permanently OutOfSync on their HTTPRoute (#387)
 - **Issue**: After the Envoy Gateway cutover, `plex` and `otel-collector-gateway` stayed `OutOfSync`/`Healthy` with only the HTTPRoute out of sync; `argocd app diff` showed nothing
 - **Root Cause**: The `plex-media-server` and `opentelemetry-collector` chart templates render `backendRefs` with only `name` and `port` and accept no `group`/`kind`, so the API server adds `group: ""`, `kind: Service` and `weight: 1`, which the controller's diff flags on every refresh
