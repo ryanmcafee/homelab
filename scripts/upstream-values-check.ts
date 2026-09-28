@@ -1,6 +1,12 @@
 #!/usr/bin/env bun
 
-import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
+import {
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { isNotFound } from "./lib/errors.ts";
@@ -156,7 +162,9 @@ export function declaredPaths(
   if (values === null || typeof values !== "object" || Array.isArray(values)) {
     return into;
   }
-  for (const [key, child] of Object.entries(values as Record<string, unknown>)) {
+  for (const [key, child] of Object.entries(
+    values as Record<string, unknown>,
+  )) {
     const path = prefix ? `${prefix}.${key}` : key;
     into.set(path, isOpen(child) ? "open" : "set");
     declaredPaths(child, path, into);
@@ -254,9 +262,7 @@ export function unusedEntries(
   findings: Finding[],
   allow: AllowEntry[],
 ): AllowEntry[] {
-  return allow.filter(
-    (e) => !findings.some((f) => isAllowed(f, [e])),
-  );
+  return allow.filter((e) => !findings.some((f) => isAllowed(f, [e])));
 }
 
 /** Parse the allowlist document. Every field is required. */
@@ -346,7 +352,9 @@ export function mergeValues(lower: unknown, upper: unknown): unknown {
   ) {
     return upper;
   }
-  const out: Record<string, unknown> = { ...(lower as Record<string, unknown>) };
+  const out: Record<string, unknown> = {
+    ...(lower as Record<string, unknown>),
+  };
   for (const [k, v] of Object.entries(upper as Record<string, unknown>)) {
     out[k] = k in out ? mergeValues(out[k], v) : v;
   }
@@ -462,7 +470,8 @@ async function resolveCharts(
   errors: { key: string; error: string }[];
 }> {
   const unique = new Map<string, ChartSource>();
-  for (const s of sources) if (!unique.has(cacheKey(s))) unique.set(cacheKey(s), s);
+  for (const s of sources)
+    if (!unique.has(cacheKey(s))) unique.set(cacheKey(s), s);
 
   const declared = new Map<string, Map<string, Declaration>>();
   const errors: { key: string; error: string }[] = [];
@@ -548,7 +557,8 @@ function splitEnvs(value: string | undefined): string[] {
     .split(",")
     .map((s) => s.trim())
     .filter(Boolean);
-  if (envs.length === 0) throw new Error("--env needs at least one environment");
+  if (envs.length === 0)
+    throw new Error("--env needs at least one environment");
   return envs;
 }
 
@@ -557,7 +567,9 @@ export async function main(argv: string[]): Promise<number> {
   const allow = parseAllowlist(
     readFileSync(join(opts.repoRoot, ALLOWLIST_PATH), "utf8"),
   );
-  const sources = opts.envs.flatMap((env) => collectSources(opts.repoRoot, env));
+  const sources = opts.envs.flatMap((env) =>
+    collectSources(opts.repoRoot, env),
+  );
   if (sources.length === 0) {
     log.fail(
       `no Application chart source with helm values in ${opts.envs.join(", ")}; the check inspected nothing`,
@@ -582,7 +594,8 @@ export async function main(argv: string[]): Promise<number> {
     console.log(
       JSON.stringify(
         {
-          pass: reported.length === 0 && errors.length === 0 && unused.length === 0,
+          pass:
+            reported.length === 0 && errors.length === 0 && unused.length === 0,
           inspected: { sources: sources.length, charts: declared.size },
           findings: reported,
           allowed: all.length - reported.length,
