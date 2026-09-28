@@ -1,7 +1,10 @@
 package config
 
 import (
+	"errors"
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -116,5 +119,52 @@ func TestSchemaKeyProperties(t *testing.T) {
 				t.Errorf("Enum len = %d, want %d", len(k.Enum), tt.wantEnumN)
 			}
 		})
+	}
+}
+
+// A *.schema.yml file is a naming slip, not a bystander. Skipping it would
+// drop every key it declares, including required ones, with exit 0.
+func TestLoadSchemaDirRejectsYmlExtension(t *testing.T) {
+	dir := t.TempDir()
+	writeSchemaDirFile(t, dir, "network.schema.yaml", "keys:\n  LAN_CIDR:\n    required: true\n    description: lan\n")
+	writeSchemaDirFile(t, dir, "infrastructure.schema.yml", "keys:\n  PROXMOX_NODE:\n    required: true\n    description: node\n")
+
+	schema, err := LoadSchemaDir(dir)
+	if err == nil {
+		_, present := schema.Keys["PROXMOX_NODE"]
+		t.Fatalf("no error returned; PROXMOX_NODE present=%v", present)
+	}
+	if !errors.Is(err, ErrSchemaExtension) {
+		t.Errorf("error does not wrap ErrSchemaExtension: %v", err)
+	}
+	for _, want := range []string{"infrastructure.schema.yml", "infrastructure.schema.yaml"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q does not mention %q", err, want)
+		}
+	}
+}
+
+// The rejection must stay narrow: files that are genuinely not schema files
+// are still ignored, so the directory can hold a README or scratch YAML.
+func TestLoadSchemaDirIgnoresUnrelatedFiles(t *testing.T) {
+	dir := t.TempDir()
+	writeSchemaDirFile(t, dir, "network.schema.yaml", "keys:\n  LAN_CIDR:\n    required: true\n    description: lan\n")
+	writeSchemaDirFile(t, dir, "README.md", "# schemas\n")
+	writeSchemaDirFile(t, dir, "notes.yaml", "scratch: true\n")
+	writeSchemaDirFile(t, dir, "values.yml", "scratch: true\n")
+
+	schema, err := LoadSchemaDir(dir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(schema.Keys) != 1 {
+		t.Errorf("got %d keys, want 1", len(schema.Keys))
+	}
+}
+
+func writeSchemaDirFile(t *testing.T, dir, name, body string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644); err != nil {
+		t.Fatalf("writing %s: %v", name, err)
 	}
 }
