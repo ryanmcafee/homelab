@@ -54,7 +54,11 @@ route:
   # Two upstream entries are left out because neither belongs on a routable
   # hostname: /metrics (the ServiceMonitor scrapes it in-cluster) and
   # /debug/memory/summary (an upstream e2e memory gate that reports a worker's
-  # RSS). Re-check this list on every chart bump.
+  # RSS).
+  #
+  # task verify:litellm-routes compares every list below with the upstream
+  # Ingress on each chart bump and names the paths that moved; the two
+  # exemptions live in scripts/litellm-route-drift.ts.
   gatewayExactPaths:
     # /test is the Admin UI's connection test; its children /test/connection
     # and /test/tools/list are backend MCP management routes, so a prefix here
