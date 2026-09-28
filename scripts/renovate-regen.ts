@@ -61,12 +61,13 @@ export const GENERATED_PATHS = [
   "readme.md",
   "docs/",
   ".github/homelab.svg",
+  "Claude.md",
 ];
 
 /** The regeneration steps, in dependency order: values and schemas feed the
- * snapshots, so the snapshots are regenerated last. Same set, same order as
- * `upgrade.yml` job `regenerate`, plus `docs:check --fix`, which owns the
- * readme version badges and the addons table that a chart bump also moves. */
+ * snapshots, so the snapshots are regenerated last. Same set as `upgrade.yml`
+ * job `regenerate`, plus `docs:check --fix`, which owns the readme version
+ * badges and the addons table that a chart bump also moves. */
 export const REGEN_STEPS: { desc: string; cmd: string[] }[] = [
   { desc: "localdev values", cmd: ["task", "config:export:localdev"] },
   { desc: "vendored CRD schemas", cmd: ["task", "schemas:vendor"] },
@@ -75,6 +76,7 @@ export const REGEN_STEPS: { desc: string; cmd: string[] }[] = [
     cmd: ["task", "test:snapshot", "--", "--update"],
   },
   { desc: "generated doc regions", cmd: ["task", "docs:check", "--", "--fix"] },
+  { desc: "embedded snippets", cmd: ["task", "docs:embedme"] },
 ];
 
 export interface RegenIdentity {
