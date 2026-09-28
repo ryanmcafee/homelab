@@ -424,10 +424,8 @@ conformance:
         No two principals name the same (stream, consumer) pair, so a `bound_puller`'s
         `durable_is_exclusive` is a property of the declaration and not a comment.
     - id: stream_and_consumer_name_account
-      pending: MCAA-486
       asserts: Every rendered `Stream` and `Consumer` sets `spec.account`.
     - id: callout_allowed_accounts_bounded
-      pending: MCAA-486
       asserts: >-
         When the callout backend is configured, `allowed_accounts` is non-empty and excludes
         `$SYS` -- v2.15.0 delegates EVERY account when it is left empty, so the secure value is

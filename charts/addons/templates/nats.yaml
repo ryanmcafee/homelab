@@ -1,4 +1,6 @@
 {{- if .Values.nats.enabled }}
+{{- $accounts := include "addons.natsAccountsMerge" . }}
+{{- $boxPrincipals := compact (splitList "," (default "" .Values.nats.natsBoxPrincipals)) }}
 # NATS with JetStream file persistence - the platform event bus
 # Sync Wave: 10 (after kube-prometheus-stack at 9, whose PodMonitor the exporter needs)
 ---
@@ -33,6 +35,14 @@ spec:
       releaseName: nats
       values: |
         config:
+          {{- with $accounts }}
+          # ADR-043's static backend. One account per tenant IS the enforcement, and the
+          # server refuses an unauthenticated connection the moment this block exists: no
+          # `no_auth_user` is set, so a client with no nkey reaches no account at all.
+          # Generated from contracts/events/bus-principals.v1.yaml; see _nats-accounts.tpl.
+          merge:
+            {{- . | nindent 12 }}
+          {{- end }}
           cluster:
             enabled: {{ gt (int .Values.nats.replicas) 1 }}
             replicas: {{ .Values.nats.replicas }}
@@ -63,6 +73,32 @@ spec:
         container:
           resources:
             {{- toYaml .Values.nats.resources | nindent 12 }}
+        {{- if $accounts }}
+        # Every `nats` command becomes a named context with a credential
+        # (docs/event-backbone.md). The chart's own `default` context carries none, so it is
+        # removed rather than left to connect anonymously against an account block that
+        # refuses it. With no principal named here the box has no credential at all and is
+        # not deployed, which is the honest state -- not a pod that cannot connect.
+        natsBox:
+          enabled: {{ gt (len $boxPrincipals) 0 }}
+          contexts:
+            default: null
+            {{- range $principal := $boxPrincipals }}
+            {{ $principal }}:
+              nkey:
+                # The PRIVATE seed, delivered by External Secrets. The server holds only the
+                # matching public key, which is what makes rotation a Secret update.
+                secretName: {{ $.Values.nats.credentialSecretPrefix }}{{ $principal }}
+                key: nats.nk
+              merge:
+                # Pins the client's inbox to the prefix its subscribe grant covers. A client
+                # left on the library default `_INBOX` gets no reply it can read.
+                inbox_prefix: _INBOX.{{ $principal }}
+            {{- end }}
+          {{- with first $boxPrincipals }}
+          defaultContextName: {{ . }}
+          {{- end }}
+        {{- end }}
 
   destination:
     server: https://kubernetes.default.svc

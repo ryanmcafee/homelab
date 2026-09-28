@@ -13,6 +13,11 @@ spec:
   description: {{ $stream.description | quote }}
   servers:
     - {{ $.Values.natsUrl }}
+  {{- with $.Values.account.name }}
+  # Names the Account resource NACK connects through. Without it the controller falls back to
+  # its server-wide credential and the stream lands in whatever account that one reaches.
+  account: {{ . }}
+  {{- end }}
   {{- with $stream.subjects }}
   subjects:
     {{- toYaml . | nindent 4 }}

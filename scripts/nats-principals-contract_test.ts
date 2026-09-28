@@ -20,8 +20,12 @@
 import { test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { assert, assertEquals } from "./lib/assert.ts";
-import { parse as parseYaml } from "./lib/yaml.ts";
+import { assert, assertEquals, assertStringIncludes } from "./lib/assert.ts";
+import { parse as parseYaml, parseAll as parseYamlAll } from "./lib/yaml.ts";
+import {
+  ARTIFACT_PATH,
+  renderFromDeclaration,
+} from "./render-nats-accounts.ts";
 
 const ROOT = join(import.meta.dir, "..");
 const DECLARATION_PATH = join(
@@ -32,6 +36,8 @@ const DECLARATION_PATH = join(
 );
 const REGISTRY_PATH = join(ROOT, "contracts", "events", "registry.v1.yaml");
 const CHART_VALUES_PATH = join(ROOT, "charts", "nats-config", "values.yaml");
+const NATS_CONFIG_CHART = join(ROOT, "charts", "nats-config");
+const ADDONS_CHART = join(ROOT, "charts", "addons");
 
 /** The tenant placeholder. A literal tenant token is one operator's deployment. */
 const TENANT = "<tenant>";
@@ -585,6 +591,220 @@ test("a principal whose durable nothing creates yet names its tracking issue", (
     pendingCount < declaration.principals.length,
     "every principal is pending, so the chart cross-check reads nothing",
   );
+});
+
+/** `helm template`, as the exit code and the combined output the guards write to. */
+function helmTemplate(
+  chart: string,
+  ...args: string[]
+): { code: number; output: string } {
+  const proc = Bun.spawnSync(["helm", "template", "probe", chart, ...args]);
+  if (proc.exitCode === null) {
+    throw new Error(`helm template was killed by a signal: ${proc.signalCode}`);
+  }
+  return {
+    code: proc.exitCode,
+    output: `${proc.stdout.toString()}${proc.stderr.toString()}`,
+  };
+}
+
+/** Marks a generated render value so a diff, a render or a scan reads it as not a credential. */
+const NOT_A_CREDENTIAL = "SYNTHETICRENDERFIXTURE";
+
+/**
+ * The `--set` pair that gives a principal a public nkey for a render.
+ *
+ * The chart only requires a `<principal>=<key>` pair and never inspects the key material, so the
+ * value is derived from the principal name at run time. Nothing pairs an nkey assignment with a
+ * literal token in the tree, which is what a committed placeholder did.
+ */
+function publicNkeyArgs(principal: string): string[] {
+  const generated = `U${principal.toUpperCase()}${NOT_A_CREDENTIAL}`;
+  return ["--set", `nats.principalNkeys=${principal}=${generated}`];
+}
+
+test("the committed accounts artifact matches the declaration", () => {
+  // charts/addons cannot read `contracts/` -- Helm's `.Files.Get` is scoped to the chart
+  // directory -- so the expansion is committed. This is the only thing pinning the copy the
+  // server renders from to the declaration it claims to implement; without it a grant edited
+  // in one file and not the other ships as two permission models.
+  assertEquals(
+    readFileSync(ARTIFACT_PATH, "utf8"),
+    renderFromDeclaration(),
+    "charts/addons/files/nats-accounts.gen.yaml is stale; regenerate it with `bun scripts/render-nats-accounts.ts`",
+  );
+});
+
+test("stream_and_consumer_name_account: every rendered Stream and Consumer sets spec.account", () => {
+  // A resource without `spec.account` falls back to NACK's server-wide credential, so it is
+  // created in whatever account that one reaches. Reading the values file would not catch it:
+  // only a render exercises the `with` that emits the field.
+  const rendered = helmTemplate(
+    NATS_CONFIG_CHART,
+    "--set",
+    "account.name=tenant-probe",
+    "--set",
+    "account.natsName=TENANT_PROBE",
+    "--set",
+    "account.credentialSecret=nats-principal-nack",
+  );
+  assert(
+    rendered.code === 0,
+    `helm template exited ${rendered.code}\n${rendered.output}`,
+  );
+  const docs = parseYamlAll(rendered.output).filter(
+    (doc): doc is { kind: string; metadata: { name: string }; spec: Record<string, unknown> } =>
+      doc !== null && typeof doc === "object",
+  );
+  let inspected = 0;
+  for (const doc of docs) {
+    if (doc.kind !== "Stream" && doc.kind !== "Consumer") continue;
+    inspected += 1;
+    assertEquals(
+      doc.spec.account,
+      "tenant-probe",
+      `${doc.kind} ${doc.metadata.name} does not name the tenant account`,
+    );
+  }
+  // A gate whose matcher reaches nothing passes green: the chart declares one resource per
+  // stream plus one per consumer, and the declaration binds every one of them.
+  const expected =
+    chart.streams.length + chart.consumers.length;
+  assertEquals(
+    inspected,
+    expected,
+    `${inspected} of the chart's ${expected} Stream and Consumer resources were inspected`,
+  );
+
+  // And the Account they name is NACK's own tenant credential, never `$SYS` -- the `nack`
+  // chart's `nats-sys-creds` default invites exactly that (ADR-043 D4). `spec.nkey` and not
+  // `spec.creds`: the latter is an nsc credentials file and the two are not interchangeable.
+  const accounts = docs.filter((doc) => doc.kind === "Account");
+  assertEquals(accounts.length, 1, "the chart rendered no single Account");
+  const account = accounts[0].spec as {
+    name: string;
+    nkey?: { secret?: { name?: string } };
+    creds?: unknown;
+  };
+  assertEquals(account.name, "TENANT_PROBE");
+  assert(
+    account.creds === undefined,
+    "the Account carries spec.creds, which is an nsc credentials file rather than the nkey the static backend issues",
+  );
+  assertEquals(account.nkey?.secret?.name, "nats-principal-nack");
+});
+
+test("stream_and_consumer_name_account: the field is absent only when no account is configured", () => {
+  // The other half, and the one that keeps the assertion above from passing on a template
+  // that emits the field unconditionally: with no account the chart is the pre-ADR-043
+  // anonymous bus, and a hard-coded `spec.account` would break it.
+  const rendered = helmTemplate(NATS_CONFIG_CHART);
+  assert(
+    rendered.code === 0,
+    `helm template exited ${rendered.code}\n${rendered.output}`,
+  );
+  assert(
+    !/^\s+account:/m.test(rendered.output),
+    "the chart renders spec.account with no account configured",
+  );
+});
+
+test("callout_allowed_accounts_bounded: an unbounded callout is refused before it renders", () => {
+  // v2.15.0 delegates EVERY account to the callout service when `allowed_accounts` is left
+  // empty, so the secure value is not the default. The bound is checked before the backend
+  // exists, because otherwise the first configuration that could get it wrong is also the
+  // first one nothing checks.
+  const base = [
+    "--set",
+    "nats.enabled=true",
+    ...publicNkeyArgs("nack"),
+    "--show-only",
+    "templates/nats.yaml",
+  ];
+
+  const unbounded = helmTemplate(
+    ADDONS_CHART,
+    ...base,
+    "--set",
+    "nats.authCallout.issuer=ABPROBE",
+  );
+  assert(
+    unbounded.code !== 0,
+    `an auth callout with no allowed_accounts rendered\n${unbounded.output}`,
+  );
+  assertStringIncludes(
+    unbounded.output,
+    "allowedAccounts is empty",
+    "an unbounded callout was refused for the wrong reason",
+  );
+
+  const system = helmTemplate(
+    ADDONS_CHART,
+    ...base,
+    "--set",
+    "nats.authCallout.issuer=ABPROBE",
+    "--set",
+    "nats.authCallout.allowedAccounts[0]=$SYS",
+  );
+  assert(
+    system.code !== 0,
+    `an auth callout allowed to mint $SYS users rendered\n${system.output}`,
+  );
+  assertStringIncludes(
+    system.output,
+    "names $SYS",
+    "a $SYS-reaching callout was refused for the wrong reason",
+  );
+
+  // A BOUNDED callout is refused too, and for a different reason: only the static backend
+  // ships. Distinguishing the two rejections is what shows the bound is measured rather than
+  // shadowed by a blanket refusal that would pass this test while checking nothing.
+  const bounded = helmTemplate(
+    ADDONS_CHART,
+    ...base,
+    "--set",
+    "nats.authCallout.issuer=ABPROBE",
+    "--set",
+    "nats.authCallout.allowedAccounts[0]=TENANT_PROBE",
+  );
+  assert(
+    bounded.code !== 0,
+    `the unimplemented callout backend rendered\n${bounded.output}`,
+  );
+  assertStringIncludes(
+    bounded.output,
+    "only the static backend ships",
+    "a bounded callout was refused for the wrong reason",
+  );
+});
+
+test("callout_allowed_accounts_bounded: the shipped config configures no callout at all", () => {
+  const rendered = helmTemplate(
+    ADDONS_CHART,
+    "--set",
+    "nats.enabled=true",
+    ...publicNkeyArgs("nack"),
+    "--show-only",
+    "templates/nats.yaml",
+  );
+  assert(
+    rendered.code === 0,
+    `helm template exited ${rendered.code}\n${rendered.output}`,
+  );
+  // Matched as config KEYS. A substring match would also hit this template's own comments
+  // explaining why neither key is set, which is a gate that passes by reading the fix.
+  for (const forbidden of ["auth_callout", "authCallout", "no_auth_user"]) {
+    assert(
+      !new RegExp(`^\\s*${forbidden}\\s*:`, "m").test(rendered.output),
+      `the rendered server config sets ${forbidden}; the static backend renders an accounts block and nothing else, and no_auth_user would hand every anonymous connection an account`,
+    );
+  }
+  // The accounts block itself, and `$SYS` declared with no user. v2.15.0 resolves
+  // `system_account` against the accounts it was given and exits with `error resolving system
+  // account: account missing` when the name is absent -- and `nats-server -t` does NOT catch
+  // that, so the omission is a crash loop on sync rather than a rejected config.
+  assertStringIncludes(rendered.output, "system_account: $SYS");
+  assertStringIncludes(rendered.output, "$SYS:\n                users: []");
 });
 
 test("every level_0 conformance id has a test or a tracking issue", () => {
