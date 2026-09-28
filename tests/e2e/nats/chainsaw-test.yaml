@@ -486,7 +486,14 @@ spec:
               echo "exporter: $pod:$port"
 
               # The API server's pod proxy, so this needs no curl in the exporter image.
-              metrics=$(kubectl get --raw "/api/v1/namespaces/nats/pods/$pod:$port/proxy/metrics")
+              if ! metrics=$(kubectl get --raw "/api/v1/namespaces/nats/pods/$pod:$port/proxy/metrics" 2>&1); then
+                echo "FAIL: the exporter scrape did not return 200, so EVERY nats_* series is absent:"
+                echo "$metrics"
+                echo "A 'collected before with the same name and label values' error means two"
+                echo "stream sources share one origin; the exporter labels them by source_name"
+                echo "alone. Put the extra filters in subjectTransforms on a single source."
+                exit 1
+              fi
 
               echo "--- raw nats_stream_* / nats_consumer_* series, labels intact ---"
               echo "$metrics" | grep -E '^nats_(stream_first_seq|stream_total_messages|consumer_ack_floor_stream_seq)' || true

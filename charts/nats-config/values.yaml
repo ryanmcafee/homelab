@@ -62,11 +62,14 @@ streams:
     # overlap with an existing stream (10065)" — so PF_AUDIT sources from
     # PF_EVENTS instead of ingesting directly. One publish, one PubAck, one
     # unambiguous envelope sequence.
+    # Both filters go on ONE source. The exporter labels nats_stream_source_* by
+    # source_name alone, so a second source from the same origin collides on an
+    # identical label set and the whole /metrics scrape 500s (docs/event-backbone.md).
     sources:
       - name: PF_EVENTS
-        filterSubject: pf.*.identity.*.*.*.ev
-      - name: PF_EVENTS
-        filterSubject: pf.*.control.*.*.*.ev
+        subjectTransforms:
+          - source: pf.*.identity.*.*.*.ev
+          - source: pf.*.control.*.*.*.ev
     retention: limits
     maxAge: 8760h
     discard: new

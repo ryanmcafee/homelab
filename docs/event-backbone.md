@@ -86,6 +86,16 @@ with `subjects overlap with an existing stream (10065)` — so the audit retenti
 applied by sourcing rather than by a second set of filters. One publish still produces one
 PubAck and therefore one unambiguous envelope `sequence`.
 
+Its two filters — the identity and control subsets — go in `subjectTransforms` on a
+**single** source, not in one source each. `prometheus-nats-exporter` 0.20.1 labels
+`nats_stream_source_*` by `source_name` alone, so a second source from the same origin
+stream emits two series with an identical label set, and Prometheus's registry then fails
+the whole scrape with `collected before with the same name and label values` — a 500 that
+removes **every** `nats_*` series, not just the source ones. `nats-server` accepts either
+shape, so nothing but the scrape tells you. `a stream sources each origin stream exactly
+once` in `scripts/nats-streams-contract_test.ts` is the level 0 guard; the
+`exporter-label-set` step in `tests/e2e/nats/chainsaw-test.yaml` is the level 2 one.
+
 ## Delivery and ordering guarantees
 
 Stated every time, because the alternative is each reader assuming whichever guarantee

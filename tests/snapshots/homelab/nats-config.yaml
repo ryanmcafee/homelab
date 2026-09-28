@@ -90,10 +90,10 @@ spec:
   servers:
     - nats://nats.nats.svc.cluster.local:4222
   sources:
-    - filterSubject: pf.*.identity.*.*.*.ev
-      name: PF_EVENTS
-    - filterSubject: pf.*.control.*.*.*.ev
-      name: PF_EVENTS
+    - name: PF_EVENTS
+      subjectTransforms:
+      - source: pf.*.identity.*.*.*.ev
+      - source: pf.*.control.*.*.*.ev
   storage: file
   replicas: 1
   retention: limits

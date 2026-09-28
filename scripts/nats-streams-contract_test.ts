@@ -67,7 +67,7 @@ interface Contract {
 interface ChartStream {
   name: string;
   subjects?: string[];
-  sources?: { name: string; filterSubject: string }[];
+  sources?: { name: string; subjectTransforms: { source: string }[] }[];
   retention: string;
   maxAge: string;
   maxMsgSize?: number;
@@ -192,7 +192,9 @@ test("a stream ingests directly or by sourcing, never both", () => {
         .flatMap((s) => s.filters.map((filter) => `${s.name} ${filter}`))
         .sort();
       const chartPairs = (actual.sources ?? [])
-        .map((s) => `${s.name} ${s.filterSubject}`)
+        .flatMap((s) =>
+          s.subjectTransforms.map((tr) => `${s.name} ${tr.source}`),
+        )
         .sort();
       assertEquals(
         chartPairs,
@@ -209,6 +211,27 @@ test("a stream ingests directly or by sourcing, never both", () => {
         actual.sources ?? [],
         [],
         `${expected.name} ingests directly and must declare no sources`,
+      );
+    }
+  }
+});
+
+test("a stream sources each origin stream exactly once", () => {
+  // prometheus-nats-exporter labels nats_stream_source_* by source_name alone, so
+  // two sources from one origin collide on an identical label set and the whole
+  // /metrics scrape returns HTTP 500 - every nats_* series, not just the source
+  // ones. Multiple filters belong in subjectTransforms on a single source.
+  for (const actual of chart.streams) {
+    const origins = (actual.sources ?? []).map((s) => s.name);
+    assertEquals(
+      [...new Set(origins)].sort(),
+      [...origins].sort(),
+      `${actual.name} sources the same origin stream more than once; move the extra filters into subjectTransforms`,
+    );
+    for (const source of actual.sources ?? []) {
+      assert(
+        source.subjectTransforms.length > 0,
+        `${actual.name} sources ${source.name} with no subjectTransforms, which sources the whole stream`,
       );
     }
   }
