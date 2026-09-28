@@ -59,7 +59,7 @@ spec:
             namespace: argocd
         - podLogs:
             namespace: nats
-            selector: app.kubernetes.io/name=nack
+            selector: app=nack
             tail: 50
 
     # ArgoCD reports a Stream Healthy from its condition (the health Lua in
@@ -127,7 +127,7 @@ spec:
                 -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.status.conditions[*].message}{"\n"}{end}' || true
         - podLogs:
             namespace: nats
-            selector: app.kubernetes.io/name=nack
+            selector: app=nack
             tail: 100
 
     - name: consumers-ready
@@ -165,7 +165,7 @@ spec:
                 -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.status.conditions[*].message}{"\n"}{end}' || true
         - podLogs:
             namespace: nats
-            selector: app.kubernetes.io/name=nack
+            selector: app=nack
             tail: 100
 
     # The trace. One publish, one fetch through the durable consumer, and the correlationid
@@ -182,7 +182,7 @@ spec:
             timeout: 5m
             content: |
               set -eu
-              box=$(kubectl get pod -n nats -l app.kubernetes.io/name=nats-box \
+              box=$(kubectl get pod -n nats -l app.kubernetes.io/component=nats-box \
                 -o jsonpath='{.items[0].metadata.name}')
               echo "nats-box: $box"
 
@@ -201,7 +201,7 @@ spec:
               envelope="$envelope"',"tenant":"local","correlationid":"'"$corr"'"'
               envelope="$envelope"',"data":{"namespace":"nats","name":"e2e","revision":"e2e","observedGeneration":1}}'
 
-              kubectl exec -n nats "$box" -- nats pub "$subject" "$envelope"
+              kubectl exec -n nats "$box" -- nats pub --jetstream "$subject" "$envelope"
               echo "published to $subject"
 
               # Fetch through the durable consumer the contract declares, not an ad-hoc
@@ -223,7 +223,7 @@ spec:
         - script:
             timeout: 1m
             content: |
-              box=$(kubectl get pod -n nats -l app.kubernetes.io/name=nats-box \
+              box=$(kubectl get pod -n nats -l app.kubernetes.io/component=nats-box \
                 -o jsonpath='{.items[0].metadata.name}' 2>/dev/null) || exit 0
               kubectl exec -n nats "$box" -- nats stream report || true
               kubectl exec -n nats "$box" -- nats consumer info PF_EVENTS verify-workload-v1 || true
@@ -240,7 +240,7 @@ spec:
             timeout: 5m
             content: |
               set -eu
-              box=$(kubectl get pod -n nats -l app.kubernetes.io/name=nats-box \
+              box=$(kubectl get pod -n nats -l app.kubernetes.io/component=nats-box \
                 -o jsonpath='{.items[0].metadata.name}')
 
               subject=pf.local.workload.deployment.deployed.v1.ev
@@ -254,7 +254,7 @@ spec:
               envelope="$envelope"',"tenant":"local","correlationid":"'"$corr"'"'
               envelope="$envelope"',"data":{"namespace":"nats","name":"e2e","revision":"e2e","observedGeneration":1}}'
 
-              kubectl exec -n nats "$box" -- nats pub "$subject" "$envelope"
+              kubectl exec -n nats "$box" -- nats pub --jetstream "$subject" "$envelope"
               echo "published $corr, taking it without an ack"
 
               # First delivery, deliberately unacked.
@@ -281,7 +281,7 @@ spec:
         - script:
             timeout: 1m
             content: |
-              box=$(kubectl get pod -n nats -l app.kubernetes.io/name=nats-box \
+              box=$(kubectl get pod -n nats -l app.kubernetes.io/component=nats-box \
                 -o jsonpath='{.items[0].metadata.name}' 2>/dev/null) || exit 0
               kubectl exec -n nats "$box" -- nats consumer info PF_EVENTS verify-workload-v1 || true
 
@@ -300,7 +300,7 @@ spec:
             timeout: 5m
             content: |
               set -eu
-              box=$(kubectl get pod -n nats -l app.kubernetes.io/name=nats-box \
+              box=$(kubectl get pod -n nats -l app.kubernetes.io/component=nats-box \
                 -o jsonpath='{.items[0].metadata.name}')
 
               wq=pf.local.workload.deployment.promote.v1.wq
@@ -317,11 +317,11 @@ spec:
 
               # The work item itself must be accepted by PF_WORK first: a .dl with no .wq
               # behind it would prove the dead-letter path over a subject nothing can reach.
-              kubectl exec -n nats "$box" -- nats pub "$wq" "$envelope"
+              kubectl exec -n nats "$box" -- nats pub --jetstream "$wq" "$envelope"
               echo "published work item to $wq"
 
               # The derived .dl subject: same seven tokens, suffix swapped.
-              kubectl exec -n nats "$box" -- nats pub "$dl" "$envelope"
+              kubectl exec -n nats "$box" -- nats pub --jetstream "$dl" "$envelope"
               echo "dead-lettered to $dl"
 
               out=$(kubectl exec -n nats "$box" -- \
@@ -343,7 +343,7 @@ spec:
         - script:
             timeout: 1m
             content: |
-              box=$(kubectl get pod -n nats -l app.kubernetes.io/name=nats-box \
+              box=$(kubectl get pod -n nats -l app.kubernetes.io/component=nats-box \
                 -o jsonpath='{.items[0].metadata.name}' 2>/dev/null) || exit 0
               kubectl exec -n nats "$box" -- nats stream info PF_WORK || true
               kubectl exec -n nats "$box" -- nats stream info PF_DLQ || true
