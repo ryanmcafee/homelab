@@ -97,12 +97,14 @@ max_bytes_defaults:
   # `max_bytes_sum_rule`. PF_AUDIT is the largest because 365d of identity and control
   # history is what it exists to hold; PF_WORK is smallest because a work queue that is
   # being drained is nearly empty and a deep one is already an alert.
-  homelab: # 8 GiB file store, 6 GiB budgeted, 2 GiB headroom
+  # The two surfaces share one split — 33.3% / 50% / 4.2% / 12.5% of the budget — so a
+  # commercial operator reading a homelab install is reading the same shape scaled up.
+  homelab: # 8 GiB file store, 6 GiB budgeted (75%), 2 GiB headroom
     PF_EVENTS: 2147483648 # 2 GiB
     PF_AUDIT: 3221225472 # 3 GiB
     PF_WORK: 268435456 # 256 MiB
-    PF_DLQ: 536870912 # 512 MiB
-  commercial: # 128 GiB file store, 96 GiB budgeted, 32 GiB headroom
+    PF_DLQ: 805306368 # 768 MiB
+  commercial: # 128 GiB file store, 96 GiB budgeted (75%), 32 GiB headroom
     PF_EVENTS: 34359738368 # 32 GiB
     PF_AUDIT: 51539607552 # 48 GiB
     PF_WORK: 4294967296 # 4 GiB
