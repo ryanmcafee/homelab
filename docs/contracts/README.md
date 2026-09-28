@@ -18,7 +18,7 @@ boundary:
 
 | Document | Surface | Decision record |
 |---|---|---|
-| [status-page-contract.md](status-page-contract.md) — transport, component taxonomy, state vocabulary, what the UI renders when nothing measured it | The status page back end -> React UI ([`contracts/status/`](../../contracts/status)) | ADR-050 |
+| [status-page-contract.md](status-page-contract.md) — transport, component taxonomy, state vocabulary, what the UI renders when nothing measured it | The status page back end -> React UI ([`contracts/status/`](../../contracts/status)) | ADR-051 |
 
 The ADRs live in [`docs/project_notes/decisions.md`](../project_notes/decisions.md), the
 repository's existing decision record. These documents carry the normative detail an ADR

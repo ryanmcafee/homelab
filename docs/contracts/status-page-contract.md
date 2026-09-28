@@ -1,6 +1,6 @@
 # The status page back end -> UI contract
 
-Normative for the status page (`ryanmcafee/homelab#41`). Decision record: ADR-050 in
+Normative for the status page (`ryanmcafee/homelab#41`). Decision record: ADR-051 in
 [`docs/project_notes/decisions.md`](../project_notes/decisions.md). The machine-checkable artifact is
 [`contracts/status/status-page.v1.yaml`](../../contracts/status/status-page.v1.yaml), checked by
 `scripts/status-contract_test.ts` in `task test:scripts`.
