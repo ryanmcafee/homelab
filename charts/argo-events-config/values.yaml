@@ -33,3 +33,12 @@ maxBytesBudgetFraction: 0.75
 storage:
   size: 10Gi
   className: ""
+
+# A calendar EventSource and a Sensor that together prove the trigger path is
+# live. Nothing else in the repo exercises EventSource -> EventBus -> Sensor, and
+# both CRDs are schemaless, so a broken spec is only visible at runtime.
+selfTest:
+  enabled: true
+  # One tick an hour shows the path works and costs the operator almost nothing.
+  # Localdev shortens it so a CI run sees a tick.
+  interval: 1h

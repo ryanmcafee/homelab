@@ -218,3 +218,112 @@ spec:
               kubectl get statefulset,pods -n argo-events -o wide || true
               kubectl logs -n argo-events deployment/argo-events-controller-manager \
                 --tail=80 || true
+
+    # A reconciled bus still proves nothing about whether an event can cross it. This is the
+    # only step that exercises EventSource -> EventBus -> Sensor -> trigger, and the trace is
+    # the Sensor's own log line for the trigger it ran.
+    - name: trigger-path-trace
+      description: >-
+        A calendar tick crosses the Argo Events bus and executes the Sensor's trigger, with
+        the Sensor's action log as the trace.
+      try:
+        - assert:
+            resource:
+              apiVersion: argoproj.io/v1alpha1
+              kind: EventSource
+              metadata:
+                name: trigger-selftest
+                namespace: argo-events
+        - assert:
+            resource:
+              apiVersion: argoproj.io/v1alpha1
+              kind: Sensor
+              metadata:
+                name: trigger-selftest
+                namespace: argo-events
+        - script:
+            timeout: 6m
+            content: |
+              set -eu
+
+              # Resolved rather than hard-coded: a selector that matches nothing looks
+              # identical to a path that never fired, and this suite has already shipped one
+              # wrong selector. Both label keys come from the deployed version's const.go
+              # (LabelEventSourceName, LabelSensorName).
+              find_pod() {
+                key=$1
+                value=$2
+                pod=$(kubectl get pods -n argo-events -l "$key=$value" \
+                  -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
+                if [ -z "$pod" ]; then
+                  pod=$(kubectl get pods -n argo-events \
+                    -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null \
+                    | grep "^${value}-" | head -1 || true)
+                fi
+                echo "$pod"
+              }
+
+              es_pod=$(find_pod eventsource-name trigger-selftest)
+              sensor_pod=$(find_pod sensor-name trigger-selftest)
+
+              if [ -z "$es_pod" ] || [ -z "$sensor_pod" ]; then
+                echo "FAIL: the controller did not produce both workloads"
+                echo "      eventsource pod='${es_pod:-<none>}' sensor pod='${sensor_pod:-<none>}'"
+                kubectl get pods -n argo-events --show-labels || true
+                kubectl logs -n argo-events deployment/argo-events-controller-manager \
+                  --tail=120 || true
+                exit 1
+              fi
+              echo "eventsource pod: $es_pod"
+              echo "sensor pod:      $sensor_pod"
+
+              kubectl wait --for=condition=Ready "pod/$es_pod" -n argo-events --timeout=180s
+              kubectl wait --for=condition=Ready "pod/$sensor_pod" -n argo-events --timeout=180s
+
+              # Emitted once per trigger the Sensor actually ran, at Info level, by
+              # pkg/sensors/listener.go: Infow("Successfully processed trigger '%s'"). Matched
+              # in full, including the trigger name, so no other line can satisfy it -- the
+              # neighbouring "trigger resource successfully executed" is Debug and never
+              # appears at the default level. Polled because the tick interval sets the wait.
+              want="Successfully processed trigger 'log-tick'"
+              i=0
+              hit=""
+              while [ "$i" -lt 60 ]; do
+                hit=$(kubectl logs -n argo-events "$sensor_pod" --tail=400 2>/dev/null \
+                  | grep -F "$want" | head -1 || true)
+                [ -n "$hit" ] && break
+                i=$((i + 1))
+                sleep 5
+              done
+
+              if [ -z "$hit" ]; then
+                echo "FAIL: no tick reached the Sensor's trigger within the window"
+                echo "--- sensor log ---"
+                kubectl logs -n argo-events "$sensor_pod" --tail=200 || true
+                echo "--- eventsource log ---"
+                kubectl logs -n argo-events "$es_pod" --tail=200 || true
+                exit 1
+              fi
+
+              echo "--- trigger trace, verbatim ---"
+              kubectl logs -n argo-events "$sensor_pod" --tail=400 \
+                | grep -F "log-tick" | head -10
+              echo "-------------------------------"
+              echo "OK: a calendar tick crossed the Argo Events bus and ran trigger log-tick"
+
+              # Recorded, not asserted: the Sensor's own view of the bus it connected to, so a
+              # later change that silently repoints it at another bus is visible in the log.
+              echo "--- eventsource log, last 40 ---"
+              kubectl logs -n argo-events "$es_pod" --tail=40 || true
+              echo "--------------------------------"
+      catch:
+        - script:
+            timeout: 1m
+            content: |
+              kubectl get eventsource.argoproj.io,sensor.argoproj.io -n argo-events -o yaml || true
+              kubectl get pods -n argo-events --show-labels || true
+              kubectl logs -n argo-events deployment/argo-events-controller-manager \
+                --tail=120 || true
+        - podLogs:
+            namespace: argo-events
+            tail: 150
