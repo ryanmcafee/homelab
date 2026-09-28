@@ -1719,6 +1719,18 @@ ecowitt-exporter:
     soilMoistureMinPercent: 20
 
 # ============================================================================
+# LiteLLM alert rules (templates/kube-prometheus-stack.yaml, homelab-litellm)
+# Sync Wave: 9, with the monitoring stack (docs/runbooks/litellm.md)
+# ============================================================================
+# Only the alert group lives here; the app is the litellm block of
+# helm-apps.tmpl. Both follow the same enablement, so a cluster without the
+# proxy carries no rules that can only go absent.
+
+litellm:
+  enabled: true
+  namespace: litellm
+
+# ============================================================================
 # Alert triage agent (templates/triage-agent.yaml, charts/triage-agent)
 # Sync Wave: 13 (docs/runbooks/triage-agent.md)
 # ============================================================================
