@@ -252,29 +252,60 @@ just declared for one.
 ### 5.1 What actually enforces the tenant boundary
 
 Decision record: ADR-043. Stated mechanically, because "enforced at the account level" is the
-kind of phrase a reader can agree with while deploying an open bus.
+kind of phrase a reader can agree with while deploying an open bus. Mechanism claims below are
+read from `nats-server` v2.15.0, the server the `nats` chart 2.15.0 actually deploys
+(`nats:2.15.0-alpine`).
 
 **One NATS account per tenant, and the account is the enforcement.** Subject namespaces do not
-cross accounts, so a client in one tenant's account cannot name another tenant's subject
-however wide its permissions are. The `<tenant>` token is not the boundary; it is the record of
-which side of the boundary a message came from, which is what makes it meaningful in a
-`PF_AUDIT` entry, a `PF_DLQ` envelope or a Postgres row that outlives the connection.
+cross accounts. A client in one tenant's account may still *spell* `pf.<other tenant>.…` — the
+subject string is not reserved to it — but the message is published into its own account and
+reaches no subscriber in another. Say it that way round: the account stops the reach, not the
+spelling. The `<tenant>` token is not the boundary; it is the record of which side of the
+boundary a message came from, which is what makes it meaningful in a `PF_AUDIT` entry, a
+`PF_DLQ` envelope or a Postgres row that outlives the connection.
 
 **Both halves are required.** The account stops cross-tenant reach. A per-user subject
-permission of `pf.<that user's own tenant>.>` — never `pf.*.>`, never `pf.>` — stops a workload
-forging a foreign `tenant` token *inside* its own account. Drop the second and every consumer
-obeying the rule above, that `tenant` may never be inferred and must be trusted, is trusting a
-value its neighbours can write.
+permission stops a workload forging a foreign `tenant` token *inside* its own account, where the
+account gives no protection at all. Drop the second and every consumer obeying the rule above,
+that `tenant` may never be inferred and must be trusted, is trusting a value its neighbours can
+write.
+
+**`pf.<tenant>.>` is the ceiling, not the grant.** No principal is issued the whole tenant
+prefix. Each component's publish permission is the producer-owned prefixes the registry assigns
+it (boundary 2 above), narrowed within its own tenant; `pf.*.>` and `pf.>` are never issued to
+anything. The tenant prefix is the outer bound a generated grant may not exceed.
+
+**Subject permissions do not inspect message bodies, so attribution is validated separately.**
+A publisher authorized for a subject can put any `tenant`, `source` or `type` in the CloudEvents
+JSON it carries. Before an event is authorized against, aggregated across tenants, or persisted,
+the consumer validates that the envelope `tenant` equals both the subject's `<tenant>` token and
+the tenant the *connection's account* maps to, and that `source`/`type` match a producer allowed
+to own that type. A mismatch is rejected to `PF_DLQ`, never stored. This is validation of
+already-authenticated context — it does not move the boundary back to consumer-side filtering,
+which §5's opening rules out. Without it an authorized tenant publisher can contaminate shared
+audit and database attribution while never crossing an account.
 
 **No export or import between tenant accounts.** Cross-tenant aggregation is a per-tenant
 consumer publishing outward under its own identity. An export is the one construct that reopens
 the boundary invisibly to every subject permission, so it is refused here rather than reviewed
-case by case.
+case by case. Leaf nodes, gateways, WebSocket and MQTT listeners, and subject mappings are
+routing and topology rather than authorization, and each can carry traffic past the assumptions
+above: all stay disabled unless reviewed against this section, and any leaf principal is bound
+to a single tenant account.
 
 ### 5.2 `$JS.API` is closed to workloads
 
 The stream set is GitOps state reconciled by NACK, so no other component needs stream lifecycle
 rights, and any component holding them can delete a tenant's durable work in one request.
+
+**Authorization here is default-deny, and the allow-list is the whole contract.** A NATS user
+with an explicit `allow` set may publish nothing else; every unlisted subject is already
+refused. That matters because the account-scoped `$JS.API` surface is much larger than the
+handful of destructive verbs one thinks to name: v2.15.0 also serves `STREAM.RESTORE`,
+`STREAM.SNAPSHOT`, `STREAM.MSG.GET`, `ACCOUNT.PURGE`, `CONSUMER.PAUSE`, `CONSUMER.UNPIN`,
+`CONSUMER.RESET` and the peer-remove/evacuate/step-down endpoints, any of which reads or
+disrupts a neighbour's stream inside the same account. Enumerating dangerous verbs is the wrong
+shape and goes stale on every server upgrade; the allow-list is what holds.
 
 A component's `$JS.API` allow-list is exactly:
 
@@ -285,47 +316,112 @@ A component's `$JS.API` allow-list is exactly:
 | `$JS.API.CONSUMER.INFO.<stream>.<consumer>` | Read its own consumer |
 | `$JS.API.CONSUMER.CREATE.<stream>.<consumer>.<filter>` | Bind its own consumer — see below |
 | `$JS.API.CONSUMER.MSG.NEXT.<stream>.<consumer>` | Pull |
-| `$JS.ACK.>` | Ack, nak, term |
 
-`STREAM.CREATE`, `STREAM.UPDATE`, `STREAM.DELETE`, `STREAM.PURGE`, `STREAM.MSG.DELETE` and
-`CONSUMER.DELETE` are **denied**. All six carry the stream name in the subject, so the deny is
-expressible without a wildcard that would also swallow the reads above.
+Two permissions that a publish-only list silently omits, and without which the client cannot
+work at all:
+
+- **Its own reply inbox.** JS API calls and pulled messages come back on a reply subject. Each
+  principal gets a private inbox prefix (the client's inbox prefix is configured to match) and
+  subscribe permission on `<its own prefix>.>`. A shared `_INBOX.>` grant would let any
+  principal in the account read every other principal's replies and delivered messages.
+- **Its own ACK namespace.** `$JS.ACK.>` is too broad: it admits acknowledging *other*
+  consumers' messages inside the account. The server builds ACK subjects from the stream and
+  consumer name (`$JS.ACK.<stream>.<consumer>.…`, and the v2 form
+  `$JS.ACK.<domain>.<account-hash>.<stream>.<consumer>.…`), so the grant is scoped to this
+  principal's own stream and consumer in both forms.
+
+**Bind the stream explicitly.** Given a consumer name and a single concrete filter the Go client
+sends the fully-specified create subject, but its subscribe path performs stream discovery via
+`$JS.API.STREAM.NAMES` unless the stream is named explicitly. Components bind the stream
+(`BindStream` or equivalent) and pin the client API options they rely on. Granting discovery
+account-wide to repair an implicit SDK choice is not the fix.
 
 **The consumer-create permission is what closes the silent-repoint hole in §6.** A `PF_WORK`
 consumer binds exactly one fully-specified subject, so the client's create subject carries the
 consumer name *and* its filter. A permission scoped to that one subject makes repointing another
 component's filter a denial rather than a silent update, which is the failure `10100` cannot
-catch. **It has three entrances, and scoping only the obvious one leaves it open:** the server
-routes `$JS.API.CONSUMER.CREATE.*`, `$JS.API.CONSUMER.CREATE.*.>` and
-`$JS.API.CONSUMER.DURABLE.CREATE.*.*` to the same handler, and the first carries no consumer
-name in the subject at all. An allow on the filtered form is accompanied by explicit denies on
-the other two, and what the nameless form can reach is a conformance test against a running
-server, not an assumption.
+catch. Scoping it correctly requires knowing the endpoint has more than one entrance: v2.15.0
+routes `$JS.API.CONSUMER.CREATE.*` (no consumer name in the subject at all),
+`$JS.API.CONSUMER.CREATE.*.>` and `$JS.API.CONSUMER.DURABLE.CREATE.*.*` to the same handler.
+Those alternates are not a leak in an exact allow-list — they are unlisted, so they are already
+refused — but they are written as explicit denies for the name-only and legacy-durable forms so
+that a later, broader grant cannot quietly re-open them. **The broad `CONSUMER.CREATE.*.>`
+pattern is not denied:** deny takes precedence, so denying it would also block the filtered
+endpoint the component legitimately uses.
+
+Two limits on this, stated rather than papered over. The filtered endpoint is not bind-only
+authority — a principal reaching it can also change other permitted configuration fields on its
+own consumer. And consumers with wildcard or multi-filter subscriptions (the audit and DLQ
+readers) do not send the fully-specified form; they bind a consumer pre-created by NACK, which
+is a separate startup path and a separate grant. What the name-only entrance can reach with a
+body-supplied `Name` is measured against a running server (§5.2 conformance), not assumed.
 
 ### 5.3 What the account boundary does not cover
 
-- **The monitoring port.** It is enabled by default on 8222, exposed on the Service, plain HTTP
-  with no authorization, and `/jsz?accounts=true` reports stream names and message counts for
-  *every* account while `/connz` reports connection detail. Accounts partition the client port
-  only. Scope 8222 with a NetworkPolicy and consider TLS on it; do not assume the account model
-  reaches it.
+- **The monitoring port.** It is enabled by default on 8222, plain HTTP, and the v2.15.0
+  handlers apply no tenant authorization — `/jsz` reports across accounts (`accounts=true` for
+  account detail, `streams=true`/`consumers=true` for stream and consumer detail) and `/connz`
+  reports connection detail. The ordinary `nats` Service does *not* publish 8222; the
+  `nats-headless` Service does, and the pod IP is reachable regardless, so the exposure is
+  in-cluster rather than absent. Accounts partition the client port only. Scope 8222 at pod
+  ingress with a NetworkPolicy and consider `config.monitor.tls`; TLS is transport protection,
+  not authorization.
+- **The metrics exporter.** `prometheus-nats-exporter` 0.20.1 runs as a sidecar on port 7777
+  with `-jsz=all` (which queries `consumers=true&config=true&raft=true`), so it republishes the
+  same cross-account stream, consumer and config metadata to anything that can scrape it. It
+  gets the same NetworkPolicy treatment as 8222 — scraping is restricted to the monitoring
+  path, with an untrusted-pod denial test alongside the authorized-scrape test.
 - **The shared file store.** Per-account JetStream limits (`max_memory`, `max_store`,
   `max_streams`, `max_consumers`) are mandatory, because one tenant filling the store refuses
   writes for every account on that peer with `insufficient resources (10047)`. The per-stream
-  `maxBytes` budget sums below the *account's* `max_store`, and the accounts sum below the store.
-- **`$SYS`.** It is for operating the server and for break-glass. No platform component holds
-  it, NACK included: NACK takes one narrowly-permissioned user per tenant account through its
-  `Account` resource, so a single controller credential never gains cross-tenant reach.
+  `maxBytes` budget sums below the *account's* `max_store`, and the accounts sum below the store
+  with headroom. Storage limits do not bound CPU, connection count or shared-node contention;
+  those remain shared-server residual risk.
+- **`$SYS`.** It is for operating the server and for break-glass, and its reach is
+  administrative — including account purge — rather than an automatic superset of every
+  account's ordinary stream API. No platform component holds it, NACK included: NACK takes one
+  narrowly-permissioned user per tenant account through its `Account` resource.
+- **The NACK controller itself.** Per-tenant credentials bound what a single *leaked credential*
+  reaches; they do not partition the controller. One NACK process holding every tenant's Secret
+  still holds their combined authority, and that is accepted residual risk, not a solved
+  problem. It is bounded by Kubernetes RBAC on the Secret, `Account`, `Stream` and `Consumer`
+  resources, and by admission rules preventing a tenant from selecting another tenant's account
+  or Secret. Partitioning it properly means separately scoped controllers — an architecture
+  choice, not something the `Account` CRD supplies.
 
 ### 5.4 The bus credential is a seam
 
 A platform principal becomes a NATS user through one declaration — the subjects it may publish,
-the subjects it may subscribe to, its `$JS.API` allow-list — with two backends behind it:
-static, rendering the declaration into the server's account configuration with the credential
-delivered as a Secret (the homelab default and the bootstrap path); and auth callout, rendering
-the same declaration into a short-lived user JWT minted after authenticating a platform
-principal. The declaration and its conformance suite are the seam; the backends are
-interchangeable. See `byo-extension-points.md`.
+the subjects it may subscribe to, its private inbox prefix, its ACK namespace and its `$JS.API`
+allow-list — with two backends behind it: static, rendering the declaration into the server's
+account configuration with the credential delivered as a Secret (the homelab default and the
+bootstrap path); and auth callout, rendering the same declaration into a short-lived user JWT
+minted after authenticating a platform principal. The declaration and its conformance suite are
+the seam; the backends are interchangeable. See `byo-extension-points.md`.
+
+Three constraints bind the callout backend, and they are part of the contract rather than
+implementation detail:
+
+- **The callout service is a cross-account authority.** It places an authenticated user into an
+  account named by the JWT it signs, so its signing seed is privileged across every account
+  delegated to it. Short-lived JWTs bound a stolen *user* credential; they do nothing about a
+  compromised *signer*. `allowed_accounts` is set explicitly and never includes `$SYS` —
+  v2.15.0 delegates **every** account when it is left empty. Service-side placement checks
+  protect against ordinary callers, not against a compromised signer.
+- **Static principals need an explicit exemption.** With callout configured the server calls out
+  for any user not listed in `auth_users`, including otherwise valid static ones. The NACK and
+  bootstrap principals are listed there; agent principals never are, and no bootstrap user holds
+  callout-response or signing authority. A static-only deployment may instead leave callout
+  disabled entirely. Note also that v2.15.0 refuses to configure `auth_callout` in FIPS-140
+  mode, so a regulated deployment takes the static backend or operator mode.
+- **Revocation is bounded and stated.** ADR-028 requires testable agent revocation. Refusing the
+  next login or waiting for a JWT to expire does not revoke an *established* connection, so the
+  mechanism and its time bound are named and tested per backend rather than assumed from short
+  token lifetimes. Credential rotation is likewise a drill, not a property of the Secret store:
+  staged new-key publication, Secret delivery, server config reload, client and NACK reconnect,
+  old-key removal, and refusal of both new *and* already-established old sessions within a
+  stated bound — plus rollback, and a `$SYS` recovery path that works with the identity service
+  unavailable.
 
 ## 6. Consumer obligations
 
