@@ -75,6 +75,10 @@ spec:
         crds:
           install: true
           keep: true
+        # Empty (the chart default) binds Secret get/list/watch/create/update/patch
+        # cluster-wide; naming the instance namespace makes that a namespaced Role.
+        watchNamespaces:
+          - {{ $oc.namespace }}
         metrics:
           enabled: true
           serviceMonitor:
