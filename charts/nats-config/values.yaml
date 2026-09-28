@@ -51,7 +51,9 @@ streams:
       - pf.*.*.*.*.*.ev
     retention: limits
     maxAge: 168h
-    maxMsgSize: 1048576
+    # 960 KiB, the contract's `limits.max_event_bytes`. Deliberately below the
+    # server's 1 MiB `max_payload` so headers cannot push a legal event over it.
+    maxMsgSize: 983040
     discard: old
     duplicateWindow: 2m
 

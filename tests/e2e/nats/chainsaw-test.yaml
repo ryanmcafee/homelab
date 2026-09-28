@@ -82,9 +82,9 @@ spec:
                 conditions:
                   - type: Ready
                     status: "True"
-        # PF_AUDIT is the one that cannot be proven by rendering: it sources twice from
-        # PF_EVENTS instead of declaring subjects, because two streams in one account may
-        # not overlap (10065). Ready=True here is the server accepting both source entries.
+        # PF_AUDIT is the one that cannot be proven by rendering: it sources PF_EVENTS
+        # through two subjectTransforms instead of declaring subjects, because two streams
+        # in one account may not overlap (10065). Ready=True is the server accepting both.
         - assert:
             resource:
               apiVersion: jetstream.nats.io/v1beta2
@@ -496,7 +496,7 @@ spec:
               fi
 
               echo "--- raw nats_stream_* / nats_consumer_* series, labels intact ---"
-              echo "$metrics" | grep -E '^nats_(stream_first_seq|stream_total_messages|consumer_ack_floor_stream_seq)' || true
+              echo "$metrics" | grep -E '^nats_(stream_first_seq|stream_total_messages|stream_source_lag|consumer_ack_floor_stream_seq)' || true
               echo "----------------------------------------------------------------"
 
               # -jsz=all is what produces these. No series means the JetStream metrics the
