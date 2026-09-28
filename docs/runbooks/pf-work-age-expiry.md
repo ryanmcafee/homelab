@@ -93,6 +93,16 @@ All four are in the `homelab-nats-jetstream` group of
 Both aging rules share one `alertname`, so Alertmanager's severity inhibition drops the warning
 notification when the critical fires.
 
+All four carry `namespace` and `job`, so every one of them names the NATS install it is about and
+Alertmanager routing and inhibition keyed on `namespace` reach all four. The aging rules inherit
+those labels from the series; the other two carry them because they aggregate `by (stream_name,
+namespace, job)` and never by `stream_name` alone. That matters on any Prometheus scraping more
+than one NATS — a second install, a test install, a federated cluster: grouping on `stream_name`
+alone collapsed them into one series, so `PFWorkMessagesExpiredUnacked` netted one install's head
+advance against another's consumer acks, and `PFWorkStreamMetricsAbsent` could not fire at all
+while any one install still reported. `tests/alerts/pf-work-age-expiry.test.yaml` asserts the label
+set on every fired alert, and cases 8 and 9 assert two namespaces are reported separately.
+
 Each aging rule carries a coverage guard (`count_over_time(...[12h]) >= 11 *
 count_over_time(...[1h])`) so a Prometheus with only a few hours of history cannot page: a 12h
 window over 3h of data is trivially "unchanged". The cost of the guard is that on a fresh
@@ -103,8 +113,8 @@ suppresses it — which is what `PFWorkStreamMetricsAbsent` is for.
 
 You have 12h (warning) or 6h (critical) before the queue is deleted. The commands below use
 `-n nats`; substitute the namespace the NATS Application actually deploys into (issue
-[#50](https://github.com/ryanmcafee/homelab/issues/50)) — the alerts carry it as the `namespace`
-label, and `nats_stream_first_seq{stream_name="PF_WORK"}` shows it. In order:
+[#50](https://github.com/ryanmcafee/homelab/issues/50)) — all four alerts carry it as the
+`namespace` label, and `nats_stream_first_seq{stream_name="PF_WORK"}` shows it. In order:
 
 1. **Confirm the head is really stuck** and see how bad it is. `first_ts` is not in Prometheus but
    it is in the stream itself, so ask the server:
@@ -175,7 +185,10 @@ sequences they do not own, and the arithmetic would have to move to per-filter s
 
 ## When `PFWorkStreamMetricsAbsent` fires
 
-Nothing is watching the 24h budget while this is firing, and the budget keeps running.
+Nothing is watching the 24h budget while this is firing, and the budget keeps running. The rule is
+per install: it fires for each `(namespace, job)` that reported `PF_WORK` in the last 6h and no
+longer does, so the alert's own `namespace` label is the one to act on — a second NATS still
+reporting does not suppress it.
 
 1. `kubectl -n nats get pods` — the exporter is a sidecar of the NATS pods, so a restarting NATS
    pod takes it with it.
@@ -197,7 +210,9 @@ The expressions are extracted from the rendered Application, so the tests cannot
 deploys. `tests/alerts/pf-work-age-expiry.test.yaml` brackets every threshold from both sides
 (silent at 11h of head age, warning at 12h, warning-only at 17h, critical at 18h) and includes the
 three cases that must **not** page: a busy queue with constant depth, an idle queue that gets a
-fresh publish, and a queue drained by real acks. Verified against a real
+fresh publish, and a queue drained by real acks. Two cases feed `PF_WORK` series from two namespaces
+and assert two separately attributed alerts, which is what pins the aggregation to `by (stream_name,
+namespace, job)`. Verified against a real
 `nats-server 2.10.22` + `prometheus-nats-exporter 0.18.0` + Prometheus 3.12: with every window
 scaled by 720x (`12h` → `60s`, `max_age` → `120s`), the warning fired at t+64s (≙ 12.8h), the
 critical at t+89s (≙ 17.8h), the deletion landed at t+124s (≙ 24.8h) and

@@ -120,6 +120,8 @@ tests:
           - exp_labels:
               severity: critical
               stream_name: PF_WORK
+              namespace: nats
+              job: nats
             exp_annotations:
               summary: '2 PF_WORK messages left the stream without being acked'
               description: 'The stream head advanced further than every consumer ack floor did, so that many durable requests were removed unacked: max_age expiry, a purge or a delete. Nothing else reports this - there is no advisory for age-based deletion. docs/runbooks/pf-work-age-expiry.md.'
@@ -176,6 +178,8 @@ tests:
           - exp_labels:
               severity: warning
               stream_name: PF_WORK
+              namespace: nats
+              job: nats
             exp_annotations:
               summary: 'PF_WORK stream metrics stopped arriving, so the silent-loss monitor is blind'
               description: 'prometheus-nats-exporter reported PF_WORK within the last 6h and no longer does. While this is firing nothing watches the 24h age budget. Check the exporter sidecar and its -jsz=all argument. docs/runbooks/pf-work-age-expiry.md.'

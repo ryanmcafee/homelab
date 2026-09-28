@@ -1035,15 +1035,21 @@ spec:
                     annotations:
                       summary: 'PF_WORK work is 18h old and max_age deletes it silently in under 6h'
                       description: 'The head of PF_WORK has been unacked for 18h of its 24h max_age. When the budget runs out the messages are deleted with no advisory of any kind. Get a consumer taking work, or copy the queue out now. docs/runbooks/pf-work-age-expiry.md.'
+                  # Grouped by (stream_name, namespace, job): one Prometheus can
+                  # scrape two NATS installs, and stream_name alone max'd their
+                  # head sequences together into one unattributable alert.
                   - alert: PFWorkMessagesExpiredUnacked
-                    expr: '(max by (stream_name) (max_over_time(homelab:nats_stream_first_seq:authoritative{stream_name="PF_WORK"}[15m])) - max by (stream_name) (min_over_time(homelab:nats_stream_first_seq:authoritative{stream_name="PF_WORK"}[15m]))) - (sum by (stream_name) (max_over_time(homelab:nats_consumer_ack_floor_stream_seq:authoritative{stream_name="PF_WORK"}[15m]) - min_over_time(homelab:nats_consumer_ack_floor_stream_seq:authoritative{stream_name="PF_WORK"}[15m])) or (max by (stream_name) (max_over_time(homelab:nats_stream_first_seq:authoritative{stream_name="PF_WORK"}[15m])) * 0)) > 0'
+                    expr: '(max by (stream_name, namespace, job) (max_over_time(homelab:nats_stream_first_seq:authoritative{stream_name="PF_WORK"}[15m])) - max by (stream_name, namespace, job) (min_over_time(homelab:nats_stream_first_seq:authoritative{stream_name="PF_WORK"}[15m]))) - (sum by (stream_name, namespace, job) (max_over_time(homelab:nats_consumer_ack_floor_stream_seq:authoritative{stream_name="PF_WORK"}[15m]) - min_over_time(homelab:nats_consumer_ack_floor_stream_seq:authoritative{stream_name="PF_WORK"}[15m])) or (max by (stream_name, namespace, job) (max_over_time(homelab:nats_stream_first_seq:authoritative{stream_name="PF_WORK"}[15m])) * 0)) > 0'
                     labels:
                       severity: critical
                     annotations:
                       summary: '{{`{{ $value }}`}} PF_WORK messages left the stream without being acked'
                       description: 'The stream head advanced further than every consumer ack floor did, so that many durable requests were removed unacked: max_age expiry, a purge or a delete. Nothing else reports this - there is no advisory for age-based deletion. docs/runbooks/pf-work-age-expiry.md.'
+                  # `unless`, not absent(): absent() emits no namespace or job,
+                  # so it cannot be joined on them and it reads the whole
+                  # selector - one install still reporting hid a blind one.
                   - alert: PFWorkStreamMetricsAbsent
-                    expr: 'absent(homelab:nats_stream_first_seq:authoritative{stream_name="PF_WORK"}) and on (stream_name) max by (stream_name) (count_over_time(homelab:nats_stream_first_seq:authoritative{stream_name="PF_WORK"}[6h])) > 0'
+                    expr: 'max by (stream_name, namespace, job) (count_over_time(homelab:nats_stream_first_seq:authoritative{stream_name="PF_WORK"}[6h])) > 0 unless on (stream_name, namespace, job) homelab:nats_stream_first_seq:authoritative{stream_name="PF_WORK"}'
                     for: 30m
                     labels:
                       severity: warning
