@@ -33,26 +33,28 @@ import (
 type ConditionID string
 
 const (
-	MemberCount         ConditionID = "member-count"
-	QuorumPresent       ConditionID = "quorum-present"
-	AbsencesAreDeclared ConditionID = "absences-are-declared"
-	NoErrors            ConditionID = "no-errors"
-	NoLearners          ConditionID = "no-learners"
-	SingleLeader        ConditionID = "single-leader"
-	RaftIndexConverged  ConditionID = "raft-index-converged"
+	MemberCount                   ConditionID = "member-count"
+	QuorumPresent                 ConditionID = "quorum-present"
+	AbsencesAreDeclared           ConditionID = "absences-are-declared"
+	MembershipAccountsForExpected ConditionID = "membership-accounts-for-expected"
+	NoErrors                      ConditionID = "no-errors"
+	NoLearners                    ConditionID = "no-learners"
+	SingleLeader                  ConditionID = "single-leader"
+	RaftIndexConverged            ConditionID = "raft-index-converged"
 )
 
 // implemented is every condition this Go consumer can evaluate. The loader
 // rejects a contract that names one outside this set, so extending the
 // contract fails the build's tests rather than quietly weakening the guard.
 var implemented = map[ConditionID]bool{
-	MemberCount:         true,
-	QuorumPresent:       true,
-	AbsencesAreDeclared: true,
-	NoErrors:            true,
-	NoLearners:          true,
-	SingleLeader:        true,
-	RaftIndexConverged:  true,
+	MemberCount:                   true,
+	QuorumPresent:                 true,
+	AbsencesAreDeclared:           true,
+	MembershipAccountsForExpected: true,
+	NoErrors:                      true,
+	NoLearners:                    true,
+	SingleLeader:                  true,
+	RaftIndexConverged:            true,
 }
 
 // PredicateID is a named composition of conditions from health.predicates.

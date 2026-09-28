@@ -94,6 +94,12 @@ quorum:
 # member or only over the members that answered. A condition says nothing about scope
 # on its own. "Expected member" means a member of etcd's own membership — see
 # health.memberSetSource — never an address the consumer happened to dial.
+#
+# A MISSING MEMBER HAS TWO SENSES AND THEY ARE NOT INTERCHANGEABLE. `vocabulary` below
+# names each one, and every rule and worked row in this file uses those words and no
+# synonym. The senses have different conditions, different messages and different
+# causes, so a consumer that collapses them reports the wrong fault to the operator —
+# and a reader who collapses them will think one condition covers both when none does.
 # ---------------------------------------------------------------------------
 health:
   # WHERE THE MEMBER SET COMES FROM. This is the first thing a consumer implements and
@@ -110,7 +116,7 @@ health:
   # is a tautology that validates its own derivation and can never fail.
   #
   # The failure this forbids, worked: a real 5-member control plane whose CP4_IP and
-  # CP5_IP are absent from the ConfigSet and whose nodes are already down. A consumer
+  # CP5_IP are not listed in the ConfigSet and whose nodes are already down. A consumer
   # that enumerates from the ConfigSet derives 3, dials 3, finds 3 healthy, computes
   # quorum 2 and consents to a removal. Destroying one leaves 2 members of a real quorum
   # of 3: quorum lost, guard said yes. Reading membership from etcd surfaces 5 expected
@@ -125,6 +131,28 @@ health:
     # mismatch, or worse, into a vacuous truth.
     onNoReachableEndpoint: indeterminate
     derivedCountRole: expectation-compared-against-observed
+
+  # THE TWO SENSES, DEFINED ONCE. Every rule below and every worked row in `evaluation`
+  # uses exactly these two words. "Missing" is not a term of this contract.
+  vocabulary:
+    absent: >-
+      A member OF etcd's own membership that did not answer. It is still in the member
+      list, so it is an expected member, it counts toward quorum arithmetic, and
+      `absences-are-declared` can see it.
+    unrepresented: >-
+      A configured control-plane address with NO member in etcd's membership at all. It
+      is NOT an expected member, so it is invisible to every condition scoped to the
+      member list, including `absences-are-declared`. Only a condition that compares
+      membership size against the derived count can see it:
+      `membership-accounts-for-expected` at the resume entry, `member-count` at
+      preflight and completion.
+    whyItMatters: >-
+      A removal makes its target unrepresented, which is why the resumed shape cannot
+      require `member-count`. Under the earlier sequential reading `whole` ran first and
+      caught a second unrepresented address by accident; exclusive entry removed that
+      backstop from the resumed shape, so the resumed shape names its own condition
+      rather than relying on a gate it no longer passes through (MCAA-407).
+
   conditions:
     - id: member-count
       rule: >-
@@ -143,10 +171,26 @@ health:
         data no predicate reads.
     - id: absences-are-declared
       rule: >-
-        Every expected member that did not answer is a declared target of the operation
-        in progress. An unexplained absence is a second failure the operator did not ask
-        for, and is never tolerated by any predicate — one target absent is a procedure
-        in flight, one target plus one stranger is a degraded cluster.
+        Every expected member that is absent (vocabulary.absent — in the member list and
+        did not answer) is a declared target of the operation in progress. An unexplained
+        absence is a second failure the operator did not ask for, and is never tolerated
+        by any predicate — one target absent is a procedure in flight, one target plus
+        one stranger is a degraded cluster. This condition is scoped to the member list,
+        so it says nothing about an unrepresented address; that is
+        `membership-accounts-for-expected`.
+    - id: membership-accounts-for-expected
+      rule: >-
+        The number of members in etcd's own membership, plus the number of declared
+        targets of the operation that are unrepresented (vocabulary.unrepresented — no
+        member in that membership at all), equals the count derived from the
+        control-plane address keys. Every configured control-plane address is therefore
+        accounted for as either a current member or a member this operation declared it
+        would take away. This is the only condition that can see an unrepresented
+        address on a run that does not evaluate `member-count`: "expected member" means
+        a member of the membership, so a stranger already removed from it is not an
+        absence `absences-are-declared` can detect. On the fresh shape it is implied by
+        `member-count`, which demands the membership be complete; the resumed shape
+        cannot demand that and needs this instead.
     - id: no-errors
       rule: No member reports a non-empty ERRORS field.
     - id: no-learners
@@ -190,28 +234,34 @@ health:
     - id: survivable
       summary: >-
         Quorum holds, every member that answered is converged, and the only members
-        absent are the ones this operation declared it would take away.
+        absent or unrepresented are the ones this operation declared it would take away.
       evaluatedOver: answering-members
       conditions:
         - quorum-present
         - absences-are-declared
+        - membership-accounts-for-expected
         - no-errors
         - no-learners
         - single-leader
         - raft-index-converged
       rule: >-
         The gate at the revalidation point and on resume, where the target is already
-        gone or about to be. It is strictly weaker than `whole` in exactly one way — it
-        tolerates the declared target's absence — and no weaker in any other: an absent
-        member that is not a declared target, or more absences than maxUnavailable,
-        is unsafe, and every member that did answer must satisfy every other condition.
+        gone or about to be. It is weaker than `whole` in exactly one way — it tolerates
+        the declared target being absent or unrepresented — and no weaker in any other:
+        an absent member that is not a declared target, more absences than
+        maxUnavailable, or a control-plane address unrepresented that nobody declared, is
+        unsafe, and every member that did answer must satisfy every other condition.
+        `membership-accounts-for-expected` is what bounds the relaxation to the declared
+        target rather than to any address the membership happens not to list.
       resumeSemantics: >-
         This is what makes the idempotent re-run decidable. After a crash between
-        "member removed" and "node rejoined", the target is absent and declared, so
-        `survivable` holds and the run resumes at the next step. If some other member
-        is also absent, `survivable` fails and the run refuses — which is correct,
-        because that cluster has a failure the operator has not seen yet. A guard an
-        operator must bypass to finish a legitimate recovery is not a guard.
+        "member removed" and "node rejoined", the target is unrepresented and declared,
+        so `survivable` holds and the run resumes at the next step. If some other member
+        is absent, or some other configured address is unrepresented, `survivable` fails
+        and the run refuses — which is correct, because that cluster has a failure the
+        operator has not seen yet. A guard an operator must bypass to finish a legitimate
+        recovery is not a guard; a guard that consents because the second fault happens
+        to be in the sense it cannot see is not one either.
 
 # ---------------------------------------------------------------------------
 # Failure semantics. Stated explicitly because the caller is destructive and the
@@ -289,7 +339,8 @@ evaluation:
       predicate: survivable
       kind: entry
       rule: >-
-        On a re-run that finds the declared target already absent from the member list.
+        On a re-run that finds the declared target already unrepresented — no member for
+        it in etcd's membership at all (health.vocabulary.unrepresented).
         Entered INSTEAD OF `preflight`: the cluster is short a member at this point by
         construction, so `whole` is unsatisfiable and evaluating it here would refuse
         every legitimate recovery. The run skips the removal and continues; it never
@@ -312,20 +363,39 @@ evaluation:
   # the caller assert the entry point has reintroduced that rejected design, because
   # asserting `resume` is exactly how you get `survivable` at the door.
   #
-  # The selection is total, and refusing is a normal outcome of it. Worked:
+  # The selection is total, and refusing is a normal outcome of it. Worked, with a row
+  # per SENSE of a second fault rather than one row per "absent" — the two senses have
+  # different conditions and an earlier revision of this table doubled them into one
+  # word, which read as total while covering one sense (MCAA-407). See
+  # health.vocabulary; `absent` means in the membership and not answering,
+  # `unrepresented` means not in the membership at all.
   #
-  #   observed                                   | entry     | predicate  | outcome
-  #   -------------------------------------------|-----------|------------|---------
-  #   target present, nothing else absent        | preflight | whole      | proceeds
-  #   target present, some OTHER member absent   | preflight | whole      | refuses (member-count)
-  #   target absent, nothing else absent         | resume    | survivable | resumes
-  #   target absent, some OTHER member absent    | resume    | survivable | refuses (absences-are-declared)
-  #   membership unknown (no endpoint answered)  | n/a       | n/a        | refuses (onIndeterminate)
+  #   observed                                    | entry     | predicate  | outcome
+  #   --------------------------------------------|-----------|------------|---------
+  #   target a member, no other fault             | preflight | whole      | proceeds
+  #   target a member, another member absent      | preflight | whole      | refuses (member-count)
+  #   target a member, another addr unrepresented | preflight | whole      | refuses (member-count)
+  #   target unrepresented, no other fault        | resume    | survivable | resumes
+  #   target unrepresented, another mbr absent    | resume    | survivable | refuses (absences-are-declared)
+  #   target unrepresented, another unrepresented | resume    | survivable | refuses (membership-accounts-for-expected)
+  #   membership unknown (no endpoint answered)   | n/a       | n/a        | refuses (onIndeterminate)
   #
-  # Rows 2 and 4 are why exclusive entry weakens nothing. The objection to `survivable`
-  # at the door — that it consents to starting on an already-degraded cluster — is
-  # answered by row 4, not waived: a stranger's absence fails `absences-are-declared`
-  # whichever point you entered at.
+  # Rows 2, 3, 5 and 6 are why exclusive entry weakens nothing. The objection to
+  # `survivable` at the door — that it consents to starting on an already-degraded
+  # cluster — is answered in both senses, not waived: a stranger fails a condition
+  # whichever point you entered at, and whichever way it is missing.
+  #
+  # Row 6 is the one exclusive entry had to pay for. The sequential reading evaluated
+  # `whole` first, so `member-count` caught a second unrepresented address by accident
+  # on every run. The resumed shape does not pass through `whole` before the destructive
+  # work, and `absences-are-declared` is scoped to the member list, so nothing saw it:
+  # on a 5-member control plane with one undeclared address already out of the
+  # membership, quorum arithmetic passes (3 answered >= quorum 3, 0 non-answering
+  # members <= maxUnavailable 2) and the run proceeded to wipe a node, learning at
+  # `completion` that the cluster was never whole. `membership-accounts-for-expected`
+  # restores that backstop at the door of the resumed shape without restoring
+  # `member-count`, which the resumed shape cannot satisfy by construction. Reachable at
+  # counts 5 and 7 only; at 3 the quorum arithmetic closes it.
   #
   # `resume` is defined by the OBSERVED state, not by history. A target that died on
   # its own and was never removed by an earlier run presents identically and is
@@ -340,7 +410,7 @@ evaluation:
       when: The declared target is still a member of etcd's own membership.
       sequence: [preflight, before-destructive-step, completion]
     - id: resumed
-      when: The declared target is already absent from etcd's own membership.
+      when: The declared target is already unrepresented in etcd's own membership.
       sequence: [resume, completion]
 
 # ---------------------------------------------------------------------------
@@ -350,14 +420,30 @@ evaluation:
 # implements only one predicate is not conformant, however careful that predicate is.
 # Neither is one that implements all four points as a pipeline: conformance includes
 # entering at `preflight` or `resume` exclusively, chosen from the observed membership,
-# and a test that a target already absent does not refuse.
+# a test that an unrepresented target resumes rather than refuses, and a test that a
+# SECOND unrepresented address refuses there — that last one is the case exclusive entry
+# took out of `member-count`'s reach (health.vocabulary.whyItMatters).
+#
+# The entry clause binds a consumer that runs the destructive removal procedure. The
+# quorum table and the predicates bind every consumer. `conformant` states where each
+# one actually is rather than what this file would like to be true of it; see
+# contracts/README.md for what is still unenforced on the non-conformant one.
 # ---------------------------------------------------------------------------
 consumers:
   - id: homelab-cli
     language: go
     path: cmd/homelab/commands/talos.go
     role: Control-plane node recreate guard (#39).
+    # Computes the quorum numbers from this file, selects the entry point from the
+    # observed membership, and its loader refuses a contract naming a condition it does
+    # not implement. internal/etcd carries the entry and resume conformance tests.
+    conformant: full
   - id: cp-storage-migrate
     language: typescript
     path: scripts/cp-storage-migrate.ts
     role: Control-plane storage migration pre/post-flight.
+    # Asserts only that its CP_KEY_PATTERN is controlPlane.countKeyPattern. `etcdHealth`
+    # predates this file and reads neither health.predicates nor evaluation.points, so
+    # the quorum and predicate clauses are unenforced on it. Stated rather than implied:
+    # a contract that lists a consumer reads as a contract that binds one.
+    conformant: count-key-pattern-only
