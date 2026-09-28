@@ -166,13 +166,14 @@ consequences worth stating rather than leaving to be discovered:
 - **It is scoped, not wildcard.** ArgoCD's own `Application` and `AppProject` are
   `argoproj.io` too, and they are *not* intercepted, so a webhook outage cannot become a
   GitOps outage.
-- **It fails open, but only when it is down.** `Ignore` means the API server admits the object
-  when the webhook pod is *unavailable*. While it is up it validates and rejects like any
-  other admission plugin. What `Ignore` removes is the guarantee, not the checking: a
-  malformed spec applied inside `timeoutSeconds` or during a webhook restart is admitted, and
-  nothing records that it skipped validation. So this is real validation with an unobservable
-  hole, not advice — which is the argument for gating the same rules at level 0 as well, not
-  for treating admission as decorative.
+- **It fails open, but only when it is down.** `Ignore` means the API server admits the
+  object when the webhook pod is *unavailable*. While it is up it validates and rejects, and
+  it did: the first Kind run with a `dlqTrigger` was denied with `invalid Sensor: atLeastOnce
+  must be set to true within the dlqTrigger`, which is exactly the defect ADR-049 exists to
+  forbid. So `Ignore` bounds the blast radius of a webhook outage without making the
+  validation advisory. What it does not give you is a guarantee: a malformed Sensor applied
+  while the webhook is restarting is admitted, which is why the same rule is also gated at
+  level 0 rather than left to admission alone.
 
 ### The trigger path, and two Argo Events defaults that quietly weaken it
 
@@ -206,11 +207,18 @@ Two upstream defaults matter more than the probe does, both read from
   the default that call always returns `nil`, so the error branch holding the DLQ is
   unreachable — a dead-letter path that is configured and can never run. `retryStrategy` is
   similarly `Backoff{Steps: 1}` — one attempt, no retry — whenever it is left unset.
+- **The requirement is recursive: the `dlqTrigger` carries its own `atLeastOnce`, also
+  defaulting false.** Setting it only on the parent trigger leaves the dead-letter write
+  itself fire-and-forget, so the message is acked while that write is still in flight and may
+  yet fail. Upstream's `action_retries_failed_total` does move when it fails, so this is not
+  unobservable — but nothing orders the failure before the ack, and that window is the loss.
+  ADR-049 states the rule and `scripts/sensor-dlq-contract_test.ts` gates it at level 0.
 
-The shipped Sensor sets `atLeastOnce: true`, a three-step `retryStrategy`, and a
-`dlqTrigger`. **The DLQ path is configured but not yet exercised**: proving it needs a
-trigger that fails, and the `log` trigger used here does not. That is an open gap, stated
-rather than implied by the presence of the field.
+The shipped Sensor sets `atLeastOnce: true` on **both** the trigger and its `dlqTrigger`, a
+three-step `retryStrategy`, and a `dlqTrigger`. **So the DLQ path is configured and
+reachable, not proven**: proving it needs a trigger that fails, and the `log` trigger used
+here does not. That is an open gap, stated rather than implied by the presence of the field —
+`atLeastOnce: true` must not be read as "dead-letter demonstrated".
 
 ## Delivery and ordering guarantees
 
@@ -224,7 +232,7 @@ suits them. **No path here is exactly-once end to end.**
 | `.dl` via `PF_DLQ` | **at-least-once** | per subject | consumer-side on the **original** `(source, id)` |
 | `.rq` on core NATS | **at-most-once** | none | none at the transport; the responder must be idempotent |
 | Argo Events trigger bus (`default`) | **at-least-once, and lossy under either bound** | per subject on the stream | none; a Sensor must tolerate redelivery |
-| Argo Events Sensor → trigger | **at-least-once only with `atLeastOnce: true`; at-most-once by default** | none | none; the trigger must be idempotent |
+| Argo Events Sensor → trigger | **at-least-once only with `atLeastOnce: true` on the trigger *and* its `dlqTrigger`; at-most-once by default** | none | none; the trigger must be idempotent. Dead-letter path configured and reachable, **not proven** |
 
 That last row is the weakest guarantee on either bus, and it is stated here rather than
 left to Argo Events' documentation because it is the one a reader is most likely to assume
