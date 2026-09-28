@@ -51,6 +51,7 @@ func TestOpenClawSource(t *testing.T) {
 		{"file parameter", "      values: |", "      fileParameters: []\n      values: |", true},
 		{"malformed object", "      values: |", "      valuesObject: []\n      values: |", true},
 		{"malformed parameter", "      values: |", "      parameters: [{name: watchNamespaces, value: 4}]\n      values: |", true},
+		{"overlapping parameters", "      values: |", "      parameters: [{name: watchNamespaces, value: \"{agents}\"}, {name: \"watchNamespaces[0]\", value: elsewhere}]\n      values: |", true},
 		{"unknown Helm option", "      values: |", "      apiVersions: [rbac.example/v1]\n      values: |", true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
