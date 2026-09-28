@@ -152,6 +152,10 @@ Notes:
   `docs/apps/paperclip.md`): `paperclip-operator` (OCI chart, CRDs) → `paperclip-dependencies`
   (OnePasswordItems) → `paperclip-database` (CloudNativePG `Cluster` on the iSCSI SSD class)
   → `paperclip` (the `Instance`).
+- LiteLLM is the upstream-OCI-chart pattern with its own database (`docs/apps/litellm.md`):
+  `litellm-dependencies` (OnePasswordItems), `litellm-database` (CloudNativePG `Cluster`),
+  `litellm` (the componentized chart: gateway, backend, ui and a PreSync migrations Job) and
+  `litellm-config` (three `HTTPRoute`s on one hostname).
 - `mosquitto` has no HTTP endpoint, so it opts out of the smoke Job (`smoke.enabled: false`);
   its chainsaw suite does a TCP connect instead.
 - The `*-config` and `*-dependencies` children carry no ingress and are covered by their
