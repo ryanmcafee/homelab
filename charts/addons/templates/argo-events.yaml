@@ -48,6 +48,11 @@ spec:
               # servers never becomes ready. The chart default is 3.
               replicas: {{ $ae.bus.replicas }}
               maxAge: {{ $ae.bus.maxAge }}
+              # Bytes. The chart default `1GB` is read by viper's GetInt64 and
+              # becomes 0, so an EventBus that sets no streamConfig of its own
+              # inherits an unbounded stream.
+              maxBytes: {{ $ae.bus.maxBytes | int64 }}
+              maxMsgs: {{ $ae.bus.maxMsgs | int64 }}
   destination:
     server: https://kubernetes.default.svc
     namespace: {{ $ae.namespace }}
@@ -92,6 +97,8 @@ spec:
         replicas: {{ $ae.bus.replicas }}
         version: {{ $ae.bus.version | quote }}
         maxAge: {{ $ae.bus.maxAge }}
+        maxBytes: {{ $ae.bus.maxBytes | int64 }}
+        maxMsgs: {{ $ae.bus.maxMsgs | int64 }}
         storage:
           {{- toYaml $ae.bus.storage | nindent 10 }}
   destination:
