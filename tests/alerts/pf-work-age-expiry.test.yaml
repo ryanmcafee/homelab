@@ -43,7 +43,6 @@ tests:
           - exp_labels:
               severity: warning
               stream_name: PF_WORK
-              is_stream_leader: 'true'
               namespace: nats
               job: nats
             exp_annotations:
@@ -56,7 +55,6 @@ tests:
           - exp_labels:
               severity: warning
               stream_name: PF_WORK
-              is_stream_leader: 'true'
               namespace: nats
               job: nats
             exp_annotations:
@@ -68,7 +66,6 @@ tests:
           - exp_labels:
               severity: warning
               stream_name: PF_WORK
-              is_stream_leader: 'true'
               namespace: nats
               job: nats
             exp_annotations:
@@ -77,7 +74,6 @@ tests:
           - exp_labels:
               severity: critical
               stream_name: PF_WORK
-              is_stream_leader: 'true'
               namespace: nats
               job: nats
             exp_annotations:
@@ -195,7 +191,62 @@ tests:
           - exp_labels:
               severity: warning
               stream_name: PF_WORK
-              is_stream_leader: 'true'
             exp_annotations:
               summary: 'PF_WORK stream metrics stopped arriving, so the silent-loss monitor is blind'
               description: 'prometheus-nats-exporter reported PF_WORK within the last 6h and no longer does. While this is firing nothing watches the 24h age budget. Check the exporter sidecar and its -jsz=all argument. docs/runbooks/pf-work-age-expiry.md.'
+
+  # 8. Production is clustered (NATS_SERVER_REPLICAS: 3) and the exporter reports
+  #    one series per server, so the recorded SLI has to collapse three views
+  #    into one. The two followers here are stale - frozen at an older sequence
+  #    while the leader's head advances - which is exactly why leadership is
+  #    preferred over an aggregate of every server. One firing alert, not three,
+  #    and no alert at all while the leader says work is being taken.
+  - interval: 30s
+    name: three replicas produce one alert from the leader's view
+    input_series:
+      - series: 'nats_stream_first_seq{stream_name="PF_WORK",is_stream_leader="true",namespace="nats",job="nats",pod="nats-0"}'
+        values: '1+1x2520'  # leader: head advancing, work is being taken
+      - series: 'nats_stream_first_seq{stream_name="PF_WORK",is_stream_leader="false",namespace="nats",job="nats",pod="nats-1"}'
+        values: '1+0x2520'  # follower: stale, would look frozen on its own
+      - series: 'nats_stream_first_seq{stream_name="PF_WORK",is_stream_leader="false",namespace="nats",job="nats",pod="nats-2"}'
+        values: '1+0x2520'
+      - series: 'nats_stream_total_messages{stream_name="PF_WORK",is_stream_leader="true",namespace="nats",job="nats",pod="nats-0"}'
+        values: '3+0x2520'
+      - series: 'nats_stream_total_messages{stream_name="PF_WORK",is_stream_leader="false",namespace="nats",job="nats",pod="nats-1"}'
+        values: '3+0x2520'
+      - series: 'nats_stream_total_messages{stream_name="PF_WORK",is_stream_leader="false",namespace="nats",job="nats",pod="nats-2"}'
+        values: '3+0x2520'
+    alert_rule_test:
+      - eval_time: 13h
+        alertname: PFWorkOldestUnackedAging
+        exp_alerts: []
+
+  # 9. The same three-replica cluster with a genuinely frozen leader. Without
+  #    deduplication this pages three times for one stream.
+  - interval: 30s
+    name: three replicas page once for one frozen stream
+    input_series:
+      - series: 'nats_stream_first_seq{stream_name="PF_WORK",is_stream_leader="true",namespace="nats",job="nats",pod="nats-0"}'
+        values: '1+0x240 2+0x2700'
+      - series: 'nats_stream_first_seq{stream_name="PF_WORK",is_stream_leader="false",namespace="nats",job="nats",pod="nats-1"}'
+        values: '1+0x240 2+0x2700'
+      - series: 'nats_stream_first_seq{stream_name="PF_WORK",is_stream_leader="false",namespace="nats",job="nats",pod="nats-2"}'
+        values: '1+0x240 2+0x2700'
+      - series: 'nats_stream_total_messages{stream_name="PF_WORK",is_stream_leader="true",namespace="nats",job="nats",pod="nats-0"}'
+        values: '3+0x2940'
+      - series: 'nats_stream_total_messages{stream_name="PF_WORK",is_stream_leader="false",namespace="nats",job="nats",pod="nats-1"}'
+        values: '3+0x2940'
+      - series: 'nats_stream_total_messages{stream_name="PF_WORK",is_stream_leader="false",namespace="nats",job="nats",pod="nats-2"}'
+        values: '3+0x2940'
+    alert_rule_test:
+      - eval_time: 14h30m
+        alertname: PFWorkOldestUnackedAging
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              stream_name: PF_WORK
+              namespace: nats
+              job: nats
+            exp_annotations:
+              summary: 'The oldest unacked PF_WORK message has been queued for more than 12h'
+              description: 'nats_stream_first_seq has not moved for 12h while the stream was never empty, so the head message is at least 12h old and PF_WORK max_age is 24h. Age expiry deletes it with no advisory and no per-message signal. docs/runbooks/pf-work-age-expiry.md.'

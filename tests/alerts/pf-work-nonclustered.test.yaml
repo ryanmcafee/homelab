@@ -1,0 +1,179 @@
+# promtool unit tests for the homelab-nats-jetstream rules on a NON-CLUSTERED
+# NATS server (charts/addons/templates/kube-prometheus-stack.yaml,
+# docs/runbooks/pf-work-age-expiry.md).
+#
+# contracts/events/subjects.v1.yaml sets replicas_defaults.homelab: 1, because a
+# hard-coded 3 leaves a single-node fork unable to create a stream at all
+# (nats-server: "replicas > 1 not supported in non-clustered mode", error 10074).
+# The Kind loop and every single-node fork therefore run non-clustered, and
+# prometheus-nats-exporter derives stream and consumer leadership from the
+# cluster block of the jsz response - which a single server does not have.
+#
+# The exporter's exact single-node output is unmeasured (MCAA-285), so these
+# tests pin BOTH shapes it can take: is_stream_leader="false", and the label
+# absent entirely. The rules must behave identically in both, and identically to
+# the clustered case in pf-work-age-expiry.test.yaml. A silent-loss alert that
+# only fires on the maintainer's 3-node cluster is not shipped observability.
+rule_files:
+  - rules.yaml
+
+evaluation_interval: 1m
+
+tests:
+  # 1a. Consumer outage, single node reporting is_stream_leader="false". Same
+  #     series as test 1 of pf-work-age-expiry.test.yaml: last ack at t+2h, head
+  #     frozen after it, so the head is 12h old at t+14h and 18h old at t+20h.
+  - interval: 30s
+    name: single node reporting leader=false still pages on an aging head
+    input_series:
+      - series: 'nats_stream_first_seq{stream_name="PF_WORK",is_stream_leader="false",namespace="nats",job="nats"}'
+        values: '1+0x240 2+0x2700'
+      - series: 'nats_stream_total_messages{stream_name="PF_WORK",is_stream_leader="false",namespace="nats",job="nats"}'
+        values: '3+0x2940'
+    alert_rule_test:
+      - eval_time: 13h
+        alertname: PFWorkOldestUnackedAging
+        exp_alerts: []
+      - eval_time: 14h30m
+        alertname: PFWorkOldestUnackedAging
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              stream_name: PF_WORK
+              namespace: nats
+              job: nats
+            exp_annotations:
+              summary: 'The oldest unacked PF_WORK message has been queued for more than 12h'
+              description: 'nats_stream_first_seq has not moved for 12h while the stream was never empty, so the head message is at least 12h old and PF_WORK max_age is 24h. Age expiry deletes it with no advisory and no per-message signal. docs/runbooks/pf-work-age-expiry.md.'
+      - eval_time: 20h45m
+        alertname: PFWorkOldestUnackedAging
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              stream_name: PF_WORK
+              namespace: nats
+              job: nats
+            exp_annotations:
+              summary: 'The oldest unacked PF_WORK message has been queued for more than 12h'
+              description: 'nats_stream_first_seq has not moved for 12h while the stream was never empty, so the head message is at least 12h old and PF_WORK max_age is 24h. Age expiry deletes it with no advisory and no per-message signal. docs/runbooks/pf-work-age-expiry.md.'
+          - exp_labels:
+              severity: critical
+              stream_name: PF_WORK
+              namespace: nats
+              job: nats
+            exp_annotations:
+              summary: 'PF_WORK work is 18h old and max_age deletes it silently in under 6h'
+              description: 'The head of PF_WORK has been unacked for 18h of its 24h max_age. When the budget runs out the messages are deleted with no advisory of any kind. Get a consumer taking work, or copy the queue out now. docs/runbooks/pf-work-age-expiry.md.'
+
+  # 1b. The same outage with no is_stream_leader label at all.
+  - interval: 30s
+    name: single node with no leader label still pages on an aging head
+    input_series:
+      - series: 'nats_stream_first_seq{stream_name="PF_WORK",namespace="nats",job="nats"}'
+        values: '1+0x240 2+0x2700'
+      - series: 'nats_stream_total_messages{stream_name="PF_WORK",namespace="nats",job="nats"}'
+        values: '3+0x2940'
+    alert_rule_test:
+      - eval_time: 14h30m
+        alertname: PFWorkOldestUnackedAging
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              stream_name: PF_WORK
+              namespace: nats
+              job: nats
+            exp_annotations:
+              summary: 'The oldest unacked PF_WORK message has been queued for more than 12h'
+              description: 'nats_stream_first_seq has not moved for 12h while the stream was never empty, so the head message is at least 12h old and PF_WORK max_age is 24h. Age expiry deletes it with no advisory and no per-message signal. docs/runbooks/pf-work-age-expiry.md.'
+
+  # 2. A busy single-node queue must stay quiet, exactly as the clustered one
+  #    does: constant depth with an advancing head is work being taken.
+  - interval: 30s
+    name: busy single node queue does not page
+    input_series:
+      - series: 'nats_stream_first_seq{stream_name="PF_WORK",is_stream_leader="false",namespace="nats",job="nats"}'
+        values: '1+1x2520'
+      - series: 'nats_stream_total_messages{stream_name="PF_WORK",is_stream_leader="false",namespace="nats",job="nats"}'
+        values: '3+0x2520'
+    alert_rule_test:
+      - eval_time: 13h
+        alertname: PFWorkOldestUnackedAging
+        exp_alerts: []
+
+  # 3. Loss already happened on a single node: head jumped 1 -> 4 while the only
+  #    consumer's ack floor reached 1, so two messages left unacked. The consumer
+  #    side carries is_consumer_leader, which has the same single-node problem.
+  - interval: 30s
+    name: single node unacked removal is detected from the sequence gap
+    input_series:
+      - series: 'nats_stream_first_seq{stream_name="PF_WORK",is_stream_leader="false",namespace="nats",job="nats"}'
+        values: '1+0x10 4+0x20'
+      - series: 'nats_stream_total_messages{stream_name="PF_WORK",is_stream_leader="false",namespace="nats",job="nats"}'
+        values: '3+0x10 0+0x20'
+      - series: 'nats_consumer_ack_floor_stream_seq{stream_name="PF_WORK",consumer_name="worker-workload-v1",is_consumer_leader="false",namespace="nats",job="nats"}'
+        values: '0+0x10 1+0x20'
+    alert_rule_test:
+      - eval_time: 8m
+        alertname: PFWorkMessagesExpiredUnacked
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              stream_name: PF_WORK
+            exp_annotations:
+              summary: '2 PF_WORK messages left the stream without being acked'
+              description: 'The stream head advanced further than every consumer ack floor did, so that many durable requests were removed unacked: max_age expiry, a purge or a delete. Nothing else reports this - there is no advisory for age-based deletion. docs/runbooks/pf-work-age-expiry.md.'
+
+  # 4. A normal single-node drain is not loss: head and ack floor both advance
+  #    by three. Guards against a fix that makes the loss detector fire always.
+  - interval: 30s
+    name: single node acked drain is not reported as loss
+    input_series:
+      - series: 'nats_stream_first_seq{stream_name="PF_WORK",is_stream_leader="false",namespace="nats",job="nats"}'
+        values: '1+0x10 4+0x20'
+      - series: 'nats_stream_total_messages{stream_name="PF_WORK",is_stream_leader="false",namespace="nats",job="nats"}'
+        values: '3+0x10 0+0x20'
+      - series: 'nats_consumer_ack_floor_stream_seq{stream_name="PF_WORK",consumer_name="worker-workload-v1",is_consumer_leader="false",namespace="nats",job="nats"}'
+        values: '0+0x10 3+0x20'
+    alert_rule_test:
+      - eval_time: 8m
+        alertname: PFWorkMessagesExpiredUnacked
+        exp_alerts: []
+
+  # 5. The blindness alert must not fire while a single node is reporting the
+  #    stream perfectly well. On main this inverts: the leader-filtered selector
+  #    is empty, the unfiltered one is not, so it fires forever on Kind and on
+  #    every single-node fork - an alert nobody can act on.
+  - interval: 30s
+    name: reporting single node does not look blind
+    input_series:
+      - series: 'nats_stream_first_seq{stream_name="PF_WORK",is_stream_leader="false",namespace="nats",job="nats"}'
+        values: '1+0x480'
+      - series: 'nats_stream_total_messages{stream_name="PF_WORK",is_stream_leader="false",namespace="nats",job="nats"}'
+        values: '3+0x480'
+    alert_rule_test:
+      - eval_time: 3h
+        alertname: PFWorkStreamMetricsAbsent
+        exp_alerts: []
+
+  # 6. Blindness on a single node is still a real alert: reported for an hour,
+  #    then gone. Same shape as test 7 of pf-work-age-expiry.test.yaml.
+  - interval: 30s
+    name: single node exporter stops reporting the stream
+    input_series:
+      - series: 'nats_stream_first_seq{stream_name="PF_WORK",is_stream_leader="false",namespace="nats",job="nats"}'
+        values: '1+0x120 _x120'
+      - series: 'nats_stream_total_messages{stream_name="PF_WORK",is_stream_leader="false",namespace="nats",job="nats"}'
+        values: '3+0x120 _x120'
+    alert_rule_test:
+      - eval_time: 55m
+        alertname: PFWorkStreamMetricsAbsent
+        exp_alerts: []
+      - eval_time: 1h40m
+        alertname: PFWorkStreamMetricsAbsent
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              stream_name: PF_WORK
+            exp_annotations:
+              summary: 'PF_WORK stream metrics stopped arriving, so the silent-loss monitor is blind'
+              description: 'prometheus-nats-exporter reported PF_WORK within the last 6h and no longer does. While this is firing nothing watches the 24h age budget. Check the exporter sidecar and its -jsz=all argument. docs/runbooks/pf-work-age-expiry.md.'

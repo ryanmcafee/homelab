@@ -44,6 +44,31 @@ holding three messages being worked through look identical in `nats_stream_total
 "never empty" clause matters too — a drained work queue leaves `first_seq` at `last_seq + 1`, so
 the next publish reuses that sequence and the head looks frozen when it is a second old.
 
+## Which server's view counts
+
+The exporter reports one series per NATS server, so a 3-node cluster publishes three
+`nats_stream_first_seq` series for `PF_WORK` and only the stream leader's is authoritative — a
+follower can lag or report an older sequence. Deduplicating on `is_stream_leader="true"` is
+correct on a cluster and selects **nothing** on a single node, which has no cluster block for the
+exporter to derive leadership from. `contracts/events/subjects.v1.yaml` sets
+`replicas_defaults.homelab: 1` deliberately (a hard-coded 3 leaves a single-node fork unable to
+create a stream at all, nats-server error 10074), so the single-node case is the Kind loop and
+every fork, not an edge case.
+
+Three recording rules resolve this once, and every alert reads them instead of the raw metric:
+
+| Recorded series | Source |
+|---|---|
+| `homelab:nats_stream_first_seq:authoritative` | `nats_stream_first_seq` |
+| `homelab:nats_stream_total_messages:authoritative` | `nats_stream_total_messages` |
+| `homelab:nats_consumer_ack_floor_stream_seq:authoritative` | `nats_consumer_ack_floor_stream_seq` |
+
+Each prefers the leader's series where the leadership label exists and falls back to the only
+server where it does not, so one expression is correct on both topologies. Two consequences worth
+knowing when you debug: the alerts carry no `is_stream_leader` label (it is aggregated away), and
+during a leader election the fallback briefly supplies the followers' view rather than leaving a
+gap.
+
 ## The alerts
 
 All four are in the `homelab-nats-jetstream` group of
@@ -113,11 +138,14 @@ label, and `nats_stream_first_seq{stream_name="PF_WORK"}` shows it. In order:
 
 Durable requests were destroyed. `$value` is how many. This is data loss, not a warning:
 
-1. Snapshot the evidence before it ages out of Prometheus:
+1. Snapshot the evidence before it ages out of Prometheus. The raw metrics show every server's
+   view; the recorded series are the ones the alert did its arithmetic on:
    ```promql
    nats_stream_first_seq{stream_name="PF_WORK"}
    nats_consumer_ack_floor_stream_seq{stream_name="PF_WORK"}
    nats_stream_total_messages{stream_name="PF_WORK"}
+   homelab:nats_stream_first_seq:authoritative{stream_name="PF_WORK"}
+   homelab:nats_consumer_ack_floor_stream_seq:authoritative{stream_name="PF_WORK"}
    ```
    The sequence gap tells you the range of lost sequences: everything between the old and the new
    `first_seq` that the ack floors did not cover.
