@@ -54,7 +54,7 @@ func isNonIdentifyingValue(v string) bool {
 	// An address is judged as an address: loopback, unspecified, link-local and
 	// multicast cannot identify a host, so they are never patterns.
 	if net.ParseIP(v) != nil {
-		return !isRoutableHostIP(v)
+		return !IsRoutableHostIP(v)
 	}
 	if hasPlaceholderMarker(v) {
 		return true
@@ -105,7 +105,7 @@ func BuildGuardPatterns(values map[string]string) []string {
 		isPII := IsPIIKey(key)
 
 		// Also flag anything that parses as a routable IP, whatever its key.
-		if !isPII && isRoutableHostIP(val) {
+		if !isPII && IsRoutableHostIP(val) {
 			isPII = true
 		}
 
@@ -868,7 +868,7 @@ func classifyHostValue(value string) string {
 		return ""
 	}
 	switch {
-	case isRoutableHostIP(hostOf(value)):
+	case IsRoutableHostIP(hostOf(value)):
 		return "routable host IP"
 	case isRealHostname(value):
 		return "real hostname"
@@ -1036,7 +1036,7 @@ func ScanFileForPIIShape(path string) (GuardResult, error) {
 
 			var kind string
 			switch {
-			case isRoutableHostIP(value):
+			case IsRoutableHostIP(value):
 				kind = "routable host IP"
 			case isRealHostname(value):
 				kind = "real hostname"
@@ -1163,10 +1163,13 @@ func stripValue(v string) string {
 	return strings.Trim(v, `"'`)
 }
 
-// isRoutableHostIP reports whether a value is an IP address that could identify
+// IsRoutableHostIP reports whether a value is an IP address that could identify
 // a real host. Loopback, unspecified, link-local and multicast addresses are
 // safe to commit; a CIDR does not parse and is therefore never flagged.
-func isRoutableHostIP(v string) bool {
+//
+// Exported so the fork-ability render scan in internal/verify judges an address
+// by the same rule this source guard does rather than restating it.
+func IsRoutableHostIP(v string) bool {
 	ip := net.ParseIP(v)
 	if ip == nil {
 		return false
