@@ -39,9 +39,14 @@ name: Upgrade verification
 #   regenerate  renovate/* heads only, and only when the regeneration bot's
 #               GitHub App secrets (HOMELAB_BOT_APP_ID, HOMELAB_BOT_PRIVATE_KEY)
 #               exist; otherwise a notice. Regenerates the committed localdev
-#               values, tests/schemas, tests/snapshots and the versions.yaml
-#               block embedded in Claude.md, and pushes one commit
-#               as homelab-regen-bot with an App token. Unlike GITHUB_TOKEN, an
+#               values, tests/schemas, tests/snapshots, the versions.yaml block
+#               embedded in Claude.md and the generated regions of readme.md and
+#               docs/ - the full artefact set a bump moves, so every gate a bump
+#               turns red (level-0, schemas, snapshot, policy) has a bot remedy -
+#               and pushes one commit as homelab-regen-bot with an App token.
+#               The set is REGEN_STEPS/GENERATED_PATHS in
+#               scripts/renovate-regen.ts, enforced by its parity test.
+#               Unlike GITHUB_TOKEN, an
 #               App-token push triggers the other workflows, and renovate.json5
 #               lists the author in gitIgnoredAuthors so Renovate keeps managing
 #               the branch. This supersedes the verify.yml "no auto-commit"
@@ -165,7 +170,7 @@ jobs:
             changed="$(git status --porcelain -- tests/schemas charts/addons/values-localdev.yaml charts/applications/values-localdev.yaml | head -40)"
             if [ -n "$changed" ]; then
               echo
-              echo 'Files this bump needs regenerated and committed (`task config:export:localdev`, `task schemas:vendor`, `task test:snapshot -- --update`):'
+              echo 'Files this bump needs regenerated and committed (`task renovate:regen`, or the same steps by hand):'
               echo
               echo '```'
               echo "$changed"
@@ -423,7 +428,10 @@ jobs:
         run: bun install --frozen-lockfile
 
       # Order matters: the localdev render reads the committed localdev values,
-      # so they are regenerated before the snapshots.
+      # so they are regenerated before the snapshots, and docs:check reads the
+      # regenerated snapshots, so it runs after them. Same set and order as
+      # REGEN_STEPS in scripts/renovate-regen.ts; the parity test in
+      # scripts/renovate-regen_test.ts fails when the two drift apart.
       - name: Regenerate
         if: steps.guard.outputs.run == 'true'
         env:
@@ -432,6 +440,7 @@ jobs:
           task config:export:localdev
           task schemas:vendor
           task test:snapshot -- --update
+          task docs:check -- --fix
           task docs:embedme
 
       - name: Commit and push as the regeneration bot
@@ -440,14 +449,20 @@ jobs:
           BRANCH: ${{ github.head_ref }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
-          paths="tests/snapshots tests/schemas charts/addons/values-localdev.yaml charts/applications/values-localdev.yaml Claude.md"
+          # GENERATED_PATHS in scripts/renovate-regen.ts, minus .github/homelab.svg:
+          # every SVG literal docs:check can rewrite is a count of addons,
+          # applications or synced Applications, and the rest (the suite counter,
+          # the route hosts) it can only report. A version bump moves none of
+          # them, so a moved SVG on a renovate/* branch is a human change and
+          # belongs in a human-authored commit - the warning below names it.
+          paths="tests/snapshots tests/schemas charts/addons/values-localdev.yaml charts/applications/values-localdev.yaml Claude.md readme.md docs"
           # shellcheck disable=SC2086
           if [ -z "$(git status --porcelain -- $paths)" ]; then
-            echo "::notice::Snapshots, schemas, localdev values and embedded snippets are already current."
+            echo "::notice::Snapshots, schemas, localdev values, embedded snippets and generated doc regions are already current."
             exit 0
           fi
           other="$(git status --porcelain | awk '{print $2}' | while read -r f; do
-            case "$f" in tests/snapshots/*|tests/schemas/*|charts/addons/values-localdev.yaml|charts/applications/values-localdev.yaml|Claude.md) ;; *) echo "$f" ;; esac
+            case "$f" in tests/snapshots/*|tests/schemas/*|charts/addons/values-localdev.yaml|charts/applications/values-localdev.yaml|Claude.md|readme.md|docs/*) ;; *) echo "$f" ;; esac
           done)"
           if [ -n "$other" ]; then
             echo "::warning::Regeneration also touched files outside its scope; they are not committed: ${other}"
@@ -455,7 +470,7 @@ jobs:
           # shellcheck disable=SC2086
           git add -A -- $paths
           git -c user.name="$REGEN_BOT_NAME" -c user.email="$REGEN_BOT_EMAIL" commit \
-            -m "chore(deps): regenerate snapshots, schemas, localdev values and embedded snippets" \
+            -m "chore(deps): regenerate snapshots, schemas, localdev values, embedded snippets and doc regions" \
             -m "Generated by .github/workflows/upgrade.yml (job regenerate) for ${HEAD_SHA}."
           if ! git push origin "HEAD:refs/heads/${BRANCH}"; then
             remote="$(git ls-remote origin "refs/heads/${BRANCH}" | awk '{print $1}')"
