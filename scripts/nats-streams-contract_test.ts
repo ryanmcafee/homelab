@@ -89,7 +89,11 @@ test("every stream's retention, age, discard and dedup window match the contract
   for (const expected of contract.streams) {
     const actual = chartStreamsByName.get(expected.name);
     assert(actual !== undefined, `chart is missing stream ${expected.name}`);
-    assertEquals(actual.retention, expected.retention, `${expected.name}.retention`);
+    assertEquals(
+      actual.retention,
+      expected.retention,
+      `${expected.name}.retention`,
+    );
     assertEquals(actual.maxAge, expected.max_age, `${expected.name}.maxAge`);
     assertEquals(actual.discard, expected.discard, `${expected.name}.discard`);
     assertEquals(
@@ -121,7 +125,9 @@ test("a stream ingests directly or by sourcing, never both", () => {
         `${expected.name} sources from another stream and must declare no subjects`,
       );
       const contractFilters = contractSources.flatMap((s) => s.filters).sort();
-      const chartFilters = (actual.sources ?? []).map((s) => s.filterSubject).sort();
+      const chartFilters = (actual.sources ?? [])
+        .map((s) => s.filterSubject)
+        .sort();
       assertEquals(
         chartFilters,
         contractFilters,
@@ -159,7 +165,10 @@ test("stream replicas stay a placeholder in the contract and default to the home
 
 test("consumer defaults match the contract", () => {
   assertEquals(chart.consumerDefaults.ackPolicy, contract.consumers.ack_policy);
-  assertEquals(chart.consumerDefaults.maxDeliver, contract.consumers.max_deliver);
+  assertEquals(
+    chart.consumerDefaults.maxDeliver,
+    contract.consumers.max_deliver,
+  );
   assertEquals(chart.consumerDefaults.ackWait, contract.consumers.ack_wait);
   assertEquals(
     chart.consumerDefaults.maxAckPending,
