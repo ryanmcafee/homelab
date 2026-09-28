@@ -357,6 +357,107 @@ spec:
               kubectl exec -n nats "$box" -- nats stream info PF_WORK || true
               kubectl exec -n nats "$box" -- nats stream info PF_DLQ || true
 
+    # PF_AUDIT's two sources being accepted says nothing about what they SELECT. The
+    # assertion that separates the contract's filter set from a wider one is the negative
+    # one, so this step makes both halves: an identity event has to arrive, and the
+    # workload event that is already in PF_EVENTS has to stay out. (ADR-038 condition C3)
+    - name: audit-source-filters
+      description: >-
+        PF_AUDIT admits pf.*.identity.*.*.*.ev and excludes the workload event PF_EVENTS
+        already holds, so the source filters are the contract's and not wider.
+      timeouts:
+        exec: 5m
+      try:
+        - script:
+            timeout: 5m
+            content: |
+              set -eu
+              box=$(kubectl get pod -n nats -l app.kubernetes.io/component=nats-box \
+                -o jsonpath='{.items[0].metadata.name}')
+
+              identity=pf.local.identity.principal.issued.v1.ev
+              workload=pf.local.workload.deployment.deployed.v1.ev
+              corr="e2e-audit-$(date +%s)"
+              now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+              schema=https://github.com/ryanmcafee/homelab/contracts/events/data/identity.principal.issued.v1.schema.json
+
+              # An audit record carries the FACT of issuance and never the credential, so
+              # credentialRef is omitted rather than filled with a placeholder secret path.
+              envelope='{"specversion":"1.0","id":"'"$corr"'","source":"//identity/e2e-nats"'
+              envelope="$envelope"',"type":"com.mcafeeconsulting.platform.identity.principal.issued.v1"'
+              envelope="$envelope"',"time":"'"$now"'","datacontenttype":"application/json"'
+              envelope="$envelope"',"dataschema":"'"$schema"'","subject":"principal/e2e"'
+              envelope="$envelope"',"tenant":"local","correlationid":"'"$corr"'"'
+              envelope="$envelope"',"data":{"principalId":"e2e-principal","principalType":"ai-agent"'
+              envelope="$envelope"',"issuer":"https://issuer.invalid/e2e"}}'
+
+              kubectl exec -n nats "$box" -- nats pub --jetstream "$identity" "$envelope"
+              echo "published $corr to $identity"
+
+              # Sourcing is asynchronous, so the positive half polls rather than asserting
+              # once. --last-for reads the stream directly and consumes nothing.
+              found=""
+              i=0
+              while [ "$i" -lt 30 ]; do
+                if out=$(kubectl exec -n nats "$box" -- \
+                     nats stream get PF_AUDIT --last-for "$identity" 2>&1); then
+                  case "$out" in
+                    *"\"correlationid\":\"$corr\""*) found=yes; break ;;
+                  esac
+                fi
+                i=$((i + 1))
+                sleep 2
+              done
+
+              if [ -z "$found" ]; then
+                echo "--- last PF_AUDIT read ---"
+                echo "${out:-<no successful read>}"
+                echo "--------------------------"
+                echo "FAIL: $corr never reached PF_AUDIT; the identity source filter does not match"
+                exit 1
+              fi
+              echo "OK: $corr reached PF_AUDIT via the pf.*.identity.*.*.*.ev source filter"
+
+              # Anti-vacuity guard. "Absent from PF_AUDIT" only means something once the
+              # same subject is shown present in the origin stream -- otherwise the
+              # negative below passes on an empty bus and reads as coverage.
+              if ! origin=$(kubectl exec -n nats "$box" -- \
+                   nats stream get PF_EVENTS --last-for "$workload" 2>&1); then
+                echo "$origin"
+                echo "FAIL: $workload is not in PF_EVENTS, so the exclusion below would prove nothing"
+                exit 1
+              fi
+              echo "OK: $workload is present in PF_EVENTS"
+
+              # The negative half. A wider filter -- pf.*.*.*.*.*.ev, or a second source
+              # someone adds later -- fails exactly here and nowhere else.
+              #
+              # Matched on the body rather than on the exit status: a read that failed for
+              # an unrelated reason would otherwise LOOK like an empty subject and pass.
+              # The positive half above already ran this exact command successfully, so a
+              # broken invocation aborts the step before it can be read as an exclusion.
+              excluded=$(kubectl exec -n nats "$box" -- \
+                nats stream get PF_AUDIT --last-for "$workload" 2>&1) || true
+
+              echo "--- PF_AUDIT read for $workload ---"
+              echo "$excluded"
+              echo "-----------------------------------"
+
+              case "$excluded" in
+                *'"correlationid"'*)
+                  echo "FAIL: $workload is in PF_AUDIT; the source filters are wider than the contract"
+                  exit 1 ;;
+              esac
+              echo "OK: $workload is absent from PF_AUDIT -- filters match the contract"
+      catch:
+        - script:
+            timeout: 1m
+            content: |
+              box=$(kubectl get pod -n nats -l app.kubernetes.io/component=nats-box \
+                -o jsonpath='{.items[0].metadata.name}' 2>/dev/null) || exit 0
+              kubectl exec -n nats "$box" -- nats stream info PF_AUDIT || true
+              kubectl exec -n nats "$box" -- nats stream info PF_EVENTS || true
+
     # Evidence for the PF_WORK silent-loss alerts, which select on is_stream_leader and
     # dedupe with `max by (stream_name, namespace, job)`. Whether those labels exist, and
     # what they hold on a non-clustered server, is a property of the deployed exporter that
