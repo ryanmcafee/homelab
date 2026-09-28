@@ -2078,7 +2078,7 @@ data:
             "hide": 2,
             "label": "Named networks",
             "name": "networks",
-            "query": "homelab=192.168.1.0/25,lan=192.168.1.128/25",
+            "query": "homelab=198.51.100.0/25,lan=198.51.100.128/25",
             "type": "constant"
           },
           {

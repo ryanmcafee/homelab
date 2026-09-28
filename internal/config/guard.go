@@ -605,8 +605,8 @@ var templateFileSuffixes = []string{".example", ".template", ".sample", ".dist"}
 
 // IsTemplateFile reports whether a path is an example or template file.
 //
-// These are held to a stricter rule rather than skipped. A documentation
-// address such as 192.168.1.100 cannot be told from a real one by shape, so
+// These are held to a stricter rule rather than skipped. A private address
+// such as 10.0.0.100 cannot be told from a real one by shape, so
 // instead of clearing template files by shape the guard requires every
 // PII-shaped key in them to carry a value from examplePlaceholder's closed
 // set. That matters most for configuration/environments/homelab.yaml.example:
@@ -624,25 +624,29 @@ func IsTemplateFile(path string) bool {
 }
 
 // examplePlaceholderSubnets are the address ranges a template file may use.
-// 192.168.1.0/24 is this repository's documentation subnet, used throughout
-// configuration/environments/homelab.yaml.example. It is private and routable,
-// so shape detection cannot clear it on its own; listing it here is what makes
-// every other address in a template a finding.
+// Every entry is reserved for documentation and unroutable by definition, so no
+// paste of a real address can land in one by accident.
+//
+// 192.168.1.0/24 is deliberately absent. It used to be listed, because
+// configuration/environments/homelab.yaml.example was written in it — but it is
+// also the most common home LAN subnet, so for a forking user whose LAN really
+// is 192.168.1.0/24 every placeholder in the template matched their real
+// GATEWAY_IP and node addresses, and the value detector could not tell their
+// leaked address from the example's. Listing it made the fork-ability gate
+// unusable for exactly the forkers it was written for.
 var examplePlaceholderSubnets = []string{
-	"192.168.1.0/24",
 	"127.0.0.0/8",
-	// RFC 5737 TEST-NET-1, reserved for documentation and unroutable by
-	// definition — so unlike 192.168.1.0/24 it cannot be a real address a paste
-	// smuggled in. configuration/environments/single-node.yaml.example uses it,
-	// deliberately distinct from the RFC 1918 range in homelab.yaml.example:
-	// docs/contracts/fork-ability.md requires the two not to overlap, or the
-	// grep cannot tell a leaked real value from a placeholder.
-	//
-	// Only TEST-NET-1 is listed. TEST-NET-2 (198.51.100.0/24) and TEST-NET-3
-	// (203.0.113.0/24) are equally reserved but unused here, and 203.0.113.10
-	// is an existing isExamplePlaceholder case asserting a public address is
-	// NOT a placeholder — widening to all three would silently retire it.
+	// RFC 5737 TEST-NET-2, used by homelab.yaml.example and
+	// ansible/inventory/homelab.yml.example.
+	"198.51.100.0/24",
+	// RFC 5737 TEST-NET-1, used by single-node.yaml.example. Each example
+	// ConfigSet keeps its own range: docs/contracts/fork-ability.md check 1
+	// greps a render for real values, and two ConfigSets sharing a range leave
+	// it unable to say which file an address came from.
 	"192.0.2.0/24",
+	// TEST-NET-3 (203.0.113.0/24) is equally reserved but unused here, and
+	// 203.0.113.10 is an isExamplePlaceholder case asserting a public address
+	// is NOT a placeholder — listing it would silently retire that case.
 }
 
 // examplePlaceholderHosts are the documented placeholder domains a template

@@ -1493,7 +1493,7 @@ spec:
 
             httpConnection:
               protocol: https
-              host: 192.168.1.100
+              host: 198.51.100.100
               port: 443
               allowInsecure: true
               apiKey: "${TRUENAS_API_KEY}"
@@ -1506,7 +1506,7 @@ spec:
               zvolBlocksize: 16K
 
             iscsi:
-              targetPortal: "192.168.1.100:3260"
+              targetPortal: "198.51.100.100:3260"
               namePrefix: csi-
               nameSuffix: "-homelab"
               targetGroups:
@@ -1650,7 +1650,7 @@ spec:
 
             httpConnection:
               protocol: https
-              host: 192.168.1.100
+              host: 198.51.100.100
               port: 443
               allowInsecure: true
               apiKey: "${TRUENAS_API_KEY}"
@@ -1663,7 +1663,7 @@ spec:
               zvolBlocksize: 16K
 
             iscsi:
-              targetPortal: "192.168.1.100:3260"
+              targetPortal: "198.51.100.100:3260"
               namePrefix: csi-
               nameSuffix: "-homelab"
               targetGroups:
@@ -1811,7 +1811,7 @@ spec:
 
             httpConnection:
               protocol: https
-              host: 192.168.1.100
+              host: 198.51.100.100
               port: 443
               allowInsecure: true
               apiKey: "${TRUENAS_API_KEY}"
@@ -1826,11 +1826,11 @@ spec:
               datasetPermissionsGroup: 100
 
             nfs:
-              shareHost: 192.168.1.100
+              shareHost: 198.51.100.100
               shareAlldirs: false
               shareAllowedHosts: []
               shareAllowedNetworks:
-                - 192.168.1.0/24
+                - 198.51.100.0/24
               shareMapallUser: rmcafee
               shareMapallGroup: users
 
@@ -1961,7 +1961,7 @@ spec:
 
             httpConnection:
               protocol: https
-              host: 192.168.1.100
+              host: 198.51.100.100
               port: 443
               allowInsecure: true
               apiKey: "${TRUENAS_API_KEY}"
@@ -1977,11 +1977,11 @@ spec:
               datasetPermissionsGroup: 100
 
             nfs:
-              shareHost: 192.168.1.100
+              shareHost: 198.51.100.100
               shareAlldirs: false
               shareAllowedHosts: []
               shareAllowedNetworks:
-                - 192.168.1.0/24
+                - 198.51.100.0/24
               shareMapallUser: rmcafee
               shareMapallGroup: users
 
@@ -2278,7 +2278,7 @@ spec:
             service:
               annotations:
                 port-forwarding.replaceme-domain.com/enable: "true"
-              staticIP: 192.168.1.200
+              staticIP: 198.51.100.200
               type: LoadBalancer
             tracing:
               enabled: true
@@ -2289,7 +2289,7 @@ spec:
               maxReplicas: 3
               minReplicas: 2
               targetCPUUtilizationPercentage: 80
-            dnsTarget: 192.168.1.101
+            dnsTarget: 198.51.100.101
             enabled: true
             name: envoy-internal
             replicas: 2
@@ -2301,7 +2301,7 @@ spec:
                 cpu: 100m
                 memory: 128Mi
             service:
-              staticIP: 192.168.1.101
+              staticIP: 198.51.100.101
               type: LoadBalancer
             tracing:
               enabled: true
@@ -2527,7 +2527,7 @@ spec:
               tag: v0.8.2
             env:
               - name: UNIFI_HOST
-                value: "https://192.168.1.1"
+                value: "https://198.51.100.1"
               - name: UNIFI_EXTERNAL_CONTROLLER
                 value: "false"
               - name: UNIFI_SKIP_TLS_VERIFY
@@ -2621,7 +2621,7 @@ spec:
               tag: v0.8.2
             env:
               - name: UNIFI_HOST
-                value: "https://192.168.1.1"
+                value: "https://198.51.100.1"
               - name: UNIFI_EXTERNAL_CONTROLLER
                 value: "false"
               - name: UNIFI_SKIP_TLS_VERIFY
@@ -2857,7 +2857,7 @@ spec:
       # via the CMP in homelab) so the child's committed values stay PII-free.
       valuesObject:
         iscsi:
-          portal: "192.168.1.100:3260"
+          portal: "198.51.100.100:3260"
   destination:
     server: https://kubernetes.default.svc
     namespace: monitoring
@@ -3394,9 +3394,9 @@ spec:
               - job_name: kube-etcd
                 static_configs:
                   - targets:
-                      - "192.168.1.11:2381"
-                      - "192.168.1.12:2381"
-                      - "192.168.1.13:2381"
+                      - "198.51.100.11:2381"
+                      - "198.51.100.12:2381"
+                      - "198.51.100.13:2381"
 
         grafana:
           enabled: true
@@ -4621,7 +4621,7 @@ spec:
       releaseName: kubelet-csr-approver
       values: |
         providerIpPrefixes:
-          - 192.168.1.0/24
+          - 198.51.100.0/24
         providerRegex: "^talos-[a-z0-9]{3}-[a-z0-9]{3}$"
         maxExpirationSeconds: "31536000"
         bypassDnsResolution: true
@@ -4782,7 +4782,7 @@ spec:
         namespace: observability
         database: otel
         image: clickhouse/clickhouse-server:26.8.10.6
-        networkNames: homelab=192.168.1.0/25,lan=192.168.1.128/25
+        networkNames: homelab=198.51.100.0/25,lan=198.51.100.128/25
         resources:
           limits:
             cpu: "2"
@@ -5116,10 +5116,10 @@ spec:
         service:
           annotations:
             external-dns.alpha.kubernetes.io/hostname: otel.replaceme-domain.com
-            io.cilium/lb-ipam-ips: 192.168.1.104
+            io.cilium/lb-ipam-ips: 198.51.100.104
           loadBalancerSourceRanges:
-          - 192.168.1.0/24
-          - 192.168.0.0/24
+          - 198.51.100.0/24
+          - 198.51.100.128/25
           type: LoadBalancer
         httproute:
           enabled: true
@@ -5697,7 +5697,7 @@ spec:
       # via the CMP in homelab) so the child's committed values stay PII-free.
       valuesObject:
         iscsi:
-          portal: "192.168.1.100:3260"
+          portal: "198.51.100.100:3260"
         # The Alertmanager notification credentials: the child renders the
         # OnePasswordItem that becomes Secret <secretName>, which the
         # kube-prometheus-stack Application mounts into Alertmanager.
@@ -6064,7 +6064,7 @@ spec:
       localASN: 64512
       peers:
         - name: unifi-gateway
-          peerAddress: 192.168.1.1
+          peerAddress: 198.51.100.1
           peerASN: 64513
           peerConfigRef:
             name: unifi-gateway-peer
@@ -6131,8 +6131,8 @@ metadata:
     argocd.argoproj.io/sync-wave: "1"
 spec:
   blocks:
-    - start: 192.168.1.100
-      stop: 192.168.1.200
+    - start: 198.51.100.100
+      stop: 198.51.100.200
 
 ---
 # Source: addons/templates/cilium-lb-ipam.yaml
@@ -6146,8 +6146,8 @@ metadata:
     argocd.argoproj.io/sync-wave: "1"
 spec:
   blocks:
-    - start: 192.168.1.10
-      stop: 192.168.1.10
+    - start: 198.51.100.10
+      stop: 198.51.100.10
   # Only allow services with this specific label to use the VIP pool
   serviceSelector:
     matchLabels:
@@ -6174,7 +6174,7 @@ spec:
   hostname: homelab-subnet-router
   subnetRouter:
     advertiseRoutes:
-      - "192.168.1.0/24"
+      - "198.51.100.0/24"
 
 ---
 # Source: addons/templates/envoy-gateway.yaml
