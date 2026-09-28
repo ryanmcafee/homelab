@@ -162,6 +162,8 @@ export const ROOT_APP = "gitops";
 export const VERSIONS_YAML = "configuration/versions.yaml";
 export const ARGOCD_VALUES = "localdev/values/argocd-values.yaml";
 export const ROOT_APP_MANIFEST = "localdev/argocd/gitops-app.yaml";
+/** Source of the repository the Kind root Application reconciles from. */
+export const LOCALDEV_ENV_FILE = "configuration/environments/localdev.yaml";
 /**
  * The branch every `report` diff is taken against (`argocd app diff
  * --revision <base>`): the PR base. `--base` / LOCALDEV_BASE override it.
@@ -804,7 +806,11 @@ export function chooseRevision(opts: {
  * the whole tree tracks one revision. Comments are not preserved (kubectl
  * never sees them anyway).
  */
-export function renderRootApp(manifestText: string, revision: string): string {
+export function renderRootApp(
+  manifestText: string,
+  revision: string,
+  repoUrl: string,
+): string {
   const doc = parseYaml(manifestText) as Record<string, unknown> | null;
   const spec = doc?.spec as Record<string, unknown> | undefined;
   const source = spec?.source as Record<string, unknown> | undefined;
@@ -814,6 +820,7 @@ export function renderRootApp(manifestText: string, revision: string): string {
     );
   }
   source.targetRevision = revision;
+  source.repoURL = repoUrl;
   const helm = (
     typeof source.helm === "object" && source.helm !== null ? source.helm : {}
   ) as Record<string, unknown>;
@@ -831,7 +838,30 @@ export function renderRootApp(manifestText: string, revision: string): string {
   ) as Record<string, unknown>;
   valuesObject.global = global;
   global.targetRevision = revision;
+  global.repoUrl = repoUrl;
   return stringifyYaml(doc, { lineWidth: -1 });
+}
+
+/**
+ * GITOPS_REPO_URL from configuration/environments/localdev.yaml: the
+ * repository the Kind root Application, and every Application below it,
+ * reconciles from. Null when the file does not parse, the key is missing or
+ * empty, or its value is still a REPLACEME placeholder — `install` refuses to
+ * deploy a tree pointed at nothing, or at somebody else's repository.
+ */
+export function repoUrlFromEnvFile(text: string): string | null {
+  let parsed: unknown;
+  try {
+    parsed = parseYaml(text);
+  } catch {
+    return null;
+  }
+  if (!parsed || typeof parsed !== "object") return null;
+  const url = (parsed as Record<string, unknown>).GITOPS_REPO_URL;
+  if (typeof url !== "string") return null;
+  const trimmed = url.trim();
+  if (!trimmed || trimmed.toLowerCase().includes("replaceme")) return null;
+  return trimmed;
 }
 
 /**
@@ -2454,12 +2484,22 @@ async function cmdInstall(args: Args, repoRoot: string): Promise<number> {
     return 1;
   }
   log.ok("ArgoCD installed");
+  const repoUrl = repoUrlFromEnvFile(
+    await readFile(join(repoRoot, LOCALDEV_ENV_FILE), "utf8"),
+  );
+  if (!repoUrl) {
+    log.error(
+      `${LOCALDEV_ENV_FILE}: GITOPS_REPO_URL is missing, empty or a REPLACEME placeholder. ArgoCD has no repository to reconcile this fork from; set it to your own remote.`,
+    );
+    return 1;
+  }
   log.info(
-    `applying root Application from ${ROOT_APP_MANIFEST} at ${revision}`,
+    `applying root Application from ${ROOT_APP_MANIFEST} at ${revision} (${repoUrl})`,
   );
   const manifest = renderRootApp(
     await readFile(join(repoRoot, ROOT_APP_MANIFEST), "utf8"),
     revision,
+    repoUrl,
   );
   const r = await runWithStdin(apply, manifest, { cwd: repoRoot });
   if (r.code !== 0) {
