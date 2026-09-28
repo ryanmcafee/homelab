@@ -183,6 +183,10 @@ Changed the localdev architecture override to a chart-schema-valid empty string.
 - `task toolchain:policy` keeps that workflow read-only and its Dockerfile digest- and checksum-pinned.
 ### 2026-09-28: OpenClaw verification gate (MCAA-496)
 
+- Review revision: restrict parameter paths to canonical identifiers/indexes and
+  reject duplicate or overlapping assignments. Offline cases cover both input
+  orders and preserve valid unambiguous Helm overrides (PR #496).
+
 - Added exact namespace/aggregation intent validation from rendered Applications,
   resolving inline values and Helm parameters offline with the pinned Helm binary.
 - Added an independent full-chart RBAC assertion to upgrade verification; unchanged
