@@ -24,14 +24,15 @@
  *            how much space it has. Prints a table and says plainly which nodes
  *            still need migrating. Never exits non-zero for "needs migrating".
  *   migrate  For each node still on the source datastore, in order: preflight
- *            gates (target datastore present and large enough, Proxmox root
- *            filesystem below --max-root-use, three healthy etcd members with
- *            matching RAFT INDEX and no ERRORS, /readyz ok, the VIP held by a
- *            node, an etcd snapshot taken in this run) -> `qm shutdown` and
- *            poll `qm status` until stopped (--shutdown-timeout) -> `qm
- *            move-disk <vmid> scsi0 <target> --delete 1 --bwlimit` ->
+ *            gates (a control-plane count the topology contract permits, target
+ *            datastore present and large enough, Proxmox root filesystem below
+ *            --max-root-use, etcd `whole`, /readyz ok, the VIP held by a node,
+ *            an etcd snapshot taken in this run) -> a fresh etcd reading gated
+ *            on `survivable` with this node declared as the target -> `qm
+ *            shutdown` and poll `qm status` until stopped (--shutdown-timeout)
+ *            -> `qm move-disk <vmid> scsi0 <target> --delete 1 --bwlimit` ->
  *            `qm start` -> post gates polled until --settle-timeout (Talos API
- *            answers, etcd whole again, /readyz ok, the node Ready, the VIP
+ *            answers, etcd `whole` again, /readyz ok, the node Ready, the VIP
  *            held by exactly one node) -> wait --settle-wait -> next node.
  *            Any failure stops the run immediately, prints the state the
  *            cluster is in and points at the runbook's Rollback section. It
@@ -43,6 +44,14 @@
  *
  * Every Proxmox operation is an `ssh <--ssh-user>@<--proxmox-host> 'qm ...'`;
  * talosctl and kubectl are expected on PATH.
+ *
+ * The etcd safety rule is NOT defined here. contracts/cluster/topology.v1.yaml
+ * holds the quorum formula, the health conditions, the named predicates and
+ * which predicate guards which evaluation point, and both this script and
+ * `homelab talos recreate` read it (ADR-035, ADR-031). This script runs the
+ * `fresh` run shape only — preflight, before-destructive-step, completion — and
+ * has no `resume` entry point, because it never removes an etcd member: a node
+ * it stopped is absent from its own membership, never unrepresented.
  *
  * No address is hardcoded here. --nodes, --vip and --proxmox-host default to
  * the CPn_IP keys, CP_VIP and PROXMOX_IP from the gitignored
@@ -63,7 +72,35 @@ import { mkdir, readFile, stat } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { isNotFound } from "./lib/errors.ts";
+import {
+  evaluatePredicate,
+  loadTopologyContract,
+  type Observation,
+  type PointId,
+  type Verdict,
+} from "./lib/topology-contract.ts";
 import { parse as parseYaml } from "./lib/yaml.ts";
+
+/**
+ * The etcd quorum and health rule, read from contracts/cluster/topology.v1.yaml
+ * rather than restated here (ADR-035, ADR-031). Every number this script uses
+ * to decide whether it is safe to stop a control-plane node — the quorum, the
+ * tolerated unavailability, the RAFT INDEX tolerance, the observation bounds —
+ * and which predicate guards which gate, comes from that file.
+ */
+export const TOPOLOGY = loadTopologyContract();
+
+/**
+ * The contract run shape `migrate` implements. It is `fresh` and only `fresh`:
+ * this script stops a control-plane VM and starts it again, and never removes
+ * an etcd member, so a node it is working on is absent from etcd's membership
+ * and never unrepresented. There is therefore no observation that selects
+ * `resume`, and `evaluation.entry: exclusive` — which binds a consumer that
+ * runs the destructive removal procedure — does not bind this one. A run that
+ * finds a node already stopped refuses at `preflight`, which is the runbook's
+ * instruction: recover that node before touching the next.
+ */
+export const RUN_SHAPE = "fresh";
 
 // ============================================================================
 // Logging
@@ -126,13 +163,12 @@ export const DEFAULT_MAX_ROOT_USE = 90;
 export const DEFAULT_SNAPSHOT_DIR = "./etcd-snapshots";
 /**
  * How far behind the highest RAFT INDEX a member may be and still count as
- * "matching" (the runbook's wording). The three members are queried at
- * slightly different moments on a cluster that keeps writing, so exact
- * equality is not a usable gate; a member many indices behind is catching up.
+ * "matching" (the runbook's wording). `health.raftIndexTolerance` in the
+ * contract, not a number chosen here: changing it is a contract change
+ * (ADR-030).
  */
-export const DEFAULT_RAFT_TOLERANCE = 10;
+export const DEFAULT_RAFT_TOLERANCE = TOPOLOGY.raftIndexTolerance;
 export const SSH_CONNECT_TIMEOUT = 10;
-export const EXPECTED_MEMBERS = 3;
 
 // ============================================================================
 // Pure helpers (unit-tested in cp-storage-migrate_test.ts)
@@ -527,56 +563,89 @@ export function parseEtcdStatus(text: string): EtcdMember[] {
   return members;
 }
 
-export interface EtcdHealth {
-  ok: boolean;
-  members: EtcdMember[];
-  /** Human reasons the cluster is not whole; empty when ok. */
-  problems: string[];
+/** One row of `talosctl etcd members` — etcd's own membership. */
+export interface EtcdMembership {
+  node: string;
+  id: string;
+  hostname: string;
+  peerUrls: string[];
+  clientUrls: string[];
+  learner: boolean;
 }
 
 /**
- * The runbook's gate: `expected` members, no ERRORS, no learner, one leader,
- * and every RAFT INDEX within `tolerance` of the highest.
+ * `talosctl -n a,b,c etcd members` (a tabwriter table). This is the observed
+ * member set the contract requires (`health.memberSetSource`): a member this
+ * table lists but `etcd status` does not is absent, and a configured address
+ * with no row here is unrepresented. Reading the dialled addresses instead
+ * makes `member-count` a tautology that validates its own derivation.
  */
-export function etcdHealth(
-  members: EtcdMember[],
-  expected = EXPECTED_MEMBERS,
-  tolerance = DEFAULT_RAFT_TOLERANCE,
-): EtcdHealth {
-  const problems: string[] = [];
-  if (members.length !== expected) {
-    problems.push(`${members.length} member(s) answered, expected ${expected}`);
+export function parseEtcdMembers(text: string): EtcdMembership[] {
+  const lines = text.split("\n").filter((l) => l.trim() !== "");
+  const headerIdx = lines.findIndex(
+    (l) => /\bNODE\b/.test(l) && /\bID\b/.test(l) && /\bPEER URLS\b/.test(l),
+  );
+  if (headerIdx < 0) return [];
+  const cells = headerOffsets(lines[headerIdx]);
+  const cell = (line: string, name: string): string => {
+    const i = cells.findIndex((c) => c.name === name);
+    if (i < 0) return "";
+    const end = i + 1 < cells.length ? cells[i + 1].start : line.length;
+    return line.slice(cells[i].start, end).trim();
+  };
+  const urls = (s: string): string[] =>
+    s
+      .split(",")
+      .map((u) => u.trim())
+      .filter((u) => u !== "");
+  const out: EtcdMembership[] = [];
+  for (const line of lines.slice(headerIdx + 1)) {
+    const id = cell(line, "ID");
+    if (!id) continue;
+    out.push({
+      node: cell(line, "NODE"),
+      id,
+      hostname: cell(line, "HOSTNAME"),
+      peerUrls: urls(cell(line, "PEER URLS")),
+      clientUrls: urls(cell(line, "CLIENT URLS")),
+      learner: cell(line, "LEARNER").toLowerCase() === "true",
+    });
   }
-  const withErrors = members.filter((m) => m.errors !== "");
-  for (const m of withErrors) problems.push(`${m.node}: ERRORS ${m.errors}`);
-  const learners = members.filter((m) => m.learner);
-  for (const m of learners) problems.push(`${m.node} is a learner`);
-  const bad = members.filter((m) => !Number.isFinite(m.raftIndex));
-  for (const m of bad) problems.push(`${m.node} has no RAFT INDEX`);
-  const indices = members
-    .filter((m) => Number.isFinite(m.raftIndex))
-    .map((m) => m.raftIndex);
-  if (indices.length > 1) {
-    const highest = Math.max(...indices);
-    for (const m of members) {
-      if (Number.isFinite(m.raftIndex) && highest - m.raftIndex > tolerance) {
-        problems.push(
-          `${m.node} RAFT INDEX ${m.raftIndex} is ${
-            highest - m.raftIndex
-          } behind ${highest} (tolerance ${tolerance})`,
-        );
+  return out;
+}
+
+/**
+ * The address backing each member, from its first parseable peer URL. A member
+ * with no usable peer URL is dropped, which shrinks the observed membership and
+ * therefore fails `member-count` rather than passing quietly.
+ */
+export function membershipAddresses(
+  members: readonly EtcdMembership[],
+): string[] {
+  const out: string[] = [];
+  for (const m of members) {
+    for (const raw of m.peerUrls) {
+      const host = urlHost(raw);
+      if (host !== null) {
+        out.push(host);
+        break;
       }
     }
   }
-  const leaders = new Set(members.map((m) => m.leader).filter((l) => l !== ""));
-  if (members.length > 0 && leaders.size !== 1) {
-    problems.push(
-      leaders.size === 0
-        ? "no leader reported"
-        : `members disagree about the leader (${[...leaders].join(", ")})`,
-    );
+  return out;
+}
+
+/** The host of a peer/client URL, without the scheme or port. */
+function urlHost(raw: string): string | null {
+  try {
+    const host = new URL(raw).hostname;
+    // An IPv6 literal arrives bracketed; the ConfigSet stores it unbracketed.
+    return host.startsWith("[") && host.endsWith("]")
+      ? host.slice(1, -1)
+      : host || null;
+  } catch {
+    return null;
   }
-  return { ok: problems.length === 0, members, problems };
 }
 
 /** `df -P /` -> the Use% of the root filesystem, or null. */
@@ -739,6 +808,13 @@ export const talosEtcdStatusArgv = (ips: readonly string[]): string[] => [
   ips.join(","),
   "etcd",
   "status",
+];
+export const talosEtcdMembersArgv = (ips: readonly string[]): string[] => [
+  "talosctl",
+  "-n",
+  ips.join(","),
+  "etcd",
+  "members",
 ];
 export const talosAddressesArgv = (ips: readonly string[]): string[] => [
   "talosctl",
@@ -1124,6 +1200,93 @@ export function failingGates(gates: Gate[], dryRun: boolean): Gate[] {
   return gates.filter((g) => g.ok === false || (g.ok === null && !dryRun));
 }
 
+/**
+ * The etcd gate at one of the contract's evaluation points.
+ *
+ * The predicate is `TOPOLOGY.predicateAt(point)` — never chosen here. Getting
+ * this wrong in either direction is a one-line edit: `whole` immediately before
+ * the destructive step aborts every procedure mid-flight, and `survivable` at
+ * the door consents to starting on a control plane that was already a member
+ * short. `declared` is the address this step has declared it will take away,
+ * which is the only absence `survivable` forgives.
+ *
+ * `observation === null` means nothing was read, which is indeterminate and so
+ * `ok: null` — a real run treats that as a failure (`failingGates`).
+ */
+export function etcdGate(
+  point: PointId,
+  observation: Observation | null,
+  readError?: string,
+): Gate {
+  const predicate = TOPOLOGY.predicateAt(point);
+  const name = `etcd is ${predicate.id} at ${point}`;
+  if (observation === null) {
+    return { name, ok: null, detail: readError ?? "unknown" };
+  }
+  const verdict = evaluatePredicate(TOPOLOGY, predicate, observation);
+  return {
+    name,
+    ok: verdict.ok,
+    detail: verdict.ok
+      ? etcdPassDetail(verdict, observation)
+      : problems(verdict),
+  };
+}
+
+function problems(verdict: Verdict): string {
+  return verdict.problems.join("; ");
+}
+
+function etcdPassDetail(verdict: Verdict, observation: Observation): string {
+  const count = observation.expected.length;
+  const parts = [
+    `${verdict.answered} of ${count} member(s) answered`,
+    `quorum ${TOPOLOGY.quorum(count)}`,
+    `at most ${TOPOLOGY.maxUnavailable(count)} may be unavailable`,
+    `RAFT INDEX within ${TOPOLOGY.raftIndexTolerance}`,
+    "no ERRORS",
+  ];
+  if (verdict.absent.length > 0) {
+    parts.push(`declared target(s) absent: ${verdict.absent.join(", ")}`);
+  }
+  return parts.join(", ");
+}
+
+/**
+ * The topology gate: the derived control-plane count is one the contract
+ * permits, and an operator on a count the contract calls degraded is told so
+ * rather than shown a healthy-looking table.
+ *
+ * A degraded count is permitted, not healthy — a one-node homelab is a real
+ * fork — but stopping the only member of a control plane whose
+ * `maxUnavailable` is 0 is a full API-server outage for the duration of the
+ * disk copy, not a rolling migration.
+ */
+export function topologyGate(count: number): Gate {
+  const name = "the control-plane count is a topology the contract permits";
+  const { degraded, error } = TOPOLOGY.checkCount(count);
+  if (error !== null) return { name, ok: false, detail: error };
+  const maxUnavailable = TOPOLOGY.maxUnavailable(count);
+  if (degraded || maxUnavailable === 0) {
+    return {
+      name,
+      ok: true,
+      detail:
+        `${count} member(s): permitted but DEGRADED — quorum ${TOPOLOGY.quorum(count)}, at most ` +
+        `${maxUnavailable} may be unavailable, so stopping one node is a full API outage for the ` +
+        `duration of the disk copy, not a rolling migration. Take the snapshot (do not pass ` +
+        `--skip-snapshot) and expect downtime; see ${RUNBOOK}`,
+    };
+  }
+  return {
+    name,
+    ok: true,
+    detail:
+      `${count} member(s): quorum ${TOPOLOGY.quorum(count)}, at most ${maxUnavailable} may be ` +
+      "unavailable, so one node at a time keeps quorum",
+  };
+}
+
 // ============================================================================
 // Side effects
 // ============================================================================
@@ -1143,23 +1306,45 @@ const SKIPPED: RunResult = {
   skipped: true,
 };
 
-async function exec(cmd: string[], stream = false): Promise<RunResult> {
+async function exec(
+  cmd: string[],
+  stream = false,
+  timeoutMs?: number,
+): Promise<RunResult> {
   try {
     const child = Bun.spawn(cmd, {
       stdin: "ignore",
       stdout: stream ? "inherit" : "pipe",
       stderr: stream ? "inherit" : "pipe",
     });
-    const [stdout, stderr, code] = await Promise.all([
-      child.stdout ? new Response(child.stdout).text() : "",
-      child.stderr ? new Response(child.stderr).text() : "",
-      child.exited,
-    ]);
-    return {
-      code,
-      stdout: stream ? "" : stdout,
-      stderr: stream ? "" : stderr,
-    };
+    // A read with no deadline can block indefinitely on a wedged endpoint and
+    // then be acted on as though it were current. Killing the child is what
+    // turns that into a reported failure to observe.
+    const timer =
+      timeoutMs === undefined
+        ? null
+        : setTimeout(() => child.kill("SIGKILL"), timeoutMs);
+    try {
+      const [stdout, stderr, code] = await Promise.all([
+        child.stdout ? new Response(child.stdout).text() : "",
+        child.stderr ? new Response(child.stderr).text() : "",
+        child.exited,
+      ]);
+      if (timer !== null && child.signalCode === "SIGKILL") {
+        return {
+          code: code === 0 ? 1 : code,
+          stdout: "",
+          stderr: `${cmd[0]}: no answer within ${formatDuration(timeoutMs ?? 0)}`,
+        };
+      }
+      return {
+        code,
+        stdout: stream ? "" : stdout,
+        stderr: stream ? "" : stderr,
+      };
+    } finally {
+      if (timer !== null) clearTimeout(timer);
+    }
   } catch (err) {
     if (isNotFound(err)) {
       return {
@@ -1176,9 +1361,13 @@ async function exec(cmd: string[], stream = false): Promise<RunResult> {
  * Every read-only call. Safe in a dry run (it reads), and skipped entirely
  * with --no-probe so the plan can be reviewed without touching anything.
  */
-async function read(cfg: Config, cmd: string[]): Promise<RunResult> {
+async function read(
+  cfg: Config,
+  cmd: string[],
+  timeoutMs?: number,
+): Promise<RunResult> {
   if (cfg.noProbe) return SKIPPED;
-  return await exec(cmd);
+  return await exec(cmd, false, timeoutMs);
 }
 
 export type MutationKind =
@@ -1243,7 +1432,12 @@ interface NodeState {
 
 interface ClusterState {
   nodes: NodeState[];
-  etcd: EtcdHealth | null;
+  /**
+   * What the etcd reads saw, as the contract's observation: the derived
+   * addresses, etcd's own membership and the statuses that answered. Null when
+   * nothing was read, which is indeterminate rather than empty.
+   */
+  etcd: Observation | null;
   etcdError?: string;
   vipHolders: string[] | null;
   vipError?: string;
@@ -1298,17 +1492,6 @@ async function gather(cfg: Config): Promise<ClusterState> {
   }
 
   const ips = cfg.allNodes.map((n) => n.ip);
-  const etcd = await read(cfg, talosEtcdStatusArgv(ips));
-  if (etcd.skipped) state.etcdError = "not read (--no-probe)";
-  else if (etcd.code !== 0) state.etcdError = short(etcd);
-  else {
-    state.etcd = etcdHealth(
-      parseEtcdStatus(etcd.stdout),
-      cfg.allNodes.length,
-      cfg.raftTolerance,
-    );
-  }
-
   const addresses = await read(cfg, talosAddressesArgv(ips));
   if (addresses.skipped) state.vipError = "not read (--no-probe)";
   else if (addresses.code !== 0) state.vipError = short(addresses);
@@ -1347,15 +1530,77 @@ async function gather(cfg: Config): Promise<ClusterState> {
     state.rootUsePct = parseDfRootUsePercent(df.stdout);
     if (state.rootUsePct === null) state.rootError = "could not parse df -P /";
   }
+
+  // Last, and on purpose. The gates are evaluated right after gather() returns,
+  // and `evaluation.maxObservationAgeSeconds` bounds how old a reading may be
+  // when it is acted on — a sweep that spent a minute on ssh must not hand a
+  // stale etcd reading to a gate that then stops a node.
+  const etcd = await observeEtcd(
+    cfg,
+    cfg.allNodes.map((n) => n.ip),
+  );
+  state.etcd = etcd.observation;
+  if (etcd.error !== null) state.etcdError = etcd.error;
   return state;
+}
+
+/**
+ * One bounded read of etcd's membership and status, as the contract's
+ * observation. `evaluation.observationDeadlineSeconds` bounds the whole read:
+ * exceeding it is a failure to observe, which is indeterminate — never "no
+ * members". A dial or deadline failure is reported as the transport fault it
+ * is, never flattened into a member count
+ * (`evaluation.transportFailureIsNotMemberFailure`).
+ */
+async function observeEtcd(
+  cfg: Config,
+  ips: readonly string[],
+): Promise<{ observation: Observation | null; error: string | null }> {
+  const deadline = TOPOLOGY.observationDeadlineMs;
+  const members = await read(cfg, talosEtcdMembersArgv(ips), deadline);
+  if (members.skipped)
+    return { observation: null, error: "not read (--no-probe)" };
+  const status = await read(cfg, talosEtcdStatusArgv(ips), deadline);
+  const observedAt = Date.now();
+
+  const transportErrors: string[] = [];
+  if (members.code !== 0)
+    transportErrors.push(`etcd members: ${short(members)}`);
+  if (status.code !== 0) transportErrors.push(`etcd status: ${short(status)}`);
+
+  // A membership that could not be read is unknown, not empty, so it stays
+  // null: `evaluation.onIndeterminate: unsafe` makes every predicate refuse.
+  const membership =
+    members.code === 0
+      ? membershipAddresses(parseEtcdMembers(members.stdout))
+      : null;
+
+  return {
+    observation: {
+      expected: ips,
+      membership,
+      statuses: status.code === 0 ? parseEtcdStatus(status.stdout) : [],
+      declared: [],
+      transportErrors,
+      observedAt,
+    },
+    error: null,
+  };
+}
+
+/** The same observation with `declared` set to this step's target. */
+function declaring(observation: Observation, target: string): Observation {
+  return { ...observation, declared: [target] };
 }
 
 function etcdCell(state: ClusterState, ip: string): string {
   if (!state.etcd) return "?";
-  const m = state.etcd.members.find((x) => x.node === ip);
-  if (!m) return "absent";
+  const m = state.etcd.statuses.find((x) => x.node === ip);
+  if (!m) {
+    return state.etcd.membership?.includes(ip) ? "absent" : "unrepresented";
+  }
   const flags = [`idx ${m.raftIndex}`];
-  if (m.leader && m.member && m.leader === m.member) flags.push("leader");
+  if (m.leader !== "" && m.leader === m.member) flags.push("leader");
   if (m.errors) flags.push(`ERRORS ${m.errors}`);
   return flags.join(" ");
 }
@@ -1404,15 +1649,9 @@ function printContext(cfg: Config, state: ClusterState): void {
       ? `Proxmox root filesystem: ${state.rootError ?? "unknown"}`
       : `Proxmox root filesystem ${state.rootUsePct}% used (limit ${cfg.maxRootUse}%)`,
   );
-  if (state.etcd) {
-    if (state.etcd.ok) {
-      log.ok(`etcd: ${state.etcd.members.length} healthy members`);
-    } else {
-      log.warn(`etcd: ${state.etcd.problems.join("; ")}`);
-    }
-  } else {
-    log.warn(`etcd: ${state.etcdError ?? "unknown"}`);
-  }
+  const etcdStatusGate = etcdGate("preflight", state.etcd, state.etcdError);
+  if (etcdStatusGate.ok === true) log.ok(`etcd: ${etcdStatusGate.detail}`);
+  else log.warn(`etcd: ${etcdStatusGate.detail}`);
   log.info(
     state.vipHolders === null
       ? `VIP ${cfg.vip}: ${state.vipError ?? "unknown"}`
@@ -1488,6 +1727,7 @@ function preflightGates(
   const biggestGiB = Math.max(0, ...pending.map((n) => n.disk?.sizeGiB ?? 0));
   const ds = state.datastore;
   const gates: Gate[] = [
+    topologyGate(cfg.allNodes.length),
     {
       // Unknown (pvesm not read) stays unknown; a read that did not list the
       // datastore is a hard failure — runbook step 1 has not been done.
@@ -1515,16 +1755,9 @@ function preflightGates(
           : `${state.rootUsePct}% used (a full root breaks every Proxmox operation; ` +
             `see "Host housekeeping" in the runbook)`,
     },
-    {
-      name: `${cfg.allNodes.length} healthy etcd members`,
-      ok: state.etcd === null ? null : state.etcd.ok,
-      detail:
-        state.etcd === null
-          ? (state.etcdError ?? "unknown")
-          : state.etcd.ok
-            ? `${state.etcd.members.length} members, matching RAFT INDEX, no ERRORS`
-            : state.etcd.problems.join("; "),
-    },
+    // `evaluation.points`: this is the entry gate of the `fresh` run shape, and
+    // its predicate is the contract's, not one chosen here.
+    etcdGate("preflight", state.etcd, state.etcdError),
     {
       name: "/readyz ok",
       ok: state.readyz,
@@ -1579,7 +1812,7 @@ async function takeSnapshot(
 ): Promise<string | null> {
   const healthy =
     cfg.allNodes.find((n) =>
-      state.etcd?.members.some((m) => m.node === n.ip && m.errors === ""),
+      state.etcd?.statuses.some((m) => m.node === n.ip && m.errors === ""),
     ) ?? cfg.allNodes[0];
   const path = resolve(snapshotPath(cfg.snapshotDir, new Date()));
   if (!cfg.dryRun) {
@@ -1628,6 +1861,30 @@ async function waitForStopped(cfg: Config, node: NodeSpec): Promise<boolean> {
   return false;
 }
 
+/**
+ * The contract's `before-destructive-step`, immediately before this node is
+ * stopped, with the node declared as the target.
+ *
+ * A fresh read, never the preflight one: the observation bound exists because
+ * a reading gathered minutes ago is not "immediately before" anything. The
+ * predicate is `survivable`, not `whole` — the contract's mapping, and the
+ * reason it can be re-evaluated on a cluster that is mid-procedure.
+ */
+async function revalidateBeforeStopping(
+  cfg: Config,
+  node: NodeSpec,
+): Promise<Gate> {
+  const { observation, error } = await observeEtcd(
+    cfg,
+    cfg.allNodes.map((n) => n.ip),
+  );
+  return etcdGate(
+    "before-destructive-step",
+    observation === null ? null : declaring(observation, node.ip),
+    error ?? undefined,
+  );
+}
+
 /** The post gates for one node, evaluated once. */
 function postGates(
   cfg: Config,
@@ -1647,16 +1904,9 @@ function postGates(
       ok: disk === null ? null : disk.datastore === cfg.targetDatastore,
       detail: disk ? disk.raw : "qm config not read",
     },
-    {
-      name: `${cfg.allNodes.length} healthy etcd members`,
-      ok: state.etcd === null ? null : state.etcd.ok,
-      detail:
-        state.etcd === null
-          ? (state.etcdError ?? "unknown")
-          : state.etcd.ok
-            ? "matching RAFT INDEX, no ERRORS"
-            : state.etcd.problems.join("; "),
-    },
+    // `evaluation.points`: the exit gate of both run shapes. Success means the
+    // cluster is whole again, not that a kubelet reported Ready.
+    etcdGate("completion", state.etcd, state.etcdError),
     {
       name: "/readyz ok",
       ok: state.readyz,
@@ -1727,7 +1977,10 @@ function printFailure(
   - Check the VM:      ssh ${cfg.ssh.user}@${cfg.ssh.host} 'qm status ${node.vmid}; qm config ${node.vmid} | grep ${cfg.disk}'
   - Check etcd:        talosctl -n ${cfg.allNodes
     .map((n) => n.ip)
-    .join(",")} etcd status
+    .join(",")} etcd members     # the membership: who etcd expects
+                       talosctl -n ${cfg.allNodes
+                         .map((n) => n.ip)
+                         .join(",")} etcd status      # who answered
   - Check the VIP:     talosctl -n ${cfg.allNodes
     .map((n) => n.ip)
     .join(",")} get addresses | rg ${cfg.vip}/
@@ -1852,6 +2105,23 @@ async function cmdMigrate(cfg: Config): Promise<number> {
       );
     }
 
+    // 0. revalidate. `evaluation.revalidateBeforeDestructiveStep`: the preflight
+    // reading is from before the first node was touched, and a check at the
+    // start of a multi-step procedure is stale by the time the third node is
+    // stopped. This is the contract's `before-destructive-step`, with this node
+    // declared as the target it is about to take away.
+    const revalidation = await revalidateBeforeStopping(cfg, spec);
+    printGates(cfg, `${spec.name}: before-destructive-step:`, [revalidation]);
+    if (failingGates([revalidation], cfg.dryRun).length > 0) {
+      printFailure(
+        cfg,
+        spec,
+        "the before-destructive-step gate refused",
+        revalidation.detail,
+      );
+      return 1;
+    }
+
     // 1. shutdown
     const shutdown = await mutate(
       cfg,
@@ -1940,9 +2210,9 @@ async function cmdMigrate(cfg: Config): Promise<number> {
       log.dry(
         `would poll every ${formatDuration(cfg.pollIntervalMs)} for up to ${formatDuration(
           cfg.settleTimeoutMs,
-        )}: ${talosVersionArgv(spec.ip).join(" ")}; ${talosEtcdStatusArgv(
+        )}: ${talosVersionArgv(spec.ip).join(" ")}; ${talosEtcdMembersArgv(
           cfg.allNodes.map((n) => n.ip),
-        ).join(
+        ).join(" ")}; ${talosEtcdStatusArgv(cfg.allNodes.map((n) => n.ip)).join(
           " ",
         )}; ${kubectlReadyzArgv(cfg.context).join(" ")}; ${kubectlNodesArgv(
           cfg.context,
@@ -2054,16 +2324,8 @@ async function cmdVerify(cfg: Config): Promise<number> {
         detail: disk ? disk.raw : "qm config not read",
       };
     }),
-    {
-      name: `${cfg.allNodes.length} healthy etcd members`,
-      ok: state.etcd === null ? null : state.etcd.ok,
-      detail:
-        state.etcd === null
-          ? (state.etcdError ?? "unknown")
-          : state.etcd.ok
-            ? "matching RAFT INDEX, no ERRORS"
-            : state.etcd.problems.join("; "),
-    },
+    topologyGate(cfg.allNodes.length),
+    etcdGate("completion", state.etcd, state.etcdError),
     {
       name: "/readyz ok",
       ok: state.readyz,
@@ -2136,17 +2398,28 @@ Subcommands:
   status   Read-only: per node the datastore of ${DEFAULT_DISK}, disk size, VM state, etcd member
            (RAFT INDEX, ERRORS), VIP holder, plus whether ${DEFAULT_TARGET_DATASTORE} exists and its free space.
            Says plainly which nodes still need migrating.
-  migrate  Per node still on ${DEFAULT_SOURCE_DATASTORE}, in order: preflight gates -> qm shutdown + poll until
-           stopped -> qm move-disk ${DEFAULT_DISK} ${DEFAULT_TARGET_DATASTORE} --delete 1 --bwlimit -> qm start -> post
-           gates polled until --settle-timeout -> --settle-wait -> next node. Any failure stops
-           the run at once and points at the runbook's Rollback section.
+  migrate  Per node still on ${DEFAULT_SOURCE_DATASTORE}, in order: preflight gates -> per node, the
+           before-destructive-step gate -> qm shutdown + poll until stopped -> qm move-disk
+           ${DEFAULT_DISK} ${DEFAULT_TARGET_DATASTORE} --delete 1 --bwlimit -> qm start -> post gates polled until
+           --settle-timeout -> --settle-wait -> next node. Any failure stops the run at once
+           and points at the runbook's Rollback section.
   verify   Read-only: every disk on ${DEFAULT_TARGET_DATASTORE}, etcd healthy, /readyz ok, VIP held, and the
            kube-etcd scrape (needs --prometheus-url, else it prints the port-forward recipe).
 
+The etcd gates come from contracts/cluster/topology.v1.yaml (ADR-035), not from constants here:
+  preflight                the contract's \`${TOPOLOGY.predicateAt("preflight").id}\` predicate, over every expected member
+  before-destructive-step  the contract's \`${TOPOLOGY.predicateAt("before-destructive-step").id}\` predicate, re-read immediately before each
+                           shutdown with that node declared as the target
+  completion               the contract's \`${TOPOLOGY.predicateAt("completion").id}\` predicate, after the node rejoins
+The member set is etcd's own membership (talosctl etcd members), compared against the ${CP_KEY_LABEL}
+count; the quorum, the tolerated unavailability and the RAFT INDEX tolerance are the contract's.
+This script never removes an etcd member, so it has no \`resume\` entry point.
+
 Preflight gates (all must pass; the run aborts otherwise):
+  the control-plane count is one the contract permits (${TOPOLOGY.permittedCounts.join(", ")});
   target datastore present and active, with room for the largest disk;
   Proxmox root filesystem below --max-root-use (${DEFAULT_MAX_ROOT_USE}%);
-  ${EXPECTED_MEMBERS} etcd members, no ERRORS, RAFT INDEX within --raft-tolerance (${DEFAULT_RAFT_TOLERANCE}) of the highest;
+  etcd is ${TOPOLOGY.predicateAt("preflight").id}: ${TOPOLOGY.predicateAt("preflight").conditions.join(", ")};
   kubectl get --raw /readyz returns ok; the VIP is held by exactly one node;
   an etcd snapshot was taken in this run (unless --skip-snapshot).
 
