@@ -158,6 +158,15 @@ export const registryUpstreams: readonly RegistryUpstream[] = [
   { name: "quay", host: "quay.io", upstream: "https://quay.io" },
   { name: "k8s", host: "registry.k8s.io", upstream: "https://registry.k8s.io" },
   { name: "lscr", host: "lscr.io", upstream: "https://lscr.io" },
+  // argo-cd's redis (and redis-ha haproxy) images. Without this entry
+  // argocd-redis was the one ArgoCD pod pulling straight from the internet on
+  // every run, which showed up as an intermittent ImagePullBackOff during
+  // `task localdev:argocd`.
+  {
+    name: "ecr",
+    host: "ecr-public.aws.com",
+    upstream: "https://ecr-public.aws.com",
+  },
 ];
 
 export function registryContainerName(name: string): string {
