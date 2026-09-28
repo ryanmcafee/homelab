@@ -356,3 +356,58 @@ spec:
                 -o jsonpath='{.items[0].metadata.name}' 2>/dev/null) || exit 0
               kubectl exec -n nats "$box" -- nats stream info PF_WORK || true
               kubectl exec -n nats "$box" -- nats stream info PF_DLQ || true
+
+    # Evidence for the PF_WORK silent-loss alerts, which select on is_stream_leader and
+    # dedupe with `max by (stream_name, namespace, job)`. Whether those labels exist, and
+    # what they hold on a non-clustered server, is a property of the deployed exporter that
+    # no render can answer. The raw series are printed unnormalised so the label set is
+    # readable; the step asserts only that the series exist at all.
+    - name: exporter-label-set
+      description: >-
+        The prom-exporter publishes nats_stream_* series for the platform streams, and the
+        run records their full label set for the alert rules that select on it.
+      timeouts:
+        exec: 3m
+      try:
+        - script:
+            timeout: 3m
+            content: |
+              set -eu
+              pod=$(kubectl get pod -n nats -l app.kubernetes.io/component=nats \
+                -o jsonpath='{.items[0].metadata.name}')
+              port=$(kubectl get pod -n nats "$pod" -o \
+                jsonpath='{.spec.containers[?(@.name=="prom-exporter")].ports[?(@.name=="prom-metrics")].containerPort}')
+
+              if [ -z "$port" ]; then
+                echo "FAIL: $pod has no prom-exporter prom-metrics port; promExporter.enabled is not taking effect"
+                exit 1
+              fi
+              echo "exporter: $pod:$port"
+
+              # The API server's pod proxy, so this needs no curl in the exporter image.
+              metrics=$(kubectl get --raw "/api/v1/namespaces/nats/pods/$pod:$port/proxy/metrics")
+
+              echo "--- raw nats_stream_* / nats_consumer_* series, labels intact ---"
+              echo "$metrics" | grep -E '^nats_(stream_first_seq|stream_total_messages|consumer_ack_floor_stream_seq)' || true
+              echo "----------------------------------------------------------------"
+
+              # -jsz=all is what produces these. No series means the JetStream metrics the
+              # silent-loss alerts read are absent, and those alerts would never fire.
+              if ! echo "$metrics" | grep -q '^nats_stream_first_seq'; then
+                echo "FAIL: no nats_stream_first_seq series; the -jsz=all metrics the PF_WORK alerts read are absent"
+                exit 1
+              fi
+
+              for stream in PF_EVENTS PF_AUDIT PF_WORK PF_DLQ; do
+                if echo "$metrics" | grep -q "^nats_stream_first_seq{.*stream_name=\"$stream\""; then
+                  echo "OK: nats_stream_first_seq present for $stream"
+                else
+                  echo "FAIL: no nats_stream_first_seq series for $stream"; exit 1
+                fi
+              done
+      catch:
+        - script:
+            timeout: 1m
+            content: |
+              kubectl get pods -n nats --show-labels || true
+              kubectl get podmonitors -n nats -o yaml || true
