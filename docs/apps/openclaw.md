@@ -108,24 +108,29 @@ This is the part of the stack most likely to cost money by accident, so it is wi
 
 ### The subscription variable is `ANTHROPIC_OAUTH_TOKEN`, not `CLAUDE_CODE_OAUTH_TOKEN`
 
-`charts/paperclip` carries the Claude subscription token in `CLAUDE_CODE_OAUTH_TOKEN`. **OpenClaw
-does not read that variable.** It lists it in `CLAUDE_CLI_CLEAR_ENV`
-(`extensions/anthropic/cli-constants.ts`) and strips it before every OpenClaw-managed Claude CLI
-run, because for the `claude-cli` backend the CLI's own config directory owns auth. An
-`OpenClawInstance` carrying `CLAUDE_CODE_OAUTH_TOKEN` reads as though it has subscription auth and
-has none, so `tests/policy/openclaw.rego` rejects it outright.
+`charts/paperclip` carries the Claude subscription token in `CLAUDE_CODE_OAUTH_TOKEN`. **OpenClaw's
+native Anthropic provider -- the path this chart wires -- does not read that variable.** Its
+credential list names only the other two, in both places that spell it out at `v2026.9.6`:
+`extensions/anthropic/provider-contract-api.ts` declares
+`envVars: ["ANTHROPIC_OAUTH_TOKEN", "ANTHROPIC_API_KEY"]`, and `src/secrets/provider-env-vars.ts`
+maps `anthropic` to the same pair. This chart wires that path -- `providerEnvPrecedence` feeds
+`config.models.providers` -- so an `OpenClawInstance` carrying `CLAUDE_CODE_OAUTH_TOKEN` reads as
+though it has subscription auth and has none, and `tests/policy/openclaw.rego` rejects it outright.
 
-OpenClaw reads the **same** `claude setup-token` credential from `ANTHROPIC_OAUTH_TOKEN`
-(`extensions/anthropic/provider-contract-api.ts` declares
-`envVars: ["ANTHROPIC_OAUTH_TOKEN", "ANTHROPIC_API_KEY"]`, and its `setup-token` auth method is
-documented as "Paste a long-lived token created with `claude setup-token`"). The cost model is
-therefore unchanged from Paperclip's; only the variable name differs.
+Note what is *not* the reason: `CLAUDE_CLI_CLEAR_ENV` (`extensions/anthropic/cli-constants.ts`) does
+strip inherited credentials on the `claude-cli` paths, but it lists **both**
+`ANTHROPIC_OAUTH_TOKEN` and `CLAUDE_CODE_OAUTH_TOKEN`, so it cannot distinguish them. The provider's
+own `envVars` list is what does.
+
+`ANTHROPIC_OAUTH_TOKEN` takes the **same** `claude setup-token` credential: the provider's
+`setup-token` auth method is documented as "Paste a long-lived token created with
+`claude setup-token`". The cost model is therefore unchanged from Paperclip's; only the variable name
+differs.
 
 One difference worth knowing, because it runs the opposite way to Claude Code: OpenClaw ranks
-`ANTHROPIC_OAUTH_TOKEN` **above** `ANTHROPIC_API_KEY` (`packages/ai/src/env-api-keys.ts`:
-`// ANTHROPIC_OAUTH_TOKEN takes precedence over ANTHROPIC_API_KEY`). An API key that leaks into the
-Secret cannot silently move spend to metered billing the way it does for Paperclip. It still must not
-be in the pod unless someone asked for it.
+`ANTHROPIC_OAUTH_TOKEN` **above** `ANTHROPIC_API_KEY` -- it is the first entry of both lists cited
+above. An API key that leaks into the Secret cannot silently move spend to metered billing the way it
+does for Paperclip. It still must not be in the pod unless someone asked for it.
 
 ### Subscription (Claude Pro/Max/Team) — the default path
 
