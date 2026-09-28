@@ -107,3 +107,10 @@ Each entry should include:
 - Update status if work gets blocked or resumed
 - Don't duplicate issue details - link to source of truth
 - Clean out very old entries periodically (3+ months)
+
+### 2026-09-28 - Sync-aware localdev diagnostics (MCAA-468)
+
+- PR: https://github.com/ryanmcafee/homelab/pull/487; implementation commit `bbf81af`.
+- Diagnosis now selects Healthy/Succeeded/OutOfSync Applications, prints the failing `status.sync.status` field and sync detail, and collects their destination namespace diagnostics.
+- Regression demonstrated before the fix: OutOfSync failed and Synced passed. After: both pass; all 139 ArgoCD script tests pass (53 ms); TypeScript and level 0 pass (271 checks, 1 intentional skip, 10.177 s).
+- QA follow-up MCAA-470 owns real Kind level-2 sync-failure evidence and final CI verification. No production mutation. Ready-path API count is unchanged; drift runs the existing namespace collector (live duration pending QA).
