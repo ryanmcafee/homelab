@@ -952,6 +952,12 @@ tasks:
     cmds:
       - go run ./cmd/homelab verify upgrade {{.CLI_ARGS}}
 
+  upstream:values:
+    desc: "Fail when an Application passes helm values its pinned upstream chart does not declare (pulls every chart, so not level 0)"
+    deps: [bun:install]
+    cmds:
+      - bun scripts/upstream-values-check.ts {{.CLI_ARGS}}
+
   verify:prod:
     desc: Read-only Application health of the homelab cluster through the homelab-readonly context (docs/runbooks/readonly-access.md)
     cmds:
