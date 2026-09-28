@@ -257,9 +257,18 @@ spec:
               kubectl exec -n nats "$box" -- nats pub --jetstream "$subject" "$envelope"
               echo "published $corr, taking it without an ack"
 
-              # First delivery, deliberately unacked.
-              kubectl exec -n nats "$box" -- \
-                nats consumer next PF_EVENTS verify-workload-v1 --count 1 --timeout 60s --no-ack --raw >/dev/null
+              # First delivery, deliberately unacked. Naming it here keeps a stray
+              # pending message from being reported later as a lost redelivery.
+              first=$(kubectl exec -n nats "$box" -- \
+                nats consumer next PF_EVENTS verify-workload-v1 --count 1 --timeout 60s --no-ack --raw)
+
+              case "$first" in
+                *"\"correlationid\":\"$corr\""*)
+                  echo "took $corr on its first delivery, leaving it unacked" ;;
+                *)
+                  echo "FAIL: first delivery was not $corr; verify-workload-v1 had other pending work"
+                  exit 1 ;;
+              esac
 
               # ackWait is 30s; past it the server must hand the same message back.
               sleep 35
