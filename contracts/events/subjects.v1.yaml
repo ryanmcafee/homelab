@@ -106,7 +106,7 @@ max_bytes_defaults:
   # being drained is nearly empty and a deep one is already an alert.
   # The two surfaces share one split — 33.3% / 50% / 4.2% / 12.5% of the budget — so a
   # commercial operator reading a homelab install is reading the same shape scaled up.
-  homelab: # 8 GiB file store, 6 GiB budgeted (75%), 2 GiB headroom
+  homelab: # 20 GiB file store, 6 GiB budgeted (30%), 14 GiB headroom
     PF_EVENTS: 2147483648 # 2 GiB
     PF_AUDIT: 3221225472 # 3 GiB
     PF_WORK: 268435456 # 256 MiB
@@ -124,11 +124,18 @@ max_bytes_sum_rule: >-
   — the peer just reaches `insufficient resources (10023)` before any stream reaches its
   own limit, and which stream's publish gets refused is a race rather than a policy. The
   headroom is not decoration either: JetStream accounts for index and metadata alongside
-  message bytes, so a budget equal to the store fails before the last stream fills. The
-  defaults above budget 75% of the store per surface. An operator who raises one stream
-  MUST lower another or grow the store. THIS RULE IS ARITHMETIC AN OPERATOR APPLIES AT
-  SIZING TIME, NOT SOMETHING THE STATIC GATE CAN CHECK: the file store size is a cluster
-  fact (the NATS chart's `jetstream.fileStore.pvc.size`), not a value in this contract.
+  message bytes, so a budget equal to the store fails before the last stream fills. 75% OF
+  THE STORE IS THE CEILING, NOT THE TARGET: the chart refuses to render above it
+  (`maxBytesBudgetFraction`), and the defaults above sit well under it — homelab budgets
+  6 GiB of the 20 GiB it provisions (30%), commercial 96 GiB of 128 GiB (75%). Homelab is
+  deliberately the conservative one: RAISING a `max_bytes` is additive and safe, while
+  lowering one below what a stream already holds makes JetStream discard or refuse at the
+  new limit, so the reversible direction is to start low. An operator who raises one stream
+  MUST keep the total under the ceiling — lower another or grow the store. THIS RULE IS
+  ARITHMETIC AN OPERATOR APPLIES AT SIZING TIME, NOT SOMETHING THE STATIC GATE CAN CHECK:
+  the file store size is a cluster fact (`nats.jetstream.storage.size` in
+  `configuration/templates/helm-addons.tmpl`, which renders into the upstream NATS chart's
+  `fileStore.pvc.size`), not a value in this contract.
   What the gate does enforce is that the numbers live in `max_bytes_defaults` where the
   sum is visible at all, rather than being scattered across four chart values. The
   runtime side of the rule is an alert on file-store utilisation, named in ADR-042 and
