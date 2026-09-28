@@ -11,6 +11,28 @@ here:
 | Reasoning | [`docs/contracts/event-contract.md`](contracts/event-contract.md) |
 | Decisions | ADR-026, revised by ADR-038 |
 
+> **This bus is unauthenticated and single-tenant. Read this before you attach anything
+> to it.**
+>
+> There is no NATS account, no user, no credential and no subject permission in this
+> deployment. `config.authorization` is unset, so every client connects anonymously: any
+> pod that can reach `nats.nats.svc.cluster.local:4222` has full access to the bus.
+>
+> That makes the `<tenant>` token in every subject on this page a **naming convention, not
+> a boundary**. Anyone can publish under any tenant, bind any consumer and read any
+> stream. The contract calls tenant isolation "enforced at the NATS account and
+> subject-permission level" (ADR-026 D5, `event-contract.md` section 5); on this deployment it is
+> not enforced at all. **Do not attach a second tenant to this bus.**
+>
+> `$JS.API` is open for the same reason, so a client can create, update, delete or purge
+> any stream. The stream set being GitOps state is therefore a convention the operators
+> keep, not a control the server imposes.
+>
+> This is a deliberate posture for a single-tenant, ClusterIP-only homelab, not an
+> oversight. How enforcement lands is decided in ADR-043 and tracked on MCAA-363. A fork
+> that puts a second tenant, an untrusted workload or a shared cluster on this bus needs
+> that work first.
+
 This page covers the deployment: what runs, how the streams get created, what the
 dead-letter path actually does, and how to follow one event end to end.
 
@@ -193,6 +215,12 @@ log and needs real fsync semantics.
   Two streams in one account may not have overlapping filters, so a third-party bus that
   widens into `pf.>` does not degrade the platform bus, it makes a platform stream
   uncreatable.
+- **The monitoring port is open too.** Port 8222 is plain HTTP with no auth on every NATS
+  pod, published through the `nats-headless` Service (`service.ports.monitor` is off, so
+  the `nats` ClusterIP Service carries 4222 only). `/jsz?accounts=true` returns every
+  stream's name, subject filters and message counts, and `/connz` returns per-connection
+  detail. Accounts partition the client port, so ADR-043 will not close this; restricting
+  it is a separate decision.
 - **An Argo Events `nats` EventSource is a core-NATS subscribe** — at-most-once, no
   durability, no replay. Pointing one at a `.ev` subject silently downgrades an
   at-least-once path. The bridge between this bus and the Argo Events bus is an explicit
