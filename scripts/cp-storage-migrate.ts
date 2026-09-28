@@ -1597,7 +1597,10 @@ function etcdCell(state: ClusterState, ip: string): string {
   if (!state.etcd) return "?";
   const m = state.etcd.statuses.find((x) => x.node === ip);
   if (!m) {
-    return state.etcd.membership?.includes(ip) ? "absent" : "unrepresented";
+    // A membership that was not read is unknown, not empty: an address is only
+    // unrepresented against a membership somebody actually saw.
+    if (state.etcd.membership === null) return "?";
+    return state.etcd.membership.includes(ip) ? "absent" : "unrepresented";
   }
   const flags = [`idx ${m.raftIndex}`];
   if (m.leader !== "" && m.leader === m.member) flags.push("leader");
@@ -1649,9 +1652,10 @@ function printContext(cfg: Config, state: ClusterState): void {
       ? `Proxmox root filesystem: ${state.rootError ?? "unknown"}`
       : `Proxmox root filesystem ${state.rootUsePct}% used (limit ${cfg.maxRootUse}%)`,
   );
-  const etcdStatusGate = etcdGate("preflight", state.etcd, state.etcdError);
-  if (etcdStatusGate.ok === true) log.ok(`etcd: ${etcdStatusGate.detail}`);
-  else log.warn(`etcd: ${etcdStatusGate.detail}`);
+  const etcd = etcdGate("preflight", state.etcd, state.etcdError);
+  const line = `${etcd.name}: ${etcd.detail}`;
+  if (etcd.ok === true) log.ok(line);
+  else log.warn(line);
   log.info(
     state.vipHolders === null
       ? `VIP ${cfg.vip}: ${state.vipError ?? "unknown"}`
