@@ -10,6 +10,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"gopkg.in/yaml.v3"
 )
 
 // ClusterOptions configures the level-1 and level-2 checks, which read a
@@ -62,6 +64,8 @@ func DryRun(ctx context.Context, opts ClusterOptions) []Check {
 		return []Check{FailCheck(name, start, fmt.Sprintf("listing rendered manifests in %s: %v", envDir, err))}
 	}
 
+	dests := destinationNamespaces(files)
+
 	var checks []Check
 	applied := 0
 	for _, file := range files {
@@ -78,14 +82,20 @@ func DryRun(ctx context.Context, opts ClusterOptions) []Check {
 		checkName := name + "/" + chart
 		checkStart := time.Now()
 
-		stdout, stderr, runErr := opts.Runner.Run(ctx, opts.RepoRoot, "kubectl",
-			"--context", opts.KubeContext,
+		argv := []string{"--context", opts.KubeContext,
 			"apply", "--server-side", "--dry-run=server", "--force-conflicts",
-			"--field-manager", dryRunFieldManager,
-			"-f", file)
+			"--field-manager", dryRunFieldManager}
+		where := "the kube context's default namespace"
+		if ns := dests[chart]; ns != "" {
+			argv = append(argv, "-n", ns)
+			where = "namespace " + ns
+		}
+		argv = append(argv, "-f", file)
+
+		stdout, stderr, runErr := opts.Runner.Run(ctx, opts.RepoRoot, "kubectl", argv...)
 		if runErr == nil {
 			objects := len(nonEmptyLines(stdout))
-			checks = append(checks, PassCheck(checkName, checkStart, fmt.Sprintf("%d object(s) accepted by the API server", objects)))
+			checks = append(checks, PassCheck(checkName, checkStart, fmt.Sprintf("%d object(s) accepted by the API server in %s", objects, where)))
 			continue
 		}
 		if isShimMissing(stderr) {
@@ -95,7 +105,7 @@ func DryRun(ctx context.Context, opts ClusterOptions) []Check {
 			return append(checks, clusterUnreachableCheck("dryrun/cluster", checkStart, opts.KubeContext, stderr))
 		}
 		lines := nonEmptyLines(stderr)
-		detail := fmt.Sprintf("server-side dry run rejected %s (%d line(s) on stderr)", filepath.Base(file), len(lines))
+		detail := fmt.Sprintf("server-side dry run rejected %s in %s (%d line(s) on stderr)", filepath.Base(file), where, len(lines))
 		checks = append(checks, FailCheck(checkName, checkStart, detail, capLines(lines)...))
 	}
 	if applied == 0 {
@@ -514,6 +524,50 @@ func clusterUnreachableCheck(name string, start time.Time, kubeContext string, s
 	findings := capLines(nonEmptyLines(stderr))
 	findings = append(findings, "start the Kind cluster with `task localdev:up` (or pass --kube-context)")
 	return FailCheck(name, start, detail, findings...)
+}
+
+// destinationNamespaces maps an ArgoCD Application name to its
+// spec.destination.namespace, read from every rendered manifest in files.
+//
+// The rendered charts carry no metadata.namespace, because ArgoCD supplies it
+// from the Application at sync time. A dry run that omits it sends every
+// namespace-less object to the kubeconfig's default namespace, so an admission
+// webhook that resolves a sibling object by namespace is asked about the wrong
+// one and rejects a manifest that syncs cleanly.
+//
+// An Application with no destination namespace is left out, so a chart with no
+// Application keeps the pre-namespace behaviour rather than guessing.
+func destinationNamespaces(files []string) map[string]string {
+	dests := make(map[string]string)
+	for _, file := range files {
+		raw, err := os.ReadFile(file)
+		if err != nil {
+			continue
+		}
+		dec := yaml.NewDecoder(strings.NewReader(string(raw)))
+		for {
+			var app struct {
+				Kind     string `yaml:"kind"`
+				Metadata struct {
+					Name string `yaml:"name"`
+				} `yaml:"metadata"`
+				Spec struct {
+					Destination struct {
+						Namespace string `yaml:"namespace"`
+					} `yaml:"destination"`
+				} `yaml:"spec"`
+			}
+			if err := dec.Decode(&app); err != nil {
+				break
+			}
+			ns := strings.TrimSpace(app.Spec.Destination.Namespace)
+			if app.Kind != "Application" || app.Metadata.Name == "" || ns == "" {
+				continue
+			}
+			dests[app.Metadata.Name] = ns
+		}
+	}
+	return dests
 }
 
 // hasYAMLDocument reports whether raw contains at least one YAML document
