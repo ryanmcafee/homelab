@@ -653,8 +653,13 @@ test("stream_and_consumer_name_account: every rendered Stream and Consumer sets 
     `helm template exited ${rendered.code}\n${rendered.output}`,
   );
   const docs = parseYamlAll(rendered.output).filter(
-    (doc): doc is { kind: string; metadata: { name: string }; spec: Record<string, unknown> } =>
-      doc !== null && typeof doc === "object",
+    (
+      doc,
+    ): doc is {
+      kind: string;
+      metadata: { name: string };
+      spec: Record<string, unknown>;
+    } => doc !== null && typeof doc === "object",
   );
   let inspected = 0;
   for (const doc of docs) {
@@ -668,8 +673,7 @@ test("stream_and_consumer_name_account: every rendered Stream and Consumer sets 
   }
   // A gate whose matcher reaches nothing passes green: the chart declares one resource per
   // stream plus one per consumer, and the declaration binds every one of them.
-  const expected =
-    chart.streams.length + chart.consumers.length;
+  const expected = chart.streams.length + chart.consumers.length;
   assertEquals(
     inspected,
     expected,
