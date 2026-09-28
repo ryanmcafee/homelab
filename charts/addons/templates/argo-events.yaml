@@ -101,6 +101,8 @@ spec:
         maxMsgs: {{ $ae.bus.maxMsgs | int64 }}
         storage:
           {{- toYaml $ae.bus.storage | nindent 10 }}
+        selfTest:
+          {{- toYaml $ae.selfTest | nindent 10 }}
   destination:
     server: https://kubernetes.default.svc
     namespace: {{ $ae.namespace }}

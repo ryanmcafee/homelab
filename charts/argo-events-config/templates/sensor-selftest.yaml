@@ -1,0 +1,42 @@
+{{- if .Values.selfTest.enabled }}
+# The consuming half of the trigger-path probe. Proves EventSource -> EventBus
+# -> Sensor -> trigger, which no render or CR condition can show.
+apiVersion: argoproj.io/v1alpha1
+kind: Sensor
+metadata:
+  name: trigger-selftest
+spec:
+  eventBusName: default
+  dependencies:
+    # eventName is the key under `calendar:` in the EventSource, not a free
+    # label: Argo Events matches the dependency on it.
+    - name: tick
+      eventSourceName: trigger-selftest
+      eventName: tick
+  triggers:
+    - template:
+        name: log-tick
+        log:
+          intervalSeconds: 0
+      # Argo Events defaults this to false, which acks the message and runs the
+      # trigger in a goroutine -- at-most-once, and a failure is only logged
+      # (pkg/sensors/listener.go triggerActions). True makes the trigger a
+      # blocking call so the ack waits for it.
+      #
+      # It is also what makes dlqTrigger reachable at all: the DLQ is invoked
+      # from the DoWithRetry loop around triggerActions, and with atLeastOnce
+      # false that call returns nil immediately, so the error branch holding the
+      # DLQ can never be taken.
+      atLeastOnce: true
+      retryStrategy:
+        # Argo Events defaults to Backoff{Steps: 1} -- a single attempt, no
+        # retry -- whenever retryStrategy is unset.
+        steps: 3
+        duration: 5s
+        factor: 2
+      dlqTrigger:
+        template:
+          name: log-tick-dlq
+          log:
+            intervalSeconds: 0
+{{- end }}
