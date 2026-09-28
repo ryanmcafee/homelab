@@ -2289,8 +2289,8 @@ spec:
           # The SLI is the head of the stream, not its depth: a queue full of
           # work nobody takes and a busy queue have the same depth, and
           # prometheus-nats-exporter exports no message age at all - pinned
-          # against 0.18.0 (the nats chart pin) and against its main branch,
-          # neither of which has a state.first_ts metric. Every window is
+          # against 0.20.1 (the nats chart pin), 0.18.0 and its main branch,
+          # none of which has a state.first_ts metric. Every window is
           # therefore derived from nats_stream_first_seq, which only moves when
           # a message leaves the head. No series exists until the NATS
           # Application ships an exporter with -jsz=all, and the rules are
@@ -2298,14 +2298,17 @@ spec:
           #
           # Every rule below reads a recorded series, not the exporter metric:
           # the exporter reports one series per server and only the stream
-          # leader's is authoritative, but is_stream_leader="true" dedupes a
-          # cluster while selecting nothing on a single node, which has no
-          # cluster block to derive leadership from. subjects.v1.yaml sets
-          # replicas_defaults.homelab: 1 deliberately, so single-node is the
-          # Kind path and every fork, not an edge case (MCAA-285). The records
-          # prefer the leader and fall back to the only server, making one
-          # expression correct on both, and aggregate once per interval rather
-          # than once per alert term as a 12h subquery would.
+          # leader's is authoritative, so is_stream_leader="true" dedupes a
+          # cluster. A standalone server reports itself leader too - nats-server
+          # synthesizes a cluster block naming itself, and the exporter defaults
+          # the label to "true" when that block is absent - so the filter picks
+          # the only server rather than nothing, but only by upstream behaviour
+          # in two projects. subjects.v1.yaml sets replicas_defaults.homelab: 1
+          # deliberately, making single-node the Kind path and every fork
+          # (MCAA-285), so the records prefer the leader and fall back to the
+          # only server: one expression correct on both topologies and immune to
+          # that labelling changing, aggregated once per interval rather than
+          # once per alert term as a 12h subquery would be.
           homelab-nats-jetstream:
             groups:
               - name: homelab-nats-jetstream

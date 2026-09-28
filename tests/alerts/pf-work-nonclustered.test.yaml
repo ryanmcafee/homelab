@@ -5,15 +5,16 @@
 # contracts/events/subjects.v1.yaml sets replicas_defaults.homelab: 1, because a
 # hard-coded 3 leaves a single-node fork unable to create a stream at all
 # (nats-server: "replicas > 1 not supported in non-clustered mode", error 10074).
-# The Kind loop and every single-node fork therefore run non-clustered, and
-# prometheus-nats-exporter derives stream and consumer leadership from the
-# cluster block of the jsz response - which a single server does not have.
+# The Kind loop and every single-node fork therefore run non-clustered.
 #
-# The exporter's exact single-node output is unmeasured (MCAA-285), so these
-# tests pin BOTH shapes it can take: is_stream_leader="false", and the label
-# absent entirely. The rules must behave identically in both, and identically to
-# the clustered case in pf-work-age-expiry.test.yaml. A silent-loss alert that
-# only fires on the maintainer's 3-node cluster is not shipped observability.
+# The deployed stack does label a standalone stream is_stream_leader="true":
+# nats-server synthesizes a cluster block naming itself leader, and the exporter
+# defaults the label to "true" when that block is absent (MCAA-285). The rules
+# must not depend on either behaviour, so these tests pin the two other shapes a
+# standalone server could report - is_stream_leader="false", and the label absent
+# - as upstream regression coverage, and require the same verdicts as the
+# clustered cases in pf-work-age-expiry.test.yaml. A silent-loss alert that only
+# fires on the maintainer's 3-node cluster is not shipped observability.
 rule_files:
   - rules.yaml
 
@@ -102,7 +103,7 @@ tests:
 
   # 3. Loss already happened on a single node: head jumped 1 -> 4 while the only
   #    consumer's ack floor reached 1, so two messages left unacked. The consumer
-  #    side carries is_consumer_leader, which has the same single-node problem.
+  #    side carries is_consumer_leader, derived by the same upstream path.
   - interval: 30s
     name: single node unacked removal is detected from the sequence gap
     input_series:
@@ -140,9 +141,10 @@ tests:
         exp_alerts: []
 
   # 5. The blindness alert must not fire while a single node is reporting the
-  #    stream perfectly well. On main this inverts: the leader-filtered selector
-  #    is empty, the unfiltered one is not, so it fires forever on Kind and on
-  #    every single-node fork - an alert nobody can act on.
+  #    stream perfectly well. Against a server that did not report itself leader,
+  #    the rules on main invert this: the leader-filtered selector is empty while
+  #    the unfiltered one is not, so the alert would fire forever - an alert
+  #    nobody can act on.
   - interval: 30s
     name: reporting single node does not look blind
     input_series:
