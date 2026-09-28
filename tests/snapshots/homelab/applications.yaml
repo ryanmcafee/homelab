@@ -1330,6 +1330,8 @@ spec:
         # cluster-wide; naming the instance namespace makes that a namespaced Role.
         watchNamespaces:
           - openclaw
+        rbac:
+          aggregateToDefaultRoles: false
         metrics:
           enabled: true
           serviceMonitor:
