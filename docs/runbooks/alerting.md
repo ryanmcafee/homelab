@@ -267,8 +267,9 @@ request. `GitHubPullRequestNeedsReview` fires per pull request after 5 m and goe
 through its own route (`pushover-github-pr`): title `PR needs review: <owner>/<repo>#<n>`,
 the PR title and author as the message, and a tap-through link to the PR. It repeats every
 24 h while the PR still matches and sends nothing when it is merged, closed or reviewed.
-`<owner>` is the GitHub account of `global.repoUrl` (`$githubOwner` in
-`configuration/templates/helm-addons.tmpl`): its repositories are searched and it is the reviewer.
+`<owner>` is the GitHub account of `GITOPS_REPO_URL`, which the resolver parses into `.GitOps.Owner`
+for `configuration/templates/helm-addons.tmpl`: its repositories are searched and it is the
+reviewer. A fork's queries follow its own remote, not the upstream account's.
 
 | Key (`configuration/schema/alerting.schema.yaml`) | Default |
 |---|---|
