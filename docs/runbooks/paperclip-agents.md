@@ -11,7 +11,7 @@ alerts route like every other rule (warning -> Pushover low priority, critical -
 | Metrics | Source |
 |---|---|
 | `container_memory_working_set_bytes`, `kube_pod_container_resource_limits`, `kube_pod_container_status_*` | cAdvisor and kube-state-metrics (kube-prometheus-stack) |
-| `paperclip_*` | `paperclip-exporter` Deployment in namespace `paperclip` (`charts/paperclip/templates/exporter.yaml`) |
+| `paperclip_*` | `paperclip-exporter` Rollout in namespace `paperclip` (`charts/paperclip/templates/exporter.yaml`, [progressive-delivery.md](../progressive-delivery.md)) |
 
 The exporter is `charts/paperclip/files/paperclip-exporter.ts` run by the stock `oven/bun` image
 (`configuration/versions.yaml` `images.bun`). On each scrape (every 60 s) it reads, for every
@@ -71,10 +71,10 @@ recovery alerts. Follow the memory steps above, then check that agents restarted
 
 ### PaperclipMetricsUnavailable (warning, 15 m)
 
-The agent alerts below cannot fire. `kubectl -n paperclip logs deploy/paperclip-exporter`
+The agent alerts below cannot fire. `kubectl -n paperclip logs -l app.kubernetes.io/name=paperclip-exporter`
 names the endpoint and HTTP status: 401/403 = the item is missing or the key was revoked
 (create a new board key, update the field; the operator refreshes the Secret, then
-`kubectl -n paperclip rollout restart deploy/paperclip-exporter` picks it up); connection errors
+`kubectl argo rollouts restart paperclip-exporter -n paperclip` picks it up); connection errors
 = Paperclip itself is down (`HomelabProbeFailing` on `paperclip-direct` says the same).
 
 ### PaperclipAgentFailureRateHigh (warning, > 20 % of >= 5 runs in 1 h, for 15 m)

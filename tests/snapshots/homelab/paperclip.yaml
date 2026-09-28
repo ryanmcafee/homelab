@@ -1530,9 +1530,9 @@ spec:
 ---
 # Source: paperclip/templates/exporter.yaml
 # Canary Service: the Rollout controller pins its selector to the canary
-# pod-template-hash. Deliberately not labelled app.kubernetes.io/name — the
-# ServiceMonitor below selects Services by that label and would otherwise scrape
-# the canary pods as a second source of the same series.
+# pod-template-hash. Its app.kubernetes.io/name value is deliberately not the
+# one the ServiceMonitor below selects, which would otherwise scrape the canary
+# pods as a second source of the same series.
 apiVersion: v1
 kind: Service
 metadata:
