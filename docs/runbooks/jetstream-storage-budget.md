@@ -18,10 +18,18 @@ file store size is a cluster fact (`nats.jetstream.storage.size` in `charts/addo
 chart writes as `max_file_store`), not a value in the contract. **These alerts are the runtime half
 of the rule.** Without them the first symptom of a mis-summed budget is `10047` on every publish.
 
-The homelab defaults budget 6 GiB across the four streams against an 8 GiB file store — 75 % — so
-the warning threshold below is not arbitrary: the store reaching 75 % is the point at which the
-*entire declared budget* has been consumed. Anything above it is either a stream over its share, a
-budget that sums too high, or bytes on the store that no `max_bytes` accounts for.
+75 % is the warning threshold because it is where the contract's own headroom sits: the homelab
+`max_bytes_defaults` budget 6 GiB across the four streams against the 8 GiB store their comment
+names, and the commercial ones 96 GiB against 128 GiB. On a cluster sized that way the store
+reaching 75 % means the *entire declared budget* is spent, and anything beyond it is a stream over
+its share, a budget that sums too high, or bytes no `max_bytes` accounts for.
+
+**Check that assumption against your own cluster rather than inheriting it.** The ratio that matters
+is the deployed limits against the deployed store, and the query in step 2 below prints it. A store
+larger than the defaults assume — `nats.jetstream.storage.size` currently defaults to `10Gi`, not
+the 8 GiB the contract comment describes — puts the whole budget below 75 %, so the warning then
+means "something is consuming past the budget" rather than "the budget is spent". Both readings are
+actionable and the diagnosis below covers both; the threshold does not need retuning per cluster.
 
 ## What the exporter gives you
 
