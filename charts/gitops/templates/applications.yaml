@@ -18,7 +18,7 @@ spec:
   project: {{ .Values.global.project }}
 
   source:
-    repoURL: {{ .Values.global.repoUrl }}
+    repoURL: {{ include "homelab.repo.cloneUrl" . }}
     targetRevision: {{ .Values.global.targetRevision }}
     path: {{ .Values.applications.source.path }}
     {{- if .Values.applications.source.plugin }}

@@ -91,6 +91,10 @@ type envRender struct {
 	// domain is the env's resolved DOMAIN. Two-stage envs hand it to the
 	// gitops chart with --set, mirroring the Terraform root Application.
 	domain string
+	// repoURL is the env's resolved GITOPS_REPO_URL, handed to the gitops
+	// chart with --set the way the deploy path injects it: Terraform's
+	// helm.parameters in homelab, install's helm.valuesObject in Kind.
+	repoURL string
 	// generated maps a two-stage chart name to the absolute path of its
 	// config-export-generated values file.
 	generated map[string]string
@@ -620,6 +624,7 @@ func prepareEnv(opts RenderOptions, env Env, k8sVersion string) (*envRender, Che
 		env:         env,
 		rc:          rc,
 		domain:      domain,
+		repoURL:     value("GITOPS_REPO_URL"),
 		generated:   map[string]string{},
 		inherited:   map[string]inheritedValues{},
 		parentFiles: map[string]string{},
@@ -818,6 +823,14 @@ func valuesArgs(opts RenderOptions, er *envRender, c Chart) ([]string, string) {
 	if c.Name == "gitops" && er.env.TwoStage {
 		args = append(args, "--set", "global.domain="+er.domain)
 		detail += "; --set global.domain=" + er.domain + " (mirrors the Terraform root Application helm.parameters)"
+	}
+
+	// Same for the repository: nothing in git names the fork's own remote. In
+	// homelab Terraform injects it as a helm parameter; in Kind
+	// scripts/localdev-argocd.ts install injects it as helm.valuesObject.
+	if c.Name == "gitops" && er.repoURL != "" {
+		args = append(args, "--set", "global.repoUrl="+er.repoURL)
+		detail += "; --set global.repoUrl=" + er.repoURL + " (mirrors the root Application the deploy path creates)"
 	}
 
 	// A preview env's own charts get the arguments the CMP adds for
