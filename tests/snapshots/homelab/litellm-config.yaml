@@ -1,0 +1,350 @@
+---
+# Source: litellm-config/templates/httproute.yaml
+# The only route carrying the external-dns hostname annotation: all three share
+# one hostname, and external-dns selects on that annotation
+# (--annotation-filter), so one record is published instead of three claims on
+# the same name.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: litellm-ui
+  namespace: litellm
+  annotations:
+    external-dns.alpha.kubernetes.io/hostname: litellm.replaceme-domain.com
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: envoy-internal
+      namespace: envoy-gateway-system
+      sectionName: https
+  hostnames:
+    - litellm.replaceme-domain.com
+  rules:
+    - matches:
+        - path:
+            type: Exact
+            value: /
+        - path:
+            type: Exact
+            value: /favicon.ico
+        - path:
+            type: PathPrefix
+            value: /litellm-asset-prefix
+        - path:
+            type: PathPrefix
+            value: /_next
+        - path:
+            type: PathPrefix
+            value: /ui
+        - path:
+            type: RegularExpression
+            value: ^/[^/]+\.txt$
+      backendRefs:
+        - name: litellm-ui
+          port: 3000
+
+---
+# Source: litellm-config/templates/httproute.yaml
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: litellm-gateway
+  namespace: litellm
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: envoy-internal
+      namespace: envoy-gateway-system
+      sectionName: https
+  hostnames:
+    - litellm.replaceme-domain.com
+  rules:
+    - matches:
+        - path:
+            type: Exact
+            value: /test
+        - path:
+            type: PathPrefix
+            value: /v1/chat
+        - path:
+            type: PathPrefix
+            value: /chat
+        - path:
+            type: PathPrefix
+            value: /v1/completions
+        - path:
+            type: PathPrefix
+            value: /completions
+        - path:
+            type: PathPrefix
+            value: /v1/embeddings
+        - path:
+            type: PathPrefix
+            value: /embeddings
+        - path:
+            type: PathPrefix
+            value: /v1/moderations
+        - path:
+            type: PathPrefix
+            value: /moderations
+        - path:
+            type: PathPrefix
+            value: /v1/audio
+        - path:
+            type: PathPrefix
+            value: /audio
+        - path:
+            type: PathPrefix
+            value: /v1/images
+        - path:
+            type: PathPrefix
+            value: /images
+        - path:
+            type: PathPrefix
+            value: /v1/files
+        - path:
+            type: PathPrefix
+            value: /files
+        - path:
+            type: PathPrefix
+            value: /v1/batches
+        - path:
+            type: PathPrefix
+            value: /batches
+        - path:
+            type: PathPrefix
+            value: /v1/fine_tuning
+        - path:
+            type: PathPrefix
+            value: /fine_tuning
+        - path:
+            type: PathPrefix
+            value: /v1/fine-tuning
+        - path:
+            type: PathPrefix
+            value: /fine-tuning
+        - path:
+            type: PathPrefix
+            value: /v1/responses
+        - path:
+            type: PathPrefix
+            value: /responses
+        - path:
+            type: PathPrefix
+            value: /v1/threads
+        - path:
+            type: PathPrefix
+            value: /threads
+        - path:
+            type: PathPrefix
+            value: /v1/assistants
+        - path:
+            type: PathPrefix
+            value: /assistants
+        - path:
+            type: PathPrefix
+            value: /v1/vector_stores
+        - path:
+            type: PathPrefix
+            value: /vector_stores
+        - path:
+            type: PathPrefix
+            value: /v1/indexes
+        - path:
+            type: PathPrefix
+            value: /v1/models
+        - path:
+            type: PathPrefix
+            value: /models
+        - path:
+            type: PathPrefix
+            value: /openai
+        - path:
+            type: PathPrefix
+            value: /engines
+        - path:
+            type: PathPrefix
+            value: /v1/messages
+        - path:
+            type: PathPrefix
+            value: /messages
+        - path:
+            type: PathPrefix
+            value: /v1/skills
+        - path:
+            type: PathPrefix
+            value: /v1/a2a
+        - path:
+            type: PathPrefix
+            value: /a2a
+        - path:
+            type: PathPrefix
+            value: /v1/rerank
+        - path:
+            type: PathPrefix
+            value: /v2/rerank
+        - path:
+            type: PathPrefix
+            value: /rerank
+        - path:
+            type: PathPrefix
+            value: /v1/ocr
+        - path:
+            type: PathPrefix
+            value: /ocr
+        - path:
+            type: PathPrefix
+            value: /v1/rag
+        - path:
+            type: PathPrefix
+            value: /rag
+        - path:
+            type: PathPrefix
+            value: /v1/video
+        - path:
+            type: PathPrefix
+            value: /v1/videos
+        - path:
+            type: PathPrefix
+            value: /video
+        - path:
+            type: PathPrefix
+            value: /videos
+        - path:
+            type: PathPrefix
+            value: /v1/search
+        - path:
+            type: PathPrefix
+            value: /search
+        - path:
+            type: PathPrefix
+            value: /v1/containers
+        - path:
+            type: PathPrefix
+            value: /containers
+        - path:
+            type: PathPrefix
+            value: /v1/evals
+        - path:
+            type: PathPrefix
+            value: /v1/memory
+        - path:
+            type: PathPrefix
+            value: /queue/chat
+        - path:
+            type: PathPrefix
+            value: /v1beta
+        - path:
+            type: PathPrefix
+            value: /interactions
+        - path:
+            type: PathPrefix
+            value: /anthropic
+        - path:
+            type: PathPrefix
+            value: /azure
+        - path:
+            type: PathPrefix
+            value: /azure_ai
+        - path:
+            type: PathPrefix
+            value: /aws
+        - path:
+            type: PathPrefix
+            value: /bedrock
+      backendRefs:
+        - name: litellm-gateway
+          port: 4000
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /comprehendmedical
+        - path:
+            type: PathPrefix
+            value: /cohere
+        - path:
+            type: PathPrefix
+            value: /gemini
+        - path:
+            type: PathPrefix
+            value: /google
+        - path:
+            type: PathPrefix
+            value: /vertex_ai
+        - path:
+            type: PathPrefix
+            value: /vertex-ai
+        - path:
+            type: PathPrefix
+            value: /assemblyai
+        - path:
+            type: PathPrefix
+            value: /eu.assemblyai
+        - path:
+            type: PathPrefix
+            value: /langfuse
+        - path:
+            type: PathPrefix
+            value: /vllm
+        - path:
+            type: PathPrefix
+            value: /mistral
+        - path:
+            type: PathPrefix
+            value: /groq
+        - path:
+            type: PathPrefix
+            value: /voyage
+        - path:
+            type: PathPrefix
+            value: /cursor
+        - path:
+            type: PathPrefix
+            value: /milvus
+        - path:
+            type: PathPrefix
+            value: /openai_passthrough
+        - path:
+            type: PathPrefix
+            value: /toolset
+        - path:
+            type: PathPrefix
+            value: /v1/realtime
+        - path:
+            type: PathPrefix
+            value: /realtime
+        - path:
+            type: PathPrefix
+            value: /health
+      backendRefs:
+        - name: litellm-gateway
+          port: 4000
+
+---
+# Source: litellm-config/templates/httproute.yaml
+# Catch-all: the management API (/key/*, /user/*, /team/*, /v1/mcp/*, ...) and
+# every path the two routes above do not claim.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: litellm-backend
+  namespace: litellm
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: envoy-internal
+      namespace: envoy-gateway-system
+      sectionName: https
+  hostnames:
+    - litellm.replaceme-domain.com
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: litellm-backend
+          port: 4001

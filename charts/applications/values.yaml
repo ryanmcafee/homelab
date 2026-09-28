@@ -1208,3 +1208,16 @@ litellm:
         limits:
           cpu: "1"
           memory: 1536Mi
+
+  # charts/litellm-config: HTTPRoutes for ui, gateway and backend. The path
+  # split lives in that chart's own values.yaml; only the hostname and the
+  # Gateway are environment facts and come from configuration/.
+  route:
+    enabled: true
+    host: litellm.example.com
+    gateway:
+      name: envoy-internal
+      namespace: envoy-gateway-system
+
+  smoke:
+    enabled: false
