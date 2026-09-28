@@ -554,6 +554,9 @@ spec:
         storage:
           className: local-path
           size: 1Gi
+        selfTest:
+          enabled: true
+          interval: 20s
   destination:
     server: https://kubernetes.default.svc
     namespace: argo-events

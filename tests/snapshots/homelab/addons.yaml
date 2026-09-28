@@ -750,6 +750,9 @@ spec:
         storage:
           className: democratic-csi-iscsi
           size: 10Gi
+        selfTest:
+          enabled: true
+          interval: 1h
   destination:
     server: https://kubernetes.default.svc
     namespace: argo-events

@@ -1373,6 +1373,13 @@ argo-events:
         cpu: 100m
         memory: 128Mi
 
+  # A calendar EventSource and a Sensor whose only job is to show the trigger
+  # path still works. Both CRDs are schemaless, so a spec that never fires looks
+  # identical to one that does until a tick arrives.
+  selfTest:
+    enabled: true
+    interval: 20s
+
 # ============================================================================
 # NATS + JetStream — the platform event bus (docs/event-backbone.md)
 # Sync Waves: 10 nats, 11 nack (the jetstream.nats.io CRDs), 12 nats-config
