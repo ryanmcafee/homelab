@@ -17,26 +17,12 @@ package etcd
 import (
 	"fmt"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
-)
 
-const (
-	// DefaultRaftTolerance is how far behind the highest RAFT INDEX a
-	// member may be and still count as caught up. The members are queried
-	// at slightly different moments on a cluster that keeps writing, so
-	// exact equality is not a usable gate; a member many indices behind is
-	// still catching up and must not be counted towards quorum.
-	//
-	// This is the contract's `raftIndexTolerance`, not an independent
-	// constant. It is duplicated here only until the topology-contract
-	// loader lands (contracts/cluster/topology.v1.yaml, ADR-034); at that
-	// point this declaration is deleted and the value is read from the
-	// contract. Callers may only *tighten* it — a larger tolerance makes
-	// raft-index-converged weaker on a destructive path, so the flag that
-	// feeds it refuses to loosen it.
-	DefaultRaftTolerance int64 = 10
+	"github.com/ryanmcafee/homelab/internal/topology"
 )
 
 // Status is one row of `talosctl etcd status`.
@@ -241,95 +227,88 @@ func parseInt64(s string) (int64, bool) {
 	return n, true
 }
 
-// Health is the verdict of the health gate.
-type Health struct {
-	OK bool
-	// Problems are the human-readable reasons the cluster is not whole,
-	// empty when OK. A refusal message quotes these verbatim so the
-	// operator is told which member is at fault, not just "unhealthy".
-	Problems []string
-}
-
-// CheckHealth is the runbook's gate, ported from etcdHealth in
-// scripts/cp-storage-migrate.ts: exactly `expected` members answered, no
-// ERRORS, no learner, exactly one agreed leader, and every RAFT INDEX within
-// `tolerance` of the highest.
-func CheckHealth(members []Status, expected int, tolerance int64) Health {
+// conditionProblems evaluates one of the contract's per-member condition
+// atoms over the members that answered, and returns the reasons it failed.
+//
+// One function per condition id, dispatched from the predicate's own
+// condition list, is what keeps the two gates honest against each other: a
+// predicate cannot skip a check by being written differently, only by the
+// contract naming fewer conditions.
+func conditionProblems(cond topology.ConditionID, members []Status, tolerance int64) []string {
 	var problems []string
 
-	if len(members) != expected {
-		problems = append(problems, fmt.Sprintf("%d member(s) answered, expected %d", len(members), expected))
+	switch cond {
+	case topology.NoErrors:
+		for _, m := range members {
+			if m.Errors != "" {
+				problems = append(problems, fmt.Sprintf("%s: ERRORS %s", m.Node, m.Errors))
+			}
+		}
+	case topology.NoLearners:
+		for _, m := range members {
+			if m.Learner {
+				problems = append(problems, fmt.Sprintf("%s is a learner", m.Node))
+			}
+		}
+	case topology.RaftIndexConverged:
+		for _, m := range members {
+			if !m.HasRaftIndex {
+				problems = append(problems, fmt.Sprintf("%s has no RAFT INDEX", m.Node))
+			}
+		}
+		if highest, ok := highestRaftIndex(members); ok {
+			for _, m := range members {
+				if m.HasRaftIndex && highest-m.RaftIndex > tolerance {
+					problems = append(problems, fmt.Sprintf(
+						"%s RAFT INDEX %d is %d behind %d (tolerance %d)",
+						m.Node, m.RaftIndex, highest-m.RaftIndex, highest, tolerance))
+				}
+			}
+		}
+	case topology.SingleLeader:
+		leaders := map[string]struct{}{}
+		for _, m := range members {
+			if m.Leader != "" {
+				leaders[m.Leader] = struct{}{}
+			}
+		}
+		if len(members) > 0 && len(leaders) != 1 {
+			if len(leaders) == 0 {
+				problems = append(problems, "no leader reported")
+			} else {
+				names := make([]string, 0, len(leaders))
+				for l := range leaders {
+					names = append(names, l)
+				}
+				sort.Strings(names)
+				problems = append(problems, fmt.Sprintf("members disagree about the leader (%s)", strings.Join(names, ", ")))
+			}
+		}
 	}
-	problems = append(problems, convergenceProblems(members, tolerance)...)
-	return Health{OK: len(problems) == 0, Problems: problems}
+
+	return problems
 }
 
-// convergenceProblems is the contract's four per-member conditions —
-// no-errors, no-learners, single-leader and raft-index-converged — evaluated
-// over the members that answered. It deliberately says nothing about *how
-// many* answered: that is the one condition `whole` and `survivable` differ
-// on, so it is the caller's, and keeping it out of here is what stops
-// `survivable` from accidentally relaxing anything else.
-func convergenceProblems(members []Status, tolerance int64) []string {
-	var problems []string
-
-	for _, m := range members {
-		if m.Errors != "" {
-			problems = append(problems, fmt.Sprintf("%s: ERRORS %s", m.Node, m.Errors))
-		}
-	}
-	for _, m := range members {
-		if m.Learner {
-			problems = append(problems, fmt.Sprintf("%s is a learner", m.Node))
-		}
-	}
-	for _, m := range members {
-		if !m.HasRaftIndex {
-			problems = append(problems, fmt.Sprintf("%s has no RAFT INDEX", m.Node))
-		}
-	}
-
+// highestRaftIndex returns the highest index reported, and whether more than
+// one member reported one at all: a single member is trivially converged with
+// itself, so there is nothing to compare.
+func highestRaftIndex(members []Status) (int64, bool) {
 	var indices []int64
 	for _, m := range members {
 		if m.HasRaftIndex {
 			indices = append(indices, m.RaftIndex)
 		}
 	}
-	if len(indices) > 1 {
-		highest := indices[0]
-		for _, i := range indices[1:] {
-			if i > highest {
-				highest = i
-			}
-		}
-		for _, m := range members {
-			if m.HasRaftIndex && highest-m.RaftIndex > tolerance {
-				problems = append(problems, fmt.Sprintf(
-					"%s RAFT INDEX %d is %d behind %d (tolerance %d)",
-					m.Node, m.RaftIndex, highest-m.RaftIndex, highest, tolerance))
-			}
+	if len(indices) < 2 {
+		return 0, false
+	}
+	highest := indices[0]
+	for _, i := range indices[1:] {
+		if i > highest {
+			highest = i
 		}
 	}
-
-	leaders := map[string]struct{}{}
-	for _, m := range members {
-		if m.Leader != "" {
-			leaders[m.Leader] = struct{}{}
-		}
-	}
-	if len(members) > 0 && len(leaders) != 1 {
-		if len(leaders) == 0 {
-			problems = append(problems, "no leader reported")
-		} else {
-			names := make([]string, 0, len(leaders))
-			for l := range leaders {
-				names = append(names, l)
-			}
-			problems = append(problems, fmt.Sprintf("members disagree about the leader (%s)", strings.Join(names, ", ")))
-		}
-	}
-
-	return problems
+	return highest, true
 }
 
 // HealthyCount is how many of the given members are individually fit to
@@ -362,90 +341,82 @@ func HealthyCount(members []Status, tolerance int64) int {
 	return n
 }
 
-// Quorum is the number of members that must agree in a cluster of `size`.
-func Quorum(size int) int {
-	if size <= 0 {
-		return 0
-	}
-	return size/2 + 1
-}
-
-// MaxUnavailable is how many members of a cluster of `size` may be absent
-// while the cluster still has quorum.
-func MaxUnavailable(size int) int {
-	if size <= 0 {
-		return 0
-	}
-	return size - Quorum(size)
-}
-
-// Predicate is a named health gate. The two names, and the conditions behind
-// them, are the ones in contracts/cluster/topology.v1.yaml (ADR-034).
-type Predicate string
-
-const (
-	// Whole requires every expected member present and converged. It is the
-	// gate for "the cluster is finished and fault-tolerant again".
-	Whole Predicate = "whole"
-
-	// Survivable relaxes Whole in exactly one way and no other: the members
-	// absent may only be the ones this operation declared as its targets,
-	// and there must still be a quorum. It is the gate at the moment a
-	// destructive step is about to run, and on resume — the two points where
-	// the cluster is deliberately short a member, so Whole is unsatisfiable
-	// by construction and a Whole gate there would abort mid-procedure.
-	Survivable Predicate = "survivable"
-)
-
 // Observation is what one evaluation point actually saw. It is the whole
 // input to a predicate: nothing is read from a constant or from the
 // environment, so a gate is reproducible from its Observation alone.
 type Observation struct {
-	// Expected are the control-plane addresses derived from the ConfigSet's
-	// CP<n>_IP keys. This — never the live member list — is the cluster
-	// size the quorum arithmetic is measured against. Sizing quorum off the
-	// live list is how a cluster that is already a member short consents to
-	// losing another one.
+	// Expected are the control-plane addresses the resolver derived from the
+	// ConfigSet (config.ResolvedConfig.ControlPlane). Their COUNT is the
+	// expectation the observation is compared against — it is never the
+	// enumeration the member set is built from. A consumer that dials the
+	// addresses it derived and then asserts that many answered has restated
+	// its own input; see health.memberSetSource in the contract.
 	Expected []string
 
-	// Members is the live `etcd members` list, used to catch a member at an
-	// address that is not a configured control plane.
+	// Members is etcd's own membership, from `etcd members`. This, and not
+	// the address list, is the observed member set.
 	Members []Member
 
-	// Statuses are the `etcd status` rows that came back. An expected
-	// address with no row here counts as absent, whether it was queried and
-	// did not answer or was deliberately not queried at all.
+	// Statuses are the `etcd status` rows that came back. A member of the
+	// observed membership with no row here did not answer.
 	Statuses []Status
 
 	// Declared are the addresses this operation has declared as its targets:
 	// the absences it is allowed to explain. For `talos recreate` that is
 	// the single node being replaced.
 	Declared []string
+
+	// TransportErrors are dial, deadline or apid failures encountered while
+	// reading. The contract forbids flattening these into "N member(s)
+	// answered": etcd healthy behind a wedged apid is a different fault from
+	// etcd being down, and both refuse, but the operator is told which.
+	TransportErrors []string
+
+	// ObservedAt is when the member set was read. An evaluation older than
+	// the contract's maxObservationAge is stale, therefore indeterminate,
+	// therefore unsafe — it is never reused for a later gate.
+	ObservedAt time.Time
+
+	// EvaluatedAt defaults to now; tests set it to make staleness testable
+	// without sleeping.
+	EvaluatedAt time.Time
 }
 
 // Verdict is the result of evaluating a predicate.
 type Verdict struct {
 	OK        bool
-	Predicate Predicate
+	Predicate topology.PredicateID
 	// Problems are the failed conditions, named individually so a refusal
 	// tells the operator which condition failed and with what arithmetic.
 	Problems []string
-	// Absent are the expected addresses that did not report a status row.
+	// Absent are the members of etcd's membership that did not answer.
 	Absent []string
-	// Undeclared are the absent addresses this operation did not declare —
+	// Undeclared are the absent members this operation did not declare —
 	// the ones that mean "this cluster is degraded" rather than "this
 	// procedure is in flight".
 	Undeclared []string
-	// Answered is how many expected members reported a status row.
+	// Answered is how many members of etcd's membership reported a status.
 	Answered int
+	// Unrepresented are configured control-plane addresses with no member in
+	// etcd's membership at all. They are not absences — a removed member is
+	// not an expected member — but they are the difference between telling
+	// the operator "your 2-member cluster is too small to touch" and telling
+	// them which member an earlier run left out.
+	Unrepresented []string
 }
 
-// Evaluate is the fail-closed gate. Anything it could not establish counts
-// against proceeding: an unparseable status table produces no rows, so every
-// member reads as absent and the verdict is not-OK — never "nothing to
-// report, carry on".
-func Evaluate(p Predicate, obs Observation, tolerance int64) Verdict {
-	size := len(obs.Expected)
+// Evaluate is the fail-closed gate: it applies exactly the conditions the
+// contract composes into the given predicate, and anything it could not
+// establish counts against proceeding. An unparseable status table produces
+// no rows, so every member reads as absent and the verdict is not-OK — never
+// "nothing to report, carry on".
+func Evaluate(c *topology.Contract, p topology.Predicate, obs Observation) Verdict {
+	// The derived count is the expectation; etcd's membership is the
+	// observation. Keeping these apart is what makes member-count able to
+	// fail at all.
+	count := len(obs.Expected)
+	membership := MemberIPs(obs.Members)
+
 	answeredAt := map[string]bool{}
 	for _, s := range obs.Statuses {
 		if s.Node != "" {
@@ -453,8 +424,13 @@ func Evaluate(p Predicate, obs Observation, tolerance int64) Verdict {
 		}
 	}
 
-	v := Verdict{Predicate: p}
+	v := Verdict{Predicate: p.ID}
 	for _, ip := range obs.Expected {
+		if !containsString(membership, ip) {
+			v.Unrepresented = append(v.Unrepresented, ip)
+		}
+	}
+	for _, ip := range membership {
 		if answeredAt[ip] {
 			v.Answered++
 			continue
@@ -465,61 +441,81 @@ func Evaluate(p Predicate, obs Observation, tolerance int64) Verdict {
 		}
 	}
 
-	// A member at an address that is not a configured control plane fails
-	// both predicates. That is #39's own wreckage: a stale member left at an
-	// address the ConfigSet no longer describes, or a second member at an
-	// address that already has one.
-	var unexpected []string
-	for _, ip := range MemberIPs(obs.Members) {
-		if !containsString(obs.Expected, ip) {
-			unexpected = append(unexpected, ip)
-		}
-	}
-
-	if size == 0 {
+	// Indeterminate inputs, before any condition. Silence is never consent
+	// on a path that destroys a node.
+	if count == 0 {
 		v.Problems = append(v.Problems,
-			"no control-plane addresses are configured, so there is no cluster size to measure against")
+			"no control-plane addresses are configured, so there is no expected size to measure against")
 	}
-	for _, ip := range unexpected {
+	if len(obs.Members) == 0 {
+		v.Problems = append(v.Problems,
+			"etcd reported no membership: the member set is unknown, not empty")
+	}
+	for _, e := range obs.TransportErrors {
 		v.Problems = append(v.Problems, fmt.Sprintf(
-			"etcd member at %s is not one of the configured control planes (%s)", ip, strings.Join(obs.Expected, ", ")))
+			"could not reach etcd through Talos apid, so this is a transport fault and not a member fault: %s", e))
+	}
+	if stale := staleness(c, obs); stale != "" {
+		v.Problems = append(v.Problems, stale)
 	}
 
-	switch p {
-	case Whole:
-		if len(v.Absent) > 0 {
-			v.Problems = append(v.Problems, fmt.Sprintf(
-				"%d of %d expected member(s) did not report: %s", len(v.Absent), size, strings.Join(v.Absent, ", ")))
+	for _, cond := range p.Conditions {
+		switch cond {
+		case topology.MemberCount:
+			if len(membership) != count {
+				v.Problems = append(v.Problems, fmt.Sprintf(
+					"etcd has %d member(s) (%s) but %d control-plane address(es) are configured (%s)",
+					len(membership), strings.Join(membership, ", "), count, strings.Join(obs.Expected, ", ")))
+			}
+			if len(v.Absent) > 0 {
+				v.Problems = append(v.Problems, fmt.Sprintf(
+					"%d of %d member(s) did not answer: %s", len(v.Absent), len(membership), strings.Join(v.Absent, ", ")))
+			}
+		case topology.QuorumPresent:
+			if q := c.Quorum(count); v.Answered < q {
+				v.Problems = append(v.Problems, fmt.Sprintf(
+					"only %d member(s) answered; a %d-member control plane needs a quorum of %d%s",
+					v.Answered, count, q, unrepresentedSuffix(v.Unrepresented)))
+			}
+			if mu := c.MaxUnavailable(count); len(v.Absent) > mu {
+				v.Problems = append(v.Problems, fmt.Sprintf(
+					"%d member(s) absent (%s) but a %d-member control plane tolerates at most %d",
+					len(v.Absent), strings.Join(v.Absent, ", "), count, mu))
+			}
+		case topology.AbsencesAreDeclared:
+			if len(v.Undeclared) > 0 {
+				v.Problems = append(v.Problems, fmt.Sprintf(
+					"member(s) %s are absent and are not a declared target of this operation (declared: %s) — "+
+						"this cluster is degraded, not mid-procedure",
+					strings.Join(v.Undeclared, ", "), declaredList(obs.Declared)))
+			}
+		default:
+			v.Problems = append(v.Problems, conditionProblems(cond, obs.Statuses, c.RaftIndexTolerance)...)
 		}
-	case Survivable:
-		// quorum-present.
-		if q := Quorum(size); v.Answered < q {
-			v.Problems = append(v.Problems, fmt.Sprintf(
-				"only %d of %d expected member(s) answered; a quorum of %d is required", v.Answered, size, q))
-		}
-		if mu := MaxUnavailable(size); len(v.Absent) > mu {
-			v.Problems = append(v.Problems, fmt.Sprintf(
-				"%d member(s) absent (%s) but a %d-member cluster tolerates at most %d",
-				len(v.Absent), strings.Join(v.Absent, ", "), size, mu))
-		}
-		// absences-are-declared. This is the condition that tells a
-		// procedure in flight apart from a degraded cluster, and it is the
-		// only reason Survivable is safe to be laxer than Whole.
-		if len(v.Undeclared) > 0 {
-			v.Problems = append(v.Problems, fmt.Sprintf(
-				"member(s) %s are absent and are not a declared target of this operation (declared: %s) — "+
-					"this cluster is degraded, not mid-procedure", strings.Join(v.Undeclared, ", "), declaredList(obs.Declared)))
-		}
-	default:
-		v.Problems = append(v.Problems, fmt.Sprintf("unknown predicate %q", p))
 	}
-
-	// The four per-member conditions apply identically under both
-	// predicates, over whichever members answered.
-	v.Problems = append(v.Problems, convergenceProblems(obs.Statuses, tolerance)...)
 
 	v.OK = len(v.Problems) == 0
 	return v
+}
+
+// staleness enforces the contract's observation window. A reading older than
+// maxObservationAge is not "immediately before" anything, so it is
+// indeterminate and must be taken again rather than reused.
+func staleness(c *topology.Contract, obs Observation) string {
+	if obs.ObservedAt.IsZero() {
+		return "the member set carries no observation time, so its age cannot be checked"
+	}
+	at := obs.EvaluatedAt
+	if at.IsZero() {
+		at = time.Now()
+	}
+	if age := at.Sub(obs.ObservedAt); age > c.MaxObservationAge {
+		return fmt.Sprintf(
+			"this reading of etcd is %s old and the contract allows at most %s: a stale observation is "+
+				"indeterminate, so it is taken again rather than acted on",
+			age.Truncate(time.Second), c.MaxObservationAge)
+	}
+	return ""
 }
 
 // Reason renders a verdict's problems for a refusal message.
@@ -528,6 +524,18 @@ func (v Verdict) Reason() string {
 		return ""
 	}
 	return strings.Join(v.Problems, "; ")
+}
+
+// unrepresentedSuffix names the configured control planes etcd has no member
+// for. Without it a resumed run on a cluster an earlier removal left short
+// reports only that the cluster is too small, which is true and useless: the
+// operator needs to know which member is missing to know what to repair.
+func unrepresentedSuffix(ips []string) string {
+	if len(ips) == 0 {
+		return ""
+	}
+	return fmt.Sprintf(" — etcd has no member at all for configured control plane(s) %s, "+
+		"which an earlier removal would explain", strings.Join(ips, ", "))
 }
 
 func declaredList(declared []string) string {
@@ -578,23 +586,26 @@ type RemovalSafety struct {
 //
 // The raft-lag tolerance is not a parameter here: it is applied by
 // CheckHealth, whose verdict is what produces healthyRemaining.
-func CheckRemoval(expected, healthyRemaining int) RemovalSafety {
+func CheckRemoval(c *topology.Contract, expected, healthyRemaining int) RemovalSafety {
 	after := expected - 1
-	quorumAfter := Quorum(after)
+	quorumAfter := c.Quorum(after)
 	res := RemovalSafety{SizeAfter: after, QuorumAfter: quorumAfter}
 
 	switch {
 	case expected <= 1:
+		// quorum.removalOfLastMember: refuse, with the contract's own
+		// guidance rather than bare arithmetic — recreating the sole member
+		// is a restore, and the operator needs to be told which procedure
+		// applies, not that 1 is less than 1.
 		res.Reason = fmt.Sprintf(
-			"refusing to remove the only etcd member of a %d-member control plane: recreating the sole etcd "+
-				"member is a snapshot-restore operation, not a member removal — see docs/runbooks/talos-upgrade.md "+
-				"(Scenario 1: restore etcd from a snapshot)", expected)
+			"refusing to remove the only etcd member of a %d-member control plane. %s",
+			expected, c.RemovalOfLastMemberGuidance)
 		return res
-	case healthyRemaining+1 < Quorum(expected):
+	case healthyRemaining+1 < c.Quorum(expected):
 		// +1 counts the member being removed, which is still voting now.
 		res.Reason = fmt.Sprintf(
 			"etcd has %d healthy member(s) of %d; the removal itself needs a quorum of %d to commit",
-			healthyRemaining+1, expected, Quorum(expected))
+			healthyRemaining+1, expected, c.Quorum(expected))
 		return res
 	case healthyRemaining < quorumAfter:
 		res.Reason = fmt.Sprintf(

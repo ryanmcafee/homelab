@@ -1,91 +1,93 @@
 package commands
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
 	"github.com/ryanmcafee/homelab/internal/config"
-	"github.com/ryanmcafee/homelab/internal/etcd"
+	"github.com/ryanmcafee/homelab/internal/topology"
 )
 
-func values(pairs map[string]string) map[string]config.ConfigValue {
-	out := make(map[string]config.ConfigValue, len(pairs))
-	for k, v := range pairs {
-		out[k] = config.ConfigValue{Value: v}
+// resolved builds a ResolvedConfig whose control-plane list is the one the
+// resolver derived, alongside raw values that deliberately disagree with it.
+func resolved(addresses []string, rawValues map[string]string) *config.ResolvedConfig {
+	members := make([]config.ControlPlaneMember, 0, len(addresses))
+	for i, a := range addresses {
+		members = append(members, config.ControlPlaneMember{
+			Ordinal: i + 1,
+			Key:     fmt.Sprintf("CP%d_IP", i+1),
+			Address: a,
+		})
 	}
-	return out
+	values := make(map[string]config.ConfigValue, len(rawValues))
+	for k, v := range rawValues {
+		values[k] = config.ConfigValue{Value: v}
+	}
+	return &config.ResolvedConfig{Values: values, ControlPlane: members}
 }
 
 func TestControlPlaneIPs(t *testing.T) {
 	tests := []struct {
-		name string
-		in   map[string]string
-		want []string
+		name      string
+		addresses []string
+		want      []string
 	}{
 		{
-			name: "three control planes in index order",
-			in: map[string]string{
-				"CP3_IP":     "10.10.0.13",
-				"CP1_IP":     "10.10.0.11",
-				"CP2_IP":     "10.10.0.12",
-				"WORKER1_IP": "10.10.0.21",
-				"CP_VIP":     "10.10.0.10",
-				"DOMAIN":     "example.test",
-			},
-			want: []string{"10.10.0.11", "10.10.0.12", "10.10.0.13"},
-		},
-		{
-			// Index order, not string order: CP10 must not sort before CP2.
-			name: "double digit indices sort numerically",
-			in: map[string]string{
-				"CP1_IP":  "10.10.0.11",
-				"CP2_IP":  "10.10.0.12",
-				"CP10_IP": "10.10.0.20",
-			},
-			want: []string{"10.10.0.11", "10.10.0.12", "10.10.0.20"},
+			name:      "the resolver's order is kept",
+			addresses: []string{"10.10.0.11", "10.10.0.12", "10.10.0.13"},
+			want:      []string{"10.10.0.11", "10.10.0.12", "10.10.0.13"},
 		},
 		{
 			// The localdev set points every control plane at loopback;
 			// three queries to one endpoint would invent members.
-			name: "duplicate addresses collapse",
-			in: map[string]string{
-				"CP1_IP": "127.0.0.1",
-				"CP2_IP": "127.0.0.1",
-				"CP3_IP": "127.0.0.1",
-			},
-			want: []string{"127.0.0.1"},
+			name:      "duplicate addresses collapse",
+			addresses: []string{"127.0.0.1", "127.0.0.1", "127.0.0.1"},
+			want:      []string{"127.0.0.1"},
 		},
 		{
-			name: "a fork with a single control plane",
-			in:   map[string]string{"CP1_IP": "192.0.2.5"},
-			want: []string{"192.0.2.5"},
+			name:      "a fork with a single control plane",
+			addresses: []string{"192.0.2.5"},
+			want:      []string{"192.0.2.5"},
 		},
 		{
-			name: "empty values are skipped",
-			in:   map[string]string{"CP1_IP": "10.10.0.11", "CP2_IP": "", "CP3_IP": "   "},
-			want: []string{"10.10.0.11"},
+			name:      "a fork with seven",
+			addresses: []string{"10.0.0.1", "10.0.0.2", "10.0.0.3", "10.0.0.4", "10.0.0.5", "10.0.0.6", "10.0.0.7"},
+			want:      []string{"10.0.0.1", "10.0.0.2", "10.0.0.3", "10.0.0.4", "10.0.0.5", "10.0.0.6", "10.0.0.7"},
 		},
 		{
-			name: "no control planes configured",
-			in:   map[string]string{"WORKER1_IP": "10.10.0.21"},
-			want: nil,
-		},
-		{
-			// CP_VIP is the shared virtual IP, not a member address:
-			// querying it would hit whichever node currently holds it.
-			name: "the control plane VIP is not a member address",
-			in:   map[string]string{"CP_VIP": "10.10.0.10", "CPX_IP": "10.10.0.99"},
-			want: nil,
+			name:      "no control planes derived",
+			addresses: nil,
+			want:      nil,
 		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := controlPlaneIPs(values(tc.in))
+			got := controlPlaneIPs(resolved(tc.addresses, nil))
 			if strings.Join(got, ",") != strings.Join(tc.want, ",") {
 				t.Errorf("controlPlaneIPs = %v, want %v", got, tc.want)
 			}
 		})
+	}
+}
+
+// ADR-035's merge condition on #39: the key-name rule is applied once, by the
+// resolver, and this consumer reads the result. Re-deriving it here would be
+// a second statement of controlPlane.countKeyPattern — and the one that can
+// disagree with the first. So the raw values are given a CP key family that
+// contradicts the derived list, and the derived list must win.
+func TestControlPlaneIPsReadsTheResolverNotTheRawKeys(t *testing.T) {
+	rc := resolved([]string{"10.10.0.11"}, map[string]string{
+		"CP1_IP": "192.0.2.1",
+		"CP2_IP": "192.0.2.2",
+		"CP3_IP": "192.0.2.3",
+	})
+
+	got := controlPlaneIPs(rc)
+	if strings.Join(got, ",") != "10.10.0.11" {
+		t.Errorf("controlPlaneIPs = %v, want the resolver's [10.10.0.11]: the CP key pattern is being "+
+			"re-applied here instead of read from ResolvedConfig.ControlPlane", got)
 	}
 }
 
@@ -109,23 +111,27 @@ func TestExceptIP(t *testing.T) {
 // loosen a safety check on a path that removes an etcd member is a bypass, so
 // it is rejected before any cluster call happens.
 func TestRecreateOptionsValidateRaftTolerance(t *testing.T) {
-	base := talosRecreateOptions{snapshotDir: "./etcd-snapshots"}
+	contract, err := topology.Load()
+	if err != nil {
+		t.Fatalf("loading the topology contract: %v", err)
+	}
+	base := talosRecreateOptions{snapshotDir: "./etcd-snapshots", contract: contract}
 
 	tighter := base
-	tighter.raftTolerance = etcd.DefaultRaftTolerance - 1
+	tighter.raftTolerance = contract.RaftIndexTolerance - 1
 	if err := tighter.validate(); err != nil {
 		t.Errorf("tightening the tolerance was rejected: %v", err)
 	}
 
 	atDefault := base
-	atDefault.raftTolerance = etcd.DefaultRaftTolerance
+	atDefault.raftTolerance = contract.RaftIndexTolerance
 	if err := atDefault.validate(); err != nil {
 		t.Errorf("the default tolerance was rejected: %v", err)
 	}
 
 	looser := base
-	looser.raftTolerance = etcd.DefaultRaftTolerance + 1
-	err := looser.validate()
+	looser.raftTolerance = contract.RaftIndexTolerance + 1
+	err = looser.validate()
 	if err == nil {
 		t.Fatal("a tolerance looser than the default was accepted; the gate can be turned off from the command line")
 	}

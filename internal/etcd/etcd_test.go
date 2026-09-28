@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/ryanmcafee/homelab/internal/topology"
 )
 
 // table renders headers and rows the way talosctl's tabwriter does: every
@@ -113,12 +115,50 @@ func TestParseStatusRejectsGarbage(t *testing.T) {
 	}
 }
 
+// contractForTest loads the real contract. The tests deliberately do not use
+// a fixture: a predicate tested against a copy of the rule proves nothing
+// about the rule.
+func contractForTest(t *testing.T) *topology.Contract {
+	t.Helper()
+	c, err := topology.Load()
+	if err != nil {
+		t.Fatalf("loading the topology contract: %v", err)
+	}
+	return c
+}
+
+// evalAs evaluates one of the contract's predicates over an observation,
+// stamping it as freshly read so a test does not have to think about the
+// staleness bound to exercise a condition.
+func evalAs(t *testing.T, id topology.PredicateID, obs Observation) Verdict {
+	t.Helper()
+	c := contractForTest(t)
+	p, err := c.PredicateByID(id)
+	if err != nil {
+		t.Fatalf("predicate %s: %v", id, err)
+	}
+	if obs.ObservedAt.IsZero() {
+		obs.ObservedAt = time.Now()
+	}
+	return Evaluate(c, p, obs)
+}
+
+// wholeOver evaluates `whole` over a cluster whose configured addresses and
+// etcd membership are both `ips`, against the given status table.
+func wholeOver(t *testing.T, ips []string, statusText string) Verdict {
+	t.Helper()
+	return evalAs(t, topology.Whole, Observation{
+		Expected: ips,
+		Members:  membersAt(ips...),
+		Statuses: ParseStatus(statusText),
+	})
+}
+
 // An unparseable table must never read as healthy: no rows means no members
-// answered, which fails the count check.
+// answered, which fails member-count.
 func TestUnparsedStatusIsUnhealthy(t *testing.T) {
-	h := CheckHealth(ParseStatus("error: rpc error"), 3, DefaultRaftTolerance)
-	if h.OK {
-		t.Fatal("CheckHealth said OK for an unparseable status table")
+	if v := wholeOver(t, cp3, "error: rpc error"); v.OK {
+		t.Fatal("`whole` was satisfied by an unparseable status table")
 	}
 }
 
@@ -137,14 +177,13 @@ func TestParseStatusErrorsColumn(t *testing.T) {
 	}
 }
 
-func TestCheckHealthHappyPath(t *testing.T) {
-	h := CheckHealth(ParseStatus(healthyStatusTable()), 3, DefaultRaftTolerance)
-	if !h.OK {
-		t.Fatalf("CheckHealth not OK: %v", h.Problems)
+func TestWholeHappyPath(t *testing.T) {
+	if v := wholeOver(t, cp3, healthyStatusTable()); !v.OK {
+		t.Fatalf("`whole` not satisfied by a healthy cluster: %v", v.Problems)
 	}
 }
 
-func TestCheckHealthProblems(t *testing.T) {
+func TestWholeProblems(t *testing.T) {
 	tests := []struct {
 		name     string
 		mutate   func(rows [][]string) [][]string
@@ -155,7 +194,7 @@ func TestCheckHealthProblems(t *testing.T) {
 			name:     "member count below expected",
 			mutate:   func(rows [][]string) [][]string { return rows[:2] },
 			expected: 3,
-			want:     "2 member(s) answered, expected 3",
+			want:     "1 of 3 member(s) did not answer",
 		},
 		{
 			name: "member reporting ERRORS",
@@ -222,29 +261,38 @@ func TestCheckHealthProblems(t *testing.T) {
 				statusRow("10.10.0.12", "a1b2c3d4e5f60002", "a1b2c3d4e5f60002", "9182740"),
 				statusRow("10.10.0.13", "a1b2c3d4e5f60003", "a1b2c3d4e5f60002", "9182738"),
 			}
-			h := CheckHealth(ParseStatus(table(statusHeaders, tc.mutate(rows))), tc.expected, DefaultRaftTolerance)
-			if h.OK {
-				t.Fatalf("CheckHealth said OK, want a problem containing %q", tc.want)
+			v := wholeOver(t, cp3[:tc.expected], table(statusHeaders, tc.mutate(rows)))
+			if v.OK {
+				t.Fatalf("`whole` was satisfied, want a problem containing %q", tc.want)
 			}
-			if !strings.Contains(strings.Join(h.Problems, "; "), tc.want) {
-				t.Errorf("problems %v do not mention %q", h.Problems, tc.want)
+			if !strings.Contains(v.Reason(), tc.want) {
+				t.Errorf("problems %v do not mention %q", v.Problems, tc.want)
 			}
 		})
 	}
 }
 
 // A fork with a two-member control plane is measured against its own size,
-// not against this repo's three.
-func TestCheckHealthHonoursExpected(t *testing.T) {
+// not against this repo's three. The count comes from the configured
+// addresses; the membership is what etcd reports.
+func TestWholeHonoursTheConfiguredSize(t *testing.T) {
 	text := table(statusHeaders, [][]string{
 		statusRow("10.10.0.11", "a1b2c3d4e5f60001", "a1b2c3d4e5f60002", "9182736"),
 		statusRow("10.10.0.12", "a1b2c3d4e5f60002", "a1b2c3d4e5f60002", "9182740"),
 	})
-	if h := CheckHealth(ParseStatus(text), 2, DefaultRaftTolerance); !h.OK {
-		t.Fatalf("two-member cluster measured against 2 should be OK: %v", h.Problems)
+	two := []string{"10.10.0.11", "10.10.0.12"}
+	if v := wholeOver(t, two, text); !v.OK {
+		t.Fatalf("a two-member cluster measured against 2 should be whole: %v", v.Problems)
 	}
-	if h := CheckHealth(ParseStatus(text), 3, DefaultRaftTolerance); h.OK {
-		t.Fatal("two-member cluster measured against 3 should not be OK")
+
+	// The same two members, on a cluster whose ConfigSet declares three.
+	v := evalAs(t, topology.Whole, Observation{
+		Expected: cp3,
+		Members:  membersAt(two...),
+		Statuses: ParseStatus(text),
+	})
+	if v.OK {
+		t.Fatal("a two-member membership measured against three configured addresses should not be whole")
 	}
 }
 
@@ -351,7 +399,7 @@ func TestHealthyCount(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			rows := tc.mutate(base())
-			got := HealthyCount(ParseStatus(table(statusHeaders, rows)), DefaultRaftTolerance)
+			got := HealthyCount(ParseStatus(table(statusHeaders, rows)), contractForTest(t).RaftIndexTolerance)
 			if got != tc.want {
 				t.Errorf("HealthyCount = %d, want %d", got, tc.want)
 			}
@@ -359,11 +407,16 @@ func TestHealthyCount(t *testing.T) {
 	}
 }
 
-func TestQuorum(t *testing.T) {
+// Sizes the contract's own worked table does not cover. The permitted counts
+// are conformance-tested in internal/topology against quorum.table; these
+// pin the formula's behaviour on the sizes an unusual fork could still ask
+// the arithmetic about.
+func TestQuorumOffTable(t *testing.T) {
+	c := contractForTest(t)
 	for _, tc := range []struct{ size, want int }{
-		{0, 0}, {1, 1}, {2, 2}, {3, 2}, {4, 3}, {5, 3},
+		{0, 0}, {2, 2}, {4, 3}, {6, 4},
 	} {
-		if got := Quorum(tc.size); got != tc.want {
+		if got := c.Quorum(tc.size); got != tc.want {
 			t.Errorf("Quorum(%d) = %d, want %d", tc.size, got, tc.want)
 		}
 	}
@@ -406,7 +459,7 @@ func TestCheckRemoval(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := CheckRemoval(tc.size, tc.healthyRemaining)
+			got := CheckRemoval(contractForTest(t), tc.size, tc.healthyRemaining)
 			if got.OK != tc.wantOK {
 				t.Fatalf("CheckRemoval(%d, %d).OK = %t, want %t (reason %q)",
 					tc.size, tc.healthyRemaining, got.OK, tc.wantOK, got.Reason)
@@ -463,11 +516,12 @@ func statusAt(ips ...string) []Status {
 	return ParseStatus(table(statusHeaders, rows))
 }
 
-func TestMaxUnavailable(t *testing.T) {
+func TestMaxUnavailableOffTable(t *testing.T) {
+	c := contractForTest(t)
 	for _, tc := range []struct{ size, want int }{
-		{1, 0}, {2, 0}, {3, 1}, {4, 1}, {5, 2}, {7, 3}, {0, 0},
+		{0, 0}, {2, 0}, {4, 1}, {6, 2},
 	} {
-		if got := MaxUnavailable(tc.size); got != tc.want {
+		if got := c.MaxUnavailable(tc.size); got != tc.want {
 			t.Errorf("MaxUnavailable(%d) = %d, want %d", tc.size, got, tc.want)
 		}
 	}
@@ -476,9 +530,9 @@ func TestMaxUnavailable(t *testing.T) {
 // `whole` is satisfied only when every configured control plane is a member
 // and answered.
 func TestEvaluateWhole(t *testing.T) {
-	ok := Evaluate(Whole, Observation{
+	ok := evalAs(t, topology.Whole, Observation{
 		Expected: cp3, Members: membersAt(cp3...), Statuses: statusAt(cp3...),
-	}, DefaultRaftTolerance)
+	})
 	if !ok.OK {
 		t.Fatalf("a converged three-member cluster failed `whole`: %v", ok.Problems)
 	}
@@ -488,10 +542,10 @@ func TestEvaluateWhole(t *testing.T) {
 
 	// One member silent: `whole` refuses even though the absence would be a
 	// declared target, because at completion nothing may be missing.
-	short := Evaluate(Whole, Observation{
+	short := evalAs(t, topology.Whole, Observation{
 		Expected: cp3, Members: membersAt(cp3[0], cp3[2]), Statuses: statusAt(cp3[0], cp3[2]),
 		Declared: []string{cp3[1]},
-	}, DefaultRaftTolerance)
+	})
 	if short.OK {
 		t.Fatal("`whole` accepted a cluster one member short")
 	}
@@ -507,9 +561,9 @@ func TestEvaluateWholeRejectsAMemberAtAnUnconfiguredAddress(t *testing.T) {
 	stale := append(membersAt(cp3...), Member{
 		ID: "b00000001a374507", Hostname: "talos-stale", PeerURLs: []string{"https://10.10.0.99:2380"},
 	})
-	v := Evaluate(Whole, Observation{
+	v := evalAs(t, topology.Whole, Observation{
 		Expected: cp3, Members: stale, Statuses: statusAt(cp3...),
-	}, DefaultRaftTolerance)
+	})
 	if v.OK {
 		t.Fatal("`whole` accepted a cluster carrying a member at an address that is not a configured control plane")
 	}
@@ -523,10 +577,10 @@ func TestEvaluateWholeRejectsAMemberAtAnUnconfiguredAddress(t *testing.T) {
 func TestEvaluateSurvivableAcceptsOnlyTheDeclaredAbsence(t *testing.T) {
 	// The pre-removal shape: the target is still a member but deliberately
 	// not queried, so it reads as absent — and it is declared.
-	v := Evaluate(Survivable, Observation{
+	v := evalAs(t, topology.Survivable, Observation{
 		Expected: cp3, Members: membersAt(cp3...), Statuses: statusAt(cp3[0], cp3[2]),
 		Declared: []string{cp3[1]},
-	}, DefaultRaftTolerance)
+	})
 	if !v.OK {
 		t.Fatalf("`survivable` refused the declared target's absence: %v", v.Problems)
 	}
@@ -537,10 +591,10 @@ func TestEvaluateSurvivableAcceptsOnlyTheDeclaredAbsence(t *testing.T) {
 	// The resume shape: the target's member is already gone, the other two
 	// answer. This is the legitimate recovery path, and a gate that refuses
 	// here is a gate the operator has to bypass to finish.
-	resume := Evaluate(Survivable, Observation{
+	resume := evalAs(t, topology.Survivable, Observation{
 		Expected: cp3, Members: membersAt(cp3[0], cp3[2]), Statuses: statusAt(cp3[0], cp3[2]),
 		Declared: []string{cp3[1]},
-	}, DefaultRaftTolerance)
+	})
 	if !resume.OK {
 		t.Fatalf("`survivable` refused a resumable cluster: %v", resume.Problems)
 	}
@@ -549,10 +603,10 @@ func TestEvaluateSurvivableAcceptsOnlyTheDeclaredAbsence(t *testing.T) {
 // The condition that bounds the relaxation. One target absent is a procedure
 // in flight; one target plus one stranger is a degraded cluster.
 func TestEvaluateSurvivableRefusesAnUndeclaredAbsence(t *testing.T) {
-	v := Evaluate(Survivable, Observation{
+	v := evalAs(t, topology.Survivable, Observation{
 		Expected: cp3, Members: membersAt(cp3[0], cp3[2]), Statuses: statusAt(cp3[0]),
 		Declared: []string{cp3[1]},
-	}, DefaultRaftTolerance)
+	})
 	if v.OK {
 		t.Fatal("`survivable` accepted a cluster with an absence it did not ask for")
 	}
@@ -571,12 +625,12 @@ func TestEvaluateSurvivableRefusesAnUndeclaredAbsence(t *testing.T) {
 // the control plane goes to a single member. Sized off the configured count it
 // refuses, which is the only correct answer.
 func TestEvaluateSurvivableRefusesASecondRemovalAfterACrashedRun(t *testing.T) {
-	v := Evaluate(Survivable, Observation{
+	v := evalAs(t, topology.Survivable, Observation{
 		Expected: cp3,
 		Members:  membersAt(cp3[0], cp3[2]), // cp-2's member was already removed
 		Statuses: statusAt(cp3[0]),          // cp-3 is the new target, so only cp-1 answers
 		Declared: []string{cp3[2]},          // this run declares cp-3
-	}, DefaultRaftTolerance)
+	})
 	if v.OK {
 		t.Fatal("the guard consented to removing a second etcd member; this takes a 3-node control plane to one")
 	}
@@ -599,9 +653,9 @@ func TestEvaluateSurvivableKeepsEveryOtherCondition(t *testing.T) {
 		statusRow(cp3[0], "a1b2c3d4e5f60001", "a1b2c3d4e5f60001", "9182740"),
 		statusRow(cp3[2], "a1b2c3d4e5f60003", "a1b2c3d4e5f60001", "9177740"),
 	}))
-	if v := Evaluate(Survivable, Observation{
+	if v := evalAs(t, topology.Survivable, Observation{
 		Expected: cp3, Members: members, Statuses: lagging, Declared: declared,
-	}, DefaultRaftTolerance); v.OK {
+	}); v.OK {
 		t.Error("raft-index-converged was dropped: a lagging survivor passed `survivable`")
 	}
 
@@ -609,9 +663,9 @@ func TestEvaluateSurvivableKeepsEveryOtherCondition(t *testing.T) {
 		statusRow(cp3[0], "a1b2c3d4e5f60001", "a1b2c3d4e5f60001", "9182740"),
 		{cp3[2], "a1b2c3d4e5f60003", "21 MB", "14 MB (66.67%)", "a1b2c3d4e5f60001", "9182740", "42", "true", ""},
 	}))
-	if v := Evaluate(Survivable, Observation{
+	if v := evalAs(t, topology.Survivable, Observation{
 		Expected: cp3, Members: members, Statuses: learner, Declared: declared,
-	}, DefaultRaftTolerance); v.OK {
+	}); v.OK {
 		t.Error("no-learners was dropped: a learner counted towards quorum under `survivable`")
 	}
 
@@ -619,9 +673,9 @@ func TestEvaluateSurvivableKeepsEveryOtherCondition(t *testing.T) {
 		statusRow(cp3[0], "a1b2c3d4e5f60001", "a1b2c3d4e5f60001", "9182740"),
 		{cp3[2], "a1b2c3d4e5f60003", "21 MB", "14 MB (66.67%)", "a1b2c3d4e5f60001", "9182740", "42", "false", "context deadline exceeded"},
 	}))
-	if v := Evaluate(Survivable, Observation{
+	if v := evalAs(t, topology.Survivable, Observation{
 		Expected: cp3, Members: members, Statuses: errored, Declared: declared,
-	}, DefaultRaftTolerance); v.OK {
+	}); v.OK {
 		t.Error("no-errors was dropped: a member reporting ERRORS passed `survivable`")
 	}
 
@@ -629,9 +683,9 @@ func TestEvaluateSurvivableKeepsEveryOtherCondition(t *testing.T) {
 		statusRow(cp3[0], "a1b2c3d4e5f60001", "a1b2c3d4e5f60001", "9182740"),
 		statusRow(cp3[2], "a1b2c3d4e5f60003", "a1b2c3d4e5f60003", "9182740"),
 	}))
-	if v := Evaluate(Survivable, Observation{
+	if v := evalAs(t, topology.Survivable, Observation{
 		Expected: cp3, Members: members, Statuses: split, Declared: declared,
-	}, DefaultRaftTolerance); v.OK {
+	}); v.OK {
 		t.Error("single-leader was dropped: survivors disagreeing about the leader passed `survivable`")
 	}
 }
@@ -640,25 +694,24 @@ func TestEvaluateSurvivableKeepsEveryOtherCondition(t *testing.T) {
 // proceed", never "nothing to report".
 func TestEvaluateFailsClosed(t *testing.T) {
 	// An unparseable status table yields no rows at all.
-	unparseable := Evaluate(Survivable, Observation{
+	unparseable := evalAs(t, topology.Survivable, Observation{
 		Expected: cp3, Members: membersAt(cp3...), Statuses: ParseStatus("totally not a table\n"),
 		Declared: []string{cp3[1]},
-	}, DefaultRaftTolerance)
+	})
 	if unparseable.OK {
 		t.Error("an unparseable status table read as safe to proceed")
 	}
 
 	// No configured control planes: there is no size to measure against.
-	noSize := Evaluate(Survivable, Observation{Declared: []string{cp3[1]}}, DefaultRaftTolerance)
+	noSize := evalAs(t, topology.Survivable, Observation{Declared: []string{cp3[1]}})
 	if noSize.OK {
 		t.Error("an empty expected set read as safe to proceed")
 	}
 
-	// An unknown predicate is not a pass.
-	if v := Evaluate(Predicate("whatever"), Observation{
-		Expected: cp3, Members: membersAt(cp3...), Statuses: statusAt(cp3...),
-	}, DefaultRaftTolerance); v.OK {
-		t.Error("an unknown predicate read as safe to proceed")
+	// An unknown predicate is not a pass: it cannot be looked up at all, so
+	// a gate naming one refuses before it evaluates anything.
+	if _, err := contractForTest(t).PredicateByID("whatever"); err == nil {
+		t.Error("an unknown predicate resolved; a gate could evaluate nothing and report OK")
 	}
 }
 
@@ -667,18 +720,18 @@ func TestEvaluateFailsClosed(t *testing.T) {
 // refuse, and the arithmetic says where to go instead.
 func TestSingleControlPlaneRefusesRemoval(t *testing.T) {
 	one := []string{cp3[0]}
-	v := Evaluate(Survivable, Observation{
+	v := evalAs(t, topology.Survivable, Observation{
 		Expected: one, Members: membersAt(one...), Statuses: nil, Declared: one,
-	}, DefaultRaftTolerance)
+	})
 	if v.OK {
 		t.Fatal("`survivable` consented to removing the only member of a one-node control plane")
 	}
 
-	safety := CheckRemoval(1, 0)
+	safety := CheckRemoval(contractForTest(t), 1, 0)
 	if safety.OK {
 		t.Fatal("CheckRemoval consented to removing the only member")
 	}
-	if !strings.Contains(safety.Reason, "snapshot-restore") {
+	if !strings.Contains(safety.Reason, "is a restore, not a removal") {
 		t.Errorf("refusal does not point at the restore path: %q", safety.Reason)
 	}
 }
@@ -700,18 +753,104 @@ func TestSingleControlPlaneRefusesRemoval(t *testing.T) {
 func TestCheckRemovalMustBeGivenTheConfiguredCountNotTheLiveOne(t *testing.T) {
 	const healthySurvivors = 1 // cp-1; cp-2's member is already gone, cp-3 is the target
 
-	if wrong := CheckRemoval(2, healthySurvivors); !wrong.OK {
+	if wrong := CheckRemoval(contractForTest(t), 2, healthySurvivors); !wrong.OK {
 		t.Fatalf("this test no longer characterises the defect it exists for: "+
 			"CheckRemoval(liveCount=2, %d) now refuses (%q). If that is a deliberate change, "+
 			"delete this test; do not relax the assertion below.", healthySurvivors, wrong.Reason)
 	}
 
-	right := CheckRemoval(3, healthySurvivors)
+	right := CheckRemoval(contractForTest(t), 3, healthySurvivors)
 	if right.OK {
 		t.Fatal("CheckRemoval consented to removing a second member from a three-member control plane; " +
 			"this leaves one etcd member and no fault tolerance")
 	}
 	if !strings.Contains(right.Reason, "quorum of 2") {
 		t.Errorf("refusal does not show the arithmetic: %q", right.Reason)
+	}
+}
+
+// The observation bound. `revalidateBeforeDestructiveStep` is meaningless
+// without one: a reading gathered minutes ago is not "immediately before"
+// anything, and acting on it is acting on a cluster that may already have
+// changed.
+func TestStaleObservationIsUnsafe(t *testing.T) {
+	c := contractForTest(t)
+	p, err := c.PredicateByID(topology.Whole)
+	if err != nil {
+		t.Fatalf("predicate whole: %v", err)
+	}
+	obs := Observation{Expected: cp3, Members: membersAt(cp3...), Statuses: statusAt(cp3...)}
+
+	obs.ObservedAt = time.Now()
+	if v := Evaluate(c, p, obs); !v.OK {
+		t.Fatalf("a fresh observation was refused: %v", v.Problems)
+	}
+
+	obs.ObservedAt = time.Now().Add(-c.MaxObservationAge - time.Second)
+	v := Evaluate(c, p, obs)
+	if v.OK {
+		t.Fatal("an observation older than maxObservationAge read as safe to proceed")
+	}
+	if !strings.Contains(v.Reason(), "stale observation is") {
+		t.Errorf("reason does not say the reading was stale: %q", v.Reason())
+	}
+
+	// An observation with no timestamp cannot be aged, so it is
+	// indeterminate rather than assumed fresh.
+	obs.ObservedAt = time.Time{}
+	if v := Evaluate(c, p, obs); v.OK {
+		t.Error("an undated observation read as safe to proceed")
+	}
+}
+
+// transportFailureIsNotMemberFailure: etcd healthy behind a wedged apid and
+// etcd down are different faults. Both refuse, and the operator is told
+// which — never "N member(s) answered" for a dial that never landed.
+func TestTransportFailureIsReportedAsTransport(t *testing.T) {
+	v := evalAs(t, topology.Whole, Observation{
+		Expected:        cp3,
+		Members:         membersAt(cp3...),
+		Statuses:        statusAt(cp3...),
+		TransportErrors: []string{"dial tcp 10.10.0.13:50000: i/o timeout"},
+	})
+	if v.OK {
+		t.Fatal("a transport failure read as safe to proceed")
+	}
+	if !strings.Contains(v.Reason(), "transport fault and not a member fault") {
+		t.Errorf("reason blames the cluster for a transport failure: %q", v.Reason())
+	}
+	if !strings.Contains(v.Reason(), "i/o timeout") {
+		t.Errorf("reason does not carry the transport error it actually got: %q", v.Reason())
+	}
+}
+
+// The member set comes from etcd's own membership, never from the addresses
+// the consumer chose to dial. The contract works this failure through: a real
+// five-member control plane whose CP4_IP and CP5_IP are missing from the
+// ConfigSet and whose nodes are down. A consumer that enumerates from the
+// ConfigSet derives 3, dials 3, finds 3 healthy and consents to a removal
+// that leaves 2 of a real quorum of 3.
+func TestMemberSetComesFromEtcdNotFromTheConfigSet(t *testing.T) {
+	five := []string{"10.10.0.11", "10.10.0.12", "10.10.0.13", "10.10.0.14", "10.10.0.15"}
+
+	if v := evalAs(t, topology.Whole, Observation{
+		Expected: cp3,                // the ConfigSet knows about three
+		Members:  membersAt(five...), // etcd knows about five
+		Statuses: statusAt(cp3...),   // and only three answer
+	}); v.OK {
+		t.Fatal("`whole` was satisfied by a cluster with two members the ConfigSet has never heard of")
+	}
+
+	v := evalAs(t, topology.Survivable, Observation{
+		Expected: cp3,
+		Members:  membersAt(five...),
+		Statuses: statusAt(cp3...),
+		Declared: []string{cp3[1]},
+	})
+	if v.OK {
+		t.Fatal("`survivable` consented to a removal on a cluster two members larger than the ConfigSet says")
+	}
+	if !strings.Contains(v.Reason(), "10.10.0.14") {
+		t.Errorf("reason does not name a member the ConfigSet omitted: %q", v.Reason())
 	}
 }

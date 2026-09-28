@@ -12,8 +12,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ryanmcafee/homelab/internal/etcd"
 	"github.com/ryanmcafee/homelab/internal/logger"
+	"github.com/ryanmcafee/homelab/internal/topology"
 	"github.com/ryanmcafee/homelab/internal/utils"
 	"github.com/spf13/cobra"
 )
@@ -47,9 +47,20 @@ func NewTalosCmd() *cobra.Command {
 }
 
 func newTalosRecreateCmd() *cobra.Command {
+	// The contract is embedded, so a load failure here is a build defect,
+	// not an operator error. It is still surfaced through RunE rather than
+	// panicking: a broken contract must stop the destructive command, not
+	// the whole CLI.
+	contract, contractErr := topology.Load()
+	tolerance := int64(0)
+	if contract != nil {
+		tolerance = contract.RaftIndexTolerance
+	}
+
 	opts := talosRecreateOptions{
 		snapshotDir:   defaultEtcdSnapshotDir,
-		raftTolerance: etcd.DefaultRaftTolerance,
+		raftTolerance: tolerance,
+		contract:      contract,
 	}
 
 	cmd := &cobra.Command{
@@ -64,6 +75,10 @@ command takes and verifies an etcd snapshot first, and refuses to proceed if
 the removal would cost quorum or if the surviving members are unhealthy or
 raft-lagging. Re-running after a failed run never removes a second member.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if contractErr != nil {
+				return fmt.Errorf("contracts/cluster/topology.v1.yaml did not load, so the etcd guard cannot be "+
+					"evaluated and this command will not destroy a node: %w", contractErr)
+			}
 			return runTalosRecreate(opts)
 		},
 	}
@@ -80,9 +95,10 @@ raft-lagging. Re-running after a failed run never removes a second member.`,
 	// precisely the run that will need it. An operator who genuinely has an
 	// off-cluster backup loses nothing by also taking this one, and
 	// --etcd-snapshot-dir still says where it goes.
-	cmd.Flags().Int64Var(&opts.raftTolerance, "raft-tolerance", etcd.DefaultRaftTolerance,
+	cmd.Flags().Int64Var(&opts.raftTolerance, "raft-tolerance", tolerance,
 		fmt.Sprintf("How far behind the highest RAFT INDEX a surviving etcd member may be and still count as "+
-			"healthy. May only be tightened: values above the default of %d are rejected.", etcd.DefaultRaftTolerance))
+			"healthy. The default is the topology contract's raftIndexTolerance (%d) and may only be tightened.",
+			tolerance))
 
 	return cmd
 }
@@ -93,16 +109,18 @@ type talosRecreateOptions struct {
 	skipDrain     bool
 	snapshotDir   string
 	raftTolerance int64
+	contract      *topology.Contract
 }
 
 // validate rejects flag values that would weaken a gate on a destructive path.
 // A flag that can only make a safety check stricter is a convenience; one that
 // can make it laxer is a bypass with a nicer name.
 func (o talosRecreateOptions) validate() error {
-	if o.raftTolerance > etcd.DefaultRaftTolerance {
-		return fmt.Errorf("--raft-tolerance=%d is looser than the default of %d: the raft-index-converged check "+
-			"may only be tightened, because raising it counts a member that is still catching up towards quorum "+
-			"on a path that removes an etcd member", o.raftTolerance, etcd.DefaultRaftTolerance)
+	if o.raftTolerance > o.contract.RaftIndexTolerance {
+		return fmt.Errorf("--raft-tolerance=%d is looser than the contract's raftIndexTolerance of %d: the "+
+			"raft-index-converged check may only be tightened, because raising it counts a member that is still "+
+			"catching up towards quorum on a path that removes an etcd member",
+			o.raftTolerance, o.contract.RaftIndexTolerance)
 	}
 	if o.raftTolerance < 0 {
 		return fmt.Errorf("--raft-tolerance=%d is negative", o.raftTolerance)
@@ -160,21 +178,35 @@ func runTalosRecreate(opts talosRecreateOptions) error {
 
 	ctx := context.Background()
 
+	etcdOpts := etcdPhaseOptions{
+		nodeIP:        nodeIP,
+		cpIPs:         controlPlaneIPs(rc),
+		snapshotDir:   opts.snapshotDir,
+		raftTolerance: opts.raftTolerance,
+		contract:      opts.contract,
+	}
+
+	logger.Info(fmt.Sprintf("Step 1/10: etcd preflight for %s (control planes: %s)",
+		nodeIP, strings.Join(etcdOpts.cpIPs, ", ")))
+	if err := preflightEtcd(ctx, etcdOpts); err != nil {
+		return err
+	}
+
 	preK8sName, lookupErr := resolveK8sNodeByIP(ctx, nodeIP)
 	if lookupErr != nil {
-		logger.Warn(fmt.Sprintf("Step 1/9: No existing K8s node at %s (%v) — continuing", nodeIP, lookupErr))
+		logger.Warn(fmt.Sprintf("Step 2/10: No existing K8s node at %s (%v) — continuing", nodeIP, lookupErr))
 	} else {
-		logger.Info(fmt.Sprintf("Step 1/9: Current K8s node at %s: %s", nodeIP, preK8sName))
+		logger.Info(fmt.Sprintf("Step 2/10: Current K8s node at %s: %s", nodeIP, preK8sName))
 		_ = streamCmd("", "", "", "kubectl", "get", "node", preK8sName, "-o", "wide")
 	}
 
 	if preK8sName != "" {
-		logger.Info(fmt.Sprintf("Step 2/9: Cordoning node %q", preK8sName))
+		logger.Info(fmt.Sprintf("Step 3/10: Cordoning node %q", preK8sName))
 		if err := streamCmd("", "", "", "kubectl", "cordon", preK8sName); err != nil {
 			logger.Warn(fmt.Sprintf("Cordon failed (continuing): %v", err))
 		}
 	} else {
-		logger.Warn("Step 2/9: SKIPPED cordon (no existing K8s node at that IP)")
+		logger.Warn("Step 3/10: SKIPPED cordon (no existing K8s node at that IP)")
 	}
 
 	effectiveSkipDrain := skipDrain || preK8sName == ""
@@ -189,9 +221,9 @@ func runTalosRecreate(opts talosRecreateOptions) error {
 	}
 
 	if effectiveSkipDrain {
-		logger.Warn("Step 3/9: SKIPPED drain")
+		logger.Warn("Step 4/10: SKIPPED drain")
 	} else {
-		logger.Info(fmt.Sprintf("Step 3/9: Draining node %q (timeout %s)", preK8sName, talosDrainTimeout))
+		logger.Info(fmt.Sprintf("Step 4/10: Draining node %q (timeout %s)", preK8sName, talosDrainTimeout))
 		if err := streamCmd("", "", "",
 			"kubectl", "drain", preK8sName,
 			"--ignore-daemonsets", "--delete-emptydir-data",
@@ -206,39 +238,33 @@ func runTalosRecreate(opts talosRecreateOptions) error {
 	// with it at the same address (homelab #39). Everything up to here is
 	// reversible with `kubectl uncordon`; this is the first step that is
 	// not, which is why the snapshot and the quorum gate live inside it.
-	cpIPs := controlPlaneIPs(rc.Values)
-	logger.Info(fmt.Sprintf("Step 4/9: etcd membership check for %s (control planes: %s)",
-		nodeIP, strings.Join(cpIPs, ", ")))
-	removal, eerr := prepareEtcdForRecreate(ctx, etcdPhaseOptions{
-		nodeIP:        nodeIP,
-		cpIPs:         cpIPs,
-		snapshotDir:   opts.snapshotDir,
-		raftTolerance: opts.raftTolerance,
-	})
+	logger.Info(fmt.Sprintf("Step 5/10: etcd membership check for %s (control planes: %s)",
+		nodeIP, strings.Join(etcdOpts.cpIPs, ", ")))
+	removal, eerr := prepareEtcdForRecreate(ctx, etcdOpts)
 	if eerr != nil {
 		return eerr
 	}
 
-	logger.Info("Step 5/9: Resolving VM resource address in terragrunt state")
+	logger.Info("Step 6/10: Resolving VM resource address in terragrunt state")
 	address, err := lookupVMResourceAddress(moduleDir, opEnvFile, node)
 	if err != nil {
 		return err
 	}
 	logger.OK(fmt.Sprintf("Resource address: %s", address))
 
-	logger.Info(fmt.Sprintf("Step 6/9: terragrunt apply -replace=%s (log: %s)", address, talosApplyLogPath))
+	logger.Info(fmt.Sprintf("Step 7/10: terragrunt apply -replace=%s (log: %s)", address, talosApplyLogPath))
 	if err := terragruntApplyReplace(moduleDir, opEnvFile, address); err != nil {
 		return fmt.Errorf("terragrunt apply -replace=%s: %w", address, err)
 	}
 
-	logger.Info(fmt.Sprintf("Step 7/9: Waiting up to %s for a new Ready K8s node at %s", talosReadyTimeout, nodeIP))
+	logger.Info(fmt.Sprintf("Step 8/10: Waiting up to %s for a new Ready K8s node at %s", talosReadyTimeout, nodeIP))
 	newK8sName, werr := waitForNewReadyNodeByIP(ctx, nodeIP, preK8sName, 20*time.Minute)
 	if werr != nil {
 		return werr
 	}
 	logger.OK(fmt.Sprintf("New K8s node %q is Ready at %s", newK8sName, nodeIP))
 
-	logger.Info("Step 8/9: Uncordoning and clearing the stale K8s node entry")
+	logger.Info("Step 9/10: Uncordoning and clearing the stale K8s node entry")
 	if err := streamCmd("", "", "", "kubectl", "uncordon", newK8sName); err != nil {
 		logger.Warn(fmt.Sprintf("Uncordon failed: %v", err))
 	}
@@ -260,10 +286,10 @@ func runTalosRecreate(opts talosRecreateOptions) error {
 	// run already removed still has to see the control plane rejoin before it
 	// may claim success.
 	if removal != nil && removal.ExpectWhole > 0 {
-		logger.Info(fmt.Sprintf("Step 9/9: Waiting up to %s for etcd to return to %d healthy members",
+		logger.Info(fmt.Sprintf("Step 10/10: Waiting up to %s for etcd to return to %d healthy members",
 			etcdRejoinTimeout, removal.ExpectWhole))
-		evidence, herr := waitEtcdHealthy(ctx, append([]string{nodeIP}, removal.SurvivorIPs...),
-			cpIPs, opts.raftTolerance, etcdRejoinTimeout)
+		evidence, herr := waitEtcdHealthy(ctx, etcdOpts,
+			append([]string{nodeIP}, removal.SurvivorIPs...), etcdRejoinTimeout)
 		if herr != nil {
 			rollback := "No snapshot was taken by this run; use the one from the run that removed the member."
 			if removal.SnapshotPath != "" {
@@ -276,7 +302,7 @@ func runTalosRecreate(opts talosRecreateOptions) error {
 		}
 		logger.OK("etcd is whole again:\n" + evidence)
 	} else {
-		logger.Info("Step 9/9: SKIPPED etcd recovery wait (this node is not an etcd node)")
+		logger.Info("Step 10/10: SKIPPED etcd recovery wait (this node is not an etcd node)")
 	}
 
 	logger.OK(fmt.Sprintf("Node %q recreated and Ready (K8s name: %s)", node, newK8sName))

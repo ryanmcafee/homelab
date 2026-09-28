@@ -174,10 +174,12 @@ reset_cluster
 touch "$FAKE_STATE/down_192.168.1.13"
 rc=$(recreate "$SANDBOX/c.log" --node=cp-2)
 assert_eq   "exits non-zero" "$rc" "1"
-assert_contains "names the reason" "$SANDBOX/c.log" "refusing to remove etcd member"
-assert_contains "names the quorum arithmetic" "$SANDBOX/c.log" "a quorum of 2 is required"
+# Nothing is declared at preflight, so a member that does not answer is not a
+# tolerated absence: the run stops at the door rather than at the removal.
+assert_contains "names the gate and the predicate" "$SANDBOX/c.log" \
+  "does not satisfy \`whole\` at preflight"
 assert_contains "names the member at fault, not just \"unhealthy\"" "$SANDBOX/c.log" \
-  "192.168.1.13 are absent and are not a declared target"
+  "member(s) did not answer: 192.168.1.13"
 assert_eq   "nothing was removed" "$(members_count)" "3"
 assert_absent "nothing was applied" "$SANDBOX/c.log" "Apply complete"
 
@@ -232,10 +234,11 @@ reset_cluster
 awk -F'\t' '$3 != "192.168.1.12"' "$FAKE_STATE/members" > "$FAKE_STATE/m" && mv "$FAKE_STATE/m" "$FAKE_STATE/members"
 rc=$(recreate "$SANDBOX/h.log" --node=cp-3)
 assert_eq   "exits non-zero" "$rc" "1"
-assert_contains "names the member an earlier run left out" "$SANDBOX/h.log" \
-  "192.168.1.12 are absent and are not a declared target"
+# cp-3 is still a member, so this is a fresh run and not a resume: the cluster
+# it would start from is already short cp-2, and preflight says which member.
+assert_contains "names the member an earlier run left out" "$SANDBOX/h.log" "192.168.1.12"
 assert_contains "measures against the configured control-plane count" "$SANDBOX/h.log" \
-  "of 3 expected member(s) answered"
+  "but 3 control-plane address(es) are configured"
 assert_eq   "no second member was removed" "$(members_count)" "2"
 assert_absent "nothing was applied" "$SANDBOX/h.log" "Apply complete"
 assert_absent "no snapshot was taken, because nothing was destroyed" "$SANDBOX/h.log" "etcd snapshot verified"
@@ -257,6 +260,32 @@ assert_contains "evaluates the predicate at the resume point" "$SANDBOX/i.log" \
 assert_contains "names the dead survivor" "$SANDBOX/i.log" "192.168.1.13"
 assert_absent "does not destroy the VM first" "$SANDBOX/i.log" "Apply complete"
 assert_eq   "membership untouched" "$(members_count)" "2"
+
+# ---------------------------------------------------------------------------
+# permittedCounts from the contract, which nothing else exercises. An even
+# control-plane count adds a failure to tolerate without adding one it can
+# survive, so the guard refuses before it reads the cluster at all.
+say "J  an even control-plane count is refused by the contract"
+reset_cluster
+CONF="$SANDBOX/project/configuration/environments/homelab.yaml"
+grep -v '^CP3_IP:' "$CONF" > "$CONF.two" && mv "$CONF.two" "$CONF"
+rc=$(recreate "$SANDBOX/j.log" --node=cp-2)
+assert_eq   "exits non-zero" "$rc" "1"
+assert_contains "names the permitted counts" "$SANDBOX/j.log" "permits only 1, 3, 5, 7"
+assert_eq   "nothing was removed" "$(members_count)" "3"
+setup_project
+
+# ---------------------------------------------------------------------------
+# The contract's raftIndexTolerance is read, not baked in. --raft-tolerance
+# may only tighten it, so a value above the contract's is rejected before any
+# cluster call.
+say "K  the raft tolerance may only be tightened"
+reset_cluster
+rc=$(recreate "$SANDBOX/k.log" --node=cp-2 --raft-tolerance=99999)
+assert_eq   "exits non-zero" "$rc" "1"
+assert_contains "quotes the contract's own value" "$SANDBOX/k.log" \
+  "looser than the contract's raftIndexTolerance of 10"
+assert_eq   "nothing was removed" "$(members_count)" "3"
 
 # ---------------------------------------------------------------------------
 printf '\n%s\n' "-----------------------------------------------"

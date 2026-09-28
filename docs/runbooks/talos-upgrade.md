@@ -214,32 +214,40 @@ back at the same static IP under a new Talos hostname and a new member id, so un
 member is removed first, etcd still holds a member at that address and the replacement cannot
 join (`ryanmcafee/homelab#39`).
 
-`homelab talos recreate` does that for you. Its nine steps are, in order:
+`homelab talos recreate` does that for you. Its ten steps are, in order:
 
 | Step | What it does |
 | --- | --- |
-| 1–3 | Resolve the K8s node by InternalIP, cordon, drain |
-| 4 | **etcd**: member lookup, quorum gate, snapshot, removal, removal verified |
-| 5–6 | Resolve the VM resource address, `terragrunt apply -replace=` |
-| 7–8 | Wait for a new Ready node at the same IP, uncordon, delete the stale node entry |
-| 9 | Wait for etcd to return to its full member count and pass the health gate |
+| 1 | **etcd preflight**: refuse before anything is touched if the cluster is not safe to start from |
+| 2–4 | Resolve the K8s node by InternalIP, cordon, drain |
+| 5 | **etcd**: member lookup, quorum gate, snapshot, removal, removal verified |
+| 6–7 | Resolve the VM resource address, `terragrunt apply -replace=` |
+| 8–9 | Wait for a new Ready node at the same IP, uncordon, delete the stale node entry |
+| 10 | Wait for etcd to be whole again |
 
-Step 4 is the one to understand before you run it:
+Steps 1 and 5 are the ones to understand before you run it:
 
 - If the node is **not** an etcd member the step removes nothing and says so, so re-running
   the command is always safe: it will never remove a second member. The two reasons a node
   is not a member get different endings, and the log tells you which one you are in:
-  - **A worker** (its address is not one of the `CP<n>_IP` keys) never had a member. Step 9
-    is skipped too — there is nothing to rejoin.
+  - **A worker** (its address is not one of the `CP<n>_IP` keys) never had a member. The preflight
+    does not apply to it either, and step 10 is skipped — there is nothing to rejoin.
   - **A control plane that is missing from the member list** means an earlier run removed it
     and died before the node rejoined. The command announces that it is resuming and still
-    waits in step 9 for the member count to come back, because the cluster is sitting at
+    waits in step 10 for the member count to come back, because the cluster is sitting at
     N-1 until it does. A resumed run has no snapshot of its own; the one to keep is from the
     run that did the removal. A resume is **still gated** — see below.
 - It **refuses**, non-zero, if removing the member would leave etcd without a quorum, or if
-  the surviving members are unhealthy, learners, or more than `--raft-tolerance` (10) raft
-  indices behind the leader. The message names the member and the arithmetic. Nothing is
-  destroyed on a refusal.
+  the surviving members are unhealthy, learners, or more than `--raft-tolerance` raft indices
+  behind the leader. The message names the member and the arithmetic. Nothing is destroyed on
+  a refusal.
+- Every number and condition behind those refusals comes from
+  `contracts/cluster/topology.v1.yaml`, not from a constant in the CLI: the quorum formula,
+  the permitted control-plane counts, the raft tolerance, the health conditions, and which
+  gate applies at which point. The same file is read by `scripts/cp-storage-migrate.ts`, so
+  the two tools cannot drift into two definitions of "safe" (ADR-035). A control-plane count
+  the contract does not permit — an even one, say — is refused before the cluster is read at
+  all.
 - The quorum arithmetic is measured against the **configured** control-plane count — the
   number of `CP<n>_IP` keys that have a value — never against however many members happen to
   be alive. This matters in one specific case, and that case is the aftermath of this very
@@ -252,17 +260,32 @@ Step 4 is the one to understand before you run it:
 - A member absent because **you** declared it — the node named by `--node` — is expected. Any
   *other* absence means the cluster is degraded rather than mid-procedure, and the command
   says so in those words and stops.
-- The gate is evaluated **three** times, not once: before the removal, again immediately
-  before the terragrunt taint (a leader election can follow the removal, so the cluster the
-  taint acts on is not the one that was measured a minute earlier), and on a resume before
-  the taint. A refusal at the second point leaves the member removed and the VM intact — fix
-  the cluster and re-run the same command; it resumes.
+- The gate is evaluated at **four** points, and the contract says which predicate applies at
+  each:
+  - **Step 1, preflight** — before anything is cordoned, drained, removed or destroyed. A
+    fresh run requires the cluster to be `whole`: every configured control plane present,
+    answering and converged. A cluster that is already short a member is sent here, to this
+    runbook, rather than into an automated replacement.
+  - **Before the removal** and again **immediately before the terragrunt taint** —
+    `survivable`: quorum holds, every member that answered is converged, and the only member
+    absent is the one you named with `--node`. A leader election can follow the removal, so
+    the cluster the taint acts on is not the one measured a minute earlier. A refusal at the
+    second point leaves the member removed and the VM intact — fix the cluster and re-run.
+  - **Resume** — a re-run that finds the declared target already gone from the member list
+    enters here instead of at preflight, on `survivable`. That is the whole point: at that
+    moment the cluster *is* one member short, so demanding `whole` would refuse the recovery
+    and leave bypassing the guard as the only way to finish.
+- Each reading is bounded. The whole member-set read runs under the contract's
+  `observationDeadlineSeconds`, and a reading older than `maxObservationAgeSeconds` is
+  discarded and taken again rather than acted on. A dial or deadline failure is reported as
+  the transport fault it is — etcd healthy behind a wedged `apid` is not a degraded control
+  plane, and the message says which one you have.
 - It takes a **verified etcd snapshot** into `--etcd-snapshot-dir` (default
   `./etcd-snapshots`) before the removal and refuses if the file is missing or empty. That
-  snapshot is the rollback path; keep it until step 9 is green. There is deliberately **no
+  snapshot is the rollback path; keep it until step 10 is green. There is deliberately **no
   flag to skip it**: the run most likely to want to skip the snapshot is the run on a cluster
   that is already unhappy, which is the run that will need it.
-- Step 9 requires the cluster to be **whole**: every configured `CP<n>_IP` present as a
+- Step 10 requires the cluster to be **whole**: every configured `CP<n>_IP` present as a
   member, answering, and converged. A member count alone is not enough — a cluster carrying
   both a stale member and the rebuilt one at the same address has the right number of members
   and is broken, which is #39's own failure shape.
@@ -272,6 +295,7 @@ Step 4 is the one to understand before you run it:
 --node=cp-2                       # terragrunt node key, not the Talos hostname
 --etcd-snapshot-dir=/mnt/backups  # where the pre-removal snapshot lands
 --raft-tolerance=10               # how far behind a survivor may be and still count.
+                                  # Defaults to the contract's raftIndexTolerance.
                                   # May only be tightened; a larger value is rejected,
                                   # because loosening a gate on a destructive path is a
                                   # bypass with a nicer name.
