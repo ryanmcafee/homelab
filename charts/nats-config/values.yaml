@@ -25,10 +25,10 @@ replicas: 1
 # identity and control history is what it exists to hold; PF_WORK is the smallest
 # because a drained work queue is nearly empty and a deep one is already an alert.
 maxBytes:
-  PF_EVENTS: 2147483648 # 2 GiB
-  PF_AUDIT: 3221225472 # 3 GiB
-  PF_WORK: 268435456 # 256 MiB
-  PF_DLQ: 536870912 # 512 MiB
+  PF_EVENTS: 2147483648 # 2 GiB, 33.3% of the budget
+  PF_AUDIT: 3221225472 # 3 GiB, 50%
+  PF_WORK: 268435456 # 256 MiB, 4.2%
+  PF_DLQ: 805306368 # 768 MiB, 12.5%
 
 # The JetStream file store the ceilings above are budgeted against, restating the
 # homelab `nats.jetstream.storage.size` from configuration/templates/helm-addons.tmpl.

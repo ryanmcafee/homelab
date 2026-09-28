@@ -10,9 +10,9 @@
 # Byte ceiling per stream, from the contract's `max_bytes_defaults.homelab`.
 # Restated on the surface rather than inherited so each surface names its own
 # budget and the drift gate reads a number per surface instead of one default.
-# Totals 5.75 GiB against the 20 GiB file store this surface provisions (ADR-042).
+# Totals 6 GiB against the 20 GiB file store this surface provisions (ADR-042).
 maxBytes:
-  PF_EVENTS: 2147483648 # 2 GiB
-  PF_AUDIT: 3221225472 # 3 GiB
-  PF_WORK: 268435456 # 256 MiB
-  PF_DLQ: 536870912 # 512 MiB
+  PF_EVENTS: 2147483648 # 2 GiB, 33.3% of the budget
+  PF_AUDIT: 3221225472 # 3 GiB, 50%
+  PF_WORK: 268435456 # 256 MiB, 4.2%
+  PF_DLQ: 805306368 # 768 MiB, 12.5%

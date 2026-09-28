@@ -150,7 +150,7 @@ spec:
   replicas: 1
   retention: limits
   maxAge: 720h
-  maxBytes: 536870912
+  maxBytes: 805306368
   discard: old
   duplicateWindow: 2m
   # Without this, deleting the resource deletes the stream and its replay history.

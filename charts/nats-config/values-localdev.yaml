@@ -9,13 +9,13 @@ replicas: 1
 # charts/addons/values-localdev.yaml), so the homelab budget cannot apply here:
 # four limits summing above the store are collectively unbounded and the peer
 # reaches `insufficient resources (10047)` before any stream reaches its own
-# ceiling. These keep the homelab proportions at a quarter of the size and total
-# 1.4375 GiB, 72% of the store (ADR-042 `max_bytes_sum_rule`).
+# ceiling. These hold the split both surfaces share — 33.3 / 50 / 4.2 / 12.5 —
+# and total 1.125 GiB, 56% of the store (ADR-042 `max_bytes_sum_rule`).
 maxBytes:
-  PF_EVENTS: 536870912 # 512 MiB
-  PF_AUDIT: 805306368 # 768 MiB
-  PF_WORK: 67108864 # 64 MiB
-  PF_DLQ: 134217728 # 128 MiB
+  PF_EVENTS: 402653184 # 384 MiB, 33.3% of the budget
+  PF_AUDIT: 603979776 # 576 MiB, 50%
+  PF_WORK: 50331648 # 48 MiB, 4.2%
+  PF_DLQ: 150994944 # 144 MiB, 12.5%
 
 # Restates the file store this surface provisions. The parent Application injects
 # the real value at sync time; this is what makes the sum rule checkable when the
