@@ -1344,6 +1344,16 @@ argo-events:
     # to a concrete image, and its `latest` entry is a floating tag.
     version: "2.10.29"
 
+    # Bytes rather than a suffixed quantity: Argo Events reads this with viper's
+    # GetInt64, which yields 0 -- unlimited -- for the chart's own `1GB` default.
+    # It creates a single stream, so this is the whole message budget. Quoted
+    # because Helm carries a bare integer this large as a float and would render
+    # it back as 6.442450944e+09.
+    maxBytes: "268435456"   # 256Mi, a quarter of the PVC
+
+    # The other size bound, declared here rather than inherited.
+    maxMsgs: 1000000
+
     storage:
       size: 1Gi
       # Same reason as the platform bus: JetStream's file store is a write-ahead

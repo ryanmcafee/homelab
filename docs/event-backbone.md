@@ -120,7 +120,7 @@ say so. A component that needs platform events to reach a Sensor binds a **named
 pull consumer** on the platform bus and publishes onward; that consumer appears in
 `charts/nats-config` like every other one.
 
-Two chart defaults are wrong for a single node and are overridden in
+Three chart defaults are wrong here and are overridden in
 `configuration/templates/helm-addons.tmpl` rather than left to the operator:
 
 - `configs.jetstream.streamConfig.replicas` defaults to **3**. Argo Events reuses the bus
@@ -128,8 +128,29 @@ Two chart defaults are wrong for a single node and are overridden in
   become ready. `ARGO_EVENTS_BUS_REPLICAS` sets both, and Argo Events accepts only 1, 3
   or 5 — `charts/argo-events-config/templates/eventbus.yaml` fails the render on anything
   else rather than deploying a bus that cannot form.
-- The bus `version` is pinned to a concrete NATS version. The controller-config maps a
-  version string to an image and also accepts `latest`, which is a floating tag.
+- The bus `version` is pinned to a concrete NATS version, held in
+  `configuration/versions.yaml` as `images.argo-events-bus-nats`. The controller-config
+  maps a version string to an image and also accepts `latest`, which is a floating tag.
+  That key carries no Renovate annotation on purpose: it is not a free image tag but a key
+  the chart must already declare in `configs.jetstream.versions`, so it moves with the
+  argo-events chart. Because the CRD preserves unknown fields, a version the chart does not
+  declare renders clean, passes level 0, and fails at reconcile.
+- `streamConfig.maxBytes` defaults to **`1GB`** — and that default is inert. Argo Events
+  reads the value with viper's `GetInt64`
+  (`pkg/eventbus/jetstream/base/jetstream.go`), which returns **0** for a suffixed string,
+  and `0` means unlimited in JetStream. So the upstream default leaves the trigger bus
+  bounded only by `maxMsgs` and `maxAge`, free to fill its PVC and then refuse every
+  publish. Both size bounds are now supplied as plain integers, and
+  `charts/argo-events-config/templates/_helpers.tpl` refuses to render a `maxBytes` above
+  `maxBytesBudgetFraction` (0.75) of the PVC — the same rule ADR-042 applies to the
+  platform bus. Argo Events creates exactly one stream, `default` with subjects
+  `default.*.*`, so that ceiling is the whole message budget and there is no sum over
+  streams to check.
+
+One thing no gate in this repo can see: that stream is created by the **first EventSource
+or Sensor to connect**, not by the controller, and through `AddStream` rather than an
+update. Until a Sensor exists the bus carries no stream at all, so the limits above are a
+declared intent that nothing has yet observed on a server.
 
 One thing the level 0 gates cannot do here: all three `argoproj.io` CRDs declare `spec`
 and `status` as `x-kubernetes-preserve-unknown-fields`, so the API server accepts any
@@ -148,6 +169,15 @@ suits them. **No path here is exactly-once end to end.**
 | `.wq` via `PF_WORK` | **at-least-once** | none | consumer-side on `(source, id)` |
 | `.dl` via `PF_DLQ` | **at-least-once** | per subject | consumer-side on the **original** `(source, id)` |
 | `.rq` on core NATS | **at-most-once** | none | none at the transport; the responder must be idempotent |
+| Argo Events trigger bus (`default`) | **at-least-once, and lossy under either bound** | per subject on the stream | none; a Sensor must tolerate redelivery |
+
+That last row is the weakest guarantee on either bus, and it is stated here rather than
+left to Argo Events' documentation because it is the one a reader is most likely to assume
+is stronger. The bus runs `retention: limits` with `discard: old`, so on reaching `maxAge`
+(72h) or `maxBytes` it drops the **oldest** trigger, with no DLQ and no advisory naming
+what was dropped. A Sensor down longer than 72h loses what it missed, silently. That is
+acceptable for trigger plumbing and would not be acceptable for a platform stream, which is
+why the two buses are separate — see [Two buses](#two-buses-and-the-boundary-between-them).
 
 Three consequences that bite in practice:
 

@@ -692,6 +692,11 @@ spec:
               # servers never becomes ready. The chart default is 3.
               replicas: 1
               maxAge: 72h
+              # Bytes. The chart default `1GB` is read by viper's GetInt64 and
+              # becomes 0, so an EventBus that sets no streamConfig of its own
+              # inherits an unbounded stream.
+              maxBytes: 6442450944
+              maxMsgs: 1000000
   destination:
     server: https://kubernetes.default.svc
     namespace: argo-events
@@ -740,6 +745,8 @@ spec:
         replicas: 1
         version: "2.10.29"
         maxAge: 72h
+        maxBytes: 6442450944
+        maxMsgs: 1000000
         storage:
           className: democratic-csi-iscsi
           size: 10Gi

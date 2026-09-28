@@ -1590,7 +1590,21 @@ argo-events:
 
     # Pinned, not "latest": the chart's controller-config maps the version string
     # to a concrete image, and its `latest` entry is a floating tag.
-    version: "2.10.29"
+    version: "{{ index .Versions.Images "argo-events-bus-nats" }}"
+
+    # Bytes rather than a suffixed quantity: Argo Events reads this with viper's
+    # GetInt64, which yields 0 -- unlimited -- for the chart's own `1GB` default.
+    # It creates a single stream, so this is the whole message budget. Quoted
+    # because Helm carries a bare integer this large as a float and would render
+    # it back as 6.442450944e+09.
+{{- if $localdev }}
+    maxBytes: "268435456"   # 256Mi, a quarter of the PVC
+{{- else }}
+    maxBytes: "6442450944"  # 6Gi, 60% of the PVC
+{{- end }}
+
+    # The other size bound, declared here rather than inherited.
+    maxMsgs: 1000000
 
     storage:
 {{- if $localdev }}
