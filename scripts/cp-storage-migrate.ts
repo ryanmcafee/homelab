@@ -289,8 +289,18 @@ export function envFileValue(text: string, key: string): string | null {
   return v;
 }
 
-/** The CPn_IP keys the environment file declares, in ascending ordinal order. */
-export function cpKeysFromEnvFile(text: string): string[] {
+/** A CPn_IP key the environment file declares, with the ordinal it carries. */
+interface CpKeyMember {
+  key: string;
+  ordinal: number;
+}
+
+/**
+ * The CPn_IP keys the environment file declares, each with its ordinal, in
+ * ascending ordinal order. Matching once and carrying the ordinal is what lets
+ * the callers below read the ordinal without asserting the match non-null.
+ */
+function cpMembersFromEnvFile(text: string): CpKeyMember[] {
   let parsed: unknown;
   try {
     parsed = parseYaml(text);
@@ -299,11 +309,16 @@ export function cpKeysFromEnvFile(text: string): string[] {
   }
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return [];
   return Object.keys(parsed as Record<string, unknown>)
-    .filter((k) => CP_KEY_PATTERN.test(k))
-    .sort(
-      (a, b) =>
-        Number(CP_KEY_PATTERN.exec(a)![1]) - Number(CP_KEY_PATTERN.exec(b)![1]),
-    );
+    .flatMap((key) => {
+      const match = CP_KEY_PATTERN.exec(key);
+      return match ? [{ key, ordinal: Number(match[1]) }] : [];
+    })
+    .sort((a, b) => a.ordinal - b.ordinal);
+}
+
+/** The CPn_IP keys the environment file declares, in ascending ordinal order. */
+export function cpKeysFromEnvFile(text: string): string[] {
+  return cpMembersFromEnvFile(text).map((m) => m.key);
 }
 
 /** One control plane the environment file names, with its default Proxmox identity. */
@@ -340,13 +355,14 @@ export interface CpNodeDefault {
 export function cpNodeDefaultsFromEnvFile(
   text: string,
 ): readonly CpNodeDefault[] | null {
-  const keys = cpKeysFromEnvFile(text);
-  if (keys.length === 0 || !keys.includes(CP_FIRST_KEY)) return null;
+  const members = cpMembersFromEnvFile(text);
+  if (members.length === 0 || !members.some((m) => m.key === CP_FIRST_KEY)) {
+    return null;
+  }
   const nodes: CpNodeDefault[] = [];
-  for (const key of keys) {
+  for (const { key, ordinal } of members) {
     const ip = envFileValue(text, key);
     if (ip === null) return null;
-    const ordinal = Number(CP_KEY_PATTERN.exec(key)![1]);
     nodes.push({
       ordinal,
       name: `cp-${ordinal}`,
