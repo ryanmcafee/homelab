@@ -85,6 +85,26 @@ metadata:
     argocd.argoproj.io/sync-wave: "10"
 
 ---
+# Source: applications/templates/litellm.yaml
+# OCI Repository: ArgoCD only pulls OCI charts from a registry it has a
+# repository Secret for (rule gitops/<env>/repo-secrets). Anonymous pull, and
+# the url carries no oci:// prefix, like paperclipinc-oci.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: berriai-oci
+  namespace: argocd
+  labels:
+    argocd.argoproj.io/secret-type: repository
+  annotations:
+    argocd.argoproj.io/sync-wave: "13"
+stringData:
+  name: berriai
+  type: helm
+  url: ghcr.io/berriai/litellm/chart
+  enableOCI: "true"
+
+---
 # Source: applications/templates/oci-repositories.yaml
 apiVersion: v1
 kind: Secret
@@ -901,6 +921,201 @@ spec:
     # The Cluster CRD comes from the cloudnative-pg addon; if a sync lands before
     # the CRD is served the apply fails with "no matches for kind Cluster" and
     # this retries until the operator is up.
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+
+---
+# Source: applications/templates/litellm.yaml
+# Proxy Application: the componentized chart. Only the pins, sizing and model
+# list come from configuration/ ($ll.proxy); everything below is a property of
+# the chart itself and of how this repo runs it.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: litellm
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "13"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: ghcr.io/berriai/litellm/chart
+    chart: litellm
+    targetRevision: "1.102.1"
+    helm:
+      releaseName: litellm
+      values: |
+        # Without this the release name prefixes the chart name into
+        # litellm-litellm-gateway; wave 14's HTTPRoutes and the SRE alerts
+        # address litellm-gateway / litellm-backend / litellm-ui.
+        fullnameOverride: litellm
+        masterKey:
+          secretName: litellm-master-key-secret
+          secretKey: master-key
+        # CloudNativePG generates litellm-db-app (username, password) for the
+        # owner role of database litellm on Cluster litellm-db, so no database
+        # credential is templated here or stored in 1Password.
+        database:
+          writer:
+            host: litellm-db-rw.litellm.svc.cluster.local
+            port: 5432
+            dbname: litellm
+            passwordSecret:
+              name: litellm-db-app
+              usernameKey: username
+              passwordKey: password
+        # ArgoCD applies the manifests, not Helm, so the Job runs as a PreSync
+        # hook: it re-runs on every sync even when nothing rendered changed.
+        # activeDeadlineSeconds bounds the whole Job across its retries, so a
+        # migration blocked on the database fails the sync instead of hanging
+        # it forever.
+        migrationJob:
+          enabled: true
+          hooks:
+            helm:
+              enabled: false
+            argocd:
+              enabled: true
+          activeDeadlineSeconds: 1800
+          image:
+            tag: "v1.102.1"
+          resources:
+            limits:
+              cpu: 500m
+              memory: 512Mi
+            requests:
+              cpu: 50m
+              memory: 128Mi
+        gateway:
+          image:
+            tag: "v1.102.1"
+          # LITELLM_SALT_KEY encrypts every provider credential the proxy
+          # stores in the database and the chart has no value for it, so both
+          # it and the provider keys arrive as whole-Secret envFrom. The
+          # 1Password field labels are therefore the env var names.
+          envSecrets:
+            - litellm-salt-key
+            - litellm-api-keys
+          # Managing models from the Admin UI requires the proxy to persist
+          # them rather than read a static config only.
+          extraEnv:
+            - name: STORE_MODEL_IN_DB
+              value: "True"
+          config:
+            create: true
+            proxy_config:
+              model_list:
+                - litellm_params:
+                    api_key: os.environ/ANTHROPIC_API_KEY
+                    model: anthropic/claude-opus-5-5
+                  model_name: claude-opus-5-5
+                - litellm_params:
+                    api_key: os.environ/ANTHROPIC_API_KEY
+                    model: anthropic/claude-sonnet-5
+                  model_name: claude-sonnet-5
+                - litellm_params:
+                    api_key: os.environ/ANTHROPIC_API_KEY
+                    model: anthropic/claude-haiku-4-5-20251001
+                  model_name: claude-haiku-4-5
+          livenessProbe:
+            httpGet: {path: /health/liveliness, port: http}
+            initialDelaySeconds: 10
+            periodSeconds: 15
+            timeoutSeconds: 10
+            failureThreshold: 6
+          readinessProbe:
+            httpGet: {path: /health/readiness, port: http}
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 10
+          # One replica, so redis stays off. Cross-pod rpm/tpm limits, spend
+          # tracking and the pod lock manager all need it once this scales out.
+          hpa:
+            enabled: false
+          # A metrics sidecar and its own ClusterIP Service, because the http
+          # port serves /metrics/ behind virtual-key auth. That port has no
+          # auth of its own, so wave 14 must keep it off any public route.
+          metricsServer:
+            enabled: true
+          serviceMonitor:
+            enabled: true
+          resources:
+            limits:
+              cpu: "1"
+              memory: 1536Mi
+            requests:
+              cpu: 100m
+              memory: 256Mi
+        backend:
+          image:
+            tag: "v1.102.1"
+          envSecrets:
+            - litellm-salt-key
+          extraEnv:
+            - name: STORE_MODEL_IN_DB
+              value: "True"
+          livenessProbe:
+            httpGet: {path: /health/liveliness, port: http}
+            initialDelaySeconds: 10
+            periodSeconds: 15
+            timeoutSeconds: 10
+            failureThreshold: 6
+          readinessProbe:
+            httpGet: {path: /health/readiness, port: http}
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 10
+          hpa:
+            enabled: false
+          resources:
+            limits:
+              cpu: "1"
+              memory: 1Gi
+            requests:
+              cpu: 100m
+              memory: 256Mi
+        ui:
+          image:
+            tag: "v1.102.1"
+          # The dashboard is a static bundle: it calls the backend from the
+          # browser, so this is the routable host wave 14 publishes, not a
+          # cluster Service. The chart's own Ingress serves the management API
+          # at the host root, so wave 14's HTTPRoutes must match that split.
+          backendUrl: https://litellm.homelab.local
+          hpa:
+            enabled: false
+          resources:
+            limits:
+              cpu: 250m
+              memory: 128Mi
+            requests:
+              cpu: 25m
+              memory: 32Mi
+        # None of the three components calls the Kubernetes API.
+        serviceAccounts:
+          gateway:
+            automount: false
+          backend:
+            automount: false
+          ui:
+            automount: false
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: litellm
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - SkipDryRunOnMissingResource=true
+    # The PreSync migration Job needs litellm-db-app and a reachable database;
+    # retry covers a sync that lands before CloudNativePG has finished
+    # bootstrapping the Cluster from wave 12.
     retry:
       limit: 5
       backoff:

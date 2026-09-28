@@ -1141,8 +1141,8 @@ litellm:
   hostname: litellm.example.com
 
   # charts/litellm-dependencies: OnePasswordItems -> Secrets
-  # litellm-master-key-secret (master-key), litellm-salt-key (salt-key) and
-  # litellm-api-keys (provider credentials). Inert without a secret store.
+  # litellm-master-key-secret (master-key), litellm-salt-key (LITELLM_SALT_KEY)
+  # and litellm-api-keys (provider credentials). Inert without a secret store.
   dependencies:
     onePassword:
       enabled: false
@@ -1164,3 +1164,47 @@ litellm:
       limits:
         cpu: "1"
         memory: 1Gi
+
+  # The componentized OCI chart (gateway, backend, ui, migrations Job).
+  # configuration/versions.yaml charts.litellm and images.litellm are the pins.
+  proxy:
+    chart:
+      name: litellm
+      repo: ghcr.io/berriai/litellm/chart
+      version: "1.102.1"
+    imageTag: "v1.102.1"
+    serviceMonitor:
+      enabled: true
+    models: []
+    gateway:
+      resources:
+        requests:
+          cpu: 250m
+          memory: 1Gi
+        limits:
+          cpu: "2"
+          memory: 4Gi
+    backend:
+      resources:
+        requests:
+          cpu: 100m
+          memory: 512Mi
+        limits:
+          cpu: "1"
+          memory: 2Gi
+    ui:
+      resources:
+        requests:
+          cpu: 50m
+          memory: 64Mi
+        limits:
+          cpu: 500m
+          memory: 256Mi
+    migrations:
+      resources:
+        requests:
+          cpu: 100m
+          memory: 256Mi
+        limits:
+          cpu: "1"
+          memory: 512Mi
