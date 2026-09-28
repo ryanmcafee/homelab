@@ -3163,23 +3163,9 @@ spec:
             nodePort: 30021
         spegel:
           logLevel: INFO
-          registries:
-            - https://cgr.dev
-            - https://docker.io
-            - https://ghcr.io
-            - https://quay.io
-            - https://mcr.microsoft.com
-            - https://public.ecr.aws
-            - https://ecr-public.aws.com
-            - https://gcr.io
-            - https://registry.k8s.io
-            - https://k8s.gcr.io
-            - https://lscr.io
           containerdRegistryConfigPath: /etc/cri/conf.d/hosts
           containerdContentPath: /var/lib/containerd/io.containerd.content.v1.content
           resolveTags: true
-          resolveLatestTag: true
-          appendMirrors: false
         resources:
           limits:
             cpu: 100m

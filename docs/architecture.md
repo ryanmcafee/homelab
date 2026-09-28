@@ -274,8 +274,8 @@ bind.
 `Cluster` in `charts/paperclip-database` on the iSCSI SSD class (ADR-015). The barman plugin
 is off by default and exercised by the restore drill ([Verification](#verification)).
 
-**Images.** Spegel (wave 0) runs on every node as a peer-to-peer OCI mirror for the
-registries it lists (docker.io, ghcr.io, quay.io, registry.k8s.io, ...), so a layer pulled
+**Images.** Spegel (wave 0) runs on every node as a peer-to-peer OCI mirror for every
+registry (chart 0.6.0 mirrors all of them unless `mirroredRegistries` narrows it), so a layer pulled
 once is served from inside the cluster afterwards; Talos keeps unpacked layers for it. Kind
 gets the same effect from pull-through registry caches started by `task localdev:kind`.
 

@@ -79,26 +79,11 @@ spegel:
   # Spegel configuration
   spegel:
     logLevel: "INFO"
-    # Registries to mirror via P2P
-    registries:
-      - https://cgr.dev
-      - https://docker.io
-      - https://ghcr.io
-      - https://quay.io
-      - https://mcr.microsoft.com
-      - https://public.ecr.aws
-      # Same ECR Public registry, other hostname: argo-cd's redis image uses this spelling.
-      - https://ecr-public.aws.com
-      - https://gcr.io
-      - https://registry.k8s.io
-      - https://k8s.gcr.io
-      - https://lscr.io
+    # Every registry is mirrored: chart 0.6.0 defaults mirroredRegistries to empty.
     # Talos Linux containerd paths
     containerdRegistryConfigPath: /etc/cri/conf.d/hosts
     containerdContentPath: /var/lib/containerd/io.containerd.content.v1.content
     resolveTags: true
-    resolveLatestTag: true
-    appendMirrors: false
 
   # Prometheus ServiceMonitor
   serviceMonitor:
