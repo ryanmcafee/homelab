@@ -148,3 +148,13 @@ Each entry should include:
 - Source guard and rendered Helm G2 are separate surfaces. Platform co-land work is MCAA-130; no live-literal allowlist or claim of complete acceptance.
 - Local full-scan runtime before/after: 0.254s / 0.281s (202 / 257 tracked files, compiled CLI). Actual hook good/bad examples and HCL references/literals pass/fail correctly.
 - Role validator runs after expression resolution, excludes dedicated infrastructure and control-plane VIP, and requires intended LB allocations inside inclusive endpoints. Missing schema roles fail closed; full config suite awaits platform annotations. CLI positive/negative fixtures assert exit codes and absence of false success.
+### 2026-09-28: OpenClaw verification gate (MCAA-496)
+
+- Added exact namespace/aggregation intent validation from rendered Applications,
+  resolving inline values and Helm parameters offline with the pinned Helm binary.
+- Added an independent full-chart RBAC assertion to upgrade verification; unchanged
+  sources and unavailable base comparisons cannot bypass it. Upgrade runs on every PR.
+- Corrected upstream inline-value precedence and literal-comma parameter handling
+  to match Argo CD; unresolved external values now fail rather than disappear.
+- Validation and revision evidence are recorded privately on the task. Existing
+  platform/security/QA merge holds remain; no production changes were made.
