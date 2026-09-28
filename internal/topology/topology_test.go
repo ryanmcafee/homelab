@@ -343,36 +343,41 @@ func TestEntryRuleIsReadFromTheContract(t *testing.T) {
 		t.Fatalf("loading the contract: %v", err)
 	}
 
-	if c.EntryPointsAreDeclared() {
-		if c.Entry != EntryExclusive {
-			t.Errorf("evaluation.entry = %q, want %q", c.Entry, EntryExclusive)
+	// Guarding the assertions with `if declared {}` reported PASS on a revision
+	// that states no entry clause, which is indistinguishable in test output
+	// from six assertions that ran. Skipping says the same thing visibly.
+	if !c.EntryPointsAreDeclared() {
+		if c.Entry != "" || len(c.RunShapes()) > 0 {
+			t.Fatalf("evaluation states entry %q and %d run shape(s) but no entryPoints: a half-stated entry clause is a defect, not a revision to tolerate",
+				c.Entry, len(c.RunShapes()))
 		}
-		if c.EntrySelector != SelectorObservedMembership {
-			t.Errorf("evaluation.entrySelector = %q, want %q", c.EntrySelector, SelectorObservedMembership)
+		t.Skip("this contract revision does not state evaluation.entry yet (ryanmcafee/homelab#463)")
+	}
+
+	if c.Entry != EntryExclusive {
+		t.Errorf("evaluation.entry = %q, want %q", c.Entry, EntryExclusive)
+	}
+	if c.EntrySelector != SelectorObservedMembership {
+		t.Errorf("evaluation.entrySelector = %q, want %q", c.EntrySelector, SelectorObservedMembership)
+	}
+	if !c.EntrySelectorIsObserved {
+		t.Error("entrySelectorIsObserved is false, which would permit a caller-asserted entry point")
+	}
+	for _, point := range c.EntryPoints() {
+		if point != Preflight && point != Resume {
+			t.Errorf("evaluation.entryPoints names %q, which this consumer cannot enter at", point)
 		}
-		if !c.EntrySelectorIsObserved {
-			t.Error("entrySelectorIsObserved is false, which would permit a caller-asserted entry point")
+	}
+	// Every enumerated shape must start where a run can start, and must end at
+	// completion: a shape that stops earlier would report success without the
+	// cluster being whole again.
+	for _, s := range c.RunShapes() {
+		if !c.IsEntryPoint(s.Sequence[0]) {
+			t.Errorf("run shape %q starts at %q, which is not an entry point", s.ID, s.Sequence[0])
 		}
-		for _, point := range c.EntryPoints() {
-			if point != Preflight && point != Resume {
-				t.Errorf("evaluation.entryPoints names %q, which this consumer cannot enter at", point)
-			}
+		if last := s.Sequence[len(s.Sequence)-1]; last != Completion {
+			t.Errorf("run shape %q ends at %q rather than %q", s.ID, last, Completion)
 		}
-		// Every enumerated shape must start where a run can start, and must end
-		// at completion: a shape that stops earlier would report success without
-		// the cluster being whole again.
-		for _, s := range c.RunShapes() {
-			if !c.IsEntryPoint(s.Sequence[0]) {
-				t.Errorf("run shape %q starts at %q, which is not an entry point", s.ID, s.Sequence[0])
-			}
-			if last := s.Sequence[len(s.Sequence)-1]; last != Completion {
-				t.Errorf("run shape %q ends at %q rather than %q", s.ID, last, Completion)
-			}
-		}
-	} else {
-		// Pre-#463 revision. The behavioural half of conformance is asserted in
-		// internal/etcd regardless; this branch disappears when the clause lands.
-		t.Logf("this contract revision does not state evaluation.entry yet (ryanmcafee/homelab#463)")
 	}
 }
 
