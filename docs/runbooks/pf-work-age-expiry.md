@@ -133,22 +133,48 @@ You have 12h (warning) or 6h (critical) before the queue is deleted. The command
    `state.first_ts` is the age of the oldest message; `now - first_ts` against `config.max_age`
    (24h) is exactly how long you have.
 
-2. **Find out why nothing is consuming.** `nats_consumer_num_pending` high with
-   `nats_consumer_num_waiting` at 0 means no worker is fetching at all (pod down, crash-looping,
-   or never deployed); `num_ack_pending` pinned at `max_ack_pending` means workers are fetching
-   and not finishing. `kubectl -n <ns> get pods` on the consuming component, then its logs.
+2. **Establish whether a consumer exists at all**, because that splits this into two incidents
+   with different fixes:
 
-3. **Get a consumer running.** Restoring the consumer is the fix — the queue drains and
+   ```promql
+   nats_stream_consumer_count{stream_name="PF_WORK"}
+   ```
+
+   - **`0`, and no `nats_consumer_*` series for the stream -- nothing has ever bound the subject.**
+     Go to step 3b. The exporter emits no consumer series for a consumer that does not exist, so
+     this reads the same as a dead exporter; `nats_stream_first_seq` still arriving (and
+     `PFWorkStreamMetricsAbsent` not firing) is what separates the two.
+   - **Non-zero -- a consumer exists and has stopped making progress.** `nats_consumer_num_pending`
+     high while `nats_consumer_ack_floor_stream_seq` stays flat means it is not finishing work;
+     `num_ack_pending` pinned at `max_ack_pending` means workers are fetching and not finishing.
+     `kubectl -n <ns> get pods` on the consuming component, then its logs. Go to step 3a.
+
+   This exporter has no `nats_consumer_num_waiting` (see the metric table above), so "is anyone
+   fetching" is not directly readable -- movement in `ack_floor` is the substitute.
+
+3. **a. A consumer exists: get it running again.** Restoring it is the fix -- the queue drains and
    `first_seq` moves. Nothing needs to be done to the stream.
 
-4. **If you cannot restore a consumer inside the remaining budget, copy the work out.** Do this
-   before the budget expires; there is no recovery afterwards. Either
+   **b. No consumer has ever bound the subject: do not create a wildcard one to drain the queue.**
+   `contracts/events/subjects.v1.yaml` (`consumers.workqueue_binding`) requires every `PF_WORK`
+   consumer to bind exactly one fully-specified subject, never a wildcard, because `PF_WORK` spans
+   every domain -- the first domain-wide `wq` consumer permanently forecloses every other component
+   in that domain, and the server rejects a second overlapping filter with `filtered consumer not
+   unique on workqueue stream (10100)`. A drain consumer broad enough to empty the queue is that
+   wildcard. Use step 4 to preserve the work, and file the absent consumer as the defect: work
+   queued on a subject no component consumes is a producer that shipped ahead of its worker.
+
+4. **If the queue will not drain inside the remaining budget, copy the work out.** Do this before
+   the budget expires; there is no recovery afterwards. Use the stream backup, which needs no
+   consumer and removes nothing:
    ```bash
    nats stream backup PF_WORK ./pf-work-backup            # whole stream to disk
    ```
-   or drain it into a file with an ephemeral consumer and replay later
-   (`nats consumer next PF_WORK <durable> --count N --raw >> pf-work.ndjson`). Both need
-   stream-admin rights: use the admin kubeconfig, not `homelab-readonly`.
+   Reading the queue through a consumer is not an equivalent alternative. On a work-queue stream an
+   ack **deletes** the message, so `nats consumer next PF_WORK <durable> --count N --raw` moves the
+   work out rather than copying it, and it needs a durable that step 3b says not to create. Back up
+   first, then replay from the backup. Stream-admin rights are required: use the admin kubeconfig,
+   not `homelab-readonly`.
 
 5. **Do not raise `max_age` to buy time.** It is contract
    (`contracts/events/subjects.v1.yaml`) and the contract gate rejects shortening it later
@@ -182,9 +208,19 @@ Durable requests were destroyed. `$value` is how many. This is data loss, not a 
 **It undercounts in one case.** A message that was in flight on a consumer when it expired moves
 that consumer's ack floor (the `terminated` path), so it cancels out of the arithmetic. If every
 lost message was in flight, this rule stays silent — the aging alerts are what cover that, and
-they fire 6h earlier. The rule also assumes one consumer group per stream, as the contract
-requires; several consumers with disjoint subject filters each advance their own ack floor over
-sequences they do not own, and the arithmetic would have to move to per-filter streams.
+they fire 6h earlier.
+
+**It also assumes a single consumer on the stream, and the contract does not.**
+`consumers.workqueue_binding` requires every `PF_WORK` consumer to bind exactly one fully-specified
+subject, and `PF_WORK` spans every domain, so many consumers is the designed steady state rather
+than a misconfiguration. The rule sums each consumer's ack-floor advance against one shared
+`first_seq`, and a consumer advances its floor over sequences it does not own, so the arithmetic
+overcounts acks and can under-report loss once a second `wq` consumer exists. No `PF_WORK` consumer
+is declared yet -- the consumer set on the event-backbone branch for
+[#50](https://github.com/ryanmcafee/homelab/issues/50) binds only `PF_EVENTS` and `PF_DLQ` -- so the
+rule is correct for every deployment that exists so far. Confirm with
+`nats_stream_consumer_count{stream_name="PF_WORK"}` rather than from this paragraph, and expect
+per-subject arithmetic to be required before the second `wq` consumer ships.
 
 ## When `PFWorkStreamMetricsAbsent` fires
 
