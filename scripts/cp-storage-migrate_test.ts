@@ -22,7 +22,7 @@ import {
   DEFAULT_RAFT_TOLERANCE,
   dfRootArgv,
   envFileValue,
-  etcdHealth,
+  etcdGate,
   failingGates,
   filterNodes,
   findDatastore,
@@ -40,6 +40,8 @@ import {
   parseBwlimit,
   parseDfRootUsePercent,
   parseDuration,
+  membershipAddresses,
+  parseEtcdMembers,
   parseEtcdStatus,
   parseKubectlNodes,
   parseNodeSpecs,
@@ -60,9 +62,12 @@ import {
   talosAddressesArgv,
   talosEtcdSnapshotArgv,
   talosEtcdStatusArgv,
+  TOPOLOGY,
+  topologyGate,
   UsageError,
   vipHolders,
 } from "./cp-storage-migrate.ts";
+import type { Observation } from "./lib/topology-contract.ts";
 
 /**
  * Every address here is RFC 5737 TEST-NET-1 (192.0.2.0/24), reserved for
@@ -138,6 +143,38 @@ const ETCD_HEALTHY = etcdTable([
   { node: IPS[1], member: "2c3d4e5f60718a1b", index: "14876320" },
   { node: IPS[2], member: LEADER_ID, index: "14876322" },
 ]);
+
+/** `talosctl etcd members` — etcd's own membership, one row per member. */
+function membersTable(ips: readonly string[]): string {
+  return tabwriter([
+    ["NODE", "ID", "HOSTNAME", "PEER URLS", "CLIENT URLS", "LEARNER"],
+    ...ips.map((ip) => [
+      ip,
+      "a1b2c3d4e5f60718",
+      `cp-${ips.indexOf(ip) + 1}`,
+      `https://${ip}:2380`,
+      `https://${ip}:2379`,
+      "false",
+    ]),
+  ]);
+}
+
+/**
+ * The whole input to a gate. The defaults are a whole 3-member control plane:
+ * every test below states only the thing it is breaking, so the reason a gate
+ * fails is the thing the test named and not an incidental gap in the fixture.
+ */
+function observation(over: Partial<Observation> = {}): Observation {
+  return {
+    expected: IPS,
+    membership: IPS,
+    statuses: parseEtcdStatus(ETCD_HEALTHY),
+    declared: [],
+    transportErrors: [],
+    observedAt: Date.now(),
+    ...over,
+  };
+}
 
 // ----------------------------------------------------------------------------
 // nodes and --only
@@ -328,57 +365,155 @@ test("parseEtcdStatus returns nothing for an error message instead of a table", 
     [],
   );
 });
-
-test("etcdHealth accepts three members whose RAFT INDEX is within the tolerance", () => {
-  const health = etcdHealth(parseEtcdStatus(ETCD_HEALTHY), 3);
-  assertEquals(health.problems, []);
-  assertEquals(health.ok, true);
+test("parseEtcdMembers reads etcd's own membership, not the addresses dialled", () => {
+  const members = parseEtcdMembers(membersTable(IPS));
+  assertEquals(members.length, 3);
+  assertEquals(members[0].node, IPS[0]);
+  assertEquals(members[0].hostname, "cp-1");
+  assertEquals(members[0].peerUrls, [`https://${IPS[0]}:2380`]);
+  assertEquals(members[0].learner, false);
+  assertEquals(membershipAddresses(members), [...IPS]);
 });
 
-test("etcdHealth rejects a member lagging further than --raft-tolerance", () => {
-  const text = etcdTable([
-    { node: IPS[0], member: "a1b2c3d4e5f60718", index: "14876322" },
-    { node: IPS[1], member: "2c3d4e5f60718a1b", index: "14870001" },
-    { node: IPS[2], member: LEADER_ID, index: "14876322" },
-  ]);
-  const health = etcdHealth(parseEtcdStatus(text), 3);
-  assertEquals(health.ok, false);
-  assertEquals(health.problems.length, 1);
+test("parseEtcdMembers returns nothing for an error message instead of a table", () => {
   assertEquals(
-    health.problems[0],
+    parseEtcdMembers("rpc error: code = Unavailable desc = connection error\n"),
+    [],
+  );
+});
+
+test("the preflight gate accepts a whole control plane", () => {
+  const gate = etcdGate("preflight", observation());
+  assertEquals(gate.ok, true);
+  assertEquals(gate.name, "etcd is whole at preflight");
+});
+
+test("a member lagging further than the contract's tolerance fails every gate", () => {
+  const statuses = parseEtcdStatus(
+    etcdTable([
+      { node: IPS[0], member: "a1b2c3d4e5f60718", index: "14876322" },
+      { node: IPS[1], member: "2c3d4e5f60718a1b", index: "14870001" },
+      { node: IPS[2], member: LEADER_ID, index: "14876322" },
+    ]),
+  );
+  const gate = etcdGate("preflight", observation({ statuses }));
+  assertEquals(gate.ok, false);
+  assertEquals(
+    gate.detail,
     `192.0.2.12 RAFT INDEX 14870001 is 6321 behind 14876322 (tolerance ${DEFAULT_RAFT_TOLERANCE})`,
   );
-  // the same table passes with an explicit, wider tolerance
-  assertEquals(etcdHealth(parseEtcdStatus(text), 3, 10_000).ok, true);
+  // raft-index-converged is in both predicates, so the weaker gate refuses too.
+  assertEquals(
+    etcdGate("before-destructive-step", observation({ statuses })).ok,
+    false,
+  );
 });
 
-test("etcdHealth rejects a member with a non-empty ERRORS column", () => {
-  const text = etcdTable([
-    { node: IPS[0], member: "a1b2c3d4e5f60718", index: "14876322" },
-    { node: IPS[1], member: "2c3d4e5f60718a1b", index: "14876322" },
-    {
-      node: IPS[2],
-      member: LEADER_ID,
-      index: "14876322",
-      errors: "etcdserver: no leader",
-    },
-  ]);
-  const health = etcdHealth(parseEtcdStatus(text), 3);
-  assertEquals(health.ok, false);
-  assertEquals(health.problems, ["192.0.2.13: ERRORS etcdserver: no leader"]);
+test("a member with a non-empty ERRORS column fails the gate", () => {
+  const statuses = parseEtcdStatus(
+    etcdTable([
+      { node: IPS[0], member: "a1b2c3d4e5f60718", index: "14876322" },
+      { node: IPS[1], member: "2c3d4e5f60718a1b", index: "14876322" },
+      {
+        node: IPS[2],
+        member: LEADER_ID,
+        index: "14876322",
+        errors: "etcdserver: no leader",
+      },
+    ]),
+  );
+  const gate = etcdGate("preflight", observation({ statuses }));
+  assertEquals(gate.ok, false);
+  assertEquals(gate.detail, "192.0.2.13: ERRORS etcdserver: no leader");
 });
 
-test("etcdHealth rejects a missing member, which is exactly the state that loses quorum next", () => {
-  const text = etcdTable([
-    { node: IPS[0], member: "a1b2c3d4e5f60718", index: "14876322" },
-    { node: IPS[2], member: LEADER_ID, index: "14876322" },
-  ]);
-  const health = etcdHealth(parseEtcdStatus(text), 3);
-  assertEquals(health.ok, false);
-  assertEquals(health.problems, ["2 member(s) answered, expected 3"]);
+test("a member that did not answer refuses preflight and is forgiven once declared", () => {
+  // The whole point of having two predicates. The same observation — one member
+  // of etcd's membership that did not answer — must refuse at the door and pass
+  // immediately before the node this run is about to stop, or the procedure
+  // either starts on a degraded cluster or aborts itself mid-flight.
+  const statuses = parseEtcdStatus(
+    etcdTable([
+      { node: IPS[0], member: "a1b2c3d4e5f60718", index: "14876322" },
+      { node: IPS[2], member: LEADER_ID, index: "14876322" },
+    ]),
+  );
+  const preflight = etcdGate("preflight", observation({ statuses }));
+  assertEquals(preflight.ok, false);
+  assertEquals(preflight.detail, "1 of 3 member(s) did not answer: 192.0.2.12");
+
+  const undeclared = etcdGate(
+    "before-destructive-step",
+    observation({ statuses }),
+  );
+  assertEquals(undeclared.ok, false);
+  assertEquals(
+    undeclared.detail.startsWith("member(s) 192.0.2.12 are absent"),
+    true,
+  );
+
+  const declared = etcdGate(
+    "before-destructive-step",
+    observation({ statuses, declared: [IPS[1]] }),
+  );
+  assertEquals(declared.ok, true);
 });
 
-test("etcdHealth rejects a table where the members disagree about the leader", () => {
+test("a configured address with no member at all is refused, declared or not", () => {
+  // The unrepresented sense. CP3 is configured but etcd has no member for it,
+  // so absences-are-declared cannot see it: it is not an expected member.
+  const statuses = parseEtcdStatus(
+    etcdTable([
+      { node: IPS[0], member: "a1b2c3d4e5f60718", index: "14876322" },
+      { node: IPS[1], member: "2c3d4e5f60718a1b", index: "14876322" },
+    ]),
+  );
+  const obs = observation({ statuses, membership: [IPS[0], IPS[1]] });
+  assertEquals(etcdGate("preflight", obs).ok, false);
+  const gate = etcdGate("before-destructive-step", obs);
+  assertEquals(gate.ok, false);
+  assertEquals(
+    gate.detail.includes(
+      "control-plane address(es) 192.0.2.13 have no member in etcd's membership at all",
+    ),
+    true,
+  );
+});
+
+test("a membership that could not be read is unknown, not empty", () => {
+  // evaluation.onIndeterminate: unsafe. A total outage must not read as a
+  // zero-member cluster, and silence is never consent on a destructive path.
+  const gate = etcdGate(
+    "preflight",
+    observation({
+      membership: null,
+      statuses: [],
+      transportErrors: ["etcd members: rpc error: connection refused"],
+    }),
+  );
+  assertEquals(gate.ok, false);
+  assertEquals(
+    gate.detail.includes(
+      "etcd reported no membership: the member set is unknown, not empty",
+    ),
+    true,
+  );
+  assertEquals(gate.detail.includes("transport fault"), true);
+});
+
+test("a reading older than the contract's observation window is refused", () => {
+  const gate = etcdGate(
+    "before-destructive-step",
+    observation({
+      observedAt: 0,
+      evaluatedAt: TOPOLOGY.maxObservationAgeMs + 1000,
+    }),
+  );
+  assertEquals(gate.ok, false);
+  assertEquals(gate.detail.includes("stale observation"), true);
+});
+
+test("members that disagree about the leader fail the gate", () => {
   const rows = [
     [...ETCD_HEADER],
     [
@@ -404,13 +539,33 @@ test("etcdHealth rejects a table where the members disagree about the leader", (
       "",
     ],
   ];
-  const health = etcdHealth(parseEtcdStatus(tabwriter(rows)), 2);
-  assertEquals(health.ok, false);
-  assertEquals(health.problems.length, 1);
+  const gate = etcdGate(
+    "preflight",
+    observation({
+      expected: [IPS[0], IPS[1]],
+      membership: [IPS[0], IPS[1]],
+      statuses: parseEtcdStatus(tabwriter(rows)),
+    }),
+  );
+  assertEquals(gate.ok, false);
   assertEquals(
-    health.problems[0].startsWith("members disagree about the leader"),
+    gate.detail.startsWith("members disagree about the leader"),
     true,
   );
+});
+
+test("topologyGate refuses an even control plane and says a single one is degraded", () => {
+  const even = topologyGate(2);
+  assertEquals(even.ok, false);
+  assertEquals(even.detail.includes("permits only 1, 3, 5, 7"), true);
+
+  const single = topologyGate(1);
+  assertEquals(single.ok, true);
+  assertEquals(single.detail.includes("DEGRADED"), true);
+
+  const three = topologyGate(3);
+  assertEquals(three.ok, true);
+  assertEquals(three.detail.includes("DEGRADED"), false);
 });
 
 // ----------------------------------------------------------------------------
