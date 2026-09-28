@@ -1176,7 +1176,7 @@ Each decision should include:
 
 ### ADR-045: Argo Events runs its own JetStream; the platform bus is reachable only through a named durable pull consumer, and the trigger bus states its own weaker guarantee (2026-09-28); refines ADR-026 and applies ADR-042
 
-*Numbering note: `main` carried ADR-042 when this was written. 034 is claimed by the open deployment-DAG branch (#368), 041 by the toolchain-pins branch (#362), 043 by the bus-tenancy branch (#455) and 044 by the audit-source-collision branch (#461); all four were checked before writing rather than after merging, so this takes 045 per ADR-039. No number is reserved here.*
+*Numbering note: `main` carried ADR-042 when this was written, with 034 and 041 as open gaps. 034 is claimed by the deployment-DAG branch (#368), 041 by the RED-metric-contract branch (#433, as ADR-042's own note records), 043 by the bus-tenancy branch (#455) and 044 by the audit-source-collision branch (#461); 046 (#362) and 047 (#399) sit above. All were re-checked at this branch's head rather than at writing, so this takes 045 per ADR-039. No number is reserved here.*
 
 **Context:**
 - #464 deploys Argo Events with an `EventBus` of its own, on its own storage, in its own namespace. That is a topology decision — the platform gains a second JetStream — and it was written in a pull-request description and a `docs/event-backbone.md` section, not in this record. Under **write before meeting** the decision was therefore not yet made, and the engineer was building against an unwritten one. This ADR is that decision, written after reading the branch rather than the prose
