@@ -1176,8 +1176,10 @@ Each decision should include:
 
 ### ADR-043: Tenancy on the bus is a NATS account, a per-user subject permission and a closed `$JS.API`; the bus credential is a seam with one declaration and two backends (2026-09-28); makes ADR-026 D5 real
 
-> ADR-041 and ADR-042 are claimed by open pull requests (#433 and #362 for 041, #451 and #399 for
-> 042), so this decision takes 043. Per ADR-039 the number is claimed by merging, not by writing.
+> `main` carries ADR-042 (merged by #451) and ADR-045 when this merges. ADR-041 is still claimed by
+> two open pull requests (#433 and #362), and 044 and 049 by open branches, so this decision takes
+> 043. Per ADR-039 the number is allocated by the level-0 uniqueness gate at merge, not reserved
+> here.
 
 **Context:**
 - ADR-026 D5 says `tenant` "is a trust boundary enforced by NATS account and subject permissions, not
@@ -1319,19 +1321,36 @@ Each decision should include:
   controller process**, which holds every tenant's credential Secret at once even though each
   credential is per-tenant (D4). Short-lived JWTs and per-tenant Secrets bound what a *stolen user
   credential* reaches; neither bounds a compromised signer or a compromised controller
+- **D7a. The Argo Events bridge is a bus principal like any other, and naming it is what makes
+  ADR-045's containment enforceable.** ADR-045 merged after this ADR was drafted and rules that the
+  only legal path from the platform bus to a Sensor is a named durable pull consumer declared in
+  `charts/nats-config`. It does not say what that bridge is on the bus, and under this ADR it is a
+  `BusPrincipal` (D10) inside the tenant account, taking D6a's bind path to a NACK-pre-created
+  durable with no consumer-create grant, D5b's explicit stream bind, and D5a's ACK grant scoped to
+  its own stream and consumer. **The bridge binds a durable no other consumer shares.** ADR-045
+  claims the trigger bus "cannot move `PF_EVENTS` or `PF_AUDIT` state"; that claim is a property of
+  the bridge's permissions, not of running a second StatefulSet, because an ack on a *shared*
+  durable advances the delivery state every other reader of it depends on. A bridge sharing a
+  durable would leave the Argo Events failure domain reaching into the audit record's consumer
+  state while every subject permission still reads correct. The bridge's credential is a Secret in
+  the Argo Events namespace, which makes it one more `(component, tenant)` pair in D4's count
 - **D8. Per-account JetStream limits are mandatory, and this is where ADR-042 and this ADR have to
   agree.** v2.15.0 accepts `jetstream { max_memory, max_store, max_streams, max_consumers }` inside
   a config-file account (`opts.go`), and without it one tenant's streams exhaust the shared file
   store and every account on that peer is refused with `insufficient resources (10047)`. That is the
-  bus-wide outage ADR-042 bounds per stream, reappearing one level up. ADR-042's
-  `maxBytesBudgetFraction` sums a surface's streams against the whole store; with N accounts the sum
-  is over N tenants' stream sets, so the budget rule moves to the account: per-stream `maxBytes`
-  sums below its **account's** `max_store`, and the accounts sum below the store with headroom.
-  ADR-042 is not yet merged (open on #451/#399, with `maxBytesBudgetFraction` landing via
-  [MCAA-362](/MCAA/issues/MCAA-362)), so this is a forward constraint on it rather than a
-  description of `main`: whichever of the two merges second reconciles the arithmetic, and the
-  second tenant cannot be onboarded until it does. Note also that storage limits bound storage
-  only — CPU, connection count and shared-node contention stay shared-server residual risk
+  bus-wide outage ADR-042 bounds per stream, reappearing one level up. **ADR-042 is now merged
+  (#451), so this is a constraint on shipped behaviour rather than a forward note on a draft.** Its
+  `maxBytesBudgetFraction` caps a surface's summed `max_bytes` at 75% of the whole file store and
+  the chart refuses to render above it. That denominator is correct for exactly one account and
+  wrong at the second: applied unchanged, it measures every tenant's streams against the whole
+  store, so it passes a configuration in which one account is overcommitted against its own
+  `max_store` and admits the 10047 refusal the gate exists to prevent. The budget rule therefore
+  moves down a level — per-stream `maxBytes` sums below its **account's** `max_store`, and the
+  account `max_store` values sum below the store ceiling with headroom. Homelab's single account
+  makes the two arithmetics identical today, which is exactly why the discrepancy is invisible
+  until a second account exists; reconciling the gate is owed by this ADR's implementation and
+  gates onboarding the second tenant. Note also that storage limits bound storage only — CPU,
+  connection count and shared-node contention stay shared-server residual risk
 - **D9. The monitoring port is outside the account boundary, and the contract says so rather than
   letting a reader assume otherwise.** `config.monitor` defaults to enabled on port 8222 in chart
   2.15.0, TLS is off, and the v2.15.0 handlers apply no tenant authorization: `/jsz` reports across
