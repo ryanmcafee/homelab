@@ -987,11 +987,11 @@ spec:
             tag: "v1.102.1"
           resources:
             limits:
-              cpu: 500m
-              memory: 512Mi
+              cpu: "1"
+              memory: 1536Mi
             requests:
               cpu: 50m
-              memory: 128Mi
+              memory: 256Mi
         gateway:
           image:
             tag: "v1.102.1"
