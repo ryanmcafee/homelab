@@ -149,6 +149,9 @@ async function baseline(): Promise<void> {
     "referenced gateway Secret exists; contents not logged",
   );
   const p = pod();
+  console.log(
+    `ENV context=${context} namespace=${ns} pod=${p.metadata.name} image=${p.spec.containers.find((c: Obj) => c.name === "openclaw").image}`,
+  );
   check(ready(p), `pod/${p.metadata.name} Ready=True`);
   const oauth = p.spec.containers
     .find((c: Obj) => c.name === "openclaw")
@@ -298,13 +301,23 @@ async function security(): Promise<void> {
   );
   console.log(`INSPECTED ${routes.length} HTTPRoutes across all namespaces`);
   for (const route of routes) {
-    const target = route.spec.rules?.some((r: Obj) =>
-      r.backendRefs?.some(
-        (b: Obj) =>
-          (b.namespace ?? route.metadata.namespace) === ns &&
-          (b.kind ?? "Service") === "Service" &&
-          services.includes(b.name),
-      ),
+    const refs: Obj[] = [];
+    // Include RequestMirror backendRef and backend-level filters, not only rules.backendRefs.
+    function collect(value: unknown): void {
+      if (!value || typeof value !== "object") return;
+      for (const [key, child] of Object.entries(value)) {
+        if (key === "backendRef" && child && typeof child === "object")
+          refs.push(child as Obj);
+        if (key === "backendRefs" && Array.isArray(child)) refs.push(...child);
+        collect(child);
+      }
+    }
+    collect(route.spec);
+    const target = refs.some(
+      (b: Obj) =>
+        (b.namespace ?? route.metadata.namespace) === ns &&
+        (b.kind ?? "Service") === "Service" &&
+        services.includes(b.name),
     );
     check(
       !target,
@@ -323,6 +336,24 @@ async function security(): Promise<void> {
   }
 }
 async function smoke(): Promise<void> {
+  // First-attempt probe adds headers/body to the helper's status-only contract.
+  // Evaluate and return only a boolean exit code; no body or credential output.
+  const p = pod();
+  k([
+    "exec",
+    "-n",
+    ns,
+    p.metadata.name,
+    "-c",
+    "openclaw",
+    "--",
+    "node",
+    "-e",
+    "(async()=>{const r=await fetch('http://openclaw.openclaw.svc.cluster.local:18789/healthz',{signal:AbortSignal.timeout(10000)});const body=await r.json();process.exit(r.status===200&&r.headers.get('content-type')?.includes('application/json')&&r.headers.get('cache-control')==='no-store'&&body.ok===true?0:1)})().catch(()=>process.exit(1))",
+  ]);
+  console.log(
+    "PASS first-attempt HTTP /healthz: 200, application/json, Cache-Control no-store, body.ok=true; TLS not offered on internal HTTP service",
+  );
   const parent = get("applications", "applications", "argocd");
   const results = parent.status?.operationState?.syncResult?.resources ?? [];
   check(

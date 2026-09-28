@@ -42,7 +42,8 @@ task verify LEVEL=2
   and reconvergence only; it does not prove a provider accepted that key.
 - This suite does not verify an HTTPS surface: the service intentionally has no Gateway route.
   The helper probes plain in-cluster HTTP `/healthz`, asserting the helper's status-only contract;
-  it does not assert a JSON body or TLS certificate that endpoint does not provide.
+  a separate first-attempt probe asserts JSON content type, Cache-Control no-store and body.ok=true.
+  TLS validity is not applicable to this plain HTTP endpoint.
 - `wait` reports observation counts for asynchronous convergence; it never retries an entire failed
   test. The helper's curl includes retries, so HTTP success is not evidence of first-attempt success.
   Record that limitation and any CI rerun when issuing a verdict.
