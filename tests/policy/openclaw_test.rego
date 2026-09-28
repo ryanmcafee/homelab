@@ -130,3 +130,99 @@ test_exempt_envfrom if {
 	})
 	count(deny) == 0 with input as obj
 }
+
+# operator_app(values) is the operator Application carrying `values` as its
+# inline helm values string, the shape charts/applications renders.
+operator_app(values) := {
+	"apiVersion": "argoproj.io/v1alpha1",
+	"kind": "Application",
+	"metadata": {"name": "openclaw-operator", "namespace": "argocd"},
+	"spec": {
+		"source": {"chart": "openclaw-operator", "helm": {"values": values}},
+		"destination": {"namespace": "openclaw-system"},
+	},
+}
+
+test_operator_without_watch_namespaces_fails if {
+	some m in deny with input as operator_app("crds:\n  install: true\n")
+	startswith(m, "[openclaw-operator-scope]")
+}
+
+test_operator_with_empty_watch_namespaces_fails if {
+	some m in deny with input as operator_app("watchNamespaces: []\n")
+	startswith(m, "[openclaw-operator-scope]")
+}
+
+# A list holding only blanks is cluster-wide to the chart too: `join ","` on it
+# renders --watch-namespaces= , which the manager reads as unset.
+test_operator_with_blank_watch_namespace_fails if {
+	some m in deny with input as operator_app("watchNamespaces:\n  - \"\"\n")
+	startswith(m, "[openclaw-operator-scope]")
+}
+
+test_operator_scoped_to_instance_namespace_passes if {
+	count(deny) == 0 with input as operator_app("watchNamespaces:\n  - openclaw\n")
+}
+
+# The rule keys on the chart name, not on the Application's own name: a
+# different upstream chart declaring no watchNamespaces is not this defect.
+test_other_chart_application_ignored if {
+	obj := object.union(operator_app("crds:\n  install: true\n"), {"spec": {
+		"source": {"chart": "cilium", "helm": {"values": "crds:\n  install: true\n"}},
+		"destination": {"namespace": "kube-system"},
+	}})
+	count(deny) == 0 with input as obj
+}
+
+routed_instance(gateway) := object.union(default_instance, {"spec": object.union(
+	default_instance.spec,
+	{"networking": {"httpRoute": {
+		"enabled": true,
+		"parentRefs": [{"name": gateway, "namespace": "envoy-gateway-system", "sectionName": "https"}],
+	}}},
+)})
+
+test_instance_routed_to_internal_gateway_fails if {
+	some m in deny with input as routed_instance("envoy-internal")
+	startswith(m, "[openclaw-shared-route]")
+}
+
+# A route the chart renders as disabled keeps its parentRefs in the values but
+# never reaches the cluster, so the gateway name alone must not flag.
+test_instance_with_disabled_route_passes if {
+	obj := object.union(default_instance, {"spec": object.union(
+		default_instance.spec,
+		{"networking": {"httpRoute": {
+			"enabled": false,
+			"parentRefs": [{"name": "envoy-internal", "namespace": "envoy-gateway-system"}],
+		}}},
+	)})
+	count(deny) == 0 with input as obj
+}
+
+# A dedicated tailnet Gateway is the endpoint this rule is steering toward, so
+# it must not be caught by it.
+test_instance_routed_to_tailnet_gateway_passes if {
+	count(deny) == 0 with input as routed_instance("envoy-tailnet")
+}
+
+instance_app(route) := {
+	"apiVersion": "argoproj.io/v1alpha1",
+	"kind": "Application",
+	"metadata": {"name": "openclaw", "namespace": "argocd"},
+	"spec": {
+		"source": {"path": "charts/openclaw", "helm": {"valuesObject": {"route": route}}},
+		"destination": {"namespace": "openclaw"},
+	},
+}
+
+test_instance_app_routed_to_internal_gateway_fails if {
+	route := {"enabled": true, "gateway": {"name": "envoy-internal", "namespace": "envoy-gateway-system"}}
+	some m in deny with input as instance_app(route)
+	startswith(m, "[openclaw-shared-route]")
+}
+
+test_instance_app_with_disabled_route_passes if {
+	route := {"enabled": false, "gateway": {"name": "envoy-internal", "namespace": "envoy-gateway-system"}}
+	count(deny) == 0 with input as instance_app(route)
+}

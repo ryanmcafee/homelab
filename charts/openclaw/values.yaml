@@ -97,13 +97,16 @@ persistence:
 service:
   type: ClusterIP
 
-# HTTPRoute (spec.networking.httpRoute) on the https listener of the internal
-# Gateway, which terminates TLS; the parent passes GATEWAY_INTERNAL/GATEWAY_NAMESPACE.
-# The internal Gateway is LAN/tailnet only — there is deliberately no route on
-# the external Gateway: an OpenClaw gateway holding a Claude subscription token
-# is not something to expose publicly without oauth2-proxy in front.
+# HTTPRoute (spec.networking.httpRoute) on the https listener of a Gateway that
+# terminates TLS; the parent passes GATEWAY_INTERNAL/GATEWAY_NAMESPACE.
+# Off by default: the internal Gateway reaches the whole LAN as well as the
+# tailnet (configuration/templates/helm-addons.tmpl gateways.internal), and an
+# OpenClaw gateway holding a Claude subscription token is not something to put
+# on the LAN behind a bearer token alone. Enabling it is a deliberate choice;
+# a tailnet-only endpoint is tracked separately. There is no route on the
+# external Gateway either, which would need oauth2-proxy in front.
 route:
-  enabled: true
+  enabled: false
   gateway:
     name: envoy-internal
     namespace: envoy-gateway-system
