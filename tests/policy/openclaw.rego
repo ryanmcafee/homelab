@@ -166,3 +166,58 @@ deny contains msg if {
 	object.get(object.get(route, "gateway", {}), "name", "") == lib.gateway_internal
 	msg := sprintf("[openclaw-shared-route] %s: inline values route.enabled attaches to the shared %s Gateway, which serves the LAN as well as the tailnet; OpenClaw's exposure requirement is tailnet-only", [lib.id(input), lib.gateway_internal])
 }
+
+# shared_proxy_tag is the operator's proxyConfig.defaultTags, which the subnet
+# router also carries. A device that inherits it is covered by every grant
+# written for the subnet router.
+shared_proxy_tag := "tag:k8s"
+
+ingress := object.get(input, ["spec", "networking", "ingress"], {})
+
+ingress_enabled if {
+	object.get(ingress, "enabled", false) == true
+}
+
+# The third clause of openclaw-shared-route: the CRD offers an Ingress as well as
+# an HTTPRoute, and every IngressClass in this repo other than the Tailscale
+# operator's is fronted by a LAN-reachable controller. Closing only the Gateway
+# API path would leave the same exposure one field away.
+deny contains msg if {
+	is_instance
+	not lib.is_exempt(input, "openclaw-shared-route")
+	ingress_enabled
+	class := object.get(ingress, "className", "")
+	class != lib.tailnet_ingress_class
+	msg := sprintf("[openclaw-shared-route] %s: ingress className %q is not the tailnet-only %q class, so the Control UI is served by a LAN-reachable controller; OpenClaw's exposure requirement is tailnet-only", [lib.id(input), class, lib.tailnet_ingress_class])
+}
+
+# openclaw-lan-reachable: the Service is the exposure the route does not control.
+# A LoadBalancer or NodePort Service answers port 18789 on a LAN address whatever
+# the Ingress says, so the tailnet boundary only holds while this stays ClusterIP.
+deny contains msg if {
+	is_instance
+	not lib.is_exempt(input, "openclaw-lan-reachable")
+	type := object.get(input, ["spec", "networking", "service", "type"], "ClusterIP")
+	type != "ClusterIP"
+	msg := sprintf("[openclaw-lan-reachable] %s: Service type %s publishes the gateway port on a LAN address regardless of the Ingress; the Control UI's exposure requirement is tailnet-only, so the Service stays ClusterIP", [lib.id(input), type])
+}
+
+# openclaw-untagged-tailnet: the tailnet is a perimeter, not an authorization
+# decision -- every device on it reaches every other unless a grant says
+# otherwise. The proxy's own tag is what a grant can name, so an Ingress that
+# does not set one, or that inherits the subnet router's shared tag, has a
+# tailnet-wide Control UI behind the bearer token alone.
+deny contains msg if {
+	is_instance
+	not lib.is_exempt(input, "openclaw-untagged-tailnet")
+	ingress_enabled
+	object.get(ingress, "className", "") == lib.tailnet_ingress_class
+	tag := object.get(ingress, ["annotations", "tailscale.com/tags"], "")
+	not tag_scoped(tag)
+	msg := sprintf("[openclaw-untagged-tailnet] %s: tailnet ingress carries tailscale.com/tags %q; it needs its own tag (not the shared %s) for the tailnet policy to scope who may reach the Control UI", [lib.id(input), tag, shared_proxy_tag])
+}
+
+tag_scoped(tag) if {
+	startswith(tag, "tag:")
+	tag != shared_proxy_tag
+}

@@ -100,14 +100,45 @@ spec:
       hostnames:
         - {{ .Values.hostname }}
     {{- end }}
+    {{- if .Values.tailnet.enabled }}
+    # Tailnet-only Ingress. The Tailscale operator turns this into a proxy that
+    # joins the tailnet as `tailscale.com/hostname` tagged with
+    # `tailscale.com/tags`; the tailnet policy grant for that tag is what decides
+    # who may reach it (docs/runbooks/openclaw-tailnet-access.md).
+    {{- $tailnetHost := required "tailnet.hostname is required when tailnet.enabled: the MagicDNS name the Control UI answers on (OPENCLAW_TAILNET_HOSTNAME)" .Values.tailnet.hostname }}
+    {{- $tailnetTag := required "tailnet.tag is required when tailnet.enabled: without its own ACL tag the proxy inherits tag:k8s and every subnet-router grant reaches it (OPENCLAW_TAILNET_TAG)" .Values.tailnet.tag }}
+    ingress:
+      enabled: true
+      className: {{ .Values.tailnet.ingressClassName }}
+      annotations:
+        tailscale.com/hostname: {{ $tailnetHost | splitList "." | first }}
+        tailscale.com/tags: {{ $tailnetTag }}
+      hosts:
+        - host: {{ $tailnetHost }}
+          paths:
+            - path: /
+              pathType: Prefix
+      # The operator provisions the tailnet certificate for this name itself; no
+      # secretName, so nothing here depends on cert-manager or a public zone.
+      tls:
+        - hosts:
+            - {{ $tailnetHost }}
+    {{- end }}
   security:
     networkPolicy:
       enabled: {{ .Values.security.networkPolicy.enabled }}
+      {{- $ingressNamespaces := list }}
       {{- if .Values.route.enabled }}
-      # The default policy allows same-namespace ingress only, so the Gateway's
-      # namespace has to be named or the HTTPRoute backend is unreachable.
+      {{- $ingressNamespaces = append $ingressNamespaces .Values.route.gateway.namespace }}
+      {{- end }}
+      {{- if .Values.tailnet.enabled }}
+      {{- $ingressNamespaces = append $ingressNamespaces .Values.tailnet.proxyNamespace }}
+      {{- end }}
+      {{- with $ingressNamespaces | uniq }}
+      # The default policy allows same-namespace ingress only, so whatever fronts
+      # the instance has to be named or its backend is unreachable.
       allowedIngressNamespaces:
-        - {{ .Values.route.gateway.namespace }}
+        {{- toYaml . | nindent 8 }}
       {{- end }}
   observability:
     metrics:
