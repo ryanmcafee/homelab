@@ -156,6 +156,9 @@ jobs:
       - name: Install script dependencies from bun.lock
         run: bun install --frozen-lockfile
 
+      - name: Contract compatibility (contracts/events vs baseline)
+        run: task contracts:check
+
       - name: Tool versions
         run: argocd version --client
 
@@ -185,13 +188,6 @@ jobs:
           task test:scripts
           task triage-agent:lint
           task test:triage-agent
-
-      # The event contract diffed against its frozen baseline (ADR-026,
-      # ADR-030). test:scripts above runs the same rules via collectViolations;
-      # this step is the reviewer-visible name for that verdict and the command
-      # a developer reproduces locally.
-      - name: Contract compatibility (contracts/events vs baseline)
-        run: task contracts:check
 
       # The README badge row, the tables in docs/ and the counts drawn into
       # .github/homelab.svg are computed from versions.yaml, the chart
