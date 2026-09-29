@@ -591,6 +591,7 @@ var committedSafeHosts = []string{
 	"quay.io",
 	"gcr.io",
 	"registry.k8s.io",
+	"lscr.io",
 
 	// AWS's public registry, and the default redis repository of the pinned
 	// argo-cd chart (9.7.1: ecr-public.aws.com/docker/library/redis). The
