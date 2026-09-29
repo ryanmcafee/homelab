@@ -206,7 +206,7 @@ func ADRRecord(repoRoot string) []Check {
 		fmt.Sprintf("%d ADRs, no duplicate number", len(headings)))
 	if len(duplicates) > 0 {
 		unique = FailCheck("decisions/adr-numbers", start,
-			"an ADR number names one decision, so two headings with the same number make every citation of it ambiguous. The number belongs to whichever ADR merged first: renumber the one this branch adds to "+NextFreeADR(headings, malformed)+" or later, keep its body byte-identical, and update the citations that name the old number.",
+			"an ADR number names one decision, so two headings with the same number make every citation of it ambiguous. The number belongs to whichever ADR merged first: renumber the one this branch adds, keep its body byte-identical, and update the citations that name the old number. "+NextFreeADR(headings, malformed)+" is a floor read from this file alone, not an allocation: it cannot see unmerged branches, so check the open pull requests for a number above it before you renumber.",
 			duplicates...)
 	}
 	return append(checks, format, unique)
@@ -219,7 +219,8 @@ func ADRRecord(repoRoot string) []Check {
 // sends them at the one number the record is most likely to fight them for.
 //
 // It is advice, not an allocation: another branch may merge that number first,
-// in which case this check is what says so.
+// in which case this check is what says so. It stays file-local deliberately;
+// reading other refs would make a level-0 check depend on fetch state.
 func NextFreeADR(headings []ADRHeading, malformed []MalformedHeading) string {
 	max := 0
 	for _, h := range headings {
