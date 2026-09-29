@@ -4,15 +4,18 @@ name: Fork path (cold, uncached)
 # fork-ability contract in docs/contracts/fork-ability.md, check 3).
 #
 # tilt-ci.yml already proves the Kind + ArgoCD loop converges, but it proves it
-# for `task localdev:ci` — a different entry point — with a restored registry
-# pull-through cache. Three things the readme promises were therefore never
-# executed anywhere:
+# for `task localdev:ci` — a different entry point. Two things the readme
+# promises were therefore never executed anywhere:
 #
 #   1. `task localdev:up`   the readme's first command, the "fork and boot with
 #                           one command" headline. Never run by any workflow.
 #   2. `task localdev:down` never run by any workflow, so teardown was asserted.
-#   3. a cold clock          tilt-ci restores `kind-registry-*`, so its 22-28 min
-#                           is a lower bound, not what a stranger experiences.
+#
+# This job was also created on the premise that tilt-ci's duration is a warm
+# lower bound. That premise is unsupported: tilt-ci's `kind-registry-*` restore
+# misses on every run sampled so far (homelab#512), so both sides are cold and
+# neither number is a cached measurement. Do not publish a cold-vs-cached claim
+# from these runs — see the Summary step.
 #
 # This workflow runs the readme's three commands verbatim, in order, on a runner
 # with NO cache restore of any kind, and publishes the wall clock. There is
@@ -30,11 +33,11 @@ name: Fork path (cold, uncached)
 #                       plus `task localdev:wait` (see its step comment) and an
 #                       assertion that the cluster is actually gone afterwards.
 #
-# Cost: a cold, uncached level-2-sized loop pulls every image from upstream and
-# is expected to take substantially longer than tilt-ci's cached run. It is NOT
-# on the critical path of ordinary pull requests: it runs on demand, weekly, and
-# on a pull request that changes this file (so the workflow is never shipped
-# without having been executed once — the same bar the docs are held to).
+# Cost: a cold, uncached level-2-sized loop pulls every image from upstream;
+# observed 18m55s and 21m03s for up + wait. It is NOT on the critical path of
+# ordinary pull requests: it runs on demand, weekly, and on a pull request that
+# changes this file (so the workflow is never shipped without having been
+# executed once — the same bar the docs are held to).
 #
 # Tool pins come from mise.toml through jdx/mise-action, matching tilt-ci.yml.
 
@@ -191,11 +194,12 @@ jobs:
           task localdev:up
           echo "seconds=$(( $(date +%s) - start ))" >> "$GITHUB_OUTPUT"
 
-      # Not a readme command, and that gap is the point: the readme's line for
-      # localdev:up says "all 87 Applications synced", but the command it
-      # documents does not wait for Healthy — tilt-ci gets that from
-      # localdev:ci, which appends localdev:wait. Timed separately so the readme's
-      # claim and the readme's command can be compared honestly.
+      # Not a readme command, and that gap is the point: the readme's localdev:up
+      # line claims a count of Applications synced, but the command it documents
+      # does not wait for Healthy — tilt-ci gets that from localdev:ci, which
+      # appends localdev:wait. Timed separately so the readme's claim and the
+      # readme's command can be compared honestly. The count itself is asserted
+      # against the committed snapshot by scripts/docs-check.ts.
       - name: 'task localdev:wait (the gap between the readme command and the readme claim)'
         id: wait
         run: |
@@ -210,7 +214,6 @@ jobs:
       - name: 'task localdev:report'
         id: report
         if: ${{ !cancelled() }}
-        continue-on-error: true
         run: |
           set -o pipefail
           task localdev:report | tee kind-report.md
@@ -272,9 +275,15 @@ jobs:
             echo
             echo "**Cold time to first success (up + wait, every image pulled from upstream): $(fmt "$total_s")**"
             echo
-            echo "Cite this number, not tilt-ci's: \`tilt-ci.yml\` restores a \`kind-registry-*\`"
-            echo "pull-through cache, so its duration is a lower bound rather than a newcomer's"
-            echo "experience. This job restores nothing and saves nothing."
+            echo "What this number is: one run of the readme's command scope on a runner that"
+            echo "restored no cache and saved none. \`task localdev:up\` + \`task localdev:wait\`"
+            echo "is the same work as tilt-ci's \`task localdev:ci\` (kind -> argocd -> sync ->"
+            echo "wait), so the two are directly comparable."
+            echo
+            echo "What it is not: evidence that caching helps or does not help. tilt-ci's"
+            echo "\`kind-registry-*\` restore misses on every run sampled so far (homelab#512),"
+            echo "so its runs are not warm either and no cold-vs-cached pair exists yet."
+            echo "Quote this figure as one cold measurement, not as a speedup or a penalty."
             echo
             if [ -s kind-report.md ]; then
               echo "<details><summary><code>task localdev:report</code> output</summary>"
