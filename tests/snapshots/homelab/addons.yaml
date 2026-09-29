@@ -1074,6 +1074,12 @@ spec:
       valueFiles:
         - values.yaml
         - values-homelab.yaml
+      # The 1Password item path comes from this parent's cert-manager values
+      # (configuration/ CERT_MANAGER_1P_PATH via the CMP), so a fork's key
+      # reaches the OnePasswordItem. valuesObject overrides valueFiles.
+      valuesObject:
+        cloudflare:
+          onePasswordItemPath: "vaults/homelab/items/cloudflare"
   destination:
     server: https://kubernetes.default.svc
     namespace: cert-manager
@@ -2069,6 +2075,12 @@ spec:
       valueFiles:
         - values.yaml
         - values-homelab.yaml
+      # The 1Password item path comes from this parent's democratic-csi values
+      # (configuration/ DEMOCRATIC_CSI_1P_PATH via the CMP), so a fork's key
+      # reaches the OnePasswordItem. valuesObject overrides valueFiles.
+      valuesObject:
+        truenas:
+          onePasswordItemPath: "vaults/homelab/items/truenas"
   destination:
     server: https://kubernetes.default.svc
     namespace: democratic-csi
@@ -2440,6 +2452,14 @@ spec:
       valueFiles:
         - values.yaml
         - values-homelab.yaml
+      # Both 1Password item paths come from this parent's values (configuration/
+      # EXTERNAL_DNS_1P_PATH and EXTERNAL_DNS_UNIFI_1P_PATH via the CMP), so a
+      # fork's keys reach the OnePasswordItems. valuesObject overrides valueFiles.
+      valuesObject:
+        cloudflare:
+          onePasswordItemPath: "vaults/homelab/items/cloudflare"
+        unifi:
+          onePasswordItemPath: "vaults/homelab/items/unifi"
   destination:
     server: https://kubernetes.default.svc
     namespace: external-dns
@@ -5522,6 +5542,12 @@ spec:
       valueFiles:
         - values.yaml
         - values-homelab.yaml
+      # The 1Password item path comes from this parent's tailscale-operator
+      # values (configuration/ TAILSCALE_OPERATOR_1P_PATH via the CMP), so a
+      # fork's key reaches the OnePasswordItem. valuesObject overrides valueFiles.
+      valuesObject:
+        tailscale:
+          onePasswordItemPath: "vaults/homelab/items/tailscale-operator-oauth"
   destination:
     server: https://kubernetes.default.svc
     namespace: tailscale
@@ -5664,6 +5690,12 @@ spec:
       valueFiles:
         - values.yaml
         - values-homelab.yaml
+      # The 1Password item path comes from this parent's unifi-port-forward
+      # values (configuration/ UNIFI_PORT_FORWARD_1P_PATH via the CMP), so a
+      # fork's key reaches the OnePasswordItem. valuesObject overrides valueFiles.
+      valuesObject:
+        unifi:
+          onePasswordItemPath: "vaults/homelab/items/unifi"
   destination:
     server: https://kubernetes.default.svc
     namespace: port-forwarding
