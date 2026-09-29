@@ -240,6 +240,9 @@ exporter:
   staleWakeMinutes: 30
   staleWakeIntervalSeconds: 300
   staleWakeMaxIssues: 200
+  # A dropped sandbox leaves the run row running, so a heartbeat older than this
+  # is what marks an agent phantom rather than the run row alone.
+  phantomStaleSeconds: 1800
   resources:
     requests:
       cpu: 10m
