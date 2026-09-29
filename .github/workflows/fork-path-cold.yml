@@ -12,10 +12,11 @@ name: Fork path (cold, uncached)
 #   2. `task localdev:down` never run by any workflow, so teardown was asserted.
 #
 # This job was also created on the premise that tilt-ci's duration is a warm
-# lower bound. That premise is unsupported: tilt-ci's `kind-registry-*` restore
-# misses on every run sampled so far (homelab#512), so both sides are cold and
-# neither number is a cached measurement. Do not publish a cold-vs-cached claim
-# from these runs — see the Summary step.
+# lower bound. That premise is unsupported, on two independent grounds:
+# tilt-ci's `kind-registry-*` restore misses on every run sampled so far
+# (homelab#512), so its runs are not warm; and `localdev:ci` runs `test:e2e`
+# after wait, so it times strictly more work than this job does. Do not publish
+# a cold-vs-cached claim from these runs — see the Summary step.
 #
 # This workflow runs the readme's three commands verbatim, in order, on a runner
 # with NO cache restore of any kind, and publishes the wall clock. There is
@@ -276,14 +277,15 @@ jobs:
             echo "**Cold time to first success (up + wait, every image pulled from upstream): $(fmt "$total_s")**"
             echo
             echo "What this number is: one run of the readme's command scope on a runner that"
-            echo "restored no cache and saved none. \`task localdev:up\` + \`task localdev:wait\`"
-            echo "is the same work as tilt-ci's \`task localdev:ci\` (kind -> argocd -> sync ->"
-            echo "wait), so the two are directly comparable."
+            echo "restored no cache and saved none."
             echo
-            echo "What it is not: evidence that caching helps or does not help. tilt-ci's"
-            echo "\`kind-registry-*\` restore misses on every run sampled so far (homelab#512),"
-            echo "so its runs are not warm either and no cold-vs-cached pair exists yet."
-            echo "Quote this figure as one cold measurement, not as a speedup or a penalty."
+            echo "What it is not: a figure comparable to tilt-ci's, for two independent reasons."
+            echo "Scope — tilt-ci times \`task localdev:ci\`, which is kind -> argocd -> sync ->"
+            echo "wait **plus \`test:e2e\`**; this job stops after wait, so tilt-ci is timing"
+            echo "strictly more work. Warmth — tilt-ci's \`kind-registry-*\` restore misses on"
+            echo "every run sampled so far (homelab#512), so its runs are not warm either."
+            echo "No cold-vs-cached pair exists yet. Quote this figure as one cold measurement"
+            echo "of up + wait, not as a speedup or a penalty against tilt-ci."
             echo
             if [ -s kind-report.md ]; then
               echo "<details><summary><code>task localdev:report</code> output</summary>"
