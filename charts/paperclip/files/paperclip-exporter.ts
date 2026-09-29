@@ -5,7 +5,7 @@
  * On every GET /metrics it reads the Paperclip REST API with a board API key
  * and reports, per active company: runs finished in the last RUN_WINDOW_SECONDS
  * by status and error code, agents by status, live runs, agents that report
- * `running` without a live run ("phantom"), the latest week of
+ * `running` without a credible live run ("phantom"), the latest week of
  * recovery-observability, and open issues stranded behind an unfinished wake
  * record. paperclip_up is 0 when any request fails.
  *
@@ -22,6 +22,8 @@
  *   STALE_WAKE_MINUTES   a claimed wake older than this is stale (default 30)
  *   STALE_WAKE_INTERVAL_SECONDS  seconds between wake sweeps (default 300)
  *   STALE_WAKE_MAX_ISSUES        issues read per sweep (default 200)
+ *   PHANTOM_STALE_SECONDS        an agent heartbeat older than this is not
+ *                                credible evidence of life (default 1800)
  */
 
 export const TERMINAL_STATUSES = [
@@ -60,6 +62,7 @@ export interface Run {
 export interface Agent {
   id: string;
   status: string;
+  lastHeartbeatAt: string | null;
 }
 export interface LiveRun {
   id: string | null;
@@ -126,6 +129,7 @@ export interface ExporterConfig {
   staleWakeMinutes: number;
   staleWakeIntervalSeconds: number;
   staleWakeMaxIssues: number;
+  phantomStaleSeconds: number;
 }
 export type Logger = (msg: string) => void;
 
@@ -180,6 +184,7 @@ export function parseAgents(json: unknown): Agent[] {
   return records(json, "agents").map((a) => ({
     id: requireString(a, "id", "agents"),
     status: requireString(a, "status", "agents"),
+    lastHeartbeatAt: str(a["lastHeartbeatAt"]),
   }));
 }
 
@@ -268,10 +273,27 @@ function countBy<T>(items: T[], key: (item: T) => string | null) {
   return counts;
 }
 
+/**
+ * A dead run can keep `heartbeat_runs.status = "running"`, so a live run row is
+ * not evidence the agent is working. `lastHeartbeatAt` is not falsified by the
+ * stall, so an agent whose heartbeat has gone quiet is phantom even with one.
+ */
+export function heartbeatStale(
+  agent: Agent,
+  now: number,
+  staleSeconds: number,
+): boolean {
+  if (agent.lastHeartbeatAt === null) return true;
+  const at = Date.parse(agent.lastHeartbeatAt);
+  if (Number.isNaN(at)) return true;
+  return now - at > staleSeconds * 1000;
+}
+
 export function summarize(
   data: { runs: Run[]; agents: Agent[]; liveRuns: LiveRun[] },
   now: number,
   windowSeconds: number,
+  phantomStaleSeconds: number,
 ): Summary {
   const since = now - windowSeconds * 1000;
   const finished = data.runs.filter((r) => {
@@ -307,7 +329,10 @@ export function summarize(
     agentsByStatus: countBy(data.agents, (a) => a.status),
     liveRuns: liveRunIds.size + liveWithoutId,
     phantomRunning: data.agents.filter(
-      (a) => a.status === "running" && !agentsWithLiveRun.has(a.id),
+      (a) =>
+        a.status === "running" &&
+        (!agentsWithLiveRun.has(a.id) ||
+          heartbeatStale(a, now, phantomStaleSeconds)),
     ).length,
   };
 }
@@ -365,7 +390,7 @@ export function renderMetrics(result: ScrapeResult): string {
   const agents = family("paperclip_agents", "Agents by status.");
   const phantom = family(
     "paperclip_agents_phantom_running",
-    "Agents with status running but no live run.",
+    "Agents with status running and no credible live run (a dead run row can stay running, so a stale heartbeat counts).",
   );
   const rate = family(
     "paperclip_recovery_rate_percent",
@@ -561,6 +586,7 @@ async function collectCompany(
       },
       now,
       cfg.windowSeconds,
+      cfg.phantomStaleSeconds,
     ),
     recovery: parseRecovery(recovery),
     wakeSweep: await cachedSweep(
@@ -680,6 +706,7 @@ export function readConfig(
     staleWakeMinutes: intEnv(env, "STALE_WAKE_MINUTES", 30),
     staleWakeIntervalSeconds: intEnv(env, "STALE_WAKE_INTERVAL_SECONDS", 300),
     staleWakeMaxIssues: intEnv(env, "STALE_WAKE_MAX_ISSUES", 200),
+    phantomStaleSeconds: intEnv(env, "PHANTOM_STALE_SECONDS", 1800),
   };
 }
 

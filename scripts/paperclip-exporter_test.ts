@@ -10,6 +10,7 @@ import { afterAll, beforeAll, test } from "bun:test";
 import {
   collect,
   type ExporterConfig,
+  heartbeatStale,
   isStrandedByWake,
   parseAgents,
   parseCompanies,
@@ -64,10 +65,13 @@ const RUNS = [
   },
 ];
 
+const FRESH_HEARTBEAT = "2026-09-25T03:58:00Z";
+const PHANTOM_STALE = 1800;
+
 const AGENTS = [
-  { id: "a1", status: "running" },
-  { id: "a2", status: "running" },
-  { id: "a3", status: "idle" },
+  { id: "a1", status: "running", lastHeartbeatAt: FRESH_HEARTBEAT },
+  { id: "a2", status: "running", lastHeartbeatAt: FRESH_HEARTBEAT },
+  { id: "a3", status: "idle", lastHeartbeatAt: FRESH_HEARTBEAT },
 ];
 
 const LIVE_RUNS = [{ id: "live-run-1", agentId: "a1", status: "running" }];
@@ -187,6 +191,7 @@ function config(overrides: Partial<ExporterConfig> = {}): ExporterConfig {
     staleWakeMinutes: 30,
     staleWakeIntervalSeconds: 300,
     staleWakeMaxIssues: 200,
+    phantomStaleSeconds: PHANTOM_STALE,
     ...overrides,
   };
 }
@@ -233,6 +238,7 @@ test("summarize counts runs finished inside the window by status and error code"
     },
     NOW,
     HOUR,
+    PHANTOM_STALE,
   );
   assertEquals(summary.finishedByStatus, {
     succeeded: 2,
@@ -257,6 +263,7 @@ test("summarize counts agents by status and running agents without a live run as
     },
     NOW,
     HOUR,
+    PHANTOM_STALE,
   );
   assertEquals(summary.agentsByStatus, { running: 2, idle: 1 });
   assertEquals(summary.liveRuns, 1);
@@ -282,6 +289,7 @@ test("summarize does not count a running agent as phantom when its live run is o
     },
     NOW,
     HOUR,
+    PHANTOM_STALE,
   );
   assertEquals(summary.phantomRunning, 0);
   assertEquals(summary.liveRuns, 52);
@@ -294,6 +302,7 @@ test("summarize ignores heartbeat-runs without an agentId when looking for live 
     { runs, agents: parseAgents(AGENTS), liveRuns: parseLiveRuns(LIVE_RUNS) },
     NOW,
     HOUR,
+    PHANTOM_STALE,
   );
   assertEquals(summary.phantomRunning, 1);
 });
@@ -317,6 +326,7 @@ test("summarize does not call an agent phantom when only heartbeat-runs shows it
     },
     NOW,
     HOUR,
+    PHANTOM_STALE,
   );
   assertEquals(truncated.phantomRunning, 1);
 
@@ -328,9 +338,91 @@ test("summarize does not call an agent phantom when only heartbeat-runs shows it
     },
     NOW,
     HOUR,
+    PHANTOM_STALE,
   );
   assertEquals(widened.phantomRunning, 0);
   assertEquals(widened.liveRuns, 2);
+});
+
+// The 2026-09-24 outage signature. A dropped sandbox leaves
+// heartbeat_runs.status = "running", so every stranded agent still appears to
+// own a live run and a run-status-only phantom test reports zero while the
+// board is deadlocked. lastHeartbeatAt is not falsified by the stall, so it is
+// the field that still separates a working agent from a stranded one.
+const STRANDED_AGENTS = [
+  // Observed: status running, heartbeat never, a live run row present.
+  { id: "s1", status: "running", lastHeartbeatAt: null },
+  // Observed: status running, heartbeat 25.3 h old, a live run row present.
+  { id: "s2", status: "running", lastHeartbeatAt: "2026-09-24T02:42:00Z" },
+  // A genuinely working agent, mid-turn, with the same run-row shape.
+  { id: "s3", status: "running", lastHeartbeatAt: FRESH_HEARTBEAT },
+];
+const STRANDED_LIVE_RUNS = [
+  { id: "run-s1", agentId: "s1", status: "running" },
+  { id: "run-s2", agentId: "s2", status: "running" },
+  { id: "run-s3", agentId: "s3", status: "running" },
+];
+
+test("summarize counts a stranded agent as phantom even though its dead run row still says running", () => {
+  const summary = summarize(
+    {
+      runs: [],
+      agents: parseAgents(STRANDED_AGENTS),
+      liveRuns: parseLiveRuns(STRANDED_LIVE_RUNS),
+    },
+    NOW,
+    HOUR,
+    PHANTOM_STALE,
+  );
+  // s1 (no heartbeat) and s2 (25 h stale) are phantom; s3 is mid-turn.
+  assertEquals(summary.phantomRunning, 2);
+});
+
+test("summarize does not call a mid-turn agent phantom just because its turn is long", () => {
+  // A legitimate turn that has run for 20 min, under the 30 min default floor.
+  const busy = [
+    { id: "b1", status: "running", lastHeartbeatAt: "2026-09-25T03:40:00Z" },
+  ];
+  const summary = summarize(
+    {
+      runs: [],
+      agents: parseAgents(busy),
+      liveRuns: parseLiveRuns([
+        { id: "run-b1", agentId: "b1", status: "running" },
+      ]),
+    },
+    NOW,
+    HOUR,
+    PHANTOM_STALE,
+  );
+  assertEquals(summary.phantomRunning, 0);
+});
+
+test("heartbeatStale treats a missing and an unparseable timestamp as stale", () => {
+  assertEquals(
+    heartbeatStale(
+      { id: "x", status: "running", lastHeartbeatAt: null },
+      NOW,
+      PHANTOM_STALE,
+    ),
+    true,
+  );
+  assertEquals(
+    heartbeatStale(
+      { id: "x", status: "running", lastHeartbeatAt: "not-a-date" },
+      NOW,
+      PHANTOM_STALE,
+    ),
+    true,
+  );
+  assertEquals(
+    heartbeatStale(
+      { id: "x", status: "running", lastHeartbeatAt: FRESH_HEARTBEAT },
+      NOW,
+      PHANTOM_STALE,
+    ),
+    false,
+  );
 });
 
 test("summarize counts a run present in both sources once", () => {
@@ -349,6 +441,7 @@ test("summarize counts a run present in both sources once", () => {
     },
     NOW,
     HOUR,
+    PHANTOM_STALE,
   );
   assertEquals(summary.liveRuns, 1);
 });
@@ -658,6 +751,7 @@ test("readConfig applies the stale-wake defaults", () => {
   assertEquals(cfg.staleWakeMinutes, 30);
   assertEquals(cfg.staleWakeIntervalSeconds, 300);
   assertEquals(cfg.staleWakeMaxIssues, 200);
+  assertEquals(cfg.phantomStaleSeconds, 1800);
   assertThrows(
     () =>
       readConfig({
