@@ -219,6 +219,20 @@ jobs:
           set -o pipefail
           task localdev:report | tee kind-report.md
 
+      # Must precede localdev:down, which deletes the cluster on every outcome.
+      # Ordered after teardown these commands only ever printed "context does not
+      # exist", so a failed boot reported no cause at all.
+      - name: Diagnostics
+        if: failure()
+        run: |
+          task localdev:diagnose || true
+          kubectl --context "$KIND_CONTEXT" -n argocd get applications.argoproj.io -o wide || true
+          kubectl --context "$KIND_CONTEXT" get pods -A -o wide || true
+          # A pod stuck Pending/ImagePullBackOff reports a state; only events and
+          # describe say why, and both die with the cluster.
+          kubectl --context "$KIND_CONTEXT" get events -A --sort-by=.lastTimestamp || true
+          kubectl --context "$KIND_CONTEXT" describe pods -A || true
+
       # readme.md, third command. Runs even when something above failed: a
       # teardown that only works after a clean run is not a teardown.
       - name: 'task localdev:down'
@@ -244,13 +258,6 @@ jobs:
           if kubectl config get-contexts -o name 2>/dev/null | grep -qx "$KIND_CONTEXT"; then
             echo "::warning::the cluster is gone but kubeconfig context $KIND_CONTEXT was left behind"
           fi
-
-      - name: Diagnostics
-        if: failure()
-        run: |
-          task localdev:diagnose || true
-          kubectl --context "$KIND_CONTEXT" -n argocd get applications.argoproj.io -o wide || true
-          kubectl --context "$KIND_CONTEXT" get pods -A || true
 
       - name: Summary
         if: always()
