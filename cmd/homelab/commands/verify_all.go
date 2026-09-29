@@ -161,7 +161,13 @@ Exit code 0 when every check passes, 1 when any check fails, 2 on usage error.`,
 			// conflict fails here instead of landing silently on main.
 			result.Add(verify.ADRRecord(repoRoot)...)
 
-			// 6. Cluster-backed levels. Every check reads the Kind cluster
+			// 6. Schema field names (ADR-053). Reads the schema files, not the
+			// render: a misspelled `requred:` is dropped by the lenient
+			// resolver, so the key stops being required and nothing trips.
+			// Strict here only, where binary and schema share a commit.
+			result.Add(verify.SchemaFields(repoRoot)...)
+
+			// 7. Cluster-backed levels. Every check reads the Kind cluster
 			// through the same Runner, so the fake in tests covers them too.
 			if level >= levelDryRun {
 				cluster := verify.ClusterOptions{

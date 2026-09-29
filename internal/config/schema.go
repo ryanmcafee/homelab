@@ -1,8 +1,10 @@
 package config
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -100,6 +102,48 @@ func validateKeyPattern(pattern string, kp SchemaKeyPattern) error {
 	}
 
 	return nil
+}
+
+// ParseSchemaFileStrict decodes a schema file rejecting every field name and
+// type that SchemaFile, SchemaKey and SchemaKeyPattern do not declare, and
+// returns one finding per rejection. An empty findings slice and a nil error
+// mean the file names only fields this build understands.
+//
+// This is deliberately NOT what LoadSchemaFile does, and the asymmetry is the
+// decision (ADR-053). A plain yaml.Unmarshal drops an unknown field in silence,
+// so `requred: true` yields a key that is simply not required and every check
+// that would have fired stops firing. Strictness closes that, but only where
+// binary and schema files come from one commit: the level-0 gate. The resolver
+// stays lenient so a fork whose homelab binary predates its schema files keeps
+// resolving a field that is merely new to it.
+//
+// The error return is for a file that could not be read or is not YAML at all.
+// Those are not field-name findings and must not be reported as one.
+func ParseSchemaFileStrict(path string) ([]string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("reading schema %s: %w", path, err)
+	}
+
+	dec := yaml.NewDecoder(bytes.NewReader(data))
+	dec.KnownFields(true)
+	var sf SchemaFile
+	err = dec.Decode(&sf)
+	if err == nil {
+		return nil, nil
+	}
+
+	// A TypeError is the whole point: yaml.v3 batches every unknown field and
+	// every mistyped value into one, so a file with three typos reports three
+	// findings instead of making the author fix them one CI run at a time.
+	var typeErr *yaml.TypeError
+	if errors.As(err, &typeErr) {
+		return typeErr.Errors, nil
+	}
+	if errors.Is(err, io.EOF) {
+		return nil, fmt.Errorf("schema %s is empty", path)
+	}
+	return nil, fmt.Errorf("parsing schema %s: %w", path, err)
 }
 
 // LoadSchemaDir loads all .schema.yaml files from a directory and merges them into a single Schema.
