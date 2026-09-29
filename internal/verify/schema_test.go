@@ -93,6 +93,6 @@ func TestSchemaFieldsPassesOnTheCommittedSchema(t *testing.T) {
 	}
 	c := schemaFieldsCheck(t, root)
 	if c.Status != StatusPass {
-		t.Fatalf("%s on %s: %s — %s%v", c.Name, ConfigSchemaPath, c.Status, c.Detail, c.Findings)
+		t.Fatalf("%s on %s: %s -- %s%v", c.Name, ConfigSchemaPath, c.Status, c.Detail, c.Findings)
 	}
 }
