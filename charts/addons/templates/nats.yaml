@@ -1,6 +1,8 @@
 {{- if .Values.nats.enabled }}
 {{- $accounts := include "addons.natsAccountsMerge" . }}
 {{- $boxPrincipals := compact (splitList "," (default "" .Values.nats.natsBoxPrincipals)) }}
+{{- $nkeys := fromYaml (include "addons.natsPrincipalNkeys" .) }}
+{{- $vault := .Values.nats.credentials.onePasswordVaultPath }}
 # NATS with JetStream file persistence - the platform event bus
 # Sync Wave: 10 (after kube-prometheus-stack at 9, whose PodMonitor the exporter needs)
 ---
@@ -12,6 +14,38 @@ metadata:
     {{- include "addons.labels" . | nindent 4 }}
   annotations:
     argocd.argoproj.io/sync-wave: "-1"
+{{- if and $nkeys $vault }}
+{{- $prefix := .Values.nats.credentialSecretPrefix }}
+{{- $extra := .Values.nats.credentials.extraNamespaces }}
+# The seed side of ADR-043's static backend: one OnePasswordItem per principal whose PUBLIC key
+# the server accepts, producing the Secret `nats-principal-<principal>` with the PRIVATE seed
+# under key `nats.nk`. The 1Password item field must carry that exact label.
+#
+# `$SYS` is absent on purpose. No platform component holds the system account (ADR-043 D4), so a
+# system Secret in the bus namespace would be a break-glass credential mounted next to every
+# ordinary client. Its custody is a restricted 1Password item plus an offline copy that works
+# while the cluster identity service is down: docs/runbooks/nats-credentials.md.
+#
+# Sync Wave: 9, so the seed exists before the server at 10 accepts its first connection.
+{{- range $principal, $publicKey := $nkeys }}
+{{- $namespaces := prepend (index $extra $principal | default list) $.Values.nats.namespace }}
+{{- range $namespace := uniq $namespaces }}
+---
+apiVersion: onepassword.com/v1
+kind: OnePasswordItem
+metadata:
+  name: {{ $prefix }}{{ $principal }}
+  namespace: {{ $namespace }}
+  labels:
+    {{- include "addons.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: nats-principal-credential
+  annotations:
+    argocd.argoproj.io/sync-wave: "9"
+spec:
+  itemPath: {{ printf "%s/%s%s" (trimSuffix "/" $vault) $prefix $principal | quote }}
+{{- end }}
+{{- end }}
+{{- end }}
 ---
 apiVersion: argoproj.io/v1alpha1
 kind: Application

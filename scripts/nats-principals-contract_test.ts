@@ -624,6 +624,14 @@ function publicNkeyArgs(principal: string): string[] {
   return ["--set", `nats.principalNkeys=${principal}=${generated}`];
 }
 
+/** A distinct public nkey placeholder per label, derived at run time like `publicNkeyArgs`. */
+function fixtureNkey(label: string): string {
+  return `U${label.toUpperCase()}${NOT_A_CREDENTIAL}`;
+}
+
+/** A 1Password vault path for delivery renders, assembled at run time for the same reason. */
+const FIXTURE_VAULT_PATH = ["vaults", "Fixture", "items"].join("/");
+
 test("the committed accounts artifact matches the declaration", () => {
   // charts/addons cannot read `contracts/` -- Helm's `.Files.Get` is scoped to the chart
   // directory -- so the expansion is committed. This is the only thing pinning the copy the
@@ -789,6 +797,10 @@ test("callout_allowed_accounts_bounded: the shipped config configures no callout
     "--set",
     "nats.enabled=true",
     ...publicNkeyArgs("nack"),
+    // A public key with no seed source is refused in its own right, so the accounts block
+    // renders only with one named. Kind's is the bootstrap that mints the seeds.
+    "--set",
+    "nats.credentials.bootstrapSeeded=true",
     "--show-only",
     "templates/nats.yaml",
   );
@@ -810,6 +822,259 @@ test("callout_allowed_accounts_bounded: the shipped config configures no callout
   // that, so the omission is a crash loop on sync rather than a rejected config.
   assertStringIncludes(rendered.output, "system_account: $SYS");
   assertStringIncludes(rendered.output, "$SYS:\n                users: []");
+});
+
+// ============================================================================
+// Seed delivery (MCAA-624): the accounts block and the credentials that make it
+// usable land together, or neither does.
+// ============================================================================
+
+interface RenderedItem {
+  metadata: { name: string; namespace: string };
+  spec: { itemPath: string };
+}
+
+/** The OnePasswordItem documents in a rendered template, as objects rather than line matches. */
+function onePasswordItems(output: string): RenderedItem[] {
+  return parseYamlAll(output).filter(
+    (doc): doc is RenderedItem =>
+      typeof doc === "object" &&
+      doc !== null &&
+      (doc as { kind?: string }).kind === "OnePasswordItem",
+  );
+}
+
+/** The chart arguments that render an accounts block with one principal. */
+const SEED_BASE = [
+  "--set",
+  "nats.enabled=true",
+  "--set",
+  `nats.principalNkeys=nack=${fixtureNkey("nack")}`,
+];
+
+test("a public key with no seed source is refused, and never falls back to anonymous", () => {
+  const rendered = helmTemplate(ADDONS_CHART, ...SEED_BASE);
+  assert(
+    rendered.code !== 0,
+    `an accounts block rendered with no seed source\n${rendered.output}`,
+  );
+  assertStringIncludes(rendered.output, "no seed source is declared");
+  // The refusal has to be the whole render, not a silently omitted accounts block: a chart that
+  // rendered the server without the block would leave the bus anonymous and read as success.
+  assert(
+    !rendered.output.includes("system_account"),
+    "the server config rendered anyway, leaving the bus anonymous",
+  );
+});
+
+test("this renderer accepts one key per principal, so a staged overlap is refused", () => {
+  // The rotation protocol turns on whether the server can accept two keys for one principal at
+  // once. It cannot here: the values map holds one key per name, so a second pair REPLACES the
+  // first and every client still holding the old seed is refused at connect with nothing in the
+  // values diff to show it. Naming that is what makes the runbook's maintenance interruption the
+  // documented path rather than an assumed overlap.
+  const rendered = helmTemplate(
+    ADDONS_CHART,
+    "--set",
+    "nats.enabled=true",
+    "--set",
+    "nats.credentials.bootstrapSeeded=true",
+    "--set",
+    `nats.principalNkeys=nack=${fixtureNkey("nack")}\\,nack=${fixtureNkey("nack2")}`,
+  );
+  assert(
+    rendered.code !== 0,
+    `a second key for nack rendered\n${rendered.output}`,
+  );
+  assertStringIncludes(rendered.output, "one key per principal");
+});
+
+test("two principals sharing a public key are refused", () => {
+  const rendered = helmTemplate(
+    ADDONS_CHART,
+    "--set",
+    "nats.enabled=true",
+    "--set",
+    "nats.credentials.bootstrapSeeded=true",
+    "--set",
+    `nats.principalNkeys=nack=${fixtureNkey("nack")}\\,verify=${fixtureNkey("nack")}`,
+  );
+  assert(
+    rendered.code !== 0,
+    `one identity for two principals rendered\n${rendered.output}`,
+  );
+  assertStringIncludes(rendered.output, "union of both permission sets");
+});
+
+test("a seed in public configuration is refused before it reaches a rendered manifest", () => {
+  for (const [args, reason] of [
+    [["--set", "nats.principalNkeys=nack=SDPROBESEED"], "public configuration"],
+    [
+      [
+        "--set",
+        `nats.principalNkeys=nack=${fixtureNkey("nack")}`,
+        "--set",
+        "nats.systemAccountNkey=SDPROBESEED",
+      ],
+      "only the PUBLIC half",
+    ],
+  ] as const) {
+    const rendered = helmTemplate(
+      ADDONS_CHART,
+      "--set",
+      "nats.enabled=true",
+      "--set",
+      "nats.credentials.bootstrapSeeded=true",
+      ...args,
+    );
+    assert(
+      rendered.code !== 0,
+      `a seed rendered into the server config\n${rendered.output}`,
+    );
+    assertStringIncludes(rendered.output, reason);
+  }
+});
+
+test("two seed sources for one principal are refused", () => {
+  const rendered = helmTemplate(
+    ADDONS_CHART,
+    ...SEED_BASE,
+    "--set",
+    `nats.credentials.onePasswordVaultPath=${FIXTURE_VAULT_PATH}`,
+    "--set",
+    "nats.credentials.bootstrapSeeded=true",
+  );
+  assert(rendered.code !== 0, `both sources rendered\n${rendered.output}`);
+  assertStringIncludes(
+    rendered.output,
+    "both onePasswordVaultPath and bootstrapSeeded",
+  );
+});
+
+test("the break-glass $SYS key is refused in the tenant principal map", () => {
+  const rendered = helmTemplate(
+    ADDONS_CHART,
+    "--set",
+    "nats.enabled=true",
+    "--set",
+    `nats.principalNkeys=system=${fixtureNkey("system")}`,
+    "--set",
+    "nats.credentials.bootstrapSeeded=true",
+  );
+  assert(
+    rendered.code !== 0,
+    `a $SYS tenant user rendered\n${rendered.output}`,
+  );
+  assertStringIncludes(rendered.output, "belongs in nats.systemAccountNkey");
+});
+
+test("a replicated seed for a principal the server does not accept is refused", () => {
+  const rendered = helmTemplate(
+    ADDONS_CHART,
+    ...SEED_BASE,
+    "--set",
+    "nats.credentials.bootstrapSeeded=true",
+    "--set",
+    "nats.credentials.extraNamespaces.verify[0]=platform",
+  );
+  assert(
+    rendered.code !== 0,
+    `an orphan replication rendered\n${rendered.output}`,
+  );
+  assertStringIncludes(rendered.output, "authenticates nothing");
+});
+
+test("homelab delivery renders one OnePasswordItem per accepted principal, and none for $SYS", () => {
+  const rendered = helmTemplate(
+    ADDONS_CHART,
+    "--set",
+    "nats.enabled=true",
+    "--set",
+    `nats.principalNkeys=nack=${fixtureNkey("nack")}\\,verify=${fixtureNkey("verify")}`,
+    "--set",
+    `nats.systemAccountNkey=${fixtureNkey("sys")}`,
+    "--set",
+    `nats.credentials.onePasswordVaultPath=${FIXTURE_VAULT_PATH}/`,
+    "--show-only",
+    "templates/nats.yaml",
+  );
+  assert(rendered.code === 0, `delivery did not render\n${rendered.output}`);
+
+  assertEquals(
+    onePasswordItems(rendered.output)
+      .map((i) => i.metadata.name)
+      .sort(),
+    ["nats-principal-nack", "nats-principal-verify"],
+  );
+  // A trailing slash on the vault path must not double up in the item path.
+  assertStringIncludes(
+    rendered.output,
+    `itemPath: "${FIXTURE_VAULT_PATH}/nats-principal-nack"`,
+  );
+  // No platform component holds the system account, so no Secret carries its seed (ADR-043 D4).
+  assert(
+    !rendered.output.includes("nats-principal-system"),
+    "a $SYS seed Secret rendered next to the ordinary clients",
+  );
+  // Seeds reach workloads as Secrets. A seed in the rendered manifests is a seed in Git.
+  assert(
+    !/\bS[UAO][A-Z2-7]{20}/.test(rendered.output),
+    "a seed-shaped token appeared in the rendered manifests",
+  );
+});
+
+test("an explicitly replicated principal gets a Secret in each named namespace", () => {
+  const rendered = helmTemplate(
+    ADDONS_CHART,
+    ...SEED_BASE,
+    "--set",
+    `nats.credentials.onePasswordVaultPath=${FIXTURE_VAULT_PATH}`,
+    "--set",
+    "nats.credentials.extraNamespaces.nack[0]=platform",
+    "--show-only",
+    "templates/nats.yaml",
+  );
+  assert(rendered.code === 0, `replication did not render\n${rendered.output}`);
+  assertEquals(
+    onePasswordItems(rendered.output)
+      .map((i) => i.metadata.namespace)
+      .sort(),
+    ["nats", "platform"],
+  );
+});
+
+test("the Kind surface renders no OnePasswordItem: its bootstrap mints the seeds", () => {
+  const rendered = helmTemplate(
+    ADDONS_CHART,
+    ...SEED_BASE,
+    "--set",
+    "nats.credentials.bootstrapSeeded=true",
+    "--show-only",
+    "templates/nats.yaml",
+  );
+  assert(
+    rendered.code === 0,
+    `the Kind surface did not render\n${rendered.output}`,
+  );
+  assert(
+    !rendered.output.includes("OnePasswordItem"),
+    `Kind rendered a vault reference\n${rendered.output}`,
+  );
+});
+
+test("the seed Secret name and key are the ones NACK and nats-box read", () => {
+  // charts/nats-config's Account resource and the nats-box contexts both address the seed by
+  // `<credentialSecretPrefix><principal>` / `nats.nk`. The delivery template has to produce
+  // exactly that, or the credential arrives under a name nothing reads.
+  const values = parseYaml(
+    readFileSync(join(ADDONS_CHART, "values.yaml"), "utf8"),
+  ) as { nats: { credentialSecretPrefix: string } };
+  assertEquals(values.nats.credentialSecretPrefix, "nats-principal-");
+
+  const chartValues = parseYaml(readFileSync(CHART_VALUES_PATH, "utf8")) as {
+    account: { credentialSecretKey: string };
+  };
+  assertEquals(chartValues.account.credentialSecretKey, "nats.nk");
 });
 
 test("every level_0 conformance id has a test or a tracking issue", () => {

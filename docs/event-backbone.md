@@ -291,10 +291,18 @@ caught by `nats-server -t`:
   chart enables only the file store, so `max_memory` is 0 and a non-zero value is refused at
   render rather than at startup.
 
-Rotation is a Secret update plus a config reload: the server holds only public keys. The
-drill that proves an old session is actually cut, and the `$SYS` recovery path that works
-while the identity service is down, are level-2 conformance (`rotation_and_revocation_drill`
-in the declaration) and are not claimed here.
+Generation, custody, activation prerequisites, offline `$SYS` break-glass and the rotation and
+revocation procedures are `docs/runbooks/nats-credentials.md`. Generate the pairs with
+`bun scripts/nats-principals-keygen.ts --dir <a directory outside the repository>`; Kind mints
+its own at bootstrap through `bun scripts/localdev-kind.ts nats-seeds`, because a committed Kind
+seed is still a committed secret.
+
+Rotation is a Secret update plus a config reload: the server holds only public keys. This
+renderer accepts ONE key per principal -- the values map holds one per name and a duplicate is
+refused at render -- so there is no acceptance overlap and rotation is a bounded maintenance
+interruption rather than a staged cut-over. The drill that proves an old session is actually cut,
+and the `$SYS` recovery path that works while the identity service is down, are level-2
+conformance (`rotation_and_revocation_drill` in the declaration) and are not claimed here.
 
 ## Operating notes
 
