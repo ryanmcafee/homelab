@@ -158,3 +158,8 @@ Each entry should include:
 - Level 0: 277 passed / 0 failed / 1 expected preview repository-secret skip. Full scripts initially: 565 passed / 0 failed. Biome and TypeScript pass via `bun x --no-install`; `task scripts:lint` is affected by the runner's nested-shell PATH reset (`biome: command not found`), even after locked dependency installation.
 - Live acceptance remains unverified: await a naturally occurring level-2 image-pull failure and inspect its kubelet event for registry/HTTP status. Do not rerun CI to manufacture this evidence. A `/v2/` mirror response demonstrates reachability only, not a successful upstream image pull.
 - Tooling limits: Serena MCP and `bd` are unavailable in this runner; the Paperclip issue and this log hold continuity. No production or registry configuration changed.
+### 2026-09-29 — MCAA-652: upgrade report Secret containment
+
+- Isolated `fix/mcaa-652-secret-report-redaction` branch: redact before report diff construction; fixed diagnostics and allowlisted revalidation output; keep automerge closed for redacted Secret equality.
+- Synthetic test first: six disclosure assertions failed before fix, then passed. Full affected Go packages, workflow sink tests, vet/lint and level 0 passed (277 pass, 0 fail, 1 documented skip; 13.593 s final wall time).
+- Detailed evidence and remaining review/CI/merge/provenance requirements: `upgrade-report-containment.md`. PR #422 hold remains intact; no held branch operation or reporting rerun performed.
