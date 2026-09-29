@@ -332,13 +332,14 @@ internal Gateway, the Istio gateways, ArgoCD and the API server have no forward.
 ## Tailscale
 
 The Tailscale operator (`charts.tailscale-operator`, OAuth client from
-`charts/tailscale-config` OnePasswordItem `operator-oauth`) provides three things:
+`charts/tailscale-config` OnePasswordItem `operator-oauth`) provides four things:
 
 | Piece | Resource | Notes |
 |-------|----------|-------|
 | Subnet router | `Connector homelab-subnet-router`, `advertiseRoutes: [<TAILSCALE_ADVERTISE_ROUTES>]` (the LAN /24) | Tailnet clients reach every LAN address, including the load-balancer pool, without a VPN concentrator |
 | API server proxy | operator `apiServerProxyConfig.mode: noauth`, hostname `tailscale-operator-homelab` | Kubernetes API over the tailnet with the caller's own credentials; the read-only agent path (`task prod:kubeconfig`, ServiceAccount `agent-readonly`, ADR-013) uses it: [runbooks/readonly-access.md](./runbooks/readonly-access.md) |
 | Split DNS | tailnet nameserver for `<DOMAIN>` = `<GATEWAY_IP>`, applied with `task tailscale:dns:apply` (`scripts/tailscale-dns.ts`) | Internal names resolve on the tailnet exactly as on the LAN: [runbooks/tailscale-dns.md](./runbooks/tailscale-dns.md) |
+| Tailnet-only Ingress | the `tailscale` IngressClass; off unless `OPENCLAW_TAILNET_EXPOSURE` is set | The one exposure path with no LAN address at all: the proxy is a tailnet device, scoped by a grant to `OPENCLAW_TAILNET_TAG`. OpenClaw's Control UI is the only user: [runbooks/openclaw-tailnet-access.md](./runbooks/openclaw-tailnet-access.md) |
 
 The tailnet ACL is SOPS-encrypted in `policy.sops.hujson` and applied by
 `.github/workflows/tailscale-acl.yml` with a dedicated ACL-only age key.
