@@ -447,6 +447,16 @@ func TestIsRealHostname(t *testing.T) {
 
 		// Allowlisted committed value.
 		{name: "localdev duckdns target", value: "homelab-dev.duckdns.org", want: false},
+		// Public registries the localdev pull-through caches must spell out.
+		{name: "aws public registry", value: "ecr-public.aws.com", want: false},
+		{name: "aws public registry image ref", value: "ecr-public.aws.com/docker/library/redis", want: false},
+		// An allowlist entry covers the host and its subdomains, so a regional
+		// registry endpoint is excused too.
+		{name: "subdomain of the allowed registry", value: "us-east-1.ecr-public.aws.com", want: false},
+		// But only as a true suffix: a domain that merely embeds the allowed
+		// host is still caught, which is the look-alike that matters.
+		{name: "look-alike aws registry", value: "ecr-public.aws.com.evil.net", want: true},
+		{name: "allowed host as a bare prefix", value: "ecr-public.aws.community.net", want: true},
 
 		// Not hostnames at all.
 		{name: "empty", value: "", want: false},
