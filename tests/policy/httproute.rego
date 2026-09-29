@@ -119,12 +119,14 @@ deny contains msg if {
 }
 
 # no-ingress: Envoy Gateway does not implement networking.k8s.io Ingress, so an
-# Ingress is never served.
+# Ingress is never served -- except on lib.tailnet_ingress_class, which the
+# Tailscale operator reconciles into a tailnet-only proxy.
 deny contains msg if {
 	input.kind == "Ingress"
 	startswith(object.get(input, "apiVersion", ""), "networking.k8s.io/")
 	not lib.is_exempt(input, "no-ingress")
-	msg := sprintf("[no-ingress] %s: Ingress is not served by Envoy Gateway; use an HTTPRoute", [lib.id(input)])
+	object.get(input, ["spec", "ingressClassName"], "") != lib.tailnet_ingress_class
+	msg := sprintf("[no-ingress] %s: Ingress is not served by Envoy Gateway; use an HTTPRoute, or the tailnet-only %q class", [lib.id(input), lib.tailnet_ingress_class])
 }
 
 # Keys under which charts configure network policy rules rather than an Ingress.
@@ -134,7 +136,8 @@ deny contains msg if {
 	input.kind == "Application"
 	input.apiVersion == "argoproj.io/v1alpha1"
 	not lib.is_exempt(input, "no-ingress")
-	walk(lib.inline_values(input), [path, v])
+	values := lib.inline_values(input)
+	walk(values, [path, v])
 	v == true
 	count(path) > 1
 	path[count(path) - 1] == "enabled"
@@ -142,7 +145,16 @@ deny contains msg if {
 	path[i] == "ingress"
 	i < count(path) - 1
 	not network_policy_path(path, i)
-	msg := sprintf("[no-ingress] %s: inline values %s enables an Ingress, which Envoy Gateway does not serve; use the chart's HTTPRoute support", [lib.id(input), concat(".", [sprintf("%v", [p]) | some p in path])])
+	not tailnet_class_block(values, path, i)
+	msg := sprintf("[no-ingress] %s: inline values %s enables an Ingress, which Envoy Gateway does not serve; use the chart's HTTPRoute support, or the tailnet-only %q class", [lib.id(input), concat(".", [sprintf("%v", [p]) | some p in path]), lib.tailnet_ingress_class])
+}
+
+# tailnet_class_block reports whether the enabled ingress block names the
+# Tailscale operator's class, under either of the two spellings charts use.
+tailnet_class_block(values, path, i) if {
+	block := object.get(values, array.slice(path, 0, i + 1), {})
+	some key in ["className", "ingressClassName"]
+	object.get(block, key, "") == lib.tailnet_ingress_class
 }
 
 network_policy_path(path, i) if {
