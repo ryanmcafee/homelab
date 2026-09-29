@@ -1033,6 +1033,36 @@ argo-workflows:
       secretName: argo-workflows-artifacts
 
 # ============================================================================
+# Argo Rollouts - progressive delivery (templates/argo-rollouts.yaml)
+# Placeholder: configuration/templates/helm-addons.tmpl renders the real block.
+# ============================================================================
+
+argo-rollouts:
+  enabled: false
+  namespace: argo-rollouts
+
+  chart:
+    name: argo-rollouts
+    repo: https://argoproj.github.io/argo-helm
+    version: "2.43.2"
+
+  controller:
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: 500m
+        memory: 256Mi
+
+  metrics:
+    enabled: true
+    port: 8090
+
+  dashboard:
+    enabled: false
+
+# ============================================================================
 # Istio ambient mesh + Kiali (templates/istio.yaml, docs/service-mesh.md)
 # Placeholder: configuration/templates/helm-addons.tmpl renders the real block.
 # ============================================================================

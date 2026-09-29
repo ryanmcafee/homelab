@@ -1,0 +1,4 @@
+# argo-rollouts-config - local development overrides
+#
+# Nothing differs from the defaults: the analysis probes a Service inside the
+# cluster, so no environment value reaches it.

@@ -1270,6 +1270,43 @@ argo-workflows:
         itemPath: ""
 
 # ============================================================================
+# Argo Rollouts - Progressive delivery (canary + automated rollback)
+# Sync Wave: 2 (serves the Rollout/AnalysisTemplate CRDs any workload needs)
+# ============================================================================
+
+argo-rollouts:
+  # Every set, including localdev: the level-2 canary/rollback suite needs the
+  # controller on Kind.
+  enabled: true
+  namespace: argo-rollouts
+
+  chart:
+    name: argo-rollouts
+    repo: https://argoproj.github.io/argo-helm
+    version: "2.43.2"
+
+  controller:
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: 500m
+        memory: 256Mi
+
+  # controller_* series (canary progress, aborts, analysis outcomes) on a plain
+  # Service. No ServiceMonitor here: this Application syncs at wave 2 and the
+  # ServiceMonitor CRD only arrives with kube-prometheus-stack at wave 9.
+  metrics:
+    enabled: true
+    port: 8090
+
+  # The Rollouts UI is not exposed; kubectl-argo-rollouts and the Rollout's own
+  # status are the supported read paths.
+  dashboard:
+    enabled: false
+
+# ============================================================================
 # Istio ambient mesh + Kiali (docs/service-mesh.md)
 # Sync Waves: 2 istio-base, 3 istiod + istio-cni, 4 ztunnel, 5 istio-config,
 # 10 kiali. No namespace is enrolled here: SERVICE_MESH_AMBIENT_NAMESPACES
