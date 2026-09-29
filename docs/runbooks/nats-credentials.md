@@ -101,8 +101,14 @@ reaches no account.
 
 **Prerequisites, all of them, before you set it:**
 
-- [ ] Every principal a workload runs as appears in the map. A principal left out is refused at
-      connect; the server does not fall back to anonymous for it.
+- [ ] **Every** declared non-pending principal appears in the map, not only the ones with a
+      workload today. The chart enforces exact coverage in both directions, because the server
+      refuses every principal absent from the accounts block and does not fall back to anonymous
+      for it -- a partial map is an outage with no error until a client connects.
+- [ ] The map reached the chart intact. Set it through `configuration/environments/<set>.yaml`,
+      which renders YAML. `helm --set nats.principalNkeys=a=U1,b=U2` splits on the unescaped
+      comma and keeps only the first pair; the coverage guard turns that into a render error
+      rather than a one-user account.
 - [ ] Every seed is delivered and readable in the namespace its client runs in.
 - [ ] NACK connects as the `nack` principal through its `Account` resource (`spec.nkey`, never
       `spec.creds` -- the static backend issues raw nkeys and `creds` is an nsc file).

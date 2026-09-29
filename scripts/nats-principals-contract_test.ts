@@ -18,10 +18,15 @@
  */
 
 import { test } from "bun:test";
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { assert, assertEquals, assertStringIncludes } from "./lib/assert.ts";
-import { parse as parseYaml, parseAll as parseYamlAll } from "./lib/yaml.ts";
+import {
+  parseAll as parseYamlAll,
+  parse as parseYaml,
+  stringify as stringifyYaml,
+} from "./lib/yaml.ts";
 import {
   ARTIFACT_PATH,
   renderFromDeclaration,
@@ -794,13 +799,10 @@ test("callout_allowed_accounts_bounded: an unbounded callout is refused before i
 test("callout_allowed_accounts_bounded: the shipped config configures no callout at all", () => {
   const rendered = helmTemplate(
     ADDONS_CHART,
-    "--set",
-    "nats.enabled=true",
-    ...publicNkeyArgs("nack"),
-    // A public key with no seed source is refused in its own right, so the accounts block
-    // renders only with one named. Kind's is the bootstrap that mints the seeds.
-    "--set",
-    "nats.credentials.bootstrapSeeded=true",
+    // A public key with no seed source is refused in its own right, and the map has to cover
+    // every declared principal, so a rendering case supplies both. Kind's source is the
+    // bootstrap that mints the seeds.
+    ...fullPrincipalValues({ credentials: { bootstrapSeeded: true } }),
     "--show-only",
     "templates/nats.yaml",
   );
@@ -842,6 +844,37 @@ function onePasswordItems(output: string): RenderedItem[] {
       doc !== null &&
       (doc as { kind?: string }).kind === "OnePasswordItem",
   );
+}
+
+/**
+ * A values file naming EVERY non-pending principal, because the chart requires exact coverage: a
+ * partial map is an outage. It also has to be a file rather than `--set`, since `helm --set`
+ * splits on unescaped commas and would keep only the first pair -- the trap the coverage guard
+ * exists to make loud.
+ */
+function fullPrincipalValues(
+  extra: Record<string, unknown> = {},
+  extraPairs: string[] = [],
+): string[] {
+  const principals = declaration.principals.filter(
+    (p) => p.pending === undefined,
+  );
+  // Distinct placeholder public keys: two principals sharing one are refused.
+  const pairs = [
+    ...principals.map((p, i) => `${p.name}=${fixtureNkey(String(i))}`),
+    ...extraPairs,
+  ];
+  const path = join(
+    tmpdir(),
+    `nats-principals-${pairs.length}-${Object.keys(extra).join("-") || "bare"}.yaml`,
+  );
+  writeFileSync(
+    path,
+    stringifyYaml({
+      nats: { enabled: true, principalNkeys: pairs.join(","), ...extra },
+    }),
+  );
+  return ["-f", path];
 }
 
 /** The chart arguments that render an accounts block with one principal. */
@@ -935,6 +968,58 @@ test("a seed in public configuration is refused before it reaches a rendered man
   }
 });
 
+test("an incomplete public-key map is refused, and never renders a partial account", () => {
+  // The server refuses every principal absent from the accounts block, so a map covering some of
+  // them is an outage with no error until a client connects -- not a partial rollout and not a
+  // fallback to anonymous. The whole render fails rather than emitting the short account.
+  const rendered = helmTemplate(
+    ADDONS_CHART,
+    ...SEED_BASE,
+    "--set",
+    "nats.credentials.bootstrapSeeded=true",
+  );
+  assert(rendered.code !== 0, `a partial account rendered\n${rendered.output}`);
+  assertStringIncludes(rendered.output, "nats.principalNkeys is missing");
+  const named = declaration.principals.filter(
+    (p) => p.pending === undefined && p.name !== "nack",
+  );
+  for (const principal of named) {
+    assertStringIncludes(
+      rendered.output,
+      principal.name,
+      `the refusal does not name the missing principal ${principal.name}`,
+    );
+  }
+  assert(
+    !rendered.output.includes("system_account"),
+    "the server config rendered anyway, with an account short of its principals",
+  );
+});
+
+test("the --set comma trap is named in the refusal, because it is how a map silently truncates", () => {
+  // `helm --set a=1,b=2` splits on the comma and keeps only the first pair, so an operator who
+  // sets the map that way gets exactly the incomplete account above. The message has to say so,
+  // or the failure looks like the generator produced a short map.
+  const rendered = helmTemplate(
+    ADDONS_CHART,
+    ...SEED_BASE,
+    "--set",
+    "nats.credentials.bootstrapSeeded=true",
+  );
+  assertStringIncludes(rendered.output, "--set splits on unescaped commas");
+});
+
+test("a key for an undeclared principal is refused rather than dropped", () => {
+  const rendered = helmTemplate(
+    ADDONS_CHART,
+    ...fullPrincipalValues({ credentials: { bootstrapSeeded: true } }, [
+      `ghost=${fixtureNkey("ghost")}`,
+    ]),
+  );
+  assert(rendered.code !== 0, `an undeclared key rendered\n${rendered.output}`);
+  assertStringIncludes(rendered.output, "nats.principalNkeys names ghost");
+});
+
 test("two seed sources for one principal are refused", () => {
   const rendered = helmTemplate(
     ADDONS_CHART,
@@ -987,25 +1072,34 @@ test("a replicated seed for a principal the server does not accept is refused", 
 test("homelab delivery renders one OnePasswordItem per accepted principal, and none for $SYS", () => {
   const rendered = helmTemplate(
     ADDONS_CHART,
-    "--set",
-    "nats.enabled=true",
-    "--set",
-    `nats.principalNkeys=nack=${fixtureNkey("nack")}\\,verify=${fixtureNkey("verify")}`,
-    "--set",
-    `nats.systemAccountNkey=${fixtureNkey("sys")}`,
-    "--set",
-    `nats.credentials.onePasswordVaultPath=${FIXTURE_VAULT_PATH}/`,
+    ...fullPrincipalValues({
+      systemAccountNkey: fixtureNkey("sys"),
+      // The trailing slash must not double up in the rendered item path.
+      credentials: { onePasswordVaultPath: `${FIXTURE_VAULT_PATH}/` },
+    }),
     "--show-only",
     "templates/nats.yaml",
   );
   assert(rendered.code === 0, `delivery did not render\n${rendered.output}`);
 
+  // Exactly the declared non-pending principals: one item each, and none for a pending one.
   assertEquals(
     onePasswordItems(rendered.output)
       .map((i) => i.metadata.name)
       .sort(),
-    ["nats-principal-nack", "nats-principal-verify"],
+    declaration.principals
+      .filter((p) => p.pending === undefined)
+      .map((p) => `nats-principal-${p.name}`)
+      .sort(),
   );
+  for (const pending of declaration.principals.filter(
+    (p) => p.pending !== undefined,
+  )) {
+    assert(
+      !rendered.output.includes(`nats-principal-${pending.name}`),
+      `${pending.name} is pending, so nothing pre-creates its durable and a credential for it has no owner`,
+    );
+  }
   // A trailing slash on the vault path must not double up in the item path.
   assertStringIncludes(
     rendered.output,
@@ -1026,29 +1120,38 @@ test("homelab delivery renders one OnePasswordItem per accepted principal, and n
 test("an explicitly replicated principal gets a Secret in each named namespace", () => {
   const rendered = helmTemplate(
     ADDONS_CHART,
-    ...SEED_BASE,
-    "--set",
-    `nats.credentials.onePasswordVaultPath=${FIXTURE_VAULT_PATH}`,
-    "--set",
-    "nats.credentials.extraNamespaces.nack[0]=platform",
+    ...fullPrincipalValues({
+      credentials: {
+        onePasswordVaultPath: FIXTURE_VAULT_PATH,
+        extraNamespaces: { nack: ["platform"] },
+      },
+    }),
     "--show-only",
     "templates/nats.yaml",
   );
   assert(rendered.code === 0, `replication did not render\n${rendered.output}`);
+  const items = onePasswordItems(rendered.output);
   assertEquals(
-    onePasswordItems(rendered.output)
+    items
+      .filter((i) => i.metadata.name === "nats-principal-nack")
       .map((i) => i.metadata.namespace)
       .sort(),
     ["nats", "platform"],
+  );
+  // Only the named principal reaches the second namespace. A blanket copy would put every
+  // other principal's seed there too, which is the least-privilege failure this asserts.
+  assertEquals(
+    items
+      .filter((i) => i.metadata.namespace !== "nats")
+      .map((i) => i.metadata.name),
+    ["nats-principal-nack"],
   );
 });
 
 test("the Kind surface renders no OnePasswordItem: its bootstrap mints the seeds", () => {
   const rendered = helmTemplate(
     ADDONS_CHART,
-    ...SEED_BASE,
-    "--set",
-    "nats.credentials.bootstrapSeeded=true",
+    ...fullPrincipalValues({ credentials: { bootstrapSeeded: true } }),
     "--show-only",
     "templates/nats.yaml",
   );

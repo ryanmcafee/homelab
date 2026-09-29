@@ -75,7 +75,7 @@ keys:
     default: "local"
 
   NATS_PRINCIPAL_NKEYS:
-    description: PUBLIC user nkeys for the bus principals in contracts/events/bus-principals.v1.yaml, as comma-separated "<principal>=<public key>" pairs. Empty leaves the bus anonymous; one pair renders the accounts block and the server stops accepting an unauthenticated connection, so every principal a workload runs as must appear before it is set. Never a seed - a public key is not a secret, and the private seeds reach workloads as Secrets through External Secrets.
+    description: PUBLIC user nkeys for the bus principals in contracts/events/bus-principals.v1.yaml, as comma-separated "<principal>=<public key>" pairs. Empty leaves the bus anonymous; setting it renders the accounts block and the server stops accepting an unauthenticated connection. Coverage must be exact - charts/addons refuses a map that omits a declared non-pending principal or names one that is not declared, because the server refuses every principal absent from the block rather than falling back to anonymous. Never a seed - a public key is not a secret, and the private seeds reach workloads as Secrets through External Secrets.
     required: false
     default: ""
 

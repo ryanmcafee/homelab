@@ -142,6 +142,39 @@ account block and the credentials that make it usable in the same change.
 {{- if not $contract.principals -}}
 {{- fail "files/nats-accounts.gen.yaml has no principals; regenerate it with `bun scripts/render-nats-accounts.ts`" -}}
 {{- end -}}
+{{/*
+EXACT coverage of the declaration, both directions. The account block renders from whatever keys
+it is given and the server then refuses every principal that was left out -- so a partial map is
+an outage with no error anywhere but at a client's connect, and never a fallback to anonymous.
+
+This is also the guard that makes the one fail-silent path loud: `helm --set` splits on unescaped
+commas, so `--set nats.principalNkeys=a=U1,b=U2` supplies only the first pair. Set the value
+through a values file or `--set-string` with escaped commas; the ConfigSet path writes YAML and is
+unaffected.
+
+A `pending` principal is excluded here and refused below: nothing pre-creates its durable, so a
+credential for it is a key with no owner.
+*/}}
+{{- $expected := list -}}
+{{- range $principal := $contract.principals -}}
+{{- if not $principal.pending -}}
+{{- $expected = append $expected $principal.name -}}
+{{- end -}}
+{{- end -}}
+{{- $missing := list -}}
+{{- range $name := $expected -}}
+{{- if not (hasKey $nkeys $name) -}}
+{{- $missing = append $missing $name -}}
+{{- end -}}
+{{- end -}}
+{{- if $missing -}}
+{{- fail (printf "nats.principalNkeys is missing %s; the server refuses every principal absent from the accounts block, so an incomplete map is an outage rather than a partial rollout. If you passed it with `helm --set`, note that --set splits on unescaped commas and kept only the first pair" (join ", " $missing)) -}}
+{{- end -}}
+{{- range $name, $key := $nkeys -}}
+{{- if not (has $name $expected) -}}
+{{- fail (printf "nats.principalNkeys names %s, which is not a declared non-pending principal in files/nats-accounts.gen.yaml; the accounts block would drop it silently, so a misspelled name reads as a missing credential at a client's connect instead" $name) -}}
+{{- end -}}
+{{- end -}}
 {{- $tenant := required "nats.tenant is required once nats.principalNkeys is set" .Values.nats.tenant -}}
 {{- $limits := .Values.nats.accountLimits -}}
 {{- range $limit := $contract.jetstreamLimitsRequired -}}
