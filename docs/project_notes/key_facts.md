@@ -149,7 +149,7 @@ trusting a prose table.
 | Host ports | 8080 ArgoCD; 9080 / 9443 the `envoy-internal` Gateway; 10350 Tilt. On Linux 8080/9080/9443 are the Kind `extraPortMappings` (30080, 80, 443). On macOS the mappings never complete a TCP handshake with Cilium (Docker Desktop bad TCP checksums, bugs.md 2026-09-13): use `task localdev:ui` and `task localdev:gateway` (port-forwards) |
 | Reaching apps from the host | `task localdev:gateway` then `curl -sk --resolve <app>.homelab.local:9443:127.0.0.1 https://<app>.homelab.local:9443/...` (the https listener matches SNI `*.homelab.local`); from a pod, the `envoy-internal` Service directly |
 | NodePorts | 30080 ArgoCD; 31883 / 31901 mosquitto (MQTT / WebSocket); 30021 spegel (hostPort 30020) |
-| Registry caches | containers `kind-registry-<name>` for docker.io, ghcr.io, quay.io, registry.k8s.io, lscr.io on the `kind` network; blobs in `~/.cache/homelab-kind-registry` (`HOMELAB_KIND_CACHE_DIR`), restored in CI with `actions/cache` key `kind-registry-<hash>` |
+| Registry caches | containers `kind-registry-<name>` for docker.io, ghcr.io, quay.io, registry.k8s.io, lscr.io, ecr-public.aws.com (argo-cd's redis) on the `kind` network; blobs in `~/.cache/homelab-kind-registry` (`HOMELAB_KIND_CACHE_DIR`), restored in CI with `actions/cache` key `kind-registry-<hash>` |
 | Fakes | `localdev/fakes/` (StorageClass aliases, Namespaces + Secrets, OnePasswordItem CRD), applied by `task localdev:kind` / `localdev:fakes` |
 | Health Lua | `charts/bootstrap/files/health/<group>_<kind>.lua`, fixtures `tests/health/<group>_<kind>/*.yaml` |
 | e2e | `tests/e2e/<name>/chainsaw-test.yaml`, config `tests/e2e/.chainsaw.yaml` (4 parallel, assert 10m) |

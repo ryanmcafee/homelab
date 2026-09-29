@@ -47,7 +47,7 @@ here touches the homelab cluster: agents may mutate only Kind (ADR-009).
 │  │  1 control-plane + 2 workers, Cilium CNI   │◄─┤ pull-through       │  │
 │  │                                            │  │ caches (docker.io, │  │
 │  │  argocd/   ArgoCD (chart from versions.yaml│  │ ghcr, quay, k8s,   │  │
-│  │            + health Lua from bootstrap)    │  │ lscr) -> ~/.cache  │  │
+│  │            + health Lua from bootstrap)    │  │ lscr, ecr) ~/.cache│  │
 │  │     └─ gitops ─┬─ (bootstrap: not created)   │  └────────────────────┘  │
 │  │                ├─ addons (cilium, envoy-   │                          │
 │  │                │   gateway, cert-manager)  │  localhost:8080 ArgoCD   │
@@ -272,13 +272,20 @@ provides what Kind lacks so every Application reaches Healthy:
 ### Registry pull-through caches
 
 `task localdev:kind` starts one `registry:2` container per upstream (`docker.io`,
-`ghcr.io`, `quay.io`, `registry.k8s.io`, `lscr.io`) on the `kind` Docker network, named
-`kind-registry-<name>`, with blobs under `$HOMELAB_KIND_CACHE_DIR` (default
-`$XDG_CACHE_HOME/homelab-kind-registry`, i.e. `~/.cache/homelab-kind-registry`). It writes
-`/etc/containerd/certs.d/<host>/hosts.toml` into every node pointing pulls at the cache
-with the upstream as fallback, so an empty, stopped or purged cache only costs pull time.
-Recreating the cluster keeps the cache; `task localdev:down -- --purge-cache` removes it.
-CI restores the same directory with `actions/cache`. `--no-registry` skips all of it.
+`ghcr.io`, `quay.io`, `registry.k8s.io`, `lscr.io`, `ecr-public.aws.com`) on the `kind`
+Docker network, named `kind-registry-<name>`, with blobs under `$HOMELAB_KIND_CACHE_DIR`
+(default `$XDG_CACHE_HOME/homelab-kind-registry`, i.e. `~/.cache/homelab-kind-registry`).
+It writes `/etc/containerd/certs.d/<host>/hosts.toml` into every node pointing pulls at the
+cache with the upstream as fallback, so an empty, stopped or purged cache only costs pull
+time. Recreating the cluster keeps the cache; `task localdev:down -- --purge-cache` removes
+it. CI restores the same directory with `actions/cache`. `--no-registry` skips all of it.
+
+Every registry the ArgoCD bootstrap pulls from must be in that list. The argo-cd chart
+takes redis from `ecr-public.aws.com/docker/library/redis` and everything else from
+`quay.io`/`ghcr.io`; while ECR Public was missing, `argocd-redis` was the one ArgoCD pod
+pulling straight from the internet on every run, and a slow or throttled pull surfaced as
+an `ImagePullBackOff` that timed out `task localdev:argocd` before any Application existed.
+`scripts/localdev-kind_test.ts` pins the chart's image hosts against the upstream table.
 
 ### Cilium in Kind
 
