@@ -42,6 +42,8 @@ on:
       - 'configuration/versions.yaml'
       - 'charts/**'
       - '.github/workflows/upgrade.yml'
+      - 'internal/verify/**'
+      - 'cmd/homelab/commands/verify_upgrade*'
 
 concurrency:
   group: upgrade-${{ github.ref }}
@@ -124,10 +126,17 @@ jobs:
         run: |
           set +e
           ok=true
-          task config:export:localdev || ok=false
-          task schemas:vendor || ok=false
-          go run ./cmd/homelab verify render --env homelab,localdev --json > revalidate.raw.json
-          sed -n '/^{/,/^}/p' revalidate.raw.json > revalidate.json
+          # Tool diagnostics can contain values or whole failed manifests.
+          # Only the allowlisted check summary below may reach report sinks.
+          task config:export:localdev > /dev/null 2>&1 || ok=false
+          task schemas:vendor > /dev/null 2>&1 || ok=false
+          go run ./cmd/homelab verify render --env homelab,localdev --json > revalidate.raw.json 2>/dev/null || ok=false
+          if ! jq -e '{level, pass, duration_ms, checks: [.checks[] |
+            {name, status, duration_ms, detail: "Diagnostics omitted for Secret safety; reproduce locally with synthetic values"}]}' \
+            revalidate.raw.json > revalidate.json 2>/dev/null; then
+            ok=false
+            echo '{"pass":false,"checks":[]}' > revalidate.json
+          fi
           if ! jq -e '.pass == true' revalidate.json > /dev/null 2>&1; then
             ok=false
           fi

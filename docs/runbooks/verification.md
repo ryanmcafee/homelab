@@ -260,6 +260,18 @@ diffed object by object. Unchanged sources are not re-rendered.
 | `upgrade/<env>/_repo` | The level-0 render of this repository's own charts, base vs head, with Application chart sources masked (the per-app checks own them). |
 | `upgrade/<env>/_render` / `_base-render` | The working tree (fail) or the base ref (skip) does not render. |
 
+Upgrade reports remove Secret `data` and `stringData` before diffing, including
+nested Lists and SecretLists, and omit last-applied annotations. Parser failures
+fail closed; Helm diagnostics and CRD revalidation details are omitted because
+they can quote values or complete manifests. Reproduce failures locally with
+synthetic values. Redacted equality does not qualify for automerge: Secret
+payloads still need human review. `--keep` retains raw local renders and values;
+never upload that directory as a report artifact.
+
+Offline regression checks (no publishing, credentials or cluster):
+`go test ./internal/verify -run 'TestUpgrade(ReportSecret|Redaction|ErrorReports|RepoReports)'`
+and `bun test scripts/upgrade-report-sinks_test.ts`.
+
 The job posts the report as the sticky `upgrade-diff` comment (bounded to one comment;
 the JSON artifact `upgrade-report` carries the capped diffs) and fails only when a render
 fails, never because a manifest changed. Locally: `task verify:upgrade -- --base

@@ -107,3 +107,9 @@ Each entry should include:
 - Update status if work gets blocked or resumed
 - Don't duplicate issue details - link to source of truth
 - Clean out very old entries periodically (3+ months)
+
+### 2026-09-29 — MCAA-652: upgrade report Secret containment
+
+- Isolated `fix/mcaa-652-secret-report-redaction` branch: redact before report diff construction; fixed diagnostics and allowlisted revalidation output; keep automerge closed for redacted Secret equality.
+- Synthetic test first: six disclosure assertions failed before fix, then passed. Full affected Go packages, workflow sink tests, vet/lint and level 0 passed (277 pass, 0 fail, 1 documented skip; 13.593 s final wall time).
+- Detailed evidence and remaining review/CI/merge/provenance requirements: `upgrade-report-containment.md`. PR #422 hold remains intact; no held branch operation or reporting rerun performed.
