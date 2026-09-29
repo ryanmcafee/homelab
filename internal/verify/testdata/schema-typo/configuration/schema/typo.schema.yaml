@@ -1,0 +1,10 @@
+# Fixture for TestSchemaFieldsRejectsWhatTheResolverAccepts. The misspellings
+# are the point: keep them.
+keys:
+  TYPO_REQUIRED:
+    description: a key whose `required:` is misspelled
+    requred: true
+  TYPO_PATTERN:
+    description: a key whose `pattern:` is misspelled
+    required: true
+    patern: "^[0-9]+$"

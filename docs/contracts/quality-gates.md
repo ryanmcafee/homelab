@@ -58,6 +58,15 @@ Requiring it would make failures block merges, but its result can become stale w
 `main` advances without a new pull request run. See MCAA-164 for the required-context
 change and the separate freshness decision.
 
+The configuration schema is gated the same way, and it shows what point 4 looks like when the
+gate must be strict in one position and lenient in another (ADR-053). `config/schema-fields` at
+level 0 strict-decodes every `configuration/schema/*.schema.yaml`, so a misspelled `requred:`
+fails; `LoadSchemaDir` at runtime keeps ignoring an unknown field, so a fork whose binary
+predates its schema files still resolves. `TestSchemaFieldsRejectsWhatTheResolverAccepts` is
+point 4 and holds both at once: one fixture, two assertions, opposite expectations. A test that
+asserted only the gate would let the rejected strict-everywhere design pass, and one that
+asserted only the resolver would let the typo back in.
+
 Consumer-side: each consumer of an event type keeps a fixture of the event it expects and
 asserts it validates against the published schema. That is what catches "the producer's
 additive change was additive for the schema but not for my parser".
