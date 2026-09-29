@@ -368,6 +368,8 @@ spec:
 # Source: addons/templates/argo-rollouts.yaml
 # Argo Rollouts - Progressive Delivery (canary + automated rollback)
 # Sync Wave: 2 (Rollout/AnalysisTemplate CRDs before any workload that uses them)
+
+---
 # Source: addons/templates/nack.yaml
 # NACK - the JetStream controller. Reconciles the jetstream.nats.io Stream and
 # Consumer resources that charts/nats-config declares, so the stream set is
