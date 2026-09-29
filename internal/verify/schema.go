@@ -20,7 +20,7 @@ const ConfigSchemaPath = "configuration/schema"
 //
 // It exists because the failure it catches is silent and subtractive. The
 // resolver decodes a schema file with a lenient yaml.Unmarshal, so a misspelled
-// `requred:` is dropped without an error and the key is simply not required —
+// `requred:` is dropped without an error and the key is simply not required --
 // `homelab config validate` then exits 0 against a ConfigSet that omits it. The
 // same mechanism turns a typo'd `patern:` into a key with no validation regex.
 // Nothing trips; a check just stops existing.
@@ -76,7 +76,7 @@ func SchemaFields(repoRoot string) []Check {
 
 	if len(findings) > 0 {
 		return []Check{FailCheck("config/schema-fields", start,
-			"a schema key may only name fields this build declares — description, required, pattern, default, const, enum, hidden, label, plus role on a keyPatterns entry. An unrecognised name is almost always a typo, and a typo here is subtractive: `requred:` does not fail, it yields a key that is not required, and `patern:` yields a key with no validation regex. Fix the spelling; if you are adding a genuinely new field, declare it on SchemaKey in internal/config/types.go in the same change.",
+			"a schema key may only name fields this build declares -- description, required, pattern, default, const, enum, hidden, label, plus role on a keyPatterns entry. An unrecognized name is almost always a typo, and a typo here is subtractive: `requred:` does not fail, it yields a key that is not required, and `patern:` yields a key with no validation regex. Fix the spelling; if you are adding a genuinely new field, declare it on SchemaKey in internal/config/types.go in the same change.",
 			findings...)}
 	}
 
