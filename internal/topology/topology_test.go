@@ -443,6 +443,18 @@ func TestEntryRuleFailsClosed(t *testing.T) {
 			},
 			want: `declares kind "in-run"`,
 		},
+		{
+			name:      "a disposition for a dead target this consumer does not implement",
+			overrides: map[string]any{"deadDeclaredTarget": "proceed"},
+			want:      `implements only "refuse"`,
+		},
+		{
+			// The ordinary case refusing without naming a procedure is what sends
+			// an operator looking for a flag to bypass the guard.
+			name:      "a dead-target refusal the contract does not explain",
+			overrides: map[string]any{"deadDeclaredTarget": "refuse", "deadDeclaredTargetGuidance": ""},
+			want:      "deadDeclaredTargetGuidance is empty",
+		},
 	}
 
 	for _, tc := range tests {
