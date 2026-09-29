@@ -226,3 +226,85 @@ test_instance_app_with_disabled_route_passes if {
 	route := {"enabled": false, "gateway": {"name": "envoy-internal", "namespace": "envoy-gateway-system"}}
 	count(deny) == 0 with input as instance_app(route)
 }
+
+# tailnet_instance is what charts/openclaw renders with tailnet.enabled: the
+# Tailscale operator's IngressClass and openclaw's own ACL tag.
+tailnet_instance(class, tag) := object.union(default_instance, {"spec": object.union(
+	default_instance.spec,
+	{"networking": {"ingress": {
+		"enabled": true,
+		"className": class,
+		"annotations": {"tailscale.com/tags": tag},
+		"hosts": [{"host": "openclaw.example-tailnet.ts.net"}],
+	}}},
+)})
+
+test_tailnet_ingress_passes if {
+	count(deny) == 0 with input as tailnet_instance("tailscale", "tag:k8s-openclaw")
+}
+
+# The Ingress is the second exposure the CRD offers, so openclaw-shared-route has
+# to cover it: any class other than the Tailscale operator's is fronted by a
+# LAN-reachable controller.
+test_ingress_on_non_tailnet_class_fails if {
+	some m in deny with input as tailnet_instance("envoy", "tag:k8s-openclaw")
+	startswith(m, "[openclaw-shared-route]")
+}
+
+test_ingress_with_empty_class_fails if {
+	some m in deny with input as tailnet_instance("", "tag:k8s-openclaw")
+	startswith(m, "[openclaw-shared-route]")
+}
+
+test_disabled_ingress_passes if {
+	obj := object.union(default_instance, {"spec": object.union(
+		default_instance.spec,
+		{"networking": {"ingress": {"enabled": false, "className": "envoy"}}},
+	)})
+	count(deny) == 0 with input as obj
+}
+
+# Without its own tag the proxy inherits the operator's proxyConfig.defaultTags,
+# which the subnet router carries too, so every grant written for the subnet
+# router would reach the Control UI.
+test_tailnet_ingress_with_shared_tag_fails if {
+	some m in deny with input as tailnet_instance("tailscale", "tag:k8s")
+	startswith(m, "[openclaw-untagged-tailnet]")
+}
+
+test_tailnet_ingress_without_tag_fails if {
+	obj := object.union(default_instance, {"spec": object.union(
+		default_instance.spec,
+		{"networking": {"ingress": {"enabled": true, "className": "tailscale"}}},
+	)})
+	some m in deny with input as obj
+	startswith(m, "[openclaw-untagged-tailnet]")
+}
+
+# A LAN-reachable Service bypasses whatever the Ingress says, so the negative
+# assertion has to be made about the Service and not only the route.
+test_loadbalancer_service_fails if {
+	obj := object.union(default_instance, {"spec": object.union(
+		default_instance.spec,
+		{"networking": {"service": {"type": "LoadBalancer"}}},
+	)})
+	some m in deny with input as obj
+	startswith(m, "[openclaw-lan-reachable]")
+}
+
+test_nodeport_service_fails if {
+	obj := object.union(default_instance, {"spec": object.union(
+		default_instance.spec,
+		{"networking": {"service": {"type": "NodePort"}}},
+	)})
+	some m in deny with input as obj
+	startswith(m, "[openclaw-lan-reachable]")
+}
+
+test_clusterip_service_passes if {
+	obj := object.union(default_instance, {"spec": object.union(
+		default_instance.spec,
+		{"networking": {"service": {"type": "ClusterIP"}}},
+	)})
+	count(deny) == 0 with input as obj
+}

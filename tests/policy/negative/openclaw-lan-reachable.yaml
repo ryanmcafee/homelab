@@ -1,0 +1,20 @@
+# expect: openclaw-lan-reachable
+# The tailnet Ingress is correct and still does not hold: a LoadBalancer Service
+# publishes gateway port 18789 on a LAN address of its own, which no route or ACL
+# grant is in the path of.
+apiVersion: openclaw.rocks/v1alpha1
+kind: OpenClawInstance
+metadata:
+  name: openclaw
+  namespace: openclaw
+spec:
+  networking:
+    service:
+      type: LoadBalancer
+    ingress:
+      enabled: true
+      className: tailscale
+      annotations:
+        tailscale.com/tags: tag:k8s-openclaw
+      hosts:
+        - host: openclaw.example-tailnet.ts.net

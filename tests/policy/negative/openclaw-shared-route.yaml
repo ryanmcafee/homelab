@@ -57,3 +57,24 @@ spec:
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
+---
+# expect: openclaw-shared-route
+# The same exposure through the CRD's other mechanism. Closing only the Gateway
+# API path would leave this one field away: any class but the Tailscale
+# operator's is fronted by a controller with a LAN address.
+apiVersion: openclaw.rocks/v1alpha1
+kind: OpenClawInstance
+metadata:
+  name: openclaw
+  namespace: openclaw
+spec:
+  networking:
+    service:
+      type: ClusterIP
+    ingress:
+      enabled: true
+      className: nginx
+      annotations:
+        tailscale.com/tags: tag:k8s-openclaw
+      hosts:
+        - host: openclaw.example.com

@@ -1292,6 +1292,10 @@ spec:
             memory: 512Mi
         route:
           enabled: false
+        tailnet:
+          enabled: false
+          hostname: ""
+          tag: ""
   destination:
     server: https://kubernetes.default.svc
     namespace: openclaw
