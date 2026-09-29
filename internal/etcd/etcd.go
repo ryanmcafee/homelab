@@ -478,6 +478,16 @@ func Evaluate(c *topology.Contract, p topology.Predicate, obs Observation) Verdi
 			if len(v.Absent) > 0 {
 				v.Problems = append(v.Problems, fmt.Sprintf(
 					"%d of %d member(s) did not answer: %s", len(v.Absent), len(membership), strings.Join(v.Absent, ", ")))
+				// The contract's dead-target row, and the ordinary reason anyone
+				// runs a recreate: the declared target is still a member and did
+				// not answer, so the membership is complete and only this clause
+				// fails. Refusing the common case with arithmetic alone is what
+				// sends an operator looking for a flag to bypass the guard, so the
+				// procedure rides with the refusal rather than being logged
+				// separately by whichever caller remembers to.
+				if g := c.DeadDeclaredTargetGuidance; g != "" && intersects(v.Absent, obs.Declared) {
+					v.Problems = append(v.Problems, g)
+				}
 			}
 		case topology.QuorumPresent:
 			if q := c.Quorum(count); v.Answered < q {
@@ -708,6 +718,16 @@ func urlHost(raw string) string {
 		return h
 	}
 	return raw
+}
+
+// intersects reports whether the two address lists share a member.
+func intersects(a, b []string) bool {
+	for _, ip := range a {
+		if containsString(b, ip) {
+			return true
+		}
+	}
+	return false
 }
 
 // MemberIPs returns the peer IPs of the given members, in order, skipping any
