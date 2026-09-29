@@ -9,6 +9,8 @@ import (
 	"sort"
 	"strings"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 )
 
 func TestBuildGuardPatterns(t *testing.T) {
@@ -2257,4 +2259,60 @@ func TestRegistryUpstreamHostsAreCommittedSafe(t *testing.T) {
 			t.Errorf("registry host %q is not in committedSafeHosts; the PII guard will flag it", host)
 		}
 	}
+}
+
+func TestGuardWorkflowCoversGuardedPaths(t *testing.T) {
+	// #457 changed only docs/ and scripts/, so Config Validation never ran on it
+	// and the PII guard first spoke on a stranger's rebase. A surface the guard
+	// scans but the workflow does not trigger on is a gate that cannot fire.
+	const workflow = "../../.github/workflows/config-validation.yml"
+	data, err := os.ReadFile(workflow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var wf struct {
+		On struct {
+			PullRequest struct {
+				Paths []string `yaml:"paths"`
+			} `yaml:"pull_request"`
+			Push struct {
+				Paths []string `yaml:"paths"`
+			} `yaml:"push"`
+		} `yaml:"on"`
+	}
+	if err := yaml.Unmarshal(data, &wf); err != nil {
+		t.Fatal(err)
+	}
+
+	triggers := map[string][]string{
+		"pull_request": wf.On.PullRequest.Paths,
+		"push":         wf.On.Push.Paths,
+	}
+	if len(DefaultGuardPathspecs) == 0 {
+		t.Fatal("no guard pathspecs to check")
+	}
+	for name, paths := range triggers {
+		if len(paths) == 0 {
+			t.Fatalf("%s trigger in %s has no paths", name, workflow)
+		}
+		for _, spec := range DefaultGuardPathspecs {
+			if !pathsCover(paths, spec) {
+				t.Errorf("%s trigger does not cover guarded pathspec %q", name, spec)
+			}
+		}
+	}
+}
+
+// pathsCover reports whether a workflow path filter fires for a guard pathspec,
+// either by naming it or by matching a directory prefix that contains it.
+func pathsCover(paths []string, spec string) bool {
+	for _, p := range paths {
+		if p == spec {
+			return true
+		}
+		if dir, ok := strings.CutSuffix(p, "/**"); ok && strings.HasPrefix(spec, dir+"/") {
+			return true
+		}
+	}
+	return false
 }
