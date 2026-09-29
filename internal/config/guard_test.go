@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"sort"
 	"strings"
@@ -2374,5 +2375,44 @@ func TestLoopbackCIDRIsNeverAPattern(t *testing.T) {
 	want := []string{"203.0.113.150"}
 	if !slices.Equal(got, want) {
 		t.Fatalf("BuildGuardPatterns = %v, want %v", got, want)
+	}
+}
+
+func TestRegistryUpstreamHostsAreCommittedSafe(t *testing.T) {
+	// The localdev pull-through caches must spell out every registry host they
+	// proxy, and the guard scans scripts/. A registry added without an allowlist
+	// entry turns main red on the next pull request that rebases onto it, which
+	// is how ecr-public.aws.com was found. Pin the two lists together instead.
+	const script = "../../scripts/localdev-kind.ts"
+	data, err := os.ReadFile(script)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(data)
+	start := strings.Index(body, "export const registryUpstreams")
+	if start < 0 {
+		t.Fatalf("registryUpstreams not found in %s", script)
+	}
+	end := strings.Index(body[start:], "\n];")
+	if end < 0 {
+		t.Fatalf("registryUpstreams has no terminator in %s", script)
+	}
+	block := body[start : start+end]
+
+	hosts := regexp.MustCompile(`host:\s*"([^"]+)"`).FindAllStringSubmatch(block, -1)
+	// A block that parses to nothing would excuse every registry ever added.
+	if len(hosts) == 0 {
+		t.Fatalf("no registry hosts parsed from %s", script)
+	}
+
+	safe := make(map[string]bool, len(committedSafeHosts))
+	for _, h := range committedSafeHosts {
+		safe[h] = true
+	}
+	for _, m := range hosts {
+		host := m[1]
+		if !safe[host] {
+			t.Errorf("registry host %q is not in committedSafeHosts; the PII guard will flag it", host)
+		}
 	}
 }
