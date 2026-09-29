@@ -88,8 +88,26 @@ keys:
     const: "paperclip.{{.DOMAIN}}"
 
   OPENCLAW_HOSTNAME:
-    description: OpenClaw hostname; reachable on the internal Gateway only (LAN/tailnet)
+    description: OpenClaw hostname on the internal Gateway; no route is attached to that Gateway, so nothing serves this name (docs/apps/openclaw.md Exposure)
     const: "openclaw.{{.DOMAIN}}"
+
+  OPENCLAW_TAILNET_EXPOSURE:
+    description: Expose the OpenClaw Control UI on a tailnet-only Ingress served by the Tailscale operator; needs OPENCLAW_TAILNET_HOSTNAME, OPENCLAW_TAILNET_TAG and a tailnet policy grant for that tag (docs/runbooks/openclaw-tailnet-access.md)
+    required: true
+    default: "false"
+    enum:
+      - "true"
+      - "false"
+
+  OPENCLAW_TAILNET_HOSTNAME:
+    description: MagicDNS name the Control UI answers on when OPENCLAW_TAILNET_EXPOSURE is true; the tailnet name is PII, so set it per environment and never commit a real one
+    required: false
+    pattern: "^$|^[a-z0-9-]+(\\.[a-z0-9-]+)*\\.ts\\.net$"
+
+  OPENCLAW_TAILNET_TAG:
+    description: Tailnet ACL tag the Control UI's proxy device carries when OPENCLAW_TAILNET_EXPOSURE is true; must be openclaw's own tag, not the subnet router's tag:k8s, so a grant cannot reach both
+    required: false
+    pattern: "^$|^tag:[a-z0-9-]+$"
 
   OPENCLAW_STORAGE_SIZE:
     description: Size of the OpenClawInstance data volume (agent workspace, openclaw.json, browser profiles); Kind always uses 1Gi
