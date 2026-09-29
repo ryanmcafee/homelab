@@ -11,8 +11,13 @@
  * `atLeastOnce` — a DLQ that fires fire-and-forget is acked before the dead-letter write
  * is known to have landed.
  *
- * Both CRDs preserve unknown fields, so none of this is visible to the schema gate, and
- * the admission webhook is failurePolicy: Ignore (ADR-045). This file is the gate.
+ * Both CRDs preserve unknown fields, so none of this is visible to the schema gate.
+ * Upstream does reject both arms of the coupling -- validateDlqTrigger at v1.9.11
+ * pkg/reconciler/sensor/validate.go:94, reached from ValidateSensor, which the admission
+ * webhook, the reconciler and `argo-events lint` all call -- but only at apply time, and
+ * admission is failurePolicy: Ignore (ADR-045) so it fails open during rollout. This file
+ * is the pre-merge, network-free gate, and the only one that can fail a pull request
+ * (ADR-049, amendment 2026-09-29).
  *
  * The rule is one-directional: it forbids only the shape that claims a dead-letter path
  * it cannot take. A Sensor with neither field is honest at-most-once and stays legal, and
