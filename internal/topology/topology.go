@@ -84,6 +84,11 @@ const (
 	// the entry point comes from whether the declared target is in etcd's own
 	// membership, never from a flag or a state file (ADR-035 rejected `--resume`).
 	SelectorObservedMembership = "declared-target-present-in-observed-membership"
+	// DeadTargetRefuse is the only disposition this consumer implements for a
+	// target that is still a member and not answering: the cluster is short
+	// before the run starts, so the fresh shape refuses and the operator is sent
+	// to the runbook.
+	DeadTargetRefuse = "refuse"
 )
 
 // Point kinds. An `entry` point is where a run may start; an `in-run` point is
@@ -150,6 +155,14 @@ type Contract struct {
 	Entry                   string
 	EntrySelector           string
 	EntrySelectorIsObserved bool
+
+	// DeadDeclaredTarget is what to do when the node to be recreated is still a
+	// member but is not answering, and the guidance to print instead of bare
+	// arithmetic. The fresh shape refuses, because the cluster is already short
+	// before anyone touches it; the guidance is the operator's route to the
+	// resumed shape.
+	DeadDeclaredTarget         string
+	DeadDeclaredTargetGuidance string
 
 	quorumTable []quorumRow
 	predicates  map[PredicateID]Predicate
@@ -348,11 +361,13 @@ type raw struct {
 			Predicate PredicateID `yaml:"predicate"`
 			Kind      string      `yaml:"kind"`
 		} `yaml:"points"`
-		Entry                   string    `yaml:"entry"`
-		EntryPoints             []PointID `yaml:"entryPoints"`
-		EntrySelector           string    `yaml:"entrySelector"`
-		EntrySelectorIsObserved bool      `yaml:"entrySelectorIsObserved"`
-		RunShapes               []struct {
+		Entry                      string    `yaml:"entry"`
+		EntryPoints                []PointID `yaml:"entryPoints"`
+		EntrySelector              string    `yaml:"entrySelector"`
+		EntrySelectorIsObserved    bool      `yaml:"entrySelectorIsObserved"`
+		DeadDeclaredTarget         string    `yaml:"deadDeclaredTarget"`
+		DeadDeclaredTargetGuidance string    `yaml:"deadDeclaredTargetGuidance"`
+		RunShapes                  []struct {
 			ID       string    `yaml:"id"`
 			When     string    `yaml:"when"`
 			Sequence []PointID `yaml:"sequence"`
@@ -384,6 +399,8 @@ func Parse(data []byte) (*Contract, error) {
 		Entry:                              r.Evaluation.Entry,
 		EntrySelector:                      r.Evaluation.EntrySelector,
 		EntrySelectorIsObserved:            r.Evaluation.EntrySelectorIsObserved,
+		DeadDeclaredTarget:                 r.Evaluation.DeadDeclaredTarget,
+		DeadDeclaredTargetGuidance:         strings.TrimSpace(r.Evaluation.DeadDeclaredTargetGuidance),
 		quorumTable:                        r.Quorum.Table,
 		predicates:                         map[PredicateID]Predicate{},
 		points:                             map[PointID]PredicateID{},
@@ -494,6 +511,20 @@ func (c *Contract) parseEntryRule(r raw) error {
 		return fmt.Errorf(
 			"evaluation.entrySelectorIsObserved is false: a caller-asserted entry point is the `--resume` flag ADR-035 " +
 				"rejected, because asserting `resume` is how `survivable` ends up at the door")
+	}
+	// The dead-target row of the same table: the target is still a member and is
+	// not answering, so `preflight` refuses. A disposition this consumer does not
+	// implement must not be read as the one it does, and a refusal the contract
+	// does not explain is a refusal an operator looks for a way around.
+	if c.DeadDeclaredTarget != "" && c.DeadDeclaredTarget != DeadTargetRefuse {
+		return fmt.Errorf(
+			"evaluation.deadDeclaredTarget is %q; this consumer implements only %q for a declared target that is still a member and not answering",
+			c.DeadDeclaredTarget, DeadTargetRefuse)
+	}
+	if c.DeadDeclaredTarget != "" && c.DeadDeclaredTargetGuidance == "" {
+		return fmt.Errorf(
+			"evaluation.deadDeclaredTarget is %q but evaluation.deadDeclaredTargetGuidance is empty: the ordinary reason to run a recreate is a dead node, and refusing it with bare arithmetic is what sends an operator looking for a bypass",
+			c.DeadDeclaredTarget)
 	}
 
 	kindEntry := map[PointID]bool{}

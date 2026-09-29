@@ -4,7 +4,7 @@
 #
 # This file exists because the same safety rule has two consumers in two languages:
 #
-#   - Go:         `homelab talos recreate` (cmd/homelab/commands/talos.go), the
+#   - Go:         `homelab talos recreate` (cmd/homelab/commands/talos_etcd.go), the
 #                 distributable CLI path — ADR-031.
 #   - TypeScript: scripts/cp-storage-migrate.ts, repository scripting — ADR-005.
 #
@@ -180,16 +180,22 @@ health:
         `membership-accounts-for-expected`.
     - id: membership-accounts-for-expected
       rule: >-
-        The number of members in etcd's own membership, plus the number of declared
-        targets of the operation that are unrepresented (vocabulary.unrepresented — no
-        member in that membership at all), equals the count derived from the
-        control-plane address keys. Every configured control-plane address is therefore
-        accounted for as either a current member or a member this operation declared it
-        would take away. This is the only condition that can see an unrepresented
-        address on a run that does not evaluate `member-count`: "expected member" means
-        a member of the membership, so a stranger already removed from it is not an
-        absence `absences-are-declared` can detect. On the fresh shape it is implied by
-        `member-count`, which demands the membership be complete; the resumed shape
+        The number of members in etcd's own membership, plus the number of control-plane
+        addresses that are unrepresented -- every unrepresented address, not only the
+        ones this operation declared -- equals the count derived from the control-plane
+        address keys, and every unrepresented address is a declared target of this
+        operation. Two clauses, because the condition refuses on two different
+        observations and owes a different message for each. Stated as one clause over
+        the declared targets alone it fails open: a stranger member, one etcd reports at
+        an address the ConfigSet does not list, cancels an undeclared unrepresented
+        address in the arithmetic and the sum comes out right on a cluster carrying both
+        faults at once -- reproduced at counts 5 and 7 (MCAA-483). The first clause is
+        what sees the stranger; the second is what bounds the relaxation to the target.
+        This is the only condition that can see an unrepresented address on a run that
+        does not evaluate `member-count`: "expected member" means a member of the
+        membership, so an address already removed from it is not an absence
+        `absences-are-declared` can detect. On the fresh shape both clauses are implied
+        by `member-count`, which demands the membership be complete; the resumed shape
         cannot demand that and needs this instead.
     - id: no-errors
       rule: No member reports a non-empty ERRORS field.
@@ -373,6 +379,7 @@ evaluation:
   #   observed                                    | entry     | predicate  | outcome
   #   --------------------------------------------|-----------|------------|---------
   #   target a member, no other fault             | preflight | whole      | proceeds
+  #   target a member, the target itself absent   | preflight | whole      | refuses (member-count)
   #   target a member, another member absent      | preflight | whole      | refuses (member-count)
   #   target a member, another addr unrepresented | preflight | whole      | refuses (member-count)
   #   target unrepresented, no other fault        | resume    | survivable | resumes
@@ -380,10 +387,22 @@ evaluation:
   #   target unrepresented, another unrepresented | resume    | survivable | refuses (membership-accounts-for-expected)
   #   membership unknown (no endpoint answered)   | n/a       | n/a        | refuses (onIndeterminate)
   #
-  # Rows 2, 3, 5 and 6 are why exclusive entry weakens nothing. The objection to
+  # Rows 3, 4, 6 and 7 are why exclusive entry weakens nothing. The objection to
   # `survivable` at the door — that it consents to starting on an already-degraded
   # cluster — is answered in both senses, not waived: a stranger fails a condition
   # whichever point you entered at, and whichever way it is missing.
+  #
+  # Row 2 is the ordinary reason anyone runs a recreate -- the node is dead -- and it
+  # refuses. That is a decision, not an omission, and it was missing from this table
+  # until MCAA-483: a declared target that is still a member and not answering fails
+  # `member-count`, so the fresh shape refuses and the operator is sent to the runbook
+  # rather than into an automated replacement on a control plane that is already short.
+  # The route to the resumed shape is removing the dead member by hand, which makes the
+  # target unrepresented. Refusing with bare arithmetic on the ordinary case is not
+  # good enough, so the contract carries the procedure the way
+  # quorum.removalOfLastMemberGuidance does. It rides with the refusal itself rather
+  # than being logged separately: a warning emitted by whichever caller remembers to is
+  # a step no test reaches without a cluster.
   #
   # Row 6 is the one exclusive entry had to pay for. The sequential reading evaluated
   # `whole` first, so `member-count` caught a second unrepresented address by accident
@@ -405,6 +424,16 @@ evaluation:
   entryPoints: [preflight, resume]
   entrySelector: declared-target-present-in-observed-membership
   entrySelectorIsObserved: true
+  # Row 2 of the table above, as data the consumer prints rather than prose a reader
+  # has to find. `refuse` is not a discretion: the target is still a member, so the
+  # membership is complete and only the answering clause of `member-count` fails.
+  deadDeclaredTarget: refuse
+  deadDeclaredTargetGuidance: >-
+    The node to be recreated is still an etcd member but is not answering, so the
+    cluster is not whole and this fresh run refuses. Remove the dead member first
+    (`talosctl -n <surviving-cp> etcd remove-member <id>`), which leaves the target
+    unrepresented, then re-run: the guard enters at `resume` and finishes the recreate
+    without removing a second member. See docs/runbooks/talos-upgrade.md.
   runShapes:
     - id: fresh
       when: The declared target is still a member of etcd's own membership.
@@ -432,7 +461,7 @@ evaluation:
 consumers:
   - id: homelab-cli
     language: go
-    path: cmd/homelab/commands/talos.go
+    path: cmd/homelab/commands/talos_etcd.go
     role: Control-plane node recreate guard (#39).
     # Computes the quorum numbers from this file, selects the entry point from the
     # observed membership, and its loader refuses a contract naming a condition it does

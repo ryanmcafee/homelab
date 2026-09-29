@@ -75,6 +75,8 @@ interface TopologyContract {
     entryPoints: string[];
     entrySelector: string;
     entrySelectorIsObserved: boolean;
+    deadDeclaredTarget: string;
+    deadDeclaredTargetGuidance: string;
     runShapes: { id: string; when: string; sequence: string[] }[];
   };
   consumers: {
@@ -92,6 +94,25 @@ const contract = parseYaml(
 
 /** The rule the contract states in prose, implemented once, here, to check the table. */
 const quorumOf = (count: number): number => Math.floor(count / 2) + 1;
+
+/**
+ * The normative statement of a rule: its first sentence, with cross-references to
+ * other clauses removed.
+ *
+ * Both halves are required, and mutation found the need for each. A search over the
+ * whole rule is satisfied by the explanatory prose that follows the statement, so the
+ * sentence stating the arithmetic could drop a defined word and still pass. Scoping to
+ * the first sentence is not enough either: a parenthetical cross-reference sits inside
+ * that sentence and carries the referenced clause's vocabulary, so `... that are
+ * missing (vocabulary.unrepresented — ...)` passed a search for "unrepresented" while
+ * the statement used the one synonym this contract forbids (MCAA-483).
+ *
+ * A parenthetical counts as a cross-reference when it contains whitespace or a dotted
+ * path. `quorum(count)` is an application of a named formula, not a reference, and
+ * survives stripping — which is what keeps the quorum-present search meaningful.
+ */
+const normative = (rule: string): string =>
+  rule.replace(/\([^)]*[\s.][^)]*\)/g, " ").split(/(?<=\.)\s/)[0];
 
 test("contract is v1 and derives the count from the address keys, not a constant", () => {
   assertEquals(contract.version, 1);
@@ -187,13 +208,17 @@ test("a missing member's two senses are defined once, and each has a condition t
   // covered both, which is exactly how the resumed shape came to have no backstop.
   const vocab = contract.health.vocabulary;
   assert(vocab !== undefined, "health.vocabulary must define the two senses");
+  // Scoped to each definition's own first sentence. Unscoped, a mutation that dropped
+  // "did not answer" from the definition and left it in the sentence after it passed —
+  // and a definition whose first sentence no longer says what the term means is not a
+  // definition, however well the paragraph explains it.
   assert(
-    /did not answer/i.test(vocab.absent),
-    "vocabulary.absent must mean a member of the membership that did not answer",
+    /did not answer/i.test(normative(vocab.absent)),
+    `vocabulary.absent defines itself as "${normative(vocab.absent)}", which never says "did not answer": the in-membership sense is the one absences-are-declared can see, and it is the answering that distinguishes it`,
   );
   assert(
-    /member in etcd's membership at all/i.test(vocab.unrepresented),
-    "vocabulary.unrepresented must mean no member in the membership at all",
+    /member in etcd's membership at all/i.test(normative(vocab.unrepresented)),
+    `vocabulary.unrepresented defines itself as "${normative(vocab.unrepresented)}", which never says there is no member in the membership at all: that is the whole difference from an absence`,
   );
   const byId = new Map(contract.health.predicates.map((p) => [p.id, p]));
   const survivable = new Set(byId.get("survivable")!.conditions);
@@ -239,18 +264,50 @@ test("the resumed shape can see a second unrepresented address without member-co
     );
   }
 
-  // Scoped to the NORMATIVE SENTENCE, not to the rule text as a whole. A token search
-  // over the whole rule is satisfied by the explanatory prose that follows it, so the
-  // sentence stating the arithmetic could drop the defined vocabulary word and still
-  // pass — the same substring weakness this suite had at `entrySelector`.
-  const rule = contract.health.conditions.find(
-    (c) => c.id === "membership-accounts-for-expected",
-  )!.rule;
-  const normative = rule.split(/(?<=\.)\s/)[0];
-  for (const token of ["derived", "unrepresented", "declared"]) {
+  // Both branches, stated. The condition refuses on two different observations and the
+  // one-clause version fails open: |membership| + |DECLARED unrepresented| == count is
+  // satisfied by a stranger member cancelling an undeclared unrepresented address, so a
+  // cluster carrying both faults adds up and the guard consents. The Go consumer always
+  // checked both; only the contract's sentence was weaker (MCAA-483). "not only" is the
+  // token that distinguishes the arithmetic over ALL unrepresented addresses from the
+  // arithmetic over the declared ones.
+  const statement = normative(
+    contract.health.conditions.find(
+      (c) => c.id === "membership-accounts-for-expected",
+    )!.rule,
+  );
+  for (const token of ["derived", "unrepresented", "declared", "not only"]) {
     assert(
-      normative.includes(token),
-      `membership-accounts-for-expected states its arithmetic as "${normative}", which never says "${token}": it must compare the membership plus DECLARED UNREPRESENTED targets against the DERIVED count, in the vocabulary the contract defines`,
+      statement.includes(token),
+      `membership-accounts-for-expected states its arithmetic as "${statement}", which never says "${token}": it must state BOTH branches — the membership plus ALL unrepresented addresses ("not only" the declared ones) equals the DERIVED count, and every unrepresented address is a DECLARED target`,
+    );
+  }
+});
+
+test("no normative statement uses a synonym for the two senses of a missing member", () => {
+  // The contract says out loud that "Missing" is not a term of it, because the two
+  // senses have different conditions and collapsing them is what left the resumed shape
+  // with no backstop. That prohibition was prose no test read: a mutation that put
+  // "missing" into the arithmetic's normative statement, keeping the word in the
+  // parenthetical cross-reference after it, left both suites green (MCAA-483). The
+  // vocabulary is only defined once if nothing else may say it a second way.
+  const forbidden = /\bmissing\b/i;
+  const statements: [string, string][] = [
+    ...contract.health.conditions.map((c): [string, string] => [
+      `condition ${c.id}`,
+      c.rule,
+    ]),
+    ...contract.health.predicates.flatMap((p): [string, string][] => [
+      [`predicate ${p.id} summary`, p.summary],
+      [`predicate ${p.id}`, p.rule],
+    ]),
+    ["vocabulary.absent", contract.health.vocabulary.absent],
+    ["vocabulary.unrepresented", contract.health.vocabulary.unrepresented],
+  ];
+  for (const [where, text] of statements) {
+    assert(
+      !forbidden.test(normative(text)),
+      `${where} says "missing" in its normative statement: the contract defines "absent" and "unrepresented" precisely because one word for both senses reads as total while covering one`,
     );
   }
 });
@@ -289,10 +346,14 @@ test("the quorum rule is consumed by a condition, not merely published", () => {
     quorumRule !== undefined,
     "no condition consumes quorum/maxUnavailable; the quorum table would be decoration",
   );
+  // Scoped the same way as the arithmetic above: the unscoped search passed a mutation
+  // that dropped maxUnavailable(count) from the statement and left it in the prose after
+  // it, so the condition consumed half the quorum table and the suite stayed green.
+  const statement = normative(quorumRule!.rule);
   for (const token of ["quorum(count)", "maxUnavailable(count)"]) {
     assert(
-      quorumRule!.rule.includes(token),
-      `quorum-present must state that it reads ${token} from the quorum table`,
+      statement.includes(token),
+      `quorum-present states itself as "${statement}", which never says ${token}: a condition that names only one of the two numbers leaves the other as data no predicate reads`,
     );
   }
 });
@@ -526,6 +587,47 @@ test("both declared consumers still exist at the paths the contract names", () =
       `consumer ${consumer.id} names ${consumer.path}, which does not exist`,
     );
   }
+});
+
+test("the fully conformant consumer's path is where the guard actually is", () => {
+  // An existence check cannot tell the difference: this contract named
+  // cmd/homelab/commands/talos.go, which exists and contains none of the guard — the
+  // entry selection and every predicate evaluation are in talos_etcd.go (MCAA-483). A
+  // path that merely exists sends the next reader to the wrong file, and a reviewer
+  // checking conformance would find nothing there to check.
+  const repoRoot = join(import.meta.dir, "..");
+  for (const consumer of contract.consumers) {
+    if (consumer.conformant !== "full") continue;
+    const src = readFileSync(join(repoRoot, consumer.path), "utf8");
+    for (const marker of ["SelectEntry", "Evaluate"]) {
+      assert(
+        src.includes(marker),
+        `consumer ${consumer.id} declares conformant: full at ${consumer.path}, which never calls ${marker}: the entry selection and predicate evaluation are what conformance means, so this path points at the wrong file`,
+      );
+    }
+  }
+});
+
+test("the ordinary dead-target case refuses and names the procedure that applies", () => {
+  // Row 2 of the entry table, which the table omitted while claiming to be total
+  // (MCAA-483). A target that is still a member and not answering is the everyday
+  // reason to run a recreate, and it fails member-count at preflight. Refusing is
+  // correct — the cluster is already short — but refusing with bare arithmetic on the
+  // common case sends the operator looking for a flag to bypass.
+  assertEquals(contract.evaluation.deadDeclaredTarget, "refuse");
+  const guidance = contract.evaluation.deadDeclaredTargetGuidance;
+  assert(
+    /remove-member|remove the dead member/i.test(guidance),
+    "the guidance must name the step that makes the target unrepresented, not restate the refusal",
+  );
+  assert(
+    guidance.includes("resume"),
+    "the guidance must say which entry point the re-run then takes; otherwise it tells the operator to remove a member and stops",
+  );
+  assert(
+    /runbook|docs\//i.test(guidance),
+    "the guidance must point at the runbook, the way quorum.removalOfLastMemberGuidance does",
+  );
 });
 
 test("every consumer states how far its conformance actually goes", () => {
