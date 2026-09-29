@@ -18,7 +18,7 @@
  * homelab and reports success.
  */
 
-import { chmod, mkdir, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
   SYSTEM_PRINCIPAL,
@@ -161,6 +161,36 @@ export function publicMapContents(results: SeedResult[]): string {
   ].join("\n");
 }
 
+/** The `<principal>=<public key>` pairs a previously written map recorded. */
+export function parsePublicMap(contents: string): Map<string, string> {
+  const match = /^NATS_PRINCIPAL_NKEYS="([^"]*)"$/m.exec(contents);
+  const pairs = new Map<string, string>();
+  if (match === null || !match[1]) return pairs;
+  for (const pair of match[1].split(",")) {
+    const [name, key] = pair.split("=");
+    if (name && key) pairs.set(name, key);
+  }
+  return pairs;
+}
+
+/**
+ * Principals whose key differs from the map already on disk. A Secret deleted by hand and reminted
+ * gives the cluster a new key while an activated configuration still carries the old one, and the
+ * server then refuses that client with nothing to show why -- so a divergence is named rather
+ * than quietly overwritten.
+ */
+export function divergedPrincipals(
+  previous: Map<string, string>,
+  results: SeedResult[],
+): string[] {
+  return results
+    .filter((r) => {
+      const before = previous.get(r.principal);
+      return before !== undefined && before !== r.publicKey;
+    })
+    .map((r) => r.principal);
+}
+
 export interface SeedIo {
   /** Reads a Secret key; returns the base64 value or "" when absent. */
   read(args: string[]): Promise<{ code: number; stdout: string }>;
@@ -214,14 +244,24 @@ export async function deliverSeeds(
   return results;
 }
 
-/** Writes the public map at 0600 and returns its path. Contains no seed. */
+/**
+ * Writes the public map at 0600 and returns its path and any principal whose key moved since the
+ * last write. Contains no seed.
+ */
 export async function writePublicMap(
   repoRoot: string,
   results: SeedResult[],
-): Promise<string> {
+): Promise<{ path: string; diverged: string[] }> {
   const path = join(repoRoot, PUBLIC_MAP_PATH);
+  let previous = new Map<string, string>();
+  try {
+    previous = parsePublicMap(await readFile(path, "utf8"));
+  } catch {
+    // No earlier map: nothing to correspond with.
+  }
+  const diverged = divergedPrincipals(previous, results);
   await mkdir(join(repoRoot, ".nats"), { recursive: true, mode: 0o700 });
   await writeFile(path, publicMapContents(results), { mode: 0o600 });
   await chmod(path, 0o600);
-  return path;
+  return { path, diverged };
 }

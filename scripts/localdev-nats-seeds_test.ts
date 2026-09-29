@@ -24,6 +24,7 @@ import {
   readSeedArgs,
   secretManifest,
   seedPlan,
+  parsePublicMap,
   writePublicMap,
 } from "./localdev-nats-seeds.ts";
 import {
@@ -233,7 +234,7 @@ test("the public map carries no seed and leaves $SYS empty", async () => {
   const cluster = fakeCluster();
   const results = await deliverSeeds(cluster.io, LOCALDEV_CONTEXT, "nats");
   const root = await repoRoot();
-  const path = await writePublicMap(root, results);
+  const { path } = await writePublicMap(root, results);
 
   assertEquals(path, join(root, PUBLIC_MAP_PATH));
   const contents = await readFile(path, "utf8");
@@ -250,7 +251,7 @@ test("the public map carries no seed and leaves $SYS empty", async () => {
 test("the public map file is private", async () => {
   const cluster = fakeCluster();
   const results = await deliverSeeds(cluster.io, LOCALDEV_CONTEXT, "nats");
-  const path = await writePublicMap(await repoRoot(), results);
+  const { path } = await writePublicMap(await repoRoot(), results);
   assertEquals((await stat(path)).mode & 0o777, 0o600);
 });
 
@@ -261,6 +262,39 @@ test("the public map is git-ignored so a fork cannot commit it by accident", asy
   );
   assertStringIncludes(ignored, ".nats/");
   assertStringIncludes(PUBLIC_MAP_PATH, ".nats/");
+});
+
+test("a key that moved since the last write is named, not silently overwritten", async () => {
+  // A Secret removed by hand is reminted here, so a configuration already carrying the old public
+  // key would have the server refuse that client with nothing to show why. Reuse has to check
+  // correspondence with what was published, not only with what is in the cluster.
+  const root = await repoRoot();
+  const first = fakeCluster();
+  const before = await deliverSeeds(first.io, LOCALDEV_CONTEXT, "nats");
+  assertEquals((await writePublicMap(root, before)).diverged, []);
+
+  // A fresh cluster mints different material for the same principals.
+  const second = fakeCluster();
+  const after = await deliverSeeds(second.io, LOCALDEV_CONTEXT, "nats");
+  assertEquals(
+    (await writePublicMap(root, after)).diverged.sort(),
+    before.map((r) => r.principal).sort(),
+  );
+
+  // Rewriting the same material reports nothing.
+  assertEquals((await writePublicMap(root, after)).diverged, []);
+});
+
+test("a map with no earlier write reports no divergence", async () => {
+  const cluster = fakeCluster();
+  const results = await deliverSeeds(cluster.io, LOCALDEV_CONTEXT, "nats");
+  assertEquals((await writePublicMap(await repoRoot(), results)).diverged, []);
+  assertEquals(parsePublicMap("").size, 0);
+  assertEquals(parsePublicMap('NATS_PRINCIPAL_NKEYS=""').size, 0);
+  assertEquals(
+    parsePublicMap('NATS_PRINCIPAL_NKEYS="a=U1,b=U2"').get("b"),
+    "U2",
+  );
 });
 
 test("the map names every principal charts/addons will accept a key for", async () => {

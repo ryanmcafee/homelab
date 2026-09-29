@@ -171,6 +171,10 @@ bun scripts/localdev-kind.ts nats-seeds     # also run as part of `up`
   halves exist only as Secrets in the cluster and in no file.
 - Mints no `$SYS` key. Nothing on Kind holds the system account, so break-glass on Kind is
   recreating the cluster.
+- Compares what it derived against the map it wrote last time and **names any principal whose key
+  moved**. A Secret deleted by hand is reminted, so an already-activated configuration would still
+  carry the old public key and the server would refuse that client with nothing to show why.
+  Re-render the addons values from the map when that warning appears.
 
 Delivering the seeds does **not** activate authentication. The bus stays anonymous until
 `NATS_PRINCIPAL_NKEYS` is set from that file and the values are re-rendered, with the section 3

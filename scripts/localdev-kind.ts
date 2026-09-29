@@ -1254,13 +1254,20 @@ async function deliverNatsSeeds(ctx: Ctx): Promise<void> {
     ctx.args.context,
     namespace,
   );
-  const path = await writePublicMap(ctx.repoRoot, results);
+  const { path, diverged } = await writePublicMap(ctx.repoRoot, results);
   const minted = results.filter((r) => r.generated).length;
   log.ok(
     `NATS principal seeds: ${minted} minted, ${
       results.length - minted
     } reused (Secrets only, never a file); public keys in ${PUBLIC_MAP_PATH}`,
   );
+  if (diverged.length > 0) {
+    // A Secret removed by hand is reminted here, so a configuration already carrying the old
+    // public key would have the server refuse that client with nothing to show why.
+    log.warn(
+      `${diverged.join(", ")} changed key since the last run; re-render the addons values from ${PUBLIC_MAP_PATH} before the server accepts them again`,
+    );
+  }
   log.info(
     `Bus stays anonymous until NATS_PRINCIPAL_NKEYS is set from ${path} and every nats call site holds a named context (MCAA-487)`,
   );
