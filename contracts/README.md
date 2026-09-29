@@ -23,16 +23,26 @@ take a new major version. See `docs/contracts/event-contract.md` for the reasoni
 table matches the stated formula, every permitted topology has a row, every condition is reached
 by a predicate, `survivable` relaxes `whole` in exactly one way, every run shape enters at exactly
 one entry point and ends whole, that the two senses of a missing member are defined once and each
-has a condition that sees it, and that both declared consumers exist. `evaluation.points` is a set
-of gates with exclusive entry, not a pipeline — a consumer that runs all four in order refuses
-every legitimate resume (ADR-035, MCAA-404 ruling).
+has a condition that sees it, that the ordinary dead-target case refuses and names the procedure
+that applies, and that both declared consumers exist at paths that hold what they claim to.
+`evaluation.points` is a set of gates with exclusive entry, not a pipeline — a consumer that runs
+all four in order refuses every legitimate resume (ADR-035, MCAA-404 ruling).
+
+Those checks read the normative statement of each rule with parenthetical cross-references
+stripped, and no normative statement may use the word "missing". Both are there because a token
+search over whole rule text is satisfied by the explanatory prose after the statement, and a search
+scoped to the statement is satisfied by a cross-reference inside it — a rule can then say the one
+synonym this contract forbids and stay green (MCAA-483).
 
 Conformance beyond that is per consumer, and the two are not at the same level today:
 
 - **`homelab-cli` (Go) is conformant.** `internal/etcd` and `internal/topology` compute the quorum
   numbers from this file, select the entry point from the observed membership, and carry
-  `TestConformsToExclusiveEntry`, `TestEntryRuleIsReadFromTheContract`, `TestEntryRuleFailsClosed`
-  and `TestResumeRefusesASecondUnrepresentedAddress`. Its loader also refuses any contract naming a
+  `TestConformsToExclusiveEntry`, `TestEntryRuleIsReadFromTheContract`, `TestEntryRuleFailsClosed`,
+  `TestResumeRefusesASecondUnrepresentedAddress`, `TestResumeRefusesAStrangerMember` and
+  `TestDeadDeclaredTargetRefusesAtPreflight`. `membership-accounts-for-expected` refuses on two
+  observations and carries a test per observation: the two cancel in the arithmetic, so one case
+  proves only whichever branch fires first. Its loader also refuses any contract naming a
   `health.conditions` entry it does not implement, so adding a condition here is a coordinated
   change across both, not an additive edit to this file.
 - **`cp-storage-migrate` (TypeScript) is not.** Its only assertion against this file is that
