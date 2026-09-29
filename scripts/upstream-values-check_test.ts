@@ -31,6 +31,7 @@ import {
 } from "./lib/assert.ts";
 import {
   ALLOWLIST_PATH,
+  UNDECLARED_VALUE_RULE_ID,
   ancestorsOf,
   cacheKey,
   chartRef,
@@ -270,7 +271,7 @@ test("mergeValues deep-merges maps and replaces lists", () => {
   assertEquals(mergeValues(null, { a: 1 }), { a: 1 });
 });
 
-test("a seeded bad key fails the check, and the real allowlist does not cover it", () => {
+test("a seeded bad key fails, then passes when the chart declares it", () => {
   withTempDir((dir) => {
     // A fixture chart standing in for spegel 0.6.0: the key is
     // `mirroredRegistries`, and `spegel` has real children, so nothing below
@@ -319,6 +320,7 @@ test("a seeded bad key fails the check, and the real allowlist does not cover it
       ["spegel.registries"],
     );
     assertEquals(findings[0].app, "spegel");
+    assertEquals(findings[0].ruleId, UNDECLARED_VALUE_RULE_ID);
     assertEquals(findings[0].chart, "spegel");
     assertEquals(findings[0].targetRevision, "0.6.0");
 
@@ -328,6 +330,15 @@ test("a seeded bad key fails the check, and the real allowlist does not cover it
       readFileSync(join(REPO_ROOT, ALLOWLIST_PATH), "utf8"),
     );
     assertEquals(findings.filter((f) => !isAllowed(f, allow)).length, 1);
+
+    write(
+      join(dir, "chart/values.yaml"),
+      "resources: {}\nspegel:\n  logLevel: INFO\n  mirroredRegistries: []\n  registries: []\n",
+    );
+    const withDeclaredKey = new Map([
+      [cacheKey(sources[0]), treePaths(readChartTree(join(dir, "chart")))],
+    ]);
+    assertEquals(findingsFor(sources, withDeclaredKey), []);
   });
 });
 
@@ -336,6 +347,7 @@ test("isAllowed matches an entry's path and everything under it, within one char
     { chart: "argo-cd", path: "configs.cm", reason: "free-form ConfigMap" },
   ];
   const finding = (chart: string, path: string): Finding => ({
+    ruleId: UNDECLARED_VALUE_RULE_ID,
     env: "homelab",
     app: "a",
     chart,
@@ -363,6 +375,7 @@ test("unusedEntries names an allowlist entry that no longer matches anything", (
   ];
   const findings: Finding[] = [
     {
+      ruleId: UNDECLARED_VALUE_RULE_ID,
       env: "homelab",
       app: "argocd",
       chart: "argo-cd",

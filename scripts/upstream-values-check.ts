@@ -81,6 +81,7 @@ const log = {
 export const SNAPSHOT_ROOT = "tests/snapshots";
 export const ALLOWLIST_PATH = "tests/gitops/upstream-values-allowlist.yaml";
 export const DEFAULT_ENVS = ["homelab", "localdev"];
+export const UNDECLARED_VALUE_RULE_ID = "upstream-values/undeclared-key";
 
 /** Concurrent `helm pull` invocations. */
 const PULL_PARALLEL = 6;
@@ -97,6 +98,7 @@ export interface ChartSource {
 
 /** A key path an Application sets that the chart does not declare. */
 export interface Finding {
+  ruleId: typeof UNDECLARED_VALUE_RULE_ID;
   env: string;
   app: string;
   chart: string;
@@ -515,6 +517,7 @@ export function findingsFor(
     if (!paths) continue;
     for (const path of undeclaredPaths(source.values, paths)) {
       out.push({
+        ruleId: UNDECLARED_VALUE_RULE_ID,
         env: source.env,
         app: source.app,
         chart: source.chart,
