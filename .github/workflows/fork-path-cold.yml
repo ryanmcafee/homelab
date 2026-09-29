@@ -35,7 +35,7 @@ name: Fork path (cold, uncached)
 #                       assertion that the cluster is actually gone afterwards.
 #
 # Cost: a cold, uncached level-2-sized loop pulls every image from upstream;
-# observed 18m55s and 21m03s for up + wait. It is NOT on the critical path of
+# observed 18m55s, 21m03s and 23m04s for up + wait. It is NOT on the critical path of
 # ordinary pull requests: it runs on demand, weekly, and on a pull request that
 # changes this file (so the workflow is never shipped without having been
 # executed once — the same bar the docs are held to).

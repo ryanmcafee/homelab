@@ -64,7 +64,7 @@ specified-and-not-implemented; it may **not** be listed with no status (ADR-033)
 |---|---|---|---|---|
 | 1 | **Render with a synthetic ConfigSet.** Render every chart and manifest against an environment whose values are all synthetic (`DOMAIN: example.invalid`, RFC 5737 addresses), then grep the rendered output for any value from the real environment. Paired with `homelab config guard` over the repository's own source. | Level-0 static verification, every PR | A literal that escaped the ConfigSet | **Specified, not implemented** |
 | 2 | **`homelab.yaml.example` completeness.** Every key the render **or the bootstrap** requires appears in the example file with a `REPLACEME-` or clearly synthetic value. | Level-0, every PR | A new required key that a fork cannot discover | **Specified, not implemented — and fails on `main` today** |
-| 3a | **The cold documented Kind path.** A clean clone with no cache and no local state: `task localdev:up` → `localdev:wait` → `localdev:report` → `localdev:down`, each timed, followed by an assertion that the cluster is actually gone. | Weekly cron and on demand | Documentation drift, "works because it was already installed", a teardown that only works after a clean run | **Automated and passing** in [`.github/workflows/fork-path-cold.yml`](../../.github/workflows/fork-path-cold.yml) — `18m 55s` cold, 2026-09-25 |
+| 3a | **The cold documented Kind path.** A clean clone with no cache and no local state: `task localdev:up` → `localdev:wait` → `localdev:report` → `localdev:down`, each timed, followed by an assertion that the cluster is actually gone. | Weekly cron and on demand | Documentation drift, "works because it was already installed", a teardown that only works after a clean run | **Automated and passing** in [`.github/workflows/fork-path-cold.yml`](../../.github/workflows/fork-path-cold.yml) — cold `up` + `wait` `18m55s`-`23m04s` across 3 runs, 2026-09-25 to 2026-09-29 |
 | 3b | **The production bootstrap on foreign hardware.** A filled-in ConfigSet and `task setup -- --environment homelab`, on a machine holding none of the maintainer's credentials **and not in this cluster's topology**. | Before a declared platform milestone | Undeclared physical prerequisites, secret-store and identity assumptions, anything the Kind path cannot reach, a shape that only this cluster has | **Never executed** |
 | 4 | **Bootstrap key resolution.** The bootstrap resolves every operator-specific value from the ConfigSet and exits non-zero naming the missing key — every missing key, not the first one. | Runtime, in the Go CLI; exercised by 3b | A value the bootstrap needs that no render requires, so checks 1–2 never see it | **Specified, not implemented** |
 
@@ -97,22 +97,33 @@ for 3b, whose prerequisites are physical and cannot be faked in CI.
 
 Dated, because a check's status is a claim about the past and decays.
 
-- **3a — automated, and green on its first run: cold time to first success `18m 55s`, measured
-  2026-09-25.** `.github/workflows/fork-path-cold.yml` restores no cache and saves none, and fails
-  if a cache directory exists. Added in [#352](https://github.com/ryanmcafee/homelab/pull/352);
-  its first execution
-  ([run 36099151539](https://github.com/ryanmcafee/homelab/actions/runs/36099151539)) succeeded,
-  with `task localdev:up` at `18m 54s`, `task localdev:wait` at `1s`, `task localdev:report` at
-  `11s` and `task localdev:down` at `33s`, the cluster confirmed gone afterwards. **`18m 55s`
-  (`up` + `wait`) is the number to quote for the fork path** — not `tilt-ci.yml`'s, which restores
-  a `kind-registry-*` pull-through cache and is therefore a lower bound rather than a newcomer's
-  experience. Re-measure and re-date this line on each weekly run; a cold number more than a few
-  weeks old is a claim about a tree that no longer exists.
+- **3a — automated and passing: cold time to first success `18m55s`-`23m04s`, measured across
+  three runs from 2026-09-25 to 2026-09-29.** `.github/workflows/fork-path-cold.yml` restores no
+  cache and saves none, and fails if a cache directory exists. Added in
+  [#352](https://github.com/ryanmcafee/homelab/pull/352). `up` + `wait`, per run:
+
+  | Date | Run | Trigger | `up` | `wait` | `up` + `wait` |
+  |---|---|---|---|---|---|
+  | 2026-09-25 | [36099151539](https://github.com/ryanmcafee/homelab/actions/runs/36099151539) | pull request | `18m54s` | `1s` | **`18m55s`** |
+  | 2026-09-27 | [36318031100](https://github.com/ryanmcafee/homelab/actions/runs/36318031100) | weekly cron on `main` | `21m02s` | `1s` | **`21m03s`** |
+  | 2026-09-29 | [36514919340](https://github.com/ryanmcafee/homelab/actions/runs/36514919340) | pull request | `23m03s` | `1s` | **`23m04s`** |
+
+  **Quote this range for the fork path, not `tilt-ci.yml`'s duration** — because tilt-ci times
+  `task localdev:ci`, which appends `test:e2e`, so it measures different work. It is *not* because
+  tilt-ci is warmer: its `kind-registry-*` restore missed on all seven consecutive runs sampled on
+  2026-09-29, so no cold-vs-cached comparison exists to make
+  ([homelab#512](https://github.com/ryanmcafee/homelab/issues/512)). Earlier revisions of this line
+  asserted the cache flattered tilt-ci's number; that was never measured and is now contradicted.
+
+  Three points trending upward is not yet a regression signal -- runner variance is wide and the
+  sample is tiny. Re-measure and re-date on each weekly run; a cold number more than a few weeks
+  old is a claim about a tree that no longer exists.
 - **One thing #352 predicted did not reproduce, and one doc defect did.** #352 expected
   `localdev:up` to return well before anything reported Healthy, which is why `localdev:wait` is
-  timed separately. On this run `wait` returned in `487ms` with everything already Healthy, so on
-  the cold path `localdev:up` alone was sufficient. Keep the two timings separate anyway — one run
-  is not a pattern, and the split is what would show the gap reopening. The defect that *is* real:
+  timed separately. On that run `wait` returned in `487ms` with everything already Healthy, and it
+  has cost about a second on all three cold runs since, so on the cold path `localdev:up` alone has
+  always been sufficient. Keep the two timings separate anyway — the split is what would show the
+  gap reopening, and it costs a second to keep. The defect that *is* real:
   `readme.md:31` describes `task localdev:up` as syncing "all 87 Applications", and the run
   reported **60 Applications · 60 Healthy**. Filed as
   [homelab#379](https://github.com/ryanmcafee/homelab/issues/379).
