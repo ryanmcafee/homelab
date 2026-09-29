@@ -131,3 +131,10 @@ Each entry should include:
 - Rebased the six toolchain commits onto freshly fetched `origin/main`; no open PRs targeted the branch. Preserved both sides of the additive `bugs.md` conflict and upstream runtime pins.
 - Focused validation: 24 toolchain policy cases pass (including known-bad fixtures; 49 ms), installer regression tests pass (0.014 s package / 4.7 s wall). No workflow behavior or check changed; runtime delta from this rebase is zero by design.
 - New head and bootstrap CI evidence are recorded in [MCAA-606](/MCAA/issues/MCAA-606). PR remains draft: https://github.com/ryanmcafee/homelab/pull/353.
+
+### 2026-09-29 - MCAA-642: guard-generated inventory on draft PR #353
+
+- Rebased onto `236f3be969dbb5553b3022629c93d1382208fd6f` (main through #500), retaining bootstrap instructions and main's distinction between Kind and production. `task docs:check -- --fix` reports 36 addons, 16 applications, 88 production Applications, 59 in the Kind loop, 21 suites and 17 route hosts; no generated correction was needed after conflict resolution.
+- Snapshot inventory: localdev addons/applications/gitops/bootstrap = 35/21/2/1; production = 55/26/3/4. Baseline changes come from advancing main, not manual count edits.
+- Level 0: 277 pass, zero fail, one documented preview-secret skip; 13.18 s wall / 11.164 s verifier. Docs guard: 15 good/bad fixture tests pass in 0.309 s wall. No check behavior changed, so no runtime delta is introduced by this rebase.
+- Preserved draft status, cold-install gate, codesearch dependency and architecture/security/QA approvals. New-head CI evidence and any blockers: [MCAA-642](/MCAA/issues/MCAA-642); PR: https://github.com/ryanmcafee/homelab/pull/353.
