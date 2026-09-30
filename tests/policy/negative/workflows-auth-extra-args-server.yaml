@@ -1,0 +1,115 @@
+# expect: workflows-auth
+# Synthetic additive-auth bypass derived from the PR #459 client control.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: argo-workflows
+  namespace: argocd
+  labels:
+    helm.sh/chart: addons-1.0.0
+    app.kubernetes.io/name: addons
+    app.kubernetes.io/instance: addons
+    app.kubernetes.io/version: "1.0"
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    argocd.argoproj.io/sync-wave: "12"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+
+  source:
+    repoURL: https://argoproj.github.io/argo-helm
+    chart: argo-workflows
+    targetRevision: 1.0.18
+    helm:
+      releaseName: argo-workflows
+      values: |
+        server:
+          authMode: client
+          extraArgs: ["--auth-mode=server"]
+          httproute:
+            enabled: true
+            annotations:
+              external-dns.alpha.kubernetes.io/hostname: workflows.example.com
+            parentRefs:
+              - group: gateway.networking.k8s.io
+                kind: Gateway
+                name: envoy-internal
+                namespace: envoy-gateway-system
+                sectionName: https
+            hostnames:
+              - workflows.example.com
+          resources:
+            limits:
+              cpu: 200m
+              memory: 48Mi
+            requests:
+              cpu: 50m
+              memory: 32Mi
+        controller:
+          resources:
+            limits:
+              cpu: 500m
+              memory: 48Mi
+            requests:
+              cpu: 100m
+              memory: 32Mi
+          workflowDefaults:
+            spec:
+              podGC:
+                deleteDelayDuration: 10m
+                strategy: OnPodSuccess
+              ttlStrategy:
+                secondsAfterCompletion: 604800
+                secondsAfterFailure: 604800
+                secondsAfterSuccess: 86400
+          # Completed workflows stay browsable in the UI (Archived Workflows)
+          # after their TTL deletes them from the cluster.
+          persistence:
+            archive: true
+            archiveTTL: 30d
+            postgresql:
+              host: argo-workflows-postgres-rw.argo-workflows.svc
+              port: 5432
+              database: argo
+              tableName: argo_workflows
+              userNameSecret:
+                name: argo-workflows-postgres-app
+                key: username
+              passwordSecret:
+                name: argo-workflows-postgres-app
+                key: password
+              ssl: true
+              sslMode: require
+        # Every step archives its main container log to the log store; the UI
+        # reads it once the pod is gone. The Secret must exist in each
+        # namespace that runs workflows.
+        useStaticCredentials: true
+        artifactRepository:
+          archiveLogs: true
+          s3:
+            endpoint: argo-workflows-logs.argo-workflows.svc:7070
+            bucket: argo-workflows-logs
+            insecure: true
+            keyFormat: "{{workflow.namespace}}/{{workflow.name}}/{{pod.name}}"
+            accessKeySecret:
+              name: argo-workflows-artifacts
+              key: accessKey
+            secretKeySecret:
+              name: argo-workflows-artifacts
+              key: secretKey
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argo-workflows
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - PruneLast=true
+      - ApplyOutOfSyncOnly=true

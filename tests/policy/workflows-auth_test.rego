@@ -80,3 +80,58 @@ test_unrelated_chart_ignored if {
 	obj := object.union(app({"valuesObject": routed("server")}), {"spec": {"source": {"chart": "other"}}})
 	count(deny) == 0 with input as obj
 }
+
+with_auth(auth) := app({"valuesObject": {"server": object.union({"httproute": {"enabled": true}}, auth)}})
+
+test_all_additive_bypasses_denied if {
+	every auth in [
+		{"authMode": "client", "authModes": ["server"]},
+		{"authModes": ["hybrid"]},
+		{"authMode": "client", "authModes": ["hybrid"]},
+		{"authMode": "sso", "extraArgs": ["--auth-mode=server"]},
+		{"authMode": "client", "extraArgs": ["--auth-mode", "hybrid"]},
+		{"authMode": "server", "authModes": ["sso"], "extraArgs": ["--auth-mode=client"]},
+	] {
+		count(deny) == 1 with input as with_auth(auth)
+	}
+}
+
+test_authenticated_combined_inputs if {
+	every auth in [
+		{"authModes": ["client"]},
+		{"authMode": "", "authModes": ["sso", "client"]},
+		{"authMode": "sso", "authModes": ["client", "sso"], "extraArgs": ["--auth-mode=client", "--auth-mode", "sso", "--loglevel=info"]},
+		{"extraArgs": ["--auth-mode=client"]},
+		{"extraArgs": ["--auth-mode", "sso"]},
+	] {
+		count(deny) == 0 with input as with_auth(auth)
+		count(deny) == 0 with input as app({"values": yaml.marshal(with_auth(auth).spec.source.helm.valuesObject)})
+	}
+}
+
+test_malformed_plural_denied if {
+	every modes in ["client", "[client]", "[", null, false, {}, [null], [false], [[]], [""], ["unknown"], ["sso,client"], ["client", "server"]] {
+		count(deny) == 1 with input as with_auth({"authMode": "client", "authModes": modes})
+	}
+}
+
+test_ambiguous_extra_args_denied if {
+	every args in [
+		"--auth-mode=client", null, {}, false, [null], [1], [{}],
+		["--auth-mode"], ["--auth-mode="], ["--auth-mode", ""],
+		["--auth-mode=hybrid"], ["--auth-mode=client,server"],
+		["--auth-mode=sso,client"], ["--auth-mode", "server"],
+		["--auth-mode", "--auth-mode=client"], ["--auth-mode client"],
+		["--auth-mode=client", "--auth-mode=server"],
+		["--", "--auth-mode=client"], ["client"], ["--loglevel", "info"],
+		["--auth-mode=client "], ["--auth-mode", "client", "server"],
+	] {
+		count(deny) == 1 with input as with_auth({"authMode": "client", "extraArgs": args})
+	}
+}
+
+test_empty_effective_set_denied if {
+	every auth in [{}, {"authModes": []}, {"authMode": "", "authModes": [], "extraArgs": []}, {"extraArgs": ["--loglevel=info"]}] {
+		count(deny) == 1 with input as with_auth(auth)
+	}
+}

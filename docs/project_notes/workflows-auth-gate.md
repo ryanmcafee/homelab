@@ -21,3 +21,21 @@
 - `task test:policy`: 119 Rego tests and 44 fixture/coverage checks passed in 2.928s (prior 43-check run this heartbeat: 3.003s; single samples, not a benchmark).
 - `task verify:text` on PR #459 plus gate files: exit 0, 270 passed / 0 failed / 1 skipped, 13.822s wall. Shared tree: exit 201, 269 passed / 1 failed / 1 skipped, 13.971s wall; only unsafe Workflows policy failed.
 - Reproducibility: integration used PR #459 unchanged auth wiring, example configuration and no cluster or credentials. Local integrated pass does not claim remote CI, runtime RBAC or OIDC verification.
+
+## Additive auth-input regression gate (MCAA-543, 2026-09-28)
+
+- ADR-050 D11a: validate singular `authMode`, list `authModes`, and `extraArgs` together. Require at least one explicit mode and only `sso`/`client`; reject unsafe modes and uninspectable argument shapes. Canonical unrelated `--flag=value` arguments remain supported. See `tests/policy/README.md` for the exact contract.
+- Before changing the rule, added three negative fixtures derived from the captured PR #459 client control. `task test:policy` failed all three: plural server, plural hybrid, extraArgs server each reported no denial. 119 existing Rego tests still passed; fixture harness reported 3 mismatches of 47. Wall time 7.049s.
+- After hardening: `task test:policy` passed 124 Rego tests and all 47 fixture/coverage checks in 5.572s. Single local samples (not a benchmark); no observed runtime regression. Client, SSO and disabled-route controls pass. No secrets or cluster required.
+- Integrated validation on current main `17cb553` plus unchanged PR #459 `620940d` and existing gate commits: `task verify:text` passed 271 checks / 0 failed / 1 skipped in 18.153s wall (14.562s verifier time). No rendered values were edited for this fix. The known unsafe base posture remains PR #459's separate responsibility and must not wait for this gate.
+- `workflows-auth` remains in `ALL_RULE_IDS`. External HTTPRoutes remain outside this rule's visibility (D10); runtime OIDC/RBAC are outside scope.
+- Security and Principal Platform Architect review are required before merge; this work does not authorize merging or changing the authentication posture.
+- Serena and bd are unavailable in this harness; Paperclip carries task tracking and this note preserves the discovery. Shared working-tree edits were untouched.
+- Final review branch is stacked on PR #459's current head `eaa44da` (which already includes the original gate). Only policy, tests and documentation differ. Level 0 on that exact base plus hardening: 270 passed / 0 failed / 1 skipped, 11.072s wall (9.516s verifier time). This keeps the posture PR independently mergeable; retarget the gate PR after #459 merges.
+
+## Architect lexical follow-up (2026-09-28)
+
+- Test-first commit `66d3c95`: two negative fixtures receive no denial at `801f521`; exactly 2/49 mismatches, client/SSO controls pass, 6.663s wall. The earlier three additive-input fixtures and evidence remain intact.
+- Restrict unrelated argument values to nonempty non-whitespace strings; case-fold the auth-mode exclusion so uppercase forms cannot bypass canonical auth parsing. This is conservative fail-closed validation, not a claim these forms authenticate against the deployed server.
+- After fix: 124 Rego tests and 49 fixture/coverage checks pass, 8.802s wall (+2.139s versus the before sample; single samples, not a benchmark). Level 0 passes 270/0/1 in 21.477s wall (17.507s verifier). No rendered values changed, no cluster or secrets required.
+- Architect re-review followed by Security remains mandatory on PR #499. Still stacked on #459; retarget and rerun policy/level 0 after the posture PR merges.
