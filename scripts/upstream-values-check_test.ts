@@ -37,6 +37,7 @@ import {
   chartRef,
   collectSources,
   declaredPaths,
+  describeUnusedEntries,
   findingsFor,
   isAllowed,
   mergeValues,
@@ -486,6 +487,56 @@ test("unusedEntries holds entries for a chart that could not be pulled", () => {
     ),
     ["17.17.3:persistence", "0.6.0:spegel.registries"],
   );
+});
+
+test("unused entry pinned to a source says to remove the obsolete exception", () => {
+  const identity = {
+    repoURL: "https://argoproj.github.io/argo-helm",
+    chart: "argo-cd",
+    targetRevision: "9.7.1",
+  };
+  const entry: AllowEntry = {
+    ...identity,
+    path: "configs.cm",
+    reason: "previously needed",
+  };
+  const source = {
+    ...identity,
+    env: "homelab",
+    app: "argocd",
+    values: {},
+  };
+  const messages = describeUnusedEntries([entry], [source]);
+  assertEquals(messages.length, 1);
+  assertStringIncludes(messages[0], "chart declares the key now, so remove");
+  assertStringIncludes(messages[0], cacheKey(entry));
+});
+
+test("unused entry with no pinned identity says to review the new revision", () => {
+  const identity = {
+    repoURL: "https://argoproj.github.io/argo-helm",
+    chart: "argo-cd",
+    targetRevision: "9.7.1",
+  };
+  const entry: AllowEntry = {
+    ...identity,
+    path: "configs.cm",
+    reason: "previously needed",
+  };
+  const source = {
+    ...identity,
+    targetRevision: "9.7.2",
+    env: "homelab",
+    app: "argocd",
+    values: {},
+  };
+  const messages = describeUnusedEntries([entry], [source]);
+  assertEquals(messages.length, 1);
+  assertStringIncludes(messages[0], `no Application pins ${cacheKey(entry)}`);
+  assertStringIncludes(messages[0], "currently pinned revision(s): 9.7.2");
+  assertStringIncludes(messages[0], "re-review the reason");
+  assertStringIncludes(messages[0], "update targetRevision");
+  assertEquals(messages[0].includes("chart declares the key now"), false);
 });
 
 test("parseAllowlist requires the complete pinned chart identity and reason", () => {
