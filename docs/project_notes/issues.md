@@ -18,6 +18,11 @@ Each entry should include:
 - **Description**: QA reproduced the ECR Public `toomanyrequests: Data limit exceeded` response in run 36713254067. Kind ArgoCD now selects Docker Hub's official Redis image at the pinned chart tag, and CI retains pod events plus ECR/Docker proxy logs. The Redis test passes with Docker Hub and fails with the old ECR Public repository.
 - **URL**: https://github.com/ryanmcafee/homelab/pull/536
 
+### 2026-09-30 - Upstream Helm values declaration gate follow-up
+- **Status**: PR #483 open; rebased after PR #469 merged
+- **Description**: The earlier upgrade report inspected 80 chart sources and failed on six spegel findings. After rebasing, the gate passes all 82 chart sources across 42 pinned charts. The paired fixture proves an undeclared key fails and the same key passes when declared, with rule ID `upstream-values/undeclared-key`. The guard now refuses multi-source Helm Applications, unchecked Helm parameters, and chart directories without Chart.yaml. The prior level-2 failure occurred during ArgoCD bootstrap when `argocd-redis` remained `ImagePullBackOff`; no Applications were inspected there.
+- **URL**: https://github.com/ryanmcafee/homelab/pull/483
+
 ### 2026-09-25 - Alert triage agent: alert -> fix PR -> Pushover (Argo Workflows DAG)
 - **Status**: PR #372 open; before it runs create 1Password item `triage-agent` (`CLAUDE_CODE_OAUTH_TOKEN`, `GITHUB_TOKEN` fine-grained PAT with contents + pull requests read/write; optional `DOTFILES_REPO`, `ARGOCD_AUTH_TOKEN`, `PAPERCLIP_API_KEY`, `PAPERCLIP_COMPANY_ID`), make the `homelab-triage-agent` package public after the first publish, and generate the `triage-agent` ArgoCD token
 - **Description**: intake Deployment + `triage-fix` WorkflowTemplate: triage, plan, implement, deterministic verify loop, commit, PR, CI loop, needs-human, Pushover onExit; deny hook in `triage-agent/src/policy.ts`; ArgoCD account `triage-agent` (get + sync). ADR-036, docs/runbooks/triage-agent.md

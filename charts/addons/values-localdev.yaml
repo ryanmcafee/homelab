@@ -718,7 +718,6 @@ external-dns:
 
   cloudflare:
     apiToken: ""
-    proxied: true
     onePasswordItemPath: vaults/homelab/items/cloudflare
 
   domainFilters:

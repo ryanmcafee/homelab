@@ -235,8 +235,6 @@ cilium:
       hostRoot: /sys/fs/cgroup
     l2announcements:
       enabled: true
-    externalIPs:
-      enabled: true
     bgpControlPlane:
       enabled: true
     # Hubble (docs/hubble.md): relay and UI, flow metrics, and a filtered flow
@@ -870,7 +868,6 @@ external-dns:
 
   cloudflare:
     apiToken: ""
-    proxied: true
     onePasswordItemPath: {{ .Values.EXTERNAL_DNS_1P_PATH.Value }}
 
   domainFilters:

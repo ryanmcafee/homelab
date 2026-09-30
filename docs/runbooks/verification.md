@@ -275,9 +275,32 @@ homelab,localdev`: kubeconform validates every custom resource this repository r
 against the new CRD schemas. The result and the list of files the bump needs regenerated
 are appended to the report. Nothing is committed.
 
+**Undeclared helm values.** `task upstream:values` fails when an Application sets a
+`spec.source.helm` key path that its pinned chart does not declare. Almost no chart ships
+a `values.schema.json`, so helm accepts an unknown key in silence: the render succeeds,
+kubeconform passes, the snapshot records the dead key as expected output and ArgoCD
+reports Synced. A version bump that renames a key is exactly this shape, which is why the
+check runs here and not in `pr-contract.yml` (which skips `renovate/*` heads); it pulls
+every pinned chart, so it cannot be level 0, which is network-free by contract.
+`task renovate:regen` runs it too, after regenerating the snapshots.
+
+The check pulls each chart with `helm pull --untar` and collects the key paths the chart
+*and its vendored dependencies* declare. Three rules keep it usable without blunting it:
+a dependency's values count at the root when it is a `type: library` chart (that is where
+TrueCharts' `common` declares `TZ`, `workload` and `persistence`) and under its alias or
+name otherwise (kube-prometheus-stack's `grafana`); a values.yaml whose only top-level key
+is underscore-prefixed is unwrapped (istio's `_internal_defaults_do_not_set`); and an
+upstream default of `{}` or null declares everything below it, so `resources: {}` accepts
+`resources.limits.cpu`. What those cannot settle goes in
+`tests/gitops/upstream-values-allowlist.yaml`, keyed by chart and path prefix, with a
+reason — and an entry that stops matching anything fails the gate, so a key upstream has
+since declared cannot sit there forever. An allowlist entry is never the place for a key
+the chart does not read: that is the defect the gate exists to find.
+
 **Automerge gate.** On `renovate/*` branches the job sets the commit status
 `upgrade/automerge-gate` on the head SHA: `success` ("no rendered manifest changes")
-only when every `upgrade/*` check is `unchanged` and revalidation passed, otherwise
+only when every `upgrade/*` check is `unchanged`, revalidation passed and no Application
+sets a helm value its chart does not declare, otherwise
 `failure` ("rendered manifests changed — human review required, automerge blocked").
 `renovate.json5` automerges non-major, non-0.x chart and image bumps in `versions.yaml`
 (`kindest/node`, majors, infrastructure tools and ksops stay manual) and patch bumps

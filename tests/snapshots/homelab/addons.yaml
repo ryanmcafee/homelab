@@ -1218,8 +1218,6 @@ spec:
           hostRoot: /sys/fs/cgroup
         cni:
           exclusive: false
-        externalIPs:
-          enabled: true
         hubble:
           export:
             static:
@@ -2352,9 +2350,6 @@ spec:
                 name: cloudflare-api-token
                 key: api_token
 
-        cloudflare:
-          proxied: true
-
         sources:
           - crd
 
@@ -2418,9 +2413,6 @@ spec:
               secretKeyRef:
                 name: cloudflare-api-token
                 key: api_token
-
-        cloudflare:
-          proxied: true
 
         # HTTPRoutes only (the CRD source has its own deployment)
         sources:
@@ -5627,7 +5619,7 @@ spec:
       releaseName: node-feature-discovery
       values: |
         master:
-          enabled: true
+          enable: true
           replicaCount: 1
           resources:
             requests:
@@ -5638,7 +5630,7 @@ spec:
               memory: 128Mi
 
         worker:
-          enabled: true
+          enable: true
           # Run on every node — including control planes — so every node gets
           # feature.node.kubernetes.io/* labels from the built-in PCI, CPU, and
           # kernel sources.
@@ -5659,7 +5651,7 @@ spec:
 
         # Garbage collector cleans up stale NodeFeature CRs when nodes disappear
         gc:
-          enabled: true
+          enable: true
           resources:
             requests:
               memory: 32Mi
