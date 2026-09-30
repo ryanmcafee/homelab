@@ -629,6 +629,7 @@ spec:
 # Accounts partition the client port only. The monitoring port (8222) answers /jsz and /connz
 # across every account with no tenant authorization, and the exporter (7777) republishes the
 # same stream, consumer and config metadata, so both are reachable from Prometheus alone.
+# Only server-mode Prometheus pods match; a PrometheusAgent or other scraper needs a new peer.
 # The exporter reads 8222 over the pod's loopback, which no NetworkPolicy polices.
 #
 # Selecting a pod for Ingress denies every port not listed, so the client and cluster ports

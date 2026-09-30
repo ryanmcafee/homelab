@@ -324,7 +324,10 @@ conformance (`rotation_and_revocation_drill` in the declaration) and are not cla
   `/connz` returns per-connection detail; the exporter on 7777 republishes the same
   metadata. Accounts partition the client port only, so the `nats-server-ingress`
   NetworkPolicy admits 8222 and 7777 from Prometheus pods in the kube-prometheus-stack
-  namespace and nothing else. The API server's pod proxy is denied too: read `/jsz` with
+  namespace and nothing else. The peer is matched by `app.kubernetes.io/name: prometheus`,
+  so only a server-mode Prometheus in that namespace can scrape: a `PrometheusAgent` pod
+  (`prometheus-agent`), a Prometheus in another namespace, or any other scraper needs
+  `nats-server-ingress` widened first. The API server's pod proxy is denied too: read `/jsz` with
   `kubectl port-forward pod/<nats pod> 8222`, which enters the pod's own network namespace.
   `config.monitor.tls` is not enabled. TLS would protect the scrape in transit; it is not
   authorization, and neither it nor the account block substitutes for the policy.

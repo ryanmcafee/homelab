@@ -686,8 +686,8 @@ spec:
     # control proves the pod has a network, so a timeout is the policy and not a dead probe.
     - name: monitoring-network-policy
       description: >-
-        The Prometheus pod scrapes 8222 and 7777 on a NATS pod and its own up series for the
-        nats namespace reads 1, while an untrusted pod times out on both ports yet reaches 4222.
+        The Prometheus pod scrapes 8222 and 7777 on a NATS pod and holds the PF_WORK leader
+        series its alerts read, while an untrusted pod times out on both ports yet reaches 4222.
       timeouts:
         exec: 5m
       try:
@@ -712,17 +712,25 @@ spec:
                 fi
               done
 
-              up=""
+              promql() {
+                kubectl exec -n monitoring "$prom" -c prometheus -- \
+                  wget -q -T 10 -O - "http://localhost:9090/api/v1/query?query=$1" \
+                  | sed -n 's/.*"value":\[[^,]*,"\([^"]*\)"\].*/\1/p'
+              }
+              # count(nats_stream_first_seq{stream_name="PF_WORK",is_stream_leader="true"}), URL-encoded.
+              pfwork='count(nats_stream_first_seq%7Bstream_name%3D%22PF_WORK%22%2Cis_stream_leader%3D%22true%22%7D)'
+              series=""
               for i in $(seq 1 12); do
-                up=$(kubectl exec -n monitoring "$prom" -c prometheus -- \
-                  wget -q -T 10 -O - 'http://localhost:9090/api/v1/query?query=min(up{namespace="nats"})' \
-                  | sed -n 's/.*"value":\[[^,]*,"\([^"]*\)"\].*/\1/p')
-                echo "attempt $i/12: min(up{namespace=\"nats\"}) = ${up:-<no series>}"
-                [ "$up" = "1" ] && break
+                up=$(promql 'min(up%7Bnamespace%3D%22nats%22%7D)')
+                series=$(promql "$pfwork")
+                echo "attempt $i/12: min(up{namespace=\"nats\"}) = ${up:-<no series>}" \
+                  "| PF_WORK leader first_seq series = ${series:-<none>}"
+                [ "${series:-0}" -gt 0 ] && break
                 sleep 10
               done
-              if [ "$up" != "1" ]; then
-                echo "FAIL: Prometheus has no healthy nats scrape target; the PodMonitor path is broken"
+              if [ "${series:-0}" -le 0 ]; then
+                echo "FAIL: Prometheus has no PF_WORK nats_stream_first_seq{is_stream_leader=\"true\"} series;"
+                echo "the PF_WORK silent-loss alerts are blind, so the PodMonitor path is broken"
                 exit 1
               fi
 
