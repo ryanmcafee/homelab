@@ -72,3 +72,12 @@ The existing `validate` job also fails on the public registry host in
 `scripts/localdev-kind.ts:167`. This is present on `main`; independently
 reviewable PR #521 carries the guard correction. Its merge and fresh checks
 must be confirmed before #511 can be considered green.
+
+On 2026-09-30, #511 integrated both #521 guard commits at `4d72406` on its
+isolated branch. The focused guard tests passed, `homelab config guard --set
+localdev --ci` scanned 214 files with zero findings, the synthetic sink test
+passed 2/2 with 69 assertions, focused upgrade Go tests passed, and level 0
+passed 277/0/1 in 17.279 s. This local result does not substitute for the
+new-head CI rollup or Security rereview. Delivery's read-only mapping confirms
+the held #422 head lacks this fix; a future execution ref cannot be asserted
+until the hold is explicitly released.
