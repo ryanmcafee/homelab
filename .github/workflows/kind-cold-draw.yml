@@ -63,6 +63,9 @@ jobs:
         with:
           install_args: bun
 
+      - name: Install script dependencies from bun.lock
+        run: bun install --frozen-lockfile
+
       - name: Unit tests
         run: bun test scripts/kind-cold-draw_test.ts
 
