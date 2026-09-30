@@ -14,8 +14,8 @@ Each entry should include:
 ## Recent Work
 
 ### 2026-09-30 - MCAA-852: Kind Redis image pull diagnosis and source repair
-- **Status**: PR #536 draft; Kind level-2 check pending at the repaired head
-- **Description**: QA reproduced the ECR Public `toomanyrequests: Data limit exceeded` response in run 36713254067. Kind ArgoCD now selects Docker Hub's official Redis image at the pinned chart tag, and CI retains pod events plus ECR/Docker proxy logs
+- **Status**: PR #536 ready, rebased onto `main` for MCAA-970; new-head checks pending
+- **Description**: QA reproduced the ECR Public `toomanyrequests: Data limit exceeded` response in run 36713254067. Kind ArgoCD now selects Docker Hub's official Redis image at the pinned chart tag, and CI retains pod events plus ECR/Docker proxy logs. The Redis test passes with Docker Hub and fails with the old ECR Public repository.
 - **URL**: https://github.com/ryanmcafee/homelab/pull/536
 
 ### 2026-09-25 - Alert triage agent: alert -> fix PR -> Pushover (Argo Workflows DAG)
