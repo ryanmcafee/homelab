@@ -12,10 +12,14 @@ For a targeted permission check, run:
 gh workflow run pr-dependency-triage.yml --ref <branch> -f pr_number=<open-pr-number>
 ```
 
-The input limits label writes to that one open PR. Omit it only when you intend
-to reconcile every open PR. The job fails if the selected PR is not open or if
-a label write is denied. Check the `Classify PR dependency state` log for the
-changed PR number and the run's `GITHUB_TOKEN Permissions` section.
+The input limits PR label updates to that one open PR. Before selecting the PR,
+the job checks all eight repository label definitions and can create any that
+are missing. Omit the input only when you intend to reconcile every open PR.
+The job fails if the selected PR is not open or if a label write is denied.
+Check the `Classify PR dependency state` log for the changed PR number and the
+run's `GITHUB_TOKEN Permissions` section. Dispatch requires Actions write
+access for the caller; the workflow token's `pull-requests: write` grant does
+not grant the caller that access.
 
 Fork PRs trigger the trusted base-branch workflow. They can receive
 `review/ready` when unblocked, but their head branch names are excluded from
