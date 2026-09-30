@@ -20,7 +20,7 @@ Each entry should include:
 
 ### 2026-09-30 - Scope upstream values exceptions to pinned chart identity
 - **Status**: In review on branch `feat/mcaa-848-upstream-values-identity`
-- **Description**: MCAA-848 follows reviewer condition 4 on PR #483. All 48 allowlist entries now bind repository URL, chart name and pinned revision. Before and after: 82 Application sources, 42 pinned charts, 224 allowed findings, zero unused entries. Staged repository and revision mutations each produced two `upstream-values/undeclared-key` findings; the Principal Platform Architect reviews the change and reconciles ADR-054 before merge.
+- **Description**: MCAA-848 follows reviewer condition 4 on PR #483. All 48 allowlist entries now bind repository URL, chart name and pinned revision. Before and after: 82 Application sources, 42 pinned charts, 224 allowed findings, zero unused entries. Staged repository and revision mutations proved `upstream-values/undeclared-key`; a later argo-cd revision mutation showed the old false removal guidance and the new pin-aware re-review message with 13 findings. ADR-054 now records identity keying and chart-bump re-review for Principal Platform Architect review before merge.
 
 ### 2026-09-30 - Upstream Helm values declaration gate follow-up
 - **Status**: PR #483 open; rebased after PR #469 merged

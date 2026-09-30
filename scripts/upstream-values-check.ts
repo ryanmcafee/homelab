@@ -265,8 +265,8 @@ export function isAllowed(finding: Finding, allow: AllowEntry[]): boolean {
 }
 
 /**
- * Allowlist entries that matched nothing: upstream declares the key now. A
- * pinned chart in `uninspected` was never compared, so its entries are held back.
+ * Allowlist entries that matched nothing. A pinned chart in `uninspected` was
+ * never compared, so its entries are held back.
  */
 export function unusedEntries(
   findings: Finding[],
@@ -277,6 +277,33 @@ export function unusedEntries(
     (e) =>
       !uninspected.has(cacheKey(e)) && !findings.some((f) => isAllowed(f, [e])),
   );
+}
+
+/** Explain whether an unused entry is obsolete or its pinned identity moved. */
+export function describeUnusedEntries(
+  unused: AllowEntry[],
+  sources: ChartSource[],
+): string[] {
+  const pinned = new Set(sources.map(cacheKey));
+  return unused.map((entry) => {
+    const key = cacheKey(entry);
+    if (pinned.has(key)) {
+      return `${key}: ${entry.path}: chart declares the key now, so remove this entry`;
+    }
+    const { ref, repo } = chartRef(entry.repoURL, entry.chart);
+    const revisions = [
+      ...new Set(
+        sources
+          .filter((source) => {
+            const current = chartRef(source.repoURL, source.chart);
+            return current.ref === ref && current.repo === repo;
+          })
+          .map((source) => source.targetRevision),
+      ),
+    ].sort();
+    const current = revisions.length > 0 ? revisions.join(", ") : "none";
+    return `${entry.path}: no Application pins ${key}; currently pinned revision(s): ${current}; re-review the reason and update targetRevision or remove the entry if the chart is no longer used`;
+  });
 }
 
 /** Parse the allowlist document. Every field is required. */
@@ -698,10 +725,10 @@ export async function main(argv: string[]): Promise<number> {
   }
   if (unused.length > 0) {
     failed = true;
-    log.fail(
-      `${unused.length} allowlist entr(ies) matched nothing; the chart declares the key now, so remove them`,
-    );
-    for (const e of unused) console.error(`  ${cacheKey(e)}: ${e.path}`);
+    log.fail(`${unused.length} allowlist entr(ies) matched nothing`);
+    for (const message of describeUnusedEntries(unused, sources)) {
+      console.error(`  ${message}`);
+    }
   }
   if (failed) return 1;
 
