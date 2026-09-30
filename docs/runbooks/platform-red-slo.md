@@ -9,13 +9,15 @@ objectives over the `platform_request_duration_seconds` family defined by
 | `platform-http-availability` | non-quota errors / non-quota requests, `kind="http"` | 99.5% | 30d |
 | `platform-http-latency` | successful requests completing under 250ms, `kind="http"` | 99% | 30d |
 
-A 99.5% availability objective spends its whole 30-day budget in 3.6 hours at a 14.4x burn rate,
-which is why the fast tier pages and the slow tier does not.
+A 99.5% availability objective holds 3.6 hours of total outage over 30 days; a 14.4x burn
+exhausts it in about 50 hours, which is why the fast tier pages and the slow tier does not.
 
 > **Status: the rules are not deployed yet.** No service emits
 > `platform_request_duration_seconds`, so nothing in this file can fire today. It exists first
-> because these alerts do not ship without it. The alert definitions and their promtool fixtures
-> live on MCAA-277 until a conformant producer exists.
+> because these alerts do not ship without it. The alert definitions, the `red-v1-canary`
+> template and their promtool fixtures live on MCAA-277 until a conformant producer exists, and
+> `contracts/observability/metrics.v1.yaml` is pending in
+> [#433](https://github.com/ryanmcafee/homelab/pull/433).
 
 ## Which alert fired
 
@@ -62,8 +64,16 @@ have caught it; if a rollout **completed** in the last hour, roll back first and
 MTTR over root cause.
 
 ```promql
-changes(platform_build_info{service="<service>", environment="<env>"}[1h])
+count by (service, environment) (
+  count by (service, environment, version, revision) (
+    count_over_time(platform_build_info{service="<service>", environment="<env>"}[1h])
+  )
+) > 1
 ```
+
+A non-empty result means more than one `version`/`revision` ran in the last hour: a deploy
+happened, so roll back. Do not use `changes()` here; `platform_build_info` is always 1 and a deploy
+starts a new series, so `changes()` reads 0 before and after every release.
 
 ### 3. If it is not a release
 
@@ -87,7 +97,8 @@ histogram_quantile(0.99, sum by (route, le) (
 boundaries are pinned by the contract, and `histogram_quantile` interpolates linearly inside
 whichever bucket the quantile falls in. A p99 reported as exactly a boundary value is that
 boundary, not a measurement. The `15` boundary exists precisely because the gap between `10` and
-`30` reported a true p99 of 11s as 20s; `tests/alerts` carries that as a regression fixture.
+`30` reported a true p99 of 11s as 20s; `tests/alerts` will carry that as a regression fixture
+when these rules ship.
 
 ## Metrics absent
 
@@ -132,8 +143,8 @@ Excluding it from the numerator only is **worse than not excluding it at all**: 
 the population and are counted as *good* events. A service at 90 req/s healthy and 10 req/s
 genuinely failing is at 10% errors and must page; one tenant retrying into its quota at 900 req/s
 moves the numerator-only ratio to 1.0%, which clears neither paging tier. A noisy tenant would hide
-someone else's outage. `tests/alerts` carries both forms so the requirement has a failing
-counterexample rather than an argument.
+someone else's outage. `tests/alerts` will carry both forms when these rules ship, so the
+requirement has a failing counterexample rather than an argument.
 
 `code!="quota"` also matches series carrying no `code` label at all, which is why successful
 requests stay in the denominator.
@@ -174,7 +185,8 @@ When one is inconclusive:
 2. **Check the traffic split actually routed to the canary.** A canary with no traffic and a
    healthy pod is a routing problem, not an application problem.
 3. **Do not promote past an inconclusive run to unblock a release.** Send more traffic or extend
-   the analysis window instead.
+   the analysis window instead. The [emergency bypass](#emergency-bypass) is the one sanctioned
+   exception.
 
 `canary-error-ratio-vs-stable` exists so a service with a pre-existing error rate is still
 deployable: the canary is allowed to be as bad as stable already is, and no worse. If the absolute
@@ -183,9 +195,17 @@ this rollout — that is an availability incident, not a bad canary.
 
 ## Emergency bypass
 
-If the error budget gate blocks a release that is itself the **fix** for an active incident, ship
-it. Record the bypass on the incident issue with the alert that was firing and the release that
-was let through. The gate exists to stop risky changes during a burn, not to stop the recovery.
+If the canary analysis blocks a release that is itself the **fix** for an active incident, the
+incident commander (the on-call, if nobody else has taken command) may authorize skipping it. This
+is the only sanctioned way past an inconclusive or failed run:
+
+```sh
+kubectl argo rollouts promote <rollout> -n <namespace> --full
+```
+
+`--full` skips the remaining steps and analysis and moves all traffic to the new version. Record the
+bypass on the incident issue with the alert that was firing, the release that was let through, and
+who authorized it. The gate exists to stop risky changes during a burn, not to stop the recovery.
 
 ## After the incident
 
