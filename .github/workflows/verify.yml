@@ -192,6 +192,7 @@ jobs:
       - name: task docs:check
         run: task docs:check
 
+  # Network-dependent, but kept per PR: any PR can edit versions.yaml without re-vendoring.
   schemas:
     name: Vendored CRD schemas are current
     runs-on: ubuntu-latest
@@ -211,8 +212,15 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
-          bun scripts/crd-schemas-vendor.ts --check \
-            || { echo "::error::tests/schemas is stale. Run 'task schemas:vendor' and commit the result."; exit 1; }
+          set +e
+          bun scripts/crd-schemas-vendor.ts --check
+          rc=$?
+          case "$rc" in
+            0) ;;
+            3) echo "::error::Could not fetch a chart source, so tests/schemas was not compared. Not a staleness verdict: re-run the job." ;;
+            *) echo "::error::crd-schemas-vendor --check exited $rc; the log above names each drifted file or failed source." ;;
+          esac
+          exit "$rc"
 
   snapshot:
     name: Golden snapshots
