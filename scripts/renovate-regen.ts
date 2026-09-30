@@ -635,7 +635,11 @@ async function main(): Promise<void> {
   // Probe through the same managed git entrypoint before any commit mutation.
   // A wrapper may pin GIT_COMMITTER_EMAIL after stripping inherited overrides.
   const gitIdentityArgs = [
-    "git", "-c", `user.name=${identity.name}`, "-c", `user.email=${identity.email}`,
+    "git",
+    "-c",
+    `user.name=${identity.name}`,
+    "-c",
+    `user.email=${identity.email}`,
   ];
   const preflightError = commitPreflightError(
     await capture([...gitIdentityArgs, "var", "GIT_COMMITTER_IDENT"]),
