@@ -24,9 +24,9 @@ concurrency:
   cancel-in-progress: true
 
 permissions:
-  contents: read
-  issues: write
-  pull-requests: read
+  # Label writes target pull requests. Keep the write grant on that resource;
+  # repository metadata remains readable through the implicit metadata grant.
+  pull-requests: write
 
 jobs:
   classify:
