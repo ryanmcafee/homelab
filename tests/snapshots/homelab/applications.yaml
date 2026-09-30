@@ -2003,7 +2003,7 @@ spec:
             {
               "$schema": "https://docs.renovatebot.com/renovate-schema.json",
               "platform": "github",
-              "repositories": ["ryanmcafee/homelab"],
+              "repositories": ["REPLACEME-user/homelab"],
               "gitAuthor": "Renovate Bot <renovate@replaceme-domain.com>",
               "onboarding": false,
               "requireConfig": "optional"
