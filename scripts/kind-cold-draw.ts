@@ -119,13 +119,22 @@ export interface RunResult {
   stderr: string;
 }
 
-export function run(cmd: string[]): RunResult {
+export const COMMAND_TIMEOUT_MS = 10_000;
+
+export function run(cmd: string[], timeoutMs = COMMAND_TIMEOUT_MS): RunResult {
   try {
-    const p = Bun.spawnSync(cmd, { stdout: "pipe", stderr: "pipe" });
+    const p = Bun.spawnSync(cmd, {
+      stdout: "pipe",
+      stderr: "pipe",
+      timeout: timeoutMs,
+      killSignal: "SIGKILL",
+    });
     return {
-      code: p.exitCode ?? 1,
+      code: p.exitedDueToTimeout ? 124 : (p.exitCode ?? 1),
       stdout: p.stdout.toString(),
-      stderr: p.stderr.toString(),
+      stderr: p.exitedDueToTimeout
+        ? `timed out after ${timeoutMs} ms: ${cmd.join(" ")}`
+        : p.stderr.toString(),
     };
   } catch (e) {
     return {
