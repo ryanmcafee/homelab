@@ -330,7 +330,7 @@ test("committerIsRead tracks the 43 -> 44 boundary", () => {
   assertEquals(COMMITTER_READ_FROM_MAJOR, 44);
   assertEquals(committerIsRead(43), false);
   assertEquals(committerIsRead(44), true);
-  assertEquals(committerIsRead(null), false, "unknown must not fail closed");
+  assertEquals(committerIsRead(null), false, "unknown is handled by commitIdentityFindings");
 });
 
 test("a pinned committer is advisory on the deployed 43.x, not an error", () => {
@@ -352,7 +352,7 @@ test("a pinned committer is advisory on the deployed 43.x, not an error", () => 
   assertStringIncludes(warning, "committer[email]");
 });
 
-test("an unmeasured deployment is reported as unmeasured, not as harmless", () => {
+test("an unmeasured deployment rejects a mismatched committer", () => {
   // The defect: with RENOVATE_MAJOR unset -- the default for every manual and
   // agent run -- this warning used to assert "harmless on the deployed 43.x".
   // If the deployment has crossed 44 the same run has already orphaned the
@@ -363,19 +363,10 @@ test("an unmeasured deployment is reported as unmeasured, not as harmless", () =
     PINNED_COMMITTER,
     { committerIsRead: false, measuredMajor: null },
   );
-  assertEquals(error, null);
-  assert(warning !== null);
-  assertStringIncludes(warning, "NOT read this run");
-  assertStringIncludes(warning, "task renovate:deployed-major");
-  assertStringIncludes(warning, "already orphaned the branch");
-  assert(
-    !warning.includes("Harmless"),
-    "an unmeasured regime must not be called harmless",
-  );
-  assert(
-    !/deployed Renovate 4\d\.x/.test(warning),
-    "an unmeasured regime must not name a version",
-  );
+  assert(error !== null, "unknown major and wrong committer must fail");
+  assertEquals(warning, null);
+  assertStringIncludes(error, "NOT read this run");
+  assertStringIncludes(error, "task renovate:deployed-major");
 });
 
 test("resolveCommitterRegime reports what it measured, not what it enforces", () => {
@@ -403,14 +394,15 @@ test("resolveCommitterRegime reports what it measured, not what it enforces", ()
 });
 
 test("an explicitly measured null is treated as unmeasured", () => {
-  const { warning } = commitIdentityFindings(
+  const { error, warning } = commitIdentityFindings(
     IDENTITY_FIXTURE,
     BOT_EMAIL_FIXTURE,
     PINNED_COMMITTER,
     { committerIsRead: false, measuredMajor: null },
   );
-  assert(warning !== null);
-  assertStringIncludes(warning, "NOT read this run");
+  assertEquals(warning, null);
+  assert(error !== null);
+  assertStringIncludes(error, "NOT read this run");
 });
 
 test("the same pinned committer is an error once Renovate reads it", () => {

@@ -413,13 +413,12 @@ export function deployedMajorFindings(
  * deployed 43.x the commit is genuinely Renovate-managed and failing it would
  * reject the tool's own correct output. On this runner the committer is *always*
  * wrong — the credential wrapper strips and re-sets `GIT_COMMITTER_EMAIL`, and
- * measurement says `--author` lands while every committer form does not — so
- * erroring on it would make `renovate:regen` unrunnable by its intended actor.
+ * measurement says `--author` lands while every committer form does not. A
+ * measured 43.x run can therefore continue; an unmeasured run cannot assume 43.
  *
  * `measuredMajor` is that deployed major when something actually read it
- * (`RENOVATE_MAJOR`). Absent it the warning says the regime was not measured
- * rather than naming a version, because a run that has already orphaned its
- * branch must not print "harmless" on the strength of an assumption.
+ * (`RENOVATE_MAJOR`). Without a measurement, a mismatched committer is an
+ * error: the deployment may already have crossed the 44 boundary.
  */
 export function commitIdentityFindings(
   identity: RegenIdentity,
@@ -438,38 +437,33 @@ export function commitIdentityFindings(
   ];
   const authorWrong = authorEmail !== identity.email;
   const committerWrong = committerEmail !== identity.email;
+  const unknownMajor = options.measuredMajor == null;
   const wrong: string[] = [];
   if (authorWrong) wrong.push(`  author: ${authorEmail}`);
   const error =
-    authorWrong || (committerWrong && options.committerIsRead)
+    authorWrong || (committerWrong && (options.committerIsRead || unknownMajor))
       ? [
           "renovate-regen/commit-identity: the commit does not carry the regeneration identity.",
           ...wrong,
-          ...(committerWrong && options.committerIsRead
+          ...(committerWrong
             ? [`  committer: ${committerEmail}`]
             : []),
           `  (expected ${identity.email})`,
-          `  Renovate reads the author${options.committerIsRead ? " AND the committer" : ""} of every commit ahead of`,
-          "  the base branch, so this commit takes the branch out of Renovate's hands.",
+          ...(committerWrong && unknownMajor
+            ? ["  The deployed Renovate major was NOT read this run. Measure it with",
+                "  `task renovate:deployed-major`; a 44+ deployment reads the committer too."]
+            : [`  Renovate reads the author${options.committerIsRead ? " AND the committer" : ""} of every commit ahead of`,
+                "  the base branch, so this commit takes the branch out of Renovate's hands."]),
           ...remedy,
         ].join("\n")
       : null;
   const measured = options.measuredMajor ?? null;
   const warning =
-    committerWrong && !options.committerIsRead
+    committerWrong && !options.committerIsRead && !unknownMajor
       ? [
           `renovate-regen/commit-identity: committer is ${committerEmail}, not ${identity.email}.`,
-          measured === null
-            ? "  The deployed Renovate major was NOT read this run, so this is advisory only on the"
-            : `  Harmless on the measured Renovate ${measured}.x, which reads only the author. From`,
-          measured === null
-            ? `  assumption that it is below ${COMMITTER_READ_FROM_MAJOR}. Measure it: \`task renovate:deployed-major\`.`
-            : `  Renovate ${COMMITTER_READ_FROM_MAJOR} this orphans the branch, so fix it before that upgrade lands.`,
-          ...(measured === null
-            ? [
-                `  If it has reached ${COMMITTER_READ_FROM_MAJOR}, this commit has already orphaned the branch.`,
-              ]
-            : []),
+          `  Harmless on the measured Renovate ${measured}.x, which reads only the author. From`,
+          `  Renovate ${COMMITTER_READ_FROM_MAJOR} this orphans the branch, so fix it before that upgrade lands.`,
           ...remedy,
         ].join("\n")
       : null;
@@ -649,17 +643,30 @@ async function main(): Promise<void> {
     return;
   }
 
+  const gitIdentityArgs = [
+    "git", "-c", `user.name=${identity.name}`, "-c", `user.email=${identity.email}`,
+  ];
+  // Ask the same Git entrypoint that will commit. A managed wrapper can pin
+  // GIT_COMMITTER_EMAIL after stripping caller overrides; fail before staging.
+  const committerIdent = await capture([
+    ...gitIdentityArgs, "var", "GIT_COMMITTER_IDENT",
+  ]);
+  const committerEmail = /<([^<>]+)>/.exec(committerIdent)?.[1] ?? "";
+  const preflight = commitIdentityFindings(
+    identity, identity.email, committerEmail, regime,
+  );
+  if (preflight.error) {
+    console.error(red(`${preflight.error}\n  Stopped before staging or committing.`));
+    process.exit(1);
+  }
+
   await run(["git", "add", "--", ...changed]);
   // Both forms, deliberately. `-c user.*` is what sets the *committer*, which
   // Renovate reads as well as the author; `--author` is the only form that
   // survives a wrapper pinning GIT_AUTHOR_EMAIL. Neither alone is sufficient,
   // and where the committer is pinned too, commitIdentityError() says so.
   await run([
-    "git",
-    "-c",
-    `user.name=${identity.name}`,
-    "-c",
-    `user.email=${identity.email}`,
+    ...gitIdentityArgs,
     "commit",
     "--author",
     `${identity.name} <${identity.email}>`,
