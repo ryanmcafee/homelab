@@ -69,6 +69,19 @@ function harness(pulls: Pull[], writeError?: Error) {
 }
 
 describe("PR dependency triage workflow", () => {
+  test("keeps PR write scope on trusted base-branch code only", () => {
+    const parsed = workflow as typeof workflow & {
+      permissions: Record<string, string>;
+      jobs: { classify: { steps: Array<{ uses?: string; run?: string }> } };
+    };
+    expect(parsed.permissions).toEqual({ "pull-requests": "write" });
+    expect(parsed.jobs.classify.steps).toHaveLength(1);
+    expect(parsed.jobs.classify.steps[0].uses).toMatch(
+      /^actions\/github-script@[a-f0-9]{40}$/,
+    );
+    expect(parsed.jobs.classify.steps[0].run).toBeUndefined();
+  });
+
   test("classifies root, blocked child, orphan and fork PRs", async () => {
     const subject = harness([
       pull(1, "feature/root", "main"),
