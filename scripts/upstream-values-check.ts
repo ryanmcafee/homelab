@@ -62,7 +62,7 @@ import { parse, parseAll } from "./lib/yaml.ts";
  *   `spegel` has real children, so `spegel.registries` has no open ancestor.
  *
  * Whatever those rules cannot settle goes in the allowlist with a reason, one
- * entry per chart and path prefix. An entry that no longer matches anything is
+ * entry per pinned chart and path prefix. An entry that no longer matches anything is
  * a failure, so a key upstream has since declared cannot sit there forever.
  */
 
@@ -103,6 +103,7 @@ export interface Finding {
   ruleId: typeof UNDECLARED_VALUE_RULE_ID;
   env: string;
   app: string;
+  repoURL: string;
   chart: string;
   targetRevision: string;
   path: string;
@@ -110,7 +111,9 @@ export interface Finding {
 
 /** One hole in the rule, argued for in `reason`. */
 export interface AllowEntry {
+  repoURL: string;
   chart: string;
+  targetRevision: string;
   path: string;
   reason: string;
 }
@@ -252,18 +255,18 @@ export function treePaths(
   return into;
 }
 
-/** True when the allowlist covers this chart and path (or a prefix of it). */
+/** True when the allowlist covers this pinned chart and path (or a prefix). */
 export function isAllowed(finding: Finding, allow: AllowEntry[]): boolean {
   return allow.some(
     (e) =>
-      e.chart === finding.chart &&
+      cacheKey(e) === cacheKey(finding) &&
       (finding.path === e.path || finding.path.startsWith(`${e.path}.`)),
   );
 }
 
 /**
  * Allowlist entries that matched nothing: upstream declares the key now. A
- * chart in `uninspected` was never compared, so its entries are held back.
+ * pinned chart in `uninspected` was never compared, so its entries are held back.
  */
 export function unusedEntries(
   findings: Finding[],
@@ -272,7 +275,7 @@ export function unusedEntries(
 ): AllowEntry[] {
   return allow.filter(
     (e) =>
-      !uninspected.has(e.chart) && !findings.some((f) => isAllowed(f, [e])),
+      !uninspected.has(cacheKey(e)) && !findings.some((f) => isAllowed(f, [e])),
   );
 }
 
@@ -285,7 +288,13 @@ export function parseAllowlist(content: string): AllowEntry[] {
   }
   return raw.map((item, i) => {
     const e = item as Partial<AllowEntry> | null;
-    for (const field of ["chart", "path", "reason"] as const) {
+    for (const field of [
+      "repoURL",
+      "chart",
+      "targetRevision",
+      "path",
+      "reason",
+    ] as const) {
       if (typeof e?.[field] !== "string" || e[field].trim() === "") {
         throw new Error(
           `${ALLOWLIST_PATH}: allow[${i}] is missing a non-empty "${field}"`,
@@ -294,7 +303,9 @@ export function parseAllowlist(content: string): AllowEntry[] {
     }
     const entry = e as AllowEntry;
     return {
+      repoURL: entry.repoURL,
       chart: entry.chart,
+      targetRevision: entry.targetRevision,
       path: entry.path,
       reason: entry.reason.trim(),
     };
@@ -476,7 +487,9 @@ function listDirectories(dir: string): string[] {
 }
 
 /** A chart pinned to one version, as the cache keys it. */
-export function cacheKey(source: ChartSource): string {
+export function cacheKey(
+  source: Pick<ChartSource, "repoURL" | "chart" | "targetRevision">,
+): string {
   const { ref, repo } = chartRef(source.repoURL, source.chart);
   return `${repo ? `${repo}/` : ""}${ref}@${source.targetRevision}`;
 }
@@ -562,6 +575,7 @@ export function findingsFor(
         ruleId: UNDECLARED_VALUE_RULE_ID,
         env: source.env,
         app: source.app,
+        repoURL: source.repoURL,
         chart: source.chart,
         targetRevision: source.targetRevision,
         path,
@@ -642,7 +656,7 @@ export async function main(argv: string[]): Promise<number> {
   const reported = all.filter((f) => !isAllowed(f, allow));
   const failedKeys = new Set(errors.map((e) => e.key));
   const uninspected = new Set(
-    sources.filter((s) => failedKeys.has(cacheKey(s))).map((s) => s.chart),
+    sources.filter((s) => failedKeys.has(cacheKey(s))).map(cacheKey),
   );
   const unused = unusedEntries(all, allow, uninspected);
 
@@ -687,7 +701,7 @@ export async function main(argv: string[]): Promise<number> {
     log.fail(
       `${unused.length} allowlist entr(ies) matched nothing; the chart declares the key now, so remove them`,
     );
-    for (const e of unused) console.error(`  ${e.chart}: ${e.path}`);
+    for (const e of unused) console.error(`  ${cacheKey(e)}: ${e.path}`);
   }
   if (failed) return 1;
 

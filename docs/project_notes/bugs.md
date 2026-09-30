@@ -18,6 +18,11 @@ Each entry should include:
 - **Solution**: Kind's ArgoCD values use `docker.io/library/redis` with the chart's existing `8.2.3-alpine` tag and Docker Hub pull-through cache. CI diagnostics retain pod events and both registry cache logs; the cache key includes the ArgoCD values file
 - **Prevention**: Keep the required Kind readiness gate; validate the rendered Redis image and use registry logs to diagnose future pull errors. A local render proves image selection, while the required Kind level-2 check establishes end-to-end readiness
 
+### 2026-09-30 - An allowlist exception applied to unrelated chart identities (MCAA-848)
+- **Issue**: The upstream-values allowlist matched only chart name and path, so a same-named chart from another repository or revision could inherit an exception without warning.
+- **Root Cause**: `isAllowed` ignored `repoURL` and `targetRevision`; `unusedEntries` also tracked failed pulls by chart name alone.
+- **Solution**: Bind every exception and uninspected-chart exemption to the same repository/chart/revision cache key used for chart pulls. Migrated all 48 entries from rendered Application sources. Both identity mutations now emit `upstream-values/undeclared-key` for the original chart and leave the altered entry unused.
+
 ### 2026-09-28 - spegel's ten-registry mirror list never reached the DaemonSet (#469)
 - **Issue**: MCAA-396 asked whether spegel mirrors argo-cd's redis, whose image is `ecr-public.aws.com/docker/library/redis` while `charts/addons/values.yaml` listed `https://public.ecr.aws`
 - **Root Cause**: spegel chart 0.6.0 has no `registries` key at all -- it is `mirroredRegistries`, and its empty default mirrors every registry. `resolveLatestTag` and `appendMirrors` were renamed to `registryFilters` and `prependExisting`. The chart ships no `values.schema.json`, so helm accepted all three unknown keys, ArgoCD reported Synced, and `tests/snapshots/` recorded them as expected output
