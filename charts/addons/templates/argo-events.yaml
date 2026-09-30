@@ -94,6 +94,7 @@ spec:
       # Bus sizing comes from this parent so a single-node fork changes one
       # configuration value, not a committed chart.
       valuesObject:
+        namespace: {{ $ae.namespace }}
         replicas: {{ $ae.bus.replicas }}
         version: {{ $ae.bus.version | quote }}
         maxAge: {{ $ae.bus.maxAge }}
