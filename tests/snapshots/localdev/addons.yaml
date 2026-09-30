@@ -2289,18 +2289,38 @@ spec:
           # The SLI is the head of the stream, not its depth: a queue full of
           # work nobody takes and a busy queue have the same depth, and
           # prometheus-nats-exporter exports no message age at all - pinned
-          # against 0.18.0 (the nats chart pin) and against its main branch,
-          # neither of which has a state.first_ts metric. Every window is
+          # against 0.20.1 (the nats chart pin), 0.18.0 and its main branch,
+          # none of which has a state.first_ts metric. Every window is
           # therefore derived from nats_stream_first_seq, which only moves when
           # a message leaves the head. No series exists until the NATS
           # Application ships an exporter with -jsz=all, and the rules are
           # silent (not firing, not absent) until then.
+          #
+          # Every rule below reads a recorded series, not the exporter metric:
+          # the exporter reports one series per server and only the stream
+          # leader's is authoritative, so is_stream_leader="true" dedupes a
+          # cluster. A standalone server reports itself leader too - nats-server
+          # synthesizes a cluster block naming itself, and the exporter defaults
+          # the label to "true" when that block is absent - so the filter picks
+          # the only server rather than nothing, but only by upstream behaviour
+          # in two projects. subjects.v1.yaml sets replicas_defaults.homelab: 1
+          # deliberately, making single-node the Kind path and every fork
+          # (MCAA-285), so the records prefer the leader and fall back to the
+          # only server: one expression correct on both topologies and immune to
+          # that labelling changing, aggregated once per interval rather than
+          # once per alert term as a 12h subquery would be.
           homelab-nats-jetstream:
             groups:
               - name: homelab-nats-jetstream
                 rules:
+                  - record: homelab:nats_stream_first_seq:authoritative
+                    expr: 'max by (stream_name, namespace, job) (nats_stream_first_seq{is_stream_leader="true"}) or max by (stream_name, namespace, job) (nats_stream_first_seq)'
+                  - record: homelab:nats_stream_total_messages:authoritative
+                    expr: 'max by (stream_name, namespace, job) (nats_stream_total_messages{is_stream_leader="true"}) or max by (stream_name, namespace, job) (nats_stream_total_messages)'
+                  - record: homelab:nats_consumer_ack_floor_stream_seq:authoritative
+                    expr: 'max by (stream_name, consumer_name, namespace, job) (nats_consumer_ack_floor_stream_seq{is_consumer_leader="true"}) or max by (stream_name, consumer_name, namespace, job) (nats_consumer_ack_floor_stream_seq)'
                   - alert: PFWorkOldestUnackedAging
-                    expr: 'changes(nats_stream_first_seq{stream_name="PF_WORK",is_stream_leader="true"}[12h]) == 0 and min_over_time(nats_stream_total_messages{stream_name="PF_WORK",is_stream_leader="true"}[5m]) > 0 and min_over_time(nats_stream_total_messages{stream_name="PF_WORK",is_stream_leader="true"}[12h]) > 0 and count_over_time(nats_stream_first_seq{stream_name="PF_WORK",is_stream_leader="true"}[12h]) >= 11 * count_over_time(nats_stream_first_seq{stream_name="PF_WORK",is_stream_leader="true"}[1h])'
+                    expr: 'changes(homelab:nats_stream_first_seq:authoritative{stream_name="PF_WORK"}[12h]) == 0 and min_over_time(homelab:nats_stream_total_messages:authoritative{stream_name="PF_WORK"}[5m]) > 0 and min_over_time(homelab:nats_stream_total_messages:authoritative{stream_name="PF_WORK"}[12h]) > 0 and count_over_time(homelab:nats_stream_first_seq:authoritative{stream_name="PF_WORK"}[12h]) >= 11 * count_over_time(homelab:nats_stream_first_seq:authoritative{stream_name="PF_WORK"}[1h])'
                     for: 15m
                     labels:
                       severity: warning
@@ -2308,7 +2328,7 @@ spec:
                       summary: 'The oldest unacked PF_WORK message has been queued for more than 12h'
                       description: 'nats_stream_first_seq has not moved for 12h while the stream was never empty, so the head message is at least 12h old and PF_WORK max_age is 24h. Age expiry deletes it with no advisory and no per-message signal. docs/runbooks/pf-work-age-expiry.md.'
                   - alert: PFWorkOldestUnackedAging
-                    expr: 'changes(nats_stream_first_seq{stream_name="PF_WORK",is_stream_leader="true"}[18h]) == 0 and min_over_time(nats_stream_total_messages{stream_name="PF_WORK",is_stream_leader="true"}[5m]) > 0 and min_over_time(nats_stream_total_messages{stream_name="PF_WORK",is_stream_leader="true"}[18h]) > 0 and count_over_time(nats_stream_first_seq{stream_name="PF_WORK",is_stream_leader="true"}[18h]) >= 16 * count_over_time(nats_stream_first_seq{stream_name="PF_WORK",is_stream_leader="true"}[1h])'
+                    expr: 'changes(homelab:nats_stream_first_seq:authoritative{stream_name="PF_WORK"}[18h]) == 0 and min_over_time(homelab:nats_stream_total_messages:authoritative{stream_name="PF_WORK"}[5m]) > 0 and min_over_time(homelab:nats_stream_total_messages:authoritative{stream_name="PF_WORK"}[18h]) > 0 and count_over_time(homelab:nats_stream_first_seq:authoritative{stream_name="PF_WORK"}[18h]) >= 16 * count_over_time(homelab:nats_stream_first_seq:authoritative{stream_name="PF_WORK"}[1h])'
                     for: 15m
                     labels:
                       severity: critical
@@ -2316,14 +2336,14 @@ spec:
                       summary: 'PF_WORK work is 18h old and max_age deletes it silently in under 6h'
                       description: 'The head of PF_WORK has been unacked for 18h of its 24h max_age. When the budget runs out the messages are deleted with no advisory of any kind. Get a consumer taking work, or copy the queue out now. docs/runbooks/pf-work-age-expiry.md.'
                   - alert: PFWorkMessagesExpiredUnacked
-                    expr: '(max by (stream_name) (max_over_time(nats_stream_first_seq{stream_name="PF_WORK",is_stream_leader="true"}[15m])) - max by (stream_name) (min_over_time(nats_stream_first_seq{stream_name="PF_WORK",is_stream_leader="true"}[15m]))) - (sum by (stream_name) (max_over_time(nats_consumer_ack_floor_stream_seq{stream_name="PF_WORK",is_consumer_leader="true"}[15m]) - min_over_time(nats_consumer_ack_floor_stream_seq{stream_name="PF_WORK",is_consumer_leader="true"}[15m])) or (max by (stream_name) (max_over_time(nats_stream_first_seq{stream_name="PF_WORK",is_stream_leader="true"}[15m])) * 0)) > 0'
+                    expr: '(max by (stream_name) (max_over_time(homelab:nats_stream_first_seq:authoritative{stream_name="PF_WORK"}[15m])) - max by (stream_name) (min_over_time(homelab:nats_stream_first_seq:authoritative{stream_name="PF_WORK"}[15m]))) - (sum by (stream_name) (max_over_time(homelab:nats_consumer_ack_floor_stream_seq:authoritative{stream_name="PF_WORK"}[15m]) - min_over_time(homelab:nats_consumer_ack_floor_stream_seq:authoritative{stream_name="PF_WORK"}[15m])) or (max by (stream_name) (max_over_time(homelab:nats_stream_first_seq:authoritative{stream_name="PF_WORK"}[15m])) * 0)) > 0'
                     labels:
                       severity: critical
                     annotations:
                       summary: '{{ $value }} PF_WORK messages left the stream without being acked'
                       description: 'The stream head advanced further than every consumer ack floor did, so that many durable requests were removed unacked: max_age expiry, a purge or a delete. Nothing else reports this - there is no advisory for age-based deletion. docs/runbooks/pf-work-age-expiry.md.'
                   - alert: PFWorkStreamMetricsAbsent
-                    expr: 'absent(nats_stream_first_seq{stream_name="PF_WORK",is_stream_leader="true"}) and on (stream_name) max by (stream_name) (count_over_time(nats_stream_first_seq{stream_name="PF_WORK"}[6h])) > 0'
+                    expr: 'absent(homelab:nats_stream_first_seq:authoritative{stream_name="PF_WORK"}) and on (stream_name) max by (stream_name) (count_over_time(homelab:nats_stream_first_seq:authoritative{stream_name="PF_WORK"}[6h])) > 0'
                     for: 30m
                     labels:
                       severity: warning

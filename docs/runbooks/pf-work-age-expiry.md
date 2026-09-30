@@ -20,8 +20,9 @@ with no trace, which is why ADR-030 fails a `PF_WORK` consumer that has no strea
 
 `prometheus-nats-exporter` (the `promExporter` sidecar of the NATS chart, run with `-jsz=all`
 `-prefix=nats`) exports **no message age and no timestamp**. There is no `first_ts`, no
-`last_ts` and no equivalent; verified against 0.18.0, the version the chart pins, and against the
-exporter's `main` branch (`collector/jsz.go`), which is no different. The full stream surface is:
+`last_ts` and no equivalent; verified against 0.20.1 (the version the NATS chart pins), 0.18.0 and
+the exporter's `main` branch (`collector/jsz.go`), none of them different. The full stream surface
+is:
 
 | Metric | Meaning |
 |---|---|
@@ -43,6 +44,38 @@ Queue depth cannot do this job: a queue holding three messages nobody is taking 
 holding three messages being worked through look identical in `nats_stream_total_messages`. The
 "never empty" clause matters too — a drained work queue leaves `first_seq` at `last_seq + 1`, so
 the next publish reuses that sequence and the head looks frozen when it is a second old.
+
+## Which server's view counts
+
+The exporter reports one series per NATS server, so a 3-node cluster publishes three
+`nats_stream_first_seq` series for `PF_WORK` and only the stream leader's is authoritative — a
+follower can lag or report an older sequence. Deduplicating on `is_stream_leader="true"` is what
+reduces those three to one.
+
+**A single node also reports `is_stream_leader="true"`**, by two independent upstream paths:
+nats-server synthesizes a cluster block naming itself leader for a stream with no raft group
+(`server/jetstream_cluster.go`, v2.15.0), and the exporter defaults the label to `"true"` when the
+block is absent (`collector/jsz.go`, 0.20.1 and 0.18.0). So the filter selects the only server
+rather than nothing. That is upstream behaviour in two projects, not a contract, and the
+non-clustered case is not rare: `contracts/events/subjects.v1.yaml` sets
+`replicas_defaults.homelab: 1` deliberately (a hard-coded 3 leaves a single-node fork unable to
+create a stream at all, nats-server error 10074), so it is the Kind loop and every single-node
+fork.
+
+Three recording rules resolve leadership once, and every alert reads them instead of the raw
+metric:
+
+| Recorded series | Source |
+|---|---|
+| `homelab:nats_stream_first_seq:authoritative` | `nats_stream_first_seq` |
+| `homelab:nats_stream_total_messages:authoritative` | `nats_stream_total_messages` |
+| `homelab:nats_consumer_ack_floor_stream_seq:authoritative` | `nats_consumer_ack_floor_stream_seq` |
+
+Each prefers the series labelled leader and falls back to every server when no series carries that
+label, so one expression is correct on both topologies and stays correct if either upstream changes
+how it labels a standalone stream. Two consequences worth knowing when you debug: the alerts carry
+no `is_stream_leader` label (it is aggregated away), and during a leader election the fallback
+briefly supplies the followers' view rather than leaving a gap.
 
 ## The alerts
 
@@ -113,11 +146,14 @@ label, and `nats_stream_first_seq{stream_name="PF_WORK"}` shows it. In order:
 
 Durable requests were destroyed. `$value` is how many. This is data loss, not a warning:
 
-1. Snapshot the evidence before it ages out of Prometheus:
+1. Snapshot the evidence before it ages out of Prometheus. The raw metrics show every server's
+   view; the recorded series are the ones the alert did its arithmetic on:
    ```promql
    nats_stream_first_seq{stream_name="PF_WORK"}
    nats_consumer_ack_floor_stream_seq{stream_name="PF_WORK"}
    nats_stream_total_messages{stream_name="PF_WORK"}
+   homelab:nats_stream_first_seq:authoritative{stream_name="PF_WORK"}
+   homelab:nats_consumer_ack_floor_stream_seq:authoritative{stream_name="PF_WORK"}
    ```
    The sequence gap tells you the range of lost sequences: everything between the old and the new
    `first_seq` that the ack floors did not cover.
