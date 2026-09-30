@@ -30,7 +30,7 @@ global:
   domain: {{ .Values.DOMAIN.Value }}
 
   # Git repository for local charts
-  repoUrl: https://github.com/ryanmcafee/homelab.git
+  repoUrl: {{ .GitOps.CloneURL }}
   # homelab: main is what production tracks. localdev: a placeholder that the
   # parent Application overrides through helm.valuesObject with the PR head
   # (scripts/localdev-argocd.ts install --revision).

@@ -16,7 +16,6 @@
 {{- $onepassword := eq .Values.SECRETS_PROVIDER.Value "onepassword" -}}
 {{- $automated := eq .Values.ARGOCD_AUTOMATED_SYNC.Value "true" -}}
 {{- $logging := eq .Values.LOGGING_ENABLED.Value "true" -}}
-{{- $githubOwner := "ryanmcafee" -}}
 # Addons Chart - {{ .Set }} Environment Values
 #
 # GENERATED FILE — do not edit. Source: configuration/templates/helm-addons.tmpl
@@ -44,7 +43,7 @@ global:
   storageClass: {{ .Values.STORAGE_CLASS_NFS.Value }}
 
   # Git repository for SOPS secrets
-  repoUrl: https://github.com/{{ $githubOwner }}/homelab.git
+  repoUrl: {{ .GitOps.CloneURL }}
   # homelab: main is what production tracks. localdev: a placeholder that the
   # parent Application overrides through helm.valuesObject with the PR head
   # (scripts/localdev-argocd.ts install --revision).
@@ -1843,12 +1842,12 @@ github-pr-exporter:
   onePasswordItemPath: "{{ if $onepassword }}{{ .Values.GITHUB_PR_ALERTS_1P_PATH.Value }}{{ end }}"
   scrapeInterval: {{ .Values.GITHUB_PR_ALERTS_SCRAPE_INTERVAL.Value }}
   repeatInterval: {{ .Values.GITHUB_PR_ALERTS_REPEAT_INTERVAL.Value }}
-  # Both queries are scoped to the repositories of repoUrl's owner, who is also the reviewer.
+  # Both queries are scoped to the repositories of GITOPS_REPO_URL's owner, who is also the reviewer.
   queries:
     - name: unreviewed
-      url: "https://api.github.com/search/issues?q={{ urlquery (printf "%s user:%s %s" .Values.GITHUB_PR_ALERTS_QUERY_UNREVIEWED.Value $githubOwner $prExclude) }}&per_page=100"
+      url: "https://api.github.com/search/issues?q={{ urlquery (printf "%s user:%s %s" .Values.GITHUB_PR_ALERTS_QUERY_UNREVIEWED.Value .GitOps.Owner $prExclude) }}&per_page=100"
     - name: review-requested
-      url: "https://api.github.com/search/issues?q={{ urlquery (printf "%s user:%s review-requested:%s %s" .Values.GITHUB_PR_ALERTS_QUERY_REQUESTED.Value $githubOwner $githubOwner $prExclude) }}&per_page=100"
+      url: "https://api.github.com/search/issues?q={{ urlquery (printf "%s user:%s review-requested:%s %s" .Values.GITHUB_PR_ALERTS_QUERY_REQUESTED.Value .GitOps.Owner .GitOps.Owner $prExclude) }}&per_page=100"
 
 # ============================================================================
 # Alert triage agent (templates/triage-agent.yaml, charts/triage-agent)
@@ -1860,8 +1859,10 @@ github-pr-exporter:
 triage-agent:
   enabled: {{ $triage }}
   namespace: triage-agent
-  image: "ghcr.io/{{ $githubOwner }}/homelab-triage-agent:{{ index .Versions.Images "triage-agent" }}"
-  repoSlug: "{{ $githubOwner }}/homelab"
+  # Published by .github/workflows/triage-agent-image.yml to the fork's own
+  # ghcr namespace; the image name there is fixed, only the owner varies.
+  image: "ghcr.io/{{ .GitOps.Owner }}/homelab-triage-agent:{{ index .Versions.Images "triage-agent" }}"
+  repoSlug: "{{ .GitOps.Slug }}"
   workflowUiUrl: "https://{{ .Values.WORKFLOWS_HOSTNAME.Value }}"
   # Secret triage-agent: CLAUDE_CODE_OAUTH_TOKEN, GITHUB_TOKEN plus optional fields (docs/runbooks/triage-agent.md).
   onePasswordItemPath: "{{ if $onepassword }}{{ .Values.TRIAGE_AGENT_1P_PATH.Value }}{{ end }}"

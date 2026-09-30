@@ -1568,7 +1568,7 @@ github-pr-exporter:
   onePasswordItemPath: ""
   scrapeInterval: 2m
   repeatInterval: 24h
-  # Both queries are scoped to the repositories of repoUrl's owner, who is also the reviewer.
+  # Both queries are scoped to the repositories of GITOPS_REPO_URL's owner, who is also the reviewer.
   queries:
     - name: unreviewed
       url: "https://api.github.com/search/issues?q=is%3Apr+is%3Aopen+draft%3Afalse+archived%3Afalse+review%3Anone+user%3Aryanmcafee+-label%3Aautomerge+-author%3Aapp%2Fdependabot&per_page=100"
@@ -1583,6 +1583,8 @@ github-pr-exporter:
 triage-agent:
   enabled: false
   namespace: triage-agent
+  # Published by .github/workflows/triage-agent-image.yml to the fork's own
+  # ghcr namespace; the image name there is fixed, only the owner varies.
   image: "ghcr.io/ryanmcafee/homelab-triage-agent:0.1.1"
   repoSlug: "ryanmcafee/homelab"
   workflowUiUrl: "https://workflows.homelab.local"

@@ -561,7 +561,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/ryanmcafee/homelab.git
+    repoURL: https://github.com/REPLACEME-user/homelab.git
     targetRevision: main
     path: charts/agent-readonly
     helm:
@@ -671,7 +671,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/ryanmcafee/homelab.git
+    repoURL: https://github.com/REPLACEME-user/homelab.git
     targetRevision: main
     path: charts/argo-rollouts-config
     helm:
@@ -723,7 +723,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/ryanmcafee/homelab.git
+    repoURL: https://github.com/REPLACEME-user/homelab.git
     targetRevision: main
     path: charts/argo-workflows-dependencies
     helm:
@@ -1067,7 +1067,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/ryanmcafee/homelab.git
+    repoURL: https://github.com/REPLACEME-user/homelab.git
     targetRevision: main
     path: charts/cert-manager-config
     helm:
@@ -1106,7 +1106,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/ryanmcafee/homelab.git
+    repoURL: https://github.com/REPLACEME-user/homelab.git
     targetRevision: main
     path: charts/cert-manager-cluster-issuer
     helm:
@@ -1293,7 +1293,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/ryanmcafee/homelab.git
+    repoURL: https://github.com/REPLACEME-user/homelab.git
     targetRevision: main
     path: charts/cilium-config
     helm:
@@ -2068,7 +2068,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/ryanmcafee/homelab.git
+    repoURL: https://github.com/REPLACEME-user/homelab.git
     targetRevision: main
     path: charts/democratic-csi-config
     helm:
@@ -2213,7 +2213,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/ryanmcafee/homelab.git
+    repoURL: https://github.com/REPLACEME-user/homelab.git
     targetRevision: main
     path: charts/envoy-gateway-config
     helm:
@@ -2445,7 +2445,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/ryanmcafee/homelab.git
+    repoURL: https://github.com/REPLACEME-user/homelab.git
     targetRevision: main
     path: charts/external-dns-config
     helm:
@@ -2781,14 +2781,14 @@ spec:
             scrapeTimeout: 30s
           targets:
             - name: unreviewed
-              url: https://api.github.com/search/issues?q=is%3Apr+is%3Aopen+draft%3Afalse+archived%3Afalse+review%3Anone+user%3Aryanmcafee+-label%3Aautomerge+-author%3Aapp%2Fdependabot&per_page=100
+              url: https://api.github.com/search/issues?q=is%3Apr+is%3Aopen+draft%3Afalse+archived%3Afalse+review%3Anone+user%3AREPLACEME-user+-label%3Aautomerge+-author%3Aapp%2Fdependabot&per_page=100
               module: github_search
               additionalRelabels:
                 - targetLabel: query
                   action: replace
                   replacement: unreviewed
             - name: review-requested
-              url: https://api.github.com/search/issues?q=is%3Apr+is%3Aopen+draft%3Afalse+archived%3Afalse+user%3Aryanmcafee+review-requested%3Aryanmcafee+-label%3Aautomerge+-author%3Aapp%2Fdependabot&per_page=100
+              url: https://api.github.com/search/issues?q=is%3Apr+is%3Aopen+draft%3Afalse+archived%3Afalse+user%3AREPLACEME-user+review-requested%3AREPLACEME-user+-label%3Aautomerge+-author%3Aapp%2Fdependabot&per_page=100
               module: github_search
               additionalRelabels:
                 - targetLabel: query
@@ -2821,7 +2821,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/ryanmcafee/homelab.git
+    repoURL: https://github.com/REPLACEME-user/homelab.git
     targetRevision: main
     path: charts/grafana-config
     helm:
@@ -3158,7 +3158,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/ryanmcafee/homelab.git
+    repoURL: https://github.com/REPLACEME-user/homelab.git
     targetRevision: main
     path: charts/istio-config
     helm:
@@ -3205,7 +3205,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/ryanmcafee/homelab.git
+    repoURL: https://github.com/REPLACEME-user/homelab.git
     targetRevision: main
     path: charts/istio-gateways
     helm:
@@ -4632,7 +4632,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/ryanmcafee/homelab.git
+    repoURL: https://github.com/REPLACEME-user/homelab.git
     targetRevision: main
     path: charts/clickhouse-dependencies
     helm:
@@ -4738,7 +4738,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/ryanmcafee/homelab.git
+    repoURL: https://github.com/REPLACEME-user/homelab.git
     targetRevision: main
     path: charts/clickhouse
     helm:
@@ -5478,7 +5478,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/ryanmcafee/homelab.git
+    repoURL: https://github.com/REPLACEME-user/homelab.git
     targetRevision: main
     path: charts/prometheus-config
     helm:
@@ -5636,7 +5636,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/ryanmcafee/homelab.git
+    repoURL: https://github.com/REPLACEME-user/homelab.git
     targetRevision: main
     path: charts/tailscale-config
     helm:
@@ -5677,7 +5677,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/ryanmcafee/homelab.git
+    repoURL: https://github.com/REPLACEME-user/homelab.git
     targetRevision: main
     path: charts/triage-agent
     helm:
@@ -5687,9 +5687,9 @@ spec:
       # Derived from configuration/ (ADR-010); the child's values stay environment-free.
       valuesObject:
         namespace: "triage-agent"
-        image: "ghcr.io/ryanmcafee/homelab-triage-agent:0.1.1"
-        repoUrl: "https://github.com/ryanmcafee/homelab.git"
-        repoSlug: "ryanmcafee/homelab"
+        image: "ghcr.io/REPLACEME-user/homelab-triage-agent:0.1.1"
+        repoUrl: "https://github.com/REPLACEME-user/homelab.git"
+        repoSlug: "REPLACEME-user/homelab"
         alertmanagerUrl: "http://kube-prometheus-stack-alertmanager.monitoring.svc:9093"
         workflowUiUrl: "https://workflows.replaceme-domain.com"
         onePassword:
@@ -5784,7 +5784,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/ryanmcafee/homelab.git
+    repoURL: https://github.com/REPLACEME-user/homelab.git
     targetRevision: main
     path: charts/port-forwarding-controller-config
     helm:
