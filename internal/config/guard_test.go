@@ -38,6 +38,31 @@ func TestBuildGuardPatterns(t *testing.T) {
 	}
 }
 
+func TestBuildGuardPatternsExactSafeHosts(t *testing.T) {
+	tests := []struct {
+		name  string
+		value string
+		want  bool
+	}{
+		{name: "exact host is not a pattern", value: "lscr.io", want: false},
+		{name: "exact host as an https url is not a pattern", value: "https://lscr.io", want: false},
+		{name: "child host stays a pattern", value: "cache.lscr.io", want: true},
+		{name: "look-alike stays a pattern", value: "lscr.io.evil.net", want: true},
+		{name: "bare suffix stays a pattern", value: "evillscr.io", want: true},
+		{name: "private address stays a pattern", value: "172.16.100.150", want: true},
+		{name: "real domain stays a pattern", value: "ryanmcafee.com", want: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			patterns := BuildGuardPatterns(map[string]string{"DOMAIN": tc.value})
+			got := len(patterns) > 0
+			if got != tc.want {
+				t.Errorf("BuildGuardPatterns(%q) = %v, want a pattern: %v", tc.value, patterns, tc.want)
+			}
+		})
+	}
+}
+
 func TestScanFileForPII(t *testing.T) {
 	// Create a temp file with PII
 	dir := t.TempDir()
@@ -460,6 +485,14 @@ func TestIsRealHostname(t *testing.T) {
 		// host is still caught, which is the look-alike that matters.
 		{name: "look-alike aws registry", value: "ecr-public.aws.com.evil.net", want: true},
 		{name: "allowed host as a bare prefix", value: "ecr-public.aws.community.net", want: true},
+		// lscr.io is excused as exactly that host: its subdomains are caught.
+		{name: "exact lscr registry", value: "lscr.io", want: false},
+		{name: "lscr registry https url", value: "https://lscr.io/linuxserver/plex", want: false},
+		{name: "lscr registry image ref with port", value: "lscr.io:443/linuxserver/plex", want: false},
+		{name: "child of the lscr registry", value: "cache.lscr.io", want: true},
+		{name: "child of the lscr registry in a url", value: "https://cache.lscr.io/v2/", want: true},
+		{name: "look-alike lscr registry", value: "lscr.io.evil.net", want: true},
+		{name: "lscr registry as a bare suffix", value: "evillscr.io", want: true},
 
 		// Not hostnames at all.
 		{name: "empty", value: "", want: false},
@@ -2249,14 +2282,10 @@ func TestRegistryUpstreamHostsAreCommittedSafe(t *testing.T) {
 		t.Fatalf("no registry hosts parsed from %s", script)
 	}
 
-	safe := make(map[string]bool, len(committedSafeHosts))
-	for _, h := range committedSafeHosts {
-		safe[h] = true
-	}
 	for _, m := range hosts {
 		host := m[1]
-		if !safe[host] {
-			t.Errorf("registry host %q is not in committedSafeHosts; the PII guard will flag it", host)
+		if isRealHostname(host) {
+			t.Errorf("registry host %q is not committed-safe; the PII guard will flag it", host)
 		}
 	}
 }

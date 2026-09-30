@@ -73,12 +73,7 @@ func isNonIdentifyingValue(v string) bool {
 		}
 	}
 	// A host this repository commits on purpose is not a leak when it appears.
-	for _, safe := range committedSafeHosts {
-		if host == safe || strings.HasSuffix(host, "."+safe) {
-			return true
-		}
-	}
-	return false
+	return isCommittedSafeHost(host)
 }
 
 // BuildGuardPatterns extracts PII-sensitive values from a resolved config as guard patterns.
@@ -591,13 +586,35 @@ var committedSafeHosts = []string{
 	"quay.io",
 	"gcr.io",
 	"registry.k8s.io",
-	"lscr.io",
 
 	// AWS's public registry, and the default redis repository of the pinned
 	// argo-cd chart (9.7.1: ecr-public.aws.com/docker/library/redis). The
 	// localdev pull-through cache must name it or the ArgoCD bootstrap
 	// intermittently fails on an unauthenticated Docker Hub pull.
 	"ecr-public.aws.com",
+}
+
+// exactSafeHosts are committed-safe hosts excused as that exact host only;
+// their subdomains are still reported.
+var exactSafeHosts = []string{
+	// The linuxserver registry, proxied by the localdev pull-through cache.
+	"lscr.io",
+}
+
+// isCommittedSafeHost reports whether host is an allowlisted public host:
+// a committedSafeHosts entry or its subdomain, or an exactSafeHosts entry.
+func isCommittedSafeHost(host string) bool {
+	for _, safe := range exactSafeHosts {
+		if host == safe {
+			return true
+		}
+	}
+	for _, safe := range committedSafeHosts {
+		if host == safe || strings.HasSuffix(host, "."+safe) {
+			return true
+		}
+	}
+	return false
 }
 
 // templateFileSuffixes mark a file whose values are placeholders by
@@ -781,10 +798,8 @@ func isRealHostname(v string) bool {
 			return false
 		}
 	}
-	for _, safe := range committedSafeHosts {
-		if host == safe || strings.HasSuffix(host, "."+safe) {
-			return false
-		}
+	if isCommittedSafeHost(host) {
+		return false
 	}
 	// Require a plausible alphabetic TLD, so a version string or a filename
 	// does not read as a domain.
