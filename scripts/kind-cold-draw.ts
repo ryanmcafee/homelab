@@ -317,7 +317,10 @@ function commandText(label: string, cmd: string[], r: RunResult): string {
   ].join("\n");
 }
 
-export async function capture(opts: CaptureOptions): Promise<RedisSummary> {
+export async function capture(
+  opts: CaptureOptions,
+  runCommand: (cmd: string[]) => RunResult = run,
+): Promise<RedisSummary> {
   await mkdir(opts.out, { recursive: true });
   const kubectl = ["kubectl", "--context", opts.context, "-n", opts.namespace];
   const record = async (
@@ -325,12 +328,12 @@ export async function capture(opts: CaptureOptions): Promise<RedisSummary> {
     label: string,
     cmd: string[],
   ): Promise<RunResult> => {
-    const r = run(cmd);
+    const r = runCommand(cmd);
     await writeFile(join(opts.out, file), commandText(label, cmd, r));
     return r;
   };
 
-  const pods = run([
+  const pods = runCommand([
     ...kubectl,
     "get",
     "pods",
@@ -358,7 +361,7 @@ export async function capture(opts: CaptureOptions): Promise<RedisSummary> {
     "-o",
     "wide",
   ]);
-  const events = run([...kubectl, "get", "events", "-o", "json"]);
+  const events = runCommand([...kubectl, "get", "events", "-o", "json"]);
   await writeFile(
     join(opts.out, "argocd-events.json"),
     events.code === 0

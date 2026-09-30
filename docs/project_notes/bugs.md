@@ -550,3 +550,9 @@ These are documented errors with known solutions:
 - **Diagnosis**: The workflow labels pull requests through the shared Issues endpoint. The response advertises `issues=write; pull_requests=write`, but the granted Issues scope did not authorize the operation in this run. Repository Actions permission settings could not be read by the current integration (403), so the exact server-side policy remains unconfirmed.
 - **Candidate fix**: PR #533 changes the job to only `pull-requests: write`, adds a one-PR dispatch guard, and documents fork behavior. Security signed off on the token scope. This integration gets 403 when dispatching the branch workflow, so a successful live label write is still required before calling this resolved.
 - **Prevention**: Confirm effective token permissions in the job setup log and exercise a real write; a green static workflow check does not prove authorization.
+
+### 2026-09-30 - Cold-draw policy tests timed out on unavailable external commands
+- **Issue**: PR #460's policy job exceeded Bun's five-second limit in two `kind-cold-draw` cases.
+- **Likely Cause**: The capture unit test ran four real `kubectl` and two real `docker` commands through synchronous `Bun.spawnSync`; their latency and host state were outside the test's control. The fixture-only verdict case also timed out in that run, consistent with the synchronous capture blocking the runner. The CI log does not isolate which external command consumed the time.
+- **Solution**: Let the capture test inject a failing command runner, while production capture retains the real runner. The test still checks missing pod and registry evidence and the written artifacts, and now asserts that all six commands ran through the fixture.
+- **Prevention**: In script unit tests, simulate external command results and assert the commands issued; reserve real `kubectl` and `docker` for integration checks.
