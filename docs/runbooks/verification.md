@@ -446,7 +446,8 @@ here.
 `renovate-regen/commit-identity`. A wrong **author** fails it. A wrong **committer** fails
 before staging when `RENOVATE_MAJOR` is absent or at least 44; only an explicitly measured
 43.x run prints the 44-boundary warning and continues. Measure the major for each run rather
-than carrying an old value forward.
+than carrying an old value forward. Set `RENOVATE_MAJOR` to the complete positive major only
+(for example, `43`); malformed values fail before regeneration can stage or commit.
 
 **Moving to the 44 regime.** Do not wait to remember: `task renovate:deployed-major` is the
 trigger, and it goes red as `renovate-regen/deployed-major` on the first Renovate run after the

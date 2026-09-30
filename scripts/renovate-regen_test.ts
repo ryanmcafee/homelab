@@ -397,6 +397,25 @@ test("resolveCommitterRegime reports what it measured, not what it enforces", ()
   });
 });
 
+test("malformed 43-prefixed major cannot make a pinned foreign committer advisory", () => {
+  for (const value of ["43oops", "43.110.14", "43 ", " 43", "0", "-43"]) {
+    assertThrows(
+      () => resolveCommitterRegime([], { RENOVATE_MAJOR: value }),
+      Error,
+      "RENOVATE_MAJOR",
+    );
+  }
+  const regime = resolveCommitterRegime([], { RENOVATE_MAJOR: "43" });
+  const { error, warning } = commitIdentityFindings(
+    IDENTITY_FIXTURE,
+    BOT_EMAIL_FIXTURE,
+    PINNED_COMMITTER,
+    regime,
+  );
+  assertEquals(error, null);
+  assert(warning !== null, "a complete measured 43 remains advisory");
+});
+
 test("an explicitly measured null is treated as unmeasured", () => {
   const { error, warning } = commitIdentityFindings(
     IDENTITY_FIXTURE,
