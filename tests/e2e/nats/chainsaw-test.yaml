@@ -643,12 +643,9 @@ spec:
               fi
               echo "exporter: $pod:$port"
 
-              # From inside the Prometheus pod: nats-server-ingress admits only that peer to 7777.
-              ip=$(kubectl get pod -n nats "$pod" -o jsonpath='{.status.podIP}')
-              prom=$(kubectl get pod -n monitoring -l app.kubernetes.io/name=prometheus \
-                -o jsonpath='{.items[0].metadata.name}')
-              if ! metrics=$(kubectl exec -n monitoring "$prom" -c prometheus -- \
-                wget -q -T 10 -O - "http://$ip:$port/metrics" 2>&1); then
+              # Over the pod's loopback, which nats-server-ingress does not police.
+              if ! metrics=$(kubectl exec -n nats "$pod" -c nats -- \
+                wget -q -T 10 -O - "http://localhost:$port/metrics" 2>&1); then
                 echo "FAIL: the exporter scrape did not return 200, so EVERY nats_* series is absent:"
                 echo "$metrics"
                 echo "A 'collected before with the same name and label values' error means two"
@@ -686,7 +683,7 @@ spec:
     # control proves the pod has a network, so a timeout is the policy and not a dead probe.
     - name: monitoring-network-policy
       description: >-
-        The Prometheus pod scrapes 8222 and 7777 on a NATS pod and holds the PF_WORK leader
+        The Prometheus pod reaches 8222 and 7777 on a NATS pod and holds the PF_WORK leader
         series its alerts read, while an untrusted pod times out on both ports yet reaches 4222.
       timeouts:
         exec: 5m
@@ -702,27 +699,28 @@ spec:
                 -o jsonpath='{.items[0].metadata.name}')
               echo "nats pod ip: $ip | authorized peer: monitoring/$prom"
 
-              for path in "8222/varz" "7777/metrics"; do
-                if kubectl exec -n monitoring "$prom" -c prometheus -- \
-                  wget -q -T 10 -O /dev/null "http://$ip:$path"; then
-                  echo "OK: authorized scrape of :$path"
-                else
-                  echo "FAIL: Prometheus could not reach :$path; the policy denies the monitoring path"
+              # The Prometheus image ships promtool but no HTTP client. Any HTTP answer, even an
+              # error status, proves the TCP path; a dropped connection hangs until the timeout.
+              for port in 8222 7777; do
+                out=$(timeout 20 kubectl exec -n monitoring "$prom" -c prometheus -- \
+                  promtool query instant "http://$ip:$port" up 2>&1) && rc=0 || rc=$?
+                echo "promtool from monitoring/$prom to :$port (rc=$rc): $out"
+                if [ "$rc" = 124 ] || echo "$out" | grep -qiE 'timeout|deadline exceeded|refused|no route|unreachable'; then
+                  echo "FAIL: Prometheus could not reach :$port; the policy denies the monitoring path"
                   exit 1
                 fi
+                echo "OK: authorized peer reached :$port"
               done
 
               promql() {
                 kubectl exec -n monitoring "$prom" -c prometheus -- \
-                  wget -q -T 10 -O - "http://localhost:9090/api/v1/query?query=$1" \
-                  | sed -n 's/.*"value":\[[^,]*,"\([^"]*\)"\].*/\1/p'
+                  promtool query instant http://localhost:9090 "$1" \
+                  | sed -n 's/.* => \([0-9.e+-]*\) @.*/\1/p'
               }
-              # count(nats_stream_first_seq{stream_name="PF_WORK",is_stream_leader="true"}), URL-encoded.
-              pfwork='count(nats_stream_first_seq%7Bstream_name%3D%22PF_WORK%22%2Cis_stream_leader%3D%22true%22%7D)'
               series=""
               for i in $(seq 1 12); do
-                up=$(promql 'min(up%7Bnamespace%3D%22nats%22%7D)')
-                series=$(promql "$pfwork")
+                up=$(promql 'min(up{namespace="nats"})')
+                series=$(promql 'count(nats_stream_first_seq{stream_name="PF_WORK",is_stream_leader="true"})')
                 echo "attempt $i/12: min(up{namespace=\"nats\"}) = ${up:-<no series>}" \
                   "| PF_WORK leader first_seq series = ${series:-<none>}"
                 [ "${series:-0}" -gt 0 ] && break
