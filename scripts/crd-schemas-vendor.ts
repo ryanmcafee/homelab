@@ -364,40 +364,20 @@ interface GithubContentEntry {
   download_url: string | null;
 }
 
-let ghTokenCache: string | null | undefined;
 let budgetLogged = false;
 
 /**
- * `gh`'s own token, for the manual path. On a workstation `gh` keeps it in the
- * keyring and on a wrapped runner the wrapper injects it into `gh` alone, so in
- * both cases it is reachable here and absent from the environment.
- */
-function ghStoredToken(): string | null {
-  if (ghTokenCache !== undefined) return ghTokenCache;
-  try {
-    const p = Bun.spawnSync(["gh", "auth", "token"], { stderr: "ignore" });
-    ghTokenCache = p.exitCode === 0 ? p.stdout.toString().trim() || null : null;
-  } catch {
-    ghTokenCache = null;
-  }
-  return ghTokenCache;
-}
-
-/**
- * Headers for the contents API. Unauthenticated calls share a 60/hour per-IP
- * budget that four calls per source exhaust quickly; a token raises it to
- * 5000/hour. `upgrade.yml` exports `GITHUB_TOKEN`, but `task schemas:vendor`
- * run by hand exports nothing, which is the path a Renovate bump is repaired
- * on. The raw file downloads in {@link fetchGithubCRDs} need no auth.
+ * Public contents reads are anonymous by default. CI supplies its read-only
+ * GITHUB_TOKEN explicitly; manual callers may supply a narrowly scoped token
+ * in GITHUB_TOKEN or GH_TOKEN. Never extract the gh CLI's stored credential.
  */
 export function githubApiHeaders(
   env: Record<string, string | undefined>,
-  storedToken: () => string | null = ghStoredToken,
 ): Record<string, string> {
   const headers: Record<string, string> = {
     "User-Agent": "homelab-crd-schemas-vendor",
   };
-  const token = env.GITHUB_TOKEN || env.GH_TOKEN || storedToken();
+  const token = env.GITHUB_TOKEN || env.GH_TOKEN;
   if (token) headers.Authorization = `Bearer ${token}`;
   return headers;
 }
@@ -436,7 +416,7 @@ export function contentsApiError(
     `  ${res.status} ${res.statusText}; limit ${limit}/hour, 0 remaining, resets at ${resetAt}.`,
     authenticated
       ? "  The request was authenticated, so wait for the reset rather than adding a token."
-      : "  The request was unauthenticated: 60/hour per IP. Export GITHUB_TOKEN or GH_TOKEN (`gh auth token`) for 5000/hour.",
+      : "  The request was unauthenticated: 60/hour per IP. Wait for reset, or explicitly supply a contents-read-only GITHUB_TOKEN or GH_TOKEN for 5000/hour.",
   ].join("\n");
 }
 

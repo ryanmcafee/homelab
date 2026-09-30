@@ -7,6 +7,7 @@
  *   bun test scripts/crd-schemas-vendor_test.ts
  */
 
+import { readFileSync } from "node:fs";
 import { test } from "bun:test";
 import { contentsApiError, githubApiHeaders } from "./crd-schemas-vendor.ts";
 import { assert, assertEquals, assertStringIncludes } from "./lib/assert.ts";
@@ -25,50 +26,35 @@ function response(
   };
 }
 
-const NO_STORED_TOKEN = () => null;
-
 test("githubApiHeaders authenticates from GITHUB_TOKEN", () => {
-  const headers = githubApiHeaders(
-    { GITHUB_TOKEN: "ci-token" },
-    NO_STORED_TOKEN,
-  );
+  const headers = githubApiHeaders({ GITHUB_TOKEN: "ci-token" });
   assertEquals(headers.Authorization, "Bearer ci-token");
 });
 
 test("githubApiHeaders authenticates from GH_TOKEN when GITHUB_TOKEN is unset", () => {
-  const headers = githubApiHeaders(
-    { GH_TOKEN: "gh-cli-token" },
-    NO_STORED_TOKEN,
-  );
+  const headers = githubApiHeaders({ GH_TOKEN: "gh-cli-token" });
   assertEquals(headers.Authorization, "Bearer gh-cli-token");
 });
 
 test("githubApiHeaders prefers GITHUB_TOKEN over GH_TOKEN", () => {
-  const headers = githubApiHeaders(
-    { GITHUB_TOKEN: "ci-token", GH_TOKEN: "gh-cli-token" },
-    NO_STORED_TOKEN,
-  );
+  const headers = githubApiHeaders({
+    GITHUB_TOKEN: "ci-token", GH_TOKEN: "gh-cli-token",
+  });
   assertEquals(headers.Authorization, "Bearer ci-token");
 });
 
-test("githubApiHeaders falls back to gh's stored token", () => {
-  const headers = githubApiHeaders({}, () => "keyring-token");
-  assertEquals(headers.Authorization, "Bearer keyring-token");
-});
-
-test("githubApiHeaders prefers the environment over gh's stored token", () => {
-  const headers = githubApiHeaders(
-    { GITHUB_TOKEN: "ci-token" },
-    () => "keyring-token",
+test("anonymous default never extracts a gh token", () => {
+  const source = readFileSync("scripts/crd-schemas-vendor.ts", "utf8");
+  assert(
+    !source.includes('["gh", "auth", "token"]'),
+    "public contents reads must never invoke gh auth token",
   );
-  assertEquals(headers.Authorization, "Bearer ci-token");
+  const headers = githubApiHeaders({});
+  assert(!("Authorization" in headers));
 });
 
 test("githubApiHeaders stays unauthenticated when nothing has a token", () => {
-  const headers = githubApiHeaders(
-    { GITHUB_TOKEN: "", GH_TOKEN: "" },
-    NO_STORED_TOKEN,
-  );
+  const headers = githubApiHeaders({ GITHUB_TOKEN: "", GH_TOKEN: "" });
   assert(
     !("Authorization" in headers),
     "an empty token must not produce an Authorization header",
