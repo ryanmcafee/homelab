@@ -44,15 +44,17 @@ actionable and the diagnosis below covers both; the threshold does not need retu
 | `nats_stream_total_bytes` | `StreamState.Bytes` | bytes in one stream |
 | `nats_stream_limit_bytes` | `StreamConfig.MaxBytes` | that stream's `max_bytes`; **-1 means unbounded** |
 | `nats_stream_last_seq` | `StreamState.LastSeq` | newest sequence, so: whether writes are landing |
+| `nats_stream_source_lag` | `StreamSourceInfo.Lag` | messages in the origin stream the sourcing stream has not stored yet |
 
 Two things do **not** exist and the rules cannot use them:
 
 - **`nats_server_jetstream_storage_used_bytes`**, the metric ADR-042 named, is not exported under
   that or any name. This is the same failure ADR-038 recorded when it named `state.first_ts`: the
   requirement was right and the input was invented. Pin names against the deployed exporter.
-- **No metric counts a refused publish.** A `10047` or a `discard: new` rejection is answered to the
+- **No metric counts a refused write.** A `10047` or a `discard: new` rejection is answered to the
   publisher and never appears in `/jsz`; `JetStreamStats.API.Errors` counts JetStream *API* calls,
-  covers neither, and the exporter does not export it anyway. Every refusal signal here is derived.
+  covers neither, and the exporter does not export it anyway. Every refusal signal here is derived;
+  for a sourced stream like `PF_AUDIT` the source lag is what makes that derivation possible.
 
 **Why `nats_account_storage_used` and not `nats_server_total_message_bytes`.** Both look like "how
 full is the store". Only the first is the number the server compares: `wouldExceedLimits` tests
@@ -79,7 +81,7 @@ All five rules are in the `homelab-nats-jetstream` group of
 | `JetStreamFileStoreFillingUp` | critical | above 90 % for 5 m |
 | `JetStreamFileStoreMetricsAbsent` | warning | the exporter reported account storage in the last 6 h and no longer does, for 30 m |
 | `JetStreamStreamApproachingMaxBytes` | warning / critical | one stream is above 75 % / 90 % of its own `max_bytes` |
-| `PFAuditRefusingWrites` | critical | `PF_AUDIT` is at its ceiling and `last_seq` has not moved for 15 m |
+| `PFAuditRefusingWrites` | critical | `PF_AUDIT` is at its ceiling, `last_seq` has not moved and its source lag has stayed above zero, for 15 m |
 
 Both `FillingUp` severities share one `alertname`, as do both `ApproachingMaxBytes` severities, so
 Alertmanager's severity inhibition drops the warning notification once the critical fires.
@@ -208,22 +210,37 @@ cluster's values file.
 `PF_AUDIT` holds 365 d of identity and control-plane history and is `discard: new`, so at its
 ceiling it stops accepting new audit records while the rest of the bus keeps running. That
 isolation is what ADR-042 buys over a bus-wide `10047`, and it is strictly better — but the cost is
-that **audit history is being dropped at the producer and nothing else reports it**. This alert is
-the thing that stops the isolation from simply relocating the silence.
+that **audit events stop reaching the audit trail and nothing else reports it**. This alert is the
+thing that stops the isolation from simply relocating the silence.
 
-The rule is derived, because no metric counts a refusal: `nats_stream_total_bytes` pinned at
-`nats_stream_limit_bytes` **and** `nats_stream_last_seq` unchanged for 15 m. The conjunction
-matters — bytes at the ceiling alone is `discard: old` working as designed, and a frozen `last_seq`
-alone is an idle stream.
+**Who is refused.** `PF_AUDIT` has no subjects of its own; it sources the identity and control
+events from `PF_EVENTS` (ADR-044). Producers publish to `PF_EVENTS` and are never refused. The
+refused writer is `PF_AUDIT`'s internal source consumer: nats-server retries it at the same sequence
+(`processInboundSourceMsg`, `retrySourceConsumerAtSeq`) and logs nothing for a `max_bytes` refusal.
+So the events are **waiting, not yet lost** — each is lost from the audit trail only when `PF_EVENTS`
+drops it, at its 7 d `max_age` or earlier if `PF_EVENTS` itself fills and discards old.
 
-1. **Confirm and measure.** `nats stream info PF_AUDIT` as above; `state.bytes` against
-   `config.max_bytes` is the whole story. The producer's logs carry the rejected publishes.
+The rule is derived, because no metric counts a refusal. It needs all three, each for 15 m:
+
+- `nats_stream_total_bytes` at 99 % or more of `nats_stream_limit_bytes`;
+- `nats_stream_last_seq` unchanged — at the ceiling but still storing is not refusing;
+- `nats_stream_source_lag` above zero throughout — matching events are waiting in `PF_EVENTS`. This
+  is what makes it a refusal rather than a full stream that nobody has written to. The server sets
+  lag to the origin's pending count *after* the refused event, minus one, so one or two waiting
+  events read `0`; the alert fires from the third.
+
+1. **Confirm and measure.** `nats stream info PF_AUDIT` as above: `state.bytes` against
+   `config.max_bytes`, and `sources[].lag` for how many audit events are waiting.
 2. **Recover the room, do not wait it out.** 365 d of `max_age` means the stream will not expire its
-   way out of this in any useful time. Re-budget per the options above.
-3. **Account for the gap.** Everything refused while this was firing is gone; nothing replays it.
-   Record the window (alert start to resolution) in the incident, because an audit trail with an
-   unrecorded hole is worse than one with a documented one.
-4. **File the fix.** `PF_AUDIT` reaching its ceiling means its share was sized against the wrong
+   way out of this in any useful time. Re-budget per the options above. Once there is room the
+   source consumer resumes from the refused sequence and the backlog drains by itself.
+3. **Know the deadline.** Anything still waiting when `PF_EVENTS` drops it is gone from the audit
+   trail for good. Check the oldest waiting event's age against `PF_EVENTS`' retention, and
+   whether `JetStreamStreamApproachingMaxBytes` is also firing for `PF_EVENTS` — a full
+   `PF_EVENTS` shortens that deadline below 7 d.
+4. **Account for any gap.** If the room came too late, record the window in the incident, because an
+   audit trail with an unrecorded hole is worse than one with a documented one.
+5. **File the fix.** `PF_AUDIT` reaching its ceiling means its share was sized against the wrong
    volume assumption. The permanent fix is `max_bytes_defaults` in the contract, not this cluster's
    values file.
 
@@ -253,13 +270,16 @@ task test:alerts          # promtool unit tests against the rules the chart rend
 The expressions are extracted from the rendered Application, so the tests cannot drift from what
 deploys. `tests/alerts/jetstream-storage-budget.test.yaml` brackets every threshold from both sides
 and asserts the cases that must stay silent: a store at 60 %, a stream at exactly 75 % of its
-`max_bytes`, an unbounded stream holding more than another stream's entire limit, and a full stream
-that is still accepting writes. It also covers two properties the expressions depend on — that the
-store comparison sums *across* accounts (two accounts at 40 % each page, neither alone would), and
-that a `max_bytes` of `0` cannot divide to `+Inf` and page on every scrape.
+`max_bytes`, an unbounded stream holding more than another stream's entire limit, a full stream
+that is still accepting writes, and a full `PF_AUDIT` with no audit event waiting. It also covers
+two properties the expressions depend on — that the store comparison sums *across* accounts (two
+accounts at 40 % each page, neither alone would), and that a `max_bytes` of `0` cannot divide to
+`+Inf` and page on every scrape.
 
-Both were confirmed by mutation: moving the 75 % threshold to 99 % and removing the `> 0` limit
-guard each turn `task test:alerts` red, the second with `FORK_LOCAL is +Inf% of its max_bytes`.
+All were confirmed by mutation: moving the 75 % threshold to 99 % and removing the `> 0` limit guard
+each turn `task test:alerts` red, the second with `FORK_LOCAL is +Inf% of its max_bytes`. Removing
+the source-lag term from `PFAuditRefusingWrites` fails only the idle case, and removing the
+`last_seq` term fails only the still-accepting case.
 
 ## Related
 

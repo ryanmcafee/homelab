@@ -178,7 +178,7 @@ of samples; that is how 16 alerts stood on democratic-csi for three months while
 | homelab-nats-jetstream | `JetStreamFileStoreFillingUp` | warning / critical | the shared file store is above 75 % / 90 % of `max_file_store`, where the peer refuses writes for every stream on it ([jetstream-storage-budget.md](./jetstream-storage-budget.md)) |
 | homelab-nats-jetstream | `JetStreamFileStoreMetricsAbsent` | warning | the exporter reported account storage in the last 6 h and no longer does, so the store is unwatched, for 30 m |
 | homelab-nats-jetstream | `JetStreamStreamApproachingMaxBytes` | warning / critical | one stream is above 75 % / 90 % of its own `max_bytes`, which the file-store alert cannot see |
-| homelab-nats-jetstream | `PFAuditRefusingWrites` | critical | `PF_AUDIT` is at its `max_bytes` ceiling with `last_seq` frozen, so `discard: new` is refusing audit history |
+| homelab-nats-jetstream | `PFAuditRefusingWrites` | critical | `PF_AUDIT` is at its `max_bytes` ceiling with `last_seq` frozen and source lag above zero, so `discard: new` is refusing audit events waiting in `PF_EVENTS` |
 | homelab-github | `GitHubPullRequestNeedsReview` | info (own route) | an open pull request matched a review query for 5 m ([below](#github-pull-requests-that-need-review)) |
 | homelab-github | `GitHubPullRequestExporterFailing` | warning | a GitHub search query failed (bad token, rate limit) or is not scraped for 15 m |
 | homelab-service-mesh | `HomelabIstiodDown` | warning | no istiod answers the scrape for 10 m ([service-mesh.md](../service-mesh.md)) |

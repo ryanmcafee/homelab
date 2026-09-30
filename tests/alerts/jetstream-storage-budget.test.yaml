@@ -11,7 +11,8 @@
 # limits must total below the JetStream file store. No static gate can check
 # that sum, so these rules are its runtime half. Every threshold below is
 # bracketed from both sides, and the cases that must stay silent - an unbounded
-# stream, a store at 60 %, a full stream that is still accepting writes - are
+# stream, a store at 60 %, a full stream that is still accepting writes, a
+# full PF_AUDIT with nothing waiting to be written - are
 # asserted as explicitly as the ones that page.
 #
 # Byte values are exact fractions of the capacity so the rendered
@@ -208,10 +209,11 @@ tests:
               summary: 'PF_AUDIT is 93.75% of its max_bytes'
               description: 'The stream is approaching its own limit, which the file-store alert cannot see. At the ceiling its discard policy takes effect: discard new refuses publishes, discard old deletes the oldest messages. docs/runbooks/jetstream-storage-budget.md.'
 
-  # 6. PF_AUDIT refusing its own writes. Nothing counts a refused publish, so the
-  #    signal is derived: the stream is pinned at its limit and last_seq has
-  #    stopped moving, which on a discard: new stream means nothing is being
-  #    accepted. The fixture writes normally for 30m, fills, and then freezes.
+  # 6. PF_AUDIT refusing its own writes. Nothing counts a refused write, so the
+  #    signal is derived: the stream is pinned at its limit, last_seq has
+  #    stopped moving, and source lag stays above zero - audit events are
+  #    waiting in PF_EVENTS and each retry is refused. The fixture writes
+  #    normally for 30m, fills, and then freezes while the lag grows.
   - interval: 1m
     name: PF_AUDIT pinned at its ceiling with no new sequences
     input_series:
@@ -221,6 +223,8 @@ tests:
         values: '2147483648+0x29 4294967296+0x91'
       - series: 'nats_stream_last_seq{stream_name="PF_AUDIT",is_stream_leader="true",namespace="nats",job="nats",server_name="nats-0"}'
         values: '1000+10x29 1290+0x91'  # accepting until t+29m, then frozen
+      - series: 'nats_stream_source_lag{stream_name="PF_AUDIT",is_stream_leader="true",namespace="nats",job="nats",server_name="nats-0",source_name="PF_EVENTS",source_api="",source_deliver=""}'
+        values: '0+0x29 1+1x91'  # events keep arriving and are refused
     alert_rule_test:
       # The 15m window still contains real writes, so the conjunction is false.
       - eval_time: 40m
@@ -237,8 +241,8 @@ tests:
               job: nats
               server_name: nats-0
             exp_annotations:
-              summary: 'PF_AUDIT is at its max_bytes ceiling and is accepting no new audit history'
-              description: 'PF_AUDIT is discard: new, so at the ceiling publishes are refused rather than history dropped - the isolation ADR-042 chose over a bus-wide outage. Audit and control-plane history is being lost at the producer for as long as this fires. docs/runbooks/jetstream-storage-budget.md.'
+              summary: 'PF_AUDIT is at its max_bytes ceiling and is refusing audit events sourced from PF_EVENTS'
+              description: 'PF_AUDIT is discard: new, so at the ceiling it refuses its own writes rather than stopping the bus (ADR-042). Refused events wait in PF_EVENTS and are lost from the audit trail once PF_EVENTS ages them out. docs/runbooks/jetstream-storage-budget.md.'
 
   # 7. A stream at its ceiling that is still accepting writes is not refusing
   #    them - that is discard: old, where the oldest messages leave to make room.
@@ -254,6 +258,31 @@ tests:
         values: '4294967296+0x120'
       - series: 'nats_stream_last_seq{stream_name="PF_AUDIT",is_stream_leader="true",namespace="nats",job="nats",server_name="nats-0"}'
         values: '1000+10x120'
+      - series: 'nats_stream_source_lag{stream_name="PF_AUDIT",is_stream_leader="true",namespace="nats",job="nats",server_name="nats-0",source_name="PF_EVENTS",source_api="",source_deliver=""}'
+        values: '5+0x120'  # a steady backlog, so only last_seq keeps this silent
+    alert_rule_test:
+      - eval_time: 60m
+        alertname: PFAuditRefusingWrites
+        exp_alerts: []
+      - eval_time: 120m
+        alertname: PFAuditRefusingWrites
+        exp_alerts: []
+
+  # 8. Full and idle is not refusing. PF_AUDIT at 99.5 % with no audit event
+  #    published has nothing to refuse, so last_seq freezes with no loss. The
+  #    source lag is what separates this from case 6: zero means PF_EVENTS holds
+  #    no matching event that PF_AUDIT has not stored.
+  - interval: 1m
+    name: at the ceiling but no audit event waiting
+    input_series:
+      - series: 'nats_stream_limit_bytes{stream_name="PF_AUDIT",is_stream_leader="true",namespace="nats",job="nats",server_name="nats-0"}'
+        values: '4294967296+0x120'
+      - series: 'nats_stream_total_bytes{stream_name="PF_AUDIT",is_stream_leader="true",namespace="nats",job="nats",server_name="nats-0"}'
+        values: '4273492460+0x120'  # 99.5 %
+      - series: 'nats_stream_last_seq{stream_name="PF_AUDIT",is_stream_leader="true",namespace="nats",job="nats",server_name="nats-0"}'
+        values: '1290+0x120'
+      - series: 'nats_stream_source_lag{stream_name="PF_AUDIT",is_stream_leader="true",namespace="nats",job="nats",server_name="nats-0",source_name="PF_EVENTS",source_api="",source_deliver=""}'
+        values: '0+0x120'
     alert_rule_test:
       - eval_time: 60m
         alertname: PFAuditRefusingWrites

@@ -2397,19 +2397,20 @@ spec:
                     annotations:
                       summary: '{{ $labels.stream_name }} is {{ $value | humanizePercentage }} of its max_bytes'
                       description: 'The discard policy is about to act on this stream. Check the retention the contract declares for it before changing anything; the sum rule means a bigger max_bytes here needs a smaller one elsewhere or a bigger store. docs/runbooks/jetstream-storage-budget.md.'
-                  # PF_AUDIT is discard: new, so at its ceiling it refuses its own
-                  # writes and the rest of the bus keeps running (ADR-042). No
-                  # metric counts a refused publish, so the signal is derived:
-                  # bytes pinned at the limit while last_seq stops advancing means
-                  # nothing is being accepted.
+                  # PF_AUDIT is discard: new and ingests only by sourcing PF_EVENTS
+                  # (ADR-042, ADR-044). No metric counts a refused write, so the
+                  # signal is derived: at the ceiling, last_seq frozen, and source
+                  # lag held above zero, meaning audit events are waiting that
+                  # PF_AUDIT keeps refusing. Without the lag term an idle full
+                  # stream pages.
                   - alert: PFAuditRefusingWrites
-                    expr: 'nats_stream_total_bytes{stream_name="PF_AUDIT",is_stream_leader="true"} / (nats_stream_limit_bytes{stream_name="PF_AUDIT",is_stream_leader="true"} > 0) >= 0.99 and changes(nats_stream_last_seq{stream_name="PF_AUDIT",is_stream_leader="true"}[15m]) == 0'
+                    expr: 'nats_stream_total_bytes{stream_name="PF_AUDIT",is_stream_leader="true"} / (nats_stream_limit_bytes{stream_name="PF_AUDIT",is_stream_leader="true"} > 0) >= 0.99 and changes(nats_stream_last_seq{stream_name="PF_AUDIT",is_stream_leader="true"}[15m]) == 0 and on (namespace, server_name, stream_name) min_over_time(nats_stream_source_lag{stream_name="PF_AUDIT",is_stream_leader="true"}[15m]) > 0'
                     for: 10m
                     labels:
                       severity: critical
                     annotations:
-                      summary: 'PF_AUDIT is at its max_bytes ceiling and is accepting no new audit history'
-                      description: 'PF_AUDIT is discard: new, so at the ceiling publishes are refused rather than history dropped - the isolation ADR-042 chose over a bus-wide outage. Audit and control-plane history is being lost at the producer for as long as this fires. docs/runbooks/jetstream-storage-budget.md.'
+                      summary: 'PF_AUDIT is at its max_bytes ceiling and is refusing audit events sourced from PF_EVENTS'
+                      description: 'PF_AUDIT is discard: new, so at the ceiling it refuses its own writes rather than stopping the bus (ADR-042). Refused events wait in PF_EVENTS and are lost from the audit trail once PF_EVENTS ages them out. docs/runbooks/jetstream-storage-budget.md.'
           # Service mesh (docs/service-mesh.md). Metrics: charts/istio-config
           # monitors and kube-state-metrics. ztunnel and istio-cni must run on
           # every node or enrolled pods there lose their traffic.
