@@ -241,11 +241,21 @@ jobs:
       - name: Diagnostics
         if: always()
         run: |
-          task localdev:diagnose || true
-          echo "=== Applications ==="
-          kubectl --context "$KIND_CONTEXT" -n argocd get applications.argoproj.io -o wide || true
-          echo "=== Pods ==="
-          kubectl --context "$KIND_CONTEXT" get pods -A || true
+          {
+            task localdev:diagnose || true
+            echo "=== Applications ==="
+            kubectl --context "$KIND_CONTEXT" -n argocd get applications.argoproj.io -o wide || true
+            echo "=== Pods ==="
+            kubectl --context "$KIND_CONTEXT" get pods -A || true
+            echo "=== ArgoCD pod descriptions (including image pull events) ==="
+            kubectl --context "$KIND_CONTEXT" -n argocd get pods -o name 2>/dev/null |
+              while IFS= read -r pod; do
+                echo "--- $pod ---"
+                kubectl --context "$KIND_CONTEXT" -n argocd describe "$pod" || true
+              done
+            echo "=== ArgoCD events ==="
+            kubectl --context "$KIND_CONTEXT" -n argocd get events --sort-by=.lastTimestamp || true
+          } | tee kind-bootstrap-diagnostics.txt
 
       # The registry containers write their blobs as root. actions/cache tars
       # the directory as the runner user in its post step, so hand it back.
@@ -265,6 +275,7 @@ jobs:
           path: |
             verify-level2.json
             kind-report.md
+            kind-bootstrap-diagnostics.txt
           retention-days: 14
           if-no-files-found: ignore
 
