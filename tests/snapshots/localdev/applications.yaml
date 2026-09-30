@@ -1245,6 +1245,7 @@ spec:
         serviceMesh:
           ambient: true
         admin:
+          bootstrap: true
           email: admin@homelab.local
           name: Admin
         agentPolicy:
