@@ -1,8 +1,7 @@
 #!/usr/bin/env -S bun test
 /**
- * Unit tests for crd-schemas-vendor.ts token discovery and contents-API error
- * reporting: an exhausted rate limit must read as a rate limit, because the
- * manual `task schemas:vendor` path is the one that hits the 60/hour budget.
+ * Unit tests for crd-schemas-vendor.ts: bounded retry, token selection,
+ * and contents-API errors. A spent budget must read as a rate limit.
  *
  *   bun test scripts/crd-schemas-vendor_test.ts
  */
