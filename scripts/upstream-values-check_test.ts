@@ -262,6 +262,55 @@ test("sourcesInDocuments skips git-path sources and chart sources with no values
   assertEquals(sources, []);
 });
 
+test("sourcesInDocuments refuses multi-source Helm Applications", () => {
+  const app = {
+    kind: "Application",
+    metadata: { name: "multi" },
+    spec: {
+      sources: [
+        {
+          repoURL: "https://example.test",
+          chart: "sample",
+          targetRevision: "1",
+        },
+        { repoURL: "https://example.test/git", path: "values" },
+      ],
+    },
+  };
+  const error = assertThrows(() => sourcesInDocuments([app], "homelab"));
+  assertStringIncludes(error.message, "upstream-values/unsupported-source");
+});
+
+test("sourcesInDocuments refuses unchecked Helm parameters", () => {
+  for (const helm of [
+    { parameters: [{ name: "unknown", value: "true" }] },
+    { fileParameters: [{ name: "unknown", path: "values.txt" }] },
+  ]) {
+    const app = {
+      kind: "Application",
+      metadata: { name: "parameters" },
+      spec: {
+        source: {
+          repoURL: "https://example.test",
+          chart: "sample",
+          targetRevision: "1",
+          helm,
+        },
+      },
+    };
+    const error = assertThrows(() => sourcesInDocuments([app], "homelab"));
+    assertStringIncludes(error.message, "upstream-values/unsupported-source");
+  }
+});
+
+test("readChartTree refuses a pulled directory without Chart.yaml", () => {
+  withTempDir((dir) => {
+    write(join(dir, "values.yaml"), "replicaCount: 1\n");
+    const error = assertThrows(() => readChartTree(dir));
+    assertStringIncludes(error.message, "upstream-values/chart-layout");
+  });
+});
+
 test("mergeValues deep-merges maps and replaces lists", () => {
   assertEquals(mergeValues({ a: { b: 1, c: 2 } }, { a: { c: 3, d: 4 } }), {
     a: { b: 1, c: 3, d: 4 },

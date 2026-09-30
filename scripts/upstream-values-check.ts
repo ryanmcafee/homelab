@@ -82,6 +82,8 @@ export const SNAPSHOT_ROOT = "tests/snapshots";
 export const ALLOWLIST_PATH = "tests/gitops/upstream-values-allowlist.yaml";
 export const DEFAULT_ENVS = ["homelab", "localdev"];
 export const UNDECLARED_VALUE_RULE_ID = "upstream-values/undeclared-key";
+export const UNSUPPORTED_SOURCE_RULE_ID = "upstream-values/unsupported-source";
+export const CHART_LAYOUT_RULE_ID = "upstream-values/chart-layout";
 
 /** Concurrent `helm pull` invocations. */
 const PULL_PARALLEL = 6;
@@ -315,16 +317,46 @@ export function sourcesInDocuments(
       kind?: unknown;
       metadata?: { name?: unknown };
       spec?: {
+        sources?: unknown;
         source?: {
           repoURL?: unknown;
           chart?: unknown;
           targetRevision?: unknown;
-          helm?: { values?: unknown; valuesObject?: unknown };
+          helm?: {
+            values?: unknown;
+            valuesObject?: unknown;
+            parameters?: unknown;
+            fileParameters?: unknown;
+          };
         };
       };
     } | null;
     if (d?.kind !== "Application") continue;
+    const app =
+      typeof d.metadata?.name === "string" ? d.metadata.name : "<unnamed>";
+    if (
+      Array.isArray(d.spec?.sources) &&
+      d.spec.sources.some(
+        (source) =>
+          source !== null &&
+          typeof source === "object" &&
+          typeof (source as { chart?: unknown }).chart === "string",
+      )
+    ) {
+      throw new Error(
+        `${UNSUPPORTED_SOURCE_RULE_ID}: ${env}/${app} uses spec.sources with a Helm chart`,
+      );
+    }
     const src = d.spec?.source;
+    if (
+      typeof src?.chart === "string" &&
+      (src.helm?.parameters !== undefined ||
+        src.helm?.fileParameters !== undefined)
+    ) {
+      throw new Error(
+        `${UNSUPPORTED_SOURCE_RULE_ID}: ${env}/${app} uses helm.parameters or helm.fileParameters`,
+      );
+    }
     if (
       typeof src?.chart !== "string" ||
       typeof src.targetRevision !== "string" ||
@@ -339,7 +371,7 @@ export function sourcesInDocuments(
     if (values === null) continue;
     out.push({
       env,
-      app: typeof d.metadata?.name === "string" ? d.metadata.name : "<unnamed>",
+      app,
       repoURL: src.repoURL,
       chart: src.chart,
       targetRevision: src.targetRevision,
@@ -393,10 +425,13 @@ export function collectSources(repoRoot: string, env: string): ChartSource[] {
 
 /** Read an untarred chart directory and its vendored dependencies. */
 export function readChartTree(dir: string): ChartTree {
-  const values = readYamlIfPresent(join(dir, "values.yaml"));
   const chart = readYamlIfPresent(join(dir, "Chart.yaml")) as {
     dependencies?: { name?: unknown; alias?: unknown }[];
   } | null;
+  if (chart === null) {
+    throw new Error(`${CHART_LAYOUT_RULE_ID}: ${dir} has no Chart.yaml`);
+  }
+  const values = readYamlIfPresent(join(dir, "values.yaml"));
   const aliases = new Map<string, string>();
   for (const dep of chart?.dependencies ?? []) {
     if (typeof dep?.name === "string" && typeof dep.alias === "string") {
@@ -495,7 +530,14 @@ async function resolveCharts(
         errors.push({ key, error: result.error });
         continue;
       }
-      declared.set(key, treePaths(readChartTree(result.dir)));
+      try {
+        declared.set(key, treePaths(readChartTree(result.dir)));
+      } catch (err) {
+        errors.push({
+          key,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
     }
   };
   await Promise.all(
