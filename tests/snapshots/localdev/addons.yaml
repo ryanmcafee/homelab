@@ -546,6 +546,7 @@ spec:
       # Bus sizing comes from this parent so a single-node fork changes one
       # configuration value, not a committed chart.
       valuesObject:
+        namespace: argo-events
         replicas: 1
         version: "2.10.29"
         maxAge: 72h

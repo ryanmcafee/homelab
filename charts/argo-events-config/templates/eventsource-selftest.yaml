@@ -13,6 +13,7 @@ apiVersion: argoproj.io/v1alpha1
 kind: EventSource
 metadata:
   name: trigger-selftest
+  namespace: {{ .Values.namespace }}
 spec:
   # Resolves to the EventBus named `default` when omitted, but the whole point
   # of this object is to prove which bus carries the trigger.
