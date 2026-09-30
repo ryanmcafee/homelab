@@ -1473,17 +1473,19 @@ Each decision should include:
   backend exists rather than being deferred
 - **The PF_WORK alerts are wrong the instant there are two accounts, and this is measured, not
   suspected.** All three rules in the `homelab-nats-jetstream` group select only
-  `stream_name="PF_WORK"`, and `PF_WORK` exists once per account. `PFWorkMessagesExpiredUnacked`
-  aggregates `max by (stream_name)` and `sum by (stream_name)`, so tenant A's head advance is netted
-  against tenant B's consumer acks — it can both mask a real loss and invent one.
-  `PFWorkStreamMetricsAbsent` wraps `absent()` around a selector that will match several series, so
-  it can never fire once any one account reports, which is precisely the tenant-goes-blind case it
-  exists for. `PFWorkOldestUnackedAging` survives, because `changes()` and `min_over_time()` preserve
-  the full label set and `and` matches on it. The exporter carries `account`, `account_name` and
-  `account_id` on every `nats_stream_*` series (0.20.1 `collector/jsz.go` lines 95-98, the deployed
-  exporter), so the fix is available: aggregation moves to `by (account, stream_name)`, preserving
-  tenant labels and per-tenant absence detection. Until it does, the multi-tenant path has no
-  working silent-loss alert
+  `stream_name="PF_WORK"`, and `PF_WORK` exists once per account. `PFWorkOldestUnackedAging` survives,
+  because `changes()` and `min_over_time()` preserve the full label set and `and` matches on it. The
+  same defect one dimension out — two NATS **installs** on one Prometheus rather than two accounts in
+  one install — is fixed (MCAA-458): both aggregating rules now group `by (stream_name, namespace,
+  job)`, and `PFWorkStreamMetricsAbsent` is a per-label-set `unless` rather than a global `absent()`,
+  because `absent()` emits neither `namespace` nor `job` and so cannot be joined on them. The account
+  dimension is still open: within one namespace the grouping still collapses accounts, so tenant A's
+  head advance is netted against tenant B's consumer acks and can both mask a real loss and invent
+  one. The exporter carries `account`, `account_name` and `account_id` on every `nats_stream_*` series
+  (0.20.1 `collector/jsz.go` lines 95-98, the deployed exporter), so the fix is available: add
+  `account` to the existing grouping, after confirming `nats_consumer_*` carries it too — the loss
+  rule subtracts a consumer aggregate from a stream aggregate, and a label present on only one side
+  breaks the match. Until it does, the multi-tenant path has no working silent-loss alert
 - **`docs/event-backbone.md` must state today's reality plainly until this lands** — the bus is
   unauthenticated within the cluster and single-tenant, and the `<tenant>` token is a convention, not
   a boundary. Without that line a reader of the contract would reasonably attach a second tenant to a
