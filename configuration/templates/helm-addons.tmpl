@@ -1581,6 +1581,38 @@ nats:
   # single-node fork cannot create any stream (10074).
   replicas: {{ .Values.NATS_SERVER_REPLICAS.Value }}
 
+  # ADR-043's static backend. Identity is operator-supplied, permissions are contract:
+  # contracts/events/bus-principals.v1.yaml declares the grants and
+  # charts/addons/files/nats-accounts.gen.yaml is its expansion. PUBLIC keys only -- the
+  # private seeds reach workloads as Secrets through External Secrets.
+  #
+  # Empty NATS_PRINCIPAL_NKEYS leaves the bus anonymous. Setting it renders the accounts
+  # block, and the server then refuses every client that has no key, NACK and nats-box
+  # included, so every principal a workload runs as has to be listed before it is set.
+  tenant: {{ .Values.NATS_TENANT.Value }}
+  principalNkeys: "{{ .Values.NATS_PRINCIPAL_NKEYS.Value }}"
+  systemAccountNkey: "{{ .Values.NATS_SYSTEM_ACCOUNT_NKEY.Value }}"
+  natsBoxPrincipals: "{{ .Values.NATS_BOX_PRINCIPALS.Value }}"
+
+  # Per-account JetStream limits, mandatory rather than advisory (ADR-043 D8). Both store
+  # limits are checked against the SERVER's stores at startup and a limit above what the
+  # server offers is fatal for every account, not just the greedy one -- measured on v2.15.0
+  # against this chart's own rendered nats.conf. `max_memory: 0` is the declared limit for a
+  # file-store-only bus: no memory store is enabled, so a memory-backed stream is refused.
+  # `max_store` sits under the file store below, which is the ADR-043 budget rule at the
+  # account level for the one account homelab renders.
+  accountLimits:
+    max_memory: 0
+{{- if $localdev }}
+    max_store: << 1GB >>
+    max_streams: 16
+    max_consumers: 64
+{{- else }}
+    max_store: << 15GB >>
+    max_streams: 32
+    max_consumers: 256
+{{- end }}
+
   jetstream:
     streamReplicas: {{ .Values.NATS_STREAM_REPLICAS.Value }}
     storage:
