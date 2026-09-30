@@ -18,15 +18,18 @@ on:
   schedule:
     - cron: '17 * * * *'
   workflow_dispatch:
+    inputs:
+      pr_number:
+        description: 'Reconcile only this PR (for a targeted permission check)'
+        required: false
+        type: number
 
 concurrency:
   group: pr-dependency-triage
   cancel-in-progress: true
 
 permissions:
-  contents: read
-  issues: write
-  pull-requests: read
+  pull-requests: write
 
 jobs:
   classify:
@@ -128,7 +131,17 @@ jobs:
             }
 
             let changed = 0;
+            const targetInput = context.payload.inputs?.pr_number;
+            const targeted = targetInput !== undefined && targetInput !== '';
+            if (targeted && !/^[1-9][0-9]*$/.test(String(targetInput))) {
+              throw new Error('pr_number must be a positive PR number');
+            }
+            const targetNumber = targeted ? Number(targetInput) : null;
+            if (targetNumber && !pulls.some((pr) => pr.number === targetNumber)) {
+              throw new Error(`PR #${targetNumber} is not open in ${repoFullName}`);
+            }
             for (const pr of pulls) {
+              if (targetNumber && pr.number !== targetNumber) continue;
               const sameRepo =
                 pr.head.repo && pr.head.repo.full_name === repoFullName;
               const nonDefaultBase = pr.base.ref !== defaultBranch;
