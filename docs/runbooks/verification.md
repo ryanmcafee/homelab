@@ -37,12 +37,15 @@ with one line per problem. `pr-contract.yml` runs level 0 on the PR head (see "A
 contract" below); `verify.yml` runs it on the merge result and uploads the JSON as the
 `verify-level0` artifact.
 
-Only the `pr-contract.yml` job — "Verification claim matches level 0" — is a **required**
-status check on `main`. `verify.yml`'s merge-result run reports but does not block, so a
-failure that exists only in the merge result (the ADR-number collision of ADR-039 is the
-clearest case) shows red in the checks list without stopping the merge. Rebasing the branch
-turns it into a head failure, which does block. Treat a red merge-result level 0 as a
-merge blocker even though GitHub will not.
+Two status checks are **required** on `main`: `Verification claim matches level 0`
+(`pr-contract.yml` on the PR head, skipped for drafts and `renovate/*`) and
+`Level 0 (render, schema, gitops, snapshot, policy)` (`verify.yml` on the merge
+result, run for every PR). A level-0 failure visible only in the merge result,
+including an ADR-number collision or snapshot drift, blocks a non-admin merge.
+`Golden snapshots` reports the diff and remains advisory (ADR-041).
+Keep the documented list in `docs/contracts/required-status-checks.yaml` in sync
+with live branch protection; `verify/required-contexts` fails level 0 if a
+required workflow is path-filtered or its required job gains a skip condition.
 
 ## What level 0 checks
 
@@ -68,6 +71,7 @@ merge blocker even though GitHub will not.
 | `decisions/adr-record` | `docs/project_notes/decisions.md` exists, parses, and contains at least one ADR. Emitted **instead of** the two checks below when the parse cannot be trusted — an unterminated fence hides every heading under it, and a record with no ADRs would otherwise report "0 ADRs, no duplicate number" as a green. | The finding names the line. Close (or delete) the stray fence; a record with no ADR heading is a wrong path or a truncated file, not a passing record. |
 | `decisions/adr-format` | Every ADR heading in `docs/project_notes/decisions.md` is `### ADR-NNN: <title>` — three digits, heading depth three, at most three spaces of indent (four is a code block and is not read). A heading that names *no* number (`## ADR numbering conventions`) is prose and is not checked; one that names a number at any other depth (`#### ADR-034 rollout notes`) **is** a failure, because it is byte-adjacent to the placeholder shape below and the two cannot be told apart. | Fix the heading — a sub-heading inside an ADR body must not repeat the number. A number you intend to use goes in a blockquote above the next real ADR, never in a heading: a placeholder heading merges cleanly over the real ADR of that number and deletes it (ADR-039). |
 | `decisions/adr-numbers` | No ADR number is defined twice. Branches that each appended "the next number" merge without a conflict, so this is the only thing that sees the duplicate. | `findings` names every line. The number belongs to whichever ADR merged first: renumber the one this branch adds to the next free number, keep its body byte-identical, and update the citations that name the old number (ADR-039). |
+| `verify/required-contexts` | Each context in `docs/contracts/required-status-checks.yaml` names an existing workflow job whose `pull_request` trigger has no path filter. Required jobs have no job-level `if:`, except the exact draft and Renovate exemption on the author-claim job. | Remove the filter or unexpected condition; keep the documented list aligned with live branch protection. |
 
 **When a duplicate ADR number reaches `main`.** The `decisions/*` checks read the
 repository, not the branch, so a duplicate that lands turns the required check red on
@@ -489,7 +493,8 @@ pull request head (issue #261 item 22; ADR-032 dropped the PR-body claim).
 | Piece | File | What it does |
 |---|---|---|
 | PostToolUse hook | `.claude/settings.json` → `scripts/claude-verify-hook.ts` | After every Claude Code `Edit`/`Write`/`MultiEdit` of a file under `charts/` or `configuration/` of `$CLAUDE_PROJECT_DIR`, builds `./cmd/homelab` and runs `verify all --level 0 --json` in the project root (150 s cap, hook timeout 180 s). Pass: silent, exit 0. Fail: exit 2, and Claude Code hands the agent a summary of at most 60 lines (failing checks, `detail`, up to five findings each, hints such as `task test:snapshot -- --update` for intended snapshot drift). A build error or timeout is reported the same way. |
-| CI | `.github/workflows/pr-contract.yml`, job `claim` (the required check "Verification claim matches level 0") | On opened/synchronize/reopened/ready_for_review (no paths filter; drafts and `renovate/*` heads skipped): runs `task verify` on the PR **head** and fails when level 0 fails. The job summary lists the non-passing checks and the findings of failing ones. |
+| CI | `.github/workflows/pr-contract.yml`, job `claim` (required check "Verification claim matches level 0") | On opened/synchronize/reopened/ready_for_review (no paths filter; drafts and `renovate/*` heads skipped): runs `task verify` on the PR **head** and fails when level 0 fails. The job summary lists the non-passing checks and the findings of failing ones. |
+| CI merge gate | `.github/workflows/verify.yml`, job `level-0` (required check "Level 0 (render, schema, gitops, snapshot, policy)") | Runs `task verify` on the merge result for every PR, including drafts and `renovate/*`; snapshot drift blocks a non-admin merge. |
 
 The PR description carries no verification block: CI verifies the head itself, so a pasted
 result would add nothing. `verify.yml` verifies the merge result.

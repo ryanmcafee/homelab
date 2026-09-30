@@ -160,6 +160,7 @@ Exit code 0 when every check passes, 1 when any check fails, 2 on usage error.`,
 			// duplicate ADR number that two branches merged in without a
 			// conflict fails here instead of landing silently on main.
 			result.Add(verify.ADRRecord(repoRoot)...)
+			result.Add(verify.RequiredContexts(repoRoot))
 
 			// 6. Cluster-backed levels. Every check reads the Kind cluster
 			// through the same Runner, so the fake in tests covers them too.

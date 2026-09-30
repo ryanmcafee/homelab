@@ -41,6 +41,7 @@ on:
     paths:
       - 'configuration/versions.yaml'
       - 'charts/**'
+      - 'mise.toml'
       - '.github/workflows/upgrade.yml'
 
 concurrency:
