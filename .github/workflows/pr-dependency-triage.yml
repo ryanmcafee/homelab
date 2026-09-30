@@ -26,7 +26,8 @@ concurrency:
 permissions:
   contents: read
   issues: write
-  pull-requests: read
+  # Labels on pull requests require PR write access for this repository token.
+  pull-requests: write
 
 jobs:
   classify:
