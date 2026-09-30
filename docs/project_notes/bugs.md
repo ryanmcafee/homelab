@@ -12,6 +12,12 @@ Each entry should include:
 
 ## Entries
 
+### 2026-09-30 - Kind ArgoCD Redis pull hit ECR Public data limit (MCAA-852)
+- **Issue**: Cold-cache Kind bootstrap at PR #487 head `aa8d475` timed out on `argocd-redis` with `ImagePullBackOff`; the original CI diagnostics retained no kubelet error
+- **Root Cause**: A reproduced pull through `kind-registry-ecr` returned HTTP 500 for the Redis manifest. All 12 proxy manifest requests logged `toomanyrequests: Data limit exceeded` from ECR Public (QA artifact, run 36713254067)
+- **Solution**: Kind's ArgoCD values use `docker.io/library/redis` with the chart's existing `8.2.3-alpine` tag and Docker Hub pull-through cache. CI diagnostics retain pod events and both registry cache logs; the cache key includes the ArgoCD values file
+- **Prevention**: Keep the required Kind readiness gate; validate the rendered Redis image and use registry logs to diagnose future pull errors. A local render proves image selection, while the required Kind level-2 check establishes end-to-end readiness
+
 ### 2026-09-28 - spegel's ten-registry mirror list never reached the DaemonSet (#469)
 - **Issue**: MCAA-396 asked whether spegel mirrors argo-cd's redis, whose image is `ecr-public.aws.com/docker/library/redis` while `charts/addons/values.yaml` listed `https://public.ecr.aws`
 - **Root Cause**: spegel chart 0.6.0 has no `registries` key at all -- it is `mirroredRegistries`, and its empty default mirrors every registry. `resolveLatestTag` and `appendMirrors` were renamed to `registryFilters` and `prependExisting`. The chart ships no `values.schema.json`, so helm accepted all three unknown keys, ArgoCD reported Synced, and `tests/snapshots/` recorded them as expected output
