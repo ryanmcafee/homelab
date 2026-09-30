@@ -6,6 +6,7 @@ apiVersion: argoproj.io/v1alpha1
 kind: EventBus
 metadata:
   name: default
+  namespace: argo-events
 spec:
   jetstream:
     version: "2.10.29"
@@ -39,6 +40,7 @@ apiVersion: argoproj.io/v1alpha1
 kind: EventSource
 metadata:
   name: trigger-selftest
+  namespace: argo-events
 spec:
   # Resolves to the EventBus named `default` when omitted, but the whole point
   # of this object is to prove which bus carries the trigger.
@@ -55,6 +57,7 @@ apiVersion: argoproj.io/v1alpha1
 kind: Sensor
 metadata:
   name: trigger-selftest
+  namespace: argo-events
 spec:
   eventBusName: default
   dependencies:

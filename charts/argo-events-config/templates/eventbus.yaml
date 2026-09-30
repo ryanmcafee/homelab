@@ -8,6 +8,7 @@ apiVersion: argoproj.io/v1alpha1
 kind: EventBus
 metadata:
   name: default
+  namespace: {{ .Values.namespace }}
 spec:
   jetstream:
     version: {{ .Values.version | quote }}
