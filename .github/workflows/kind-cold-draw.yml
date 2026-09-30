@@ -10,7 +10,11 @@ name: Kind cold draw (exact head)
 #             and no draw is counted. Job output `sha` is the checked-out commit.
 #   draw      checkout <sha> -> assert ~/.cache/homelab-kind-registry is empty
 #             -> localdev kind/argocd/sync/wait -> capture Redis evidence ->
-#             upload artifact kind-cold-draw-pr<n>-<sha> -> localdev:down.
+#             verdict -> upload artifact kind-cold-draw-pr<n>-<sha> ->
+#             localdev:down. argocd/sync/wait may fail without failing the job;
+#             the verdict step passes a reproduced Redis pull failure (or a
+#             clean draw) and fails incomplete evidence or any other failure.
+#             Guard and plumbing steps fail the job directly.
 #   selftest  on pushes to a PR changing this workflow: the stale-head,
 #             warm-cache and no-cluster capture guards, run against bad input.
 #
@@ -85,6 +89,22 @@ jobs:
           set -euo pipefail
           bun scripts/kind-cold-draw.ts capture --out kind-cold-draw-selftest
           jq -e '.missing | any(startswith("redis pod:")) and any(startswith("container kind-registry-ecr:"))' kind-cold-draw-selftest/summary.json
+
+      - name: Verdict passes the PR 487 reproduction
+        run: |
+          set -euo pipefail
+          dir="$RUNNER_TEMP/verdict-reproduced"
+          cp -r scripts/testdata/kind-cold-draw/pr487-reproduced "$dir"
+          bun scripts/kind-cold-draw.ts verdict --dir "$dir" --argocd failure --sync skipped --wait skipped
+          jq -e '.kind == "reproduced"' "$dir/verdict.json"
+
+      - name: Verdict fails a draw with no cluster evidence
+        run: |
+          set +e
+          bun scripts/kind-cold-draw.ts verdict --dir kind-cold-draw-selftest --argocd failure --sync skipped --wait skipped
+          code=$?
+          echo "exit $code"
+          [ "$code" -eq 1 ] && jq -e '.kind == "incomplete-evidence"' kind-cold-draw-selftest/verdict.json
 
       - name: Upload the selftest artifact
         if: always()
@@ -184,6 +204,7 @@ jobs:
 
       - name: task localdev:argocd
         id: argocd
+        continue-on-error: true
         run: |
           set -euo pipefail
           start=$(date +%s)
@@ -191,9 +212,15 @@ jobs:
           echo "seconds=$(( $(date +%s) - start ))" >> "$GITHUB_OUTPUT"
 
       - name: task localdev:sync
+        id: sync
+        if: steps.argocd.outcome == 'success'
+        continue-on-error: true
         run: task localdev:sync
 
       - name: task localdev:wait
+        id: wait
+        if: steps.sync.outcome == 'success'
+        continue-on-error: true
         run: task localdev:wait
 
       - name: Capture Redis evidence before teardown
@@ -205,7 +232,7 @@ jobs:
             echo "sha=$DRAW_SHA"
             echo "run=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT"
             echo "argocd_install_seconds=${{ steps.argocd.outputs.seconds }}"
-            echo "kind=${{ steps.kind.outcome }} argocd=${{ steps.argocd.outcome }}"
+            echo "kind=${{ steps.kind.outcome }} argocd=${{ steps.argocd.outcome }} sync=${{ steps.sync.outcome }} wait=${{ steps.wait.outcome }}"
           } > "$EVIDENCE/draw.txt"
           task localdev:diagnose > "$EVIDENCE/localdev-diagnose.txt" 2>&1 || true
           {
@@ -213,6 +240,22 @@ jobs:
             echo
             cat "$EVIDENCE/summary.md"
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Verdict (reproduced or clean passes; anything else fails)
+        env:
+          ARGOCD: ${{ steps.argocd.outcome }}
+          SYNC: ${{ steps.sync.outcome }}
+          WAIT: ${{ steps.wait.outcome }}
+        run: |
+          set -euo pipefail
+          code=0
+          bun "$RUNNER_TEMP/kind-cold-draw.ts" verdict --dir "$EVIDENCE" \
+            --argocd "$ARGOCD" --sync "$SYNC" --wait "$WAIT" || code=$?
+          {
+            echo
+            echo "**Verdict:** \`$(jq -r .kind "$EVIDENCE/verdict.json")\` - $(jq -r .reason "$EVIDENCE/verdict.json")"
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$code"
 
       - name: Upload Redis evidence
         if: always()

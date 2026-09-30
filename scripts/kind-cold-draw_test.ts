@@ -22,8 +22,10 @@ import {
   assertCold,
   capture,
   checkHead,
+  classify,
   GuardError,
   parseFlags,
+  readSummary,
   summarize,
   UsageError,
 } from "./kind-cold-draw.ts";
@@ -209,4 +211,67 @@ test("the draw workflow restores no cache of any kind", async () => {
     !/^\s*restore-keys:/m.test(wf),
     "kind-cold-draw.yml must not declare restore-keys",
   );
+});
+
+const reproducedSummary = async () =>
+  readSummary(
+    new URL("./testdata/kind-cold-draw/pr487-reproduced/", import.meta.url)
+      .pathname,
+  );
+
+const argocdFailed = { argocd: "failure", sync: "skipped", wait: "skipped" };
+const allPassed = { argocd: "success", sync: "success", wait: "success" };
+
+test("verdict passes the PR 487 draw that reproduced Redis ImagePullBackOff", async () => {
+  const s = await reproducedSummary();
+  const v = classify(s, argocdFailed);
+  assertEquals([v.kind, v.pass], ["reproduced", true]);
+  assertStringIncludes(v.reason, "localdev:argocd=failure");
+  assertStringIncludes(v.reason, "ImagePullBackOff");
+});
+
+test("verdict fails the same failed draw when registry evidence is missing", async () => {
+  const s = await reproducedSummary();
+  const v = classify(
+    { ...s, missing: ["container kind-registry-ecr: docker logs exited 1"] },
+    argocdFailed,
+  );
+  assertEquals([v.kind, v.pass], ["incomplete-evidence", false]);
+  assertStringIncludes(v.reason, "kind-registry-ecr");
+});
+
+test("verdict fails a cluster step failure that is not the Redis pull", () => {
+  const v = classify(summarize(pulledPod, { items: [] }), argocdFailed);
+  assertEquals([v.kind, v.pass], ["other-failure", false]);
+  assertStringIncludes(v.reason, "no pull failure");
+});
+
+test("verdict fails when every step passed but Redis is not ready", async () => {
+  const s = await reproducedSummary();
+  const v = classify(s, allPassed);
+  assertEquals([v.kind, v.pass], ["other-failure", false]);
+});
+
+test("verdict passes a clean draw as not reproduced", () => {
+  const v = classify(summarize(pulledPod, { items: [] }), allPassed);
+  assertEquals([v.kind, v.pass], ["not-reproduced", true]);
+});
+
+test("verdict passes a draw whose pull failed then recovered", () => {
+  const recovered = summarize(pulledPod, {
+    items: [
+      {
+        involvedObject: { name: "argocd-redis-abc" },
+        reason: "Failed",
+        message: "Error: ErrImagePull",
+      },
+    ],
+  });
+  assertEquals(classify(recovered, allPassed).kind, "recovered");
+});
+
+test("readSummary refuses a file that is not a capture summary", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "kcd-verdict-"));
+  await writeFile(join(dir, "summary.json"), '{"pod":"x"}');
+  await assertRejects(() => readSummary(dir), GuardError, "not a capture");
 });

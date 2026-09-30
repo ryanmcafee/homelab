@@ -22,11 +22,22 @@
  *               registry proxy log into <dir>, plus summary.json/summary.md.
  *               Anything absent is recorded in summary.json `missing`. Always
  *               exits 0 so it never masks the step that failed.
+ *   verdict --dir <dir> --argocd <outcome> --sync <outcome> --wait <outcome>
+ *               Classify the draw from <dir>/summary.json and the cluster step
+ *               outcomes. Exits 0 when the draw reproduced the Redis pull
+ *               failure or ran clean; exits 1 on incomplete evidence or a
+ *               cluster failure that is not the Redis pull. Writes verdict.json.
  *
  * Exit codes: 0 = success; 1 = guard failed; 2 = argument error.
  */
 
-import { mkdir, readdir, writeFile, appendFile } from "node:fs/promises";
+import {
+  mkdir,
+  readdir,
+  readFile,
+  writeFile,
+  appendFile,
+} from "node:fs/promises";
 import { join } from "node:path";
 
 export const ALLOWED_DRAWS: Readonly<Record<string, string>> = {
@@ -416,6 +427,104 @@ export async function capture(opts: CaptureOptions): Promise<RedisSummary> {
 }
 
 // ============================================================================
+// verdict
+// ============================================================================
+export interface StepOutcomes {
+  argocd: string;
+  sync: string;
+  wait: string;
+}
+
+export type VerdictKind =
+  | "reproduced"
+  | "recovered"
+  | "not-reproduced"
+  | "incomplete-evidence"
+  | "other-failure";
+
+export interface Verdict {
+  kind: VerdictKind;
+  pass: boolean;
+  reason: string;
+}
+
+const PULL_FAILURE_WAITING = new Set(["ErrImagePull", "ImagePullBackOff"]);
+const PULL_FAILURE_MESSAGE =
+  /ErrImagePull|ImagePullBackOff|Failed to pull image/;
+
+export function redisPullFailed(s: RedisSummary): boolean {
+  return (
+    (s.waitingReason !== null && PULL_FAILURE_WAITING.has(s.waitingReason)) ||
+    s.failureEvents.some((e) => PULL_FAILURE_MESSAGE.test(e.message))
+  );
+}
+
+export function classify(s: RedisSummary, steps: StepOutcomes): Verdict {
+  if (s.missing.length > 0) {
+    return {
+      kind: "incomplete-evidence",
+      pass: false,
+      reason: `evidence is incomplete: ${s.missing.join("; ")}`,
+    };
+  }
+  const failed = Object.entries(steps)
+    .filter(([, outcome]) => outcome !== "success")
+    .map(([name, outcome]) => `localdev:${name}=${outcome || "<none>"}`);
+  const pullFailed = redisPullFailed(s);
+  if (failed.length > 0) {
+    return pullFailed
+      ? {
+          kind: "reproduced",
+          pass: true,
+          reason: `Redis pull failure reproduced (${failed.join(", ")}; waiting ${s.waitingReason ?? "-"})`,
+        }
+      : {
+          kind: "other-failure",
+          pass: false,
+          reason: `${failed.join(", ")} but Redis shows no pull failure (waiting ${s.waitingReason ?? "-"}, ready ${String(s.ready)})`,
+        };
+  }
+  if (s.ready !== true) {
+    return {
+      kind: "other-failure",
+      pass: false,
+      reason: `every cluster step succeeded but Redis is not ready (phase ${s.phase ?? "-"}, waiting ${s.waitingReason ?? "-"})`,
+    };
+  }
+  return pullFailed
+    ? {
+        kind: "recovered",
+        pass: true,
+        reason:
+          "Redis pull failed at least once, then recovered before localdev:wait finished",
+      }
+    : {
+        kind: "not-reproduced",
+        pass: true,
+        reason: "Redis pulled and became ready; the failure did not recur",
+      };
+}
+
+export function isRedisSummary(v: unknown): v is RedisSummary {
+  return (
+    isRecord(v) &&
+    Array.isArray(v.missing) &&
+    Array.isArray(v.failureEvents) &&
+    "waitingReason" in v &&
+    "ready" in v
+  );
+}
+
+export async function readSummary(dir: string): Promise<RedisSummary> {
+  const file = join(dir, "summary.json");
+  const parsed = parseJson(await readFile(file, "utf8"));
+  if (!isRedisSummary(parsed)) {
+    throw new GuardError(`${file} is not a capture summary`);
+  }
+  return parsed;
+}
+
+// ============================================================================
 // CLI
 // ============================================================================
 export function parseFlags(args: string[]): Record<string, string> {
@@ -477,9 +586,24 @@ async function main(argv: string[]): Promise<number> {
         console.log(renderMarkdown(summary));
         return 0;
       }
+      case "verdict": {
+        const dir = required(flags, "dir");
+        const verdict = classify(await readSummary(dir), {
+          argocd: required(flags, "argocd"),
+          sync: required(flags, "sync"),
+          wait: required(flags, "wait"),
+        });
+        await writeFile(
+          join(dir, "verdict.json"),
+          `${JSON.stringify(verdict, null, 2)}\n`,
+        );
+        const line = `${verdict.kind}: ${verdict.reason}`;
+        console.log(verdict.pass ? `::notice::${line}` : `::error::${line}`);
+        return verdict.pass ? 0 : 1;
+      }
       default:
         throw new UsageError(
-          `unknown subcommand "${sub ?? ""}"; expected resolve-head, assert-cold or capture`,
+          `unknown subcommand "${sub ?? ""}"; expected resolve-head, assert-cold, capture or verdict`,
         );
     }
   } catch (e) {
