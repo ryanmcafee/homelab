@@ -389,7 +389,7 @@ jobs:
   # inside an existing paths-filtered workflow cannot fall into that trap.
   #
   # Cost: a checkout, bun, and a diff classification — seconds. The full cold
-  # fork path is ~19 minutes and stays off the critical path of every pull
+  # fork path is ~20 minutes and stays off the critical path of every pull
   # request, which is the whole reason this gate is cheap and dischargeable.
   fork-path-gate:
     name: Fork-ability check 3a change gate

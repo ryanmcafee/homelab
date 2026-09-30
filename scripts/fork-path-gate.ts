@@ -354,7 +354,7 @@ const TIER1_HELP = `
 1. Run the cold fork path on this exact commit — the \`Fork path (cold, uncached)\`
    workflow has a **Run workflow** button (\`workflow_dispatch\`) — and paste the run
    URL into the pull request body. The run's head SHA must equal this pull
-   request's head SHA. Cost: about 19 minutes, and it is the real check.
+   request's head SHA. Cost: about 20 minutes, and it is the real check.
 
    Working from a fork? Dispatch it in **your** fork and link that run: a run in
    another repository is accepted, because the head SHA is what the run proves.

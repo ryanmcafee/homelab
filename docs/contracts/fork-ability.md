@@ -136,11 +136,11 @@ Dated, because a check's status is a claim about the past and decays.
   caused, and a check that cries wolf gets muted. A regression is therefore read by a human from
   the trend, not enforced by CI. If that stops being good enough, the fix is a threshold on a
   rolling median across runs, not on a single run.
-- **3a's change-triggered half is enforced as of 2026-09-25**, by the `Fork-ability check 3a
-  change gate` job in [`verify.yml`](../../.github/workflows/verify.yml)
+- **3a's change-triggered half is enforced from [#396](https://github.com/ryanmcafee/homelab/pull/396)
+  onward**, by the `Fork-ability check 3a change gate` job in [`verify.yml`](../../.github/workflows/verify.yml)
   ([`scripts/fork-path-gate.ts`](../../scripts/fork-path-gate.ts)). It replaced a sentence of
   prose. `fork-path-cold.yml`'s own `pull_request` filter still covers only the workflow file,
-  deliberately, because a cold uncached loop costs ~19 minutes and must stay off the critical
+  deliberately, because a cold uncached loop costs 19-23 minutes and must stay off the critical
   path; and a CODEOWNERS rule could never have carried the obligation, because
   `.github/CODEOWNERS` assigns `*` to the single repository owner and therefore cannot
   discriminate one path from another. What the gate does instead is classify the changed
