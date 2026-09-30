@@ -18,6 +18,10 @@ Each entry should include:
 - **Description**: QA reproduced the ECR Public `toomanyrequests: Data limit exceeded` response in run 36713254067. Kind ArgoCD now selects Docker Hub's official Redis image at the pinned chart tag, and CI retains pod events plus ECR/Docker proxy logs. The Redis test passes with Docker Hub and fails with the old ECR Public repository.
 - **URL**: https://github.com/ryanmcafee/homelab/pull/536
 
+### 2026-09-30 - Scope upstream values exceptions to pinned chart identity
+- **Status**: In review on branch `feat/mcaa-848-upstream-values-identity`
+- **Description**: MCAA-848 follows reviewer condition 4 on PR #483. All 48 allowlist entries now bind repository URL, chart name and pinned revision. Before and after: 82 Application sources, 42 pinned charts, 224 allowed findings, zero unused entries. Staged repository and revision mutations each produced two `upstream-values/undeclared-key` findings; the Principal Platform Architect reviews the change and reconciles ADR-054 before merge.
+
 ### 2026-09-30 - Upstream Helm values declaration gate follow-up
 - **Status**: PR #483 open; rebased after PR #469 merged
 - **Description**: The earlier upgrade report inspected 80 chart sources and failed on six spegel findings. After rebasing, the gate passes all 82 chart sources across 42 pinned charts. The paired fixture proves an undeclared key fails and the same key passes when declared, with rule ID `upstream-values/undeclared-key`. The guard now refuses multi-source Helm Applications, unchecked Helm parameters, and chart directories without Chart.yaml. The prior level-2 failure occurred during ArgoCD bootstrap when `argocd-redis` remained `ImagePullBackOff`; no Applications were inspected there.
