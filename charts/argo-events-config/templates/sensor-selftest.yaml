@@ -5,6 +5,7 @@ apiVersion: argoproj.io/v1alpha1
 kind: Sensor
 metadata:
   name: trigger-selftest
+  namespace: {{ .Values.namespace }}
 spec:
   eventBusName: default
   dependencies:
