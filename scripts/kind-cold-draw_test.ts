@@ -29,6 +29,7 @@ import {
   summarize,
   UsageError,
 } from "./kind-cold-draw.ts";
+import { parse } from "./lib/yaml.ts";
 
 const PR487 = "aa8d475f8db5ff9310e62e697adc776d2147e084";
 const PR536 = "427cd3d5fc85a28ee7b3d15c39f84fe02ff147f3";
@@ -268,6 +269,126 @@ test("verdict passes a draw whose pull failed then recovered", () => {
     ],
   });
   assertEquals(classify(recovered, allPassed).kind, "recovered");
+});
+
+interface DrawStep {
+  key: string;
+  condition: string | null;
+  continueOnError: boolean;
+}
+
+const isRecord = (v: unknown): v is Record<string, unknown> =>
+  typeof v === "object" && v !== null && !Array.isArray(v);
+
+function drawSteps(workflow: string): DrawStep[] {
+  const doc = parse(workflow);
+  const jobs = isRecord(doc) ? doc.jobs : undefined;
+  const draw = isRecord(jobs) ? jobs.draw : undefined;
+  const steps = isRecord(draw) ? draw.steps : undefined;
+  if (!Array.isArray(steps)) throw new Error("jobs.draw.steps is not a list");
+  return steps.map((step, i) => {
+    if (!isRecord(step)) throw new Error(`draw step ${i} is not a mapping`);
+    const key = step.id ?? step.name ?? step.uses;
+    if (typeof key !== "string") throw new Error(`draw step ${i} has no key`);
+    const condition = step.if ?? null;
+    if (condition !== null && typeof condition !== "string") {
+      throw new Error(`draw step ${key} has a non-string if`);
+    }
+    return {
+      key,
+      condition,
+      continueOnError: step["continue-on-error"] === true,
+    };
+  });
+}
+
+/** Runs the draw job's step conditions the way Actions does for the forms it uses. */
+function simulateDraw(steps: DrawStep[], failing: Set<string>) {
+  const outcome = new Map<string, string>();
+  const ran: string[] = [];
+  let jobFailed = false;
+  for (const step of steps) {
+    const needs = step.condition?.match(
+      /^steps\.([\w-]+)\.outcome == 'success'$/,
+    );
+    let runs: boolean;
+    if (step.condition === null) runs = !jobFailed;
+    else if (step.condition === "always()") runs = true;
+    else if (needs) runs = !jobFailed && outcome.get(needs[1]) === "success";
+    else throw new Error(`unsupported if on ${step.key}: ${step.condition}`);
+    if (!runs) {
+      outcome.set(step.key, "skipped");
+      continue;
+    }
+    ran.push(step.key);
+    const failed = failing.has(step.key);
+    outcome.set(step.key, failed ? "failure" : "success");
+    if (failed && !step.continueOnError) jobFailed = true;
+  }
+  return { ran, jobFailed };
+}
+
+const VERDICT = "Verdict (reproduced or clean passes; anything else fails)";
+const CAPTURE = "Capture Redis evidence before teardown";
+const UPLOAD = "Upload Redis evidence";
+const COLD = "Registry cache must be empty before Kind";
+
+const workflowText = () =>
+  readFile(
+    new URL("../.github/workflows/kind-cold-draw.yml", import.meta.url),
+    "utf8",
+  );
+
+test("a failed localdev:argocd still runs capture, Verdict and upload, and only Verdict decides the job", async () => {
+  const steps = drawSteps(await workflowText());
+  const { ran, jobFailed } = simulateDraw(steps, new Set(["argocd"]));
+  for (const key of [CAPTURE, VERDICT, UPLOAD, "task localdev:down"]) {
+    assert(ran.includes(key), `${key} did not run; ran: ${ran.join(", ")}`);
+  }
+  assert(!ran.includes("sync") && !ran.includes("wait"), ran.join(", "));
+  assertEquals(jobFailed, false);
+  assertEquals(
+    simulateDraw(steps, new Set(["argocd", VERDICT])).jobFailed,
+    true,
+  );
+});
+
+test("a failed sync or wait still runs Verdict", async () => {
+  const steps = drawSteps(await workflowText());
+  for (const failed of ["sync", "wait"]) {
+    const { ran, jobFailed } = simulateDraw(steps, new Set([failed]));
+    assert(ran.includes(VERDICT), `${failed} failure skipped Verdict`);
+    assertEquals(jobFailed, false);
+  }
+});
+
+test("guard and plumbing failures fail the job and skip Verdict", async () => {
+  const steps = drawSteps(await workflowText());
+  for (const failed of ["sha", COLD, "kind", CAPTURE]) {
+    const { ran, jobFailed } = simulateDraw(steps, new Set([failed]));
+    assertEquals([failed, jobFailed], [failed, true]);
+    assert(!ran.includes(VERDICT), `Verdict ran after ${failed} failed`);
+    assert(ran.includes(UPLOAD), `upload skipped after ${failed} failed`);
+  }
+});
+
+test("only argocd, sync and wait may continue on error", async () => {
+  const lenient = drawSteps(await workflowText())
+    .filter((s) => s.continueOnError)
+    .map((s) => s.key);
+  assertEquals(lenient, ["argocd", "sync", "wait"]);
+});
+
+test("the Verdict-coverage check catches a draw job without continue-on-error on argocd", async () => {
+  const regressed = (await workflowText()).replace(
+    /(id: argocd\n)\s+continue-on-error: true\n/,
+    "$1",
+  );
+  const steps = drawSteps(regressed);
+  assert(!steps.find((s) => s.key === "argocd")?.continueOnError);
+  const { ran, jobFailed } = simulateDraw(steps, new Set(["argocd"]));
+  assert(!ran.includes(VERDICT));
+  assertEquals(jobFailed, true);
 });
 
 test("readSummary refuses a file that is not a capture summary", async () => {
