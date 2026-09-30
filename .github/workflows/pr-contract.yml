@@ -12,9 +12,17 @@ name: PR contract
 on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
+  # GitHub merge queue emits merge_group rather than pull_request. This event
+  # is currently dormant while the repository is personal-account owned, but
+  # keeps the required check ready if the repository moves to an organization.
+  merge_group:
+    types: [checks_requested]
 
 concurrency:
-  group: pr-contract-${{ github.event.pull_request.number }}
+  group: >-
+    pr-contract-${{ github.event.pull_request.number
+      || github.event.merge_group.head_sha
+      || github.run_id }}
   cancel-in-progress: true
 
 permissions:
@@ -27,13 +35,18 @@ permissions:
 jobs:
   claim:
     name: Verification claim matches level 0
-    if: github.event.pull_request.draft == false && !startsWith(github.head_ref, 'renovate/')
+    if: >-
+      github.event_name == 'merge_group'
+      || (github.event.pull_request.draft == false
+          && !startsWith(github.head_ref, 'renovate/'))
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
+          # PRs validate their head claim; a merge-group run validates the
+          # synthetic candidate GitHub is considering for the queue.
+          ref: ${{ github.event.merge_group.head_sha || github.event.pull_request.head.sha }}
 
       - name: Install go, helm, kubeconform, conftest, pluto, task from mise.toml
         uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
