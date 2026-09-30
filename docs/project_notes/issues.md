@@ -13,6 +13,11 @@ Each entry should include:
 
 ## Recent Work
 
+### 2026-09-30 - PR dependency triage label permission repair
+- **Status**: PR #537 open; Security review and live workflow-token confirmation pending.
+- **Description**: MCAA-853 changes the `pull_request_target` triage grant from `issues: write` to `pull-requests: write`, removes unused `contents: read`, and adds root/blocked/orphan/fork and denied-write tests. Local `task verify:text` passed 277 checks with one expected skip; branch-scoped dispatch was denied by the agent's separate GitHub integration.
+- **URL**: https://github.com/ryanmcafee/homelab/pull/537
+
 ### 2026-09-25 - Alert triage agent: alert -> fix PR -> Pushover (Argo Workflows DAG)
 - **Status**: PR #372 open; before it runs create 1Password item `triage-agent` (`CLAUDE_CODE_OAUTH_TOKEN`, `GITHUB_TOKEN` fine-grained PAT with contents + pull requests read/write; optional `DOTFILES_REPO`, `ARGOCD_AUTH_TOKEN`, `PAPERCLIP_API_KEY`, `PAPERCLIP_COMPANY_ID`), make the `homelab-triage-agent` package public after the first publish, and generate the `triage-agent` ArgoCD token
 - **Description**: intake Deployment + `triage-fix` WorkflowTemplate: triage, plan, implement, deterministic verify loop, commit, PR, CI loop, needs-human, Pushover onExit; deny hook in `triage-agent/src/policy.ts`; ArgoCD account `triage-agent` (get + sync). ADR-036, docs/runbooks/triage-agent.md
