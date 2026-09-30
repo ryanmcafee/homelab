@@ -207,10 +207,12 @@ Two alerts watch etcd, and they mean different things. Check which one fired bef
 | Alert | Severity | Means | Do this |
 |---|---|---|---|
 | `HomelabEtcdQuorumAtRisk` | critical, 5 m | Fewer than two members answered the scrape. The annotation's count is how many are left: **1** is one loss from losing quorum, **0** means the control plane is already down | Recover members before anything else: `talosctl -n <CPn_IP> service etcd status` on each control plane, then the fsync question in [Diagnose a recurrence](#diagnose-a-recurrence) |
-| `EtcdMetricsAbsent` | warning, 15 m | No `kube-etcd` target is up. This also matches the targets disappearing from Prometheus entirely, which is a scrape problem rather than an etcd outage | Confirm etcd is actually running first. If it is, check `cluster.etcd.extraArgs.listen-metrics-urls` on the control planes and the `kube-etcd` ServiceMonitor |
+| `EtcdMetricsAbsent` | warning, 15 m | No `kube-etcd` target is up. This also matches the targets disappearing from Prometheus entirely, which is a scrape problem rather than an etcd outage | Confirm etcd is actually running first. If it is, check `cluster.etcd.extraArgs.listen-metrics-urls` on the control planes, then the static `kube-etcd` job in `prometheus.prometheusSpec.additionalScrapeConfigs` (`charts/addons/templates/kube-prometheus-stack.yaml`). Its targets are `kubeEtcd.endpoints` on `kubeEtcd.port` (2381), rendered from the control-plane addresses in `configuration/templates/helm-addons.tmpl`; there is no etcd ServiceMonitor |
 
-A real total outage fires both: the critical at 5 m and the warning at 15 m, with the critical
-inhibiting the warning. A `EtcdMetricsAbsent` arriving *alone* is the scrape-configuration case.
+A real total outage fires both: the critical at 5 m and the warning at 15 m. Both notify, because
+the Alertmanager inhibit rule only mutes a warning that shares the critical's `alertname` and
+`namespace`, and these two alerts have different names. A `EtcdMetricsAbsent` arriving *alone* is
+the scrape-configuration case.
 
 `HomelabEtcdQuorumAtRisk` counts healthy members with `sum(up{job="kube-etcd"} == bool 1)`. The
 filtered `count(up == 1)` form it replaced matched no series once every member was down, so the
