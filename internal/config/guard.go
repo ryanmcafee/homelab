@@ -544,6 +544,12 @@ var committedSafeHosts = []string{
 	"quay.io",
 	"gcr.io",
 	"registry.k8s.io",
+
+	// AWS's public registry, and the default redis repository of the pinned
+	// argo-cd chart (9.7.1: ecr-public.aws.com/docker/library/redis). The
+	// localdev pull-through cache must name it or the ArgoCD bootstrap
+	// intermittently fails on an unauthenticated Docker Hub pull.
+	"ecr-public.aws.com",
 }
 
 // templateFileSuffixes mark a file whose values are placeholders by
