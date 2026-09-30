@@ -174,12 +174,20 @@ test("summarize records a pod stuck in ImagePullBackOff without a container stat
 
 test("capture without a cluster or registry still writes explicit missing evidence", async () => {
   const out = await mkdtemp(join(tmpdir(), "kcd-out-"));
-  const s = await capture({
-    out,
-    context: "kind-cold-draw-test-no-such-context",
-    namespace: "argocd",
-    registry: "kind-cold-draw-test-no-such-container",
-  });
+  const commands: string[][] = [];
+  const s = await capture(
+    {
+      out,
+      context: "kind-cold-draw-test-no-such-context",
+      namespace: "argocd",
+      registry: "kind-cold-draw-test-no-such-container",
+    },
+    (cmd) => {
+      commands.push(cmd);
+      return { code: 1, stdout: "", stderr: "simulated unavailable" };
+    },
+  );
+  assertEquals(commands.length, 6);
   assertEquals(s.pod, null);
   assert(
     s.missing.some((m) => m.startsWith("redis pod: no pod matched")),
