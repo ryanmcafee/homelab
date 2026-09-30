@@ -35,7 +35,9 @@ scoped to the statement is satisfied by a cross-reference inside it — a rule c
 synonym this contract forbids and stay green (MCAA-483).
 
 Conformance beyond that is per consumer, and `conformant` on each `consumers[]` entry states where
-that consumer actually is. `full` means conformant on every clause that binds it:
+that consumer actually is. `runShapes` on each entry lists the run shapes it runs, and the entry
+clause binds only a consumer that lists `resumed`. `full` means conformant on every clause that
+binds it:
 
 - **`homelab-cli` (Go) is conformant.** `internal/etcd` and `internal/topology` compute the quorum
   numbers from this file, select the entry point from the observed membership, and carry
