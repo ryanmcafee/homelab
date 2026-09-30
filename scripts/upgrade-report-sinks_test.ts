@@ -13,6 +13,10 @@ test("revalidation report projection strips synthetic diagnostics and fails clos
   // Execute the actual workflow boundary, with all publishing steps excluded.
   const projection = workflow.match(/ {10}if ! jq -s -e '[\s\S]*? {10}fi/)?.[0];
   expect(projection).toBeDefined();
+  const markdown = workflow.match(
+    / {10}\{\n {12}echo\n[\s\S]*? {10}\} >> upgrade-report\.md/,
+  )?.[0];
+  expect(markdown).toBeDefined();
   const sentinel = "SYNTHETIC_REVALIDATION_SENTINEL";
   const dir = mkdtempSync(join(tmpdir(), "upgrade-report-sinks-"));
   try {
@@ -67,14 +71,29 @@ test("revalidation report projection strips synthetic diagnostics and fails clos
       JSON.stringify({ pass: true, checks: [null, sentinel] }),
     ].entries()) {
       writeFileSync(join(dir, "revalidate.raw.json"), raw);
+      writeFileSync(join(dir, "upgrade-report.md"), "");
+      writeFileSync(join(dir, "summary.md"), "");
       const run = spawnSync(
         "bash",
-        ["-c", `ok=true\n${projection}\nprintf '%s' "$ok"`],
-        { cwd: dir, encoding: "utf8" },
+        [
+          "-c",
+          `ok=true\n${projection}\n${markdown}\nhead -c 900000 upgrade-report.md >> "$GITHUB_STEP_SUMMARY"\nprintf '%s' "$ok"`,
+        ],
+        {
+          cwd: dir,
+          encoding: "utf8",
+          env: { ...process.env, GITHUB_STEP_SUMMARY: join(dir, "summary.md") },
+        },
       );
       expect(run.status).toBe(0);
       const safe = readFileSync(join(dir, "revalidate.json"), "utf8");
       expect(safe).not.toContain(sentinel);
+      expect(
+        readFileSync(join(dir, "upgrade-report.md"), "utf8"),
+      ).not.toContain(sentinel);
+      expect(readFileSync(join(dir, "summary.md"), "utf8")).not.toContain(
+        sentinel,
+      );
       expect(run.stdout + run.stderr).not.toContain(sentinel);
       const parsed = JSON.parse(safe);
       if (caseIndex === 0) {
