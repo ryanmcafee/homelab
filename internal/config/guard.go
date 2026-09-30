@@ -412,8 +412,8 @@ var guardScanExtensions = map[string]bool{
 	// text nodes name hostnames, and the scan is line-based text matching, so
 	// XML needs no parser of its own.
 	".svg": true,
-	// .hcl and .tf because terragrunt/ and packer/ are in scope and are
-	// written in nothing else: the units and env.hcl are .hcl, the modules
+	// .hcl and .tf because terragrunt/ and packer/ are in scope and their
+	// code is written in these two: the units and env.hcl are .hcl, the modules
 	// they call are .tf, and packer/truenas is .pkr.hcl. The literal domain
 	// #393 removed lived in a .hcl, so a pathspec without these extensions
 	// would have left that file unread and the scope change a no-op.

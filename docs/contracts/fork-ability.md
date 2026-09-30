@@ -201,14 +201,23 @@ document says.** Go source is outside both today: that is how a defaulted node n
 yet, so read the two lists in `guard.go` — not this paragraph and not the ADR — for what is
 actually scanned.
 
-`terragrunt/**`, `talos/**` and `packer/**` are admitted, with `.hcl` and `.tf`, as of the
-widening that followed #393 — the pull request that removed a literal domain, a literal
-address, a cluster name and a Proxmox node name from `terragrunt/`. That leak is the worked
-example for this whole section: a human sweep caught it, and the guard could not, because
-`terragrunt/` was outside the scan on the pathspec axis and the extension axis at once. Note
-what the widening does and does not buy: those trees are now covered for the **literal-leak
-class only**. Undeclared hardware prerequisites, topology shape, and secret-store and identity
-assumptions in them remain the business of check 3b, which has never been executed.
+`terragrunt/**`, `talos/**` and `packer/**` are admitted as of the widening that followed
+[#393](https://github.com/ryanmcafee/homelab/pull/393) — the pull request that removed a literal
+domain, a literal address, a cluster name and a Proxmox node name from `terragrunt/`. `.hcl` and
+`.tf` were admitted with them, because the Terragrunt units, the modules they call and the Packer
+build are written in those two and would otherwise be unreadable. That leak is the worked example
+for this whole section: a human sweep caught it, and the guard could not, because `terragrunt/`
+was outside the scan on the pathspec axis and the extension axis at once.
+
+Being named in `DefaultGuardPathspecs` is not the same as being covered, and `talos/` is the
+standing proof: its two `machine-config/*.yaml.tpl` files stay outside on the extension axis,
+because `.tpl` is not a suffix the scan looks through. Six of `talos/`'s eight tracked files are
+scanned. Read the two lists together, or a directory name will tell you the wrong thing.
+
+Note also what the widening does and does not buy: those trees are now covered for the
+**literal-leak class only**. Undeclared hardware prerequisites, topology shape, and secret-store
+and identity assumptions in them remain the business of check 3b — which, per the row above, has
+never been executed.
 
 Three standing conditions follow:
 
