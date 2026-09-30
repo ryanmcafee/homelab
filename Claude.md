@@ -261,6 +261,12 @@ charts:
   argo-workflows: "1.0.18"
   # renovate: datasource=helm depName=argo-rollouts registryUrl=https://argoproj.github.io/argo-helm
   argo-rollouts: "2.43.2"
+  # renovate: datasource=helm depName=nats registryUrl=https://nats-io.github.io/k8s/helm/charts/
+  nats: "2.15.0"
+  # NACK ships the jetstream.nats.io CRDs (Stream, Consumer) that charts/nats-config
+  # declares the platform streams with. Bump it together with the nats chart.
+  # renovate: datasource=helm depName=nack registryUrl=https://nats-io.github.io/k8s/helm/charts/
+  nack: "0.35.0"
   # renovate: datasource=helm depName=plex-media-server registryUrl=https://raw.githubusercontent.com/plexinc/pms-docker/gh-pages
   plex-media-server: "1.6.0"
   # renovate: datasource=docker depName=oci.trueforge.org/truecharts/sonarr
