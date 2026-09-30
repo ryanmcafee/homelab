@@ -109,6 +109,7 @@ Each entry should include:
 
 ## Pending/In Progress
 
+- **2026-09-30** - [MCAA-1018](/MCAA/issues/MCAA-1018): isolated PR #535 cold-draw fix adds deterministic absent-cluster evidence and a bounded command runner; 26 focused and 650 script tests pass, with a 1/1 negative mutation failure. Awaiting stacked-branch owner review before integration.
 - **2026-09-30** - PR dependency triage label-write 403: PR #533 (`1cc4189`) scopes the job to `pull-requests: write` and adds targeted dispatch; run 36656956730 is the known-bad case. Security signed off on the scope, but this integration's targeted dispatch of #511 returns Actions HTTP 403, so a live known-good label write remains pending — https://github.com/ryanmcafee/homelab/pull/533
 - **2026-09-25** - Envoy Gateway becomes the ingress (Gateways `envoy-internal`/`envoy-external`, wildcard TLS at the Gateway, every Ingress converted to an HTTPRoute, external-dns `gateway-httproute`, OIDC plugin dropped) and Istio gateways deployed for comparison (ADR-040, docs/runbooks/envoy-gateway.md) — PR #387 (https://github.com/ryanmcafee/homelab/pull/387)
 - **2026-09-21** - PR #316: Paperclip `adapters.apiKeys.anthropic.enabled` / `adapters.apiKeys.openai.enabled` (both default false) replace the operator's all-or-nothing `apiKeysSecretRef`, so `ANTHROPIC_API_KEY` and `OPENAI_API_KEY` are wired independently and neither reaches the pod by default; subscription tokens stay wired through `adapters.extraSecretEnv` — https://github.com/ryanmcafee/homelab/pull/316

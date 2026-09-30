@@ -119,13 +119,22 @@ export interface RunResult {
   stderr: string;
 }
 
-export function run(cmd: string[]): RunResult {
+export const COMMAND_TIMEOUT_MS = 10_000;
+
+export function run(cmd: string[], timeoutMs = COMMAND_TIMEOUT_MS): RunResult {
   try {
-    const p = Bun.spawnSync(cmd, { stdout: "pipe", stderr: "pipe" });
+    const p = Bun.spawnSync(cmd, {
+      stdout: "pipe",
+      stderr: "pipe",
+      timeout: timeoutMs,
+      killSignal: "SIGKILL",
+    });
     return {
-      code: p.exitCode ?? 1,
+      code: p.exitedDueToTimeout ? 124 : (p.exitCode ?? 1),
       stdout: p.stdout.toString(),
-      stderr: p.stderr.toString(),
+      stderr: p.exitedDueToTimeout
+        ? `timed out after ${timeoutMs} ms: ${cmd.join(" ")}`
+        : p.stderr.toString(),
     };
   } catch (e) {
     return {
@@ -317,7 +326,10 @@ function commandText(label: string, cmd: string[], r: RunResult): string {
   ].join("\n");
 }
 
-export async function capture(opts: CaptureOptions): Promise<RedisSummary> {
+export async function capture(
+  opts: CaptureOptions,
+  runCommand: (cmd: string[]) => RunResult = run,
+): Promise<RedisSummary> {
   await mkdir(opts.out, { recursive: true });
   const kubectl = ["kubectl", "--context", opts.context, "-n", opts.namespace];
   const record = async (
@@ -325,12 +337,12 @@ export async function capture(opts: CaptureOptions): Promise<RedisSummary> {
     label: string,
     cmd: string[],
   ): Promise<RunResult> => {
-    const r = run(cmd);
+    const r = runCommand(cmd);
     await writeFile(join(opts.out, file), commandText(label, cmd, r));
     return r;
   };
 
-  const pods = run([
+  const pods = runCommand([
     ...kubectl,
     "get",
     "pods",
@@ -358,7 +370,7 @@ export async function capture(opts: CaptureOptions): Promise<RedisSummary> {
     "-o",
     "wide",
   ]);
-  const events = run([...kubectl, "get", "events", "-o", "json"]);
+  const events = runCommand([...kubectl, "get", "events", "-o", "json"]);
   await writeFile(
     join(opts.out, "argocd-events.json"),
     events.code === 0
