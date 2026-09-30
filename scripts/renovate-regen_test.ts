@@ -330,7 +330,11 @@ test("committerIsRead tracks the 43 -> 44 boundary", () => {
   assertEquals(COMMITTER_READ_FROM_MAJOR, 44);
   assertEquals(committerIsRead(43), false);
   assertEquals(committerIsRead(44), true);
-  assertEquals(committerIsRead(null), false, "unknown is handled by commitIdentityFindings");
+  assertEquals(
+    committerIsRead(null),
+    false,
+    "unknown is handled by commitIdentityFindings",
+  );
 });
 
 test("a pinned committer is advisory on the deployed 43.x, not an error", () => {

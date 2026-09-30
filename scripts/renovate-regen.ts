@@ -445,15 +445,17 @@ export function commitIdentityFindings(
       ? [
           "renovate-regen/commit-identity: the commit does not carry the regeneration identity.",
           ...wrong,
-          ...(committerWrong
-            ? [`  committer: ${committerEmail}`]
-            : []),
+          ...(committerWrong ? [`  committer: ${committerEmail}`] : []),
           `  (expected ${identity.email})`,
           ...(committerWrong && unknownMajor
-            ? ["  The deployed Renovate major was NOT read this run. Measure it with",
-                "  `task renovate:deployed-major`; a 44+ deployment reads the committer too."]
-            : [`  Renovate reads the author${options.committerIsRead ? " AND the committer" : ""} of every commit ahead of`,
-                "  the base branch, so this commit takes the branch out of Renovate's hands."]),
+            ? [
+                "  The deployed Renovate major was NOT read this run. Measure it with",
+                "  `task renovate:deployed-major`; a 44+ deployment reads the committer too.",
+              ]
+            : [
+                `  Renovate reads the author${options.committerIsRead ? " AND the committer" : ""} of every commit ahead of`,
+                "  the base branch, so this commit takes the branch out of Renovate's hands.",
+              ]),
           ...remedy,
         ].join("\n")
       : null;
@@ -644,19 +646,30 @@ async function main(): Promise<void> {
   }
 
   const gitIdentityArgs = [
-    "git", "-c", `user.name=${identity.name}`, "-c", `user.email=${identity.email}`,
+    "git",
+    "-c",
+    `user.name=${identity.name}`,
+    "-c",
+    `user.email=${identity.email}`,
   ];
   // Ask the same Git entrypoint that will commit. A managed wrapper can pin
   // GIT_COMMITTER_EMAIL after stripping caller overrides; fail before staging.
   const committerIdent = await capture([
-    ...gitIdentityArgs, "var", "GIT_COMMITTER_IDENT",
+    ...gitIdentityArgs,
+    "var",
+    "GIT_COMMITTER_IDENT",
   ]);
   const committerEmail = /<([^<>]+)>/.exec(committerIdent)?.[1] ?? "";
   const preflight = commitIdentityFindings(
-    identity, identity.email, committerEmail, regime,
+    identity,
+    identity.email,
+    committerEmail,
+    regime,
   );
   if (preflight.error) {
-    console.error(red(`${preflight.error}\n  Stopped before staging or committing.`));
+    console.error(
+      red(`${preflight.error}\n  Stopped before staging or committing.`),
+    );
     process.exit(1);
   }
 
