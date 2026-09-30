@@ -457,13 +457,15 @@ evaluation:
 # quorum table and the predicates bind every consumer. `conformant` states where each
 # one actually is rather than what this file would like to be true of it, and `full`
 # means conformant on every clause that binds that consumer — each entry below says
-# which those are.
+# which those are. `runShapes` lists the evaluation.runShapes a consumer runs; the
+# entry clause binds it iff `resumed` is listed, and an omitted list means every shape.
 # ---------------------------------------------------------------------------
 consumers:
   - id: homelab-cli
     language: go
     path: cmd/homelab/commands/talos_etcd.go
     role: Control-plane node recreate guard (#39).
+    runShapes: [fresh, resumed]
     # Computes the quorum numbers from this file, selects the entry point from the
     # observed membership, and its loader refuses a contract naming a condition it does
     # not implement. internal/etcd carries the entry and resume conformance tests.
@@ -472,6 +474,7 @@ consumers:
     language: typescript
     path: scripts/cp-storage-migrate.ts
     role: Control-plane storage migration pre/post-flight.
+    runShapes: [fresh]
     # Reads the quorum formula, the raft tolerance, the observation bounds and the
     # predicate for each of its gates from this file; observes etcd's own membership
     # through `talosctl etcd members` rather than the addresses it dialled; and refuses

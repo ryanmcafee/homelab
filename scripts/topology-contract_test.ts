@@ -85,6 +85,7 @@ interface TopologyContract {
     path: string;
     role: string;
     conformant: string;
+    runShapes?: string[];
   }[];
 }
 
@@ -613,6 +614,33 @@ test("both declared consumers still exist at the paths the contract names", () =
   }
 });
 
+/** The calls that mark where a consumer's guard lives, per `consumers[].language`. */
+const GUARD_MARKERS: Record<string, { evaluate: string; selectEntry: string }> =
+  {
+    go: { evaluate: "Evaluate", selectEntry: "SelectEntry" },
+    typescript: { evaluate: "evaluatePredicate", selectEntry: "selectEntry" },
+  };
+
+/** The run shapes a consumer runs; an omitted list means every shape the contract defines. */
+const runShapesOf = (
+  consumer: TopologyContract["consumers"][number],
+): string[] =>
+  consumer.runShapes ?? contract.evaluation.runShapes.map((s) => s.id);
+
+test("every consumer's run shapes are ones the contract defines", () => {
+  const defined = contract.evaluation.runShapes.map((s) => s.id);
+  for (const consumer of contract.consumers) {
+    const shapes = runShapesOf(consumer);
+    assert(shapes.length > 0, `consumer ${consumer.id} declares no run shapes`);
+    for (const shape of shapes) {
+      assert(
+        defined.includes(shape),
+        `consumer ${consumer.id} runs shape "${shape}", which evaluation.runShapes does not define (${defined.join(", ")})`,
+      );
+    }
+  }
+});
+
 test("the fully conformant consumer's path is where the guard actually is", () => {
   // An existence check cannot tell the difference: this contract named
   // cmd/homelab/commands/talos.go, which exists and contains none of the guard — the
@@ -622,8 +650,16 @@ test("the fully conformant consumer's path is where the guard actually is", () =
   const repoRoot = join(import.meta.dir, "..");
   for (const consumer of contract.consumers) {
     if (consumer.conformant !== "full") continue;
+    const markers = GUARD_MARKERS[consumer.language];
+    assert(
+      markers !== undefined,
+      `consumer ${consumer.id} is written in ${consumer.language}, which has no guard markers here (${Object.keys(GUARD_MARKERS).join(", ")})`,
+    );
+    const required = runShapesOf(consumer).includes("resumed")
+      ? [markers.selectEntry, markers.evaluate]
+      : [markers.evaluate];
     const src = readFileSync(join(repoRoot, consumer.path), "utf8");
-    for (const marker of ["SelectEntry", "Evaluate"]) {
+    for (const marker of required) {
       assert(
         src.includes(marker),
         `consumer ${consumer.id} declares conformant: full at ${consumer.path}, which never calls ${marker}: the entry selection and predicate evaluation are what conformance means, so this path points at the wrong file`,
