@@ -50,9 +50,12 @@ the current conflict prevents naming a future merge ref.
   the fixed failure object. After correction and rebase, the same workflow
   projection test passed 2/2 with 48 assertions in 230 ms; the focused Go tests
   passed, Biome passed, and `task verify:text` passed 277/0/1 in 11.559 s.
-  The extra synthetic projection cases cost about 0.2 s locally; the CI job
-  count and dependencies are unchanged. Report sinks still publish only the
-  projected JSON and Markdown, never `revalidate.raw.json`.
+  The test now executes the actual Markdown and job-summary shell blocks for
+  every synthetic case as well: 2/2 tests, 69 assertions, 1.58 s locally.
+  Before this correction, the two sink tests took 39 ms. The additional local
+  cost is about 1.54 s; the CI job count and dependencies are unchanged.
+  Report sinks still publish only the projected JSON and Markdown, never
+  `revalidate.raw.json`.
 - Initial `task verify:text`: 277 passed, 0 failed, 1 documented preview skip;
   12.598 s wall (10.869 s contract). No chart/configuration change was made.
 - No new CI job or dependency is added. The sanitizer adds one traversal per
