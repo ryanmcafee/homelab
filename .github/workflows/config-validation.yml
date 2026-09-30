@@ -1,5 +1,8 @@
 name: Config Validation
 
+# The paths must cover every entry in config.DefaultGuardPathspecs, or the PII
+# guard never runs on a change to a surface it scans.
+# TestGuardWorkflowCoversGuardedPaths pins the two together.
 on:
   pull_request:
     paths:
@@ -7,6 +10,11 @@ on:
       - 'charts/**'
       - 'cmd/**'
       - 'internal/**'
+      - 'scripts/**'
+      - 'docs/**'
+      - '.github/**'
+      - 'ansible/**'
+      - 'Taskfile.yml'
       - 'go.mod'
       - 'go.sum'
   push:
@@ -17,6 +25,11 @@ on:
       - 'charts/**'
       - 'cmd/**'
       - 'internal/**'
+      - 'scripts/**'
+      - 'docs/**'
+      - '.github/**'
+      - 'ansible/**'
+      - 'Taskfile.yml'
       - 'go.mod'
       - 'go.sum'
 
