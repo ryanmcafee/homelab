@@ -317,12 +317,19 @@ conformance (`rotation_and_revocation_drill` in the declaration) and are not cla
   Two streams in one account may not have overlapping filters, so a third-party bus that
   widens into `pf.>` does not degrade the platform bus, it makes a platform stream
   uncreatable.
-- **The monitoring port is open too.** Port 8222 is plain HTTP with no auth on every NATS
-  pod, published through the `nats-headless` Service (`service.ports.monitor` is off, so
-  the `nats` ClusterIP Service carries 4222 only). `/jsz?accounts=true` returns every
-  stream's name, subject filters and message counts, and `/connz` returns per-connection
-  detail. Accounts partition the client port, so ADR-043 will not close this; restricting
-  it is a separate decision.
+- **The monitoring port and the exporter are scoped at pod ingress.** Port 8222 is plain
+  HTTP with no auth on every NATS pod, published through the `nats-headless` Service
+  (`service.ports.monitor` is off, so the `nats` ClusterIP Service carries 4222 only).
+  `/jsz?accounts=true` returns every stream's name, subject filters and message counts, and
+  `/connz` returns per-connection detail; the exporter on 7777 republishes the same
+  metadata. Accounts partition the client port only, so the `nats-server-ingress`
+  NetworkPolicy admits 8222 and 7777 from Prometheus pods in the kube-prometheus-stack
+  namespace and nothing else. The API server's pod proxy is denied too: read `/jsz` with
+  `kubectl port-forward pod/<nats pod> 8222`, which enters the pod's own network namespace.
+  `config.monitor.tls` is not enabled. TLS would protect the scrape in transit; it is not
+  authorization, and neither it nor the account block substitutes for the policy.
+  `tests/e2e/nats` step `monitoring-network-policy` proves both the authorized scrape and
+  the untrusted-pod denial.
 - **An Argo Events `nats` EventSource is a core-NATS subscribe** — at-most-once, no
   durability, no replay. Pointing one at a `.ev` subject silently downgrades an
   at-least-once path. The bridge between this bus and the Argo Events bus is an explicit

@@ -227,6 +227,56 @@ metadata:
     argocd.argoproj.io/sync-wave: "6"
 
 ---
+# Source: addons/templates/nats-monitor-netpol.yaml
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: nats-server-ingress
+  namespace: nats
+  labels:
+    helm.sh/chart: addons-1.0.0
+    app.kubernetes.io/name: addons
+    app.kubernetes.io/instance: addons
+    app.kubernetes.io/version: "1.0"
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: nats
+      app.kubernetes.io/instance: nats
+      app.kubernetes.io/component: nats
+  policyTypes:
+    - Ingress
+  ingress:
+    # Client port. Authentication and subject permissions are the account block's job.
+    - ports:
+        - protocol: TCP
+          port: 4222
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: nats
+              app.kubernetes.io/instance: nats
+              app.kubernetes.io/component: nats
+      ports:
+        - protocol: TCP
+          port: 6222
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
+      ports:
+        - protocol: TCP
+          port: 8222
+        - protocol: TCP
+          port: 7777
+
+---
 # Source: addons/templates/envoy-gateway.yaml
 apiVersion: v1
 kind: Secret
@@ -571,6 +621,21 @@ spec:
 # NATS Config: the platform stream set and its dead-letter path, declared as
 # jetstream.nats.io resources so the streams are GitOps state.
 # Sync Wave: 12 (after nack at 11, which installs the CRDs these resources use)
+
+---
+# Source: addons/templates/nats-monitor-netpol.yaml
+# Pod-ingress scope for the NATS server pods (event-contract.md Sec. 5.3, ADR-043 D9).
+#
+# Accounts partition the client port only. The monitoring port (8222) answers /jsz and /connz
+# across every account with no tenant authorization, and the exporter (7777) republishes the
+# same stream, consumer and config metadata, so both are reachable from Prometheus alone.
+# The exporter reads 8222 over the pod's loopback, which no NetworkPolicy polices.
+#
+# Selecting a pod for Ingress denies every port not listed, so the client and cluster ports
+# are listed explicitly. `kubectl port-forward` enters the pod's own network namespace and is
+# unaffected; the API server's pod proxy is not, and is denied on 8222 and 7777.
+#
+# Sync Wave: 10, with the server it scopes.
 
 ---
 # Source: addons/templates/nats.yaml
