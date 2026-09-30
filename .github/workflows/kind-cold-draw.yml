@@ -1,0 +1,228 @@
+name: Kind cold draw (exact head)
+
+# One bounded, cold-cache Kind draw at an approved PR head, to capture the
+# kubelet event and registry response behind the intermittent argocd-redis
+# ImagePullBackOff (MCAA-852). Diagnostic only: not a required check, Kind only,
+# never production.
+#
+#   resolve   the PR's live head must equal its approved SHA
+#             (scripts/kind-cold-draw.ts ALLOWED_DRAWS) or the run fails here
+#             and no draw is counted. Job output `sha` is the checked-out commit.
+#   draw      checkout <sha> -> assert ~/.cache/homelab-kind-registry is empty
+#             -> localdev kind/argocd/sync/wait -> capture Redis evidence ->
+#             upload artifact kind-cold-draw-pr<n>-<sha> -> localdev:down.
+#   selftest  on pushes to a PR changing this workflow: the stale-head,
+#             warm-cache and no-cluster capture guards, run against bad input.
+#
+# There is deliberately no actions/cache step (scripts/kind-cold-draw_test.ts
+# fails if one is added).
+#
+# Triggers: workflow_dispatch with `pr`, or the label kind-cold-draw-<pr> on a
+# PR that changes this file (one draw per label event).
+
+on:
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: Approved draw target
+        type: choice
+        options: ['487', '536']
+        required: true
+  pull_request:
+    types: [opened, synchronize, reopened, labeled]
+    paths:
+      - '.github/workflows/kind-cold-draw.yml'
+      - 'scripts/kind-cold-draw.ts'
+      - 'scripts/kind-cold-draw_test.ts'
+
+concurrency:
+  group: kind-cold-draw-${{ github.ref }}-${{ inputs.pr || github.event.label.name || 'selftest' }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  pull-requests: read
+
+env:
+  KIND_CONTEXT: kind-homelab-localdev
+
+jobs:
+  selftest:
+    name: Guards fail on bad input
+    if: github.event_name == 'pull_request' && github.event.action != 'labeled'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+        with:
+          install_args: bun
+
+      - name: Unit tests
+        run: bun test scripts/kind-cold-draw_test.ts
+
+      - name: Stale head fails before a draw
+        run: |
+          set +e
+          bun scripts/kind-cold-draw.ts resolve-head --pr 487 --live 0000000000000000000000000000000000000001
+          code=$?
+          echo "exit $code"
+          [ "$code" -eq 1 ]
+
+      - name: Warm cache fails before Kind
+        run: |
+          set +e
+          dir="$RUNNER_TEMP/homelab-kind-registry"
+          mkdir -p "$dir/ecr" && echo blob > "$dir/ecr/blob"
+          bun scripts/kind-cold-draw.ts assert-cold --dir "$dir"
+          code=$?
+          echo "exit $code"
+          [ "$code" -eq 1 ]
+
+      - name: Capture without a cluster records missing pod and container
+        run: |
+          set -euo pipefail
+          bun scripts/kind-cold-draw.ts capture --out kind-cold-draw-selftest
+          jq -e '.missing | any(startswith("redis pod:")) and any(startswith("container kind-registry-ecr:"))' kind-cold-draw-selftest/summary.json
+
+      - name: Upload the selftest artifact
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: kind-cold-draw-selftest
+          path: kind-cold-draw-selftest
+          retention-days: 30
+          if-no-files-found: error
+
+  resolve:
+    name: Resolve approved PR head
+    if: >-
+      github.event_name == 'workflow_dispatch'
+      || (github.event.action == 'labeled' && startsWith(github.event.label.name, 'kind-cold-draw-'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      sha: ${{ steps.head.outputs.sha }}
+      pr: ${{ steps.head.outputs.pr }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+        with:
+          install_args: bun
+
+      - name: Live head must equal the approved SHA
+        id: head
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET: ${{ inputs.pr || github.event.label.name }}
+        run: |
+          set -euo pipefail
+          pr="${TARGET#kind-cold-draw-}"
+          live=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$pr" --jq .head.sha)
+          echo "PR #$pr live head: $live"
+          bun scripts/kind-cold-draw.ts resolve-head --pr "$pr" --live "$live"
+
+  draw:
+    name: Cold draw PR ${{ needs.resolve.outputs.pr }} at ${{ needs.resolve.outputs.sha }}
+    needs: resolve
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    outputs:
+      sha: ${{ steps.sha.outputs.sha }}
+    env:
+      DRAW_SHA: ${{ needs.resolve.outputs.sha }}
+      DRAW_PR: ${{ needs.resolve.outputs.pr }}
+      LOCALDEV_REVISION: ${{ needs.resolve.outputs.sha }}
+      EVIDENCE: kind-cold-draw-evidence
+    steps:
+      - name: Checkout the draw tool from this workflow's ref
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          path: kind-cold-draw-tool
+          sparse-checkout: scripts/kind-cold-draw.ts
+          sparse-checkout-cone-mode: false
+
+      - name: Move the tool out of the workspace
+        run: |
+          mv kind-cold-draw-tool/scripts/kind-cold-draw.ts "$RUNNER_TEMP/kind-cold-draw.ts"
+          rm -rf kind-cold-draw-tool
+
+      - name: Checkout the approved SHA
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ needs.resolve.outputs.sha }}
+
+      - name: Echo the checked-out SHA
+        id: sha
+        run: |
+          set -euo pipefail
+          head=$(git rev-parse HEAD)
+          echo "PR #$DRAW_PR approved $DRAW_SHA, checked out $head"
+          [ "$head" = "$DRAW_SHA" ]
+          echo "sha=$head" >> "$GITHUB_OUTPUT"
+
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+        with:
+          install_args: go helm bun kind kubectl argocd tilt task
+
+      - name: Registry cache must be empty before Kind
+        run: |
+          set -euo pipefail
+          bun "$RUNNER_TEMP/kind-cold-draw.ts" assert-cold --dir "$HOME/.cache/homelab-kind-registry"
+          if docker ps -a --format '{{.Names}}' | grep -q '^kind-registry-'; then
+            echo "::error::a kind-registry-* container exists before Kind"; docker ps -a; exit 1
+          fi
+
+      - name: Install script dependencies from bun.lock
+        run: bun install --frozen-lockfile
+
+      - name: task localdev:kind
+        id: kind
+        run: task localdev:kind
+
+      - name: task localdev:argocd
+        id: argocd
+        run: |
+          set -euo pipefail
+          start=$(date +%s)
+          task localdev:argocd
+          echo "seconds=$(( $(date +%s) - start ))" >> "$GITHUB_OUTPUT"
+
+      - name: task localdev:sync
+        run: task localdev:sync
+
+      - name: task localdev:wait
+        run: task localdev:wait
+
+      - name: Capture Redis evidence before teardown
+        if: always()
+        run: |
+          bun "$RUNNER_TEMP/kind-cold-draw.ts" capture --out "$EVIDENCE" --context "$KIND_CONTEXT"
+          {
+            echo "pr=$DRAW_PR"
+            echo "sha=$DRAW_SHA"
+            echo "run=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT"
+            echo "argocd_install_seconds=${{ steps.argocd.outputs.seconds }}"
+            echo "kind=${{ steps.kind.outcome }} argocd=${{ steps.argocd.outcome }}"
+          } > "$EVIDENCE/draw.txt"
+          task localdev:diagnose > "$EVIDENCE/localdev-diagnose.txt" 2>&1 || true
+          {
+            echo "## Kind cold draw: PR #$DRAW_PR at \`$DRAW_SHA\`"
+            echo
+            cat "$EVIDENCE/summary.md"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload Redis evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: kind-cold-draw-pr${{ env.DRAW_PR }}-${{ env.DRAW_SHA }}
+          path: kind-cold-draw-evidence
+          retention-days: 90
+          if-no-files-found: error
+
+      - name: task localdev:down
+        if: always()
+        run: task localdev:down
