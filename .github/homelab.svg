@@ -125,7 +125,7 @@
   .v3{animation:v3 27s infinite}.v4{animation:v4 27s infinite}.v5{animation:v5 27s infinite}
   .v6{animation:v6 27s infinite}.v7{animation:v7 27s infinite}.v8{animation:v8 27s infinite}
   .v9{animation:v9 27s infinite}
-  /* e2e suite counter: 21 steps of 2.143% from 45% to 90%, then 21/21 holds */
+  /* e2e suite counter: 22 steps from 45% to 92%, then 22/22 holds */
   @keyframes c0{0%,45%{opacity:0}45.1%,47.043%{opacity:1}47.143%,100%{opacity:0}}
   @keyframes c1{0%,47.143%{opacity:0}47.243%,49.186%{opacity:1}49.286%,100%{opacity:0}}
   @keyframes c2{0%,49.286%{opacity:0}49.386%,51.329%{opacity:1}51.429%,100%{opacity:0}}
@@ -147,7 +147,8 @@
   @keyframes c18{0%,83.571%{opacity:0}83.671%,85.614%{opacity:1}85.714%,100%{opacity:0}}
   @keyframes c19{0%,85.714%{opacity:0}85.814%,87.757%{opacity:1}87.857%,100%{opacity:0}}
   @keyframes c20{0%,87.857%{opacity:0}87.957%,89.9%{opacity:1}90%,100%{opacity:0}}
-  @keyframes c21{0%,90%{opacity:0}90.1%,96%{opacity:1}100%{opacity:0}}
+  @keyframes c21{0%,90%{opacity:0}90.1%,91.9%{opacity:1}92%,100%{opacity:0}}
+  @keyframes c22{0%,92%{opacity:0}92.1%,96%{opacity:1}100%{opacity:0}}
   .c0{animation:c0 27s infinite}.c1{animation:c1 27s infinite}.c2{animation:c2 27s infinite}
   .c3{animation:c3 27s infinite}.c4{animation:c4 27s infinite}.c5{animation:c5 27s infinite}
   .c6{animation:c6 27s infinite}.c7{animation:c7 27s infinite}.c8{animation:c8 27s infinite}
@@ -155,7 +156,7 @@
   .c12{animation:c12 27s infinite}.c13{animation:c13 27s infinite}.c14{animation:c14 27s infinite}
   .c15{animation:c15 27s infinite}.c16{animation:c16 27s infinite}.c17{animation:c17 27s infinite}
   .c18{animation:c18 27s infinite}.c19{animation:c19 27s infinite}.c20{animation:c20 27s infinite}
-  .c21{animation:c21 27s infinite}
+  .c21{animation:c21 27s infinite}.c22{animation:c22 27s infinite}
   /* chainsaw pulse once per host window */
   @keyframes saw{0%,44.5%{opacity:0}
     45.5%{opacity:.6}48%{opacity:0} 50%{opacity:.6}52.5%{opacity:0} 54.5%{opacity:.6}57%{opacity:0}
@@ -206,28 +207,29 @@
   <text class="h14" x="28" y="315" font-size="10"><tspan fill="#2dd4bf">●</tspan> lazylibrarian.&lt;DOMAIN&gt; <tspan fill="#27c93f">200</tspan> <tspan fill="#8b949e">e2e ✔ smoke ✔</tspan></text>
   <!-- e2e counter -->
   <g fill="#f0883e">
-    <text class="c0"  x="28" y="335"><tspan fill="#8b949e">›</tspan> chainsaw e2e   0/21 suites</text>
-    <text class="c1"  x="28" y="335"><tspan fill="#8b949e">›</tspan> chainsaw e2e   1/21 suites</text>
-    <text class="c2"  x="28" y="335"><tspan fill="#8b949e">›</tspan> chainsaw e2e   2/21 suites</text>
-    <text class="c3"  x="28" y="335"><tspan fill="#8b949e">›</tspan> chainsaw e2e   3/21 suites</text>
-    <text class="c4"  x="28" y="335"><tspan fill="#8b949e">›</tspan> chainsaw e2e   4/21 suites</text>
-    <text class="c5"  x="28" y="335"><tspan fill="#8b949e">›</tspan> chainsaw e2e   5/21 suites</text>
-    <text class="c6"  x="28" y="335"><tspan fill="#8b949e">›</tspan> chainsaw e2e   6/21 suites</text>
-    <text class="c7"  x="28" y="335"><tspan fill="#8b949e">›</tspan> chainsaw e2e   7/21 suites</text>
-    <text class="c8"  x="28" y="335"><tspan fill="#8b949e">›</tspan> chainsaw e2e   8/21 suites</text>
-    <text class="c9"  x="28" y="335"><tspan fill="#8b949e">›</tspan> chainsaw e2e   9/21 suites</text>
-    <text class="c10" x="28" y="335"><tspan fill="#8b949e">›</tspan> chainsaw e2e  10/21 suites</text>
-    <text class="c11" x="28" y="335"><tspan fill="#8b949e">›</tspan> chainsaw e2e  11/21 suites</text>
-    <text class="c12" x="28" y="335"><tspan fill="#8b949e">›</tspan> chainsaw e2e  12/21 suites</text>
-    <text class="c13" x="28" y="335"><tspan fill="#8b949e">›</tspan> chainsaw e2e  13/21 suites</text>
-    <text class="c14" x="28" y="335"><tspan fill="#8b949e">›</tspan> chainsaw e2e  14/21 suites</text>
-    <text class="c15" x="28" y="335"><tspan fill="#8b949e">›</tspan> chainsaw e2e  15/21 suites</text>
-    <text class="c16" x="28" y="335"><tspan fill="#8b949e">›</tspan> chainsaw e2e  16/21 suites</text>
-    <text class="c17" x="28" y="335"><tspan fill="#8b949e">›</tspan> chainsaw e2e  17/21 suites</text>
-    <text class="c18" x="28" y="335"><tspan fill="#8b949e">›</tspan> chainsaw e2e  18/21 suites</text>
-    <text class="c19" x="28" y="335"><tspan fill="#8b949e">›</tspan> chainsaw e2e  19/21 suites</text>
-    <text class="c20" x="28" y="335"><tspan fill="#8b949e">›</tspan> chainsaw e2e  20/21 suites</text>
-    <text class="c21" x="28" y="335" fill="#27c93f"><tspan fill="#8b949e">›</tspan> chainsaw e2e  21/21 suites ✔</text>
+    <text class="c0"  x="28" y="335"><tspan fill="#8b949e">›</tspan> chainsaw e2e   0/22 suites</text>
+    <text class="c1"  x="28" y="335"><tspan fill="#8b949e">›</tspan> chainsaw e2e   1/22 suites</text>
+    <text class="c2"  x="28" y="335"><tspan fill="#8b949e">›</tspan> chainsaw e2e   2/22 suites</text>
+    <text class="c3"  x="28" y="335"><tspan fill="#8b949e">›</tspan> chainsaw e2e   3/22 suites</text>
+    <text class="c4"  x="28" y="335"><tspan fill="#8b949e">›</tspan> chainsaw e2e   4/22 suites</text>
+    <text class="c5"  x="28" y="335"><tspan fill="#8b949e">›</tspan> chainsaw e2e   5/22 suites</text>
+    <text class="c6"  x="28" y="335"><tspan fill="#8b949e">›</tspan> chainsaw e2e   6/22 suites</text>
+    <text class="c7"  x="28" y="335"><tspan fill="#8b949e">›</tspan> chainsaw e2e   7/22 suites</text>
+    <text class="c8"  x="28" y="335"><tspan fill="#8b949e">›</tspan> chainsaw e2e   8/22 suites</text>
+    <text class="c9"  x="28" y="335"><tspan fill="#8b949e">›</tspan> chainsaw e2e   9/22 suites</text>
+    <text class="c10" x="28" y="335"><tspan fill="#8b949e">›</tspan> chainsaw e2e  10/22 suites</text>
+    <text class="c11" x="28" y="335"><tspan fill="#8b949e">›</tspan> chainsaw e2e  11/22 suites</text>
+    <text class="c12" x="28" y="335"><tspan fill="#8b949e">›</tspan> chainsaw e2e  12/22 suites</text>
+    <text class="c13" x="28" y="335"><tspan fill="#8b949e">›</tspan> chainsaw e2e  13/22 suites</text>
+    <text class="c14" x="28" y="335"><tspan fill="#8b949e">›</tspan> chainsaw e2e  14/22 suites</text>
+    <text class="c15" x="28" y="335"><tspan fill="#8b949e">›</tspan> chainsaw e2e  15/22 suites</text>
+    <text class="c16" x="28" y="335"><tspan fill="#8b949e">›</tspan> chainsaw e2e  16/22 suites</text>
+    <text class="c17" x="28" y="335"><tspan fill="#8b949e">›</tspan> chainsaw e2e  17/22 suites</text>
+    <text class="c18" x="28" y="335"><tspan fill="#8b949e">›</tspan> chainsaw e2e  18/22 suites</text>
+    <text class="c19" x="28" y="335"><tspan fill="#8b949e">›</tspan> chainsaw e2e  19/22 suites</text>
+    <text class="c20" x="28" y="335"><tspan fill="#8b949e">›</tspan> chainsaw e2e  20/22 suites</text>
+    <text class="c21" x="28" y="335"><tspan fill="#8b949e">›</tspan> chainsaw e2e  21/22 suites</text>
+    <text class="c22" x="28" y="335" fill="#27c93f"><tspan fill="#8b949e">›</tspan> chainsaw e2e  22/22 suites ✔</text>
   </g>
   <text class="a90" x="28" y="366" font-size="10.5" fill="#27c93f">✔ homelab is online. systems nominal.</text>
 </g>
@@ -285,17 +287,18 @@
 <g class="a30"><rect class="box done" x="280" y="228" width="104" height="32" rx="6" stroke="#f0883e"/><text class="n" x="332" y="241" text-anchor="middle">chainsaw e2e</text><text class="n2" x="332" y="253" text-anchor="middle">kind · every PR · smoke on sync</text></g>
 <!-- graph-side counter mirrors the terminal -->
 <g class="n2" text-anchor="middle" fill="#f0883e">
-  <text class="c0"  x="332" y="272">0/21 suites</text><text class="c1"  x="332" y="272">1/21 suites</text>
-  <text class="c2"  x="332" y="272">2/21 suites</text><text class="c3"  x="332" y="272">3/21 suites</text>
-  <text class="c4"  x="332" y="272">4/21 suites</text><text class="c5"  x="332" y="272">5/21 suites</text>
-  <text class="c6"  x="332" y="272">6/21 suites</text><text class="c7"  x="332" y="272">7/21 suites</text>
-  <text class="c8"  x="332" y="272">8/21 suites</text><text class="c9"  x="332" y="272">9/21 suites</text>
-  <text class="c10" x="332" y="272">10/21 suites</text><text class="c11" x="332" y="272">11/21 suites</text>
-  <text class="c12" x="332" y="272">12/21 suites</text><text class="c13" x="332" y="272">13/21 suites</text>
-  <text class="c14" x="332" y="272">14/21 suites</text><text class="c15" x="332" y="272">15/21 suites</text>
-  <text class="c16" x="332" y="272">16/21 suites</text><text class="c17" x="332" y="272">17/21 suites</text>
-  <text class="c18" x="332" y="272">18/21 suites</text><text class="c19" x="332" y="272">19/21 suites</text>
-  <text class="c20" x="332" y="272">20/21 suites</text><text class="c21" x="332" y="272" fill="#27c93f">21/21 suites ✔</text>
+  <text class="c0"  x="332" y="272">0/22 suites</text><text class="c1"  x="332" y="272">1/22 suites</text>
+  <text class="c2"  x="332" y="272">2/22 suites</text><text class="c3"  x="332" y="272">3/22 suites</text>
+  <text class="c4"  x="332" y="272">4/22 suites</text><text class="c5"  x="332" y="272">5/22 suites</text>
+  <text class="c6"  x="332" y="272">6/22 suites</text><text class="c7"  x="332" y="272">7/22 suites</text>
+  <text class="c8"  x="332" y="272">8/22 suites</text><text class="c9"  x="332" y="272">9/22 suites</text>
+  <text class="c10" x="332" y="272">10/22 suites</text><text class="c11" x="332" y="272">11/22 suites</text>
+  <text class="c12" x="332" y="272">12/22 suites</text><text class="c13" x="332" y="272">13/22 suites</text>
+  <text class="c14" x="332" y="272">14/22 suites</text><text class="c15" x="332" y="272">15/22 suites</text>
+  <text class="c16" x="332" y="272">16/22 suites</text><text class="c17" x="332" y="272">17/22 suites</text>
+  <text class="c18" x="332" y="272">18/22 suites</text><text class="c19" x="332" y="272">19/22 suites</text>
+  <text class="c20" x="332" y="272">20/22 suites</text><text class="c21" x="332" y="272">21/22 suites</text>
+  <text class="c22" x="332" y="272" fill="#27c93f">22/22 suites ✔</text>
 </g>
 <path class="w d30" d="M900 196 V228"/>
 <path class="w d33" d="M900 196 V212 H796 V228"/>

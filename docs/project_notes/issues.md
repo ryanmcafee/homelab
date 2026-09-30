@@ -122,3 +122,9 @@ Each entry should include:
   to match Argo CD; unresolved external values now fail rather than disappear.
 - Validation and revision evidence are recorded privately on the task. Existing
   platform/security/QA merge holds remain; no production changes were made.
+
+### 2026-09-30: OpenClaw live Kind acceptance (MCAA-490)
+
+- Rebased PR [#504](https://github.com/ryanmcafee/homelab/pull/504)'s Chainsaw suite onto
+  [#434](https://github.com/ryanmcafee/homelab/pull/434) head `f78d976`; refreshed suite counts.
+  Current-head Kind assertions and LAN negative exposure still require execution and review.

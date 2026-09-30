@@ -10,7 +10,7 @@ replay of the rendered helper provide distinct evidence. Neither a healthy Appli
 OAuth credentials establish successful provider authentication. Placeholder credentials leave that
 assertion to separately authorized post-merge verification.
 
-Source branch: test/mcaa-291-openclaw-e2e, based on PR #434 head cd6df36.
+Source branch: test/mcaa-291-openclaw-e2e, rebased onto PR #434 head f78d976.
 No local Kind run is attempted on the agent runner without a container runtime.
 
 Adding a discovered suite also requires `bun scripts/docs-check.ts --fix` to refresh the
