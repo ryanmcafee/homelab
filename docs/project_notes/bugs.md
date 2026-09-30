@@ -15,7 +15,7 @@ Each entry should include:
 ### 2026-09-30 - PR dependency triage could not write PR labels (#537)
 - **Issue**: Every recent `pull_request_target` triage run failed when reconciling labels on PR #487. Run 36656698208 reported effective `Issues: write`, yet `PUT /repos/ryanmcafee/homelab/issues/487/labels` returned 403 `Resource not accessible by integration`.
 - **Solution proposed**: Grant `pull-requests: write` to the workflow, which writes labels on PRs, and remove the unused `issues` and `contents` grants. GitHub's response advertised `issues=write; pull_requests=write`, so a live run must still prove that the new grant resolves the denial. The branch-scoped dispatch attempt was also denied 403 to the agent's separate GitHub integration; it does not establish the workflow token's behavior.
-- **Prevention**: Inspect the runner's effective token permissions and the denied endpoint together. Keep the 403 fatal. `bun test scripts/pr-dependency-triage_test.ts` exercises classification and denied-write propagation without credentials.
+- **Prevention**: Inspect the runner's effective token permissions and the denied endpoint together. Keep the 403 fatal. `task test:scripts -- scripts/pr-dependency-triage_test.ts` exercises classification and denied-write propagation without credentials.
 
 ### 2026-09-28 - spegel's ten-registry mirror list never reached the DaemonSet (#469)
 - **Issue**: MCAA-396 asked whether spegel mirrors argo-cd's redis, whose image is `ecr-public.aws.com/docker/library/redis` while `charts/addons/values.yaml` listed `https://public.ecr.aws`

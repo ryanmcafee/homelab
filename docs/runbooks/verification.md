@@ -40,7 +40,7 @@ contract" below); `verify.yml` runs it on the merge result and uploads the JSON 
 The PR dependency label classifier runs separately in
 `.github/workflows/pr-dependency-triage.yml`. To check its root, blocked,
 orphan, fork, and denied-write behavior locally, run
-`bun test scripts/pr-dependency-triage_test.ts`. The workflow uses the base
+`task test:scripts -- scripts/pr-dependency-triage_test.ts`. The workflow uses the base
 repository's trusted workflow file on `pull_request_target`, reads PR metadata,
 and requests only `pull-requests: write` for label reconciliation. It does not
 check out or execute PR head code. A denied label write fails the job rather than
