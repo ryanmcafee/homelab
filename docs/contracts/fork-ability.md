@@ -209,10 +209,11 @@ build are written in those two and would otherwise be unreadable. That leak is t
 for this whole section: a human sweep caught it, and the guard could not, because `terragrunt/`
 was outside the scan on the pathspec axis and the extension axis at once.
 
-Being named in `DefaultGuardPathspecs` is not the same as being covered, and `talos/` is the
-standing proof: its two `machine-config/*.yaml.tpl` files stay outside on the extension axis,
-because `.tpl` is not a suffix the scan looks through. Six of `talos/`'s eight tracked files are
-scanned. Read the two lists together, or a directory name will tell you the wrong thing.
+Being named in `DefaultGuardPathspecs` is not the same as being covered: a directory is only
+read for the extensions the scan admits. The `templatefile()` inputs under `terragrunt/` and
+`talos/` (`*.yaml.tpl`, `*.tftpl`) are admitted for that reason, as ordinary files rather than
+`.example` placeholders, because they are rendered into the cluster. Read the two lists together,
+or a directory name will tell you the wrong thing.
 
 Note also what the widening does and does not buy: those trees are now covered for the
 **literal-leak class only**. Undeclared hardware prerequisites, topology shape, and secret-store
@@ -227,7 +228,7 @@ Three standing conditions follow:
   scope expressed twice and must be changed in the same commit.** `internal/config/guard.go`
   says so in a comment at the list itself, and the hook is the half a contributor meets first.
   Both halves name `terragrunt/`, `talos/` and `packer/`, and the hook now spells its extension
-  list out in `files:` — `yaml yml json md ts svg hcl tf`, plus a template suffix — rather than
+  list out in `files:` — `yaml yml json md ts svg hcl tf tftpl`, plus a template suffix — rather than
   delegating it to `types_or:`, so the two can be diffed by eye and the hook stops silently
   dropping `homelab.yaml.example`. What neither half admits is Go: no `cmd/`, no `internal/`,
   no `.go`. Widening one and not the other produces a gate that passes locally and fails in CI

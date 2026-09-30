@@ -711,6 +711,12 @@ func TestHasScannableExtension(t *testing.T) {
 		{path: ".github/workflows/verify.yml", want: true},
 		{path: ".github/CODEOWNERS", want: false},
 		{path: "binary.example", want: false},
+		// Runtime templates rendered by Terraform templatefile() are real
+		// bootstrap inputs, so .tpl is looked through and .tftpl is read.
+		{path: "terragrunt/modules/gitops-bootstrap/templates/argocd-values.yaml.tpl", want: true},
+		{path: "talos/machine-config/controlplane.yaml.tpl", want: true},
+		{path: "terragrunt/modules/unifi-gateway/templates/frr-bgp.conf.tftpl", want: true},
+		{path: "binary.tpl", want: false},
 	}
 
 	for _, tc := range tests {
@@ -2167,12 +2173,17 @@ func TestGuardReadsTheBootstrapTrees(t *testing.T) {
 	// the widening would just trade a silent hole for noise on every unit.
 	clean := writeFixture("terragrunt/environments/homelab/env.hcl",
 		"locals {\n  truenas_ip = local.resolved.TRUENAS_IP\n}\n")
-	// Still out of scope on the extension axis: .tpl is not a suffix
-	// hasScannableExtension looks through. Pinned so that the day someone
-	// admits it, they see this fixture and decide deliberately.
-	tpl := writeFixture("talos/machine-config/controlplane.yaml.tpl", "certSANs:\n  - "+planted+"\n")
+	// Runtime templates rendered by templatefile(): a literal in one reaches
+	// the cluster exactly as a literal in the .hcl that renders it would.
+	yamlTpl := writeFixture("terragrunt/modules/gitops-bootstrap/templates/argocd-values.yaml.tpl",
+		"server:\n  host: "+planted+"\n")
+	tftpl := writeFixture("terragrunt/modules/unifi-gateway/templates/frr-bgp.conf.tftpl",
+		"router bgp 64512\n  neighbor "+planted+" remote-as 64513\n")
+	talosTpl := writeFixture("talos/machine-config/controlplane.yaml.tpl", "certSANs:\n  - "+planted+"\n")
+	cleanTpl := writeFixture("terragrunt/modules/gitops-bootstrap/templates/bootstrap-app.yaml.tpl",
+		"server:\n  host: ${truenas_ip}\n")
 
-	trackedUnderPathspecs(t, []string{leak, moduleLeak, talosLeak, packerLeak, clean, tpl})
+	trackedUnderPathspecs(t, []string{leak, moduleLeak, talosLeak, packerLeak, clean, yamlTpl, tftpl, talosTpl, cleanTpl})
 
 	report, err := RunGuard(GuardOptions{RepoRoot: repo, CI: true, EnvPath: env})
 	if err != nil {
@@ -2183,25 +2194,27 @@ func TestGuardReadsTheBootstrapTrees(t *testing.T) {
 	}
 
 	scanned := strings.Join(report.Files, " ")
-	for _, want := range []string{leak, moduleLeak, talosLeak, packerLeak, clean} {
+	for _, want := range []string{leak, moduleLeak, talosLeak, packerLeak, clean, yamlTpl, tftpl, talosTpl, cleanTpl} {
 		if !strings.Contains(scanned, want) {
 			t.Errorf("%s is not in the scan scope; the pathspec or its extension was lost.\nscanned: %v", want, report.Files)
 		}
-	}
-	if strings.Contains(scanned, tpl) {
-		t.Errorf("%s is in scope, but .tpl is not a scannable extension; update this fixture and the talos/ note in guard.go together", tpl)
 	}
 
 	found := map[string]int{}
 	for _, res := range report.Results {
 		found[res.File] = len(res.Matches)
 	}
-	for _, want := range []string{leak, moduleLeak, talosLeak, packerLeak} {
+	for _, want := range []string{leak, moduleLeak, talosLeak, packerLeak, yamlTpl, tftpl, talosTpl} {
 		if found[want] == 0 {
 			t.Errorf("the planted operator value in %s was not reported: this is the #393 defect class, and catching it is the only reason the scope was widened", want)
 		}
 	}
-	if n := found[clean]; n != 0 {
-		t.Errorf("%s resolves its value from the ConfigSet and must not be reported, got %d match(es)", clean, n)
+	for _, ok := range []string{clean, cleanTpl} {
+		if n := found[ok]; n != 0 {
+			t.Errorf("%s takes its value by reference and must not be reported, got %d match(es)", ok, n)
+		}
+	}
+	if IsTemplateFile(yamlTpl) || IsTemplateFile(tftpl) {
+		t.Error("runtime templates are rendered into the cluster and must not get the placeholder-only .example rule")
 	}
 }

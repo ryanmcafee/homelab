@@ -373,10 +373,7 @@ func IsPIIKey(key string) bool {
 // hole reopening, not because they carry churn - do not read their presence
 // here as evidence they were a live risk. talos/ commits image schematics and
 // machine-config patches that name the cluster endpoint; packer/ commits the
-// TrueNAS image build, which addresses a real host. Note that talos/'s two
-// .yaml.tpl files stay out on the extension axis: .tpl is not a template
-// suffix hasScannableExtension looks through, so 6 of talos/'s 8 tracked files
-// are scanned.
+// TrueNAS image build, which addresses a real host.
 var DefaultGuardPathspecs = []string{
 	"configuration/**",
 	"charts/**/values-homelab.yaml",
@@ -426,7 +423,13 @@ var guardScanExtensions = map[string]bool{
 	// Detection is line-based text matching, which HCL needs no parser for.
 	".hcl": true,
 	".tf":  true,
+	// Terraform templatefile() inputs, e.g. unifi-gateway's frr-bgp.conf.tftpl.
+	".tftpl": true,
 }
+
+// runtimeTemplateSuffixes are looked through like templateFileSuffixes, but
+// their files are rendered into the cluster, so IsTemplateFile does not apply.
+var runtimeTemplateSuffixes = []string{".tpl"}
 
 // hasScannableExtension reports whether a path is a file type the guard can
 // read. A template suffix is looked through first, so homelab.yaml.example is
@@ -434,7 +437,7 @@ var guardScanExtensions = map[string]bool{
 // pasted, so it must never fall out of scope on its name alone.
 func hasScannableExtension(path string) bool {
 	name := strings.ToLower(filepath.Base(path))
-	for _, suffix := range templateFileSuffixes {
+	for _, suffix := range append(templateFileSuffixes, runtimeTemplateSuffixes...) {
 		name = strings.TrimSuffix(name, suffix)
 	}
 	return guardScanExtensions[filepath.Ext(name)]
