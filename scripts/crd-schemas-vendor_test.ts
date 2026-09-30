@@ -38,7 +38,8 @@ test("githubApiHeaders authenticates from GH_TOKEN when GITHUB_TOKEN is unset", 
 
 test("githubApiHeaders prefers GITHUB_TOKEN over GH_TOKEN", () => {
   const headers = githubApiHeaders({
-    GITHUB_TOKEN: "ci-token", GH_TOKEN: "gh-cli-token",
+    GITHUB_TOKEN: "ci-token",
+    GH_TOKEN: "gh-cli-token",
   });
   assertEquals(headers.Authorization, "Bearer ci-token");
 });
