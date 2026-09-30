@@ -44,9 +44,13 @@ those citations ambiguous — and because the two headings land at different off
 them with no conflict and nothing else in the repository notices. `decisions/adr-numbers` and
 `decisions/adr-format` at level 0 are the diff and the rule set; `internal/verify/decisions_test.go`
 is point 4, including a test that runs the checker against the committed record. Note what
-"gated" means here today: level 0 on the PR **head** is `main`'s required check, and the
-merge-result run reports without blocking, so the collision stops the merge at the rebase
-rather than at the merge button (ADR-039, `docs/runbooks/verification.md`).
+"gated" means here today: both level 0 on the PR **head** and level 0 on the
+merge result are required on `main`. The merge-result run blocks a collision
+before it reaches the merge button (ADR-039 and ADR-041, `docs/runbooks/verification.md`).
+The required names, workflow files and job IDs are listed in
+[`required-status-checks.yaml`](required-status-checks.yaml); level 0 checks that
+each required job exists and that its workflow runs on every PR. The author-claim
+job retains exactly the draft and Renovate exemption recorded in ADR-032.
 
 Consumer-side: each consumer of an event type keeps a fixture of the event it expects and
 asserts it validates against the published schema. That is what catches "the producer's

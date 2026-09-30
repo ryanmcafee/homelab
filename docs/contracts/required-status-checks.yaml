@@ -1,0 +1,9 @@
+# Documented main branch-protection contexts. Keep this in sync with the live
+# classic branch-protection rule; verify/required-contexts checks workflow reachability.
+required:
+  - name: Level 0 (render, schema, gitops, snapshot, policy)
+    workflow: verify.yml
+    job: level-0
+  - name: Verification claim matches level 0
+    workflow: pr-contract.yml
+    job: claim
