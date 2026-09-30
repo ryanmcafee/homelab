@@ -1,0 +1,18 @@
+# expect: Degraded
+# message: filter subject does not match any subject in the stream
+apiVersion: jetstream.nats.io/v1beta2
+kind: Consumer
+metadata:
+  name: dlq-reporter-observability-v1
+  namespace: nats
+spec:
+  durableName: dlq-reporter-observability-v1
+  streamName: PF_DLQ
+  filterSubject: pf.*.*.*.*.*.wq
+status:
+  conditions:
+    - type: Ready
+      status: "False"
+      reason: Errored
+      message: "filter subject does not match any subject in the stream (10093)"
+      lastTransitionTime: "2026-09-28T00:00:00Z"

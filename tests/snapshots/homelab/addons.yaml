@@ -136,6 +136,21 @@ metadata:
     pod-security.kubernetes.io/warn: privileged
 
 ---
+# Source: addons/templates/nats.yaml
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: nats
+  labels:
+    helm.sh/chart: addons-1.0.0
+    app.kubernetes.io/name: addons
+    app.kubernetes.io/instance: addons
+    app.kubernetes.io/version: "1.0"
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+
+---
 # Source: addons/templates/node-feature-discovery.yaml
 # Namespace for NodeFeatureDiscovery components.
 #
@@ -543,6 +558,24 @@ spec:
 # Source: addons/templates/argo-workflows.yaml
 # Argo Workflows - Workflow Orchestration Engine
 # Sync Wave: 11 dependencies (archive database, log store), 12 controller + server
+
+---
+# Source: addons/templates/nack.yaml
+# NACK - the JetStream controller. Reconciles the jetstream.nats.io Stream and
+# Consumer resources that charts/nats-config declares, so the stream set is
+# GitOps state rather than an imperative `nats stream add`.
+# Sync Wave: 11 (after nats at 10; its CRDs gate nats-config at 12)
+
+---
+# Source: addons/templates/nats-config.yaml
+# NATS Config: the platform stream set and its dead-letter path, declared as
+# jetstream.nats.io resources so the streams are GitOps state.
+# Sync Wave: 12 (after nack at 11, which installs the CRDs these resources use)
+
+---
+# Source: addons/templates/nats.yaml
+# NATS with JetStream file persistence - the platform event bus
+# Sync Wave: 10 (after kube-prometheus-stack at 9, whose PodMonitor the exporter needs)
 
 ---
 # Source: addons/templates/agent-readonly.yaml
@@ -5368,6 +5401,183 @@ spec:
   destination:
     server: https://kubernetes.default.svc
     namespace: kube-system
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+
+---
+# Source: addons/templates/nack.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: nack
+  namespace: argocd
+  labels:
+    helm.sh/chart: addons-1.0.0
+    app.kubernetes.io/name: addons
+    app.kubernetes.io/instance: addons
+    app.kubernetes.io/version: "1.0"
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    argocd.argoproj.io/sync-wave: "11"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+
+  source:
+    repoURL: https://nats-io.github.io/k8s/helm/charts/
+    chart: nack
+    targetRevision: 0.35.0
+    helm:
+      releaseName: nack
+      values: |
+        jetstream:
+          enabled: true
+          nats:
+            url: nats://nats.nats.svc.cluster.local:4222
+        resources:
+          limits:
+            cpu: 200m
+            memory: 128Mi
+          requests:
+            cpu: 25m
+            memory: 64Mi
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: nats
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+
+---
+# Source: addons/templates/nats-config.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: nats-config
+  namespace: argocd
+  labels:
+    helm.sh/chart: addons-1.0.0
+    app.kubernetes.io/name: addons
+    app.kubernetes.io/instance: addons
+    app.kubernetes.io/version: "1.0"
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    argocd.argoproj.io/sync-wave: "12"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/REPLACEME-user/homelab.git
+    targetRevision: main
+    path: charts/nats-config
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-homelab.yaml
+      # Stream replica count, the bus URL and the file store the stream budget is
+      # checked against come from this parent so a single-node fork changes one
+      # configuration value, not a committed chart.
+      valuesObject:
+        natsUrl: "nats://nats.nats.svc.cluster.local:4222"
+        replicas: 1
+        fileStoreSize: "20Gi"
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: nats
+  syncPolicy:
+    automated:
+      # Safe to prune because every Stream and Consumer sets preventDelete: true,
+      # so removing the resource leaves the stream and its messages in NATS.
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - SkipDryRunOnMissingResource=true
+
+---
+# Source: addons/templates/nats.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: nats
+  namespace: argocd
+  labels:
+    helm.sh/chart: addons-1.0.0
+    app.kubernetes.io/name: addons
+    app.kubernetes.io/instance: addons
+    app.kubernetes.io/version: "1.0"
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+
+  source:
+    repoURL: https://nats-io.github.io/k8s/helm/charts/
+    chart: nats
+    targetRevision: 2.15.0
+    helm:
+      releaseName: nats
+      values: |
+        config:
+          cluster:
+            enabled: true
+            replicas: 3
+          jetstream:
+            enabled: true
+            fileStore:
+              enabled: true
+              pvc:
+                enabled: true
+                size: 20Gi
+                storageClassName: democratic-csi-iscsi
+        # promExporter and its podMonitor both default to false upstream, and
+        # config.jetstream.enabled above is what renders the exporter's -jsz=all
+        # flag. Without all three there is no nats_stream_* series and the
+        # PF_WORK silent-loss alerts (MCAA-134) run blind.
+        promExporter:
+          enabled: true
+          podMonitor:
+            enabled: true
+            # The chart's PodMonitor sets no interval, so it would inherit
+            # whatever global scrape interval a fork configured. Pin it under the
+            # 5m min_over_time window the aging rules read.
+            merge:
+              spec:
+                podMetricsEndpoints:
+                  - port: prom-metrics
+                    interval: 30s
+        container:
+          resources:
+            limits:
+              cpu: 500m
+              memory: 1Gi
+            requests:
+              cpu: 100m
+              memory: 256Mi
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: nats
 
   syncPolicy:
     automated:

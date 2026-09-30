@@ -58,3 +58,13 @@ keys:
     description: Comma-separated enrolled namespaces that get a waypoint proxy (Gateway waypoint, L7 metrics and spans for every Service in them, ingress traffic included); "none" deploys none
     required: true
     default: "paperclip"
+
+  NATS_SERVER_REPLICAS:
+    description: NATS server pods. 1 runs JetStream non-clustered; 3 or more forms a clustered meta-group. Must be at least NATS_STREAM_REPLICAS.
+    required: true
+    default: "3"
+
+  NATS_STREAM_REPLICAS:
+    description: JetStream replicas per stream. Stream sizing is operator-supplied, not contract (contracts/events/subjects.v1.yaml replicas_defaults); 1 is the homelab default because a non-clustered server refuses more with "replicas > 1 not supported in non-clustered mode (10074)".
+    required: true
+    default: "1"

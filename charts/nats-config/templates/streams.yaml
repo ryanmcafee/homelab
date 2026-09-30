@@ -1,0 +1,37 @@
+{{- include "nats-config.assertMaxBytesBudget" . }}
+{{- range $stream := .Values.streams }}
+---
+apiVersion: jetstream.nats.io/v1beta2
+kind: Stream
+metadata:
+  name: {{ $stream.name | lower | replace "_" "-" }}
+  labels:
+    app.kubernetes.io/part-of: {{ $.Chart.Name | trimSuffix "-config" }}
+    app.kubernetes.io/component: jetstream-stream
+spec:
+  name: {{ $stream.name }}
+  description: {{ $stream.description | quote }}
+  servers:
+    - {{ $.Values.natsUrl }}
+  {{- with $stream.subjects }}
+  subjects:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- with $stream.sources }}
+  sources:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  storage: file
+  replicas: {{ $.Values.replicas }}
+  retention: {{ $stream.retention }}
+  maxAge: {{ $stream.maxAge }}
+  {{- /* int64: Helm loads values numbers as floats and these CRD fields are integers. */}}
+  maxBytes: {{ get $.Values.maxBytes $stream.name | int64 }}
+  {{- with $stream.maxMsgSize }}
+  maxMsgSize: {{ . | int64 }}
+  {{- end }}
+  discard: {{ $stream.discard }}
+  duplicateWindow: {{ $stream.duplicateWindow }}
+  # Without this, deleting the resource deletes the stream and its replay history.
+  preventDelete: true
+{{- end }}
