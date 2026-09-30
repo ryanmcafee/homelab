@@ -138,3 +138,9 @@ Each entry should include:
 - Snapshot inventory: localdev addons/applications/gitops/bootstrap = 35/21/2/1; production = 55/26/3/4. Baseline changes come from advancing main, not manual count edits.
 - Level 0: 277 pass, zero fail, one documented preview-secret skip; 13.18 s wall / 11.164 s verifier. Docs guard: 15 good/bad fixture tests pass in 0.309 s wall. No check behavior changed, so no runtime delta is introduced by this rebase.
 - Preserved draft status, cold-install gate, codesearch dependency and architecture/security/QA approvals. New-head CI evidence and any blockers: [MCAA-642](/MCAA/issues/MCAA-642); PR: https://github.com/ryanmcafee/homelab/pull/353.
+
+### 2026-09-30 - MCAA-28: integrate merged public-registry guard fix
+
+- Rebased PR #353 onto `origin/main` after #518 merged. The guard's reviewed `ecr-public.aws.com` exception and its look-alike hostname regressions now run on the toolchain branch; no guard rule was loosened here.
+- Focused checks passed: `task config:guard` (216 tracked files), public/private hostname regressions, installer error regression, and `task toolchain:policy` (24 cases). Docker is unavailable in this worktree's runner, so the PR's cold-container and Kind jobs remain the exact-head verification path.
+- PR remains draft until cold install, validation, Kind level 2, and QA acceptance pass: https://github.com/ryanmcafee/homelab/pull/353.
