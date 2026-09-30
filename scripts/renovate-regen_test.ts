@@ -27,13 +27,13 @@ import {
 import {
   branchGuardError,
   commitIdentityFindings,
+  commitPreflightError,
   COMMITTER_READ_FROM_MAJOR,
   committerIsRead,
   deployedMajorFindings,
   changedPaths,
   generatedOnlyError,
   identityParityError,
-  unwrappedGit,
   parseGitIgnoredAuthors,
   parseRegenIdentity,
   readChangedPaths,
@@ -645,37 +645,33 @@ test("readChangedPaths returns nothing for a real clean worktree", async () => {
   }
 });
 
-test("unwrappedGit skips the PATH git and takes the first real one that exists", () => {
-  const wrapper = "/tmp/paperclip-github-runtime/abc/git";
-  assertEquals(
-    unwrappedGit(wrapper, (p) => p === "/usr/bin/git"),
-    "/usr/bin/git",
+test("managed Git committer mismatch fails before the commit", () => {
+  const error = commitPreflightError(
+    "operator <operator@example.com> 1 +0000",
+    BOT_EMAIL_FIXTURE,
   );
+  assert(error !== null);
+  assertStringIncludes(error, "stopped before staging or committing");
+  assertStringIncludes(error, "governed API commit path");
 });
 
-test("unwrappedGit honours candidate order", () => {
+test("managed Git committer preflight accepts the bot identity", () => {
   assertEquals(
-    unwrappedGit("/wrapper/git", () => true),
-    "/usr/bin/git",
-  );
-  assertEquals(
-    unwrappedGit("/wrapper/git", (p) => p === "/opt/homebrew/bin/git"),
-    "/opt/homebrew/bin/git",
-  );
-});
-
-test("unwrappedGit returns null when the PATH git is already the real one", () => {
-  // Nothing to bypass: amending through the same binary would change nothing
-  // while rewriting the commit, so the caller must not do it.
-  assertEquals(
-    unwrappedGit("/usr/bin/git", (p) => p === "/usr/bin/git"),
+    commitPreflightError(
+      `homelab-regen-bot <${BOT_EMAIL_FIXTURE}> 1 +0000`,
+      BOT_EMAIL_FIXTURE,
+    ),
     null,
   );
 });
 
-test("unwrappedGit returns null when no candidate exists", () => {
-  assertEquals(
-    unwrappedGit("/wrapper/git", () => false),
-    null,
+test("managed regeneration never launches Git outside the PATH wrapper", () => {
+  const source = readFileSync("scripts/renovate-regen.ts", "utf8");
+  assert(
+    !source.includes('"/usr/bin/git"') &&
+      !source.includes('"/opt/homebrew/bin/git"') &&
+      !source.includes('"/usr/local/bin/git"') &&
+      !source.includes("const direct = unwrappedGit("),
+    "regeneration must refuse a pinned committer instead of bypassing managed Git",
   );
 });
