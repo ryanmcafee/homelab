@@ -42,6 +42,17 @@ the current conflict prevents naming a future merge ref.
 - `bun test scripts/upgrade-report-sinks_test.ts`: 2 passed, 0 failed, 39 ms.
   Executes the actual workflow revalidation projection with publishing excluded;
   checks malformed-input fallback and the summary/comment/artifact paths.
+- Security review found that the first projection copied raw `checks[].name`.
+  Before correction, adding a synthetic sentinel to that field failed the sink
+  test: the sentinel appeared in `revalidate.json` (1 failed, 1 passed, 25 ms).
+  The corrected projection generates fixed check labels and validates every
+  retained scalar and check entry before output. A malformed result emits only
+  the fixed failure object. After correction and rebase, the same workflow
+  projection test passed 2/2 with 48 assertions in 230 ms; the focused Go tests
+  passed, Biome passed, and `task verify:text` passed 277/0/1 in 11.559 s.
+  The extra synthetic projection cases cost about 0.2 s locally; the CI job
+  count and dependencies are unchanged. Report sinks still publish only the
+  projected JSON and Markdown, never `revalidate.raw.json`.
 - Initial `task verify:text`: 277 passed, 0 failed, 1 documented preview skip;
   12.598 s wall (10.869 s contract). No chart/configuration change was made.
 - No new CI job or dependency is added. The sanitizer adds one traversal per
@@ -50,6 +61,11 @@ the current conflict prevents naming a future merge ref.
 - Delivery child delegation was rejected with `delegation_cycle` through
   MCAA-629; Delivery has been asked for mapping through the existing task thread.
 
-Independent Security review, current-head CI evidence, authorized merge and
+Security rereview of the corrected head, current-head CI evidence, authorized merge and
 merged SHA remain outstanding. This document is not a safety verdict or
 permission to execute the held report workflow.
+
+The existing `validate` job also fails on the public registry host in
+`scripts/localdev-kind.ts:167`. This is present on `main`; independently
+reviewable PR #521 carries the guard correction. Its merge and fresh checks
+must be confirmed before #511 can be considered green.
