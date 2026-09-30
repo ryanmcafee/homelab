@@ -62,6 +62,8 @@ tests:
     input_series:
       - series: 'paperclip_agents_phantom_running{company_id="mcaa",company="McAfee Consulting"}'
         values: "5+0x60"
+      - series: 'paperclip_agents{company_id="mcaa",company="McAfee Consulting",status="running"}'
+        values: "5+0x60"
       - series: 'paperclip_agent_runs_live{company_id="mcaa",company="McAfee Consulting"}'
         values: "0+0x60"
     alert_rule_test:
@@ -93,16 +95,50 @@ tests:
               company_id: mcaa
               company: McAfee Consulting
             exp_annotations:
-              summary: "McAfee Consulting has 5 phantom agents and no live run: the board is stalled"
-              description: "No agent has a queued or running run while at least three report running, so no queued wake can dispatch and nothing self-heals. Clear the agent status from the board; docs/runbooks/paperclip-agents.md."
+              summary: "McAfee Consulting has 5 phantom agents and none running for real: the board is stalled"
+              description: "Every agent that reports running is phantom, at least three of them, so no agent is working that could clear the rest and nothing self-heals. Clear the agent status from the board; docs/runbooks/paperclip-agents.md."
 
-  # Three phantom agents while other runs are live is a stuck agent, not a
-  # stalled board: critical must stay silent so it keeps meaning "nobody can
-  # dispatch". This is the arm that separates the two severities.
+  # 2026-09-25: four agents deadlocked, and their own dead run rows (left
+  # running by the dropped sandbox) kept paperclip_agent_runs_live at 4. A
+  # live-run predicate stays silent here; critical must still fire.
+  - interval: 1m
+    input_series:
+      - series: 'paperclip_agents_phantom_running{company_id="mcaa",company="McAfee Consulting"}'
+        values: "4+0x60"
+      - series: 'paperclip_agents{company_id="mcaa",company="McAfee Consulting",status="running"}'
+        values: "4+0x60"
+      - series: 'paperclip_agent_runs_live{company_id="mcaa",company="McAfee Consulting"}'
+        values: "4+0x60"
+    alert_rule_test:
+      - eval_time: 31m
+        alertname: PaperclipPhantomAgentStuck
+        exp_alerts:
+          - exp_labels:
+              alertname: PaperclipPhantomAgentStuck
+              severity: warning
+              company_id: mcaa
+              company: McAfee Consulting
+            exp_annotations:
+              summary: "4 agents in McAfee Consulting report running without a live run"
+              description: "Agents stuck in status running with no queued or running heartbeat run for 15m. docs/runbooks/paperclip-agents.md."
+          - exp_labels:
+              alertname: PaperclipPhantomAgentStuck
+              severity: critical
+              company_id: mcaa
+              company: McAfee Consulting
+            exp_annotations:
+              summary: "McAfee Consulting has 4 phantom agents and none running for real: the board is stalled"
+              description: "Every agent that reports running is phantom, at least three of them, so no agent is working that could clear the rest and nothing self-heals. Clear the agent status from the board; docs/runbooks/paperclip-agents.md."
+
+  # Three phantom agents while two others are genuinely working is a stuck
+  # agent, not a stalled board: critical must stay silent so it keeps meaning
+  # "nobody left to clear it". This is the arm that separates the two severities.
   - interval: 1m
     input_series:
       - series: 'paperclip_agents_phantom_running{company_id="mcaa",company="McAfee Consulting"}'
         values: "3+0x60"
+      - series: 'paperclip_agents{company_id="mcaa",company="McAfee Consulting",status="running"}'
+        values: "5+0x60"
       - series: 'paperclip_agent_runs_live{company_id="mcaa",company="McAfee Consulting"}'
         values: "2+0x60"
     alert_rule_test:
@@ -124,6 +160,8 @@ tests:
   - interval: 1m
     input_series:
       - series: 'paperclip_agents_phantom_running{company_id="mcaa",company="McAfee Consulting"}'
+        values: "2+0x60"
+      - series: 'paperclip_agents{company_id="mcaa",company="McAfee Consulting",status="running"}'
         values: "2+0x60"
       - series: 'paperclip_agent_runs_live{company_id="mcaa",company="McAfee Consulting"}'
         values: "0+0x60"

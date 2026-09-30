@@ -971,17 +971,19 @@ spec:
                       summary: '{{`{{ $value }}`}} agents in {{`{{ $labels.company }}`}} report running without a live run'
                       description: 'Agents stuck in status running with no queued or running heartbeat run for 15m. docs/runbooks/paperclip-agents.md.'
                   # Three or more agents stuck at once is the signature of a
-                  # batch sandbox drop, and with no live run left there is no
-                  # agent able to clear it: every repair lever needs a board
-                  # account. That is a stalled board, not one stuck agent.
+                  # batch sandbox drop, and when every running agent is among
+                  # them no agent is left able to clear it: every repair lever
+                  # needs a board account. That is a stalled board, not one
+                  # stuck agent. paperclip_agent_runs_live cannot decide this,
+                  # because a dropped sandbox leaves its run rows running.
                   - alert: PaperclipPhantomAgentStuck
-                    expr: 'max by (company_id, company) (paperclip_agents_phantom_running) >= 3 and on (company_id, company) max by (company_id, company) (paperclip_agent_runs_live) == 0'
+                    expr: 'max by (company_id, company) (paperclip_agents_phantom_running) >= 3 and on (company_id, company) max by (company_id, company) (paperclip_agents_phantom_running) >= max by (company_id, company) (paperclip_agents{status="running"})'
                     for: 30m
                     labels:
                       severity: critical
                     annotations:
-                      summary: '{{`{{ $labels.company }}`}} has {{`{{ $value }}`}} phantom agents and no live run: the board is stalled'
-                      description: 'No agent has a queued or running run while at least three report running, so no queued wake can dispatch and nothing self-heals. Clear the agent status from the board; docs/runbooks/paperclip-agents.md.'
+                      summary: '{{`{{ $labels.company }}`}} has {{`{{ $value }}`}} phantom agents and none running for real: the board is stalled'
+                      description: 'Every agent that reports running is phantom, at least three of them, so no agent is working that could clear the rest and nothing self-heals. Clear the agent status from the board; docs/runbooks/paperclip-agents.md.'
           # JetStream work queue (docs/runbooks/pf-work-age-expiry.md). PF_WORK
           # age expiry deletes unacked work with no advisory and no per-message
           # signal of any kind, so these rules are the only thing standing

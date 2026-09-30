@@ -100,23 +100,26 @@ the week once the rate is high, so silence it after acting:
 `amtool silence add alertname=PaperclipRecoveryRateBreached --duration=24h` ([alerting.md](./alerting.md)).
 `GET /api/companies/<id>/recovery-observability` `byCause` names the causes.
 
-### PaperclipPhantomAgentStuck (warning > 0 for 15 m, critical >= 3 with no live run for 30 m)
+### PaperclipPhantomAgentStuck (warning > 0 for 15 m, critical >= 3 and every running agent phantom for 30 m)
 
 An agent reports `running` but has no queued or running run, so it never picks up new work. It
 usually follows an OOM kill or restart. In the UI open the agent and clear its error or pause and
 resume it (`clear_agent_error`, `pause_agent` / `resume_agent`); the gauge drops on the next scrape.
 
-The critical tier adds `paperclip_agent_runs_live == 0`: three or more agents stuck at once is the
-signature of a batch sandbox drop, and with nothing live there is no run left that could clear it.
-Every repair lever (`clear_agent_error`, `pause_agent` / `resume_agent`, terminate, reset session,
+The critical tier needs three or more phantom agents and no agent in status `running` that is not
+phantom: three or more agents stuck at once is the signature of a batch sandbox drop, and with no
+agent genuinely working there is nobody left who could clear it. It does not read
+`paperclip_agent_runs_live`, because a dropped sandbox leaves its run rows `running`
+([paperclipai/paperclip#13631](https://github.com/paperclipai/paperclip/issues/13631)); on
+2026-09-25 four deadlocked agents kept that gauge at 4 with their own dead rows. Every repair lever (`clear_agent_error`, `pause_agent` / `resume_agent`, terminate, reset session,
 resolving a board-owned recovery action) answers `403 Board access required` to an agent, so an
 agent cannot self-heal this and cannot heal a peer. The page is deliberate: recovery time here is
 bounded by a board account being available.
 
 ```promql
-# who is stuck, and is anything running at all
-paperclip_agents{status="running"}  -  ignoring(status) paperclip_agent_runs_live
-paperclip_agent_runs_live
+# phantom agents, and running agents that are not phantom (0 = nobody left to clear it)
+paperclip_agents_phantom_running
+paperclip_agents{status="running"}  -  ignoring(status) paperclip_agents_phantom_running
 ```
 
 1. Confirm the drop was a batch: `paperclip_agent_runs_errors{error_code="orphaned_running_run"}`
@@ -137,7 +140,8 @@ so a test cannot drift from what deploys. `tests/alerts/paperclip-recovery.test.
 with the values the API reported during the 2026-09-24 batch sandbox drop and asserts both arms of
 each threshold: the five-run floor on `PaperclipAgentFailureRateHigh`, the `breached` join on
 `PaperclipRecoveryRateBreached` (a high rate alone must stay silent), and the three-agent plus
-no-live-run pair that separates the two `PaperclipPhantomAgentStuck` tiers.
+every-running-agent-phantom pair that separates the two `PaperclipPhantomAgentStuck` tiers,
+including the 2026-09-25 drop where stale run rows kept `paperclip_agent_runs_live` non-zero.
 
 Every firing assertion pins the rendered annotations, so removing a runbook link from an alert
 fails the suite. Changing a threshold without changing the test fails it too - that is the point.
