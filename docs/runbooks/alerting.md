@@ -175,6 +175,10 @@ of samples; that is how 16 alerts stood on democratic-csi for three months while
 | homelab-nats-jetstream | `PFWorkOldestUnackedAging` | warning / critical | the head of the `PF_WORK` work queue has been unacked for 12 h / 18 h of its 24 h `max_age`, which deletes it silently ([pf-work-age-expiry.md](./pf-work-age-expiry.md)) |
 | homelab-nats-jetstream | `PFWorkMessagesExpiredUnacked` | critical | `PF_WORK` messages left the stream without being acked: age expiry, a purge or a delete |
 | homelab-nats-jetstream | `PFWorkStreamMetricsAbsent` | warning | the exporter reported `PF_WORK` in the last 6 h and no longer does, so the age budget is unwatched, for 30 m |
+| homelab-nats-jetstream | `JetStreamFileStoreFillingUp` | warning / critical | the shared file store is above 75 % / 90 % of `max_file_store`, where the peer refuses writes for every stream on it ([jetstream-storage-budget.md](./jetstream-storage-budget.md)) |
+| homelab-nats-jetstream | `JetStreamFileStoreMetricsAbsent` | warning | the exporter reported account storage in the last 6 h and no longer does, so the store is unwatched, for 30 m |
+| homelab-nats-jetstream | `JetStreamStreamApproachingMaxBytes` | warning / critical | one stream is above 75 % / 90 % of its own `max_bytes`, which the file-store alert cannot see |
+| homelab-nats-jetstream | `PFAuditRefusingWrites` | critical | `PF_AUDIT` is at its `max_bytes` ceiling with `last_seq` frozen and source lag above zero, so `discard: new` is refusing audit events waiting in `PF_EVENTS` |
 | homelab-github | `GitHubPullRequestNeedsReview` | info (own route) | an open pull request matched a review query for 5 m ([below](#github-pull-requests-that-need-review)) |
 | homelab-github | `GitHubPullRequestExporterFailing` | warning | a GitHub search query failed (bad token, rate limit) or is not scraped for 15 m |
 | homelab-service-mesh | `HomelabIstiodDown` | warning | no istiod answers the scrape for 10 m ([service-mesh.md](../service-mesh.md)) |
@@ -223,8 +227,11 @@ Dashboards: "Ingress overview" (all four gateways side by side), "Envoy Global",
 
 The `homelab-nats-jetstream` rules exist before the stream they watch: a cluster without NATS has
 no `nats_stream_*` series, so they sit silent rather than firing or going absent. They are the
-monitoring half of a contract requirement — `PF_WORK` age expiry destroys unacked work with no
+monitoring half of two contract requirements. `PF_WORK` age expiry destroys unacked work with no
 advisory of any kind, so a consumer with no such alert fails the boundary quality gate (ADR-030).
+And the event contract's `max_bytes` sum rule cannot be statically checked — the file store size is
+a cluster fact, not a contract value — so the storage rules are the only thing that enforces it at
+runtime (ADR-042, [jetstream-storage-budget.md](./jetstream-storage-budget.md)).
 
 Add a rule next to these (Prometheus `$labels` escaped as in the file), give it a `severity`
 label the table above routes, and run `task verify:text`: kubeconform validates the
