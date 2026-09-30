@@ -170,7 +170,7 @@ jobs:
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: ~/.cache/homelab-kind-registry
-          key: kind-registry-${{ hashFiles('configuration/versions.yaml', 'charts/addons/values-localdev.yaml', 'charts/applications/values-localdev.yaml') }}
+          key: kind-registry-${{ hashFiles('configuration/versions.yaml', 'charts/addons/values-localdev.yaml', 'charts/applications/values-localdev.yaml', 'localdev/values/argocd-values.yaml') }}
           restore-keys: |
             kind-registry-
 
@@ -255,6 +255,10 @@ jobs:
               done
             echo "=== ArgoCD events ==="
             kubectl --context "$KIND_CONTEXT" -n argocd get events --sort-by=.lastTimestamp || true
+            echo "=== ECR Public registry cache logs ==="
+            docker logs kind-registry-ecr 2>&1 || true
+            echo "=== Docker Hub registry cache logs ==="
+            docker logs kind-registry-docker 2>&1 || true
           } | tee kind-bootstrap-diagnostics.txt
 
       # The registry containers write their blobs as root. actions/cache tars

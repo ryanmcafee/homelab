@@ -13,6 +13,11 @@ Each entry should include:
 
 ## Recent Work
 
+### 2026-09-30 - MCAA-852: Kind Redis image pull diagnosis and source repair
+- **Status**: PR #536 draft; Kind level-2 check pending at the repaired head
+- **Description**: QA reproduced the ECR Public `toomanyrequests: Data limit exceeded` response in run 36713254067. Kind ArgoCD now selects Docker Hub's official Redis image at the pinned chart tag, and CI retains pod events plus ECR/Docker proxy logs
+- **URL**: https://github.com/ryanmcafee/homelab/pull/536
+
 ### 2026-09-25 - Alert triage agent: alert -> fix PR -> Pushover (Argo Workflows DAG)
 - **Status**: PR #372 open; before it runs create 1Password item `triage-agent` (`CLAUDE_CODE_OAUTH_TOKEN`, `GITHUB_TOKEN` fine-grained PAT with contents + pull requests read/write; optional `DOTFILES_REPO`, `ARGOCD_AUTH_TOKEN`, `PAPERCLIP_API_KEY`, `PAPERCLIP_COMPANY_ID`), make the `homelab-triage-agent` package public after the first publish, and generate the `triage-agent` ArgoCD token
 - **Description**: intake Deployment + `triage-fix` WorkflowTemplate: triage, plan, implement, deterministic verify loop, commit, PR, CI loop, needs-human, Pushover onExit; deny hook in `triage-agent/src/policy.ts`; ArgoCD account `triage-agent` (get + sync). ADR-036, docs/runbooks/triage-agent.md
