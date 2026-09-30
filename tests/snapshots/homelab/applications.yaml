@@ -1440,7 +1440,7 @@ spec:
             cpu: "2"
             memory: 16Gi
           requests:
-            cpu: 500m
+            cpu: "1"
             memory: 16Gi
         route:
           gateway:
