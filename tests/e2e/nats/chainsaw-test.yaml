@@ -776,7 +776,7 @@ spec:
                             [ "\$exporter" = 28 ] || { echo "FAIL: untrusted pod reached 7777"; exit 1; }
               JOB
               kubectl wait -n "$NAMESPACE" job/monitor-untrusted \
-                --for=jsonpath='{.status.conditions[?(@.status=="True")].type}'=Complete --timeout=150s \
+                --for=condition=Complete --timeout=150s \
                 || { kubectl logs -n "$NAMESPACE" job/monitor-untrusted || true; exit 1; }
               kubectl logs -n "$NAMESPACE" job/monitor-untrusted
       catch:
