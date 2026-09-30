@@ -629,6 +629,11 @@ spec:
       valueFiles:
         - values.yaml
         - values-homelab.yaml
+      # The 1Password item path comes from this parent's duckdns values
+      # (configuration/ DUCKDNS_1P_PATH via the CMP), so a fork's key reaches
+      # the OnePasswordItem. valuesObject overrides valueFiles.
+      valuesObject:
+        onePasswordItemPath: "vaults/homelab/items/duckdns"
   destination:
     server: https://kubernetes.default.svc
     namespace: duckdns
