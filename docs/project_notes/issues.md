@@ -95,6 +95,7 @@ Each entry should include:
 
 ## Pending/In Progress
 
+- **2026-09-30** - [MCAA-145](/MCAA/issues/MCAA-145): PR #399 rebased on current `main`; fail-closed schema loading passes `go test ./internal/config`. The new regression tests fail on `main` because malformed schema files silently remove `PROXMOX_NODE` and `NFS_MAPALL_USER`. ADR-047; awaiting review and merge — https://github.com/ryanmcafee/homelab/pull/399
 - **2026-09-25** - Envoy Gateway becomes the ingress (Gateways `envoy-internal`/`envoy-external`, wildcard TLS at the Gateway, every Ingress converted to an HTTPRoute, external-dns `gateway-httproute`, OIDC plugin dropped) and Istio gateways deployed for comparison (ADR-040, docs/runbooks/envoy-gateway.md) — PR #387 (https://github.com/ryanmcafee/homelab/pull/387)
 - **2026-09-21** - PR #316: Paperclip `adapters.apiKeys.anthropic.enabled` / `adapters.apiKeys.openai.enabled` (both default false) replace the operator's all-or-nothing `apiKeysSecretRef`, so `ANTHROPIC_API_KEY` and `OPENAI_API_KEY` are wired independently and neither reaches the pod by default; subscription tokens stay wired through `adapters.extraSecretEnv` — https://github.com/ryanmcafee/homelab/pull/316
 - **2026-09-13** - Issue #260: Paperclip via paperclip-operator + CloudNativePG (4 Applications) — PR #280 open, level 2 runs in CI (`kind-argocd`); 2026-09-14: the same PR moves the Kind loop to the PR head (`localdev:argocd --revision` / `LOCALDEV_REVISION`, `localdev:report --base`, CI checks out the head SHA; ADR-012 amendment) — https://github.com/ryanmcafee/homelab/pull/280
