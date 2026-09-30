@@ -439,6 +439,23 @@ export interface CommitterRegime {
   measuredMajor: number | null;
 }
 
+/** A pin is evidence only when the entire value is a positive major number. */
+export function parseRenovateMajor(value: string | undefined): number | null {
+  if (value === undefined || value === "") return null;
+  if (!/^[1-9][0-9]*$/.test(value)) {
+    throw new Error(
+      "renovate-regen/deployed-major: RENOVATE_MAJOR must be a positive whole-number major (for example, 43).",
+    );
+  }
+  const major = Number(value);
+  if (!Number.isSafeInteger(major)) {
+    throw new Error(
+      "renovate-regen/deployed-major: RENOVATE_MAJOR exceeds the supported integer range.",
+    );
+  }
+  return major;
+}
+
 /**
  * Resolve the regime the run will report under. `--committer-strict` enforces
  * the 44 behaviour without claiming to have measured it, so it leaves
@@ -448,7 +465,7 @@ export function resolveCommitterRegime(
   args: string[],
   env: Record<string, string | undefined>,
 ): CommitterRegime {
-  const measuredMajor = Number.parseInt(env.RENOVATE_MAJOR ?? "", 10) || null;
+  const measuredMajor = parseRenovateMajor(env.RENOVATE_MAJOR);
   return {
     committerIsRead:
       args.includes("--committer-strict") || committerIsRead(measuredMajor),
