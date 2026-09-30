@@ -172,32 +172,41 @@ test("summarize records a pod stuck in ImagePullBackOff without a container stat
   ]);
 });
 
-test("capture without a cluster or registry still writes explicit missing evidence", async () => {
-  const out = await mkdtemp(join(tmpdir(), "kcd-out-"));
-  const s = await capture({
-    out,
-    context: "kind-cold-draw-test-no-such-context",
-    namespace: "argocd",
-    registry: "kind-cold-draw-test-no-such-container",
-  });
-  assertEquals(s.pod, null);
-  assert(
-    s.missing.some((m) => m.startsWith("redis pod: no pod matched")),
-    s.missing.join("\n"),
-  );
-  assert(
-    s.missing.some((m) =>
-      m.startsWith("container kind-cold-draw-test-no-such-container:"),
-    ),
-    s.missing.join("\n"),
-  );
-  assertStringIncludes(
-    await readFile(join(out, "redis-describe.txt"), "utf8"),
-    "MISSING",
-  );
-  const onDisk = JSON.parse(await readFile(join(out, "summary.json"), "utf8"));
-  assertEquals(onDisk.missing, s.missing);
-});
+// It spawns real kubectl and docker; hosted runners took 2.2-5s against bun's 5s default.
+const CAPTURE_TIMEOUT_MS = 30_000;
+
+test(
+  "capture without a cluster or registry still writes explicit missing evidence",
+  async () => {
+    const out = await mkdtemp(join(tmpdir(), "kcd-out-"));
+    const s = await capture({
+      out,
+      context: "kind-cold-draw-test-no-such-context",
+      namespace: "argocd",
+      registry: "kind-cold-draw-test-no-such-container",
+    });
+    assertEquals(s.pod, null);
+    assert(
+      s.missing.some((m) => m.startsWith("redis pod: no pod matched")),
+      s.missing.join("\n"),
+    );
+    assert(
+      s.missing.some((m) =>
+        m.startsWith("container kind-cold-draw-test-no-such-container:"),
+      ),
+      s.missing.join("\n"),
+    );
+    assertStringIncludes(
+      await readFile(join(out, "redis-describe.txt"), "utf8"),
+      "MISSING",
+    );
+    const onDisk = JSON.parse(
+      await readFile(join(out, "summary.json"), "utf8"),
+    );
+    assertEquals(onDisk.missing, s.missing);
+  },
+  CAPTURE_TIMEOUT_MS,
+);
 
 test("the draw workflow restores no cache of any kind", async () => {
   const wf = await readFile(
