@@ -6,6 +6,9 @@
 # The parent Application (charts/addons/templates/argo-events.yaml) supplies
 # every value below, so bus sizing stays operator-supplied.
 
+# Set on every object so a server-side dry run targets the bus namespace.
+namespace: argo-events
+
 # StatefulSet pods, and the replica count of the streams Argo Events creates on
 # them. Argo Events accepts 1, 3 or 5 only.
 replicas: 1
