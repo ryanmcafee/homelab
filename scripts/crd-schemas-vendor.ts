@@ -485,12 +485,18 @@ export function contentsApiError(
   ].join("\n");
 }
 
+interface FetchOkHooks {
+  /** Sees every response, including failed attempts. */
+  onResponse?: (res: Response) => void;
+  /** Describes a non-OK response; defaults to its status line. */
+  describeFailure?: (res: Response) => string;
+}
+
 async function fetchOk(
   url: string,
   init: RequestInit,
   sourceName: string,
-  describeFailure?: (res: Response) => string,
-  onResponse?: (res: Response) => void,
+  { onResponse, describeFailure }: FetchOkHooks = {},
 ): Promise<Response> {
   try {
     return await withRetry(
@@ -527,20 +533,17 @@ async function fetchGithubCRDs(
     log.info(`[${source.name}] GET ${apiUrl}`);
     const headers = githubApiHeaders(process.env);
     const authenticated = "Authorization" in headers;
-    const res = await fetchOk(
-      apiUrl,
-      { headers },
-      source.name,
-      (response) =>
+    const res = await fetchOk(apiUrl, { headers }, source.name, {
+      describeFailure: (response) =>
         contentsApiError(source.name, apiUrl, response, authenticated),
-      (response) => {
+      onResponse: (response) => {
         if (budgetLogged) return;
         budgetLogged = true;
         log.info(
           `contents API budget: ${response.headers.get("x-ratelimit-remaining") ?? "?"} of ${response.headers.get("x-ratelimit-limit") ?? "?"} per hour remaining (${authenticated ? "authenticated" : "unauthenticated, shared per IP"})`,
         );
       },
-    );
+    });
     const entries = (await res.json()) as GithubContentEntry[];
     const yamlFiles = entries.filter(
       (e) => e.type === "file" && e.name.endsWith(".yaml"),
