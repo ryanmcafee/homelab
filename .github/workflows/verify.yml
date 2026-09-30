@@ -35,6 +35,10 @@ on:
   # job-minutes, so running it on every pull request is cheaper than any shim that would
   # keep the filter. Do not reintroduce a paths filter here while the job is required.
   pull_request:
+  # A merge queue validates a synthetic candidate through merge_group. Keep
+  # this full merge-result suite available there without a paths filter.
+  merge_group:
+    types: [checks_requested]
   # push keeps its filter: post-merge runs on main gate nothing, so skipping the ones
   # that cannot be affected is free.
   push:
