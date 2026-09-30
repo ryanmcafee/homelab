@@ -26,6 +26,7 @@ import {
   GuardError,
   parseFlags,
   readSummary,
+  run,
   summarize,
   UsageError,
 } from "./kind-cold-draw.ts";
@@ -205,6 +206,12 @@ test("capture without a cluster or registry still writes explicit missing eviden
   );
   const onDisk = JSON.parse(await readFile(join(out, "summary.json"), "utf8"));
   assertEquals(onDisk.missing, s.missing);
+});
+
+test("a stalled capture command is bounded and names the command", () => {
+  const result = run(["sleep", "2"], 100);
+  assertEquals(result.code, 124);
+  assertStringIncludes(result.stderr, "timed out after 100 ms: sleep 2");
 });
 
 test("the draw workflow restores no cache of any kind", async () => {

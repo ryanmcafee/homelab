@@ -12,6 +12,12 @@ Each entry should include:
 
 ## Entries
 
+### 2026-09-30 - Kind cold-draw evidence test timed out on host commands (PR #535)
+- **Issue**: The no-cluster capture test used real `kubectl` and `docker`; CI timed out at five seconds without naming the stalled command.
+- **Cause**: `capture` had no command injection seam and `run` gave `Bun.spawnSync` no timeout.
+- **Fix**: Inject a deterministic failing runner in the unit test. Bound real capture commands to ten seconds and record the command in timeout evidence. A success-code mutation fails the missing-evidence assertion.
+- **Verification**: 26 focused tests and 650 script tests pass; the negative mutation fails 1/1 targeted test.
+
 ### 2026-09-30 - Kind ArgoCD Redis pull hit ECR Public data limit (MCAA-852)
 - **Issue**: Cold-cache Kind bootstrap at PR #487 head `aa8d475` timed out on `argocd-redis` with `ImagePullBackOff`; the original CI diagnostics retained no kubelet error
 - **Root Cause**: A reproduced pull through `kind-registry-ecr` returned HTTP 500 for the Redis manifest. All 12 proxy manifest requests logged `toomanyrequests: Data limit exceeded` from ECR Public (QA artifact, run 36713254067)
