@@ -72,7 +72,9 @@ count by (service, environment) (
 ```
 
 A non-empty result means more than one `version`/`revision` ran in the last hour: a deploy
-happened, so roll back. Do not use `changes()` here; `platform_build_info` is always 1 and a deploy
+happened, so roll back. It is also non-empty while a canary is in progress (stable and canary
+both expose) and after a rollout was already rolled back, so check
+`kubectl argo rollouts get rollout <rollout> -n <namespace>` before acting. Do not use `changes()` here; `platform_build_info` is always 1 and a deploy
 starts a new series, so `changes()` reads 0 before and after every release.
 
 ### 3. If it is not a release
