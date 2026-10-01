@@ -865,6 +865,65 @@ test("no_push_consumer: each push field alone fails the rule", () => {
   );
 });
 
+/** The test-only opt-in past the ADR-055 render guard, for renders that enable auth on purpose. */
+const NACK_INBOX_OPT_IN_KEY = "testOnlyAuthWithoutNackInbox";
+const NACK_INBOX_OPT_IN = ["--set", `nats.${NACK_INBOX_OPT_IN_KEY}=true`];
+
+test("nack_inbox_prefix_render_guard: setting keys without the opt-in is refused, naming ADR-055", () => {
+  // The pinned NACK cannot set `_INBOX.nack`, so an authenticated bus would freeze the stream
+  // set while every Application reads Synced. The refusal must happen at render.
+  const args = [
+    "--set",
+    "nats.enabled=true",
+    ...publicNkeyArgs("nack"),
+    "--show-only",
+    "templates/nats.yaml",
+  ];
+  const refused = helmTemplate(ADDONS_CHART, ...args);
+  assert(
+    refused.code !== 0,
+    `keys rendered with no NACK inbox prefix\n${refused.output}`,
+  );
+  assertStringIncludes(refused.output, "cannot set its inbox prefix");
+  assertStringIncludes(refused.output, "(ADR-055)");
+
+  // The other half, so the refusal above is the guard and not some unrelated failure.
+  const optedIn = helmTemplate(ADDONS_CHART, ...args, ...NACK_INBOX_OPT_IN);
+  assert(
+    optedIn.code === 0,
+    `the opted-in render failed\n${optedIn.output}`,
+  );
+  const anonymous = helmTemplate(
+    ADDONS_CHART,
+    "--set",
+    "nats.enabled=true",
+    "--show-only",
+    "templates/nats.yaml",
+  );
+  assert(
+    anonymous.code === 0,
+    `the anonymous bus no longer renders without the opt-in\n${anonymous.output}`,
+  );
+});
+
+test("nack_inbox_prefix_render_guard: no shipped values surface sets the test-only opt-in", () => {
+  // The opt-in is for suites that enable auth on purpose. Matched as a bare word rather than a
+  // YAML key, so a templated or commented-out setting is caught too.
+  const surfaces = [
+    join(ADDONS_CHART, "values.yaml"),
+    join(ADDONS_CHART, "values-localdev.yaml"),
+    join(ROOT, "configuration", "templates", "helm-addons.tmpl"),
+  ];
+  for (const surface of surfaces) {
+    const text = readFileSync(surface, "utf8");
+    assert(text.length > 0, `${surface} read empty`);
+    assert(
+      !text.includes(NACK_INBOX_OPT_IN_KEY),
+      `${surface} mentions ${NACK_INBOX_OPT_IN_KEY}; that key is for test suites only, and a shipped render that sets it enables auth NACK cannot reconcile under (ADR-055)`,
+    );
+  }
+});
+
 test("callout_allowed_accounts_bounded: an unbounded callout is refused before it renders", () => {
   // v2.15.0 delegates EVERY account to the callout service when `allowed_accounts` is left
   // empty, so the secure value is not the default. The bound is checked before the backend
@@ -940,6 +999,7 @@ test("callout_allowed_accounts_bounded: the shipped config configures no callout
     "--set",
     "nats.enabled=true",
     ...publicNkeyArgs("nack"),
+    ...NACK_INBOX_OPT_IN,
     "--show-only",
     "templates/nats.yaml",
   );
