@@ -556,8 +556,9 @@ test("upgrade.yml runs this check and its paths filter names the script", () => 
   assertStringIncludes(workflow, ALLOWLIST_PATH);
 });
 
-const RESET =
-  'Error: failed to do request: Head "https://oci.trueforge.org/v2/truecharts/flaresolverr/manifests/16.18.2": read tcp 10.1.0.4:52114->203.0.113.7:443: read: connection reset by peer';
+const RESET_TAIL =
+  "read tcp 10.1.0.4:52114->203.0.113.7:443: read: connection reset by peer";
+const RESET = `Error: failed to do request: Head "https://oci.trueforge.org/v2/truecharts/flaresolverr/manifests/16.18.2": ${RESET_TAIL}`;
 const MANIFEST_UNKNOWN =
   'Error: failed to perform "FetchReference" on source: oci.trueforge.org/truecharts/flaresolverr:99.0.0: not found';
 
@@ -600,6 +601,9 @@ test("isTransientPullError: resets, timeouts, 5xx and 429 retry; not-found does 
     "Error: GET https://oci.trueforge.org/v2/token: response status code 502: Bad Gateway",
     "Error: unexpected status code 429: Too Many Requests",
     "Error: failed to fetch https://charts.example.com/index.yaml : 500 Internal Server Error",
+    // A 404 in a tag or port is not a status code.
+    `Error: failed to do request: Head "https://oci.example/v2/charts/widget/manifests/1.404.0": ${RESET_TAIL}`,
+    `Error: failed to do request: Head "https://oci.example:404/v2/charts/widget/manifests/1.0.0": ${RESET_TAIL}`,
   ]) {
     assert(isTransientPullError(stderr), `expected transient: ${stderr}`);
   }
@@ -607,6 +611,8 @@ test("isTransientPullError: resets, timeouts, 5xx and 429 retry; not-found does 
     MANIFEST_UNKNOWN,
     "Error: MANIFEST_UNKNOWN: manifest unknown; map[Tag:99.0.0]",
     "Error: failed to fetch https://charts.example.com/x-1.0.0.tgz : 404 Not Found",
+    // A 404 status vetoes the retry even when a reset was logged first.
+    `WARNING: ${RESET_TAIL}\nError: GET "https://oci.example/v2/charts/widget/manifests/1.0.0": response status code 404`,
     'Error: chart "x" version "9.9.9" not found in https://charts.example.com repository',
     'Error: failed to perform "FetchReference" on source: GET "https://oci.trueforge.org/v2/truecharts/nosuchchart-xyz/manifests/1.0.0": response status code 401: unauthorized: access to the requested resource is not authorized: map[]',
     // A 5xx digit run inside an address is not a status code.
@@ -640,6 +646,16 @@ test("pullChart: a persistent reset fails closed after the bounded attempts", as
   assertStringIncludes(result.error, "connection reset by peer");
   assertEquals(calls(), 3);
   assertEquals(slept, [2000, 5000]);
+});
+
+test("pullChart: a reset on a tag containing 404 is still retried", async () => {
+  const tagged: ChartSource = { ...flaresolverr, targetRevision: "1.404.0" };
+  const reset = `Error: failed to do request: Head "https://oci.trueforge.org/v2/truecharts/flaresolverr/manifests/1.404.0": ${RESET_TAIL}`;
+  const { run, calls } = scriptedRun([reset, reset, reset]);
+  const result = await pullChart(tagged, UNTAR, { run, sleep: noSleep });
+  assert("error" in result, "a persistent reset must not pass");
+  assertStringIncludes(result.error, "after 3 attempt(s)");
+  assertEquals(calls(), 3);
 });
 
 test("pullChart: manifest unknown fails on the first attempt with no retry", async () => {

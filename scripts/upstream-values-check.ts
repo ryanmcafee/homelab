@@ -497,7 +497,8 @@ export type PullRun = (
   args: string[],
 ) => Promise<{ exitCode: number; stderr: string }>;
 
-const NON_RETRYABLE = /manifest unknown|not found|\b404\b/i;
+const NON_RETRYABLE =
+  /manifest unknown|not found|status(?: code)?:? 404\b|\b404 Not Found/i;
 const TRANSIENT = [
   /connection reset|broken pipe|unexpected EOF/i,
   /i\/o timeout|TLS handshake timeout|timed out|deadline exceeded/i,
