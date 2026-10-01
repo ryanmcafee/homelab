@@ -66,7 +66,8 @@ export const DISCHARGE_LABEL = "fork-path: cold-run-waived";
 export const COLD_WORKFLOW_PATH = ".github/workflows/fork-path-cold.yml";
 
 /**
- * Tier 1, minus Taskfile.yml which is conditional (see classify). This is
+ * Tier 1, minus Taskfile.yml which is conditional, and with readme.md
+ * conditional on changes outside its badges region (see classify). This is
  * exactly the surface fork-path-cold.yml executes — not "everything
  * fork-related". terragrunt/, talos/, ansible/ and packer/ are real
  * fork-ability surface but check 3a executes none of them, and a gate that
@@ -97,8 +98,17 @@ export const TIER2_PATHS = [
   "docs/contracts/fork-ability.md",
 ];
 
-/** The one conditional entry: see taskfileDiffTouchesLocaldev. */
+/** Conditional entries: see taskfileDiffTouchesLocaldev and readmeChangedOutsideBadges. */
 export const TASKFILE = "Taskfile.yml";
+export const README = "readme.md";
+
+/**
+ * The docs-check generated region holding the readme's version badges. Kept
+ * literal rather than imported from docs-check.ts, whose YAML dependency would
+ * need a `bun install` this job deliberately skips; a test pins the two equal.
+ */
+export const README_BADGES_BEGIN = "<!-- docs-check:begin badges -->";
+export const README_BADGES_END = "<!-- docs-check:end badges -->";
 
 export type Classification = { tier1: string[]; tier2: string[] };
 
@@ -154,18 +164,55 @@ export function taskfileDiffTouchesLocaldev(diff: string): boolean {
   return false;
 }
 
+/** The readme with the badges region body removed; the markers themselves stay. */
+export function stripReadmeBadges(text: string): string {
+  const begin = text.indexOf(README_BADGES_BEGIN);
+  if (begin === -1) return text;
+  const bodyStart = begin + README_BADGES_BEGIN.length;
+  const end = text.indexOf(README_BADGES_END, bodyStart);
+  if (end === -1) return text;
+  return text.slice(0, bodyStart) + text.slice(end);
+}
+
+/**
+ * True when readme.md changed anywhere outside the docs-check `badges` region.
+ *
+ * A version badge is regenerated from configuration/versions.yaml by
+ * `docs:check -- --fix`, including by the Renovate regeneration bot, which can
+ * neither link a cold run nor apply the waiver label. The badges are not a
+ * command fork-path-cold.yml types, so a badge-only diff is not Tier 1. A file
+ * added or deleted (null side), or a moved marker, still counts: the stripped
+ * texts then differ.
+ */
+export function readmeChangedOutsideBadges(
+  before: string | null,
+  after: string | null,
+): boolean {
+  if (before === null || after === null) return true;
+  return stripReadmeBadges(before) !== stripReadmeBadges(after);
+}
+
 export function classify(input: {
   files: readonly string[];
   taskfileDiff?: string;
+  /** Both sides of readme.md; absent means unknown, which stays Tier 1. */
+  readme?: { before: string | null; after: string | null };
 }): Classification {
   const tier1: string[] = [];
   const tier2: string[] = [];
   const taskfileHits = taskfileDiffTouchesLocaldev(input.taskfileDiff ?? "");
+  const readmeHits = input.readme
+    ? readmeChangedOutsideBadges(input.readme.before, input.readme.after)
+    : true;
   for (const file of input.files) {
     const path = file.trim();
     if (path === "") continue;
     if (path === TASKFILE) {
       if (taskfileHits) tier1.push(path);
+      continue;
+    }
+    if (path === README) {
+      if (readmeHits) tier1.push(path);
       continue;
     }
     if (matchesAny(path, TIER1_PATHS)) {
@@ -473,6 +520,12 @@ function git(args: string[]): string {
   return r.stdout ?? "";
 }
 
+/** A blob at `rev:path`, or null when that side of the diff has no such file. */
+function gitShowOrNull(spec: string): string | null {
+  const r = spawnSync("git", ["show", spec], { encoding: "utf8" });
+  return r.status === 0 ? (r.stdout ?? "") : null;
+}
+
 async function api(
   path: string,
   token: string,
@@ -510,7 +563,14 @@ async function main(): Promise<number> {
   const taskfileDiff = files.includes(TASKFILE)
     ? git(["diff", "-U0", range, "--", TASKFILE])
     : "";
-  const classification = classify({ files, taskfileDiff });
+  const mergeBase = git(["merge-base", baseSha, headSha]).trim();
+  const readme = files.includes(README)
+    ? {
+        before: gitShowOrNull(`${mergeBase}:${README}`),
+        after: gitShowOrNull(`${headSha}:${README}`),
+      }
+    : undefined;
+  const classification = classify({ files, taskfileDiff, readme });
 
   // Labels and body live on the API, not the replayed event payload.
   let labels: string[] = [];

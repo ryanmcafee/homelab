@@ -16,6 +16,8 @@ import {
   COLD_WORKFLOW_PATH,
   CONTRACT_PATH,
   DISCHARGE_LABEL,
+  README_BADGES_BEGIN,
+  README_BADGES_END,
   type RunFact,
   blobUrl,
   classify,
@@ -24,9 +26,11 @@ import {
   extractRunLinks,
   globToRegExp,
   hasDischargeLabel,
+  readmeChangedOutsideBadges,
   renderComment,
   taskfileDiffTouchesLocaldev,
 } from "./fork-path-gate.ts";
+import { regionRe } from "./docs-check.ts";
 
 const HEAD = "1111111111111111111111111111111111111111";
 const OTHER = "2222222222222222222222222222222222222222";
@@ -180,6 +184,79 @@ test("taskfileDiffTouchesLocaldev: a deleted localdev line counts", () => {
     taskfileDiffTouchesLocaldev("--- a/Taskfile.yml\n-  localdev:down:"),
     true,
   );
+});
+
+// --- the readme.md badges exception (MCAA-1046) ---------------------------
+
+const README_BEFORE = [
+  "<h1>homelab</h1>",
+  README_BADGES_BEGIN,
+  "[![Cilium](https://img.shields.io/badge/Cilium-1.19.5-F8C517)](https://cilium.io/)",
+  README_BADGES_END,
+  "",
+  "```bash",
+  "task localdev:up",
+  "```",
+].join("\n");
+
+test("classify: a readme diff only inside the badges region is not Tier 1", () => {
+  // The Renovate regeneration bot's commit after a charts.cilium bump.
+  const after = README_BEFORE.replace("Cilium-1.19.5", "Cilium-1.19.6");
+  assertEquals(readmeChangedOutsideBadges(README_BEFORE, after), false);
+  assertEquals(
+    classify({
+      files: [
+        "configuration/versions.yaml",
+        "readme.md",
+        "docs/applications.md",
+        "tests/snapshots/homelab/addons.yaml",
+      ],
+      readme: { before: README_BEFORE, after },
+    }),
+    { tier1: [], tier2: [] },
+  );
+});
+
+test("classify: a readme diff outside the badges region is Tier 1", () => {
+  const after = README_BEFORE.replace(
+    "task localdev:up",
+    "task localdev:up -- --wait",
+  ).replace("Cilium-1.19.5", "Cilium-1.19.6");
+  assertEquals(readmeChangedOutsideBadges(README_BEFORE, after), true);
+  assertEquals(
+    classify({ files: ["readme.md"], readme: { before: README_BEFORE, after } })
+      .tier1,
+    ["readme.md"],
+  );
+});
+
+test("readmeChangedOutsideBadges: moving a marker over prose counts", () => {
+  // Widening the region to swallow a command must not hide the command change.
+  const after = [
+    "<h1>homelab</h1>",
+    README_BADGES_BEGIN,
+    "[![Cilium](https://img.shields.io/badge/Cilium-1.19.5-F8C517)](https://cilium.io/)",
+    "",
+    "```bash",
+    "task localdev:ci",
+    "```",
+    README_BADGES_END,
+  ].join("\n");
+  assertEquals(readmeChangedOutsideBadges(README_BEFORE, after), true);
+});
+
+test("readmeChangedOutsideBadges: an added or deleted readme counts", () => {
+  assertEquals(readmeChangedOutsideBadges(null, README_BEFORE), true);
+  assertEquals(readmeChangedOutsideBadges(README_BEFORE, null), true);
+});
+
+test("classify: readme.md with no content supplied stays Tier 1", () => {
+  assertEquals(classify({ files: ["readme.md"] }).tier1, ["readme.md"]);
+});
+
+test("README_BADGES markers match the region docs-check.ts writes", () => {
+  const text = `${README_BADGES_BEGIN}\nbody\n${README_BADGES_END}`;
+  assertEquals(regionRe("badges").exec(text)?.[2], "body");
 });
 
 // --- discharge route 1: the linked run ------------------------------------
