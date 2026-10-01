@@ -20,7 +20,8 @@
  *           discharged (below).
  *   Tier 2  genuinely "secrets or identity" under the contract, but the
  *           literal-leak class is already caught on every PR by level 0's
- *           render (checks 1 and 2). Warn only: a sticky comment, never a
+ *           render (checks 1 and 2), and for terragrunt/, talos/ and packer/
+ *           by the config guard. Warn only: a sticky comment, never a
  *           failure.
  *
  * A Tier 1 hit is discharged by either of:
@@ -84,6 +85,12 @@ export const TIER1_PATHS = [
   COLD_WORKFLOW_PATH,
 ];
 
+/**
+ * The infrastructure trees check 3a never executes. The config guard reads them
+ * for literal leaks; their Tier 2 note is for what no static check can see.
+ */
+export const TIER2_INFRA_PATHS = ["terragrunt/**", "talos/**", "packer/**"];
+
 /** Tier 2 — warn only. */
 export const TIER2_PATHS = [
   "configuration/environments/**",
@@ -96,6 +103,7 @@ export const TIER2_PATHS = [
   "docs/secrets.md",
   "docs/secrets-management.md",
   "docs/contracts/fork-ability.md",
+  ...TIER2_INFRA_PATHS,
 ];
 
 /** Conditional entries: see taskfileDiffTouchesLocaldev and readmeChangedOutsideBadges. */
@@ -479,14 +487,26 @@ export function renderComment(input: {
   }
 
   if (tier2.length > 0) {
+    const infra = tier2.filter((f) => matchesAny(f, TIER2_INFRA_PATHS));
     out.push(
       "### Tier 2 (secrets / identity) — advisory ⚠️",
       "",
-      "Changed here, so worth a second look against the fork-ability contract. **This does not fail the check**: the literal-leak class is already caught on every pull request by level 0's render against `configuration/environments/{localdev.yaml,homelab.yaml.example}` (checks 1 and 2).",
-      "",
-      ...tier2.map((f) => `- \`${f}\``),
+      "Changed here, so worth a second look against the fork-ability contract. **This does not fail the check**.",
       "",
     );
+    if (infra.length < tier2.length) {
+      out.push(
+        "For the configuration and secrets surface, the literal-leak class is already caught on every pull request by level 0's render against `configuration/environments/{localdev.yaml,homelab.yaml.example}` (checks 1 and 2).",
+        "",
+      );
+    }
+    if (infra.length > 0) {
+      out.push(
+        "`terragrunt/`, `talos/` and `packer/` are never executed by check 3a. The config guard (`task config:guard`) reads them for literal operator values; no static check can see what a fork must supply that these files assume. Check the change for undeclared hardware prerequisites, a fixed cluster topology shape, and secret-store or identity-provider assumptions.",
+        "",
+      );
+    }
+    out.push(...tier2.map((f) => `- \`${f}\``), "");
   }
 
   const contractUrl = blobUrl({

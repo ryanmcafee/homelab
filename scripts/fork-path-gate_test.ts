@@ -101,21 +101,19 @@ test("classify: Tier 2 warns and never lands in Tier 1", () => {
       "docs/secrets.md",
       "docs/secrets-management.md",
       "docs/contracts/fork-ability.md",
+      "terragrunt/env/main.hcl",
+      "talos/patches/cp.yaml",
+      "packer/talos.pkr.hcl",
     ],
   });
   assertEquals(tier1, []);
-  assertEquals(tier2.length, 10);
+  assertEquals(tier2.length, 13);
 });
 
 test("classify: the explicitly excluded surfaces stay excluded", () => {
-  // Real fork-ability surface, but check 3a executes none of it, so demanding
-  // a cold run for it would greenlight an unchecked change. Tracked separately.
   const { tier1, tier2 } = classify({
     files: [
-      "terragrunt/env/main.hcl",
-      "talos/patches/cp.yaml",
       "ansible/site.yml",
-      "packer/talos.pkr.hcl",
       "configuration/templates/a.tmpl",
       "configuration/schema/a.schema.yaml",
       "charts/addons/values.yaml",
@@ -461,6 +459,45 @@ test("renderComment: Tier 2 only produces an advisory that cannot be read as a f
   assert((c as string).includes("advisory"));
   assert((c as string).includes("does not fail the check"));
   assert(!(c as string).includes("action required"));
+});
+
+test("renderComment: an infrastructure-tree hit names the classes no static check sees", () => {
+  const classification = { tier1: [], tier2: ["terragrunt/env/main.hcl"] };
+  const c = renderComment({
+    classification,
+    decision: decide({
+      classification,
+      headSha: HEAD,
+      labels: [],
+      body: "",
+      runs: [],
+    }),
+    headSha: HEAD,
+  }) as string;
+  assert(c.includes("does not fail the check"));
+  assert(c.includes("hardware prerequisites"));
+  assert(c.includes("topology"));
+  assert(c.includes("secret-store"));
+  assert(c.includes("identity"));
+  // Level 0 renders configuration/, not these trees; claiming it covers them is false.
+  assert(!c.includes("level 0's render"));
+});
+
+test("renderComment: a configuration-only hit carries no infrastructure note", () => {
+  const classification = { tier1: [], tier2: ["charts/secrets/values.yaml"] };
+  const c = renderComment({
+    classification,
+    decision: decide({
+      classification,
+      headSha: HEAD,
+      labels: [],
+      body: "",
+      runs: [],
+    }),
+    headSha: HEAD,
+  }) as string;
+  assert(c.includes("level 0's render"));
+  assert(!c.includes("hardware prerequisites"));
 });
 
 test("renderComment: a Tier 1 failure always carries both discharge routes", () => {
