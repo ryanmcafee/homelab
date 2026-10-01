@@ -833,7 +833,7 @@ spec:
       releaseName: argo-workflows
       values: |
         server:
-          authMode: server
+          authMode: client
           httproute:
             enabled: true
             annotations:

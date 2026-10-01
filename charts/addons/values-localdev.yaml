@@ -1199,7 +1199,11 @@ argo-workflows:
     version: "1.0.18"
 
   server:
-    authMode: server
+    # `server` serves the UI and API with full controller privileges and no
+    # credential at all. The server runs arbitrary containers, so anyone who can
+    # reach the route can execute code in the cluster. `client` makes the caller
+    # supply their own Kubernetes bearer token; SSO replaces it in #51.
+    authMode: client
 
     # HTTPRoute on the internal Gateway (GATEWAY_INTERNAL).
     route:

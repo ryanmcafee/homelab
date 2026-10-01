@@ -973,7 +973,7 @@ argo-workflows:
   # Server configuration
   server:
     # Authentication mode: server (no auth), client (requires token), sso
-    authMode: server
+    authMode: client
 
     # HTTPRoute on the internal Gateway
     route:
