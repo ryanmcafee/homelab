@@ -164,13 +164,16 @@ Dated, because a check's status is a claim about the past and decays.
     (`TIER2_PATHS` in the same file, and this document). Genuinely "secrets or identity", but the
     literal-leak class is already caught on every pull request by checks 1 and 2, so a second
     hard gate over the same surface would buy detection we already have.
-  - **Deliberately excluded:** `terragrunt/**`, `talos/**`, `ansible/**`, `packer/**`. Real
-    fork-ability surface, but check 3a executes none of it — it is a Kind/ArgoCD localdev loop.
-    Telling an author who touched `terragrunt/` to "run the cold fork path" demands a run that
-    structurally cannot detect their regression, and a gate that greenlights an unchecked change
-    is worse than no gate. That is a separate, unclosed gap: that surface has no
-    change-triggered fork-path check of any kind, and check 3b, the only check that would cover
-    it, has never been executed.
+  - **Tier 2, infrastructure trees:** `terragrunt/**`, `talos/**`, `packer/**`. Check 3a
+    executes none of it — it is a Kind/ArgoCD localdev loop — so these can never be Tier 1:
+    telling an author who touched `terragrunt/` to "run the cold fork path" demands a run that
+    structurally cannot detect their regression. Their literal leaks are the config guard's
+    (see the scan scope below). The Tier 2 note covers what no static check can see: undeclared
+    hardware prerequisites, a fixed topology shape, and secret-store or identity assumptions.
+    It is advice, not detection: check 3b, the only check that would exercise this surface, has
+    never been executed.
+  - **Deliberately excluded:** `ansible/**`. Check 3a does not execute it either, and the
+    inventory is rendered from `configuration/`.
   - **The escape hatch is the point.** The label `fork-path: cold-run-waived` plus a one-line
     reason discharges a Tier 1 hit in about ten seconds. Before the gate there was no decision
     point at all, so nobody was ever recorded as having judged a bootstrap change safe; now
