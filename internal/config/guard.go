@@ -401,12 +401,12 @@ var DefaultGuardPathspecs = []string{
 	"talos/**",
 	"packer/**",
 	// cmd/ and internal/ are in scope because ADR-030 makes the Go CLI the
-	// thing a stranger runs first, and a Go flag default is the same construct
-	// as the TypeScript flag default that put scripts/ in scope: `--node
-	// worker-1` in cmd/homelab/commands/talos.go is a node name written into
-	// the binary. Go source also carries the embedded templates and testdata
-	// that render into a cluster, so the YAML under internal/ is as much a
-	// leak surface as the YAML under configuration/.
+	// thing a stranger runs first (ADR-037). Shape detection reads a Go
+	// struct field or map entry on its own line (`Host: "..."`); a flag
+	// default, const or inline literal is caught by value detection only.
+	// Go source also carries the embedded templates and testdata that render
+	// into a cluster, so the YAML under internal/ is as much a leak surface
+	// as the YAML under configuration/.
 	"cmd/**",
 	"internal/**",
 }
@@ -443,12 +443,9 @@ var guardScanExtensions = map[string]bool{
 	".tf":  true,
 	// Terraform templatefile() inputs, e.g. unifi-gateway's frr-bgp.conf.tftpl.
 	".tftpl": true,
-	// .go because cmd/ and internal/ are in scope (ADR-032). The same
-	// reasoning as .ts: a flag default, a const or a struct literal that
-	// pins a real address is a leak the same as one pasted into
-	// configuration/, and the Go half of the repository is what a stranger
-	// runs first. Go is a code file for shape detection (isShapeCodeFile), so
-	// only a quoted literal is judged and an identifier is not.
+	// .go because cmd/ and internal/ are in scope (ADR-037). Go is a code
+	// file for shape detection (isShapeCodeFile), so only a quoted literal is
+	// judged and an identifier is not.
 	".go": true,
 }
 

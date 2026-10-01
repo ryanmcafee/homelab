@@ -216,11 +216,16 @@ may make without naming which half they mean.
 Check 1's real scope is two lists in `internal/config/guard.go`: `DefaultGuardPathspecs` and
 `guardScanExtensions`. The rule above says "no file in this repository"; the scan sees only what
 those lists admit. **Any file type or directory outside them is unenforced, whatever this
-document says.** Go source is outside both today: that is how a defaulted node name in
-`cmd/homelab/commands/talos.go` sits in a file the gate cannot read. ADR-037 decided that
-`cmd/**`, `internal/**` and `.go` are admitted; that half of the decision is not implemented
-yet, so read the two lists in `guard.go` — not this paragraph and not the ADR — for what is
-actually scanned.
+document says.** Read the two lists in `guard.go` -- not this paragraph and not the ADR -- for
+what is actually scanned.
+
+`cmd/**`, `internal/**` and `.go` are admitted, as ADR-037 decided. Admitted is not the same as
+covered for every Go construct. Without a `homelab.yaml` (the CI case) only shape detection runs,
+and it reads a struct field or map entry on its own line (`Host: "..."`). A flag default
+(`StringVar(&node, "node", "worker-1", ...)`), a `const`, a `:=` assignment, an inline composite
+literal and a URL-valued field are caught by value detection only, so they are covered on an
+operator's machine and not in CI. The defaulted node name in `cmd/homelab/commands/talos.go` is
+in that second group.
 
 `terragrunt/**`, `talos/**` and `packer/**` are admitted as of the widening that followed
 [#393](https://github.com/ryanmcafee/homelab/pull/393) — the pull request that removed a literal
@@ -248,12 +253,11 @@ Three standing conditions follow:
 - **`DefaultGuardPathspecs` and the `config-guard` hook in `.pre-commit-config.yaml` are one
   scope expressed twice and must be changed in the same commit.** `internal/config/guard.go`
   says so in a comment at the list itself, and the hook is the half a contributor meets first.
-  Both halves name `terragrunt/`, `talos/` and `packer/`, and the hook now spells its extension
-  list out in `files:` — `yaml yml json md ts svg hcl tf tftpl`, plus a template suffix — rather than
-  delegating it to `types_or:`, so the two can be diffed by eye and the hook stops silently
-  dropping `homelab.yaml.example`. What neither half admits is Go: no `cmd/`, no `internal/`,
-  no `.go`. Widening one and not the other produces a gate that passes locally and fails in CI
-  — or, worse, the reverse.
+  Both halves name `terragrunt/`, `talos/`, `packer/`, `cmd/` and `internal/`, and the hook now
+  spells its extension list out in `files:` — `yaml yml json md ts svg hcl tf tftpl go`, plus a
+  template suffix — rather than delegating it to `types_or:`, so the two can be diffed by eye and
+  the hook stops silently dropping `homelab.yaml.example`. Widening one and not the other
+  produces a gate that passes locally and fails in CI — or, worse, the reverse.
 - **Every example ConfigSet uses reserved documentation space, and no two share a range.** Check 1
   renders `configuration/environments/homelab.yaml.example` itself — there is no second synthetic
   file to hold apart from it — so the requirement lands on the example files directly:
