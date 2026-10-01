@@ -63,8 +63,24 @@ allowed() {
 refused_pub() { expect "$1" "$2" "Permissions Violation for Publish to \"$3\"" "$4"; }
 refused_sub() { expect "$1" "$2" "Permissions Violation for Subscription to \"$3\"" "$4"; }
 
+# A pod Ready before its Service routes makes a refusal probe read "no servers available".
+# await_server ID PRINCIPAL
+await_server() {
+  principal=$2
+  for _ in $(seq 30); do
+    out=$(as "$principal" rtt)
+    case $out in
+    *"no servers available"*) sleep 2 ;;
+    *) return 0 ;;
+    esac
+  done
+  fail "$1" "$NATS_URL accepts a connection from $principal within 60s" "$out"
+  return 1
+}
+
 phase_cold() {
   id=cold_start_no_maintainer_account
+  await_server $id nack || return
   expect $id "an anonymous client is refused at connect" "Authorization Violation" \
     "$(nats --server "$NATS_URL" --timeout 3s pub "$EVENT_SUBJECT" anonymous 2>&1)"
   nats auth nkey gen user --output "$scratch/stranger.nk" >/dev/null
@@ -136,6 +152,7 @@ phase_start() {
 
 phase_reconnect() {
   id=start_bind_pull_ack_reconnect
+  await_server $id verify || return
   expect $id "after a server restart verify reads event-4, the one left unacknowledged" "event-4" \
     "$(as verify consumer next PF_EVENTS verify-workload-v1 --ack)"
   out=$(as workload-operator pub --jetstream "$EVENT_SUBJECT" event-5)
