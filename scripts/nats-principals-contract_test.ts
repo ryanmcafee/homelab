@@ -366,7 +366,7 @@ test("js_api_allow_is_exhaustive: no role reaches a destructive or account-wide 
     }
   }
   assert(
-    inspected >= 20,
+    inspected >= 17,
     `only ${inspected} $JS.API allow entries were inspected across ${Object.keys(declaration.roles).length} roles`,
   );
 });
@@ -385,54 +385,142 @@ test("js_api_allow_is_exhaustive: only the stream controller holds stream lifecy
   }
 });
 
-test("js_api_allow_is_exhaustive: a puller's reads are scoped to its own stream and consumer", () => {
-  for (const name of ["puller", "bound_puller"]) {
-    const role = declaration.roles[name];
-    assert(role !== undefined, `role ${name} is missing`);
-    for (const allowed of role.js_api_allow) {
-      if (allowed === "$JS.API.INFO") continue;
-      assert(
-        allowed.includes("<stream>"),
-        `role ${name} allows ${allowed} without naming <stream>; an account-wide read reaches a neighbour's stream inside the same account`,
-      );
-    }
-    assert(
-      role.binds_stream_explicitly,
-      `role ${name} does not bind its stream explicitly; nats.go's subscribe path then discovers over $JS.API.STREAM.NAMES, which is not in the allow-list (ADR-043 D5b)`,
-    );
-  }
-});
-
-test("js_api_allow_is_exhaustive: a bound puller holds no consumer-create endpoint at all", () => {
-  // The audit, DLQ and ADR-045 bridge readers bind a durable NACK pre-created. That is a
-  // separate startup path with its own grant, and the PF_WORK exact-filter argument does not
-  // establish their behaviour (ADR-043 D6a).
+test("js_api_allow_is_exhaustive: a bound puller's reads are scoped to its own stream and consumer", () => {
   const role = declaration.roles.bound_puller;
   assert(role !== undefined, "role bound_puller is missing");
   for (const allowed of role.js_api_allow) {
+    if (allowed === "$JS.API.INFO") continue;
     assert(
-      !allowed.includes("CONSUMER.CREATE") &&
-        !allowed.includes("CONSUMER.DURABLE"),
-      `role bound_puller allows ${allowed}; it binds a pre-created durable and must hold no consumer-create grant`,
+      allowed.includes("<stream>"),
+      `role bound_puller allows ${allowed} without naming <stream>; an account-wide read reaches a neighbour's stream inside the same account`,
     );
   }
+  assert(
+    role.binds_stream_explicitly,
+    "role bound_puller does not bind its stream explicitly; nats.go's subscribe path then discovers over $JS.API.STREAM.NAMES, which is not in the allow-list (ADR-043 D5b)",
+  );
   assert(
     role.durable_is_exclusive === true,
     "role bound_puller does not declare durable_is_exclusive; an ack on a SHARED durable advances the delivery state every other reader of it depends on (ADR-043 D7a)",
   );
 });
 
-test("consumer_create_denies_present: the name-only and legacy-durable entrances are denied, and the broad form is not", () => {
-  // v2.15.0 routes three subjects to one handler. Under default-deny the alternates are already
-  // refused; these denies exist so a later broader grant cannot quietly re-open them. THE BROAD
-  // `CONSUMER.CREATE.*.>` FORM IS DELIBERATELY NOT DENIED -- deny takes precedence over allow,
-  // so denying it would also kill the filtered endpoint the component legitimately needs.
+/** Whether two NATS subject patterns admit at least one common subject. */
+function subjectsIntersect(a: string, b: string): boolean {
+  const left = a.split(".");
+  const right = b.split(".");
+  for (let i = 0; ; i += 1) {
+    if (i === left.length || i === right.length) {
+      return i === left.length && i === right.length;
+    }
+    if (left[i] === ">" || right[i] === ">") return true;
+    if (left[i] !== "*" && right[i] !== "*" && left[i] !== right[i]) {
+      return false;
+    }
+  }
+}
+
+/** Every subject shape v2.15.0 routes to its consumer-create handler. */
+const CONSUMER_CREATE_SUBJECTS = [
+  "$JS.API.CONSUMER.CREATE.*",
+  "$JS.API.CONSUMER.CREATE.*.>",
+  "$JS.API.CONSUMER.DURABLE.CREATE.*.*",
+];
+
+/** Placeholders widened to the broadest subject they can render to, so no allow hides behind one. */
+function widenPlaceholders(template: string): string {
+  return template
+    .replaceAll("<stream>", "*")
+    .replaceAll("<consumer>", "*")
+    .replaceAll("<filter>", ">")
+    .replaceAll("<tenant>", "*");
+}
+
+/** The allows among `allow` that reach a consumer-create subject. */
+function consumerCreateReach(allow: string[]): string[] {
+  return allow.filter((subject) =>
+    CONSUMER_CREATE_SUBJECTS.some((create) =>
+      subjectsIntersect(widenPlaceholders(subject), create),
+    ),
+  );
+}
+
+test("consumer_create_only_stream_controller: the matcher fails a broad allow and passes the controller", () => {
+  // A literal substring check passes `$JS.API.>`, which is a create grant like any other.
+  for (const broad of [
+    ">",
+    "$JS.>",
+    "$JS.API.>",
+    "$JS.API.CONSUMER.>",
+    "$JS.API.CONSUMER.*.*",
+    "$JS.API.CONSUMER.*.<stream>.<consumer>",
+    "$JS.API.*.DURABLE.CREATE.*.*",
+    "$JS.API.CONSUMER.CREATE.<stream>.<consumer>.<filter>",
+  ]) {
+    assertEquals(
+      consumerCreateReach([broad]),
+      [broad],
+      `${broad} reaches a consumer-create subject but the matcher did not flag it`,
+    );
+  }
+  for (const narrow of [
+    "$JS.API.INFO",
+    "$JS.API.CONSUMER.INFO.<stream>.<consumer>",
+    "$JS.API.CONSUMER.MSG.NEXT.<stream>.<consumer>",
+    "$JS.API.STREAM.CREATE.*",
+  ]) {
+    assertEquals(
+      consumerCreateReach([narrow]),
+      [],
+      `${narrow} reaches no consumer-create subject but the matcher flagged it`,
+    );
+  }
+  assertEquals(
+    consumerCreateReach(declaration.roles.stream_controller.js_api_allow)
+      .length,
+    CONSUMER_CREATE_SUBJECTS.length,
+    "the matcher does not see stream_controller's three create allows, so a pass elsewhere proves nothing",
+  );
+});
+
+test("consumer_create_only_stream_controller: no other role or rendered principal can create a consumer", () => {
+  // A create body carries a `deliver_subject` the server never checks against the creator's
+  // publish grant, so any create authority is a redirect of the stream (ADR-043 D6b).
   let inspected = 0;
   for (const [name, role] of Object.entries(declaration.roles)) {
-    const createsFiltered = role.js_api_allow.some((s) =>
-      s.startsWith("$JS.API.CONSUMER.CREATE.<stream>"),
+    if (name === "stream_controller") continue;
+    inspected += role.js_api_allow.length;
+    assertEquals(
+      consumerCreateReach(role.js_api_allow),
+      [],
+      `role ${name} holds consumer-create authority; only stream_controller creates consumers`,
     );
-    if (!createsFiltered) continue;
+  }
+  const artifact = parseYaml(readFileSync(ARTIFACT_PATH, "utf8")) as {
+    principals: { name: string; role: string; publish: { allow: string[] } }[];
+  };
+  for (const principal of artifact.principals) {
+    if (principal.role === "stream_controller") continue;
+    inspected += principal.publish.allow.length;
+    assertEquals(
+      consumerCreateReach(principal.publish.allow),
+      [],
+      `rendered principal ${principal.name} may publish to a consumer-create subject; only nack creates consumers`,
+    );
+  }
+  assert(inspected >= 20, `only ${inspected} allow entries were inspected`);
+});
+
+test("consumer_create_denies_present: binding roles deny the alternates, and the controller denies no create form", () => {
+  // Under default-deny the name-only and legacy-durable entrances are already refused; the denies
+  // exist so a later broader grant cannot quietly re-open them. Deny takes precedence over allow,
+  // so the controller denying any create form would stop NACK reconciling consumers.
+  let inspected = 0;
+  for (const [name, role] of Object.entries(declaration.roles)) {
+    const binds = role.js_api_allow.some((s) =>
+      s.startsWith("$JS.API.CONSUMER.MSG.NEXT."),
+    );
+    if (name === "stream_controller" || !binds) continue;
     inspected += 1;
     for (const required of [
       "$JS.API.CONSUMER.CREATE.*",
@@ -440,20 +528,19 @@ test("consumer_create_denies_present: the name-only and legacy-durable entrances
     ]) {
       assert(
         role.js_api_deny.includes(required),
-        `role ${name} allows the filtered consumer-create endpoint but does not deny ${required}`,
+        `role ${name} binds a consumer but does not deny ${required}`,
       );
     }
   }
-  assert(
-    inspected > 0,
-    "no role was found allowing the filtered consumer-create endpoint, so this assertion read nothing",
+  assert(inspected > 0, "no binding role was inspected");
+  const controllerDenies = consumerCreateReach(
+    declaration.roles.stream_controller.js_api_deny,
   );
-  for (const [name, role] of Object.entries(declaration.roles)) {
-    assert(
-      !role.js_api_deny.includes("$JS.API.CONSUMER.CREATE.*.>"),
-      `role ${name} denies the broad $JS.API.CONSUMER.CREATE.*.> form; deny takes precedence over allow, so that also kills the filtered endpoint a puller needs`,
-    );
-  }
+  assertEquals(
+    controllerDenies,
+    [],
+    "stream_controller denies a consumer-create form; deny takes precedence over allow, so NACK could not create the durables every bound_puller needs",
+  );
 });
 
 test("no_system_account_principal: nothing on the platform holds $SYS", () => {
@@ -711,6 +798,70 @@ test("stream_and_consumer_name_account: the field is absent only when no account
   assert(
     !/^\s+account:/m.test(rendered.output),
     "the chart renders spec.account with no account configured",
+  );
+});
+
+interface RenderedConsumer {
+  kind: string;
+  metadata: { name: string };
+  spec: Record<string, unknown>;
+}
+
+/** The Consumers among `docs` whose spec selects push delivery, by the CRD's own field names. */
+function pushConsumers(docs: RenderedConsumer[]): string[] {
+  const nonEmpty = (value: unknown) =>
+    value !== undefined && value !== null && value !== "";
+  return docs
+    .filter((doc) => doc.kind === "Consumer")
+    .filter(
+      (doc) =>
+        nonEmpty(doc.spec.deliverSubject) || nonEmpty(doc.spec.deliverGroup),
+    )
+    .map((doc) => doc.metadata.name);
+}
+
+function renderedConsumers(): RenderedConsumer[] {
+  const rendered = helmTemplate(NATS_CONFIG_CHART);
+  assert(
+    rendered.code === 0,
+    `helm template exited ${rendered.code}\n${rendered.output}`,
+  );
+  return parseYamlAll(rendered.output).filter(
+    (doc): doc is RenderedConsumer =>
+      doc !== null &&
+      typeof doc === "object" &&
+      (doc as { kind?: unknown }).kind === "Consumer",
+  );
+}
+
+test("no_push_consumer: no rendered Consumer sets deliverSubject or deliverGroup", () => {
+  // A push consumer declared in Git is the deliver_subject redirect with a reviewer's signature
+  // on it; on v2.15.0 deliverSubject alone selects push mode (ADR-043 D6b).
+  const consumers = renderedConsumers();
+  assertEquals(
+    consumers.length,
+    chart.consumers.length,
+    `${consumers.length} of the chart's ${chart.consumers.length} Consumers were rendered`,
+  );
+  assertEquals(pushConsumers(consumers), [], "a rendered Consumer is push");
+});
+
+test("no_push_consumer: each push field alone fails the rule", () => {
+  const [base] = renderedConsumers();
+  assert(base !== undefined, "the chart rendered no Consumer to mutate");
+  for (const field of ["deliverSubject", "deliverGroup"]) {
+    const mutated = { ...base, spec: { ...base.spec, [field]: "pf.x.y" } };
+    assertEquals(
+      pushConsumers([mutated]),
+      [base.metadata.name],
+      `a Consumer setting spec.${field} was not flagged`,
+    );
+  }
+  const emptied = { ...base, spec: { ...base.spec, deliverSubject: "" } };
+  assertEquals(
+    pushConsumers([emptied]),
+    [],
+    "an empty deliverSubject was flagged",
   );
 });
 
