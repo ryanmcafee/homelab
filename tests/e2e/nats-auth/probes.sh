@@ -51,17 +51,21 @@ expect() {
   esac
 }
 
-# allowed ID DESC OUTPUT -- no violation text anywhere.
-allowed() {
-  id=$1 desc=$2 output=$3
+# succeeded ID DESC PATTERN OUTPUT -- the success text is present and no violation is.
+succeeded() {
+  id=$1 desc=$2 pattern=$3 output=$4
   case $output in
   *Violation*) fail "$id" "$desc" "$output" ;;
-  *) pass "$id" "$desc" ;;
+  *"$pattern"*) pass "$id" "$desc" ;;
+  *) fail "$id" "$desc (expected: $pattern)" "$output" ;;
   esac
 }
 
 refused_pub() { expect "$1" "$2" "Permissions Violation for Publish to \"$3\"" "$4"; }
 refused_sub() { expect "$1" "$2" "Permissions Violation for Subscription to \"$3\"" "$4"; }
+
+# rtt prints "<url>: <duration>" only after a completed round trip; otherwise "failed".
+measured_rtt() { printf '%s\n' "$1" | grep -Eq ': [0-9.]+(ns|µs|us|ms|s)$'; }
 
 # A pod Ready before its Service routes makes a refusal probe read "no servers available".
 # await_server ID PRINCIPAL
@@ -69,10 +73,8 @@ await_server() {
   principal=$2
   for _ in $(seq 30); do
     out=$(as "$principal" rtt)
-    case $out in
-    *"no servers available"*) sleep 2 ;;
-    *) return 0 ;;
-    esac
+    measured_rtt "$out" && return 0
+    sleep 2
   done
   fail "$1" "$NATS_URL accepts a connection from $principal within 60s" "$out"
   return 1
@@ -88,10 +90,11 @@ phase_cold() {
     "$(nats --server "$NATS_URL" --nkey "$scratch/stranger.nk" --timeout 3s pub "$EVENT_SUBJECT" stranger 2>&1)"
   for principal in $PRINCIPALS; do
     out=$(as "$principal" rtt)
-    case $out in
-    *Violation* | *error*) fail $id "$principal connects on its synthetic key" "$out" ;;
-    *) pass $id "$principal connects on its synthetic key" ;;
-    esac
+    if measured_rtt "$out"; then
+      pass $id "$principal connects on its synthetic key"
+    else
+      fail $id "$principal connects on its synthetic key" "$out"
+    fi
   done
 }
 
@@ -108,13 +111,20 @@ consumer_add() {
 
 phase_streams() {
   id=start_bind_pull_ack_reconnect
-  allowed $id "nack creates PF_EVENTS" "$(stream_add PF_EVENTS 'pf.*.*.*.*.*.ev' limits old 168h)"
-  allowed $id "nack creates PF_WORK" "$(stream_add PF_WORK 'pf.*.*.*.*.*.wq' work new 24h)"
-  allowed $id "nack creates PF_DLQ" "$(stream_add PF_DLQ 'pf.*.*.*.*.*.dl' limits old 720h)"
-  allowed $id "nack creates verify-workload-v1" \
-    "$(consumer_add nack PF_EVENTS verify-workload-v1 'pf.*.workload.*.*.v1.ev')"
-  allowed $id "nack creates dlq-reporter-observability-v1" \
-    "$(consumer_add nack PF_DLQ dlq-reporter-observability-v1 'pf.*.*.*.*.*.dl')"
+  stream_created PF_EVENTS 'pf.*.*.*.*.*.ev' limits old 168h
+  stream_created PF_WORK 'pf.*.*.*.*.*.wq' work new 24h
+  stream_created PF_DLQ 'pf.*.*.*.*.*.dl' limits old 720h
+  nack_consumer_created PF_EVENTS verify-workload-v1 'pf.*.workload.*.*.v1.ev'
+  nack_consumer_created PF_DLQ dlq-reporter-observability-v1 'pf.*.*.*.*.*.dl'
+}
+
+stream_created() {
+  succeeded $id "nack creates $1" "Stream $1 was created" "$(stream_add "$@")"
+}
+
+nack_consumer_created() {
+  succeeded $id "nack creates $2" "Information for Consumer $1 > $2" "$(consumer_add nack "$1" "$2" "$3")"
+  expect $id "$2 exists on $1 afterwards" "\"name\": \"$2\"" "$(as nack consumer info "$1" "$2" --json)"
 }
 
 # The probes below leave named ephemerals behind; each is gone 5s after it loses interest.
@@ -142,7 +152,8 @@ phase_start() {
     "$(as verify consumer next PF_EVENTS verify-workload-v1 --ack)"
   expect $id "verify pulls and TERMs" "event-3" "$(as verify consumer next PF_EVENTS verify-workload-v1 --term)"
 
-  allowed $id "workload-operator creates its own consumer through the fully-filtered form" \
+  succeeded $id "workload-operator creates its own consumer through the fully-filtered form" \
+    "Information for Consumer PF_WORK > $WORK_CONSUMER" \
     "$(consumer_add workload-operator PF_WORK "$WORK_CONSUMER" "$WORK_SUBJECT")"
   out=$(as platform-api pub --jetstream "$WORK_SUBJECT" work-1)
   expect $id "platform-api enqueues work and PF_WORK acknowledges it" "Stored in Stream: PF_WORK" "$out"
@@ -189,7 +200,8 @@ phase_cross_principal() {
     refused_pub $id "dlq-reporter cannot ACK verify's message ($ack)" "$ack" "$(as dlq-reporter pub "$ack" '+ACK')"
     refused_pub $id "workload-operator cannot ACK verify's message ($ack)" "$ack" "$(as workload-operator pub "$ack" '+ACK')"
   done
-  allowed $id "verify may publish its own ACK subject (control)" \
+  succeeded $id "verify may publish its own ACK subject (control)" \
+    'Published 4 bytes to "$JS.ACK.PF_EVENTS.verify-workload-v1.1.1.1.0.0"' \
     "$(as verify pub '$JS.ACK.PF_EVENTS.verify-workload-v1.1.1.1.0.0' '+ACK')"
   refused_pub $id "platform-api cannot publish another producer's event" "pf.$TENANT.gitops.application.synced.v1.ev" \
     "$(as platform-api pub "pf.$TENANT.gitops.application.synced.v1.ev" forged)"
