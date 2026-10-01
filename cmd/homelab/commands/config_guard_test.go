@@ -23,8 +23,8 @@ func TestConfigGuardCLI(t *testing.T) {
 		name, body string
 		bad        bool
 	}{
-		{"approved.yaml.example", "TRUENAS_IP: 192.168.1.50\nDOMAIN: example.com\n", false},
-		{"deployment.yaml", "TRUENAS_IP: 192.168.1.50\n", true},
+		{"approved.yaml.example", "TRUENAS_IP: 198.51.100.50\nDOMAIN: example.com\n", false},
+		{"deployment.yaml", "TRUENAS_IP: 198.51.100.50\n", true},
 		{"hostname.yaml.example", "DOMAIN: corp.acme.org\n", true},
 		{"email.yaml.example", "ACME_EMAIL: admin@corp.acme.org\n", true},
 		{"address.yaml.example", "TRUENAS_IP: 10.23.1.4\n", true},

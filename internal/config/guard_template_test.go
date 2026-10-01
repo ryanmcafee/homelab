@@ -11,8 +11,8 @@ func TestGuardTemplateLiteralContext(t *testing.T) {
 		name, body, pattern string
 		bad                 bool
 	}{
-		{"approved.yaml.example", "TRUENAS_IP: 192.168.1.50\n", "192.168.1.50", false},
-		{"deployment.yaml", "TRUENAS_IP: 192.168.1.50\n", "192.168.1.50", true},
+		{"approved.yaml.example", "TRUENAS_IP: 198.51.100.50\n", "198.51.100.50", false},
+		{"deployment.yaml", "TRUENAS_IP: 198.51.100.50\n", "198.51.100.50", true},
 		{"private.yaml.example", "TRUENAS_IP: 10.23.1.4\n", "10.23.1.4", true},
 		{"domain.yaml.example", "DOMAIN: corp.acme.org\n", "corp.acme.org", true},
 		{"email.yaml.example", "ACME_EMAIL: admin@corp.acme.org\n", "admin@corp.acme.org", true},

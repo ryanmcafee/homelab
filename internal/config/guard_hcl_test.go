@@ -21,9 +21,9 @@ func TestGuardHCLInventory(t *testing.T) {
 		{"reference.tfvars", `domain = var.domain`, 0},
 		{"comment.hcl", "# domain = \"corp.acme.org\"\n", 0},
 		{"unrelated.tf", "variable \"description\" { default = \"docs.acme.org\" }\nvariable \"domain\" { type = string }", 0},
-		{"approved.tfvars.example", "domain = \"example.com\"\ntruenas_ip = \"192.168.1.50\"", 0},
+		{"approved.tfvars.example", "domain = \"example.com\"\ntruenas_ip = \"198.51.100.50\"", 0},
 		{"bad.tfvars.example", `domain = "corp.acme.org"`, 1},
-		{"deployment.tfvars", `truenas_ip = "192.168.1.50"`, 1},
+		{"deployment.tfvars", `truenas_ip = "198.51.100.50"`, 1},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
