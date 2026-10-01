@@ -58,6 +58,7 @@ on:
       - 'scripts/upstream-values-check.ts'
       - 'tests/gitops/upstream-values-allowlist.yaml'
       - 'tests/snapshots/**'
+      - 'scripts/litellm-route-drift.ts'
 
 concurrency:
   group: upgrade-${{ github.ref }}
@@ -209,6 +210,40 @@ jobs:
           } >> upgrade-report.md
           echo "pass=$pass" >> "$GITHUB_OUTPUT"
 
+      # charts/litellm-config mirrors the upstream chart's Ingress path
+      # allowlist by hand, and this repo sets ingress.enabled: false, so the
+      # manifest diff above renders that template not at all and can never show
+      # a path moving between the gateway and the backend. This renders the
+      # pinned chart with the Ingress switched on and compares the two lists.
+      - name: LiteLLM route allowlist drift
+        id: litellm-routes
+        if: always() && steps.upgrade.conclusion != 'skipped'
+        run: |
+          set +e
+          task verify:litellm-routes > litellm-routes.log 2>&1
+          code=$?
+          set -e
+          cat litellm-routes.log
+          {
+            echo
+            echo '## LiteLLM route allowlist'
+            echo
+            if [ "$code" -eq 0 ]; then
+              echo 'The pinned LiteLLM chart was rendered with `ingress.enabled=true` and its gateway- and UI-backed paths compared with `route.*` in `charts/litellm-config/values.yaml`.'
+              echo
+              echo '**Result:** PASS'
+            else
+              echo '**Result:** FAIL - the HTTPRoutes no longer match the paths the upstream chart serves.'
+              echo
+              echo '```'
+              sed -e 's/\x1b\[[0-9;]*m//g' litellm-routes.log
+              echo '```'
+            fi
+          } >> upgrade-report.md
+          pass=false
+          [ "$code" -eq 0 ] && pass=true
+          echo "pass=$pass" >> "$GITHUB_OUTPUT"
+
       # success only when every upgrade/* check passed with an "unchanged"
       # detail (upgrade/base aside), revalidation passed and no Application
       # sets a key its chart does not declare. A manifest diff, a skipped
@@ -219,6 +254,7 @@ jobs:
         env:
           REVALIDATED: ${{ steps.revalidate.outputs.pass }}
           VALUES: ${{ steps.values.outputs.pass }}
+          LITELLM_ROUTES: ${{ steps.litellm-routes.outputs.pass }}
         run: |
           state=failure
           if ! jq -e '(.checks | length) > 0' upgrade.json > /dev/null 2>&1; then
@@ -230,6 +266,8 @@ jobs:
             description="CRD revalidation failed - automerge blocked"
           elif [ "$VALUES" != "true" ]; then
             description="an Application sets a helm value the chart does not declare - automerge blocked"
+          elif [ "$LITELLM_ROUTES" != "true" ]; then
+            description="LiteLLM route allowlist drifted - automerge blocked"
           else
             state=success
             description="no rendered manifest changes"
@@ -277,17 +315,20 @@ jobs:
             upgrade.json
             revalidate.json
             values.json
+            litellm-routes.log
           if-no-files-found: ignore
           retention-days: 14
 
       # A manifest diff is information, not a failure; a render that fails at
-      # head or a custom resource that no longer validates is.
-      - name: Fail on a failed upgrade check, revalidation or undeclared value
+      # head, a custom resource that no longer validates, an undeclared helm
+      # value or an HTTPRoute that no longer matches the paths upstream serves is.
+      - name: Fail on a failed upgrade check, revalidation, undeclared value or route drift
         if: always()
         env:
           UPGRADE_PASS: ${{ steps.upgrade.outputs.pass }}
           REVALIDATED: ${{ steps.revalidate.outputs.pass }}
           VALUES: ${{ steps.values.outputs.pass }}
+          LITELLM_ROUTES: ${{ steps.litellm-routes.outputs.pass }}
         run: |
           ok=true
           if [ "$UPGRADE_PASS" != "true" ]; then
@@ -302,6 +343,10 @@ jobs:
           if [ "$VALUES" != "true" ]; then
             jq -r '.findings[]? | "\(.env)/\(.app) [\(.chart)@\(.targetRevision)]: \(.path)"' values.json
             echo "::error::An Application passes a helm value its chart does not declare, so the value is inert. Run task upstream:values."
+            ok=false
+          fi
+          if [ "$LITELLM_ROUTES" != "true" ]; then
+            echo "::error::LiteLLM route drift: charts/litellm-config no longer matches the upstream Ingress path allowlist. See the LiteLLM route allowlist section of the report."
             ok=false
           fi
           [ "$ok" = true ]

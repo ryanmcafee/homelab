@@ -958,6 +958,12 @@ tasks:
     cmds:
       - bun scripts/upstream-values-check.ts {{.CLI_ARGS}}
 
+  verify:litellm-routes:
+    desc: "Fail when charts/litellm-config route.* drifts from the pinned upstream LiteLLM chart's Ingress path allowlist (renders it with ingress.enabled=true, which this repo otherwise never does)"
+    deps: [bun:install]
+    cmds:
+      - bun scripts/litellm-route-drift.ts {{.CLI_ARGS}}
+
   verify:prod:
     desc: Read-only Application health of the homelab cluster through the homelab-readonly context (docs/runbooks/readonly-access.md)
     cmds:
