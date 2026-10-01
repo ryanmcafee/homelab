@@ -118,8 +118,9 @@ Dated, because a check's status is a claim about the past and decays.
   Three points trending upward is not yet a regression signal -- runner variance is wide and the
   sample is tiny. Re-measure and re-date on each weekly run; a cold number more than a few weeks
   old is a claim about a tree that no longer exists.
-- **One thing #352 predicted did not reproduce, and one doc defect did.** #352 expected
-  `localdev:up` to return well before anything reported Healthy, which is why `localdev:wait` is
+- **One thing [#352](https://github.com/ryanmcafee/homelab/pull/352) predicted did not
+  reproduce, and one doc defect did.** [#352](https://github.com/ryanmcafee/homelab/pull/352)
+  expected `localdev:up` to return well before anything reported Healthy, which is why `localdev:wait` is
   timed separately. On that run `wait` returned in `487ms` with everything already Healthy, and it
   has cost about a second on all three cold runs since, so on the cold path `localdev:up` alone has
   always been sufficient. Keep the two timings separate anyway — the split is what would show the
@@ -308,9 +309,11 @@ is reviewed against:
 
 ## A live example
 
-The three open GitHub issues that specify ingress hostnames — #40 (`dashboard.…`), #41
-(`status.…`) and #51 (`workflows.…`) — all write a concrete personal domain into the issue
-body. Written that way they would each violate this contract. The correct form is
-`dashboard.<DOMAIN>`, resolved from the ConfigSet, and that is a merge condition on all three
-rather than a follow-up. This is not a criticism of those issues; it is what the contract is
-for, caught at the point it is cheap.
+The three open GitHub issues that specify ingress hostnames —
+[#40](https://github.com/ryanmcafee/homelab/issues/40) (`dashboard.…`),
+[#41](https://github.com/ryanmcafee/homelab/issues/41) (`status.…`) and
+[#51](https://github.com/ryanmcafee/homelab/issues/51) (`workflows.…`) — all write a concrete
+personal domain into the issue body. Written that way they would each violate this contract.
+The correct form is `dashboard.<DOMAIN>`, resolved from the ConfigSet, and that is a merge
+condition on all three rather than a follow-up. This is not a criticism of those issues; it is
+what the contract is for, caught at the point it is cheap.
