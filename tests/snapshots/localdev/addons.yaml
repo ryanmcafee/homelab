@@ -126,7 +126,7 @@ metadata:
     argocd.argoproj.io/sync-wave: "0"
 
 ---
-# Source: addons/templates/nats-monitor-netpol.yaml
+# Source: addons/templates/nats.yaml
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -431,22 +431,6 @@ spec:
 # NATS Config: the platform stream set and its dead-letter path, declared as
 # jetstream.nats.io resources so the streams are GitOps state.
 # Sync Wave: 12 (after nack at 11, which installs the CRDs these resources use)
-
----
-# Source: addons/templates/nats-monitor-netpol.yaml
-# Pod-ingress scope for the NATS server pods (event-contract.md Sec. 5.3, ADR-043 D9).
-#
-# Accounts partition the client port only. The monitoring port (8222) answers /jsz and /connz
-# across every account with no tenant authorization, and the exporter (7777) republishes the
-# same stream, consumer and config metadata, so both are reachable from Prometheus alone.
-# Only server-mode Prometheus pods match; a PrometheusAgent or other scraper needs a new peer.
-# The exporter reads 8222 over the pod's loopback, which no NetworkPolicy polices.
-#
-# Selecting a pod for Ingress denies every port not listed, so the client and cluster ports
-# are listed explicitly. `kubectl port-forward` enters the pod's own network namespace and is
-# unaffected; the API server's pod proxy is not, and is denied on 8222 and 7777.
-#
-# Sync Wave: 10, with the server it scopes.
 
 ---
 # Source: addons/templates/nats.yaml
@@ -3507,6 +3491,19 @@ spec:
       - CreateNamespace=true
       - ServerSideApply=true
       - ApplyOutOfSyncOnly=true
+# Pod-ingress scope for the NATS server pods (event-contract.md Sec. 5.3, ADR-043 D9).
+#
+# Accounts partition the client port only. The monitoring port (8222) answers /jsz and /connz
+# across every account with no tenant authorization, and the exporter (7777) republishes the
+# same stream, consumer and config metadata, so both are reachable from Prometheus alone.
+# Only server-mode Prometheus pods match; a PrometheusAgent or other scraper needs a new peer.
+# The exporter reads 8222 over the pod's loopback, which no NetworkPolicy polices.
+#
+# Selecting a pod for Ingress denies every port not listed, so the client and cluster ports
+# are listed explicitly. `kubectl port-forward` enters the pod's own network namespace and is
+# unaffected; the API server's pod proxy is not, and is denied on 8222 and 7777.
+#
+# Sync Wave: 10, with the server it scopes.
 
 ---
 # Source: addons/templates/node-feature-discovery.yaml
