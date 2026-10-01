@@ -288,11 +288,11 @@ phase_rq() {
 
 measured() { printf 'MEASURED %s: %s\n' "$1" "$2"; }
 
-MOVE_STREAM=NACK_MOVE_PROBE
+MOVE_STREAM=${MOVE_STREAM:-NACK_MOVE_PROBE}
 
 # where_is ACCOUNT -- present, absent or unreadable, from the account's stream name list.
-# tenant and move are accounts on the keyed server (nack-move holds a copy of nack's grants,
-# _INBOX.nack included); shared is the cluster bus the rendered NACK's global -s points at.
+# tenant and move are accounts on the keyed server; shared is the cluster bus the rendered
+# NACK's global -s points at.
 where_is() {
   case $1 in
   tenant) out=$(as nack stream ls --names) rc=$? ;;
@@ -333,6 +333,18 @@ phase_move_placed() {
   now=$(placement)
   readable "before the move" "$now"
   measured $id "before the move: $now"
+}
+
+# The same controller on nack's own declared key; its inbox is _INBOX.<nuid>, outside _INBOX.nack.>.
+phase_declared_placed() {
+  id=nack_account_on_stream_move
+  for _ in $(seq 15); do
+    [ "$(where_is tenant)" = present ] && break
+    sleep 2
+  done
+  now=$(placement)
+  readable "with nack's declared key" "$now"
+  measured $id "$MOVE_STREAM on nack's declared key, within 30s: $now"
 }
 
 # Records every placement seen in the 60s after spec.account moved, so the timeline is the answer.
