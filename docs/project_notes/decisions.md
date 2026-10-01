@@ -1311,6 +1311,37 @@ Each decision should include:
   not send the fully-specified create subject, so D6's argument does not cover them. They bind a
   consumer pre-created by NACK — a separate startup path with its own grant and its own
   conformance test. The `PF_WORK` exact-filter case does not establish their behaviour
+- **D6b. No workload principal holds a consumer-create grant; every consumer is pre-created by
+  NACK and bound (2026-10-01, [MCAA-1090](/MCAA/issues/MCAA-1090)).** D6 named the filtered
+  endpoint "not bind-only authority" and stopped there. Measured on v2.15.0 against the rendered,
+  keyed `nats.conf` (level-2 probe `phase_push_redirect`, [MCAA-487](/MCAA/issues/MCAA-487)), that
+  limit is a publish-grant bypass: the server never checks the create body's `deliver_subject`
+  against the creator's grants. `workload-operator`, using only its declared
+  `CONSUMER.CREATE.PF_WORK.<consumer>.<filter>` allow, created its consumer as a **push** consumer
+  delivering to `pf.<tenant>.workload.deployment.describe.v1.rq` -- a subject it is refused
+  publishing to -- and the server delivered platform-api's `PF_WORK` item to a subscriber there; a
+  `_INBOX.verify.*` target worked the same way. Reach is bounded by what the principal's own filter
+  admits, but it lands on any subject with a subscriber in the account, including another
+  principal's inbox (defeating D5a) or a request subject, and it is not audited as a publish. The
+  D6 denies themselves hold: the name-only and legacy-durable entrances are refused with or without
+  a body `Durable` or `Name`, which settles D6's open question. **Decision:** the self-creating
+  `puller` role is removed. `workload-operator` becomes a `bound_puller` binding
+  `workload-operator-deployment-promote-v1`, which NACK pre-creates as it already does for `verify`
+  and `dlq-reporter`, so consumer configuration -- including the delivery mode -- is GitOps state
+  exactly as the stream set is (D5), and `stream_controller` is the only role able to create a
+  consumer. Two level-0 rules carry it: no role but `stream_controller` allows any
+  `$JS.API.CONSUMER.CREATE` or `DURABLE.CREATE` subject, and no rendered `Consumer` sets
+  `deliverSubject` or `deliverGroup`, because a push consumer declared in Git is the same redirect
+  with a reviewer's signature on it. The `phase_push_redirect` probe flips from pinning the bypass
+  to asserting the create is refused. The alternative -- keep self-create and accept the gap -- was
+  rejected (blast radius, trust boundaries): it makes every future `wq` consumer a standing ability
+  to re-route work into another principal's inbox, and the only offsetting benefit is a component
+  tuning its own `ackWait`/`maxDeliver` without a chart change, which is the wrong place for that
+  knob anyway. **What this does not change:** ADR-038 D2's silent repoint becomes impossible
+  rather than merely denied, since there is no create path at all; delivery stays at-least-once
+  with workqueue retention; and the new failure mode is ordering -- `workload-operator` cannot
+  bind until NACK has reconciled the durable, and that fails its bind at start rather than
+  silently. Reversible by restoring one role entry
 - **D7. Platform components sit inside the tenant account as ordinary users with narrow
   permissions.** No platform component gets a wildcard tenant, including the operators and the
   DLQ reporter. **Correcting the first draft, which said the only cross-account credentials are
@@ -1504,8 +1535,7 @@ Each decision should include:
   names exist, at one tenant, so the second tenant is a configuration change rather than a
   rediscovery. Onboarding a second tenant additionally needs D8's account budget arithmetic, the
   alert-aggregation fix above, and the D6 conformance test actually run
-- **What is unverified against a running server is named rather than assumed:** what the name-only
-  consumer-create entrance can reach with a body-supplied `Name` (D6); whether NACK 0.35.0's
+- **What is unverified against a running server is named rather than assumed:** whether NACK 0.35.0's
   `Account` CRD path behaves as documented when a `Stream` moves between accounts; whether an
   updated Secret promptly replaces a cached or already-established NACK connection (D10b); and the
   established-session revocation bound for each backend. All are level-2 tests in the implementing
