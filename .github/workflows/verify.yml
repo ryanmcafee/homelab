@@ -156,10 +156,10 @@ jobs:
       # argocd is the mise.toml pin (= configuration/versions.yaml tools.argocd):
       # the health fixtures are evaluated with `argocd admin settings
       # resource-overrides health`, the same code path the controller runs.
-      - name: Install go, bun, conftest, argocd, helm, yq, promtool, task from mise.toml
+      - name: Install go, bun, conftest, argocd, helm, yq, promtool, embedme, task from mise.toml
         uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
         with:
-          install_args: go bun conftest argocd helm yq aqua:prometheus/prometheus task
+          install_args: go bun conftest argocd helm yq aqua:prometheus/prometheus npm:embedme task
 
       - name: Install script dependencies from bun.lock
         run: bun install --frozen-lockfile
@@ -200,6 +200,13 @@ jobs:
       # here instead of rotting. `task docs:check -- --fix` regenerates them.
       - name: task docs:check
         run: task docs:check
+
+      # Claude.md embeds configuration/versions.yaml verbatim, and Renovate
+      # edits that file, so the drift vector is a bot. No paths filter runs on
+      # this workflow, so unlike pr-contract.yml this also covers renovate/*
+      # heads. `task docs:embedme` regenerates the block.
+      - name: task docs:embedme:verify
+        run: task docs:embedme:verify
 
   # Network-dependent, but kept per PR: any PR can edit versions.yaml without re-vendoring.
   schemas:
