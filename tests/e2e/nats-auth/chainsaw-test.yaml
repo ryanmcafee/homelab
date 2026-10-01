@@ -205,7 +205,18 @@ spec:
               echo "MEASURED nack_account_on_stream_move: server refusal seen by NACK on nack's declared key: $refusal"
               kubectl -n "$NAMESPACE" get stream nack-declared-probe -o yaml | yq '.status'
               kubectl -n "$NAMESPACE" logs deployment/nack-move --tail=40
-              kubectl -n "$NAMESPACE" delete stream nack-move-probe nack-declared-probe --wait=true --timeout=60s
+              kubectl -n "$NAMESPACE" delete stream nack-move-probe nack-declared-probe --wait=false
+              for cr in nack-move-probe nack-declared-probe; do
+                if kubectl -n "$NAMESPACE" wait "stream/$cr" --for=delete --timeout=30s 2>/dev/null; then
+                  echo "MEASURED nack_account_on_stream_move: $cr finalized within 30s of deletion"
+                else
+                  refused=$(kubectl -n "$NAMESPACE" logs deployment/nack-move |
+                    grep -o 'Permissions Violation for Publish to "\$JS\.API\.STREAM\.DELETE\.[^"]*"' | tail -1 || true)
+                  echo "MEASURED nack_account_on_stream_move: $cr still finalizing after 30s: ${refused:-no refusal}"
+                  kubectl -n "$NAMESPACE" patch stream "$cr" --type merge -p '{"metadata":{"finalizers":null}}'
+                  kubectl -n "$NAMESPACE" wait "stream/$cr" --for=delete --timeout=30s
+                fi
+              done
               kubectl -n "$NAMESPACE" delete account declared tenant move --wait=true --timeout=60s
               for stream in NACK_MOVE_PROBE NACK_DECLARED_PROBE; do
                 kubectl -n "$NAMESPACE" exec nats-client -- nats --server "$shared" --timeout 3s stream ls --names |
