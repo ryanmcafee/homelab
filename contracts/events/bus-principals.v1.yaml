@@ -440,15 +440,14 @@ conformance:
       measured:
         image: docker.io/library/nats@sha256:ac8f88a6494bffc2c2a5289a0ca61cb28a9145c11ba5677cf24265d07f46d8d4
         suite: tests/e2e/nats-auth
-        run: https://github.com/ryanmcafee/homelab/actions/runs/36810662328
+        run: https://github.com/ryanmcafee/homelab/actions/runs/36802082830
       asserts: >-
-        The explicit denies refuse the nameless `$JS.API.CONSUMER.CREATE.<stream>` form and
-        legacy `DURABLE.CREATE`, with a body `Durable` or a body `Name` and no `Durable`. On the
-        allowed fully-filtered form the server rejects a differing body `Durable`, a wider,
-        missing or multi filter and another stream, and a differing body `Name` is overridden
-        by the subject's. So the name reach is closed. NOT closed: `deliver_subject` is checked
-        against no publish grant, so a principal allowed to create a consumer can push stream
-        messages onto a subject it may not publish to (MCAA-1090).
+        No workload principal can create a consumer (ADR-043 D6b, `bound_puller`). The nameless
+        `$JS.API.CONSUMER.CREATE.<stream>` form, legacy `DURABLE.CREATE` and the fully-filtered
+        form are each refused, for a new name and as an update of the NACK durable. The bind to
+        that durable succeeds and it stays pull. So neither the name reach nor the
+        `deliver_subject` push redirect (checked against no publish grant, MCAA-1090) is
+        reachable from a workload credential; only `stream_controller` creates consumers.
     - id: nack_account_on_stream_move
       open_question: true
       asserts: >-
