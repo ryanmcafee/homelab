@@ -889,10 +889,7 @@ test("nack_inbox_prefix_render_guard: setting keys without the opt-in is refused
 
   // The other half, so the refusal above is the guard and not some unrelated failure.
   const optedIn = helmTemplate(ADDONS_CHART, ...args, ...NACK_INBOX_OPT_IN);
-  assert(
-    optedIn.code === 0,
-    `the opted-in render failed\n${optedIn.output}`,
-  );
+  assert(optedIn.code === 0, `the opted-in render failed\n${optedIn.output}`);
   const anonymous = helmTemplate(
     ADDONS_CHART,
     "--set",
