@@ -25,7 +25,8 @@ on:
         type: number
 
 concurrency:
-  group: pr-dependency-triage
+  # Per-PR, so one PR's push never cancels the check run on another PR's head.
+  group: pr-dependency-triage-${{ github.event.pull_request.number || github.event_name }}
   cancel-in-progress: true
 
 permissions:
