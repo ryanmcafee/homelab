@@ -96,6 +96,8 @@ exercises it on real hardware. Both halves ADR-037 asked for now exist:
   no ConfigSet, no cluster, no 1Password — so a fork can ask what to gather **before** it owns the
   hardware the prerequisite table demands. `--format text` is the operator-facing form and answers
   the review condition below about telling a forker what they must supply before they hit the error.
+  It also reads each tier's `configuration/environments/<tier>.yaml` when present and lists only the
+  keys that file leaves unset, so localdev, whose committed ConfigSet sets them all, asks for nothing.
 
 Two facts about that document worth stating, because both contradict what was assumed when its
 shape was agreed:

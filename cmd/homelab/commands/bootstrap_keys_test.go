@@ -7,6 +7,7 @@ import (
 	"errors"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -134,7 +135,7 @@ func TestPrintRequiredKeysRunsWithoutPrerequisites(t *testing.T) {
 	if err != nil {
 		t.Fatalf("--print-required-keys failed with no tools present: %v\n%s", err, out)
 	}
-	if !strings.Contains(out, "must be set") {
+	if !strings.Contains(out, "are not set") {
 		t.Errorf("text output does not list the keys a fork supplies:\n%s", out)
 	}
 	for _, tier := range prereq.AllTiers() {
@@ -181,8 +182,7 @@ func TestPrintRequiredKeysRejectsBadInvocations(t *testing.T) {
 	}
 }
 
-// Tiers that require the same keys are printed once under both names. Today
-// every tier does, because configuration/schema is not tier-scoped; printing
+// Tiers still missing the same keys are printed once under both names; printing
 // the list per tier would read as independent answers that happen to agree.
 func TestTextOutputMergesTiersWithTheSameKeySet(t *testing.T) {
 	doc := &prereq.RequiredKeysDoc{
@@ -199,8 +199,11 @@ func TestTextOutputMergesTiersWithTheSameKeySet(t *testing.T) {
 		},
 	}
 
+	noConfigSets := t.TempDir()
 	var merged bytes.Buffer
-	writeRequiredKeysText(&merged, doc)
+	if err := writeRequiredKeysText(&merged, doc, noConfigSets); err != nil {
+		t.Fatal(err)
+	}
 	if want := "localdev, homelab:"; !strings.Contains(merged.String(), want) {
 		t.Errorf("identical tiers were not merged into one block (want %q):\n%s", want, merged.String())
 	}
@@ -211,12 +214,67 @@ func TestTextOutputMergesTiersWithTheSameKeySet(t *testing.T) {
 	// One differing description is a different answer and must print twice.
 	doc.Tiers[1].Keys[0].Description = "Base domain, production"
 	var split bytes.Buffer
-	writeRequiredKeysText(&split, doc)
+	if err := writeRequiredKeysText(&split, doc, noConfigSets); err != nil {
+		t.Fatal(err)
+	}
 	if strings.Contains(split.String(), "localdev, homelab:") {
 		t.Errorf("tiers with different key sets were merged:\n%s", split.String())
 	}
 	if got := strings.Count(split.String(), "DOMAIN"); got != 2 {
 		t.Errorf("DOMAIN listed %d times, want 2", got)
+	}
+}
+
+// A tier whose ConfigSet already sets every key must not tell its forker to
+// set them: localdev's committed file does, and listing Proxmox and BGP
+// addresses turns a Kind user away from the tier that needs no hardware.
+func TestTextOutputDoesNotAskForKeysTheConfigSetSets(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "localdev.yaml"), "DOMAIN: homelab.local\nPROXMOX_IP: \"127.0.0.1\"\n")
+	writeFile(t, filepath.Join(dir, "homelab.yaml.example"), "DOMAIN: example.com\n")
+	keys := []prereq.RequiredKey{
+		{Name: "DOMAIN", Required: true, Source: prereq.KeySourceSchema, Description: "Base domain", Example: prereq.ExampleRequired},
+		{Name: "PROXMOX_IP", Required: true, Source: prereq.KeySourceSchema, Description: "Proxmox IP", Example: prereq.ExampleRequired},
+	}
+	doc := &prereq.RequiredKeysDoc{
+		Version: prereq.RequiredKeysVersion,
+		Tiers:   []prereq.RequiredKeysTier{{Tier: prereq.Localdev, Keys: keys}, {Tier: prereq.Homelab, Keys: keys}},
+	}
+
+	var out bytes.Buffer
+	if err := writeRequiredKeysText(&out, doc, dir); err != nil {
+		t.Fatal(err)
+	}
+	text := out.String()
+
+	if want := "localdev: all 2 keys without a default are set by configuration/environments/localdev.yaml; nothing to fill in."; !strings.Contains(text, want) {
+		t.Errorf("localdev was not reported as complete (want %q):\n%s", want, text)
+	}
+	if want := "homelab: 2 of 2 required keys have no default and are not set"; !strings.Contains(text, want) {
+		t.Errorf("homelab block missing (want %q):\n%s", want, text)
+	}
+	if want := "cp configuration/environments/homelab.yaml.example configuration/environments/homelab.yaml"; !strings.Contains(text, want) {
+		t.Errorf("homelab block does not say how to create its ConfigSet (want %q):\n%s", want, text)
+	}
+	if got := strings.Count(text, "PROXMOX_IP"); got != 1 {
+		t.Errorf("PROXMOX_IP listed %d times, want 1 (homelab only):\n%s", got, text)
+	}
+}
+
+// Pins the reviewer's finding against the real files: the committed localdev
+// ConfigSet sets every operator-supplied key the real schema requires.
+func TestCommittedLocaldevConfigSetNeedsNothingFilledIn(t *testing.T) {
+	opts := prereq.DefaultOptions()
+	doc, err := prereq.BuildRequiredKeys(opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if err := writeRequiredKeysText(&out, doc, filepath.Join(opts.ConfigRoot, "environments")); err != nil {
+		t.Fatal(err)
+	}
+	if want := "set by configuration/environments/localdev.yaml; nothing to fill in."; !strings.Contains(out.String(), want) {
+		t.Errorf("committed localdev.yaml leaves keys unset (want %q):\n%s", want, out.String())
 	}
 }
 
@@ -245,5 +303,12 @@ func TestPrereqTableIndentsAMultiLineError(t *testing.T) {
 		if got := strings.Count(out.String(), key); got != 1 {
 			t.Errorf("%s appears %d times, want 1", key, got)
 		}
+	}
+}
+
+func writeFile(t *testing.T, path, content string) {
+	t.Helper()
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
 	}
 }
