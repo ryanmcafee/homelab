@@ -18,6 +18,7 @@ import {
   DISCHARGE_LABEL,
   README_BADGES_BEGIN,
   README_BADGES_END,
+  README_COUNTERS,
   type RunFact,
   blobUrl,
   classify,
@@ -27,11 +28,11 @@ import {
   globToRegExp,
   hasDischargeLabel,
   coldPathTaskClosure,
-  readmeChangedOutsideBadges,
+  readmeChangedOutsideGenerated,
   renderComment,
   taskfileChangeReachesColdPath,
 } from "./fork-path-gate.ts";
-import { regionRe } from "./docs-check.ts";
+import { expectedLiterals, regionRe } from "./docs-check.ts";
 
 const HEAD = "1111111111111111111111111111111111111111";
 const OTHER = "2222222222222222222222222222222222222222";
@@ -360,7 +361,7 @@ const README_BEFORE = [
 test("classify: a readme diff only inside the badges region is not Tier 1", () => {
   // The Renovate regeneration bot's commit after a charts.cilium bump.
   const after = README_BEFORE.replace("Cilium-1.19.5", "Cilium-1.19.6");
-  assertEquals(readmeChangedOutsideBadges(README_BEFORE, after), false);
+  assertEquals(readmeChangedOutsideGenerated(README_BEFORE, after), false);
   assertEquals(
     classify({
       files: [
@@ -380,7 +381,7 @@ test("classify: a readme diff outside the badges region is Tier 1", () => {
     "task localdev:up",
     "task localdev:up -- --wait",
   ).replace("Cilium-1.19.5", "Cilium-1.19.6");
-  assertEquals(readmeChangedOutsideBadges(README_BEFORE, after), true);
+  assertEquals(readmeChangedOutsideGenerated(README_BEFORE, after), true);
   assertEquals(
     classify({ files: ["readme.md"], readme: { before: README_BEFORE, after } })
       .tier1,
@@ -388,7 +389,36 @@ test("classify: a readme diff outside the badges region is Tier 1", () => {
   );
 });
 
-test("readmeChangedOutsideBadges: moving a marker over prose counts", () => {
+test("classify: a readme diff only in docs-check counters is not Tier 1", () => {
+  // homelab#467 adding the 40th addon, as docs:check -- --fix rewrites it.
+  const before = `${README_BEFORE}\n39 addons and 16 applications, 91 ArgoCD Applications in all.`;
+  const after = `${README_BEFORE}\n40 addons and 17 applications, 93 ArgoCD Applications in all.`;
+  assertEquals(readmeChangedOutsideGenerated(before, after), false);
+  assertEquals(
+    classify({ files: ["readme.md"], readme: { before, after } }).tier1,
+    [],
+  );
+});
+
+test("readmeChangedOutsideGenerated: a counter's words still count", () => {
+  const before = `${README_BEFORE}\n39 addons in all.`;
+  assertEquals(
+    readmeChangedOutsideGenerated(
+      before,
+      `${README_BEFORE}\n39 add-ons in all.`,
+    ),
+    true,
+  );
+  assertEquals(
+    readmeChangedOutsideGenerated(
+      `${README_BEFORE}\nrun task 3 times`,
+      `${README_BEFORE}\nrun task 4 times`,
+    ),
+    true,
+  );
+});
+
+test("readmeChangedOutsideGenerated: moving a marker over prose counts", () => {
   // Widening the region to swallow a command must not hide the command change.
   const after = [
     "<h1>homelab</h1>",
@@ -400,12 +430,12 @@ test("readmeChangedOutsideBadges: moving a marker over prose counts", () => {
     "```",
     README_BADGES_END,
   ].join("\n");
-  assertEquals(readmeChangedOutsideBadges(README_BEFORE, after), true);
+  assertEquals(readmeChangedOutsideGenerated(README_BEFORE, after), true);
 });
 
-test("readmeChangedOutsideBadges: an added or deleted readme counts", () => {
-  assertEquals(readmeChangedOutsideBadges(null, README_BEFORE), true);
-  assertEquals(readmeChangedOutsideBadges(README_BEFORE, null), true);
+test("readmeChangedOutsideGenerated: an added or deleted readme counts", () => {
+  assertEquals(readmeChangedOutsideGenerated(null, README_BEFORE), true);
+  assertEquals(readmeChangedOutsideGenerated(README_BEFORE, null), true);
 });
 
 test("classify: readme.md with no content supplied stays Tier 1", () => {
@@ -415,6 +445,25 @@ test("classify: readme.md with no content supplied stays Tier 1", () => {
 test("README_BADGES markers match the region docs-check.ts writes", () => {
   const text = `${README_BADGES_BEGIN}\nbody\n${README_BADGES_END}`;
   assertEquals(regionRe("badges").exec(text)?.[2], "body");
+});
+
+test("README_COUNTERS match the readme counters docs-check.ts rewrites", () => {
+  const readmeFixes = expectedLiterals({
+    versions: {},
+    addons: 1,
+    applications: 1,
+    argoApplications: 1,
+    localdevApplications: 1,
+    e2eSuites: [],
+    smokeJobs: [],
+    routes: [],
+    addonApps: [],
+    applicationApps: [],
+  })
+    .filter((l) => l.file === "readme.md" && l.fix)
+    .map((l) => l.fix?.[0].source)
+    .sort();
+  assertEquals(README_COUNTERS.map((r) => r.source).sort(), readmeFixes);
 });
 
 // --- discharge route 1: the linked run ------------------------------------
