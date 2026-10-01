@@ -2,10 +2,15 @@ package commands
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
+	"os"
+	"path/filepath"
 	"strings"
 
+	"github.com/ryanmcafee/homelab/internal/config"
 	"github.com/ryanmcafee/homelab/internal/prereq"
 	"github.com/spf13/cobra"
 )
@@ -32,7 +37,8 @@ func printRequiredKeys(cmd *cobra.Command, environment, format string) error {
 			"--print-required-keys reports every tier in one document, so -e/--environment does not apply; drop it"))
 	}
 
-	doc, err := prereq.BuildRequiredKeys(prereq.DefaultOptions())
+	opts := prereq.DefaultOptions()
+	doc, err := prereq.BuildRequiredKeys(opts)
 	if err != nil {
 		return err
 	}
@@ -43,67 +49,121 @@ func printRequiredKeys(cmd *cobra.Command, environment, format string) error {
 		enc.SetIndent("", "  ")
 		return enc.Encode(doc)
 	}
-	writeRequiredKeysText(out, doc)
-	return nil
+	return writeRequiredKeysText(out, doc, filepath.Join(opts.ConfigRoot, "environments"))
 }
 
-// writeRequiredKeysText lists the keys a fork has to supply itself. Keys with a
-// schema default or a computed value are counted, not listed: the operator's
-// question is "what do I have to fill in", and listing 80 defaulted keys buries
-// the 26 that answer it.
+const environmentsDisplayDir = "configuration/environments"
+
+// writeRequiredKeysText lists the keys a fork still has to supply itself: keys
+// with no schema default or computed value that the tier's ConfigSet under
+// environmentsDir does not set. A tier whose committed ConfigSet sets them all
+// gets one line saying so, because listing them would send a localdev forker
+// hunting for Proxmox and BGP addresses the Kind tier never uses.
 //
-// Tiers sharing a key set are printed once under both names. Today that is
-// every tier -- configuration/schema is not tier-scoped, so localdev requires
-// PROXMOX_IP too and its committed ConfigSet supplies one. Printing the same 26
-// keys per tier would read as two independent answers that happen to agree.
-func writeRequiredKeysText(w io.Writer, doc *prereq.RequiredKeysDoc) {
+// Tiers still missing the same keys are printed once under both names, so one
+// answer does not read as two independent ones that happen to agree.
+func writeRequiredKeysText(w io.Writer, doc *prereq.RequiredKeysDoc, environmentsDir string) error {
 	fmt.Fprintf(w, "Configuration keys the bootstrap requires (document v%d).\n", doc.Version)
-	fmt.Fprintln(w, "Each tier resolves them from configuration/environments/<tier>.yaml.")
+	fmt.Fprintf(w, "Each tier resolves them from %s/<tier>.yaml.\n", environmentsDisplayDir)
 
-	for _, group := range groupTiersByKeySet(doc) {
-		supplied := group.tier.OperatorSuppliedKeys()
-		fmt.Fprintf(w, "\n%s: %d of %d required keys have no default and must be set; the rest are defaulted or computed.\n",
-			strings.Join(group.names, ", "), len(supplied), len(group.tier.Keys))
+	var pending []pendingTier
+	for _, tier := range doc.Tiers {
+		p, err := unsetOperatorKeys(tier, environmentsDir)
+		if err != nil {
+			return err
+		}
+		if len(p.unset) == 0 {
+			fmt.Fprintf(w, "\n%s: all %d keys without a default are set by %s; nothing to fill in.\n",
+				p.name, len(tier.OperatorSuppliedKeys()), p.displayFile())
+			continue
+		}
+		pending = append(pending, p)
+	}
 
-		width := 0
-		for _, key := range supplied {
-			if len(key.Name) > width {
-				width = len(key.Name)
+	for _, group := range groupPendingTiers(pending) {
+		first := group[0]
+		names := make([]string, 0, len(group))
+		for _, p := range group {
+			names = append(names, p.name)
+		}
+		fmt.Fprintf(w, "\n%s: %d of %d required keys have no default and are not set; the rest are defaulted or computed.\n",
+			strings.Join(names, ", "), len(first.unset), first.total)
+		for _, p := range group {
+			switch {
+			case p.fileExists:
+				fmt.Fprintf(w, "  Set them in %s.\n", p.displayFile())
+			case !p.exampleExists:
+				fmt.Fprintf(w, "  Create %s.\n", p.displayFile())
+			default:
+				fmt.Fprintf(w, "  Create %s: cp %s.example %s\n", p.displayFile(), p.displayFile(), p.displayFile())
 			}
 		}
-		for _, key := range supplied {
+
+		width := 0
+		for _, key := range first.unset {
+			width = max(width, len(key.Name))
+		}
+		for _, key := range first.unset {
 			fmt.Fprintf(w, "  %-*s  %s\n", width, key.Name, key.Description)
 		}
 	}
+	return nil
 }
 
-// tierGroup is one key set and the tiers that share it, in document order.
-type tierGroup struct {
-	names []string
-	tier  prereq.RequiredKeysTier
+// pendingTier is a tier whose ConfigSet does not yet set every operator-supplied key.
+type pendingTier struct {
+	name          string
+	total         int
+	unset         []prereq.RequiredKey
+	fileExists    bool
+	exampleExists bool
 }
 
-func groupTiersByKeySet(doc *prereq.RequiredKeysDoc) []tierGroup {
-	var groups []tierGroup
+func (p pendingTier) displayFile() string {
+	return environmentsDisplayDir + "/" + p.name + ".yaml"
+}
+
+func unsetOperatorKeys(tier prereq.RequiredKeysTier, environmentsDir string) (pendingTier, error) {
+	path := filepath.Join(environmentsDir, string(tier.Tier)+".yaml")
+	p := pendingTier{name: string(tier.Tier), total: len(tier.Keys), fileExists: true}
+	values, err := config.LoadEnvironment(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		p.fileExists = false
+		_, statErr := os.Stat(path + ".example")
+		p.exampleExists = statErr == nil
+	} else if err != nil {
+		return p, err
+	}
+	for _, key := range tier.OperatorSuppliedKeys() {
+		if value, ok := values[key.Name]; !ok || value == "" || value == "<nil>" {
+			p.unset = append(p.unset, key)
+		}
+	}
+	return p, nil
+}
+
+func groupPendingTiers(pending []pendingTier) [][]pendingTier {
+	var groups [][]pendingTier
 	index := map[string]int{}
-	for _, tier := range doc.Tiers {
-		fingerprint := keySetFingerprint(tier)
+	for _, p := range pending {
+		fingerprint := pendingFingerprint(p)
 		if at, ok := index[fingerprint]; ok {
-			groups[at].names = append(groups[at].names, string(tier.Tier))
+			groups[at] = append(groups[at], p)
 			continue
 		}
 		index[fingerprint] = len(groups)
-		groups = append(groups, tierGroup{names: []string{string(tier.Tier)}, tier: tier})
+		groups = append(groups, []pendingTier{p})
 	}
 	return groups
 }
 
-// keySetFingerprint identifies a tier's key set by every field the text output
-// shows, so two tiers are merged only when the printed block would be identical.
-func keySetFingerprint(tier prereq.RequiredKeysTier) string {
+// pendingFingerprint covers every field the group's block prints, so two tiers
+// are merged only when the printed block would be identical.
+func pendingFingerprint(p pendingTier) string {
 	var b strings.Builder
-	for _, key := range tier.Keys {
-		fmt.Fprintf(&b, "%s\x00%t\x00%s\x00%s\x00%s\x00", key.Name, key.Required, key.Source, key.Example, key.Description)
+	fmt.Fprintf(&b, "%d\x00", p.total)
+	for _, key := range p.unset {
+		fmt.Fprintf(&b, "%s\x00%s\x00", key.Name, key.Description)
 	}
 	return b.String()
 }
