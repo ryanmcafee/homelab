@@ -56,9 +56,10 @@ const environmentsDisplayDir = "configuration/environments"
 
 // writeRequiredKeysText lists the keys a fork still has to supply itself: keys
 // with no schema default or computed value that the tier's ConfigSet under
-// environmentsDir does not set. A tier whose committed ConfigSet sets them all
-// gets one line saying so, because listing them would send a localdev forker
-// hunting for Proxmox and BGP addresses the Kind tier never uses.
+// environmentsDir does not set, or still sets to its .example value. A tier
+// whose committed ConfigSet sets them all gets one line saying so, because
+// listing them would send a localdev forker hunting for Proxmox and BGP
+// addresses the Kind tier never uses.
 //
 // Tiers still missing the same keys are printed once under both names, so one
 // answer does not read as two independent ones that happen to agree.
@@ -86,7 +87,7 @@ func writeRequiredKeysText(w io.Writer, doc *prereq.RequiredKeysDoc, environment
 		for _, p := range group {
 			names = append(names, p.name)
 		}
-		fmt.Fprintf(w, "\n%s: %d of %d required keys have no default and are not set; the rest are defaulted or computed.\n",
+		fmt.Fprintf(w, "\n%s: %d of %d required keys have no default and still need a value; the rest are defaulted or computed.\n",
 			strings.Join(names, ", "), len(first.unset), first.total)
 		for _, p := range group {
 			switch {
@@ -104,7 +105,11 @@ func writeRequiredKeysText(w io.Writer, doc *prereq.RequiredKeysDoc, environment
 			width = max(width, len(key.Name))
 		}
 		for _, key := range first.unset {
-			fmt.Fprintf(w, "  %-*s  %s\n", width, key.Name, key.Description)
+			marker := ""
+			if first.sample[key.Name] {
+				marker = " (still the example value)"
+			}
+			fmt.Fprintf(w, "  %-*s  %s%s\n", width, key.Name, key.Description, marker)
 		}
 	}
 	return nil
@@ -115,6 +120,7 @@ type pendingTier struct {
 	name          string
 	total         int
 	unset         []prereq.RequiredKey
+	sample        map[string]bool
 	fileExists    bool
 	exampleExists bool
 }
@@ -134,12 +140,35 @@ func unsetOperatorKeys(tier prereq.RequiredKeysTier, environmentsDir string) (pe
 	} else if err != nil {
 		return p, err
 	}
+	samples, err := exampleValues(path, p.fileExists)
+	if err != nil {
+		return p, err
+	}
+	p.sample = map[string]bool{}
 	for _, key := range tier.OperatorSuppliedKeys() {
-		if value, ok := values[key.Name]; !ok || value == "" || value == "<nil>" {
+		value, ok := values[key.Name]
+		switch {
+		case !ok || value == "" || value == "<nil>":
 			p.unset = append(p.unset, key)
+		case samples[key.Name] == value:
+			p.unset = append(p.unset, key)
+			p.sample[key.Name] = true
 		}
 	}
 	return p, nil
+}
+
+// exampleValues reads the tier's .example beside an existing ConfigSet, so a
+// value still copied from it counts as unset.
+func exampleValues(path string, fileExists bool) (map[string]string, error) {
+	if !fileExists {
+		return nil, nil
+	}
+	values, err := config.LoadEnvironment(path + ".example")
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	return values, err
 }
 
 func groupPendingTiers(pending []pendingTier) [][]pendingTier {
@@ -163,7 +192,7 @@ func pendingFingerprint(p pendingTier) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "%d\x00", p.total)
 	for _, key := range p.unset {
-		fmt.Fprintf(&b, "%s\x00%s\x00", key.Name, key.Description)
+		fmt.Fprintf(&b, "%s\x00%s\x00%t\x00", key.Name, key.Description, p.sample[key.Name])
 	}
 	return b.String()
 }

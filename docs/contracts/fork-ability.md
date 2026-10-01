@@ -97,7 +97,9 @@ exercises it on real hardware. Both halves ADR-037 asked for now exist:
   hardware the prerequisite table demands. `--format text` is the operator-facing form and answers
   the review condition below about telling a forker what they must supply before they hit the error.
   It also reads each tier's `configuration/environments/<tier>.yaml` when present and lists only the
-  keys that file leaves unset, so localdev, whose committed ConfigSet sets them all, asks for nothing.
+  keys that file leaves unset or still sets to its `.example` value, so localdev, whose committed
+  ConfigSet sets them all, asks for nothing, and a homelab file just copied from
+  `homelab.yaml.example` still lists every key. Held by `TestCopiedExampleConfigSetStillNeedsEveryValue`.
 
 Two facts about that document worth stating, because both contradict what was assumed when its
 shape was agreed:

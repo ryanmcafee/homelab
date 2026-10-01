@@ -135,7 +135,7 @@ func TestPrintRequiredKeysRunsWithoutPrerequisites(t *testing.T) {
 	if err != nil {
 		t.Fatalf("--print-required-keys failed with no tools present: %v\n%s", err, out)
 	}
-	if !strings.Contains(out, "are not set") {
+	if !strings.Contains(out, "still need a value") {
 		t.Errorf("text output does not list the keys a fork supplies:\n%s", out)
 	}
 	for _, tier := range prereq.AllTiers() {
@@ -250,7 +250,7 @@ func TestTextOutputDoesNotAskForKeysTheConfigSetSets(t *testing.T) {
 	if want := "localdev: all 2 keys without a default are set by configuration/environments/localdev.yaml; nothing to fill in."; !strings.Contains(text, want) {
 		t.Errorf("localdev was not reported as complete (want %q):\n%s", want, text)
 	}
-	if want := "homelab: 2 of 2 required keys have no default and are not set"; !strings.Contains(text, want) {
+	if want := "homelab: 2 of 2 required keys have no default and still need a value"; !strings.Contains(text, want) {
 		t.Errorf("homelab block missing (want %q):\n%s", want, text)
 	}
 	if want := "cp configuration/environments/homelab.yaml.example configuration/environments/homelab.yaml"; !strings.Contains(text, want) {
@@ -275,6 +275,75 @@ func TestCommittedLocaldevConfigSetNeedsNothingFilledIn(t *testing.T) {
 	}
 	if want := "set by configuration/environments/localdev.yaml; nothing to fill in."; !strings.Contains(out.String(), want) {
 		t.Errorf("committed localdev.yaml leaves keys unset (want %q):\n%s", want, out.String())
+	}
+}
+
+// Following the printed cp step must not make homelab read as complete: the
+// copy still holds the sample values, which the bootstrap would deploy.
+func TestCopiedExampleConfigSetStillNeedsEveryValue(t *testing.T) {
+	opts := prereq.DefaultOptions()
+	doc, err := prereq.BuildRequiredKeys(opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	committed := filepath.Join(opts.ConfigRoot, "environments")
+	dir := t.TempDir()
+	for _, name := range []string{"localdev.yaml", "homelab.yaml.example"} {
+		data, err := os.ReadFile(filepath.Join(committed, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		writeFile(t, filepath.Join(dir, name), string(data))
+	}
+	example, err := os.ReadFile(filepath.Join(dir, "homelab.yaml.example"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(dir, "homelab.yaml"), string(example))
+
+	var out bytes.Buffer
+	if err := writeRequiredKeysText(&out, doc, dir); err != nil {
+		t.Fatal(err)
+	}
+	text := out.String()
+
+	if strings.Contains(text, "homelab: all") {
+		t.Errorf("a copied example reads as complete:\n%s", text)
+	}
+	for _, key := range []string{"DOMAIN", "GITOPS_REPO_URL", "PROXMOX_NODE", "ACME_EMAIL"} {
+		if !strings.Contains(text, key) {
+			t.Errorf("%s still holds its example value but is not listed:\n%s", key, text)
+		}
+	}
+	if want := "(still the example value)"; !strings.Contains(text, want) {
+		t.Errorf("example-valued keys are not marked %q:\n%s", want, text)
+	}
+}
+
+// A key set to its own value is not reported just because the example also sets it.
+func TestEditedExampleValueIsNotListed(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "homelab.yaml.example"), "DOMAIN: example.com\nPROXMOX_IP: \"192.168.1.10\"\n")
+	writeFile(t, filepath.Join(dir, "homelab.yaml"), "DOMAIN: fork.dev\nPROXMOX_IP: \"192.168.1.10\"\n")
+	keys := []prereq.RequiredKey{
+		{Name: "DOMAIN", Required: true, Source: prereq.KeySourceSchema, Description: "Base domain", Example: prereq.ExampleRequired},
+		{Name: "PROXMOX_IP", Required: true, Source: prereq.KeySourceSchema, Description: "Proxmox IP", Example: prereq.ExampleRequired},
+	}
+	doc := &prereq.RequiredKeysDoc{
+		Version: prereq.RequiredKeysVersion,
+		Tiers:   []prereq.RequiredKeysTier{{Tier: prereq.Homelab, Keys: keys}},
+	}
+
+	var out bytes.Buffer
+	if err := writeRequiredKeysText(&out, doc, dir); err != nil {
+		t.Fatal(err)
+	}
+	text := out.String()
+	if strings.Contains(text, "DOMAIN") {
+		t.Errorf("DOMAIN was changed from the example but is listed:\n%s", text)
+	}
+	if !strings.Contains(text, "PROXMOX_IP") || !strings.Contains(text, "1 of 2") {
+		t.Errorf("PROXMOX_IP equals the example value and must be listed as 1 of 2:\n%s", text)
 	}
 }
 
