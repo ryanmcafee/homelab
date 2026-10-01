@@ -91,9 +91,9 @@ func TestConfigGuardPreCommit(t *testing.T) {
 		name, body string
 		bad        bool
 	}{
-		{"scripts/good.yaml.example", "TRUENAS_IP: 192.168.1.50\nDOMAIN: example.com\n", false},
+		{"scripts/good.yaml.example", "TRUENAS_IP: 198.51.100.50\nDOMAIN: example.com\n", false},
 		{"scripts/bad.yaml.example", "TRUENAS_IP: 10.23.1.4\nDOMAIN: corp.acme.org\nACME_EMAIL: admin@corp.acme.org\n", true},
-		{"scripts/deployment.yaml", "TRUENAS_IP: 192.168.1.50\n", true},
+		{"scripts/deployment.yaml", "TRUENAS_IP: 198.51.100.50\n", true},
 		{"terragrunt/bad.tfvars", "domain = \"corp.acme.org\"\n", true},
 		{"terragrunt/good.hcl", "locals { domain = local.domain }\n", false},
 		{"terragrunt/bad.tf", "variable \"truenas_hostname\" { default = \"nas.acme.org\" }\n", true},
