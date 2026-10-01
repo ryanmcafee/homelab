@@ -160,7 +160,8 @@ Dated, because a check's status is a claim about the past and decays.
     `docs:check -- --fix`, including on `renovate/*` branches by a bot that can neither link a
     cold run nor apply the label, and no badge is a command the cold path types. A moved region
     marker, or a readme added or deleted, still counts. `renovate/*` branches are not exempt
-    wholesale, because a Renovate `mise.toml` bump is exactly the #331 class.
+    wholesale, because a Renovate `mise.toml` bump is exactly the
+    [#331](https://github.com/ryanmcafee/homelab/issues/331) class.
   - **Tier 2 — advisory, never fails.** The configuration, secrets and identity surface
     (`TIER2_PATHS` in the same file, and this document). Genuinely "secrets or identity", but the
     literal-leak class is already caught on every pull request by checks 1 and 2, so a second
@@ -168,7 +169,8 @@ Dated, because a check's status is a claim about the past and decays.
   - **Tier 2, infrastructure trees:** `terragrunt/**`, `talos/**`, `packer/**`. Check 3a
     executes none of it — it is a Kind/ArgoCD localdev loop — so these can never be Tier 1:
     telling an author who touched `terragrunt/` to "run the cold fork path" demands a run that
-    structurally cannot detect their regression. Their literal leaks are the config guard's
+    structurally cannot detect their regression, and a gate that greenlights an unchecked change
+    is worse than no gate. Their literal leaks are the config guard's
     (see the scan scope below). The Tier 2 note covers what no static check can see: undeclared
     hardware prerequisites, a fixed topology shape, and secret-store or identity assumptions.
     It is advice, not detection: check 3b, the only check that would exercise this surface, has
