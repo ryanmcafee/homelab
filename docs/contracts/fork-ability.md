@@ -172,8 +172,9 @@ Dated, because a check's status is a claim about the past and decays.
     hardware prerequisites, a fixed topology shape, and secret-store or identity assumptions.
     It is advice, not detection: check 3b, the only check that would exercise this surface, has
     never been executed.
-  - **Deliberately excluded:** `ansible/**`. Check 3a does not execute it either, and the
-    inventory is rendered from `configuration/`.
+  - **Outside the Tier 2 note, not outside the scan:** `ansible/**`. Check 1's guard reads it on
+    every pull request and always has. Check 3a does not execute it either, and the inventory is
+    rendered from `configuration/`.
   - **The escape hatch is the point.** The label `fork-path: cold-run-waived` plus a one-line
     reason discharges a Tier 1 hit in about ten seconds. Before the gate there was no decision
     point at all, so nobody was ever recorded as having judged a bootstrap change safe; now
