@@ -63,6 +63,21 @@ for pair in $(printf '%s' "$PROBE_PAIRS" | tr ',' ' '); do
   esac
 done
 
+# NACK_MOVE holds only a copy of nack's grants on $MOVE_PAIRS' key, so a Stream has a second
+# account to move to (nack_account_on_stream_move).
+if [ -n "${MOVE_PAIRS:-}" ]; then
+  nack_key=$(printf '%s' "$PAIRS" | tr ',' '\n' | sed -n 's/^nack=//p')
+  [ -n "$nack_key" ] || { echo "PAIRS carries no nack key to copy into NACK_MOVE" >&2; exit 1; }
+  NACK=$nack_key MOVE=${MOVE_PAIRS#*=} yq -i "
+    .config.merge.accounts.NACK_MOVE = .config.merge.accounts.$account |
+    .config.merge.accounts.NACK_MOVE.users |= [.[] | select(.nkey == strenv(NACK))] |
+    .config.merge.accounts.NACK_MOVE.users[0].nkey = strenv(MOVE)" "$OUT/values.yaml"
+  [ "$(yq '.config.merge.accounts.NACK_MOVE.users | length' "$OUT/values.yaml")" -eq 1 ] ||
+    { echo "NACK_MOVE did not render exactly one user" >&2; exit 1; }
+  NACK=$nack_key yq -e ".config.merge.accounts.$account.users[] | select(.nkey == strenv(NACK))" \
+    "$OUT/values.yaml" >/dev/null || { echo "NACK_MOVE took nack's key out of $account" >&2; exit 1; }
+fi
+
 helm template nats "$chart" --repo "$repo" --version "$version" \
   --namespace "$NAMESPACE" -f "$OUT/values.yaml" |
   yq 'select(.kind != null and .kind != "PodMonitor")' >"$OUT/server.yaml"
