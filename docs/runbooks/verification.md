@@ -618,8 +618,10 @@ allocations that must be inside (`lb-allocation`), addresses that must stay outs
 (`infrastructure-address`, `dedicated-pool-allocation`), and containing network
 ranges (`network-range`). Both endpoints are inclusive; address/prefix values use
 the host address. The Envoy Gateways, Plex, and OTEL belong inside the pool. TrueNAS and the
-control-plane VIP must stay outside. Existing forks must check their own ignored
-`homelab.yaml`: updating the example does not fix a previously copied NAS collision.
+control-plane VIP must stay outside. IPv4 `keyPatterns` carry `addressRole` too,
+so every `CPn_IP` member, not only `CP1_IP`, must stay outside the pool. Existing
+forks must check their own ignored `homelab.yaml`: updating the example does not
+fix a previously copied NAS or control-plane collision.
 
 `task config:guard` remains the full tracked-file entrypoint. Neither check needs
 cluster credentials. CI and the `config-regressions` pre-commit hook execute the
