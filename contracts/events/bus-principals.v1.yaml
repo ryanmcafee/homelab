@@ -117,8 +117,8 @@ subject_grants:
   # hold a standing publish grant on -- that grant is `_INBOX.<other principal>.>` and it reads
   # every reply that principal receives. The mechanism is the server's own response permission,
   # which authorizes a reply to the subject the responder was just delivered and nothing else.
-  # THE EXACT CONFIG KEY AND ITS BOUNDS ARE CONFIRMED AGAINST A RUNNING v2.15.0 AT LEVEL 2
-  # (conformance `rq_reply_needs_no_inbox_grant`), not asserted here.
+  # Level 2 measured the key as `permissions.allow_responses` with `{max: 1, expires: 5s}`
+  # (conformance `rq_reply_needs_no_inbox_grant`).
   reply_mechanism: server_response_permission
   reply_inbox_publish_grant: forbidden
 
@@ -433,8 +433,8 @@ conformance:
 
   level_2:
     # Run against the rendered image digests, never a version read from a document. These are
-    # the claims a static check cannot make, and two of them are OPEN QUESTIONS this contract
-    # deliberately does not answer.
+    # the claims a static check cannot make. An entry carrying `measured` cites the run that
+    # answered it; `nack_account_on_stream_move` is still an OPEN QUESTION.
     - id: start_bind_pull_ack_reconnect
       asserts: A principal starts, binds, pulls, ACK/NAK/TERMs and reconnects under the real rendered ACL.
     - id: lifecycle_refused
@@ -444,24 +444,33 @@ conformance:
         A principal cannot read another principal's inbox or acknowledge another consumer's
         messages INSIDE ONE ACCOUNT. Cross-tenant refusal alone does not test this.
     - id: consumer_create_name_only_reach
-      open_question: true
+      measured:
+        image: docker.io/library/nats@sha256:ac8f88a6494bffc2c2a5289a0ca61cb28a9145c11ba5677cf24265d07f46d8d4
+        suite: tests/e2e/nats-auth
+        run: https://github.com/ryanmcafee/homelab/actions/runs/36810662328
       asserts: >-
-        UNMEASURED. What the nameless `$JS.API.CONSUMER.CREATE.<stream>` endpoint can reach with
-        a body-supplied `Name`. v2.15.0 routes three subjects to one handler and the five-token
-        form carries no consumer name in the subject at all, so an allow-list naming only the
-        fully-filtered form may leak through it. The declaration denies the weaker forms
-        explicitly; THAT THIS IS SUFFICIENT IS WHAT THIS TEST SETTLES, covering durable and
-        named-ephemeral consumers with and without `Durable`.
+        The explicit denies refuse the nameless `$JS.API.CONSUMER.CREATE.<stream>` form and
+        legacy `DURABLE.CREATE`, with a body `Durable` or a body `Name` and no `Durable`. On the
+        allowed fully-filtered form the server rejects a differing body `Durable`, a wider,
+        missing or multi filter and another stream, and a differing body `Name` is overridden
+        by the subject's. So the name reach is closed. NOT closed: `deliver_subject` is checked
+        against no publish grant, so a principal allowed to create a consumer can push stream
+        messages onto a subject it may not publish to (MCAA-1090).
     - id: nack_account_on_stream_move
       open_question: true
       asserts: >-
         UNMEASURED. NACK 0.35.0's `Account` behaviour when a `Stream` moves between accounts.
     - id: rq_reply_needs_no_inbox_grant
-      open_question: true
+      measured:
+        image: docker.io/library/nats@sha256:ac8f88a6494bffc2c2a5289a0ca61cb28a9145c11ba5677cf24265d07f46d8d4
+        suite: tests/e2e/nats-auth
+        run: https://github.com/ryanmcafee/homelab/actions/runs/36810662328
       asserts: >-
-        UNMEASURED. That a responder can reply to a requester's private inbox through the
-        server's response permission with no standing publish grant on that inbox, and the exact
-        config key and bounds that expresses.
+        The key is the responder user's `permissions.allow_responses`, measured at `{max: 1,
+        expires: 5s}`. Without it the reply is refused. With it the reply reaches the
+        requester's `_INBOX.<principal>` with no publish grant on that inbox, while an
+        unsolicited publish to, a subscribe on, and a reply after the 5s bound to that inbox
+        are all refused.
     - id: monitoring_network_policy
       asserts: >-
         Untrusted-pod denial AND authorized scrape, on BOTH 8222 (the monitoring port, published

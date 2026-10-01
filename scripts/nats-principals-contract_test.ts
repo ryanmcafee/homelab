@@ -72,6 +72,7 @@ interface ConformanceEntry {
   asserts: string;
   pending?: string;
   open_question?: boolean;
+  measured?: { image: string; suite: string; run: string };
 }
 
 interface Declaration {
@@ -843,17 +844,51 @@ test("every level_2 conformance id states whether it is measured", () => {
   );
   assertEquals(
     openQuestions.map((entry) => entry.id).sort(),
-    [
-      "consumer_create_name_only_reach",
-      "nack_account_on_stream_move",
-      "rq_reply_needs_no_inbox_grant",
-    ],
+    ["nack_account_on_stream_move"],
     "the set of open questions changed; promoting one to a claim needs the level-2 measurement, and adding one needs the ADR amended",
   );
   for (const entry of openQuestions) {
     assert(
       entry.asserts.includes("UNMEASURED"),
       `level_2 open question ${entry.id} does not say it is unmeasured`,
+    );
+    assert(
+      entry.measured === undefined,
+      `level_2 open question ${entry.id} also records a measurement`,
+    );
+  }
+  const promoted = declaration.conformance.level_2.filter(
+    (entry) => entry.measured !== undefined,
+  );
+  assertEquals(
+    promoted.map((entry) => entry.id).sort(),
+    ["consumer_create_name_only_reach", "rq_reply_needs_no_inbox_grant"],
+    "every former open question must cite the level-2 run that answered it",
+  );
+  for (const { id, asserts, measured } of promoted) {
+    assert(
+      !asserts.includes("UNMEASURED"),
+      `level_2 id ${id} is measured but still says UNMEASURED`,
+    );
+    assert(
+      /^docker\.io\/library\/nats@sha256:[0-9a-f]{64}$/.test(
+        measured?.image ?? "",
+      ),
+      `level_2 id ${id} cites ${JSON.stringify(measured?.image)}, not a rendered nats image digest`,
+    );
+    assert(
+      /^https:\/\/github\.com\/ryanmcafee\/homelab\/actions\/runs\/\d+$/.test(
+        measured?.run ?? "",
+      ),
+      `level_2 id ${id} cites ${JSON.stringify(measured?.run)}, not a CI run`,
+    );
+    const probes = readFileSync(
+      join(ROOT, measured?.suite ?? "", "probes.sh"),
+      "utf8",
+    );
+    assert(
+      probes.includes(`id=${id}`),
+      `level_2 id ${id} cites suite ${measured?.suite}, whose probes.sh does not exercise it`,
     );
   }
   assert(
