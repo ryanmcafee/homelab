@@ -13,17 +13,26 @@ CREATE_ALLOWED="\$JS.API.CONSUMER.CREATE.PF_WORK.$WORK_CONSUMER.$WORK_SUBJECT"
 failures=0
 scratch=$(mktemp -d)
 
+# natscli 0.4.0 prints an asynchronous -ERR on req and reply only under --trace.
+trace_flag() {
+  case $1 in
+  req | reply) echo --trace ;;
+  esac
+}
+
 as() {
   principal=$1
   shift
-  nats --server "$NATS_URL" --nkey "$SEEDS/$principal.nk" --inbox-prefix "_INBOX.$principal" --timeout 3s "$@" 2>&1
+  nats --server "$NATS_URL" --nkey "$SEEDS/$principal.nk" --inbox-prefix "_INBOX.$principal" --timeout 3s \
+    $(trace_flag "$1") "$@" 2>&1
 }
 
 # Backgrounded through exec, so `$!` is the nats process and `kill "$!"` stops it.
 as_bg() {
   principal=$1
   shift
-  exec nats --server "$NATS_URL" --nkey "$SEEDS/$principal.nk" --inbox-prefix "_INBOX.$principal" "$@" 2>&1
+  exec nats --server "$NATS_URL" --nkey "$SEEDS/$principal.nk" --inbox-prefix "_INBOX.$principal" \
+    $(trace_flag "$1") "$@" 2>&1
 }
 
 pass() { printf 'PASS %s: %s\n' "$1" "$2"; }
