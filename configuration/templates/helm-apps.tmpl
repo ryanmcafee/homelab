@@ -1172,12 +1172,13 @@ paperclip:
         memory: 512Mi
 {{- else }}
     storageSize: 10Gi
+    # Steady load is 0.4-0.9 cores; a 1-core limit throttled Postgres and slowed the paperclip route
     resources:
       requests:
-        cpu: 250m
+        cpu: 500m
         memory: 512Mi
       limits:
-        cpu: "1"
+        cpu: "2"
         memory: 1Gi
 {{- end }}
 
