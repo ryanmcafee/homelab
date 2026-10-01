@@ -1014,11 +1014,11 @@ spec:
               - name: homelab-nats-jetstream
                 rules:
                   - record: homelab:nats_stream_first_seq:authoritative
-                    expr: 'max by (stream_name, namespace, job) (nats_stream_first_seq{is_stream_leader="true"}) or max by (stream_name, namespace, job) (nats_stream_first_seq)'
+                    expr: 'max by (account, stream_name, namespace, job) (nats_stream_first_seq{is_stream_leader="true"}) or max by (account, stream_name, namespace, job) (nats_stream_first_seq)'
                   - record: homelab:nats_stream_total_messages:authoritative
-                    expr: 'max by (stream_name, namespace, job) (nats_stream_total_messages{is_stream_leader="true"}) or max by (stream_name, namespace, job) (nats_stream_total_messages)'
+                    expr: 'max by (account, stream_name, namespace, job) (nats_stream_total_messages{is_stream_leader="true"}) or max by (account, stream_name, namespace, job) (nats_stream_total_messages)'
                   - record: homelab:nats_consumer_ack_floor_stream_seq:authoritative
-                    expr: 'max by (stream_name, consumer_name, namespace, job) (nats_consumer_ack_floor_stream_seq{is_consumer_leader="true"}) or max by (stream_name, consumer_name, namespace, job) (nats_consumer_ack_floor_stream_seq)'
+                    expr: 'max by (account, stream_name, consumer_name, namespace, job) (nats_consumer_ack_floor_stream_seq{is_consumer_leader="true"}) or max by (account, stream_name, consumer_name, namespace, job) (nats_consumer_ack_floor_stream_seq)'
                   - alert: PFWorkOldestUnackedAging
                     expr: 'changes(homelab:nats_stream_first_seq:authoritative{stream_name="PF_WORK"}[12h]) == 0 and min_over_time(homelab:nats_stream_total_messages:authoritative{stream_name="PF_WORK"}[5m]) > 0 and min_over_time(homelab:nats_stream_total_messages:authoritative{stream_name="PF_WORK"}[12h]) > 0 and count_over_time(homelab:nats_stream_first_seq:authoritative{stream_name="PF_WORK"}[12h]) >= 11 * count_over_time(homelab:nats_stream_first_seq:authoritative{stream_name="PF_WORK"}[1h])'
                     for: 15m
@@ -1035,11 +1035,11 @@ spec:
                     annotations:
                       summary: 'PF_WORK work is 18h old and max_age deletes it silently in under 6h'
                       description: 'The head of PF_WORK has been unacked for 18h of its 24h max_age. When the budget runs out the messages are deleted with no advisory of any kind. Get a consumer taking work, or copy the queue out now. docs/runbooks/pf-work-age-expiry.md.'
-                  # Grouped by (stream_name, namespace, job): one Prometheus can
-                  # scrape two NATS installs, and stream_name alone max'd their
-                  # head sequences together into one unattributable alert.
+                  # Grouped by (account, stream_name, namespace, job): PF_WORK
+                  # exists once per NATS account (ADR-043) and per install, and
+                  # dropping either label nets one stream's head against another's.
                   - alert: PFWorkMessagesExpiredUnacked
-                    expr: '(max by (stream_name, namespace, job) (max_over_time(homelab:nats_stream_first_seq:authoritative{stream_name="PF_WORK"}[15m])) - max by (stream_name, namespace, job) (min_over_time(homelab:nats_stream_first_seq:authoritative{stream_name="PF_WORK"}[15m]))) - (sum by (stream_name, namespace, job) (max_over_time(homelab:nats_consumer_ack_floor_stream_seq:authoritative{stream_name="PF_WORK"}[15m]) - min_over_time(homelab:nats_consumer_ack_floor_stream_seq:authoritative{stream_name="PF_WORK"}[15m])) or (max by (stream_name, namespace, job) (max_over_time(homelab:nats_stream_first_seq:authoritative{stream_name="PF_WORK"}[15m])) * 0)) > 0'
+                    expr: '(max by (account, stream_name, namespace, job) (max_over_time(homelab:nats_stream_first_seq:authoritative{stream_name="PF_WORK"}[15m])) - max by (account, stream_name, namespace, job) (min_over_time(homelab:nats_stream_first_seq:authoritative{stream_name="PF_WORK"}[15m]))) - (sum by (account, stream_name, namespace, job) (max_over_time(homelab:nats_consumer_ack_floor_stream_seq:authoritative{stream_name="PF_WORK"}[15m]) - min_over_time(homelab:nats_consumer_ack_floor_stream_seq:authoritative{stream_name="PF_WORK"}[15m])) or (max by (account, stream_name, namespace, job) (max_over_time(homelab:nats_stream_first_seq:authoritative{stream_name="PF_WORK"}[15m])) * 0)) > 0'
                     labels:
                       severity: critical
                     annotations:
@@ -1049,7 +1049,7 @@ spec:
                   # so it cannot be joined on them and it reads the whole
                   # selector - one install still reporting hid a blind one.
                   - alert: PFWorkStreamMetricsAbsent
-                    expr: 'max by (stream_name, namespace, job) (count_over_time(homelab:nats_stream_first_seq:authoritative{stream_name="PF_WORK"}[6h])) > 0 unless on (stream_name, namespace, job) homelab:nats_stream_first_seq:authoritative{stream_name="PF_WORK"}'
+                    expr: 'max by (account, stream_name, namespace, job) (count_over_time(homelab:nats_stream_first_seq:authoritative{stream_name="PF_WORK"}[6h])) > 0 unless on (account, stream_name, namespace, job) homelab:nats_stream_first_seq:authoritative{stream_name="PF_WORK"}'
                     for: 30m
                     labels:
                       severity: warning
