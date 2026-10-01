@@ -7,7 +7,7 @@
  * `spegel.registries` has to produce exactly one finding, and the bad key must
  * not be covered by the real allowlist. The last two tests read the committed
  * allowlist and .github/workflows/upgrade.yml, so an allowlist that stops
- * parsing, or a workflow whose paths filter no longer names this script, fails
+ * parsing, or a workflow whose paths filter (if any) no longer names this script, fails
  * here rather than silently ceasing to run.
  *
  *   bun test scripts/upstream-values-check_test.ts
@@ -23,6 +23,7 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterAll, test } from "bun:test";
+import { parse } from "./lib/yaml.ts";
 import {
   assert,
   assertEquals,
@@ -546,14 +547,28 @@ test("the committed allowlist parses and every entry carries a reason", () => {
   }
 });
 
-test("upgrade.yml runs this check and its paths filter names the script", () => {
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+test("upgrade.yml runs this check on every PR that changes the script or allowlist", () => {
   const workflow = readFileSync(
     join(REPO_ROOT, ".github/workflows/upgrade.yml"),
     "utf8",
   );
   assertStringIncludes(workflow, "task upstream:values");
-  assertStringIncludes(workflow, "scripts/upstream-values-check.ts");
-  assertStringIncludes(workflow, ALLOWLIST_PATH);
+  const parsed = parse(workflow);
+  assert(
+    isRecord(parsed) && isRecord(parsed.on),
+    "upgrade.yml has no `on:` map",
+  );
+  const pullRequest = parsed.on.pull_request;
+  assert(pullRequest !== undefined, "upgrade.yml does not run on pull_request");
+  const paths = isRecord(pullRequest) ? pullRequest.paths : undefined;
+  if (paths === undefined) return;
+  assert(Array.isArray(paths), "upgrade.yml pull_request.paths is not a list");
+  for (const required of ["scripts/upstream-values-check.ts", ALLOWLIST_PATH]) {
+    assert(paths.includes(required), `pull_request.paths omits ${required}`);
+  }
 });
 
 const RESET_TAIL =
