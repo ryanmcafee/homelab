@@ -109,7 +109,7 @@ subject_grants:
   # Every principal's private inbox. JS API replies and pulled messages arrive here, and the
   # client's inbox prefix is configured to match. A shared `_INBOX.>` grant would let any
   # principal in the account read every other principal's replies and delivered messages.
-  # (ADR-043 D5a)
+  # (ADR-043 D5a) NACK 0.24.0 cannot set a prefix, so auth stays off until it can. (ADR-055)
   inbox_prefix_template: _INBOX.<principal>
   inbox_subscribe_template: _INBOX.<principal>.>
 
