@@ -706,7 +706,7 @@ spec:
         - values-homelab.yaml
       valuesObject:
         iscsi:
-          portal: "192.168.1.100:3260"
+          portal: "198.51.100.100:3260"
   destination:
     server: https://kubernetes.default.svc
     namespace: media
@@ -826,7 +826,7 @@ spec:
         - values-homelab.yaml
       valuesObject:
         iscsi:
-          portal: "192.168.1.100:3260"
+          portal: "198.51.100.100:3260"
   destination:
     server: https://kubernetes.default.svc
     namespace: media
@@ -965,7 +965,7 @@ spec:
         - values-homelab.yaml
       valuesObject:
         iscsi:
-          portal: "192.168.1.100:3260"
+          portal: "198.51.100.100:3260"
   destination:
     server: https://kubernetes.default.svc
     namespace: home-automation
@@ -1103,7 +1103,7 @@ spec:
         - values-homelab.yaml
       valuesObject:
         iscsi:
-          portal: "192.168.1.100:3260"
+          portal: "198.51.100.100:3260"
   destination:
     server: https://kubernetes.default.svc
     namespace: media
@@ -1493,7 +1493,7 @@ spec:
         - values-homelab.yaml
       valuesObject:
         iscsi:
-          portal: "192.168.1.100:3260"
+          portal: "198.51.100.100:3260"
   destination:
     server: https://kubernetes.default.svc
     namespace: media
@@ -1593,7 +1593,7 @@ spec:
             mountPath: /dev/dri
         service:
           annotations:
-            io.cilium/lb-ipam-ips: 192.168.1.103
+            io.cilium/lb-ipam-ips: 198.51.100.103
             port-forwarding.replaceme-domain.com/enable: "true"
           externalTrafficPolicy: Local
           port: 32400
@@ -1676,7 +1676,7 @@ spec:
         - values-homelab.yaml
       valuesObject:
         iscsi:
-          portal: "192.168.1.100:3260"
+          portal: "198.51.100.100:3260"
   destination:
     server: https://kubernetes.default.svc
     namespace: media
@@ -1811,7 +1811,7 @@ spec:
         - values-homelab.yaml
       valuesObject:
         iscsi:
-          portal: "192.168.1.100:3260"
+          portal: "198.51.100.100:3260"
   destination:
     server: https://kubernetes.default.svc
     namespace: media
@@ -2060,7 +2060,7 @@ spec:
         - values-homelab.yaml
       valuesObject:
         iscsi:
-          portal: "192.168.1.100:3260"
+          portal: "198.51.100.100:3260"
   destination:
     server: https://kubernetes.default.svc
     namespace: media
@@ -2207,7 +2207,7 @@ spec:
         - values-homelab.yaml
       valuesObject:
         iscsi:
-          portal: "192.168.1.100:3260"
+          portal: "198.51.100.100:3260"
   destination:
     server: https://kubernetes.default.svc
     namespace: media

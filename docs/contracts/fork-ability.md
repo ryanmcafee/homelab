@@ -42,14 +42,23 @@ resolved at render time. `homelab.yaml.example` is the fork's starting point, an
 key in it **should** carry a `REPLACEME-` or RFC 5737 value so that forgetting one fails loudly
 instead of rendering somebody else's network.
 
-It does not, today. Measured on `main` at `295e0a9`: of 29 top-level keys, 7 carry a `REPLACEME-`
-value and 21 lines carry a concrete `192.168.1.x` address — RFC 1918 space, and the most common
-home LAN in the world, so a fork on `10.0.0.0/24` fills in the placeholders, gets `[OK]` from
-`task config:validate`, and renders a `CP_VIP`, `LB_POOL_*` and `BGP_PEER_IP` pointing into a
-subnet it does not have. That is this document's own `DOMAIN` argument turned on itself, and it
-is why check 2 cannot pass as written. Tracked in
+The address half holds today; the `REPLACEME-` half does not. Of 30 top-level keys, 19 carry a
+concrete `198.51.100.x` address (RFC 5737 TEST-NET-2) and only 7 carry a `REPLACEME-` value, so a
+fork on `10.0.0.0/24` that fills in the domain and leaves the addresses alone still gets `[OK]`
+from `task config:validate` and still renders a `CP_VIP`, `LB_POOL_*` and `BGP_PEER_IP` pointing
+into a subnet it does not have. It now fails visibly rather than plausibly, because TEST-NET-2 is
+unroutable, but it does not fail loudly at render. That is this document's own `DOMAIN` argument
+turned on itself, and it is why check 2 cannot pass as written. Tracked in
 [homelab#359](https://github.com/ryanmcafee/homelab/issues/359); the sentence above states the
 contract, not the current state of the file.
+
+Those addresses were `192.168.1.x` until MCAA-79. RFC 1918 is the wrong space for a template: for
+a forker whose LAN really is `192.168.1.x` — the most common home LAN in the world — every
+placeholder in the template matched their own `GATEWAY_IP`, `TRUENAS_IP` and node addresses, so
+the value detector reported the template itself as a leak and could not tell a genuinely pasted
+address from a placeholder. The fork-ability gate was not fork-able. That range is now
+**absent** from `examplePlaceholderSubnets` in `internal/config/guard.go` rather than joined
+there, and `TestIsExamplePlaceholder` pins it that way.
 
 `DOMAIN` is deliberately absent from `defaults.yaml`. That is the pattern to copy: **a default
 that silently papers over a missing required value is worse than no default**, because the
@@ -245,9 +254,13 @@ Three standing conditions follow:
   dropping `homelab.yaml.example`. What neither half admits is Go: no `cmd/`, no `internal/`,
   no `.go`. Widening one and not the other produces a gate that passes locally and fails in CI
   — or, worse, the reverse.
-- The synthetic ConfigSet for check 1 must use RFC 5737 values **distinct from** those in
-  `configuration/environments/homelab.yaml.example`, which carries plausible RFC 1918 addresses
-  (`192.168.1.x`). If the two overlap, the grep cannot tell a leaked real value from a placeholder.
+- **Every example ConfigSet uses reserved documentation space, and no two share a range.** Check 1
+  renders `configuration/environments/homelab.yaml.example` itself — there is no second synthetic
+  file to hold apart from it — so the requirement lands on the example files directly:
+  `homelab.yaml.example` owns RFC 5737 TEST-NET-2 (`198.51.100.0/24`), `single-node.yaml.example`
+  owns TEST-NET-1 (`192.0.2.0/24`), and a third would take TEST-NET-3. Reserved space is what
+  keeps a forker's real address distinguishable from a placeholder; distinct ranges are what keep
+  the grep able to say which file an address came from.
 
 ### Values are parameterised; so is shape
 
