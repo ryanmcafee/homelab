@@ -1775,8 +1775,7 @@ func TestDefaultGuardScopeCoversChartHomelabValues(t *testing.T) {
 	// and several did while scripts/ was out of scope. .github/ is in scope
 	// because the README header SVG spells out hostnames as <DOMAIN>
 	// placeholders and the guard is what keeps a real one out of it.
-	// cmd/ and internal/ are in scope under ADR-032: a Go flag default is the
-	// same construct as the TypeScript one, and ADR-030 makes the Go CLI the
+	// cmd/ and internal/ are in scope under ADR-037: ADR-030 makes the Go CLI the
 	// first thing a stranger runs.
 	want := []string{
 		"configuration/**",
@@ -2237,19 +2236,19 @@ func TestGuardReadsTheBootstrapTrees(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// ADR-032: the Go half of the repository is in scope
+// ADR-037: the Go half of the repository is in scope
 // ---------------------------------------------------------------------------
 
-// TestGoSourceIsScannable pins the two lists ADR-032 changed. They are the
+// TestGoSourceIsScannable pins the two lists ADR-037 changed. They are the
 // whole scope of check 1 over source, so a silent revert of either is the
 // defect the ADR was written about.
 func TestGoSourceIsScannable(t *testing.T) {
 	if !hasScannableExtension("cmd/homelab/commands/talos.go") {
-		t.Error("`.go` is not a scannable extension; the Go half of the repository is unguarded (ADR-032)")
+		t.Error("`.go` is not a scannable extension; the Go half of the repository is unguarded (ADR-037)")
 	}
 	for _, want := range []string{"cmd/**", "internal/**"} {
 		if !slices.Contains(DefaultGuardPathspecs, want) {
-			t.Errorf("DefaultGuardPathspecs is missing %q (ADR-032)", want)
+			t.Errorf("DefaultGuardPathspecs is missing %q (ADR-037)", want)
 		}
 	}
 }
