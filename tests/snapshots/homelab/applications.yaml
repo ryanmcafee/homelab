@@ -1419,6 +1419,7 @@ spec:
         serviceMesh:
           ambient: true
         admin:
+          bootstrap: false
           email: admin@REPLACEME-domain.com
           name: Admin
         agentPolicy:

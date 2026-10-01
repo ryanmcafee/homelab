@@ -12,6 +12,12 @@ Each entry should include:
 
 ## Entries
 
+### 2026-09-30 - `paperclip-bootstrap` Job re-created every ~70 min after the admin exists
+- **Issue**: `KubeJobFailed` for `paperclip/paperclip-bootstrap` kept coming back. Over 7 days the operator re-created the admin-seed Job about every 70 minutes (~80 pods, 47 containers terminated `Error`, none `Completed`), each run ending `BackoffLimitExceeded` and re-mounting the RWO data volume on the pinned node. The server itself stayed healthy
+- **Root Cause**: The Instance still carried `spec.auth.adminUser` (`helm-apps.tmpl` always passes `PAPERCLIP_ADMIN_EMAIL`, `instance.yaml` rendered `adminUser` whenever the e-mail was set). Operator 0.19.1 keeps reconciling the bootstrap Job for that spec and does not short-circuit on `status.bootstrap`, contrary to the assumption in the 2026-09-15 entry below; a re-run against the existing admin fails. The exact error line was not read (pod logs need kubectl)
+- **Solution**: `charts/paperclip` gained `admin.bootstrap` (default `true`); `adminUser` renders only when it is true and an e-mail is set. `helm-apps.tmpl` sets it `false` for homelab and `true` for Kind, whose database starts empty. A fresh homelab database needs `true` for one sync. The leftover failed Job may need a one-time removal after rollout if the operator does not garbage-collect it
+- **Prevention**: Drop one-shot bootstrap specs from operator CRs once they are done; do not assume an operator's seed Job is idempotent without watching it for a few reconcile periods
+
 ### 2026-09-30 - Kind ArgoCD Redis pull hit ECR Public data limit (MCAA-852)
 - **Issue**: Cold-cache Kind bootstrap at PR #487 head `aa8d475` timed out on `argocd-redis` with `ImagePullBackOff`; the original CI diagnostics retained no kubelet error
 - **Root Cause**: A reproduced pull through `kind-registry-ecr` returned HTTP 500 for the Redis manifest. All 12 proxy manifest requests logged `toomanyrequests: Data limit exceeded` from ECR Public (QA artifact, run 36713254067)
@@ -401,7 +407,7 @@ These are documented errors with known solutions:
 ### 2026-09-15 - Admin bootstrap Job fails with `EMAIL_PASSWORD_SIGN_UP_DISABLED` when `auth.disableSignUp` is true
 - **Issue**: With the node pin in place the bootstrap Job finally ran and failed: `Sign-up returned HTTP 400 ... {"code":"EMAIL_PASSWORD_SIGN_UP_DISABLED"}`, then `Invalid email or password` on the sign-in fallback, so no admin exists and nobody can log in
 - **Root Cause**: The operator's Job (0.19.1) registers the admin through `POST /api/auth/sign-up/email`; `spec.auth.disableSignUp: true` maps to `PAPERCLIP_AUTH_DISABLE_SIGN_UP`, which Better Auth applies to every sign-up including the first (`server/src/auth/better-auth.ts`, no first-user exception). The operator README nevertheless recommends combining the two ("provision the only account")
-- **Solution**: Bootstrap with sign-up enabled, then disable it: PR sets `auth.disableSignUp: false`, the Job registers the admin and the operator records `status.bootstrap`; a follow-up PR sets it back to `true` (the Job short-circuits on an already-bootstrapped instance). The instance is private (internal Traefik only) during the window. Reported upstream so the operator can gate the env var on bootstrap completion
+- **Solution**: Bootstrap with sign-up enabled, then disable it: PR sets `auth.disableSignUp: false`, the Job registers the admin and the operator records `status.bootstrap`; a follow-up PR sets it back to `true` (the assumption that the Job short-circuits on an already-bootstrapped instance was wrong, see 2026-09-30 `paperclip-bootstrap` Job re-created every ~70 min). The instance is private (internal Traefik only) during the window. Reported upstream so the operator can gate the env var on bootstrap completion
 - **Prevention**: For a new Instance with `adminUser`, deploy with `disableSignUp: false` first and flip it after `status.bootstrap` appears; do not trust the operator README on this combination until the upstream fix lands
 
 ### 2026-09-15 - Sporadic Kubernetes API loss: etcd WAL fsync stalled by worker I/O on the shared ZFS pool

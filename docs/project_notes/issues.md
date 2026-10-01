@@ -13,6 +13,10 @@ Each entry should include:
 
 ## Recent Work
 
+### 2026-09-30 - KubeJobFailed paperclip-bootstrap: stop rendering spec.auth.adminUser in homelab
+- **Status**: PR pending (branch `triage/kubejobfailed-a4e08b4c`); after merge confirm no new `paperclip-bootstrap` pods and remove the leftover failed Job if the operator keeps it
+- **Description**: New `admin.bootstrap` toggle in `charts/paperclip`; homelab sets it false so operator 0.19.1 stops re-creating the failing admin-seed Job every ~70 minutes, Kind keeps it true. The concurrent `paperclip-agent-policy-29846565` failure was a transient (~1% of runs) and needs no change. bugs.md 2026-09-30
+
 ### 2026-09-30 - MCAA-852: Kind Redis image pull diagnosis and source repair
 - **Status**: PR #536 ready, rebased onto `main` for MCAA-970; new-head checks pending
 - **Description**: QA reproduced the ECR Public `toomanyrequests: Data limit exceeded` response in run 36713254067. Kind ArgoCD now selects Docker Hub's official Redis image at the pinned chart tag, and CI retains pod events plus ECR/Docker proxy logs. The Redis test passes with Docker Hub and fails with the old ECR Public repository.
