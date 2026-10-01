@@ -86,3 +86,51 @@ func TestSingleAddressPool(t *testing.T) {
 		t.Fatal("single-address collision accepted")
 	}
 }
+func poolPatternFixture(t *testing.T, kp SchemaKeyPattern) (*Schema, map[string]string) {
+	t.Helper()
+	base, values := poolFixture()
+	schema, err := NewSchema(base.Keys, map[string]SchemaKeyPattern{`^CP([0-9]+)_IP$`: kp})
+	if err != nil {
+		t.Fatal(err)
+	}
+	values["CP2_IP"] = "192.0.2.12"
+	return schema, values
+}
+func TestKeyPatternAddressRoles(t *testing.T) {
+	ipv4 := `^(?:\d{1,3}\.){3}\d{1,3}$`
+	infra := SchemaKeyPattern{SchemaKey: SchemaKey{Pattern: ipv4, AddressRole: "infrastructure-address"}}
+	for _, tc := range []struct {
+		name  string
+		kp    SchemaKeyPattern
+		value string
+		want  string
+	}{
+		{"outside pool", infra, "192.0.2.12", ""},
+		{"inside pool", infra, "192.0.2.150", "CP2_IP: infrastructure-address address 192.0.2.150 must be outside"},
+		{"pool edge", infra, "192.0.2.200", "CP2_IP: infrastructure-address"},
+		{"malformed", infra, "bad", "CP2_IP: expected"},
+		{"missing role", SchemaKeyPattern{SchemaKey: SchemaKey{Pattern: ipv4}}, "192.0.2.12", "^CP([0-9]+)_IP$: IPv4 key pattern requires addressRole"},
+		{"unknown role", SchemaKeyPattern{SchemaKey: SchemaKey{Pattern: ipv4, AddressRole: "infrastructure"}}, "192.0.2.12", "unknown addressRole"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			schema, values := poolPatternFixture(t, tc.kp)
+			values["CP2_IP"] = tc.value
+			err := ValidateAddressRoles(schema, values)
+			if tc.want == "" {
+				if err != nil {
+					t.Fatal(err)
+				}
+			} else if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("got %v; want %q", err, tc.want)
+			}
+		})
+	}
+}
+func TestLiteralKeyRoleWinsOverPattern(t *testing.T) {
+	schema, values := poolPatternFixture(t, SchemaKeyPattern{SchemaKey: SchemaKey{AddressRole: "infrastructure-address"}})
+	schema.Keys["CP9_IP"] = SchemaKey{AddressRole: "lb-allocation"}
+	values["CP9_IP"] = "192.0.2.150"
+	if err := ValidateAddressRoles(schema, values); err != nil {
+		t.Fatal(err)
+	}
+}

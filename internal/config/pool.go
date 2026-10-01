@@ -17,24 +17,32 @@ func ValidateAddressRoles(schema *Schema, values map[string]string) error {
 	if schema == nil {
 		return fmt.Errorf("address-role validation requires a schema")
 	}
-	keys := make([]string, 0, len(schema.Keys))
-	for key := range schema.Keys {
+	var problems []string
+	roles := make(map[string]string, len(schema.Keys))
+	for key, def := range schema.Keys {
+		problems = append(problems, roleProblems(key, "IPv4 schema key", def)...)
+		roles[key] = def.AddressRole
+	}
+	for pattern, kp := range schema.KeyPatterns {
+		problems = append(problems, roleProblems(pattern, "IPv4 key pattern", kp.SchemaKey)...)
+	}
+	for key := range values {
+		if _, literal := schema.Keys[key]; literal {
+			continue
+		}
+		kp, matched, err := schema.matchKeyPattern(key)
+		if err != nil {
+			problems = append(problems, err.Error())
+		} else if matched {
+			roles[key] = kp.AddressRole
+		}
+	}
+	keys := make([]string, 0, len(roles))
+	for key := range roles {
 		keys = append(keys, key)
 	}
 	sort.Strings(keys)
-	var problems []string
-	for _, key := range keys {
-		def := schema.Keys[key]
-		switch def.AddressRole {
-		case "":
-			if addressPattern(def.Pattern) {
-				problems = append(problems, fmt.Sprintf("%s: IPv4 schema key requires addressRole", key))
-			}
-		case "lb-pool-range", "lb-allocation", "dedicated-pool-allocation", "infrastructure-address", "network-range":
-		default:
-			problems = append(problems, fmt.Sprintf("%s: unknown addressRole %q", key, def.AddressRole))
-		}
-	}
+	sort.Strings(problems)
 	endpoints := make([]netip.Addr, 2)
 	for i, key := range []string{"LB_POOL_START", "LB_POOL_END"} {
 		if schema.Keys[key].AddressRole != "lb-pool-range" {
@@ -54,7 +62,7 @@ func ValidateAddressRoles(schema *Schema, values map[string]string) error {
 		validRange = false
 	}
 	for _, key := range keys {
-		role := schema.Keys[key].AddressRole
+		role := roles[key]
 		switch role {
 		case "lb-allocation", "dedicated-pool-allocation", "infrastructure-address":
 		default:
@@ -82,6 +90,19 @@ func ValidateAddressRoles(schema *Schema, values map[string]string) error {
 	}
 	if len(problems) > 0 {
 		return fmt.Errorf("invalid LB pool configuration:\n- %s", strings.Join(problems, "\n- "))
+	}
+	return nil
+}
+
+func roleProblems(name, kind string, def SchemaKey) []string {
+	switch def.AddressRole {
+	case "":
+		if addressPattern(def.Pattern) {
+			return []string{fmt.Sprintf("%s: %s requires addressRole", name, kind)}
+		}
+	case "lb-pool-range", "lb-allocation", "dedicated-pool-allocation", "infrastructure-address", "network-range":
+	default:
+		return []string{fmt.Sprintf("%s: unknown addressRole %q", name, def.AddressRole)}
 	}
 	return nil
 }
