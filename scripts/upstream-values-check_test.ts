@@ -22,7 +22,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { test } from "bun:test";
+import { afterAll, test } from "bun:test";
 import {
   assert,
   assertEquals,
@@ -39,10 +39,12 @@ import {
   declaredPaths,
   findingsFor,
   isAllowed,
+  isTransientPullError,
   mergeValues,
   parseAllowlist,
   parseArgs,
   pullArgs,
+  pullChart,
   readChartTree,
   sourcesInDocuments,
   treePaths,
@@ -50,7 +52,9 @@ import {
   unusedEntries,
   unwrapDefaults,
   type AllowEntry,
+  type ChartSource,
   type Finding,
+  type PullRun,
 } from "./upstream-values-check.ts";
 
 const REPO_ROOT = join(import.meta.dir, "..");
@@ -550,4 +554,113 @@ test("upgrade.yml runs this check and its paths filter names the script", () => 
   assertStringIncludes(workflow, "task upstream:values");
   assertStringIncludes(workflow, "scripts/upstream-values-check.ts");
   assertStringIncludes(workflow, ALLOWLIST_PATH);
+});
+
+const RESET =
+  'Error: failed to do request: Head "https://oci.trueforge.org/v2/truecharts/flaresolverr/manifests/16.18.2": read tcp 10.1.0.4:52114->203.0.113.7:443: read: connection reset by peer';
+const MANIFEST_UNKNOWN =
+  'Error: failed to perform "FetchReference" on source: oci.trueforge.org/truecharts/flaresolverr:99.0.0: not found';
+
+const flaresolverr: ChartSource = {
+  env: "homelab",
+  app: "flaresolverr",
+  repoURL: "oci.trueforge.org/truecharts",
+  chart: "flaresolverr",
+  targetRevision: "16.18.2",
+  values: {},
+};
+
+/** A helm stand-in that fails with each stderr in turn, then succeeds. */
+function scriptedRun(failures: string[]): {
+  run: PullRun;
+  calls: () => number;
+} {
+  let calls = 0;
+  const run: PullRun = async () => {
+    const stderr = failures[calls++];
+    return stderr === undefined
+      ? { exitCode: 0, stderr: "" }
+      : { exitCode: 1, stderr };
+  };
+  return { run, calls: () => calls };
+}
+
+const noSleep = async () => {};
+
+const pullRoot = mkdtempSync(join(tmpdir(), "upstream-values-pull-"));
+const UNTAR = join(pullRoot, "untar");
+afterAll(() => rmSync(pullRoot, { recursive: true, force: true }));
+
+test("isTransientPullError: resets, timeouts, 5xx and 429 retry; not-found does not", () => {
+  for (const stderr of [
+    RESET,
+    'Error: Get "https://oci.trueforge.org/v2/": net/http: TLS handshake timeout',
+    'Error: Get "https://ghcr.io/v2/": dial tcp 140.82.112.33:443: i/o timeout',
+    "Error: unexpected status code 503: Service Unavailable",
+    "Error: GET https://oci.trueforge.org/v2/token: response status code 502: Bad Gateway",
+    "Error: unexpected status code 429: Too Many Requests",
+    "Error: failed to fetch https://charts.example.com/index.yaml : 500 Internal Server Error",
+  ]) {
+    assert(isTransientPullError(stderr), `expected transient: ${stderr}`);
+  }
+  for (const stderr of [
+    MANIFEST_UNKNOWN,
+    "Error: MANIFEST_UNKNOWN: manifest unknown; map[Tag:99.0.0]",
+    "Error: failed to fetch https://charts.example.com/x-1.0.0.tgz : 404 Not Found",
+    'Error: chart "x" version "9.9.9" not found in https://charts.example.com repository',
+    'Error: failed to perform "FetchReference" on source: GET "https://oci.trueforge.org/v2/truecharts/nosuchchart-xyz/manifests/1.0.0": response status code 401: unauthorized: access to the requested resource is not authorized: map[]',
+    // A 5xx digit run inside an address is not a status code.
+    "Error: dial tcp 10.0.0.1:5000: connect: connection refused (host 10.0.0.503)",
+  ]) {
+    assert(!isTransientPullError(stderr), `expected non-retryable: ${stderr}`);
+  }
+});
+
+test("pullChart: a transient reset is retried and the pull then succeeds", async () => {
+  const { run, calls } = scriptedRun([RESET]);
+  const result = await pullChart(flaresolverr, UNTAR, {
+    run,
+    sleep: noSleep,
+  });
+  assertEquals(result, { dir: join(UNTAR, "flaresolverr") });
+  assertEquals(calls(), 2);
+});
+
+test("pullChart: a persistent reset fails closed after the bounded attempts", async () => {
+  const { run, calls } = scriptedRun([RESET, RESET, RESET, RESET]);
+  const slept: number[] = [];
+  const result = await pullChart(flaresolverr, UNTAR, {
+    run,
+    sleep: async (ms) => {
+      slept.push(ms);
+    },
+  });
+  assert("error" in result, "a persistent reset must not pass");
+  assertStringIncludes(result.error, "after 3 attempt(s)");
+  assertStringIncludes(result.error, "connection reset by peer");
+  assertEquals(calls(), 3);
+  assertEquals(slept, [2000, 5000]);
+});
+
+test("pullChart: manifest unknown fails on the first attempt with no retry", async () => {
+  const { run, calls } = scriptedRun([MANIFEST_UNKNOWN]);
+  const result = await pullChart(flaresolverr, UNTAR, {
+    run,
+    sleep: noSleep,
+  });
+  assert("error" in result, "a missing version must not pass");
+  assertStringIncludes(result.error, "not found");
+  assertStringIncludes(result.error, "after 1 attempt(s)");
+  assertEquals(calls(), 1);
+});
+
+test("pullChart: a non-retryable error after a transient one stops the retries", async () => {
+  const { run, calls } = scriptedRun([RESET, MANIFEST_UNKNOWN]);
+  const result = await pullChart(flaresolverr, UNTAR, {
+    run,
+    sleep: noSleep,
+  });
+  assert("error" in result, "a missing version must not pass");
+  assertStringIncludes(result.error, "after 2 attempt(s)");
+  assertEquals(calls(), 2);
 });
