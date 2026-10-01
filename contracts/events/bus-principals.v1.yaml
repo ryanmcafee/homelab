@@ -447,7 +447,7 @@ conformance:
       measured:
         image: docker.io/library/nats@sha256:ac8f88a6494bffc2c2a5289a0ca61cb28a9145c11ba5677cf24265d07f46d8d4
         suite: tests/e2e/nats-auth
-        run: https://github.com/ryanmcafee/homelab/actions/runs/36800138126
+        run: https://github.com/ryanmcafee/homelab/actions/runs/36810662328
       asserts: >-
         The explicit denies refuse the nameless `$JS.API.CONSUMER.CREATE.<stream>` form and
         legacy `DURABLE.CREATE`, with a body `Durable` or a body `Name` and no `Durable`. On the
@@ -464,7 +464,7 @@ conformance:
       measured:
         image: docker.io/library/nats@sha256:ac8f88a6494bffc2c2a5289a0ca61cb28a9145c11ba5677cf24265d07f46d8d4
         suite: tests/e2e/nats-auth
-        run: https://github.com/ryanmcafee/homelab/actions/runs/36800138126
+        run: https://github.com/ryanmcafee/homelab/actions/runs/36810662328
       asserts: >-
         The key is the responder user's `permissions.allow_responses`, measured at `{max: 1,
         expires: 5s}`. Without it the reply is refused. With it the reply reaches the
