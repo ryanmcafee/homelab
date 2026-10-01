@@ -57,7 +57,7 @@ spec:
               pairs=$(kubectl -n "$NAMESPACE" exec nats-client -- env SEEDS=/seeds sh /probes/keygen.sh $principals)
               probe_pairs=$(kubectl -n "$NAMESPACE" exec nats-client -- env SEEDS=/seeds sh /probes/keygen.sh \
                 rq-responder-bare rq-responder-bounded)
-              move_pairs=$(kubectl -n "$NAMESPACE" exec nats-client -- env SEEDS=/seeds sh /probes/keygen.sh nack-move)
+              move_pairs=$(kubectl -n "$NAMESPACE" exec nats-client -- env SEEDS=/seeds sh /probes/keygen.sh nack-probe nack-move)
               out=$(mktemp -d)
               PAIRS="$pairs" PROBE_PAIRS="$probe_pairs" MOVE_PAIRS="$move_pairs" NAMESPACE="$NAMESPACE" OUT="$out" \
                 sh "$dir/render.sh"
@@ -119,15 +119,17 @@ spec:
         nack_account_on_stream_move, recorded as MEASURED lines rather than asserted. A second
         NACK from the chart and version the addons nack Application pins, namespaced to this test
         in control-loop mode, reconciles one Stream whose spec.account then moves from
-        TENANT_LOCAL to NACK_MOVE. The cluster's own NACK, as rendered, reconciles the same
-        Stream, so the shared-bus column records what it does with spec.account.
+        TENANT_LOCAL to NACK_MOVE, on labelled probe users holding nack's grants plus _INBOX.>.
+        A second Stream on nack's own declared key records whether that key can drive NACK. The
+        cluster's own NACK, as rendered, reconciles both, so the shared-bus column records what
+        it does with spec.account.
       try:
         - script:
             timeout: 8m
             content: |
               set -eu
               root=$(git rev-parse --show-toplevel)
-              for pair in tenant:nack move:nack-move; do
+              for pair in declared:nack tenant:nack-probe move:nack-move; do
                 kubectl -n "$NAMESPACE" exec nats-client -- cat "/seeds/${pair#*:}.nk" |
                   kubectl -n "$NAMESPACE" create secret generic "nack-${pair%%:*}" --from-file=seed=/dev/stdin
               done
@@ -148,7 +150,7 @@ spec:
               digests='{range .items[*]}{range .status.containerStatuses[*]}{.name}{"\t"}{.imageID}{"\n"}{end}{end}'
               kubectl -n "$NAMESPACE" get pods -l app=nack-move -o jsonpath="$digests"
               kubectl -n nats get pods -l app=nack -o jsonpath="$digests"
-              for account in tenant:TENANT_LOCAL move:NACK_MOVE; do
+              for account in declared:TENANT_LOCAL tenant:TENANT_LOCAL move:NACK_MOVE; do
                 kubectl -n "$NAMESPACE" apply -f - <<EOF
               apiVersion: jetstream.nats.io/v1beta2
               kind: Account
@@ -177,19 +179,38 @@ spec:
               EOF
               probe() {
                 kubectl -n "$NAMESPACE" exec nats-client -- env NATS_URL=nats://nats:4222 SEEDS=/seeds \
-                  SHARED_URL="$shared" sh /probes/probes.sh "$1"
+                  SHARED_URL="$shared" MOVE_STREAM="$2" sh /probes/probes.sh "$1"
               }
               rc=0
-              probe move_placed || rc=1
+              probe move_placed NACK_MOVE_PROBE || rc=1
               kubectl -n "$NAMESPACE" patch stream nack-move-probe --type merge -p '{"spec":{"account":"move"}}'
-              probe move_moved || rc=1
+              probe move_moved NACK_MOVE_PROBE || rc=1
               kubectl -n "$NAMESPACE" get stream nack-move-probe -o yaml | yq '.status'
+              kubectl -n "$NAMESPACE" apply -f - <<EOF
+              apiVersion: jetstream.nats.io/v1beta2
+              kind: Stream
+              metadata:
+                name: nack-declared-probe
+              spec:
+                name: NACK_DECLARED_PROBE
+                account: declared
+                subjects: ["nack.declared.probe.>"]
+                storage: file
+                replicas: 1
+                maxBytes: 1048576
+              EOF
+              probe declared_placed NACK_DECLARED_PROBE || rc=1
+              refusal=$(kubectl -n "$NAMESPACE" logs deployment/nack-move |
+                grep -m1 -o 'Permissions Violation for Subscription to "_INBOX\.[^"]*"' || echo none)
+              echo "MEASURED nack_account_on_stream_move: server refusal seen by NACK on nack's declared key: $refusal"
+              kubectl -n "$NAMESPACE" get stream nack-declared-probe -o yaml | yq '.status'
               kubectl -n "$NAMESPACE" logs deployment/nack-move --tail=40
-              kubectl -n "$NAMESPACE" delete stream nack-move-probe --wait=true --timeout=60s
-              kubectl -n "$NAMESPACE" delete account tenant move --wait=true --timeout=60s
-              kubectl -n "$NAMESPACE" exec nats-client -- \
-                nats --server "$shared" --timeout 3s stream rm NACK_MOVE_PROBE --force 2>&1 ||
-                echo "NACK_MOVE_PROBE was not removed from the shared bus $shared"
+              kubectl -n "$NAMESPACE" delete stream nack-move-probe nack-declared-probe --wait=true --timeout=60s
+              kubectl -n "$NAMESPACE" delete account declared tenant move --wait=true --timeout=60s
+              for stream in NACK_MOVE_PROBE NACK_DECLARED_PROBE; do
+                kubectl -n "$NAMESPACE" exec nats-client -- nats --server "$shared" --timeout 3s stream ls --names |
+                  grep -qx "$stream" && echo "$stream is still on the shared bus $shared after its Stream was deleted"
+              done
               exit $rc
       catch:
         - describe:
