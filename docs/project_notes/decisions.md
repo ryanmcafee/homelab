@@ -1322,18 +1322,27 @@ Each decision should include:
   publishing to -- and the server delivered platform-api's `PF_WORK` item to a subscriber there; a
   `_INBOX.verify.*` target worked the same way. Reach is bounded by what the principal's own filter
   admits, but it lands on any subject with a subscriber in the account, including another
-  principal's inbox (defeating D5a) or a request subject, and it is not audited as a publish. The
+  principal's inbox (defeating D5a) or a request subject, and the create neither requires nor
+  exercises the principal's publish grant. The
   D6 denies themselves hold: the name-only and legacy-durable entrances are refused with or without
   a body `Durable` or `Name`, which settles D6's open question. **Decision:** the self-creating
   `puller` role is removed. `workload-operator` becomes a `bound_puller` binding
   `workload-operator-deployment-promote-v1`, which NACK pre-creates as it already does for `verify`
   and `dlq-reporter`, so consumer configuration -- including the delivery mode -- is GitOps state
   exactly as the stream set is (D5), and `stream_controller` is the only role able to create a
-  consumer. Two level-0 rules carry it: no role but `stream_controller` allows any
-  `$JS.API.CONSUMER.CREATE` or `DURABLE.CREATE` subject, and no rendered `Consumer` sets
-  `deliverSubject` or `deliverGroup`, because a push consumer declared in Git is the same redirect
-  with a reviewer's signature on it. The `phase_push_redirect` probe flips from pinning the bypass
-  to asserting the create is refused. The alternative -- keep self-create and accept the gap -- was
+  consumer. Two level-0 rules carry it, behind D5's exhaustive allow-list. First, no role but
+  `stream_controller` holds *effective* consumer-create authority: the rule matches each allow as a
+  subject pattern against the `CONSUMER.CREATE` and `DURABLE.CREATE` subjects, so a broad allow
+  (`$JS.API.>`, `$JS.API.CONSUMER.>`, `>`) fails it as a literal one does; it has a negative
+  fixture for a broad allow and a positive one for `stream_controller`. Second, no rendered
+  `Consumer` sets a non-empty `spec.deliverSubject` or `spec.deliverGroup`, with a negative fixture
+  for each, because a push consumer declared in Git is the same redirect with a reviewer's
+  signature on it. On v2.15.0 `deliverSubject` alone selects push mode (`flowControl` without it
+  is rejected, `headersOnly` only trims the payload); `deliverGroup` is forbidden so the contract
+  stays unambiguously pull-only. The `phase_push_redirect` probe flips from pinning the bypass to
+  asserting, under the workload credential, that the create is refused and the bind to the
+  NACK-created durable succeeds. Residual risk sits with a compromised `stream_controller` or a
+  malicious reviewed `Consumer` change, bounded by the second rule. The alternative -- keep self-create and accept the gap -- was
   rejected (blast radius, trust boundaries): it makes every future `wq` consumer a standing ability
   to re-route work into another principal's inbox, and the only offsetting benefit is a component
   tuning its own `ackWait`/`maxDeliver` without a chart change, which is the wrong place for that
