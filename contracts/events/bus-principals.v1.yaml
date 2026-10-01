@@ -156,24 +156,18 @@ roles:
     js_api_deny: []
     binds_stream_explicitly: false
 
-  puller:
+  bound_puller:
     description: >-
-      A durable pull consumer of a single fully-specified subject -- the `wq` shape. It creates
-      its own consumer through the fully-filtered endpoint, which is what makes ADR-038 D2's
-      silent repoint a denial instead of an accepted update.
+      Binds a durable that NACK pre-created, with NO consumer-create grant of any kind. Every
+      workload consumer takes this path: a create carries a body `deliver_subject` the server
+      never checks against the creator's publish grant, so self-create would let a workload
+      redirect its stream into any subscribed subject in the account. (ADR-043 D6a, D6b)
     js_api_allow:
       - '$JS.API.INFO'
       - '$JS.API.STREAM.INFO.<stream>'
       - '$JS.API.CONSUMER.INFO.<stream>.<consumer>'
-      - '$JS.API.CONSUMER.CREATE.<stream>.<consumer>.<filter>'
       - '$JS.API.CONSUMER.MSG.NEXT.<stream>.<consumer>'
-    # v2.15.0 routes three subjects to one handler: `$JS.API.CONSUMER.CREATE.*` (which carries no
-    # consumer name in the subject at all), `$JS.API.CONSUMER.CREATE.*.>` and
-    # `$JS.API.CONSUMER.DURABLE.CREATE.*.*`. Under default-deny the alternates are already
-    # refused; these denies exist so a later broader grant cannot quietly re-open them.
-    #
-    # THE BROAD `$JS.API.CONSUMER.CREATE.*.>` FORM IS DELIBERATELY NOT DENIED: deny takes
-    # precedence over allow, so denying it would also kill the filtered endpoint above.
+    # Defence in depth against a later broader grant; default-deny already refuses both.
     js_api_deny:
       - '$JS.API.CONSUMER.CREATE.*'
       - '$JS.API.CONSUMER.DURABLE.CREATE.*.*'
@@ -181,22 +175,6 @@ roles:
     # `$JS.API.STREAM.NAMES` unless the stream is named, and that subject is not in the
     # allow-list. Granting account-wide discovery to accommodate an implicit SDK choice is the
     # wrong repair. (ADR-043 D5b)
-    binds_stream_explicitly: true
-
-  bound_puller:
-    description: >-
-      Binds a durable that NACK pre-created, with NO consumer-create grant of any kind. This is
-      the path for wildcard and multi-filter consumers -- the audit and DLQ readers, and the
-      ADR-045 Argo Events bridge -- which do not send the fully-specified create subject, so the
-      `puller` argument does not cover them. (ADR-043 D6a)
-    js_api_allow:
-      - '$JS.API.INFO'
-      - '$JS.API.STREAM.INFO.<stream>'
-      - '$JS.API.CONSUMER.INFO.<stream>.<consumer>'
-      - '$JS.API.CONSUMER.MSG.NEXT.<stream>.<consumer>'
-    js_api_deny:
-      - '$JS.API.CONSUMER.CREATE.*'
-      - '$JS.API.CONSUMER.DURABLE.CREATE.*.*'
     binds_stream_explicitly: true
     # An ack on a SHARED durable advances the delivery state every other reader of it depends
     # on, so a bridge sharing a durable leaves its failure domain reaching into the audit
@@ -263,8 +241,12 @@ principals:
     publish: []
     subscribe: []
 
+  # STARTUP ORDERING (ADR-043 D6b): NACK creates the durable below from charts/nats-config, sync
+  # wave 12, so the workload-operator Application MUST sit at a later wave. Its first bus call
+  # MUST be `CONSUMER.INFO` on that durable, and `consumer not found (10014)` MUST exit non-zero:
+  # it holds no grant that could create the durable, so a silent retry only hides the gap.
   - name: workload-operator
-    role: puller
+    role: bound_puller
     component: workload-operator
     publish:
       - pf.<tenant>.workload.deployment.deployed.v1.ev
@@ -411,8 +393,19 @@ conformance:
         `STREAM.SNAPSHOT`.
     - id: consumer_create_denies_present
       asserts: >-
-        Every role allowing a consumer-create subject carries the name-only and legacy-durable
-        denies, and NONE denies the broad `$JS.API.CONSUMER.CREATE.*.>` form.
+        Every role that binds a consumer carries the name-only and legacy-durable denies as
+        defence in depth, and `stream_controller` denies none of the create forms it needs.
+    - id: consumer_create_only_stream_controller
+      asserts: >-
+        No role but `stream_controller`, and no rendered principal but `nack`, holds an allow
+        that MATCHES a `$JS.API.CONSUMER.CREATE` or `$JS.API.CONSUMER.DURABLE.CREATE` subject,
+        compared as NATS subject patterns so `$JS.API.>`, `$JS.API.CONSUMER.>` and `>` fail as a
+        literal create grant does. (ADR-043 D6b)
+    - id: no_push_consumer
+      asserts: >-
+        No rendered `Consumer` sets a non-empty `spec.deliverSubject` or `spec.deliverGroup`;
+        every consumer is pull-only, so delivery is never redirected to a subject in Git.
+        (ADR-043 D6b)
     - id: no_system_account_principal
       asserts: '`accounts.system_account_principals` is empty and no principal names `$SYS`.'
     - id: no_cross_account_link

@@ -158,6 +158,17 @@ spec:
                 conditions:
                   - type: Ready
                     status: "True"
+        - assert:
+            resource:
+              apiVersion: jetstream.nats.io/v1beta2
+              kind: Consumer
+              metadata:
+                name: workload-operator-deployment-promote-v1
+                namespace: nats
+              status:
+                conditions:
+                  - type: Ready
+                    status: "True"
       catch:
         - script:
             timeout: 1m

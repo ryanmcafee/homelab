@@ -9,7 +9,7 @@ WORK_SUBJECT="pf.$TENANT.workload.deployment.promote.v1.wq"
 WORK_CONSUMER=workload-operator-deployment-promote-v1
 EVENT_SUBJECT="pf.$TENANT.workload.deployment.deployed.v1.ev"
 RQ_SUBJECT="pf.$TENANT.workload.deployment.describe.v1.rq"
-CREATE_ALLOWED="\$JS.API.CONSUMER.CREATE.PF_WORK.$WORK_CONSUMER.$WORK_SUBJECT"
+CREATE_FILTERED="\$JS.API.CONSUMER.CREATE.PF_WORK.$WORK_CONSUMER.$WORK_SUBJECT"
 failures=0
 scratch=$(mktemp -d)
 
@@ -40,7 +40,6 @@ fail() {
   printf 'FAIL %s: %s\n%s\n' "$1" "$2" "$3" | sed '3,$s/^/    /'
   failures=$((failures + 1))
 }
-measured() { printf 'MEASURED %s: %s\n' "$1" "$2"; }
 
 # expect ID DESC PATTERN -- output must contain PATTERN (fixed string).
 expect() {
@@ -116,6 +115,7 @@ phase_streams() {
   stream_created PF_DLQ 'pf.*.*.*.*.*.dl' limits old 720h
   nack_consumer_created PF_EVENTS verify-workload-v1 'pf.*.workload.*.*.v1.ev'
   nack_consumer_created PF_DLQ dlq-reporter-observability-v1 'pf.*.*.*.*.*.dl'
+  nack_consumer_created PF_WORK "$WORK_CONSUMER" 'pf.*.workload.deployment.promote.v1.wq'
 }
 
 stream_created() {
@@ -127,19 +127,8 @@ nack_consumer_created() {
   expect $id "$2 exists on $1 afterwards" "\"name\": \"$2\"" "$(as nack consumer info "$1" "$2" --json)"
 }
 
-# The probes below leave named ephemerals behind; each is gone 5s after it loses interest.
-await_no_work_consumer() {
-  for _ in 1 2 3 4 5 6 7 8 9 10; do
-    case $(as nack consumer ls PF_WORK --names) in
-    *"$WORK_CONSUMER"*) sleep 2 ;;
-    *) return 0 ;;
-    esac
-  done
-}
-
 phase_start() {
   id=start_bind_pull_ack_reconnect
-  await_no_work_consumer
   for n in 1 2 3 4; do
     out=$(as workload-operator pub --jetstream "$EVENT_SUBJECT" "event-$n")
     expect $id "workload-operator publishes event-$n and PF_EVENTS acknowledges it" "Stored in Stream: PF_EVENTS" "$out"
@@ -152,9 +141,8 @@ phase_start() {
     "$(as verify consumer next PF_EVENTS verify-workload-v1 --ack)"
   expect $id "verify pulls and TERMs" "event-3" "$(as verify consumer next PF_EVENTS verify-workload-v1 --term)"
 
-  succeeded $id "workload-operator creates its own consumer through the fully-filtered form" \
-    "Information for Consumer PF_WORK > $WORK_CONSUMER" \
-    "$(consumer_add workload-operator PF_WORK "$WORK_CONSUMER" "$WORK_SUBJECT")"
+  expect $id "workload-operator binds the durable nack created" "$WORK_CONSUMER" \
+    "$(as workload-operator consumer info PF_WORK "$WORK_CONSUMER")"
   out=$(as platform-api pub --jetstream "$WORK_SUBJECT" work-1)
   expect $id "platform-api enqueues work and PF_WORK acknowledges it" "Stored in Stream: PF_WORK" "$out"
   expect $id "workload-operator pulls and ACKs the work item" "work-1" \
@@ -210,6 +198,7 @@ phase_cross_principal() {
 create_as() { as workload-operator req "$1" "$2"; }
 create_body() { printf '{"stream_name":"%s","config":{%s"ack_policy":"explicit"}}' "${2:-PF_WORK}" "$1"; }
 
+# ADR-043 D6b: no workload principal holds any consumer-create grant, so every entrance is refused.
 phase_consumer_create() {
   id=consumer_create_name_only_reach
   filter="\"filter_subject\":\"$WORK_SUBJECT\","
@@ -219,21 +208,10 @@ phase_consumer_create() {
     "$(create_as '$JS.API.CONSUMER.CREATE.PF_WORK' "$(create_body '"name":"rogue-named",')")"
   refused_pub $id "legacy DURABLE.CREATE is refused" '$JS.API.CONSUMER.DURABLE.CREATE.PF_WORK.rogue' \
     "$(create_as '$JS.API.CONSUMER.DURABLE.CREATE.PF_WORK.rogue' "$(create_body '"durable_name":"rogue",')")"
-  expect $id "allowed form with a different body Durable is rejected" "consumer name in subject does not match durable name in request" \
-    "$(create_as "$CREATE_ALLOWED" "$(create_body "\"durable_name\":\"rogue-durable\",$filter")")"
-  expect $id "allowed form with a wider body filter is rejected" "did not match filtered subject" \
-    "$(create_as "$CREATE_ALLOWED" "$(create_body "\"durable_name\":\"$WORK_CONSUMER\",\"filter_subject\":\"pf.$TENANT.>\",")")"
-  expect $id "allowed form with no body filter is rejected" "did not match filtered subject" \
-    "$(create_as "$CREATE_ALLOWED" "$(create_body "\"durable_name\":\"$WORK_CONSUMER\",")")"
-  expect $id "allowed form with body filter_subjects is rejected" "multiple subject filters cannot use subject based API" \
-    "$(create_as "$CREATE_ALLOWED" "$(create_body "\"durable_name\":\"$WORK_CONSUMER\",\"filter_subjects\":[\"pf.$TENANT.>\"],")")"
-  expect $id "allowed form naming another stream in the body is rejected" "stream name in subject does not match request" \
-    "$(create_as "$CREATE_ALLOWED" "$(create_body "\"durable_name\":\"$WORK_CONSUMER\",$filter" PF_EVENTS)")"
-  out=$(create_as "$CREATE_ALLOWED" "$(create_body "\"name\":\"rogue-named\",$filter")")
-  case $out in
-  *'"name":"'"$WORK_CONSUMER"'"'*) pass $id "allowed form with a different body Name and no Durable creates only the subject's name" ;;
-  *) fail $id "allowed form with a different body Name and no Durable creates only the subject's name" "$out" ;;
-  esac
+  refused_pub $id "the fully-filtered form is refused for a new name" "\$JS.API.CONSUMER.CREATE.PF_WORK.rogue.$WORK_SUBJECT" \
+    "$(create_as "\$JS.API.CONSUMER.CREATE.PF_WORK.rogue.$WORK_SUBJECT" "$(create_body "\"durable_name\":\"rogue\",$filter")")"
+  refused_pub $id "the fully-filtered form is refused as an update of its own durable" "$CREATE_FILTERED" \
+    "$(create_as "$CREATE_FILTERED" "$(create_body "\"durable_name\":\"$WORK_CONSUMER\",$filter\"max_deliver\":1,")")"
   consumers=$(as nack consumer ls PF_WORK --names | grep -v '^$' | sort | tr '\n' ' ')
   expect $id "PF_WORK holds no consumer but the declared one" "$WORK_CONSUMER " "$consumers"
   case $consumers in
@@ -242,28 +220,33 @@ phase_consumer_create() {
   esac
 }
 
-# KNOWN GAP, measured on v2.15.0: deliver_subject is not checked against the creator's publish
-# grant, so a principal that may create its consumer may make it push to any subject.
+# ADR-043 D6b. Measured on v2.15.0 before it: a create body's deliver_subject is not checked
+# against the creator's publish grant, so a self-creating principal could push its stream to any
+# subscribed subject. The fix is that the create is refused and the bind is the only path.
 phase_push_redirect() {
   id=consumer_create_name_only_reach
-  await_no_work_consumer
   (as_bg rq-responder-bare sub "$RQ_SUBJECT" --count 1 >"$scratch/redirect.out") &
   listener=$!
   sleep 1
   refused_pub $id "workload-operator cannot publish to $RQ_SUBJECT itself (control)" "$RQ_SUBJECT" \
     "$(as workload-operator pub "$RQ_SUBJECT" direct)"
-  out=$(create_as "$CREATE_ALLOWED" "$(create_body "\"filter_subject\":\"$WORK_SUBJECT\",\"deliver_subject\":\"$RQ_SUBJECT\",")")
-  expect $id "workload-operator's own grant creates a push consumer delivering to $RQ_SUBJECT" \
-    "\"deliver_subject\":\"$RQ_SUBJECT\"" "$out"
-  as platform-api pub --jetstream "$WORK_SUBJECT" redirected-work >/dev/null
-  sleep 2
+  refused_pub $id "workload-operator is refused a push create delivering to $RQ_SUBJECT" "$CREATE_FILTERED" \
+    "$(create_as "$CREATE_FILTERED" "$(create_body "\"durable_name\":\"$WORK_CONSUMER\",\"filter_subject\":\"$WORK_SUBJECT\",\"deliver_subject\":\"$RQ_SUBJECT\",")")"
+  out=$(as workload-operator consumer info PF_WORK "$WORK_CONSUMER" --json)
+  expect $id "workload-operator binds the NACK-created durable" "\"durable_name\": \"$WORK_CONSUMER\"" "$out"
+  case $out in
+  *deliver_subject*) fail $id "the bound durable is still pull after the refused push create" "$out" ;;
+  *) pass $id "the bound durable is still pull after the refused push create" ;;
+  esac
+  as platform-api pub --jetstream "$WORK_SUBJECT" redirect-attempt >/dev/null
+  expect $id "workload-operator pulls the work item through its bound durable" "redirect-attempt" \
+    "$(as workload-operator consumer next PF_WORK "$WORK_CONSUMER" --ack)"
+  sleep 1
   kill "$listener" 2>/dev/null
   case $(cat "$scratch/redirect.out") in
-  *redirected-work*) measured $id "push delivery reached a subscriber on $RQ_SUBJECT; deliver_subject is not checked against any publish grant" ;;
-  *) fail $id "push delivery to $RQ_SUBJECT was expected from the v2.15.0 measurement and did not arrive; re-measure" "$(cat "$scratch/redirect.out")" ;;
+  *redirect-attempt*) fail $id "no work item reached $RQ_SUBJECT" "$(cat "$scratch/redirect.out")" ;;
+  *) pass $id "no work item reached $RQ_SUBJECT" ;;
   esac
-  # A workqueue message delivered to a push consumer and never ACKed stays with that consumer.
-  as workload-operator pub "\$JS.ACK.PF_WORK.$WORK_CONSUMER.1.1.1.0.0" '+TERM' >/dev/null
 }
 
 phase_rq() {
