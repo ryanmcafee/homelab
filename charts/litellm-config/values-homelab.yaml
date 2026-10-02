@@ -1,0 +1,5 @@
+# litellm-config homelab values. Committed and PII-free (ADR-010): the
+# hostname and the Gateway arrive through the parent Application's
+# helm.valuesObject. Only non-derived settings live here.
+
+namespace: litellm

@@ -1024,7 +1024,7 @@ paperclip:
 # ============================================================================
 # LiteLLM - OpenAI-compatible LLM gateway (componentized chart + CloudNativePG)
 # Sync Waves: 10 namespace, 11 litellm-dependencies, 12 litellm-database,
-# 13 litellm (issue #424); the HTTPRoutes follow in wave 14.
+# 13 litellm, 14 litellm-config + smoke (issue #424).
 # ============================================================================
 # Runs wherever CloudNativePG runs (both environments). The three 1Password
 # items only render with a secret store; Kind seeds the same Secrets from
@@ -1141,3 +1141,24 @@ litellm:
         limits:
           cpu: "1"
           memory: 1536Mi
+
+  # charts/litellm-config (wave 14): HTTPRoutes on the https listener for the
+  # dashboard, the /v1 data plane and the management API, all on one hostname.
+  # Which Gateway they attach to is the whole exposure decision: the internal
+  # one keeps the proxy on the LAN and the tailnet, GATEWAY_EXTERNAL publishes
+  # it to the WAN and then the UI route needs oauth2-proxy in front of it.
+  # The path split itself is a property of the upstream chart and lives in
+  # charts/litellm-config/values.yaml.
+  route:
+    enabled: true
+    host: litellm.homelab.local
+    gateway:
+      name: envoy-internal
+      namespace: envoy-gateway-system
+
+  # PostSync smoke hook: the gateway's readiness endpoint on its ClusterIP
+  # Service. Not the metrics Service, which has no auth of its own.
+  smoke:
+    enabled: true
+    url: http://litellm-gateway.litellm.svc.cluster.local:4000/health/readiness
+    expect: ["200"]

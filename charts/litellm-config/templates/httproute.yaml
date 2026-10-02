@@ -1,0 +1,101 @@
+{{- /*
+Exposure for the componentized LiteLLM proxy (issue #424, wave 14).
+
+The upstream chart publishes all three components through one Ingress, which
+Envoy Gateway does not serve (policy no-ingress), so its ingress.enabled stays
+false and the same routing table is expressed here as HTTPRoutes on the https
+listener. One route per component, because they need different policies: the
+UI and the management API are human traffic, /v1/* is virtual-key traffic.
+
+The split is the upstream one, not a path-per-component carve-up. The UI owns
+an explicit set of paths, the gateway owns the data-plane prefixes, and the
+backend owns the catch-all at / -- which is why wave 13 sets the dashboard's
+backendUrl to the bare hostname. Gateway API resolves this across routes by
+match specificity: Exact first, then the longest PathPrefix.
+*/}}
+{{- if .Values.route.enabled }}
+{{- $r := .Values.route }}
+{{- $parentRefs := list (dict "group" "gateway.networking.k8s.io" "kind" "Gateway" "name" $r.gateway.name "namespace" $r.gateway.namespace "sectionName" "https") }}
+{{- $uiMatches := list }}
+{{- range $r.uiExactPaths }}
+{{- $uiMatches = append $uiMatches (dict "path" (dict "type" "Exact" "value" .)) }}
+{{- end }}
+{{- range $r.uiPathPrefixes }}
+{{- $uiMatches = append $uiMatches (dict "path" (dict "type" "PathPrefix" "value" .)) }}
+{{- end }}
+{{- if $r.ui.rscPayloads }}
+{{- $uiMatches = append $uiMatches (dict "path" (dict "type" "RegularExpression" "value" "^/[^/]+\\.txt$")) }}
+{{- end }}
+{{- $gatewayMatches := list }}
+{{- range $r.gatewayExactPaths }}
+{{- $gatewayMatches = append $gatewayMatches (dict "path" (dict "type" "Exact" "value" .)) }}
+{{- end }}
+{{- range $r.gatewayPathPrefixes }}
+{{- $gatewayMatches = append $gatewayMatches (dict "path" (dict "type" "PathPrefix" "value" .)) }}
+{{- end }}
+---
+# The only route carrying the external-dns hostname annotation: all three share
+# one hostname, and external-dns selects on that annotation
+# (--annotation-filter), so one record is published instead of three claims on
+# the same name.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: litellm-ui
+  namespace: {{ .Values.namespace }}
+  annotations:
+    external-dns.alpha.kubernetes.io/hostname: {{ $r.host }}
+spec:
+  parentRefs:
+    {{- toYaml $parentRefs | nindent 4 }}
+  hostnames:
+    - {{ $r.host }}
+  rules:
+    {{- range chunk 64 $uiMatches }}
+    - matches:
+        {{- toYaml . | nindent 8 }}
+      backendRefs:
+        - name: {{ $r.ui.service }}
+          port: {{ $r.ui.port }}
+    {{- end }}
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: litellm-gateway
+  namespace: {{ .Values.namespace }}
+spec:
+  parentRefs:
+    {{- toYaml $parentRefs | nindent 4 }}
+  hostnames:
+    - {{ $r.host }}
+  rules:
+    {{- range chunk 64 $gatewayMatches }}
+    - matches:
+        {{- toYaml . | nindent 8 }}
+      backendRefs:
+        - name: {{ $r.gatewayService.service }}
+          port: {{ $r.gatewayService.port }}
+    {{- end }}
+---
+# Catch-all: the management API (/key/*, /user/*, /team/*, /v1/mcp/*, ...) and
+# every path the two routes above do not claim.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: litellm-backend
+  namespace: {{ .Values.namespace }}
+spec:
+  parentRefs:
+    {{- toYaml $parentRefs | nindent 4 }}
+  hostnames:
+    - {{ $r.host }}
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: {{ $r.backend.service }}
+          port: {{ $r.backend.port }}
+{{- end }}

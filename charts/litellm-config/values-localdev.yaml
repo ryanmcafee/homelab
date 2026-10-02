@@ -1,0 +1,9 @@
+# litellm-config - local development overrides
+#
+# No overrides are needed: the hostname and the Gateway arrive through the
+# parent Application's helm.valuesObject, generated from configuration/ for
+# localdev. The file still has to exist, because the parent Application always
+# appends values-localdev.yaml to spec.source.helm.valueFiles and ArgoCD fails
+# the sync when a declared value file is missing.
+
+namespace: litellm

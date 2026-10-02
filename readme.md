@@ -29,13 +29,13 @@ standing in for 1Password, TrueNAS and the UniFi gateway, and syncs the Applicat
 real hardware — fewer than the production total further down this page.
 
 ```bash
-task localdev:up        # Kind (Cilium, registry caches, fakes) → ArgoCD → 64 Applications synced from your working tree
+task localdev:up        # Kind (Cilium, registry caches, fakes) → ArgoCD → 65 Applications synced from your working tree
 task localdev:report    # what is Healthy, and what differs from main
 task localdev:down      # delete the cluster; the registry caches stay
 ```
 
 ArgoCD is on http://localhost:8080 (`admin`, password in `argocd-initial-admin-secret`; on macOS run
-`task localdev:ui` first). `task verify LEVEL=2` runs the 23 chainsaw suites against it.
+`task localdev:ui` first). `task verify LEVEL=2` runs the 24 chainsaw suites against it.
 
 ## Boot it on real hardware
 
@@ -68,12 +68,12 @@ with a confirmation at each phase. Nothing reaches `terragrunt apply` without th
 **Media** · plex · sonarr · radarr · prowlarr · nzbget · tautulli · lazylibrarian · flaresolverr
 **Platform** · argocd · grafana · argo-workflows · paperclip · cloudnative-pg · mosquitto · renovate
 
-39 addons and 17 applications, 94 ArgoCD Applications in all. The full table with chart versions,
+39 addons and 17 applications, 95 ArgoCD Applications in all. The full table with chart versions,
 Gateway and test coverage per app is generated in [`docs/applications.md`](docs/applications.md).
 
 ## Guardrails
 
-- Every PR: level 0 (render, schema, policy, golden snapshots) in seconds, then the Kind loop with 23 chainsaw suites; label `preview` and the PR gets its own namespace in production.
+- Every PR: level 0 (render, schema, policy, golden snapshots) in seconds, then the Kind loop with 24 chainsaw suites; label `preview` and the PR gets its own namespace in production.
 - Renovate automerges non-major bumps only when the upstream chart diff passes the same gates (ADR-014).
 - `task config:guard` blocks real IPs, hostnames and e-mail addresses from ever being committed.
 - `task docs:check` recomputes every version and count on this page from the repo and fails CI when they drift.
