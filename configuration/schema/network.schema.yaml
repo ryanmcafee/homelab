@@ -35,9 +35,10 @@ keyPatterns:
   #
   # Unlike the control plane, no contract file restates this pattern, because no
   # contract needs it: a worker holds no etcd member, so nothing here gates a
-  # destructive operation. WORKER1_IP stays a literal required key below — that
-  # is where "this cluster has at least one worker" is stated, so an operator
-  # reads it in the schema rather than inferring it from resolver behaviour.
+  # destructive operation. Nor is any worker individually required — listing
+  # zero WORKERn_IP keys is a workerless cluster, and env.hcl makes that shape
+  # schedulable by deriving allow_scheduling_on_control_planes from this same
+  # key family (MCAA-423).
   "^WORKER([0-9]+)_IP$":
     description: Worker node IP, one key per node (WORKER1_IP, WORKER2_IP, ...)
     role: worker-address
@@ -99,15 +100,14 @@ keys:
     required: true
     pattern: "^(?:\\d{1,3}\\.){3}\\d{1,3}$"
 
-  # The first worker, and the only one that is individually required. A cluster
-  # with no worker is a real Talos shape, but it needs a schedulable control
-  # plane (terragrunt allow_scheduling_on_control_planes) to run a single pod, so
-  # permitting it here alone would render a cluster that provisions and schedules
-  # nothing. `homelab verify gpu` also reads this key by name for the GPU node.
-  # Every other worker is admitted by the WORKERn_IP pattern under keyPatterns.
+  # Declared here rather than left to the WORKERn_IP pattern alone because this
+  # ordinal carries the GPU: `homelab verify gpu` and env.hcl's worker sizing
+  # both single out worker 1. It is NOT required — a fork that lists no worker
+  # gets a schedulable control plane instead (env.hcl derives that from the same
+  # keys), and GPU_VENDOR must then be "none" or `homelab verify gpu` refuses.
   WORKER1_IP:
-    description: Worker node 1 IP (GPU node)
-    required: true
+    description: Worker node 1 IP (GPU node); omit it for a workerless cluster
+    required: false
     pattern: "^(?:\\d{1,3}\\.){3}\\d{1,3}$"
 
   LB_POOL_START:

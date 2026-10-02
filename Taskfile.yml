@@ -1182,6 +1182,11 @@ tasks:
     cmds:
       - go run ./cmd/homelab config eval --set {{.ENV | default "homelab"}}
 
+  config:nodes:
+    desc: 'Print the cluster nodes the ConfigSet declares (ROLE=all|control-plane|worker, ADDRESSES=true for a talosctl -n list)'
+    cmds:
+      - go run ./cmd/homelab config nodes --set {{.ENV | default "homelab"}} --role {{.ROLE | default "all"}} {{if eq .ADDRESSES "true"}}--addresses{{end}}
+
   config:export:
     desc: Export all configuration formats
     cmds:

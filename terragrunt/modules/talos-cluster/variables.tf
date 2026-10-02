@@ -252,7 +252,7 @@ variable "gpu_intel_config_patch" {
 
 # Talos Configuration
 variable "allow_scheduling_on_control_planes" {
-  description = "Allow workloads to be scheduled on control plane nodes"
+  description = "Allow workloads to be scheduled on control plane nodes. Callers with an empty worker_nodes map MUST set this true or the cluster schedules nothing; env.hcl derives it from the ConfigSet's worker addresses."
   type        = bool
   default     = false
 }
