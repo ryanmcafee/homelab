@@ -13,6 +13,10 @@ Each entry should include:
 
 ## Recent Work
 
+### 2026-10-01 - KubeCPUOvercommit: size media and NATS CPU requests from measured usage
+- **Status**: PR pending (branch `triage/kubecpuovercommit-2f0d9038`); after merge confirm the overcommit expression drops below 0 and the alert resolves
+- **Description**: CPU requests sonarr/radarr 200m -> 75m, tautulli/lazylibrarian 100m -> 25m, homelab NATS 100m -> 25m (x3); limits unchanged, ~0.6 CPU freed. bugs.md 2026-10-01
+
 ### 2026-10-01 - KubePodCrashLooping argo-workflows: raise workflow-controller and server memory
 - **Status**: PR pending (branch `triage/kubepodcrashlooping-ad4dc7b1`); before merge confirm the previous container terminated `OOMKilled`, after merge confirm the controller is Running and the alert resolves
 - **Description**: homelab controller 128Mi/256Mi (was 32Mi/48Mi), server 64Mi/128Mi (was 32Mi/48Mi). Kind is unaffected (argo-workflows is disabled in localdev). bugs.md 2026-10-01
