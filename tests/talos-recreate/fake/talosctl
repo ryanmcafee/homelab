@@ -1,0 +1,100 @@
+#!/usr/bin/env bash
+# Fake talosctl for tests/talos-recreate/run.sh.
+#
+# It emulates the four etcd verbs `homelab talos recreate` depends on, backed
+# by a plain-text cluster in $FAKE_STATE:
+#
+#   members            ID<TAB>HOSTNAME<TAB>IP, one line per etcd member
+#   raft_index         the highest RAFT INDEX every member reports
+#   lag_<ip>           that member reports RAFT INDEX minus this many
+#   err_<ip>           that member reports this string in ERRORS
+#   down_<ip>          `etcd status` fails for that member
+#   leave_fails        `etcd leave` fails, forcing the remove-member fallback
+#
+# The tables are printed with the same column-offset layout Go's tabwriter
+# produces, because parsing that layout is exactly what internal/etcd does.
+#
+# PATH is re-exported because a nested shell in some sandboxes does not
+# inherit it, and `op` has to be able to find this directory's other shims.
+export PATH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd):$PATH"
+set -euo pipefail
+
+S="$FAKE_STATE"
+nodes=""; args=()
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -n) nodes="$2"; shift 2;;
+    -e) shift 2;;
+    *) args+=("$1"); shift;;
+  esac
+done
+
+pad() { printf '%-*s' "$2" "$1"; }
+
+# drop_member <awk-field-number> <value>
+drop_member() {
+  awk -F'\t' -v f="$1" -v v="$2" '$f != v' "$S/members" > "$S/members.new"
+  mv "$S/members.new" "$S/members"
+}
+
+case "${args[0]:-}:${args[1]:-}" in
+  etcd:members)
+    printf '%s  %s  %s  %s  %s  %s\n' \
+      "$(pad NODE 12)" "$(pad ID 16)" "$(pad HOSTNAME 20)" \
+      "$(pad 'PEER URLS' 26)" "$(pad 'CLIENT URLS' 26)" LEARNER
+    while IFS=$'\t' read -r id host ip; do
+      [[ -z "$id" ]] && continue
+      printf '%s  %s  %s  %s  %s  %s\n' \
+        "$(pad "${nodes%%,*}" 12)" "$(pad "$id" 16)" "$(pad "$host" 20)" \
+        "$(pad "https://$ip:2380" 26)" "$(pad "https://$ip:2379" 26)" false
+    done < "$S/members"
+    ;;
+
+  etcd:status)
+    leader=$(head -1 "$S/members" | cut -f1)
+    printf '%s  %s  %s  %s  %s  %s  %s  %s\n' \
+      "$(pad NODE 12)" "$(pad MEMBER 16)" "$(pad 'DB SIZE' 9)" "$(pad LEADER 16)" \
+      "$(pad 'RAFT INDEX' 12)" "$(pad 'RAFT TERM' 11)" "$(pad LEARNER 9)" ERRORS
+    rc=0
+    IFS=',' read -ra want <<< "$nodes"
+    for ip in "${want[@]}"; do
+      line=$(awk -F'\t' -v ip="$ip" '$3==ip' "$S/members" || true)
+      # A member that is gone or down makes talosctl exit non-zero while
+      # still printing the rows that did answer — the real behaviour the
+      # command has to cope with.
+      if [[ -z "$line" || -f "$S/down_$ip" ]]; then
+        echo "error: node $ip: rpc error: code = Unavailable" >&2
+        rc=1
+        continue
+      fi
+      idx=$(cat "$S/raft_index" 2>/dev/null || echo 9182740)
+      [[ -f "$S/lag_$ip" ]] && idx=$(( idx - $(cat "$S/lag_$ip") ))
+      err=""; [[ -f "$S/err_$ip" ]] && err=$(cat "$S/err_$ip")
+      printf '%s  %s  %s  %s  %s  %s  %s  %s\n' \
+        "$(pad "$ip" 12)" "$(pad "$(cut -f1 <<< "$line")" 16)" "$(pad '21 MB' 9)" \
+        "$(pad "$leader" 16)" "$(pad "$idx" 12)" "$(pad 42 11)" "$(pad false 9)" "$err"
+    done
+    exit $rc
+    ;;
+
+  etcd:leave)
+    [[ -f "$S/leave_fails" ]] && { echo "error: etcd leave: connection refused" >&2; exit 1; }
+    drop_member 3 "$nodes"
+    echo "member left"
+    ;;
+
+  etcd:remove-member)
+    drop_member 1 "${args[2]}"
+    echo "removed ${args[2]}"
+    ;;
+
+  etcd:snapshot)
+    dd if=/dev/zero of="${args[2]}" bs=1024 count=2048 status=none
+    echo "snapshot written to ${args[2]}"
+    ;;
+
+  *)
+    echo "fake talosctl: unhandled verb '${args[*]}'" >&2
+    exit 64
+    ;;
+esac

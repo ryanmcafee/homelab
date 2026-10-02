@@ -33,16 +33,19 @@ var consumedOutsideTemplates = map[string]string{
 	"ARGOCD_HOSTNAME": "read by `homelab bootstrap` (cmd/homelab/commands/bootstrap.go) to print the " +
 		"ArgoCD URL; its last template reference was the removed ingress-verification list",
 
-	// The terragrunt tree reads these five out of configuration/resolved*.json
+	// The terragrunt tree reads these four out of configuration/resolved*.json
 	// (the `json` export), not through a helm template: terragrunt/environments/
 	// */env.hcl jsondecode()s that file. They are what stops terragrunt
-	// committing one operator's subnet, resolver, cluster name, hypervisor node
-	// name and git remote.
-	"LAN_CIDR":        "terragrunt/environments/homelab/env.hcl — locals.subnet, and the netmask of truenas_static_ip",
-	"DNS_SERVER_IP":   "terragrunt/environments/{homelab,localdev}/env.hcl — locals.dns_servers",
-	"CLUSTER_NAME":    "terragrunt/environments/{homelab,localdev}/env.hcl — locals.cluster_name",
-	"PROXMOX_NODE":    "terragrunt/environments/homelab/env.hcl — locals.proxmox_node and every node's host_node",
-	"GITOPS_REPO_URL": "terragrunt/environments/{homelab,localdev}/env.hcl — locals.repo_url, the repository ArgoCD reconciles from",
+	// committing one operator's subnet, resolver, cluster name and hypervisor
+	// node name.
+	//
+	// GITOPS_REPO_URL is read there too, but it is NOT allowlisted: the helm
+	// templates consume it through the resolver's derived .GitOps field, which
+	// this test counts as a reference the same way it counts .ControlPlane.
+	"LAN_CIDR":      "terragrunt/environments/homelab/env.hcl — locals.subnet, and the netmask of truenas_static_ip",
+	"DNS_SERVER_IP": "terragrunt/environments/{homelab,localdev}/env.hcl — locals.dns_servers",
+	"CLUSTER_NAME":  "terragrunt/environments/{homelab,localdev}/env.hcl — locals.cluster_name",
+	"PROXMOX_NODE":  "terragrunt/environments/homelab/env.hcl — locals.proxmox_node and every node's host_node",
 }
 
 // templateRef is a single recognized expression found on one line of a
@@ -62,10 +65,14 @@ var (
 	// counting it as a reference is principled where the generic range is not:
 	// it can only excuse the keys that pattern matches, never an arbitrary one.
 	controlPlaneRefRe = regexp.MustCompile(`\.ControlPlane\b`)
-	chartsDotRefRe    = regexp.MustCompile(`\.Versions\.Charts\.([A-Za-z0-9_-]+)`)
-	chartsIndexRefRe  = regexp.MustCompile(`index\s+\.Versions\.Charts\s+"([A-Za-z0-9_-]+)"`)
-	toolsDotRefRe     = regexp.MustCompile(`\.Versions\.Tools\.([A-Za-z0-9_-]+)`)
-	imagesIndexRefRe  = regexp.MustCompile(`index\s+\.Versions\.Images\s+"([A-Za-z0-9_-]+)"`)
+	// gitOpsRefRe finds a template's use of the resolver's derived GitOps
+	// remote. Same principle as .ControlPlane: a named field with one source
+	// key, so counting it as a reference can only ever excuse GITOPS_REPO_URL.
+	gitOpsRefRe      = regexp.MustCompile(`\.GitOps\.`)
+	chartsDotRefRe   = regexp.MustCompile(`\.Versions\.Charts\.([A-Za-z0-9_-]+)`)
+	chartsIndexRefRe = regexp.MustCompile(`index\s+\.Versions\.Charts\s+"([A-Za-z0-9_-]+)"`)
+	toolsDotRefRe    = regexp.MustCompile(`\.Versions\.Tools\.([A-Za-z0-9_-]+)`)
+	imagesIndexRefRe = regexp.MustCompile(`index\s+\.Versions\.Images\s+"([A-Za-z0-9_-]+)"`)
 )
 
 // listTemplateFiles returns the sorted list of *.tmpl files in configRoot/templates.
@@ -180,6 +187,7 @@ func TestDeclaredKeysAreReferenced(t *testing.T) {
 
 	referenced := make(map[string]bool)
 	controlPlaneReferenced := false
+	gitOpsReferenced := false
 	for _, path := range listTemplateFiles(t, configRoot) {
 		for _, ref := range extractTemplateRefs(t, path) {
 			if ref.kind == "value" {
@@ -192,6 +200,21 @@ func TestDeclaredKeysAreReferenced(t *testing.T) {
 		}
 		if controlPlaneRefRe.Match(src) {
 			controlPlaneReferenced = true
+		}
+		if gitOpsRefRe.Match(src) {
+			gitOpsReferenced = true
+		}
+	}
+
+	// A template reading .GitOps reads GITOPS_REPO_URL — the resolver parses
+	// that one key into the field. Marking the key referenced here is what
+	// keeps it off the allowlist while it has a real template consumer.
+	if _, declared := schema.Keys[GitOpsRepoKey]; declared {
+		if gitOpsReferenced {
+			referenced[GitOpsRepoKey] = true
+		} else {
+			t.Errorf("schema declares %s but no template references .GitOps — a fork's ArgoCD would "+
+				"reconcile whatever repository the templates name instead", GitOpsRepoKey)
 		}
 	}
 

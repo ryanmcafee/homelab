@@ -1,6 +1,9 @@
 # tailscale-config homelab values
+#
+# tailscale.onePasswordItemPath is NOT set here: the addons tailscale-config
+# Application passes it through helm.valuesObject from TAILSCALE_OPERATOR_1P_PATH,
+# so a fork's key is what reaches the OnePasswordItem.
 
 tailscale:
   enabled: true
   namespace: tailscale
-  onePasswordItemPath: "vaults/homelab/items/tailscale-operator-oauth"

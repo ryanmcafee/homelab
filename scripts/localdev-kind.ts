@@ -21,6 +21,10 @@
  *                       Delete the cluster; --purge-cache also removes the
  *                       registry containers and the cache directory.
  *   fakes               (Re)apply localdev/fakes with server-side apply.
+ *   nats-seeds          Mint the ADR-043 principal seeds into Secrets (Kind has no
+ *                       vault, and a committed Kind seed is still a committed secret)
+ *                       and write the PUBLIC keys to .nats/. Idempotent: an existing
+ *                       seed is reused, never replaced.
  *   registry up|down|status
  *                       Manage the pull-through caches (one registry:2 per
  *                       upstream on the `kind` Docker network, cache under
@@ -55,6 +59,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { isNotFound } from "./lib/errors.ts";
 import {
+  PUBLIC_MAP_PATH,
+  assertLocaldevContext,
+  deliverSeeds,
+  writePublicMap,
+} from "./localdev-nats-seeds.ts";
+import {
   parseAll as parseAllYaml,
   parse as parseYaml,
   stringify as stringifyYaml,
@@ -84,6 +94,8 @@ const KIND_CONFIG = "localdev/kind-config.yaml";
 const VERSIONS_YAML = "configuration/versions.yaml";
 const ADDONS_LOCALDEV_VALUES = "charts/addons/values-localdev.yaml";
 const FAKES_DIR = "localdev/fakes";
+/** The bus namespace, matching charts/addons values-localdev.yaml nats.namespace. */
+const NATS_NAMESPACE = "nats";
 const CILIUM_REPO = "https://helm.cilium.io/";
 const CILIUM_NAMESPACE = "kube-system";
 const KIND_NETWORK = "kind";
@@ -158,6 +170,15 @@ export const registryUpstreams: readonly RegistryUpstream[] = [
   { name: "quay", host: "quay.io", upstream: "https://quay.io" },
   { name: "k8s", host: "registry.k8s.io", upstream: "https://registry.k8s.io" },
   { name: "lscr", host: "lscr.io", upstream: "https://lscr.io" },
+  // argo-cd's redis (and redis-ha haproxy) images. Without this entry
+  // argocd-redis was the one ArgoCD pod pulling straight from the internet on
+  // every run, which showed up as an intermittent ImagePullBackOff during
+  // `task localdev:argocd`.
+  {
+    name: "ecr",
+    host: "ecr-public.aws.com",
+    upstream: "https://ecr-public.aws.com",
+  },
 ];
 
 export function registryContainerName(name: string): string {
@@ -281,7 +302,13 @@ export function extractCiliumValues(yamlText: string): string | null {
 // ============================================================================
 // CLI args
 // ============================================================================
-export type Command = "up" | "down" | "fakes" | "registry" | "cilium";
+export type Command =
+  | "up"
+  | "down"
+  | "fakes"
+  | "nats-seeds"
+  | "registry"
+  | "cilium";
 export type RegistryAction = "up" | "down" | "status";
 
 export interface Args {
@@ -301,6 +328,7 @@ const COMMANDS: readonly Command[] = [
   "up",
   "down",
   "fakes",
+  "nats-seeds",
   "registry",
   "cilium",
 ];
@@ -359,7 +387,9 @@ export function parseArgs(argv: string[]): Args {
 
   const [cmd, sub, ...rest] = positional;
   if (!cmd) {
-    throw new UsageError("missing subcommand (up|down|fakes|registry|cilium)");
+    throw new UsageError(
+      "missing subcommand (up|down|fakes|nats-seeds|registry|cilium)",
+    );
   }
   if (!COMMANDS.includes(cmd as Command)) {
     throw new UsageError(`Unknown subcommand: ${cmd}`);
@@ -401,6 +431,9 @@ Commands:
   down [--purge-cache]   Delete the cluster; --purge-cache also removes the
                          registry containers and the cache directory.
   fakes                  kubectl apply --server-side -f ${FAKES_DIR}/
+  nats-seeds             Mint the missing ADR-043 principal seeds into Secrets and
+                         write the PUBLIC keys to ${PUBLIC_MAP_PATH}. Reuses what is
+                         already there; the bus stays anonymous until the map is set.
   registry up|down|status
                          Start / remove / list the pull-through caches
                          (default action: up)
@@ -444,6 +477,8 @@ interface RunOpts {
   cwd?: string;
   /** Stream stdout/stderr to the terminal (long-running installs). */
   inherit?: boolean;
+  /** stdin carries key material: --dry-run reports the command and elides the body. */
+  secretStdin?: boolean;
 }
 
 /** Shell-quotes a command for display only (never used to execute). */
@@ -462,8 +497,12 @@ class Exec {
     if (this.dryRun && opts.mutating) {
       log.dry(formatCommand(cmd));
       if (opts.stdin !== undefined) {
-        for (const line of opts.stdin.trimEnd().split("\n")) {
-          console.log(`        ${line}`);
+        if (opts.secretStdin) {
+          console.log(`        <${opts.stdin.length} bytes of key material>`);
+        } else {
+          for (const line of opts.stdin.trimEnd().split("\n")) {
+            console.log(`        ${line}`);
+          }
         }
       }
       return { stdout: "", stderr: "", code: 0 };
@@ -1169,6 +1208,71 @@ async function fillGeneratedSecrets(ctx: Ctx, dir: string): Promise<void> {
     log.ok(`Generated values for ${stubs.length} fake Secret key(s)`);
 }
 
+// ============================================================================
+// NATS principal seeds
+// ============================================================================
+
+/**
+ * Mints the ADR-043 principal seeds into Secrets before anything connects to the bus, and writes
+ * the PUBLIC map to a git-ignored file. Kind has no vault, and a committed Kind seed is still a
+ * committed secret. Delivering the seeds does not activate authentication: that needs
+ * NATS_PRINCIPAL_NKEYS set from the map this writes, once every `nats` call site holds a named
+ * context (MCAA-487).
+ */
+async function deliverNatsSeeds(ctx: Ctx): Promise<void> {
+  assertLocaldevContext(ctx.args.context);
+  const namespace = NATS_NAMESPACE;
+  await ctx.exec.must(
+    [
+      "kubectl",
+      "--context",
+      ctx.args.context,
+      "apply",
+      "--server-side",
+      "--field-manager",
+      "localdev-nats-seeds",
+      "-f",
+      "-",
+    ],
+    {
+      stdin: JSON.stringify({
+        apiVersion: "v1",
+        kind: "Namespace",
+        metadata: { name: namespace },
+      }),
+    },
+  );
+  const results = await deliverSeeds(
+    {
+      read: (args) => ctx.exec.run(args),
+      // The seed travels on stdin. `kubectl create secret --from-literal` would put it in argv
+      // and therefore in the process table and in any shell trace.
+      apply: async (args, manifest) => {
+        await ctx.exec.must(args, { stdin: manifest, secretStdin: true });
+      },
+    },
+    ctx.args.context,
+    namespace,
+  );
+  const { path, diverged } = await writePublicMap(ctx.repoRoot, results);
+  const minted = results.filter((r) => r.generated).length;
+  log.ok(
+    `NATS principal seeds: ${minted} minted, ${
+      results.length - minted
+    } reused (Secrets only, never a file); public keys in ${PUBLIC_MAP_PATH}`,
+  );
+  if (diverged.length > 0) {
+    // A Secret removed by hand is reminted here, so a configuration already carrying the old
+    // public key would have the server refuse that client with nothing to show why.
+    log.warn(
+      `${diverged.join(", ")} changed key since the last run; re-render the addons values from ${PUBLIC_MAP_PATH} before the server accepts them again`,
+    );
+  }
+  log.info(
+    `Bus stays anonymous until NATS_PRINCIPAL_NKEYS is set from ${path} and every nats call site holds a named context (MCAA-487)`,
+  );
+}
+
 async function applyFakes(ctx: Ctx): Promise<void> {
   const dir = `${ctx.repoRoot}/${FAKES_DIR}`;
   if (!(await pathExists(dir))) {
@@ -1231,6 +1335,7 @@ async function cmdUp(ctx: Ctx): Promise<void> {
   await waitForNodes(ctx);
   await removeKindBundledStorage(ctx);
   await applyFakes(ctx);
+  await deliverNatsSeeds(ctx);
   printSummary(ctx);
 }
 
@@ -1333,6 +1438,9 @@ async function main(): Promise<number> {
       break;
     case "fakes":
       await applyFakes(ctx);
+      break;
+    case "nats-seeds":
+      await deliverNatsSeeds(ctx);
       break;
     case "registry":
       await cmdRegistry(ctx);

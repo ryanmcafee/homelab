@@ -78,6 +78,10 @@ repoServer:
       memory: 512Mi
 
 redis:
+  # ECR Public's cold-cache data limit has returned HTTP 500 during Kind
+  # bootstrap. Use the same official Redis tag through the Docker Hub cache.
+  image:
+    repository: docker.io/library/redis
   resources:
     requests:
       cpu: 25m

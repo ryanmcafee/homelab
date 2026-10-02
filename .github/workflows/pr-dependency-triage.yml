@@ -1,0 +1,194 @@
+name: PR dependency triage
+
+# Keep the flat GitHub PR list useful while #528 builds the richer graph UI.
+# This workflow owns only topology/readiness labels. CI failure classification
+# remains manual because logs are not reliably distinguishable as code vs
+# infrastructure failures without domain-aware analysis.
+
+on:
+  pull_request_target:
+    types:
+      - opened
+      - reopened
+      - synchronize
+      - ready_for_review
+      - converted_to_draft
+      - edited
+      - closed
+  schedule:
+    - cron: '17 * * * *'
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: 'Reconcile only this PR (for a targeted permission check)'
+        required: false
+        type: number
+
+concurrency:
+  # A newer event supersedes only its own PR. Scheduled and manual sweeps share
+  # a separate slot; fork PRs use the base repository's PR number as well.
+  group: pr-dependency-triage-${{ github.event_name == 'pull_request_target' && github.event.pull_request.number || 'sweep' }}
+  cancel-in-progress: true
+
+permissions:
+  pull-requests: write
+
+jobs:
+  classify:
+    name: Classify PR dependency state
+    runs-on: ubuntu-latest
+    steps:
+      - name: Reconcile labels across all open pull requests
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const repoFullName = `${owner}/${repo}`;
+
+            const labelDefinitions = {
+              'stack/root': {
+                color: '1f6feb',
+                description: 'Targets the default branch and has open dependent PRs',
+              },
+              'stack/blocked': {
+                color: '8250df',
+                description: 'Targets the head branch of another open PR',
+              },
+              'dependency/orphan': {
+                color: 'cf222e',
+                description: 'Targets a non-default branch with no open parent PR',
+              },
+              'review/ready': {
+                color: '2da44e',
+                description: 'Non-draft PR with no open PR dependency blocking review',
+              },
+              'merge/ready': {
+                color: '1a7f37',
+                description: 'Manually marked ready for final merge/auto-merge',
+              },
+              'ci/stale': {
+                color: 'bf8700',
+                description: 'CI result should be refreshed against the current dependency/base',
+              },
+              'ci/code-failure': {
+                color: 'd1242f',
+                description: 'CI failure is attributable to the PR code/configuration',
+              },
+              'ci/infrastructure-failure': {
+                color: 'fb8f44',
+                description: 'CI failure appears infrastructure/flakiness related',
+              },
+            };
+
+            // Only these labels are owned by this workflow. The CI/merge labels
+            // above are intentionally manual until #528 can classify them with
+            // graph + workflow context.
+            const managed = new Set([
+              'stack/root',
+              'stack/blocked',
+              'dependency/orphan',
+              'review/ready',
+            ]);
+
+            for (const [name, definition] of Object.entries(labelDefinitions)) {
+              try {
+                await github.rest.issues.getLabel({ owner, repo, name });
+              } catch (error) {
+                if (error.status !== 404) throw error;
+                await github.rest.issues.createLabel({
+                  owner,
+                  repo,
+                  name,
+                  color: definition.color,
+                  description: definition.description,
+                });
+              }
+            }
+
+            const { data: repository } = await github.rest.repos.get({ owner, repo });
+            const defaultBranch = repository.default_branch;
+
+            const pulls = await github.paginate(github.rest.pulls.list, {
+              owner,
+              repo,
+              state: 'open',
+              per_page: 100,
+              sort: 'updated',
+              direction: 'desc',
+            });
+
+            // Branch-name dependency inference is valid only for branches in
+            // this repository. Fork PRs still get review/ready when unblocked,
+            // but can never become a parent/child edge here.
+            const sameRepoPulls = pulls.filter(
+              (pr) => pr.head.repo && pr.head.repo.full_name === repoFullName,
+            );
+            const byHead = new Map(sameRepoPulls.map((pr) => [pr.head.ref, pr]));
+            const childCount = new Map();
+
+            for (const child of sameRepoPulls) {
+              const parent = byHead.get(child.base.ref);
+              if (!parent) continue;
+              childCount.set(parent.head.ref, (childCount.get(parent.head.ref) || 0) + 1);
+            }
+
+            let changed = 0;
+            const targetInput = context.payload.inputs?.pr_number;
+            const targeted = targetInput !== undefined && targetInput !== '';
+            if (targeted && !/^[1-9][0-9]*$/.test(String(targetInput))) {
+              throw new Error('pr_number must be a positive PR number');
+            }
+            const targetNumber = targeted ? Number(targetInput) : null;
+            if (targetNumber && !pulls.some((pr) => pr.number === targetNumber)) {
+              throw new Error(`PR #${targetNumber} is not open in ${repoFullName}`);
+            }
+            for (const pr of pulls) {
+              if (targetNumber && pr.number !== targetNumber) continue;
+              const sameRepo =
+                pr.head.repo && pr.head.repo.full_name === repoFullName;
+              const nonDefaultBase = pr.base.ref !== defaultBranch;
+              const parent =
+                sameRepo && nonDefaultBase ? byHead.get(pr.base.ref) : undefined;
+              const orphan = Boolean(sameRepo && nonDefaultBase && !parent);
+              const root = Boolean(
+                sameRepo &&
+                  pr.base.ref === defaultBranch &&
+                  (childCount.get(pr.head.ref) || 0) > 0,
+              );
+
+              const desired = new Set();
+              if (root) desired.add('stack/root');
+              if (parent) desired.add('stack/blocked');
+              if (orphan) desired.add('dependency/orphan');
+              if (!pr.draft && !parent && !orphan) desired.add('review/ready');
+
+              const existing = pr.labels.map((label) =>
+                typeof label === 'string' ? label : label.name,
+              );
+              const next = [
+                ...existing.filter((label) => !managed.has(label)),
+                ...[...desired].sort(),
+              ];
+
+              const oldManaged = existing.filter((label) => managed.has(label)).sort();
+              const newManaged = [...desired].sort();
+              if (JSON.stringify(oldManaged) === JSON.stringify(newManaged)) continue;
+
+              await github.rest.issues.setLabels({
+                owner,
+                repo,
+                issue_number: pr.number,
+                labels: next,
+              });
+              changed += 1;
+              core.info(
+                `#${pr.number}: ${oldManaged.join(', ') || '(none)'} -> ${newManaged.join(', ') || '(none)'}`,
+              );
+            }
+
+            core.summary
+              .addHeading('PR dependency triage')
+              .addRaw(
+                `Reconciled ${pulls.length} open PRs; changed labels on ${changed}. Default branch: ${defaultBranch}.`,
+              )
+              .write();

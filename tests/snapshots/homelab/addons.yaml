@@ -15,6 +15,21 @@ metadata:
     argocd.argoproj.io/sync-wave: "1"
 
 ---
+# Source: addons/templates/argo-rollouts.yaml
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: argo-rollouts
+  labels:
+    helm.sh/chart: addons-1.0.0
+    app.kubernetes.io/name: addons
+    app.kubernetes.io/instance: addons
+    app.kubernetes.io/version: "1.0"
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+
+---
 # Source: addons/templates/argo-workflows.yaml
 apiVersion: v1
 kind: Namespace
@@ -121,6 +136,21 @@ metadata:
     pod-security.kubernetes.io/warn: privileged
 
 ---
+# Source: addons/templates/nats.yaml
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: nats
+  labels:
+    helm.sh/chart: addons-1.0.0
+    app.kubernetes.io/name: addons
+    app.kubernetes.io/instance: addons
+    app.kubernetes.io/version: "1.0"
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+
+---
 # Source: addons/templates/node-feature-discovery.yaml
 # Namespace for NodeFeatureDiscovery components.
 #
@@ -195,6 +225,56 @@ metadata:
   name: port-forwarding
   annotations:
     argocd.argoproj.io/sync-wave: "6"
+
+---
+# Source: addons/templates/nats.yaml
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: nats-server-ingress
+  namespace: nats
+  labels:
+    helm.sh/chart: addons-1.0.0
+    app.kubernetes.io/name: addons
+    app.kubernetes.io/instance: addons
+    app.kubernetes.io/version: "1.0"
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: nats
+      app.kubernetes.io/instance: nats
+      app.kubernetes.io/component: nats
+  policyTypes:
+    - Ingress
+  ingress:
+    # Client port. Authentication and subject permissions are the account block's job.
+    - ports:
+        - protocol: TCP
+          port: 4222
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: nats
+              app.kubernetes.io/instance: nats
+              app.kubernetes.io/component: nats
+      ports:
+        - protocol: TCP
+          port: 6222
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
+      ports:
+        - protocol: TCP
+          port: 8222
+        - protocol: TCP
+          port: 7777
 
 ---
 # Source: addons/templates/envoy-gateway.yaml
@@ -520,9 +600,32 @@ spec:
               type: RuntimeDefault
 
 ---
+# Source: addons/templates/argo-rollouts.yaml
+# Argo Rollouts - Progressive Delivery (canary + automated rollback)
+# Sync Wave: 2 (Rollout/AnalysisTemplate CRDs before any workload that uses them)
+
+---
 # Source: addons/templates/argo-workflows.yaml
 # Argo Workflows - Workflow Orchestration Engine
 # Sync Wave: 11 dependencies (archive database, log store), 12 controller + server
+
+---
+# Source: addons/templates/nack.yaml
+# NACK - the JetStream controller. Reconciles the jetstream.nats.io Stream and
+# Consumer resources that charts/nats-config declares, so the stream set is
+# GitOps state rather than an imperative `nats stream add`.
+# Sync Wave: 11 (after nats at 10; its CRDs gate nats-config at 12)
+
+---
+# Source: addons/templates/nats-config.yaml
+# NATS Config: the platform stream set and its dead-letter path, declared as
+# jetstream.nats.io resources so the streams are GitOps state.
+# Sync Wave: 12 (after nack at 11, which installs the CRDs these resources use)
+
+---
+# Source: addons/templates/nats.yaml
+# NATS with JetStream file persistence - the platform event bus
+# Sync Wave: 10 (after kube-prometheus-stack at 9, whose PodMonitor the exporter needs)
 
 ---
 # Source: addons/templates/agent-readonly.yaml
@@ -541,7 +644,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/ryanmcafee/homelab.git
+    repoURL: https://github.com/REPLACEME-user/homelab.git
     targetRevision: main
     path: charts/agent-readonly
     helm:
@@ -573,6 +676,114 @@ spec:
         - /data
 
 ---
+# Source: addons/templates/argo-rollouts.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: argo-rollouts
+  namespace: argocd
+  labels:
+    helm.sh/chart: addons-1.0.0
+    app.kubernetes.io/name: addons
+    app.kubernetes.io/instance: addons
+    app.kubernetes.io/version: "1.0"
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+
+  source:
+    repoURL: https://argoproj.github.io/argo-helm
+    chart: argo-rollouts
+    targetRevision: 2.43.2
+    helm:
+      releaseName: argo-rollouts
+      values: |
+        installCRDs: true
+        controller:
+          resources:
+            limits:
+              cpu: 500m
+              memory: 256Mi
+            requests:
+              cpu: 50m
+              memory: 64Mi
+          metrics:
+            enabled: true
+            service:
+              port: 8090
+        dashboard:
+          enabled: false
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argo-rollouts
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+
+---
+# Source: addons/templates/argo-rollouts.yaml
+# The ClusterAnalysisTemplate every canary Rollout references. Wave 3 so the
+# controller above has served the CRD; SkipDryRunOnMissingResource covers the
+# first sync of a fresh cluster, where the CRD does not exist at dry-run time.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: argo-rollouts-config
+  namespace: argocd
+  labels:
+    helm.sh/chart: addons-1.0.0
+    app.kubernetes.io/name: addons
+    app.kubernetes.io/instance: addons
+    app.kubernetes.io/version: "1.0"
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/REPLACEME-user/homelab.git
+    targetRevision: main
+    path: charts/argo-rollouts-config
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-homelab.yaml
+      # Derived from configuration/ (ADR-010); the child values stay environment-free.
+      valuesObject:
+        images:
+          curl: "8.22.0"
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argo-rollouts
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - SkipDryRunOnMissingResource=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 15s
+        factor: 2
+        maxDuration: 3m
+
+---
 # Source: addons/templates/argo-workflows.yaml
 # Workflow archive database and S3 log store; after the cloudnative-pg addon
 # (wave 10) because the database is a CNPG Cluster. ArgoCD waits for a ready
@@ -595,7 +806,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/ryanmcafee/homelab.git
+    repoURL: https://github.com/REPLACEME-user/homelab.git
     targetRevision: main
     path: charts/argo-workflows-dependencies
     helm:
@@ -672,7 +883,7 @@ spec:
       releaseName: argo-workflows
       values: |
         server:
-          authMode: server
+          authMode: client
           httproute:
             enabled: true
             annotations:
@@ -688,18 +899,18 @@ spec:
           resources:
             limits:
               cpu: 200m
-              memory: 48Mi
+              memory: 128Mi
             requests:
               cpu: 50m
-              memory: 32Mi
+              memory: 64Mi
         controller:
           resources:
             limits:
               cpu: 500m
-              memory: 48Mi
+              memory: 256Mi
             requests:
               cpu: 100m
-              memory: 32Mi
+              memory: 128Mi
           workflowDefaults:
             spec:
               podGC:
@@ -939,13 +1150,19 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/ryanmcafee/homelab.git
+    repoURL: https://github.com/REPLACEME-user/homelab.git
     targetRevision: main
     path: charts/cert-manager-config
     helm:
       valueFiles:
         - values.yaml
         - values-homelab.yaml
+      # The 1Password item path comes from this parent's cert-manager values
+      # (configuration/ CERT_MANAGER_1P_PATH via the CMP), so a fork's key
+      # reaches the OnePasswordItem. valuesObject overrides valueFiles.
+      valuesObject:
+        cloudflare:
+          onePasswordItemPath: "vaults/homelab/items/cloudflare"
   destination:
     server: https://kubernetes.default.svc
     namespace: cert-manager
@@ -972,7 +1189,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/ryanmcafee/homelab.git
+    repoURL: https://github.com/REPLACEME-user/homelab.git
     targetRevision: main
     path: charts/cert-manager-cluster-issuer
     helm:
@@ -1051,8 +1268,6 @@ spec:
           hostRoot: /sys/fs/cgroup
         cni:
           exclusive: false
-        externalIPs:
-          enabled: true
         hubble:
           export:
             static:
@@ -1159,7 +1374,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/ryanmcafee/homelab.git
+    repoURL: https://github.com/REPLACEME-user/homelab.git
     targetRevision: main
     path: charts/cilium-config
     helm:
@@ -1328,7 +1543,7 @@ spec:
 
             httpConnection:
               protocol: https
-              host: 192.168.1.100
+              host: 198.51.100.100
               port: 443
               allowInsecure: true
               apiKey: "${TRUENAS_API_KEY}"
@@ -1341,7 +1556,7 @@ spec:
               zvolBlocksize: 16K
 
             iscsi:
-              targetPortal: "192.168.1.100:3260"
+              targetPortal: "198.51.100.100:3260"
               namePrefix: csi-
               nameSuffix: "-homelab"
               targetGroups:
@@ -1485,7 +1700,7 @@ spec:
 
             httpConnection:
               protocol: https
-              host: 192.168.1.100
+              host: 198.51.100.100
               port: 443
               allowInsecure: true
               apiKey: "${TRUENAS_API_KEY}"
@@ -1498,7 +1713,7 @@ spec:
               zvolBlocksize: 16K
 
             iscsi:
-              targetPortal: "192.168.1.100:3260"
+              targetPortal: "198.51.100.100:3260"
               namePrefix: csi-
               nameSuffix: "-homelab"
               targetGroups:
@@ -1646,7 +1861,7 @@ spec:
 
             httpConnection:
               protocol: https
-              host: 192.168.1.100
+              host: 198.51.100.100
               port: 443
               allowInsecure: true
               apiKey: "${TRUENAS_API_KEY}"
@@ -1661,11 +1876,11 @@ spec:
               datasetPermissionsGroup: 100
 
             nfs:
-              shareHost: 192.168.1.100
+              shareHost: 198.51.100.100
               shareAlldirs: false
               shareAllowedHosts: []
               shareAllowedNetworks:
-                - 192.168.1.0/24
+                - 198.51.100.0/24
               shareMapallUser: rmcafee
               shareMapallGroup: users
 
@@ -1796,7 +2011,7 @@ spec:
 
             httpConnection:
               protocol: https
-              host: 192.168.1.100
+              host: 198.51.100.100
               port: 443
               allowInsecure: true
               apiKey: "${TRUENAS_API_KEY}"
@@ -1812,11 +2027,11 @@ spec:
               datasetPermissionsGroup: 100
 
             nfs:
-              shareHost: 192.168.1.100
+              shareHost: 198.51.100.100
               shareAlldirs: false
               shareAllowedHosts: []
               shareAllowedNetworks:
-                - 192.168.1.0/24
+                - 198.51.100.0/24
               shareMapallUser: rmcafee
               shareMapallGroup: users
 
@@ -1934,13 +2149,19 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/ryanmcafee/homelab.git
+    repoURL: https://github.com/REPLACEME-user/homelab.git
     targetRevision: main
     path: charts/democratic-csi-config
     helm:
       valueFiles:
         - values.yaml
         - values-homelab.yaml
+      # The 1Password item path comes from this parent's democratic-csi values
+      # (configuration/ DEMOCRATIC_CSI_1P_PATH via the CMP), so a fork's key
+      # reaches the OnePasswordItem. valuesObject overrides valueFiles.
+      valuesObject:
+        truenas:
+          onePasswordItemPath: "vaults/homelab/items/truenas"
   destination:
     server: https://kubernetes.default.svc
     namespace: democratic-csi
@@ -2073,7 +2294,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/ryanmcafee/homelab.git
+    repoURL: https://github.com/REPLACEME-user/homelab.git
     targetRevision: main
     path: charts/envoy-gateway-config
     helm:
@@ -2107,7 +2328,7 @@ spec:
             service:
               annotations:
                 port-forwarding.replaceme-domain.com/enable: "true"
-              staticIP: 192.168.1.200
+              staticIP: 198.51.100.200
               type: LoadBalancer
             tracing:
               enabled: true
@@ -2118,7 +2339,7 @@ spec:
               maxReplicas: 3
               minReplicas: 2
               targetCPUUtilizationPercentage: 80
-            dnsTarget: 192.168.1.101
+            dnsTarget: 198.51.100.101
             enabled: true
             name: envoy-internal
             replicas: 2
@@ -2130,7 +2351,7 @@ spec:
                 cpu: 100m
                 memory: 128Mi
             service:
-              staticIP: 192.168.1.101
+              staticIP: 198.51.100.101
               type: LoadBalancer
             tracing:
               enabled: true
@@ -2178,9 +2399,6 @@ spec:
               secretKeyRef:
                 name: cloudflare-api-token
                 key: api_token
-
-        cloudflare:
-          proxied: true
 
         sources:
           - crd
@@ -2246,9 +2464,6 @@ spec:
                 name: cloudflare-api-token
                 key: api_token
 
-        cloudflare:
-          proxied: true
-
         # HTTPRoutes only (the CRD source has its own deployment)
         sources:
           - gateway-httproute
@@ -2305,13 +2520,21 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/ryanmcafee/homelab.git
+    repoURL: https://github.com/REPLACEME-user/homelab.git
     targetRevision: main
     path: charts/external-dns-config
     helm:
       valueFiles:
         - values.yaml
         - values-homelab.yaml
+      # Both 1Password item paths come from this parent's values (configuration/
+      # EXTERNAL_DNS_1P_PATH and EXTERNAL_DNS_UNIFI_1P_PATH via the CMP), so a
+      # fork's keys reach the OnePasswordItems. valuesObject overrides valueFiles.
+      valuesObject:
+        cloudflare:
+          onePasswordItemPath: "vaults/homelab/items/cloudflare"
+        unifi:
+          onePasswordItemPath: "vaults/homelab/items/unifi"
   destination:
     server: https://kubernetes.default.svc
     namespace: external-dns
@@ -2354,7 +2577,7 @@ spec:
               tag: v0.8.2
             env:
               - name: UNIFI_HOST
-                value: "https://192.168.1.1"
+                value: "https://198.51.100.1"
               - name: UNIFI_EXTERNAL_CONTROLLER
                 value: "false"
               - name: UNIFI_SKIP_TLS_VERIFY
@@ -2448,7 +2671,7 @@ spec:
               tag: v0.8.2
             env:
               - name: UNIFI_HOST
-                value: "https://192.168.1.1"
+                value: "https://198.51.100.1"
               - name: UNIFI_EXTERNAL_CONTROLLER
                 value: "false"
               - name: UNIFI_SKIP_TLS_VERIFY
@@ -2633,14 +2856,14 @@ spec:
             scrapeTimeout: 30s
           targets:
             - name: unreviewed
-              url: https://api.github.com/search/issues?q=is%3Apr+is%3Aopen+draft%3Afalse+archived%3Afalse+review%3Anone+user%3Aryanmcafee+-label%3Aautomerge+-author%3Aapp%2Fdependabot&per_page=100
+              url: https://api.github.com/search/issues?q=is%3Apr+is%3Aopen+draft%3Afalse+archived%3Afalse+review%3Anone+user%3AREPLACEME-user+-label%3Aautomerge+-author%3Aapp%2Fdependabot&per_page=100
               module: github_search
               additionalRelabels:
                 - targetLabel: query
                   action: replace
                   replacement: unreviewed
             - name: review-requested
-              url: https://api.github.com/search/issues?q=is%3Apr+is%3Aopen+draft%3Afalse+archived%3Afalse+user%3Aryanmcafee+review-requested%3Aryanmcafee+-label%3Aautomerge+-author%3Aapp%2Fdependabot&per_page=100
+              url: https://api.github.com/search/issues?q=is%3Apr+is%3Aopen+draft%3Afalse+archived%3Afalse+user%3AREPLACEME-user+review-requested%3AREPLACEME-user+-label%3Aautomerge+-author%3Aapp%2Fdependabot&per_page=100
               module: github_search
               additionalRelabels:
                 - targetLabel: query
@@ -2673,7 +2896,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/ryanmcafee/homelab.git
+    repoURL: https://github.com/REPLACEME-user/homelab.git
     targetRevision: main
     path: charts/grafana-config
     helm:
@@ -2684,7 +2907,7 @@ spec:
       # via the CMP in homelab) so the child's committed values stay PII-free.
       valuesObject:
         iscsi:
-          portal: "192.168.1.100:3260"
+          portal: "198.51.100.100:3260"
   destination:
     server: https://kubernetes.default.svc
     namespace: monitoring
@@ -3010,7 +3233,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/ryanmcafee/homelab.git
+    repoURL: https://github.com/REPLACEME-user/homelab.git
     targetRevision: main
     path: charts/istio-config
     helm:
@@ -3057,7 +3280,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/ryanmcafee/homelab.git
+    repoURL: https://github.com/REPLACEME-user/homelab.git
     targetRevision: main
     path: charts/istio-gateways
     helm:
@@ -3221,9 +3444,9 @@ spec:
               - job_name: kube-etcd
                 static_configs:
                   - targets:
-                      - "192.168.1.11:2381"
-                      - "192.168.1.12:2381"
-                      - "192.168.1.13:2381"
+                      - "198.51.100.11:2381"
+                      - "198.51.100.12:2381"
+                      - "198.51.100.13:2381"
 
         grafana:
           enabled: true
@@ -4159,18 +4382,38 @@ spec:
           # The SLI is the head of the stream, not its depth: a queue full of
           # work nobody takes and a busy queue have the same depth, and
           # prometheus-nats-exporter exports no message age at all - pinned
-          # against 0.18.0 (the nats chart pin) and against its main branch,
-          # neither of which has a state.first_ts metric. Every window is
+          # against 0.20.1 (the nats chart pin), 0.18.0 and its main branch,
+          # none of which has a state.first_ts metric. Every window is
           # therefore derived from nats_stream_first_seq, which only moves when
           # a message leaves the head. No series exists until the NATS
           # Application ships an exporter with -jsz=all, and the rules are
           # silent (not firing, not absent) until then.
+          #
+          # Every rule below reads a recorded series, not the exporter metric:
+          # the exporter reports one series per server and only the stream
+          # leader's is authoritative, so is_stream_leader="true" dedupes a
+          # cluster. A standalone server reports itself leader too - nats-server
+          # synthesizes a cluster block naming itself, and the exporter defaults
+          # the label to "true" when that block is absent - so the filter picks
+          # the only server rather than nothing, but only by upstream behaviour
+          # in two projects. subjects.v1.yaml sets replicas_defaults.homelab: 1
+          # deliberately, making single-node the Kind path and every fork
+          # (MCAA-285), so the records prefer the leader and fall back to the
+          # only server: one expression correct on both topologies and immune to
+          # that labelling changing, aggregated once per interval rather than
+          # once per alert term as a 12h subquery would be.
           homelab-nats-jetstream:
             groups:
               - name: homelab-nats-jetstream
                 rules:
+                  - record: homelab:nats_stream_first_seq:authoritative
+                    expr: 'max by (account, stream_name, namespace, job) (nats_stream_first_seq{is_stream_leader="true"}) or max by (account, stream_name, namespace, job) (nats_stream_first_seq)'
+                  - record: homelab:nats_stream_total_messages:authoritative
+                    expr: 'max by (account, stream_name, namespace, job) (nats_stream_total_messages{is_stream_leader="true"}) or max by (account, stream_name, namespace, job) (nats_stream_total_messages)'
+                  - record: homelab:nats_consumer_ack_floor_stream_seq:authoritative
+                    expr: 'max by (account, stream_name, consumer_name, namespace, job) (nats_consumer_ack_floor_stream_seq{is_consumer_leader="true"}) or max by (account, stream_name, consumer_name, namespace, job) (nats_consumer_ack_floor_stream_seq)'
                   - alert: PFWorkOldestUnackedAging
-                    expr: 'changes(nats_stream_first_seq{stream_name="PF_WORK",is_stream_leader="true"}[12h]) == 0 and min_over_time(nats_stream_total_messages{stream_name="PF_WORK",is_stream_leader="true"}[5m]) > 0 and min_over_time(nats_stream_total_messages{stream_name="PF_WORK",is_stream_leader="true"}[12h]) > 0 and count_over_time(nats_stream_first_seq{stream_name="PF_WORK",is_stream_leader="true"}[12h]) >= 11 * count_over_time(nats_stream_first_seq{stream_name="PF_WORK",is_stream_leader="true"}[1h])'
+                    expr: 'changes(homelab:nats_stream_first_seq:authoritative{stream_name="PF_WORK"}[12h]) == 0 and min_over_time(homelab:nats_stream_total_messages:authoritative{stream_name="PF_WORK"}[5m]) > 0 and min_over_time(homelab:nats_stream_total_messages:authoritative{stream_name="PF_WORK"}[12h]) > 0 and count_over_time(homelab:nats_stream_first_seq:authoritative{stream_name="PF_WORK"}[12h]) >= 11 * count_over_time(homelab:nats_stream_first_seq:authoritative{stream_name="PF_WORK"}[1h])'
                     for: 15m
                     labels:
                       severity: warning
@@ -4178,28 +4421,115 @@ spec:
                       summary: 'The oldest unacked PF_WORK message has been queued for more than 12h'
                       description: 'nats_stream_first_seq has not moved for 12h while the stream was never empty, so the head message is at least 12h old and PF_WORK max_age is 24h. Age expiry deletes it with no advisory and no per-message signal. docs/runbooks/pf-work-age-expiry.md.'
                   - alert: PFWorkOldestUnackedAging
-                    expr: 'changes(nats_stream_first_seq{stream_name="PF_WORK",is_stream_leader="true"}[18h]) == 0 and min_over_time(nats_stream_total_messages{stream_name="PF_WORK",is_stream_leader="true"}[5m]) > 0 and min_over_time(nats_stream_total_messages{stream_name="PF_WORK",is_stream_leader="true"}[18h]) > 0 and count_over_time(nats_stream_first_seq{stream_name="PF_WORK",is_stream_leader="true"}[18h]) >= 16 * count_over_time(nats_stream_first_seq{stream_name="PF_WORK",is_stream_leader="true"}[1h])'
+                    expr: 'changes(homelab:nats_stream_first_seq:authoritative{stream_name="PF_WORK"}[18h]) == 0 and min_over_time(homelab:nats_stream_total_messages:authoritative{stream_name="PF_WORK"}[5m]) > 0 and min_over_time(homelab:nats_stream_total_messages:authoritative{stream_name="PF_WORK"}[18h]) > 0 and count_over_time(homelab:nats_stream_first_seq:authoritative{stream_name="PF_WORK"}[18h]) >= 16 * count_over_time(homelab:nats_stream_first_seq:authoritative{stream_name="PF_WORK"}[1h])'
                     for: 15m
                     labels:
                       severity: critical
                     annotations:
                       summary: 'PF_WORK work is 18h old and max_age deletes it silently in under 6h'
                       description: 'The head of PF_WORK has been unacked for 18h of its 24h max_age. When the budget runs out the messages are deleted with no advisory of any kind. Get a consumer taking work, or copy the queue out now. docs/runbooks/pf-work-age-expiry.md.'
+                  # Grouped by (account, stream_name, namespace, job): PF_WORK
+                  # exists once per NATS account (ADR-043) and per install, and
+                  # dropping either label nets one stream's head against another's.
                   - alert: PFWorkMessagesExpiredUnacked
-                    expr: '(max by (stream_name) (max_over_time(nats_stream_first_seq{stream_name="PF_WORK",is_stream_leader="true"}[15m])) - max by (stream_name) (min_over_time(nats_stream_first_seq{stream_name="PF_WORK",is_stream_leader="true"}[15m]))) - (sum by (stream_name) (max_over_time(nats_consumer_ack_floor_stream_seq{stream_name="PF_WORK",is_consumer_leader="true"}[15m]) - min_over_time(nats_consumer_ack_floor_stream_seq{stream_name="PF_WORK",is_consumer_leader="true"}[15m])) or (max by (stream_name) (max_over_time(nats_stream_first_seq{stream_name="PF_WORK",is_stream_leader="true"}[15m])) * 0)) > 0'
+                    expr: '(max by (account, stream_name, namespace, job) (max_over_time(homelab:nats_stream_first_seq:authoritative{stream_name="PF_WORK"}[15m])) - max by (account, stream_name, namespace, job) (min_over_time(homelab:nats_stream_first_seq:authoritative{stream_name="PF_WORK"}[15m]))) - (sum by (account, stream_name, namespace, job) (max_over_time(homelab:nats_consumer_ack_floor_stream_seq:authoritative{stream_name="PF_WORK"}[15m]) - min_over_time(homelab:nats_consumer_ack_floor_stream_seq:authoritative{stream_name="PF_WORK"}[15m])) or (max by (account, stream_name, namespace, job) (max_over_time(homelab:nats_stream_first_seq:authoritative{stream_name="PF_WORK"}[15m])) * 0)) > 0'
                     labels:
                       severity: critical
                     annotations:
                       summary: '{{ $value }} PF_WORK messages left the stream without being acked'
                       description: 'The stream head advanced further than every consumer ack floor did, so that many durable requests were removed unacked: max_age expiry, a purge or a delete. Nothing else reports this - there is no advisory for age-based deletion. docs/runbooks/pf-work-age-expiry.md.'
+                  # `unless`, not absent(): absent() emits no namespace or job,
+                  # so it cannot be joined on them and it reads the whole
+                  # selector - one install still reporting hid a blind one.
                   - alert: PFWorkStreamMetricsAbsent
-                    expr: 'absent(nats_stream_first_seq{stream_name="PF_WORK",is_stream_leader="true"}) and on (stream_name) max by (stream_name) (count_over_time(nats_stream_first_seq{stream_name="PF_WORK"}[6h])) > 0'
+                    expr: 'max by (account, stream_name, namespace, job) (count_over_time(homelab:nats_stream_first_seq:authoritative{stream_name="PF_WORK"}[6h])) > 0 unless on (account, stream_name, namespace, job) homelab:nats_stream_first_seq:authoritative{stream_name="PF_WORK"}'
                     for: 30m
                     labels:
                       severity: warning
                     annotations:
                       summary: 'PF_WORK stream metrics stopped arriving, so the silent-loss monitor is blind'
                       description: 'prometheus-nats-exporter reported PF_WORK within the last 6h and no longer does. While this is firing nothing watches the 24h age budget. Check the exporter sidecar and its -jsz=all argument. docs/runbooks/pf-work-age-expiry.md.'
+                  # Storage budget (docs/runbooks/jetstream-storage-budget.md).
+                  # ADR-042 bounds every stream with max_bytes and states the sum
+                  # rule: the four limits must total below the file store. That
+                  # sum is arithmetic an operator does at sizing time - the store
+                  # size is a cluster fact, not a contract value - so the runtime
+                  # half of the rule is these alerts. max_bytes bounds a stream
+                  # against itself and reserves nothing, so four correctly
+                  # bounded streams can still exhaust the shared store and the
+                  # peer then refuses writes for all of them (10047).
+                  # Denominator: the nats chart writes max_file_store from
+                  # jetstream.fileStore.pvc.size, so nats_server_max_storage is
+                  # the PVC capacity and is the same number nats-server compares
+                  # against before refusing. Numerator: the sum of
+                  # nats_account_storage_used is what that comparison reads,
+                  # including the index and metadata bytes the stream totals omit.
+                  # ADR-042 named nats_server_jetstream_storage_used_bytes, which
+                  # the exporter does not export; these names are pinned against
+                  # 0.18.0 and the deployed 0.20.1 (collector/jsz.go).
+                  - alert: JetStreamFileStoreFillingUp
+                    expr: 'sum by (namespace, server_name) (nats_account_storage_used) / on (namespace, server_name) max by (namespace, server_name) (nats_server_max_storage > 0) > 0.75'
+                    for: 15m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: 'The JetStream file store on {{ $labels.server_name }} is {{ $value | humanizePercentage }} full'
+                      description: 'Above 75 % of max_file_store, which ADR-042 budgets as the sum of the streams max_bytes. Either one stream is overrunning its share or the four limits sum too high for this PVC. The per-stream alert says which; raising one max_bytes alone breaks the sum rule. docs/runbooks/jetstream-storage-budget.md.'
+                  - alert: JetStreamFileStoreFillingUp
+                    expr: 'sum by (namespace, server_name) (nats_account_storage_used) / on (namespace, server_name) max by (namespace, server_name) (nats_server_max_storage > 0) > 0.90'
+                    for: 5m
+                    labels:
+                      severity: critical
+                    annotations:
+                      summary: 'The JetStream file store on {{ $labels.server_name }} is {{ $value | humanizePercentage }} full'
+                      description: 'At the store limit nats-server refuses writes for every stream on this peer with insufficient resources (10047), not just the stream that grew - one retention budget becomes a bus-wide outage. Act before 100 %. docs/runbooks/jetstream-storage-budget.md.'
+                  # Without -jsz=all the exporter serves /jsz with no accounts, so
+                  # nats_account_storage_used disappears while nats_server_max_storage
+                  # keeps arriving: watch the numerator, which also goes with the
+                  # whole exporter. Per-target failure is TargetDown's job.
+                  - alert: JetStreamFileStoreMetricsAbsent
+                    expr: 'absent(nats_account_storage_used) and max (count_over_time(nats_account_storage_used[6h])) > 0'
+                    for: 30m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: 'JetStream storage metrics stopped arriving, so the file-store budget is unwatched'
+                      description: 'prometheus-nats-exporter reported account storage within the last 6h and no longer does. While this is firing nothing sees the store approach its limit, and the first symptom is 10047 on every publish. Check the exporter sidecar and its -jsz=all argument. docs/runbooks/jetstream-storage-budget.md.'
+                  # A stream can hit its own ceiling while the store is half
+                  # empty, so this is a separate boundary from the two above. The
+                  # limit comes from nats_stream_limit_bytes - what the server
+                  # actually enforces - rather than from a copy of the chart
+                  # value, and -1 there means unbounded, which the > 0 drops.
+                  - alert: JetStreamStreamApproachingMaxBytes
+                    expr: 'nats_stream_total_bytes{is_stream_leader="true"} / (nats_stream_limit_bytes{is_stream_leader="true"} > 0) > 0.75'
+                    for: 15m
+                    labels:
+                      severity: warning
+                    annotations:
+                      summary: '{{ $labels.stream_name }} is {{ $value | humanizePercentage }} of its max_bytes'
+                      description: 'The stream is approaching its own limit, which the file-store alert cannot see. At the ceiling its discard policy takes effect: discard new refuses publishes, discard old deletes the oldest messages. docs/runbooks/jetstream-storage-budget.md.'
+                  - alert: JetStreamStreamApproachingMaxBytes
+                    expr: 'nats_stream_total_bytes{is_stream_leader="true"} / (nats_stream_limit_bytes{is_stream_leader="true"} > 0) > 0.90'
+                    for: 5m
+                    labels:
+                      severity: critical
+                    annotations:
+                      summary: '{{ $labels.stream_name }} is {{ $value | humanizePercentage }} of its max_bytes'
+                      description: 'The discard policy is about to act on this stream. Check the retention the contract declares for it before changing anything; the sum rule means a bigger max_bytes here needs a smaller one elsewhere or a bigger store. docs/runbooks/jetstream-storage-budget.md.'
+                  # PF_AUDIT is discard: new and ingests only by sourcing PF_EVENTS
+                  # (ADR-042, ADR-044). No metric counts a refused write, so the
+                  # signal is derived: at the ceiling, last_seq frozen, and source
+                  # lag held above zero, meaning audit events are waiting that
+                  # PF_AUDIT keeps refusing. Without the lag term an idle full
+                  # stream pages.
+                  - alert: PFAuditRefusingWrites
+                    expr: 'nats_stream_total_bytes{stream_name="PF_AUDIT",is_stream_leader="true"} / (nats_stream_limit_bytes{stream_name="PF_AUDIT",is_stream_leader="true"} > 0) >= 0.99 and changes(nats_stream_last_seq{stream_name="PF_AUDIT",is_stream_leader="true"}[15m]) == 0 and on (namespace, server_name, account, stream_name) min_over_time(nats_stream_source_lag{stream_name="PF_AUDIT",is_stream_leader="true"}[15m]) > 0'
+                    for: 10m
+                    labels:
+                      severity: critical
+                    annotations:
+                      summary: 'PF_AUDIT is at its max_bytes ceiling and is refusing audit events sourced from PF_EVENTS'
+                      description: 'PF_AUDIT is discard: new, so at the ceiling it refuses its own writes rather than stopping the bus (ADR-042). Refused events wait in PF_EVENTS and are lost from the audit trail once PF_EVENTS ages them out. docs/runbooks/jetstream-storage-budget.md.'
           # Pull requests that need review (docs/runbooks/alerting.md). Metrics:
           # the github-pr-exporter Application, one series per PR and query.
           homelab-github:
@@ -4349,7 +4679,7 @@ spec:
       releaseName: kubelet-csr-approver
       values: |
         providerIpPrefixes:
-          - 192.168.1.0/24
+          - 198.51.100.0/24
         providerRegex: "^talos-[a-z0-9]{3}-[a-z0-9]{3}$"
         maxExpirationSeconds: "31536000"
         bypassDnsResolution: true
@@ -4391,7 +4721,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/ryanmcafee/homelab.git
+    repoURL: https://github.com/REPLACEME-user/homelab.git
     targetRevision: main
     path: charts/clickhouse-dependencies
     helm:
@@ -4497,7 +4827,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/ryanmcafee/homelab.git
+    repoURL: https://github.com/REPLACEME-user/homelab.git
     targetRevision: main
     path: charts/clickhouse
     helm:
@@ -4510,7 +4840,7 @@ spec:
         namespace: observability
         database: otel
         image: clickhouse/clickhouse-server:26.8.10.6
-        networkNames: homelab=192.168.1.0/25,lan=192.168.1.128/25
+        networkNames: homelab=198.51.100.0/25,lan=198.51.100.128/25
         resources:
           limits:
             cpu: "2"
@@ -4844,10 +5174,10 @@ spec:
         service:
           annotations:
             external-dns.alpha.kubernetes.io/hostname: otel.replaceme-domain.com
-            io.cilium/lb-ipam-ips: 192.168.1.104
+            io.cilium/lb-ipam-ips: 198.51.100.104
           loadBalancerSourceRanges:
-          - 192.168.1.0/24
-          - 192.168.0.0/24
+          - 198.51.100.0/24
+          - 198.51.100.128/25
           type: LoadBalancer
         httproute:
           enabled: true
@@ -5138,6 +5468,196 @@ spec:
       - ApplyOutOfSyncOnly=true
 
 ---
+# Source: addons/templates/nack.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: nack
+  namespace: argocd
+  labels:
+    helm.sh/chart: addons-1.0.0
+    app.kubernetes.io/name: addons
+    app.kubernetes.io/instance: addons
+    app.kubernetes.io/version: "1.0"
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    argocd.argoproj.io/sync-wave: "11"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+
+  source:
+    repoURL: https://nats-io.github.io/k8s/helm/charts/
+    chart: nack
+    targetRevision: 0.35.0
+    helm:
+      releaseName: nack
+      values: |
+        jetstream:
+          enabled: true
+          nats:
+            url: nats://nats.nats.svc.cluster.local:4222
+        resources:
+          limits:
+            cpu: 200m
+            memory: 128Mi
+          requests:
+            cpu: 25m
+            memory: 64Mi
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: nats
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+
+---
+# Source: addons/templates/nats-config.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: nats-config
+  namespace: argocd
+  labels:
+    helm.sh/chart: addons-1.0.0
+    app.kubernetes.io/name: addons
+    app.kubernetes.io/instance: addons
+    app.kubernetes.io/version: "1.0"
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    argocd.argoproj.io/sync-wave: "12"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/REPLACEME-user/homelab.git
+    targetRevision: main
+    path: charts/nats-config
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-homelab.yaml
+      # Stream replica count, the bus URL and the file store the stream budget is
+      # checked against come from this parent so a single-node fork changes one
+      # configuration value, not a committed chart.
+      valuesObject:
+        natsUrl: "nats://nats.nats.svc.cluster.local:4222"
+        replicas: 1
+        fileStoreSize: "20Gi"
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: nats
+  syncPolicy:
+    automated:
+      # Safe to prune because every Stream and Consumer sets preventDelete: true,
+      # so removing the resource leaves the stream and its messages in NATS.
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - SkipDryRunOnMissingResource=true
+
+---
+# Source: addons/templates/nats.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: nats
+  namespace: argocd
+  labels:
+    helm.sh/chart: addons-1.0.0
+    app.kubernetes.io/name: addons
+    app.kubernetes.io/instance: addons
+    app.kubernetes.io/version: "1.0"
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+
+  source:
+    repoURL: https://nats-io.github.io/k8s/helm/charts/
+    chart: nats
+    targetRevision: 2.15.0
+    helm:
+      releaseName: nats
+      values: |
+        config:
+          cluster:
+            enabled: true
+            replicas: 3
+          jetstream:
+            enabled: true
+            fileStore:
+              enabled: true
+              pvc:
+                enabled: true
+                size: 20Gi
+                storageClassName: democratic-csi-iscsi
+        # promExporter and its podMonitor both default to false upstream, and
+        # config.jetstream.enabled above is what renders the exporter's -jsz=all
+        # flag. Without all three there is no nats_stream_* series and the
+        # PF_WORK silent-loss alerts (MCAA-134) run blind.
+        promExporter:
+          enabled: true
+          podMonitor:
+            enabled: true
+            # The chart's PodMonitor sets no interval, so it would inherit
+            # whatever global scrape interval a fork configured. Pin it under the
+            # 5m min_over_time window the aging rules read.
+            merge:
+              spec:
+                podMetricsEndpoints:
+                  - port: prom-metrics
+                    interval: 30s
+        container:
+          resources:
+            limits:
+              cpu: 500m
+              memory: 1Gi
+            requests:
+              cpu: 25m
+              memory: 256Mi
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: nats
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true
+# Pod-ingress scope for the NATS server pods (event-contract.md Sec. 5.3, ADR-043 D9).
+#
+# Accounts partition the client port only. The monitoring port (8222) answers /jsz and /connz
+# across every account with no tenant authorization, and the exporter (7777) republishes the
+# same stream, consumer and config metadata, so both are reachable from Prometheus alone.
+# Only server-mode Prometheus pods match; a PrometheusAgent or other scraper needs a new peer.
+# The exporter reads 8222 over the pod's loopback, which no NetworkPolicy polices.
+#
+# Selecting a pod for Ingress denies every port not listed, so the client and cluster ports
+# are listed explicitly. `kubectl port-forward` enters the pod's own network namespace and is
+# unaffected; the API server's pod proxy is not, and is denied on 8222 and 7777.
+#
+# Sync Wave: 10, with the server it scopes.
+
+---
 # Source: addons/templates/node-feature-discovery.yaml
 # NodeFeatureDiscovery — hardware feature labeling via a cluster-admin-scoped
 # DaemonSet. Required prerequisite for intel-gpu-device-plugin (sync wave 10)
@@ -5170,7 +5690,7 @@ spec:
       releaseName: node-feature-discovery
       values: |
         master:
-          enabled: true
+          enable: true
           replicaCount: 1
           resources:
             requests:
@@ -5181,7 +5701,7 @@ spec:
               memory: 128Mi
 
         worker:
-          enabled: true
+          enable: true
           # Run on every node — including control planes — so every node gets
           # feature.node.kubernetes.io/* labels from the built-in PCI, CPU, and
           # kernel sources.
@@ -5202,7 +5722,7 @@ spec:
 
         # Garbage collector cleans up stale NodeFeature CRs when nodes disappear
         gc:
-          enabled: true
+          enable: true
           resources:
             requests:
               memory: 32Mi
@@ -5237,7 +5757,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/ryanmcafee/homelab.git
+    repoURL: https://github.com/REPLACEME-user/homelab.git
     targetRevision: main
     path: charts/prometheus-config
     helm:
@@ -5248,7 +5768,7 @@ spec:
       # via the CMP in homelab) so the child's committed values stay PII-free.
       valuesObject:
         iscsi:
-          portal: "192.168.1.100:3260"
+          portal: "198.51.100.100:3260"
         # The Alertmanager notification credentials: the child renders the
         # OnePasswordItem that becomes Secret <secretName>, which the
         # kube-prometheus-stack Application mounts into Alertmanager.
@@ -5298,22 +5818,9 @@ spec:
             nodePort: 30021
         spegel:
           logLevel: INFO
-          registries:
-            - https://cgr.dev
-            - https://docker.io
-            - https://ghcr.io
-            - https://quay.io
-            - https://mcr.microsoft.com
-            - https://public.ecr.aws
-            - https://gcr.io
-            - https://registry.k8s.io
-            - https://k8s.gcr.io
-            - https://lscr.io
           containerdRegistryConfigPath: /etc/cri/conf.d/hosts
           containerdContentPath: /var/lib/containerd/io.containerd.content.v1.content
           resolveTags: true
-          resolveLatestTag: true
-          appendMirrors: false
         resources:
           limits:
             cpu: 100m
@@ -5408,13 +5915,19 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/ryanmcafee/homelab.git
+    repoURL: https://github.com/REPLACEME-user/homelab.git
     targetRevision: main
     path: charts/tailscale-config
     helm:
       valueFiles:
         - values.yaml
         - values-homelab.yaml
+      # The 1Password item path comes from this parent's tailscale-operator
+      # values (configuration/ TAILSCALE_OPERATOR_1P_PATH via the CMP), so a
+      # fork's key reaches the OnePasswordItem. valuesObject overrides valueFiles.
+      valuesObject:
+        tailscale:
+          onePasswordItemPath: "vaults/homelab/items/tailscale-operator-oauth"
   destination:
     server: https://kubernetes.default.svc
     namespace: tailscale
@@ -5443,7 +5956,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/ryanmcafee/homelab.git
+    repoURL: https://github.com/REPLACEME-user/homelab.git
     targetRevision: main
     path: charts/triage-agent
     helm:
@@ -5453,9 +5966,9 @@ spec:
       # Derived from configuration/ (ADR-010); the child's values stay environment-free.
       valuesObject:
         namespace: "triage-agent"
-        image: "ghcr.io/ryanmcafee/homelab-triage-agent:0.1.1"
-        repoUrl: "https://github.com/ryanmcafee/homelab.git"
-        repoSlug: "ryanmcafee/homelab"
+        image: "ghcr.io/replaceme-user/homelab-triage-agent:0.1.1"
+        repoUrl: "https://github.com/REPLACEME-user/homelab.git"
+        repoSlug: "REPLACEME-user/homelab"
         alertmanagerUrl: "http://kube-prometheus-stack-alertmanager.monitoring.svc:9093"
         workflowUiUrl: "https://workflows.replaceme-domain.com"
         onePassword:
@@ -5550,13 +6063,19 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/ryanmcafee/homelab.git
+    repoURL: https://github.com/REPLACEME-user/homelab.git
     targetRevision: main
     path: charts/port-forwarding-controller-config
     helm:
       valueFiles:
         - values.yaml
         - values-homelab.yaml
+      # The 1Password item path comes from this parent's unifi-port-forward
+      # values (configuration/ UNIFI_PORT_FORWARD_1P_PATH via the CMP), so a
+      # fork's key reaches the OnePasswordItem. valuesObject overrides valueFiles.
+      valuesObject:
+        unifi:
+          onePasswordItemPath: "vaults/homelab/items/unifi"
   destination:
     server: https://kubernetes.default.svc
     namespace: port-forwarding
@@ -5616,7 +6135,7 @@ spec:
       localASN: 64512
       peers:
         - name: unifi-gateway
-          peerAddress: 192.168.1.1
+          peerAddress: 198.51.100.1
           peerASN: 64513
           peerConfigRef:
             name: unifi-gateway-peer
@@ -5683,8 +6202,8 @@ metadata:
     argocd.argoproj.io/sync-wave: "1"
 spec:
   blocks:
-    - start: 192.168.1.100
-      stop: 192.168.1.200
+    - start: 198.51.100.100
+      stop: 198.51.100.200
 
 ---
 # Source: addons/templates/cilium-lb-ipam.yaml
@@ -5698,8 +6217,8 @@ metadata:
     argocd.argoproj.io/sync-wave: "1"
 spec:
   blocks:
-    - start: 192.168.1.10
-      stop: 192.168.1.10
+    - start: 198.51.100.10
+      stop: 198.51.100.10
   # Only allow services with this specific label to use the VIP pool
   serviceSelector:
     matchLabels:
@@ -5726,7 +6245,7 @@ spec:
   hostname: homelab-subnet-router
   subnetRouter:
     advertiseRoutes:
-      - "192.168.1.0/24"
+      - "198.51.100.0/24"
 
 ---
 # Source: addons/templates/envoy-gateway.yaml

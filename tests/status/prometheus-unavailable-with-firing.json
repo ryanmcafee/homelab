@@ -1,0 +1,69 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-09-28T09:00:00Z",
+  "pollAfterSeconds": 30,
+  "page": {
+    "title": "Example Homelab Status",
+    "timeZone": "Etc/UTC",
+    "incidentWindowDays": 7
+  },
+  "features": {
+    "subscriptions": false
+  },
+  "overall": {
+    "state": "down",
+    "summary": "Ingress is down. Other components could not be checked."
+  },
+  "components": [
+    {
+      "id": "ingress",
+      "name": "Ingress & DNS",
+      "description": "Whether anything on this cluster can be reached from outside it.",
+      "group": "platform",
+      "order": 1,
+      "state": "down",
+      "stateReason": "alert_firing",
+      "coverage": { "mappedAlertCount": 4, "hasSli": true },
+      "uptime": {
+        "windowDays": 7,
+        "ratio": null,
+        "unavailableReason": "signal_unavailable",
+        "buckets": []
+      },
+      "maintenance": null
+    },
+    {
+      "id": "media",
+      "name": "Media",
+      "description": "Streaming, the library and everything that fills it.",
+      "group": "applications",
+      "order": 6,
+      "state": "unknown",
+      "stateReason": "signal_unavailable",
+      "coverage": { "mappedAlertCount": 3, "hasSli": true },
+      "uptime": {
+        "windowDays": 7,
+        "ratio": null,
+        "unavailableReason": "signal_unavailable",
+        "buckets": []
+      },
+      "maintenance": null
+    }
+  ],
+  "incidents": [
+    {
+      "id": "inc-2026-09-28-ingress-unreachable",
+      "state": "firing",
+      "severity": "critical",
+      "title": "External requests to the cluster are failing.",
+      "componentIds": ["ingress"],
+      "startedAt": "2026-09-28T08:12:00Z",
+      "endedAt": null,
+      "runbookUrl": null
+    }
+  ],
+  "signals": [
+    { "id": "prometheus", "state": "unavailable", "observedAt": "2026-09-28T07:55:00Z" },
+    { "id": "alertmanager", "state": "available", "observedAt": "2026-09-28T09:00:00Z" }
+  ]
+}
