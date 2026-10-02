@@ -31,12 +31,20 @@ import {
   parseConflicts,
   parseUnionPaths,
   resolveCountConflicts,
+  resolveUnionHunk,
+  resolveUnionText,
   spaceHeadings,
   unionResolved,
 } from "./pr-refresh.ts";
 
-const hunk = (ours: string[], theirs: string[], inRegion = false): Hunk => ({
+const hunk = (
+  ours: string[],
+  theirs: string[],
+  inRegion = false,
+  base: string[] = [],
+): Hunk => ({
   ours,
+  base,
   theirs,
   inRegion,
   touchesMarker: false,
@@ -108,7 +116,7 @@ test("parseConflicts: merge style, diff3 style and region tracking", () => {
     "x2",
     ">>>>>>> origin/main",
   ].join("\n");
-  assertEquals(parseConflicts(diff3), [hunk(["x1"], ["x2"])]);
+  assertEquals(parseConflicts(diff3), [hunk(["x1"], ["x2"], false, ["x0"])]);
 
   const region = [
     "<!-- docs-check:begin addons-table -->",
@@ -267,6 +275,71 @@ test("resolveCountConflicts: picks the asked side, refuses a real change", () =>
     "middle\n<<<<<<< HEAD\n39 addonz",
   );
   assertEquals(resolveCountConflicts("readme.md", real, "theirs"), null);
+});
+
+test("resolveUnionHunk: insertions keep both, edits drop the stale line", () => {
+  const u = (ours: string[], base: string[], theirs: string[]) =>
+    resolveUnionHunk(hunk(ours, theirs, false, base));
+  assertEquals(u(["P"], [], ["M"]), ["P", "M"], "both inserted");
+  // #527: the PR edited a row, main inserted the next row.
+  assertEquals(
+    u(["A2"], ["A"], ["A", "B"]),
+    ["A2", "B"],
+    "PR edited, base inserted",
+  );
+  assertEquals(
+    u(["A", "P"], ["A"], ["A3"]),
+    ["P", "A3"],
+    "base edited, PR inserted",
+  );
+  assertEquals(
+    u(["X", "P"], ["X"], ["X", "Q"]),
+    ["X", "P", "Q"],
+    "kept by both",
+  );
+  assertEquals(
+    u(["A2", "B"], ["A", "B"], ["A", "C"]),
+    ["A2", "C"],
+    "PR edited A, base replaced B",
+  );
+  assertEquals(
+    u(["", "P"], [""], ["", "M"]),
+    ["", "P", "M"],
+    "a shared blank line",
+  );
+  assertEquals(u(["A1"], ["A"], ["A2"]), null, "both rewrote the same line");
+  assertEquals(u([], ["A"], ["A2"]), null, "PR deleted what base edited");
+  assertEquals(u([], ["A"], []), [], "both deleted, nothing added");
+});
+
+test("resolveUnionText: whole file, null on a real conflict", () => {
+  const text = [
+    "| a | 1 |",
+    "<<<<<<< HEAD",
+    "| b | 2, edited |",
+    "||||||| base",
+    "| b | 2 |",
+    "=======",
+    "| b | 2 |",
+    "| c | 3 |",
+    ">>>>>>> origin/main",
+    "",
+  ].join("\n");
+  assertEquals(
+    resolveUnionText(text),
+    "| a | 1 |\n| b | 2, edited |\n| c | 3 |\n",
+  );
+  const editEdit = [
+    "<<<<<<< HEAD",
+    "| b | 2, edited |",
+    "||||||| base",
+    "| b | 2 |",
+    "=======",
+    "| b | 2, edited differently |",
+    ">>>>>>> origin/main",
+    "",
+  ].join("\n");
+  assertEquals(resolveUnionText(editEdit), null, "both sides rewrote row b");
 });
 
 test("spaceHeadings: restores the blank line union drops, outside fences", () => {
@@ -445,6 +518,55 @@ test("mergeAndResolve: base attributes, generated, count-only and manual conflic
       sh(dir, "git", "diff", "--name-only", "--diff-filter=U"),
       "charts/applications/values.yaml",
     );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("mergeAndResolve: an edited row next to an inserted row is not duplicated", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "pr-refresh-"));
+  try {
+    sh(dir, "git", "init", "-q", "-b", "main");
+    sh(dir, "git", "config", "user.email", "t@example.com");
+    sh(dir, "git", "config", "user.name", "t");
+    const table = (rows: string[]) =>
+      ["| Check | What |", "|---|---|", ...rows, "", "## Next", ""].join("\n");
+    write(dir, {
+      "docs/runbooks/verification.md": table([
+        "| `a` | one |",
+        "| `b` | two |",
+      ]),
+    });
+    sh(dir, "git", "add", "-A");
+    sh(dir, "git", "commit", "-qm", "init");
+    sh(dir, "git", "checkout", "-qb", "feat/pr");
+    write(dir, {
+      "docs/runbooks/verification.md": table([
+        "| `a` | one |",
+        "| `b` | two, sharper |",
+      ]),
+    });
+    sh(dir, "git", "commit", "-qam", "pr edits b");
+    sh(dir, "git", "checkout", "-q", "main");
+    write(dir, {
+      ".gitattributes": "docs/runbooks/verification.md merge=union\n",
+      "docs/runbooks/verification.md": table([
+        "| `a` | one |",
+        "| `b` | two |",
+        "| `c` | three |",
+      ]),
+    });
+    sh(dir, "git", "add", "-A");
+    sh(dir, "git", "commit", "-qm", "main adds c");
+    sh(dir, "git", "checkout", "-q", "feat/pr");
+    const out = await mergeAndResolve(dir, "main");
+    assertEquals(out.union, ["docs/runbooks/verification.md"]);
+    assertEquals(out.manual, []);
+    assertEquals(
+      readFileSync(join(dir, "docs/runbooks/verification.md"), "utf8"),
+      table(["| `a` | one |", "| `b` | two, sharper |", "| `c` | three |"]),
+    );
+    assertEquals(sh(dir, "git", "diff", "--name-only"), "", "staged");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

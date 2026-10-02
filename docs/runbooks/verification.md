@@ -189,7 +189,7 @@ branch and resolves exactly those:
 
 | Conflict | Resolution |
 |---|---|
-| `bugs.md`, `issues.md`, this runbook | `.gitattributes` `merge=union` keeps both sides' lines. The merge runs with the **base** branch's attributes (`git --attr-source`), so a branch cut before `.gitattributes` existed gets them too. The run lists every file union resolved: two edits to the same line come out as two lines, not a conflict, so read them. |
+| `bugs.md`, `issues.md`, this runbook | `.gitattributes` `merge=union` keeps both sides' lines. The merge runs with the **base** branch's attributes (`git --attr-source`), so a branch cut before `.gitattributes` existed gets them too. Each hunk is then re-resolved from the three-way view: both sides' insertions are kept, a line one side edited is not kept twice next to its stale original, and two rewrites of the same line stay a conflict. The run lists every union-resolved file for review. |
 | `tests/snapshots/`, `tests/schemas/`, `values-localdev.yaml` | Take the base side, then regenerate (renovate-regen's steps). |
 | `readme.md`, `.github/homelab.svg`, `docs/applications.md`, `docs/networking.md` | A hunk whose sides differ only in numbers `docs:check` owns (or that sits in a `docs-check` region) takes the base side and `docs:check --fix` rewrites it. The SVG suite counter is not fixable, so a file still drifting is retried with the PR side; when neither is true (both sides added a suite) the run stops for a hand fix. |
 | Anything else | Left conflicted. Resolve, `git add`, then `task pr:refresh -- --continue`. |

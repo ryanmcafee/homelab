@@ -24,9 +24,11 @@ import { REGEN_STEPS } from "./renovate-regen.ts";
  *                     the verification runbook). The merge runs with the BASE
  *                     branch's attributes (`git --attr-source`): a PR cut
  *                     before .gitattributes existed would otherwise merge
- *                     without them. Every file the union rule resolved is
- *                     listed for review, because two edits to the same line
- *                     come out as two lines instead of a conflict.
+ *                     without them. Each union hunk is then re-resolved from
+ *                     the diff3 view (resolveUnionHunk): insertions keep both
+ *                     sides, a line one side edited is not kept twice, and
+ *                     two rewrites of the same line stay a conflict. Every
+ *                     union-resolved file is listed for review.
  *   generated files   tests/snapshots/, tests/schemas/, the values-localdev
  *                     files: take the base side, then regenerate.
  *   count-only hunks  readme.md, .github/homelab.svg, docs/applications.md,
@@ -138,6 +140,8 @@ export function maskOwned(path: string, line: string): string {
 
 export interface Hunk {
   ours: string[];
+  /** The common ancestor's lines; only filled for `diff3`-style markers. */
+  base: string[];
   theirs: string[];
   /** Inside a `docs-check:begin/end` region, which --fix replaces whole. */
   inRegion: boolean;
@@ -160,7 +164,7 @@ export function parseConflicts(text: string): Segment[] | null {
   for (const line of text.split("\n")) {
     if (line.startsWith("<<<<<<< ") || line === "<<<<<<<") {
       if (hunk) return null;
-      hunk = { ours: [], theirs: [], inRegion, touchesMarker: false };
+      hunk = { ours: [], base: [], theirs: [], inRegion, touchesMarker: false };
       part = "ours";
     } else if (hunk && (line.startsWith("||||||| ") || line === "|||||||")) {
       part = "base";
@@ -174,8 +178,7 @@ export function parseConflicts(text: string): Segment[] | null {
       if (REGION_BEGIN.test(line) || REGION_END.test(line)) {
         hunk.touchesMarker = true;
       }
-      if (part === "ours") hunk.ours.push(line);
-      else if (part === "theirs") hunk.theirs.push(line);
+      hunk[part].push(line);
     } else {
       if (REGION_BEGIN.test(line)) inRegion = true;
       if (REGION_END.test(line)) inRegion = false;
@@ -242,6 +245,65 @@ export function resolveCountConflicts(
     if (typeof s === "string") out.push(s);
     else if (!isCountOnly(path, s)) return null;
     else out.push(...s[side]);
+  }
+  return out.join("\n");
+}
+
+function removeN(lines: string[], line: string, n: number): string[] {
+  const out: string[] = [];
+  let left = n;
+  for (const l of lines) {
+    if (l === line && left > 0) left--;
+    else out.push(l);
+  }
+  return out;
+}
+
+/**
+ * Resolves one diff3 hunk of a union file. git's union driver keeps both sides
+ * whole, which is right only when both sides inserted at the same spot (an
+ * empty ancestor). When one side edited an ancestor line and the other
+ * inserted next to it, union keeps the edited line AND the stale original
+ * (#527 came out with two `decisions/adr-numbers` rows). Here the PR's lines
+ * lose the ancestor lines the base removed, the base's lines lose every
+ * ancestor line (either the PR kept it, so it is already there, or the PR
+ * removed it), and the PR's lines come first, as union orders them. Returns
+ * null when an ancestor line was removed by both sides while either side
+ * added lines: two rewrites of the same line are a real conflict.
+ */
+export function resolveUnionHunk(h: Hunk): string[] | null {
+  const base = multiset(h.base);
+  const ours = multiset(h.ours);
+  const theirs = multiset(h.theirs);
+  const added = (side: string[]) => side.some((l) => !base.has(l));
+  for (const [l, n] of base) {
+    const bothRemoved = (ours.get(l) ?? 0) < n && (theirs.get(l) ?? 0) < n;
+    if (bothRemoved && l.trim() && (added(h.ours) || added(h.theirs))) {
+      return null;
+    }
+  }
+  let keepOurs = h.ours;
+  let keepTheirs = h.theirs;
+  for (const [l, n] of base) {
+    keepOurs = removeN(keepOurs, l, n - Math.min(n, theirs.get(l) ?? 0));
+    keepTheirs = removeN(keepTheirs, l, Math.min(n, theirs.get(l) ?? 0));
+  }
+  return [...keepOurs, ...keepTheirs];
+}
+
+/** A diff3-conflicted union file resolved hunk by hunk; null on a real conflict. */
+export function resolveUnionText(text: string): string | null {
+  const segments = parseConflicts(text);
+  if (!segments) return null;
+  const out: string[] = [];
+  for (const s of segments) {
+    if (typeof s === "string") {
+      out.push(s);
+      continue;
+    }
+    const lines = resolveUnionHunk(s);
+    if (lines === null) return null;
+    out.push(...lines);
   }
   return out.join("\n");
 }
@@ -445,6 +507,8 @@ export interface MergeOutcome {
   generated: string[];
   /** Count files resolved to the base side, with their conflicted text. */
   counts: Map<string, string>;
+  /** Union files resolved hunk by hunk (resolveUnionHunk). */
+  union: string[];
   manual: string[];
 }
 
@@ -461,8 +525,10 @@ export async function mergeAndResolve(
     upToDate: false,
     generated: [],
     counts: new Map(),
+    union: [],
     manual: [],
   };
+  const head = await git(cwd, "rev-parse", "HEAD");
   const merge = await exec(
     [
       "git",
@@ -475,12 +541,12 @@ export async function mergeAndResolve(
     ],
     { cwd },
   );
-  if (merge.code === 0) {
-    out.upToDate = !(await merging(cwd));
+  if (merge.code === 0 && !(await merging(cwd))) {
+    out.upToDate = true;
     return out;
   }
-  const unmerged = await unmergedPaths(cwd);
-  if (unmerged.length === 0) {
+  const unmerged = merge.code === 0 ? [] : await unmergedPaths(cwd);
+  if (merge.code !== 0 && unmerged.length === 0) {
     throw new Error(`git merge failed:\n${merge.stderr}${merge.stdout}`);
   }
   for (const path of unmerged) {
@@ -510,7 +576,51 @@ export async function mergeAndResolve(
     }
     out.manual.push(path);
   }
+  await resolveUnionFiles(cwd, head, base, out);
   return out;
+}
+
+/**
+ * Replaces git's whole-side union result with resolveUnionText's, from the
+ * diff3 view of a merge without attributes. A real conflict goes back into
+ * the file as markers, staged, so the marker check blocks the commit until a
+ * human resolves it.
+ */
+async function resolveUnionFiles(
+  cwd: string,
+  head: string,
+  base: string,
+  out: MergeOutcome,
+): Promise<void> {
+  const unionPaths = await baseUnionPaths(cwd, base);
+  if (unionPaths.length === 0) return;
+  const r = await exec(
+    [
+      "git",
+      "-c",
+      "merge.conflictStyle=diff3",
+      `--attr-source=${EMPTY_TREE}`,
+      "merge-tree",
+      "--write-tree",
+      "--name-only",
+      "--no-messages",
+      head,
+      base,
+    ],
+    { cwd },
+  );
+  if (r.code !== 1) return;
+  const [tree, ...paths] = r.stdout.trim().split("\n").filter(Boolean);
+  for (const path of new Set(paths)) {
+    if (!unionPaths.includes(path) || out.manual.includes(path)) continue;
+    // Untrimmed: the file's own trailing newline must survive.
+    const conflicted = (await exec(["git", "show", `${tree}:${path}`], { cwd }))
+      .stdout;
+    const resolved = resolveUnionText(conflicted);
+    await writeFile(join(cwd, path), resolved ?? conflicted);
+    await git(cwd, "add", "--", path);
+    (resolved === null ? out.manual : out.union).push(path);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -662,6 +772,7 @@ async function main(): Promise<number> {
     upToDate: false,
     generated: [],
     counts: new Map(),
+    union: [],
     manual: [],
   };
   if (args.cont) {
@@ -713,6 +824,9 @@ async function main(): Promise<number> {
     }
     for (const p of outcome.generated) {
       console.log(`${green("[OK]")} generated, regenerating: ${p}`);
+    }
+    for (const p of outcome.union) {
+      console.log(`${green("[OK]")} union, per hunk: ${p}`);
     }
     for (const p of outcome.counts.keys()) {
       console.log(`${green("[OK]")} count-only conflicts: ${p}`);

@@ -2,9 +2,10 @@
 # entry at the same spot, which is a textual conflict but never a real one. A
 # union merge keeps both sides' lines. GitHub's own merge and "Update branch"
 # ignore merge drivers, so this takes effect in local merges -- in particular
-# `task pr:refresh`, which merges with the base branch's attributes and flags
-# every file union resolved so a reviewer can check both sides survived intact
-# (two edits to the same row come out as two rows, not a conflict).
+# `task pr:refresh`, which merges with the base branch's attributes, re-resolves
+# each union hunk so a line one side edited is not kept twice beside its stale
+# original, and lists every union-resolved file for review. A plain local
+# `git merge` keeps both whole sides: check for a duplicated row by hand.
 docs/project_notes/bugs.md merge=union
 docs/project_notes/issues.md merge=union
 docs/runbooks/verification.md merge=union
