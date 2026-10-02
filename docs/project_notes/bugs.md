@@ -12,12 +12,6 @@ Each entry should include:
 
 ## Entries
 
-### 2026-09-28 - CPUThrottlingHigh on paperclip-0: concurrent agent runs held the container at its 2-core limit
-- **Issue**: `CPUThrottlingHigh` (info) fired for container `paperclip` in `paperclip-0` with 74.55% of CFS periods throttled; usage was ~1.94 of a 2-core limit, while the 7-day median is ~0.075 cores
-- **Root Cause**: Paperclip runs every agent (Claude Code / Codex CLIs) as a child process of paperclip-0, so CPU tracks runs in flight. #376 raised memory to 16Gi for this reason but left the CPU limit at 2; several agents running at once (each capped at one run) pin the quota. A real signal, unlike the democratic-csi case: the tuned rule only fires above 300 active CFS periods in 5 minutes
-- **Solution**: homelab CPU limit 2 -> 4 (`configuration/templates/helm-apps.tmpl`, `charts/applications/values.yaml`); request stays 500m because the pinned node has only ~0.4 cores unrequested. Localdev unchanged
-- **Prevention**: Size paperclip CPU and memory together for concurrent runs. If throttling persists at 4 cores, reduce concurrency through the agent policy rather than raising the limit again
-
 ### 2026-09-30 - `paperclip-bootstrap` Job re-created every ~70 min after the admin exists
 - **Issue**: `KubeJobFailed` for `paperclip/paperclip-bootstrap` kept coming back. Over 7 days the operator re-created the admin-seed Job about every 70 minutes (~80 pods, 47 containers terminated `Error`, none `Completed`), each run ending `BackoffLimitExceeded` and re-mounting the RWO data volume on the pinned node. The server itself stayed healthy
 - **Root Cause**: The Instance still carried `spec.auth.adminUser` (`helm-apps.tmpl` always passes `PAPERCLIP_ADMIN_EMAIL`, `instance.yaml` rendered `adminUser` whenever the e-mail was set). Operator 0.19.1 keeps reconciling the bootstrap Job for that spec and does not short-circuit on `status.bootstrap`, contrary to the assumption in the 2026-09-15 entry below; a re-run against the existing admin fails. The exact error line was not read (pod logs need kubectl)
