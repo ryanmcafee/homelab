@@ -558,12 +558,6 @@ These are documented errors with known solutions:
 - **Solution**: Both flags are `false` in `terragrunt/modules/unifi-gateway/main.tf`; apply with `task tf:apply:component COMPONENT=unifi-gateway`
 - **Prevention**: Test an export end to end with one synthetic message before trusting the controller's setting page
 
-### 2026-09-25 - Fresh clones cannot bootstrap pipx/npm tools (issue #331)
-
-- **Cause**: `mise.toml` declared pipx/npm packages without their Python, pipx and Node runtimes. `installTools` discarded the stderr that identified the missing backend.
-- **Fix**: Declare exact runtime versions, retain installer stderr and the execution error, and exercise the install in an uncached runtime-free Ubuntu container via `task toolchain:check`.
-- **Verification**: The committed `Dockerfile.toolchain` negative fixture removes Python/pipx/Node declarations from a temporary copy, runs real `mise install -y pipx:ansible-core`, and requires nonzero status plus a missing-pipx stderr diagnostic before the valid install. `cold-install` CI runs both via `task toolchain:check`; all 33 tools installed after the fix (61.3 s for 32 downloads with Go already present), and `task install-tools` repeats successfully (0.33 s). `task setup` reaches localdev tier detection and the actionable missing-Docker row. The initial cold-container CI gate passed in 117 s; full Kind setup still requires QA. Installer regressions fail on the original code (1.49 s) and pass after the fix (0.011 s package runtime). Subset CI installs must explicitly select `python pipx` too; the fresh YAML subset passed in 12.6 s.
-
 ### 2026-09-30 - PR dependency triage label write returned 403
 - **Issue**: `pull_request_target` run 36656956730 failed on `PUT /repos/ryanmcafee/homelab/issues/511/labels` although the job log granted `Issues: write`.
 - **Diagnosis**: The workflow labels pull requests through the shared Issues endpoint. The response advertises `issues=write; pull_requests=write`, but the granted Issues scope did not authorize the operation in this run. Repository Actions permission settings could not be read by the current integration (403), so the exact server-side policy remains unconfirmed.
