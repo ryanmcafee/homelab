@@ -792,6 +792,7 @@ spec:
       # Bus sizing comes from this parent so a single-node fork changes one
       # configuration value, not a committed chart.
       valuesObject:
+        namespace: argo-events
         replicas: 1
         version: "2.10.29"
         maxAge: 72h
@@ -800,6 +801,9 @@ spec:
         storage:
           className: democratic-csi-iscsi
           size: 10Gi
+        selfTest:
+          enabled: true
+          interval: 1h
   destination:
     server: https://kubernetes.default.svc
     namespace: argo-events

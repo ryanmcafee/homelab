@@ -1095,6 +1095,10 @@ argo-events:
         cpu: 250m
         memory: 128Mi
 
+  selfTest:
+    enabled: true
+    interval: 1h
+
 # ============================================================================
 # NATS + JetStream event bus, the NACK controller, and the stream set
 # (templates/nats.yaml, nack.yaml, nats-config.yaml; docs/event-backbone.md)
