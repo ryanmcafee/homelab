@@ -3901,13 +3901,13 @@ spec:
                       summary: 'Node {{ $labels.node }} reports {{ $labels.condition }}'
                       description: '{{ $labels.node }} has been under {{ $labels.condition }} for 10m; the kubelet is evicting pods. Check `kubectl describe node` and the workload limits.'
                   - alert: HomelabEtcdQuorumAtRisk
-                    expr: 'count(up{job="kube-etcd"} == 1) < 2'
+                    expr: 'sum(up{job="kube-etcd"} == bool 1) < 2'
                     for: 5m
                     labels:
                       severity: critical
                     annotations:
                       summary: 'Fewer than two etcd members are reachable'
-                      description: 'Only {{ $value }} of the three etcd members answered the metrics scrape for 5m. With one more loss the control plane stops; see docs/runbooks/control-plane-storage.md.'
+                      description: 'Only {{ $value }} etcd member(s) answered the metrics scrape for 5m. At 1 the cluster is one loss from losing quorum; at 0 the control plane is already down. See docs/runbooks/control-plane-storage.md.'
                   - alert: HomelabPostgresClusterDown
                     expr: 'max by (namespace, cluster) (cnpg_collector_up) == 0'
                     for: 5m
